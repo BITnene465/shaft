@@ -4,8 +4,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-import torch
-
 from vlm_structgen.core.utils.logging import get_vlm_logger
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
@@ -177,90 +175,14 @@ class BaseArrowAdapter:
         del batch
         return model_outputs.loss
 
-    def _compute_weighted_token_ce_loss(
+    def build_target_token_weights(
         self,
-        model_outputs,
-        batch: dict[str, Any],
+        target_text: str,
         *,
+        loss_meta: dict[str, Any] | None,
         tokenizer,
-        token_weight_builder,
-    ) -> object:
-        if tokenizer is None:
-            return model_outputs.loss
-
-        logits = model_outputs.logits
-        labels = batch["labels"].to(logits.device)
-        shift_logits = logits[:, :-1].contiguous()
-        shift_labels = labels[:, 1:].contiguous()
-        shift_weights = self._build_shift_weights(
-            batch=batch,
-            labels=labels,
-            tokenizer=tokenizer,
-            device=logits.device,
-            token_weight_builder=token_weight_builder,
-        )
-        if shift_weights is None:
-            self._warn_once(
-                "weighted_loss_fallback_shift_weights_none",
-                "weighted token loss disabled for current adapter: failed to build shift weights; "
-                f"fallback to model loss. route={self.task_type}/{self.domain_type}",
-            )
-            return model_outputs.loss
-
-        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction="none")
-        token_loss = loss_fct(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.reshape(-1),
-        ).view_as(shift_labels)
-        valid_mask = (shift_labels != -100).to(token_loss.dtype)
-        weighted_loss = token_loss * shift_weights * valid_mask
-        denom = (shift_weights * valid_mask).sum().clamp_min(1.0)
-        return weighted_loss.sum() / denom
-
-    def _build_shift_weights(
-        self,
-        *,
-        batch: dict[str, Any],
-        labels: torch.Tensor,
-        tokenizer,
-        device: torch.device,
-        token_weight_builder,
-    ) -> torch.Tensor | None:
-        sequence_weights = torch.ones_like(labels, dtype=torch.float32, device=device)
-        meta = batch.get("meta", {})
-        target_texts = list(meta.get("target_text", []))
-        loss_metas = list(meta.get("loss_meta", []))
-        if len(target_texts) != labels.shape[0] or len(loss_metas) != labels.shape[0]:
-            self._warn_once(
-                "weighted_loss_meta_batch_mismatch",
-                "weighted token loss disabled for current adapter: batch meta shape mismatch "
-                f"(target_text={len(target_texts)}, loss_meta={len(loss_metas)}, batch={labels.shape[0]}). "
-                f"route={self.task_type}/{self.domain_type}",
-            )
-            return None
-        for row_index, (target_text, loss_meta) in enumerate(zip(target_texts, loss_metas, strict=True)):
-            token_weights = token_weight_builder(
-                str(target_text),
-                loss_meta=loss_meta,
-                tokenizer=tokenizer,
-            )
-            if token_weights is None:
-                return None
-            valid_positions = torch.nonzero(labels[row_index] != -100, as_tuple=False).flatten()
-            if valid_positions.numel() == 0:
-                continue
-            if len(token_weights) != int(valid_positions.numel()):
-                if len(token_weights) + 1 == int(valid_positions.numel()):
-                    token_weights = token_weights + [1.0]
-                else:
-                    limit = min(len(token_weights), int(valid_positions.numel()))
-                    token_weights = token_weights[:limit]
-                    valid_positions = valid_positions[:limit]
-            if not token_weights:
-                continue
-            sequence_weights[row_index, valid_positions] = torch.tensor(
-                token_weights,
-                dtype=torch.float32,
-                device=device,
-            )
-        return sequence_weights[:, 1:].contiguous()
+    ) -> list[float] | None:
+        del target_text
+        del loss_meta
+        del tokenizer
+        return None

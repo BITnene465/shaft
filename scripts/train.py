@@ -150,6 +150,8 @@ def main() -> None:
     train_collator = SFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
+        num_bins=config.tokenizer.num_bins,
+        task_route_options=config.task.route_options,
         add_eos_token=config.tokenizer.add_eos_token,
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,
@@ -158,6 +160,8 @@ def main() -> None:
     val_collator = SFTCollator(
         processor=build_artifacts.processor,
         tokenizer=build_artifacts.tokenizer,
+        num_bins=config.tokenizer.num_bins,
+        task_route_options=config.task.route_options,
         add_eos_token=config.tokenizer.add_eos_token,
         min_pixels=config.model.min_pixels,
         max_pixels=config.model.max_pixels,

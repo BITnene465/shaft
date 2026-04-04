@@ -375,13 +375,6 @@ def _deduplicate_stage1_records(
     deduped_records = full_image_records + kept_crop_records
     return [_strip_stage1_internal_fields(record) for record in deduped_records], dropped
 
-
-def _encode_stage2_target(keypoints_2d: list[list[int]]) -> str:
-    import json
-
-    return json.dumps({"keypoints_2d": keypoints_2d}, ensure_ascii=False, separators=(",", ":"))
-
-
 def _round_bbox(bbox: list[float]) -> list[float]:
     return [round(float(value), 4) for value in bbox]
 
@@ -643,7 +636,6 @@ def _build_stage2_record(
         "image_width": int(crop_width),
         "image_height": int(crop_height),
         "system_prompt": "",
-        "target_text": _encode_stage2_target(local_full_keypoints_2d),
         "gt_struct": {
             "task_type": "keypoint_sequence",
             "domain_type": "arrow",

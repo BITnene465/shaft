@@ -138,3 +138,4 @@ data/two_stage/reports/prepare_stage2_report.json
 - Stage2 的 `val` 不做 augmentation，只保留 clean 样本。
 - Stage2 的 `target` 坐标已经转换成 crop-local `[0,999]`。
 - 当前 Stage2 prompt 会注入 crop-local `label + bbox_2d`，再要求输出该 main arrow 的骨架；数据中的 `condition` 仍保留，用于兼容现有数据链路和后续扩展。
+- Stage2 JSONL 只保存结构化 GT；训练用 `target_text + loss_meta` 由 dataset 在加载时通过 codec 现场生成，不作为长期维护的数据字段。

@@ -47,16 +47,13 @@ class SFTDataset(Dataset):
             gt_struct = record_gt_struct
         else:
             gt_struct = adapter.build_gt_struct_from_record(record)
-        target_text = record.get("target_text")
-        loss_meta = record.get("loss_meta")
-        if target_text is None or loss_meta is None:
-            training_target = adapter.build_training_target(
-                gt_struct,
-                image_width=record["image_width"],
-                image_height=record["image_height"],
-            )
-            target_text = training_target["target_text"]
-            loss_meta = training_target.get("loss_meta")
+        training_target = adapter.build_training_target(
+            gt_struct,
+            image_width=record["image_width"],
+            image_height=record["image_height"],
+        )
+        target_text = training_target["target_text"]
+        loss_meta = training_target.get("loss_meta")
         condition = record.get("condition", {})
         system_prompt = record.get("system_prompt")
         if system_prompt is None:
@@ -100,13 +97,11 @@ class SFTDataset(Dataset):
                 gt_struct = record_gt_struct
             else:
                 gt_struct = adapter.build_gt_struct_from_record(record)
-            target_text = record.get("target_text")
-            if target_text is None:
-                target_text = adapter.build_training_target(
-                    gt_struct,
-                    image_width=record["image_width"],
-                    image_height=record["image_height"],
-                )["target_text"]
+            target_text = adapter.build_training_target(
+                gt_struct,
+                image_width=record["image_width"],
+                image_height=record["image_height"],
+            )["target_text"]
             tokenized = tokenizer(
                 str(target_text),
                 add_special_tokens=False,

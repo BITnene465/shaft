@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts
 
@@ -93,18 +94,15 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         return counts
 
     def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
-        if tokenizer is None:
-            return model_outputs.loss
+        del tokenizer
         if float(self.coordinate_token_loss_weight) <= 1.0:
             return model_outputs.loss
-        return self._compute_weighted_token_ce_loss(
+        return compute_weighted_token_ce_loss(
             model_outputs,
             batch,
-            tokenizer=tokenizer,
-            token_weight_builder=self._target_token_weights,
         )
 
-    def _target_token_weights(
+    def build_target_token_weights(
         self,
         target_text: str,
         *,
@@ -141,8 +139,6 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
                     if max(int(start), span_start) < min(int(end), span_end):
                         token_weight = max(token_weight, span_weight)
             weights.append(float(token_weight))
-        if tokenizer.eos_token_id is not None:
-            weights.append(1.0)
         return weights
 
 

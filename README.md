@@ -343,8 +343,10 @@ Stage 2, 4B:
 python scripts/train.py --config configs/train/train_stage2_lora_4b.yaml
 ```
 
-Stage 2 records carry structured `condition` fields plus `target_text`. The
-final user prompt is rendered at training time from
+Stage 2 records carry structured `condition` fields and structured ground truth.
+`target_text` is generated from the structured GT at dataset load time via the
+task adapter / codec, rather than stored as data truth in JSONL. The final user
+prompt is rendered at training time from
 `prompt.user_prompt_template`, so the normal `scripts/train.py` entrypoint can
 still be reused without baking full prompt strings into every sample.
 

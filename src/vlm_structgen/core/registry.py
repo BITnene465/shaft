@@ -28,6 +28,15 @@ class TaskAdapter(Protocol):
     ) -> dict:
         ...
 
+    def build_target_token_weights(
+        self,
+        target_text: str,
+        *,
+        loss_meta: dict | None,
+        tokenizer,
+    ) -> list[float] | None:
+        ...
+
     def decode(self, text: str, *, image_width: int, image_height: int, strict: bool = False) -> dict:
         ...
 
