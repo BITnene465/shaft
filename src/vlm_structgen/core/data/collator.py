@@ -183,8 +183,11 @@ class SFTCollator:
             tokenizer=self.tokenizer,
         )
         if target_weights is None:
-            target_weights = [1.0] * len(target_ids)
-        elif len(target_weights) != len(target_ids):
+            raise ValueError(
+                "Adapter did not provide target token weights. "
+                f"sample_id={item.get('sample_id')!r}, route={item.get('task_type')}/{item.get('domain_type')}."
+            )
+        if len(target_weights) != len(target_ids):
             raise ValueError(
                 "Adapter returned target token weights that do not match tokenizer output. "
                 f"sample_id={item.get('sample_id')!r}, route={item.get('task_type')}/{item.get('domain_type')}, "

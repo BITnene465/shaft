@@ -11,7 +11,7 @@ def compute_weighted_token_ce_loss(
 ) -> object:
     loss_weights = batch.get("loss_weights")
     if loss_weights is None:
-        return model_outputs.loss
+        raise ValueError("Weighted token loss requires batch['loss_weights'].")
 
     logits = model_outputs.logits
     labels = batch["labels"].to(logits.device)

@@ -124,10 +124,12 @@ graph TB
    - Based on `field_char_spans`, tokens corresponding to label/bbox/coordinates are identified
    - These tokens are assigned the configured weight (e.g., `bbox_token_loss_weight: 2.0`)
    - All other tokens get weight 1.0
+   - If a route enables weighted loss, missing `loss_meta` or missing tokenizer `offset_mapping` is treated as a hard error
 4. **Collator alignment phase**: `SFTCollator` appends the training EOS token when needed and builds a `loss_weights` tensor aligned with `labels`
    - token-weight construction happens before loss computation
    - any token-count mismatch between adapter output and collator tokenization raises an error
 5. **Loss computation**: `core.train.weighted_loss.compute_weighted_token_ce_loss()` only consumes `labels`, `logits`, and `loss_weights`
+   - missing `loss_weights` is treated as a hard error
 
 ### Default Weights
 
@@ -137,6 +139,12 @@ graph TB
 | `grounding` | `bbox_2d` | 2.0 |
 | `keypoint_sequence` | `coordinates` | 1.5 |
 | `joint_structure` | N/A | N/A (uses default model loss) |
+
+Weight values must be `>= 1.0`.
+
+- `= 1.0` means no extra weighting for that field
+- `> 1.0` means weighted token loss is enabled for that route
+- `< 1.0` is treated as a configuration error
 
 ## JSON Parsing Robustness
 

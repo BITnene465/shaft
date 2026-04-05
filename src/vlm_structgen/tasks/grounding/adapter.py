@@ -15,6 +15,18 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
     bbox_token_loss_weight: float = 1.0
     label_token_loss_weight: float = 1.0
 
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("bbox_token_loss_weight", self.bbox_token_loss_weight),
+            ("label_token_loss_weight", self.label_token_loss_weight),
+        ):
+            if float(value) < 1.0:
+                raise ValueError(f"{field_name} must be >= 1.0, got {value!r}.")
+
+    @property
+    def weighted_loss_enabled(self) -> bool:
+        return float(self.bbox_token_loss_weight) > 1.0 or float(self.label_token_loss_weight) > 1.0
+
     def build_gt_struct_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
         return {
             "instances": [
@@ -90,7 +102,7 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
 
     def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
         del tokenizer
-        if float(self.bbox_token_loss_weight) <= 1.0 and float(self.label_token_loss_weight) <= 1.0:
+        if not self.weighted_loss_enabled:
             return model_outputs.loss
         return compute_weighted_token_ce_loss(
             model_outputs,
@@ -104,6 +116,13 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
         loss_meta: dict[str, Any] | None,
         tokenizer,
     ) -> list[float] | None:
+        if not self.weighted_loss_enabled:
+            return [1.0] * len(tokenizer(target_text, add_special_tokens=False)["input_ids"])
+        if loss_meta is None:
+            raise ValueError(
+                "grounding weighted token loss requires loss_meta.field_char_spans. "
+                f"route={self.task_type}/{self.domain_type}"
+            )
         encoded = tokenizer(
             target_text,
             add_special_tokens=False,
@@ -113,14 +132,12 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
         offsets = encoded.get("offset_mapping")
         input_ids = encoded.get("input_ids")
         if offsets is None or input_ids is None:
-            self._warn_once(
-                "grounding_offset_mapping_unavailable",
-                "weighted token loss disabled for grounding: tokenizer did not return offset_mapping/input_ids; "
-                f"fallback to model loss. route={self.task_type}/{self.domain_type}",
+            raise ValueError(
+                "grounding weighted token loss requires tokenizer offset_mapping/input_ids. "
+                f"route={self.task_type}/{self.domain_type}"
             )
-            return None
 
-        field_spans = dict((loss_meta or {}).get("field_char_spans", {}))
+        field_spans = dict(loss_meta.get("field_char_spans", {}))
         weighted_spans: list[tuple[int, int, float]] = []
         for start, end in field_spans.get("label", []):
             weighted_spans.append((int(start), int(end), float(self.label_token_loss_weight)))

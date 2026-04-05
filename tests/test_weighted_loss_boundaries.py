@@ -47,6 +47,26 @@ class DummyTokenizer:
         return [index + 1 for index, _char in enumerate(text)]
 
 
+class NoOffsetTokenizer(DummyTokenizer):
+    def __call__(
+        self,
+        text,
+        *,
+        add_special_tokens: bool = False,
+        return_attention_mask: bool = False,
+        return_offsets_mapping: bool = False,
+        **kwargs,
+    ):
+        del return_offsets_mapping
+        return super().__call__(
+            text,
+            add_special_tokens=add_special_tokens,
+            return_attention_mask=return_attention_mask,
+            return_offsets_mapping=False,
+            **kwargs,
+        )
+
+
 class DummyProcessor:
     def __init__(self, tokenizer: DummyTokenizer) -> None:
         self.tokenizer = tokenizer
@@ -257,6 +277,72 @@ class WeightedLossBoundaryTests(unittest.TestCase):
         valid_mask = (shift_labels != -100).to(token_loss.dtype)
         expected = (token_loss * shift_weights * valid_mask).sum() / (shift_weights * valid_mask).sum()
         self.assertTrue(torch.isclose(actual, expected))
+
+    def test_collator_raises_when_weighted_route_is_missing_loss_meta(self) -> None:
+        item = self._build_training_item(
+            task_type="grounding",
+            target_text='[{"label":"single_arrow","bbox_2d":[1,2,3,4]}]',
+            loss_meta=None,
+            loss_weight_enabled=True,
+        )
+        collator = self._build_collator(item)
+
+        with self.assertRaisesRegex(ValueError, "requires loss_meta"):
+            collator([item])
+
+    def test_collator_raises_when_weighted_route_lacks_offset_mapping(self) -> None:
+        codec = KeypointSequenceCodec(num_bins=1000)
+        target_text, loss_meta = codec.encode_with_loss_meta(
+            [[10, 20], [30, 40]],
+            image_width=100,
+            image_height=100,
+        )
+        item = self._build_training_item(
+            task_type="keypoint_sequence",
+            target_text=target_text,
+            loss_meta=loss_meta,
+            loss_weight_enabled=True,
+        )
+        collator = SFTCollator(
+            processor=DummyProcessor(NoOffsetTokenizer()),
+            tokenizer=NoOffsetTokenizer(),
+            num_bins=1000,
+            task_route_options=item["_route_options"],
+            add_eos_token=True,
+            include_targets_in_inputs=True,
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires tokenizer offset_mapping"):
+            collator([item])
+
+    def test_weighted_loss_raises_when_loss_weights_are_missing(self) -> None:
+        logits = torch.zeros((1, 3, 4), dtype=torch.float32)
+        labels = torch.tensor([[-100, 1, 2]], dtype=torch.long)
+        outputs = DummyModelOutputs(logits=logits, loss=torch.tensor(999.0))
+
+        with self.assertRaisesRegex(ValueError, "loss_weights"):
+            compute_weighted_token_ce_loss(outputs, {"labels": labels})
+
+    def test_weight_configs_must_be_greater_or_equal_to_one(self) -> None:
+        with self.assertRaisesRegex(ValueError, "bbox_token_loss_weight must be >= 1.0"):
+            SFTCollator(
+                processor=self.processor,
+                tokenizer=self.tokenizer,
+                num_bins=1000,
+                task_route_options={"grounding/arrow": {"bbox_token_loss_weight": 0.5}},
+                add_eos_token=True,
+                include_targets_in_inputs=True,
+            )._get_adapter_for_item({"task_type": "grounding", "domain_type": "arrow"})
+
+        with self.assertRaisesRegex(ValueError, "coordinate_token_loss_weight must be >= 1.0"):
+            SFTCollator(
+                processor=self.processor,
+                tokenizer=self.tokenizer,
+                num_bins=1000,
+                task_route_options={"keypoint_sequence/arrow": {"coordinate_token_loss_weight": 0.5}},
+                add_eos_token=True,
+                include_targets_in_inputs=True,
+            )._get_adapter_for_item({"task_type": "keypoint_sequence", "domain_type": "arrow"})
 
 
 if __name__ == "__main__":

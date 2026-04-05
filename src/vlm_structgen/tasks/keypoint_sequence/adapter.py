@@ -15,6 +15,16 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
     task_bucket_key: str = field(init=False, default="stage2_samples")
     coordinate_token_loss_weight: float = 1.0
 
+    def __post_init__(self) -> None:
+        if float(self.coordinate_token_loss_weight) < 1.0:
+            raise ValueError(
+                f"coordinate_token_loss_weight must be >= 1.0, got {self.coordinate_token_loss_weight!r}."
+            )
+
+    @property
+    def weighted_loss_enabled(self) -> bool:
+        return float(self.coordinate_token_loss_weight) > 1.0
+
     def build_gt_struct_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
         instances = record.get("instances", [])
         if len(instances) != 1:
@@ -95,7 +105,7 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
 
     def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
         del tokenizer
-        if float(self.coordinate_token_loss_weight) <= 1.0:
+        if not self.weighted_loss_enabled:
             return model_outputs.loss
         return compute_weighted_token_ce_loss(
             model_outputs,
@@ -109,6 +119,13 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         loss_meta: dict[str, Any] | None,
         tokenizer,
     ) -> list[float] | None:
+        if not self.weighted_loss_enabled:
+            return [1.0] * len(tokenizer(target_text, add_special_tokens=False)["input_ids"])
+        if loss_meta is None:
+            raise ValueError(
+                "keypoint_sequence weighted token loss requires loss_meta.field_char_spans. "
+                f"route={self.task_type}/{self.domain_type}"
+            )
         encoded = tokenizer(
             target_text,
             add_special_tokens=False,
@@ -118,14 +135,12 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         offsets = encoded.get("offset_mapping")
         input_ids = encoded.get("input_ids")
         if offsets is None or input_ids is None:
-            self._warn_once(
-                "keypoint_offset_mapping_unavailable",
-                "weighted token loss disabled for keypoint_sequence: tokenizer did not return offset_mapping/input_ids; "
-                f"fallback to model loss. route={self.task_type}/{self.domain_type}",
+            raise ValueError(
+                "keypoint_sequence weighted token loss requires tokenizer offset_mapping/input_ids. "
+                f"route={self.task_type}/{self.domain_type}"
             )
-            return None
 
-        field_spans = dict((loss_meta or {}).get("field_char_spans", {}))
+        field_spans = dict(loss_meta.get("field_char_spans", {}))
         weighted_spans = [
             (int(start), int(end), float(self.coordinate_token_loss_weight))
             for start, end in field_spans.get("coordinates", [])
