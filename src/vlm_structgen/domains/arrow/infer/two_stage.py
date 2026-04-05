@@ -228,6 +228,33 @@ class TwoStageInferenceRunner:
     def _extract_stage1_prediction(self, report: dict[str, Any]) -> dict[str, Any] | None:
         return report["strict"]["prediction"] or report["lenient"]["prediction"]
 
+    @staticmethod
+    def _summarize_branch_parse_status(
+        branch_predictions: list[dict[str, Any]],
+        mode: str,
+    ) -> dict[str, Any]:
+        failed_branches = [
+            {
+                "source_type": branch["source_type"],
+                "crop_box": branch["crop_box"],
+                "error": branch["report"][mode]["error"],
+            }
+            for branch in branch_predictions
+            if not bool(branch["report"][mode]["ok"])
+        ]
+        return {
+            "ok": len(failed_branches) == 0,
+            "error": (
+                None
+                if not failed_branches
+                else {
+                    "num_failed_branches": len(failed_branches),
+                    "branches": failed_branches,
+                }
+            ),
+            "num_failed_branches": len(failed_branches),
+        }
+
     def _build_stage1_tile_boxes(self, image: Image.Image) -> list[list[int]]:
         infer_cfg = getattr(self, "infer_config", None)
         if infer_cfg is None:
@@ -442,26 +469,30 @@ class TwoStageInferenceRunner:
             dedup_across_sources=enable_mixed_proposals,
         )
         aggregated_prediction = {"instances": aggregated_instances}
+        lenient_summary = self._summarize_branch_parse_status(branch_predictions, "lenient")
+        strict_summary = self._summarize_branch_parse_status(branch_predictions, "strict")
         stage1_report = {
             "generation": {
                 "num_branches": len(branch_predictions),
                 "num_full_image_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is None),
                 "num_tile_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is not None),
                 "mixed_proposals_enabled": enable_mixed_proposals,
+                "num_lenient_failed_branches": lenient_summary["num_failed_branches"],
+                "num_strict_failed_branches": strict_summary["num_failed_branches"],
             },
             "lenient": {
-                "ok": True,
+                "ok": lenient_summary["ok"],
                 "prediction": aggregated_prediction,
-                "error": None,
+                "error": lenient_summary["error"],
                 "recovered_prefix": any(
                     bool(branch["report"]["lenient"].get("recovered_prefix", False))
                     for branch in branch_predictions
                 ),
             },
             "strict": {
-                "ok": True,
+                "ok": strict_summary["ok"],
                 "prediction": aggregated_prediction,
-                "error": None,
+                "error": strict_summary["error"],
                 "recovered_prefix": False,
             },
             "branches": [
