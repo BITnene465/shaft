@@ -192,6 +192,10 @@ def _apply_task_overrides(runtime: ExperimentRuntimeConfig, task_cfg: InferTaskC
         runtime.task.domain_type = task_cfg.domain_type
     if task_cfg.options:
         runtime.task.options = dict(task_cfg.options)
+        route_key = f"{runtime.task.task_type}/{runtime.task.domain_type}"
+        merged_route_options = dict(runtime.task.route_options.get(route_key, {}))
+        merged_route_options.update(dict(task_cfg.options))
+        runtime.task.route_options[route_key] = merged_route_options
 
 
 def build_runtime_from_one_stage_infer_config(

@@ -29,7 +29,7 @@ from vlm_structgen.core.utils.checkpoint import load_training_checkpoint
 from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_structgen.core.utils.generation import (
     build_generate_kwargs,
-    find_balanced_json_array_end,
+    find_balanced_json_end,
     trim_generated_ids_at_eos,
 )
 
@@ -90,12 +90,13 @@ class Stage2KeypointInferenceRunner:
                 continuation = output_ids[row_index, input_context_length:]
                 continuation_ids = continuation.tolist()
                 raw_continuation_text = self.artifacts.tokenizer.decode(continuation_ids, skip_special_tokens=False)
-                json_array_end = find_balanced_json_array_end(raw_continuation_text)
+                json_payload_end = find_balanced_json_end(raw_continuation_text)
                 trimmed_ids = trim_generated_ids_at_eos(continuation, generate_kwargs.get("eos_token_id"))
                 decoded = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=False)
                 strict_text = self.artifacts.tokenizer.decode(trimmed_ids, skip_special_tokens=True)
-                closed_json_array = json_array_end is not None
-                hit_max_new_tokens = len(continuation_ids) >= requested_max_new_tokens
+                closed_json_payload = json_payload_end is not None
+                effective_generated_tokens = len(trimmed_ids)
+                hit_max_new_tokens = effective_generated_tokens >= requested_max_new_tokens
 
                 lenient_prediction: dict[str, Any] | None = None
                 lenient_error: str | None = None
@@ -127,10 +128,11 @@ class Stage2KeypointInferenceRunner:
                         "raw_text": decoded,
                         "generation": {
                             "requested_max_new_tokens": requested_max_new_tokens,
-                            "generated_tokens": len(continuation_ids),
+                            "generated_tokens": effective_generated_tokens,
                             "returned_tokens": len(trimmed_ids),
                             "hit_max_new_tokens": hit_max_new_tokens,
-                            "closed_json_array": closed_json_array,
+                            "closed_json_payload": closed_json_payload,
+                            "closed_json_array": closed_json_payload,
                             "stop_reason": (
                                 "max_new_tokens"
                                 if hit_max_new_tokens
@@ -646,6 +648,10 @@ def _load_stage2_runner(
             task_type=config.task.task_type,
             domain_type=config.task.domain_type,
             num_bins=config.tokenizer.num_bins,
+            task_options_key=tuple(sorted(dict(config.task.route_options.get(
+                f"{config.task.task_type}/{config.task.domain_type}",
+                {},
+            )).items())),
         ),
         device=device,
         batch_size=max(int(getattr(infer_config, "batch_size", 1)), 1),

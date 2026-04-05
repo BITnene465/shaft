@@ -236,6 +236,7 @@ def main() -> None:
     evaluator = Evaluator(
         num_bins=config.tokenizer.num_bins,
         tokenizer=build_artifacts.tokenizer,
+        task_route_options=config.task.route_options,
         max_new_tokens=config.eval.max_new_tokens,
         num_beams=config.eval.num_beams,
         do_sample=config.eval.do_sample,

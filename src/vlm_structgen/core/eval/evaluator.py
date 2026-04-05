@@ -26,6 +26,7 @@ class Evaluator:
         top_p: float | None = None,
         top_k: int | None = None,
         use_cache: bool = True,
+        task_route_options: dict[str, dict[str, Any]] | None = None,
         bbox_iou_threshold: float = 0.5,
         strict_point_distance_px: float = 8.0,
     ) -> None:
@@ -40,6 +41,7 @@ class Evaluator:
         self.bbox_iou_threshold = bbox_iou_threshold
         self.strict_point_distance_px = strict_point_distance_px
         self.num_bins = int(num_bins)
+        self.task_route_options = dict(task_route_options or {})
 
     def evaluate_model(self, model: torch.nn.Module, dataloader) -> dict[str, float]:
         counts = self._empty_counts()
@@ -122,6 +124,10 @@ class Evaluator:
                 task_type=task_type,
                 domain_type=domain_type,
                 num_bins=self.num_bins,
+                task_options_key=tuple(sorted(dict(self.task_route_options.get(
+                    f"{task_type}/{domain_type}",
+                    {},
+                )).items())),
             )
             generated_ids = generated[row_index, input_context_length:]
             trimmed_ids = trim_generated_ids_at_eos(generated_ids, eos_token_id)

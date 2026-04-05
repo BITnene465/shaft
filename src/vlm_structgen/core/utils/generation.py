@@ -74,6 +74,46 @@ def find_balanced_json_array_end(text: str) -> int | None:
     return None
 
 
+def find_balanced_json_end(text: str) -> int | None:
+    array_end = find_balanced_json_array_end(text)
+    object_end = find_balanced_json_object_end(text)
+    if array_end is None:
+        return object_end
+    if object_end is None:
+        return array_end
+    return min(array_end, object_end)
+
+
+def find_balanced_json_object_end(text: str) -> int | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
 def has_closed_json_array(text: str) -> bool:
     return find_balanced_json_array_end(text) is not None
 
