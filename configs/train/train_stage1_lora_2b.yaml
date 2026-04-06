@@ -17,7 +17,7 @@ model:
     - projector
     - multi_modal_projector
   min_pixels: 200704
-  max_pixels: 786432
+  max_pixels: 1048576
 
 tokenizer:
   num_bins: 1000
@@ -28,8 +28,8 @@ task:
   domain_type: arrow
   route_options:
     grounding/arrow:
-      bbox_token_loss_weight: 2.0
-      label_token_loss_weight: 1.5
+      bbox_token_loss_weight: 1.5
+      label_token_loss_weight: 1.0
 
 prompt:
   system_prompt: ""
@@ -41,7 +41,7 @@ prompt:
 data:
   train_path: data/two_stage/stage1/train.jsonl
   val_path: data/two_stage/stage1/val.jsonl
-  num_workers: 8
+  num_workers: 16
   pin_memory: true
   persistent_workers: true
 
@@ -52,7 +52,7 @@ lora:
   enabled: true
   r: 32
   alpha: 64
-  dropout: 0.05
+  dropout: 0
   bias: none
   # Language tower LoRA targets.
   lang_target_modules:
@@ -77,10 +77,10 @@ train:
   per_device_batch_size: 4
   grad_accum_steps: 2
   gradient_checkpointing: true
-  learning_rate: 0.00005
-  embed_learning_rate: 0.00005
-  lm_head_learning_rate: 0.00005
-  lora_learning_rate: 0.0001
+  learning_rate: 0.0001
+  embed_learning_rate: 0.0001
+  lm_head_learning_rate: 0.0001
+  lora_learning_rate: 0.0002
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler_type: cosine
@@ -96,7 +96,7 @@ train:
   find_unused_parameters: false
 
 eval:
-  per_device_batch_size: 12
+  per_device_batch_size: 16
   max_new_tokens: 2048
   num_beams: 1
   do_sample: false
