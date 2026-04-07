@@ -59,14 +59,15 @@ graph LR
 
 ## Optimizer Parameter Groups
 
-| Group | LR | Weight Decay |
-|---|---|---|
-| `embed_tokens` | `embed_learning_rate` | Yes |
-| `lm_head` | `lm_head_learning_rate` | Yes |
-| `lora_params` | `lora_learning_rate` | **No** |
-| `other` | `learning_rate` | Yes |
+| Group | LR | Weight Decay | When used |
+|---|---|---|---|
+| `embed_tokens` | `embed_learning_rate` | Yes | Full-ft or explicit embedding tuning only |
+| `lm_head` | `lm_head_learning_rate` | Yes | Full-ft or explicit lm_head tuning only |
+| `lora_params` | `lora_learning_rate` | **No** | LoRA-only / adapter params |
+| `other` | `learning_rate` | Yes | Any remaining trainable non-LoRA params |
 
 Default LoRA LR: `learning_rate=5e-5`, `lora_learning_rate=1e-4`.
+In the current LoRA-only configs, embedding and lm_head are frozen and `lm_head` is exposed through `lora.lm_head_target_modules`.
 
 ## Checkpoint Format
 

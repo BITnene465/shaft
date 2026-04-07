@@ -68,6 +68,8 @@ lora:
     - mlp.linear_fc1
     - mlp.linear_fc2
   proj_target_modules: []
+  lm_head_target_modules:
+    - lm_head
 
 train:
   epochs: 2
@@ -75,8 +77,6 @@ train:
   grad_accum_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.00001
-  embed_learning_rate: 0.00001
-  lm_head_learning_rate: 0.00001
   lora_learning_rate: 0.00002
   weight_decay: 0.01
   warmup_ratio: 0.05

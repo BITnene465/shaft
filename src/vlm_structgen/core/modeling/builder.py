@@ -395,6 +395,22 @@ def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntim
                 f"[builder] enabling LoRA on {len(proj_target_modules)} projector modules.",
                 flush=True,
             )
+        lm_head_target_modules = _collect_lora_target_module_names(
+            model,
+            include_name_substrings=[],
+            exclude_name_substrings=None,
+            suffixes=config.lora.lm_head_target_modules,
+        )
+        if not lm_head_target_modules:
+            raise ValueError(
+                "LoRA mode requested lm_head adapters, but no lm_head target modules were found. "
+                "Check lora.lm_head_target_modules."
+            )
+        target_modules.extend(lm_head_target_modules)
+        print(
+            f"[builder] enabling LoRA on {len(lm_head_target_modules)} lm_head modules.",
+            flush=True,
+        )
         lora_config = LoraConfig(
             r=config.lora.r,
             lora_alpha=config.lora.alpha,
@@ -409,16 +425,6 @@ def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntim
 
     if config.model.freeze_vision_tower:
         _set_requires_grad_by_name(model, config.model.vision_name_substrings, False)
-
-    # embedding层 和 LM Head 需要训练，否则不会有效果
-    input_embeddings = model.get_input_embeddings()
-    output_embeddings = model.get_output_embeddings()
-    if input_embeddings is not None:
-        for parameter in input_embeddings.parameters():
-            parameter.requires_grad = True
-    if output_embeddings is not None:
-        for parameter in output_embeddings.parameters():
-            parameter.requires_grad = True
 
     _maybe_enable_gradient_checkpointing(model, config)
     return model
