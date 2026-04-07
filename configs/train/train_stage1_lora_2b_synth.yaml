@@ -39,7 +39,7 @@ prompt:
     Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
 
 data:
-  train_path: data/two_stage/stage1/train.jsonl
+  train_path: data/sync_arrow_grounding/avg/train.jsonl
   val_path: data/two_stage/stage1/val_full.jsonl
   num_workers: 16
   pin_memory: true
@@ -54,7 +54,6 @@ lora:
   alpha: 64
   dropout: 0
   bias: none
-  # Language tower LoRA targets.
   lang_target_modules:
     - q_proj
     - k_proj
@@ -63,26 +62,24 @@ lora:
     - gate_proj
     - up_proj
     - down_proj
-  # Visual tower LoRA targets; only used when freeze_vision_tower=false.
   vis_target_modules:
     - attn.qkv
     - attn.proj
     - mlp.linear_fc1
     - mlp.linear_fc2
-  # Projector LoRA targets; empty means all linear layers matched by projector_name_substrings.
   proj_target_modules: []
 
 train:
-  epochs: 4
+  epochs: 2
   per_device_batch_size: 4
   grad_accum_steps: 2
   gradient_checkpointing: true
-  learning_rate: 0.00005
-  embed_learning_rate: 0.00005
-  lm_head_learning_rate: 0.00005
-  lora_learning_rate: 0.0001
+  learning_rate: 0.00001
+  embed_learning_rate: 0.00001
+  lm_head_learning_rate: 0.00001
+  lora_learning_rate: 0.00002
   weight_decay: 0.01
-  warmup_ratio: 0.1
+  warmup_ratio: 0.05
   scheduler_type: cosine
   max_grad_norm: 1.0
   bf16: true

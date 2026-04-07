@@ -350,6 +350,8 @@ def build_model_tokenizer_processor_from_checkpoint(
 
 
 def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> torch.nn.Module:
+    from peft import LoraConfig, TaskType, get_peft_model
+
     # tokenizer / processor side-effects are managed before calling this helper.
     # This helper configures model trainable/frozen state and generation behavior.
     _sanitize_generation_config(model, config)
