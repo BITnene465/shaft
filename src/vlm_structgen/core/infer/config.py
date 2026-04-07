@@ -30,7 +30,7 @@ class InferPromptConfig:
 class InferTaskConfig:
     task_type: str | None = None
     domain_type: str | None = None
-    options: dict[str, Any] = field(default_factory=dict)
+    route_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -190,11 +190,10 @@ def _apply_task_overrides(runtime: ExperimentRuntimeConfig, task_cfg: InferTaskC
         runtime.task.task_type = task_cfg.task_type
     if task_cfg.domain_type is not None:
         runtime.task.domain_type = task_cfg.domain_type
-    if task_cfg.options:
-        runtime.task.options = dict(task_cfg.options)
+    if task_cfg.route_options:
         route_key = f"{runtime.task.task_type}/{runtime.task.domain_type}"
         merged_route_options = dict(runtime.task.route_options.get(route_key, {}))
-        merged_route_options.update(dict(task_cfg.options))
+        merged_route_options.update(dict(task_cfg.route_options))
         runtime.task.route_options[route_key] = merged_route_options
 
 

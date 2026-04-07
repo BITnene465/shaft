@@ -109,7 +109,7 @@ def _empty_counts() -> dict[str, float]:
         "generated_tokens": 0.0,
         "returned_tokens": 0.0,
         "hit_max_new_tokens": 0.0,
-        "closed_json_array": 0.0,
+        "closed_json_payload": 0.0,
     }
 
 
@@ -126,7 +126,7 @@ def _summarize(counts: dict[str, float]) -> dict[str, float]:
         "generation/generated_tokens_mean": counts["generated_tokens"] / samples,
         "generation/returned_tokens_mean": counts["returned_tokens"] / samples,
         "generation/hit_max_new_tokens_rate": counts["hit_max_new_tokens"] / samples,
-        "generation/closed_json_array_rate": counts["closed_json_array"] / samples,
+        "generation/closed_json_payload_rate": counts["closed_json_payload"] / samples,
     }
 
 
@@ -204,7 +204,7 @@ def main() -> None:
         counts["generated_tokens"] += float(generation.get("generated_tokens", 0.0))
         counts["returned_tokens"] += float(generation.get("returned_tokens", 0.0))
         counts["hit_max_new_tokens"] += 1.0 if bool(generation.get("hit_max_new_tokens", False)) else 0.0
-        counts["closed_json_array"] += 1.0 if bool(generation.get("closed_json_array", False)) else 0.0
+        counts["closed_json_payload"] += 1.0 if bool(generation.get("closed_json_payload", False)) else 0.0
 
         gt_points = gt_struct.get("keypoints", []) if isinstance(gt_struct, dict) else []
         pred_points = pred_struct.get("keypoints", []) if isinstance(pred_struct, dict) else []

@@ -26,7 +26,7 @@ class InferProtocolAlignmentTests(unittest.TestCase):
         _apply_task_overrides(
             runtime,
             InferTaskConfig(
-                options={
+                route_options={
                     "coordinate_token_loss_weight": 2.0,
                     "decode_mode": "strict",
                 }
@@ -35,13 +35,6 @@ class InferProtocolAlignmentTests(unittest.TestCase):
 
         self.assertEqual(
             runtime.task.route_options["keypoint_sequence/arrow"],
-            {
-                "coordinate_token_loss_weight": 2.0,
-                "decode_mode": "strict",
-            },
-        )
-        self.assertEqual(
-            runtime.task.options,
             {
                 "coordinate_token_loss_weight": 2.0,
                 "decode_mode": "strict",

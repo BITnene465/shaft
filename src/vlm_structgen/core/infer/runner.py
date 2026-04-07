@@ -124,7 +124,6 @@ class InferenceRunner:
                             "returned_tokens": len(trimmed_ids),
                             "hit_max_new_tokens": hit_max_new_tokens,
                             "closed_json_payload": closed_json_payload,
-                            "closed_json_array": closed_json_payload,
                             "stop_reason": (
                                 "max_new_tokens"
                                 if hit_max_new_tokens
