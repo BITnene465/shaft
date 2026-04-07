@@ -82,6 +82,9 @@ Two layouts are supported:
   ├── step_200/
   │   ├── adapter_config.json
   │   ├── adapter_model.safetensors
+  │   ├── base_model/
+  │   │   ├── config.json
+  │   │   └── model.safetensors
   │   ├── tokenizer_config.json
   │   ├── processor_config.json
   │   ├── optimizer.pt
@@ -116,7 +119,7 @@ Two layouts are supported:
 | `resume_from` | Full state: model/adapter, optimizer, scheduler, RNG. Continues training. |
 
 When initializing a LoRA model from a full-FT checkpoint, weights are loaded into the underlying base model and remapped for PEFT compatibility.
-When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout so they can be swapped independently at deployment time.
+When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout and the frozen base model is stored under `base_model/`, so adapters can still be swapped independently at deployment time while the checkpoint remains self-contained.
 
 ## Evaluation
 

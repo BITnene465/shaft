@@ -91,6 +91,20 @@ def save_training_checkpoint(
             safe_serialization=True,
             save_embedding_layers=False,
         )
+
+        base_model_getter = getattr(unwrapped, "get_base_model", None)
+        if not callable(base_model_getter):
+            raise ValueError(
+                "LoRA checkpoint saving requires a PEFT model with `get_base_model()`."
+            )
+        base_model = base_model_getter()
+        base_model_dir = ensure_dir(checkpoint_dir / "base_model")
+        base_model_save_pretrained = getattr(base_model, "save_pretrained", None)
+        if not callable(base_model_save_pretrained):
+            raise ValueError(
+                "LoRA checkpoint saving requires a base model with `save_pretrained()`."
+            )
+        base_model_save_pretrained(base_model_dir, safe_serialization=True)
     else:
         torch.save(unwrapped.state_dict(), checkpoint_dir / "state_dict.pt")
 
@@ -109,6 +123,7 @@ def save_training_checkpoint(
             "config": config_dict,
             "trainer_state": trainer_state,
             "checkpoint_layout": "peft_adapter" if checkpoint_mode == "lora" else "full_state_dict",
+            "has_base_model": bool(checkpoint_mode == "lora"),
         },
     )
 

@@ -272,10 +272,15 @@ def build_model_tokenizer_processor_from_checkpoint(
     from transformers import AutoConfig, AutoProcessor, AutoTokenizer
 
     checkpoint_dir = Path(checkpoint_dir)
+    bundled_base_model_dir = checkpoint_dir / "base_model"
 
     flat_model_config = checkpoint_dir / "config.json"
     legacy_model_config = checkpoint_dir / "model" / "config.json"
-    model_config_path = flat_model_config if flat_model_config.exists() else legacy_model_config
+    bundled_base_model_config = bundled_base_model_dir / "config.json"
+    if bundled_base_model_config.exists():
+        model_config_path = bundled_base_model_config
+    else:
+        model_config_path = flat_model_config if flat_model_config.exists() else legacy_model_config
     if not model_config_path.exists():
         raise FileNotFoundError(
             f"Missing checkpoint model config. Tried: {flat_model_config} and {legacy_model_config}"
@@ -298,7 +303,10 @@ def build_model_tokenizer_processor_from_checkpoint(
     print(f"[builder] constructing model from checkpoint config: {model_config_path}", flush=True)
     model = _build_model_from_config(model_class, model_config, **model_kwargs)
 
-    model_source = _resolve_model_source(config)
+    if bundled_base_model_dir.exists():
+        model_source = str(bundled_base_model_dir)
+    else:
+        model_source = _resolve_model_source(config)
     local_files_only = _is_local_model_source(model_source)
 
     if processor_source.exists():

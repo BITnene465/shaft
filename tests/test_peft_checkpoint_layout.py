@@ -31,14 +31,38 @@ class _DummyProcessor:
 
 class _DummyModelConfig:
     def to_json_file(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps({"model_type": "dummy"}), encoding="utf-8")
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "config.json").write_text(
+            json.dumps({"model_type": "dummy"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+
+class _DummyBaseModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = _DummyModelConfig()
+        self.linear = torch.nn.Linear(2, 2)
+
+    def save_pretrained(
+        self,
+        save_directory: str | Path,
+        safe_serialization: bool = True,
+        **kwargs,
+    ) -> None:
+        del safe_serialization, kwargs
+        save_directory = Path(save_directory)
+        save_directory.mkdir(parents=True, exist_ok=True)
+        self.config.to_json_file(save_directory)
+        torch.save({"linear.weight": self.linear.weight.detach()}, save_directory / "model.safetensors")
 
 
 class _DummyPeftModel(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.config = _DummyModelConfig()
-        self.linear = torch.nn.Linear(2, 2)
+        self.base_model = _DummyBaseModel()
         self.loaded_adapters: list[tuple[str, str, bool]] = []
 
     def save_pretrained(
@@ -70,7 +94,7 @@ class _DummyPeftModel(torch.nn.Module):
         return None
 
     def get_base_model(self) -> "_DummyPeftModel":
-        return self
+        return self.base_model
 
 
 class PeftCheckpointLayoutTests(unittest.TestCase):
@@ -92,6 +116,8 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
 
             self.assertTrue((checkpoint_dir / "adapter_config.json").exists())
             self.assertTrue((checkpoint_dir / "adapter_model.bin").exists())
+            self.assertTrue((checkpoint_dir / "base_model" / "config.json").exists())
+            self.assertTrue((checkpoint_dir / "base_model" / "model.safetensors").exists())
             self.assertFalse((checkpoint_dir / "state_dict.pt").exists())
             self.assertTrue((checkpoint_dir / "tokenizer_config.json").exists())
             self.assertTrue((checkpoint_dir / "tokenizer.json").exists())
