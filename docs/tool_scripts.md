@@ -222,7 +222,8 @@ checkpoint 路径和模型覆盖参数都通过 CLI 传入。
 
 用途：
 
-- 将 LoRA 训练 checkpoint 合并为可直接加载的完整模型权重目录（不再依赖 LoRA adapter 加载）。
+- 将 LoRA 训练 checkpoint 合并为可直接加载的完整模型权重目录。
+- 兼容当前 PEFT adapter-only checkpoint，也兼容旧的整模 `state_dict.pt` checkpoint。
 - 建议在运行时量化前先做 merge，先验证 merged FP/BF16 基线，再单独量化 stage1/stage2。
 
 示例：

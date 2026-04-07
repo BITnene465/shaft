@@ -71,29 +71,52 @@ In the current LoRA-only configs, embedding and lm_head are frozen and `lm_head`
 
 ## Checkpoint Format
 
-```
-checkpoints/
-├── last/           # Alias → latest
-├── best/           # Alias → best metric
-├── step_200/
-│   ├── model/state_dict.pt
-│   ├── tokenizer/
-│   ├── processor/
-│   ├── optimizer.pt
-│   ├── scheduler.pt
-│   ├── rng_state.pt
-│   ├── trainer_state.json
-│   └── meta.json
-```
+Two layouts are supported:
+
+- LoRA mode:
+
+  ```
+  checkpoints/
+  ├── last/           # Alias → latest
+  ├── best/           # Alias → best metric
+  ├── step_200/
+  │   ├── adapter_config.json
+  │   ├── adapter_model.safetensors
+  │   ├── tokenizer_config.json
+  │   ├── processor_config.json
+  │   ├── optimizer.pt
+  │   ├── scheduler.pt
+  │   ├── rng_state.pt
+  │   ├── trainer_state.json
+  │   └── meta.json
+  ```
+
+- Full-ft mode:
+
+  ```
+  checkpoints/
+  ├── last/           # Alias → latest
+  ├── best/           # Alias → best metric
+  ├── step_200/
+  │   ├── state_dict.pt
+  │   ├── tokenizer_config.json
+  │   ├── processor_config.json
+  │   ├── optimizer.pt
+  │   ├── scheduler.pt
+  │   ├── rng_state.pt
+  │   ├── trainer_state.json
+  │   └── meta.json
+  ```
 
 ### init_from vs resume_from
 
 | Flag | Behavior |
 |---|---|
-| `init_from` | Model weights only. Fresh training. |
-| `resume_from` | Full state: model, optimizer, scheduler, RNG. Continues training. |
+| `init_from` | Loads model weights only. For LoRA, loads adapter weights and keeps them trainable. Fresh optimizer/scheduler/RNG. |
+| `resume_from` | Full state: model/adapter, optimizer, scheduler, RNG. Continues training. |
 
 When initializing a LoRA model from a full-FT checkpoint, weights are loaded into the underlying base model and remapped for PEFT compatibility.
+When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout so they can be swapped independently at deployment time.
 
 ## Evaluation
 

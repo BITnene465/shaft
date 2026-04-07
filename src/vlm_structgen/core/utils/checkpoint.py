@@ -22,6 +22,18 @@ def _torch_load(
         return torch.load(path, map_location=map_location)
 
 
+def _resolve_finetune_mode(config_dict: dict[str, Any] | None) -> str:
+    if not isinstance(config_dict, dict):
+        return "full"
+    finetune = config_dict.get("finetune")
+    if not isinstance(finetune, dict):
+        return "full"
+    mode = finetune.get("mode")
+    if mode is None:
+        return "full"
+    return str(mode)
+
+
 def _resolve_state_dict_path(checkpoint_dir: Path) -> Path:
     flat_path = checkpoint_dir / "state_dict.pt"
     if flat_path.exists():
@@ -30,6 +42,22 @@ def _resolve_state_dict_path(checkpoint_dir: Path) -> Path:
     if legacy_path.exists():
         return legacy_path
     raise FileNotFoundError(f"Missing state dict in checkpoint: {checkpoint_dir}")
+
+
+def _resolve_adapter_dir(checkpoint_dir: Path) -> Path | None:
+    root_adapter_config = checkpoint_dir / "adapter_config.json"
+    root_adapter_weights = checkpoint_dir / "adapter_model.safetensors"
+    root_adapter_weights_bin = checkpoint_dir / "adapter_model.bin"
+    if root_adapter_config.exists() and (root_adapter_weights.exists() or root_adapter_weights_bin.exists()):
+        return checkpoint_dir
+
+    nested_dir = checkpoint_dir / "adapter"
+    nested_adapter_config = nested_dir / "adapter_config.json"
+    nested_adapter_weights = nested_dir / "adapter_model.safetensors"
+    nested_adapter_weights_bin = nested_dir / "adapter_model.bin"
+    if nested_adapter_config.exists() and (nested_adapter_weights.exists() or nested_adapter_weights_bin.exists()):
+        return nested_dir
+    return None
 
 
 def save_training_checkpoint(
@@ -45,12 +73,26 @@ def save_training_checkpoint(
     checkpoint_dir = ensure_dir(checkpoint_dir)
 
     unwrapped = unwrap_model(model)
-    torch.save(unwrapped.state_dict(), checkpoint_dir / "state_dict.pt")
     if hasattr(unwrapped, "config"):
         unwrapped.config.to_json_file(checkpoint_dir / "config.json")
 
     tokenizer.save_pretrained(checkpoint_dir)
     processor.save_pretrained(checkpoint_dir)
+
+    checkpoint_mode = _resolve_finetune_mode(config_dict)
+    if checkpoint_mode == "lora":
+        save_pretrained = getattr(unwrapped, "save_pretrained", None)
+        if not callable(save_pretrained):
+            raise ValueError(
+                "LoRA checkpoint saving requires a PEFT model with `save_pretrained()`."
+            )
+        save_pretrained(
+            checkpoint_dir,
+            safe_serialization=True,
+            save_embedding_layers=False,
+        )
+    else:
+        torch.save(unwrapped.state_dict(), checkpoint_dir / "state_dict.pt")
 
     if optimizer is not None:
         torch.save(optimizer.state_dict(), checkpoint_dir / "optimizer.pt")
@@ -66,6 +108,7 @@ def save_training_checkpoint(
             "protocol_version": "arrow_v2_json",
             "config": config_dict,
             "trainer_state": trainer_state,
+            "checkpoint_layout": "peft_adapter" if checkpoint_mode == "lora" else "full_state_dict",
         },
     )
 
@@ -81,13 +124,39 @@ def load_training_checkpoint(
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-    state_dict = _torch_load(
-        state_dict_path,
-        map_location="cpu",
-        weights_only=True,
-    )
-    unwrap_model(model).load_state_dict(state_dict, strict=strict)
+    meta = load_checkpoint_meta(checkpoint_dir)
+    checkpoint_mode = _resolve_finetune_mode(meta.get("config") if isinstance(meta, dict) else None)
+
+    if checkpoint_mode == "lora":
+        adapter_dir = _resolve_adapter_dir(checkpoint_dir)
+        if adapter_dir is not None:
+            peft_model = unwrap_model(model)
+            load_adapter = getattr(peft_model, "load_adapter", None)
+            if not callable(load_adapter):
+                raise ValueError(
+                    "LoRA checkpoint detected, but the model does not expose `load_adapter()`."
+                )
+            load_adapter(
+                adapter_dir,
+                adapter_name="default",
+                is_trainable=resume_training_state,
+            )
+        else:
+            state_dict_path = _resolve_state_dict_path(checkpoint_dir)
+            state_dict = _torch_load(
+                state_dict_path,
+                map_location="cpu",
+                weights_only=True,
+            )
+            unwrap_model(model).load_state_dict(state_dict, strict=strict)
+    else:
+        state_dict_path = _resolve_state_dict_path(checkpoint_dir)
+        state_dict = _torch_load(
+            state_dict_path,
+            map_location="cpu",
+            weights_only=True,
+        )
+        unwrap_model(model).load_state_dict(state_dict, strict=strict)
 
     trainer_state = {}
     trainer_state_path = checkpoint_dir / "trainer_state.json"
@@ -131,12 +200,6 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-    state_dict = _torch_load(
-        state_dict_path,
-        map_location="cpu",
-        weights_only=True,
-    )
     meta = load_checkpoint_meta(checkpoint_dir)
     checkpoint_mode = (
         meta.get("config", {})
@@ -168,18 +231,47 @@ def load_initial_model_checkpoint(
     load_error: RuntimeError | None = None
     for candidate_model in candidate_models:
         try:
-            candidate_state_dict = candidate_model.state_dict()
-            remapped_state_dict = _maybe_remap_full_checkpoint_for_lora_base(
-                source_state_dict=state_dict,
-                target_state_dict=candidate_state_dict,
-                checkpoint_mode=checkpoint_mode,
-            )
-            if remapped_state_dict is not None:
-                merged_state_dict = dict(candidate_state_dict)
-                merged_state_dict.update(remapped_state_dict)
-                candidate_model.load_state_dict(merged_state_dict, strict=True)
+            if checkpoint_mode == "lora":
+                adapter_dir = _resolve_adapter_dir(checkpoint_dir)
+                if adapter_dir is not None:
+                    load_adapter = getattr(candidate_model, "load_adapter", None)
+                    if callable(load_adapter):
+                        load_adapter(
+                            adapter_dir,
+                            adapter_name="default",
+                            is_trainable=True,
+                        )
+                    else:
+                        raise ValueError(
+                            "LoRA checkpoint detected, but the target model does not expose `load_adapter()`."
+                        )
+                else:
+                    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
+                    state_dict = _torch_load(
+                        state_dict_path,
+                        map_location="cpu",
+                        weights_only=True,
+                    )
+                    candidate_model.load_state_dict(state_dict, strict=strict)
             else:
-                candidate_model.load_state_dict(state_dict, strict=strict)
+                state_dict_path = _resolve_state_dict_path(checkpoint_dir)
+                state_dict = _torch_load(
+                    state_dict_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+                candidate_state_dict = candidate_model.state_dict()
+                remapped_state_dict = _maybe_remap_full_checkpoint_for_lora_base(
+                    source_state_dict=state_dict,
+                    target_state_dict=candidate_state_dict,
+                    checkpoint_mode=checkpoint_mode,
+                )
+                if remapped_state_dict is not None:
+                    merged_state_dict = dict(candidate_state_dict)
+                    merged_state_dict.update(remapped_state_dict)
+                    candidate_model.load_state_dict(merged_state_dict, strict=True)
+                else:
+                    candidate_model.load_state_dict(state_dict, strict=strict)
             load_error = None
             break
         except RuntimeError as exc:
