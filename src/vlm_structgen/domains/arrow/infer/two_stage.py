@@ -287,14 +287,6 @@ class TwoStageInferenceRunner:
             strict_prediction = result.report["strict"]["prediction"]
             local_prediction = strict_prediction or lenient_prediction
             if local_prediction is None:
-                final_instances_by_image[image_index].append(
-                    {
-                        "label": request.label,
-                        "bbox": [float(value) for value in stage1_instances[instance_index]["bbox"]],
-                        "keypoints": [],
-                        "stage2_status": "failed",
-                    }
-                )
                 stage2_reports_by_image[image_index].append(result.report)
                 continue
 
@@ -307,7 +299,6 @@ class TwoStageInferenceRunner:
                     "label": request.label,
                     "bbox": [float(value) for value in stage1_instances[instance_index]["bbox"]],
                     "keypoints": global_keypoints,
-                    "stage2_status": "success",
                 }
             )
             stage2_reports_by_image[image_index].append(result.report)

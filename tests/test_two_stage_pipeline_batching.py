@@ -24,16 +24,18 @@ class FakeStage1Runner:
 
 
 class FakeStage2Runner:
-    def __init__(self) -> None:
+    def __init__(self, *, fail_request_indices: set[int] | None = None) -> None:
         self.adapter = SimpleNamespace(num_bins=1000)
         self.batch_size = 1
         self.request_counts: list[int] = []
+        self.fail_request_indices = set(fail_request_indices or set())
 
     def predict_batch(self, requests, *, max_new_tokens=None):
         del max_new_tokens
         self.request_counts.append(len(requests))
         results: list[Stage2PredictionResult] = []
         for request in requests:
+            should_fail = int(request.index) in self.fail_request_indices
             results.append(
                 Stage2PredictionResult(
                     index=int(request.index),
@@ -41,15 +43,15 @@ class FakeStage2Runner:
                     raw_text="{}",
                     report={
                         "lenient": {
-                            "ok": True,
-                            "prediction": {"keypoints": [[1.0, 2.0], [3.0, 4.0]]},
-                            "error": None,
+                            "ok": not should_fail,
+                            "prediction": None if should_fail else {"keypoints": [[1.0, 2.0], [3.0, 4.0]]},
+                            "error": "stage2 failed" if should_fail else None,
                             "recovered_prefix": False,
                         },
                         "strict": {
-                            "ok": True,
-                            "prediction": {"keypoints": [[1.0, 2.0], [3.0, 4.0]]},
-                            "error": None,
+                            "ok": not should_fail,
+                            "prediction": None if should_fail else {"keypoints": [[1.0, 2.0], [3.0, 4.0]]},
+                            "error": "stage2 failed" if should_fail else None,
                             "recovered_prefix": False,
                         },
                     },
@@ -102,6 +104,34 @@ class TwoStagePipelineBatchingTests(unittest.TestCase):
         self.assertEqual(len(reports), 3)
         self.assertTrue(all(len(report["final_prediction"]["instances"]) == 1 for report in reports))
         self.assertTrue(all(len(report["stage2_results"]) == 1 for report in reports))
+
+    def test_stage2_failed_request_is_not_kept_in_final_prediction(self) -> None:
+        prediction = {"instances": [{"label": "single_arrow", "bbox": [2.0, 2.0, 10.0, 10.0], "keypoints": []}]}
+        stage1_runner = FakeStage1Runner(
+            [
+                (
+                    "raw-stage1",
+                    {
+                        "generation": {"closed_json_payload": True},
+                        "lenient": {"ok": True, "prediction": prediction, "error": None, "recovered_prefix": False},
+                        "strict": {"ok": True, "prediction": prediction, "error": None, "recovered_prefix": False},
+                    },
+                )
+            ]
+        )
+        stage2_runner = FakeStage2Runner(fail_request_indices={0})
+        runner = TwoStageInferenceRunner(
+            stage1_runner=stage1_runner,
+            stage2_runner=stage2_runner,
+            infer_config=object(),
+            padding_ratio=0.3,
+        )
+
+        report = runner.predict(Image.new("RGB", (32, 32), color="black"))
+
+        self.assertEqual(report["final_prediction"]["instances"], [])
+        self.assertEqual(len(report["stage2_results"]), 1)
+        self.assertFalse(report["stage2_results"][0]["strict"]["ok"])
 
 
 if __name__ == "__main__":
