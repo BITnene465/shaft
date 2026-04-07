@@ -13,13 +13,9 @@ def _is_lora_param(name: str) -> bool:
 
 
 def build_optimizer(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> torch.optim.Optimizer:
-    embed_lr = config.train.embed_learning_rate or config.train.learning_rate
-    lm_head_lr = config.train.lm_head_learning_rate or config.train.learning_rate
     lora_lr = config.train.lora_learning_rate or config.train.learning_rate
 
     groups = {
-        "embed_tokens": {"params": [], "lr": embed_lr, "weight_decay": config.train.weight_decay},
-        "lm_head": {"params": [], "lr": lm_head_lr, "weight_decay": config.train.weight_decay},
         "lora_params": {"params": [], "lr": lora_lr, "weight_decay": 0.0},
         "other": {"params": [], "lr": config.train.learning_rate, "weight_decay": config.train.weight_decay},
     }
@@ -27,14 +23,27 @@ def build_optimizer(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> 
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
-        if "embed_tokens" in name:
-            groups["embed_tokens"]["params"].append(parameter)
-        elif "lm_head" in name:
-            groups["lm_head"]["params"].append(parameter)
-        elif _is_lora_param(name):
+        if _is_lora_param(name):
             groups["lora_params"]["params"].append(parameter)
         else:
             groups["other"]["params"].append(parameter)
+
+    if config.finetune.mode == "lora":
+        non_lora_groups = {
+            group_name: len(payload["params"])
+            for group_name, payload in groups.items()
+            if group_name != "lora_params" and payload["params"]
+        }
+        if non_lora_groups:
+            raise ValueError(
+                "LoRA-only training expects only LoRA parameters to be trainable. "
+                f"Unexpected trainable parameter groups: {sorted(non_lora_groups.items())}."
+            )
+        if not groups["lora_params"]["params"]:
+            raise ValueError(
+                "LoRA-only training found no trainable LoRA parameters. "
+                "Check LoRA target module configuration."
+            )
 
     param_groups = []
     for group_name, payload in groups.items():
