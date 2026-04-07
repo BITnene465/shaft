@@ -29,12 +29,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-batch-size", type=int, default=None)
-    parser.add_argument(
-        "--stage1-mixed-proposals",
-        dest="stage1_mixed_proposals",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
     return parser.parse_args()
 
 
@@ -124,6 +118,8 @@ def build_demo(args: argparse.Namespace):
         stage2_checkpoint = stage2_checkpoint.strip()
         if not stage1_checkpoint:
             raise ValueError("Stage1 checkpoint path cannot be empty.")
+        effective_stage1_model = stage1_model or runner_holder["stage1_model"]
+        effective_stage2_model = stage2_model or runner_holder["stage2_model"]
         current = (
             runner_holder["stage1_model"],
             runner_holder["stage1_checkpoint"],
@@ -131,9 +127,9 @@ def build_demo(args: argparse.Namespace):
             runner_holder["stage2_checkpoint"],
         )
         requested = (
-            stage1_model,
+            effective_stage1_model,
             stage1_checkpoint,
-            stage2_model,
+            effective_stage2_model,
             stage2_checkpoint,
         )
         if current == requested:
@@ -143,14 +139,16 @@ def build_demo(args: argparse.Namespace):
             stage1_checkpoint_path=stage1_checkpoint,
             stage2_checkpoint_path=stage2_checkpoint or None,
             device_name=args.device,
-            stage1_model_name_or_path=stage1_model,
-            stage2_model_name_or_path=stage2_model or None,
+            stage1_model_name_or_path=effective_stage1_model or None,
+            stage2_model_name_or_path=effective_stage2_model or None,
         )
         old_runner = runner_holder["runner"]
         runner_holder["runner"] = new_runner
-        runner_holder["stage1_model"] = stage1_model
+        runner_holder["stage1_model"] = new_runner.stage1_runner.config.model.model_name_or_path
         runner_holder["stage1_checkpoint"] = stage1_checkpoint
-        runner_holder["stage2_model"] = stage2_model
+        runner_holder["stage2_model"] = (
+            new_runner.stage2_runner.config.model.model_name_or_path if new_runner.stage2_runner is not None else ""
+        )
         runner_holder["stage2_checkpoint"] = stage2_checkpoint
         try:
             del old_runner
@@ -167,12 +165,10 @@ def build_demo(args: argparse.Namespace):
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         stage1_count = len(stage1_prediction.get("instances", [])) if stage1_prediction else 0
         stage1_recovered = bool(report["stage1_report"]["lenient"].get("recovered_prefix", False))
-        stage1_mixed = bool(report["stage1_report"]["generation"].get("mixed_proposals_enabled", False))
         stage2_loaded = runner_holder["stage2_checkpoint"].strip() != ""
         stage2_refined = len(report.get("stage2_results", []))
         return (
             f"{'当前运行两阶段推理。' if stage2_loaded else '当前仅运行 Stage1 grounding。'}"
-            f" Stage1 mixed proposals: {stage1_mixed}."
             f" Stage1 detected {stage1_count} arrows."
             f" Final output contains {len(instances)} arrows."
             f" Stage2 refined: {stage2_refined}."
@@ -188,7 +184,6 @@ def build_demo(args: argparse.Namespace):
         stage1_max_new_tokens: int,
         stage2_max_new_tokens: int,
         stage2_batch_size: int,
-        stage1_mixed_proposals: bool,
     ):
         if image is None:
             raise gr.Error("Please upload an image.")
@@ -204,7 +199,6 @@ def build_demo(args: argparse.Namespace):
             stage1_max_new_tokens=stage1_max_new_tokens,
             stage2_max_new_tokens=stage2_max_new_tokens,
             stage2_batch_size=stage2_batch_size,
-            stage1_use_mixed_proposals=stage1_mixed_proposals,
         )
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         final_prediction = report["final_prediction"]
@@ -224,11 +218,6 @@ def build_demo(args: argparse.Namespace):
     stage1_default_max_new_tokens = args.stage1_max_new_tokens or infer_config.stage1.eval.max_new_tokens or 2048
     stage2_default_max_new_tokens = args.stage2_max_new_tokens or infer_config.stage2.eval.max_new_tokens or 256
     stage2_default_batch_size = args.stage2_batch_size or infer_config.stage2.batch_size or 1
-    stage1_default_mixed_proposals = (
-        bool(infer_config.stage1.tile_size_ratios)
-        if args.stage1_mixed_proposals is None
-        else bool(args.stage1_mixed_proposals)
-    )
 
     with gr.Blocks(title="ArrowVLM Two-Stage Demo") as demo:
         gr.Markdown("## ArrowVLM Two-Stage Demo\n可单独检查 Stage1 grounding，也可加载 Stage2 做两阶段推理。")
@@ -239,6 +228,7 @@ def build_demo(args: argparse.Namespace):
                     value=runner_holder["stage1_model"] or None,
                     label="Stage1 Base Model",
                     allow_custom_value=True,
+                    info="Optional. Leave empty to auto-load from stage1 checkpoint assets.",
                 )
                 stage1_checkpoint = gr.Dropdown(
                     choices=_discover_checkpoint_choices(runner_holder["stage1_checkpoint"]),
@@ -251,6 +241,7 @@ def build_demo(args: argparse.Namespace):
                     value=runner_holder["stage2_model"] or None,
                     label="Stage2 Base Model",
                     allow_custom_value=True,
+                    info="Optional. Leave empty to auto-load from stage2 checkpoint assets.",
                 )
                 stage2_checkpoint = gr.Dropdown(
                     choices=_discover_checkpoint_choices(runner_holder["stage2_checkpoint"]),
@@ -272,10 +263,6 @@ def build_demo(args: argparse.Namespace):
                     value=stage2_default_batch_size,
                     precision=0,
                     label="Stage2 Batch Size",
-                )
-                stage1_mixed_proposals = gr.Checkbox(
-                    value=stage1_default_mixed_proposals,
-                    label="Enable Stage1 Mixed Proposals",
                 )
                 image_input = gr.Image(type="pil", label="Input Image")
                 run_button = gr.Button("Run Two-Stage Inference", variant="primary")
@@ -334,7 +321,6 @@ def build_demo(args: argparse.Namespace):
                 stage1_max_new_tokens,
                 stage2_max_new_tokens,
                 stage2_batch_size,
-                stage1_mixed_proposals,
             ],
             outputs=[
                 input_gallery,

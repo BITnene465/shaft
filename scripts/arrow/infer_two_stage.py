@@ -28,15 +28,9 @@ def parse_args() -> argparse.Namespace:
     input_group.add_argument("--image-dir", default=None)
     parser.add_argument("--recursive", action="store_true", help="Recursively scan --image-dir for images.")
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
+    parser.add_argument("--stage1-batch-size", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-batch-size", type=int, default=None)
-    parser.add_argument(
-        "--stage1-mixed-proposals",
-        dest="stage1_mixed_proposals",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable or disable Stage1 full-image + tile mixed proposal aggregation.",
-    )
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
 
@@ -121,19 +115,25 @@ def _run_one(
     runner,
     image_path: Path,
     stage1_max_new_tokens: int | None,
+    stage1_batch_size: int | None,
     stage2_max_new_tokens: int | None,
     stage2_batch_size: int | None,
-    stage1_mixed_proposals: bool | None,
 ) -> tuple[Image.Image, dict[str, object]]:
     image = Image.open(image_path).convert("RGB")
     report = runner.predict(
         image,
         stage1_max_new_tokens=stage1_max_new_tokens,
+        stage1_batch_size=stage1_batch_size,
         stage2_max_new_tokens=stage2_max_new_tokens,
         stage2_batch_size=stage2_batch_size,
-        stage1_use_mixed_proposals=stage1_mixed_proposals,
     )
     return image, report
+
+
+def _resolve_stage1_batch_size(args: argparse.Namespace, runner) -> int:
+    if args.stage1_batch_size is not None:
+        return max(int(args.stage1_batch_size), 1)
+    return max(int(getattr(getattr(runner.stage1_runner, "settings", None), "batch_size", 1)), 1)
 
 
 def main() -> None:
@@ -161,9 +161,9 @@ def main() -> None:
             runner=runner,
             image_path=image_path,
             stage1_max_new_tokens=args.stage1_max_new_tokens,
+            stage1_batch_size=args.stage1_batch_size,
             stage2_max_new_tokens=args.stage2_max_new_tokens,
             stage2_batch_size=args.stage2_batch_size,
-            stage1_mixed_proposals=args.stage1_mixed_proposals,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         final_prediction = report["final_prediction"]
@@ -190,41 +190,45 @@ def main() -> None:
         raise ValueError("Batch directory inference requires --output-dir or infer config output_dir.")
 
     resolved_output_dir = Path(output_dir)
+    stage1_batch_size = _resolve_stage1_batch_size(args, runner)
     manifest: list[dict[str, object]] = []
-    print(f"Found {len(image_paths)} images under {image_dir}")
-    for index, image_path in enumerate(image_paths, start=1):
-        image, report = _run_one(
-            runner=runner,
-            image_path=image_path,
+    print(f"Found {len(image_paths)} images under {image_dir} | stage1_batch_size={stage1_batch_size}")
+    for batch_start in range(0, len(image_paths), stage1_batch_size):
+        batch_image_paths = image_paths[batch_start : batch_start + stage1_batch_size]
+        batch_images = [Image.open(image_path).convert("RGB") for image_path in batch_image_paths]
+        batch_reports = runner.predict_batch(
+            batch_images,
             stage1_max_new_tokens=args.stage1_max_new_tokens,
+            stage1_batch_size=stage1_batch_size,
             stage2_max_new_tokens=args.stage2_max_new_tokens,
             stage2_batch_size=args.stage2_batch_size,
-            stage1_mixed_proposals=args.stage1_mixed_proposals,
         )
-        relative_key = _relative_key(image_path, image_dir)
-        report_path, stage1_overlay_path, final_overlay_path = _save_outputs(
-            resolved_output_dir,
-            image=image,
-            image_path=image_path,
-            relative_key=relative_key,
-            report=report,
-        )
-        final_prediction = report["final_prediction"]
-        print(
-            f"[{index}/{len(image_paths)}] {relative_key} | "
-            f"{format_prediction_summary(final_prediction).replace(chr(10), ' | ')}"
-        )
-        manifest.append(
-            {
-                "image_path": str(image_path),
-                "relative_key": str(relative_key),
-                "report_path": str(report_path),
-                "stage1_overlay_path": str(stage1_overlay_path),
-                "final_overlay_path": str(final_overlay_path),
-                "num_instances": len(final_prediction.get("instances", [])),
-                "stage2_refined": len(report.get("stage2_results", [])),
-            }
-        )
+        for batch_index, (image_path, image, report) in enumerate(zip(batch_image_paths, batch_images, batch_reports, strict=False), start=1):
+            index = batch_start + batch_index
+            relative_key = _relative_key(image_path, image_dir)
+            report_path, stage1_overlay_path, final_overlay_path = _save_outputs(
+                resolved_output_dir,
+                image=image,
+                image_path=image_path,
+                relative_key=relative_key,
+                report=report,
+            )
+            final_prediction = report["final_prediction"]
+            print(
+                f"[{index}/{len(image_paths)}] {relative_key} | "
+                f"{format_prediction_summary(final_prediction).replace(chr(10), ' | ')}"
+            )
+            manifest.append(
+                {
+                    "image_path": str(image_path),
+                    "relative_key": str(relative_key),
+                    "report_path": str(report_path),
+                    "stage1_overlay_path": str(stage1_overlay_path),
+                    "final_overlay_path": str(final_overlay_path),
+                    "num_instances": len(final_prediction.get("instances", [])),
+                    "stage2_refined": len(report.get("stage2_results", [])),
+                }
+            )
     manifest_path = resolved_output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Saved batch manifest to: {manifest_path}")

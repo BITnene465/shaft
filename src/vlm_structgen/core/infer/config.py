@@ -57,6 +57,7 @@ class OneStageInferenceConfig:
     task: InferTaskConfig = field(default_factory=InferTaskConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
+    batch_size: int = 1
     app: InferAppConfig = field(default_factory=InferAppConfig)
     output_dir: str | None = None
 
@@ -68,12 +69,6 @@ class TwoStageStageInferenceConfig:
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
     batch_size: int = 1
-    include_full_image: bool = True
-    tile_size_ratios: list[float] = field(default_factory=list)
-    min_tile_size: int = 512
-    max_tile_size: int = 1280
-    tile_stride_ratio: float = 0.75
-    proposal_dedup_iou_threshold: float = 0.65
 
 
 @dataclass
@@ -90,6 +85,7 @@ class InferenceSettings:
     runtime: ExperimentRuntimeConfig
     checkpoint_path: str
     device: str | None = None
+    batch_size: int = 1
     output_dir: str | None = None
     app: InferAppConfig = field(default_factory=InferAppConfig)
 
@@ -246,6 +242,7 @@ def load_inference_settings(
         runtime=runtime,
         checkpoint_path=str(resolved_checkpoint_path),
         device=None,
+        batch_size=max(int(getattr(effective_infer_config, "batch_size", 1)), 1),
         output_dir=output_dir,
         app=app,
     )

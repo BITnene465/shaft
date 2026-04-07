@@ -37,6 +37,7 @@ python scripts/arrow/infer.py \
 常用覆盖参数：
 
 - `--max-new-tokens`
+- `--batch-size`（目录模式；默认读 infer config 的 `batch_size`）
 - `--model`
 - `--device`
 - `--env-file`
@@ -77,9 +78,9 @@ python scripts/arrow/infer_two_stage.py \
 常用覆盖参数：
 
 - `--stage1-max-new-tokens`
+- `--stage1-batch-size`
 - `--stage2-max-new-tokens`
 - `--stage2-batch-size`
-- `--stage1-mixed-proposals / --no-stage1-mixed-proposals`
 - `--stage1-model`
 - `--stage2-model`
 - `--device`
@@ -205,3 +206,48 @@ python scripts/arrow/eval_stage2_keypoints.py \
 - `configs/infer/infer_two_stage.yaml`
 
 checkpoint 路径和模型覆盖参数都通过 CLI 传入。
+
+其中：
+
+- one-stage 目录推理会按 `batch_size` 分批调用模型
+- two-stage 目录推理支持跨图两阶段 batch 编排：
+  - Stage1 整图 grounding 按 `stage1.batch_size` 或 `--stage1-batch-size`
+  - Stage2 会把这一批图产生的 crop request 合并后再按 `stage2.batch_size` 或 `--stage2-batch-size` 推理
+
+## 7. LoRA 合并导出（Merge）
+
+脚本：
+
+- `scripts/merge_lora.py`
+
+用途：
+
+- 将 LoRA 训练 checkpoint 合并为可直接加载的完整模型权重目录（不再依赖 LoRA adapter 加载）。
+- 建议在运行时量化前先做 merge，先验证 merged FP/BF16 基线，再单独量化 stage1/stage2。
+
+示例：
+
+```bash
+python scripts/merge_lora.py \
+  --checkpoint-dir outputs/qwen3vl-s1-lora/4b/exp6-syncAug2-weighted/checkpoints/best \
+  --output-dir outputs/merged/qwen3vl-s1-lora-4b-exp6-syncAug2-weighted
+```
+
+常用参数：
+
+- `--config`：当 checkpoint 的 `meta.json` 不含完整 config 时提供。
+- `--prefer-checkpoint-meta / --no-prefer-checkpoint-meta`
+- `--device`
+- `--safe-serialization / --no-safe-serialization`
+- `--export-state-dict-pt / --no-export-state-dict-pt`
+- `--export-full-model-pt / --no-export-full-model-pt`
+- `--save-checkpoint-compat / --no-save-checkpoint-compat`
+
+输出产物（`--output-dir`）：
+
+- merged 模型权重（`save_pretrained`）
+- `merged_state_dict.pt`（单文件参数）
+- `merged_model_full.pt`（单文件完整模型对象）
+- `model/state_dict.pt`（checkpoint 兼容）
+- tokenizer 与 processor 文件
+- `merge_meta.json`

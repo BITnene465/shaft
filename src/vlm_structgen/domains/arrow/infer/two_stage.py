@@ -9,14 +9,7 @@ from PIL import Image
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 from vlm_structgen.core.registry import get_adapter
-from vlm_structgen.domains.arrow.data.two_stage import (
-    _bbox_iou,
-    _build_sliding_crop_boxes,
-    _resolve_stage1_tile_sizes,
-    build_padded_crop,
-    quantize_bbox_2d,
-    to_crop_local_bbox,
-)
+from vlm_structgen.domains.arrow.data.two_stage import build_padded_crop, quantize_bbox_2d, to_crop_local_bbox
 from vlm_structgen.core.infer.config import (
     TwoStageInferenceConfig,
     build_runtime_from_two_stage_infer_config,
@@ -204,6 +197,8 @@ class Stage2KeypointInferenceRunner:
 @dataclass
 class Stage2Request:
     index: int
+    image_index: int
+    instance_index: int
     crop_image: Image.Image
     crop_box: list[int]
     label: str
@@ -229,326 +224,26 @@ class TwoStageInferenceRunner:
     def _extract_stage1_prediction(self, report: dict[str, Any]) -> dict[str, Any] | None:
         return report["strict"]["prediction"] or report["lenient"]["prediction"]
 
-    @staticmethod
-    def _summarize_branch_parse_status(
-        branch_predictions: list[dict[str, Any]],
-        mode: str,
-    ) -> dict[str, Any]:
-        failed_branches = [
-            {
-                "source_type": branch["source_type"],
-                "crop_box": branch["crop_box"],
-                "error": branch["report"][mode]["error"],
-            }
-            for branch in branch_predictions
-            if not bool(branch["report"][mode]["ok"])
-        ]
-        return {
-            "ok": len(failed_branches) == 0,
-            "error": (
-                None
-                if not failed_branches
-                else {
-                    "num_failed_branches": len(failed_branches),
-                    "branches": failed_branches,
-                }
-            ),
-            "num_failed_branches": len(failed_branches),
-        }
-
-    def _build_stage1_tile_boxes(self, image: Image.Image) -> list[list[int]]:
-        infer_cfg = getattr(self, "infer_config", None)
-        if infer_cfg is None:
-            return []
-        stage1_infer = infer_cfg.stage1
-        resolved_sizes = _resolve_stage1_tile_sizes(
-            image_width=int(image.width),
-            image_height=int(image.height),
-            tile_size_ratios=list(stage1_infer.tile_size_ratios),
-            min_tile_size=int(stage1_infer.min_tile_size),
-            max_tile_size=int(stage1_infer.max_tile_size),
-        )
-        crop_boxes: list[list[int]] = []
-        seen: set[tuple[int, int, int, int]] = set()
-        for tile_size in resolved_sizes:
-            stride = max(int(round(float(tile_size) * float(stage1_infer.tile_stride_ratio))), 1)
-            for crop_box in _build_sliding_crop_boxes(
-                image_width=int(image.width),
-                image_height=int(image.height),
-                tile_size=int(tile_size),
-                stride=int(stride),
-            ):
-                key = tuple(int(value) for value in crop_box)
-                if key in seen:
-                    continue
-                seen.add(key)
-                crop_boxes.append([int(value) for value in crop_box])
-        return crop_boxes
-
-    @staticmethod
-    def _map_instances_to_global(
-        instances: list[dict[str, Any]],
-        *,
-        crop_box: list[int] | None,
-    ) -> list[dict[str, Any]]:
-        if crop_box is None:
-            return [
-                {
-                    "label": str(instance.get("label", "")),
-                    "bbox": [float(value) for value in instance.get("bbox", [])],
-                    "keypoints": [[float(x), float(y)] for x, y in instance.get("keypoints", [])],
-                }
-                for instance in instances
-            ]
-        offset_x = float(crop_box[0])
-        offset_y = float(crop_box[1])
-        mapped: list[dict[str, Any]] = []
-        for instance in instances:
-            bbox = instance.get("bbox", [])
-            mapped_bbox = [
-                float(bbox[0]) + offset_x,
-                float(bbox[1]) + offset_y,
-                float(bbox[2]) + offset_x,
-                float(bbox[3]) + offset_y,
-            ] if len(bbox) == 4 else []
-            mapped.append(
-                {
-                    "label": str(instance.get("label", "")),
-                    "bbox": mapped_bbox,
-                    "keypoints": [
-                        [float(x) + offset_x, float(y) + offset_y]
-                        for x, y in instance.get("keypoints", [])
-                    ],
-                }
-            )
-        return mapped
-
-    def _aggregate_stage1_instances(
+    def _build_stage2_requests_for_image(
         self,
-        branch_predictions: list[dict[str, Any]],
         *,
-        dedup_across_sources: bool,
-    ) -> list[dict[str, Any]]:
-        infer_cfg = getattr(self, "infer_config", None)
-        dedup_iou_threshold = 0.65
-        if infer_cfg is not None:
-            dedup_iou_threshold = float(infer_cfg.stage1.proposal_dedup_iou_threshold)
-
-        proposals: list[dict[str, Any]] = []
-        for branch in branch_predictions:
-            source_type = str(branch["source_type"])
-            crop_box = branch.get("crop_box")
-            prediction = branch.get("prediction") or {"instances": []}
-            instances = self._map_instances_to_global(prediction.get("instances", []), crop_box=crop_box)
-            for instance in instances:
-                bbox = instance.get("bbox", [])
-                if len(bbox) != 4:
-                    continue
-                proposals.append(
-                    {
-                        **instance,
-                        "_source_type": source_type,
-                        "_crop_box": crop_box,
-                    }
-                )
-
-        if not dedup_across_sources:
-            return [
-                {
-                    "label": str(item.get("label", "")),
-                    "bbox": [float(value) for value in item.get("bbox", [])],
-                    "keypoints": [],
-                }
-                for item in proposals
-                if len(item.get("bbox", [])) == 4
-            ]
-
-        proposals.sort(
-            key=lambda item: (
-                0 if str(item.get("_source_type", "")).startswith("tile_") else 1,
-                (float(item["bbox"][2]) - float(item["bbox"][0])) * (float(item["bbox"][3]) - float(item["bbox"][1])),
-                float(item["bbox"][1]),
-                float(item["bbox"][0]),
-            )
-        )
-
-        deduped: list[dict[str, Any]] = []
-        for proposal in proposals:
-            label = str(proposal.get("label", ""))
-            bbox = proposal.get("bbox", [])
-            source_type = str(proposal.get("_source_type", ""))
-            if any(
-                str(existing.get("_source_type", "")) != source_type
-                and
-                str(existing.get("label", "")) == label
-                and _bbox_iou(existing.get("bbox", []), bbox) >= dedup_iou_threshold
-                for existing in deduped
-            ):
-                continue
-            deduped.append(
-                {
-                    "label": label,
-                    "bbox": [float(value) for value in bbox],
-                    "keypoints": [],
-                    "_source_type": source_type,
-                }
-            )
-        return [
-            {
-                "label": str(item.get("label", "")),
-                "bbox": [float(value) for value in item.get("bbox", [])],
-                "keypoints": [],
-            }
-            for item in deduped
-        ]
-
-    def _predict_stage1(self, image: Image.Image, *, max_new_tokens: int | None = None) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        return self._predict_stage1_with_options(
-            image,
-            max_new_tokens=max_new_tokens,
-            use_mixed_proposals=None,
-        )
-
-    def _predict_stage1_with_options(
-        self,
+        image_index: int,
         image: Image.Image,
-        *,
-        max_new_tokens: int | None = None,
-        use_mixed_proposals: bool | None = None,
-    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        infer_cfg = getattr(self, "infer_config", None)
-        if infer_cfg is None:
-            raw_text, report = self.stage1_runner.predict(image, max_new_tokens=max_new_tokens)
-            prediction = self._extract_stage1_prediction(report) or {"instances": []}
-            return raw_text, report, prediction
-
-        branch_predictions: list[dict[str, Any]] = []
-        raw_texts: list[str] = []
-        enable_mixed_proposals = (
-            bool(infer_cfg.stage1.tile_size_ratios)
-            if use_mixed_proposals is None
-            else bool(use_mixed_proposals)
-        )
-
-        if bool(infer_cfg.stage1.include_full_image):
-            full_raw_text, full_report = self.stage1_runner.predict(image, max_new_tokens=max_new_tokens)
-            raw_texts.append(full_raw_text)
-            full_prediction = self._extract_stage1_prediction(full_report)
-            branch_predictions.append(
-                {
-                    "source_type": "full_image",
-                    "crop_box": None,
-                    "raw_text": full_raw_text,
-                    "report": full_report,
-                    "prediction": full_prediction,
-                }
-            )
-
-        if enable_mixed_proposals:
-            for tile_index, crop_box in enumerate(self._build_stage1_tile_boxes(image)):
-                tile_image = image.crop(tuple(crop_box))
-                tile_raw_text, tile_report = self.stage1_runner.predict(tile_image, max_new_tokens=max_new_tokens)
-                raw_texts.append(tile_raw_text)
-                branch_predictions.append(
-                    {
-                        "source_type": f"tile_{tile_index:04d}",
-                        "crop_box": [int(value) for value in crop_box],
-                        "raw_text": tile_raw_text,
-                        "report": tile_report,
-                        "prediction": self._extract_stage1_prediction(tile_report),
-                    }
-                )
-
-        # In no-mixed mode, return full-image branch output directly with no extra dedup/post-processing.
-        if not enable_mixed_proposals and len(branch_predictions) == 1 and branch_predictions[0]["crop_box"] is None:
-            full_branch = branch_predictions[0]
-            full_prediction = full_branch.get("prediction") or {"instances": []}
-            return str(full_branch.get("raw_text", "")), full_branch["report"], full_prediction
-
-        aggregated_instances = self._aggregate_stage1_instances(
-            branch_predictions,
-            dedup_across_sources=enable_mixed_proposals,
-        )
-        aggregated_prediction = {"instances": aggregated_instances}
-        lenient_summary = self._summarize_branch_parse_status(branch_predictions, "lenient")
-        strict_summary = self._summarize_branch_parse_status(branch_predictions, "strict")
-        stage1_report = {
-            "generation": {
-                "num_branches": len(branch_predictions),
-                "num_full_image_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is None),
-                "num_tile_branches": sum(1 for branch in branch_predictions if branch["crop_box"] is not None),
-                "mixed_proposals_enabled": enable_mixed_proposals,
-                "num_lenient_failed_branches": lenient_summary["num_failed_branches"],
-                "num_strict_failed_branches": strict_summary["num_failed_branches"],
-            },
-            "lenient": {
-                "ok": lenient_summary["ok"],
-                "prediction": aggregated_prediction,
-                "error": lenient_summary["error"],
-                "recovered_prefix": any(
-                    bool(branch["report"]["lenient"].get("recovered_prefix", False))
-                    for branch in branch_predictions
-                ),
-            },
-            "strict": {
-                "ok": strict_summary["ok"],
-                "prediction": aggregated_prediction,
-                "error": strict_summary["error"],
-                "recovered_prefix": False,
-            },
-            "branches": [
-                {
-                    "source_type": branch["source_type"],
-                    "crop_box": branch["crop_box"],
-                    "report": branch["report"],
-                }
-                for branch in branch_predictions
-            ],
-        }
-        return "\n".join(raw_texts), stage1_report, aggregated_prediction
-
-    def predict(
-        self,
-        image: Image.Image,
-        *,
-        stage1_max_new_tokens: int | None = None,
-        stage2_max_new_tokens: int | None = None,
-        stage2_batch_size: int | None = None,
-        stage1_use_mixed_proposals: bool | None = None,
-    ) -> dict[str, Any]:
-        pil_image = image.convert("RGB")
-        stage1_raw_text, stage1_report, stage1_prediction = self._predict_stage1_with_options(
-            pil_image,
-            max_new_tokens=stage1_max_new_tokens,
-            use_mixed_proposals=stage1_use_mixed_proposals,
-        )
-        if stage1_prediction is None:
-            return {
-                "stage1_raw_text": stage1_raw_text,
-                "stage1_report": stage1_report,
-                "stage2_results": [],
-                "final_prediction": {"instances": []},
-            }
+        stage1_prediction: dict[str, Any],
+        start_index: int,
+    ) -> tuple[list[Stage2Request], int]:
         if self.stage2_runner is None:
-            return {
-                "stage1_raw_text": stage1_raw_text,
-                "stage1_report": stage1_report,
-                "stage2_results": [],
-                "final_prediction": stage1_prediction,
-            }
+            return [], start_index
 
-        stage1_instances = stage1_prediction.get("instances", [])
-        if stage2_batch_size is not None:
-            self.stage2_runner.batch_size = max(int(stage2_batch_size), 1)
-
-        stage2_requests: list[Stage2Request] = []
-        for index, instance in enumerate(stage1_instances):
+        requests: list[Stage2Request] = []
+        next_index = int(start_index)
+        for instance_index, instance in enumerate(stage1_prediction.get("instances", [])):
             bbox = instance.get("bbox", [])
             label = str(instance.get("label", ""))
             if len(bbox) != 4:
                 continue
             crop_image, crop_box = build_padded_crop(
-                pil_image,
+                image,
                 bbox=[float(value) for value in bbox],
                 padding_ratio=self.padding_ratio,
             )
@@ -560,9 +255,11 @@ class TwoStageInferenceRunner:
                 crop_height,
                 self.stage2_runner.adapter.num_bins,
             )
-            stage2_requests.append(
+            requests.append(
                 Stage2Request(
-                    index=index,
+                    index=next_index,
+                    image_index=int(image_index),
+                    instance_index=int(instance_index),
                     crop_image=crop_image,
                     crop_box=[int(value) for value in crop_box],
                     label=label,
@@ -570,52 +267,172 @@ class TwoStageInferenceRunner:
                     hint_keypoints_2d=[],
                 )
             )
+            next_index += 1
+        return requests, next_index
 
-        batched_results = self.stage2_runner.predict_batch(
-            stage2_requests,
-            max_new_tokens=stage2_max_new_tokens,
-        )
-
-        final_instances: list[dict[str, Any]] = []
-        stage2_reports: list[dict[str, Any]] = []
-        for request, result in zip(stage2_requests, batched_results):
+    def _finalize_stage2_outputs(
+        self,
+        *,
+        stage1_predictions: list[dict[str, Any]],
+        stage2_requests: list[Stage2Request],
+        stage2_results: list[Stage2PredictionResult],
+    ) -> tuple[list[list[dict[str, Any]]], list[list[dict[str, Any]]]]:
+        final_instances_by_image: list[list[dict[str, Any]]] = [[] for _ in stage1_predictions]
+        stage2_reports_by_image: list[list[dict[str, Any]]] = [[] for _ in stage1_predictions]
+        for request, result in zip(stage2_requests, stage2_results, strict=False):
+            image_index = int(request.image_index)
+            instance_index = int(request.instance_index)
+            stage1_instances = stage1_predictions[image_index].get("instances", [])
             lenient_prediction = result.report["lenient"]["prediction"]
             strict_prediction = result.report["strict"]["prediction"]
             local_prediction = strict_prediction or lenient_prediction
-            local_keypoints = local_prediction.get("keypoints", []) if local_prediction else []
             if local_prediction is None:
-                final_instances.append(
+                final_instances_by_image[image_index].append(
                     {
                         "label": request.label,
-                        "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
+                        "bbox": [float(value) for value in stage1_instances[instance_index]["bbox"]],
                         "keypoints": [],
                         "stage2_status": "failed",
                     }
                 )
-                stage2_reports.append(result.report)
+                stage2_reports_by_image[image_index].append(result.report)
                 continue
 
-            local_keypoints = local_prediction.get("keypoints", [])
             global_keypoints = [
                 [float(point[0]) + float(request.crop_box[0]), float(point[1]) + float(request.crop_box[1])]
-                for point in local_keypoints
+                for point in local_prediction.get("keypoints", [])
             ]
-            final_instances.append(
+            final_instances_by_image[image_index].append(
                 {
                     "label": request.label,
-                    "bbox": [float(value) for value in stage1_instances[request.index]["bbox"]],
+                    "bbox": [float(value) for value in stage1_instances[instance_index]["bbox"]],
                     "keypoints": global_keypoints,
                     "stage2_status": "success",
                 }
             )
-            stage2_reports.append(result.report)
+            stage2_reports_by_image[image_index].append(result.report)
+        return final_instances_by_image, stage2_reports_by_image
 
-        return {
-            "stage1_raw_text": stage1_raw_text,
-            "stage1_report": stage1_report,
-            "stage2_results": stage2_reports,
-            "final_prediction": {"instances": final_instances},
-        }
+    def _predict_stage1(
+        self,
+        image: Image.Image,
+        *,
+        max_new_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        raw_text, report = self.stage1_runner.predict(image, max_new_tokens=max_new_tokens)
+        prediction = self._extract_stage1_prediction(report) or {"instances": []}
+        return raw_text, report, prediction
+
+    def predict_batch(
+        self,
+        images: list[Image.Image],
+        *,
+        stage1_max_new_tokens: int | None = None,
+        stage2_max_new_tokens: int | None = None,
+        stage1_batch_size: int | None = None,
+        stage2_batch_size: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if not images:
+            return []
+
+        pil_images = [image.convert("RGB") for image in images]
+        effective_stage1_batch_size = max(
+            int(stage1_batch_size or getattr(getattr(self.stage1_runner, "settings", None), "batch_size", 1)),
+            1,
+        )
+        stage1_raw_texts: list[str] = []
+        stage1_reports: list[dict[str, Any]] = []
+        stage1_predictions: list[dict[str, Any]] = []
+        for start in range(0, len(pil_images), effective_stage1_batch_size):
+            batch_images = pil_images[start : start + effective_stage1_batch_size]
+            batch_outputs = self.stage1_runner.predict_batch(batch_images, max_new_tokens=stage1_max_new_tokens)
+            for raw_text, report in batch_outputs:
+                stage1_raw_texts.append(raw_text)
+                stage1_reports.append(report)
+                stage1_predictions.append(self._extract_stage1_prediction(report) or {"instances": []})
+
+        if self.stage2_runner is None:
+            return [
+                {
+                    "stage1_raw_text": raw_text,
+                    "stage1_report": report,
+                    "stage2_results": [],
+                    "final_prediction": prediction,
+                }
+                for raw_text, report, prediction in zip(stage1_raw_texts, stage1_reports, stage1_predictions, strict=False)
+            ]
+
+        if stage2_batch_size is not None:
+            self.stage2_runner.batch_size = max(int(stage2_batch_size), 1)
+
+        stage2_requests: list[Stage2Request] = []
+        next_stage2_index = 0
+        for image_index, (image, prediction) in enumerate(zip(pil_images, stage1_predictions, strict=False)):
+            image_requests, next_stage2_index = self._build_stage2_requests_for_image(
+                image_index=image_index,
+                image=image,
+                stage1_prediction=prediction,
+                start_index=next_stage2_index,
+            )
+            stage2_requests.extend(image_requests)
+
+        if not stage2_requests:
+            return [
+                {
+                    "stage1_raw_text": raw_text,
+                    "stage1_report": report,
+                    "stage2_results": [],
+                    "final_prediction": {"instances": []},
+                }
+                for raw_text, report in zip(stage1_raw_texts, stage1_reports, strict=False)
+            ]
+
+        stage2_results = self.stage2_runner.predict_batch(
+            stage2_requests,
+            max_new_tokens=stage2_max_new_tokens,
+        )
+        final_instances_by_image, stage2_reports_by_image = self._finalize_stage2_outputs(
+            stage1_predictions=stage1_predictions,
+            stage2_requests=stage2_requests,
+            stage2_results=stage2_results,
+        )
+        return [
+            {
+                "stage1_raw_text": raw_text,
+                "stage1_report": report,
+                "stage2_results": stage2_reports_by_image[index],
+                "final_prediction": {"instances": final_instances_by_image[index]},
+            }
+            for index, (raw_text, report) in enumerate(zip(stage1_raw_texts, stage1_reports, strict=False))
+        ]
+
+    def predict(
+        self,
+        image: Image.Image,
+        *,
+        stage1_max_new_tokens: int | None = None,
+        stage2_max_new_tokens: int | None = None,
+        stage1_batch_size: int | None = None,
+        stage2_batch_size: int | None = None,
+    ) -> dict[str, Any]:
+        if self.stage2_runner is None:
+            stage1_raw_text, stage1_report, stage1_prediction = self._predict_stage1(
+                image.convert("RGB"),
+                max_new_tokens=stage1_max_new_tokens,
+            )
+            return {
+                "stage1_raw_text": stage1_raw_text,
+                "stage1_report": stage1_report,
+                "stage2_results": [],
+                "final_prediction": stage1_prediction,
+            }
+        return self.predict_batch(
+            [image],
+            stage1_max_new_tokens=stage1_max_new_tokens,
+            stage2_max_new_tokens=stage2_max_new_tokens,
+            stage1_batch_size=stage1_batch_size,
+            stage2_batch_size=stage2_batch_size,
+        )[0]
 
 
 def _load_stage2_runner(

@@ -23,6 +23,8 @@ eval:
   do_sample: false
   use_cache: true
 
+batch_size: 1
+
 app:
   host: 127.0.0.1
   port: 7860

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -23,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     input_group.add_argument("--image-dir", default=None)
     parser.add_argument("--recursive", action="store_true", help="Recursively scan --image-dir for images.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this run.")
+    parser.add_argument("--batch-size", type=int, default=None, help="Batch size for directory inference.")
     parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")
     parser.add_argument(
         "--save-preview",
@@ -81,6 +83,26 @@ def _run_one(*, runner, image_path: Path, max_new_tokens: int | None) -> tuple[s
     return raw_text, parse_report, image
 
 
+def _resolve_batch_size(args: argparse.Namespace, runner: Any) -> int:
+    if args.batch_size is not None:
+        return max(int(args.batch_size), 1)
+    return max(int(getattr(getattr(runner, "settings", None), "batch_size", 1)), 1)
+
+
+def _run_batch(
+    *,
+    runner,
+    image_paths: list[Path],
+    max_new_tokens: int | None,
+) -> list[tuple[Path, str, dict[str, object], Image.Image]]:
+    images = [Image.open(image_path).convert("RGB") for image_path in image_paths]
+    predictions = runner.predict_batch(images, max_new_tokens=max_new_tokens)
+    return [
+        (image_path, raw_text, parse_report, image)
+        for image_path, image, (raw_text, parse_report) in zip(image_paths, images, predictions, strict=False)
+    ]
+
+
 def _print_single_result(raw_text: str, parse_report: dict[str, object]) -> None:
     print(json.dumps(parse_report, ensure_ascii=False, indent=2))
     print("\n[raw-output]")
@@ -115,6 +137,49 @@ def _print_single_result(raw_text: str, parse_report: dict[str, object]) -> None
             ]
         )
     )
+
+
+def _run_directory_inference(
+    *,
+    runner,
+    image_paths: list[Path],
+    output_dir: Path,
+    batch_size: int,
+    max_new_tokens: int | None,
+    save_preview: bool,
+) -> list[dict[str, object]]:
+    manifest: list[dict[str, object]] = []
+    for batch_start in range(0, len(image_paths), batch_size):
+        batch_image_paths = image_paths[batch_start : batch_start + batch_size]
+        batch_results = _run_batch(
+            runner=runner,
+            image_paths=batch_image_paths,
+            max_new_tokens=max_new_tokens,
+        )
+        for batch_index, (image_path, raw_text, parse_report, image) in enumerate(batch_results, start=1):
+            index = batch_start + batch_index
+            prediction_path, raw_text_path, preview_path = _save_outputs(
+                output_dir,
+                image_path,
+                image,
+                raw_text,
+                parse_report,
+                save_preview=save_preview,
+            )
+            num_instances = len((parse_report.get("strict", {}).get("prediction") or parse_report.get("lenient", {}).get("prediction") or {"instances": []}).get("instances", []))
+            print(f"[{index}/{len(image_paths)}] {image_path.name} | instances={num_instances}")
+            manifest.append(
+                {
+                    "image_path": str(image_path),
+                    "report_path": str(prediction_path),
+                    "raw_text_path": str(raw_text_path),
+                    "preview_path": str(preview_path) if preview_path is not None else None,
+                    "num_instances": int(num_instances),
+                    "lenient_ok": bool(parse_report.get("lenient", {}).get("ok", False)),
+                    "strict_ok": bool(parse_report.get("strict", {}).get("ok", False)),
+                }
+            )
+    return manifest
 
 
 def main() -> None:
@@ -159,35 +224,16 @@ def main() -> None:
     if output_dir is None:
         raise ValueError("Batch directory inference requires --output-dir or infer config output_dir.")
     resolved_output_dir = Path(output_dir)
-    manifest: list[dict[str, object]] = []
-    print(f"Found {len(image_paths)} images under {image_dir}")
-    for index, image_path in enumerate(image_paths, start=1):
-        raw_text, parse_report, image = _run_one(
-            runner=runner,
-            image_path=image_path,
-            max_new_tokens=args.max_new_tokens,
-        )
-        prediction_path, raw_text_path, preview_path = _save_outputs(
-            resolved_output_dir,
-            image_path,
-            image,
-            raw_text,
-            parse_report,
-            save_preview=args.save_preview,
-        )
-        num_instances = len((parse_report.get("strict", {}).get("prediction") or parse_report.get("lenient", {}).get("prediction") or {"instances": []}).get("instances", []))
-        print(f"[{index}/{len(image_paths)}] {image_path.name} | instances={num_instances}")
-        manifest.append(
-            {
-                "image_path": str(image_path),
-                "report_path": str(prediction_path),
-                "raw_text_path": str(raw_text_path),
-                "preview_path": str(preview_path) if preview_path is not None else None,
-                "num_instances": int(num_instances),
-                "lenient_ok": bool(parse_report.get("lenient", {}).get("ok", False)),
-                "strict_ok": bool(parse_report.get("strict", {}).get("ok", False)),
-            }
-        )
+    batch_size = _resolve_batch_size(args, runner)
+    print(f"Found {len(image_paths)} images under {image_dir} | batch_size={batch_size}")
+    manifest = _run_directory_inference(
+        runner=runner,
+        image_paths=image_paths,
+        output_dir=resolved_output_dir,
+        batch_size=batch_size,
+        max_new_tokens=args.max_new_tokens,
+        save_preview=args.save_preview,
+    )
     manifest_path = resolved_output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Saved batch manifest to: {manifest_path}")
