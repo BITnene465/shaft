@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         required=True,
-        help="Training checkpoint dir (adapter-only LoRA checkpoint or legacy state_dict layout).",
+        help="Training checkpoint dir (new LoRA layout with adapter + base_model/).",
     )
     parser.add_argument("--config", default="configs/infer/infer_stage1_grounding.yaml")
     parser.add_argument("--output-dir", required=True)
@@ -66,7 +66,7 @@ def main() -> None:
 
     model = unwrap_model(runner.artifacts.model)
 
-    # 2) Merge LoRA if available, then save merged model/tokenizer/processor.
+    # 2) Merge LoRA if available, then save the merged model bundle.
     if hasattr(model, "merge_and_unload") and callable(getattr(model, "merge_and_unload")):
         model = model.merge_and_unload()
 

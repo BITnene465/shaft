@@ -62,12 +62,11 @@ graph LR
 | Group | LR | Weight Decay | When used |
 |---|---|---|---|
 | `embed_tokens` | `embed_learning_rate` | Yes | Full-ft or explicit embedding tuning only |
-| `lm_head` | `lm_head_learning_rate` | Yes | Full-ft or explicit lm_head tuning only |
 | `lora_params` | `lora_learning_rate` | **No** | LoRA-only / adapter params |
 | `other` | `learning_rate` | Yes | Any remaining trainable non-LoRA params |
 
 Default LoRA LR: `learning_rate=5e-5`, `lora_learning_rate=1e-4`.
-In the current LoRA-only configs, embedding and lm_head are frozen and `lm_head` is exposed through `lora.lm_head_target_modules`.
+In the current LoRA-only configs, embedding is frozen, and LoRA is applied only to the main language / vision / projector linear modules.
 
 ## Checkpoint Format
 
@@ -94,32 +93,14 @@ Two layouts are supported:
   │   └── meta.json
   ```
 
-- Full-ft mode:
-
-  ```
-  checkpoints/
-  ├── last/           # Alias → latest
-  ├── best/           # Alias → best metric
-  ├── step_200/
-  │   ├── state_dict.pt
-  │   ├── tokenizer_config.json
-  │   ├── processor_config.json
-  │   ├── optimizer.pt
-  │   ├── scheduler.pt
-  │   ├── rng_state.pt
-  │   ├── trainer_state.json
-  │   └── meta.json
-  ```
-
 ### init_from vs resume_from
 
 | Flag | Behavior |
 |---|---|
-| `init_from` | Loads model weights only. For LoRA, loads adapter weights and keeps them trainable. Fresh optimizer/scheduler/RNG. |
-| `resume_from` | Full state: model/adapter, optimizer, scheduler, RNG. Continues training. |
+| `init_from` | Loads base model snapshot and adapter weights, then keeps adapter trainable. Fresh optimizer/scheduler/RNG. |
+| `resume_from` | Full state: base model snapshot, adapter, optimizer, scheduler, RNG. Continues training. |
 
-When initializing a LoRA model from a full-FT checkpoint, weights are loaded into the underlying base model and remapped for PEFT compatibility.
-When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout and the frozen base model is stored under `base_model/`, so adapters can still be swapped independently at deployment time while the checkpoint remains self-contained.
+When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout and the bundled base model is stored under `base_model/`, so adapters can still be swapped independently at deployment time while the checkpoint remains self-contained.
 
 ## Evaluation
 

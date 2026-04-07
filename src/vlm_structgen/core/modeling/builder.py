@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import importlib
 import importlib.util
-import shutil
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,62 +27,6 @@ def _resolve_model_class():
             "Please install the Qwen3-VL compatible transformers version."
         )
     return getattr(transformers_module, class_name)
-
-
-def _normalize_qwen3vl_text_config(model_config: Any) -> None:
-    rope_defaults = {
-        "rope_type": "default",
-        "mrope_section": [24, 20, 20],
-        "mrope_interleaved": True,
-    }
-
-    rope_scaling = getattr(model_config, "rope_scaling", None)
-    if rope_scaling is None:
-        model_config.rope_scaling = dict(rope_defaults)
-
-    text_config = getattr(model_config, "text_config", None)
-    if text_config is None:
-        return
-    rope_scaling = getattr(text_config, "rope_scaling", None)
-    if rope_scaling is None:
-        text_config.rope_scaling = dict(rope_defaults)
-
-
-def _normalize_tokenizer_config_for_compatibility(source_dir: Path) -> Path:
-    tokenizer_config_path = source_dir / "tokenizer_config.json"
-    if not tokenizer_config_path.exists():
-        return source_dir
-
-    try:
-        tokenizer_config = json.loads(tokenizer_config_path.read_text())
-    except json.JSONDecodeError:
-        return source_dir
-
-    if not isinstance(tokenizer_config.get("extra_special_tokens"), list):
-        return source_dir
-
-    temp_dir = Path(tempfile.mkdtemp(prefix="arrow-vlm-tokenizer-compat-"))
-    shutil.copytree(source_dir, temp_dir, dirs_exist_ok=True)
-    tokenizer_config.pop("extra_special_tokens", None)
-    tokenizer_config_path = temp_dir / "tokenizer_config.json"
-    tokenizer_config_path.write_text(json.dumps(tokenizer_config, ensure_ascii=False, indent=2) + "\n")
-    return temp_dir
-
-
-def _build_model_from_config(model_class, model_config, **model_kwargs):
-    from_config = getattr(model_class, "from_config", None)
-    if callable(from_config):
-        return from_config(model_config, **model_kwargs)
-
-    private_from_config = getattr(model_class, "_from_config", None)
-    if callable(private_from_config):
-        return private_from_config(model_config, **model_kwargs)
-
-    try:
-        return model_class(model_config, **model_kwargs)
-    except TypeError:
-        # Some model constructors may not accept extra kwargs.
-        return model_class(model_config)
 
 
 def _freeze_all_parameters(model: torch.nn.Module) -> None:
@@ -231,7 +172,7 @@ def build_model_tokenizer_processor(
         "local_files_only": local_files_only,
     }
     if dtype is not None:
-        model_kwargs["torch_dtype"] = dtype
+        model_kwargs["dtype"] = dtype
     attn_implementation = _resolve_attn_implementation(config)
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
@@ -269,77 +210,44 @@ def build_model_tokenizer_processor_from_checkpoint(
     *,
     checkpoint_dir: str | Path,
 ) -> BuildArtifacts:
-    from transformers import AutoConfig, AutoProcessor, AutoTokenizer
+    from transformers import AutoProcessor, AutoTokenizer
 
     checkpoint_dir = Path(checkpoint_dir)
     bundled_base_model_dir = checkpoint_dir / "base_model"
-
-    flat_model_config = checkpoint_dir / "config.json"
-    legacy_model_config = checkpoint_dir / "model" / "config.json"
-    bundled_base_model_config = bundled_base_model_dir / "config.json"
-    if bundled_base_model_config.exists():
-        model_config_path = bundled_base_model_config
-    else:
-        model_config_path = flat_model_config if flat_model_config.exists() else legacy_model_config
+    model_config_path = bundled_base_model_dir / "config.json"
     if not model_config_path.exists():
         raise FileNotFoundError(
-            f"Missing checkpoint model config. Tried: {flat_model_config} and {legacy_model_config}"
+            f"Missing bundled base model config: {model_config_path}"
         )
-
-    has_flat_tokenizer = (checkpoint_dir / "tokenizer_config.json").exists() or (checkpoint_dir / "tokenizer.json").exists()
-    has_flat_processor = (checkpoint_dir / "preprocessor_config.json").exists() or (checkpoint_dir / "processor_config.json").exists()
-    tokenizer_source = checkpoint_dir if has_flat_tokenizer else (checkpoint_dir / "tokenizer")
-    processor_source = checkpoint_dir if has_flat_processor else (checkpoint_dir / "processor")
-    tokenizer_source = _normalize_tokenizer_config_for_compatibility(Path(tokenizer_source))
-    processor_source = _normalize_tokenizer_config_for_compatibility(Path(processor_source))
 
     model_class = _resolve_model_class()
     attn_implementation = _resolve_attn_implementation(config)
-    model_config = AutoConfig.from_pretrained(model_config_path, trust_remote_code=config.model.trust_remote_code)
-    _normalize_qwen3vl_text_config(model_config)
     model_kwargs = {}
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
-    print(f"[builder] constructing model from checkpoint config: {model_config_path}", flush=True)
-    model = _build_model_from_config(model_class, model_config, **model_kwargs)
-
-    if bundled_base_model_dir.exists():
-        model_source = str(bundled_base_model_dir)
-    else:
-        model_source = _resolve_model_source(config)
-    local_files_only = _is_local_model_source(model_source)
-
-    if processor_source.exists():
-        print(f"[builder] loading processor from checkpoint: {processor_source}", flush=True)
-        processor = AutoProcessor.from_pretrained(
-            processor_source,
-            trust_remote_code=config.model.trust_remote_code,
-            local_files_only=True,
-        )
-    else:
-        print("[builder] checkpoint has no processor dir; falling back to model source.", flush=True)
-        processor = AutoProcessor.from_pretrained(
-            model_source,
-            trust_remote_code=config.model.trust_remote_code,
-            local_files_only=local_files_only,
-        )
+    model_source = str(bundled_base_model_dir)
+    print(f"[builder] loading model from checkpoint base model: {model_source}", flush=True)
+    model = model_class.from_pretrained(
+        model_source,
+        trust_remote_code=config.model.trust_remote_code,
+        local_files_only=True,
+        **model_kwargs,
+    )
+    print(f"[builder] loading processor from checkpoint: {checkpoint_dir}", flush=True)
+    processor = AutoProcessor.from_pretrained(
+        checkpoint_dir,
+        trust_remote_code=config.model.trust_remote_code,
+        local_files_only=True,
+    )
 
     tokenizer = getattr(processor, "tokenizer", None)
     if tokenizer is None:
-        if tokenizer_source.exists():
-            print(f"[builder] loading tokenizer from checkpoint: {tokenizer_source}", flush=True)
-            tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_source,
-                trust_remote_code=config.model.trust_remote_code,
-                local_files_only=True,
-            )
-        else:
-            print("[builder] checkpoint has no tokenizer dir; falling back to model source.", flush=True)
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_source,
-                trust_remote_code=config.model.trust_remote_code,
-                local_files_only=local_files_only,
-            )
+        print(f"[builder] loading tokenizer from checkpoint: {checkpoint_dir}", flush=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            checkpoint_dir,
+            trust_remote_code=config.model.trust_remote_code,
+            local_files_only=True,
+        )
         processor.tokenizer = tokenizer
 
     if tokenizer.pad_token_id is None and tokenizer.eos_token is not None:
@@ -403,22 +311,6 @@ def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntim
                 f"[builder] enabling LoRA on {len(proj_target_modules)} projector modules.",
                 flush=True,
             )
-        lm_head_target_modules = _collect_lora_target_module_names(
-            model,
-            include_name_substrings=[],
-            exclude_name_substrings=None,
-            suffixes=config.lora.lm_head_target_modules,
-        )
-        if not lm_head_target_modules:
-            raise ValueError(
-                "LoRA mode requested lm_head adapters, but no lm_head target modules were found. "
-                "Check lora.lm_head_target_modules."
-            )
-        target_modules.extend(lm_head_target_modules)
-        print(
-            f"[builder] enabling LoRA on {len(lm_head_target_modules)} lm_head modules.",
-            flush=True,
-        )
         lora_config = LoraConfig(
             r=config.lora.r,
             lora_alpha=config.lora.alpha,

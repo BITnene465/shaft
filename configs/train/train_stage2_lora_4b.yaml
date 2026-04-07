@@ -75,8 +75,6 @@ lora:
     - mlp.linear_fc2
   # Projector LoRA targets; empty means all linear layers matched by projector_name_substrings.
   proj_target_modules: []
-  lm_head_target_modules:
-    - lm_head
 
 train:
   epochs: 4

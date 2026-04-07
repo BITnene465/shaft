@@ -34,32 +34,11 @@ def parse_args() -> argparse.Namespace:
         help="Save merged HF weights as safetensors when enabled.",
     )
     parser.add_argument(
-        "--export-state-dict-pt",
-        dest="export_state_dict_pt",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Export merged_state_dict.pt in output root.",
-    )
-    parser.add_argument(
-        "--export-full-model-pt",
-        dest="export_full_model_pt",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Export merged_model_full.pt (single-file full model object).",
-    )
-    parser.add_argument(
         "--export-ft-checkpoint",
         dest="export_ft_checkpoint",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Export a full-ft checkpoint bundle under output_dir/ft_checkpoint.",
-    )
-    parser.add_argument(
-        "--save-checkpoint-compat",
-        dest="save_checkpoint_compat",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Also save checkpoint-compatible files under output_dir/model|tokenizer|processor.",
     )
     return parser.parse_args()
 
@@ -73,18 +52,13 @@ def main() -> None:
         prefer_checkpoint_meta=args.prefer_checkpoint_meta,
         device_name=args.device,
         safe_serialization=args.safe_serialization,
-        export_state_dict_pt=args.export_state_dict_pt,
-        export_full_model_pt=args.export_full_model_pt,
         export_ft_checkpoint=args.export_ft_checkpoint,
-        save_checkpoint_compat=args.save_checkpoint_compat,
     )
     print("[merge] success")
     print(f"[merge] checkpoint_dir: {result.checkpoint_dir}")
     print(f"[merge] output_dir: {result.output_dir}")
     print(f"[merge] model_source: {result.model_source}")
     print(f"[merge] used_checkpoint_meta_config: {result.used_checkpoint_meta_config}")
-    print(f"[merge] merged_state_dict_pt: {result.merged_state_dict_pt}")
-    print(f"[merge] merged_full_model_pt: {result.merged_full_model_pt}")
     print(f"[merge] ft_checkpoint_dir: {result.ft_checkpoint_dir}")
 
 

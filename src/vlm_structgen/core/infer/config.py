@@ -129,14 +129,6 @@ def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -
         section_value = checkpoint_config.get(section_name)
         if isinstance(section_value, dict):
             runtime_payload[section_name] = dict(section_value)
-    task_payload = runtime_payload.get("task")
-    if isinstance(task_payload, dict):
-        legacy_task_type = task_payload.get("type")
-        if task_payload.get("task_type") is None and legacy_task_type is not None:
-            task_payload["task_type"] = str(legacy_task_type)
-        task_type = str(task_payload.get("task_type") or "").strip().lower()
-        if task_type == "arrow_structure":
-            task_payload["task_type"] = "joint_structure"
     return runtime_payload
 
 

@@ -240,6 +240,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="Inference config path.")
     parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
     parser.add_argument("--env-file", default=None, help="Optional path to a .env file when checkpoint falls back to CHECKPOINT_PATH.")
+    parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this app session.")
     return parser.parse_args()
 
@@ -375,13 +376,15 @@ def build_demo(
     def _get_runner(model_name_or_path: str, checkpoint_path: str):
         selected_model = model_name_or_path.strip()
         selected_checkpoint = checkpoint_path.strip()
-        if not selected_model:
-            raise ValueError("Model path cannot be empty.")
         if not selected_checkpoint:
             raise ValueError("Checkpoint path cannot be empty.")
         current_model = runner_holder["model_name_or_path"]
         current_checkpoint = runner_holder["checkpoint_path"]
-        if runner_holder["runner"] is not None and selected_model == current_model and selected_checkpoint == current_checkpoint:
+        if (
+          runner_holder["runner"] is not None
+          and selected_checkpoint == current_checkpoint
+          and (not selected_model or selected_model == current_model)
+        ):
             return runner_holder["runner"]
         if runner_factory is None:
             raise RuntimeError("Runner factory is unavailable for model switching.")
@@ -393,13 +396,13 @@ def build_demo(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            next_runner = runner_factory(selected_model, selected_checkpoint)
+            next_runner = runner_factory(selected_model or None, selected_checkpoint)
         except Exception:
             runner_holder["runner"] = previous_runner
             raise
 
         runner_holder["runner"] = next_runner
-        runner_holder["model_name_or_path"] = selected_model
+        runner_holder["model_name_or_path"] = next_runner.config.model.model_name_or_path
         runner_holder["checkpoint_path"] = selected_checkpoint
         del previous_runner
         gc.collect()
@@ -487,7 +490,7 @@ def build_demo(
                         choices=model_choices,
                         value=runner.config.model.model_name_or_path if runner is not None else None,
                         allow_custom_value=True,
-                        info="Checkpoint and base model size must match.",
+                      info="Optional. Leave empty to auto-load from checkpoint assets when available.",
                     )
                     checkpoint_path_input = gr.Dropdown(
                         label="Checkpoint",
@@ -569,6 +572,7 @@ def main() -> None:
             config_path=args.config,
             env_file=args.env_file,
             model_name_or_path=model_name_or_path,
+            device_name=args.device,
         )
 
     runner = _runner_factory() if args.checkpoint else None

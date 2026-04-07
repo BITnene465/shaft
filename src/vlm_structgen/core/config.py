@@ -102,7 +102,6 @@ class LoraConfig:
         ]
     )
     proj_target_modules: list[str] = field(default_factory=list)
-    lm_head_target_modules: list[str] = field(default_factory=lambda: ["lm_head"])
 
 
 @dataclass

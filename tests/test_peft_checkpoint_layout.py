@@ -45,6 +45,18 @@ class _DummyBaseModel(torch.nn.Module):
         self.config = _DummyModelConfig()
         self.linear = torch.nn.Linear(2, 2)
 
+    @classmethod
+    def from_pretrained(cls, save_directory: str | Path, **kwargs) -> "_DummyBaseModel":
+        del kwargs
+        save_directory = Path(save_directory)
+        model = cls()
+        weights_path = save_directory / "weights.json"
+        if weights_path.exists():
+            payload = json.loads(weights_path.read_text(encoding="utf-8"))
+            model.linear.weight.data.copy_(torch.tensor(payload["linear.weight"], dtype=model.linear.weight.dtype))
+            model.linear.bias.data.copy_(torch.tensor(payload["linear.bias"], dtype=model.linear.bias.dtype))
+        return model
+
     def save_pretrained(
         self,
         save_directory: str | Path,
@@ -55,7 +67,15 @@ class _DummyBaseModel(torch.nn.Module):
         save_directory = Path(save_directory)
         save_directory.mkdir(parents=True, exist_ok=True)
         self.config.to_json_file(save_directory)
-        torch.save({"linear.weight": self.linear.weight.detach()}, save_directory / "model.safetensors")
+        payload = {
+            "linear.weight": self.linear.weight.detach().tolist(),
+            "linear.bias": self.linear.bias.detach().tolist(),
+        }
+        (save_directory / "weights.json").write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        torch.save(payload, save_directory / "model.safetensors")
 
 
 class _DummyPeftModel(torch.nn.Module):

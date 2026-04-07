@@ -171,97 +171,100 @@ def main() -> None:
 
         image_path = _resolve_image_path(str(record.get("image_path", "")), jsonl_path=jsonl_path)
         image = Image.open(image_path).convert("RGB")
-        raw_text, parse_report = runner.predict(image, max_new_tokens=args.max_new_tokens)
+        try:
+            raw_text, parse_report = runner.predict(image, max_new_tokens=args.max_new_tokens)
 
-        strict_ok = bool(parse_report["strict"]["ok"])
-        lenient_ok = bool(parse_report["lenient"]["ok"])
-        pred_struct = parse_report["strict"]["prediction"] if strict_ok else parse_report["lenient"]["prediction"]
-        if pred_struct is None:
-            pred_struct = adapter.empty_prediction()
+            strict_ok = bool(parse_report["strict"]["ok"])
+            lenient_ok = bool(parse_report["lenient"]["ok"])
+            pred_struct = parse_report["strict"]["prediction"] if strict_ok else parse_report["lenient"]["prediction"]
+            if pred_struct is None:
+                pred_struct = adapter.empty_prediction()
 
-        gt_struct = record.get("gt_struct")
-        if not isinstance(gt_struct, dict):
-            gt_struct = adapter.build_gt_struct_from_record(record)
+            gt_struct = record.get("gt_struct")
+            if not isinstance(gt_struct, dict):
+                gt_struct = adapter.build_gt_struct_from_record(record)
 
-        local_counts = adapter.score_prediction(
-            gt_struct,
-            pred_struct,
-            bbox_iou_threshold=0.5,
-            strict_point_distance_px=float(args.strict_point_distance_px),
-        )
-
-        counts["samples"] += 1.0
-        if lenient_ok:
-            counts["parse_success_lenient"] += 1.0
-        if strict_ok:
-            counts["parse_success_strict"] += 1.0
-        counts["point_distance_sum"] += float(local_counts.get("point_distance_sum", 0.0))
-        counts["point_count"] += float(local_counts.get("point_count", 0.0))
-        counts["keypoint_count_exact"] += float(local_counts.get("keypoint_count_exact", 0.0))
-        counts["end_to_end_correct"] += float(local_counts.get("end_to_end_correct", 0.0))
-
-        generation = dict(parse_report.get("generation", {}))
-        counts["generated_tokens"] += float(generation.get("generated_tokens", 0.0))
-        counts["returned_tokens"] += float(generation.get("returned_tokens", 0.0))
-        counts["hit_max_new_tokens"] += 1.0 if bool(generation.get("hit_max_new_tokens", False)) else 0.0
-        counts["closed_json_payload"] += 1.0 if bool(generation.get("closed_json_payload", False)) else 0.0
-
-        gt_points = gt_struct.get("keypoints", []) if isinstance(gt_struct, dict) else []
-        pred_points = pred_struct.get("keypoints", []) if isinstance(pred_struct, dict) else []
-
-        row = {
-            "sample_id": record.get("sample_id"),
-            "source_sample_id": record.get("source_sample_id"),
-            "target_index": record.get("target_index"),
-            "image_path": str(image_path),
-            "task_type": task_type,
-            "domain_type": domain_type,
-            "parse_lenient_ok": lenient_ok,
-            "parse_strict_ok": strict_ok,
-            "parse_lenient_error": parse_report["lenient"].get("error"),
-            "parse_strict_error": parse_report["strict"].get("error"),
-            "generation": generation,
-            "gt_num_points": int(len(gt_points)),
-            "pred_num_points": int(len(pred_points)),
-            "point_distance_sum": float(local_counts.get("point_distance_sum", 0.0)),
-            "point_count": float(local_counts.get("point_count", 0.0)),
-            "keypoint_count_exact": float(local_counts.get("keypoint_count_exact", 0.0)),
-            "end_to_end_correct": float(local_counts.get("end_to_end_correct", 0.0)),
-            "raw_text": raw_text,
-            "prediction": pred_struct,
-        }
-
-        if vis_dir is not None:
-            sample_id = str(record.get("sample_id") or Path(image_path).stem)
-            vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
-            _draw_keypoint_overlay(image, gt_points=gt_points, pred_points=pred_points).save(vis_path)
-            row["visualization_path"] = str(vis_path)
-
-        if args.save_per_sample:
-            per_sample_rows.append(row)
-
-        if not lenient_ok:
-            parse_badcases.append(row)
-
-        point_count = max(float(local_counts.get("point_count", 0.0)), 1.0)
-        mean_l2 = float(local_counts.get("point_distance_sum", 0.0)) / point_count
-        metric_error_score = (
-            (0.0 if bool(local_counts.get("end_to_end_correct", 0.0)) else 1.0) * 10.0
-            + abs(int(len(pred_points)) - int(len(gt_points)))
-            + mean_l2
-        )
-        metric_badcases.append({**row, "metric_error_score": metric_error_score, "mean_l2": mean_l2})
-
-        if progress is not None:
-            samples = max(counts["samples"], 1.0)
-            progress.set_postfix(
-                {
-                    "parseS": f"{counts['parse_success_strict'] / samples:.2f}",
-                    "e2e": f"{counts['end_to_end_correct'] / samples:.2f}",
-                    "l2": f"{counts['point_distance_sum'] / max(counts['point_count'], 1.0):.1f}",
-                }
+            local_counts = adapter.score_prediction(
+                gt_struct,
+                pred_struct,
+                bbox_iou_threshold=0.5,
+                strict_point_distance_px=float(args.strict_point_distance_px),
             )
-            progress.update(1)
+
+            counts["samples"] += 1.0
+            if lenient_ok:
+                counts["parse_success_lenient"] += 1.0
+            if strict_ok:
+                counts["parse_success_strict"] += 1.0
+            counts["point_distance_sum"] += float(local_counts.get("point_distance_sum", 0.0))
+            counts["point_count"] += float(local_counts.get("point_count", 0.0))
+            counts["keypoint_count_exact"] += float(local_counts.get("keypoint_count_exact", 0.0))
+            counts["end_to_end_correct"] += float(local_counts.get("end_to_end_correct", 0.0))
+
+            generation = dict(parse_report.get("generation", {}))
+            counts["generated_tokens"] += float(generation.get("generated_tokens", 0.0))
+            counts["returned_tokens"] += float(generation.get("returned_tokens", 0.0))
+            counts["hit_max_new_tokens"] += 1.0 if bool(generation.get("hit_max_new_tokens", False)) else 0.0
+            counts["closed_json_payload"] += 1.0 if bool(generation.get("closed_json_payload", False)) else 0.0
+
+            gt_points = gt_struct.get("keypoints", []) if isinstance(gt_struct, dict) else []
+            pred_points = pred_struct.get("keypoints", []) if isinstance(pred_struct, dict) else []
+
+            row = {
+                "sample_id": record.get("sample_id"),
+                "source_sample_id": record.get("source_sample_id"),
+                "target_index": record.get("target_index"),
+                "image_path": str(image_path),
+                "task_type": task_type,
+                "domain_type": domain_type,
+                "parse_lenient_ok": lenient_ok,
+                "parse_strict_ok": strict_ok,
+                "parse_lenient_error": parse_report["lenient"].get("error"),
+                "parse_strict_error": parse_report["strict"].get("error"),
+                "generation": generation,
+                "gt_num_points": int(len(gt_points)),
+                "pred_num_points": int(len(pred_points)),
+                "point_distance_sum": float(local_counts.get("point_distance_sum", 0.0)),
+                "point_count": float(local_counts.get("point_count", 0.0)),
+                "keypoint_count_exact": float(local_counts.get("keypoint_count_exact", 0.0)),
+                "end_to_end_correct": float(local_counts.get("end_to_end_correct", 0.0)),
+                "raw_text": raw_text,
+                "prediction": pred_struct,
+            }
+
+            if vis_dir is not None:
+                sample_id = str(record.get("sample_id") or Path(image_path).stem)
+                vis_path = vis_dir / f"{record_index:05d}_{sample_id}.png"
+                _draw_keypoint_overlay(image, gt_points=gt_points, pred_points=pred_points).save(vis_path)
+                row["visualization_path"] = str(vis_path)
+
+            if args.save_per_sample:
+                per_sample_rows.append(row)
+
+            if not lenient_ok:
+                parse_badcases.append(row)
+
+            point_count = max(float(local_counts.get("point_count", 0.0)), 1.0)
+            mean_l2 = float(local_counts.get("point_distance_sum", 0.0)) / point_count
+            metric_error_score = (
+                (0.0 if bool(local_counts.get("end_to_end_correct", 0.0)) else 1.0) * 10.0
+                + abs(int(len(pred_points)) - int(len(gt_points)))
+                + mean_l2
+            )
+            metric_badcases.append({**row, "metric_error_score": metric_error_score, "mean_l2": mean_l2})
+
+            if progress is not None:
+                samples = max(counts["samples"], 1.0)
+                progress.set_postfix(
+                    {
+                        "parseS": f"{counts['parse_success_strict'] / samples:.2f}",
+                        "e2e": f"{counts['end_to_end_correct'] / samples:.2f}",
+                        "l2": f"{counts['point_distance_sum'] / max(counts['point_count'], 1.0):.1f}",
+                    }
+                )
+                progress.update(1)
+        finally:
+            image.close()
 
     if progress is not None:
         progress.close()

@@ -96,11 +96,15 @@ def _run_batch(
     max_new_tokens: int | None,
 ) -> list[tuple[Path, str, dict[str, object], Image.Image]]:
     images = [Image.open(image_path).convert("RGB") for image_path in image_paths]
-    predictions = runner.predict_batch(images, max_new_tokens=max_new_tokens)
-    return [
-        (image_path, raw_text, parse_report, image)
-        for image_path, image, (raw_text, parse_report) in zip(image_paths, images, predictions, strict=False)
-    ]
+    try:
+        predictions = runner.predict_batch(images, max_new_tokens=max_new_tokens)
+        return [
+            (image_path, raw_text, parse_report, image)
+            for image_path, image, (raw_text, parse_report) in zip(image_paths, images, predictions, strict=False)
+        ]
+    finally:
+        for image in images:
+            image.close()
 
 
 def _print_single_result(raw_text: str, parse_report: dict[str, object]) -> None:
@@ -201,20 +205,23 @@ def main() -> None:
             image_path=image_path,
             max_new_tokens=args.max_new_tokens,
         )
-        _print_single_result(raw_text, parse_report)
-        if output_dir is not None:
-            prediction_path, raw_text_path, preview_path = _save_outputs(
-                Path(output_dir),
-                image_path,
-                image,
-                raw_text,
-                parse_report,
-                save_preview=args.save_preview,
-            )
-            print(f"Saved parsed prediction to: {prediction_path}")
-            print(f"Saved raw output to: {raw_text_path}")
-            if preview_path is not None:
-                print(f"Saved preview to: {preview_path}")
+        try:
+            _print_single_result(raw_text, parse_report)
+            if output_dir is not None:
+                prediction_path, raw_text_path, preview_path = _save_outputs(
+                    Path(output_dir),
+                    image_path,
+                    image,
+                    raw_text,
+                    parse_report,
+                    save_preview=args.save_preview,
+                )
+                print(f"Saved parsed prediction to: {prediction_path}")
+                print(f"Saved raw output to: {raw_text_path}")
+                if preview_path is not None:
+                    print(f"Saved preview to: {preview_path}")
+        finally:
+            image.close()
         return
 
     image_dir = Path(args.image_dir)

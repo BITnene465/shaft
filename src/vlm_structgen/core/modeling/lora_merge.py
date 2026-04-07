@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import torch
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, _from_dict, apply_model_scale_tag, load_config
 from vlm_structgen.core.modeling.builder import (
-    build_model_tokenizer_processor,
     build_model_tokenizer_processor_from_checkpoint,
 )
 from vlm_structgen.core.utils.checkpoint import load_checkpoint_meta, load_training_checkpoint
@@ -23,8 +21,6 @@ class MergeResult:
     checkpoint_dir: Path
     used_checkpoint_meta_config: bool
     model_source: str
-    merged_state_dict_pt: Path | None
-    merged_full_model_pt: Path | None
     ft_checkpoint_dir: Path | None
 
 
@@ -76,10 +72,7 @@ def merge_lora_checkpoint(
     prefer_checkpoint_meta: bool = True,
     device_name: str | None = None,
     safe_serialization: bool = True,
-    export_state_dict_pt: bool = False,
-    export_full_model_pt: bool = False,
     export_ft_checkpoint: bool = False,
-    save_checkpoint_compat: bool = False,
 ) -> MergeResult:
     checkpoint_dir = Path(checkpoint_dir)
     output_dir = Path(output_dir)
@@ -99,13 +92,14 @@ def merge_lora_checkpoint(
             f"Expected finetune.mode='lora' for merge, got {runtime_config.finetune.mode!r}."
         )
 
-    if (checkpoint_dir / "config.json").exists() or (checkpoint_dir / "model" / "config.json").exists():
-        artifacts = build_model_tokenizer_processor_from_checkpoint(
-            runtime_config,
-            checkpoint_dir=checkpoint_dir,
+    if not (checkpoint_dir / "base_model" / "config.json").exists():
+        raise FileNotFoundError(
+            f"Missing bundled base_model/ directory in checkpoint: {checkpoint_dir}"
         )
-    else:
-        artifacts = build_model_tokenizer_processor(runtime_config)
+    artifacts = build_model_tokenizer_processor_from_checkpoint(
+        runtime_config,
+        checkpoint_dir=checkpoint_dir,
+    )
     device = _resolve_device(device_name)
     artifacts.model = artifacts.model.to(device)
 
@@ -136,22 +130,7 @@ def merge_lora_checkpoint(
     artifacts.processor.save_pretrained(output_dir)
     _sanitize_tokenizer_config(output_dir)
 
-    merged_state_dict_pt: Path | None = None
-    merged_full_model_pt: Path | None = None
     ft_checkpoint_dir: Path | None = None
-
-    if export_state_dict_pt:
-        merged_state_dict_pt = output_dir / "merged_state_dict.pt"
-        torch.save(merged_model.state_dict(), merged_state_dict_pt)
-
-    full_model_export_error: str | None = None
-    if export_full_model_pt:
-        merged_full_model_pt = output_dir / "merged_model_full.pt"
-        try:
-            torch.save(merged_model, merged_full_model_pt)
-        except Exception as exc:  # noqa: BLE001
-            full_model_export_error = str(exc)
-            merged_full_model_pt = None
 
     if export_ft_checkpoint:
         ft_checkpoint_dir = ensure_dir(output_dir / "ft_checkpoint")
@@ -162,18 +141,6 @@ def merge_lora_checkpoint(
         artifacts.processor.save_pretrained(ft_checkpoint_dir)
         _sanitize_tokenizer_config(ft_checkpoint_dir)
 
-    if save_checkpoint_compat:
-        model_dir = ensure_dir(output_dir / "model")
-        tokenizer_dir = ensure_dir(output_dir / "tokenizer")
-        processor_dir = ensure_dir(output_dir / "processor")
-        torch.save(merged_model.state_dict(), model_dir / "state_dict.pt")
-        if hasattr(merged_model, "config"):
-            merged_model.config.to_json_file(model_dir / "config.json")
-        artifacts.tokenizer.save_pretrained(tokenizer_dir)
-        artifacts.processor.save_pretrained(processor_dir)
-        _sanitize_tokenizer_config(tokenizer_dir)
-        _sanitize_tokenizer_config(processor_dir)
-
     write_json(
         output_dir / "merge_meta.json",
         {
@@ -182,14 +149,8 @@ def merge_lora_checkpoint(
             "model_source": runtime_config.model.model_name_or_path,
             "finetune_mode": runtime_config.finetune.mode,
             "safe_serialization": bool(safe_serialization),
-            "export_state_dict_pt": bool(export_state_dict_pt),
-            "export_full_model_pt": bool(export_full_model_pt),
             "export_ft_checkpoint": bool(export_ft_checkpoint),
-            "save_checkpoint_compat": bool(save_checkpoint_compat),
-            "merged_state_dict_pt": str(merged_state_dict_pt) if merged_state_dict_pt is not None else None,
-            "merged_full_model_pt": str(merged_full_model_pt) if merged_full_model_pt is not None else None,
             "ft_checkpoint_dir": str(ft_checkpoint_dir) if ft_checkpoint_dir is not None else None,
-            "full_model_export_error": full_model_export_error,
         },
     )
 
@@ -198,7 +159,5 @@ def merge_lora_checkpoint(
         checkpoint_dir=checkpoint_dir,
         used_checkpoint_meta_config=used_meta,
         model_source=runtime_config.model.model_name_or_path,
-        merged_state_dict_pt=merged_state_dict_pt,
-        merged_full_model_pt=merged_full_model_pt,
         ft_checkpoint_dir=ft_checkpoint_dir,
     )

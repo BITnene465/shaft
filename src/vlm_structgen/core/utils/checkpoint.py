@@ -22,42 +22,38 @@ def _torch_load(
         return torch.load(path, map_location=map_location)
 
 
-def _resolve_finetune_mode(config_dict: dict[str, Any] | None) -> str:
-    if not isinstance(config_dict, dict):
-        return "full"
-    finetune = config_dict.get("finetune")
-    if not isinstance(finetune, dict):
-        return "full"
-    mode = finetune.get("mode")
-    if mode is None:
-        return "full"
-    return str(mode)
-
-
-def _resolve_state_dict_path(checkpoint_dir: Path) -> Path:
-    flat_path = checkpoint_dir / "state_dict.pt"
-    if flat_path.exists():
-        return flat_path
-    legacy_path = checkpoint_dir / "model" / "state_dict.pt"
-    if legacy_path.exists():
-        return legacy_path
-    raise FileNotFoundError(f"Missing state dict in checkpoint: {checkpoint_dir}")
-
-
-def _resolve_adapter_dir(checkpoint_dir: Path) -> Path | None:
+def _resolve_adapter_dir(checkpoint_dir: Path) -> Path:
     root_adapter_config = checkpoint_dir / "adapter_config.json"
     root_adapter_weights = checkpoint_dir / "adapter_model.safetensors"
     root_adapter_weights_bin = checkpoint_dir / "adapter_model.bin"
     if root_adapter_config.exists() and (root_adapter_weights.exists() or root_adapter_weights_bin.exists()):
         return checkpoint_dir
+    raise FileNotFoundError(f"Missing adapter files in checkpoint: {checkpoint_dir}")
 
-    nested_dir = checkpoint_dir / "adapter"
-    nested_adapter_config = nested_dir / "adapter_config.json"
-    nested_adapter_weights = nested_dir / "adapter_model.safetensors"
-    nested_adapter_weights_bin = nested_dir / "adapter_model.bin"
-    if nested_adapter_config.exists() and (nested_adapter_weights.exists() or nested_adapter_weights_bin.exists()):
-        return nested_dir
-    return None
+
+def _resolve_base_model_dir(checkpoint_dir: Path) -> Path:
+    base_model_dir = checkpoint_dir / "base_model"
+    if not (base_model_dir / "config.json").exists():
+        raise FileNotFoundError(
+            f"Missing bundled base model in checkpoint: {checkpoint_dir}."
+        )
+    return base_model_dir
+
+
+def _load_base_model_snapshot(checkpoint_dir: Path, model: torch.nn.Module) -> None:
+    base_model_dir = _resolve_base_model_dir(checkpoint_dir)
+    base_model_getter = getattr(unwrap_model(model), "get_base_model", None)
+    if not callable(base_model_getter):
+        raise ValueError(
+            "LoRA checkpoint detected, but the model does not expose `get_base_model()`."
+        )
+    base_model = base_model_getter()
+    base_model_class = base_model.__class__
+    snapshot = base_model_class.from_pretrained(
+        base_model_dir,
+        local_files_only=True,
+    )
+    base_model.load_state_dict(snapshot.state_dict(), strict=False)
 
 
 def save_training_checkpoint(
@@ -73,40 +69,33 @@ def save_training_checkpoint(
     checkpoint_dir = ensure_dir(checkpoint_dir)
 
     unwrapped = unwrap_model(model)
-    if hasattr(unwrapped, "config"):
-        unwrapped.config.to_json_file(checkpoint_dir / "config.json")
-
     tokenizer.save_pretrained(checkpoint_dir)
     processor.save_pretrained(checkpoint_dir)
 
-    checkpoint_mode = _resolve_finetune_mode(config_dict)
-    if checkpoint_mode == "lora":
-        save_pretrained = getattr(unwrapped, "save_pretrained", None)
-        if not callable(save_pretrained):
-            raise ValueError(
-                "LoRA checkpoint saving requires a PEFT model with `save_pretrained()`."
-            )
-        save_pretrained(
-            checkpoint_dir,
-            safe_serialization=True,
-            save_embedding_layers=False,
+    save_pretrained = getattr(unwrapped, "save_pretrained", None)
+    if not callable(save_pretrained):
+        raise ValueError(
+            "LoRA checkpoint saving requires a PEFT model with `save_pretrained()`."
         )
+    save_pretrained(
+        checkpoint_dir,
+        safe_serialization=True,
+        save_embedding_layers=False,
+    )
 
-        base_model_getter = getattr(unwrapped, "get_base_model", None)
-        if not callable(base_model_getter):
-            raise ValueError(
-                "LoRA checkpoint saving requires a PEFT model with `get_base_model()`."
-            )
-        base_model = base_model_getter()
-        base_model_dir = ensure_dir(checkpoint_dir / "base_model")
-        base_model_save_pretrained = getattr(base_model, "save_pretrained", None)
-        if not callable(base_model_save_pretrained):
-            raise ValueError(
-                "LoRA checkpoint saving requires a base model with `save_pretrained()`."
-            )
-        base_model_save_pretrained(base_model_dir, safe_serialization=True)
-    else:
-        torch.save(unwrapped.state_dict(), checkpoint_dir / "state_dict.pt")
+    base_model_getter = getattr(unwrapped, "get_base_model", None)
+    if not callable(base_model_getter):
+        raise ValueError(
+            "LoRA checkpoint saving requires a PEFT model with `get_base_model()`."
+        )
+    base_model = base_model_getter()
+    base_model_dir = ensure_dir(checkpoint_dir / "base_model")
+    base_model_save_pretrained = getattr(base_model, "save_pretrained", None)
+    if not callable(base_model_save_pretrained):
+        raise ValueError(
+            "LoRA checkpoint saving requires a base model with `save_pretrained()`."
+        )
+    base_model_save_pretrained(base_model_dir, safe_serialization=False)
 
     if optimizer is not None:
         torch.save(optimizer.state_dict(), checkpoint_dir / "optimizer.pt")
@@ -122,8 +111,8 @@ def save_training_checkpoint(
             "protocol_version": "arrow_v2_json",
             "config": config_dict,
             "trainer_state": trainer_state,
-            "checkpoint_layout": "peft_adapter" if checkpoint_mode == "lora" else "full_state_dict",
-            "has_base_model": bool(checkpoint_mode == "lora"),
+            "checkpoint_layout": "peft_adapter_with_base_model",
+            "has_base_model": True,
         },
     )
 
@@ -139,39 +128,20 @@ def load_training_checkpoint(
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    meta = load_checkpoint_meta(checkpoint_dir)
-    checkpoint_mode = _resolve_finetune_mode(meta.get("config") if isinstance(meta, dict) else None)
-
-    if checkpoint_mode == "lora":
-        adapter_dir = _resolve_adapter_dir(checkpoint_dir)
-        if adapter_dir is not None:
-            peft_model = unwrap_model(model)
-            load_adapter = getattr(peft_model, "load_adapter", None)
-            if not callable(load_adapter):
-                raise ValueError(
-                    "LoRA checkpoint detected, but the model does not expose `load_adapter()`."
-                )
-            load_adapter(
-                adapter_dir,
-                adapter_name="default",
-                is_trainable=resume_training_state,
-            )
-        else:
-            state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-            state_dict = _torch_load(
-                state_dict_path,
-                map_location="cpu",
-                weights_only=True,
-            )
-            unwrap_model(model).load_state_dict(state_dict, strict=strict)
-    else:
-        state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-        state_dict = _torch_load(
-            state_dict_path,
-            map_location="cpu",
-            weights_only=True,
+    _ = strict
+    _load_base_model_snapshot(checkpoint_dir, model)
+    adapter_dir = _resolve_adapter_dir(checkpoint_dir)
+    peft_model = unwrap_model(model)
+    load_adapter = getattr(peft_model, "load_adapter", None)
+    if not callable(load_adapter):
+        raise ValueError(
+            "LoRA checkpoint detected, but the model does not expose `load_adapter()`."
         )
-        unwrap_model(model).load_state_dict(state_dict, strict=strict)
+    load_adapter(
+        adapter_dir,
+        adapter_name="default",
+        is_trainable=resume_training_state,
+    )
 
     trainer_state = {}
     trainer_state_path = checkpoint_dir / "trainer_state.json"
@@ -215,112 +185,20 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    meta = load_checkpoint_meta(checkpoint_dir)
-    checkpoint_mode = (
-        meta.get("config", {})
-        .get("finetune", {})
-        .get("mode")
-    )
-
-    target_model = unwrap_model(model)
-    base_model_getter = getattr(target_model, "get_base_model", None)
-    candidate_models: list[torch.nn.Module] = []
-
-    if checkpoint_mode == "lora" and not callable(base_model_getter):
+    _load_base_model_snapshot(checkpoint_dir, model)
+    adapter_dir = _resolve_adapter_dir(checkpoint_dir)
+    peft_model = unwrap_model(model)
+    load_adapter = getattr(peft_model, "load_adapter", None)
+    if not callable(load_adapter):
         raise ValueError(
-            "Cannot initialize a non-LoRA model from a LoRA checkpoint with `init-from`. "
-            "Use a matching LoRA config with `init-from`, or use `resume-from` on the original training setup."
+            "LoRA checkpoint detected, but the target model does not expose `load_adapter()`."
         )
-
-    if checkpoint_mode == "full" and callable(base_model_getter):
-        # Common stage-2 case: initialize a fresh LoRA-wrapped model from a full-FT
-        # checkpoint by loading weights into the underlying base model only.
-        candidate_models.append(base_model_getter())
-    else:
-        candidate_models.append(target_model)
-        if callable(base_model_getter):
-            base_model = base_model_getter()
-            if base_model is not target_model:
-                candidate_models.append(base_model)
-
-    load_error: RuntimeError | None = None
-    for candidate_model in candidate_models:
-        try:
-            if checkpoint_mode == "lora":
-                adapter_dir = _resolve_adapter_dir(checkpoint_dir)
-                if adapter_dir is not None:
-                    load_adapter = getattr(candidate_model, "load_adapter", None)
-                    if callable(load_adapter):
-                        load_adapter(
-                            adapter_dir,
-                            adapter_name="default",
-                            is_trainable=True,
-                        )
-                    else:
-                        raise ValueError(
-                            "LoRA checkpoint detected, but the target model does not expose `load_adapter()`."
-                        )
-                else:
-                    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-                    state_dict = _torch_load(
-                        state_dict_path,
-                        map_location="cpu",
-                        weights_only=True,
-                    )
-                    candidate_model.load_state_dict(state_dict, strict=strict)
-            else:
-                state_dict_path = _resolve_state_dict_path(checkpoint_dir)
-                state_dict = _torch_load(
-                    state_dict_path,
-                    map_location="cpu",
-                    weights_only=True,
-                )
-                candidate_state_dict = candidate_model.state_dict()
-                remapped_state_dict = _maybe_remap_full_checkpoint_for_lora_base(
-                    source_state_dict=state_dict,
-                    target_state_dict=candidate_state_dict,
-                    checkpoint_mode=checkpoint_mode,
-                )
-                if remapped_state_dict is not None:
-                    merged_state_dict = dict(candidate_state_dict)
-                    merged_state_dict.update(remapped_state_dict)
-                    candidate_model.load_state_dict(merged_state_dict, strict=True)
-                else:
-                    candidate_model.load_state_dict(state_dict, strict=strict)
-            load_error = None
-            break
-        except RuntimeError as exc:
-            load_error = exc
-
-    if load_error is not None:
-        raise RuntimeError(
-            f"Failed to initialize model weights from checkpoint {checkpoint_dir}."
-        ) from load_error
-    return meta
-
-
-def _maybe_remap_full_checkpoint_for_lora_base(
-    source_state_dict: dict[str, torch.Tensor],
-    target_state_dict: dict[str, torch.Tensor],
-    checkpoint_mode: str | None,
-) -> dict[str, torch.Tensor] | None:
-    if checkpoint_mode != "full":
-        return None
-    if not any(".base_layer." in key for key in target_state_dict):
-        return None
-
-    remapped_state_dict: dict[str, torch.Tensor] = {}
-    for source_key, value in source_state_dict.items():
-        if source_key in target_state_dict:
-            remapped_state_dict[source_key] = value
-            continue
-
-        base_layer_key = source_key.replace(".weight", ".base_layer.weight")
-        base_layer_key = base_layer_key.replace(".bias", ".base_layer.bias")
-        if base_layer_key in target_state_dict:
-            remapped_state_dict[base_layer_key] = value
-
-    return remapped_state_dict
+    load_adapter(
+        adapter_dir,
+        adapter_name="default",
+        is_trainable=True,
+    )
+    return load_checkpoint_meta(checkpoint_dir)
 
 
 def load_checkpoint_meta(checkpoint_dir: str | Path) -> dict[str, Any]:

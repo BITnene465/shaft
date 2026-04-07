@@ -223,7 +223,7 @@ checkpoint 路径和模型覆盖参数都通过 CLI 传入。
 用途：
 
 - 将 LoRA 训练 checkpoint 合并为可直接加载的完整模型权重目录。
-- 兼容当前 PEFT adapter-only checkpoint，也兼容旧的整模 `state_dict.pt` checkpoint。
+- 额外可导出 `ft_checkpoint/`，用于需要 FT 形式目录的部署或存档。
 - 建议在运行时量化前先做 merge，先验证 merged FP/BF16 基线，再单独量化 stage1/stage2。
 
 示例：
@@ -240,19 +240,12 @@ python scripts/merge_lora.py \
 - `--prefer-checkpoint-meta / --no-prefer-checkpoint-meta`
 - `--device`
 - `--safe-serialization / --no-safe-serialization`
-- `--export-state-dict-pt / --no-export-state-dict-pt`
-- `--export-full-model-pt / --no-export-full-model-pt`
 - `--export-ft-checkpoint / --no-export-ft-checkpoint`
-- `--save-checkpoint-compat / --no-save-checkpoint-compat`
 
 默认行为：
 
-- 默认不导出 `merged_state_dict.pt` 与 `merged_model_full.pt`
 - 默认不导出 `ft_checkpoint/`
-- 默认不导出 `model/state_dict.pt`（checkpoint 兼容层级）
-- 如需导出，显式加：`--export-state-dict-pt` / `--export-full-model-pt`
 - 如需导出 FT checkpoint，显式加：`--export-ft-checkpoint`
-- 如需导出 checkpoint 兼容层级，显式加：`--save-checkpoint-compat`
 
 输出产物（`--output-dir`）：
 
@@ -262,10 +255,7 @@ python scripts/merge_lora.py \
 
 可选产物（显式开启参数后导出）：
 
-- `merged_state_dict.pt`（单文件参数）
-- `merged_model_full.pt`（单文件完整模型对象）
 - `ft_checkpoint/`（full-ft checkpoint bundle）
-- `model/state_dict.pt`（checkpoint 兼容）
 
 ## 8. 部署 Bundle 导出
 
@@ -294,3 +284,24 @@ python scripts/export_deployment_bundle.py \
 - `base_model/`
 - `adapters/<route>/`
 - `manifests/adapters.json`
+
+## 9. 旧权重一次性转换
+
+脚本：
+
+- `scripts/convert_legacy_checkpoint.py`
+
+用途：
+
+- 将旧的 full-state checkpoint 一次性转换成当前 LoRA checkpoint 布局
+- 仅用于历史权重迁移，不作为运行时兼容入口
+
+示例：
+
+```bash
+python scripts/convert_legacy_checkpoint.py \
+  --config configs/train/train_stage1_lora_2b.yaml \
+  --source-checkpoint outputs/old_experiment/checkpoints/best \
+  --output-dir outputs/converted/old_experiment-best \
+  --overwrite
+```

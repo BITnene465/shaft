@@ -80,13 +80,6 @@ def _resolve_adapter_source(checkpoint_dir: Path) -> Path:
     root_adapter_weights_bin = checkpoint_dir / "adapter_model.bin"
     if root_adapter_config.exists() and (root_adapter_weights.exists() or root_adapter_weights_bin.exists()):
         return checkpoint_dir
-
-    nested_dir = checkpoint_dir / "adapter"
-    nested_adapter_config = nested_dir / "adapter_config.json"
-    nested_adapter_weights = nested_dir / "adapter_model.safetensors"
-    nested_adapter_weights_bin = nested_dir / "adapter_model.bin"
-    if nested_adapter_config.exists() and (nested_adapter_weights.exists() or nested_adapter_weights_bin.exists()):
-        return nested_dir
     raise FileNotFoundError(
         f"Missing PEFT adapter files in checkpoint: {checkpoint_dir}"
     )

@@ -27,7 +27,7 @@ class _DummyModel(nn.Module):
 
 
 class LoraOnlyBuilderTest(unittest.TestCase):
-    def test_lora_mode_freezes_embeddings_and_wraps_lm_head(self) -> None:
+    def test_lora_mode_freezes_embeddings_and_excludes_lm_head(self) -> None:
         captured: dict[str, object] = {}
 
         fake_peft = types.ModuleType("peft")
@@ -51,10 +51,9 @@ class LoraOnlyBuilderTest(unittest.TestCase):
         config = ExperimentRuntimeConfig()
         config.finetune.mode = "lora"
         config.lora.enabled = True
-        config.lora.lang_target_modules = []
+        config.lora.lang_target_modules = ["q_proj"]
         config.lora.vis_target_modules = []
         config.lora.proj_target_modules = []
-        config.lora.lm_head_target_modules = ["lm_head"]
         config.model.freeze_vision_tower = True
         config.model.train_projector = False
         config.train.gradient_checkpointing = False
@@ -65,7 +64,7 @@ class LoraOnlyBuilderTest(unittest.TestCase):
             finalized = _finalize_model_for_runtime(model, config)
 
         self.assertIs(finalized, model)
-        self.assertEqual(captured["target_modules"], ["lm_head"])
+        self.assertEqual(captured["target_modules"], ["q_proj"])
         self.assertEqual(captured["task_type"], "CAUSAL_LM")
         self.assertFalse(model.embed_tokens.weight.requires_grad)
         self.assertFalse(model.lm_head.weight.requires_grad)

@@ -19,7 +19,7 @@ prompt:
     For double_arrow, output the skeleton from the upper-left head to the other head.
 
 eval:
-  max_new_tokens: 256
+  max_new_tokens: 64
   num_beams: 1
   do_sample: false
   use_cache: true
