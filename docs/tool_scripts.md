@@ -246,12 +246,13 @@ python scripts/merge_lora.py \
 默认行为：
 
 - 默认不导出 `merged_state_dict.pt` 与 `merged_model_full.pt`
+- 默认不导出 `model/state_dict.pt`（checkpoint 兼容层级）
 - 如需导出，显式加：`--export-state-dict-pt` / `--export-full-model-pt`
+- 如需导出 checkpoint 兼容层级，显式加：`--save-checkpoint-compat`
 
 输出产物（`--output-dir`）：
 
 - merged 模型权重（`save_pretrained`）
-- `model/state_dict.pt`（checkpoint 兼容）
 - tokenizer 与 processor 文件
 - `merge_meta.json`
 
@@ -259,3 +260,4 @@ python scripts/merge_lora.py \
 
 - `merged_state_dict.pt`（单文件参数）
 - `merged_model_full.pt`（单文件完整模型对象）
+- `model/state_dict.pt`（checkpoint 兼容）

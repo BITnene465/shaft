@@ -22,6 +22,16 @@ def _torch_load(
         return torch.load(path, map_location=map_location)
 
 
+def _resolve_state_dict_path(checkpoint_dir: Path) -> Path:
+    flat_path = checkpoint_dir / "state_dict.pt"
+    if flat_path.exists():
+        return flat_path
+    legacy_path = checkpoint_dir / "model" / "state_dict.pt"
+    if legacy_path.exists():
+        return legacy_path
+    raise FileNotFoundError(f"Missing state dict in checkpoint: {checkpoint_dir}")
+
+
 def save_training_checkpoint(
     checkpoint_dir: str | Path,
     model: torch.nn.Module,
@@ -33,17 +43,14 @@ def save_training_checkpoint(
     config_dict: dict[str, Any],
 ) -> None:
     checkpoint_dir = ensure_dir(checkpoint_dir)
-    model_dir = ensure_dir(checkpoint_dir / "model")
-    tokenizer_dir = ensure_dir(checkpoint_dir / "tokenizer")
-    processor_dir = ensure_dir(checkpoint_dir / "processor")
 
     unwrapped = unwrap_model(model)
-    torch.save(unwrapped.state_dict(), model_dir / "state_dict.pt")
+    torch.save(unwrapped.state_dict(), checkpoint_dir / "state_dict.pt")
     if hasattr(unwrapped, "config"):
-        unwrapped.config.to_json_file(model_dir / "config.json")
+        unwrapped.config.to_json_file(checkpoint_dir / "config.json")
 
-    tokenizer.save_pretrained(tokenizer_dir)
-    processor.save_pretrained(processor_dir)
+    tokenizer.save_pretrained(checkpoint_dir)
+    processor.save_pretrained(checkpoint_dir)
 
     if optimizer is not None:
         torch.save(optimizer.state_dict(), checkpoint_dir / "optimizer.pt")
@@ -74,8 +81,9 @@ def load_training_checkpoint(
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
+    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
     state_dict = _torch_load(
-        checkpoint_dir / "model" / "state_dict.pt",
+        state_dict_path,
         map_location="cpu",
         weights_only=True,
     )
@@ -123,8 +131,9 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
+    state_dict_path = _resolve_state_dict_path(checkpoint_dir)
     state_dict = _torch_load(
-        checkpoint_dir / "model" / "state_dict.pt",
+        state_dict_path,
         map_location="cpu",
         weights_only=True,
     )

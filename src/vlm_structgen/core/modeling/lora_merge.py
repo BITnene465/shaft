@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,20 @@ def _resolve_device(device_name: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def _sanitize_tokenizer_config(path: Path) -> None:
+    tokenizer_config_path = path / "tokenizer_config.json"
+    if not tokenizer_config_path.exists():
+        return
+    try:
+        tokenizer_config = json.loads(tokenizer_config_path.read_text())
+    except json.JSONDecodeError:
+        return
+    if not isinstance(tokenizer_config.get("extra_special_tokens"), list):
+        return
+    tokenizer_config.pop("extra_special_tokens", None)
+    tokenizer_config_path.write_text(json.dumps(tokenizer_config, ensure_ascii=False, indent=2) + "\n")
+
+
 def merge_lora_checkpoint(
     *,
     checkpoint_dir: str | Path,
@@ -62,7 +77,7 @@ def merge_lora_checkpoint(
     safe_serialization: bool = True,
     export_state_dict_pt: bool = False,
     export_full_model_pt: bool = False,
-    save_checkpoint_compat: bool = True,
+    save_checkpoint_compat: bool = False,
 ) -> MergeResult:
     checkpoint_dir = Path(checkpoint_dir)
     output_dir = Path(output_dir)
@@ -82,7 +97,7 @@ def merge_lora_checkpoint(
             f"Expected finetune.mode='lora' for merge, got {runtime_config.finetune.mode!r}."
         )
 
-    if (checkpoint_dir / "model" / "config.json").exists():
+    if (checkpoint_dir / "config.json").exists() or (checkpoint_dir / "model" / "config.json").exists():
         artifacts = build_model_tokenizer_processor_from_checkpoint(
             runtime_config,
             checkpoint_dir=checkpoint_dir,
@@ -117,6 +132,7 @@ def merge_lora_checkpoint(
     merged_model.save_pretrained(output_dir, safe_serialization=safe_serialization)
     artifacts.tokenizer.save_pretrained(output_dir)
     artifacts.processor.save_pretrained(output_dir)
+    _sanitize_tokenizer_config(output_dir)
 
     merged_state_dict_pt: Path | None = None
     merged_full_model_pt: Path | None = None
@@ -143,6 +159,8 @@ def merge_lora_checkpoint(
             merged_model.config.to_json_file(model_dir / "config.json")
         artifacts.tokenizer.save_pretrained(tokenizer_dir)
         artifacts.processor.save_pretrained(processor_dir)
+        _sanitize_tokenizer_config(tokenizer_dir)
+        _sanitize_tokenizer_config(processor_dir)
 
     write_json(
         output_dir / "merge_meta.json",

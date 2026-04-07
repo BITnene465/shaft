@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
         "--save-checkpoint-compat",
         dest="save_checkpoint_compat",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Also save checkpoint-compatible files under output_dir/model|tokenizer|processor.",
     )
     return parser.parse_args()

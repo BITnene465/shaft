@@ -220,7 +220,10 @@ def load_inference_runner(
         config.model.remote_model_name_or_path = model_name_or_path
 
     checkpoint_path = Path(settings.checkpoint_path)
-    checkpoint_has_self_contained_assets = (checkpoint_path / "model" / "config.json").exists()
+    checkpoint_has_self_contained_assets = (
+        (checkpoint_path / "config.json").exists()
+        or (checkpoint_path / "model" / "config.json").exists()
+    )
     if checkpoint_has_self_contained_assets:
         artifacts = build_model_tokenizer_processor_from_checkpoint(
             config,

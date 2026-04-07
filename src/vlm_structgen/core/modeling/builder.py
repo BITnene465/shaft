@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import json
 import importlib
 import importlib.util
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
-from peft import LoraConfig, TaskType, get_peft_model
-from transformers import AutoConfig, AutoProcessor, AutoTokenizer
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 
@@ -29,6 +30,46 @@ def _resolve_model_class():
             "Please install the Qwen3-VL compatible transformers version."
         )
     return getattr(transformers_module, class_name)
+
+
+def _normalize_qwen3vl_text_config(model_config: Any) -> None:
+    rope_defaults = {
+        "rope_type": "default",
+        "mrope_section": [24, 20, 20],
+        "mrope_interleaved": True,
+    }
+
+    rope_scaling = getattr(model_config, "rope_scaling", None)
+    if rope_scaling is None:
+        model_config.rope_scaling = dict(rope_defaults)
+
+    text_config = getattr(model_config, "text_config", None)
+    if text_config is None:
+        return
+    rope_scaling = getattr(text_config, "rope_scaling", None)
+    if rope_scaling is None:
+        text_config.rope_scaling = dict(rope_defaults)
+
+
+def _normalize_tokenizer_config_for_compatibility(source_dir: Path) -> Path:
+    tokenizer_config_path = source_dir / "tokenizer_config.json"
+    if not tokenizer_config_path.exists():
+        return source_dir
+
+    try:
+        tokenizer_config = json.loads(tokenizer_config_path.read_text())
+    except json.JSONDecodeError:
+        return source_dir
+
+    if not isinstance(tokenizer_config.get("extra_special_tokens"), list):
+        return source_dir
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="arrow-vlm-tokenizer-compat-"))
+    shutil.copytree(source_dir, temp_dir, dirs_exist_ok=True)
+    tokenizer_config.pop("extra_special_tokens", None)
+    tokenizer_config_path = temp_dir / "tokenizer_config.json"
+    tokenizer_config_path.write_text(json.dumps(tokenizer_config, ensure_ascii=False, indent=2) + "\n")
+    return temp_dir
 
 
 def _build_model_from_config(model_class, model_config, **model_kwargs):
@@ -174,6 +215,9 @@ def _maybe_enable_gradient_checkpointing(model: torch.nn.Module, config: Experim
 def build_model_tokenizer_processor(
     config: ExperimentRuntimeConfig,
 ) -> BuildArtifacts:
+    from peft import LoraConfig, TaskType, get_peft_model
+    from transformers import AutoProcessor, AutoTokenizer
+
     if config.finetune.mode not in {"lora", "full"}:
         raise ValueError(
             f"Unsupported finetune.mode={config.finetune.mode!r}. Expected 'lora' or 'full'."
@@ -225,29 +269,42 @@ def build_model_tokenizer_processor_from_checkpoint(
     *,
     checkpoint_dir: str | Path,
 ) -> BuildArtifacts:
+    from transformers import AutoConfig, AutoProcessor, AutoTokenizer
+
     checkpoint_dir = Path(checkpoint_dir)
-    model_dir = checkpoint_dir / "model"
-    tokenizer_dir = checkpoint_dir / "tokenizer"
-    processor_dir = checkpoint_dir / "processor"
-    if not (model_dir / "config.json").exists():
-        raise FileNotFoundError(f"Missing checkpoint model config: {model_dir / 'config.json'}")
+
+    flat_model_config = checkpoint_dir / "config.json"
+    legacy_model_config = checkpoint_dir / "model" / "config.json"
+    model_config_path = flat_model_config if flat_model_config.exists() else legacy_model_config
+    if not model_config_path.exists():
+        raise FileNotFoundError(
+            f"Missing checkpoint model config. Tried: {flat_model_config} and {legacy_model_config}"
+        )
+
+    has_flat_tokenizer = (checkpoint_dir / "tokenizer_config.json").exists() or (checkpoint_dir / "tokenizer.json").exists()
+    has_flat_processor = (checkpoint_dir / "preprocessor_config.json").exists() or (checkpoint_dir / "processor_config.json").exists()
+    tokenizer_source = checkpoint_dir if has_flat_tokenizer else (checkpoint_dir / "tokenizer")
+    processor_source = checkpoint_dir if has_flat_processor else (checkpoint_dir / "processor")
+    tokenizer_source = _normalize_tokenizer_config_for_compatibility(Path(tokenizer_source))
+    processor_source = _normalize_tokenizer_config_for_compatibility(Path(processor_source))
 
     model_class = _resolve_model_class()
     attn_implementation = _resolve_attn_implementation(config)
-    model_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=config.model.trust_remote_code)
+    model_config = AutoConfig.from_pretrained(model_config_path, trust_remote_code=config.model.trust_remote_code)
+    _normalize_qwen3vl_text_config(model_config)
     model_kwargs = {}
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
-    print(f"[builder] constructing model from checkpoint config: {model_dir / 'config.json'}", flush=True)
+    print(f"[builder] constructing model from checkpoint config: {model_config_path}", flush=True)
     model = _build_model_from_config(model_class, model_config, **model_kwargs)
 
     model_source = _resolve_model_source(config)
     local_files_only = _is_local_model_source(model_source)
 
-    if processor_dir.exists():
-        print(f"[builder] loading processor from checkpoint: {processor_dir}", flush=True)
+    if processor_source.exists():
+        print(f"[builder] loading processor from checkpoint: {processor_source}", flush=True)
         processor = AutoProcessor.from_pretrained(
-            processor_dir,
+            processor_source,
             trust_remote_code=config.model.trust_remote_code,
             local_files_only=True,
         )
@@ -261,10 +318,10 @@ def build_model_tokenizer_processor_from_checkpoint(
 
     tokenizer = getattr(processor, "tokenizer", None)
     if tokenizer is None:
-        if tokenizer_dir.exists():
-            print(f"[builder] loading tokenizer from checkpoint: {tokenizer_dir}", flush=True)
+        if tokenizer_source.exists():
+            print(f"[builder] loading tokenizer from checkpoint: {tokenizer_source}", flush=True)
             tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_dir,
+                tokenizer_source,
                 trust_remote_code=config.model.trust_remote_code,
                 local_files_only=True,
             )
