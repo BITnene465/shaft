@@ -10,6 +10,18 @@ from vlm_structgen.core.utils.distributed import get_rng_state, set_rng_state, u
 from vlm_structgen.core.utils.io import ensure_dir, write_json
 
 
+def _torch_load(
+    path: str | Path,
+    *,
+    map_location: str | torch.device = "cpu",
+    weights_only: bool,
+):
+    try:
+        return torch.load(path, map_location=map_location, weights_only=weights_only)
+    except TypeError:
+        return torch.load(path, map_location=map_location)
+
+
 def save_training_checkpoint(
     checkpoint_dir: str | Path,
     model: torch.nn.Module,
@@ -62,7 +74,11 @@ def load_training_checkpoint(
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    state_dict = torch.load(checkpoint_dir / "model" / "state_dict.pt", map_location="cpu")
+    state_dict = _torch_load(
+        checkpoint_dir / "model" / "state_dict.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
     unwrap_model(model).load_state_dict(state_dict, strict=strict)
 
     trainer_state = {}
@@ -75,11 +91,29 @@ def load_training_checkpoint(
         return trainer_state
 
     if optimizer is not None and (checkpoint_dir / "optimizer.pt").exists():
-        optimizer.load_state_dict(torch.load(checkpoint_dir / "optimizer.pt", map_location="cpu"))
+        optimizer.load_state_dict(
+            _torch_load(
+                checkpoint_dir / "optimizer.pt",
+                map_location="cpu",
+                weights_only=False,
+            )
+        )
     if scheduler is not None and (checkpoint_dir / "scheduler.pt").exists():
-        scheduler.load_state_dict(torch.load(checkpoint_dir / "scheduler.pt", map_location="cpu"))
+        scheduler.load_state_dict(
+            _torch_load(
+                checkpoint_dir / "scheduler.pt",
+                map_location="cpu",
+                weights_only=False,
+            )
+        )
     if (checkpoint_dir / "rng_state.pt").exists():
-        set_rng_state(torch.load(checkpoint_dir / "rng_state.pt", map_location="cpu"))
+        set_rng_state(
+            _torch_load(
+                checkpoint_dir / "rng_state.pt",
+                map_location="cpu",
+                weights_only=False,
+            )
+        )
     return trainer_state
 
 
@@ -89,7 +123,11 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    state_dict = torch.load(checkpoint_dir / "model" / "state_dict.pt", map_location="cpu")
+    state_dict = _torch_load(
+        checkpoint_dir / "model" / "state_dict.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
     meta = load_checkpoint_meta(checkpoint_dir)
     checkpoint_mode = (
         meta.get("config", {})
