@@ -113,10 +113,6 @@ class _DummyPeftModel(torch.nn.Module):
         self.loaded_adapters.append((str(model_id), adapter_name, is_trainable))
         return None
 
-    def get_base_model(self) -> "_DummyPeftModel":
-        return self.base_model
-
-
 class PeftCheckpointLayoutTests(unittest.TestCase):
     def test_save_training_checkpoint_writes_adapter_layout_for_lora(self) -> None:
         model = _DummyPeftModel()
@@ -136,8 +132,7 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
 
             self.assertTrue((checkpoint_dir / "adapter_config.json").exists())
             self.assertTrue((checkpoint_dir / "adapter_model.bin").exists())
-            self.assertTrue((checkpoint_dir / "base_model" / "config.json").exists())
-            self.assertTrue((checkpoint_dir / "base_model" / "model.safetensors").exists())
+            self.assertFalse((checkpoint_dir / "base_model").exists())
             self.assertFalse((checkpoint_dir / "state_dict.pt").exists())
             self.assertTrue((checkpoint_dir / "tokenizer_config.json").exists())
             self.assertTrue((checkpoint_dir / "tokenizer.json").exists())

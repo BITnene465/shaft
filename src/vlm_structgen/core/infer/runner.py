@@ -220,8 +220,14 @@ def load_inference_runner(
         config.model.remote_model_name_or_path = model_name_or_path
 
     checkpoint_path = Path(settings.checkpoint_path)
-    checkpoint_has_self_contained_assets = (checkpoint_path / "base_model" / "config.json").exists()
-    if checkpoint_has_self_contained_assets:
+    checkpoint_has_adapter_assets = (
+        (checkpoint_path / "adapter_config.json").exists()
+        and (
+            (checkpoint_path / "adapter_model.safetensors").exists()
+            or (checkpoint_path / "adapter_model.bin").exists()
+        )
+    )
+    if checkpoint_has_adapter_assets:
         artifacts = build_model_tokenizer_processor_from_checkpoint(
             config,
             checkpoint_dir=checkpoint_path,
@@ -229,14 +235,14 @@ def load_inference_runner(
     else:
         if not (checkpoint_path / "config.json").exists():
             raise FileNotFoundError(
-                f"Missing bundled base_model/ directory or model config in checkpoint: {checkpoint_path}"
+                f"Missing checkpoint adapter files or model config in checkpoint: {checkpoint_path}"
             )
         config.model.model_name_or_path = str(checkpoint_path)
         config.model.remote_model_name_or_path = str(checkpoint_path)
         artifacts = build_model_tokenizer_processor(config)
     device = _resolve_device(device_name or settings.device)
     artifacts.model = artifacts.model.to(device)
-    if checkpoint_has_self_contained_assets:
+    if checkpoint_has_adapter_assets:
         load_training_checkpoint(
             checkpoint_dir=settings.checkpoint_path,
             model=artifacts.model,

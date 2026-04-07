@@ -122,15 +122,9 @@ class _DummyPeftModel(torch.nn.Module):
         self.loaded_adapters.append((str(model_id), adapter_name, is_trainable))
         return None
 
-    def get_base_model(self) -> "_DummyPeftModel":
-        return self.base_model
-
-
 class CheckpointLoadingTests(unittest.TestCase):
-    def test_resume_loads_base_model_optimizer_scheduler_and_rng(self) -> None:
+    def test_resume_loads_adapter_optimizer_scheduler_and_rng(self) -> None:
         source_model = _DummyPeftModel()
-        source_model.base_model.linear.weight.data.fill_(7.0)
-        source_model.base_model.linear.bias.data.fill_(3.0)
         optimizer = torch.optim.SGD(source_model.parameters(), lr=0.1)
         scheduler = _DummyScheduler()
 
@@ -182,13 +176,12 @@ class CheckpointLoadingTests(unittest.TestCase):
                 ],
             )
             set_rng_state.assert_called_once()
-            self.assertTrue(torch.allclose(target_model.base_model.linear.weight, source_model.base_model.linear.weight))
-            self.assertTrue(torch.allclose(target_model.base_model.linear.bias, source_model.base_model.linear.bias))
             self.assertEqual(len(target_model.loaded_adapters), 1)
             loaded_model_id, loaded_adapter_name, is_trainable = target_model.loaded_adapters[0]
             self.assertEqual(Path(loaded_model_id), checkpoint_dir)
             self.assertEqual(loaded_adapter_name, "default")
             self.assertTrue(is_trainable)
+            self.assertFalse((checkpoint_dir / "base_model").exists())
 
     def test_legacy_layout_is_rejected(self) -> None:
         model = _DummyPeftModel()

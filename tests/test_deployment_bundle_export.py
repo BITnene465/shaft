@@ -18,9 +18,8 @@ class DeploymentBundleExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_dir = Path(temp_dir)
             base_source = temp_dir / "base_source"
-            base_model_dir = base_source / "base_model"
-            _write_json(base_model_dir / "config.json", {"model_type": "dummy"})
-            (base_model_dir / "model.safetensors").write_text("base-model", encoding="utf-8")
+            _write_json(base_source / "config.json", {"model_type": "dummy"})
+            (base_source / "model.safetensors").write_text("base-model", encoding="utf-8")
             _write_json(base_source / "tokenizer_config.json", {"tokenizer_class": "Dummy"})
             _write_json(base_source / "tokenizer.json", {"version": 1})
             _write_json(base_source / "preprocessor_config.json", {"processor_class": "Dummy"})

@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--base-source-dir",
         required=True,
-        help="Base model source directory. For current training checkpoints, pass a LoRA checkpoint with base_model/ inside.",
+        help="Base model source directory.",
     )
     parser.add_argument(
         "--adapter",

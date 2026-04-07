@@ -60,18 +60,9 @@ def _copy_dir_contents(source_dir: Path, target_dir: Path) -> None:
 
 
 def _resolve_base_model_source(source_dir: Path) -> tuple[Path, Path]:
-    bundled_base_model = source_dir / "base_model"
-    if (bundled_base_model / "config.json").exists():
-        return bundled_base_model, source_dir
-    if (source_dir / "adapter_config.json").exists() or (source_dir / "adapter" / "adapter_config.json").exists():
-        raise FileNotFoundError(
-            f"LoRA checkpoint {source_dir} does not expose a bundled base_model/ directory."
-        )
     if (source_dir / "config.json").exists():
         return source_dir, source_dir
-    raise FileNotFoundError(
-        f"Missing base model config. Expected either {bundled_base_model / 'config.json'} or {source_dir / 'config.json'}."
-    )
+    raise FileNotFoundError(f"Missing base model config: {source_dir / 'config.json'}")
 
 
 def _resolve_adapter_source(checkpoint_dir: Path) -> Path:

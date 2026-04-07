@@ -272,7 +272,7 @@ python scripts/merge_lora.py \
 
 ```bash
 python scripts/export_deployment_bundle.py \
-  --base-source-dir outputs/qwen3vl-s1-lora/4b/ufv-exp3/checkpoints/best \
+  --base-source-dir models/Qwen3-VL-4B-Instruct \
   --adapter grounding/arrow outputs/qwen3vl-s1-lora/4b/ufv-exp3/checkpoints/best \
   --adapter keypoint_sequence/arrow outputs/qwen3vl-s2-lora/4b/ufv-exp3/checkpoints/best \
   --output-dir deployment \
@@ -284,24 +284,3 @@ python scripts/export_deployment_bundle.py \
 - `base_model/`
 - `adapters/<route>/`
 - `manifests/adapters.json`
-
-## 9. 旧权重一次性转换
-
-脚本：
-
-- `scripts/convert_legacy_checkpoint.py`
-
-用途：
-
-- 将旧的 full-state checkpoint 一次性转换成当前 LoRA checkpoint 布局
-- 仅用于历史权重迁移，不作为运行时兼容入口
-
-示例：
-
-```bash
-python scripts/convert_legacy_checkpoint.py \
-  --config configs/train/train_stage1_lora_2b.yaml \
-  --source-checkpoint outputs/old_experiment/checkpoints/best \
-  --output-dir outputs/converted/old_experiment-best \
-  --overwrite
-```

@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         required=True,
-        help="Training checkpoint dir (new LoRA layout with adapter + base_model/).",
+        help="Training checkpoint dir in the current LoRA layout.",
     )
     parser.add_argument("--config", default="configs/infer/infer_stage1_grounding.yaml")
     parser.add_argument("--output-dir", required=True)

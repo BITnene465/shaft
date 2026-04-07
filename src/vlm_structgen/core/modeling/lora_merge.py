@@ -92,10 +92,6 @@ def merge_lora_checkpoint(
             f"Expected finetune.mode='lora' for merge, got {runtime_config.finetune.mode!r}."
         )
 
-    if not (checkpoint_dir / "base_model" / "config.json").exists():
-        raise FileNotFoundError(
-            f"Missing bundled base_model/ directory in checkpoint: {checkpoint_dir}"
-        )
     artifacts = build_model_tokenizer_processor_from_checkpoint(
         runtime_config,
         checkpoint_dir=checkpoint_dir,

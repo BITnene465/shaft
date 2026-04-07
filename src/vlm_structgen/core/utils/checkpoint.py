@@ -31,31 +31,6 @@ def _resolve_adapter_dir(checkpoint_dir: Path) -> Path:
     raise FileNotFoundError(f"Missing adapter files in checkpoint: {checkpoint_dir}")
 
 
-def _resolve_base_model_dir(checkpoint_dir: Path) -> Path:
-    base_model_dir = checkpoint_dir / "base_model"
-    if not (base_model_dir / "config.json").exists():
-        raise FileNotFoundError(
-            f"Missing bundled base model in checkpoint: {checkpoint_dir}."
-        )
-    return base_model_dir
-
-
-def _load_base_model_snapshot(checkpoint_dir: Path, model: torch.nn.Module) -> None:
-    base_model_dir = _resolve_base_model_dir(checkpoint_dir)
-    base_model_getter = getattr(unwrap_model(model), "get_base_model", None)
-    if not callable(base_model_getter):
-        raise ValueError(
-            "LoRA checkpoint detected, but the model does not expose `get_base_model()`."
-        )
-    base_model = base_model_getter()
-    base_model_class = base_model.__class__
-    snapshot = base_model_class.from_pretrained(
-        base_model_dir,
-        local_files_only=True,
-    )
-    base_model.load_state_dict(snapshot.state_dict(), strict=False)
-
-
 def save_training_checkpoint(
     checkpoint_dir: str | Path,
     model: torch.nn.Module,
@@ -74,28 +49,12 @@ def save_training_checkpoint(
 
     save_pretrained = getattr(unwrapped, "save_pretrained", None)
     if not callable(save_pretrained):
-        raise ValueError(
-            "LoRA checkpoint saving requires a PEFT model with `save_pretrained()`."
-        )
+        raise ValueError("Checkpoint saving requires a model with `save_pretrained()`.")
     save_pretrained(
         checkpoint_dir,
         safe_serialization=True,
         save_embedding_layers=False,
     )
-
-    base_model_getter = getattr(unwrapped, "get_base_model", None)
-    if not callable(base_model_getter):
-        raise ValueError(
-            "LoRA checkpoint saving requires a PEFT model with `get_base_model()`."
-        )
-    base_model = base_model_getter()
-    base_model_dir = ensure_dir(checkpoint_dir / "base_model")
-    base_model_save_pretrained = getattr(base_model, "save_pretrained", None)
-    if not callable(base_model_save_pretrained):
-        raise ValueError(
-            "LoRA checkpoint saving requires a base model with `save_pretrained()`."
-        )
-    base_model_save_pretrained(base_model_dir, safe_serialization=False)
 
     if optimizer is not None:
         torch.save(optimizer.state_dict(), checkpoint_dir / "optimizer.pt")
@@ -111,8 +70,8 @@ def save_training_checkpoint(
             "protocol_version": "arrow_v2_json",
             "config": config_dict,
             "trainer_state": trainer_state,
-            "checkpoint_layout": "peft_adapter_with_base_model",
-            "has_base_model": True,
+            "checkpoint_layout": "peft_adapter_only",
+            "has_base_model": False,
         },
     )
 
@@ -129,7 +88,6 @@ def load_training_checkpoint(
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
     _ = strict
-    _load_base_model_snapshot(checkpoint_dir, model)
     adapter_dir = _resolve_adapter_dir(checkpoint_dir)
     peft_model = unwrap_model(model)
     load_adapter = getattr(peft_model, "load_adapter", None)
@@ -185,7 +143,6 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    _load_base_model_snapshot(checkpoint_dir, model)
     adapter_dir = _resolve_adapter_dir(checkpoint_dir)
     peft_model = unwrap_model(model)
     load_adapter = getattr(peft_model, "load_adapter", None)

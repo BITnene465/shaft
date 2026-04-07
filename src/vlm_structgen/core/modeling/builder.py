@@ -213,41 +213,49 @@ def build_model_tokenizer_processor_from_checkpoint(
     from transformers import AutoProcessor, AutoTokenizer
 
     checkpoint_dir = Path(checkpoint_dir)
-    bundled_base_model_dir = checkpoint_dir / "base_model"
-    model_config_path = bundled_base_model_dir / "config.json"
-    if not model_config_path.exists():
-        raise FileNotFoundError(
-            f"Missing bundled base model config: {model_config_path}"
-        )
-
     model_class = _resolve_model_class()
     attn_implementation = _resolve_attn_implementation(config)
-    model_kwargs = {}
+    model_kwargs: dict[str, Any] = {}
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
-    model_source = str(bundled_base_model_dir)
-    print(f"[builder] loading model from checkpoint base model: {model_source}", flush=True)
+    model_source = _resolve_model_source(config)
+    print(f"[builder] loading model from base source: {model_source}", flush=True)
     model = model_class.from_pretrained(
         model_source,
         trust_remote_code=config.model.trust_remote_code,
-        local_files_only=True,
+        local_files_only=_is_local_model_source(model_source),
         **model_kwargs,
     )
     print(f"[builder] loading processor from checkpoint: {checkpoint_dir}", flush=True)
-    processor = AutoProcessor.from_pretrained(
-        checkpoint_dir,
-        trust_remote_code=config.model.trust_remote_code,
-        local_files_only=True,
-    )
-
-    tokenizer = getattr(processor, "tokenizer", None)
-    if tokenizer is None:
-        print(f"[builder] loading tokenizer from checkpoint: {checkpoint_dir}", flush=True)
-        tokenizer = AutoTokenizer.from_pretrained(
+    processor = None
+    try:
+        processor = AutoProcessor.from_pretrained(
             checkpoint_dir,
             trust_remote_code=config.model.trust_remote_code,
             local_files_only=True,
         )
+    except Exception:
+        processor = AutoProcessor.from_pretrained(
+            model_source,
+            trust_remote_code=config.model.trust_remote_code,
+            local_files_only=_is_local_model_source(model_source),
+        )
+
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is None:
+        print(f"[builder] loading tokenizer from checkpoint: {checkpoint_dir}", flush=True)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                checkpoint_dir,
+                trust_remote_code=config.model.trust_remote_code,
+                local_files_only=True,
+            )
+        except Exception:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_source,
+                trust_remote_code=config.model.trust_remote_code,
+                local_files_only=_is_local_model_source(model_source),
+            )
         processor.tokenizer = tokenizer
 
     if tokenizer.pad_token_id is None and tokenizer.eos_token is not None:
