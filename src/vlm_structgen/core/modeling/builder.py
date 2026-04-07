@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoConfig, AutoProcessor, AutoTokenizer
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 
@@ -194,10 +194,91 @@ def build_model_tokenizer_processor(
         )
         processor.tokenizer = tokenizer
 
+    model = _finalize_model_for_runtime(model, config)
+    summary = _trainable_summary(model)
+    return BuildArtifacts(
+        model=model,
+        tokenizer=tokenizer,
+        processor=processor,
+        trainable_summary=summary,
+    )
+
+
+def build_model_tokenizer_processor_from_checkpoint(
+    config: ExperimentRuntimeConfig,
+    *,
+    checkpoint_dir: str | Path,
+) -> BuildArtifacts:
+    checkpoint_dir = Path(checkpoint_dir)
+    model_dir = checkpoint_dir / "model"
+    tokenizer_dir = checkpoint_dir / "tokenizer"
+    processor_dir = checkpoint_dir / "processor"
+    if not (model_dir / "config.json").exists():
+        raise FileNotFoundError(f"Missing checkpoint model config: {model_dir / 'config.json'}")
+
+    model_class = _resolve_model_class()
+    attn_implementation = _resolve_attn_implementation(config)
+    model_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=config.model.trust_remote_code)
+    model_kwargs = {}
+    if attn_implementation:
+        model_kwargs["attn_implementation"] = attn_implementation
+    print(f"[builder] constructing model from checkpoint config: {model_dir / 'config.json'}", flush=True)
+    model = model_class.from_config(model_config, **model_kwargs)
+
+    model_source = _resolve_model_source(config)
+    local_files_only = _is_local_model_source(model_source)
+
+    if processor_dir.exists():
+        print(f"[builder] loading processor from checkpoint: {processor_dir}", flush=True)
+        processor = AutoProcessor.from_pretrained(
+            processor_dir,
+            trust_remote_code=config.model.trust_remote_code,
+            local_files_only=True,
+        )
+    else:
+        print("[builder] checkpoint has no processor dir; falling back to model source.", flush=True)
+        processor = AutoProcessor.from_pretrained(
+            model_source,
+            trust_remote_code=config.model.trust_remote_code,
+            local_files_only=local_files_only,
+        )
+
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is None:
+        if tokenizer_dir.exists():
+            print(f"[builder] loading tokenizer from checkpoint: {tokenizer_dir}", flush=True)
+            tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_dir,
+                trust_remote_code=config.model.trust_remote_code,
+                local_files_only=True,
+            )
+        else:
+            print("[builder] checkpoint has no tokenizer dir; falling back to model source.", flush=True)
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_source,
+                trust_remote_code=config.model.trust_remote_code,
+                local_files_only=local_files_only,
+            )
+        processor.tokenizer = tokenizer
+
     if tokenizer.pad_token_id is None and tokenizer.eos_token is not None:
         tokenizer.pad_token = tokenizer.eos_token
     if hasattr(model, "generation_config") and tokenizer.pad_token_id is not None:
         model.generation_config.pad_token_id = tokenizer.pad_token_id
+
+    model = _finalize_model_for_runtime(model, config)
+    summary = _trainable_summary(model)
+    return BuildArtifacts(
+        model=model,
+        tokenizer=tokenizer,
+        processor=processor,
+        trainable_summary=summary,
+    )
+
+
+def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntimeConfig) -> torch.nn.Module:
+    # tokenizer / processor side-effects are managed before calling this helper.
+    # This helper configures model trainable/frozen state and generation behavior.
     _sanitize_generation_config(model, config)
 
     if config.finetune.mode == "lora":
@@ -265,10 +346,4 @@ def build_model_tokenizer_processor(
             parameter.requires_grad = True
 
     _maybe_enable_gradient_checkpointing(model, config)
-    summary = _trainable_summary(model)
-    return BuildArtifacts(
-        model=model,
-        tokenizer=tokenizer,
-        processor=processor,
-        trainable_summary=summary,
-    )
+    return model

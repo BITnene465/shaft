@@ -10,7 +10,11 @@ from PIL import Image
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
-from vlm_structgen.core.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
+from vlm_structgen.core.modeling.builder import (
+    BuildArtifacts,
+    build_model_tokenizer_processor,
+    build_model_tokenizer_processor_from_checkpoint,
+)
 from vlm_structgen.core.prompting import build_chat_prompt, temporary_padding_side
 from vlm_structgen.core.utils.checkpoint import load_training_checkpoint
 from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
@@ -215,7 +219,15 @@ def load_inference_runner(
         config.model.model_name_or_path = model_name_or_path
         config.model.remote_model_name_or_path = model_name_or_path
 
-    artifacts = build_model_tokenizer_processor(config)
+    checkpoint_path = Path(settings.checkpoint_path)
+    checkpoint_has_self_contained_assets = (checkpoint_path / "model" / "config.json").exists()
+    if checkpoint_has_self_contained_assets:
+        artifacts = build_model_tokenizer_processor_from_checkpoint(
+            config,
+            checkpoint_dir=checkpoint_path,
+        )
+    else:
+        artifacts = build_model_tokenizer_processor(config)
     device = _resolve_device(device_name or settings.device)
     artifacts.model = artifacts.model.to(device)
     load_training_checkpoint(

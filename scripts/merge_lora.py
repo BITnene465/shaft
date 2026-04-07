@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
+import argparse
+
+from vlm_structgen.core.modeling import merge_lora_checkpoint
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Merge a LoRA training checkpoint into full model weights.")
+    parser.add_argument("--checkpoint-dir", required=True, help="Training checkpoint directory (e.g. .../checkpoints/best).")
+    parser.add_argument("--output-dir", required=True, help="Output directory for merged full weights.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Optional training config path. Only needed when checkpoint meta has no config payload "
+            "or when --no-prefer-checkpoint-meta is used."
+        ),
+    )
+    parser.add_argument(
+        "--prefer-checkpoint-meta",
+        dest="prefer_checkpoint_meta",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Prefer runtime config from checkpoint meta when available.",
+    )
+    parser.add_argument("--device", default=None, help="Optional device override, e.g. cuda:1 or cpu.")
+    parser.add_argument(
+        "--safe-serialization",
+        dest="safe_serialization",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save merged HF weights as safetensors when enabled.",
+    )
+    parser.add_argument(
+        "--export-state-dict-pt",
+        dest="export_state_dict_pt",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Export merged_state_dict.pt in output root.",
+    )
+    parser.add_argument(
+        "--export-full-model-pt",
+        dest="export_full_model_pt",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Export merged_model_full.pt (single-file full model object).",
+    )
+    parser.add_argument(
+        "--save-checkpoint-compat",
+        dest="save_checkpoint_compat",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also save checkpoint-compatible files under output_dir/model|tokenizer|processor.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    result = merge_lora_checkpoint(
+        checkpoint_dir=args.checkpoint_dir,
+        output_dir=args.output_dir,
+        config_path=args.config,
+        prefer_checkpoint_meta=args.prefer_checkpoint_meta,
+        device_name=args.device,
+        safe_serialization=args.safe_serialization,
+        export_state_dict_pt=args.export_state_dict_pt,
+        export_full_model_pt=args.export_full_model_pt,
+        save_checkpoint_compat=args.save_checkpoint_compat,
+    )
+    print("[merge] success")
+    print(f"[merge] checkpoint_dir: {result.checkpoint_dir}")
+    print(f"[merge] output_dir: {result.output_dir}")
+    print(f"[merge] model_source: {result.model_source}")
+    print(f"[merge] used_checkpoint_meta_config: {result.used_checkpoint_meta_config}")
+    print(f"[merge] merged_state_dict_pt: {result.merged_state_dict_pt}")
+    print(f"[merge] merged_full_model_pt: {result.merged_full_model_pt}")
+
+
+if __name__ == "__main__":
+    main()
