@@ -37,14 +37,14 @@ def parse_args() -> argparse.Namespace:
         "--export-state-dict-pt",
         dest="export_state_dict_pt",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Export merged_state_dict.pt in output root.",
     )
     parser.add_argument(
         "--export-full-model-pt",
         dest="export_full_model_pt",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Export merged_model_full.pt (single-file full model object).",
     )
     parser.add_argument(

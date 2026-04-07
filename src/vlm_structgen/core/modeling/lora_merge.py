@@ -60,8 +60,8 @@ def merge_lora_checkpoint(
     prefer_checkpoint_meta: bool = True,
     device_name: str | None = None,
     safe_serialization: bool = True,
-    export_state_dict_pt: bool = True,
-    export_full_model_pt: bool = True,
+    export_state_dict_pt: bool = False,
+    export_full_model_pt: bool = False,
     save_checkpoint_compat: bool = True,
 ) -> MergeResult:
     checkpoint_dir = Path(checkpoint_dir)
