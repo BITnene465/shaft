@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from vlm_structgen.domains.arrow import format_prediction_summary
+from vlm_structgen.domains.arrow import draw_prediction, format_prediction_summary
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
@@ -24,25 +24,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recursive", action="store_true", help="Recursively scan --image-dir for images.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this run.")
     parser.add_argument("--output-dir", default=None, help="Optional directory to save parsed prediction files.")
+    parser.add_argument(
+        "--save-preview",
+        dest="save_preview",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to save per-image visualization previews when output_dir is provided.",
+    )
     return parser.parse_args()
 
 
 def _save_outputs(
     output_dir: Path,
     image_path: Path,
+    image: Image.Image,
     raw_text: str,
     parse_report: dict[str, object],
-) -> tuple[Path, Path]:
+    *,
+    save_preview: bool,
+) -> tuple[Path, Path, Path | None]:
     report_dir = output_dir / "reports"
     raw_dir = output_dir / "raw"
     report_dir.mkdir(parents=True, exist_ok=True)
     raw_dir.mkdir(parents=True, exist_ok=True)
+    preview_dir = output_dir / "preview"
+    if save_preview:
+        preview_dir.mkdir(parents=True, exist_ok=True)
     stem = image_path.stem
     prediction_path = report_dir / f"{stem}.one_stage.json"
     raw_text_path = raw_dir / f"{stem}.raw.txt"
+    preview_path = preview_dir / f"{stem}.png"
     prediction_path.write_text(json.dumps(parse_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     raw_text_path.write_text(raw_text + "\n", encoding="utf-8")
-    return prediction_path, raw_text_path
+
+    strict_prediction = parse_report.get("strict", {}).get("prediction")
+    lenient_prediction = parse_report.get("lenient", {}).get("prediction")
+    prediction_for_draw = strict_prediction or lenient_prediction
+    if save_preview and prediction_for_draw is not None:
+        draw_prediction(image, prediction_for_draw).save(preview_path)
+        return prediction_path, raw_text_path, preview_path
+    return prediction_path, raw_text_path, None
 
 
 def _iter_image_paths(image_dir: Path, *, recursive: bool) -> list[Path]:
@@ -54,10 +75,10 @@ def _iter_image_paths(image_dir: Path, *, recursive: bool) -> list[Path]:
     )
 
 
-def _run_one(*, runner, image_path: Path, max_new_tokens: int | None) -> tuple[str, dict[str, object]]:
+def _run_one(*, runner, image_path: Path, max_new_tokens: int | None) -> tuple[str, dict[str, object], Image.Image]:
     image = Image.open(image_path).convert("RGB")
     raw_text, parse_report = runner.predict(image, max_new_tokens=max_new_tokens)
-    return raw_text, parse_report
+    return raw_text, parse_report, image
 
 
 def _print_single_result(raw_text: str, parse_report: dict[str, object]) -> None:
@@ -73,7 +94,7 @@ def _print_single_result(raw_text: str, parse_report: dict[str, object]) -> None
                 f"generated_tokens={generation['generated_tokens']}",
                 f"returned_tokens={generation['returned_tokens']}",
                 f"stop_reason={generation['stop_reason']}",
-                f"closed_json_array={generation['closed_json_array']}",
+                f"closed_json_payload={generation['closed_json_payload']}",
                 f"hit_max_new_tokens={generation['hit_max_new_tokens']}",
             ]
         )
@@ -110,16 +131,25 @@ def main() -> None:
     output_dir = args.output_dir or runner.settings.output_dir
     if args.image is not None:
         image_path = Path(args.image)
-        raw_text, parse_report = _run_one(
+        raw_text, parse_report, image = _run_one(
             runner=runner,
             image_path=image_path,
             max_new_tokens=args.max_new_tokens,
         )
         _print_single_result(raw_text, parse_report)
         if output_dir is not None:
-            prediction_path, raw_text_path = _save_outputs(Path(output_dir), image_path, raw_text, parse_report)
+            prediction_path, raw_text_path, preview_path = _save_outputs(
+                Path(output_dir),
+                image_path,
+                image,
+                raw_text,
+                parse_report,
+                save_preview=args.save_preview,
+            )
             print(f"Saved parsed prediction to: {prediction_path}")
             print(f"Saved raw output to: {raw_text_path}")
+            if preview_path is not None:
+                print(f"Saved preview to: {preview_path}")
         return
 
     image_dir = Path(args.image_dir)
@@ -132,16 +162,18 @@ def main() -> None:
     manifest: list[dict[str, object]] = []
     print(f"Found {len(image_paths)} images under {image_dir}")
     for index, image_path in enumerate(image_paths, start=1):
-        raw_text, parse_report = _run_one(
+        raw_text, parse_report, image = _run_one(
             runner=runner,
             image_path=image_path,
             max_new_tokens=args.max_new_tokens,
         )
-        prediction_path, raw_text_path = _save_outputs(
+        prediction_path, raw_text_path, preview_path = _save_outputs(
             resolved_output_dir,
             image_path,
+            image,
             raw_text,
             parse_report,
+            save_preview=args.save_preview,
         )
         num_instances = len((parse_report.get("strict", {}).get("prediction") or parse_report.get("lenient", {}).get("prediction") or {"instances": []}).get("instances", []))
         print(f"[{index}/{len(image_paths)}] {image_path.name} | instances={num_instances}")
@@ -150,6 +182,7 @@ def main() -> None:
                 "image_path": str(image_path),
                 "report_path": str(prediction_path),
                 "raw_text_path": str(raw_text_path),
+                "preview_path": str(preview_path) if preview_path is not None else None,
                 "num_instances": int(num_instances),
                 "lenient_ok": bool(parse_report.get("lenient", {}).get("ok", False)),
                 "strict_ok": bool(parse_report.get("strict", {}).get("ok", False)),
