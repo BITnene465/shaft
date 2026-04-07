@@ -9,7 +9,12 @@ from PIL import Image
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 from vlm_structgen.core.registry import get_adapter
-from vlm_structgen.domains.arrow.data.two_stage import build_padded_crop, quantize_bbox_2d, to_crop_local_bbox
+from vlm_structgen.domains.arrow.data.two_stage import (
+    _expand_crop_box_to_max_aspect_ratio,
+    build_padded_crop,
+    quantize_bbox_2d,
+    to_crop_local_bbox,
+)
 from vlm_structgen.core.infer.config import (
     TwoStageInferenceConfig,
     build_runtime_from_two_stage_infer_config,
@@ -220,9 +225,31 @@ class TwoStageInferenceRunner:
     stage2_runner: Stage2KeypointInferenceRunner | None
     infer_config: TwoStageInferenceConfig
     padding_ratio: float = 0.5
+    stage2_max_crop_aspect_ratio: float = 180.0
 
     def _extract_stage1_prediction(self, report: dict[str, Any]) -> dict[str, Any] | None:
         return report["strict"]["prediction"] or report["lenient"]["prediction"]
+
+    @staticmethod
+    def _crop_aspect_ratio(image: Image.Image) -> float:
+        width = max(int(image.width), 1)
+        height = max(int(image.height), 1)
+        return max(float(width) / float(height), float(height) / float(width))
+
+    @staticmethod
+    def _render_crop_from_box(image: Image.Image, crop_box: list[int]) -> Image.Image:
+        crop_x1, crop_y1, crop_x2, crop_y2 = [int(value) for value in crop_box]
+        crop_w = max(int(crop_x2 - crop_x1), 1)
+        crop_h = max(int(crop_y2 - crop_y1), 1)
+        canvas = Image.new("RGB", (crop_w, crop_h), color=(0, 0, 0))
+        src_x1 = max(crop_x1, 0)
+        src_y1 = max(crop_y1, 0)
+        src_x2 = min(crop_x2, int(image.width))
+        src_y2 = min(crop_y2, int(image.height))
+        if src_x2 > src_x1 and src_y2 > src_y1:
+            patch = image.crop((src_x1, src_y1, src_x2, src_y2))
+            canvas.paste(patch, (int(src_x1 - crop_x1), int(src_y1 - crop_y1)))
+        return canvas
 
     def _build_stage2_requests_for_image(
         self,
@@ -247,6 +274,12 @@ class TwoStageInferenceRunner:
                 bbox=[float(value) for value in bbox],
                 padding_ratio=self.padding_ratio,
             )
+            if self._crop_aspect_ratio(crop_image) > float(self.stage2_max_crop_aspect_ratio):
+                crop_box = _expand_crop_box_to_max_aspect_ratio(
+                    crop_box,
+                    max_aspect_ratio=self.stage2_max_crop_aspect_ratio,
+                )
+                crop_image = self._render_crop_from_box(image, crop_box)
             crop_width, crop_height = crop_image.size
             local_bbox = to_crop_local_bbox([float(value) for value in bbox], crop_box)
             local_bbox_2d = quantize_bbox_2d(
