@@ -242,13 +242,16 @@ python scripts/merge_lora.py \
 - `--safe-serialization / --no-safe-serialization`
 - `--export-state-dict-pt / --no-export-state-dict-pt`
 - `--export-full-model-pt / --no-export-full-model-pt`
+- `--export-ft-checkpoint / --no-export-ft-checkpoint`
 - `--save-checkpoint-compat / --no-save-checkpoint-compat`
 
 默认行为：
 
 - 默认不导出 `merged_state_dict.pt` 与 `merged_model_full.pt`
+- 默认不导出 `ft_checkpoint/`
 - 默认不导出 `model/state_dict.pt`（checkpoint 兼容层级）
 - 如需导出，显式加：`--export-state-dict-pt` / `--export-full-model-pt`
+- 如需导出 FT checkpoint，显式加：`--export-ft-checkpoint`
 - 如需导出 checkpoint 兼容层级，显式加：`--save-checkpoint-compat`
 
 输出产物（`--output-dir`）：
@@ -261,4 +264,33 @@ python scripts/merge_lora.py \
 
 - `merged_state_dict.pt`（单文件参数）
 - `merged_model_full.pt`（单文件完整模型对象）
+- `ft_checkpoint/`（full-ft checkpoint bundle）
 - `model/state_dict.pt`（checkpoint 兼容）
+
+## 8. 部署 Bundle 导出
+
+脚本：
+
+- `scripts/export_deployment_bundle.py`
+
+用途：
+
+- 将一个共享 base model 和多个 LoRA adapter 转成部署目录
+- 输出 `base_model/`、`adapters/` 和 `manifests/adapters.json`
+
+示例：
+
+```bash
+python scripts/export_deployment_bundle.py \
+  --base-source-dir outputs/qwen3vl-s1-lora/4b/ufv-exp3/checkpoints/best \
+  --adapter grounding/arrow outputs/qwen3vl-s1-lora/4b/ufv-exp3/checkpoints/best \
+  --adapter keypoint_sequence/arrow outputs/qwen3vl-s2-lora/4b/ufv-exp3/checkpoints/best \
+  --output-dir deployment \
+  --overwrite
+```
+
+输出产物：
+
+- `base_model/`
+- `adapters/<route>/`
+- `manifests/adapters.json`

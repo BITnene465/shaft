@@ -48,6 +48,13 @@ def parse_args() -> argparse.Namespace:
         help="Export merged_model_full.pt (single-file full model object).",
     )
     parser.add_argument(
+        "--export-ft-checkpoint",
+        dest="export_ft_checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Export a full-ft checkpoint bundle under output_dir/ft_checkpoint.",
+    )
+    parser.add_argument(
         "--save-checkpoint-compat",
         dest="save_checkpoint_compat",
         action=argparse.BooleanOptionalAction,
@@ -68,6 +75,7 @@ def main() -> None:
         safe_serialization=args.safe_serialization,
         export_state_dict_pt=args.export_state_dict_pt,
         export_full_model_pt=args.export_full_model_pt,
+        export_ft_checkpoint=args.export_ft_checkpoint,
         save_checkpoint_compat=args.save_checkpoint_compat,
     )
     print("[merge] success")
@@ -77,6 +85,7 @@ def main() -> None:
     print(f"[merge] used_checkpoint_meta_config: {result.used_checkpoint_meta_config}")
     print(f"[merge] merged_state_dict_pt: {result.merged_state_dict_pt}")
     print(f"[merge] merged_full_model_pt: {result.merged_full_model_pt}")
+    print(f"[merge] ft_checkpoint_dir: {result.ft_checkpoint_dir}")
 
 
 if __name__ == "__main__":

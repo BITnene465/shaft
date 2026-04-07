@@ -25,6 +25,7 @@ class MergeResult:
     model_source: str
     merged_state_dict_pt: Path | None
     merged_full_model_pt: Path | None
+    ft_checkpoint_dir: Path | None
 
 
 def _resolve_runtime_config(
@@ -77,6 +78,7 @@ def merge_lora_checkpoint(
     safe_serialization: bool = True,
     export_state_dict_pt: bool = False,
     export_full_model_pt: bool = False,
+    export_ft_checkpoint: bool = False,
     save_checkpoint_compat: bool = False,
 ) -> MergeResult:
     checkpoint_dir = Path(checkpoint_dir)
@@ -136,6 +138,7 @@ def merge_lora_checkpoint(
 
     merged_state_dict_pt: Path | None = None
     merged_full_model_pt: Path | None = None
+    ft_checkpoint_dir: Path | None = None
 
     if export_state_dict_pt:
         merged_state_dict_pt = output_dir / "merged_state_dict.pt"
@@ -149,6 +152,15 @@ def merge_lora_checkpoint(
         except Exception as exc:  # noqa: BLE001
             full_model_export_error = str(exc)
             merged_full_model_pt = None
+
+    if export_ft_checkpoint:
+        ft_checkpoint_dir = ensure_dir(output_dir / "ft_checkpoint")
+        torch.save(merged_model.state_dict(), ft_checkpoint_dir / "state_dict.pt")
+        if hasattr(merged_model, "config"):
+            merged_model.config.to_json_file(ft_checkpoint_dir / "config.json")
+        artifacts.tokenizer.save_pretrained(ft_checkpoint_dir)
+        artifacts.processor.save_pretrained(ft_checkpoint_dir)
+        _sanitize_tokenizer_config(ft_checkpoint_dir)
 
     if save_checkpoint_compat:
         model_dir = ensure_dir(output_dir / "model")
@@ -172,9 +184,11 @@ def merge_lora_checkpoint(
             "safe_serialization": bool(safe_serialization),
             "export_state_dict_pt": bool(export_state_dict_pt),
             "export_full_model_pt": bool(export_full_model_pt),
+            "export_ft_checkpoint": bool(export_ft_checkpoint),
             "save_checkpoint_compat": bool(save_checkpoint_compat),
             "merged_state_dict_pt": str(merged_state_dict_pt) if merged_state_dict_pt is not None else None,
             "merged_full_model_pt": str(merged_full_model_pt) if merged_full_model_pt is not None else None,
+            "ft_checkpoint_dir": str(ft_checkpoint_dir) if ft_checkpoint_dir is not None else None,
             "full_model_export_error": full_model_export_error,
         },
     )
@@ -186,4 +200,5 @@ def merge_lora_checkpoint(
         model_source=runtime_config.model.model_name_or_path,
         merged_state_dict_pt=merged_state_dict_pt,
         merged_full_model_pt=merged_full_model_pt,
+        ft_checkpoint_dir=ft_checkpoint_dir,
     )
