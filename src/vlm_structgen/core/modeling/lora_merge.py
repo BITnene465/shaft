@@ -72,6 +72,11 @@ def merge_lora_checkpoint(
         config_path=config_path,
         prefer_checkpoint_meta=prefer_checkpoint_meta,
     )
+
+    # NOTE: Merge is inference/export only. Disable training-time runtime hooks
+    # to keep serialization predictable (especially full-model torch.save).
+    runtime_config.train.gradient_checkpointing = False
+
     if runtime_config.finetune.mode != "lora":
         raise ValueError(
             f"Expected finetune.mode='lora' for merge, got {runtime_config.finetune.mode!r}."
@@ -120,9 +125,14 @@ def merge_lora_checkpoint(
         merged_state_dict_pt = output_dir / "merged_state_dict.pt"
         torch.save(merged_model.state_dict(), merged_state_dict_pt)
 
+    full_model_export_error: str | None = None
     if export_full_model_pt:
         merged_full_model_pt = output_dir / "merged_model_full.pt"
-        torch.save(merged_model, merged_full_model_pt)
+        try:
+            torch.save(merged_model, merged_full_model_pt)
+        except Exception as exc:  # noqa: BLE001
+            full_model_export_error = str(exc)
+            merged_full_model_pt = None
 
     if save_checkpoint_compat:
         model_dir = ensure_dir(output_dir / "model")
@@ -147,6 +157,7 @@ def merge_lora_checkpoint(
             "save_checkpoint_compat": bool(save_checkpoint_compat),
             "merged_state_dict_pt": str(merged_state_dict_pt) if merged_state_dict_pt is not None else None,
             "merged_full_model_pt": str(merged_full_model_pt) if merged_full_model_pt is not None else None,
+            "full_model_export_error": full_model_export_error,
         },
     )
 

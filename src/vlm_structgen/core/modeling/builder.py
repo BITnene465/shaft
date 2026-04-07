@@ -31,6 +31,22 @@ def _resolve_model_class():
     return getattr(transformers_module, class_name)
 
 
+def _build_model_from_config(model_class, model_config, **model_kwargs):
+    from_config = getattr(model_class, "from_config", None)
+    if callable(from_config):
+        return from_config(model_config, **model_kwargs)
+
+    private_from_config = getattr(model_class, "_from_config", None)
+    if callable(private_from_config):
+        return private_from_config(model_config, **model_kwargs)
+
+    try:
+        return model_class(model_config, **model_kwargs)
+    except TypeError:
+        # Some model constructors may not accept extra kwargs.
+        return model_class(model_config)
+
+
 def _freeze_all_parameters(model: torch.nn.Module) -> None:
     for parameter in model.parameters():
         parameter.requires_grad = False
@@ -223,7 +239,7 @@ def build_model_tokenizer_processor_from_checkpoint(
     if attn_implementation:
         model_kwargs["attn_implementation"] = attn_implementation
     print(f"[builder] constructing model from checkpoint config: {model_dir / 'config.json'}", flush=True)
-    model = model_class.from_config(model_config, **model_kwargs)
+    model = _build_model_from_config(model_class, model_config, **model_kwargs)
 
     model_source = _resolve_model_source(config)
     local_files_only = _is_local_model_source(model_source)
