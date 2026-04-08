@@ -170,7 +170,7 @@ class TwoStagePipelineBatchingTests(unittest.TestCase):
         self.assertEqual(stage2_runner.request_counts, [1])
         self.assertLessEqual(stage2_runner.request_aspect_ratios[0], 180.0)
 
-    def test_training_and_infer_stage2_condition_bbox_2d_stay_aligned(self) -> None:
+    def test_training_and_infer_stage2_crop_settings_stay_aligned(self) -> None:
         image = Image.new("RGB", (1024, 1024), color="black")
         record = {
             "sample_id": "sample_0001",
@@ -191,13 +191,12 @@ class TwoStagePipelineBatchingTests(unittest.TestCase):
                 image=image,
                 split="val",
                 target_index=0,
-                sample_suffix="",
+                sample_suffix="__pad300",
                 hint_bbox=list(instance["bbox"]),
-                hint_keypoints=list(instance["keypoints"]),
                 output_dir=Path(tmp_dir),
-                padding_ratio=0.0,
+                padding_ratio=0.3,
                 num_bins=1000,
-                augmentation={},
+                augmentation={"padding_ratio": 0.3},
             )
 
         stage1_prediction = {"instances": [{"label": "single_arrow", "bbox": list(instance["bbox"]), "keypoints": []}]}
@@ -205,7 +204,7 @@ class TwoStagePipelineBatchingTests(unittest.TestCase):
             stage1_runner=SimpleNamespace(),
             stage2_runner=SimpleNamespace(adapter=SimpleNamespace(num_bins=1000)),
             infer_config=object(),
-            padding_ratio=0.0,
+            padding_ratio=0.3,
             stage2_max_crop_aspect_ratio=180.0,
         )
         requests, _ = runner._build_stage2_requests_for_image(
@@ -216,7 +215,8 @@ class TwoStagePipelineBatchingTests(unittest.TestCase):
         )
 
         self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0].bbox_2d, stage2_record["condition"]["bbox_2d"])
+        self.assertEqual(requests[0].crop_box, stage2_record["crop_box"])
+        self.assertEqual(requests[0].label, stage2_record["instances"][0]["label"])
 
 
 if __name__ == "__main__":

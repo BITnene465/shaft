@@ -24,7 +24,7 @@ stage2:
     min_pixels: 50176
     max_pixels: 262144
   prompt:
-    profile: arrow.keypoint_sequence.stage2_template.v1
+    profile: arrow.keypoint_sequence.stage2_fixed.v2
   batch_size: 32
   eval:
     max_new_tokens: 64

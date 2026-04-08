@@ -59,9 +59,8 @@ Runs grounding on the full image plus optional multi-scale tile crops. All detec
 For each detected arrow:
 
 1. Build padded crop (expand bbox by `padding_ratio`, default 0.3)
-2. Quantize bbox to crop-local `[0, 999]`
-3. Run keypoint model with crop-local condition injected into prompt
-4. Map keypoints back to global coordinates
+2. Run keypoint model on the crop
+3. Map keypoints back to global coordinates
 
 ### Usage
 

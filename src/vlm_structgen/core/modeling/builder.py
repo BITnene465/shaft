@@ -284,6 +284,13 @@ def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntim
         _freeze_all_parameters(model)
         if not config.lora.enabled:
             raise ValueError("finetune.mode='lora' requires lora.enabled=true.")
+        adapter_type = config.lora.adapter_type.strip().lower()
+        if adapter_type not in {"lora", "dora"}:
+            raise ValueError(
+                f"Unsupported lora.adapter_type={config.lora.adapter_type!r}. Expected 'lora' or 'dora'."
+            )
+        if adapter_type == "dora" and config.lora.use_rslora:
+            raise ValueError("lora.use_rslora is not supported together with lora.adapter_type='dora'.")
         target_modules = list(config.lora.lang_target_modules)
         if not config.model.freeze_vision_tower:
             vis_target_modules = _collect_lora_target_module_names(
@@ -324,9 +331,12 @@ def _finalize_model_for_runtime(model: torch.nn.Module, config: ExperimentRuntim
             lora_alpha=config.lora.alpha,
             lora_dropout=config.lora.dropout,
             bias=config.lora.bias,
+            use_rslora=config.lora.use_rslora,
+            use_dora=(adapter_type == "dora"),
             target_modules=sorted(set(target_modules)),
             task_type=TaskType.CAUSAL_LM,
         )
+        print(f"[builder] using LoRA adapter type: {adapter_type.upper()}.", flush=True)
         model = get_peft_model(model, lora_config)
     else:
         _enable_all_parameters(model)

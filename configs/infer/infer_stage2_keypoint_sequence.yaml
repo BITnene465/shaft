@@ -8,7 +8,7 @@ task:
   domain_type: arrow
 
 prompt:
-  profile: arrow.keypoint_sequence.stage2_template.v1
+  profile: arrow.keypoint_sequence.stage2_fixed.v2
 
 eval:
   max_new_tokens: 64

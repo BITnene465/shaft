@@ -35,7 +35,7 @@ prompt:
   profile: arrow.grounding.stage1.v2
 
 data:
-  train_path: data/two_stage/stage1/train.jsonl
+  train_path: data/two_stage/stage1/train_mixed.jsonl
   val_path: data/two_stage/stage1/val_full.jsonl
   num_workers: 16
   pin_memory: true
@@ -46,8 +46,9 @@ finetune:
 
 lora:
   enabled: true
-  r: 64
-  alpha: 128
+  adapter_type: dora
+  r: 32
+  alpha: 64
   dropout: 0.05
   bias: none
   # Language tower LoRA targets.
@@ -69,16 +70,16 @@ lora:
   proj_target_modules: []
 
 train:
-  epochs: 4
+  epochs: 5
   per_device_batch_size: 4
   grad_accum_steps: 2
   gradient_checkpointing: true
   learning_rate: 0
-  lora_learning_rate: 0.0002
+  lora_learning_rate: 0.00005
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler_type: cosine
-  max_grad_norm: 1.0
+  max_grad_norm: 2.0
   bf16: true
   eval_strategy: epoch
   eval_start_epoch: 0

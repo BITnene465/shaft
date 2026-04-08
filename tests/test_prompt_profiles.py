@@ -21,9 +21,10 @@ class PromptProfileConfigTest(unittest.TestCase):
     def test_two_stage_infer_profile_resolution(self) -> None:
         infer_config = load_two_stage_inference_config("configs/infer/infer_two_stage.yaml")
         self.assertEqual(infer_config.stage1.prompt.profile, "arrow.grounding.stage1.v2")
-        self.assertEqual(infer_config.stage2.prompt.profile, "arrow.keypoint_sequence.stage2_template.v1")
+        self.assertEqual(infer_config.stage2.prompt.profile, "arrow.keypoint_sequence.stage2_fixed.v2")
         self.assertIn("Locate every instance", infer_config.stage1.prompt.user_prompt or "")
-        self.assertIn("{{label}}", infer_config.stage2.prompt.user_prompt_template or "")
+        self.assertIn("central main arrow", infer_config.stage2.prompt.user_prompt or "")
+        self.assertIn("ignore other secondary arrows", infer_config.stage2.prompt.user_prompt or "")
 
 
 if __name__ == "__main__":

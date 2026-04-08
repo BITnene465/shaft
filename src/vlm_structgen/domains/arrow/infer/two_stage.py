@@ -48,7 +48,6 @@ class Stage2KeypointInferenceRunner:
             key=lambda request: (
                 int(request.crop_image.width) * int(request.crop_image.height),
                 len(request.label),
-                len(request.hint_keypoints_2d),
                 int(request.index),
             ),
         )
@@ -143,24 +142,22 @@ class Stage2KeypointInferenceRunner:
                             "error": strict_error,
                             "recovered_prefix": False,
                         },
-                        "condition": {
-                            "label": request.label,
-                            "bbox_2d": request.bbox_2d,
-                            "keypoints_2d": request.hint_keypoints_2d,
-                        },
                     },
                 )
         return [results_by_index[request.index] for request in requests]
 
     def _build_prompt(self, request: Stage2Request) -> str:
-        prompt = render_prompt_template(
-            self.config.prompt.user_prompt_template,
-            {
-                "label": request.label,
-                "bbox_2d": request.bbox_2d,
-                "keypoints_2d": request.hint_keypoints_2d,
-            },
-        )
+        template = self.config.prompt.user_prompt_template
+        if template:
+            prompt = render_prompt_template(
+                template,
+                {
+                    "label": request.label,
+                    "bbox_2d": request.bbox_2d,
+                },
+            )
+        else:
+            prompt = str(self.config.prompt.user_prompt)
         return build_chat_prompt(
             self.artifacts.processor,
             self.artifacts.tokenizer,
@@ -203,7 +200,6 @@ class Stage2Request:
     crop_box: list[int]
     label: str
     bbox_2d: list[int]
-    hint_keypoints_2d: list[list[int]]
 
 
 @dataclass
@@ -292,7 +288,6 @@ class TwoStageInferenceRunner:
                     crop_box=[int(value) for value in crop_box],
                     label=label,
                     bbox_2d=local_bbox_2d,
-                    hint_keypoints_2d=[],
                 )
             )
             next_index += 1

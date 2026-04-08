@@ -185,16 +185,14 @@ Only tiles where **all bounding boxes are fully contained** are kept. Tiles with
 
 ```json
 {
-  "sample_id": "img_001_inst_0",
-  "image_path": "data/two_stage/stage2/images/train/img_001_inst_0.jpg",
+  "sample_id": "img_001_inst_0__pad300",
+  "image_path": "data/two_stage/stage2/images/train/img_001_inst_0__pad300.png",
   "image_width": 512,
   "image_height": 512,
   "task_type": "keypoint_sequence",
   "domain_type": "arrow",
-  "condition": {
-    "label": "single_arrow",
-    "bbox_2d": [50, 80, 400, 420]
-  },
+  "crop_box": [50, 80, 400, 420],
+  "padding_ratio": 0.3,
   "gt_struct": {
     "label": "single_arrow",
     "keypoints_2d": [[80, 120], [200, 250], [380, 400]]
@@ -217,9 +215,8 @@ Only tiles where **all bounding boxes are fully contained** are kept. Tiles with
 ### Key Points
 
 - Each record corresponds to a **single target arrow**
-- The image is a **padded crop** around the target instance (default `padding_ratio = 0.3`)
-- Coordinates in `condition.bbox_2d` and `gt_struct.keypoints_2d` are **crop-local**, quantized to `[0, 999]`
-- The prompt explicitly injects the crop-local `label` and `bbox_2d` as condition
+- Stage2 train can use multiple crop paddings; val/infer use `padding_ratio = 0.3`
+- Coordinates in `gt_struct.keypoints_2d` are **crop-local**, quantized to `[0, 999]`
 - Even if the crop contains other arrows, the model should only output the target arrow's keypoints
 - Stage2 JSONL does **not** treat `target_text` as data truth; training targets are generated from `gt_struct` via `KeypointSequenceCodec` at dataset load time
 
@@ -249,9 +246,10 @@ python scripts/arrow/prepare_stage1_data.py \
 
 ```bash
 python scripts/arrow/prepare_stage2_data.py \
-  --input-jsonl data/processed/train.jsonl \
-  --image-dir data/processed/images/train \
-  --output-dir data/two_stage/stage2
+  --input-dir data/processed \
+  --output-dir data/two_stage \
+  --train-padding-ratios 0.2,0.3,0.45 \
+  --val-padding-ratio 0.3
 ```
 
 ---

@@ -79,10 +79,12 @@ class DataConfig:
 @dataclass
 class LoraConfig:
     enabled: bool = True
+    adapter_type: str = "lora"
     r: int = 16
     alpha: int = 32
     dropout: float = 0.05
     bias: str = "none"
+    use_rslora: bool = False
     lang_target_modules: list[str] = field(
         default_factory=lambda: [
             "q_proj",

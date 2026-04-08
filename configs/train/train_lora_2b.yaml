@@ -51,8 +51,9 @@ finetune:
 
 lora:
   enabled: true
-  r: 16
-  alpha: 32
+  adapter_type: dora
+  r: 32
+  alpha: 64
   dropout: 0.05
   bias: none
   # Language tower LoRA targets.
@@ -79,7 +80,7 @@ train:
   grad_accum_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.00005
-  lora_learning_rate: 0.0001
+  lora_learning_rate: 0.00005
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler_type: cosine

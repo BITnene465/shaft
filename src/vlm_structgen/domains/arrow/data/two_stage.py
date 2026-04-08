@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import math
 import os
-import random
 import shutil
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -431,66 +429,6 @@ def _clip_bbox(bbox: list[float], image_width: int, image_height: int) -> list[f
     return [x1, y1, x2, y2]
 
 
-def _all_points_inside_crop(keypoints: list[list[float]], crop_box: list[int]) -> bool:
-    crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
-    return all(
-        crop_x1 <= float(x) <= crop_x2 - 1 and crop_y1 <= float(y) <= crop_y2 - 1
-        for x, y in keypoints
-    )
-
-
-def _stable_rng(
-    *,
-    sample_id: str,
-    target_index: int,
-    aug_index: int,
-    seed: int,
-) -> random.Random:
-    raw = f"{sample_id}:{target_index}:{aug_index}:{seed}".encode("utf-8")
-    digest = sha256(raw).hexdigest()
-    return random.Random(int(digest[:16], 16))
-
-
-def _jitter_bbox(
-    bbox: list[float],
-    *,
-    image_width: int,
-    image_height: int,
-    center_ratio: float,
-    scale_ratio: float,
-    rng: random.Random,
-) -> tuple[list[float], dict[str, float]]:
-    x1, y1, x2, y2 = [float(value) for value in bbox]
-    width = max(x2 - x1, 1.0)
-    height = max(y2 - y1, 1.0)
-    center_x = (x1 + x2) * 0.5
-    center_y = (y1 + y2) * 0.5
-
-    dx = rng.uniform(-center_ratio * width, center_ratio * width)
-    dy = rng.uniform(-center_ratio * height, center_ratio * height)
-    dw = rng.uniform(-scale_ratio * width, scale_ratio * width)
-    dh = rng.uniform(-scale_ratio * height, scale_ratio * height)
-
-    noisy_width = max(width + dw, 2.0)
-    noisy_height = max(height + dh, 2.0)
-    noisy_center_x = center_x + dx
-    noisy_center_y = center_y + dy
-
-    noisy_bbox = [
-        noisy_center_x - noisy_width * 0.5,
-        noisy_center_y - noisy_height * 0.5,
-        noisy_center_x + noisy_width * 0.5,
-        noisy_center_y + noisy_height * 0.5,
-    ]
-    noisy_bbox = _clip_bbox(noisy_bbox, image_width, image_height)
-    return noisy_bbox, {
-        "bbox_center_dx_px": round(dx, 4),
-        "bbox_center_dy_px": round(dy, 4),
-        "bbox_scale_dw_px": round(noisy_bbox[2] - noisy_bbox[0] - width, 4),
-        "bbox_scale_dh_px": round(noisy_bbox[3] - noisy_bbox[1] - height, 4),
-    }
-
-
 def build_padded_crop(
     image: Image.Image,
     *,
@@ -573,28 +511,6 @@ def quantize_keypoints_2d(
     ]
 
 
-def dequantize_keypoints_2d(
-    keypoints_2d: list[list[int]],
-    image_width: int,
-    image_height: int,
-    num_bins: int,
-) -> list[list[float]]:
-    width = max(int(image_width), 1)
-    height = max(int(image_height), 1)
-    if width == 1:
-        x_scale = 0.0
-    else:
-        x_scale = float(width - 1) / float(num_bins - 1)
-    if height == 1:
-        y_scale = 0.0
-    else:
-        y_scale = float(height - 1) / float(num_bins - 1)
-    return [
-        [float(point[0]) * x_scale, float(point[1]) * y_scale]
-        for point in keypoints_2d
-    ]
-
-
 def _build_stage2_record(
     record: dict[str, Any],
     instance: dict[str, Any],
@@ -604,7 +520,6 @@ def _build_stage2_record(
     target_index: int,
     sample_suffix: str,
     hint_bbox: list[float],
-    hint_keypoints: list[list[float]],
     output_dir: Path,
     padding_ratio: float,
     num_bins: int,
@@ -624,15 +539,6 @@ def _build_stage2_record(
 
     local_gt_bbox = to_crop_local_bbox(instance["bbox"], crop_box)
     local_gt_keypoints = to_crop_local_keypoints(instance["keypoints"], crop_box)
-    local_hint_bbox = to_crop_local_bbox(hint_bbox, crop_box)
-    local_hint_keypoints = to_crop_local_keypoints(hint_keypoints, crop_box)
-    local_bbox_2d = quantize_bbox_2d(local_hint_bbox, crop_width, crop_height, num_bins)
-    local_hint_keypoints_2d = quantize_keypoints_2d(
-        local_hint_keypoints,
-        crop_width,
-        crop_height,
-        num_bins,
-    )
     local_full_keypoints_2d = quantize_keypoints_2d(
         local_gt_keypoints,
         crop_width,
@@ -664,16 +570,14 @@ def _build_stage2_record(
                 "keypoints": _round_keypoints(local_gt_keypoints),
             }
         ],
-        "condition": {
-            "label": instance["label"],
-            "bbox": _round_bbox(local_hint_bbox),
-            "bbox_2d": local_bbox_2d,
-            "keypoints": _round_keypoints(local_hint_keypoints),
-            "keypoints_2d": local_hint_keypoints_2d,
-        },
         "crop_box": crop_box,
+        "padding_ratio": float(augmentation.get("padding_ratio", 0.0)),
         "augmentation": augmentation,
     }
+
+
+def _stage2_padding_suffix(padding_ratio: float) -> str:
+    return f"__pad{int(round(float(padding_ratio) * 1000)):03d}"
 
 
 def _enumerate_stage1_sliding_records(
@@ -860,15 +764,12 @@ def _prepare_stage2_record_set(
     output_dir: str,
     padding_ratio: float,
     num_bins: int,
-    stage2_aug_ratio: float,
-    bbox_center_jitter_ratio: float,
-    bbox_scale_jitter_ratio: float,
-    augmentation_seed: int,
 ) -> list[dict[str, Any]]:
     image_path = Path(record["image_path"])
     image = Image.open(image_path).convert("RGB")
     current_stage2: list[dict[str, Any]] = []
     output_dir_path = Path(output_dir)
+    padding_suffix = _stage2_padding_suffix(padding_ratio)
     for target_index, instance in enumerate(record.get("instances", [])):
         current_stage2.append(
             _build_stage2_record(
@@ -877,70 +778,18 @@ def _prepare_stage2_record_set(
                 image=image,
                 split=split,
                 target_index=target_index,
-                sample_suffix="",
+                sample_suffix=padding_suffix,
                 hint_bbox=instance["bbox"],
-                hint_keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
                 output_dir=output_dir_path,
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
                 augmentation={
                     "copy_type": "clean",
                     "copy_index": 0,
-                    "bbox_center_dx_px": 0.0,
-                    "bbox_center_dy_px": 0.0,
-                    "bbox_scale_dw_px": 0.0,
-                    "bbox_scale_dh_px": 0.0,
+                    "padding_ratio": float(padding_ratio),
                 },
             )
         )
-        if float(stage2_aug_ratio) <= 0.0:
-            continue
-        rng = _stable_rng(
-            sample_id=record["sample_id"],
-            target_index=target_index,
-            aug_index=1,
-            seed=augmentation_seed,
-        )
-        if rng.random() >= float(stage2_aug_ratio):
-            continue
-        noisy_record = None
-        for _attempt in range(8):
-            noisy_bbox, bbox_meta = _jitter_bbox(
-                instance["bbox"],
-                image_width=int(record["image_width"]),
-                image_height=int(record["image_height"]),
-                center_ratio=bbox_center_jitter_ratio,
-                scale_ratio=bbox_scale_jitter_ratio,
-                rng=rng,
-            )
-            preview_crop_box = build_padded_crop(
-                image,
-                bbox=noisy_bbox,
-                padding_ratio=padding_ratio,
-            )[1]
-            if not _all_points_inside_crop(instance["keypoints"], preview_crop_box):
-                continue
-            noisy_record = _build_stage2_record(
-                record,
-                instance,
-                image=image,
-                split=split,
-                target_index=target_index,
-                sample_suffix="__aug_01",
-                hint_bbox=noisy_bbox,
-                hint_keypoints=[instance["keypoints"][0], instance["keypoints"][-1]],
-                output_dir=output_dir_path,
-                padding_ratio=padding_ratio,
-                num_bins=num_bins,
-                augmentation={
-                    "copy_type": "noisy",
-                    "copy_index": 1,
-                    **bbox_meta,
-                },
-            )
-            break
-        if noisy_record is not None:
-            current_stage2.append(noisy_record)
     image.close()
     return current_stage2
 
@@ -1032,10 +881,6 @@ def _prepare_stage2_split(
     padding_ratio: float,
     num_bins: int,
     num_workers: int,
-    stage2_aug_ratio: float,
-    bbox_center_jitter_ratio: float,
-    bbox_scale_jitter_ratio: float,
-    augmentation_seed: int,
     stats: Counter,
 ) -> list[dict[str, Any]]:
     stage2_records: list[dict[str, Any]] = []
@@ -1047,10 +892,6 @@ def _prepare_stage2_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
-                stage2_aug_ratio=stage2_aug_ratio,
-                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                augmentation_seed=augmentation_seed,
             )
             stage2_records.extend(current_stage2)
             stats[f"{split}_stage2_samples"] += len(current_stage2)
@@ -1066,10 +907,6 @@ def _prepare_stage2_split(
                 output_dir=str(output_dir),
                 padding_ratio=padding_ratio,
                 num_bins=num_bins,
-                stage2_aug_ratio=stage2_aug_ratio,
-                bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-                bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-                augmentation_seed=augmentation_seed,
             )
             for record in records
         ]
@@ -1163,46 +1000,44 @@ def prepare_stage2_data(
     *,
     input_dir: str | Path,
     output_dir: str | Path,
-    padding_ratio: float = 0.3,
+    padding_ratio: float | None = None,
+    train_padding_ratios: list[float] | tuple[float, ...] | None = None,
+    val_padding_ratio: float = 0.3,
     num_bins: int = 1000,
     num_workers: int | None = None,
-    stage2_aug_ratio: float = 0.0,
-    bbox_center_jitter_ratio: float = 0.03,
-    bbox_scale_jitter_ratio: float = 0.05,
-    augmentation_seed: int = 42,
 ) -> dict[str, Any]:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     resolved_workers = max(int(num_workers or os.cpu_count() or 1), 1)
+    fallback_padding_ratio = float(padding_ratio if padding_ratio is not None else 0.3)
+    resolved_train_padding_ratios = _parse_float_sequence(
+        train_padding_ratios,
+        default=[fallback_padding_ratio],
+    )
     shutil.rmtree(output_dir / "stage2" / "images", ignore_errors=True)
     train_records = load_jsonl(input_dir / "train.jsonl")
     val_records = load_jsonl(input_dir / "val.jsonl")
     stats: Counter = Counter()
 
-    stage2_train = _prepare_stage2_split(
-        train_records,
-        split="train",
-        output_dir=output_dir,
-        padding_ratio=padding_ratio,
-        num_bins=num_bins,
-        num_workers=resolved_workers,
-        stage2_aug_ratio=stage2_aug_ratio,
-        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        augmentation_seed=augmentation_seed,
-        stats=stats,
-    )
+    stage2_train: list[dict[str, Any]] = []
+    for train_padding_ratio in resolved_train_padding_ratios:
+        current_train = _prepare_stage2_split(
+            train_records,
+            split="train",
+            output_dir=output_dir,
+            padding_ratio=train_padding_ratio,
+            num_bins=num_bins,
+            num_workers=resolved_workers,
+            stats=stats,
+        )
+        stage2_train.extend(current_train)
     stage2_val = _prepare_stage2_split(
         val_records,
         split="val",
         output_dir=output_dir,
-        padding_ratio=padding_ratio,
+        padding_ratio=val_padding_ratio,
         num_bins=num_bins,
         num_workers=resolved_workers,
-        stage2_aug_ratio=0.0,
-        bbox_center_jitter_ratio=bbox_center_jitter_ratio,
-        bbox_scale_jitter_ratio=bbox_scale_jitter_ratio,
-        augmentation_seed=augmentation_seed,
         stats=stats,
     )
 
@@ -1210,14 +1045,11 @@ def prepare_stage2_data(
     write_jsonl(output_dir / "stage2" / "val.jsonl", stage2_val)
 
     report = {
-        "padding_ratio": float(padding_ratio),
+        "padding_ratio": float(fallback_padding_ratio),
+        "train_padding_ratios": [float(value) for value in resolved_train_padding_ratios],
+        "val_padding_ratio": float(val_padding_ratio),
         "num_bins": int(num_bins),
         "num_workers": int(resolved_workers),
-        "stage2_train_aug_ratio": float(stage2_aug_ratio),
-        "stage2_val_aug_ratio": 0.0,
-        "bbox_center_jitter_ratio": float(bbox_center_jitter_ratio),
-        "bbox_scale_jitter_ratio": float(bbox_scale_jitter_ratio),
-        "augmentation_seed": int(augmentation_seed),
         "stage2_train_samples": len(stage2_train),
         "stage2_val_samples": len(stage2_val),
         "counts": dict(stats),

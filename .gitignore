@@ -22,5 +22,6 @@ llamafactory_qwen3vl_grounding/
 /data/
 /wandb/
 /temp/
+/runs/
 experimental/
 /scripts/acc_exp/

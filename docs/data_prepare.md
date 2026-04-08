@@ -90,14 +90,14 @@ data/two_stage/reports/prepare_stage1_report.json
 
 ## Stage2 数据准备
 
-Stage2 数据是单目标 crop 数据集，训练时输出由 crop-local `label + bbox_2d` 指定的 target arrow 的 `keypoints_2d` 骨架。
+Stage2 数据是单目标 crop 数据集，训练目标是 target arrow 的 `keypoints_2d` 骨架。
 当前 target 格式是：
 
 ```json
 {"keypoints_2d":[[x0,y0],[x1,y1],...]}
 ```
 
-当前 prompt 会显式注入 crop-local 的 `label + bbox_2d`。
+当前 prompt 使用固定文本，不再注入 crop-local 的 `label + bbox_2d`。
 
 命令：
 
@@ -105,21 +105,17 @@ Stage2 数据是单目标 crop 数据集，训练时输出由 crop-local `label 
 python scripts/arrow/prepare_stage2_data.py \
   --input-dir data/processed \
   --output-dir data/two_stage \
-  --padding-ratio 0.3 \
-  --num-workers 8 \
-  --stage2-aug-ratio 0.0
+  --train-padding-ratios 0.2,0.3,0.45 \
+  --val-padding-ratio 0.3 \
+  --num-workers 8
 ```
 
 关键参数：
 
-- `--padding-ratio`
-  目标 bbox 的 crop padding 比例。
-- `--stage2-aug-ratio`
-  训练实例中有多少比例额外生成 1 条 noisy hint 副本。比如 `0.3` 表示约 30% 的训练实例会多 1 条 noisy 样本。
-- `--bbox-center-jitter-ratio`
-  在原图坐标系下，对 hint bbox 中心的相对扰动范围，默认 `0.03`。
-- `--bbox-scale-jitter-ratio`
-  在原图坐标系下，对 hint bbox 宽高的相对扰动范围，默认 `0.05`。
+- `--train-padding-ratios`
+  Stage2 训练集使用的多视图 padding 比例列表。每个 target 会按该列表分别生成多份 crop。
+- `--val-padding-ratio`
+  Stage2 验证集使用的固定 padding 比例。
 
 产物：
 
@@ -133,9 +129,9 @@ data/two_stage/reports/prepare_stage2_report.json
 
 说明：
 
-- Stage2 默认不生成 noisy hint 样本；只有显式设置 `--stage2-aug-ratio > 0` 才会生成。
-- Stage2 的 noisy augmentation 只扰动 bbox crop 条件，不再扰动 endpoint。
-- Stage2 的 `val` 不做 augmentation，只保留 clean 样本。
+- Stage2 训练集会为每个 target 生成多份不同 padding 的 crop 视图；验证集只保留单一固定 padding 视图，默认 `0.3`。
+- Stage2 只保留 clean 样本。
+- Stage2 的 `val` 只保留固定 `0.3` 的单视图样本。
 - Stage2 的 `target` 坐标已经转换成 crop-local `[0,999]`。
-- 当前 Stage2 prompt 会注入 crop-local `label + bbox_2d`，再要求输出该 main arrow 的骨架；数据中的 `condition` 仍保留，用于兼容现有数据链路和后续扩展。
+- 当前 Stage2 prompt 使用固定文本，不再注入 crop-local `label + bbox_2d`。
 - Stage2 JSONL 只保存结构化 GT；训练用 `target_text + loss_meta` 由 dataset 在加载时通过 codec 现场生成，不作为长期维护的数据字段。

@@ -12,7 +12,7 @@ Examples:
 
 - `arrow.grounding.stage1.v1.yaml`
 - `arrow.grounding.stage1.v2.yaml`
-- `arrow.keypoint_sequence.stage2_template.v1.yaml`
+- `arrow.keypoint_sequence.stage2_fixed.v2.yaml`
 - `arrow.joint_structure.one_stage.v1.yaml`
 
 ## File Schema
@@ -54,7 +54,7 @@ Infer config example:
 
 ```yaml
 prompt:
-  profile: arrow.keypoint_sequence.stage2_template.v1
+  profile: arrow.keypoint_sequence.stage2_fixed.v2
 ```
 
 Optional local overrides are still supported by adding explicit prompt fields in the same config.

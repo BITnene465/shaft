@@ -25,6 +25,7 @@ dependencies = [
   "gradio>=5.22.0",
   "openai>=2.30.0",
   "matplotlib>=3.10.8",
+  "modelscope>=1.35.3",
 ]
 
 [project.optional-dependencies]

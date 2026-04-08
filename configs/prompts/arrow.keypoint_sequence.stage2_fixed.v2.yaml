@@ -1,0 +1,17 @@
+metadata:
+  id: arrow.keypoint_sequence.stage2_fixed.v2
+  name: arrow keypoint sequence stage2 fixed prompt v2
+  created_at: "2026-04-08"
+  scope:
+    - train:keypoint_sequence/arrow
+    - infer:two-stage-stage2
+    - infer:stage2-standalone
+
+prompt:
+  system_prompt: ""
+  user_prompt: |
+    Predict the skeleton of the central main arrow in this crop and ignore other secondary arrows.
+    Output only a JSON object.
+    Format: {"keypoints_2d":[[x0,y0],[x1,y1],...]}
+    For single_arrow, output points from tail to head.
+    For double_arrow, output points from the upper-left head to the other head.
