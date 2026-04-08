@@ -9,11 +9,7 @@ stage1:
     # max_pixels: 2359296
 
   prompt:
-    system_prompt: ""
-    user_prompt: |
-      Detect all arrows in the image and return their bounding boxes as a JSON array.
-      Use relative coordinates in [0,999].
-      Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
+    profile: arrow.grounding.stage1.v2
   eval:
     max_new_tokens: 2048
     num_beams: 1
@@ -28,15 +24,7 @@ stage2:
     min_pixels: 50176
     max_pixels: 262144
   prompt:
-    system_prompt: ""
-    user_prompt_template: |
-      The target arrow in this crop is specified by:
-      {"label":"{{label}}","bbox_2d":{{bbox_2d}}}
-      Output only a JSON object in [0,999].
-      Format: {"keypoints_2d":[[x0,y0],[x1,y1],...]}
-      Return the skeleton of this target arrow only.
-      For single_arrow, output the skeleton from tail to head.
-      For double_arrow, output the skeleton from the upper-left head to the other head.
+    profile: arrow.keypoint_sequence.stage2_template.v1
   batch_size: 32
   eval:
     max_new_tokens: 64

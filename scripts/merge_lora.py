@@ -7,9 +7,14 @@ from vlm_structgen.core.modeling import merge_lora_checkpoint
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge a LoRA training checkpoint into full model weights.")
-    parser.add_argument("--checkpoint-dir", required=True, help="Training checkpoint directory (e.g. .../checkpoints/best).")
-    parser.add_argument("--output-dir", required=True, help="Output directory for merged full weights.")
+    parser = argparse.ArgumentParser(description="Export a dense model or merge a LoRA adapter into full weights.")
+    parser.add_argument("--dense-model", default=None, help="Optional dense model path/name override.")
+    parser.add_argument(
+        "--lora-adapter",
+        default=None,
+        help="Optional LoRA adapter directory. Omit to export the dense model only.",
+    )
+    parser.add_argument("--output-dir", required=True, help="Output directory for exported weights.")
     parser.add_argument(
         "--config",
         default=None,
@@ -46,7 +51,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     result = merge_lora_checkpoint(
-        checkpoint_dir=args.checkpoint_dir,
+        dense_model_name_or_path=args.dense_model,
+        lora_adapter_path=args.lora_adapter,
         output_dir=args.output_dir,
         config_path=args.config,
         prefer_checkpoint_meta=args.prefer_checkpoint_meta,
@@ -55,8 +61,9 @@ def main() -> None:
         export_ft_checkpoint=args.export_ft_checkpoint,
     )
     print("[merge] success")
-    print(f"[merge] checkpoint_dir: {result.checkpoint_dir}")
     print(f"[merge] output_dir: {result.output_dir}")
+    print(f"[merge] dense_model_dir: {result.dense_model_dir}")
+    print(f"[merge] lora_adapter_dir: {result.lora_adapter_dir}")
     print(f"[merge] model_source: {result.model_source}")
     print(f"[merge] used_checkpoint_meta_config: {result.used_checkpoint_meta_config}")
     print(f"[merge] ft_checkpoint_dir: {result.ft_checkpoint_dir}")

@@ -28,15 +28,11 @@ task:
   domain_type: arrow
   route_options:
     grounding/arrow:
-      bbox_token_loss_weight: 1.5
+      bbox_token_loss_weight: 1.0
       label_token_loss_weight: 1.0
 
 prompt:
-  system_prompt: ""
-  user_prompt: |
-    Detect all arrows in the image and return their bounding boxes as a JSON array.
-    Use relative coordinates in [0,999].
-    Each item must be {"label":"single_arrow"|"double_arrow","bbox_2d":[x1,y1,x2,y2]}.
+  profile: arrow.grounding.stage1.v2
 
 data:
   train_path: data/sync_arrow_grounding/avg/train.jsonl
@@ -50,8 +46,8 @@ finetune:
 
 lora:
   enabled: true
-  r: 32
-  alpha: 64
+  r: 64
+  alpha: 128
   dropout: 0
   bias: none
   lang_target_modules:

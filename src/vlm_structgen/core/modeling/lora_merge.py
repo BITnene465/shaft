@@ -18,7 +18,8 @@ from vlm_structgen.core.utils.io import ensure_dir, write_json
 @dataclass
 class MergeResult:
     output_dir: Path
-    checkpoint_dir: Path
+    dense_model_dir: Path | None
+    lora_adapter_dir: Path | None
     used_checkpoint_meta_config: bool
     model_source: str
     ft_checkpoint_dir: Path | None
@@ -26,17 +27,20 @@ class MergeResult:
 
 def _resolve_runtime_config(
     *,
-    checkpoint_dir: Path,
+    lora_adapter_dir: Path | None,
     config_path: str | Path | None,
     prefer_checkpoint_meta: bool,
 ) -> tuple[ExperimentRuntimeConfig, bool]:
-    if prefer_checkpoint_meta:
+    if lora_adapter_dir is not None and prefer_checkpoint_meta:
+        checkpoint_dir = lora_adapter_dir
         meta = load_checkpoint_meta(checkpoint_dir)
         payload = meta.get("config") if isinstance(meta, dict) else None
         if isinstance(payload, dict) and payload:
             return apply_model_scale_tag(_from_dict(ExperimentRuntimeConfig, payload)), True
 
     if config_path is None:
+        if lora_adapter_dir is None:
+            return ExperimentRuntimeConfig(), False
         raise ValueError(
             "No runtime config available. Pass --config, or keep --prefer-checkpoint-meta enabled "
             "when checkpoint meta includes config."
@@ -66,7 +70,8 @@ def _sanitize_tokenizer_config(path: Path) -> None:
 
 def merge_lora_checkpoint(
     *,
-    checkpoint_dir: str | Path,
+    dense_model_name_or_path: str | Path | None = None,
+    lora_adapter_path: str | Path | None = None,
     output_dir: str | Path,
     config_path: str | Path | None = None,
     prefer_checkpoint_meta: bool = True,
@@ -74,59 +79,72 @@ def merge_lora_checkpoint(
     safe_serialization: bool = True,
     export_ft_checkpoint: bool = False,
 ) -> MergeResult:
-    checkpoint_dir = Path(checkpoint_dir)
     output_dir = Path(output_dir)
+    dense_model_dir = Path(dense_model_name_or_path) if dense_model_name_or_path is not None else None
+    lora_adapter_dir = Path(lora_adapter_path) if lora_adapter_path is not None else None
 
     runtime_config, used_meta = _resolve_runtime_config(
-        checkpoint_dir=checkpoint_dir,
+        lora_adapter_dir=lora_adapter_dir,
         config_path=config_path,
         prefer_checkpoint_meta=prefer_checkpoint_meta,
     )
+    if dense_model_name_or_path is not None:
+        runtime_config.model.model_name_or_path = str(dense_model_name_or_path)
+        runtime_config.model.remote_model_name_or_path = str(dense_model_name_or_path)
 
     # NOTE: Merge is inference/export only. Disable training-time runtime hooks
     # to keep serialization predictable (especially full-model torch.save).
     runtime_config.train.gradient_checkpointing = False
 
-    if runtime_config.finetune.mode != "lora":
+    if lora_adapter_dir is not None and runtime_config.finetune.mode != "lora":
         raise ValueError(
             f"Expected finetune.mode='lora' for merge, got {runtime_config.finetune.mode!r}."
         )
 
-    artifacts = build_model_tokenizer_processor_from_checkpoint(
-        runtime_config,
-        checkpoint_dir=checkpoint_dir,
-    )
+    if lora_adapter_dir is not None:
+        artifacts = build_model_tokenizer_processor_from_checkpoint(
+            runtime_config,
+            checkpoint_dir=lora_adapter_dir,
+        )
+    else:
+        from vlm_structgen.core.modeling.builder import build_model_tokenizer_processor
+
+        runtime_config.finetune.mode = "full"
+        artifacts = build_model_tokenizer_processor(runtime_config)
     device = _resolve_device(device_name)
     artifacts.model = artifacts.model.to(device)
 
-    load_training_checkpoint(
-        checkpoint_dir=checkpoint_dir,
-        model=artifacts.model,
-        tokenizer=artifacts.tokenizer,
-        processor=artifacts.processor,
-        strict=True,
-        resume_training_state=False,
-    )
-
-    peft_or_model = unwrap_model(artifacts.model)
-    merge_and_unload = getattr(peft_or_model, "merge_and_unload", None)
-    if not callable(merge_and_unload):
-        raise ValueError(
-            "Loaded model does not expose merge_and_unload(). "
-            "Please verify checkpoint/config correspond to a LoRA training run."
+    ft_checkpoint_dir: Path | None = None
+    if lora_adapter_dir is not None:
+        load_training_checkpoint(
+            checkpoint_dir=lora_adapter_dir,
+            model=artifacts.model,
+            tokenizer=artifacts.tokenizer,
+            processor=artifacts.processor,
+            strict=True,
+            resume_training_state=False,
         )
 
-    merged_model = merge_and_unload()
-    merged_model = merged_model.to("cpu")
-    merged_model.eval()
+        peft_or_model = unwrap_model(artifacts.model)
+        merge_and_unload = getattr(peft_or_model, "merge_and_unload", None)
+        if not callable(merge_and_unload):
+            raise ValueError(
+                "Loaded model does not expose merge_and_unload(). "
+                "Please verify checkpoint/config correspond to a LoRA training run."
+            )
+
+        merged_model = merge_and_unload()
+        merged_model = merged_model.to("cpu")
+        merged_model.eval()
+    else:
+        merged_model = unwrap_model(artifacts.model).to("cpu")
+        merged_model.eval()
 
     ensure_dir(output_dir)
     merged_model.save_pretrained(output_dir, safe_serialization=safe_serialization)
     artifacts.tokenizer.save_pretrained(output_dir)
     artifacts.processor.save_pretrained(output_dir)
     _sanitize_tokenizer_config(output_dir)
-
-    ft_checkpoint_dir: Path | None = None
 
     if export_ft_checkpoint:
         ft_checkpoint_dir = ensure_dir(output_dir / "ft_checkpoint")
@@ -140,7 +158,8 @@ def merge_lora_checkpoint(
     write_json(
         output_dir / "merge_meta.json",
         {
-            "source_checkpoint": str(checkpoint_dir),
+            "source_dense_model": str(dense_model_dir) if dense_model_dir is not None else None,
+            "source_lora_adapter": str(lora_adapter_dir) if lora_adapter_dir is not None else None,
             "used_checkpoint_meta_config": bool(used_meta),
             "model_source": runtime_config.model.model_name_or_path,
             "finetune_mode": runtime_config.finetune.mode,
@@ -152,7 +171,8 @@ def merge_lora_checkpoint(
 
     return MergeResult(
         output_dir=output_dir,
-        checkpoint_dir=checkpoint_dir,
+        dense_model_dir=dense_model_dir,
+        lora_adapter_dir=lora_adapter_dir,
         used_checkpoint_meta_config=used_meta,
         model_source=runtime_config.model.model_name_or_path,
         ft_checkpoint_dir=ft_checkpoint_dir,

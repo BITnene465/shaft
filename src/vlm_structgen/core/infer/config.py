@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from vlm_structgen.core.config import ExperimentRuntimeConfig, _from_dict
+from vlm_structgen.core.config import ExperimentRuntimeConfig, _from_dict, load_prompt_profile_payload
 from vlm_structgen.core.utils.checkpoint import load_checkpoint_meta
 
 
@@ -20,6 +19,7 @@ class InferModelConfig:
 
 @dataclass
 class InferPromptConfig:
+    profile: str | None = None
     system_prompt: str | None = None
     system_prompt_template: str | None = None
     user_prompt: str | None = None
@@ -83,7 +83,7 @@ class TwoStageInferenceConfig:
 @dataclass
 class InferenceSettings:
     runtime: ExperimentRuntimeConfig
-    checkpoint_path: str
+    lora_adapter_path: str
     device: str | None = None
     batch_size: int = 1
     output_dir: str | None = None
@@ -114,11 +114,37 @@ def _load_yaml_payload(path: str | Path | None) -> dict[str, Any]:
 
 
 def load_one_stage_inference_config(path: str | Path | None) -> OneStageInferenceConfig:
-    return _from_dict(OneStageInferenceConfig, _load_yaml_payload(path))
+    payload = _load_yaml_payload(path)
+    if path is not None:
+        _resolve_prompt_profile_for_mapping(payload, config_path=Path(path))
+    return _from_dict(OneStageInferenceConfig, payload)
 
 
 def load_two_stage_inference_config(path: str | Path | None) -> TwoStageInferenceConfig:
-    return _from_dict(TwoStageInferenceConfig, _load_yaml_payload(path))
+    payload = _load_yaml_payload(path)
+    if path is not None:
+        _resolve_prompt_profile_for_mapping(payload.get("stage1"), config_path=Path(path))
+        _resolve_prompt_profile_for_mapping(payload.get("stage2"), config_path=Path(path))
+    return _from_dict(TwoStageInferenceConfig, payload)
+
+
+def _resolve_prompt_profile_for_mapping(mapping: dict[str, Any] | None, *, config_path: Path) -> None:
+    if not isinstance(mapping, dict):
+        return
+    prompt_payload = mapping.get("prompt")
+    if not isinstance(prompt_payload, dict):
+        return
+    profile = prompt_payload.get("profile")
+    if not profile:
+        return
+    resolved_prompt_payload = load_prompt_profile_payload(str(profile), config_path=config_path)
+    merged_prompt_payload = dict(resolved_prompt_payload)
+    for key, value in prompt_payload.items():
+        if key == "profile":
+            continue
+        merged_prompt_payload[key] = value
+    merged_prompt_payload["profile"] = str(profile)
+    mapping["prompt"] = merged_prompt_payload
 
 
 def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -> dict[str, Any]:
@@ -146,6 +172,8 @@ def _apply_model_overrides(runtime: ExperimentRuntimeConfig, model_cfg: InferMod
 
 
 def _apply_prompt_overrides(runtime: ExperimentRuntimeConfig, prompt_cfg: InferPromptConfig) -> None:
+    if prompt_cfg.profile is not None:
+        runtime.prompt.profile = prompt_cfg.profile
     if prompt_cfg.system_prompt is not None:
         runtime.prompt.system_prompt = prompt_cfg.system_prompt
     if prompt_cfg.system_prompt_template is not None:
@@ -211,7 +239,8 @@ def build_runtime_from_two_stage_infer_config(
 
 def load_inference_settings(
     *,
-    checkpoint_path: str | Path | None,
+    lora_adapter_path: str | Path | None = None,
+    checkpoint_path: str | Path | None = None,
     config_path: str | Path | None = None,
     infer_config: OneStageInferenceConfig | TwoStageStageInferenceConfig | None = None,
     env_file: str | Path | None = None,
@@ -220,19 +249,21 @@ def load_inference_settings(
     if dotenv_path is not None:
         load_dotenv(dotenv_path=dotenv_path, override=False)
 
-    resolved_checkpoint_path = checkpoint_path or os.getenv("CHECKPOINT_PATH")
-    if not resolved_checkpoint_path:
-        raise ValueError(
-            "Inference checkpoint path is required. Pass --checkpoint or set CHECKPOINT_PATH in .env."
-        )
-
     effective_infer_config = infer_config or load_one_stage_inference_config(config_path)
-    runtime = build_runtime_from_one_stage_infer_config(resolved_checkpoint_path, effective_infer_config)
+    resolved_lora_adapter_path = lora_adapter_path or checkpoint_path
+    if resolved_lora_adapter_path:
+        runtime = build_runtime_from_one_stage_infer_config(resolved_lora_adapter_path, effective_infer_config)
+    else:
+        runtime = ExperimentRuntimeConfig()
+        _apply_model_overrides(runtime, effective_infer_config.model)
+        _apply_task_overrides(runtime, effective_infer_config.task)
+        _apply_prompt_overrides(runtime, effective_infer_config.prompt)
+        _apply_eval_overrides(runtime, effective_infer_config.eval)
     output_dir = getattr(effective_infer_config, "output_dir", None)
     app = getattr(effective_infer_config, "app", InferAppConfig())
     return InferenceSettings(
         runtime=runtime,
-        checkpoint_path=str(resolved_checkpoint_path),
+        lora_adapter_path=str(resolved_lora_adapter_path) if resolved_lora_adapter_path else "",
         device=None,
         batch_size=max(int(getattr(effective_infer_config, "batch_size", 1)), 1),
         output_dir=output_dir,

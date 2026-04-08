@@ -21,11 +21,19 @@ from vlm_structgen.domains.arrow import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for two-stage arrow inference.")
     parser.add_argument("--config", default="configs/infer/infer_two_stage.yaml", help="Two-stage inference config path.")
-    parser.add_argument("--stage1-checkpoint", default=None)
-    parser.add_argument("--stage2-checkpoint", default=None)
-    parser.add_argument("--stage1-model", default=None)
-    parser.add_argument("--stage2-model", default=None)
-    parser.add_argument("--device", default=None)
+    parser.add_argument("--stage1-dense-model", default=None, help="Optional Stage1 dense model path/name override.")
+    parser.add_argument(
+        "--stage1-lora-adapter",
+        default=None,
+        help="Optional Stage1 LoRA adapter directory. Omit to load the dense model only.",
+    )
+    parser.add_argument("--stage2-dense-model", default=None, help="Optional Stage2 dense model path/name override.")
+    parser.add_argument(
+        "--stage2-lora-adapter",
+        default=None,
+        help="Optional Stage2 LoRA adapter directory. Omit to load the dense model only.",
+    )
+    parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
     parser.add_argument("--stage1-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-max-new-tokens", type=int, default=None)
     parser.add_argument("--stage2-batch-size", type=int, default=None)
@@ -44,10 +52,10 @@ def _discover_model_choices(current_model_name_or_path: str | None) -> list[str]
     return sorted(discovered)
 
 
-def _discover_checkpoint_choices(current_checkpoint_path: str | None) -> list[str]:
+def _discover_adapter_choices(current_lora_adapter_path: str | None) -> list[str]:
     discovered: set[str] = set()
-    if current_checkpoint_path:
-        discovered.add(current_checkpoint_path)
+    if current_lora_adapter_path:
+        discovered.add(current_lora_adapter_path)
     outputs_dir = Path("outputs")
     if outputs_dir.exists():
         for child in sorted(outputs_dir.glob("**/checkpoints/best")):
@@ -86,70 +94,68 @@ def build_demo(args: argparse.Namespace):
 
     infer_config = load_two_stage_inference_config(args.config)
     initial_runner = None
-    if args.stage1_checkpoint:
+    if args.stage1_dense_model or args.stage1_lora_adapter or args.stage2_dense_model or args.stage2_lora_adapter:
         initial_runner = load_two_stage_inference_runner(
             config_path=args.config,
-            stage1_checkpoint_path=args.stage1_checkpoint,
-            stage2_checkpoint_path=args.stage2_checkpoint,
+            stage1_dense_model_name_or_path=args.stage1_dense_model,
+            stage1_lora_adapter_path=args.stage1_lora_adapter,
+            stage2_dense_model_name_or_path=args.stage2_dense_model,
+            stage2_lora_adapter_path=args.stage2_lora_adapter,
             device_name=args.device,
-            stage1_model_name_or_path=args.stage1_model,
-            stage2_model_name_or_path=args.stage2_model,
         )
     runner_holder = {
         "runner": initial_runner,
-        "stage1_model": args.stage1_model or "",
-        "stage1_checkpoint": args.stage1_checkpoint or "",
-        "stage2_model": args.stage2_model or "",
-        "stage2_checkpoint": args.stage2_checkpoint or "",
+        "stage1_dense_model": args.stage1_dense_model or "",
+        "stage1_lora_adapter": args.stage1_lora_adapter or "",
+        "stage2_dense_model": args.stage2_dense_model or "",
+        "stage2_lora_adapter": args.stage2_lora_adapter or "",
     }
 
     def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
         return [image] if image is not None else []
 
     def _reload_runner(
-        stage1_model: str,
-        stage1_checkpoint: str,
-        stage2_model: str,
-        stage2_checkpoint: str,
+        stage1_dense_model: str,
+        stage1_lora_adapter: str,
+        stage2_dense_model: str,
+        stage2_lora_adapter: str,
     ):
-        stage1_model = stage1_model.strip()
-        stage1_checkpoint = stage1_checkpoint.strip()
-        stage2_model = stage2_model.strip()
-        stage2_checkpoint = stage2_checkpoint.strip()
-        if not stage1_checkpoint:
-            raise ValueError("Stage1 checkpoint path cannot be empty.")
-        effective_stage1_model = stage1_model or runner_holder["stage1_model"]
-        effective_stage2_model = stage2_model or runner_holder["stage2_model"]
+        stage1_dense_model = stage1_dense_model.strip()
+        stage1_lora_adapter = stage1_lora_adapter.strip()
+        stage2_dense_model = stage2_dense_model.strip()
+        stage2_lora_adapter = stage2_lora_adapter.strip()
+        effective_stage1_model = stage1_dense_model or runner_holder["stage1_dense_model"]
+        effective_stage2_model = stage2_dense_model or runner_holder["stage2_dense_model"]
         current = (
-            runner_holder["stage1_model"],
-            runner_holder["stage1_checkpoint"],
-            runner_holder["stage2_model"],
-            runner_holder["stage2_checkpoint"],
+            runner_holder["stage1_dense_model"],
+            runner_holder["stage1_lora_adapter"],
+            runner_holder["stage2_dense_model"],
+            runner_holder["stage2_lora_adapter"],
         )
         requested = (
             effective_stage1_model,
-            stage1_checkpoint,
+            stage1_lora_adapter,
             effective_stage2_model,
-            stage2_checkpoint,
+            stage2_lora_adapter,
         )
-        if current == requested:
+        if runner_holder["runner"] is not None and current == requested:
             return runner_holder["runner"]
         new_runner = load_two_stage_inference_runner(
             config_path=args.config,
-            stage1_checkpoint_path=stage1_checkpoint,
-            stage2_checkpoint_path=stage2_checkpoint or None,
+            stage1_dense_model_name_or_path=effective_stage1_model or None,
+            stage1_lora_adapter_path=stage1_lora_adapter or None,
+            stage2_dense_model_name_or_path=effective_stage2_model or None,
+            stage2_lora_adapter_path=stage2_lora_adapter or None,
             device_name=args.device,
-            stage1_model_name_or_path=effective_stage1_model or None,
-            stage2_model_name_or_path=effective_stage2_model or None,
         )
         old_runner = runner_holder["runner"]
         runner_holder["runner"] = new_runner
-        runner_holder["stage1_model"] = new_runner.stage1_runner.config.model.model_name_or_path
-        runner_holder["stage1_checkpoint"] = stage1_checkpoint
-        runner_holder["stage2_model"] = (
+        runner_holder["stage1_dense_model"] = new_runner.stage1_runner.config.model.model_name_or_path
+        runner_holder["stage1_lora_adapter"] = stage1_lora_adapter
+        runner_holder["stage2_dense_model"] = (
             new_runner.stage2_runner.config.model.model_name_or_path if new_runner.stage2_runner is not None else ""
         )
-        runner_holder["stage2_checkpoint"] = stage2_checkpoint
+        runner_holder["stage2_lora_adapter"] = stage2_lora_adapter
         try:
             del old_runner
             gc.collect()
@@ -165,7 +171,7 @@ def build_demo(args: argparse.Namespace):
         stage1_prediction = report["stage1_report"]["strict"]["prediction"] or report["stage1_report"]["lenient"]["prediction"]
         stage1_count = len(stage1_prediction.get("instances", [])) if stage1_prediction else 0
         stage1_recovered = bool(report["stage1_report"]["lenient"].get("recovered_prefix", False))
-        stage2_loaded = runner_holder["stage2_checkpoint"].strip() != ""
+        stage2_loaded = runner_holder["runner"] is not None and runner_holder["runner"].stage2_runner is not None
         stage2_refined = len(report.get("stage2_results", []))
         return (
             f"{'当前运行两阶段推理。' if stage2_loaded else '当前仅运行 Stage1 grounding。'}"
@@ -177,10 +183,10 @@ def build_demo(args: argparse.Namespace):
 
     def run_inference(
         image: Image.Image | None,
-        stage1_model: str,
-        stage1_checkpoint: str,
-        stage2_model: str,
-        stage2_checkpoint: str,
+        stage1_dense_model: str,
+        stage1_lora_adapter: str,
+        stage2_dense_model: str,
+        stage2_lora_adapter: str,
         stage1_max_new_tokens: int,
         stage2_max_new_tokens: int,
         stage2_batch_size: int,
@@ -188,10 +194,10 @@ def build_demo(args: argparse.Namespace):
         if image is None:
             raise gr.Error("Please upload an image.")
         runner = _reload_runner(
-            stage1_model,
-            stage1_checkpoint,
-            stage2_model,
-            stage2_checkpoint,
+            stage1_dense_model,
+            stage1_lora_adapter,
+            stage2_dense_model,
+            stage2_lora_adapter,
         )
         pil_image = image.convert("RGB")
         report = runner.predict(
@@ -224,30 +230,32 @@ def build_demo(args: argparse.Namespace):
         with gr.Row():
             with gr.Column(scale=1):
                 stage1_model = gr.Dropdown(
-                    choices=_discover_model_choices(runner_holder["stage1_model"]),
-                    value=runner_holder["stage1_model"] or None,
-                    label="Stage1 Base Model",
+                    choices=_discover_model_choices(runner_holder["stage1_dense_model"]),
+                    value=runner_holder["stage1_dense_model"] or None,
+                    label="Stage1 Dense Model",
                     allow_custom_value=True,
-                    info="Optional. Leave empty to auto-load from stage1 checkpoint assets.",
+                    info="Optional dense model path/name override.",
                 )
                 stage1_checkpoint = gr.Dropdown(
-                    choices=_discover_checkpoint_choices(runner_holder["stage1_checkpoint"]),
-                    value=runner_holder["stage1_checkpoint"] or None,
-                    label="Stage1 Checkpoint",
+                    choices=_discover_adapter_choices(runner_holder["stage1_lora_adapter"]),
+                    value=runner_holder["stage1_lora_adapter"] or None,
+                    label="Stage1 LoRA Adapter",
                     allow_custom_value=True,
+                    info="Optional LoRA adapter directory. Leave empty to load dense model only.",
                 )
                 stage2_model = gr.Dropdown(
-                    choices=_discover_model_choices(runner_holder["stage2_model"]),
-                    value=runner_holder["stage2_model"] or None,
-                    label="Stage2 Base Model",
+                    choices=_discover_model_choices(runner_holder["stage2_dense_model"]),
+                    value=runner_holder["stage2_dense_model"] or None,
+                    label="Stage2 Dense Model",
                     allow_custom_value=True,
-                    info="Optional. Leave empty to auto-load from stage2 checkpoint assets.",
+                    info="Optional dense model path/name override.",
                 )
                 stage2_checkpoint = gr.Dropdown(
-                    choices=_discover_checkpoint_choices(runner_holder["stage2_checkpoint"]),
-                    value=runner_holder["stage2_checkpoint"] or None,
-                    label="Stage2 Checkpoint",
+                    choices=_discover_adapter_choices(runner_holder["stage2_lora_adapter"]),
+                    value=runner_holder["stage2_lora_adapter"] or None,
+                    label="Stage2 LoRA Adapter",
                     allow_custom_value=True,
+                    info="Optional LoRA adapter directory. Leave empty to load dense model only.",
                 )
                 stage1_max_new_tokens = gr.Number(
                     value=stage1_default_max_new_tokens,

@@ -20,9 +20,12 @@ def parse_args() -> argparse.Namespace:
         default="configs/infer/infer_stage2_keypoint_sequence.yaml",
         help="Stage2 keypoint_sequence inference config path.",
     )
-    parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
-    parser.add_argument("--env-file", default=None, help="Optional path to a .env file for checkpoint fallback.")
-    parser.add_argument("--model", default=None, help="Optional model path/name override.")
+    parser.add_argument("--dense-model", default=None, help="Optional dense model path/name override.")
+    parser.add_argument(
+        "--lora-adapter",
+        default=None,
+        help="Optional LoRA adapter directory. Omit to load the dense model only.",
+    )
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
     parser.add_argument("--jsonl", default="data/two_stage/stage2/val.jsonl", help="Stage2 keypoint_sequence JSONL path.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override max_new_tokens for evaluation run.")
@@ -140,10 +143,9 @@ def main() -> None:
         raise ValueError(f"No records to evaluate: {jsonl_path}")
 
     runner = load_inference_runner(
-        checkpoint_path=args.checkpoint,
+        dense_model_name_or_path=args.dense_model,
+        lora_adapter_path=args.lora_adapter,
         config_path=args.config,
-        env_file=args.env_file,
-        model_name_or_path=args.model,
         device_name=args.device,
     )
     adapter = get_adapter(
@@ -272,7 +274,8 @@ def main() -> None:
     summary = _summarize(counts)
     summary_payload = {
         "jsonl": str(jsonl_path),
-        "checkpoint": str(args.checkpoint) if args.checkpoint is not None else None,
+        "dense_model": str(args.dense_model) if args.dense_model is not None else None,
+        "lora_adapter": str(args.lora_adapter) if args.lora_adapter is not None else None,
         "config": str(args.config),
         "strict_point_distance_px": float(args.strict_point_distance_px),
         "metrics": summary,

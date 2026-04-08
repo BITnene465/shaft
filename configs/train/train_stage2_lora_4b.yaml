@@ -31,16 +31,7 @@ task:
       coordinate_token_loss_weight: 1.5
 
 prompt:
-  system_prompt: ""
-  user_prompt: ""
-  user_prompt_template: |
-    The target arrow in this crop is specified by:
-    {"label":"{{label}}","bbox_2d":{{bbox_2d}}}
-    Output only a JSON object in [0,999].
-    Format: {"keypoints_2d":[[x0,y0],[x1,y1],...]}
-    Return the skeleton of this target arrow only.
-    For single_arrow, output the skeleton from tail to head.
-    For double_arrow, output the skeleton from the upper-left head to the other head.
+  profile: arrow.keypoint_sequence.stage2_template.v1
 
 data:
   train_path: data/two_stage/stage2/train.jsonl

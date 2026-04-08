@@ -15,15 +15,10 @@ from vlm_structgen.domains.arrow.data.two_stage import (
     quantize_bbox_2d,
     to_crop_local_bbox,
 )
-from vlm_structgen.core.infer.config import (
-    TwoStageInferenceConfig,
-    build_runtime_from_two_stage_infer_config,
-    load_two_stage_inference_config,
-)
-from vlm_structgen.core.infer.runner import InferenceRunner, _resolve_device
-from vlm_structgen.core.modeling.builder import BuildArtifacts, build_model_tokenizer_processor
+from vlm_structgen.core.infer.config import TwoStageInferenceConfig, load_two_stage_inference_config
+from vlm_structgen.core.infer.runner import InferenceRunner, load_inference_runner
+from vlm_structgen.core.modeling.builder import BuildArtifacts
 from vlm_structgen.core.prompting import build_chat_prompt, render_prompt_template, temporary_padding_side
-from vlm_structgen.core.utils.checkpoint import load_training_checkpoint
 from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_structgen.core.utils.generation import (
     build_generate_kwargs,
@@ -459,72 +454,36 @@ class TwoStageInferenceRunner:
         )[0]
 
 
-def _load_stage2_runner(
-    *,
-    checkpoint_path: str | Path,
-    infer_config: Any,
-    device: torch.device,
-    model_name_or_path: str | None = None,
-) -> Stage2KeypointInferenceRunner:
-    config = build_runtime_from_two_stage_infer_config(checkpoint_path, infer_config)
-    if model_name_or_path is not None:
-        config.model.model_name_or_path = model_name_or_path
-        config.model.remote_model_name_or_path = model_name_or_path
-    artifacts = build_model_tokenizer_processor(config)
-    artifacts.model = artifacts.model.to(device)
-    load_training_checkpoint(
-        checkpoint_dir=checkpoint_path,
-        model=artifacts.model,
-        tokenizer=artifacts.tokenizer,
-        processor=artifacts.processor,
-        strict=True,
-        resume_training_state=False,
-    )
-    unwrap_model(artifacts.model).eval()
-    return Stage2KeypointInferenceRunner(
-        config=config,
-        artifacts=artifacts,
-        adapter=get_adapter(
-            task_type=config.task.task_type,
-            domain_type=config.task.domain_type,
-            num_bins=config.tokenizer.num_bins,
-            task_options_key=tuple(sorted(dict(config.task.route_options.get(
-                f"{config.task.task_type}/{config.task.domain_type}",
-                {},
-            )).items())),
-        ),
-        device=device,
-        batch_size=max(int(getattr(infer_config, "batch_size", 1)), 1),
-    )
-
-
 def load_two_stage_inference_runner(
     *,
     config_path: str | Path,
-    stage1_checkpoint_path: str | Path,
-    stage2_checkpoint_path: str | Path | None = None,
+    stage1_dense_model_name_or_path: str | None = None,
+    stage1_lora_adapter_path: str | Path | None = None,
+    stage2_dense_model_name_or_path: str | None = None,
+    stage2_lora_adapter_path: str | Path | None = None,
     device_name: str | None = None,
-    stage1_model_name_or_path: str | None = None,
-    stage2_model_name_or_path: str | None = None,
 ) -> TwoStageInferenceRunner:
-    device = _resolve_device(device_name)
-    from vlm_structgen.core.infer.runner import load_inference_runner
-
     infer_config: TwoStageInferenceConfig = load_two_stage_inference_config(config_path)
+    resolved_stage2_dense_model_name_or_path = stage2_dense_model_name_or_path or stage1_dense_model_name_or_path
     loaded_stage1_runner = load_inference_runner(
-        checkpoint_path=stage1_checkpoint_path,
+        dense_model_name_or_path=stage1_dense_model_name_or_path,
+        lora_adapter_path=stage1_lora_adapter_path,
         infer_config=infer_config.stage1,
-        model_name_or_path=stage1_model_name_or_path,
         device_name=device_name,
     )
-    stage2_runner = None
-    if stage2_checkpoint_path is not None:
-        stage2_runner = _load_stage2_runner(
-            checkpoint_path=stage2_checkpoint_path,
-            infer_config=infer_config.stage2,
-            device=device,
-            model_name_or_path=stage2_model_name_or_path,
-        )
+    loaded_stage2_runner = load_inference_runner(
+        dense_model_name_or_path=resolved_stage2_dense_model_name_or_path,
+        lora_adapter_path=stage2_lora_adapter_path,
+        infer_config=infer_config.stage2,
+        device_name=device_name,
+    )
+    stage2_runner = Stage2KeypointInferenceRunner(
+        config=loaded_stage2_runner.config,
+        artifacts=loaded_stage2_runner.artifacts,
+        adapter=loaded_stage2_runner.adapter,
+        device=loaded_stage2_runner.device,
+        batch_size=max(int(getattr(infer_config.stage2, "batch_size", 1)), 1),
+    )
     return TwoStageInferenceRunner(
         stage1_runner=loaded_stage1_runner,
         stage2_runner=stage2_runner,

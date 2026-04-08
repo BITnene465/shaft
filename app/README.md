@@ -5,7 +5,8 @@
 ```bash
 python app/demo.py \
   --config configs/infer/infer_one_stage.yaml \
-  --checkpoint outputs/qwen3vl-ft/4b/your-run/checkpoints/best
+  --dense-model models/Qwen3-VL-4B-Instruct \
+  --lora-adapter outputs/qwen3vl-ft/4b/your-run/checkpoints/best
 ```
 
 ## Two-Stage Demo
@@ -13,16 +14,18 @@ python app/demo.py \
 ```bash
 python app/demo_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best
+  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
+  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best \
+  --stage2-dense-model models/Qwen3-VL-4B-Instruct
 ```
 
-只看 Stage 1：
+不传 Stage2 adapter 时，Stage2 会直接使用 dense model 推理：
 
 ```bash
 python app/demo_two_stage.py \
   --config configs/infer/infer_two_stage.yaml \
-  --stage1-checkpoint outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best \
-  --stage1-model models/Qwen3-VL-4B-Instruct
+  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
+  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/your-stage1-run/checkpoints/best
 ```
 
 页面会固定显示三张图：
@@ -33,5 +36,5 @@ python app/demo_two_stage.py \
 
 当前 `demo_two_stage` 同时支持：
 
-- Stage1-only grounding 可视化检查
+- Stage1 grounding + Stage2 dense fallback
 - 完整 two-stage 推理可视化

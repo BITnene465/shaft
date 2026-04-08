@@ -15,9 +15,12 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run one-stage inference on one image or a directory.")
     parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="Inference config path.")
-    parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
-    parser.add_argument("--env-file", default=None, help="Optional path to a .env file when checkpoint falls back to CHECKPOINT_PATH.")
-    parser.add_argument("--model", default=None, help="Optional model path/name override.")
+    parser.add_argument("--dense-model", default=None, help="Optional dense model path/name override.")
+    parser.add_argument(
+        "--lora-adapter",
+        default=None,
+        help="Optional LoRA adapter directory. Omit to load the dense model only.",
+    )
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--image", default=None)
@@ -191,10 +194,9 @@ def main() -> None:
     from vlm_structgen.core.infer import load_inference_runner
 
     runner = load_inference_runner(
-        checkpoint_path=args.checkpoint,
+        dense_model_name_or_path=args.dense_model,
+        lora_adapter_path=args.lora_adapter,
         config_path=args.config,
-        env_file=args.env_file,
-        model_name_or_path=args.model,
         device_name=args.device,
     )
     output_dir = args.output_dir or runner.settings.output_dir

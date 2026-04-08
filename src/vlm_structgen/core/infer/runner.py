@@ -192,6 +192,8 @@ def _resolve_device(device_name: str | None) -> torch.device:
 
 
 def load_inference_runner(
+    dense_model_name_or_path: str | None = None,
+    lora_adapter_path: str | Path | None = None,
     checkpoint_path: str | Path | None = None,
     *,
     config_path: str | Path | None = None,
@@ -200,51 +202,58 @@ def load_inference_runner(
     model_name_or_path: str | None = None,
     device_name: str | None = None,
 ) -> InferenceRunner:
+    if lora_adapter_path is None and checkpoint_path is not None:
+        lora_adapter_path = checkpoint_path
+    if dense_model_name_or_path is None and model_name_or_path is not None:
+        dense_model_name_or_path = model_name_or_path
     if infer_config is None:
         settings = load_inference_settings(
-            checkpoint_path=checkpoint_path,
+            lora_adapter_path=lora_adapter_path,
             config_path=config_path,
             env_file=env_file,
         )
     else:
         settings = load_inference_settings(
-            checkpoint_path=checkpoint_path,
+            lora_adapter_path=lora_adapter_path,
             config_path=None,
             env_file=env_file,
             infer_config=infer_config,
         )
     config = settings.runtime
 
-    if model_name_or_path is not None:
-        config.model.model_name_or_path = model_name_or_path
-        config.model.remote_model_name_or_path = model_name_or_path
+    if dense_model_name_or_path is not None:
+        config.model.model_name_or_path = dense_model_name_or_path
+        config.model.remote_model_name_or_path = dense_model_name_or_path
 
-    checkpoint_path = Path(settings.checkpoint_path)
+    adapter_path = Path(settings.lora_adapter_path) if settings.lora_adapter_path else None
     checkpoint_has_adapter_assets = (
-        (checkpoint_path / "adapter_config.json").exists()
+        adapter_path is not None
+        and (adapter_path / "adapter_config.json").exists()
         and (
-            (checkpoint_path / "adapter_model.safetensors").exists()
-            or (checkpoint_path / "adapter_model.bin").exists()
+            (adapter_path / "adapter_model.safetensors").exists()
+            or (adapter_path / "adapter_model.bin").exists()
         )
     )
-    if checkpoint_has_adapter_assets:
+    if checkpoint_has_adapter_assets and adapter_path is not None:
         artifacts = build_model_tokenizer_processor_from_checkpoint(
             config,
-            checkpoint_dir=checkpoint_path,
+            checkpoint_dir=adapter_path,
         )
     else:
-        if not (checkpoint_path / "config.json").exists():
-            raise FileNotFoundError(
-                f"Missing checkpoint adapter files or model config in checkpoint: {checkpoint_path}"
+        if adapter_path is not None:
+            raise ValueError(
+                "lora_adapter_path does not contain adapter assets. "
+                "Pass a LoRA checkpoint directory or omit --lora-adapter to load the dense model only."
             )
-        config.model.model_name_or_path = str(checkpoint_path)
-        config.model.remote_model_name_or_path = str(checkpoint_path)
+        if dense_model_name_or_path is None and not config.model.model_name_or_path:
+            raise ValueError("A dense model path is required when no LoRA adapter checkpoint is provided.")
+        config.finetune.mode = "full"
         artifacts = build_model_tokenizer_processor(config)
     device = _resolve_device(device_name or settings.device)
     artifacts.model = artifacts.model.to(device)
     if checkpoint_has_adapter_assets:
         load_training_checkpoint(
-            checkpoint_dir=settings.checkpoint_path,
+            checkpoint_dir=adapter_path,
             model=artifacts.model,
             tokenizer=artifacts.tokenizer,
             processor=artifacts.processor,

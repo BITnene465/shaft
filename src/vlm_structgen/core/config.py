@@ -45,6 +45,7 @@ class TokenizerConfig:
 
 @dataclass
 class PromptConfig:
+    profile: str | None = None
     system_prompt: str = ""
     system_prompt_template: str | None = None
     user_prompt: str = (
@@ -286,9 +287,68 @@ def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         yaml_payload = yaml.safe_load(handle) or {}
+    _resolve_prompt_profile(yaml_payload, config_path)
     _warn_unknown_config_keys(ExperimentRuntimeConfig, yaml_payload, path="")
     config = _from_dict(ExperimentRuntimeConfig, yaml_payload)
     return apply_model_scale_tag(config)
+
+
+def _resolve_prompt_profile(yaml_payload: dict[str, Any], config_path: Path) -> None:
+    prompt_payload = yaml_payload.get("prompt")
+    if not isinstance(prompt_payload, dict):
+        return
+    profile = prompt_payload.get("profile")
+    if not profile:
+        return
+    profile_prompt_payload = _load_prompt_profile_payload(str(profile), config_path=config_path)
+    merged_prompt_payload = dict(profile_prompt_payload)
+    for key, value in prompt_payload.items():
+        if key == "profile":
+            continue
+        merged_prompt_payload[key] = value
+    merged_prompt_payload["profile"] = str(profile)
+    yaml_payload["prompt"] = merged_prompt_payload
+
+
+def _load_prompt_profile_payload(profile: str, *, config_path: Path) -> dict[str, Any]:
+    profile_path = _resolve_prompt_profile_path(profile, config_path=config_path)
+    with profile_path.open("r", encoding="utf-8") as handle:
+        profile_yaml = yaml.safe_load(handle) or {}
+    prompt_payload = profile_yaml.get("prompt", profile_yaml)
+    if not isinstance(prompt_payload, dict):
+        raise ValueError(f"Prompt profile must contain a mapping under `prompt`: {profile_path}")
+    allowed_keys = {"system_prompt", "system_prompt_template", "user_prompt", "user_prompt_template"}
+    unknown_keys = sorted(set(prompt_payload.keys()) - allowed_keys)
+    if unknown_keys:
+        raise ValueError(
+            f"Unsupported keys in prompt profile {profile_path}: {unknown_keys}. "
+            f"Supported keys: {sorted(allowed_keys)}"
+        )
+    return dict(prompt_payload)
+
+
+def load_prompt_profile_payload(profile: str, *, config_path: str | Path) -> dict[str, Any]:
+    return _load_prompt_profile_payload(profile, config_path=Path(config_path))
+
+
+def _resolve_prompt_profile_path(profile: str, *, config_path: Path) -> Path:
+    raw_profile = Path(profile)
+    candidate_paths: list[Path] = []
+    if raw_profile.is_absolute():
+        candidate_paths.append(raw_profile)
+    else:
+        candidate_paths.append(config_path.parent / raw_profile)
+        candidate_paths.append(Path.cwd() / raw_profile)
+        candidate_paths.append(Path.cwd() / "configs" / "prompts" / raw_profile)
+        candidate_paths.append(Path.cwd() / "configs" / "prompts" / f"{profile}.yaml")
+        candidate_paths.append(Path.cwd() / "configs" / "prompts" / f"{profile}.yml")
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        f"Prompt profile not found: {profile!r}. "
+        f"Tried: {[str(candidate) for candidate in candidate_paths]}"
+    )
 
 
 def config_to_dict(config: ExperimentRuntimeConfig) -> dict[str, Any]:

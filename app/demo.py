@@ -238,8 +238,12 @@ APP_CSS = """
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a Gradio demo for ArrowVLM.")
     parser.add_argument("--config", default="configs/infer/infer_one_stage.yaml", help="Inference config path.")
-    parser.add_argument("--checkpoint", default=None, help="Checkpoint directory. Falls back to CHECKPOINT_PATH in .env.")
-    parser.add_argument("--env-file", default=None, help="Optional path to a .env file when checkpoint falls back to CHECKPOINT_PATH.")
+    parser.add_argument("--dense-model", default=None, help="Optional dense model path/name override.")
+    parser.add_argument(
+        "--lora-adapter",
+        default=None,
+        help="Optional LoRA adapter directory. Omit to load the dense model only.",
+    )
     parser.add_argument("--device", default=None, help="Optional torch device override, e.g. cuda:0 or cpu.")
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override inference max_new_tokens for this app session.")
     return parser.parse_args()
@@ -257,10 +261,10 @@ def _discover_model_choices(current_model_name_or_path: str | None) -> list[str]
     return sorted(discovered)
 
 
-def _discover_checkpoint_choices(current_checkpoint_path: str | None) -> list[str]:
+def _discover_adapter_choices(current_lora_adapter_path: str | None) -> list[str]:
     discovered: set[str] = set()
-    if current_checkpoint_path:
-        discovered.add(current_checkpoint_path)
+    if current_lora_adapter_path:
+        discovered.add(current_lora_adapter_path)
     outputs_dir = Path("outputs")
     if outputs_dir.exists():
         for child in sorted(outputs_dir.glob("**/checkpoints/best")):
@@ -363,27 +367,25 @@ def build_demo(
 
     effective_default_max_new_tokens = default_max_new_tokens or infer_config.eval.max_new_tokens or 2048
     model_choices = _discover_model_choices(runner.config.model.model_name_or_path if runner is not None else None)
-    checkpoint_choices = _discover_checkpoint_choices(runner.settings.checkpoint_path if runner is not None else None)
+    adapter_choices = _discover_adapter_choices(runner.settings.lora_adapter_path if runner is not None else None)
     runner_holder = {
         "runner": runner,
-        "model_name_or_path": runner.config.model.model_name_or_path if runner is not None else "",
-        "checkpoint_path": runner.settings.checkpoint_path if runner is not None else "",
+        "dense_model_name_or_path": runner.config.model.model_name_or_path if runner is not None else "",
+        "lora_adapter_path": runner.settings.lora_adapter_path if runner is not None else "",
     }
 
     def _gallery_items(image: Image.Image | None) -> list[Image.Image]:
         return [image] if image is not None else []
 
-    def _get_runner(model_name_or_path: str, checkpoint_path: str):
-        selected_model = model_name_or_path.strip()
-        selected_checkpoint = checkpoint_path.strip()
-        if not selected_checkpoint:
-            raise ValueError("Checkpoint path cannot be empty.")
-        current_model = runner_holder["model_name_or_path"]
-        current_checkpoint = runner_holder["checkpoint_path"]
+    def _get_runner(dense_model_name_or_path: str, lora_adapter_path: str):
+        selected_dense_model = dense_model_name_or_path.strip()
+        selected_lora_adapter = lora_adapter_path.strip()
+        current_dense_model = runner_holder["dense_model_name_or_path"]
+        current_lora_adapter = runner_holder["lora_adapter_path"]
         if (
           runner_holder["runner"] is not None
-          and selected_checkpoint == current_checkpoint
-          and (not selected_model or selected_model == current_model)
+          and selected_lora_adapter == current_lora_adapter
+          and (not selected_dense_model or selected_dense_model == current_dense_model)
         ):
             return runner_holder["runner"]
         if runner_factory is None:
@@ -396,14 +398,14 @@ def build_demo(
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            next_runner = runner_factory(selected_model or None, selected_checkpoint)
+            next_runner = runner_factory(selected_dense_model or None, selected_lora_adapter or None)
         except Exception:
             runner_holder["runner"] = previous_runner
             raise
 
         runner_holder["runner"] = next_runner
-        runner_holder["model_name_or_path"] = next_runner.config.model.model_name_or_path
-        runner_holder["checkpoint_path"] = selected_checkpoint
+        runner_holder["dense_model_name_or_path"] = next_runner.config.model.model_name_or_path
+        runner_holder["lora_adapter_path"] = selected_lora_adapter
         del previous_runner
         gc.collect()
         if torch.cuda.is_available():
@@ -413,14 +415,14 @@ def build_demo(
     def predict(
         image: Image.Image | None,
         max_new_tokens: int,
-        model_name_or_path: str,
-        checkpoint_path: str,
+        dense_model_name_or_path: str,
+        lora_adapter_path: str,
     ) -> tuple[list[Image.Image], str, str, str]:
         if image is None:
             return [], "<div class='error-strip'>No image provided.</div>", "", ""
 
         try:
-            active_runner = _get_runner(model_name_or_path, checkpoint_path)
+            active_runner = _get_runner(dense_model_name_or_path, lora_adapter_path)
             raw_text, parse_report = active_runner.predict(image, max_new_tokens=max_new_tokens)
         except Exception as exc:  # noqa: BLE001
             return [], f"<div class='error-strip'><strong>Inference failed:</strong> {exc}</div>", "", ""
@@ -485,19 +487,19 @@ def build_demo(
                         step=256,
                         value=max(256, int(effective_default_max_new_tokens)),
                     )
-                    model_name_or_path_input = gr.Dropdown(
-                        label="Base Model",
+                    dense_model_input = gr.Dropdown(
+                        label="Dense Model",
                         choices=model_choices,
                         value=runner.config.model.model_name_or_path if runner is not None else None,
                         allow_custom_value=True,
-                      info="Optional. Leave empty to auto-load from checkpoint assets when available.",
+                        info="Optional dense model path/name override.",
                     )
-                    checkpoint_path_input = gr.Dropdown(
-                        label="Checkpoint",
-                        choices=checkpoint_choices,
-                        value=runner.settings.checkpoint_path if runner is not None else None,
+                    lora_adapter_input = gr.Dropdown(
+                        label="LoRA Adapter",
+                        choices=adapter_choices,
+                        value=runner.settings.lora_adapter_path if runner is not None else None,
                         allow_custom_value=True,
-                        info="Choose a checkpoint directory such as checkpoints/best.",
+                        info="Optional LoRA adapter directory. Leave empty to load dense model only.",
                     )
                     with gr.Row():
                         run_button = gr.Button("Run Inference", elem_id="run-button")
@@ -540,8 +542,8 @@ def build_demo(
                     status_output,
                     raw_output,
                     parse_output,
-                    model_name_or_path_input,
-                    checkpoint_path_input,
+                    dense_model_input,
+                    lora_adapter_input,
                 ],
                 value="Clear",
                 elem_id="clear-button",
@@ -554,7 +556,7 @@ def build_demo(
         )
         run_button.click(
             fn=predict,
-            inputs=[image_input, max_new_tokens_input, model_name_or_path_input, checkpoint_path_input],
+            inputs=[image_input, max_new_tokens_input, dense_model_input, lora_adapter_input],
             outputs=[image_output, status_output, raw_output, parse_output],
         )
     return demo
@@ -564,18 +566,17 @@ def main() -> None:
     args = parse_args()
     infer_config = load_one_stage_inference_config(args.config)
     def _runner_factory(
-        model_name_or_path: str | None = None,
-        checkpoint_path: str | None = None,
+        dense_model_name_or_path: str | None = None,
+        lora_adapter_path: str | None = None,
     ):
         return load_inference_runner(
-            checkpoint_path=checkpoint_path or args.checkpoint,
+            dense_model_name_or_path=dense_model_name_or_path or args.dense_model,
+            lora_adapter_path=lora_adapter_path or args.lora_adapter,
             config_path=args.config,
-            env_file=args.env_file,
-            model_name_or_path=model_name_or_path,
             device_name=args.device,
         )
 
-    runner = _runner_factory() if args.checkpoint else None
+    runner = _runner_factory(args.dense_model, args.lora_adapter) if (args.dense_model or args.lora_adapter) else None
     demo = build_demo(
         runner,
         infer_config=infer_config,
