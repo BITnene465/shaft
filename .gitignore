@@ -25,3 +25,4 @@ llamafactory_qwen3vl_grounding/
 /runs/
 experimental/
 /scripts/acc_exp/
+/deployment/

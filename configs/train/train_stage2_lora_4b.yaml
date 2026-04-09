@@ -73,7 +73,7 @@ train:
   per_device_batch_size: 24
   grad_accum_steps: 1
   gradient_checkpointing: true
-  learning_rate: 0.00005
+  learning_rate: 0
   lora_learning_rate: 0.00005
   weight_decay: 0.01
   warmup_ratio: 0.1

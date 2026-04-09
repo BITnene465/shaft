@@ -18,7 +18,7 @@
 
 ```bash
 python scripts/arrow/infer.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage1_grounding.yaml \
   --dense-model models/Qwen3-VL-2B-Instruct \
   --lora-adapter outputs/your_experiment/checkpoints/best \
   --image /path/to/figure.jpg
@@ -28,7 +28,7 @@ python scripts/arrow/infer.py \
 
 ```bash
 python scripts/arrow/infer.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage1_grounding.yaml \
   --dense-model models/Qwen3-VL-2B-Instruct \
   --lora-adapter outputs/your_experiment/checkpoints/best \
   --image-dir /path/to/images \
@@ -66,6 +66,20 @@ python scripts/arrow/infer_two_stage.py \
   --stage2-dense-model models/Qwen3-VL-4B-Instruct \
   --stage2-lora-adapter outputs/qwen3vl-s2-lora/4b/checkpoints/best \
   --image /path/to/example.png \
+  --output-dir outputs/two_stage_demo
+```
+
+目录推理并保存可视化：
+
+```bash
+python scripts/arrow/infer_two_stage.py \
+  --config configs/infer/infer_two_stage.yaml \
+  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
+  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/checkpoints/best \
+  --stage2-dense-model models/Qwen3-VL-4B-Instruct \
+  --stage2-lora-adapter outputs/qwen3vl-s2-lora/4b/checkpoints/best \
+  --image-dir /path/to/images \
+  --recursive \
   --output-dir outputs/two_stage_demo
 ```
 
@@ -107,7 +121,7 @@ One-stage Demo：
 
 ```bash
 python app/demo.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage1_grounding.yaml \
   --dense-model models/Qwen3-VL-2B-Instruct \
   --lora-adapter outputs/your_experiment/checkpoints/best
 ```
@@ -140,7 +154,7 @@ python app/demo_two_stage.py \
 
 ```bash
 python scripts/arrow/eval_stage1_grounding.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage1_grounding.yaml \
   --dense-model models/Qwen3-VL-4B-Instruct \
   --lora-adapter outputs/qwen3vl-s1-lora/4b/checkpoints/best \
   --jsonl data/two_stage/stage1/val.jsonl \
@@ -182,7 +196,7 @@ python scripts/arrow/eval_stage1_grounding.py \
 
 ```bash
 python scripts/arrow/eval_stage2_keypoints.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage2_keypoint_sequence.yaml \
   --dense-model models/Qwen3-VL-4B-Instruct \
   --lora-adapter outputs/qwen3vl-s2-lora/4b/checkpoints/best \
   --jsonl data/two_stage/stage2/val.jsonl \
@@ -213,7 +227,8 @@ python scripts/arrow/eval_stage2_keypoints.py \
 
 推理配置与训练 YAML 分离：
 
-- `configs/infer/infer_one_stage.yaml`
+- `configs/infer/infer_stage1_grounding.yaml`
+- `configs/infer/infer_stage2_keypoint_sequence.yaml`
 - `configs/infer/infer_two_stage.yaml`
 
 dense model 和 LoRA adapter 都通过 CLI 传入；不传 `--lora-adapter` 时只加载 dense model。

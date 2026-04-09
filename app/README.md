@@ -4,7 +4,7 @@
 
 ```bash
 python app/demo.py \
-  --config configs/infer/infer_one_stage.yaml \
+  --config configs/infer/infer_stage1_grounding.yaml \
   --dense-model models/Qwen3-VL-4B-Instruct \
   --lora-adapter outputs/qwen3vl-ft/4b/your-run/checkpoints/best
 ```
