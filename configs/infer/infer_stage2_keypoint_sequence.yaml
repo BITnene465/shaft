@@ -4,8 +4,7 @@ model:
   max_pixels: 262144
 
 task:
-  task_type: keypoint_sequence
-  domain_type: arrow
+  route: keypoint_sequence/arrow
 
 prompt:
   profile: arrow.keypoint_sequence.stage2_fixed.v2

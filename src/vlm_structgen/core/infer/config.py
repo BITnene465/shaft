@@ -8,6 +8,7 @@ import yaml
 from dotenv import load_dotenv
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, _from_dict, load_prompt_profile_payload
+from vlm_structgen.core.registry import parse_route_key
 from vlm_structgen.core.utils.checkpoint import load_checkpoint_meta
 
 
@@ -28,8 +29,7 @@ class InferPromptConfig:
 
 @dataclass
 class InferTaskConfig:
-    task_type: str | None = None
-    domain_type: str | None = None
+    route: str | None = None
     route_options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -202,12 +202,21 @@ def _apply_eval_overrides(runtime: ExperimentRuntimeConfig, eval_cfg: InferEvalC
 
 
 def _apply_task_overrides(runtime: ExperimentRuntimeConfig, task_cfg: InferTaskConfig) -> None:
-    if task_cfg.task_type is not None:
-        runtime.task.task_type = task_cfg.task_type
-    if task_cfg.domain_type is not None:
-        runtime.task.domain_type = task_cfg.domain_type
+    if task_cfg.route is not None:
+        task_type, domain_type = parse_route_key(task_cfg.route)
+        runtime.task.route = f"{task_type}/{domain_type}"
     if task_cfg.route_options:
-        route_key = f"{runtime.task.task_type}/{runtime.task.domain_type}"
+        route_key = runtime.task.route
+        if not route_key:
+            known_routes = sorted(runtime.task.route_options.keys())
+            if len(known_routes) == 1:
+                route_key = known_routes[0]
+                runtime.task.route = route_key
+            else:
+                raise ValueError(
+                    "Infer task route is required when overriding task.route_options. "
+                    f"Set task.route explicitly. Known routes from checkpoint: {known_routes}"
+                )
         merged_route_options = dict(runtime.task.route_options.get(route_key, {}))
         merged_route_options.update(dict(task_cfg.route_options))
         runtime.task.route_options[route_key] = merged_route_options

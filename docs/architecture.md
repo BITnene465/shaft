@@ -100,6 +100,13 @@ graph TB
     FIT --> EPOCH["Epoch loop: train → eval → save"]
 ```
 
+### Multi-Task V1 Notes
+
+- `v1` multi-task training uses route-aware mixing with **homogeneous batches**.
+- One training run may include multiple routes, but each batch still contains exactly one `task_type/domain_type`.
+- Best checkpoint selection supports a global `val/multi_task_score`; `eval_loss` is auxiliary only.
+- This preserves the current `core / tasks / domains` hierarchy and adds mixing as a cross-cutting capability.
+
 ### Training Step
 
 ```mermaid
@@ -142,8 +149,8 @@ ExperimentRuntimeConfig
 ├── experiment          # name, output_dir, seed
 ├── model               # model path, freeze settings, pixel budgets
 ├── tokenizer           # num_bins (1000)
-├── task                # task_type, domain_type, route_options
-├── prompt              # system_prompt, user_prompt
+├── task                # route (optional), route_options
+├── prompt              # system_prompt, user_prompt, route_prompts
 ├── data                # train/val JSONL paths
 ├── finetune            # mode: lora / full
 ├── lora                # r, alpha, target modules

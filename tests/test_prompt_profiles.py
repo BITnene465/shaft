@@ -26,6 +26,18 @@ class PromptProfileConfigTest(unittest.TestCase):
         self.assertIn("central main arrow", infer_config.stage2.prompt.user_prompt or "")
         self.assertIn("ignore other secondary arrows", infer_config.stage2.prompt.user_prompt or "")
 
+    def test_train_config_route_prompt_profiles_resolution(self) -> None:
+        config = load_config("configs/train/train_mixed_full_ft_4b.yaml")
+        route_prompts = config.prompt.route_prompts
+        self.assertEqual(sorted(route_prompts.keys()), ["grounding/arrow", "keypoint_sequence/arrow"])
+        self.assertEqual(route_prompts["grounding/arrow"]["profile"], "arrow.grounding.stage1.v2")
+        self.assertEqual(
+            route_prompts["keypoint_sequence/arrow"]["profile"],
+            "arrow.keypoint_sequence.stage2_fixed.v2",
+        )
+        self.assertIn("Locate every instance", route_prompts["grounding/arrow"]["user_prompt"])
+        self.assertIn("central main arrow", route_prompts["keypoint_sequence/arrow"]["user_prompt"])
+
 
 if __name__ == "__main__":
     unittest.main()

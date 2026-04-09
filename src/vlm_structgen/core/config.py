@@ -58,12 +58,16 @@ class PromptConfig:
         "Each arrow must contain at least 2 points."
     )
     user_prompt_template: str | None = None
+    # Optional per-route prompt overrides for multi-task training.
+    # Key format: "<task_type>/<domain_type>".
+    route_prompts: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
 class TaskConfig:
-    task_type: str = "joint_structure"
-    domain_type: str = "arrow"
+    # Optional default route for one-stage inference.
+    # Training resolves routes from per-record task_type/domain_type in JSONL.
+    route: str | None = None
     route_options: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -150,7 +154,8 @@ class EvalConfig:
     use_cache: bool = True
     bbox_iou_threshold: float = 0.5
     strict_point_distance_px: float = 8.0
-    monitor_metric: str = "val/end_to_end_score"
+    # Primary metric used for best-checkpoint selection.
+    best_metric: str = "val/end_to_end_score"
     monitor_mode: str = "max"
 
 
@@ -285,11 +290,21 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
+    eval_payload = yaml_payload.get("eval")
+    if isinstance(eval_payload, dict) and "monitor_metric" in eval_payload:
+        raise ValueError(
+            "`eval.monitor_metric` has been removed. "
+            "Please migrate to `eval.best_metric`."
+        )
+
+
 def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         yaml_payload = yaml.safe_load(handle) or {}
     _resolve_prompt_profile(yaml_payload, config_path)
+    _raise_deprecated_config_keys(yaml_payload)
     _warn_unknown_config_keys(ExperimentRuntimeConfig, yaml_payload, path="")
     config = _from_dict(ExperimentRuntimeConfig, yaml_payload)
     return apply_model_scale_tag(config)
@@ -300,16 +315,62 @@ def _resolve_prompt_profile(yaml_payload: dict[str, Any], config_path: Path) -> 
     if not isinstance(prompt_payload, dict):
         return
     profile = prompt_payload.get("profile")
-    if not profile:
+    if profile:
+        profile_prompt_payload = _load_prompt_profile_payload(str(profile), config_path=config_path)
+        merged_prompt_payload = dict(profile_prompt_payload)
+        for key, value in prompt_payload.items():
+            if key == "profile":
+                continue
+            merged_prompt_payload[key] = value
+        merged_prompt_payload["profile"] = str(profile)
+        _resolve_route_prompt_profiles(merged_prompt_payload, config_path=config_path)
+        yaml_payload["prompt"] = merged_prompt_payload
         return
-    profile_prompt_payload = _load_prompt_profile_payload(str(profile), config_path=config_path)
-    merged_prompt_payload = dict(profile_prompt_payload)
-    for key, value in prompt_payload.items():
-        if key == "profile":
-            continue
-        merged_prompt_payload[key] = value
-    merged_prompt_payload["profile"] = str(profile)
-    yaml_payload["prompt"] = merged_prompt_payload
+    _resolve_route_prompt_profiles(prompt_payload, config_path=config_path)
+    yaml_payload["prompt"] = prompt_payload
+
+
+def _resolve_route_prompt_profiles(prompt_payload: dict[str, Any], *, config_path: Path) -> None:
+    route_prompts = prompt_payload.get("route_prompts")
+    if route_prompts is None:
+        return
+    if not isinstance(route_prompts, dict):
+        raise ValueError("prompt.route_prompts must be a mapping of route -> prompt payload.")
+
+    allowed_keys = {
+        "profile",
+        "system_prompt",
+        "system_prompt_template",
+        "user_prompt",
+        "user_prompt_template",
+    }
+    resolved_route_prompts: dict[str, dict[str, Any]] = {}
+    for route_key, route_prompt_payload in route_prompts.items():
+        if not isinstance(route_prompt_payload, dict):
+            raise ValueError(
+                "Each prompt.route_prompts item must be a mapping. "
+                f"route={route_key!r}, got={type(route_prompt_payload).__name__}."
+            )
+        unknown_keys = sorted(set(route_prompt_payload.keys()) - allowed_keys)
+        if unknown_keys:
+            raise ValueError(
+                f"Unsupported keys in prompt.route_prompts[{route_key!r}]: {unknown_keys}. "
+                f"Supported keys: {sorted(allowed_keys)}"
+            )
+
+        profile = route_prompt_payload.get("profile")
+        if profile:
+            base_prompt_payload = _load_prompt_profile_payload(str(profile), config_path=config_path)
+            merged_prompt_payload = dict(base_prompt_payload)
+            for key, value in route_prompt_payload.items():
+                if key == "profile":
+                    continue
+                merged_prompt_payload[key] = value
+            merged_prompt_payload["profile"] = str(profile)
+            resolved_route_prompts[str(route_key)] = merged_prompt_payload
+        else:
+            resolved_route_prompts[str(route_key)] = dict(route_prompt_payload)
+    prompt_payload["route_prompts"] = resolved_route_prompts
 
 
 def _load_prompt_profile_payload(profile: str, *, config_path: Path) -> dict[str, Any]:

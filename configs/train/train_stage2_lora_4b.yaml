@@ -24,8 +24,7 @@ tokenizer:
   add_eos_token: true
 
 task:
-  task_type: keypoint_sequence
-  domain_type: arrow
+  route: keypoint_sequence/arrow
   route_options:
     keypoint_sequence/arrow:
       coordinate_token_loss_weight: 1.3
@@ -97,7 +96,7 @@ eval:
   use_cache: true
   bbox_iou_threshold: 0.5
   strict_point_distance_px: 8.0
-  monitor_metric: val/end_to_end_score
+  best_metric: val/end_to_end_score
   monitor_mode: max
 
 logging:

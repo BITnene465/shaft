@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 
 from PIL import Image
-from torch.utils.data import Dataset
 
 from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.prompting import render_prompt_template
@@ -16,23 +16,28 @@ from vlm_structgen.core.utils.io import load_jsonl
 Image.MAX_IMAGE_PIXELS = None
 
 
-class SFTDataset(Dataset):
+class SFTDataset:
     def __init__(
         self,
-        jsonl_path: str | Path,
+        jsonl_path: str | Path | Sequence[str | Path],
         num_bins: int,
         system_prompt: str,
         user_prompt: str,
         system_prompt_template: str | None = None,
         user_prompt_template: str | None = None,
+        route_prompts: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        self.records = load_jsonl(jsonl_path)
         self.num_bins = int(num_bins)
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.system_prompt_template = system_prompt_template
         self.user_prompt_template = user_prompt_template
+        self.route_prompts = self._normalize_route_prompts(route_prompts)
         self._target_token_lengths_cache: dict[int, list[int]] = {}
+        self.jsonl_paths = self._normalize_jsonl_paths(jsonl_path)
+        self.records: list[dict[str, Any]] = []
+        for path in self.jsonl_paths:
+            self.records.extend(load_jsonl(path))
 
     def __len__(self) -> int:
         return len(self.records)
@@ -55,20 +60,42 @@ class SFTDataset(Dataset):
         target_text = training_target["target_text"]
         loss_meta = training_target.get("loss_meta")
         condition = record.get("condition", {})
+        route_key = f"{adapter.task_type}/{adapter.domain_type}"
+        route_prompt = dict(self.route_prompts.get(route_key, {}))
         system_prompt = record.get("system_prompt")
         if system_prompt is None:
-            template = record.get("system_prompt_template", self.system_prompt_template)
-            if template:
-                system_prompt = render_prompt_template(template, condition)
+            record_system_template = record.get("system_prompt_template")
+            if record_system_template:
+                system_prompt = render_prompt_template(str(record_system_template), condition)
             else:
-                system_prompt = self.system_prompt
+                route_system_prompt = route_prompt.get("system_prompt")
+                route_system_template = route_prompt.get("system_prompt_template")
+                if route_system_template:
+                    system_prompt = render_prompt_template(str(route_system_template), condition)
+                elif route_system_prompt is not None:
+                    system_prompt = route_system_prompt
+                else:
+                    if self.system_prompt_template:
+                        system_prompt = render_prompt_template(self.system_prompt_template, condition)
+                    else:
+                        system_prompt = self.system_prompt
         user_prompt = record.get("user_prompt")
         if user_prompt is None:
-            template = record.get("user_prompt_template", self.user_prompt_template)
-            if template:
-                user_prompt = render_prompt_template(template, condition)
+            record_user_template = record.get("user_prompt_template")
+            if record_user_template:
+                user_prompt = render_prompt_template(str(record_user_template), condition)
             else:
-                user_prompt = self.user_prompt
+                route_user_prompt = route_prompt.get("user_prompt")
+                route_user_template = route_prompt.get("user_prompt_template")
+                if route_user_template:
+                    user_prompt = render_prompt_template(str(route_user_template), condition)
+                elif route_user_prompt is not None:
+                    user_prompt = route_user_prompt
+                else:
+                    if self.user_prompt_template:
+                        user_prompt = render_prompt_template(self.user_prompt_template, condition)
+                    else:
+                        user_prompt = self.user_prompt
         return {
             "task_type": adapter.task_type,
             "domain_type": adapter.domain_type,
@@ -127,3 +154,27 @@ class SFTDataset(Dataset):
                 f"domain_type={record.get('domain_type')!r}. "
                 "Regenerate the dataset with the current preparation scripts."
             ) from exc
+
+    def _normalize_jsonl_paths(self, jsonl_path: str | Path | Sequence[str | Path]) -> list[Path]:
+        if isinstance(jsonl_path, (str, Path)):
+            return [Path(jsonl_path)]
+        paths = [Path(item) for item in jsonl_path]
+        if not paths:
+            raise ValueError("jsonl_path must not be empty.")
+        return paths
+
+    def _normalize_route_prompts(
+        self,
+        route_prompts: dict[str, dict[str, Any]] | None,
+    ) -> dict[str, dict[str, Any]]:
+        if route_prompts is None:
+            return {}
+        normalized: dict[str, dict[str, Any]] = {}
+        for route_key, prompt_payload in dict(route_prompts).items():
+            if not isinstance(prompt_payload, dict):
+                raise ValueError(
+                    "route_prompts must map route to a prompt payload mapping. "
+                    f"route={route_key!r}, got={type(prompt_payload).__name__}."
+                )
+            normalized[str(route_key)] = dict(prompt_payload)
+        return normalized

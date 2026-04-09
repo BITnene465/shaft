@@ -369,7 +369,8 @@ class Trainer:
         self.logger.log_metrics(metrics, step=step)
 
     def _is_best(self, metrics: dict[str, float]) -> bool:
-        monitor = metrics.get(self.config.eval.monitor_metric)
+        monitor_key = self._resolve_best_metric_name()
+        monitor = metrics.get(monitor_key)
         if monitor is None:
             return False
         if self.config.eval.monitor_mode == "max":
@@ -377,13 +378,17 @@ class Trainer:
         return monitor <= self.best_metric
 
     def _maybe_update_best(self, metrics: dict[str, float]) -> None:
-        monitor = metrics.get(self.config.eval.monitor_metric)
+        monitor_key = self._resolve_best_metric_name()
+        monitor = metrics.get(monitor_key)
         if monitor is None:
             return
         if self.config.eval.monitor_mode == "max":
             self.best_metric = max(self.best_metric, monitor)
         else:
             self.best_metric = min(self.best_metric, monitor)
+
+    def _resolve_best_metric_name(self) -> str:
+        return str(self.config.eval.best_metric)
 
     def _refresh_alias(self, alias: str, target_dir: Path) -> None:
         alias_dir = self.checkpoint_root / alias

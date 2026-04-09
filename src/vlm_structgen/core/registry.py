@@ -89,6 +89,19 @@ def normalize_domain_type(domain_type: str | None) -> str:
     return normalized
 
 
+def parse_route_key(route_key: str | None) -> tuple[str, str]:
+    normalized_route_key = str(route_key or "").strip().lower()
+    if not normalized_route_key:
+        raise ValueError("route is required and must be '<task_type>/<domain_type>'.")
+    parts = normalized_route_key.split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(
+            f"Invalid route={normalized_route_key!r}. Expected '<task_type>/<domain_type>'."
+        )
+    task_type, domain_type = parts
+    return normalize_task_type(task_type), normalize_domain_type(domain_type)
+
+
 @lru_cache(maxsize=64)
 def get_adapter(
     *,

@@ -6,6 +6,7 @@ from .registry import (
     TaskAdapter,
     get_adapter,
     normalize_domain_type,
+    parse_route_key,
     normalize_task_type,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "TaskAdapter",
     "get_adapter",
     "normalize_domain_type",
+    "parse_route_key",
     "normalize_task_type",
 ]

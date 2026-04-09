@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
-from vlm_structgen.core.registry import get_adapter
+from vlm_structgen.core.registry import get_adapter, parse_route_key
 from vlm_structgen.core.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_structgen.core.modeling.builder import (
     BuildArtifacts,
@@ -191,6 +191,22 @@ def _resolve_device(device_name: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def _resolve_inference_route(config: ExperimentRuntimeConfig) -> tuple[str, str, str]:
+    route_key = str(config.task.route or "").strip()
+    if not route_key:
+        known_routes = sorted(config.task.route_options.keys())
+        if len(known_routes) == 1:
+            route_key = known_routes[0]
+            config.task.route = route_key
+        else:
+            raise ValueError(
+                "Inference route is ambiguous. Set task.route in infer config. "
+                f"Known routes in checkpoint config: {known_routes}."
+            )
+    task_type, domain_type = parse_route_key(route_key)
+    return route_key, task_type, domain_type
+
+
 def load_inference_runner(
     dense_model_name_or_path: str | None = None,
     lora_adapter_path: str | Path | None = None,
@@ -261,12 +277,13 @@ def load_inference_runner(
             resume_training_state=False,
         )
     unwrap_model(artifacts.model).eval()
+    route_key, task_type, domain_type = _resolve_inference_route(config)
     adapter = get_adapter(
-        task_type=config.task.task_type,
-        domain_type=config.task.domain_type,
+        task_type=task_type,
+        domain_type=domain_type,
         num_bins=config.tokenizer.num_bins,
         task_options_key=tuple(sorted(dict(config.task.route_options.get(
-            f"{config.task.task_type}/{config.task.domain_type}",
+            route_key,
             {},
         )).items())),
     )

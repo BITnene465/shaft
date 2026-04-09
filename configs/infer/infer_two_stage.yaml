@@ -1,8 +1,7 @@
 stage1:
   batch_size: 8
   task:
-    task_type: grounding
-    domain_type: arrow
+    route: grounding/arrow
   model:
     min_pixels: 200704
     max_pixels: 1048576
@@ -18,8 +17,7 @@ stage1:
 
 stage2:
   task:
-    task_type: keypoint_sequence
-    domain_type: arrow
+    route: keypoint_sequence/arrow
   model:
     min_pixels: 50176
     max_pixels: 262144

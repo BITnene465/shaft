@@ -24,8 +24,7 @@ tokenizer:
   add_eos_token: true
 
 task:
-  task_type: grounding
-  domain_type: arrow
+  route: grounding/arrow
   route_options:
     grounding/arrow:
       bbox_token_loss_weight: 1.3
@@ -97,7 +96,7 @@ eval:
   do_sample: false
   use_cache: true
   bbox_iou_threshold: 0.5
-  monitor_metric: val/bbox_f1_at_iou50
+  best_metric: val/bbox_f1_at_iou50
   monitor_mode: max
 
 logging:

@@ -7,6 +7,7 @@ from .task_api import (
     TaskAdapter,
     get_adapter,
     normalize_domain_type,
+    parse_route_key,
     normalize_task_type,
 )
 
@@ -20,5 +21,6 @@ __all__ = [
     "get_adapter",
     "load_config",
     "normalize_domain_type",
+    "parse_route_key",
     "normalize_task_type",
 ]

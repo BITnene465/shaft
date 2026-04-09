@@ -30,8 +30,7 @@ tokenizer:
   add_eos_token: true
 
 task:
-  task_type: joint_structure
-  domain_type: arrow
+  route: joint_structure/arrow
   route_options:
     joint_structure/arrow: {}
 
@@ -103,7 +102,7 @@ eval:
   use_cache: true
   bbox_iou_threshold: 0.5
   strict_point_distance_px: 8.0
-  monitor_metric: val/end_to_end_score
+  best_metric: val/end_to_end_score
   monitor_mode: max
 
 logging:

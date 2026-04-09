@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import math
 from collections.abc import Iterator
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader, DistributedSampler, Sampler
@@ -16,6 +17,7 @@ from vlm_structgen.core.train import Trainer
 from vlm_structgen.core.train.optim import build_optimizer, build_scheduler
 from vlm_structgen.core.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
 from vlm_structgen.core.utils.logging import ExperimentLogger, format_count
+from vlm_structgen.mixing import build_route_aware_train_loader
 
 
 def _parse_bool_flag(value: str) -> bool:
@@ -32,6 +34,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage-name", default=None)
+    parser.add_argument(
+        "--train-paths",
+        nargs="+",
+        default=None,
+        help="Optional override for one or more training JSONL paths.",
+    )
+    parser.add_argument(
+        "--val-paths",
+        nargs="+",
+        default=None,
+        help="Optional override for one or more validation JSONL paths.",
+    )
     parser.add_argument("--freeze-vision-tower", type=_parse_bool_flag, default=None)
     parser.add_argument("--gradient-checkpointing", type=_parse_bool_flag, default=None)
     parser.add_argument("--init-from", default=None)
@@ -117,6 +131,26 @@ def _build_val_dataloader(
     )
 
 
+def _resolve_jsonl_paths(
+    configured_paths: str | list[str],
+    cli_override_paths: list[str] | None,
+    *,
+    field_name: str,
+) -> list[str]:
+    if cli_override_paths:
+        resolved_cli = [str(Path(path)) for path in cli_override_paths if str(path).strip()]
+        if resolved_cli:
+            return resolved_cli
+    if isinstance(configured_paths, list):
+        raw_paths = [str(path) for path in configured_paths]
+    else:
+        raw_paths = str(configured_paths).replace(";", ",").split(",")
+    resolved = [str(Path(path.strip())) for path in raw_paths if path.strip()]
+    if not resolved:
+        raise ValueError(f"No paths were resolved from {field_name}.")
+    return resolved
+
+
 def main() -> None:
     args = parse_args()
     print("[startup] loading config...", flush=True)
@@ -141,6 +175,16 @@ def main() -> None:
             f"[startup] override gradient_checkpointing={config.train.gradient_checkpointing}",
             flush=True,
         )
+    train_paths = _resolve_jsonl_paths(
+        config.data.train_path,
+        args.train_paths,
+        field_name="config.data.train_path",
+    )
+    val_paths = _resolve_jsonl_paths(
+        config.data.val_path,
+        args.val_paths,
+        field_name="config.data.val_path",
+    )
     dist_ctx = init_distributed()
     seed_everything(config.experiment.seed, rank=dist_ctx.rank)
 
@@ -170,23 +214,25 @@ def main() -> None:
     )
     print("[startup] loading datasets...", flush=True)
     train_dataset = SFTDataset(
-        jsonl_path=config.data.train_path,
+        jsonl_path=train_paths,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
         system_prompt_template=config.prompt.system_prompt_template,
         user_prompt_template=config.prompt.user_prompt_template,
+        route_prompts=config.prompt.route_prompts,
     )
     val_dataset = SFTDataset(
-        jsonl_path=config.data.val_path,
+        jsonl_path=val_paths,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
         system_prompt_template=config.prompt.system_prompt_template,
         user_prompt_template=config.prompt.user_prompt_template,
+        route_prompts=config.prompt.route_prompts,
     )
     print("[startup] building dataloaders...", flush=True)
-    train_loader = _build_dataloader(
+    train_loader = build_route_aware_train_loader(
         train_dataset,
         train_collator,
         config.train.per_device_batch_size,
@@ -194,7 +240,11 @@ def main() -> None:
         config.data.pin_memory,
         config.data.persistent_workers,
         dist_ctx.distributed,
+        dist_ctx.world_size,
+        dist_ctx.rank,
         shuffle=True,
+        route_options=config.task.route_options,
+        seed=config.experiment.seed,
     )
     val_loader = _build_val_dataloader(
         val_dataset,

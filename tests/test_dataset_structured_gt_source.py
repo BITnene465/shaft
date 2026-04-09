@@ -85,6 +85,46 @@ class StructuredGTSourceTests(unittest.TestCase):
             lengths = dataset.get_target_token_lengths(DummyTokenizer())
             self.assertEqual(lengths, [len(expected_training_target["target_text"])])
 
+    def test_dataset_supports_route_level_prompt_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "sample.png"
+            jsonl_path = temp_path / "sample.jsonl"
+            Image.new("RGB", (100, 100), color="black").save(image_path)
+
+            record = {
+                "task_type": "grounding",
+                "domain_type": "arrow",
+                "sample_id": "sample-2",
+                "image_path": str(image_path),
+                "image_width": 100,
+                "image_height": 100,
+                "instances": [
+                    {
+                        "label": "single_arrow",
+                        "bbox": [10.0, 10.0, 30.0, 30.0],
+                    }
+                ],
+            }
+            with jsonl_path.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            dataset = SFTDataset(
+                jsonl_path=jsonl_path,
+                num_bins=1000,
+                system_prompt="global-system",
+                user_prompt="global-user",
+                route_prompts={
+                    "grounding/arrow": {
+                        "system_prompt": "route-system",
+                        "user_prompt": "route-user",
+                    }
+                },
+            )
+            sample = dataset[0]
+            self.assertEqual(sample["system_prompt"], "route-system")
+            self.assertEqual(sample["user_prompt"], "route-user")
+
 
 if __name__ == "__main__":
     unittest.main()

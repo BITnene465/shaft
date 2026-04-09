@@ -15,8 +15,7 @@ class InferProtocolAlignmentTests(unittest.TestCase):
 
     def test_apply_task_overrides_merges_into_route_options(self) -> None:
         runtime = ExperimentRuntimeConfig()
-        runtime.task.task_type = "keypoint_sequence"
-        runtime.task.domain_type = "arrow"
+        runtime.task.route = "keypoint_sequence/arrow"
         runtime.task.route_options = {
             "keypoint_sequence/arrow": {
                 "coordinate_token_loss_weight": 1.5,
@@ -26,6 +25,7 @@ class InferProtocolAlignmentTests(unittest.TestCase):
         _apply_task_overrides(
             runtime,
             InferTaskConfig(
+                route="keypoint_sequence/arrow",
                 route_options={
                     "coordinate_token_loss_weight": 2.0,
                     "decode_mode": "strict",

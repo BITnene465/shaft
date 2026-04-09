@@ -119,4 +119,4 @@ Runs at epoch end (or every N steps). Flow: `model.generate()` → decode → sc
 | `train.keep_last_n_checkpoints` | 3 | Checkpoints to retain |
 | `eval.max_new_tokens` | 8192 | Max generation tokens |
 | `eval.bbox_iou_threshold` | 0.5 | Bbox matching threshold |
-| `eval.monitor_metric` | val/end_to_end_score | Best checkpoint metric |
+| `eval.best_metric` | val/end_to_end_score | Best checkpoint metric |

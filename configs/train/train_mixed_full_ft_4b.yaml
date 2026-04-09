@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3vl-s1-lora
-  output_dir: outputs/qwen3vl-s1-lora
+  name: qwen3vl-mixed-full-ft-4b
+  output_dir: outputs/qwen3vl-mixed-full-ft/4b
   seed: 42
 
 model:
@@ -24,57 +24,47 @@ tokenizer:
   add_eos_token: true
 
 task:
-  route: grounding/arrow
+  # Mixed-task training still requires explicit route metadata in each record.
   route_options:
     grounding/arrow:
+      mix_weight: 1.0
       bbox_token_loss_weight: 1.3
       label_token_loss_weight: 1.0
+      eval_primary_metric: bbox_f1_at_iou50
+      eval_metric_weight: 0.5
+      eval_metric_normalizer: identity
+    keypoint_sequence/arrow:
+      mix_weight: 1.0
+      coordinate_token_loss_weight: 1.3
+      eval_primary_metric: end_to_end_score
+      eval_metric_weight: 0.5
+      eval_metric_normalizer: identity
 
 prompt:
-  profile: arrow.grounding.stage1.v2
+  route_prompts:
+    grounding/arrow:
+      profile: arrow.grounding.stage1.v2
+    keypoint_sequence/arrow:
+      profile: arrow.keypoint_sequence.stage2_fixed.v2
 
 data:
-  train_path: data/two_stage/stage1/train_mixed.jsonl
-  val_path: data/two_stage/stage1/val_full.jsonl
+  train_path: data/two_stage/stage1/train_mixed.jsonl,data/two_stage/stage2/train.jsonl
+  val_path: data/two_stage/stage1/val_full.jsonl,data/two_stage/stage2/val.jsonl
   num_workers: 16
   pin_memory: true
   persistent_workers: true
 
 finetune:
-  mode: lora
-
-lora:
-  enabled: true
-  adapter_type: dora
-  r: 32
-  alpha: 64
-  dropout: 0
-  bias: none
-  # Language tower LoRA targets.
-  lang_target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
-  # Visual tower LoRA targets; only used when freeze_vision_tower=false.
-  vis_target_modules:
-    - attn.qkv
-    - attn.proj
-    - mlp.linear_fc1
-    - mlp.linear_fc2
-  # Projector LoRA targets; empty means all linear layers matched by projector_name_substrings.
-  proj_target_modules: []
+  mode: full
 
 train:
-  epochs: 5
-  per_device_batch_size: 4
-  grad_accum_steps: 2
+  epochs: 3
+  per_device_batch_size: 2
+  grad_accum_steps: 4
   gradient_checkpointing: true
-  learning_rate: 0
-  lora_learning_rate: 0.00005
+  learning_rate: 0.00004
+  # embed_learning_rate: 0.00004
+  # lm_head_learning_rate: 0.00004
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler_type: cosine
@@ -96,13 +86,14 @@ eval:
   do_sample: false
   use_cache: true
   bbox_iou_threshold: 0.5
-  best_metric: val/bbox_f1_at_iou50
+  strict_point_distance_px: 8.0
+  best_metric: val/multi_task_score
   monitor_mode: max
 
 logging:
   use_wandb: true
   project: vlm_det_json
-  run_name: qwen3vl-s1-lora
+  run_name: qwen3vl-mixed-full-ft-4b
   progress_ncols: 88
 
 checkpoint:
