@@ -1,0 +1,24 @@
+datasets:
+  joint_structure_arrow:
+    task_type: joint_structure
+    domain_type: arrow
+    train_path: data/processed/train.jsonl
+    val_path: data/processed/val.jsonl
+    default_mix_weight: 1.0
+    prompt_profile: arrow.joint_structure.one_stage.v1
+
+  stage1_grounding_arrow:
+    task_type: grounding
+    domain_type: arrow
+    train_path: data/two_stage/stage1/train_mixed.jsonl
+    val_path: data/two_stage/stage1/val_full.jsonl
+    default_mix_weight: 1.0
+    prompt_profile: arrow.grounding.stage1.v2
+
+  stage2_keypoint_sequence_arrow:
+    task_type: keypoint_sequence
+    domain_type: arrow
+    train_path: data/two_stage/stage2/train.jsonl
+    val_path: data/two_stage/stage2/val.jsonl
+    default_mix_weight: 1.0
+    prompt_profile: arrow.keypoint_sequence.stage2_fixed.v2

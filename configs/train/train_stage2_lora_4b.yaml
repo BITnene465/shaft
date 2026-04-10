@@ -33,12 +33,11 @@ prompt:
   profile: arrow.keypoint_sequence.stage2_fixed.v2
 
 data:
-  train_path: data/two_stage/stage2/train.jsonl
-  val_path: data/two_stage/stage2/val.jsonl
-  train_route_map:
-    data/two_stage/stage2/train.jsonl: keypoint_sequence/arrow
-  val_route_map:
-    data/two_stage/stage2/val.jsonl: keypoint_sequence/arrow
+  registry_path: configs/data_registry/arrow.yaml
+  train_datasets:
+    - stage2_keypoint_sequence_arrow
+  val_datasets:
+    - stage2_keypoint_sequence_arrow
   num_workers: 16
   pin_memory: true
   persistent_workers: true

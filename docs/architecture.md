@@ -40,7 +40,7 @@ route = task_type/domain_type
 
 路由来源：
 
-- 配置绑定（推荐）：`data.train_route_map` / `data.val_route_map`
+- 配置绑定（推荐）：`data.registry_path + train_datasets/val_datasets`
 - 样本字段（可选）：JSONL 的 `task_type` + `domain_type`
 
 框架不会根据文件名或 prompt 猜 route。

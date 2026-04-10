@@ -26,7 +26,7 @@
 
 - route 必须显式：`task_type/domain_type`。
 - route 可来自：
-  - 配置 `data.train_route_map` / `data.val_route_map`
+  - 配置 `data.registry_path + train_datasets/val_datasets`（推荐）
   - 样本字段 `task_type/domain_type`
 - 禁止隐式猜 route。
 - codec 是监督真源，prompt 不是监督真源。

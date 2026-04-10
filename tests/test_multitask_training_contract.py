@@ -465,19 +465,14 @@ class MultiTaskRouteContractTests(unittest.TestCase):
         self.assertEqual(mixed_full_ft.finetune.mode, "full")
         self.assertFalse(mixed_full_ft.model.freeze_vision_tower)
         self.assertEqual(mixed_full_ft.task.route, None)
+        self.assertEqual(mixed_full_ft.data.registry_path, "configs/data_registry/arrow.yaml")
         self.assertEqual(
-            mixed_full_ft.data.train_route_map,
-            {
-                "data/two_stage/stage1/train_mixed.jsonl": "grounding/arrow",
-                "data/two_stage/stage2/train.jsonl": "keypoint_sequence/arrow",
-            },
+            mixed_full_ft.data.train_datasets,
+            ["stage1_grounding_arrow", "stage2_keypoint_sequence_arrow"],
         )
         self.assertEqual(
-            mixed_full_ft.data.val_route_map,
-            {
-                "data/two_stage/stage1/val_full.jsonl": "grounding/arrow",
-                "data/two_stage/stage2/val.jsonl": "keypoint_sequence/arrow",
-            },
+            mixed_full_ft.data.val_datasets,
+            ["stage1_grounding_arrow", "stage2_keypoint_sequence_arrow"],
         )
         self.assertEqual(
             sorted(mixed_full_ft.task.route_options.keys()),

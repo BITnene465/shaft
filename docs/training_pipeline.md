@@ -21,12 +21,32 @@ python scripts/train.py --config <train_config.yaml>
 
 ```text
 加载 YAML
+ -> 解析数据源（registry）
  -> 构建模型/processor/tokenizer
  -> 构建 dataset/collator/dataloader
  -> 构建 optimizer/scheduler
  -> trainer.fit()
  -> 训练/评估/存储 checkpoint
 ```
+
+### 2.1 数据集注册模式（推荐）
+
+配置项：
+
+- `data.registry_path`
+- `data.train_datasets`
+- `data.val_datasets`
+
+行为：
+
+- 由 registry 展开 train/val 路径与 route 映射。
+- 可按 route 注入默认 `mix_weight` 与 prompt profile。
+- 配置中的 `task.route_options` / `prompt.route_prompts` 优先级更高（可覆盖 registry 默认值）。
+
+边界：
+
+- registry 解析只负责“配置展开与校验”。
+- 不参与 sample 读取、采样与业务解码。
 
 ## 3. 混训策略与数据混合
 

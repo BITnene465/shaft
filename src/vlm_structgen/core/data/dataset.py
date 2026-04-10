@@ -164,8 +164,9 @@ class SFTDataset:
                 "Dataset sample is missing a valid task/domain route. "
                 f"sample_id={sample_id!r}, task_type={record.get('task_type')!r}, "
                 f"domain_type={record.get('domain_type')!r}. "
-                "Set data.train_route_map/data.val_route_map (or data.train_route/data.val_route) "
-                "in config, or provide route fields in JSONL."
+                "Set route bindings via data.registry_path + "
+                "data.train_datasets/data.val_datasets in config, "
+                "or provide route fields in JSONL."
             ) from exc
 
     def _normalize_jsonl_paths(self, jsonl_path: str | Path | Sequence[str | Path]) -> list[Path]:

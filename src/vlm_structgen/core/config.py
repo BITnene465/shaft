@@ -78,15 +78,13 @@ class TaskConfig:
 
 @dataclass
 class DataConfig:
-    train_path: str = "data/processed/train.jsonl"
-    val_path: str = "data/processed/val.jsonl"
-    # Preferred route declaration for training/validation datasets.
-    # For single-path datasets, use train_route/val_route.
-    # For multi-path datasets, use train_route_map/val_route_map (path -> route).
-    train_route: str | None = None
-    val_route: str | None = None
-    train_route_map: dict[str, str] = field(default_factory=dict)
-    val_route_map: dict[str, str] = field(default_factory=dict)
+    # Dataset registry mode:
+    # - registry_path points to a YAML registry file.
+    # - train_datasets/val_datasets list dataset ids in that registry.
+    # Training paths/routes are resolved strictly from the registry.
+    registry_path: str | None = None
+    train_datasets: list[str] = field(default_factory=list)
+    val_datasets: list[str] = field(default_factory=list)
     num_workers: int = 4
     pin_memory: bool = True
     persistent_workers: bool = True
@@ -309,6 +307,23 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
             "`eval.monitor_metric` has been removed. "
             "Please migrate to `eval.best_metric`."
         )
+    data_payload = yaml_payload.get("data")
+    if isinstance(data_payload, dict):
+        deprecated_data_keys = [
+            "train_path",
+            "val_path",
+            "train_route",
+            "val_route",
+            "train_route_map",
+            "val_route_map",
+        ]
+        used_keys = [key for key in deprecated_data_keys if key in data_payload]
+        if used_keys:
+            raise ValueError(
+                "Legacy data fields have been removed: "
+                f"{used_keys}. "
+                "Please migrate to data.registry_path + data.train_datasets/data.val_datasets."
+            )
 
 
 def load_config(path: str | Path) -> ExperimentRuntimeConfig:

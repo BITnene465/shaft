@@ -4,7 +4,7 @@
 
 路由（`task_type/domain_type`）可由以下任一方式提供：
 
-- 配置绑定：`data.train_route_map` / `data.val_route_map`（推荐）
+- 配置绑定（推荐）：`data.registry_path + train_datasets/val_datasets`
 - 样本字段：JSONL 中显式提供 `task_type` 与 `domain_type`
 
 框架不会隐式猜测 route。

@@ -4,13 +4,17 @@ from __future__ import annotations
 import argparse
 import math
 from collections.abc import Iterator
-from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
 from vlm_structgen.core import apply_run_id, config_to_dict, load_config
-from vlm_structgen.core.data import SFTCollator, SFTDataset, build_mixed_train_loader
+from vlm_structgen.core.data import (
+    SFTCollator,
+    SFTDataset,
+    build_mixed_train_loader,
+    resolve_training_data_sources,
+)
 from vlm_structgen.core.eval import Evaluator
 from vlm_structgen.core.modeling import build_model_tokenizer_processor
 from vlm_structgen.core.train import Trainer
@@ -115,58 +119,20 @@ def _build_val_dataloader(
     )
 
 
-def _resolve_jsonl_paths(
-    configured_paths: str | list[str],
-    *,
-    field_name: str,
-) -> list[str]:
-    if isinstance(configured_paths, list):
-        raw_paths = [str(path) for path in configured_paths]
-    else:
-        raw_paths = str(configured_paths).replace(";", ",").split(",")
-    resolved = [str(Path(path.strip())) for path in raw_paths if path.strip()]
-    if not resolved:
-        raise ValueError(f"No paths were resolved from {field_name}.")
-    return resolved
+def _merge_route_level_defaults(config, *, route_option_defaults, route_prompt_defaults) -> None:
+    merged_route_options = dict(route_option_defaults or {})
+    for route_key, route_options in dict(config.task.route_options or {}).items():
+        merged = dict(merged_route_options.get(route_key, {}))
+        merged.update(dict(route_options or {}))
+        merged_route_options[str(route_key)] = merged
+    config.task.route_options = merged_route_options
 
-
-def _resolve_dataset_routes(
-    *,
-    paths: list[str],
-    config_route: str | None,
-    config_route_map: dict[str, str] | None,
-    fallback_route: str | None,
-    field_name: str,
-) -> list[str]:
-    route_map = {
-        str(Path(path_key)): str(route_value).strip()
-        for path_key, route_value in dict(config_route_map or {}).items()
-        if str(route_value).strip()
-    }
-    if route_map:
-        normalized_paths = [str(Path(path)) for path in paths]
-        missing_paths = [path for path in normalized_paths if path not in route_map]
-        if missing_paths:
-            raise ValueError(
-                f"{field_name} is missing routes for paths: {missing_paths}. "
-                "Provide a path->route entry for each dataset path."
-            )
-        unknown_paths = sorted(set(route_map.keys()) - set(normalized_paths))
-        if unknown_paths:
-            raise ValueError(
-                f"{field_name} contains unknown path keys: {unknown_paths}. "
-                f"Expected one of: {normalized_paths}."
-            )
-        return [route_map[path] for path in normalized_paths]
-    if config_route is not None and str(config_route).strip():
-        return [str(config_route).strip()] * len(paths)
-    if fallback_route is not None and str(fallback_route).strip():
-        return [str(fallback_route).strip()] * len(paths)
-    raise ValueError(
-        f"Missing dataset route config for {field_name}. "
-        "Please set data.train_route_map/data.val_route_map, "
-        "or data.train_route/data.val_route, or task.route."
-    )
+    merged_route_prompts = dict(route_prompt_defaults or {})
+    for route_key, route_prompt_payload in dict(config.prompt.route_prompts or {}).items():
+        merged = dict(merged_route_prompts.get(route_key, {}))
+        merged.update(dict(route_prompt_payload or {}))
+        merged_route_prompts[str(route_key)] = merged
+    config.prompt.route_prompts = merged_route_prompts
 
 
 def main() -> None:
@@ -193,27 +159,23 @@ def main() -> None:
         config.checkpoint.resume_from = str(args.resume_from)
     if args.mix_strategy is not None:
         config.task.mix_strategy = str(args.mix_strategy)
-    train_paths = _resolve_jsonl_paths(
-        config.data.train_path,
-        field_name="config.data.train_path",
+
+    resolved_data_sources = resolve_training_data_sources(
+        config,
+        config_path=args.config,
     )
-    val_paths = _resolve_jsonl_paths(
-        config.data.val_path,
-        field_name="config.data.val_path",
+    _merge_route_level_defaults(
+        config,
+        route_option_defaults=resolved_data_sources.route_option_defaults,
+        route_prompt_defaults=resolved_data_sources.route_prompt_defaults,
     )
-    train_routes = _resolve_dataset_routes(
-        paths=train_paths,
-        config_route=config.data.train_route,
-        config_route_map=config.data.train_route_map,
-        fallback_route=config.task.route,
-        field_name="data.train_route_map",
-    )
-    val_routes = _resolve_dataset_routes(
-        paths=val_paths,
-        config_route=config.data.val_route,
-        config_route_map=config.data.val_route_map,
-        fallback_route=config.task.route,
-        field_name="data.val_route_map",
+    train_paths = resolved_data_sources.train_paths
+    val_paths = resolved_data_sources.val_paths
+    train_routes = resolved_data_sources.train_routes
+    val_routes = resolved_data_sources.val_routes
+    print(
+        f"[startup] resolved dataset sources with mode={resolved_data_sources.source_mode!r}.",
+        flush=True,
     )
     dist_ctx = init_distributed()
     seed_everything(config.experiment.seed, rank=dist_ctx.rank)

@@ -88,6 +88,10 @@ python scripts/train.py --config configs/train/train_stage2_lora_4b.yaml
 python scripts/train.py --config configs/train/train_mixed_full_ft_4b.yaml
 ```
 
+训练数据源默认由注册表管理：
+
+- `configs/data_registry/arrow.yaml`
+
 可选 CLI 覆写（无歧义参数）：
 
 - `--run-id`
@@ -108,7 +112,10 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 ## 4. 路由与混训约定
 
 - 路由使用 `task_type/domain_type`（如 `grounding/arrow`）。
-- 推荐在配置中声明 `data.train_route_map` / `data.val_route_map`。
+- 推荐使用数据集注册表模式：
+  - `data.registry_path`
+  - `data.train_datasets`
+  - `data.val_datasets`
 - JSONL 中也可带 `task_type`、`domain_type`，但不建议依赖隐式推断。
 - 当前混训为样本级路由（同一 batch 可混合多个 route）。
 
