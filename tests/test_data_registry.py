@@ -50,8 +50,7 @@ class DataRegistryTests(unittest.TestCase):
             registry_path.write_text(
                 "datasets:\n"
                 "  s1:\n"
-                "    task_type: grounding\n"
-                "    domain_type: arrow\n"
+                "    route: grounding/arrow\n"
                 "    train_path: data/train.jsonl\n"
                 "    val_path: data/val.jsonl\n",
                 encoding="utf-8",
@@ -71,6 +70,27 @@ class DataRegistryTests(unittest.TestCase):
         config.data.val_datasets = []
         with self.assertRaisesRegex(ValueError, "non-empty data.train_datasets"):
             resolve_training_data_sources(config, config_path="configs/train/train_stage1_lora_4b.yaml")
+
+    def test_registry_rejects_legacy_task_domain_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            registry_path = temp_root / "registry.yaml"
+            registry_path.write_text(
+                "datasets:\n"
+                "  s1:\n"
+                "    task_type: grounding\n"
+                "    domain_type: arrow\n"
+                "    train_path: data/train.jsonl\n"
+                "    val_path: data/val.jsonl\n",
+                encoding="utf-8",
+            )
+            config = ExperimentRuntimeConfig()
+            config.data.registry_path = str(registry_path)
+            config.data.train_datasets = ["s1"]
+            config.data.val_datasets = ["s1"]
+
+            with self.assertRaisesRegex(ValueError, "legacy task/domain"):
+                resolve_training_data_sources(config, config_path=temp_root / "train.yaml")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
+from vlm_structgen.core.routing import normalize_route_key
 from vlm_structgen.core.utils.logging import get_vlm_logger
 
 
@@ -48,25 +49,17 @@ class PromptConfig:
     profile: str | None = None
     system_prompt: str = ""
     system_prompt_template: str | None = None
-    user_prompt: str = (
-        "Detect all arrows and output only a JSON array, with no markdown and no extra text. "
-        "Normalize every coordinate to an integer in [0,999]. "
-        'Each item must be either {"label":"single_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]} '
-        'or {"label":"double_arrow","bbox_2d":[x1,y1,x2,y2],"keypoints_2d":[[x,y],[x,y]]}. '
-        "For single_arrow, keypoints must be ordered from tail to head. "
-        "For double_arrow, keypoints[0] and keypoints[-1] are the two head tips. "
-        "Each arrow must contain at least 2 points."
-    )
+    user_prompt: str = "Output only valid JSON. No markdown and no extra text."
     user_prompt_template: str | None = None
     # Optional per-route prompt overrides for multi-task training.
-    # Key format: "<task_type>/<domain_type>".
+    # Key format: opaque route id string, for example "grounding/arrow".
     route_prompts: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
 class TaskConfig:
     # Optional default route for one-stage inference.
-    # Training resolves routes from per-record task_type/domain_type in JSONL.
+    # Training resolves routes from per-record route in JSONL.
     route: str | None = None
     # LLaMAFactory-style mixed training strategy:
     # - concat
@@ -162,10 +155,8 @@ class EvalConfig:
     top_p: float | None = None
     top_k: int | None = None
     use_cache: bool = True
-    bbox_iou_threshold: float = 0.5
-    strict_point_distance_px: float = 8.0
     # Primary metric used for best-checkpoint selection.
-    best_metric: str = "val/end_to_end_score"
+    best_metric: str = "val/multi_task_score"
     monitor_mode: str = "max"
 
 
@@ -307,6 +298,18 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
             "`eval.monitor_metric` has been removed. "
             "Please migrate to `eval.best_metric`."
         )
+    if isinstance(eval_payload, dict):
+        removed_eval_keys = [
+            "bbox_iou_threshold",
+            "strict_point_distance_px",
+        ]
+        used_eval_keys = [key for key in removed_eval_keys if key in eval_payload]
+        if used_eval_keys:
+            raise ValueError(
+                "Legacy eval fields have been removed: "
+                f"{used_eval_keys}. "
+                "Please configure per-task evaluation thresholds under task.route_options."
+            )
     data_payload = yaml_payload.get("data")
     if isinstance(data_payload, dict):
         deprecated_data_keys = [
@@ -334,7 +337,23 @@ def load_config(path: str | Path) -> ExperimentRuntimeConfig:
     _raise_deprecated_config_keys(yaml_payload)
     _warn_unknown_config_keys(ExperimentRuntimeConfig, yaml_payload, path="")
     config = _from_dict(ExperimentRuntimeConfig, yaml_payload)
+    _normalize_route_mappings(config)
     return apply_model_scale_tag(config)
+
+
+def _normalize_route_mappings(config: ExperimentRuntimeConfig) -> None:
+    if config.task.route is not None and str(config.task.route).strip():
+        config.task.route = normalize_route_key(str(config.task.route))
+
+    normalized_task_options: dict[str, dict[str, Any]] = {}
+    for route_key, options in dict(config.task.route_options or {}).items():
+        normalized_task_options[normalize_route_key(str(route_key))] = dict(options or {})
+    config.task.route_options = normalized_task_options
+
+    normalized_route_prompts: dict[str, dict[str, Any]] = {}
+    for route_key, prompt_payload in dict(config.prompt.route_prompts or {}).items():
+        normalized_route_prompts[normalize_route_key(str(route_key))] = dict(prompt_payload or {})
+    config.prompt.route_prompts = normalized_route_prompts
 
 
 def _resolve_prompt_profile(yaml_payload: dict[str, Any], config_path: Path) -> None:
@@ -394,9 +413,9 @@ def _resolve_route_prompt_profiles(prompt_payload: dict[str, Any], *, config_pat
                     continue
                 merged_prompt_payload[key] = value
             merged_prompt_payload["profile"] = str(profile)
-            resolved_route_prompts[str(route_key)] = merged_prompt_payload
+            resolved_route_prompts[normalize_route_key(str(route_key))] = merged_prompt_payload
         else:
-            resolved_route_prompts[str(route_key)] = dict(route_prompt_payload)
+            resolved_route_prompts[normalize_route_key(str(route_key))] = dict(route_prompt_payload)
     prompt_payload["route_prompts"] = resolved_route_prompts
 
 

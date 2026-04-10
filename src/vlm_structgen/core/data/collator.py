@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from vlm_structgen.core.registry import get_adapter
+from vlm_structgen.core.registry import get_adapter_for_route
 
 
 class SFTCollator:
@@ -149,8 +149,7 @@ class SFTCollator:
             "image_grid_thw": prefix_batch.get("image_grid_thw"),
             "prompt_lengths": torch.tensor(prompt_length_tensor, dtype=torch.long),
             "meta": {
-                "task_type": [item["task_type"] for item in batch],
-                "domain_type": [item["domain_type"] for item in batch],
+                "route": [item["route"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "image_width": [item["image_width"] for item in batch],
@@ -185,12 +184,12 @@ class SFTCollator:
         if target_weights is None:
             raise ValueError(
                 "Adapter did not provide target token weights. "
-                f"sample_id={item.get('sample_id')!r}, route={item.get('task_type')}/{item.get('domain_type')}."
+                f"sample_id={item.get('sample_id')!r}, route={item.get('route')!r}."
             )
         if len(target_weights) != len(target_ids):
             raise ValueError(
                 "Adapter returned target token weights that do not match tokenizer output. "
-                f"sample_id={item.get('sample_id')!r}, route={item.get('task_type')}/{item.get('domain_type')}, "
+                f"sample_id={item.get('sample_id')!r}, route={item.get('route')!r}, "
                 f"target_ids={len(target_ids)}, target_weights={len(target_weights)}."
             )
 
@@ -199,13 +198,10 @@ class SFTCollator:
         return target_weights
 
     def _get_adapter_for_item(self, item: dict[str, Any]):
-        task_type = str(item["task_type"])
-        domain_type = str(item["domain_type"])
-        route_key = f"{task_type}/{domain_type}"
+        route_key = str(item["route"])
         task_options = self.task_route_options.get(route_key, {})
-        return get_adapter(
-            task_type=task_type,
-            domain_type=domain_type,
+        return get_adapter_for_route(
+            route_key=route_key,
             num_bins=self.num_bins,
             task_options_key=tuple(sorted(dict(task_options).items())),
         )

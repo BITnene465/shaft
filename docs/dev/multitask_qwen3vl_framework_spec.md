@@ -40,10 +40,16 @@
 路由定义：
 
 ```text
-route = task_type/domain_type
+route = <route_id>
 ```
 
 每条样本必须能显式解析 route（配置绑定或样本字段）。框架禁止通过文件名、目录名或 prompt 猜 route。
+
+中间层要求：
+
+- `core` 仅消费 `route`。
+- `route -> adapter` 由注册层负责解析。
+- `task_type/domain_type` 只允许出现在注册层或 legacy 兼容路径，不得在 trainer/evaluator/collator 主链路扩散。
 
 ## 5. 监督真源规范
 

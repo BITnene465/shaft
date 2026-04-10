@@ -15,7 +15,6 @@ from vlm_structgen.domains.arrow.data.two_stage import (
     quantize_bbox_2d,
     to_crop_local_bbox,
 )
-from vlm_structgen.core.infer.config import TwoStageInferenceConfig, load_two_stage_inference_config
 from vlm_structgen.core.infer.runner import InferenceRunner, load_inference_runner
 from vlm_structgen.core.modeling.builder import BuildArtifacts
 from vlm_structgen.core.prompting import build_chat_prompt, render_prompt_template, temporary_padding_side
@@ -25,6 +24,11 @@ from vlm_structgen.core.utils.generation import (
     find_balanced_json_end,
     trim_generated_ids_at_eos,
 )
+from vlm_structgen.domains.arrow.infer.config import (
+    TwoStageInferenceConfig,
+    load_two_stage_inference_config,
+)
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 @dataclass
@@ -458,6 +462,7 @@ def load_two_stage_inference_runner(
     stage2_lora_adapter_path: str | Path | None = None,
     device_name: str | None = None,
 ) -> TwoStageInferenceRunner:
+    ensure_builtin_task_adapters_registered()
     infer_config: TwoStageInferenceConfig = load_two_stage_inference_config(config_path)
     resolved_stage2_dense_model_name_or_path = stage2_dense_model_name_or_path or stage1_dense_model_name_or_path
     loaded_stage1_runner = load_inference_runner(

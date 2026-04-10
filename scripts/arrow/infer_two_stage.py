@@ -119,8 +119,11 @@ def _resolve_stage1_batch_size(args: argparse.Namespace, runner) -> int:
 
 def main() -> None:
     args = parse_args()
-    from vlm_structgen.core.infer.config import load_two_stage_inference_config
     from vlm_structgen.domains.arrow import load_two_stage_inference_runner
+    from vlm_structgen.domains.arrow.infer.config import load_two_stage_inference_config
+    from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
+
+    ensure_builtin_task_adapters_registered()
 
     infer_config = load_two_stage_inference_config(args.config)
     runner = load_two_stage_inference_runner(

@@ -6,8 +6,9 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_structgen.core.registry import get_adapter, parse_route_key
+from vlm_structgen.core.registry import get_adapter_for_route
 from vlm_structgen.core.prompting import render_prompt_template
+from vlm_structgen.core.routing import normalize_route_key, resolve_record_route_key
 from vlm_structgen.core.utils.io import load_jsonl
 
 # Training can encounter extremely large figure images. We only decode images
@@ -40,15 +41,10 @@ class SFTDataset:
         self.records: list[dict[str, Any]] = []
         for index, path in enumerate(self.jsonl_paths):
             route = self.path_routes[index]
-            task_type = None
-            domain_type = None
-            if route is not None:
-                task_type, domain_type = parse_route_key(str(route))
             for record in load_jsonl(path):
                 normalized_record = dict(record)
-                if task_type is not None and domain_type is not None:
-                    normalized_record["task_type"] = task_type
-                    normalized_record["domain_type"] = domain_type
+                if route is not None:
+                    normalized_record["route"] = normalize_route_key(str(route))
                 self.records.append(normalized_record)
 
     def __len__(self) -> int:
@@ -72,7 +68,7 @@ class SFTDataset:
         target_text = training_target["target_text"]
         loss_meta = training_target.get("loss_meta")
         condition = record.get("condition", {})
-        route_key = f"{adapter.task_type}/{adapter.domain_type}"
+        route_key = resolve_record_route_key(record)
         route_prompt = dict(self.route_prompts.get(route_key, {}))
         system_prompt = record.get("system_prompt")
         if system_prompt is None:
@@ -109,8 +105,7 @@ class SFTDataset:
                     else:
                         user_prompt = self.user_prompt
         return {
-            "task_type": adapter.task_type,
-            "domain_type": adapter.domain_type,
+            "route": route_key,
             "sample_id": record.get("sample_id", image_path.stem),
             "image_path": str(image_path),
             "image": image,
@@ -153,21 +148,20 @@ class SFTDataset:
 
     def _get_adapter(self, record: dict[str, Any]):
         try:
-            return get_adapter(
-                task_type=record.get("task_type"),
-                domain_type=record.get("domain_type"),
-                num_bins=self.num_bins,
-            )
+            route_key = resolve_record_route_key(record)
         except Exception as exc:  # noqa: BLE001
             sample_id = record.get("sample_id") or Path(str(record.get("image_path", ""))).stem or "<unknown>"
             raise ValueError(
-                "Dataset sample is missing a valid task/domain route. "
-                f"sample_id={sample_id!r}, task_type={record.get('task_type')!r}, "
-                f"domain_type={record.get('domain_type')!r}. "
+                "Dataset sample is missing a valid route binding. "
+                f"sample_id={sample_id!r}, route={record.get('route')!r}. "
                 "Set route bindings via data.registry_path + "
                 "data.train_datasets/data.val_datasets in config, "
-                "or provide route fields in JSONL."
+                "or provide `route` in JSONL."
             ) from exc
+        return get_adapter_for_route(
+            route_key=route_key,
+            num_bins=self.num_bins,
+        )
 
     def _normalize_jsonl_paths(self, jsonl_path: str | Path | Sequence[str | Path]) -> list[Path]:
         if isinstance(jsonl_path, (str, Path)):
@@ -190,7 +184,7 @@ class SFTDataset:
                     "route_prompts must map route to a prompt payload mapping. "
                     f"route={route_key!r}, got={type(prompt_payload).__name__}."
                 )
-            normalized[str(route_key)] = dict(prompt_payload)
+            normalized[normalize_route_key(str(route_key))] = dict(prompt_payload)
         return normalized
 
     def _normalize_path_routes(
@@ -201,8 +195,8 @@ class SFTDataset:
         if path_routes is None:
             return [None] * path_count
         if isinstance(path_routes, str):
-            return [str(path_routes)] * path_count
-        normalized = [str(item) for item in path_routes]
+            return [normalize_route_key(str(path_routes))] * path_count
+        normalized = [normalize_route_key(str(item)) for item in path_routes]
         if len(normalized) != path_count:
             raise ValueError(
                 "path_routes length must match jsonl_path length. "

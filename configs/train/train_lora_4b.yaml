@@ -32,7 +32,9 @@ tokenizer:
 task:
   route: joint_structure/arrow
   route_options:
-    joint_structure/arrow: {}
+    joint_structure/arrow:
+      bbox_iou_threshold: 0.5
+      strict_point_distance_px: 8.0
 
 prompt:
   profile: arrow.joint_structure.one_stage.v1
@@ -103,8 +105,6 @@ eval:
   num_beams: 1
   do_sample: false
   use_cache: true
-  bbox_iou_threshold: 0.5
-  strict_point_distance_px: 8.0
   best_metric: val/end_to_end_score
   monitor_mode: max
 

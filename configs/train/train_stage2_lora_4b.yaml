@@ -28,6 +28,7 @@ task:
   route_options:
     keypoint_sequence/arrow:
       coordinate_token_loss_weight: 1.3
+      strict_point_distance_px: 8.0
 
 prompt:
   profile: arrow.keypoint_sequence.stage2_fixed.v2
@@ -97,8 +98,6 @@ eval:
   num_beams: 1
   do_sample: false
   use_cache: true
-  bbox_iou_threshold: 0.5
-  strict_point_distance_px: 8.0
   best_metric: val/end_to_end_score
   monitor_mode: max
 

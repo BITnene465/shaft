@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from vlm_structgen.core.registry import register_task_adapter
 from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts
@@ -12,7 +13,6 @@ from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_cou
 @dataclass
 class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
     task_type: str = field(init=False, default="keypoint_sequence")
-    task_bucket_key: str = field(init=False, default="stage2_samples")
     coordinate_token_loss_weight: float = 1.0
 
     def __post_init__(self) -> None:
@@ -76,10 +76,9 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         gt_struct: dict[str, Any],
         pred_struct: dict[str, Any],
         *,
-        bbox_iou_threshold: float,
-        strict_point_distance_px: float,
+        eval_options: dict[str, Any] | None = None,
     ) -> dict[str, float]:
-        del bbox_iou_threshold
+        strict_point_distance_px = float(dict(eval_options or {}).get("strict_point_distance_px", 8.0))
         counts = empty_counts()
         gt_points = gt_struct.get("keypoints", [])
         pred_points = pred_struct.get("keypoints", [])
@@ -102,6 +101,22 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
         if all_points_strict:
             counts["end_to_end_correct"] = 1.0
         return counts
+
+    def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
+        samples = max(counts.get("samples", 0.0), 1.0)
+        point_count = max(counts.get("point_count", 0.0), 1.0)
+        gt_instances = max(counts.get("gt_instances", 0.0), 1.0)
+        matched = max(counts.get("gt_instances", 0.0), 1.0)
+        return {
+            "parse_rate_lenient": counts.get("parse_success_lenient", 0.0) / samples,
+            "parse_rate_strict": counts.get("parse_success_strict", 0.0) / samples,
+            "keypoint_l2_mean": counts.get("point_distance_sum", 0.0) / point_count,
+            "keypoint_count_acc": counts.get("keypoint_count_exact", 0.0) / matched,
+            "end_to_end_score": counts.get("end_to_end_correct", 0.0) / gt_instances,
+        }
+
+    def default_eval_primary_metric(self) -> str:
+        return "end_to_end_score"
 
     def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
         del tokenizer
@@ -165,3 +180,6 @@ def build_keypoint_sequence_adapter(*, domain_type: str, num_bins: int, task_opt
             coordinate_token_loss_weight=float(task_options.get("coordinate_token_loss_weight", 1.0)),
         )
     raise ValueError(f"Unsupported keypoint_sequence domain_type: {domain_type!r}")
+
+
+register_task_adapter("keypoint_sequence", build_keypoint_sequence_adapter)

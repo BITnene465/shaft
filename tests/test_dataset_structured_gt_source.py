@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from vlm_structgen.core.data.dataset import SFTDataset
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 from vlm_structgen.tasks.keypoint_sequence.adapter import build_keypoint_sequence_adapter
 
 
@@ -27,6 +28,9 @@ class DummyTokenizer:
 
 
 class StructuredGTSourceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        ensure_builtin_task_adapters_registered()
+
     def test_dataset_can_route_from_config_without_task_domain_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -57,8 +61,7 @@ class StructuredGTSourceTests(unittest.TestCase):
                 user_prompt="predict",
             )
             sample = dataset[0]
-            self.assertEqual(sample["task_type"], "grounding")
-            self.assertEqual(sample["domain_type"], "arrow")
+            self.assertEqual(sample["route"], "grounding/arrow")
 
     def test_dataset_rebuilds_stage2_target_from_structured_gt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

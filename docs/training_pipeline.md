@@ -40,6 +40,7 @@ python scripts/train.py --config <train_config.yaml>
 行为：
 
 - 由 registry 展开 train/val 路径与 route 映射。
+- registry 条目使用 `route` 字段（如 `grounding/arrow`）。
 - 可按 route 注入默认 `mix_weight` 与 prompt profile。
 - 配置中的 `task.route_options` / `prompt.route_prompts` 优先级更高（可覆盖 registry 默认值）。
 
@@ -86,11 +87,12 @@ min_theta  E_{t~pi(t)} E_{(x,y)~D_t}[L_t(x,y;theta)]
 ## 4. 路由边界
 
 - 训练核心只做通用 LM 优化。
-- `task_type/domain_type` 用于 dataset/collator/evaluator 的路由：
+- `route` 用于 dataset/collator/evaluator 的路由：
   - prompt 选择
   - codec 编解码
   - 路由级指标聚合
   - 采样混合
+- `task_type/domain_type` 仅保留在 route 解析中间层作为 legacy 兼容，不应再作为新数据主字段。
 - trainer 不直接解析业务字段。
 
 ## 5. 优化器分组

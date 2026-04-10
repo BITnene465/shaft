@@ -12,6 +12,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, config_to_dict
 from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
+from vlm_structgen.core.routing import decode_route_token, encode_route_token, route_metric_label
 from vlm_structgen.core.utils.checkpoint import (
     load_initial_model_checkpoint,
     load_training_checkpoint,
@@ -89,14 +90,12 @@ class Trainer:
                 continue
             metrics = self.evaluate(step=self.global_step, epoch=epoch)
             if metrics:
-                self._maybe_update_best(metrics)
-                self._log_metrics(metrics, self.global_step)
-                self.save_checkpoint(tag="last", is_best=self._is_best(metrics))
+                self._handle_eval_result(metrics)
 
     def train_one_epoch(self, epoch: int) -> None:
         self.model.train()
         self._accumulated_micro_steps = 0
-        route_counter: Counter[tuple[str, str]] = Counter()
+        route_counter: Counter[str] = Counter()
         progress = create_progress_bar(
             total=len(self.train_dataloader),
             desc=f"train e{epoch + 1}",
@@ -124,9 +123,7 @@ class Trainer:
             ):
                 metrics = self.evaluate(step=self.global_step, epoch=epoch)
                 if metrics:
-                    self._maybe_update_best(metrics)
-                    self._log_metrics(metrics, self.global_step)
-                    self.save_checkpoint(tag="last", is_best=self._is_best(metrics))
+                    self._handle_eval_result(metrics)
             elif (
                 self.config.train.save_step_checkpoints
                 and self.global_step % self.config.train.save_every_steps == 0
@@ -194,38 +191,38 @@ class Trainer:
             "train/lr": float(self.optimizer.param_groups[0]["lr"]),
         }
 
-    def _collect_batch_routes(self, batch: dict[str, Any]) -> Counter[tuple[str, str]]:
+    def _collect_batch_routes(self, batch: dict[str, Any]) -> Counter[str]:
         meta = batch.get("meta", {})
-        task_types = list(meta.get("task_type", []))
-        domain_types = list(meta.get("domain_type", []))
-        routes: Counter[tuple[str, str]] = Counter()
-        for task_type, domain_type in zip(task_types, domain_types, strict=False):
-            routes[(str(task_type), str(domain_type))] += 1
+        route_values = list(meta.get("route", []))
+        routes: Counter[str] = Counter()
+        for route_value in route_values:
+            routes[str(route_value)] += 1
         return routes
 
-    def _log_epoch_route_distribution(self, *, epoch: int, route_counter: Counter[tuple[str, str]]) -> None:
+    def _log_epoch_route_distribution(self, *, epoch: int, route_counter: Counter[str]) -> None:
         if not route_counter:
             return
 
         reduction_payload = {
-            f"__route__::{task_type}::{domain_type}": float(count)
-            for (task_type, domain_type), count in route_counter.items()
+            f"__route__::{encode_route_token(route_key)}": float(count)
+            for route_key, count in route_counter.items()
         }
         reduced_payload = reduce_numeric_dict(reduction_payload, average=False)
-        reduced_route_counter: Counter[tuple[str, str]] = Counter()
+        reduced_route_counter: Counter[str] = Counter()
         for key, value in reduced_payload.items():
-            _prefix, task_type, domain_type = key.split("::", 2)
-            reduced_route_counter[(task_type, domain_type)] = int(round(value))
+            _prefix, route_token = key.split("::", 1)
+            route_key = decode_route_token(route_token)
+            reduced_route_counter[route_key] = int(round(value))
 
         total_samples = sum(reduced_route_counter.values())
         if total_samples <= 0:
             return
 
         summary_parts = [
-            f"{task_type}/{domain_type}={count} ({count / total_samples:.2%})"
-            for (task_type, domain_type), count in sorted(
+            f"{route_key}={count} ({count / total_samples:.2%})"
+            for route_key, count in sorted(
                 reduced_route_counter.items(),
-                key=lambda item: (-item[1], item[0][0], item[0][1]),
+                key=lambda item: (-item[1], item[0]),
             )
         ]
         message = (
@@ -239,8 +236,8 @@ class Trainer:
         metrics = {
             "train/routes/total_samples": float(total_samples),
         }
-        for (task_type, domain_type), count in reduced_route_counter.items():
-            metric_key = f"train/routes/{task_type}__{domain_type}"
+        for route_key, count in reduced_route_counter.items():
+            metric_key = f"train/routes/{route_metric_label(route_key)}"
             metrics[metric_key] = float(count)
             metrics[f"{metric_key}_ratio"] = float(count) / float(total_samples)
         self._log_metrics(metrics, self.global_step)
@@ -254,6 +251,50 @@ class Trainer:
         if step is not None:
             metrics["val/step"] = float(step)
         return metrics
+
+    def _handle_eval_result(self, metrics: dict[str, float]) -> None:
+        is_best = self._is_best(metrics)
+        self._maybe_update_best(metrics)
+        self._log_metrics(metrics, self.global_step)
+        self._log_eval_breakdown(metrics, is_best=is_best)
+        self.save_checkpoint(tag="last", is_best=is_best)
+
+    def _log_eval_breakdown(self, metrics: dict[str, float], *, is_best: bool) -> None:
+        if self.logger is None:
+            return
+
+        monitor_key = self._resolve_best_metric_name()
+        monitor_value = metrics.get(monitor_key)
+        if monitor_value is None:
+            self.logger.info(
+                "eval summary: best metric missing "
+                f"(key={monitor_key}, save_best={'yes' if is_best else 'no'})."
+            )
+        else:
+            self.logger.info(
+                "eval summary: "
+                f"{monitor_key}={float(monitor_value):.6f}, "
+                f"save_best={'yes' if is_best else 'no'}."
+            )
+
+        route_metrics: dict[str, dict[str, float]] = {}
+        for metric_key, metric_value in metrics.items():
+            if not metric_key.startswith("val/routes/"):
+                continue
+            parts = metric_key.split("/", 3)
+            if len(parts) != 4:
+                continue
+            route_name = parts[2]
+            stat_name = parts[3]
+            route_metrics.setdefault(route_name, {})[stat_name] = float(metric_value)
+
+        for route_name in sorted(route_metrics):
+            stats = route_metrics[route_name]
+            rendered_stats = ", ".join(
+                f"{key}={value:.4f}"
+                for key, value in sorted(stats.items())
+            )
+            self.logger.info(f"eval route[{route_name}]: {rendered_stats}")
 
     def save_checkpoint(self, tag: str | None = None, is_best: bool = False) -> None:
         if not is_main_process():

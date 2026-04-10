@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, load_prompt_profile_payload
-from vlm_structgen.core.registry import parse_route_key
+from vlm_structgen.core.routing import normalize_route_key
 
 
 @dataclass(frozen=True)
@@ -24,8 +24,7 @@ class ResolvedDatasetSources:
 @dataclass(frozen=True)
 class _DatasetRegistryEntry:
     dataset_id: str
-    task_type: str
-    domain_type: str
+    route: str
     train_path: str
     val_path: str
     default_mix_weight: float
@@ -34,7 +33,7 @@ class _DatasetRegistryEntry:
 
     @property
     def route_key(self) -> str:
-        return f"{self.task_type}/{self.domain_type}"
+        return self.route
 
 
 def resolve_training_data_sources(
@@ -155,6 +154,7 @@ def _parse_registry_entry(
             f"Dataset registry entry must be a mapping: dataset_id={dataset_id!r}, file={registry_path}"
         )
     allowed_keys = {
+        "route",
         "task_type",
         "domain_type",
         "train_path",
@@ -171,9 +171,19 @@ def _parse_registry_entry(
             f"Supported keys: {sorted(allowed_keys)}"
         )
 
-    task_type, domain_type = parse_route_key(
-        f"{raw_entry.get('task_type', '')}/{raw_entry.get('domain_type', '')}"
-    )
+    route_raw = raw_entry.get("route")
+    if route_raw is None or not str(route_raw).strip():
+        legacy_task_type = raw_entry.get("task_type")
+        legacy_domain_type = raw_entry.get("domain_type")
+        if legacy_task_type is not None or legacy_domain_type is not None:
+            raise ValueError(
+                f"Dataset registry entry {dataset_id!r} still uses legacy task/domain fields. "
+                "Please migrate to a single `route` field."
+            )
+        raise ValueError(
+            f"Dataset registry entry must define non-empty route: dataset_id={dataset_id!r}, file={registry_path}"
+        )
+    route = normalize_route_key(str(route_raw))
     train_path = str(raw_entry.get("train_path", "")).strip()
     val_path = str(raw_entry.get("val_path", "")).strip()
     if not train_path or not val_path:
@@ -200,8 +210,7 @@ def _parse_registry_entry(
 
     return _DatasetRegistryEntry(
         dataset_id=dataset_id,
-        task_type=task_type,
-        domain_type=domain_type,
+        route=route,
         train_path=str(Path(train_path)),
         val_path=str(Path(val_path)),
         default_mix_weight=default_mix_weight,

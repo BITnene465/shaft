@@ -11,6 +11,7 @@ from vlm_structgen.core.infer import load_inference_runner
 from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 from vlm_structgen.core.utils.logging import create_progress_bar
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,6 +136,7 @@ def _summarize(counts: dict[str, float]) -> dict[str, float]:
 
 def main() -> None:
     args = parse_args()
+    ensure_builtin_task_adapters_registered()
     jsonl_path = Path(args.jsonl)
     records = load_jsonl(jsonl_path)
     if args.max_samples is not None:
@@ -189,8 +191,9 @@ def main() -> None:
             local_counts = adapter.score_prediction(
                 gt_struct,
                 pred_struct,
-                bbox_iou_threshold=0.5,
-                strict_point_distance_px=float(args.strict_point_distance_px),
+                eval_options={
+                    "strict_point_distance_px": float(args.strict_point_distance_px),
+                },
             )
 
             counts["samples"] += 1.0

@@ -12,12 +12,6 @@ from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec
 
 def empty_counts() -> dict[str, float]:
     return {
-        "samples": 0.0,
-        "parse_success_lenient": 0.0,
-        "parse_success_strict": 0.0,
-        "structured_samples": 0.0,
-        "grounding_samples": 0.0,
-        "stage2_samples": 0.0,
         "gt_instances": 0.0,
         "pred_instances": 0.0,
         "bbox_tp": 0.0,
@@ -137,7 +131,6 @@ def match_instances(
 class BaseArrowAdapter:
     codec: ArrowCodec | GroundingCodec | KeypointSequenceCodec
     task_type: str = field(init=False)
-    task_bucket_key: str = field(init=False)
     domain_type: str = "arrow"
     _warned_flags: set[str] = field(default_factory=set, init=False, repr=False)
 
@@ -186,3 +179,9 @@ class BaseArrowAdapter:
         del loss_meta
         del tokenizer
         return None
+
+    def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
+        raise NotImplementedError("Task adapter must implement summarize_eval_counts().")
+
+    def default_eval_primary_metric(self) -> str:
+        raise NotImplementedError("Task adapter must implement default_eval_primary_metric().")

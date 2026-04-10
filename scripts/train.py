@@ -8,7 +8,7 @@ from collections.abc import Iterator
 import torch
 from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
-from vlm_structgen.core import apply_run_id, config_to_dict, load_config
+from vlm_structgen.core import apply_run_id, config_to_dict, load_config, register_routes
 from vlm_structgen.core.data import (
     SFTCollator,
     SFTDataset,
@@ -19,8 +19,10 @@ from vlm_structgen.core.eval import Evaluator
 from vlm_structgen.core.modeling import build_model_tokenizer_processor
 from vlm_structgen.core.train import Trainer
 from vlm_structgen.core.train.optim import build_optimizer, build_scheduler
+from vlm_structgen.core.routing import normalize_route_key
 from vlm_structgen.core.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
 from vlm_structgen.core.utils.logging import ExperimentLogger, format_count
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,16 +124,18 @@ def _build_val_dataloader(
 def _merge_route_level_defaults(config, *, route_option_defaults, route_prompt_defaults) -> None:
     merged_route_options = dict(route_option_defaults or {})
     for route_key, route_options in dict(config.task.route_options or {}).items():
-        merged = dict(merged_route_options.get(route_key, {}))
+        normalized_route = normalize_route_key(str(route_key))
+        merged = dict(merged_route_options.get(normalized_route, {}))
         merged.update(dict(route_options or {}))
-        merged_route_options[str(route_key)] = merged
+        merged_route_options[normalized_route] = merged
     config.task.route_options = merged_route_options
 
     merged_route_prompts = dict(route_prompt_defaults or {})
     for route_key, route_prompt_payload in dict(config.prompt.route_prompts or {}).items():
-        merged = dict(merged_route_prompts.get(route_key, {}))
+        normalized_route = normalize_route_key(str(route_key))
+        merged = dict(merged_route_prompts.get(normalized_route, {}))
         merged.update(dict(route_prompt_payload or {}))
-        merged_route_prompts[str(route_key)] = merged
+        merged_route_prompts[normalized_route] = merged
     config.prompt.route_prompts = merged_route_prompts
 
 
@@ -160,6 +164,8 @@ def main() -> None:
     if args.mix_strategy is not None:
         config.task.mix_strategy = str(args.mix_strategy)
 
+    ensure_builtin_task_adapters_registered()
+
     resolved_data_sources = resolve_training_data_sources(
         config,
         config_path=args.config,
@@ -173,6 +179,13 @@ def main() -> None:
     val_paths = resolved_data_sources.val_paths
     train_routes = resolved_data_sources.train_routes
     val_routes = resolved_data_sources.val_routes
+    register_routes(
+        {
+            *train_routes,
+            *val_routes,
+            *config.task.route_options.keys(),
+        }
+    )
     print(
         f"[startup] resolved dataset sources with mode={resolved_data_sources.source_mode!r}.",
         flush=True,
@@ -289,8 +302,6 @@ def main() -> None:
         top_p=config.eval.top_p,
         top_k=config.eval.top_k,
         use_cache=config.eval.use_cache,
-        bbox_iou_threshold=config.eval.bbox_iou_threshold,
-        strict_point_distance_px=config.eval.strict_point_distance_px,
     )
     print("[startup] building trainer...", flush=True)
     trainer = Trainer(

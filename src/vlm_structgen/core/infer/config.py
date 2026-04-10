@@ -8,7 +8,7 @@ import yaml
 from dotenv import load_dotenv
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, _from_dict, load_prompt_profile_payload
-from vlm_structgen.core.registry import parse_route_key
+from vlm_structgen.core.routing import normalize_route_key
 from vlm_structgen.core.utils.checkpoint import load_checkpoint_meta
 
 
@@ -63,24 +63,6 @@ class OneStageInferenceConfig:
 
 
 @dataclass
-class TwoStageStageInferenceConfig:
-    model: InferModelConfig = field(default_factory=InferModelConfig)
-    task: InferTaskConfig = field(default_factory=InferTaskConfig)
-    prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
-    eval: InferEvalConfig = field(default_factory=InferEvalConfig)
-    batch_size: int = 1
-
-
-@dataclass
-class TwoStageInferenceConfig:
-    stage1: TwoStageStageInferenceConfig = field(default_factory=TwoStageStageInferenceConfig)
-    stage2: TwoStageStageInferenceConfig = field(default_factory=TwoStageStageInferenceConfig)
-    app: InferAppConfig = field(default_factory=InferAppConfig)
-    output_dir: str | None = None
-    padding_ratio: float = 0.5
-
-
-@dataclass
 class InferenceSettings:
     runtime: ExperimentRuntimeConfig
     lora_adapter_path: str
@@ -116,19 +98,13 @@ def _load_yaml_payload(path: str | Path | None) -> dict[str, Any]:
 def load_one_stage_inference_config(path: str | Path | None) -> OneStageInferenceConfig:
     payload = _load_yaml_payload(path)
     if path is not None:
-        _resolve_prompt_profile_for_mapping(payload, config_path=Path(path))
-    return _from_dict(OneStageInferenceConfig, payload)
+        resolve_prompt_profile_for_mapping(payload, config_path=Path(path))
+    config = _from_dict(OneStageInferenceConfig, payload)
+    if config.task.route is not None and str(config.task.route).strip():
+        config.task.route = normalize_route_key(config.task.route)
+    return config
 
-
-def load_two_stage_inference_config(path: str | Path | None) -> TwoStageInferenceConfig:
-    payload = _load_yaml_payload(path)
-    if path is not None:
-        _resolve_prompt_profile_for_mapping(payload.get("stage1"), config_path=Path(path))
-        _resolve_prompt_profile_for_mapping(payload.get("stage2"), config_path=Path(path))
-    return _from_dict(TwoStageInferenceConfig, payload)
-
-
-def _resolve_prompt_profile_for_mapping(mapping: dict[str, Any] | None, *, config_path: Path) -> None:
+def resolve_prompt_profile_for_mapping(mapping: dict[str, Any] | None, *, config_path: Path) -> None:
     if not isinstance(mapping, dict):
         return
     prompt_payload = mapping.get("prompt")
@@ -203,8 +179,7 @@ def _apply_eval_overrides(runtime: ExperimentRuntimeConfig, eval_cfg: InferEvalC
 
 def _apply_task_overrides(runtime: ExperimentRuntimeConfig, task_cfg: InferTaskConfig) -> None:
     if task_cfg.route is not None:
-        task_type, domain_type = parse_route_key(task_cfg.route)
-        runtime.task.route = f"{task_type}/{domain_type}"
+        runtime.task.route = normalize_route_key(task_cfg.route)
     if task_cfg.route_options:
         route_key = runtime.task.route
         if not route_key:
@@ -234,24 +209,12 @@ def build_runtime_from_one_stage_infer_config(
     return runtime
 
 
-def build_runtime_from_two_stage_infer_config(
-    checkpoint_path: str | Path,
-    infer_config: TwoStageStageInferenceConfig,
-) -> ExperimentRuntimeConfig:
-    runtime = _build_runtime_from_checkpoint(checkpoint_path)
-    _apply_model_overrides(runtime, infer_config.model)
-    _apply_task_overrides(runtime, infer_config.task)
-    _apply_prompt_overrides(runtime, infer_config.prompt)
-    _apply_eval_overrides(runtime, infer_config.eval)
-    return runtime
-
-
 def load_inference_settings(
     *,
     lora_adapter_path: str | Path | None = None,
     checkpoint_path: str | Path | None = None,
     config_path: str | Path | None = None,
-    infer_config: OneStageInferenceConfig | TwoStageStageInferenceConfig | None = None,
+    infer_config: OneStageInferenceConfig | None = None,
     env_file: str | Path | None = None,
 ) -> InferenceSettings:
     dotenv_path = _find_dotenv_path(env_file)

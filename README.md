@@ -111,12 +111,13 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 
 ## 4. 路由与混训约定
 
-- 路由使用 `task_type/domain_type`（如 `grounding/arrow`）。
+- 路由使用 `route` 字段（如 `grounding/arrow`）。
+- `core` 通过 `route -> adapter` 的中间层注册表路由，不直接在训练链路里依赖 `task_type/domain_type`。
 - 推荐使用数据集注册表模式：
   - `data.registry_path`
   - `data.train_datasets`
   - `data.val_datasets`
-- JSONL 中也可带 `task_type`、`domain_type`，但不建议依赖隐式推断。
+- JSONL 推荐显式写 `route`；`task_type/domain_type` 仅作为兼容兜底，不建议继续新增。
 - 当前混训为样本级路由（同一 batch 可混合多个 route）。
 
 ## 5. 推理与评估

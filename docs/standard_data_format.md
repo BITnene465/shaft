@@ -2,10 +2,11 @@
 
 仓库内长期维护的训练/验证数据格式为标准 JSONL。
 
-路由（`task_type/domain_type`）可由以下任一方式提供：
+路由（`route`）可由以下任一方式提供：
 
 - 配置绑定（推荐）：`data.registry_path + train_datasets/val_datasets`
-- 样本字段：JSONL 中显式提供 `task_type` 与 `domain_type`
+- 样本字段：JSONL 中显式提供 `route`
+- legacy 兼容：JSONL 中提供 `task_type` 与 `domain_type`
 
 框架不会隐式猜测 route。
 
@@ -19,8 +20,7 @@
 | `image_path` | `str` | 是 | 图片路径（相对或绝对） |
 | `image_width` | `int` | 是 | 图像宽 |
 | `image_height` | `int` | 是 | 图像高 |
-| `task_type` | `str` | 否 | 配置未绑定 route 时需提供 |
-| `domain_type` | `str` | 否 | 配置未绑定 route 时需提供 |
+| `route` | `str` | 否 | 配置未绑定 route 时需提供（如 `grounding/arrow`） |
 
 ## 2. 业务约束
 
@@ -60,8 +60,7 @@
   "image_path": "data/processed/images/train/img_001.jpg",
   "image_width": 1920,
   "image_height": 1080,
-  "task_type": "joint_structure",
-  "domain_type": "arrow",
+  "route": "joint_structure/arrow",
   "instances": [
     {
       "label": "single_arrow",
@@ -99,8 +98,7 @@
   "image_path": "data/two_stage/stage1/images/train/img_001_full.jpg",
   "image_width": 1920,
   "image_height": 1080,
-  "task_type": "grounding",
-  "domain_type": "arrow",
+  "route": "grounding/arrow",
   "instances": [
     {
       "label": "single_arrow",
@@ -142,8 +140,7 @@
   "image_path": "data/two_stage/stage2/images/train/img_001_inst_0__pad300.png",
   "image_width": 512,
   "image_height": 512,
-  "task_type": "keypoint_sequence",
-  "domain_type": "arrow",
+  "route": "keypoint_sequence/arrow",
   "crop_box": [50, 80, 400, 420],
   "padding_ratio": 0.3,
   "gt_struct": {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from vlm_structgen.core.registry import register_task_adapter
 from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts, match_instances
@@ -11,7 +12,6 @@ from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_cou
 @dataclass
 class ArrowGroundingAdapter(BaseArrowAdapter):
     task_type: str = field(init=False, default="grounding")
-    task_bucket_key: str = field(init=False, default="grounding_samples")
     bbox_token_loss_weight: float = 1.0
     label_token_loss_weight: float = 1.0
 
@@ -77,10 +77,9 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
         gt_struct: dict[str, Any],
         pred_struct: dict[str, Any],
         *,
-        bbox_iou_threshold: float,
-        strict_point_distance_px: float,
+        eval_options: dict[str, Any] | None = None,
     ) -> dict[str, float]:
-        del strict_point_distance_px
+        bbox_iou_threshold = float(dict(eval_options or {}).get("bbox_iou_threshold", 0.5))
         counts = empty_counts()
         gt_instances = gt_struct.get("instances", [])
         pred_instances = pred_struct.get("instances", [])
@@ -99,6 +98,27 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
         counts["bbox_fp"] = float(len(pred_instances) - len(matched_pred))
         counts["bbox_fn"] = float(len(gt_instances) - len(matched_gt))
         return counts
+
+    def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
+        samples = max(counts.get("samples", 0.0), 1.0)
+        tp = counts.get("bbox_tp", 0.0)
+        fp = counts.get("bbox_fp", 0.0)
+        fn = counts.get("bbox_fn", 0.0)
+        matched = max(tp, 1.0)
+        precision = tp / max(tp + fp, 1.0)
+        recall = tp / max(tp + fn, 1.0)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+        return {
+            "parse_rate_lenient": counts.get("parse_success_lenient", 0.0) / samples,
+            "parse_rate_strict": counts.get("parse_success_strict", 0.0) / samples,
+            "bbox_precision_at_iou50": precision,
+            "bbox_f1_at_iou50": f1,
+            "bbox_recall_at_iou50": recall,
+            "bbox_iou_mean": counts.get("bbox_iou_sum", 0.0) / matched,
+        }
+
+    def default_eval_primary_metric(self) -> str:
+        return "bbox_f1_at_iou50"
 
     def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
         del tokenizer
@@ -164,3 +184,6 @@ def build_grounding_adapter(*, domain_type: str, num_bins: int, task_options: di
             label_token_loss_weight=float(task_options.get("label_token_loss_weight", 1.0)),
         )
     raise ValueError(f"Unsupported grounding domain_type: {domain_type!r}")
+
+
+register_task_adapter("grounding", build_grounding_adapter)

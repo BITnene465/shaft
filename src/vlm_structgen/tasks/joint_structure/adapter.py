@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from vlm_structgen.core.registry import register_task_adapter
 from vlm_structgen.domains.arrow.codecs.structure import ArrowCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts, match_instances
 
@@ -11,7 +12,6 @@ from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_cou
 @dataclass
 class ArrowJointStructureAdapter(BaseArrowAdapter):
     task_type: str = field(init=False, default="joint_structure")
-    task_bucket_key: str = field(init=False, default="structured_samples")
 
     def build_gt_struct_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -46,9 +46,11 @@ class ArrowJointStructureAdapter(BaseArrowAdapter):
         gt_struct: dict[str, Any],
         pred_struct: dict[str, Any],
         *,
-        bbox_iou_threshold: float,
-        strict_point_distance_px: float,
+        eval_options: dict[str, Any] | None = None,
     ) -> dict[str, float]:
+        eval_options = dict(eval_options or {})
+        bbox_iou_threshold = float(eval_options.get("bbox_iou_threshold", 0.5))
+        strict_point_distance_px = float(eval_options.get("strict_point_distance_px", 8.0))
         counts = empty_counts()
         gt_instances = gt_struct.get("instances", [])
         pred_instances = pred_struct.get("instances", [])
@@ -89,9 +91,38 @@ class ArrowJointStructureAdapter(BaseArrowAdapter):
         counts["bbox_fn"] = float(len(gt_instances) - len(matched_gt))
         return counts
 
+    def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
+        samples = max(counts.get("samples", 0.0), 1.0)
+        tp = counts.get("bbox_tp", 0.0)
+        fp = counts.get("bbox_fp", 0.0)
+        fn = counts.get("bbox_fn", 0.0)
+        matched = max(tp, 1.0)
+        point_count = max(counts.get("point_count", 0.0), 1.0)
+        gt_instances = max(counts.get("gt_instances", 0.0), 1.0)
+        precision = tp / max(tp + fp, 1.0)
+        recall = tp / max(tp + fn, 1.0)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+        return {
+            "parse_rate_lenient": counts.get("parse_success_lenient", 0.0) / samples,
+            "parse_rate_strict": counts.get("parse_success_strict", 0.0) / samples,
+            "bbox_precision_at_iou50": precision,
+            "bbox_f1_at_iou50": f1,
+            "bbox_recall_at_iou50": recall,
+            "bbox_iou_mean": counts.get("bbox_iou_sum", 0.0) / matched,
+            "keypoint_l2_mean": counts.get("point_distance_sum", 0.0) / point_count,
+            "keypoint_count_acc": counts.get("keypoint_count_exact", 0.0) / matched,
+            "end_to_end_score": counts.get("end_to_end_correct", 0.0) / gt_instances,
+        }
+
+    def default_eval_primary_metric(self) -> str:
+        return "end_to_end_score"
+
 
 def build_joint_structure_adapter(*, domain_type: str, num_bins: int, task_options: dict[str, Any] | None = None):
     del task_options
     if domain_type == "arrow":
         return ArrowJointStructureAdapter(codec=ArrowCodec(num_bins=num_bins))
     raise ValueError(f"Unsupported joint_structure domain_type: {domain_type!r}")
+
+
+register_task_adapter("joint_structure", build_joint_structure_adapter)

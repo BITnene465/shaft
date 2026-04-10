@@ -227,7 +227,9 @@ _install_torch_stub()
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, load_config
 from vlm_structgen.core.eval.evaluator import Evaluator
+from vlm_structgen.core.routing import encode_route_token
 from vlm_structgen.core.train.trainer import Trainer
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 def _make_trainer_stub(config: ExperimentRuntimeConfig) -> Trainer:
@@ -241,6 +243,7 @@ def _make_evaluator_stub(
     *,
     task_route_options: dict[str, dict[str, object]] | None = None,
 ) -> Evaluator:
+    ensure_builtin_task_adapters_registered()
     return Evaluator(
         num_bins=1000,
         tokenizer=types.SimpleNamespace(),
@@ -391,6 +394,8 @@ class MultiTaskRouteContractTests(unittest.TestCase):
         self.assertAlmostEqual(trainer.best_metric, 0.72)
 
     def test_evaluator_aggregates_routes_and_multitask_score(self) -> None:
+        grounding_token = encode_route_token("grounding/arrow")
+        keypoint_token = encode_route_token("keypoint_sequence/arrow")
         evaluator = _make_evaluator_stub(
             task_route_options={
                 "grounding/arrow": {
@@ -424,21 +429,21 @@ class MultiTaskRouteContractTests(unittest.TestCase):
                 "point_count": 4.0,
                 "keypoint_count_exact": 1.0,
                 "end_to_end_correct": 1.0,
-                "__route__::grounding::arrow::samples": 4.0,
-                "__route__::grounding::arrow::parse_success_lenient": 4.0,
-                "__route__::grounding::arrow::parse_success_strict": 3.0,
-                "__route__::grounding::arrow::bbox_tp": 3.0,
-                "__route__::grounding::arrow::bbox_fp": 1.0,
-                "__route__::grounding::arrow::bbox_fn": 0.0,
-                "__route__::grounding::arrow::bbox_iou_sum": 2.4,
-                "__route__::keypoint_sequence::arrow::samples": 2.0,
-                "__route__::keypoint_sequence::arrow::parse_success_lenient": 2.0,
-                "__route__::keypoint_sequence::arrow::parse_success_strict": 2.0,
-                "__route__::keypoint_sequence::arrow::gt_instances": 2.0,
-                "__route__::keypoint_sequence::arrow::point_distance_sum": 8.0,
-                "__route__::keypoint_sequence::arrow::point_count": 4.0,
-                "__route__::keypoint_sequence::arrow::keypoint_count_exact": 1.0,
-                "__route__::keypoint_sequence::arrow::end_to_end_correct": 1.0,
+                f"__route__::{grounding_token}::samples": 4.0,
+                f"__route__::{grounding_token}::parse_success_lenient": 4.0,
+                f"__route__::{grounding_token}::parse_success_strict": 3.0,
+                f"__route__::{grounding_token}::bbox_tp": 3.0,
+                f"__route__::{grounding_token}::bbox_fp": 1.0,
+                f"__route__::{grounding_token}::bbox_fn": 0.0,
+                f"__route__::{grounding_token}::bbox_iou_sum": 2.4,
+                f"__route__::{keypoint_token}::samples": 2.0,
+                f"__route__::{keypoint_token}::parse_success_lenient": 2.0,
+                f"__route__::{keypoint_token}::parse_success_strict": 2.0,
+                f"__route__::{keypoint_token}::gt_instances": 2.0,
+                f"__route__::{keypoint_token}::point_distance_sum": 8.0,
+                f"__route__::{keypoint_token}::point_count": 4.0,
+                f"__route__::{keypoint_token}::keypoint_count_exact": 1.0,
+                f"__route__::{keypoint_token}::end_to_end_correct": 1.0,
             }
         )
 

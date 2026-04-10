@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
-from vlm_structgen.core.registry import get_adapter, parse_route_key
+from vlm_structgen.core.registry import get_adapter_for_route, register_routes
 from vlm_structgen.core.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_structgen.core.modeling.builder import (
     BuildArtifacts,
@@ -16,6 +16,7 @@ from vlm_structgen.core.modeling.builder import (
     build_model_tokenizer_processor_from_checkpoint,
 )
 from vlm_structgen.core.prompting import build_chat_prompt, temporary_padding_side
+from vlm_structgen.core.routing import normalize_route_key
 from vlm_structgen.core.utils.checkpoint import load_training_checkpoint
 from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
 from vlm_structgen.core.utils.generation import (
@@ -191,7 +192,7 @@ def _resolve_device(device_name: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def _resolve_inference_route(config: ExperimentRuntimeConfig) -> tuple[str, str, str]:
+def _resolve_inference_route(config: ExperimentRuntimeConfig) -> str:
     route_key = str(config.task.route or "").strip()
     if not route_key:
         known_routes = sorted(config.task.route_options.keys())
@@ -203,8 +204,7 @@ def _resolve_inference_route(config: ExperimentRuntimeConfig) -> tuple[str, str,
                 "Inference route is ambiguous. Set task.route in infer config. "
                 f"Known routes in checkpoint config: {known_routes}."
             )
-    task_type, domain_type = parse_route_key(route_key)
-    return route_key, task_type, domain_type
+    return normalize_route_key(route_key)
 
 
 def load_inference_runner(
@@ -277,10 +277,10 @@ def load_inference_runner(
             resume_training_state=False,
         )
     unwrap_model(artifacts.model).eval()
-    route_key, task_type, domain_type = _resolve_inference_route(config)
-    adapter = get_adapter(
-        task_type=task_type,
-        domain_type=domain_type,
+    route_key = _resolve_inference_route(config)
+    register_routes({route_key, *config.task.route_options.keys()})
+    adapter = get_adapter_for_route(
+        route_key=route_key,
         num_bins=config.tokenizer.num_bins,
         task_options_key=tuple(sorted(dict(config.task.route_options.get(
             route_key,

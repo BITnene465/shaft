@@ -67,7 +67,7 @@ def save_training_checkpoint(
         checkpoint_dir / "meta.json",
         {
             "experiment_name": config_dict["experiment"]["name"],
-            "protocol_version": "arrow_v2_json",
+            "protocol_version": "vlm_structgen_v1",
             "config": config_dict,
             "trainer_state": trainer_state,
             "checkpoint_layout": "peft_adapter_only",

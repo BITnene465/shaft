@@ -29,7 +29,7 @@ domains   -> 域语义、codec、排序规则、数据准备、域推理约定
 路由统一为：
 
 ```text
-route = task_type/domain_type
+route = <route_id>
 ```
 
 示例：
@@ -41,9 +41,16 @@ route = task_type/domain_type
 路由来源：
 
 - 配置绑定（推荐）：`data.registry_path + train_datasets/val_datasets`
-- 样本字段（可选）：JSONL 的 `task_type` + `domain_type`
+- 样本字段（可选）：JSONL 的 `route`
+- 兼容兜底：JSONL 的 `task_type + domain_type`（legacy）
 
 框架不会根据文件名或 prompt 猜 route。
+
+中间层注册模式：
+
+- `core.registry` 提供 `route -> adapter binding` 的注册与解析能力。
+- `core` 训练/评估/推理链路只消费 `route`，不在链路内传播 `task_type/domain_type`。
+- 对未显式注册的 route，当前默认按 `task_type/domain_type` 规则回退解析（用于兼容旧配置）。
 
 ## 4. 数据流
 
@@ -98,6 +105,7 @@ src/vlm_structgen/
 ├── core/
 │   ├── config.py
 │   ├── registry.py
+│   ├── routing.py
 │   ├── data/
 │   ├── train/
 │   ├── eval/

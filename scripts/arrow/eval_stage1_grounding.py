@@ -12,6 +12,7 @@ from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 from vlm_structgen.core.utils.logging import create_progress_bar
 from vlm_structgen.domains.arrow import draw_prediction
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,6 +112,7 @@ def _summarize(counts: dict[str, float], *, iou_threshold: float) -> dict[str, f
 def main() -> None:
     wall_start = time.perf_counter()
     args = parse_args()
+    ensure_builtin_task_adapters_registered()
     jsonl_path = Path(args.jsonl)
     records = load_jsonl(jsonl_path)
     if args.max_samples is not None:
@@ -180,8 +182,9 @@ def main() -> None:
             local_counts = adapter.score_prediction(
                 gt_struct,
                 pred_struct,
-                bbox_iou_threshold=float(args.bbox_iou_threshold),
-                strict_point_distance_px=8.0,
+                eval_options={
+                    "bbox_iou_threshold": float(args.bbox_iou_threshold),
+                },
             )
 
             counts["samples"] += 1.0

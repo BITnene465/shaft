@@ -10,6 +10,7 @@ from vlm_structgen.core.data.collator import SFTCollator
 from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 class DummyTokenizer:
@@ -130,6 +131,7 @@ class DummyModelOutputs:
 
 class WeightedLossBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
+        ensure_builtin_task_adapters_registered()
         self.tokenizer = DummyTokenizer()
         self.processor = DummyProcessor(self.tokenizer)
         self.image = Image.new("RGB", (4, 4), color="black")
@@ -137,7 +139,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
     def _build_training_item(
         self,
         *,
-        task_type: str,
+        route: str,
         target_text: str,
         loss_meta: dict,
         loss_weight_enabled: bool,
@@ -152,9 +154,8 @@ class WeightedLossBoundaryTests(unittest.TestCase):
             },
         }
         return {
-            "task_type": task_type,
-            "domain_type": "arrow",
-            "sample_id": f"{task_type}-sample",
+            "route": route,
+            "sample_id": f"{route}-sample",
             "image_path": "unused.png",
             "image": self.image,
             "image_width": 100,
@@ -185,7 +186,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
             image_height=100,
         )
         item = self._build_training_item(
-            task_type="grounding",
+            route="grounding/arrow",
             target_text=target_text,
             loss_meta=loss_meta,
             loss_weight_enabled=True,
@@ -212,7 +213,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
             image_height=100,
         )
         item = self._build_training_item(
-            task_type="keypoint_sequence",
+            route="keypoint_sequence/arrow",
             target_text=target_text,
             loss_meta=loss_meta,
             loss_weight_enabled=True,
@@ -228,7 +229,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
 
     def test_collator_raises_when_adapter_weights_do_not_match_target_tokenization(self) -> None:
         item = self._build_training_item(
-            task_type="grounding",
+            route="grounding/arrow",
             target_text='[{"label":"single_arrow","bbox_2d":[1,2,3,4]}]',
             loss_meta={"field_char_spans": {"label": [[11, 23]], "bbox_2d": [[34, 35]]}},
             loss_weight_enabled=True,
@@ -242,7 +243,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
                 del tokenizer
                 return [1.0]
 
-        with patch("vlm_structgen.core.data.collator.get_adapter", return_value=BadAdapter()):
+        with patch("vlm_structgen.core.data.collator.get_adapter_for_route", return_value=BadAdapter()):
             with self.assertRaisesRegex(ValueError, "target token weights"):
                 collator([item])
 
@@ -280,7 +281,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
 
     def test_collator_raises_when_weighted_route_is_missing_loss_meta(self) -> None:
         item = self._build_training_item(
-            task_type="grounding",
+            route="grounding/arrow",
             target_text='[{"label":"single_arrow","bbox_2d":[1,2,3,4]}]',
             loss_meta=None,
             loss_weight_enabled=True,
@@ -298,7 +299,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
             image_height=100,
         )
         item = self._build_training_item(
-            task_type="keypoint_sequence",
+            route="keypoint_sequence/arrow",
             target_text=target_text,
             loss_meta=loss_meta,
             loss_weight_enabled=True,
@@ -332,7 +333,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
                 task_route_options={"grounding/arrow": {"bbox_token_loss_weight": 0.5}},
                 add_eos_token=True,
                 include_targets_in_inputs=True,
-            )._get_adapter_for_item({"task_type": "grounding", "domain_type": "arrow"})
+            )._get_adapter_for_item({"route": "grounding/arrow"})
 
         with self.assertRaisesRegex(ValueError, "coordinate_token_loss_weight must be >= 1.0"):
             SFTCollator(
@@ -342,7 +343,7 @@ class WeightedLossBoundaryTests(unittest.TestCase):
                 task_route_options={"keypoint_sequence/arrow": {"coordinate_token_loss_weight": 0.5}},
                 add_eos_token=True,
                 include_targets_in_inputs=True,
-            )._get_adapter_for_item({"task_type": "keypoint_sequence", "domain_type": "arrow"})
+            )._get_adapter_for_item({"route": "keypoint_sequence/arrow"})
 
 
 if __name__ == "__main__":

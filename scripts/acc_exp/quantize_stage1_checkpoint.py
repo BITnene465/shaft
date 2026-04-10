@@ -11,6 +11,7 @@ from transformers import AutoProcessor, AutoTokenizer, BitsAndBytesConfig
 
 from vlm_structgen.core.infer import load_inference_runner
 from vlm_structgen.core.utils.distributed import unwrap_model
+from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,6 +49,7 @@ def _quant_config(mode: str) -> tuple[BitsAndBytesConfig, dict[str, Any]]:
 
 def main() -> None:
     args = parse_args()
+    ensure_builtin_task_adapters_registered()
     project_root = Path(__file__).resolve().parents[2]
     output_dir = Path(args.output_dir)
     if not output_dir.is_absolute():

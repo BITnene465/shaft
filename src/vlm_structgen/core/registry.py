@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
-from typing import Protocol
+from typing import Any, Callable, Protocol
 
-SUPPORTED_TASK_TYPES = {"grounding", "keypoint_sequence", "joint_structure"}
-SUPPORTED_DOMAIN_TYPES = {"arrow"}
+from vlm_structgen.core.routing import (
+    normalize_domain_type,
+    normalize_route_key,
+    normalize_task_type,
+    parse_route_key,
+)
+
+_TASK_ADAPTER_BUILDERS: dict[str, Callable[..., "TaskAdapter"]] = {}
+_ROUTE_BINDINGS: dict[str, "RouteBinding"] = {}
+
+
+@dataclass(frozen=True)
+class RouteBinding:
+    route_key: str
+    task_type: str
+    domain_type: str
 
 
 class TaskAdapter(Protocol):
     task_type: str
     domain_type: str
     num_bins: int
-    task_bucket_key: str
 
     def build_gt_struct_from_record(self, record: dict) -> dict:
         ...
@@ -58,48 +72,86 @@ class TaskAdapter(Protocol):
         gt_struct: dict,
         pred_struct: dict,
         *,
-        bbox_iou_threshold: float,
-        strict_point_distance_px: float,
+        eval_options: dict[str, Any] | None = None,
     ) -> dict[str, float]:
         ...
 
     def compute_loss(self, model_outputs, batch: dict, *, tokenizer=None) -> object:
         ...
 
+    def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
+        ...
 
-def normalize_task_type(task_type: str | None) -> str:
-    normalized = str(task_type or "").strip().lower()
-    if not normalized:
-        raise ValueError("task_type is required.")
-    if normalized not in SUPPORTED_TASK_TYPES:
+    def default_eval_primary_metric(self) -> str:
+        ...
+
+
+def register_task_adapter(task_type: str, builder: Callable[..., TaskAdapter]) -> None:
+    normalized_task_type = normalize_task_type(task_type)
+    if not callable(builder):
+        raise ValueError(f"Task adapter builder for {normalized_task_type!r} must be callable.")
+    existing_builder = _TASK_ADAPTER_BUILDERS.get(normalized_task_type)
+    if existing_builder is not None and existing_builder is not builder:
         raise ValueError(
-            f"Unsupported task_type={normalized!r}. Expected one of {sorted(SUPPORTED_TASK_TYPES)}."
+            f"Duplicate task adapter registration for task_type={normalized_task_type!r}."
         )
-    return normalized
+    _TASK_ADAPTER_BUILDERS[normalized_task_type] = builder
+    get_adapter.cache_clear()
+    get_adapter_for_route.cache_clear()
 
 
-def normalize_domain_type(domain_type: str | None) -> str:
-    normalized = str(domain_type or "").strip().lower()
-    if not normalized:
-        raise ValueError("domain_type is required.")
-    if normalized not in SUPPORTED_DOMAIN_TYPES:
+def list_registered_task_types() -> list[str]:
+    return sorted(_TASK_ADAPTER_BUILDERS.keys())
+
+
+def register_route_binding(
+    *,
+    route_key: str,
+    task_type: str | None = None,
+    domain_type: str | None = None,
+) -> None:
+    normalized_route_key = normalize_route_key(route_key)
+    if task_type is None or domain_type is None:
+        parsed_task_type, parsed_domain_type = parse_route_key(normalized_route_key)
+        task_type = task_type or parsed_task_type
+        domain_type = domain_type or parsed_domain_type
+    binding = RouteBinding(
+        route_key=normalized_route_key,
+        task_type=normalize_task_type(task_type),
+        domain_type=normalize_domain_type(domain_type),
+    )
+    existing = _ROUTE_BINDINGS.get(normalized_route_key)
+    if existing is not None and existing != binding:
         raise ValueError(
-            f"Unsupported domain_type={normalized!r}. Expected one of {sorted(SUPPORTED_DOMAIN_TYPES)}."
+            f"Duplicate route binding with conflicting payload for route={normalized_route_key!r}: "
+            f"{existing} vs {binding}."
         )
-    return normalized
+    _ROUTE_BINDINGS[normalized_route_key] = binding
+    resolve_route_binding.cache_clear()
+    get_adapter_for_route.cache_clear()
 
 
-def parse_route_key(route_key: str | None) -> tuple[str, str]:
-    normalized_route_key = str(route_key or "").strip().lower()
-    if not normalized_route_key:
-        raise ValueError("route is required and must be '<task_type>/<domain_type>'.")
-    parts = normalized_route_key.split("/", 1)
-    if len(parts) != 2:
-        raise ValueError(
-            f"Invalid route={normalized_route_key!r}. Expected '<task_type>/<domain_type>'."
-        )
-    task_type, domain_type = parts
-    return normalize_task_type(task_type), normalize_domain_type(domain_type)
+def register_routes(route_keys: list[str] | tuple[str, ...] | set[str]) -> None:
+    for route_key in route_keys:
+        register_route_binding(route_key=str(route_key))
+
+
+def list_registered_routes() -> list[str]:
+    return sorted(_ROUTE_BINDINGS.keys())
+
+
+@lru_cache(maxsize=256)
+def resolve_route_binding(route_key: str | None) -> RouteBinding:
+    normalized_route_key = normalize_route_key(route_key)
+    existing = _ROUTE_BINDINGS.get(normalized_route_key)
+    if existing is not None:
+        return existing
+    task_type, domain_type = parse_route_key(normalized_route_key)
+    return RouteBinding(
+        route_key=normalized_route_key,
+        task_type=task_type,
+        domain_type=domain_type,
+    )
 
 
 @lru_cache(maxsize=64)
@@ -112,29 +164,32 @@ def get_adapter(
 ) -> TaskAdapter:
     normalized_task_type = normalize_task_type(task_type)
     normalized_domain_type = normalize_domain_type(domain_type)
-    task_options = dict(task_options_key)
-    if normalized_task_type == "grounding":
-        from vlm_structgen.tasks.grounding.adapter import build_grounding_adapter
-
-        return build_grounding_adapter(
-            domain_type=normalized_domain_type,
-            num_bins=num_bins,
-            task_options=task_options,
+    task_options: dict[str, Any] = dict(task_options_key)
+    builder = _TASK_ADAPTER_BUILDERS.get(normalized_task_type)
+    if builder is None:
+        raise ValueError(
+            "No task adapter registered for "
+            f"task_type={normalized_task_type!r}. Registered task types: {list_registered_task_types()}. "
+            "Register adapters before dataset/eval/infer, e.g. via vlm_structgen.tasks.bootstrap."
         )
-    if normalized_task_type == "keypoint_sequence":
-        from vlm_structgen.tasks.keypoint_sequence.adapter import build_keypoint_sequence_adapter
+    return builder(
+        domain_type=normalized_domain_type,
+        num_bins=num_bins,
+        task_options=task_options,
+    )
 
-        return build_keypoint_sequence_adapter(
-            domain_type=normalized_domain_type,
-            num_bins=num_bins,
-            task_options=task_options,
-        )
-    if normalized_task_type == "joint_structure":
-        from vlm_structgen.tasks.joint_structure.adapter import build_joint_structure_adapter
 
-        return build_joint_structure_adapter(
-            domain_type=normalized_domain_type,
-            num_bins=num_bins,
-            task_options=task_options,
-        )
-    raise ValueError(f"Unsupported task/domain combination: task_type={normalized_task_type!r}, domain_type={normalized_domain_type!r}")
+@lru_cache(maxsize=256)
+def get_adapter_for_route(
+    *,
+    route_key: str,
+    num_bins: int,
+    task_options_key: tuple[tuple[str, object], ...] = (),
+) -> TaskAdapter:
+    resolved_binding = resolve_route_binding(route_key)
+    return get_adapter(
+        task_type=resolved_binding.task_type,
+        domain_type=resolved_binding.domain_type,
+        num_bins=num_bins,
+        task_options_key=task_options_key,
+    )

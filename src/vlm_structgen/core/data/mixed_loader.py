@@ -7,15 +7,10 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from vlm_structgen.core.routing import resolve_record_route_key
 
 def _route_key_from_record(record: Mapping[str, Any]) -> str:
-    task_type = str(record.get("task_type", "")).strip()
-    domain_type = str(record.get("domain_type", "")).strip()
-    if not task_type or not domain_type:
-        raise ValueError(
-            "Each training record must include task_type and domain_type for mixed sampling."
-        )
-    return f"{task_type}/{domain_type}"
+    return resolve_record_route_key(record)
 
 
 def collect_route_groups(records: Iterable[Mapping[str, Any]]) -> dict[str, list[int]]:
