@@ -27,6 +27,39 @@ class DummyTokenizer:
 
 
 class StructuredGTSourceTests(unittest.TestCase):
+    def test_dataset_can_route_from_config_without_task_domain_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "sample.png"
+            jsonl_path = temp_path / "sample.jsonl"
+            Image.new("RGB", (100, 100), color="black").save(image_path)
+
+            record = {
+                "sample_id": "sample-route-from-config",
+                "image_path": str(image_path),
+                "image_width": 100,
+                "image_height": 100,
+                "instances": [
+                    {
+                        "label": "single_arrow",
+                        "bbox": [10.0, 10.0, 30.0, 30.0],
+                    }
+                ],
+            }
+            with jsonl_path.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            dataset = SFTDataset(
+                jsonl_path=jsonl_path,
+                path_routes="grounding/arrow",
+                num_bins=1000,
+                system_prompt="",
+                user_prompt="predict",
+            )
+            sample = dataset[0]
+            self.assertEqual(sample["task_type"], "grounding")
+            self.assertEqual(sample["domain_type"], "arrow")
+
     def test_dataset_rebuilds_stage2_target_from_structured_gt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

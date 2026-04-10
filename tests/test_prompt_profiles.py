@@ -8,7 +8,7 @@ from vlm_structgen.core.infer.config import load_one_stage_inference_config, loa
 
 class PromptProfileConfigTest(unittest.TestCase):
     def test_train_config_uses_prompt_profile(self) -> None:
-        config = load_config("configs/train/train_stage1_lora_2b.yaml")
+        config = load_config("configs/train/train_stage1_lora_4b.yaml")
         self.assertEqual(config.prompt.profile, "arrow.grounding.stage1.v2")
         self.assertIn("Locate every instance", config.prompt.user_prompt)
         self.assertEqual(config.prompt.system_prompt, "")

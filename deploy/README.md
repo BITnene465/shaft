@@ -1,33 +1,37 @@
-# 部署交接
+# 部署目录说明（给后端）
 
-`deploy/` 只放后端接模型所需的协议和运行时代码，不依赖 `src/` 的训练、数据准备和评估代码。
+`deploy/` 仅保留线上推理必需代码，不依赖训练/评估链路。
 
-## 怎么用
+## 1. 目录作用
 
-### 1. 读配置
+后端主要接入：
+
+- `deploy/arrow/config.yaml`
+- `deploy/arrow/config.py`
+- `deploy/arrow/decode.py`
+- `deploy/arrow/pipeline.py`
+
+其中：
+
+- `decode.py` 提供两阶段解码函数：
+  - `decode_stage1_output(...)`
+  - `decode_stage2_output(...)`
+- `pipeline.py` 提供两阶段编排：
+  - Stage1 请求与解析
+  - crop 构建
+  - Stage2 请求与解析
+  - 全局坐标回写
+
+## 2. 快速使用
+
+### 2.1 读取配置
 
 ```python
 from deploy.arrow.config import load_arrow_config
-
 config = load_arrow_config()
 ```
 
-`deploy/arrow/config.yaml` 统一管理：
-
-- prompt
-- route 名称
-- token 上限
-- `do_sample` / `temperature` / `top_p`
-- `padding_ratio`
-- 量化 bins
-
-默认推荐贪心解码：
-
-- `do_sample: false`
-- `temperature: 0.0`
-- `top_p: 1.0`
-
-### 2. 构建 pipeline
+### 2.2 构建两阶段 pipeline
 
 ```python
 from deploy.arrow.pipeline import ArrowTwoStagePipeline
@@ -38,118 +42,63 @@ pipeline = ArrowTwoStagePipeline(
 )
 ```
 
-### 3. 做两阶段推理
+### 2.3 执行推理
 
 ```python
-result = pipeline.predict_two_stage(image_path)
+result = pipeline.predict_two_stage("/path/to/image.png")
 print(result.to_dict())
 ```
 
-## 代码入口
+## 3. 模型组织
 
-后端主要使用这三个文件：
+支持一个 base model + 多个 LoRA route。当前默认：
 
-- [`deploy/arrow/config.yaml`](./arrow/config.yaml)
-- [`deploy/arrow/decode.py`](./arrow/decode.py)
-- [`deploy/arrow/pipeline.py`](./arrow/pipeline.py)
+- `grounding_arrow`
+- `keypoint_sequence_arrow`
 
-`deploy/arrow/decode.py`：
+若未来合并为单 route，只需把 `config.yaml` 中两个 route 改成同一个值。
 
-- `decode_stage1_output(...)`
-- `decode_stage2_output(...)`
-
-`deploy/arrow/pipeline.py`：
-
-- `ArrowVLLMClient`
-- `ArrowTwoStagePipeline`
-- `build_padded_crop(...)`
-
-这套 runtime 负责：
-
-- 图像读取
-- Stage1 请求与解码
-- crop 预处理
-- Stage2 请求与解码
-- 全局坐标回写
-- 最终结果拼装
-
-## 模型组织
-
-这份代码不强依赖“两个不同模型”。Stage1 和 Stage2 可以：
-
-- 用两个 LoRA 路由
-- 用同一个 LoRA 路由
-- 以后统一成一个模型路由
-
-当前默认路由名是：
-
-```text
-grounding_arrow
-keypoint_sequence_arrow
-```
-
-如果后期只想用一个模型，把 `deploy/arrow/config.yaml` 里的两个 `route` 改成同一个值即可。
-
-## vLLM 启动示例
+## 4. vLLM 启动示例
 
 ```bash
 vllm serve deployment/qwen3vl/arrow/base_model \
+  --port 8001 \
   --enable-lora \
   --lora-modules grounding_arrow=deployment/qwen3vl/arrow/adapters/grounding_arrow \
-                    keypoint_sequence_arrow=deployment/qwen3vl/arrow/adapters/keypoint_sequence_arrow
+                 keypoint_sequence_arrow=deployment/qwen3vl/arrow/adapters/keypoint_sequence_arrow
 ```
 
-单个请求只会使用一个 LoRA 路由。
+建议按显存设置：
 
-## 两阶段编排
+- `--gpu-memory-utilization`
+- `--max-model-len`
 
-1. Stage1 整图 grounding
-2. 后端根据 bbox 裁 crop
-3. Stage2 对 crop 做 keypoint 预测
-4. 后端合并结果
+注意：
 
-## vLLM 说明
+- 单请求只会命中一个 LoRA route。
+- `pixel budget` 属于服务启动与模型处理参数管理，不在 `deploy/` 代码内硬编码。
+- vLLM 当前版本对 DoRA 支持可能受限，若 adapter 为 DoRA 需先验证兼容性。
 
-- 支持多个 LoRA 路由
-- 单个请求只用一个 LoRA
-- 支持 Qwen3-VL 的 pixel budget 思路
-- tower / connector LoRA 仍是实验性能力
+## 5. 推荐解码默认
 
-如果动态 LoRA 不稳定，就退回到：
+默认建议贪心解码：
 
-- merge 成 dense model
-- 再部署到 vLLM
+- `do_sample: false`
+- `temperature: 0.0`
+- `top_p: 1.0`
 
-## 后端边界
+如需采样，再在 `deploy/arrow/config.yaml` 显式开启。
 
-后端需要我们提供：
+## 6. 交付边界
 
-- 基模权重目录
-- 两个 LoRA checkpoint
-- deployment bundle
-- [`deploy/arrow/config.yaml`](./arrow/config.yaml)
-- [`deploy/arrow/decode.py`](./arrow/decode.py)
-- [`deploy/arrow/pipeline.py`](./arrow/pipeline.py)
+算法侧交付：
 
-后端不需要：
+- base model 目录
+- LoRA adapter 目录（一个或多个）
+- `deploy/` 协议与编排代码
+
+后端无需接入：
 
 - 训练代码
 - 数据准备代码
-- 评估代码
-- 实验脚本
-
-## Bundle 结构
-
-```text
-deployment/qwen3vl/arrow/
-  base_model/
-  adapters/
-    grounding_arrow/
-    keypoint_sequence_arrow/
-  manifests/
-    adapters.json
-```
-
-## 联调说明
-
-两阶段在线推理默认使用贪心解码。需要采样时，再在 `deploy/arrow/config.yaml` 里显式开启 `do_sample` 并调整 `temperature` / `top_p`。
+- 离线评估代码

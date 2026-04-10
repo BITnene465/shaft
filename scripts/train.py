@@ -10,23 +10,13 @@ import torch
 from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
 from vlm_structgen.core import apply_run_id, config_to_dict, load_config
-from vlm_structgen.core.data import SFTCollator, SFTDataset
+from vlm_structgen.core.data import SFTCollator, SFTDataset, build_mixed_train_loader
 from vlm_structgen.core.eval import Evaluator
 from vlm_structgen.core.modeling import build_model_tokenizer_processor
 from vlm_structgen.core.train import Trainer
 from vlm_structgen.core.train.optim import build_optimizer, build_scheduler
 from vlm_structgen.core.utils.distributed import barrier, cleanup_distributed, init_distributed, seed_everything
 from vlm_structgen.core.utils.logging import ExperimentLogger, format_count
-from vlm_structgen.mixing import build_route_aware_train_loader
-
-
-def _parse_bool_flag(value: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise argparse.ArgumentTypeError(f"Expected a boolean value, got: {value!r}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,22 +24,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--stage-name", default=None)
-    parser.add_argument(
-        "--train-paths",
-        nargs="+",
-        default=None,
-        help="Optional override for one or more training JSONL paths.",
-    )
-    parser.add_argument(
-        "--val-paths",
-        nargs="+",
-        default=None,
-        help="Optional override for one or more validation JSONL paths.",
-    )
-    parser.add_argument("--freeze-vision-tower", type=_parse_bool_flag, default=None)
-    parser.add_argument("--gradient-checkpointing", type=_parse_bool_flag, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--init-from", default=None)
     parser.add_argument("--resume-from", default=None)
+    parser.add_argument(
+        "--mix-strategy",
+        choices=["concat", "interleave_under", "interleave_over"],
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -133,14 +117,9 @@ def _build_val_dataloader(
 
 def _resolve_jsonl_paths(
     configured_paths: str | list[str],
-    cli_override_paths: list[str] | None,
     *,
     field_name: str,
 ) -> list[str]:
-    if cli_override_paths:
-        resolved_cli = [str(Path(path)) for path in cli_override_paths if str(path).strip()]
-        if resolved_cli:
-            return resolved_cli
     if isinstance(configured_paths, list):
         raw_paths = [str(path) for path in configured_paths]
     else:
@@ -151,6 +130,45 @@ def _resolve_jsonl_paths(
     return resolved
 
 
+def _resolve_dataset_routes(
+    *,
+    paths: list[str],
+    config_route: str | None,
+    config_route_map: dict[str, str] | None,
+    fallback_route: str | None,
+    field_name: str,
+) -> list[str]:
+    route_map = {
+        str(Path(path_key)): str(route_value).strip()
+        for path_key, route_value in dict(config_route_map or {}).items()
+        if str(route_value).strip()
+    }
+    if route_map:
+        normalized_paths = [str(Path(path)) for path in paths]
+        missing_paths = [path for path in normalized_paths if path not in route_map]
+        if missing_paths:
+            raise ValueError(
+                f"{field_name} is missing routes for paths: {missing_paths}. "
+                "Provide a path->route entry for each dataset path."
+            )
+        unknown_paths = sorted(set(route_map.keys()) - set(normalized_paths))
+        if unknown_paths:
+            raise ValueError(
+                f"{field_name} contains unknown path keys: {unknown_paths}. "
+                f"Expected one of: {normalized_paths}."
+            )
+        return [route_map[path] for path in normalized_paths]
+    if config_route is not None and str(config_route).strip():
+        return [str(config_route).strip()] * len(paths)
+    if fallback_route is not None and str(fallback_route).strip():
+        return [str(fallback_route).strip()] * len(paths)
+    raise ValueError(
+        f"Missing dataset route config for {field_name}. "
+        "Please set data.train_route_map/data.val_route_map, "
+        "or data.train_route/data.val_route, or task.route."
+    )
+
+
 def main() -> None:
     args = parse_args()
     print("[startup] loading config...", flush=True)
@@ -158,32 +176,44 @@ def main() -> None:
     if args.run_id:
         config = apply_run_id(config, args.run_id, stage_name=args.stage_name)
         print(
-            f"[startup] applied run_id={args.run_id!r} "
-            f"stage_name={args.stage_name!r} "
+            "[startup] applied "
+            f"run_id={args.run_id!r} stage_name={args.stage_name!r} "
             f"output_dir={config.experiment.output_dir}",
             flush=True,
         )
-    if args.freeze_vision_tower is not None:
-        config.model.freeze_vision_tower = args.freeze_vision_tower
-        print(
-            f"[startup] override freeze_vision_tower={config.model.freeze_vision_tower}",
-            flush=True,
-        )
-    if args.gradient_checkpointing is not None:
-        config.train.gradient_checkpointing = args.gradient_checkpointing
-        print(
-            f"[startup] override gradient_checkpointing={config.train.gradient_checkpointing}",
-            flush=True,
-        )
+    if args.seed is not None:
+        config.experiment.seed = int(args.seed)
+    if args.epochs is not None:
+        config.train.epochs = int(args.epochs)
+    if args.lr is not None:
+        config.train.learning_rate = float(args.lr)
+    if args.init_from is not None:
+        config.checkpoint.init_from = str(args.init_from)
+    if args.resume_from is not None:
+        config.checkpoint.resume_from = str(args.resume_from)
+    if args.mix_strategy is not None:
+        config.task.mix_strategy = str(args.mix_strategy)
     train_paths = _resolve_jsonl_paths(
         config.data.train_path,
-        args.train_paths,
         field_name="config.data.train_path",
     )
     val_paths = _resolve_jsonl_paths(
         config.data.val_path,
-        args.val_paths,
         field_name="config.data.val_path",
+    )
+    train_routes = _resolve_dataset_routes(
+        paths=train_paths,
+        config_route=config.data.train_route,
+        config_route_map=config.data.train_route_map,
+        fallback_route=config.task.route,
+        field_name="data.train_route_map",
+    )
+    val_routes = _resolve_dataset_routes(
+        paths=val_paths,
+        config_route=config.data.val_route,
+        config_route_map=config.data.val_route_map,
+        fallback_route=config.task.route,
+        field_name="data.val_route_map",
     )
     dist_ctx = init_distributed()
     seed_everything(config.experiment.seed, rank=dist_ctx.rank)
@@ -215,6 +245,7 @@ def main() -> None:
     print("[startup] loading datasets...", flush=True)
     train_dataset = SFTDataset(
         jsonl_path=train_paths,
+        path_routes=train_routes,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
@@ -224,6 +255,7 @@ def main() -> None:
     )
     val_dataset = SFTDataset(
         jsonl_path=val_paths,
+        path_routes=val_routes,
         num_bins=config.tokenizer.num_bins,
         system_prompt=config.prompt.system_prompt,
         user_prompt=config.prompt.user_prompt,
@@ -232,7 +264,7 @@ def main() -> None:
         route_prompts=config.prompt.route_prompts,
     )
     print("[startup] building dataloaders...", flush=True)
-    train_loader = build_route_aware_train_loader(
+    train_loader = build_mixed_train_loader(
         train_dataset,
         train_collator,
         config.train.per_device_batch_size,
@@ -244,6 +276,7 @@ def main() -> None:
         dist_ctx.rank,
         shuffle=True,
         route_options=config.task.route_options,
+        mix_strategy=config.task.mix_strategy,
         seed=config.experiment.seed,
     )
     val_loader = _build_val_dataloader(
@@ -313,8 +346,8 @@ def main() -> None:
         evaluator=evaluator,
         logger=logger,
     )
-    init_path = args.init_from or config.checkpoint.init_from
-    resume_path = args.resume_from or config.checkpoint.resume_from
+    init_path = config.checkpoint.init_from
+    resume_path = config.checkpoint.resume_from
     if init_path and resume_path:
         raise ValueError("`init-from` and `resume-from` are mutually exclusive. Choose only one.")
     if init_path:

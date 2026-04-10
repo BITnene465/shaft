@@ -1,83 +1,53 @@
-# Inference Pipeline
+# 推理流程
 
-## One-Stage Inference
+## 1. 单阶段推理
 
-```mermaid
-graph LR
-    IMG["Image"] --> LOAD["load_inference_runner()"]
-    LOAD --> GEN["model.generate()"]
-    GEN --> TXT["Raw text"]
-    TXT --> PARSE["Lenient + Strict decode"]
-    PARSE --> RPT["Report"]
+```text
+图像 -> model.generate() -> 文本输出 -> codec 解码（宽松/严格）-> 报告
 ```
 
-### Key Steps
+关键步骤：
 
-1. **Load**: Build model from checkpoint, load weights, resolve adapter
-2. **Generate**: `model.generate()` with configurable params (greedy by default)
-3. **Parse**: Two-pass decoding:
-   - **Lenient** (`strict=False`) -- strips markdown fences, recovers truncated JSON
-   - **Strict** (`strict=True`) -- requires complete valid JSON with integer coordinates
+1. 加载 checkpoint 与配置，构建推理 runner。
+2. 按推理参数生成（默认贪心）。
+3. 两阶段解析：
+   - 宽松模式（`strict=False`）：容错解析，支持 fence 去除、截断恢复。
+   - 严格模式（`strict=True`）：要求完整合法 JSON。
 
-### Report
+报告通常包含：
 
-```json
-{
-  "generation": { "generated_tokens": 256, "closed_json_payload": true, "stop_reason": "eos_or_unknown" },
-  "lenient": { "ok": true, "prediction": {...} },
-  "strict": { "ok": true, "prediction": {...} }
-}
+- 生成统计（token 数、停止原因、是否闭合 JSON）
+- 宽松解析结果
+- 严格解析结果
+
+## 2. 两阶段推理
+
+```text
+图像
+ -> Stage1 grounding（整图 + tiles）
+ -> 聚合去重
+ -> 按 bbox 构建 crop
+ -> Stage2 keypoint_sequence
+ -> 全局坐标回写
+ -> 最终结构化输出
 ```
 
-### JSON Robustness
+Stage1：
 
-- **Markdown fence stripping**: Removes `` ```json `` wrappers
-- **Balanced JSON extraction**: Tracks bracket depth and string state to find complete JSON
-- **Truncated array recovery**: Parses completed items from incomplete output
+- 可同时跑整图和多尺度 tile proposal。
+- 检测框回写到全图坐标后做 IoU 去重。
 
----
+Stage2：
 
-## Two-Stage Inference
+1. 依据 Stage1 框和 `padding_ratio` 生成 crop。
+2. 对每个 crop 预测 `keypoints_2d`。
+3. 将点从 crop 坐标映射回全图。
 
-```mermaid
-graph TB
-    IMG["Image"] --> S1["Stage1: grounding\n(full image + tiles)"]
-    S1 --> DEDUP["Aggregate + dedup"]
-    DEDUP --> DET["Detected arrows"]
-    DET --> CROP["Padded crops"]
-    CROP --> S2["Stage2: keypoints\n(per crop, batched)"]
-    S2 --> MAP["Map to global coords"]
-    MAP --> OUT["Final prediction"]
-```
+## 3. 代码入口
 
-### Stage1: Mixed Proposals
+- 单阶段：`scripts/arrow/infer.py`
+- 两阶段：`scripts/arrow/infer_two_stage.py`
 
-Runs grounding on the full image plus optional multi-scale tile crops. All detections are mapped to global coordinates and deduplicated by bbox IoU (default threshold 0.65).
+详细参数与示例命令见：
 
-### Stage2: Keypoint Sequence
-
-For each detected arrow:
-
-1. Build padded crop (expand bbox by `padding_ratio`, default 0.3)
-2. Run keypoint model on the crop
-3. Map keypoints back to global coordinates
-
-### Usage
-
-```python
-# One-stage
-runner = load_inference_runner(checkpoint_path="...", config_path="...")
-raw_text, report = runner.predict(image)
-
-# Two-stage
-runner = load_two_stage_inference_runner(
-    config_path="configs/infer/infer_two_stage.yaml",
-    stage1_checkpoint_path="...",
-    stage2_checkpoint_path="...",
-)
-result = runner.predict(image)
-```
-
-### Inference Config Loading
-
-Inference builds runtime config from the checkpoint's `meta.json`, then applies inference config overrides. This ensures the same task/domain/model settings as training.
+- [docs/tool_scripts.md](/home/tanjingyuan/code/arrow-vlm/docs/tool_scripts.md)

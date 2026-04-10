@@ -6,7 +6,7 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_structgen.core.registry import get_adapter
+from vlm_structgen.core.registry import get_adapter, parse_route_key
 from vlm_structgen.core.prompting import render_prompt_template
 from vlm_structgen.core.utils.io import load_jsonl
 
@@ -26,6 +26,7 @@ class SFTDataset:
         system_prompt_template: str | None = None,
         user_prompt_template: str | None = None,
         route_prompts: dict[str, dict[str, Any]] | None = None,
+        path_routes: str | Sequence[str] | None = None,
     ) -> None:
         self.num_bins = int(num_bins)
         self.system_prompt = system_prompt
@@ -35,9 +36,20 @@ class SFTDataset:
         self.route_prompts = self._normalize_route_prompts(route_prompts)
         self._target_token_lengths_cache: dict[int, list[int]] = {}
         self.jsonl_paths = self._normalize_jsonl_paths(jsonl_path)
+        self.path_routes = self._normalize_path_routes(path_routes, len(self.jsonl_paths))
         self.records: list[dict[str, Any]] = []
-        for path in self.jsonl_paths:
-            self.records.extend(load_jsonl(path))
+        for index, path in enumerate(self.jsonl_paths):
+            route = self.path_routes[index]
+            task_type = None
+            domain_type = None
+            if route is not None:
+                task_type, domain_type = parse_route_key(str(route))
+            for record in load_jsonl(path):
+                normalized_record = dict(record)
+                if task_type is not None and domain_type is not None:
+                    normalized_record["task_type"] = task_type
+                    normalized_record["domain_type"] = domain_type
+                self.records.append(normalized_record)
 
     def __len__(self) -> int:
         return len(self.records)
@@ -149,10 +161,11 @@ class SFTDataset:
         except Exception as exc:  # noqa: BLE001
             sample_id = record.get("sample_id") or Path(str(record.get("image_path", ""))).stem or "<unknown>"
             raise ValueError(
-                "Dataset record is missing a valid task/domain route. "
+                "Dataset sample is missing a valid task/domain route. "
                 f"sample_id={sample_id!r}, task_type={record.get('task_type')!r}, "
                 f"domain_type={record.get('domain_type')!r}. "
-                "Regenerate the dataset with the current preparation scripts."
+                "Set data.train_route_map/data.val_route_map (or data.train_route/data.val_route) "
+                "in config, or provide route fields in JSONL."
             ) from exc
 
     def _normalize_jsonl_paths(self, jsonl_path: str | Path | Sequence[str | Path]) -> list[Path]:
@@ -177,4 +190,21 @@ class SFTDataset:
                     f"route={route_key!r}, got={type(prompt_payload).__name__}."
                 )
             normalized[str(route_key)] = dict(prompt_payload)
+        return normalized
+
+    def _normalize_path_routes(
+        self,
+        path_routes: str | Sequence[str] | None,
+        path_count: int,
+    ) -> list[str | None]:
+        if path_routes is None:
+            return [None] * path_count
+        if isinstance(path_routes, str):
+            return [str(path_routes)] * path_count
+        normalized = [str(item) for item in path_routes]
+        if len(normalized) != path_count:
+            raise ValueError(
+                "path_routes length must match jsonl_path length. "
+                f"jsonl_paths={path_count}, path_routes={len(normalized)}."
+            )
         return normalized

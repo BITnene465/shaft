@@ -1,97 +1,69 @@
-# Adding a New Task or Domain
+# 新增 Task / Domain 指南
 
-## Architecture Recap
+## 1. 现有层级
 
-```
-core/          → Generic framework (does NOT understand task/domain semantics)
-  └── registry.py  → get_adapter(task_type, domain_type) routes to task adapter
-
-tasks/         → Task-specific adapters (implements TaskAdapter protocol)
-  └── <task>/adapter.py  → build_*_adapter() factory
-
-domains/       → Domain-specific logic (codecs, schema, ordering, data prep)
-  └── <domain>/codecs/  → Serialization/deserialization
+```text
+core/      通用框架（不理解具体业务语义）
+tasks/     任务语义与 adapter（实现 TaskAdapter 协议）
+domains/   域语义（codec、排序、数据准备、域推理约定）
 ```
 
-## Adding a New Task Type
+## 2. 新增 Task（同一 domain）
 
-### Steps
+步骤：
 
-1. **Register** -- Add to `SUPPORTED_TASK_TYPES` in `core/registry.py`
-2. **Create adapter** -- `tasks/<task>/adapter.py` with:
-   - A class implementing `TaskAdapter` protocol (inherit `BaseArrowAdapter` for arrow domain)
-   - A `build_*_adapter()` factory function
-3. **Wire routing** -- Add dispatch branch in `get_adapter()` in `core/registry.py`
-4. **Update evaluator** -- Add metric summarization in `core/eval/evaluator.py`
-5. **Create config** -- `configs/train/train_<task>_lora.yaml`
-6. **Prepare data** -- Script that outputs JSONL with the new `task_type`
+1. 在 `core/registry.py` 注册 task 类型。
+2. 新建 `tasks/<task>/adapter.py`，实现 `TaskAdapter`。
+3. 在 registry 路由分发中接入该 task。
+4. 在 evaluator 汇总中加入该任务主指标。
+5. 新增训练配置（`configs/train/`）。
+6. 准备该 task 对应 JSONL 数据（route 可来自配置绑定或样本字段）。
 
-### Checklist
+检查清单：
 
-- [ ] Add to `SUPPORTED_TASK_TYPES` in `registry.py`
-- [ ] Create `tasks/<task>/adapter.py` with `build_*_adapter()` factory
-- [ ] Add dispatch branch in `get_adapter()` in `registry.py`
-- [ ] Update `summarize()` in `eval/evaluator.py`
-- [ ] Create training config in `configs/train/`
-- [ ] Create data preparation script
-- [ ] Update `docs/standard_data_format.md`
-- [ ] Update `docs/architecture.md`
+- [ ] registry 已注册新 task
+- [ ] adapter 已实现并可被路由
+- [ ] evaluator 可汇总该任务指标
+- [ ] 训练配置可跑通
+- [ ] 文档已更新（架构、数据格式）
 
----
+## 3. 新增 Domain（跨域扩展）
 
-## Adding a New Domain Type
+步骤：
 
-### Steps
+1. 在 `core/registry.py` 注册 domain 类型。
+2. 建立 `domains/<domain>/` 目录，至少包含：
+   - `schema.py`
+   - `ordering.py`
+   - `task_support.py`
+   - `codecs/`
+   - `data/`
+   - `infer/`（若有两阶段编排）
+3. 为各 task 提供对应 codec。
+4. 在 task 的 adapter factory 中加入新 domain 分支。
+5. 如指标口径不同，更新 evaluator。
+6. 提供数据准备脚本并产出标准 JSONL。
 
-1. **Register** -- Add to `SUPPORTED_DOMAIN_TYPES` in `core/registry.py`
-2. **Create domain directory** -- `domains/<domain>/` with:
-   - `schema.py` -- Data model
-   - `ordering.py` -- Canonical sort
-   - `task_support.py` -- Base adapter, matching logic
-   - `codecs/` -- One codec per task type
-   - `data/` -- Data preparation
-   - `infer/` -- Two-stage inference (if applicable)
-3. **Implement codecs** -- Each codec implements `encode`, `encode_with_loss_meta`, `decode`, `decode_with_meta`, `validate_struct`
-4. **Update task adapters** -- Add domain branch in each task's `build_*_adapter()` factory
-5. **Update evaluator** (if metrics differ)
-6. **Prepare data** -- Script that outputs JSONL with the new `domain_type`
+检查清单：
 
-### Checklist
+- [ ] registry 已注册新 domain
+- [ ] codec 与 schema 已落地
+- [ ] task adapter 已支持新 domain
+- [ ] evaluator 与文档同步
 
-- [ ] Add to `SUPPORTED_DOMAIN_TYPES` in `registry.py`
-- [ ] Create `domains/<domain>/` with schema, ordering, codecs, data prep
-- [ ] Update each task adapter's `build_*_adapter()` to handle new domain
-- [ ] Update evaluator if metrics differ
-- [ ] Create data preparation script
-- [ ] Update `docs/standard_data_format.md`
-- [ ] Update `docs/architecture.md`
+## 4. TaskAdapter 关键接口（摘要）
 
----
+- `build_gt_struct_from_record(record)`
+- `encode_target_text(gt_struct, w, h)`
+- `build_training_target(gt_struct, w, h)`（返回 `target_text + loss_meta`）
+- `decode(text, w, h, strict)`
+- `decode_with_meta(text, w, h, strict)`
+- `score_prediction(gt, pred, ...)`
+- `compute_loss(outputs, batch, tokenizer)`
 
-## TaskAdapter Protocol Reference
+## 5. 常见错误
 
-| Method | Returns | Description |
-|---|---|---|
-| `task_type` | `str` | Task identifier |
-| `domain_type` | `str` | Domain identifier |
-| `num_bins` | `int` | Quantization bins (delegates to codec) |
-| `task_bucket_key` | `str` | Bucket key for batch sorting |
-| `build_gt_struct_from_record(record)` | `dict` | Extract GT from JSONL record |
-| `encode_target_text(gt_struct, w, h)` | `str` | Serialize GT to target text |
-| `build_training_target(gt_struct, w, h)` | `dict` | Returns `{target_text, loss_meta}` |
-| `decode(text, w, h, strict)` | `dict` | Parse model output |
-| `decode_with_meta(text, w, h, strict)` | `(dict, dict)` | Parse + metadata |
-| `empty_prediction()` | `dict` | Default empty output |
-| `score_prediction(gt, pred, ...)` | `dict[str, float]` | Compute metrics |
-| `compute_loss(outputs, batch, tokenizer)` | `object` | Task-specific loss |
-
----
-
-## Common Pitfalls
-
-1. **Forgetting to update `SUPPORTED_TASK_TYPES` or `SUPPORTED_DOMAIN_TYPES`** -- Registry rejects the new type
-2. **Not adding the dispatch branch in `get_adapter()`** -- Routing fails
-3. **Missing `task_bucket_key`** -- Batch sorting fails
-4. **Not updating evaluator `summarize()`** -- Metrics not logged
-5. **Inconsistent JSON field names** -- Codec output must match evaluator expectations
-6. **Forgetting to canonicalize ordering** -- Instance order must be deterministic
+1. 只改了 adapter，没改 registry 分发。
+2. 只改了 codec，没改 evaluator 汇总。
+3. 忘记固化 canonical order，导致训练目标不稳定。
+4. 在 trainer 内写 task/domain 语义逻辑，破坏层级边界。

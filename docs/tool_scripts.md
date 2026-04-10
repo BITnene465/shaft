@@ -1,62 +1,45 @@
-# Tool Scripts
+# 工具脚本使用说明
 
-本文件统一维护非主线辅助脚本的使用说明：
+本文件维护辅助脚本（非主训练入口）的用法：
 
 - 推理（infer）
 - Demo
-- 离线可复盘评估（eval）
+- 离线评估（eval）
+- LoRA merge 与部署导出
 
-主线训练入口仍然是 `scripts/train.py`，训练相关说明请看主 README。
+主训练入口仍是 `scripts/train.py`。
 
-## 1. One-Stage 推理
+## 1. 单阶段推理
 
-脚本：
+脚本：`scripts/arrow/infer.py`
 
-- `scripts/arrow/infer.py`
-
-单图推理示例：
+单图：
 
 ```bash
 python scripts/arrow/infer.py \
-  --config configs/infer/infer_stage1_grounding.yaml \
-  --dense-model models/Qwen3-VL-2B-Instruct \
+  --config configs/infer/infer_one_stage.yaml \
+  --dense-model models/Qwen3-VL-4B-Instruct \
   --lora-adapter outputs/your_experiment/checkpoints/best \
   --image /path/to/figure.jpg
 ```
 
-目录批量推理示例：
+目录批量：
 
 ```bash
 python scripts/arrow/infer.py \
-  --config configs/infer/infer_stage1_grounding.yaml \
-  --dense-model models/Qwen3-VL-2B-Instruct \
+  --config configs/infer/infer_one_stage.yaml \
+  --dense-model models/Qwen3-VL-4B-Instruct \
   --lora-adapter outputs/your_experiment/checkpoints/best \
   --image-dir /path/to/images \
   --recursive \
   --output-dir outputs/infer_one_stage_batch
 ```
 
-常用覆盖参数：
+## 2. 两阶段推理
 
-- `--max-new-tokens`
-- `--batch-size`（目录模式；默认读 infer config 的 `batch_size`）
-- `--dense-model`
-- `--lora-adapter`
-- `--device`
+脚本：`scripts/arrow/infer_two_stage.py`
 
-输出产物（`--output-dir`）：
-
-- `reports/*.one_stage.json`
-- `raw/*.raw.txt`
-- `manifest.json`（目录模式）
-
-## 2. Two-Stage 推理
-
-脚本：
-
-- `scripts/arrow/infer_two_stage.py`
-
-完整两阶段推理示例：
+完整两阶段：
 
 ```bash
 python scripts/arrow/infer_two_stage.py \
@@ -69,88 +52,18 @@ python scripts/arrow/infer_two_stage.py \
   --output-dir outputs/two_stage_demo
 ```
 
-目录推理并保存可视化：
-
-```bash
-python scripts/arrow/infer_two_stage.py \
-  --config configs/infer/infer_two_stage.yaml \
-  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
-  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-dense-model models/Qwen3-VL-4B-Instruct \
-  --stage2-lora-adapter outputs/qwen3vl-s2-lora/4b/checkpoints/best \
-  --image-dir /path/to/images \
-  --recursive \
-  --output-dir outputs/two_stage_demo
-```
-
-不传 Stage2 LoRA adapter 时，Stage2 会直接使用 dense model：
-
-```bash
-python scripts/arrow/infer_two_stage.py \
-  --config configs/infer/infer_two_stage.yaml \
-  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
-  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --image /path/to/example.png \
-  --output-dir outputs/two_stage_stage1_only
-```
-
-常用覆盖参数：
-
-- `--stage1-max-new-tokens`
-- `--stage1-batch-size`
-- `--stage2-max-new-tokens`
-- `--stage2-batch-size`
-- `--stage1-dense-model`
-- `--stage1-lora-adapter`
-- `--stage2-dense-model`
-- `--stage2-lora-adapter`
-- `--device`
-
-输出产物（`--output-dir`）：
-
-- `reports/*.two_stage.json`
-- `stage1_overlay/*.png`
-- `final_overlay/*.png`
-- `manifest.json`（目录模式）
+如果不传 `--stage2-lora-adapter`，Stage2 使用 dense model。
 
 ## 3. Demo
 
-One-stage Demo：
+- 单阶段：`app/demo.py`
+- 两阶段：`app/demo_two_stage.py`
 
-- `app/demo.py`
+示例参数与推理脚本一致。
 
-```bash
-python app/demo.py \
-  --config configs/infer/infer_stage1_grounding.yaml \
-  --dense-model models/Qwen3-VL-2B-Instruct \
-  --lora-adapter outputs/your_experiment/checkpoints/best
-```
+## 4. Stage1 离线评估
 
-Two-stage Demo：
-
-- `app/demo_two_stage.py`
-
-```bash
-python app/demo_two_stage.py \
-  --config configs/infer/infer_two_stage.yaml \
-  --stage1-dense-model models/Qwen3-VL-4B-Instruct \
-  --stage1-lora-adapter outputs/qwen3vl-s1-lora/4b/checkpoints/best \
-  --stage2-dense-model models/Qwen3-VL-4B-Instruct \
-  --stage2-lora-adapter outputs/qwen3vl-s2-lora/4b/checkpoints/best
-```
-
-## 4. Stage1 Grounding 离线可复盘评估
-
-脚本：
-
-- `scripts/arrow/eval_stage1_grounding.py`
-
-用途：
-
-- 在指定 JSONL 上离线评估 Stage1 grounding checkpoint
-- 产出可复盘的逐样本结果和 badcase 文件
-
-示例：
+脚本：`scripts/arrow/eval_stage1_grounding.py`
 
 ```bash
 python scripts/arrow/eval_stage1_grounding.py \
@@ -161,38 +74,9 @@ python scripts/arrow/eval_stage1_grounding.py \
   --output-dir outputs/eval/stage1_grounding/run_001
 ```
 
-只给 JSONL 时，图片定位规则：
+## 5. Stage2 离线评估
 
-- `image_path` 为绝对路径：直接使用
-- `image_path` 为相对路径：先按工作目录解析，再按 JSONL 所在目录解析
-
-关键参数：
-
-- `--bbox-iou-threshold`
-- `--max-samples`
-- `--max-new-tokens`
-- `--save-per-sample / --no-save-per-sample`
-- `--save-badcases-topk`
-
-输出产物：
-
-- `summary.json`
-- `per_sample.jsonl`
-- `badcases_parse.jsonl`
-- `badcases_metric.jsonl`
-
-## 5. Stage2 Keypoints 离线可复盘评估
-
-脚本：
-
-- `scripts/arrow/eval_stage2_keypoints.py`
-
-用途：
-
-- 在指定 Stage2 JSONL 上离线评估 `keypoint_sequence` checkpoint
-- 产出可复盘的逐样本结果和 badcase 文件
-
-示例：
+脚本：`scripts/arrow/eval_stage2_keypoints.py`
 
 ```bash
 python scripts/arrow/eval_stage2_keypoints.py \
@@ -203,110 +87,31 @@ python scripts/arrow/eval_stage2_keypoints.py \
   --output-dir outputs/eval/stage2_keypoints/run_001
 ```
 
-只给 JSONL 时，图片定位规则：
+## 6. LoRA 合并导出
 
-- `image_path` 为绝对路径：直接使用
-- `image_path` 为相对路径：先按工作目录解析，再按 JSONL 所在目录解析
-
-关键参数：
-
-- `--strict-point-distance-px`
-- `--max-samples`
-- `--max-new-tokens`
-- `--save-per-sample / --no-save-per-sample`
-- `--save-badcases-topk`
-
-输出产物：
-
-- `summary.json`
-- `per_sample.jsonl`
-- `badcases_parse.jsonl`
-- `badcases_metric.jsonl`
-
-## 6. 配置说明
-
-推理配置与训练 YAML 分离：
-
-- `configs/infer/infer_stage1_grounding.yaml`
-- `configs/infer/infer_stage2_keypoint_sequence.yaml`
-- `configs/infer/infer_two_stage.yaml`
-
-dense model 和 LoRA adapter 都通过 CLI 传入；不传 `--lora-adapter` 时只加载 dense model。
-
-其中：
-
-- one-stage 目录推理会按 `batch_size` 分批调用模型
-- two-stage 目录推理支持跨图两阶段 batch 编排：
-  - Stage1 整图 grounding 按 `stage1.batch_size` 或 `--stage1-batch-size`
-  - Stage2 会把这一批图产生的 crop request 合并后再按 `stage2.batch_size` 或 `--stage2-batch-size` 推理
-
-## 7. LoRA 合并导出（Merge）
-
-脚本：
-
-- `scripts/merge_lora.py`
-
-用途：
-
-- 将 LoRA 训练 checkpoint 合并为可直接加载的完整模型权重目录。
-- 额外可导出 `ft_checkpoint/`，用于需要 FT 形式目录的部署或存档。
-- 建议在运行时量化前先做 merge，先验证 merged FP/BF16 基线，再单独量化 stage1/stage2。
-
-示例：
+脚本：`scripts/merge_lora.py`
 
 ```bash
 python scripts/merge_lora.py \
   --dense-model models/Qwen3-VL-4B-Instruct \
-  --lora-adapter outputs/qwen3vl-s1-lora/4b/exp6-syncAug2-weighted/checkpoints/best \
-  --output-dir outputs/merged/qwen3vl-s1-lora-4b-exp6-syncAug2-weighted
+  --lora-adapter outputs/qwen3vl-s1-lora/4b/your-run/checkpoints/best \
+  --output-dir outputs/merged/your-run
 ```
 
-常用参数：
+## 7. 部署 Bundle 导出
 
-- `--config`：当 checkpoint 的 `meta.json` 不含完整 config 时提供。
-- `--prefer-checkpoint-meta / --no-prefer-checkpoint-meta`
-- `--device`
-- `--safe-serialization / --no-safe-serialization`
-- `--export-ft-checkpoint / --no-export-ft-checkpoint`
-
-默认行为：
-
-- 默认不导出 `ft_checkpoint/`
-- 如需导出 FT checkpoint，显式加：`--export-ft-checkpoint`
-
-输出产物（`--output-dir`）：
-
-- merged 模型权重（`save_pretrained`）
-- tokenizer 与 processor 文件
-- `merge_meta.json`
-
-可选产物（显式开启参数后导出）：
-
-- `ft_checkpoint/`（full-ft checkpoint bundle）
-
-## 8. 部署 Bundle 导出
-
-脚本：
-
-- `scripts/export_deployment_bundle.py`
-
-用途：
-
-- 将一个共享 base model 和多个 LoRA adapter 转成部署目录
-- 输出 `base_model/`、`adapters/` 和 `manifests/adapters.json`
-
-示例：
+脚本：`scripts/export_deployment_bundle.py`
 
 ```bash
 python scripts/export_deployment_bundle.py \
   --base-source-dir models/Qwen3-VL-4B-Instruct \
-  --adapter grounding/arrow outputs/qwen3vl-s1-lora/4b/ufv-exp3/checkpoints/best \
-  --adapter keypoint_sequence/arrow outputs/qwen3vl-s2-lora/4b/ufv-exp3/checkpoints/best \
+  --adapter grounding/arrow outputs/qwen3vl-s1-lora/4b/your-s1-run/checkpoints/best \
+  --adapter keypoint_sequence/arrow outputs/qwen3vl-s2-lora/4b/your-s2-run/checkpoints/best \
   --output-dir deployment \
   --overwrite
 ```
 
-输出产物：
+输出：
 
 - `base_model/`
 - `adapters/<route>/`

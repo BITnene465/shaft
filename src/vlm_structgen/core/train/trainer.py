@@ -11,7 +11,7 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, config_to_dict
-from vlm_structgen.core.registry import get_adapter
+from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.core.utils.checkpoint import (
     load_initial_model_checkpoint,
     load_training_checkpoint,
@@ -160,8 +160,7 @@ class Trainer:
         )
         with autocast_context:
             outputs = self.model(**model_inputs)
-            adapter = self._resolve_batch_adapter(batch)
-            loss = adapter.compute_loss(outputs, batch, tokenizer=self.tokenizer) / self.config.train.grad_accum_steps
+            loss = compute_weighted_token_ce_loss(outputs, batch) / self.config.train.grad_accum_steps
         loss.backward()
 
         self._accumulated_micro_steps += 1
@@ -245,41 +244,6 @@ class Trainer:
             metrics[metric_key] = float(count)
             metrics[f"{metric_key}_ratio"] = float(count) / float(total_samples)
         self._log_metrics(metrics, self.global_step)
-
-    def _resolve_batch_adapter(self, batch: dict[str, Any]):
-        meta = batch.get("meta", {})
-        task_types = list(meta.get("task_type", []))
-        domain_types = list(meta.get("domain_type", []))
-        if not task_types or not domain_types:
-            raise ValueError("Batch metadata must include task_type and domain_type.")
-        task_type = task_types[0]
-        domain_type = domain_types[0]
-        if any(value != task_type for value in task_types) or any(value != domain_type for value in domain_types):
-            raise ValueError(
-                "Mixed task/domain batches are not supported by the current trainer. "
-                f"Observed task_types={sorted(set(task_types))}, domain_types={sorted(set(domain_types))}."
-            )
-        task_options = self._resolve_task_options_for_route(
-            task_type=str(task_type),
-            domain_type=str(domain_type),
-        )
-        return get_adapter(
-            task_type=task_type,
-            domain_type=domain_type,
-            num_bins=self.config.tokenizer.num_bins,
-            task_options_key=tuple(sorted(task_options.items())),
-        )
-
-    def _resolve_task_options_for_route(self, *, task_type: str, domain_type: str) -> dict[str, Any]:
-        route_key = f"{task_type}/{domain_type}"
-        route_options = self.config.task.route_options.get(route_key)
-        if route_options is None:
-            known_routes = sorted(self.config.task.route_options.keys())
-            raise ValueError(
-                "Missing task.route_options for current batch route. "
-                f"required={route_key!r}, available={known_routes}."
-            )
-        return dict(route_options)
 
     def evaluate(self, step: int | None = None, epoch: int | None = None) -> dict[str, float]:
         if self.evaluator is None or self.val_dataloader is None:

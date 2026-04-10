@@ -35,6 +35,10 @@ prompt:
 data:
   train_path: data/two_stage/stage2/train.jsonl
   val_path: data/two_stage/stage2/val.jsonl
+  train_route_map:
+    data/two_stage/stage2/train.jsonl: keypoint_sequence/arrow
+  val_route_map:
+    data/two_stage/stage2/val.jsonl: keypoint_sequence/arrow
   num_workers: 16
   pin_memory: true
   persistent_workers: true

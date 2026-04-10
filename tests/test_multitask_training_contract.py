@@ -6,7 +6,6 @@ import types
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 
 def _install_torch_stub() -> None:
@@ -278,61 +277,6 @@ class MultiTaskRouteContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "monitor_metric"):
                 load_config(config_path)
 
-    def test_mixed_route_batch_is_rejected_by_trainer(self) -> None:
-        config = ExperimentRuntimeConfig()
-        config.task.route_options = {
-            "grounding/arrow": {},
-            "keypoint_sequence/arrow": {},
-        }
-        trainer = _make_trainer_stub(config)
-
-        with self.assertRaisesRegex(ValueError, "Mixed task/domain batches are not supported"):
-            trainer._resolve_batch_adapter(
-                {
-                    "meta": {
-                        "task_type": ["grounding", "keypoint_sequence"],
-                        "domain_type": ["arrow", "arrow"],
-                    }
-                }
-            )
-
-    def test_homogeneous_route_batch_still_resolves_existing_single_task_adapters(self) -> None:
-        stage1_config = load_config("configs/train/train_stage1_lora_2b.yaml")
-        stage1_trainer = _make_trainer_stub(stage1_config)
-        with patch("vlm_structgen.core.train.trainer.get_adapter") as mock_get_adapter:
-            mock_get_adapter.side_effect = lambda **kwargs: types.SimpleNamespace(
-                task_type=kwargs["task_type"],
-                domain_type=kwargs["domain_type"],
-            )
-            stage1_adapter = stage1_trainer._resolve_batch_adapter(
-                {
-                    "meta": {
-                        "task_type": ["grounding", "grounding"],
-                        "domain_type": ["arrow", "arrow"],
-                    }
-                }
-            )
-        self.assertEqual(stage1_adapter.task_type, "grounding")
-        self.assertEqual(stage1_adapter.domain_type, "arrow")
-
-        stage2_config = load_config("configs/train/train_stage2_lora_2b.yaml")
-        stage2_trainer = _make_trainer_stub(stage2_config)
-        with patch("vlm_structgen.core.train.trainer.get_adapter") as mock_get_adapter:
-            mock_get_adapter.side_effect = lambda **kwargs: types.SimpleNamespace(
-                task_type=kwargs["task_type"],
-                domain_type=kwargs["domain_type"],
-            )
-            stage2_adapter = stage2_trainer._resolve_batch_adapter(
-                {
-                    "meta": {
-                        "task_type": ["keypoint_sequence", "keypoint_sequence"],
-                        "domain_type": ["arrow", "arrow"],
-                    }
-                }
-            )
-        self.assertEqual(stage2_adapter.task_type, "keypoint_sequence")
-        self.assertEqual(stage2_adapter.domain_type, "arrow")
-
     def test_multi_task_score_controls_best_checkpoint_selection(self) -> None:
         config = ExperimentRuntimeConfig()
         config.eval.best_metric = "val/multi_task_score"
@@ -507,11 +451,11 @@ class MultiTaskRouteContractTests(unittest.TestCase):
         self.assertAlmostEqual(summary["val/multi_task_score"], 0.625)
 
     def test_existing_single_task_configs_keep_their_legacy_metrics(self) -> None:
-        stage1_config = load_config("configs/train/train_stage1_lora_2b.yaml")
+        stage1_config = load_config("configs/train/train_stage1_lora_4b.yaml")
         self.assertEqual(stage1_config.task.route, "grounding/arrow")
         self.assertEqual(stage1_config.eval.best_metric, "val/bbox_f1_at_iou50")
 
-        stage2_config = load_config("configs/train/train_stage2_lora_2b.yaml")
+        stage2_config = load_config("configs/train/train_stage2_lora_4b.yaml")
         self.assertEqual(stage2_config.task.route, "keypoint_sequence/arrow")
         self.assertEqual(stage2_config.eval.best_metric, "val/end_to_end_score")
 
@@ -521,6 +465,20 @@ class MultiTaskRouteContractTests(unittest.TestCase):
         self.assertEqual(mixed_full_ft.finetune.mode, "full")
         self.assertFalse(mixed_full_ft.model.freeze_vision_tower)
         self.assertEqual(mixed_full_ft.task.route, None)
+        self.assertEqual(
+            mixed_full_ft.data.train_route_map,
+            {
+                "data/two_stage/stage1/train_mixed.jsonl": "grounding/arrow",
+                "data/two_stage/stage2/train.jsonl": "keypoint_sequence/arrow",
+            },
+        )
+        self.assertEqual(
+            mixed_full_ft.data.val_route_map,
+            {
+                "data/two_stage/stage1/val_full.jsonl": "grounding/arrow",
+                "data/two_stage/stage2/val.jsonl": "keypoint_sequence/arrow",
+            },
+        )
         self.assertEqual(
             sorted(mixed_full_ft.task.route_options.keys()),
             ["grounding/arrow", "keypoint_sequence/arrow"],

@@ -68,6 +68,11 @@ class TaskConfig:
     # Optional default route for one-stage inference.
     # Training resolves routes from per-record task_type/domain_type in JSONL.
     route: str | None = None
+    # LLaMAFactory-style mixed training strategy:
+    # - concat
+    # - interleave_under
+    # - interleave_over
+    mix_strategy: str = "interleave_under"
     route_options: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -75,6 +80,13 @@ class TaskConfig:
 class DataConfig:
     train_path: str = "data/processed/train.jsonl"
     val_path: str = "data/processed/val.jsonl"
+    # Preferred route declaration for training/validation datasets.
+    # For single-path datasets, use train_route/val_route.
+    # For multi-path datasets, use train_route_map/val_route_map (path -> route).
+    train_route: str | None = None
+    val_route: str | None = None
+    train_route_map: dict[str, str] = field(default_factory=dict)
+    val_route_map: dict[str, str] = field(default_factory=dict)
     num_workers: int = 4
     pin_memory: bool = True
     persistent_workers: bool = True

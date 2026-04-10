@@ -1,122 +1,93 @@
-# Training Pipeline
+# 训练流程
 
-## End-to-End Flow
+## 1. 训练入口
 
-```mermaid
-graph TB
-    YAML["YAML config"] --> INIT["Init: distributed, seed"]
-    INIT --> MODEL["Build model + LoRA"]
-    MODEL --> DATA["Build dataset + dataloader"]
-    DATA --> OPT["Build optimizer + scheduler"]
-    OPT --> TRAINER["Build Trainer (DDP)"]
-    TRAINER --> CKPT{"Checkpoint?"}
-    CKPT -->|yes| LOAD["Load checkpoint"]
-    CKPT -->|no| FIT
-    LOAD --> FIT["trainer.fit()"]
+```bash
+python scripts/train.py --config <train_config.yaml>
 ```
 
-## Training Step
+支持的 CLI 覆写（无歧义）：
 
-```mermaid
-graph LR
-    BATCH["batch"] --> FWD["model.forward()"]
-    FWD --> ADP["adapter.compute_loss()"]
-    ADP --> LOSS["loss / grad_accum"]
-    LOSS --> BWD["loss.backward()"]
-    BWD --> OPT{"accumulated\n>= grad_accum?"}
-    OPT -->|yes| STEP["clip + optimizer.step + scheduler.step"]
-    OPT -->|no| RET["return metrics"]
-    STEP --> RET
+- `--run-id`
+- `--stage-name`
+- `--seed`
+- `--epochs`
+- `--lr`
+- `--mix-strategy`（`concat|interleave_under|interleave_over`）
+- `--init-from`
+- `--resume-from`
+
+## 2. 端到端流程
+
+```text
+加载 YAML
+ -> 构建模型/processor/tokenizer
+ -> 构建 dataset/collator/dataloader
+ -> 构建 optimizer/scheduler
+ -> trainer.fit()
+ -> 训练/评估/存储 checkpoint
 ```
 
-## Epoch Loop
+## 3. 混训策略与数据混合
 
-```mermaid
-graph LR
-    EPOCH["for epoch in epochs"] --> TRAIN["train_one_epoch()"]
-    TRAIN --> EVAL{"epoch >= eval_start?"}
-    EVAL -->|yes| EVAL_RUN["evaluate() + save_checkpoint()"]
-    EVAL -->|no| NEXT
-    EVAL_RUN --> NEXT{"more epochs?"}
-    NEXT -->|yes| EPOCH
-    NEXT -->|no| DONE["Done"]
+混训目标可写为：
+
+```text
+min_theta  E_{t~pi(t)} E_{(x,y)~D_t}[L_t(x,y;theta)]
 ```
 
-## Batch Route Validation
+其中 `pi(t)` 由 `mix_strategy + mix_weight` 决定。
 
-`_resolve_batch_adapter()` enforces single-task-per-batch:
+### 3.1 三种策略
 
-1. Extract `task_type` and `domain_type` from batch meta
-2. Verify all samples share the same values -- mixed batches raise `ValueError`
-3. Look up `task.route_options` from config
-4. Call `get_adapter()` to resolve the adapter for loss computation
+- `concat`
+  - 先按 route 拼接样本，再由采样器决定是否打乱。
+  - 在当前训练默认 `shuffle=True` 时，最终顺序会被打散。
+  - 不做显式欠采样/过采样。
+- `interleave_under`
+  - 倾向欠采样（大数据路由可能有部分样本本轮不用）。
+  - 小数据路由不会被重复太多次。
+- `interleave_over`
+  - 倾向过采样（小数据路由会重复出现）。
+  - 更容易提升小数据路由曝光，但要防止过拟合。
 
-## DDP Setup
+### 3.2 `mix_weight` 作用
 
-- Model wrapped in `DistributedDataParallel` when `world_size > 1`
-- Gradient accumulation works naturally with DDP
-- Metrics reduced across ranks via `reduce_numeric_dict()`
+- 在 `interleave_under/over` 中：影响路由配额与混合比例。
+- 在 `concat` 中：主要用于路由启停（`mix_weight <= 0` 的 route 会被过滤）。
 
-## Optimizer Parameter Groups
+### 3.3 实践建议
 
-| Group | LR | Weight Decay | When used |
-|---|---|---|---|
-| `embed_tokens` | `embed_learning_rate` | Yes | Full-ft or explicit embedding tuning only |
-| `lora_params` | `lora_learning_rate` | **No** | LoRA-only / adapter params |
-| `other` | `learning_rate` | Yes | Any remaining trainable non-LoRA params |
+1. 先用 `concat` 或 `interleave_under + 等权重` 建基线。
+2. 若小任务指标偏低，提高该 route 的 `mix_weight`。
+3. 出现重复采样副作用时，回退到 `interleave_under` 并降权。
+4. 策略调参时固定学习率等超参，避免变量耦合。
 
-Default LoRA LR: `learning_rate=5e-5`, `lora_learning_rate=1e-4`.
-In the current LoRA-only configs, embedding is frozen, and LoRA is applied only to the main language / vision / projector linear modules.
+## 4. 路由边界
 
-## Checkpoint Format
+- 训练核心只做通用 LM 优化。
+- `task_type/domain_type` 用于 dataset/collator/evaluator 的路由：
+  - prompt 选择
+  - codec 编解码
+  - 路由级指标聚合
+  - 采样混合
+- trainer 不直接解析业务字段。
 
-Two layouts are supported:
+## 5. 优化器分组
 
-- LoRA mode:
+当前实现是两组参数：
 
-  ```
-  checkpoints/
-  ├── last/           # Alias → latest
-  ├── best/           # Alias → best metric
-  ├── step_200/
-  │   ├── adapter_config.json
-  │   ├── adapter_model.safetensors
-  │   ├── tokenizer_config.json
-  │   ├── processor_config.json
-  │   ├── optimizer.pt
-  │   ├── scheduler.pt
-  │   ├── rng_state.pt
-  │   ├── trainer_state.json
-  │   └── meta.json
-  ```
+- `lora_params`：学习率 `lora_learning_rate`，无 weight decay
+- `other`：学习率 `learning_rate`，有 weight decay
 
-### init_from vs resume_from
+说明：`embed_learning_rate` 与 `lm_head_learning_rate` 当前不是独立参数组。
 
-| Flag | Behavior |
-|---|---|
-| `init_from` | Loads adapter weights into the configured base model, then keeps adapter trainable. Fresh optimizer/scheduler/RNG. |
-| `resume_from` | Full state: adapter, optimizer, scheduler, RNG. Continues training. |
+## 6. Checkpoint 语义
 
-When saving LoRA checkpoints, the adapter weights are written with the standard PEFT `save_pretrained()` layout. The base model is loaded from the configured model source at init time, so the checkpoint stays adapter-only and remains easy to swap at deployment time.
+- `checkpoint.init_from`：加载模型/adapter 权重，优化器状态从头开始。
+- `checkpoint.resume_from`：恢复完整训练状态（模型、优化器、调度器、RNG、trainer state）。
 
-## Evaluation
+## 7. 评估与最佳模型
 
-Runs at epoch end (or every N steps). Flow: `model.generate()` → decode → score → reduce metrics → summarize. See `docs/inference_pipeline.md` for generation details.
-
-## Key Configuration Parameters
-
-| Parameter | Default | Description |
-|---|---|---|
-| `train.epochs` | 3 | Number of epochs |
-| `train.per_device_batch_size` | 1 | Batch size per GPU |
-| `train.grad_accum_steps` | 8 | Gradient accumulation |
-| `train.learning_rate` | 1e-4 | Base LR |
-| `train.warmup_ratio` | 0.03 | Warmup fraction |
-| `train.scheduler_type` | cosine | LR scheduler |
-| `train.max_grad_norm` | 1.0 | Gradient clipping |
-| `train.bf16` | true | Mixed precision |
-| `train.eval_strategy` | epoch | When to evaluate |
-| `train.keep_last_n_checkpoints` | 3 | Checkpoints to retain |
-| `eval.max_new_tokens` | 8192 | Max generation tokens |
-| `eval.bbox_iou_threshold` | 0.5 | Bbox matching threshold |
-| `eval.best_metric` | val/end_to_end_score | Best checkpoint metric |
+- 多任务建议使用 `val/multi_task_score` 做 `best_metric`。
+- `eval_loss` 保留为辅助监控，不应作为多任务主选模指标。

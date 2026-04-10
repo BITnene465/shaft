@@ -1,81 +1,58 @@
-# Standard Data Format
+# 标准数据格式（JSONL）
 
-All training and validation data must conform to the standard JSONL format described below. The dataset never guesses `task_type` or `domain_type` -- every record must explicitly declare them.
+仓库内长期维护的训练/验证数据格式为标准 JSONL。
 
-## Common Fields
+路由（`task_type/domain_type`）可由以下任一方式提供：
 
-Every JSONL record, regardless of task type, must contain:
+- 配置绑定：`data.train_route_map` / `data.val_route_map`（推荐）
+- 样本字段：JSONL 中显式提供 `task_type` 与 `domain_type`
 
-| Field | Type | Required | Description |
+框架不会隐式猜测 route。
+
+## 1. 通用字段
+
+每条记录至少包含：
+
+| 字段 | 类型 | 必需 | 说明 |
 |---|---|---|---|
-| `sample_id` | `str` | Yes | Unique identifier for the sample |
-| `image_path` | `str` | Yes | Relative or absolute path to the image file |
-| `image_width` | `int` | Yes | Image width in pixels |
-| `image_height` | `int` | Yes | Image height in pixels |
-| `task_type` | `str` | Yes | One of: `joint_structure`, `grounding`, `keypoint_sequence` |
-| `domain_type` | `str` | Yes | Currently: `arrow` |
+| `sample_id` | `str` | 是 | 样本唯一 ID |
+| `image_path` | `str` | 是 | 图片路径（相对或绝对） |
+| `image_width` | `int` | 是 | 图像宽 |
+| `image_height` | `int` | 是 | 图像高 |
+| `task_type` | `str` | 否 | 配置未绑定 route 时需提供 |
+| `domain_type` | `str` | 否 | 配置未绑定 route 时需提供 |
 
-## Label Constraints
+## 2. 业务约束
 
-- `label` must be one of:
+- `label` 仅允许：
   - `single_arrow`
   - `double_arrow`
-- No other label values are permitted
+- 量化坐标为 `[0, 999]` 的整数。
+- `bbox_2d = [x1,y1,x2,y2]`，且 `x1 < x2`、`y1 < y2`。
+- `keypoints_2d` 为 `[[x,y], ...]`。
 
-## Coordinate Constraints
+### 2.1 点序约束
 
-- All quantized coordinates are integers in `[0, 999]`
-- `bbox_2d` is `[x1, y1, x2, y2]` where `x1 < x2` and `y1 < y2`
-- `keypoints_2d` is a list of `[x, y]` pairs
+- `single_arrow`：`tail -> ... -> head`
+- `double_arrow`：两端是两个 head，且左上 head 在前（`x` 小优先，`x` 相同则 `y` 小优先）
 
-## Keypoint Order
+### 2.2 实例排序约束
 
-### single_arrow
+- `joint_structure` 排序键：
+  - `(y1, x1, y2, x2, tail_y, tail_x, head_y, head_x, n_points)`
+- `grounding` 排序键：
+  - `(y1, x1, y2, x2, label)`
 
-Points are ordered from **tail to head**:
+排序必须在数据准备阶段固化，dataset 只读取，不做二次重排。
 
-```
-keypoints_2d = [[tail_x, tail_y], ..., [head_x, head_y]]
-```
+## 3. 单阶段：`joint_structure`
 
-Minimum 2 points.
-
-### double_arrow
-
-The two head tips are at `keypoints_2d[0]` and `keypoints_2d[-1]`. The **upper-left head comes first** (smaller x, then smaller y as tie-breaker):
-
-```
-keypoints_2d = [[head1_x, head1_y], ..., [head2_x, head2_y]]
-```
-
-where `(head1_x, head1_y) <= (head2_x, head2_y)` lexicographically.
-
-## Canonical Instance Ordering
-
-Within a single record, instances must be sorted by the canonical sort key:
-
-```
-(y1, x1, y2, x2, tail_y, tail_x, head_y, head_x, n_points)
-```
-
-This ordering must be **frozen during data preparation**. The dataset reads instances in the order they appear -- it does not re-sort.
-
-For Stage1 grounding, the sort key is:
-
-```
-(y1, x1, y2, x2, label)
-```
-
----
-
-## One-Stage: joint_structure
-
-### Path
+路径：
 
 - `data/processed/train.jsonl`
 - `data/processed/val.jsonl`
 
-### Record Format
+记录示例：
 
 ```json
 {
@@ -90,17 +67,12 @@ For Stage1 grounding, the sort key is:
       "label": "single_arrow",
       "bbox_2d": [100, 200, 300, 400],
       "keypoints_2d": [[120, 250], [200, 300], [280, 350]]
-    },
-    {
-      "label": "double_arrow",
-      "bbox_2d": [500, 100, 700, 300],
-      "keypoints_2d": [[520, 120], [600, 200], [680, 280]]
     }
   ]
 }
 ```
 
-### Output Format (model prediction)
+模型输出协议：
 
 ```json
 [
@@ -112,20 +84,14 @@ For Stage1 grounding, the sort key is:
 ]
 ```
 
-### Codec
+## 4. 两阶段 Stage1：`grounding`
 
-`ArrowCodec` (`domains/arrow/codecs/structure.py`)
-
----
-
-## Stage1: grounding
-
-### Path
+路径：
 
 - `data/two_stage/stage1/train.jsonl`
 - `data/two_stage/stage1/val.jsonl`
 
-### Record Format
+记录示例：
 
 ```json
 {
@@ -139,16 +105,12 @@ For Stage1 grounding, the sort key is:
     {
       "label": "single_arrow",
       "bbox_2d": [100, 200, 300, 400]
-    },
-    {
-      "label": "double_arrow",
-      "bbox_2d": [500, 100, 700, 300]
     }
   ]
 }
 ```
 
-### Output Format (model prediction)
+模型输出协议：
 
 ```json
 [
@@ -159,29 +121,20 @@ For Stage1 grounding, the sort key is:
 ]
 ```
 
-### Codec
+补充：
 
-`GroundingCodec` (`domains/arrow/codecs/grounding.py`)
+- Stage1 含整图样本与 tile/crop 样本。
+- 仅保留 bbox 完整落入 crop 的实例。
+- 与任意 bbox 部分相交的 crop 直接丢弃。
 
-### Tile Records
+## 5. 两阶段 Stage2：`keypoint_sequence`
 
-Stage1 also contains tile samples (cropped regions from multi-scale sliding windows). Tile records include the same fields, but `image_path` points to the cropped image. Tile deduplication is performed during data preparation using:
-
-- Instance set matching
-- Crop IoU threshold: `stage1_dedup_iou_threshold`
-
-Only tiles where **all bounding boxes are fully contained** are kept. Tiles with partial bbox overlap are discarded.
-
----
-
-## Stage2: keypoint_sequence
-
-### Path
+路径：
 
 - `data/two_stage/stage2/train.jsonl`
 - `data/two_stage/stage2/val.jsonl`
 
-### Record Format
+记录示例：
 
 ```json
 {
@@ -200,7 +153,7 @@ Only tiles where **all bounding boxes are fully contained** are kept. Tiles with
 }
 ```
 
-### Output Format (model prediction)
+模型输出协议：
 
 ```json
 {
@@ -208,23 +161,15 @@ Only tiles where **all bounding boxes are fully contained** are kept. Tiles with
 }
 ```
 
-### Codec
+补充：
 
-`KeypointSequenceCodec` (`domains/arrow/codecs/keypoint_sequence.py`)
+- Stage2 每条记录对应一个目标箭头。
+- 训练可多 padding 视图；验证通常固定 `padding_ratio=0.3`。
+- `gt_struct` 为数据真值，`target_text` 在加载阶段由 codec 动态生成。
 
-### Key Points
+## 6. 数据准备命令
 
-- Each record corresponds to a **single target arrow**
-- Stage2 train can use multiple crop paddings; val/infer use `padding_ratio = 0.3`
-- Coordinates in `gt_struct.keypoints_2d` are **crop-local**, quantized to `[0, 999]`
-- Even if the crop contains other arrows, the model should only output the target arrow's keypoints
-- Stage2 JSONL does **not** treat `target_text` as data truth; training targets are generated from `gt_struct` via `KeypointSequenceCodec` at dataset load time
-
----
-
-## Data Preparation Commands
-
-### One-Stage
+真实数据：
 
 ```bash
 python scripts/arrow/prepare_data.py \
@@ -233,16 +178,15 @@ python scripts/arrow/prepare_data.py \
   --output-dir data/processed
 ```
 
-### Stage1
+Stage1：
 
 ```bash
 python scripts/arrow/prepare_stage1_data.py \
-  --input-jsonl data/processed/train.jsonl \
-  --image-dir data/processed/images/train \
-  --output-dir data/two_stage/stage1
+  --input-dir data/processed \
+  --output-dir data/two_stage
 ```
 
-### Stage2
+Stage2：
 
 ```bash
 python scripts/arrow/prepare_stage2_data.py \
@@ -252,15 +196,9 @@ python scripts/arrow/prepare_stage2_data.py \
   --val-padding-ratio 0.3
 ```
 
----
+## 7. LabelMe 映射
 
-## LabelMe Mapping
-
-Raw LabelMe annotations are mapped as follows:
-
-| LabelMe Rectangle Label | Arrow Label |
+| LabelMe 矩形类别 | 箭头类别 |
 |---|---|
-| `c0`, `c1`, `c2`, `c3` | `single_arrow` |
-| `c4`, `c5`, `c6`, `c7` | `double_arrow` |
-
-Shapes are grouped by `group_id`. Rectangles provide `bbox`, point shapes provide `keypoints`.
+| `c0`,`c1`,`c2`,`c3` | `single_arrow` |
+| `c4`,`c5`,`c6`,`c7` | `double_arrow` |

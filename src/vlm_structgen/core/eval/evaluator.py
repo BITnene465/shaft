@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import MutableMapping
 from typing import Any
 
 import torch
@@ -396,8 +397,12 @@ class Evaluator:
     def _clamp01(self, value: float) -> float:
         return max(0.0, min(1.0, float(value)))
 
-    def _empty_counts(self) -> dict[str, float]:
-        return {
+    def _empty_counts(self) -> MutableMapping[str, float]:
+        # Route-level metrics are created dynamically (for example
+        # "__route__::<task>::<domain>::samples"), so we need a counter that
+        # defaults missing keys to 0.0 instead of raising KeyError.
+        counts: MutableMapping[str, float] = defaultdict(float)
+        counts.update({
             "samples": 0.0,
             "parse_success_lenient": 0.0,
             "parse_success_strict": 0.0,
@@ -414,4 +419,5 @@ class Evaluator:
             "point_count": 0.0,
             "keypoint_count_exact": 0.0,
             "end_to_end_correct": 0.0,
-        }
+        })
+        return counts

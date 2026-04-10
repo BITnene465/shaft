@@ -1,222 +1,133 @@
-# Architecture
+# 架构总览
 
-## Overview
+## 1. 项目定位
 
-`vlm_structgen` is a multimodal generative structure prediction framework built on Qwen3-VL, targeting visual grounding and structured JSON generation tasks. It currently implements three formal tasks under the `arrow` domain:
+`vlm_structgen` 是基于 `Qwen3-VL` 的多模态结构化生成框架。当前在 `arrow` 域实现三类正式任务：
 
-| Task | Phase | Output |
+| 任务 | 阶段 | 输出 |
 |---|---|---|
-| `joint_structure` | one-stage | `label + bbox_2d + keypoints_2d` |
-| `grounding` | two-stage / Stage1 | `label + bbox_2d` |
-| `keypoint_sequence` | two-stage / Stage2 | `keypoints_2d` |
+| `joint_structure` | 单阶段 | `label + bbox_2d + keypoints_2d` |
+| `grounding` | 两阶段 Stage1 | `label + bbox_2d` |
+| `keypoint_sequence` | 两阶段 Stage2 | `keypoints_2d` |
 
-## Three-Layer Architecture
+## 2. 三层架构
 
-```mermaid
-graph TB
-    subgraph "core"
-        REG["registry"]
-        DS["dataset / collator"]
-        TRN["trainer"]
-        EVL["evaluator"]
-        INF["infer/runner"]
-    end
-
-    subgraph "tasks"
-        ADP["adapters"]
-    end
-
-    subgraph "domains/arrow"
-        CODEC["codecs"]
-        DATA["data prep"]
-        INF2["two-stage inference"]
-    end
-
-    REG --> ADP
-    DS --> ADP
-    TRN --> ADP
-    EVL --> ADP
-    INF --> ADP
-
-    ADP --> CODEC
-    DATA --> DS
-    CODEC --> ADP
-    INF2 --> INF
+```text
+core      -> 通用训练/推理/评估/数据管线
+tasks     -> 任务语义、任务 loss、任务指标、任务 adapter
+domains   -> 域语义、codec、排序规则、数据准备、域推理约定
 ```
 
-### Layer Responsibilities
+核心边界：
 
-| Layer | Responsibility |
-|---|---|
-| **core** | Generic training/inference/evaluation framework. Does NOT understand task/domain semantics; interacts via `TaskAdapter` protocol |
-| **tasks** | Task-specific adapters implementing `TaskAdapter` -- GT construction, target encoding, loss computation, scoring |
-| **domains** | Domain-specific logic -- codecs, schema, ordering, data preparation, two-stage inference |
+- `core` 不理解业务字段语义（如 `label/bbox/keypoints`）。
+- `tasks` 不承载域内数据准备细节。
+- `domains` 不承载通用训练编排。
 
-**Core principle**: core doesn't understand task/domain, tasks don't understand domain internals, domains don't depend on core's training logic.
+## 3. 路由机制
 
-## Routing Mechanism
+路由统一为：
 
-Every JSONL record must declare `task_type` and `domain_type`. The dataset never guesses.
-
-```mermaid
-graph LR
-    DS["SFTDataset"] -->|"get_adapter(task, domain, num_bins)"| REG["registry"]
-    REG -->|"LRU cache"| REG
-    REG -->|"dispatch"| ADP["TaskAdapter"]
-    ADP --> CODEC["Domain Codec"]
-    CODEC -->|"target_text + loss_meta"| ADP
-    ADP --> DS
+```text
+route = task_type/domain_type
 ```
 
-### Supported Routes
+示例：
 
-| task_type | domain_type | Codec |
-|---|---|---|
-| `grounding` | `arrow` | `GroundingCodec` |
-| `keypoint_sequence` | `arrow` | `KeypointSequenceCodec` |
-| `joint_structure` | `arrow` | `ArrowCodec` |
+- `grounding/arrow`
+- `keypoint_sequence/arrow`
+- `joint_structure/arrow`
 
-## Data Flow
+路由来源：
 
-```mermaid
-graph LR
-    RAW["LabelMe\nJSON + Images"] --> P["prepare scripts"]
-    P --> JSONL["JSONL files"]
-    JSONL --> DS["SFTDataset"]
-    DS -->|"via adapter"| TXT["target_text + loss_meta"]
-    TXT --> COL["SFTCollator"]
-    COL -->|"pixel_values + input_ids + labels"| M["Model"]
+- 配置绑定（推荐）：`data.train_route_map` / `data.val_route_map`
+- 样本字段（可选）：JSONL 的 `task_type` + `domain_type`
+
+框架不会根据文件名或 prompt 猜 route。
+
+## 4. 数据流
+
+```text
+原始标注 + 图像
+  -> scripts/arrow/prepare*.py
+  -> 标准 JSONL
+  -> SFTDataset（按 route 取 adapter/codec）
+  -> SFTCollator（组装模型输入与 labels）
+  -> 模型训练/评估
 ```
 
-## Training Pipeline
+关键点：
 
-```mermaid
-graph TB
-    YAML["YAML config"] --> CFG["ExperimentRuntimeConfig"]
-    CFG --> BUILD["Build model + dataset + dataloader"]
-    BUILD --> OPT["Build optimizer + scheduler"]
-    OPT --> TR["Build Trainer"]
-    TR --> FIT["trainer.fit()"]
-    FIT --> EPOCH["Epoch loop: train → eval → save"]
+- `codec` 负责结构化 GT 与文本监督转换。
+- `loss_meta` 由 codec 生成，供 weighted token loss 使用。
+
+## 5. 训练与混训
+
+- 训练目标统一是 LM `next-token prediction`（teacher forcing）。
+- 多任务混训是样本级路由（同一 batch 可混 route）。
+- 采样策略在 `core.data.mixed_loader`：
+  - `concat`
+  - `interleave_under`
+  - `interleave_over`
+
+说明：采样策略属于通用训练编排，放在 `core.data` 是当前正式设计，不属于 domain 逻辑。
+
+## 6. 推理链路
+
+### 单阶段
+
+```text
+图像 -> generate -> codec 解码（宽松/严格）-> 结构化输出
 ```
 
-### Multi-Task V1 Notes
+### 两阶段
 
-- `v1` multi-task training uses route-aware mixing with **homogeneous batches**.
-- One training run may include multiple routes, but each batch still contains exactly one `task_type/domain_type`.
-- Best checkpoint selection supports a global `val/multi_task_score`; `eval_loss` is auxiliary only.
-- This preserves the current `core / tasks / domains` hierarchy and adds mixing as a cross-cutting capability.
-
-### Training Step
-
-```mermaid
-graph LR
-    BATCH["batch"] --> FWD["model.forward()"]
-    FWD -->|"resolve adapter by task/domain"| ADP["adapter.compute_loss()"]
-    ADP --> LOSS["loss"]
-    LOSS -->|"backward + grad_accum"| OPT["optimizer.step()"]
+```text
+图像
+ -> Stage1 grounding（整图 + tiles）
+ -> proposal 聚合与去重
+ -> 逐目标裁剪
+ -> Stage2 keypoint_sequence
+ -> 坐标回写与结果合并
 ```
 
-## Inference Pipeline
+## 7. 代码目录
 
-### One-Stage
-
-```mermaid
-graph LR
-    IMG["Image"] --> GEN["model.generate()"]
-    GEN --> TXT["Raw text"]
-    TXT --> PARSE["Lenient + Strict decode"]
-    PARSE --> RPT["Report"]
-```
-
-### Two-Stage
-
-```mermaid
-graph TB
-    IMG["Image"] --> S1["Stage1: grounding\n(full image + tiles)"]
-    S1 --> DEDUP["Aggregate + dedup"]
-    DEDUP --> DET["Detected arrows"]
-    DET --> CROP["Padded crops"]
-    CROP --> S2["Stage2: keypoints\n(per crop)"]
-    S2 --> MAP["Map to global coords"]
-    MAP --> OUT["Final prediction"]
-```
-
-## Configuration System
-
-```
-ExperimentRuntimeConfig
-├── experiment          # name, output_dir, seed
-├── model               # model path, freeze settings, pixel budgets
-├── tokenizer           # num_bins (1000)
-├── task                # route (optional), route_options
-├── prompt              # system_prompt, user_prompt, route_prompts
-├── data                # train/val JSONL paths
-├── finetune            # mode: lora / full
-├── lora                # r, alpha, target modules
-├── train               # epochs, batch_size, LR, scheduler
-├── eval                # generation params, metric thresholds
-├── logging             # wandb
-└── checkpoint          # init_from, resume_from
-```
-
-### Key Design
-
-- YAML is the single source of truth; CLI flags override specific values
-- Unknown config keys are warned
-- Model scale tag (`2b`/`4b`) auto-extracted from model path
-- Inference config builds runtime config from checkpoint `meta.json`, then applies overrides
-
-### Route Options
-
-```yaml
-task:
-  route_options:
-    grounding/arrow:
-      bbox_token_loss_weight: 2.0
-      label_token_loss_weight: 1.5
-```
-
-## Directory Structure
-
-```
+```text
 src/vlm_structgen/
-├── core/                   # Generic framework
-│   ├── config.py           # Configuration
-│   ├── registry.py         # Routing (TaskAdapter + get_adapter)
-│   ├── data/               # SFTDataset, SFTCollator
-│   ├── modeling/           # Model builder + LoRA
-│   ├── train/              # Trainer, optimizer
-│   ├── eval/               # Evaluator
-│   ├── infer/              # Inference runner
-│   └── utils/              # IO, logging, distributed, checkpoint, generation
-├── tasks/                  # Task adapters
+├── core/
+│   ├── config.py
+│   ├── registry.py
+│   ├── data/
+│   ├── train/
+│   ├── eval/
+│   ├── infer/
+│   └── utils/
+├── tasks/
 │   ├── grounding/
 │   ├── keypoint_sequence/
 │   └── joint_structure/
-└── domains/arrow/          # Domain logic
-    ├── schema.py           # Data model
-    ├── ordering.py         # Canonical ordering
-    ├── task_support.py     # BaseArrowAdapter, matching
-    ├── codecs/             # Serialization
-    ├── data/               # Data preparation
-    └── infer/              # Two-stage inference
+└── domains/arrow/
+    ├── codecs/
+    ├── data/
+    ├── infer/
+    ├── ordering.py
+    └── task_support.py
 ```
 
-## Key Design Decisions
+## 8. 配置主干
 
-### Structured Weighted Token Loss
+`ExperimentRuntimeConfig` 主要字段：
 
-Codec provides `loss_meta.field_char_spans` for field-level weighting. The trainer doesn't understand label/bbox/keypoints -- it only consumes the loss returned by the adapter.
-
-### Canonical Ordering
-
-Instance order is frozen during data preparation. Sort key: `(y1, x1, y2, x2, tail_y, tail_x, head_y, head_x, n_points)`.
-
-### Single-Task Batch Constraint
-
-Each batch must have a single `task_type/domain_type`. Mixed batches fail at `_resolve_batch_adapter()`.
-
-### JSON Robustness
-
-Codec handles markdown fence stripping, balanced JSON extraction, truncated array recovery, and lenient/strict parsing modes.
+- `experiment`
+- `model`
+- `tokenizer`
+- `task`
+- `prompt`
+- `data`
+- `finetune`
+- `lora`
+- `train`
+- `eval`
+- `logging`
+- `checkpoint`

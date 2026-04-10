@@ -1,23 +1,23 @@
-# Prompt Profiles
+# Prompt Profile 管理
 
-Prompt templates are now managed under `configs/prompts/` and referenced from train/infer configs via `prompt.profile`.
+Prompt 模板统一放在 `configs/prompts/`，并在 train/infer 配置中通过 profile 引用。
 
-## Naming Convention
+## 1. 命名约定
 
-Use dot-separated names:
+建议格式：
 
-- `<domain>.<task>.<stage_or_mode>.v<version>.yaml`
+```text
+<domain>.<task>.<stage_or_mode>.v<version>.yaml
+```
 
-Examples:
+示例：
 
 - `arrow.grounding.stage1.v1.yaml`
 - `arrow.grounding.stage1.v2.yaml`
 - `arrow.keypoint_sequence.stage2_fixed.v2.yaml`
 - `arrow.joint_structure.one_stage.v1.yaml`
 
-## File Schema
-
-Each prompt profile file should contain:
+## 2. 文件结构
 
 ```yaml
 metadata:
@@ -34,27 +34,34 @@ prompt:
     ...
 ```
 
-`prompt` supports these keys only:
+`prompt` 仅支持：
 
 - `system_prompt`
 - `system_prompt_template`
 - `user_prompt`
 - `user_prompt_template`
 
-## Usage in Configs
+## 3. 在配置中的使用
 
-Train config example:
+单任务：
 
 ```yaml
 prompt:
   profile: arrow.grounding.stage1.v2
 ```
 
-Infer config example:
+多任务（按 route）：
 
 ```yaml
 prompt:
-  profile: arrow.keypoint_sequence.stage2_fixed.v2
+  route_prompts:
+    grounding/arrow:
+      profile: arrow.grounding.stage1.v2
+    keypoint_sequence/arrow:
+      profile: arrow.keypoint_sequence.stage2_fixed.v2
 ```
 
-Optional local overrides are still supported by adding explicit prompt fields in the same config.
+## 4. 约束
+
+- prompt 只负责任务接口，不是监督真源。
+- 若输出协议变化，必须同时更新 codec 与评估逻辑。
