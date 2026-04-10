@@ -114,3 +114,8 @@ gt_struct -> codec.encode_with_loss_meta() -> target_text + loss_meta
 - 指标掩盖：同时看 route 级指标与全局指标。
 - 协议漂移：prompt 改动必须联动 codec/eval/infer。
 - 小任务欠拟合：提高采样权重或采用 over 策略。
+
+## 11. 关联规范
+
+- 训练框架边界：`docs/dev/training_framework_boundary_spec.md`
+- 训练产物协议：`docs/dev/protocol_artifact_spec.md`

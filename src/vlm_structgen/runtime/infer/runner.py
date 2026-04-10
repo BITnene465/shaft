@@ -9,7 +9,6 @@ from PIL import Image
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 from vlm_structgen.core.registry import get_adapter_for_route, register_routes
-from vlm_structgen.core.infer.config import InferenceSettings, OneStageInferenceConfig, load_inference_settings
 from vlm_structgen.core.modeling.builder import (
     BuildArtifacts,
     build_model_tokenizer_processor,
@@ -23,6 +22,11 @@ from vlm_structgen.core.utils.generation import (
     build_generate_kwargs,
     find_balanced_json_end,
     trim_generated_ids_at_eos,
+)
+from vlm_structgen.runtime.infer.config import (
+    InferenceSettings,
+    OneStageInferenceConfig,
+    load_inference_settings,
 )
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
-from vlm_structgen.core.infer.config import InferTaskConfig, _apply_task_overrides
 from vlm_structgen.core.utils.generation import find_balanced_json_end
+from vlm_structgen.runtime.infer.config import InferTaskConfig, _apply_task_overrides
 
 
 class InferProtocolAlignmentTests(unittest.TestCase):

@@ -15,7 +15,6 @@ from vlm_structgen.domains.arrow.data.two_stage import (
     quantize_bbox_2d,
     to_crop_local_bbox,
 )
-from vlm_structgen.core.infer.runner import InferenceRunner, load_inference_runner
 from vlm_structgen.core.modeling.builder import BuildArtifacts
 from vlm_structgen.core.prompting import build_chat_prompt, render_prompt_template, temporary_padding_side
 from vlm_structgen.core.utils.distributed import reset_model_runtime_state, unwrap_model
@@ -28,6 +27,7 @@ from vlm_structgen.domains.arrow.infer.config import (
     TwoStageInferenceConfig,
     load_two_stage_inference_config,
 )
+from vlm_structgen.runtime.infer.runner import InferenceRunner, load_inference_runner
 from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
 

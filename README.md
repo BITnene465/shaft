@@ -122,6 +122,8 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 
 ## 5. 推理与评估
 
+在线推理/服务编排属于外部系统职责。本仓库仅保留离线实验脚本与评估脚本，供训练阶段复盘使用。
+
 辅助脚本统一文档见：
 
 - [docs/tool_scripts.md](/home/tanjingyuan/code/arrow-vlm/docs/tool_scripts.md)
@@ -150,6 +152,8 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 - 编码与加权损失： [docs/codec_and_loss.md](/home/tanjingyuan/code/arrow-vlm/docs/codec_and_loss.md)
 - 任务/域扩展： [docs/adding_task_domain.md](/home/tanjingyuan/code/arrow-vlm/docs/adding_task_domain.md)
 - 多任务规范草案： [docs/dev/multitask_qwen3vl_framework_spec.md](/home/tanjingyuan/code/arrow-vlm/docs/dev/multitask_qwen3vl_framework_spec.md)
+- 训练框架边界规范： [docs/dev/training_framework_boundary_spec.md](/home/tanjingyuan/code/arrow-vlm/docs/dev/training_framework_boundary_spec.md)
+- 训练产物协议规范： [docs/dev/protocol_artifact_spec.md](/home/tanjingyuan/code/arrow-vlm/docs/dev/protocol_artifact_spec.md)
 
 ## 8. 许可证
 

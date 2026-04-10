@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from vlm_structgen.core.config import load_config
-from vlm_structgen.core.infer.config import load_one_stage_inference_config
 from vlm_structgen.domains.arrow.infer.config import load_two_stage_inference_config
+from vlm_structgen.runtime.infer.config import load_one_stage_inference_config
 
 
 class PromptProfileConfigTest(unittest.TestCase):

@@ -7,7 +7,7 @@ from typing import Any
 
 from PIL import Image
 
-from vlm_structgen.core.infer import load_inference_runner
+from vlm_structgen.runtime.infer import load_inference_runner
 from vlm_structgen.core.registry import get_adapter
 from vlm_structgen.core.utils.io import ensure_dir, load_jsonl, write_json, write_jsonl
 from vlm_structgen.core.utils.logging import create_progress_bar

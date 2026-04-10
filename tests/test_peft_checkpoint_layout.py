@@ -113,6 +113,35 @@ class _DummyPeftModel(torch.nn.Module):
         self.loaded_adapters.append((str(model_id), adapter_name, is_trainable))
         return None
 
+
+def _make_config_dict() -> dict[str, object]:
+    return {
+        "experiment": {"name": "unit-test"},
+        "finetune": {"mode": "lora"},
+        "tokenizer": {"num_bins": 1000, "add_eos_token": True},
+        "task": {
+            "route": "grounding/arrow",
+            "route_options": {
+                "grounding/arrow": {
+                    "eval_primary_metric": "bbox_f1_at_iou50",
+                    "eval_metric_weight": 1.0,
+                }
+            },
+        },
+        "prompt": {
+            "route_prompts": {
+                "grounding/arrow": {
+                    "profile": "arrow.grounding.stage1.v2",
+                }
+            }
+        },
+        "eval": {
+            "best_metric": "val/multi_task_score",
+            "monitor_mode": "max",
+        },
+    }
+
+
 class PeftCheckpointLayoutTests(unittest.TestCase):
     def test_save_training_checkpoint_writes_adapter_layout_for_lora(self) -> None:
         model = _DummyPeftModel()
@@ -127,7 +156,7 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
                 optimizer=None,
                 scheduler=None,
                 trainer_state={"global_step": 3},
-                config_dict={"experiment": {"name": "unit-test"}, "finetune": {"mode": "lora"}},
+                config_dict=_make_config_dict(),
             )
 
             self.assertTrue((checkpoint_dir / "adapter_config.json").exists())
@@ -139,6 +168,15 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
             self.assertTrue((checkpoint_dir / "preprocessor_config.json").exists())
             self.assertTrue((checkpoint_dir / "trainer_state.json").exists())
             self.assertTrue((checkpoint_dir / "meta.json").exists())
+            self.assertTrue((checkpoint_dir / "protocol.json").exists())
+
+            protocol = json.loads((checkpoint_dir / "protocol.json").read_text(encoding="utf-8"))
+            self.assertEqual(protocol["protocol_version"], "1.0.0")
+            self.assertEqual(protocol["finetune_mode"], "lora")
+            self.assertEqual(protocol["tokenizer"]["num_bins"], 1000)
+            self.assertEqual(protocol["routes"][0]["route"], "grounding/arrow")
+            self.assertEqual(protocol["routes"][0]["prompt"]["profile"], "arrow.grounding.stage1.v2")
+            self.assertEqual(protocol["global_evaluation"]["best_metric"], "val/multi_task_score")
 
     def test_load_training_checkpoint_loads_adapter_layout_for_lora(self) -> None:
         source_model = _DummyPeftModel()
@@ -153,7 +191,7 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
                 optimizer=None,
                 scheduler=None,
                 trainer_state={"global_step": 5},
-                config_dict={"experiment": {"name": "unit-test"}, "finetune": {"mode": "lora"}},
+                config_dict=_make_config_dict(),
             )
 
             target_model = _DummyPeftModel()
@@ -184,7 +222,7 @@ class PeftCheckpointLayoutTests(unittest.TestCase):
                 optimizer=None,
                 scheduler=None,
                 trainer_state={"global_step": 5},
-                config_dict={"experiment": {"name": "unit-test"}, "finetune": {"mode": "lora"}},
+                config_dict=_make_config_dict(),
             )
 
             target_model = _DummyPeftModel()

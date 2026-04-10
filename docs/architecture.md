@@ -109,8 +109,9 @@ src/vlm_structgen/
 │   ├── data/
 │   ├── train/
 │   ├── eval/
-│   ├── infer/
 │   └── utils/
+├── runtime/
+│   └── infer/
 ├── tasks/
 │   ├── grounding/
 │   ├── keypoint_sequence/

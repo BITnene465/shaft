@@ -10,7 +10,7 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name in {"InferenceRunner", "load_inference_runner"}:
-        from vlm_structgen.core.infer.runner import InferenceRunner, load_inference_runner
+        from vlm_structgen.runtime.infer.runner import InferenceRunner, load_inference_runner
 
         return {
             "InferenceRunner": InferenceRunner,

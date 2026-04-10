@@ -191,7 +191,7 @@ def _run_directory_inference(
 
 def main() -> None:
     args = parse_args()
-    from vlm_structgen.core.infer import load_inference_runner
+    from vlm_structgen.runtime.infer import load_inference_runner
     from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 
     ensure_builtin_task_adapters_registered()

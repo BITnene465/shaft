@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from transformers import AutoProcessor, AutoTokenizer, BitsAndBytesConfig
 
-from vlm_structgen.core.infer import load_inference_runner
+from vlm_structgen.runtime.infer import load_inference_runner
 from vlm_structgen.core.utils.distributed import unwrap_model
 from vlm_structgen.tasks.bootstrap import ensure_builtin_task_adapters_registered
 

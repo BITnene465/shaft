@@ -7,7 +7,8 @@ from typing import Any
 import yaml
 
 from vlm_structgen.core.config import _from_dict
-from vlm_structgen.core.infer.config import (
+from vlm_structgen.core.routing import normalize_route_key
+from vlm_structgen.runtime.infer.config import (
     InferAppConfig,
     InferEvalConfig,
     InferModelConfig,
@@ -15,7 +16,6 @@ from vlm_structgen.core.infer.config import (
     InferTaskConfig,
     resolve_prompt_profile_for_mapping,
 )
-from vlm_structgen.core.routing import normalize_route_key
 
 
 @dataclass
