@@ -17,12 +17,6 @@ model:
     - merger
     - projector
     - multi_modal_projector
-  # 受控动态分辨率，而不是原生大图直接输入。
-  # 这里保留长宽比，只限制总像素预算。默认先收紧到 1024 x 1024，
-  # 优先保证显存稳定和训练闭环。
-  min_pixels: 200704
-  # 1024 x 1024 total pixel budget: 1,048,576
-  max_pixels: 1048576
 
 tokenizer:
   # grounding 坐标统一归一化到 0~999 的整数网格
@@ -45,6 +39,12 @@ data:
     - joint_structure_arrow
   val_datasets:
     - joint_structure_arrow
+  # 受控动态分辨率，而不是原生大图直接输入。
+  # 这里保留长宽比，只限制总像素预算。默认先收紧到 1024 x 1024，
+  # 优先保证显存稳定和训练闭环。
+  min_pixels: 200704
+  # 1024 x 1024 total pixel budget: 1,048,576
+  max_pixels: 1048576
   num_workers: 16
   pin_memory: true
   persistent_workers: true

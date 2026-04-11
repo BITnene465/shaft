@@ -49,6 +49,34 @@ python scripts/train.py --config <train_config.yaml>
 - registry 解析只负责“配置展开与校验”。
 - 不参与 sample 读取、采样与业务解码。
 
+### 2.2 Pixel Budget 配置（训练）
+
+训练侧统一使用 `data` 配置像素预算：
+
+- `data.min_pixels`
+- `data.max_pixels`
+- `data.route_pixel_budgets`（可选，按 route 覆盖）
+
+示例：
+
+```yaml
+data:
+  min_pixels: 200704
+  max_pixels: 1048576
+  route_pixel_budgets:
+    grounding/arrow:
+      min_pixels: 200704
+      max_pixels: 1048576
+    keypoint_sequence/arrow:
+      min_pixels: 50176
+      max_pixels: 262144
+```
+
+约束：
+
+- `task.route_options` 中不再允许 `min_pixels/max_pixels`。
+- `model.min_pixels/model.max_pixels`（训练配置）不再允许使用。
+
 ## 3. 混训策略与数据混合
 
 混训目标可写为：

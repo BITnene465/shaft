@@ -14,6 +14,7 @@ class SFTCollator:
         tokenizer,
         num_bins: int,
         task_route_options: dict[str, dict[str, Any]] | None = None,
+        route_pixel_budgets: dict[str, dict[str, Any]] | None = None,
         add_eos_token: bool = True,
         ignore_index: int = -100,
         min_pixels: int | None = None,
@@ -25,6 +26,7 @@ class SFTCollator:
         self.tokenizer = tokenizer
         self.num_bins = int(num_bins)
         self.task_route_options = dict(task_route_options or {})
+        self.route_pixel_budgets = dict(route_pixel_budgets or {})
         self.add_eos_token = add_eos_token
         self.ignore_index = ignore_index
         self.min_pixels = min_pixels
@@ -38,17 +40,22 @@ class SFTCollator:
         messages = [self._build_messages(item["system_prompt"], item["user_prompt"]) for item in batch]
         prefix_texts = [self._apply_chat_template(message) for message in messages]
         images = [item["image"] for item in batch]
-        processor_kwargs = {
-            "text": prefix_texts,
-            "images": images,
-            "padding": True,
-            "return_tensors": "pt",
-        }
-        if self.min_pixels is not None:
-            processor_kwargs["min_pixels"] = self.min_pixels
-        if self.max_pixels is not None:
-            processor_kwargs["max_pixels"] = self.max_pixels
-        prefix_batch = self.processor(**processor_kwargs)
+        pixel_budget_pairs = [self._resolve_pixel_budget(item) for item in batch]
+        if len(set(pixel_budget_pairs)) == 1:
+            # Fast path: all samples share the same pixel budget.
+            min_pixels, max_pixels = pixel_budget_pairs[0]
+            prefix_batch = self._run_processor(
+                text=prefix_texts,
+                images=images,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+            )
+        else:
+            prefix_batch = self._build_prefix_batch_with_per_sample_pixel_budget(
+                prefix_texts=prefix_texts,
+                images=images,
+                pixel_budget_pairs=pixel_budget_pairs,
+            )
 
         target_batch = self.tokenizer(
             [item["target_text"] for item in batch],
@@ -167,6 +174,174 @@ class SFTCollator:
                 padding_value=0,
             )
         return output
+
+    def _build_prefix_batch_with_per_sample_pixel_budget(
+        self,
+        *,
+        prefix_texts: list[str],
+        images: list[Any],
+        pixel_budget_pairs: list[tuple[int | None, int | None]],
+    ) -> dict[str, Any]:
+        budget_groups = self._group_row_indices_by_pixel_budget(pixel_budget_pairs)
+        if len(budget_groups) <= 1:
+            raise ValueError(
+                "_build_prefix_batch_with_per_sample_pixel_budget expects at least two budget groups."
+            )
+
+        input_ids_rows: list[torch.Tensor | None] = [None] * len(prefix_texts)
+        attention_mask_rows: list[torch.Tensor | None] = [None] * len(prefix_texts)
+        mm_token_type_id_rows: list[torch.Tensor | None] = [None] * len(prefix_texts)
+        pixel_values_rows: list[torch.Tensor | None] = [None] * len(prefix_texts)
+        image_grid_rows: list[torch.Tensor | None] = [None] * len(prefix_texts)
+        saw_mm_token_type_ids = False
+
+        for (min_pixels, max_pixels), row_indices in budget_groups.items():
+            grouped = self._run_processor(
+                text=[prefix_texts[row_index] for row_index in row_indices],
+                images=[images[row_index] for row_index in row_indices],
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+            )
+            grouped_size = len(row_indices)
+            input_ids = grouped["input_ids"]
+            attention_mask = grouped["attention_mask"]
+            if int(input_ids.shape[0]) != grouped_size or int(attention_mask.shape[0]) != grouped_size:
+                raise ValueError("Processor output row count does not match grouped batch size.")
+
+            mm_token_type_ids = grouped.get("mm_token_type_ids")
+            if mm_token_type_ids is not None:
+                if int(mm_token_type_ids.shape[0]) != grouped_size:
+                    raise ValueError("Processor mm_token_type_ids row count does not match grouped batch size.")
+                saw_mm_token_type_ids = True
+
+            grouped_image_grid = grouped.get("image_grid_thw")
+            grouped_pixel_values = self._split_pixel_values_by_sample(
+                pixel_values=grouped["pixel_values"],
+                image_grid_thw=grouped_image_grid,
+                sample_count=grouped_size,
+            )
+            if len(grouped_pixel_values) != grouped_size:
+                raise ValueError("Failed to split processor pixel_values by sample.")
+
+            for local_index, row_index in enumerate(row_indices):
+                input_ids_rows[row_index] = input_ids[local_index]
+                attention_mask_rows[row_index] = attention_mask[local_index]
+                pixel_values_rows[row_index] = grouped_pixel_values[local_index]
+
+                if grouped_image_grid is not None:
+                    image_grid_rows[row_index] = grouped_image_grid[local_index : local_index + 1]
+
+                if mm_token_type_ids is not None:
+                    mm_token_type_id_rows[row_index] = mm_token_type_ids[local_index]
+
+        if any(row is None for row in input_ids_rows) or any(row is None for row in attention_mask_rows):
+            raise ValueError("Failed to build per-sample prefix tensors for mixed pixel budgets.")
+        if any(row is None for row in pixel_values_rows):
+            raise ValueError("Failed to build per-sample pixel tensors for mixed pixel budgets.")
+
+        padded_input_ids = self._pad_sequences(
+            [row for row in input_ids_rows if row is not None],
+            padding_value=self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
+        )
+        padded_attention_mask = self._pad_sequences(
+            [row for row in attention_mask_rows if row is not None],
+            padding_value=0,
+        )
+
+        merged: dict[str, Any] = {
+            "input_ids": padded_input_ids,
+            "attention_mask": padded_attention_mask,
+            "pixel_values": torch.cat([row for row in pixel_values_rows if row is not None], dim=0),
+            "image_grid_thw": None,
+        }
+        if any(row is not None for row in image_grid_rows):
+            if any(row is None for row in image_grid_rows):
+                raise ValueError("image_grid_thw is missing for part of batch in mixed pixel budget mode.")
+            merged["image_grid_thw"] = torch.cat([row for row in image_grid_rows if row is not None], dim=0)
+        if saw_mm_token_type_ids:
+            if any(row is None for row in mm_token_type_id_rows):
+                raise ValueError("mm_token_type_ids is missing for part of batch in mixed pixel budget mode.")
+            merged["mm_token_type_ids"] = self._pad_sequences(
+                [row for row in mm_token_type_id_rows if row is not None],
+                padding_value=0,
+            )
+        return merged
+
+    def _resolve_pixel_budget(self, item: dict[str, Any]) -> tuple[int | None, int | None]:
+        route_key = str(item["route"])
+        route_budget = dict(self.route_pixel_budgets.get(route_key, {}))
+        min_pixels = route_budget.get("min_pixels", self.min_pixels)
+        max_pixels = route_budget.get("max_pixels", self.max_pixels)
+        min_pixels = int(min_pixels) if min_pixels is not None else None
+        max_pixels = int(max_pixels) if max_pixels is not None else None
+        return min_pixels, max_pixels
+
+    def _group_row_indices_by_pixel_budget(
+        self,
+        pixel_budget_pairs: list[tuple[int | None, int | None]],
+    ) -> dict[tuple[int | None, int | None], list[int]]:
+        groups: dict[tuple[int | None, int | None], list[int]] = {}
+        for row_index, budget_pair in enumerate(pixel_budget_pairs):
+            groups.setdefault(budget_pair, []).append(row_index)
+        return groups
+
+    def _split_pixel_values_by_sample(
+        self,
+        *,
+        pixel_values: torch.Tensor,
+        image_grid_thw: torch.Tensor | None,
+        sample_count: int,
+    ) -> list[torch.Tensor]:
+        if image_grid_thw is None:
+            if int(pixel_values.shape[0]) != int(sample_count):
+                raise ValueError(
+                    "Cannot split pixel_values without image_grid_thw: "
+                    f"pixel_values_rows={int(pixel_values.shape[0])}, sample_count={sample_count}."
+                )
+            return [pixel_values[row_index : row_index + 1] for row_index in range(sample_count)]
+
+        if int(image_grid_thw.shape[0]) != int(sample_count):
+            raise ValueError(
+                "image_grid_thw row count does not match sample count: "
+                f"image_grid_rows={int(image_grid_thw.shape[0])}, sample_count={sample_count}."
+            )
+
+        token_counts = (image_grid_thw[:, 0] * image_grid_thw[:, 1] * image_grid_thw[:, 2]).tolist()
+        rows: list[torch.Tensor] = []
+        cursor = 0
+        for token_count in token_counts:
+            count = int(token_count)
+            if count <= 0:
+                raise ValueError(f"Invalid image token count parsed from image_grid_thw: {count}.")
+            next_cursor = cursor + count
+            rows.append(pixel_values[cursor:next_cursor])
+            cursor = next_cursor
+        if cursor != int(pixel_values.shape[0]):
+            raise ValueError(
+                "Failed to consume all pixel_values rows when splitting grouped batch: "
+                f"consumed={cursor}, total={int(pixel_values.shape[0])}."
+            )
+        return rows
+
+    def _run_processor(
+        self,
+        *,
+        text: list[str],
+        images: list[Any],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> dict[str, Any]:
+        processor_kwargs = {
+            "text": text,
+            "images": images,
+            "padding": True,
+            "return_tensors": "pt",
+        }
+        if min_pixels is not None:
+            processor_kwargs["min_pixels"] = int(min_pixels)
+        if max_pixels is not None:
+            processor_kwargs["max_pixels"] = int(max_pixels)
+        return self.processor(**processor_kwargs)
 
     def _build_target_loss_weights(
         self,

@@ -201,9 +201,10 @@ def main() -> None:
         tokenizer=build_artifacts.tokenizer,
         num_bins=config.tokenizer.num_bins,
         task_route_options=config.task.route_options,
+        route_pixel_budgets=config.data.route_pixel_budgets,
         add_eos_token=config.tokenizer.add_eos_token,
-        min_pixels=config.model.min_pixels,
-        max_pixels=config.model.max_pixels,
+        min_pixels=config.data.min_pixels,
+        max_pixels=config.data.max_pixels,
         include_targets_in_inputs=True,
     )
     val_collator = SFTCollator(
@@ -211,9 +212,10 @@ def main() -> None:
         tokenizer=build_artifacts.tokenizer,
         num_bins=config.tokenizer.num_bins,
         task_route_options=config.task.route_options,
+        route_pixel_budgets=config.data.route_pixel_budgets,
         add_eos_token=config.tokenizer.add_eos_token,
-        min_pixels=config.model.min_pixels,
-        max_pixels=config.model.max_pixels,
+        min_pixels=config.data.min_pixels,
+        max_pixels=config.data.max_pixels,
         include_targets_in_inputs=False,
         padding_side="left",  # decoder-only models typically benefit from left-padding during evaluation for better efficiency
     )

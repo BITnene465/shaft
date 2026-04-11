@@ -280,6 +280,32 @@ class MultiTaskRouteContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "monitor_metric"):
                 load_config(config_path)
 
+    def test_task_route_pixel_budget_fields_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "deprecated_task_pixel_budget.yaml"
+            config_path.write_text(
+                "task:\n"
+                "  route_options:\n"
+                "    grounding/arrow:\n"
+                "      min_pixels: 100\n"
+                "      max_pixels: 200\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "data.route_pixel_budgets"):
+                load_config(config_path)
+
+    def test_model_pixel_budget_fields_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "deprecated_model_pixel_budget.yaml"
+            config_path.write_text(
+                "model:\n"
+                "  min_pixels: 100\n"
+                "  max_pixels: 200\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "data.min_pixels/data.max_pixels"):
+                load_config(config_path)
+
     def test_multi_task_score_controls_best_checkpoint_selection(self) -> None:
         config = ExperimentRuntimeConfig()
         config.eval.best_metric = "val/multi_task_score"
@@ -478,6 +504,14 @@ class MultiTaskRouteContractTests(unittest.TestCase):
         self.assertEqual(
             mixed_full_ft.data.val_datasets,
             ["stage1_grounding_arrow", "stage2_keypoint_sequence_arrow"],
+        )
+        self.assertEqual(
+            sorted(mixed_full_ft.data.route_pixel_budgets.keys()),
+            ["grounding/arrow", "keypoint_sequence/arrow"],
+        )
+        self.assertEqual(
+            mixed_full_ft.data.route_pixel_budgets["keypoint_sequence/arrow"]["max_pixels"],
+            262144,
         )
         self.assertEqual(
             sorted(mixed_full_ft.task.route_options.keys()),

@@ -16,8 +16,6 @@ model:
     - merger
     - projector
     - multi_modal_projector
-  min_pixels: 50176
-  max_pixels: 262144
 
 tokenizer:
   num_bins: 1000
@@ -39,6 +37,8 @@ data:
     - stage2_keypoint_sequence_arrow
   val_datasets:
     - stage2_keypoint_sequence_arrow
+  min_pixels: 50176
+  max_pixels: 262144
   num_workers: 16
   pin_memory: true
   persistent_workers: true

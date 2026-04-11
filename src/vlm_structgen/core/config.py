@@ -29,12 +29,6 @@ class ModelConfig:
     projector_name_substrings: list[str] = field(
         default_factory=lambda: ["merger", "projector", "multi_modal_projector"]
     )
-    # Use bounded dynamic resolution instead of raw native resolution.
-    # These values follow the Qwen-style pixel-budget approach and act as
-    # sane defaults when configs do not override them explicitly.
-    min_pixels: int | None = 200704
-    # 1024 x 1024 pixel budget: 1,048,576
-    max_pixels: int | None = 1048576
 
 
 @dataclass
@@ -78,9 +72,17 @@ class DataConfig:
     registry_path: str | None = None
     train_datasets: list[str] = field(default_factory=list)
     val_datasets: list[str] = field(default_factory=list)
+    # Global pixel budget defaults for training/evaluation collation.
+    # Route-specific values in route_pixel_budgets override these defaults.
+    min_pixels: int | None = 200704
+    max_pixels: int | None = 1048576
     num_workers: int = 4
     pin_memory: bool = True
     persistent_workers: bool = True
+    # Optional route-level pixel budgets for multi-task training.
+    # Key format: "task_type/domain_type", for example "grounding/arrow".
+    # Value format: {"min_pixels": int | None, "max_pixels": int | None}
+    route_pixel_budgets: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -310,6 +312,16 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
                 f"{used_eval_keys}. "
                 "Please configure per-task evaluation thresholds under task.route_options."
             )
+    model_payload = yaml_payload.get("model")
+    if isinstance(model_payload, dict):
+        used_model_pixel_keys = [key for key in ("min_pixels", "max_pixels") if key in model_payload]
+        if used_model_pixel_keys:
+            raise ValueError(
+                "Training pixel budget fields under `model` have been removed: "
+                f"{used_model_pixel_keys}. "
+                "Please migrate to data.min_pixels/data.max_pixels "
+                "and optional data.route_pixel_budgets."
+            )
     data_payload = yaml_payload.get("data")
     if isinstance(data_payload, dict):
         deprecated_data_keys = [
@@ -327,6 +339,23 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
                 f"{used_keys}. "
                 "Please migrate to data.registry_path + data.train_datasets/data.val_datasets."
             )
+    task_payload = yaml_payload.get("task")
+    if isinstance(task_payload, dict):
+        route_options_payload = task_payload.get("route_options")
+        if isinstance(route_options_payload, dict):
+            legacy_pixel_budget_routes: dict[str, list[str]] = {}
+            for route_key, route_options in route_options_payload.items():
+                if not isinstance(route_options, dict):
+                    continue
+                used_keys = [key for key in ("min_pixels", "max_pixels") if key in route_options]
+                if used_keys:
+                    legacy_pixel_budget_routes[str(route_key)] = used_keys
+            if legacy_pixel_budget_routes:
+                raise ValueError(
+                    "Per-route pixel budget fields in task.route_options have been removed. "
+                    "Please migrate them to data.route_pixel_budgets. "
+                    f"Found: {legacy_pixel_budget_routes}"
+                )
 
 
 def load_config(path: str | Path) -> ExperimentRuntimeConfig:
@@ -354,6 +383,11 @@ def _normalize_route_mappings(config: ExperimentRuntimeConfig) -> None:
     for route_key, prompt_payload in dict(config.prompt.route_prompts or {}).items():
         normalized_route_prompts[normalize_route_key(str(route_key))] = dict(prompt_payload or {})
     config.prompt.route_prompts = normalized_route_prompts
+
+    normalized_route_pixel_budgets: dict[str, dict[str, Any]] = {}
+    for route_key, pixel_budget_payload in dict(config.data.route_pixel_budgets or {}).items():
+        normalized_route_pixel_budgets[normalize_route_key(str(route_key))] = dict(pixel_budget_payload or {})
+    config.data.route_pixel_budgets = normalized_route_pixel_budgets
 
 
 def _resolve_prompt_profile(yaml_payload: dict[str, Any], config_path: Path) -> None:
