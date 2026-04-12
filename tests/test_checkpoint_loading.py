@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 import torch
 
-from vlm_structgen.core.utils.checkpoint import load_training_checkpoint, save_training_checkpoint
+from vlm_structgen.core.utils.checkpoint import (
+    load_initial_model_checkpoint,
+    load_training_checkpoint,
+    save_training_checkpoint,
+)
 
 
 class _DummyScheduler:
@@ -199,6 +203,39 @@ class CheckpointLoadingTests(unittest.TestCase):
                     strict=True,
                     resume_training_state=False,
                 )
+
+    def test_full_checkpoint_init_loads_dense_weights(self) -> None:
+        source_model = _DummyBaseModel()
+        source_model.linear.weight.data.fill_(3.0)
+        source_model.linear.bias.data.fill_(2.0)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkpoint_dir = Path(temp_dir)
+            save_training_checkpoint(
+                checkpoint_dir=checkpoint_dir,
+                model=source_model,
+                tokenizer=_DummyTokenizer(),
+                processor=_DummyProcessor(),
+                optimizer=None,
+                scheduler=None,
+                trainer_state={"global_step": 7},
+                config_dict={"experiment": {"name": "unit-test"}, "finetune": {"mode": "full"}},
+            )
+
+            target_model = _DummyBaseModel()
+            target_model.linear.weight.data.zero_()
+            target_model.linear.bias.data.zero_()
+
+            meta = load_initial_model_checkpoint(
+                checkpoint_dir=checkpoint_dir,
+                model=target_model,
+                strict=True,
+            )
+
+            self.assertEqual(meta["checkpoint_layout"], "full_model")
+            self.assertTrue(meta["has_base_model"])
+            self.assertTrue(torch.allclose(target_model.linear.weight, source_model.linear.weight))
+            self.assertTrue(torch.allclose(target_model.linear.bias, source_model.linear.bias))
 
 
 if __name__ == "__main__":

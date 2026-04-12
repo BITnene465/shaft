@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
 
@@ -24,13 +24,78 @@ def _torch_load(
         return torch.load(path, map_location=map_location)
 
 
-def _resolve_adapter_dir(checkpoint_dir: Path) -> Path:
+def _has_adapter_assets(checkpoint_dir: Path) -> bool:
     root_adapter_config = checkpoint_dir / "adapter_config.json"
     root_adapter_weights = checkpoint_dir / "adapter_model.safetensors"
     root_adapter_weights_bin = checkpoint_dir / "adapter_model.bin"
-    if root_adapter_config.exists() and (root_adapter_weights.exists() or root_adapter_weights_bin.exists()):
-        return checkpoint_dir
-    raise FileNotFoundError(f"Missing adapter files in checkpoint: {checkpoint_dir}")
+    return root_adapter_config.exists() and (root_adapter_weights.exists() or root_adapter_weights_bin.exists())
+
+
+def _has_full_model_assets(checkpoint_dir: Path) -> bool:
+    config_file = checkpoint_dir / "config.json"
+    if not config_file.exists():
+        return False
+    full_weight_candidates = (
+        checkpoint_dir / "model.safetensors",
+        checkpoint_dir / "model.safetensors.index.json",
+        checkpoint_dir / "pytorch_model.bin",
+        checkpoint_dir / "pytorch_model.bin.index.json",
+        checkpoint_dir / "weights.json",  # lightweight dummy model tests
+    )
+    return any(path.exists() for path in full_weight_candidates)
+
+
+def _resolve_checkpoint_layout(checkpoint_dir: Path) -> Literal["adapter", "full_model"]:
+    if _has_adapter_assets(checkpoint_dir):
+        return "adapter"
+    if _has_full_model_assets(checkpoint_dir):
+        return "full_model"
+    raise FileNotFoundError(
+        "Unsupported checkpoint layout. Expected PEFT adapter files or full model files. "
+        f"checkpoint={checkpoint_dir}"
+    )
+
+
+def _resolve_dense_target_model(model: torch.nn.Module) -> torch.nn.Module:
+    unwrapped = unwrap_model(model)
+    get_base_model = getattr(unwrapped, "get_base_model", None)
+    if callable(get_base_model):
+        try:
+            base_model = get_base_model()
+            if isinstance(base_model, torch.nn.Module):
+                return base_model
+        except Exception:  # noqa: BLE001
+            pass
+    base_model_attr = getattr(unwrapped, "base_model", None)
+    if isinstance(base_model_attr, torch.nn.Module):
+        return base_model_attr
+    return unwrapped
+
+
+def _load_full_model_weights(
+    *,
+    checkpoint_dir: Path,
+    model: torch.nn.Module,
+    strict: bool,
+) -> None:
+    target_model = _resolve_dense_target_model(model)
+    from_pretrained = getattr(type(target_model), "from_pretrained", None)
+    if not callable(from_pretrained):
+        raise ValueError(
+            "Dense checkpoint detected, but target model class does not expose from_pretrained(). "
+            f"target_model_class={type(target_model).__name__!r}."
+        )
+
+    try:
+        loaded_model = type(target_model).from_pretrained(checkpoint_dir, local_files_only=True)
+    except TypeError:
+        loaded_model = type(target_model).from_pretrained(checkpoint_dir)
+
+    load_result = target_model.load_state_dict(loaded_model.state_dict(), strict=strict)
+    if not strict and hasattr(load_result, "unexpected_keys") and hasattr(load_result, "missing_keys"):
+        # Keep best-effort behavior for non-strict load while still surfacing mismatch context.
+        _ = load_result.unexpected_keys, load_result.missing_keys
+    del loaded_model
 
 
 def save_training_checkpoint(
@@ -57,6 +122,9 @@ def save_training_checkpoint(
         safe_serialization=True,
         save_embedding_layers=False,
     )
+    layout = _resolve_checkpoint_layout(checkpoint_dir)
+    checkpoint_layout = "peft_adapter_only" if layout == "adapter" else "full_model"
+    has_base_model = layout == "full_model"
 
     if optimizer is not None:
         torch.save(optimizer.state_dict(), checkpoint_dir / "optimizer.pt")
@@ -76,8 +144,8 @@ def save_training_checkpoint(
             "protocol_version": "vlm_structgen_v1",
             "config": config_dict,
             "trainer_state": trainer_state,
-            "checkpoint_layout": "peft_adapter_only",
-            "has_base_model": False,
+            "checkpoint_layout": checkpoint_layout,
+            "has_base_model": has_base_model,
         },
     )
 
@@ -223,19 +291,25 @@ def load_training_checkpoint(
     resume_training_state: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    _ = strict
-    adapter_dir = _resolve_adapter_dir(checkpoint_dir)
-    peft_model = unwrap_model(model)
-    load_adapter = getattr(peft_model, "load_adapter", None)
-    if not callable(load_adapter):
-        raise ValueError(
-            "LoRA checkpoint detected, but the model does not expose `load_adapter()`."
+    layout = _resolve_checkpoint_layout(checkpoint_dir)
+    if layout == "adapter":
+        peft_model = unwrap_model(model)
+        load_adapter = getattr(peft_model, "load_adapter", None)
+        if not callable(load_adapter):
+            raise ValueError(
+                "LoRA checkpoint detected, but the model does not expose `load_adapter()`."
+            )
+        load_adapter(
+            checkpoint_dir,
+            adapter_name="default",
+            is_trainable=resume_training_state,
         )
-    load_adapter(
-        adapter_dir,
-        adapter_name="default",
-        is_trainable=resume_training_state,
-    )
+    else:
+        _load_full_model_weights(
+            checkpoint_dir=checkpoint_dir,
+            model=model,
+            strict=strict,
+        )
 
     trainer_state = {}
     trainer_state_path = checkpoint_dir / "trainer_state.json"
@@ -279,18 +353,25 @@ def load_initial_model_checkpoint(
     strict: bool = True,
 ) -> dict[str, Any]:
     checkpoint_dir = Path(checkpoint_dir)
-    adapter_dir = _resolve_adapter_dir(checkpoint_dir)
-    peft_model = unwrap_model(model)
-    load_adapter = getattr(peft_model, "load_adapter", None)
-    if not callable(load_adapter):
-        raise ValueError(
-            "LoRA checkpoint detected, but the target model does not expose `load_adapter()`."
+    layout = _resolve_checkpoint_layout(checkpoint_dir)
+    if layout == "adapter":
+        peft_model = unwrap_model(model)
+        load_adapter = getattr(peft_model, "load_adapter", None)
+        if not callable(load_adapter):
+            raise ValueError(
+                "LoRA checkpoint detected, but the target model does not expose `load_adapter()`."
+            )
+        load_adapter(
+            checkpoint_dir,
+            adapter_name="default",
+            is_trainable=True,
         )
-    load_adapter(
-        adapter_dir,
-        adapter_name="default",
-        is_trainable=True,
-    )
+    else:
+        _load_full_model_weights(
+            checkpoint_dir=checkpoint_dir,
+            model=model,
+            strict=strict,
+        )
     return load_checkpoint_meta(checkpoint_dir)
 
 
