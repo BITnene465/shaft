@@ -76,7 +76,8 @@ vllm serve deployment/qwen3vl/arrow/base_model \
 注意：
 
 - 单请求只会命中一个 LoRA route。
-- `pixel budget` 属于服务启动与模型处理参数管理，不在 `deploy/` 代码内硬编码。
+- `pixel budget` 由 `deploy/arrow/config.yaml` 的 `stage1/2.{min_pixels,max_pixels}` 控制，
+  运行时按请求下发到 vLLM（无需在 `vllm serve` 固化 `--mm-processor-kwargs`）。
 - vLLM 当前版本对 DoRA 支持可能受限，若 adapter 为 DoRA 需先验证兼容性。
 
 ## 5. 推荐解码默认

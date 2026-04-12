@@ -77,11 +77,12 @@ class ArrowVLLMClient:
         max_tokens: int,
         temperature: float = 0.0,
         top_p: float = 1.0,
-        ) -> str:
+        mm_processor_kwargs: dict[str, int] | None = None,
+    ) -> str:
         image_url = _image_to_data_url(image)
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=[
+        request_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": [
                 {
                     "role": "user",
                     "content": [
@@ -90,9 +91,14 @@ class ArrowVLLMClient:
                     ],
                 }
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+        }
+        if mm_processor_kwargs:
+            request_kwargs["extra_body"] = {"mm_processor_kwargs": dict(mm_processor_kwargs)}
+        response = self.client.chat.completions.create(
+            **request_kwargs,
         )
         return response.choices[0].message.content or ""
 
@@ -128,6 +134,10 @@ class ArrowTwoStagePipeline:
         self.padding_ratio = float(padding_ratio if padding_ratio is not None else self.config.padding_ratio)
 
     def predict_stage1(self, image: str | Path | Image.Image) -> Stage1Result:
+        stage1_mm_kwargs = _build_mm_processor_kwargs(
+            min_pixels=self.config.stage1.min_pixels,
+            max_pixels=self.config.stage1.max_pixels,
+        )
         raw_text = self.client.generate_with_image(
             model=self.stage1_model,
             prompt=self.config.stage1.prompt,
@@ -135,6 +145,7 @@ class ArrowTwoStagePipeline:
             max_tokens=self.stage1_max_tokens,
             temperature=self.stage1_temperature if self.stage1_do_sample else 0.0,
             top_p=self.stage1_top_p if self.stage1_do_sample else 1.0,
+            mm_processor_kwargs=stage1_mm_kwargs,
         )
         width, height = _image_size(image)
         decoded = decode_stage1_output(
@@ -147,6 +158,10 @@ class ArrowTwoStagePipeline:
         return Stage1Result(raw_text=raw_text, decoded=decoded)
 
     def predict_stage2(self, image: str | Path | Image.Image, crop_box: Sequence[int]) -> Stage2Result:
+        stage2_mm_kwargs = _build_mm_processor_kwargs(
+            min_pixels=self.config.stage2.min_pixels,
+            max_pixels=self.config.stage2.max_pixels,
+        )
         raw_text = self.client.generate_with_image(
             model=self.stage2_model,
             prompt=self.config.stage2.prompt,
@@ -154,6 +169,7 @@ class ArrowTwoStagePipeline:
             max_tokens=self.stage2_max_tokens,
             temperature=self.stage2_temperature if self.stage2_do_sample else 0.0,
             top_p=self.stage2_top_p if self.stage2_do_sample else 1.0,
+            mm_processor_kwargs=stage2_mm_kwargs,
         )
         width, height = _image_size(image)
         decoded = decode_stage2_output(
@@ -264,3 +280,12 @@ def _render_crop_with_black_padding(image: Image.Image, crop_box: Sequence[int])
         patch = image.crop((src_x1, src_y1, src_x2, src_y2))
         canvas.paste(patch, (int(src_x1 - crop_x1), int(src_y1 - crop_y1)))
     return canvas
+
+
+def _build_mm_processor_kwargs(*, min_pixels: int | None, max_pixels: int | None) -> dict[str, int] | None:
+    kwargs: dict[str, int] = {}
+    if min_pixels is not None:
+        kwargs["min_pixels"] = int(min_pixels)
+    if max_pixels is not None:
+        kwargs["max_pixels"] = int(max_pixels)
+    return kwargs or None

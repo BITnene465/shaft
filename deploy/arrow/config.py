@@ -30,6 +30,8 @@ class ArrowStageSpec:
     do_sample: bool
     temperature: float
     top_p: float
+    min_pixels: int | None
+    max_pixels: int | None
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,10 @@ def _load_stage_spec(raw: Any, stage_name: str) -> ArrowStageSpec:
     do_sample = bool(raw.get("do_sample", False))
     temperature = float(raw.get("temperature", 0.0))
     top_p = float(raw.get("top_p", 1.0))
+    min_pixels_raw = raw.get("min_pixels")
+    max_pixels_raw = raw.get("max_pixels")
+    min_pixels = int(min_pixels_raw) if min_pixels_raw is not None else None
+    max_pixels = int(max_pixels_raw) if max_pixels_raw is not None else None
     if not route:
         raise ValueError(f"Arrow deploy config field '{stage_name}.route' must be provided.")
     if not prompt:
@@ -101,6 +107,12 @@ def _load_stage_spec(raw: Any, stage_name: str) -> ArrowStageSpec:
         raise ValueError(f"Arrow deploy config field '{stage_name}.top_p' must be in (0, 1].")
     if temperature < 0:
         raise ValueError(f"Arrow deploy config field '{stage_name}.temperature' must be non-negative.")
+    if min_pixels is not None and min_pixels <= 0:
+        raise ValueError(f"Arrow deploy config field '{stage_name}.min_pixels' must be positive when provided.")
+    if max_pixels is not None and max_pixels <= 0:
+        raise ValueError(f"Arrow deploy config field '{stage_name}.max_pixels' must be positive when provided.")
+    if min_pixels is not None and max_pixels is not None and min_pixels > max_pixels:
+        raise ValueError(f"Arrow deploy config field '{stage_name}.min_pixels' cannot exceed max_pixels.")
     return ArrowStageSpec(
         route=route,
         prompt=prompt,
@@ -108,4 +120,6 @@ def _load_stage_spec(raw: Any, stage_name: str) -> ArrowStageSpec:
         do_sample=do_sample,
         temperature=temperature,
         top_p=top_p,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
     )
