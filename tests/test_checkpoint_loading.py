@@ -9,6 +9,7 @@ from unittest.mock import patch
 import torch
 
 from vlm_structgen.core.utils.checkpoint import (
+    _resolve_dense_target_model,
     load_initial_model_checkpoint,
     load_training_checkpoint,
     save_training_checkpoint,
@@ -126,6 +127,14 @@ class _DummyPeftModel(torch.nn.Module):
         self.loaded_adapters.append((str(model_id), adapter_name, is_trainable))
         return None
 
+
+class _DummyModelWithBaseAttr(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.base_model = _DummyBaseModel()
+        self.linear = torch.nn.Linear(2, 2)
+
+
 class CheckpointLoadingTests(unittest.TestCase):
     def test_resume_loads_adapter_optimizer_scheduler_and_rng(self) -> None:
         source_model = _DummyPeftModel()
@@ -236,6 +245,11 @@ class CheckpointLoadingTests(unittest.TestCase):
             self.assertTrue(meta["has_base_model"])
             self.assertTrue(torch.allclose(target_model.linear.weight, source_model.linear.weight))
             self.assertTrue(torch.allclose(target_model.linear.bias, source_model.linear.bias))
+
+    def test_dense_target_resolution_prefers_top_level_model_for_non_peft(self) -> None:
+        model = _DummyModelWithBaseAttr()
+        resolved = _resolve_dense_target_model(model)
+        self.assertIs(resolved, model)
 
 
 if __name__ == "__main__":

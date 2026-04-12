@@ -58,6 +58,11 @@ def _resolve_checkpoint_layout(checkpoint_dir: Path) -> Literal["adapter", "full
 
 def _resolve_dense_target_model(model: torch.nn.Module) -> torch.nn.Module:
     unwrapped = unwrap_model(model)
+    # Full-FT checkpoints should load against the top-level transformers model
+    # (e.g. Qwen3VLForConditionalGeneration). Do not descend to `.base_model`
+    # unless this is explicitly a PEFT wrapper.
+    if not hasattr(unwrapped, "peft_config"):
+        return unwrapped
     get_base_model = getattr(unwrapped, "get_base_model", None)
     if callable(get_base_model):
         try:
