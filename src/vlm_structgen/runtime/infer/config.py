@@ -13,7 +13,7 @@ from vlm_structgen.core.utils.checkpoint import load_checkpoint_meta
 
 
 @dataclass
-class InferModelConfig:
+class InferDataConfig:
     min_pixels: int | None = None
     max_pixels: int | None = None
 
@@ -53,7 +53,7 @@ class InferAppConfig:
 
 @dataclass
 class OneStageInferenceConfig:
-    model: InferModelConfig = field(default_factory=InferModelConfig)
+    data: InferDataConfig = field(default_factory=InferDataConfig)
     task: InferTaskConfig = field(default_factory=InferTaskConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)
@@ -127,7 +127,7 @@ def _extract_runtime_payload_from_checkpoint_meta(checkpoint_path: str | Path) -
     meta = load_checkpoint_meta(checkpoint_path)
     checkpoint_config = meta.get("config", {})
     runtime_payload: dict[str, Any] = {}
-    for section_name in ("model", "tokenizer", "task", "prompt", "finetune", "lora", "eval", "train"):
+    for section_name in ("model", "tokenizer", "task", "prompt", "data", "finetune", "lora", "eval", "train"):
         section_value = checkpoint_config.get(section_name)
         if isinstance(section_value, dict):
             runtime_payload[section_name] = dict(section_value)
@@ -140,11 +140,11 @@ def _build_runtime_from_checkpoint(checkpoint_path: str | Path) -> ExperimentRun
     return runtime
 
 
-def _apply_model_overrides(runtime: ExperimentRuntimeConfig, model_cfg: InferModelConfig) -> None:
-    if model_cfg.min_pixels is not None:
-        runtime.model.min_pixels = model_cfg.min_pixels
-    if model_cfg.max_pixels is not None:
-        runtime.model.max_pixels = model_cfg.max_pixels
+def _apply_data_overrides(runtime: ExperimentRuntimeConfig, data_cfg: InferDataConfig) -> None:
+    if data_cfg.min_pixels is not None:
+        runtime.data.min_pixels = data_cfg.min_pixels
+    if data_cfg.max_pixels is not None:
+        runtime.data.max_pixels = data_cfg.max_pixels
 
 
 def _apply_prompt_overrides(runtime: ExperimentRuntimeConfig, prompt_cfg: InferPromptConfig) -> None:
@@ -202,7 +202,7 @@ def build_runtime_from_one_stage_infer_config(
     infer_config: OneStageInferenceConfig,
 ) -> ExperimentRuntimeConfig:
     runtime = _build_runtime_from_checkpoint(checkpoint_path)
-    _apply_model_overrides(runtime, infer_config.model)
+    _apply_data_overrides(runtime, infer_config.data)
     _apply_task_overrides(runtime, infer_config.task)
     _apply_prompt_overrides(runtime, infer_config.prompt)
     _apply_eval_overrides(runtime, infer_config.eval)
@@ -227,7 +227,7 @@ def load_inference_settings(
         runtime = build_runtime_from_one_stage_infer_config(resolved_lora_adapter_path, effective_infer_config)
     else:
         runtime = ExperimentRuntimeConfig()
-        _apply_model_overrides(runtime, effective_infer_config.model)
+        _apply_data_overrides(runtime, effective_infer_config.data)
         _apply_task_overrides(runtime, effective_infer_config.task)
         _apply_prompt_overrides(runtime, effective_infer_config.prompt)
         _apply_eval_overrides(runtime, effective_infer_config.eval)

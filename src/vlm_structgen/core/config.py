@@ -128,8 +128,6 @@ class TrainConfig:
     grad_accum_steps: int = 8
     gradient_checkpointing: bool = True
     learning_rate: float = 1e-4
-    embed_learning_rate: float | None = None
-    lm_head_learning_rate: float | None = None
     lora_learning_rate: float | None = None
     weight_decay: float = 0.01
     warmup_ratio: float = 0.03
@@ -356,6 +354,19 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
                     "Please migrate them to data.route_pixel_budgets. "
                     f"Found: {legacy_pixel_budget_routes}"
                 )
+    train_payload = yaml_payload.get("train")
+    if isinstance(train_payload, dict):
+        removed_train_keys = [
+            "embed_learning_rate",
+            "lm_head_learning_rate",
+        ]
+        used_train_keys = [key for key in removed_train_keys if key in train_payload]
+        if used_train_keys:
+            raise ValueError(
+                "Legacy train fields have been removed: "
+                f"{used_train_keys}. "
+                "Use train.learning_rate for dense params, and train.lora_learning_rate for LoRA params."
+            )
 
 
 def load_config(path: str | Path) -> ExperimentRuntimeConfig:

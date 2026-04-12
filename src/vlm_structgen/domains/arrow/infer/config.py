@@ -10,8 +10,8 @@ from vlm_structgen.core.config import _from_dict
 from vlm_structgen.core.routing import normalize_route_key
 from vlm_structgen.runtime.infer.config import (
     InferAppConfig,
+    InferDataConfig,
     InferEvalConfig,
-    InferModelConfig,
     InferPromptConfig,
     InferTaskConfig,
     resolve_prompt_profile_for_mapping,
@@ -20,7 +20,7 @@ from vlm_structgen.runtime.infer.config import (
 
 @dataclass
 class TwoStageStageInferenceConfig:
-    model: InferModelConfig = field(default_factory=InferModelConfig)
+    data: InferDataConfig = field(default_factory=InferDataConfig)
     task: InferTaskConfig = field(default_factory=InferTaskConfig)
     prompt: InferPromptConfig = field(default_factory=InferPromptConfig)
     eval: InferEvalConfig = field(default_factory=InferEvalConfig)

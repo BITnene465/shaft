@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vlm_structgen.core.registry import register_task_adapter
-from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.keypoint_sequence import KeypointSequenceCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts
 
@@ -117,15 +116,6 @@ class ArrowKeypointSequenceAdapter(BaseArrowAdapter):
 
     def default_eval_primary_metric(self) -> str:
         return "end_to_end_score"
-
-    def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
-        del tokenizer
-        if not self.weighted_loss_enabled:
-            return model_outputs.loss
-        return compute_weighted_token_ce_loss(
-            model_outputs,
-            batch,
-        )
 
     def build_target_token_weights(
         self,

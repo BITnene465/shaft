@@ -163,11 +163,6 @@ class BaseArrowAdapter:
             "loss_meta": None,
         }
 
-    def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
-        del tokenizer
-        del batch
-        return model_outputs.loss
-
     def build_target_token_weights(
         self,
         target_text: str,

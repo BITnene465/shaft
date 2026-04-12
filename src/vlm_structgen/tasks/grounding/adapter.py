@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vlm_structgen.core.registry import register_task_adapter
-from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.domains.arrow.codecs.grounding import GroundingCodec
 from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_counts, match_instances
 
@@ -119,15 +118,6 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
 
     def default_eval_primary_metric(self) -> str:
         return "bbox_f1_at_iou50"
-
-    def compute_loss(self, model_outputs, batch: dict[str, Any], *, tokenizer=None) -> object:
-        del tokenizer
-        if not self.weighted_loss_enabled:
-            return model_outputs.loss
-        return compute_weighted_token_ce_loss(
-            model_outputs,
-            batch,
-        )
 
     def build_target_token_weights(
         self,

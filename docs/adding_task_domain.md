@@ -59,7 +59,6 @@ domains/   域语义（codec、排序、数据准备、域推理约定）
 - `decode(text, w, h, strict)`
 - `decode_with_meta(text, w, h, strict)`
 - `score_prediction(gt, pred, ...)`
-- `compute_loss(outputs, batch, tokenizer)`
 
 ## 5. 常见错误
 

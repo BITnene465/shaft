@@ -306,6 +306,18 @@ class MultiTaskRouteContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "data.min_pixels/data.max_pixels"):
                 load_config(config_path)
 
+    def test_removed_train_learning_rate_fields_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "deprecated_train_lr_fields.yaml"
+            config_path.write_text(
+                "train:\n"
+                "  embed_learning_rate: 1e-5\n"
+                "  lm_head_learning_rate: 1e-5\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Legacy train fields have been removed"):
+                load_config(config_path)
+
     def test_multi_task_score_controls_best_checkpoint_selection(self) -> None:
         config = ExperimentRuntimeConfig()
         config.eval.best_metric = "val/multi_task_score"

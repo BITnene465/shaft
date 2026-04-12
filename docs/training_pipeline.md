@@ -130,7 +130,7 @@ min_theta  E_{t~pi(t)} E_{(x,y)~D_t}[L_t(x,y;theta)]
 - `lora_params`：学习率 `lora_learning_rate`，无 weight decay
 - `other`：学习率 `learning_rate`，有 weight decay
 
-说明：`embed_learning_rate` 与 `lm_head_learning_rate` 当前不是独立参数组。
+说明：`embed_learning_rate` 与 `lm_head_learning_rate` 已移除，避免与实际优化器分组不一致。
 
 ## 6. Checkpoint 语义
 

@@ -2,7 +2,7 @@ stage1:
   batch_size: 8
   task:
     route: grounding/arrow
-  model:
+  data:
     min_pixels: 200704
     max_pixels: 1048576
     # max_pixels: 2359296
@@ -18,7 +18,7 @@ stage1:
 stage2:
   task:
     route: keypoint_sequence/arrow
-  model:
+  data:
     min_pixels: 50176
     max_pixels: 262144
   prompt:

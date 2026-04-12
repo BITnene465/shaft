@@ -4,7 +4,12 @@ import unittest
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig
 from vlm_structgen.core.utils.generation import find_balanced_json_end
-from vlm_structgen.runtime.infer.config import InferTaskConfig, _apply_task_overrides
+from vlm_structgen.runtime.infer.config import (
+    InferDataConfig,
+    InferTaskConfig,
+    _apply_data_overrides,
+    _apply_task_overrides,
+)
 
 
 class InferProtocolAlignmentTests(unittest.TestCase):
@@ -40,6 +45,22 @@ class InferProtocolAlignmentTests(unittest.TestCase):
                 "decode_mode": "strict",
             },
         )
+
+    def test_apply_data_overrides_updates_runtime_pixel_budget(self) -> None:
+        runtime = ExperimentRuntimeConfig()
+        runtime.data.min_pixels = 200704
+        runtime.data.max_pixels = 1048576
+
+        _apply_data_overrides(
+            runtime,
+            InferDataConfig(
+                min_pixels=50176,
+                max_pixels=262144,
+            ),
+        )
+
+        self.assertEqual(runtime.data.min_pixels, 50176)
+        self.assertEqual(runtime.data.max_pixels, 262144)
 
 
 if __name__ == "__main__":

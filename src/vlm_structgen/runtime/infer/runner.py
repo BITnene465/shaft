@@ -168,10 +168,10 @@ class InferenceRunner:
             "padding": True,
             "return_tensors": "pt",
         }
-        if self.config.model.min_pixels is not None:
-            processor_kwargs["min_pixels"] = self.config.model.min_pixels
-        if self.config.model.max_pixels is not None:
-            processor_kwargs["max_pixels"] = self.config.model.max_pixels
+        if self.config.data.min_pixels is not None:
+            processor_kwargs["min_pixels"] = self.config.data.min_pixels
+        if self.config.data.max_pixels is not None:
+            processor_kwargs["max_pixels"] = self.config.data.max_pixels
         with temporary_padding_side(self.artifacts.processor, self.artifacts.tokenizer, padding_side="left"):
             batch = self.artifacts.processor(**processor_kwargs)
         prompt_lengths = [int(value) for value in batch["attention_mask"].sum(dim=1).tolist()]

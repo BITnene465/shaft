@@ -1,4 +1,4 @@
-model:
+data:
   min_pixels: 50176
   # max_pixels: 262144
   max_pixels: 262144

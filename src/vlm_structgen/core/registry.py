@@ -76,9 +76,6 @@ class TaskAdapter(Protocol):
     ) -> dict[str, float]:
         ...
 
-    def compute_loss(self, model_outputs, batch: dict, *, tokenizer=None) -> object:
-        ...
-
     def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
         ...
 
