@@ -25,16 +25,13 @@ task:
   mix_strategy: interleave_under
   route_options:
     grounding/arrow:
-      mix_weight: 3.0
-      bbox_token_loss_weight: 1.0
-      label_token_loss_weight: 1.0
+      mix_weight: 4.0
       bbox_iou_threshold: 0.5
       eval_primary_metric: bbox_f1_at_iou50
       eval_metric_weight: 0.5
       eval_metric_normalizer: identity
     keypoint_sequence/arrow:
       mix_weight: 1.0
-      coordinate_token_loss_weight: 1.0
       strict_point_distance_px: 8.0
       eval_primary_metric: end_to_end_score
       eval_metric_weight: 0.5
@@ -72,13 +69,11 @@ finetune:
   mode: full
 
 train:
-  epochs: 4
+  epochs: 3
   per_device_batch_size: 4
   grad_accum_steps: 2
   gradient_checkpointing: true
-  learning_rate: 0.00002
-  # embed_learning_rate: 0.00004
-  # lm_head_learning_rate: 0.00004
+  learning_rate: 0.00001
   weight_decay: 0.01
   warmup_ratio: 0.1
   scheduler_type: cosine

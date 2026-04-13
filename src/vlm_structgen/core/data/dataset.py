@@ -60,13 +60,11 @@ class SFTDataset:
             gt_struct = record_gt_struct
         else:
             gt_struct = adapter.build_gt_struct_from_record(record)
-        training_target = adapter.build_training_target(
+        target_text = adapter.encode_target_text(
             gt_struct,
             image_width=record["image_width"],
             image_height=record["image_height"],
         )
-        target_text = training_target["target_text"]
-        loss_meta = training_target.get("loss_meta")
         condition = record.get("condition", {})
         route_key = resolve_record_route_key(record)
         route_prompt = dict(self.route_prompts.get(route_key, {}))
@@ -114,7 +112,6 @@ class SFTDataset:
             "system_prompt": str(system_prompt),
             "user_prompt": str(user_prompt),
             "target_text": str(target_text),
-            "loss_meta": loss_meta,
             "gt_struct": gt_struct,
         }
 
@@ -131,11 +128,11 @@ class SFTDataset:
                 gt_struct = record_gt_struct
             else:
                 gt_struct = adapter.build_gt_struct_from_record(record)
-            target_text = adapter.build_training_target(
+            target_text = adapter.encode_target_text(
                 gt_struct,
                 image_width=record["image_width"],
                 image_height=record["image_height"],
-            )["target_text"]
+            )
             tokenized = tokenizer(
                 str(target_text),
                 add_special_tokens=False,

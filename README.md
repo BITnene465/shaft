@@ -139,7 +139,7 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 ## 6. 协议与边界
 
 - 训练目标是标准语言模型 `next-token prediction`。
-- 结构化监督由 `codec` 提供：`target_text + loss_meta`。
+- 结构化监督由 `codec` 提供：`target_text`。
 - `trainer` 不解析业务字段，不做任务语义分支。
 - 数据顺序（canonical order）在数据准备阶段固化。
 
@@ -149,7 +149,7 @@ torchrun --nproc_per_node=2 scripts/train.py --config configs/train/train_mixed_
 - 标准数据格式： [docs/standard_data_format.md](/home/tanjingyuan/code/arrow-vlm/docs/standard_data_format.md)
 - 训练链路： [docs/training_pipeline.md](/home/tanjingyuan/code/arrow-vlm/docs/training_pipeline.md)
 - 推理链路： [docs/inference_pipeline.md](/home/tanjingyuan/code/arrow-vlm/docs/inference_pipeline.md)
-- 编码与加权损失： [docs/codec_and_loss.md](/home/tanjingyuan/code/arrow-vlm/docs/codec_and_loss.md)
+- 编码与训练损失： [docs/codec_and_loss.md](/home/tanjingyuan/code/arrow-vlm/docs/codec_and_loss.md)
 - 任务/域扩展： [docs/adding_task_domain.md](/home/tanjingyuan/code/arrow-vlm/docs/adding_task_domain.md)
 - 多任务规范草案： [docs/dev/multitask_qwen3vl_framework_spec.md](/home/tanjingyuan/code/arrow-vlm/docs/dev/multitask_qwen3vl_framework_spec.md)
 - 训练框架边界规范： [docs/dev/training_framework_boundary_spec.md](/home/tanjingyuan/code/arrow-vlm/docs/dev/training_framework_boundary_spec.md)

@@ -34,7 +34,7 @@
 
 职责：
 
-- 任务 adapter、任务 loss 权重规则、任务指标汇总规则。
+- 任务 adapter、任务指标汇总规则。
 
 禁止：
 
@@ -93,7 +93,7 @@ registry/config
 
 - trainer 只做 token-level 优化。
 - evaluator 只做通用聚合与 route 指标汇总，不解析业务 JSON 字段。
-- `codec` 提供 `target_text + loss_meta`，是监督真源。
+- `codec` 提供 `target_text`，是监督真源。
 
 ## 7. 配置契约
 
@@ -147,4 +147,3 @@ P1：
 P2：
 
 - callback 插件化（logging/best-save/early-stop）。
-

@@ -30,7 +30,7 @@
 约束：
 
 - `core`：通用训练/推理/评估/数据编排，不理解业务字段语义。
-- `tasks`：任务语义、loss、metric、adapter。
+- `tasks`：任务语义、metric、adapter。
 - `domains`：codec、排序、数据准备、域推理约定。
 
 不得新增第四层业务语义层。若新增模块，必须是跨层复用能力，且边界清晰。
@@ -57,10 +57,9 @@ route = <route_id>
 - 训练目标流必须是：
 
 ```text
-gt_struct -> codec.encode_with_loss_meta() -> target_text + loss_meta
-          -> adapter token 权重
-          -> collator.loss_weights
-          -> trainer 通用 loss
+gt_struct -> codec.encode() -> target_text
+          -> collator 组装 labels
+          -> trainer 读取模型标准 outputs.loss
 ```
 
 - trainer 不得理解 `label/bbox/keypoints` 语义。

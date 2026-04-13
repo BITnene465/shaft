@@ -23,7 +23,7 @@ class InferProtocolAlignmentTests(unittest.TestCase):
         runtime.task.route = "keypoint_sequence/arrow"
         runtime.task.route_options = {
             "keypoint_sequence/arrow": {
-                "coordinate_token_loss_weight": 1.5,
+                "decode_mode": "lenient",
             }
         }
 
@@ -32,8 +32,8 @@ class InferProtocolAlignmentTests(unittest.TestCase):
             InferTaskConfig(
                 route="keypoint_sequence/arrow",
                 route_options={
-                    "coordinate_token_loss_weight": 2.0,
                     "decode_mode": "strict",
+                    "strict_point_distance_px": 8.0,
                 }
             ),
         )
@@ -41,8 +41,8 @@ class InferProtocolAlignmentTests(unittest.TestCase):
         self.assertEqual(
             runtime.task.route_options["keypoint_sequence/arrow"],
             {
-                "coordinate_token_loss_weight": 2.0,
                 "decode_mode": "strict",
+                "strict_point_distance_px": 8.0,
             },
         )
 

@@ -318,6 +318,22 @@ class MultiTaskRouteContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Legacy train fields have been removed"):
                 load_config(config_path)
 
+    def test_removed_token_weight_fields_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "deprecated_token_weight_fields.yaml"
+            config_path.write_text(
+                "task:\n"
+                "  route_options:\n"
+                "    grounding/arrow:\n"
+                "      bbox_token_loss_weight: 1.3\n"
+                "      label_token_loss_weight: 1.1\n"
+                "    keypoint_sequence/arrow:\n"
+                "      coordinate_token_loss_weight: 1.2\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Token-weighted loss fields"):
+                load_config(config_path)
+
     def test_multi_task_score_controls_best_checkpoint_selection(self) -> None:
         config = ExperimentRuntimeConfig()
         config.eval.best_metric = "val/multi_task_score"

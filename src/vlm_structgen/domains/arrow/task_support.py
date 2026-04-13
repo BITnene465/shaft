@@ -147,34 +147,6 @@ class BaseArrowAdapter:
     def empty_prediction(self) -> dict[str, Any]:
         return {"instances": []}
 
-    def build_training_target(
-        self,
-        gt_struct: dict[str, Any],
-        *,
-        image_width: int,
-        image_height: int,
-    ) -> dict[str, Any]:
-        return {
-            "target_text": self.encode_target_text(
-                gt_struct,
-                image_width=image_width,
-                image_height=image_height,
-            ),
-            "loss_meta": None,
-        }
-
-    def build_target_token_weights(
-        self,
-        target_text: str,
-        *,
-        loss_meta: dict[str, Any] | None,
-        tokenizer,
-    ) -> list[float] | None:
-        del target_text
-        del loss_meta
-        del tokenizer
-        return None
-
     def summarize_eval_counts(self, counts: dict[str, float]) -> dict[str, float]:
         raise NotImplementedError("Task adapter must implement summarize_eval_counts().")
 

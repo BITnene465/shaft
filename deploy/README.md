@@ -51,12 +51,11 @@ print(result.to_dict())
 
 ## 3. 模型组织
 
-支持一个 base model + 多个 LoRA route。当前默认：
+支持一个 base model + 多个 LoRA route，也支持单 route 混合模型。当前默认是单 route：
 
-- `grounding_arrow`
-- `keypoint_sequence_arrow`
+- `arrow_mixed_4b`（stage1/stage2 共用同一 route）
 
-若未来合并为单 route，只需把 `config.yaml` 中两个 route 改成同一个值。
+如需切回双 route，只需把 `config.yaml` 中 `stage1.route` 和 `stage2.route` 分别改成目标 route。
 
 ## 4. vLLM 启动示例
 

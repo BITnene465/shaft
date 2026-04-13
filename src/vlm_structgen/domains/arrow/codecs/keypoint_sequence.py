@@ -22,19 +22,6 @@ class KeypointSequenceCodec:
         self.num_bins = int(num_bins)
 
     def encode(self, keypoints: list[list[float]], image_width: int, image_height: int) -> str:
-        target_text, _loss_meta = self.encode_with_loss_meta(
-            keypoints,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        return target_text
-
-    def encode_with_loss_meta(
-        self,
-        keypoints: list[list[float]],
-        image_width: int,
-        image_height: int,
-    ) -> tuple[str, dict[str, Any]]:
         keypoints_2d = [
             [
                 self._quantize(point[0], image_width),
@@ -45,7 +32,7 @@ class KeypointSequenceCodec:
         report = self.validate_points(keypoints_2d)
         if not report.valid:
             raise ValueError("; ".join(report.errors))
-        return self._serialize_with_loss_meta(keypoints_2d)
+        return self._serialize(keypoints_2d)
 
     def decode(
         self,
@@ -174,38 +161,9 @@ class KeypointSequenceCodec:
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSON payload: {exc.msg}.") from exc
 
-    def _serialize_with_loss_meta(self, keypoints_2d: list[list[int]]) -> tuple[str, dict[str, Any]]:
-        parts: list[str] = ['{"keypoints_2d":[']
-        coordinate_spans: list[list[int]] = []
-        current_length = len(parts[0])
-        for point_index, point in enumerate(keypoints_2d):
-            if point_index > 0:
-                parts.append(",")
-                current_length += 1
-            parts.append("[")
-            current_length += 1
-
-            x_text = str(int(point[0]))
-            coordinate_spans.append([current_length, current_length + len(x_text)])
-            parts.append(x_text)
-            current_length += len(x_text)
-
-            parts.append(",")
-            current_length += 1
-
-            y_text = str(int(point[1]))
-            coordinate_spans.append([current_length, current_length + len(y_text)])
-            parts.append(y_text)
-            current_length += len(y_text)
-
-            parts.append("]")
-            current_length += 1
-        parts.append("]}")
-        return (
-            "".join(parts),
-            {
-                "field_char_spans": {
-                    "coordinates": coordinate_spans,
-                }
-            },
+    def _serialize(self, keypoints_2d: list[list[int]]) -> str:
+        return json.dumps(
+            {"keypoints_2d": keypoints_2d},
+            ensure_ascii=False,
+            separators=(",", ":"),
         )

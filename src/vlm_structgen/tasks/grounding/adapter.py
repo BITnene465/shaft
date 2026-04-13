@@ -11,20 +11,6 @@ from vlm_structgen.domains.arrow.task_support import BaseArrowAdapter, empty_cou
 @dataclass
 class ArrowGroundingAdapter(BaseArrowAdapter):
     task_type: str = field(init=False, default="grounding")
-    bbox_token_loss_weight: float = 1.0
-    label_token_loss_weight: float = 1.0
-
-    def __post_init__(self) -> None:
-        for field_name, value in (
-            ("bbox_token_loss_weight", self.bbox_token_loss_weight),
-            ("label_token_loss_weight", self.label_token_loss_weight),
-        ):
-            if float(value) < 1.0:
-                raise ValueError(f"{field_name} must be >= 1.0, got {value!r}.")
-
-    @property
-    def weighted_loss_enabled(self) -> bool:
-        return float(self.bbox_token_loss_weight) > 1.0 or float(self.label_token_loss_weight) > 1.0
 
     def build_gt_struct_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -36,23 +22,6 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
                 }
                 for instance in record.get("instances", [])
             ]
-        }
-
-    def build_training_target(
-        self,
-        gt_struct: dict[str, Any],
-        *,
-        image_width: int,
-        image_height: int,
-    ) -> dict[str, Any]:
-        target_text, loss_meta = self.codec.encode_with_loss_meta(
-            gt_struct,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        return {
-            "target_text": target_text,
-            "loss_meta": loss_meta,
         }
 
     def encode_target_text(self, gt_struct: dict[str, Any], *, image_width: int, image_height: int) -> str:
@@ -119,60 +88,11 @@ class ArrowGroundingAdapter(BaseArrowAdapter):
     def default_eval_primary_metric(self) -> str:
         return "bbox_f1_at_iou50"
 
-    def build_target_token_weights(
-        self,
-        target_text: str,
-        *,
-        loss_meta: dict[str, Any] | None,
-        tokenizer,
-    ) -> list[float] | None:
-        if not self.weighted_loss_enabled:
-            return [1.0] * len(tokenizer(target_text, add_special_tokens=False)["input_ids"])
-        if loss_meta is None:
-            raise ValueError(
-                "grounding weighted token loss requires loss_meta.field_char_spans. "
-                f"route={self.task_type}/{self.domain_type}"
-            )
-        encoded = tokenizer(
-            target_text,
-            add_special_tokens=False,
-            return_attention_mask=False,
-            return_offsets_mapping=True,
-        )
-        offsets = encoded.get("offset_mapping")
-        input_ids = encoded.get("input_ids")
-        if offsets is None or input_ids is None:
-            raise ValueError(
-                "grounding weighted token loss requires tokenizer offset_mapping/input_ids. "
-                f"route={self.task_type}/{self.domain_type}"
-            )
-
-        field_spans = dict(loss_meta.get("field_char_spans", {}))
-        weighted_spans: list[tuple[int, int, float]] = []
-        for start, end in field_spans.get("label", []):
-            weighted_spans.append((int(start), int(end), float(self.label_token_loss_weight)))
-        for start, end in field_spans.get("bbox_2d", []):
-            weighted_spans.append((int(start), int(end), float(self.bbox_token_loss_weight)))
-
-        weights: list[float] = []
-        for start, end in offsets:
-            token_weight = 1.0
-            if end > start:
-                for span_start, span_end, span_weight in weighted_spans:
-                    if max(int(start), span_start) < min(int(end), span_end):
-                        token_weight = max(token_weight, span_weight)
-            weights.append(float(token_weight))
-        return weights
-
 
 def build_grounding_adapter(*, domain_type: str, num_bins: int, task_options: dict[str, Any] | None = None):
-    task_options = dict(task_options or {})
+    del task_options
     if domain_type == "arrow":
-        return ArrowGroundingAdapter(
-            codec=GroundingCodec(num_bins=num_bins),
-            bbox_token_loss_weight=float(task_options.get("bbox_token_loss_weight", 1.0)),
-            label_token_loss_weight=float(task_options.get("label_token_loss_weight", 1.0)),
-        )
+        return ArrowGroundingAdapter(codec=GroundingCodec(num_bins=num_bins))
     raise ValueError(f"Unsupported grounding domain_type: {domain_type!r}")
 
 

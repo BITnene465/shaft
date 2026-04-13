@@ -4,16 +4,12 @@ from typing import Any
 
 import torch
 
-from vlm_structgen.core.registry import get_adapter_for_route
-
 
 class SFTCollator:
     def __init__(
         self,
         processor,
         tokenizer,
-        num_bins: int,
-        task_route_options: dict[str, dict[str, Any]] | None = None,
         route_pixel_budgets: dict[str, dict[str, Any]] | None = None,
         add_eos_token: bool = True,
         ignore_index: int = -100,
@@ -24,8 +20,6 @@ class SFTCollator:
     ) -> None:
         self.processor = processor
         self.tokenizer = tokenizer
-        self.num_bins = int(num_bins)
-        self.task_route_options = dict(task_route_options or {})
         self.route_pixel_budgets = dict(route_pixel_budgets or {})
         self.add_eos_token = add_eos_token
         self.ignore_index = ignore_index
@@ -68,13 +62,12 @@ class SFTCollator:
         prompt_lengths = prefix_batch["attention_mask"].sum(dim=1).tolist()
         final_input_ids: list[torch.Tensor] = []
         final_labels: list[torch.Tensor] = []
-        final_loss_weights: list[torch.Tensor] = []
         final_attention_masks: list[torch.Tensor] = []
         final_mm_token_type_ids: list[torch.Tensor] = []
         prompt_length_tensor: list[int] = []
         prefix_mm_token_type_ids = prefix_batch.get("mm_token_type_ids")
 
-        for row_index, prompt_length in enumerate(prompt_lengths):
+        for row_index, _prompt_length in enumerate(prompt_lengths):
             prefix_mask = prefix_batch["attention_mask"][row_index].bool()
             prefix_ids = prefix_batch["input_ids"][row_index][prefix_mask]
             prefix_mm_ids = None
@@ -82,33 +75,14 @@ class SFTCollator:
                 prefix_mm_ids = prefix_mm_token_type_ids[row_index][prefix_mask]
             if self.include_targets_in_inputs:
                 target_ids = list(target_batch["input_ids"][row_index])
-                target_loss_weights = self._build_target_loss_weights(
-                    item=batch[row_index],
-                    target_ids=target_ids,
-                    eos_id=eos_id,
-                )
                 if self.add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
                     target_ids.append(eos_id)
                 target_tensor = torch.tensor(target_ids, dtype=torch.long)
-                if len(target_loss_weights) != len(target_ids):
-                    raise ValueError(
-                        "SFTCollator constructed misaligned target loss weights. "
-                        f"sample_id={batch[row_index].get('sample_id')!r}, "
-                        f"target_ids={len(target_ids)}, target_loss_weights={len(target_loss_weights)}."
-                    )
-                target_loss_weight_tensor = torch.tensor(target_loss_weights, dtype=torch.float32)
                 input_ids = torch.cat([prefix_ids, target_tensor], dim=0)
                 labels = torch.cat(
                     [
                         torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long),
                         target_tensor.clone(),
-                    ],
-                    dim=0,
-                )
-                loss_weights = torch.cat(
-                    [
-                        torch.ones((prefix_ids.shape[0],), dtype=torch.float32),
-                        target_loss_weight_tensor,
                     ],
                     dim=0,
                 )
@@ -118,13 +92,11 @@ class SFTCollator:
             else:
                 input_ids = prefix_ids
                 labels = torch.full((prefix_ids.shape[0],), self.ignore_index, dtype=torch.long)
-                loss_weights = torch.ones((prefix_ids.shape[0],), dtype=torch.float32)
                 if prefix_mm_ids is not None:
                     mm_token_type_ids = prefix_mm_ids
             attention_mask = torch.ones_like(input_ids)
             final_input_ids.append(input_ids)
             final_labels.append(labels)
-            final_loss_weights.append(loss_weights)
             final_attention_masks.append(attention_mask)
             if prefix_mm_ids is not None:
                 final_mm_token_type_ids.append(mm_token_type_ids)
@@ -138,10 +110,6 @@ class SFTCollator:
             final_labels,
             padding_value=self.ignore_index,
         )
-        padded_loss_weights = self._pad_sequences(
-            final_loss_weights,
-            padding_value=1.0,
-        )
         padded_attention_masks = self._pad_sequences(
             final_attention_masks,
             padding_value=0,
@@ -151,7 +119,6 @@ class SFTCollator:
             "input_ids": padded_input_ids,
             "attention_mask": padded_attention_masks,
             "labels": padded_labels,
-            "loss_weights": padded_loss_weights,
             "pixel_values": prefix_batch["pixel_values"],
             "image_grid_thw": prefix_batch.get("image_grid_thw"),
             "prompt_lengths": torch.tensor(prompt_length_tensor, dtype=torch.long),
@@ -165,7 +132,6 @@ class SFTCollator:
                 "user_prompt": [item["user_prompt"] for item in batch],
                 "gt_struct": [item["gt_struct"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
-                "loss_meta": [item.get("loss_meta") for item in batch],
             },
         }
         if prefix_mm_token_type_ids is not None:
@@ -342,44 +308,6 @@ class SFTCollator:
         if max_pixels is not None:
             processor_kwargs["max_pixels"] = int(max_pixels)
         return self.processor(**processor_kwargs)
-
-    def _build_target_loss_weights(
-        self,
-        *,
-        item: dict[str, Any],
-        target_ids: list[int],
-        eos_id: int | None,
-    ) -> list[float]:
-        adapter = self._get_adapter_for_item(item)
-        target_weights = adapter.build_target_token_weights(
-            str(item["target_text"]),
-            loss_meta=item.get("loss_meta"),
-            tokenizer=self.tokenizer,
-        )
-        if target_weights is None:
-            raise ValueError(
-                "Adapter did not provide target token weights. "
-                f"sample_id={item.get('sample_id')!r}, route={item.get('route')!r}."
-            )
-        if len(target_weights) != len(target_ids):
-            raise ValueError(
-                "Adapter returned target token weights that do not match tokenizer output. "
-                f"sample_id={item.get('sample_id')!r}, route={item.get('route')!r}, "
-                f"target_ids={len(target_ids)}, target_weights={len(target_weights)}."
-            )
-
-        if self.add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
-            target_weights = target_weights + [1.0]
-        return target_weights
-
-    def _get_adapter_for_item(self, item: dict[str, Any]):
-        route_key = str(item["route"])
-        task_options = self.task_route_options.get(route_key, {})
-        return get_adapter_for_route(
-            route_key=route_key,
-            num_bins=self.num_bins,
-            task_options_key=tuple(sorted(dict(task_options).items())),
-        )
 
     def _build_messages(self, system_prompt: str, user_prompt: str) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []

@@ -33,24 +33,6 @@ class TaskAdapter(Protocol):
     def encode_target_text(self, gt_struct: dict, *, image_width: int, image_height: int) -> str:
         ...
 
-    def build_training_target(
-        self,
-        gt_struct: dict,
-        *,
-        image_width: int,
-        image_height: int,
-    ) -> dict:
-        ...
-
-    def build_target_token_weights(
-        self,
-        target_text: str,
-        *,
-        loss_meta: dict | None,
-        tokenizer,
-    ) -> list[float] | None:
-        ...
-
     def decode(self, text: str, *, image_width: int, image_height: int, strict: bool = False) -> dict:
         ...
 

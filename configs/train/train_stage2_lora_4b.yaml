@@ -25,7 +25,6 @@ task:
   route: keypoint_sequence/arrow
   route_options:
     keypoint_sequence/arrow:
-      coordinate_token_loss_weight: 1.3
       strict_point_distance_px: 8.0
 
 prompt:

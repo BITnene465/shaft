@@ -74,7 +74,7 @@ python scripts/arrow/prepare_stage2_data.py \
 - 训练集可多 padding 视图；验证集固定单视图（默认 `0.3`）。
 - 坐标转换到 crop-local 后再量化。
 - 当前 Stage2 prompt 使用固定语义，不再注入条件字段。
-- JSONL 保存结构化 GT；`target_text/loss_meta` 在 dataset 加载时由 codec 生成。
+- JSONL 保存结构化 GT；`target_text` 在 dataset 加载时由 codec 生成。
 
 产物：
 

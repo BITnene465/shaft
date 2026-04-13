@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
 
 import torch
 from PIL import Image
@@ -81,12 +80,6 @@ class _RecordingProcessor:
         }
 
 
-class _DummyAdapter:
-    def build_target_token_weights(self, target_text, *, loss_meta, tokenizer):
-        del loss_meta
-        return [1.0] * len(tokenizer(target_text, add_special_tokens=False)["input_ids"])
-
-
 def _make_item(route: str, image: Image.Image) -> dict:
     return {
         "route": route,
@@ -98,7 +91,6 @@ def _make_item(route: str, image: Image.Image) -> dict:
         "system_prompt": "",
         "user_prompt": "predict",
         "target_text": "{\"ok\":1}",
-        "loss_meta": {},
         "gt_struct": {},
     }
 
@@ -113,7 +105,6 @@ class RoutePixelBudgetCollatorTests(unittest.TestCase):
         collator = SFTCollator(
             processor=self.processor,
             tokenizer=self.tokenizer,
-            num_bins=1000,
             route_pixel_budgets={
                 "grounding/arrow": {"min_pixels": 100, "max_pixels": 200},
                 "keypoint_sequence/arrow": {"min_pixels": 300, "max_pixels": 400},
@@ -126,8 +117,7 @@ class RoutePixelBudgetCollatorTests(unittest.TestCase):
             _make_item("keypoint_sequence/arrow", self.image),
             _make_item("grounding/arrow", self.image),
         ]
-        with patch("vlm_structgen.core.data.collator.get_adapter_for_route", return_value=_DummyAdapter()):
-            output = collator(batch)
+        output = collator(batch)
 
         self.assertEqual(len(self.processor.calls), 2)
         budgets = {(call["min_pixels"], call["max_pixels"]) for call in self.processor.calls}
@@ -141,7 +131,6 @@ class RoutePixelBudgetCollatorTests(unittest.TestCase):
         collator = SFTCollator(
             processor=self.processor,
             tokenizer=self.tokenizer,
-            num_bins=1000,
             route_pixel_budgets={
                 "grounding/arrow": {"min_pixels": 100, "max_pixels": 200},
                 "keypoint_sequence/arrow": {"min_pixels": 100, "max_pixels": 200},
@@ -153,8 +142,7 @@ class RoutePixelBudgetCollatorTests(unittest.TestCase):
             _make_item("grounding/arrow", self.image),
             _make_item("keypoint_sequence/arrow", self.image),
         ]
-        with patch("vlm_structgen.core.data.collator.get_adapter_for_route", return_value=_DummyAdapter()):
-            _ = collator(batch)
+        _ = collator(batch)
 
         self.assertEqual(len(self.processor.calls), 1)
         self.assertEqual(self.processor.calls[0]["batch_size"], 2)

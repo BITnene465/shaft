@@ -24,6 +24,7 @@ class FakeVLLMClient:
         max_tokens: int,
         temperature: float = 0.0,
         top_p: float = 1.0,
+        mm_processor_kwargs: dict[str, int] | None = None,
     ) -> str:
         self.calls.append(
             {
@@ -33,11 +34,12 @@ class FakeVLLMClient:
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "top_p": top_p,
+                "mm_processor_kwargs": mm_processor_kwargs,
             }
         )
-        if model == "grounding_arrow":
+        if "bbox_2d" in prompt:
             return '[{"label":"single_arrow","bbox_2d":[100,200,300,400]}]'
-        if model == "keypoint_sequence_arrow":
+        if "keypoints_2d" in prompt:
             return '{"keypoints_2d":[[10,20],[30,40]]}'
         raise AssertionError(f"unexpected model: {model}")
 
@@ -53,14 +55,16 @@ class DeployArrowAccessTest(unittest.TestCase):
             result = pipeline.predict_two_stage(image)
 
         self.assertEqual(len(fake_client.calls), 2)
-        self.assertEqual(fake_client.calls[0]["model"], "grounding_arrow")
-        self.assertEqual(fake_client.calls[1]["model"], "keypoint_sequence_arrow")
+        self.assertEqual(fake_client.calls[0]["model"], config.stage1.route)
+        self.assertEqual(fake_client.calls[1]["model"], config.stage2.route)
         self.assertEqual(fake_client.calls[0]["max_tokens"], 2048)
         self.assertEqual(fake_client.calls[1]["max_tokens"], 64)
         self.assertEqual(fake_client.calls[0]["temperature"], 0.0)
         self.assertEqual(fake_client.calls[1]["temperature"], 0.0)
         self.assertEqual(fake_client.calls[0]["top_p"], 1.0)
         self.assertEqual(fake_client.calls[1]["top_p"], 1.0)
+        self.assertIsNotNone(fake_client.calls[0]["mm_processor_kwargs"])
+        self.assertIsNotNone(fake_client.calls[1]["mm_processor_kwargs"])
         self.assertEqual(result.stage1.decoded["instances"][0]["label"], "single_arrow")
         self.assertEqual(len(result.final_prediction["instances"]), 1)
         self.assertEqual(len(result.final_prediction["instances"][0]["keypoints"]), 2)
@@ -77,6 +81,8 @@ class DeployArrowAccessTest(unittest.TestCase):
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.9,
+                min_pixels=config.stage1.min_pixels,
+                max_pixels=config.stage1.max_pixels,
             ),
             stage2=type(config.stage2)(
                 route=config.stage2.route,
@@ -85,6 +91,8 @@ class DeployArrowAccessTest(unittest.TestCase):
                 do_sample=True,
                 temperature=0.6,
                 top_p=0.8,
+                min_pixels=config.stage2.min_pixels,
+                max_pixels=config.stage2.max_pixels,
             ),
             padding_ratio=config.padding_ratio,
         )

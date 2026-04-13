@@ -80,7 +80,6 @@ class StructuredGTSourceTests(unittest.TestCase):
                 "system_prompt": "",
                 "user_prompt": "",
                 "target_text": "{\"keypoints_2d\":[[999,999],[999,999]]}",
-                "loss_meta": {"field_char_spans": {"coordinates": [[0, 3]]}},
                 "gt_struct": {
                     "task_type": "keypoint_sequence",
                     "domain_type": "arrow",
@@ -108,18 +107,18 @@ class StructuredGTSourceTests(unittest.TestCase):
             sample = dataset[0]
 
             adapter = build_keypoint_sequence_adapter(domain_type="arrow", num_bins=1000, task_options={})
-            expected_training_target = adapter.build_training_target(
+            expected_target_text = adapter.encode_target_text(
                 record["gt_struct"],
                 image_width=record["image_width"],
                 image_height=record["image_height"],
             )
 
-            self.assertEqual(sample["target_text"], expected_training_target["target_text"])
-            self.assertEqual(sample["loss_meta"], expected_training_target["loss_meta"])
+            self.assertEqual(sample["target_text"], expected_target_text)
+            self.assertNotIn("loss_meta", sample)
             self.assertNotEqual(sample["target_text"], record["target_text"])
 
             lengths = dataset.get_target_token_lengths(DummyTokenizer())
-            self.assertEqual(lengths, [len(expected_training_target["target_text"])])
+            self.assertEqual(lengths, [len(expected_target_text)])
 
     def test_dataset_supports_route_level_prompt_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

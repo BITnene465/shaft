@@ -342,17 +342,35 @@ def _raise_deprecated_config_keys(yaml_payload: dict[str, Any]) -> None:
         route_options_payload = task_payload.get("route_options")
         if isinstance(route_options_payload, dict):
             legacy_pixel_budget_routes: dict[str, list[str]] = {}
+            legacy_token_weight_routes: dict[str, list[str]] = {}
             for route_key, route_options in route_options_payload.items():
                 if not isinstance(route_options, dict):
                     continue
                 used_keys = [key for key in ("min_pixels", "max_pixels") if key in route_options]
                 if used_keys:
                     legacy_pixel_budget_routes[str(route_key)] = used_keys
+                removed_token_weight_keys = [
+                    key
+                    for key in (
+                        "bbox_token_loss_weight",
+                        "label_token_loss_weight",
+                        "coordinate_token_loss_weight",
+                    )
+                    if key in route_options
+                ]
+                if removed_token_weight_keys:
+                    legacy_token_weight_routes[str(route_key)] = removed_token_weight_keys
             if legacy_pixel_budget_routes:
                 raise ValueError(
                     "Per-route pixel budget fields in task.route_options have been removed. "
                     "Please migrate them to data.route_pixel_budgets. "
                     f"Found: {legacy_pixel_budget_routes}"
+                )
+            if legacy_token_weight_routes:
+                raise ValueError(
+                    "Token-weighted loss fields in task.route_options have been removed. "
+                    "The training loop now uses standard SFT cross-entropy loss only. "
+                    f"Found: {legacy_token_weight_routes}"
                 )
     train_payload = yaml_payload.get("train")
     if isinstance(train_payload, dict):

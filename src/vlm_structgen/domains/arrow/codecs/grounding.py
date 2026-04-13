@@ -8,63 +8,24 @@ from vlm_structgen.domains.arrow.schema import ARROW_LABELS
 
 class GroundingCodec(ArrowCodec):
     def encode(self, gt_struct: dict[str, Any], image_width: int, image_height: int) -> str:
-        payload, _loss_meta = self.encode_with_loss_meta(
-            gt_struct,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        return payload
-
-    def encode_with_loss_meta(
-        self,
-        gt_struct: dict[str, Any],
-        image_width: int,
-        image_height: int,
-    ) -> tuple[str, dict[str, Any]]:
         instances = gt_struct.get("instances", [])
-        parts: list[str] = ["["]
-        cursor = 1
-        label_spans: list[list[int]] = []
-        bbox_spans: list[list[int]] = []
-
-        def append(text: str) -> None:
-            nonlocal cursor
-            parts.append(text)
-            cursor += len(text)
-
+        payload: list[dict[str, Any]] = []
         for instance in instances:
             bbox = instance.get("bbox", [])
             if len(bbox) != 4:
                 raise ValueError("Grounding instances must contain bbox with 4 values.")
-            if cursor > 1:
-                append(",")
-            append('{"label":"')
-            label_text = str(instance.get("label", ""))
-            label_start = cursor
-            append(label_text)
-            label_spans.append([label_start, cursor])
-            append('","bbox_2d":[')
-            bbox_values = [
-                self._quantize(float(bbox[0]), image_width),
-                self._quantize(float(bbox[1]), image_height),
-                self._quantize(float(bbox[2]), image_width),
-                self._quantize(float(bbox[3]), image_height),
-            ]
-            for coord_index, coord in enumerate(bbox_values):
-                if coord_index > 0:
-                    append(",")
-                coord_text = str(int(coord))
-                coord_start = cursor
-                append(coord_text)
-                bbox_spans.append([coord_start, cursor])
-            append("]}")
-        append("]")
-        return "".join(parts), {
-            "field_char_spans": {
-                "label": label_spans,
-                "bbox_2d": bbox_spans,
-            }
-        }
+            payload.append(
+                {
+                    "label": str(instance.get("label", "")),
+                    "bbox_2d": [
+                        self._quantize(float(bbox[0]), image_width),
+                        self._quantize(float(bbox[1]), image_height),
+                        self._quantize(float(bbox[2]), image_width),
+                        self._quantize(float(bbox[3]), image_height),
+                    ],
+                }
+            )
+        return self._dump_json(payload)
 
     def decode_with_meta(
         self,

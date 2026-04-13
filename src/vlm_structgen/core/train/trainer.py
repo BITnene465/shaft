@@ -11,7 +11,6 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 
 from vlm_structgen.core.config import ExperimentRuntimeConfig, config_to_dict
-from vlm_structgen.core.train.weighted_loss import compute_weighted_token_ce_loss
 from vlm_structgen.core.routing import decode_route_token, encode_route_token, route_metric_label
 from vlm_structgen.core.utils.checkpoint import (
     load_initial_model_checkpoint,
@@ -157,7 +156,9 @@ class Trainer:
         )
         with autocast_context:
             outputs = self.model(**model_inputs)
-            loss = compute_weighted_token_ce_loss(outputs, batch) / self.config.train.grad_accum_steps
+            if outputs.loss is None:
+                raise ValueError("Model did not return loss. Ensure labels are included in model inputs.")
+            loss = outputs.loss / self.config.train.grad_accum_steps
         loss.backward()
 
         self._accumulated_micro_steps += 1

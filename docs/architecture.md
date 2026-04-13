@@ -14,7 +14,7 @@
 
 ```text
 core      -> 通用训练/推理/评估/数据管线
-tasks     -> 任务语义、任务 loss、任务指标、任务 adapter
+tasks     -> 任务语义、任务指标、任务 adapter
 domains   -> 域语义、codec、排序规则、数据准备、域推理约定
 ```
 
@@ -66,7 +66,7 @@ route = <route_id>
 关键点：
 
 - `codec` 负责结构化 GT 与文本监督转换。
-- `loss_meta` 由 codec 生成，供 weighted token loss 使用。
+- 训练损失统一使用模型标准 `outputs.loss`（next-token CE）。
 
 ## 5. 训练与混训
 
