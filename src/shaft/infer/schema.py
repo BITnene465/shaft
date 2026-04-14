@@ -9,6 +9,7 @@ class InferGenerationConfig:
     do_sample: bool = False
     temperature: float = 0.0
     top_p: float = 1.0
+    top_k: int = 50
     repetition_penalty: float = 1.0
 
 
@@ -21,6 +22,11 @@ class InferModelConfig:
     attn_implementation: str | None = "flash_attention_2"
     torch_dtype: str = "bfloat16"
     finetune_mode: str = "full"
+    backend: str = "hf_local"
+    endpoint: str | None = None
+    api_key: str | None = None
+    served_model_name: str | None = None
+    request_timeout_seconds: float = 60.0
     device: str | None = None
     min_pixels: int | None = None
     max_pixels: int | None = None
@@ -35,6 +41,14 @@ class InferStageConfig:
     output_key: str | None = None
     system_prompt: str = ""
     generation: InferGenerationConfig | None = None
+    codec: str = "text"
+    min_pixels: int | None = None
+    max_pixels: int | None = None
+    backend_options: dict[str, object] = field(default_factory=dict)
+    max_retries: int = 0
+    retry_backoff_seconds: float = 0.0
+    fail_fast: bool = True
+    timeout_seconds: float | None = None
 
 
 @dataclass

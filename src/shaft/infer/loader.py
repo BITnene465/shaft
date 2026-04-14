@@ -6,6 +6,7 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 
+from .codec import CODEC_REGISTRY
 from .schema import InferPipelineConfig
 
 T = TypeVar("T")
@@ -88,5 +89,60 @@ def load_infer_config(path: str | Path) -> InferPipelineConfig:
         payload = yaml.safe_load(handle) or {}
     if not isinstance(payload, dict):
         raise TypeError("Infer config root must be a mapping.")
-    return _build_dataclass(InferPipelineConfig, payload)
+    config = _build_dataclass(InferPipelineConfig, payload)
+    _validate_infer_config(config)
+    return config
 
+
+def _validate_infer_config(config: InferPipelineConfig) -> None:
+    if not config.engines:
+        raise ValueError("Infer config requires at least one engine.")
+    if not config.stages:
+        raise ValueError("Infer config requires at least one stage.")
+    known_engines = set(config.engines.keys())
+    for name, engine in config.engines.items():
+        backend = str(engine.backend).strip().lower()
+        if backend not in {"hf_local", "vllm_openai"}:
+            raise ValueError(
+                f"engines.{name}.backend={engine.backend!r} is unsupported. "
+                "Expected one of {'hf_local', 'vllm_openai'}."
+            )
+        if backend == "vllm_openai":
+            endpoint = str(engine.endpoint or "").strip()
+            if not endpoint:
+                raise ValueError(f"engines.{name}.endpoint is required when backend='vllm_openai'.")
+            if float(engine.request_timeout_seconds) <= 0:
+                raise ValueError(f"engines.{name}.request_timeout_seconds must be > 0.")
+            model_name = str(engine.served_model_name or engine.model_name_or_path).strip()
+            if not model_name:
+                raise ValueError(
+                    f"engines.{name}.served_model_name or model_name_or_path must be non-empty."
+                )
+    for index, stage in enumerate(config.stages):
+        if stage.engine not in known_engines:
+            raise ValueError(
+                f"stages[{index}].engine={stage.engine!r} not found in engines: {sorted(known_engines)}."
+            )
+        if int(stage.max_retries) < 0:
+            raise ValueError(f"stages[{index}].max_retries must be >= 0.")
+        if float(stage.retry_backoff_seconds) < 0:
+            raise ValueError(f"stages[{index}].retry_backoff_seconds must be >= 0.")
+        if stage.timeout_seconds is not None and float(stage.timeout_seconds) <= 0:
+            raise ValueError(f"stages[{index}].timeout_seconds must be > 0.")
+        if stage.min_pixels is not None and int(stage.min_pixels) <= 0:
+            raise ValueError(f"stages[{index}].min_pixels must be > 0.")
+        if stage.max_pixels is not None and int(stage.max_pixels) <= 0:
+            raise ValueError(f"stages[{index}].max_pixels must be > 0.")
+        if stage.min_pixels is not None and stage.max_pixels is not None:
+            if int(stage.min_pixels) > int(stage.max_pixels):
+                raise ValueError(
+                    f"stages[{index}].min_pixels must be <= max_pixels."
+                )
+        if not isinstance(stage.backend_options, dict):
+            raise ValueError(f"stages[{index}].backend_options must be a mapping.")
+        codec_name = str(stage.codec).strip().lower()
+        if not CODEC_REGISTRY.has(codec_name):
+            raise ValueError(
+                f"stages[{index}].codec={stage.codec!r} is unregistered. "
+                f"Registered codecs: {sorted(CODEC_REGISTRY.keys())}."
+            )

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import time
+
+import pytest
+
 from shaft.infer.engine import InferRequest, InferResponse
 from shaft.infer.pipeline import InferPipeline
 from shaft.infer.schema import InferStageConfig
@@ -12,6 +17,38 @@ class _DummyEngine:
     def run(self, request: InferRequest) -> InferResponse:
         text = f"{self.tag}:{request.user_prompt}"
         return InferResponse(text=text, prompt=request.user_prompt, output_ids=[1, 2, 3])
+
+
+class _FlakyEngine:
+    def __init__(self, *, fail_times: int, payload: str):
+        self.fail_times = int(fail_times)
+        self.payload = payload
+        self.calls = 0
+
+    def run(self, request: InferRequest) -> InferResponse:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("temporary failure")
+        return InferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[4, 5, 6])
+
+
+class _SlowEngine:
+    def __init__(self, *, sleep_seconds: float, payload: str):
+        self.sleep_seconds = float(sleep_seconds)
+        self.payload = payload
+
+    def run(self, request: InferRequest) -> InferResponse:
+        time.sleep(self.sleep_seconds)
+        return InferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[7, 8, 9])
+
+
+class _RecorderEngine:
+    def __init__(self):
+        self.last_request: InferRequest | None = None
+
+    def run(self, request: InferRequest) -> InferResponse:
+        self.last_request = request
+        return InferResponse(text="ok", prompt=request.user_prompt, output_ids=[10])
 
 
 def test_multistage_multi_engine_orchestration() -> None:
@@ -41,3 +78,138 @@ def test_multistage_multi_engine_orchestration() -> None:
     assert outputs["det_out"].startswith("det:")
     assert outputs["det_out"] in outputs["struct_out"]
     assert len(outputs["__trace__"]) == 2
+
+
+def test_stage_codec_parses_json_object() -> None:
+    payload = json.dumps({"score": 0.9, "ok": True}, ensure_ascii=False)
+    pipeline = InferPipeline(
+        engines={"det": _FlakyEngine(fail_times=0, payload=payload)},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="json_object",
+            )
+        ],
+    )
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert isinstance(outputs["det_out"], dict)
+    assert outputs["det_out"]["ok"] is True
+    assert outputs["det_out__raw"] == payload
+    trace = outputs["__trace__"][0]
+    assert trace.success is True
+    assert trace.codec == "json_object"
+
+
+def test_stage_retry_then_success() -> None:
+    pipeline = InferPipeline(
+        engines={"det": _FlakyEngine(fail_times=1, payload='{"ok":1}')},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="json_object",
+                max_retries=2,
+                retry_backoff_seconds=0.0,
+            )
+        ],
+    )
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert outputs["det_out"]["ok"] == 1
+    trace = outputs["__trace__"][0]
+    assert trace.success is True
+    assert trace.attempts == 2
+    assert trace.history is not None
+    assert trace.history[0].success is False
+    assert trace.history[1].success is True
+
+
+def test_stage_fail_fast_false_does_not_raise() -> None:
+    pipeline = InferPipeline(
+        engines={"det": _FlakyEngine(fail_times=3, payload="{}")},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="json_object",
+                max_retries=1,
+                fail_fast=False,
+            )
+        ],
+    )
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert outputs["det_out"] is None
+    assert isinstance(outputs["det_out__error"], str)
+    trace = outputs["__trace__"][0]
+    assert trace.success is False
+    assert trace.attempts == 2
+
+
+def test_stage_fail_fast_true_raises() -> None:
+    pipeline = InferPipeline(
+        engines={"det": _FlakyEngine(fail_times=2, payload="{}")},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="json_object",
+                max_retries=0,
+                fail_fast=True,
+            )
+        ],
+    )
+    with pytest.raises(RuntimeError, match="failed after"):
+        pipeline.run(image_path="/tmp/fake.png", inputs={})
+
+
+def test_stage_timeout_marks_failure_when_not_fail_fast() -> None:
+    pipeline = InferPipeline(
+        engines={"det": _SlowEngine(sleep_seconds=0.02, payload='{"ok":1}')},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="json_object",
+                timeout_seconds=0.001,
+                fail_fast=False,
+            )
+        ],
+    )
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert outputs["det_out"] is None
+    assert "timeout" in outputs["det_out__error"].lower()
+
+
+def test_stage_runtime_overrides_are_passed_to_engine_request() -> None:
+    recorder = _RecorderEngine()
+    pipeline = InferPipeline(
+        engines={"det": recorder},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                output_key="det_out",
+                user_prompt_template="locate arrows",
+                codec="text",
+                min_pixels=200704,
+                max_pixels=1048576,
+                backend_options={"seed": 7},
+            )
+        ],
+    )
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert outputs["det_out"] == "ok"
+    assert recorder.last_request is not None
+    assert recorder.last_request.min_pixels == 200704
+    assert recorder.last_request.max_pixels == 1048576
+    assert recorder.last_request.backend_options == {"seed": 7}
