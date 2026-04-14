@@ -1,64 +1,44 @@
-# AGENTS 开发约束
+# AGENTS 开发约束（重构期）
 
 ## 1. 项目定位
 
-- 仓库是 `Qwen3-VL` 上的多模态结构化生成框架。
-- Python 包名：`vlm_structgen`。
-- 当前正式 domain：`arrow`。
-- 当前正式 task：
-  - `grounding`
-  - `keypoint_sequence`
-  - `joint_structure`
+- 仓库正在重构为“HF-first 的多模态训练框架”。
+- 旧实现已迁移到 `old/`，新开发只在 `src/shaft` 主路径进行。
 
-## 2. 三层边界（硬约束）
+## 2. 模块边界
 
-- `core`：通用训练/推理/评估/数据编排
-- `tasks`：任务语义、任务 loss/metric、adapter
-- `domains`：codec、排序规则、数据准备、域推理约定
+- `config`：配置定义与严格校验。
+- `data`：数据读取、离线/在线增强、样本级 mixing、collator。
+- `model`：多模型适配（Qwen3VL/GLM/Gemma 等）。
+- `algorithms`：`sft/dpo/ppo` 等训练算法抽象。
+- `pipeline`：训练流水线编排（组件装配与阶段调度）。
+- `plugins`：注册表、hook、拦截器。
 
 禁止：
 
-- 在 `core` 注入业务字段语义
-- 在 `tasks` 注入域内数据准备细节
-- 在 `domains` 注入通用训练编排逻辑
+- 在训练内核写任务字段级语义解析。
+- 在数据层写训练循环逻辑。
+- 在算法层耦合具体数据来源路径。
 
-## 3. 路由与监督原则
+## 3. 训练与保存原则
 
-- route 必须显式：`task_type/domain_type`。
-- route 可来自：
-  - 配置 `data.registry_path + train_datasets/val_datasets`（推荐）
-  - 样本字段 `task_type/domain_type`
-- 禁止隐式猜 route。
-- codec 是监督真源，prompt 不是监督真源。
-- trainer 不做字段级 JSON 反解析。
+- 训练与保存遵循 Hugging Face 生态（Trainer/TrainingArguments）。
+- 训练主目标统一是 next-token prediction（SFT 阶段）。
+- DPO/PPO 可作为算法扩展接入，不改变数据与运行时内核。
 
-## 4. 混训原则
+## 4. 配置与 CLI 原则
 
-- 当前支持样本级混训。
-- 同一 batch 可混多个 route。
-- 采样策略在 `core.data`，由配置驱动。
-- 最佳模型应以结构化验证指标（如 `val/multi_task_score`）为主。
+- 入口脚本：`scripts/train.py`（顶层编排，子命令如 `sft`/`rlhf`）；任务命令定义在 `src/shaft/cli`。
+- YAML 为主，CLI 只允许无歧义覆写（run-id/seed/epochs/lr/mix-strategy/resume）。
 
-## 5. 配置与 CLI 原则
+## 5. 测试驱动
 
-- 训练主入口：`scripts/train.py`。
-- 以 YAML 为主，CLI 只允许无歧义覆写（如 run-id、seed、epochs、lr、mix-strategy、init/resume）。
-- 不新增会破坏 route 绑定的路径级歧义参数。
+- 所有新增内核能力必须配套单测。
+- 先写/先改测试，再补实现。
+- 提交前至少跑通当前重构路径下的测试集。
 
-## 6. 变更纪律
+## 6. 协作风格
 
-若修改以下任一项，必须同步更新代码与文档：
-
-- 数据准备
-- codec
-- task adapter
-- evaluator
-- infer/demo/deploy
-- 配置文件
-- 文档
-
-## 7. 协作风格
-
-- 工程沟通直接、务实、少废话。
-- 优先先改代码再汇报。
-- 未经明确要求，不擅自启动长训练任务。
+- 先改代码再汇报。
+- 进度同步简短直接。
+- 未经明确要求，不启动长训练任务。

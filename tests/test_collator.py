@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import torch
+from PIL import Image
+
+from shaft.data import SFTCollator
+
+
+class _FakeTokenizer:
+    eos_token_id = 2
+    pad_token_id = 0
+    eos_token = "</s>"
+
+    def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
+        ids = []
+        for text in texts:
+            token_count = max(len(str(text).split()), 1)
+            ids.append([10 + i for i in range(token_count)])
+        return {"input_ids": ids}
+
+
+class _FakeProcessor:
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        _ = tokenize, add_generation_prompt
+        return " ".join(chunk.get("text", "") for m in messages for chunk in m.get("content", []))
+
+    def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
+        _ = text, images, padding, return_tensors, kwargs
+        input_ids = torch.tensor([[1, 2, 3], [1, 2, 0]], dtype=torch.long)
+        attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]], dtype=torch.long)
+        pixel_values = torch.randn(2, 3, 2, 2)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+        }
+
+
+def test_sft_collator_builds_labels() -> None:
+    collator = SFTCollator(processor=_FakeProcessor(), tokenizer=_FakeTokenizer())
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    batch = [
+        {
+            "dataset_id": "a",
+            "sample_id": "a1",
+            "image_path": "/tmp/a.png",
+            "image": image,
+            "target_text": "{\"k\":1}",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+        {
+            "dataset_id": "b",
+            "sample_id": "b1",
+            "image_path": "/tmp/b.png",
+            "image": image,
+            "target_text": "{\"k\":2}",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+    ]
+    out = collator(batch)
+    assert "labels" in out
+    assert out["input_ids"].shape[0] == 2
+    assert out["labels"].shape[0] == 2
+    assert "dataset_id" in out["meta"]

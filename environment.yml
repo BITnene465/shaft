@@ -1,4 +1,4 @@
-name: vlm_structgen
+name: shaft
 channels:
   - pytorch
   - conda-forge

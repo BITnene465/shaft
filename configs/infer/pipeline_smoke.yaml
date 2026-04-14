@@ -1,0 +1,21 @@
+engines:
+  smoke:
+    model_type: smoke_vlm
+    model_name_or_path: unused
+    device: cpu
+    generation:
+      max_new_tokens: 32
+      do_sample: false
+      temperature: 0.0
+
+stages:
+  - name: detect
+    engine: smoke
+    output_key: det_out
+    user_prompt_template: "Locate arrows and output JSON."
+
+  - name: refine
+    engine: smoke
+    output_key: final_out
+    user_prompt_template: "Refine based on previous output: {det_out}"
+
