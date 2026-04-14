@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import copy
 from typing import Any
 
 import torch
@@ -159,23 +160,42 @@ class InferEngine:
 
     @torch.no_grad()
     def _generate(self, *, batch: dict[str, Any], generation: InferGenerationConfig) -> torch.Tensor:
-        kwargs = {
-            "max_new_tokens": int(generation.max_new_tokens),
-            "do_sample": bool(generation.do_sample),
-            "top_p": float(generation.top_p),
-            "repetition_penalty": float(generation.repetition_penalty),
-        }
-        if generation.do_sample:
-            kwargs["temperature"] = float(generation.temperature)
+        do_sample = bool(generation.do_sample)
+        gen_config = getattr(self.model, "generation_config", None)
+        if gen_config is None:
+            kwargs = {
+                "max_new_tokens": int(generation.max_new_tokens),
+                "do_sample": do_sample,
+                "repetition_penalty": float(generation.repetition_penalty),
+            }
+            if do_sample:
+                kwargs["top_p"] = float(generation.top_p)
+                kwargs["temperature"] = float(generation.temperature)
+            return self.model.generate(**batch, **kwargs)
+
+        gen_config = copy.deepcopy(gen_config)
+        gen_config.max_new_tokens = int(generation.max_new_tokens)
+        gen_config.do_sample = do_sample
+        gen_config.repetition_penalty = float(generation.repetition_penalty)
+        if do_sample:
+            gen_config.top_p = float(generation.top_p)
+            gen_config.temperature = float(generation.temperature)
         else:
-            kwargs["temperature"] = 0.0
+            # Avoid invalid sampling-only warning flags in GenerationConfig validate.
+            gen_config.top_p = 1.0
+            gen_config.top_k = 50
+            gen_config.temperature = 1.0
         eos_token_id = getattr(self.tokenizer, "eos_token_id", None)
         if eos_token_id is not None:
-            kwargs["eos_token_id"] = int(eos_token_id)
+            gen_config.eos_token_id = int(eos_token_id)
         pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
         if pad_token_id is not None:
-            kwargs["pad_token_id"] = int(pad_token_id)
-        return self.model.generate(**batch, **kwargs)
+            gen_config.pad_token_id = int(pad_token_id)
+
+        return self.model.generate(
+            **batch,
+            generation_config=gen_config,
+        )
 
     def _decode(self, token_ids: torch.Tensor) -> str:
         return self.template.decode(tokenizer=self.tokenizer, token_ids=token_ids.tolist())

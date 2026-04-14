@@ -65,4 +65,8 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q"
+addopts = "-q -m 'not integration and not manual'"
+markers = [
+  "integration: marks tests that run integration workflow (model loading / real inference).",
+  "manual: marks tests that should be executed manually only.",
+]

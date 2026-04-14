@@ -106,6 +106,19 @@
   - `sft.py`：`sft` 命令。
   - `rlhf.py`：`rlhf --algorithm` 命令骨架。
 
+## 1.11 `tests`（测试边界）
+
+- 单元测试（默认执行）：位于 `tests/`，验证接口与轻量逻辑。
+- 集成测试：通过 marker 标记，默认在 `pytest` 默认命令中跳过。
+- 手工测试：用于外部资源依赖/耗时较高场景，配合 manual marker。
+
+- `tests/test_integration_qwen_standard.py`：Qwen3VL 标准模型构建与对话链路。
+- `tests/test_infer_engine.py`：推理引擎参数整理与输入输出行为。
+- 标准运行策略：
+  - CI/日常：`pytest -q`
+  - 集成验证：`pytest -q -m integration`
+  - 手工验证：`pytest -q -m manual`
+
 ## 2. 关键边界映射（“谁负责什么”）
 
 - 数据字段（如 `dataset_id`, `system_prompt`, `user_prompt`）的解释只在 `data` 层完成。
@@ -118,4 +131,3 @@
 - 多数据源、多 jsonl、加权混合、`interleave_*`、`concat` 已在 `data` 层实现。
 - 单卡/多卡基础训练、resume/init 路径校验、HF 风格 checkpoints 与 adapter/full 流水线已接通。
 - 多模型推理引擎与多阶段推理管线可配置化执行。
-

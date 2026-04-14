@@ -52,7 +52,7 @@ class Qwen3VLLoader(ModelLoader):
         finetune.target_modules = model_meta.resolve_target_modules(finetune.target_modules)
         common_kwargs = {
             "trust_remote_code": bool(config.model.trust_remote_code),
-            "torch_dtype": resolved_dtype,
+            "dtype": resolved_dtype,
         }
         if config.model.attn_implementation:
             common_kwargs["attn_implementation"] = config.model.attn_implementation

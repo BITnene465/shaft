@@ -67,3 +67,32 @@ plugins:
 - 当前模型注册仅启用 `qwen3vl`，其它模型后续按“每模型一实现文件”扩展。
 - 结构化任务语义评估会在后续以离线评估模块接入。
 - 新训练数据格式推荐使用 `messages`（尾部 assistant 作为监督目标）；兼容 legacy `target_text`。
+
+## 测试约定
+
+测试默认执行“快速回归测试”（排除耗时/重依赖测试）：
+
+```bash
+pytest -q
+```
+
+集成测试通过 marker 管理：
+
+- `integration`：包含模型加载、真实推理链路等耗时用例（默认跳过）。
+- `manual`：仅在人工可控环境执行的重型验证。
+
+本地常用命令：
+
+```bash
+pytest -q -m integration   # 只跑集成测试（一般需要本地模型与资源）
+pytest -q -m manual        # 只跑手工验证测试
+pytest -q -m "integration or manual"  # 临时跑所有重型验证
+```
+
+新增集成/手工用例约定：
+
+- 需有明确 `skip` 保护（如本地模型不存在时跳过）。
+- 失败路径与输出信息应明确（例如缺少模型权重、适配器未注册）。
+- 正式流水线默认仍执行 `pytest -q`（即跳过集成级用例）。
+
+更完整测试规范见：[docs/testing.md](docs/testing.md)
