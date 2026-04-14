@@ -1,6 +1,14 @@
 from .base import Algorithm, AlgorithmContext
+from .dpo import DPOAlgorithm
+from .ppo import PPOAlgorithm
 from .registry import ALGORITHM_REGISTRY
 from .sft import SFTAlgorithm
 
-__all__ = ["ALGORITHM_REGISTRY", "Algorithm", "AlgorithmContext", "SFTAlgorithm"]
-
+__all__ = [
+    "ALGORITHM_REGISTRY",
+    "Algorithm",
+    "AlgorithmContext",
+    "DPOAlgorithm",
+    "PPOAlgorithm",
+    "SFTAlgorithm",
+]

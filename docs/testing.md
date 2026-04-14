@@ -10,6 +10,7 @@
 
 - **integration**：`pytest -q -m integration`
   - 真实模型加载/推理链路。
+  - 包含推理编排集成测试（单阶段/多阶段），固定读取 `tests/fixtures/infer_images/` 下受 git 追踪的测试图片。
   - 默认不在主执行命令中运行（由 CI 配置排除）。
 
 - **manual**：`pytest -q -m manual`
@@ -29,6 +30,12 @@
 
 - 新加推理、训练关键改动后，先补对应单元测试。
 - 需要校验“真实流程”的场景，至少放一条 integration/manual 用例。
+- 新增算法（如 DPO/PPO）必须覆盖：
+  - 配置归一化校验（参数与 source_type 匹配）
+  - collator 行为
+  - trainer loss 前向
+  - pipeline smoke（最短可训练链路）
+- 现阶段 PPO 用例按 smoke 级别维护，不作为生产能力验收；细节见 `docs/ppo_todo.md`。
 - 用例命名遵循：`test_<模块>_<行为>_integration` 或 `test_<模块>_<行为>_manual`（非强制）。
 - 新增/修改 marker 时同步更新 `pyproject.toml`。
 
@@ -36,4 +43,3 @@
 
 - 与 README 的测试区块保持一致。
 - 与 `docs/architecture.md` 的测试边界描述保持一致。
-

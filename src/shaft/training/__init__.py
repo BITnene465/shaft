@@ -9,6 +9,7 @@ from .loss import LOSS_REGISTRY, build_loss, register_loss
 from .muon import Muon
 from .optimizer import OPTIMIZER_REGISTRY, build_optimizer, register_optimizer
 from .progress import ShaftProgressCallback
+from .rlhf import ShaftDPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .trainer import ShaftSFTTrainer
 
@@ -18,6 +19,8 @@ __all__ = [
     "SCHEDULER_REGISTRY",
     "Muon",
     "ShaftProgressCallback",
+    "ShaftDPOTrainer",
+    "ShaftPPOTrainer",
     "ShaftSFTTrainer",
     "barrier_if_distributed",
     "build_loss",

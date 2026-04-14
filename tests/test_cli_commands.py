@@ -42,7 +42,7 @@ def test_main_runs_rlhf_command() -> None:
         return {"ok": 1}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_train", side_effect=_fake_run):
+        with patch("shaft.cli.common.run_rlhf", side_effect=_fake_run):
             main(["rlhf", "--config", "dummy.yaml", "--algorithm", "dpo"])
     assert captured["algorithm"] == "dpo"
 

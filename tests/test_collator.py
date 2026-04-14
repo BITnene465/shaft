@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from PIL import Image
 
-from shaft.data import SFTCollator
+from shaft.data import DPOCollator, PPOCollator, SFTCollator
 from shaft.model import build_model_meta
 from shaft.template import build_template
 
@@ -75,3 +75,79 @@ def test_sft_collator_builds_labels() -> None:
     assert out["input_ids"].shape[0] == 2
     assert out["labels"].shape[0] == 2
     assert "dataset_id" in out["meta"]
+
+
+def test_dpo_collator_builds_pairwise_batches() -> None:
+    collator = DPOCollator(
+        model_meta=build_model_meta("smoke_vlm"),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+    )
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    batch = [
+        {
+            "dataset_id": "a",
+            "sample_id": "a1",
+            "image_path": "/tmp/a.png",
+            "image": image,
+            "chosen_text": "{\"ok\":1}",
+            "rejected_text": "{\"ok\":0}",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+        {
+            "dataset_id": "a",
+            "sample_id": "a2",
+            "image_path": "/tmp/a2.png",
+            "image": image,
+            "chosen_text": "{\"ok\":1}",
+            "rejected_text": "{\"ok\":0}",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+    ]
+    out = collator(batch)
+    assert out["input_ids"].shape[0] == 4
+    assert out["attention_mask"].shape == out["input_ids"].shape
+    assert out["completion_mask"].shape == out["input_ids"].shape
+    assert out["pixel_values"].shape[0] == 4
+
+
+def test_ppo_collator_builds_query_only_batch() -> None:
+    collator = PPOCollator(
+        model_meta=build_model_meta("smoke_vlm"),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+    )
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    batch = [
+        {
+            "dataset_id": "a",
+            "sample_id": "a1",
+            "image_path": "/tmp/a.png",
+            "image": image,
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+        {
+            "dataset_id": "a",
+            "sample_id": "a2",
+            "image_path": "/tmp/a2.png",
+            "image": image,
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+    ]
+    out = collator(batch)
+    assert out["input_ids"].shape[0] == 2
+    assert out["attention_mask"].shape == out["input_ids"].shape

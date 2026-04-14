@@ -13,9 +13,11 @@ stages:
     engine: smoke
     output_key: det_out
     user_prompt_template: "Locate arrows and output JSON."
+    codec: json_any
+    max_retries: 1
 
   - name: refine
     engine: smoke
     output_key: final_out
     user_prompt_template: "Refine based on previous output: {det_out}"
-
+    codec: text

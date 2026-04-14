@@ -29,6 +29,8 @@ def test_qwen3vl_standard_model_load_and_chat() -> None:
             model_name_or_path=str(model_path),
             template="qwen3vl",
             device="cpu",
+            attn_implementation=None,
+            torch_dtype="float32",
             generation=InferGenerationConfig(
                 max_new_tokens=32,
                 do_sample=False,

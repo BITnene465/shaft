@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from transformers.generation import GenerationMixin
 from transformers import PreTrainedModel, PretrainedConfig
+from transformers.processing_utils import ProcessorMixin
 from transformers.modeling_outputs import CausalLMOutput
 
 from shaft.config import RuntimeConfig
@@ -34,6 +35,9 @@ class SmokeVLMConfig(PretrainedConfig):
         super().__init__(**kwargs)
         self.vocab_size = int(vocab_size)
         self.hidden_size = int(hidden_size)
+        self.pad_token_id = 0
+        self.bos_token_id = 1
+        self.eos_token_id = 2
         self.tie_word_embeddings = False
         # Required by generation cache helpers in newer transformers.
         self.num_hidden_layers = 1
@@ -61,9 +65,13 @@ class SmokeVLMModel(PreTrainedModel, GenerationMixin):
         attention_mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         pixel_values: torch.Tensor | None = None,
+        output_hidden_states: bool = False,
+        return_dict: bool = True,
         **_: Any,
     ) -> CausalLMOutput:
         del attention_mask, pixel_values
+        if return_dict is None:
+            return_dict = True
         if input_ids is None:
             raise ValueError("input_ids is required.")
         hidden = self.embed_tokens(input_ids)
@@ -76,7 +84,11 @@ class SmokeVLMModel(PreTrainedModel, GenerationMixin):
                 labels.reshape(-1),
                 ignore_index=-100,
             )
-        return CausalLMOutput(loss=loss, logits=logits)
+        hidden_states = (hidden,) if output_hidden_states else None
+        output = CausalLMOutput(loss=loss, logits=logits, hidden_states=hidden_states)
+        if return_dict:
+            return output
+        return output.to_tuple()
 
     def prepare_inputs_for_generation(self, input_ids: torch.Tensor, **kwargs: Any):
         return {"input_ids": input_ids, **kwargs}
@@ -85,8 +97,10 @@ class SmokeVLMModel(PreTrainedModel, GenerationMixin):
 class SmokeTokenizer:
     vocab_size: int = 128
     pad_token_id: int = 0
+    bos_token_id: int = 1
     eos_token_id: int = 2
     pad_token: str = "<pad>"
+    bos_token: str = "<s>"
     eos_token: str = "</s>"
 
     def _encode(self, text: str) -> list[int]:
@@ -135,17 +149,33 @@ class SmokeTokenizer:
         payload = {
             "vocab_size": self.vocab_size,
             "pad_token_id": self.pad_token_id,
+            "bos_token_id": self.bos_token_id,
             "eos_token_id": self.eos_token_id,
             "pad_token": self.pad_token,
+            "bos_token": self.bos_token,
             "eos_token": self.eos_token,
         }
         (target / "smoke_tokenizer.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return [str(target)]
 
 
-class SmokeProcessor:
+class SmokeProcessor(ProcessorMixin):
+    attributes = ["tokenizer"]
+    tokenizer_class = "AutoTokenizer"
+
     def __init__(self, tokenizer: SmokeTokenizer):
         self.tokenizer = tokenizer
+
+    @property
+    def pad_token_id(self) -> int:
+        return int(self.tokenizer.pad_token_id)
+
+    @property
+    def eos_token_id(self) -> int:
+        return int(self.tokenizer.eos_token_id)
+
+    def batch_decode(self, sequences, skip_special_tokens: bool = True) -> list[str]:
+        return self.tokenizer.batch_decode(sequences, skip_special_tokens=skip_special_tokens)
 
     def apply_chat_template(self, messages: list[dict[str, Any]], tokenize: bool = False, add_generation_prompt: bool = True):
         return self.tokenizer.apply_chat_template(messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt)

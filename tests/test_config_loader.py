@@ -68,3 +68,40 @@ data:
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError):
         load_config(config_path)
+
+
+def test_algorithm_source_type_mismatch_raises(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: dpo
+data:
+  datasets:
+    - name: ds1
+      source_type: jsonl_sft
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_config(config_path)
+
+
+def test_rlhf_numeric_validation_raises(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: ppo
+data:
+  datasets:
+    - name: ds1
+      source_type: jsonl_ppo
+      train_path: train.jsonl
+      val_path: val.jsonl
+rlhf:
+  ppo:
+    cliprange: 1.5
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_config(config_path)

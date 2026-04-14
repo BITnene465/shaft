@@ -6,7 +6,7 @@ from typing import Any
 
 from shaft.config import RuntimeConfig, load_config
 from shaft.observability import bind_log_context, configure_logging, set_log_context
-from shaft.pipeline import run_train
+from shaft.pipeline import run_rlhf, run_train
 
 
 def _as_bool(text: str) -> bool:
@@ -137,6 +137,11 @@ def run_from_args(
 
     with bind_log_context(algorithm=config.algorithm.name):
         logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
-        metrics = run_train(config)
+        if config.algorithm.name == "sft":
+            metrics = run_train(config)
+        elif config.algorithm.name in {"dpo", "ppo"}:
+            metrics = run_rlhf(config)
+        else:
+            raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")
     logger.info("[done] train metrics: %s", metrics)
     return metrics

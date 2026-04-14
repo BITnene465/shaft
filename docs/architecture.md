@@ -1,133 +1,142 @@
 # Shaft 架构总览与边界
 
-本文档面向 `src/shaft` 的当前重构版本，定义可扩展边界和核心入口，避免后续实现踩到越界。
+本文档描述 `src/shaft` 当前可运行架构，重点用于指导后续 agent 扩展和重构，避免跨层越界。
 
-## 1. 层级与职责
+## 1. 顶层分层
 
-### 1.1 `config`（配置中心）
+### 1.1 `config`
 - 位置：`src/shaft/config`
-- 作用：统一配置定义、校验和加载。
-- 关键文件：
-  - `schema.py`：`RuntimeConfig`、`ModelConfig`、`DataConfig`、`SFTTrainConfig`、`SFTEvalConfig` 等。
-  - `loader.py`：YAML 配置反序列化。
-  - `normalize.py`：字段归一化/默认值补齐。
-- 约束：训练/算法/推理逻辑不能直接解析配置细节；都通过结构化对象读取固定字段。
+- 作用：配置 schema、YAML 加载、归一化校验。
+- 关键点：
+  - `RuntimeConfig` 是唯一入口对象。
+  - `algorithm.name` 当前支持：`sft` / `dpo` / `ppo`。
+  - `rlhf.dpo` / `rlhf.ppo` 为结构化配置，不再是无类型字典。
 
-### 1.2 `data`（数据系统）
+### 1.2 `data`
 - 位置：`src/shaft/data`
-- 作用：把上游数据转为 `SFTRecord`，不关心模型训练循环。
-- 关键文件：
-  - `sources.py`：`register_data_source`、`JsonlSFTDataSource`、`load_jsonl_records`。
-  - `transforms.py`：`build_offline_pipeline`、`build_online_pipeline`。
-  - `mixing.py`：`MixedDatasetBuilder` 与 `interleave_under/interleave_over/concat`。
-  - `dataset.py`：`SFTRecord` 数据模型。
-  - `collator.py`：`SFTCollator`（仅负责编码/组 batch）。
-- 约束：不出现训练循环/梯度/模型目标逻辑。
+- 作用：数据源注册、离线/在线 transform、样本级 mixing、dataset/collator。
+- 数据源：
+  - `jsonl_sft` -> `SFTRecord`
+  - `jsonl_dpo` -> `DPORecord`
+  - `jsonl_ppo` -> `PPORecord`
+- 关键点：
+  - JSONL 解析使用聚合报错，会汇总坏样本行号与错误原因。
+  - 训练循环、loss、优化器逻辑禁止进入数据层。
 
-### 1.3 `model`（模型族适配）
+### 1.3 `model`
 - 位置：`src/shaft/model`
-- 作用：模型加载与 PEFT 变体策略封装，暴露统一产物。
-- 关键文件：
-  - `registry.py`：`MODEL_REGISTRY`、`register_model`、`build_model_meta`。
-  - `types.py`：`ModelMeta/ModelLoader/ModelArtifacts/ModelCapabilities/ModelGroup`。
-  - `builder.py`：`build_model_tokenizer_processor`，统一入口（含 adapter/full 初始化）。
-  - `qwen3vl.py`：`Qwen3VLLoader`（按模型族实现）。
-- 约束：不直接拼 batch 不做数据层混合，不做分布式训练 orchestration。
+- 作用：模型族适配、processor/tokenizer/template 解析、finetune 策略注入。
+- 关键点：
+  - 统一入口：`build_model_tokenizer_processor`。
+  - `init_from_checkpoint` 支持 full 权重和 PEFT adapter 初始化。
+  - 模型族特化逻辑必须放在模型专属文件（例如 `qwen3vl.py`）。
 
-### 1.4 `template`（模板元信息）
+### 1.4 `template`
 - 位置：`src/shaft/template`
-- 作用：聊天模板与模型族模板映射。
-- 关键文件：
-  - `registry.py`：`TEMPLATE_REGISTRY`、`register_template`。
-  - `types.py`：`Template`/`TemplateMeta`。
-  - `base.py`：`ShaftChatTemplate`（通用模板骨架）。
-  - `qwen3vl.py`：`Qwen3VLTemplate`（模型族实现）。
-- 约束：模板只负责 prompt 组装与解码，不承担任务评估语义。
+- 作用：模板注册和 prompt 渲染抽象。
+- 关键点：
+  - 模板层只负责消息拼装与 decode，不负责任务语义解析。
 
-### 1.5 `algorithms`（算法注册层）
+### 1.5 `algorithms`
 - 位置：`src/shaft/algorithms`
-- 作用：算法抽象与实现接入。
-- 关键文件：
-  - `base.py`：`Algorithm` 协议。
-  - `registry.py`：`ALGORITHM_REGISTRY`、`register_algorithm`。
-  - `sft.py`：`SFTAlgorithm`（当前可运行路径）。
-  - `dpo.py`、`ppo.py`：占位接口。
-- 约束：算法层接收统一模型/数据对象，不直接改动数据层/模型层内部实现细节。
+- 作用：算法注册 + trainer 构建。
+- 当前算法：
+  - `SFTAlgorithm` -> `ShaftSFTTrainer`
+  - `DPOAlgorithm` -> `ShaftDPOTrainer`（TRL DPOTrainer 内核）
+  - `PPOAlgorithm` -> `ShaftPPOTrainer`（TRL PPOTrainer 内核）
+- 关键点：
+  - 算法层负责“如何训练”，不负责“如何读取数据文件”。
+  - DPO 当前为基础工业实现，不是 TRL 全特性对齐版本（例如多损失家族/复杂偏好采样策略尚未全部接入）。
 
-### 1.6 `pipeline`（编排层）
-- 位置：`src/shaft/pipeline/train.py`
-- 作用：把配置、模型、数据、算法组装为一次可执行训练流程。
-- 关键文件：
-  - `train.py`：`ShaftTrainPipeline`。
-  - `registry.py`：`register_pipeline`。
-- 流程核心：
-  - `build_datasets()` -> `SFTDataset`（离线/在线 transform + mixing）
-  - `build_model_tokenizer_processor()` -> `ModelArtifacts`
-  - 算法入口 `ALGORITHM_REGISTRY` -> trainer
-  - `trainer.train()` -> checkpoint/export
-- 约束：不承载模型适配细节，不写数据字段语义解析。
+### 1.6 `pipeline`
+- 位置：`src/shaft/pipeline`
+- 作用：按算法编排端到端训练流程。
+- 流水线：
+  - `shaft_train`：仅 `sft`
+  - `shaft_rlhf`：`dpo/ppo`
+- 关键点：
+  - SFT 与 RLHF 已分流，防止同一 pipeline 里塞 if-else 污染职责。
 
-### 1.7 `training`（训练内核）
+### 1.7 `training`
 - 位置：`src/shaft/training`
-- 作用：`Trainer` 扩展点和通用模块。
-- 关键文件：
-  - `trainer.py`：`ShaftSFTTrainer`，`compute_loss/create_optimizer/create_scheduler/evaluate/save` 重写点。
-  - `loss.py`：`LOSS_REGISTRY`，`auto`/`causal_lm`。
-  - `optimizer.py`：`OPTIMIZER_REGISTRY`（含 `muon`）。
-  - `scheduler.py`：`SCHEDULER_REGISTRY`（默认 cosine）。
-  - `checkpointing.py`：`ensure_hf_export_layout`、`validate_resume_checkpoint`。
-- 约束：loss/optimizer/scheduler 只负责训练内部策略，不做数据来源判断。
+- 作用：Trainer 扩展、loss/optimizer/scheduler 注册、checkpoint 规则。
+- 关键点：
+  - `ShaftSFTTrainer`
+  - `ShaftDPOTrainer`（TRL 包装类）
+  - `ShaftPPOTrainer`（TRL 包装类）
+  - `LOSS_REGISTRY` / `OPTIMIZER_REGISTRY` / `SCHEDULER_REGISTRY`
+  - checkpoint 校验：`ensure_hf_export_layout`、`validate_resume_checkpoint`
 
-### 1.8 `plugins`（横切能力）
+### 1.8 `plugins`
 - 位置：`src/shaft/plugins`
-- 作用：注册、Hook、Interceptor、Execution Proxy。
-- 关键文件：
-  - `registry.py`：通用 `Registry`。
-  - `hooks.py`：`@hook`、`HookManager`、`TrainerHookCallback`。
-  - `interceptors.py`：`@interceptor`、`interceptable`、`ExecutionProxy`（`proxy.py`）。
-  - `builtin_hooks.py`、`builtin_interceptors.py`：默认埋点。
-- 约束：横切逻辑只能做日志/监控/策略注入，不替代主流程职责。
+- 作用：hook/interceptor/proxy 横切机制。
+- 关键点：
+  - 插件只做横切增强（日志、监控、拦截），不替代主业务流程。
 
-### 1.9 `infer`（推理编排）
+### 1.9 `infer`
 - 位置：`src/shaft/infer`
-- 作用：推理引擎与多阶段编排。
-- 关键文件：
-  - `engine.py`：`InferEngine`（单模型/单阶段）。
-  - `pipeline.py`：`InferPipeline`（多引擎、多阶段）。
-  - `schema.py`：推理配置类型。
+- 作用：推理引擎与多阶段推理 pipeline。
+- 关键点：
+  - 与训练内核解耦，不依赖训练循环内部实现。
+  - `InferEngine` 使用 adapter 抽象（当前已实现 `hf_local` 与 `vllm_openai`）。
+  - pipeline 支持 stage 级 codec/retry/fail_fast，并输出 `__trace__` 便于后端排障。
 
-### 1.10 `cli`（命令入口）
+### 1.10 `cli`
 - 位置：`src/shaft/cli`
-- 作用：统一入口 `scripts/train.py` 与子命令注册。
-- 关键文件：
-  - `train.py`：`build_parser/main/_normalize_argv`。
-  - `registry.py`：`COMMAND_REGISTRY`、`register_command`。
-  - `common.py`：`add_common_train_args/apply_common_overrides/run_from_args`。
-  - `sft.py`：`sft` 命令。
-  - `rlhf.py`：`rlhf --algorithm` 命令骨架。
+- 作用：训练命令入口和参数覆写。
+- 命令：
+  - `scripts/train.py sft --config ...`
+  - `scripts/train.py rlhf --config ... --algorithm dpo|ppo`
 
-## 1.11 `tests`（测试边界）
+## 2. 关键边界（必须遵守）
 
-- 单元测试（默认执行）：位于 `tests/`，验证接口与轻量逻辑。
-- 集成测试：通过 marker 标记，默认在 `pytest` 默认命令中跳过。
-- 手工测试：用于外部资源依赖/耗时较高场景，配合 manual marker。
+1. 数据层不写 loss/优化器/梯度更新逻辑。  
+2. 算法层不解析 JSONL 路径和文件细节。  
+3. pipeline 层不实现模型族特化细节。  
+4. 模型特化能力（target modules/template/processor policy）仅在 `model`/`template`。  
+5. checkpoint 格式必须遵循 HF/PEFT 生态，不引入自定义保存格式。  
 
-- `tests/test_integration_qwen_standard.py`：Qwen3VL 标准模型构建与对话链路。
-- `tests/test_infer_engine.py`：推理引擎参数整理与输入输出行为。
-- 标准运行策略：
-  - CI/日常：`pytest -q`
-  - 集成验证：`pytest -q -m integration`
-  - 手工验证：`pytest -q -m manual`
+## 3. 训练状态与续训规则
 
-## 2. 关键边界映射（“谁负责什么”）
+- `init_from_checkpoint`：用于初始化权重（可从 full 或 adapter）。
+- `resume_from_checkpoint`：用于恢复 trainer 状态，要求存在 `trainer_state.json`。
+- 模式约束：
+  - `full` 续训要求 full checkpoint。
+  - `lora/dora/qlora` 续训要求 adapter checkpoint。
+- 导出约束：
+  - `full` 导出必须是 HF full 目录。
+  - `lora/dora/qlora` 导出必须是 PEFT adapter 目录。
 
-- 数据字段（如 `dataset_id`, `system_prompt`, `user_prompt`）的解释只在 `data` 层完成。
-- 模型族差异（PEFT target module、template 归属、processor 策略、必需文件）只在 `model`/`template` 层处理。
-- 评估指标和 best model 规则放在 `config + trainer + pipeline`，`trainer` 层不编码任务语义。
-- 调度策略（训练命令、日志、模型导出）在 pipeline + 配置中心驱动。
+## 4. 当前数据格式契约
 
-## 3. 当前能力覆盖（已落地）
+### 4.1 SFT (`jsonl_sft`)
+- 必填：`image_path|image|images` + `target_text`（或 `messages` 末尾 assistant）。
 
-- 多数据源、多 jsonl、加权混合、`interleave_*`、`concat` 已在 `data` 层实现。
-- 单卡/多卡基础训练、resume/init 路径校验、HF 风格 checkpoints 与 adapter/full 流水线已接通。
-- 多模型推理引擎与多阶段推理管线可配置化执行。
+### 4.2 DPO (`jsonl_dpo`)
+- 必填：`image_path|image|images` + `chosen_text|chosen` + `rejected_text|rejected`。
+
+### 4.3 PPO (`jsonl_ppo`)
+- 必填：`image_path|image|images` + `messages` 或 `user_prompt|prompt`。
+- 说明：PPO 数据只提供 query/prompt，不再在样本内携带离线 `response/reward`。
+- 风险保护：
+  - `rlhf.ppo.allow_untrained_reward_model=false`（默认）时会拒绝启动，防止误用随机奖励头。
+  - 多模态模型默认拒绝走当前 text-only PPO 路径；仅在显式设置 `allow_text_only_multimodal_ppo=true` 时允许 smoke/debug。
+  - 当前 PPO 仅允许 `lora/dora/qlora`；`full` 模式会被拒绝。
+  - 默认 `value_model_mode=shared_backbone`、`reward_model_mode=adapter_disabled_policy`，用于降低显存占用。
+
+## 5. 测试分层
+
+- 默认回归：`pytest -q`
+- 集成：`pytest -q -m integration`
+- 手工：`pytest -q -m manual`
+
+新增核心能力时，必须至少补：
+1. 单元测试（逻辑边界）  
+2. pipeline smoke（端到端最短链路）  
+3. 文档同步（架构 + 扩展指南）  
+
+## 6. 能力成熟度说明
+
+- SFT：生产可用。  
+- DPO：已切换为 TRL 内核，可训练可回归。  
+- PPO：**暂停（非生产）**。当前仅保留 smoke 级能力；未完成项和恢复条件见 [docs/ppo_todo.md](ppo_todo.md)。  

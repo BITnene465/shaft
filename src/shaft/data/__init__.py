@@ -1,8 +1,13 @@
-from .collator import SFTCollator
-from .dataset import SFTDataset, SFTRecord
+from .collator import DPOCollator, PPOCollator, SFTCollator
+from .dataset import DPODataset, DPORecord, PPODataset, PPORecord, SFTDataset, SFTRecord
 from .mixing import MixedDatasetBuilder
 from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
-from .sources import build_data_source, load_jsonl_records
+from .sources import (
+    build_data_source,
+    load_jsonl_dpo_records,
+    load_jsonl_ppo_records,
+    load_jsonl_records,
+)
 from .transforms import (
     OFFLINE_TRANSFORM_REGISTRY,
     ONLINE_TRANSFORM_REGISTRY,
@@ -14,6 +19,12 @@ __all__ = [
     "MixedDatasetBuilder",
     "OFFLINE_TRANSFORM_REGISTRY",
     "ONLINE_TRANSFORM_REGISTRY",
+    "DPOCollator",
+    "DPODataset",
+    "DPORecord",
+    "PPOCollator",
+    "PPODataset",
+    "PPORecord",
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
@@ -22,5 +33,7 @@ __all__ = [
     "build_data_source",
     "DATA_SOURCE_REGISTRY",
     "MIX_STRATEGY_REGISTRY",
+    "load_jsonl_dpo_records",
+    "load_jsonl_ppo_records",
     "load_jsonl_records",
 ]

@@ -6,6 +6,9 @@ _MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
 _ALGORITHMS = {"sft", "dpo", "ppo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
 _LOSS_NAMES = {"auto", "causal_lm"}
+_DPO_LOSS_TYPES = {"sigmoid"}
+_PPO_VALUE_MODEL_MODES = {"shared_backbone", "copy_backbone"}
+_PPO_REWARD_MODEL_MODES = {"adapter_disabled_policy", "copy_backbone"}
 _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
 
@@ -40,8 +43,20 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
         if not dataset.train_paths:
             raise ValueError(f"data.datasets[{dataset.name}].train_paths cannot be empty.")
-        if not dataset.val_paths:
+        if not dataset.val_paths and bool(config.sft.eval.enabled):
             raise ValueError(f"data.datasets[{dataset.name}].val_paths cannot be empty.")
+        if config.algorithm.name == "sft" and dataset.source_type == "jsonl_ppo":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_ppo but algorithm is sft.")
+        if config.algorithm.name == "sft" and dataset.source_type == "jsonl_dpo":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_dpo but algorithm is sft.")
+        if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_sft":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_sft but algorithm is dpo.")
+        if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_ppo":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_ppo but algorithm is dpo.")
+        if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_sft":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_sft but algorithm is ppo.")
+        if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
+            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_dpo but algorithm is ppo.")
 
     train = config.sft.train
     train.optimizer_name = str(train.optimizer_name).strip().lower()
@@ -74,6 +89,57 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         eval_cfg.eval_strategy = str(eval_cfg.eval_strategy).strip().lower()
     if eval_cfg.eval_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported sft.eval.eval_strategy={eval_cfg.eval_strategy!r}.")
+
+    dpo_cfg = config.rlhf.dpo
+    dpo_cfg.loss_type = str(dpo_cfg.loss_type).strip().lower()
+    if dpo_cfg.loss_type not in _DPO_LOSS_TYPES:
+        raise ValueError(f"Unsupported rlhf.dpo.loss_type={dpo_cfg.loss_type!r}.")
+    if float(dpo_cfg.beta) <= 0:
+        raise ValueError("rlhf.dpo.beta must be > 0.")
+    if not (0.0 <= float(dpo_cfg.label_smoothing) < 1.0):
+        raise ValueError("rlhf.dpo.label_smoothing must be in [0, 1).")
+
+    ppo_cfg = config.rlhf.ppo
+    if not (0.0 < float(ppo_cfg.cliprange) < 1.0):
+        raise ValueError("rlhf.ppo.cliprange must be in (0, 1).")
+    if not (0.0 < float(ppo_cfg.cliprange_value) < 1.0):
+        raise ValueError("rlhf.ppo.cliprange_value must be in (0, 1).")
+    if float(ppo_cfg.kl_coef) < 0:
+        raise ValueError("rlhf.ppo.kl_coef must be >= 0.")
+    if float(ppo_cfg.vf_coef) < 0:
+        raise ValueError("rlhf.ppo.vf_coef must be >= 0.")
+    if not (0.0 <= float(ppo_cfg.gamma) <= 1.0):
+        raise ValueError("rlhf.ppo.gamma must be in [0, 1].")
+    if not (0.0 <= float(ppo_cfg.lam) <= 1.0):
+        raise ValueError("rlhf.ppo.lam must be in [0, 1].")
+    if int(ppo_cfg.response_length) <= 0:
+        raise ValueError("rlhf.ppo.response_length must be > 0.")
+    if float(ppo_cfg.temperature) <= 0:
+        raise ValueError("rlhf.ppo.temperature must be > 0.")
+    if int(ppo_cfg.num_ppo_epochs) <= 0:
+        raise ValueError("rlhf.ppo.num_ppo_epochs must be > 0.")
+    if int(ppo_cfg.num_mini_batches) <= 0:
+        raise ValueError("rlhf.ppo.num_mini_batches must be > 0.")
+    if int(ppo_cfg.local_rollout_forward_batch_size) <= 0:
+        raise ValueError("rlhf.ppo.local_rollout_forward_batch_size must be > 0.")
+    if int(ppo_cfg.num_sample_generations) < 0:
+        raise ValueError("rlhf.ppo.num_sample_generations must be >= 0.")
+    if ppo_cfg.stop_token is not None:
+        ppo_cfg.stop_token = str(ppo_cfg.stop_token).strip().lower() or None
+    ppo_cfg.value_model_mode = str(ppo_cfg.value_model_mode).strip().lower()
+    if ppo_cfg.value_model_mode not in _PPO_VALUE_MODEL_MODES:
+        raise ValueError(
+            f"Unsupported rlhf.ppo.value_model_mode={ppo_cfg.value_model_mode!r}. "
+            f"Expected one of {_PPO_VALUE_MODEL_MODES}."
+        )
+    ppo_cfg.reward_model_mode = str(ppo_cfg.reward_model_mode).strip().lower()
+    if ppo_cfg.reward_model_mode not in _PPO_REWARD_MODEL_MODES:
+        raise ValueError(
+            f"Unsupported rlhf.ppo.reward_model_mode={ppo_cfg.reward_model_mode!r}. "
+            f"Expected one of {_PPO_REWARD_MODEL_MODES}."
+        )
+    ppo_cfg.allow_untrained_reward_model = bool(ppo_cfg.allow_untrained_reward_model)
+    ppo_cfg.allow_text_only_multimodal_ppo = bool(ppo_cfg.allow_text_only_multimodal_ppo)
 
     config.plugins.hooks = [str(x).strip().lower() for x in config.plugins.hooks if str(x).strip()]
     config.plugins.interceptors = [
