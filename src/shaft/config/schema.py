@@ -16,6 +16,7 @@ class ExperimentConfig:
 class ModelConfig:
     model_type: str = "qwen3vl"
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
+    template: str | None = None
     trust_remote_code: bool = True
     attn_implementation: str | None = "flash_attention_2"
     torch_dtype: str = "bfloat16"
@@ -25,7 +26,7 @@ class ModelConfig:
 @dataclass
 class FinetuneConfig:
     mode: str = "full"  # full | lora | dora | qlora
-    target_modules: list[str] = field(default_factory=lambda: ["all-linear"])
+    target_modules: list[str] = field(default_factory=lambda: ["auto"])
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.0
@@ -40,8 +41,11 @@ class FinetuneConfig:
 @dataclass
 class DataSourceConfig:
     name: str
-    train_path: str
-    val_path: str
+    source_type: str = "jsonl_sft"
+    train_path: str | None = None
+    val_path: str | None = None
+    train_paths: list[str] = field(default_factory=list)
+    val_paths: list[str] = field(default_factory=list)
     weight: float = 1.0
     enabled: bool = True
     offline_transforms: list[str] = field(default_factory=list)
@@ -94,6 +98,9 @@ class SFTTrainConfig:
     save_total_limit: int = 3
     ddp_find_unused_parameters: bool = False
     report_to: list[str] = field(default_factory=lambda: ["none"])
+    load_best_model_at_end: bool = True
+    save_final_model: bool = True
+    save_final_state: bool = True
     init_from_checkpoint: str | None = None
     resume_from_checkpoint: str | None = None
 
@@ -122,6 +129,7 @@ class LoggingConfig:
     level: str = "INFO"
     fmt: str = "text"  # text | json
     file_path: str | None = None
+    rank_zero_only: bool = True
 
 
 @dataclass

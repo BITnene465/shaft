@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import torch
 from PIL import Image
 
 from shaft.config import RuntimeConfig
-from shaft.model import build_model_tokenizer_processor
+from shaft.model import ModelMeta, build_model_tokenizer_processor
+from shaft.template import Template
 
 from .schema import InferGenerationConfig, InferModelConfig
 
@@ -36,6 +36,8 @@ class InferEngine:
         model: torch.nn.Module,
         tokenizer: Any,
         processor: Any,
+        model_meta: ModelMeta,
+        template: Template,
         device: str | None = None,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
@@ -46,6 +48,8 @@ class InferEngine:
         self.model = model.to(self.device).eval()
         self.tokenizer = tokenizer
         self.processor = processor
+        self.model_meta = model_meta
+        self.template = template
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.default_generation = default_generation or InferGenerationConfig()
@@ -65,6 +69,8 @@ class InferEngine:
             model=artifacts.model,
             tokenizer=artifacts.tokenizer,
             processor=artifacts.processor,
+            model_meta=artifacts.model_meta,
+            template=artifacts.template,
             device=device,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
@@ -76,6 +82,7 @@ class InferEngine:
         runtime_config = RuntimeConfig()
         runtime_config.model.model_type = config.model_type
         runtime_config.model.model_name_or_path = config.model_name_or_path
+        runtime_config.model.template = config.template
         runtime_config.model.trust_remote_code = bool(config.trust_remote_code)
         runtime_config.model.attn_implementation = config.attn_implementation
         runtime_config.model.torch_dtype = config.torch_dtype
@@ -125,21 +132,20 @@ class InferEngine:
         return messages
 
     def _apply_chat_template(self, messages: list[dict[str, Any]]) -> str:
-        owner = self.processor if hasattr(self.processor, "apply_chat_template") else self.tokenizer
-        return owner.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return self.template.apply_chat_template(
+            processor=self.processor,
+            tokenizer=self.tokenizer,
+            messages=messages,
+        )
 
     def _run_processor(self, *, prompt: str, image: Any) -> dict[str, torch.Tensor]:
-        kwargs: dict[str, Any] = {
-            "text": [prompt],
-            "images": [image],
-            "padding": True,
-            "return_tensors": "pt",
-        }
-        if self.min_pixels is not None:
-            kwargs["min_pixels"] = int(self.min_pixels)
-        if self.max_pixels is not None:
-            kwargs["max_pixels"] = int(self.max_pixels)
-        batch = self.processor(**kwargs)
+        batch = self.model_meta.processor_policy.build_inputs(
+            processor=self.processor,
+            prompt_texts=[prompt],
+            images=[image],
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+        )
         return self._move_batch_to_device(batch)
 
     def _move_batch_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
@@ -172,12 +178,4 @@ class InferEngine:
         return self.model.generate(**batch, **kwargs)
 
     def _decode(self, token_ids: torch.Tensor) -> str:
-        ids = token_ids.tolist()
-        if hasattr(self.tokenizer, "decode"):
-            return str(self.tokenizer.decode(ids, skip_special_tokens=True)).strip()
-        if hasattr(self.tokenizer, "batch_decode"):
-            decoded = self.tokenizer.batch_decode([ids], skip_special_tokens=True)
-            if decoded:
-                return str(decoded[0]).strip()
-        return " ".join(str(x) for x in ids)
-
+        return self.template.decode(tokenizer=self.tokenizer, token_ids=token_ids.tolist())

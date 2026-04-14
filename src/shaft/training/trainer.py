@@ -5,6 +5,7 @@ from typing import Any
 import torch
 from transformers import Trainer, TrainingArguments
 
+from shaft.utils.distributed import barrier_if_distributed
 from .loss import build_loss
 from .optimizer import build_optimizer
 from .scheduler import build_scheduler
@@ -87,3 +88,19 @@ class ShaftSFTTrainer(Trainer):
                 power=self.scheduler_power,
             )
         return self.lr_scheduler
+
+    def evaluate(self, *args: Any, **kwargs: Any):
+        barrier_if_distributed()
+        metrics = super().evaluate(*args, **kwargs)
+        barrier_if_distributed()
+        return metrics
+
+    def _save_checkpoint(self, model, trial) -> None:
+        barrier_if_distributed()
+        super()._save_checkpoint(model, trial)
+        barrier_if_distributed()
+
+    def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
+        barrier_if_distributed()
+        super().save_model(output_dir=output_dir, _internal_call=_internal_call)
+        barrier_if_distributed()

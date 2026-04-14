@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 from transformers.utils import logging as hf_logging
 
 from shaft.config import LoggingConfig
+from shaft.utils.distributed import get_rank
 from .context import get_log_context, set_log_context
 
 
@@ -45,16 +46,32 @@ class _ContextFilter(logging.Filter):
     _DEFAULTS = {
         "run_id": "-",
         "algorithm": "-",
+        "rank": 0,
     }
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
         context = get_log_context()
         merged: dict[str, Any] = dict(self._DEFAULTS)
         merged.update(context)
+        merged["rank"] = get_rank()
         for key, value in merged.items():
             if not hasattr(record, key):
                 setattr(record, key, value)
         return True
+
+
+class _RankFilter(logging.Filter):
+    def __init__(self, *, rank: int, rank_zero_only: bool) -> None:
+        super().__init__()
+        self.rank = int(rank)
+        self.rank_zero_only = bool(rank_zero_only)
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        if not self.rank_zero_only:
+            return True
+        if self.rank == 0:
+            return True
+        return int(record.levelno) >= int(logging.WARNING)
 
 
 def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> None:
@@ -64,6 +81,7 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
     root.handlers.clear()
     root.setLevel(getattr(logging, config.level, logging.INFO))
     context_filter = _ContextFilter()
+    rank_filter = _RankFilter(rank=get_rank(), rank_zero_only=config.rank_zero_only)
 
     if config.fmt == "json":
         formatter: logging.Formatter = _JsonFormatter()
@@ -76,6 +94,7 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
     stream_handler = _TqdmStreamHandler()
     stream_handler.setFormatter(formatter)
     stream_handler.addFilter(context_filter)
+    stream_handler.addFilter(rank_filter)
     root.addHandler(stream_handler)
 
     if config.file_path:
@@ -84,6 +103,7 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
         file_handler = logging.FileHandler(file_path, encoding="utf-8")
         file_handler.setFormatter(formatter)
         file_handler.addFilter(context_filter)
+        file_handler.addFilter(rank_filter)
         root.addHandler(file_handler)
 
     hf_logging.set_verbosity(getattr(logging, config.level, logging.INFO))

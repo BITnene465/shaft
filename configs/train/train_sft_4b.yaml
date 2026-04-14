@@ -11,7 +11,7 @@ model:
   torch_dtype: bfloat16
   finetune:
     mode: full
-    target_modules: ["all-linear"]
+    target_modules: ["auto"]
     lora_r: 16
     lora_alpha: 32
     lora_dropout: 0.0
@@ -29,6 +29,7 @@ algorithm:
 data:
   datasets:
     - name: arrow_multitask
+      source_type: jsonl_sft
       train_path: data/shaft/train.jsonl
       val_path: data/shaft/test.jsonl
       weight: 1.0
@@ -66,6 +67,9 @@ sft:
     save_strategy: epoch
     save_steps: 200
     save_total_limit: 2
+    load_best_model_at_end: true
+    save_final_model: true
+    save_final_state: true
     ddp_find_unused_parameters: false
     report_to: ["wandb"]
     init_from_checkpoint:
@@ -89,6 +93,7 @@ logging:
   level: INFO
   fmt: text
   file_path:
+  rank_zero_only: true
 
 progress:
   enabled: true

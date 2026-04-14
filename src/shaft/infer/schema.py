@@ -16,6 +16,7 @@ class InferGenerationConfig:
 class InferModelConfig:
     model_type: str = "qwen3vl"
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
+    template: str | None = None
     trust_remote_code: bool = True
     attn_implementation: str | None = "flash_attention_2"
     torch_dtype: str = "bfloat16"
@@ -40,4 +41,3 @@ class InferStageConfig:
 class InferPipelineConfig:
     engines: dict[str, InferModelConfig] = field(default_factory=dict)
     stages: list[InferStageConfig] = field(default_factory=list)
-

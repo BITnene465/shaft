@@ -4,6 +4,8 @@ import torch
 from PIL import Image
 
 from shaft.data import SFTCollator
+from shaft.model import build_model_meta
+from shaft.template import build_template
 
 
 class _FakeTokenizer:
@@ -37,7 +39,12 @@ class _FakeProcessor:
 
 
 def test_sft_collator_builds_labels() -> None:
-    collator = SFTCollator(processor=_FakeProcessor(), tokenizer=_FakeTokenizer())
+    collator = SFTCollator(
+        model_meta=build_model_meta("smoke_vlm"),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+    )
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {

@@ -25,10 +25,23 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(f"Unsupported model.finetune.mode={finetune.mode!r}.")
     finetune.lora_bias = str(finetune.lora_bias).strip().lower()
     if not finetune.target_modules:
-        finetune.target_modules = ["all-linear"]
+        finetune.target_modules = ["auto"]
     finetune.target_modules = [str(x).strip() for x in finetune.target_modules if str(x).strip()]
     if not finetune.target_modules:
         raise ValueError("model.finetune.target_modules cannot be empty.")
+
+    for dataset in config.data.datasets:
+        dataset.source_type = str(dataset.source_type).strip().lower()
+        dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
+        dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
+        if dataset.train_path:
+            dataset.train_paths = [str(dataset.train_path).strip(), *dataset.train_paths]
+        if dataset.val_path:
+            dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
+        if not dataset.train_paths:
+            raise ValueError(f"data.datasets[{dataset.name}].train_paths cannot be empty.")
+        if not dataset.val_paths:
+            raise ValueError(f"data.datasets[{dataset.name}].val_paths cannot be empty.")
 
     train = config.sft.train
     train.optimizer_name = str(train.optimizer_name).strip().lower()
@@ -73,6 +86,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.logging.fmt = str(config.logging.fmt).strip().lower()
     if config.logging.fmt not in _LOG_FORMATS:
         raise ValueError(f"Unsupported logging.fmt={config.logging.fmt!r}.")
+    config.logging.rank_zero_only = bool(config.logging.rank_zero_only)
 
     config.progress.mininterval = float(config.progress.mininterval)
     if config.progress.mininterval <= 0:

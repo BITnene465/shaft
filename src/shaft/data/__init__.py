@@ -1,7 +1,8 @@
 from .collator import SFTCollator
 from .dataset import SFTDataset, SFTRecord
 from .mixing import MixedDatasetBuilder
-from .sources import load_jsonl_records
+from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
+from .sources import build_data_source, load_jsonl_records
 from .transforms import (
     OFFLINE_TRANSFORM_REGISTRY,
     ONLINE_TRANSFORM_REGISTRY,
@@ -18,5 +19,8 @@ __all__ = [
     "SFTRecord",
     "build_offline_pipeline",
     "build_online_pipeline",
+    "build_data_source",
+    "DATA_SOURCE_REGISTRY",
+    "MIX_STRATEGY_REGISTRY",
     "load_jsonl_records",
 ]

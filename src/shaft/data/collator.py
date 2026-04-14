@@ -4,11 +4,16 @@ from typing import Any
 
 import torch
 
+from shaft.model import ModelMeta
+from shaft.template import Template
+
 
 class SFTCollator:
     def __init__(
         self,
         *,
+        model_meta: ModelMeta,
+        template: Template,
         processor: Any,
         tokenizer: Any,
         min_pixels: int | None = None,
@@ -18,6 +23,8 @@ class SFTCollator:
         include_targets_in_inputs: bool = True,
         padding_side: str = "right",
     ) -> None:
+        self.model_meta = model_meta
+        self.template = template
         self.processor = processor
         self.tokenizer = tokenizer
         self.min_pixels = min_pixels
@@ -99,17 +106,13 @@ class SFTCollator:
         return out
 
     def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> dict[str, torch.Tensor]:
-        kwargs: dict[str, Any] = {
-            "text": prompt_texts,
-            "images": images,
-            "padding": True,
-            "return_tensors": "pt",
-        }
-        if self.min_pixels is not None:
-            kwargs["min_pixels"] = int(self.min_pixels)
-        if self.max_pixels is not None:
-            kwargs["max_pixels"] = int(self.max_pixels)
-        return self.processor(**kwargs)
+        return self.model_meta.processor_policy.build_inputs(
+            processor=self.processor,
+            prompt_texts=prompt_texts,
+            images=images,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+        )
 
     def _resolve_messages(self, item: dict[str, Any]) -> list[dict[str, Any]]:
         if item.get("messages"):
@@ -129,8 +132,11 @@ class SFTCollator:
         return messages
 
     def _apply_chat_template(self, messages: list[dict[str, Any]]) -> str:
-        owner = self.processor if hasattr(self.processor, "apply_chat_template") else self.tokenizer
-        return owner.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return self.template.apply_chat_template(
+            processor=self.processor,
+            tokenizer=self.tokenizer,
+            messages=messages,
+        )
 
     def _pad_sequences(self, rows: list[torch.Tensor], *, padding_value: int) -> torch.Tensor:
         max_len = max(int(row.shape[0]) for row in rows)
@@ -142,4 +148,3 @@ class SFTCollator:
             pad = torch.full((max_len - int(row.shape[0]),), padding_value, dtype=row.dtype)
             padded.append(torch.cat([pad, row], dim=0) if self.padding_side == "left" else torch.cat([row, pad], dim=0))
         return torch.stack(padded, dim=0)
-

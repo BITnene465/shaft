@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from shaft.config import DataSourceConfig
 
 from .dataset import SFTRecord
+from .registry import DATA_SOURCE_REGISTRY, register_data_source
+
+Split = Literal["train", "val"]
 
 
 def _normalize_message_content(content: Any) -> list[dict[str, Any]]:
@@ -120,3 +126,30 @@ def load_jsonl_records(path: str | Path, *, dataset_id: str) -> list[SFTRecord]:
                 )
             )
     return records
+
+
+class BaseDataSource(ABC):
+    def __init__(self, config: DataSourceConfig) -> None:
+        self.config = config
+
+    @abstractmethod
+    def load_split(self, split: Split) -> list[SFTRecord]:
+        raise NotImplementedError
+
+    def _resolve_paths(self, split: Split) -> list[str]:
+        return list(self.config.train_paths if split == "train" else self.config.val_paths)
+
+
+@register_data_source("jsonl_sft")
+class JsonlSFTDataSource(BaseDataSource):
+    def load_split(self, split: Split) -> list[SFTRecord]:
+        records: list[SFTRecord] = []
+        for path in self._resolve_paths(split):
+            records.extend(load_jsonl_records(path, dataset_id=self.config.name))
+        return records
+
+
+def build_data_source(config: DataSourceConfig) -> BaseDataSource:
+    source_cls = DATA_SOURCE_REGISTRY.get(config.source_type)
+    return source_cls(config)
+

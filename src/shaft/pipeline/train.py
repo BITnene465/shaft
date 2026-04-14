@@ -12,12 +12,12 @@ from shaft.algorithms import ppo as _ppo  # noqa: F401
 from shaft.algorithms import sft as _sft  # noqa: F401
 from shaft.config import RuntimeConfig
 from shaft.data import (
+    build_data_source,
     MixedDatasetBuilder,
     SFTCollator,
     SFTDataset,
     build_offline_pipeline,
     build_online_pipeline,
-    load_jsonl_records,
 )
 from shaft.model import build_model_tokenizer_processor
 from shaft.plugins import (
@@ -27,6 +27,13 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training import ShaftProgressCallback
+from shaft.training.checkpointing import (
+    ensure_hf_export_layout,
+    resolve_resume_checkpoint,
+    validate_resume_checkpoint,
+    validate_training_state_policy,
+)
+from shaft.training.distributed import barrier_if_distributed
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 
@@ -68,11 +75,14 @@ class ShaftTrainPipeline:
             save_strategy=str(sft_train.save_strategy),
             save_steps=int(sft_train.save_steps),
             save_total_limit=int(sft_train.save_total_limit),
+            load_best_model_at_end=bool(sft_train.load_best_model_at_end),
             eval_strategy=eval_strategy,
             eval_steps=int(sft_eval.eval_steps),
             metric_for_best_model=str(sft_eval.metric_for_best_model),
             greater_is_better=bool(sft_eval.greater_is_better),
             ddp_find_unused_parameters=bool(sft_train.ddp_find_unused_parameters),
+            save_on_each_node=False,
+            log_on_each_node=False,
             report_to=list(sft_train.report_to),
             dataloader_num_workers=dataloader_num_workers,
             dataloader_pin_memory=bool(config.data.pin_memory),
@@ -92,9 +102,10 @@ class ShaftTrainPipeline:
             if not source.enabled:
                 continue
             weights[source.name] = float(source.weight)
+            source_impl = build_data_source(source)
             offline_pipeline = build_offline_pipeline(source.offline_transforms)
-            train_records = load_jsonl_records(source.train_path, dataset_id=source.name)
-            val_records = load_jsonl_records(source.val_path, dataset_id=source.name)
+            train_records = source_impl.load_split("train")
+            val_records = source_impl.load_split("val")
             records_by_dataset_train[source.name] = offline_pipeline(train_records)
             records_by_dataset_val[source.name] = offline_pipeline(val_records)
             dataset_online_pipelines[source.name] = build_online_pipeline(source.online_transforms)
@@ -129,6 +140,7 @@ class ShaftTrainPipeline:
 
     def run(self) -> dict[str, Any]:
         config = self.config
+        validate_training_state_policy(config)
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.sft.train.init_from_checkpoint,
@@ -147,6 +159,8 @@ class ShaftTrainPipeline:
             callbacks.append(TrainerHookCallback(hook_manager))
         callbacks_or_none = callbacks or None
         collator = SFTCollator(
+            model_meta=artifacts.model_meta,
+            template=artifacts.template,
             processor=artifacts.processor,
             tokenizer=artifacts.tokenizer,
             min_pixels=config.data.min_pixels,
@@ -163,14 +177,26 @@ class ShaftTrainPipeline:
             args=self.build_training_args(),
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.sft.eval.enabled else None,
-            tokenizer=artifacts.tokenizer,
+            processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,
         )
 
-        train_result = trainer.train(resume_from_checkpoint=config.sft.train.resume_from_checkpoint)
-        trainer.save_model()
-        trainer.save_state()
+        resume_checkpoint = resolve_resume_checkpoint(config.sft.train.resume_from_checkpoint)
+        if resume_checkpoint is not None:
+            validate_resume_checkpoint(resume_checkpoint, finetune_mode=config.model.finetune.mode)
+        train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
+        barrier_if_distributed()
+        if config.sft.train.save_final_model:
+            trainer.save_model()
+            ensure_hf_export_layout(
+                config.experiment.output_dir,
+                finetune_mode=config.model.finetune.mode,
+                model_meta=artifacts.model_meta,
+            )
+        if config.sft.train.save_final_state:
+            trainer.save_state()
+        barrier_if_distributed()
         return dict(train_result.metrics or {})
 
 

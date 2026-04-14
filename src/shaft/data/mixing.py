@@ -5,6 +5,7 @@ import random
 from collections import defaultdict
 
 from .dataset import SFTRecord
+from .registry import MIX_STRATEGY_REGISTRY, register_mix_strategy
 
 
 class MixedDatasetBuilder:
@@ -37,17 +38,9 @@ class MixedDatasetBuilder:
             for values in active.values():
                 rng.shuffle(values)
 
-        if strategy == "concat":
-            merged = []
-            for dataset_id, indices in sorted(active.items(), key=lambda x: x[0]):
-                merged.extend((dataset_id, i) for i in indices)
-            if shuffle:
-                rng.shuffle(merged)
-            return merged
-
         normalized_weights = self._normalize_weights(active.keys(), dataset_weights)
-        quotas = self._build_quotas(active, normalized_weights, strategy=strategy)
-        return self._interleave(active, quotas, normalized_weights, shuffle=shuffle, rng=rng)
+        strategy_fn = MIX_STRATEGY_REGISTRY.get(strategy)
+        return strategy_fn(self, active, normalized_weights, shuffle=shuffle, rng=rng)
 
     def _normalize_weights(self, keys: list[str] | set[str], weights: dict[str, float]) -> dict[str, float]:
         result = {k: max(float(weights.get(k, 1.0)), 0.0) for k in keys}
@@ -114,3 +107,46 @@ class MixedDatasetBuilder:
                 break
         return output
 
+
+@register_mix_strategy("concat")
+def mix_concat(
+    builder: MixedDatasetBuilder,
+    active: dict[str, list[int]],
+    normalized_weights: dict[str, float],
+    *,
+    shuffle: bool,
+    rng: random.Random,
+) -> list[tuple[str, int]]:
+    del builder, normalized_weights
+    merged = []
+    for dataset_id, indices in sorted(active.items(), key=lambda x: x[0]):
+        merged.extend((dataset_id, i) for i in indices)
+    if shuffle:
+        rng.shuffle(merged)
+    return merged
+
+
+@register_mix_strategy("interleave_under")
+def mix_interleave_under(
+    builder: MixedDatasetBuilder,
+    active: dict[str, list[int]],
+    normalized_weights: dict[str, float],
+    *,
+    shuffle: bool,
+    rng: random.Random,
+) -> list[tuple[str, int]]:
+    quotas = builder._build_quotas(active, normalized_weights, strategy="interleave_under")
+    return builder._interleave(active, quotas, normalized_weights, shuffle=shuffle, rng=rng)
+
+
+@register_mix_strategy("interleave_over")
+def mix_interleave_over(
+    builder: MixedDatasetBuilder,
+    active: dict[str, list[int]],
+    normalized_weights: dict[str, float],
+    *,
+    shuffle: bool,
+    rng: random.Random,
+) -> list[tuple[str, int]]:
+    quotas = builder._build_quotas(active, normalized_weights, strategy="interleave_over")
+    return builder._interleave(active, quotas, normalized_weights, shuffle=shuffle, rng=rng)

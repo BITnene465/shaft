@@ -10,7 +10,7 @@ from shaft.config import RuntimeConfig
 
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
-from .registry import MODEL_REGISTRY
+from .registry import build_model_meta
 from .types import ModelArtifacts
 
 
@@ -72,7 +72,7 @@ def _validate_adapter_compatibility(config: RuntimeConfig, adapter_config: dict[
 
     expected_target_modules = _normalize_target_modules(config.model.finetune.target_modules)
     adapter_target_modules = _normalize_target_modules(adapter_config.get("target_modules"))
-    if expected_target_modules != ["all-linear"] and adapter_target_modules:
+    if expected_target_modules not in (["all-linear"], ["auto"]) and adapter_target_modules:
         if sorted(expected_target_modules) != sorted(adapter_target_modules):
             raise ValueError("LoRA target_modules mismatch between adapter and current config.")
 
@@ -90,8 +90,13 @@ def build_model_tokenizer_processor(
     init_from_checkpoint: str | None = None,
 ) -> ModelArtifacts:
     model_type = str(config.model.model_type).strip().lower()
+    model_meta = build_model_meta(model_type)
+    check_requires = getattr(model_meta, "check_requires", None)
+    if callable(check_requires):
+        check_requires(config.model.model_name_or_path)
     if init_from_checkpoint is None:
-        return MODEL_REGISTRY.create(model_type, config)
+        assert model_meta.loader is not None
+        return model_meta.loader.build(copy.deepcopy(config), model_meta=model_meta)
 
     init_path = Path(init_from_checkpoint)
     if not init_path.exists():
@@ -100,7 +105,8 @@ def build_model_tokenizer_processor(
     if _is_adapter_checkpoint(init_path):
         adapter_cfg = _load_adapter_config(init_path)
         _validate_adapter_compatibility(config, adapter_cfg, init_path)
-        artifacts = MODEL_REGISTRY.create(model_type, config)
+        assert model_meta.loader is not None
+        artifacts = model_meta.loader.build(copy.deepcopy(config), model_meta=model_meta)
         if not isinstance(artifacts.model, PeftModel):
             raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
         peft_state = load_peft_weights(str(init_path), device="cpu")
@@ -109,4 +115,5 @@ def build_model_tokenizer_processor(
 
     override_config = copy.deepcopy(config)
     override_config.model.model_name_or_path = str(init_path)
-    return MODEL_REGISTRY.create(model_type, override_config)
+    assert model_meta.loader is not None
+    return model_meta.loader.build(override_config, model_meta=model_meta)

@@ -7,7 +7,9 @@ import torch
 from PIL import Image
 
 from shaft.config import RuntimeConfig, load_config
+from shaft.model import build_model_meta
 from shaft.pipeline import run_train
+from shaft.template import build_template
 
 
 class _FakeTokenizer:
@@ -101,6 +103,9 @@ train:
   learning_rate: 1.0e-5
   use_cpu: true
   report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
 eval:
   enabled: false
 """,
@@ -115,7 +120,13 @@ def test_run_train_smoke(tmp_path: Path) -> None:
         mocked_builder.return_value = type(
             "Artifacts",
             (),
-            {"model": _FakeModel(), "tokenizer": _FakeTokenizer(), "processor": _FakeProcessor()},
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "template": build_template("smoke_vlm"),
+            },
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             metrics = run_train(config)
@@ -128,7 +139,13 @@ def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
         mocked_builder.return_value = type(
             "Artifacts",
             (),
-            {"model": _FakeModel(), "tokenizer": _FakeTokenizer(), "processor": _FakeProcessor()},
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "template": build_template("smoke_vlm"),
+            },
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             _ = run_train(config)

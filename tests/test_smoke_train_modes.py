@@ -68,6 +68,9 @@ sft:
     logging_steps: 1
     save_strategy: no
     report_to: ["none"]
+    load_best_model_at_end: false
+    save_final_model: false
+    save_final_state: false
     bf16: false
     use_cpu: true
   eval:
