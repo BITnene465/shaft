@@ -6,6 +6,7 @@ from typing import Any, Generic, TypeVar
 
 from shaft.config import DataConfig
 
+from .meta import build_dataset_metas
 from .mixing import MixedDatasetBuilder
 from .sources import build_data_source
 from .transforms import build_offline_pipeline, build_online_pipeline
@@ -39,15 +40,17 @@ class ShaftDataCenter:
         weights: dict[str, float] = {}
         dataset_online_pipelines: dict[str, OnlineSampleTransform] = {}
 
-        for source in self.data_config.datasets:
-            if not source.enabled:
+        for dataset_meta in build_dataset_metas(self.data_config):
+            if not dataset_meta.enabled:
                 continue
-            weights[source.dataset_name] = float(source.weight)
-            source_impl = build_data_source(source)
-            offline_pipeline = build_offline_pipeline(source.offline_transforms)
-            records_by_dataset_train[source.dataset_name] = offline_pipeline(source_impl.load_split("train"))
-            records_by_dataset_val[source.dataset_name] = offline_pipeline(source_impl.load_split("val"))
-            dataset_online_pipelines[source.dataset_name] = build_online_pipeline(source.online_transforms)
+            weights[dataset_meta.dataset_name] = float(dataset_meta.weight)
+            source_impl = build_data_source(dataset_meta)
+            offline_pipeline = build_offline_pipeline(dataset_meta.offline_transforms)
+            records_by_dataset_train[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("train"))
+            records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("val"))
+            dataset_online_pipelines[dataset_meta.dataset_name] = build_online_pipeline(
+                dataset_meta.online_transforms
+            )
 
         mixer = MixedDatasetBuilder(seed=self.seed)
         mixed_indices = mixer.build_indices(

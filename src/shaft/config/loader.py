@@ -8,7 +8,7 @@ import yaml
 
 from .dataset_catalog import resolve_dataset_catalog
 from .normalize import normalize_runtime_config
-from .schema import RuntimeConfig
+from .runtime import RuntimeConfig
 
 T = TypeVar("T")
 

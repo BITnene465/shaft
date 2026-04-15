@@ -2,6 +2,17 @@
 
 本文档描述 `RuntimeConfig` 的主要配置块和推荐使用方式。配置以 YAML 为主，CLI 只允许无歧义 override。
 
+当前 `config` 已按职责拆分为多文件实现：
+
+- `src/shaft/config/base.py`
+- `src/shaft/config/model.py`
+- `src/shaft/config/data.py`
+- `src/shaft/config/training.py`
+- `src/shaft/config/algorithm.py`
+- `src/shaft/config/runtime.py`
+
+`src/shaft/config/schema.py` 只作为配置类型的聚合出口，不再承载全部 dataclass 实现。
+
 ## 1. 顶层结构
 
 训练主配置由 `RuntimeConfig` 组成：
@@ -100,12 +111,22 @@
 - `enabled`
 - `offline_transforms`
 - `online_transforms`
+- `help`
+- `tags`
 
 约束：
 
 - `catalog_path/catalog_names` 用于复用“命名数据集”。
+- `catalog_path` 只表示“去哪个 catalog 文件里找”，**不会自动启用里面全部数据集**。
+- 只有写进 `catalog_names` 的数据集才会被展开到最终的 `data.datasets`。
 - `datasets` 用于当前 YAML 内联声明数据源。
 - 实际进入 `ShaftDataCenter` 前，catalog 会先展开成标准 `datasets` 列表。
+- `DatasetSourceConfig` 只描述配置输入；进入数据主链前，会先被解析成 `ShaftDatasetMeta`。
+
+补充说明：
+
+- 仓库内置的 `configs/data/example.yaml` 当前只作为示例 catalog，不应默认视为可直接训练的数据清单。
+- 如果你的实验数据较少或不需要复用 catalog，直接使用 `data.datasets` 往往更直观。
 
 ## 5. `algorithm`
 

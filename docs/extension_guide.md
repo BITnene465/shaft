@@ -58,6 +58,7 @@
 ### 4.1 必改位置
 
 - `src/shaft/data/sources.py`
+- `src/shaft/data/meta.py`
 - `src/shaft/data/registry.py`
 - `src/shaft/data/dataset.py`
 - `src/shaft/data/collator.py`
@@ -68,6 +69,7 @@
 - 新 source 必须注册
 - 解析错误要聚合输出
 - 样本元信息统一使用 `dataset_name`
+- 数据源配置进入运行时前，先解析为 `ShaftDatasetMeta`
 - catalog 扩展通过：
   - `data.catalog_path`
   - `data.catalog_names`
@@ -84,7 +86,8 @@
 
 - `src/shaft/algorithms/<algo>.py`
 - `src/shaft/algorithms/registry.py`
-- `src/shaft/config/schema.py`
+- `src/shaft/config/runtime.py`
+- `src/shaft/config/algorithm.py`
 - `src/shaft/config/normalize.py`
 - `src/shaft/pipeline/sft.py` 或 `src/shaft/pipeline/rlhf.py`
 

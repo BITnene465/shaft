@@ -16,18 +16,18 @@ from shaft.training.checkpointing import (
 
 def test_validate_training_state_policy_requires_eval_for_best_model() -> None:
     cfg = RuntimeConfig()
-    cfg.sft.train.load_best_model_at_end = True
-    cfg.sft.eval.enabled = False
+    cfg.train.load_best_model_at_end = True
+    cfg.eval.enabled = False
     with pytest.raises(ValueError):
         validate_training_state_policy(cfg)
 
 
 def test_validate_training_state_policy_requires_matching_strategies() -> None:
     cfg = RuntimeConfig()
-    cfg.sft.train.load_best_model_at_end = True
-    cfg.sft.train.save_strategy = "epoch"
-    cfg.sft.eval.enabled = True
-    cfg.sft.eval.eval_strategy = "steps"
+    cfg.train.load_best_model_at_end = True
+    cfg.train.save_strategy = "epoch"
+    cfg.eval.enabled = True
+    cfg.eval.eval_strategy = "steps"
     with pytest.raises(ValueError):
         validate_training_state_policy(cfg)
 

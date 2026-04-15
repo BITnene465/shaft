@@ -5,9 +5,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Literal
 
-from shaft.config import DatasetSourceConfig
-
 from .dataset import DPORecord, PPORecord, SFTRecord
+from .meta import ShaftDatasetMeta
 from .registry import DATA_SOURCE_REGISTRY, register_data_source
 
 Split = Literal["train", "val"]
@@ -111,7 +110,7 @@ def _build_sft_record_from_raw(
     return SFTRecord(
         image_path=image_path,
         target_text=str(target_text),
-        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
+        dataset_name=str(raw.get("dataset_name", dataset_name)),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -156,7 +155,7 @@ def _build_dpo_record_from_raw(
         image_path=image_path,
         chosen_text=str(chosen_text),
         rejected_text=str(rejected_text),
-        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
+        dataset_name=str(raw.get("dataset_name", dataset_name)),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -197,7 +196,7 @@ def _build_ppo_record_from_raw(
     }
     return PPORecord(
         image_path=image_path,
-        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
+        dataset_name=str(raw.get("dataset_name", dataset_name)),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -307,21 +306,15 @@ def load_jsonl_ppo_records(
 
 
 class BaseDataSource(ABC):
-    def __init__(self, config: DatasetSourceConfig) -> None:
-        self.config = config
+    def __init__(self, dataset_meta: ShaftDatasetMeta) -> None:
+        self.dataset_meta = dataset_meta
 
     @abstractmethod
     def load_split(self, split: Split) -> list[Any]:
         raise NotImplementedError
 
     def _resolve_paths(self, split: Split) -> list[str]:
-        paths = list(self.config.train_paths if split == "train" else self.config.val_paths)
-        single_path = self.config.train_path if split == "train" else self.config.val_path
-        if single_path:
-            normalized_single = str(single_path).strip()
-            if normalized_single and normalized_single not in paths:
-                paths = [normalized_single, *paths]
-        return paths
+        return list(self.dataset_meta.train_paths if split == "train" else self.dataset_meta.val_paths)
 
 
 @register_data_source("jsonl_sft")
@@ -329,7 +322,7 @@ class JsonlSFTDataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[SFTRecord]:
         records: list[SFTRecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_sft_records(path, dataset_name=self.config.dataset_name))
+            records.extend(load_jsonl_sft_records(path, dataset_name=self.dataset_meta.dataset_name))
         return records
 
 
@@ -338,7 +331,7 @@ class JsonlDPODataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[DPORecord]:
         records: list[DPORecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_dpo_records(path, dataset_name=self.config.dataset_name))
+            records.extend(load_jsonl_dpo_records(path, dataset_name=self.dataset_meta.dataset_name))
         return records
 
 
@@ -347,10 +340,10 @@ class JsonlPPODataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[PPORecord]:
         records: list[PPORecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_ppo_records(path, dataset_name=self.config.dataset_name))
+            records.extend(load_jsonl_ppo_records(path, dataset_name=self.dataset_meta.dataset_name))
         return records
 
 
-def build_data_source(config: DatasetSourceConfig) -> BaseDataSource:
-    source_cls = DATA_SOURCE_REGISTRY.get(config.source_type)
-    return source_cls(config)
+def build_data_source(dataset_meta: ShaftDatasetMeta) -> BaseDataSource:
+    source_cls = DATA_SOURCE_REGISTRY.get(dataset_meta.source_type)
+    return source_cls(dataset_meta)

@@ -3,9 +3,9 @@ from __future__ import annotations
 from shaft.data import MixedDatasetBuilder, SFTRecord
 
 
-def _records(dataset_id: str, n: int):
+def _records(dataset_name: str, n: int):
     return [
-        SFTRecord(image_path=f"/tmp/{dataset_id}_{i}.png", target_text="{}", dataset_id=dataset_id)
+        SFTRecord(image_path=f"/tmp/{dataset_name}_{i}.png", target_text="{}", dataset_name=dataset_name)
         for i in range(n)
     ]
 
@@ -32,8 +32,8 @@ def test_interleave_under_respects_shorter_dataset() -> None:
         shuffle=False,
     )
     by_dataset = {"a": 0, "b": 0}
-    for dataset_id, _ in indices:
-        by_dataset[dataset_id] += 1
+    for dataset_name, _ in indices:
+        by_dataset[dataset_name] += 1
     assert by_dataset["b"] == 2
     assert by_dataset["a"] >= 2
 
@@ -46,4 +46,4 @@ def test_weight_zero_disables_dataset() -> None:
         strategy="interleave_over",
         shuffle=False,
     )
-    assert all(dataset_id == "a" for dataset_id, _ in indices)
+    assert all(dataset_name == "a" for dataset_name, _ in indices)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from shaft.cli.registry import COMMAND_REGISTRY
-from shaft.cli.main import build_parser, main
+from shaft.cli.train import build_parser, main
 from shaft.config import RuntimeConfig
 
 

@@ -6,6 +6,12 @@
 
 相关文件：
 
+- `src/shaft/config/base.py`
+- `src/shaft/config/model.py`
+- `src/shaft/config/data.py`
+- `src/shaft/config/training.py`
+- `src/shaft/config/algorithm.py`
+- `src/shaft/config/runtime.py`
 - `src/shaft/config/schema.py`
 - `src/shaft/config/loader.py`
 - `src/shaft/config/normalize.py`
@@ -50,6 +56,7 @@
 相关文件：
 
 - `src/shaft/data/center.py`
+- `src/shaft/data/meta.py`
 - `src/shaft/data/sources.py`
 - `src/shaft/data/dataset.py`
 - `src/shaft/data/collator.py`
@@ -68,6 +75,7 @@
 
 - `ShaftDataCenter`
 - `ShaftPreparedRecords`
+- `ShaftDatasetMeta`
 - `BaseDataSource`
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `SFTDataset` / `DPODataset` / `PPODataset`
@@ -77,6 +85,7 @@
 ### 关键函数
 
 - `build_data_source()`
+- `build_dataset_metas()`
 - `load_jsonl_sft_records()`
 - `load_jsonl_dpo_records()`
 - `load_jsonl_ppo_records()`
@@ -87,6 +96,7 @@
 
 - 输入：`DataConfig`、JSONL 文件、图像路径
 - 输出：
+  - `ShaftDatasetMeta`
   - 记录列表
   - `Dataset`
   - batch tensor 字典
@@ -417,7 +427,7 @@
 
 相关文件：
 
-- `src/shaft/cli/main.py`
+- `src/shaft/cli/train.py`
 - `src/shaft/cli/common.py`
 - `src/shaft/cli/sft.py`
 - `src/shaft/cli/rlhf.py`

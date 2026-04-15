@@ -56,7 +56,7 @@ def _load_catalog_datasets(path: Path) -> dict[str, dict[str, Any]]:
         for index, item in enumerate(raw_datasets):
             if not isinstance(item, dict):
                 raise TypeError(f"Catalog dataset entry must be a mapping: {path}:datasets[{index}]")
-            dataset_name = str(item.get("name", "")).strip()
+            dataset_name = str(item.get("dataset_name", item.get("name", ""))).strip()
             if not dataset_name:
                 raise ValueError(f"Catalog dataset entry is missing dataset_name: {path}:datasets[{index}]")
             items.append((dataset_name, item))

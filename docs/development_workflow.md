@@ -99,6 +99,7 @@ flowchart LR
   - `TrainConfig`
   - `EvalConfig`
   - `DatasetSourceConfig`
+  - `ShaftDatasetMeta`
 
 ## 5. 第四步：同步文档
 

@@ -8,7 +8,7 @@ model:
   model_name_or_path: models/Qwen3-VL-4B-Instruct
   trust_remote_code: true
   # Optional: set to flash_attention_2 after installing `uv pip install -e ".[gpu-kernels]"`.
-  attn_implementation:
+  attn_implementation: flash_attention_2
   torch_dtype: bfloat16
   finetune:
     mode: full
@@ -28,8 +28,8 @@ algorithm:
   params: {}
 
 data:
-  registry_path: ../data/datasets.yaml
-  dataset_refs: [arrow_multitask]
+  catalog_path: ../data/example.yaml
+  catalog_names: [arrow_multitask]
   mix_strategy: interleave_under
   num_workers: 16
   pin_memory: true
@@ -39,48 +39,47 @@ data:
   add_eos_token: true
   shuffle: true
 
-sft:
-  train:
-    epochs: 1
-    max_steps: -1
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
-    learning_rate: 1.0e-5
-    optimizer_name: adamw_torch
-    scheduler_name: auto
-    scheduler_num_cycles: 0.5
-    scheduler_power: 1.0
-    loss_name: auto
-    adam_beta1: 0.9
-    adam_beta2: 0.999
-    adam_epsilon: 1.0e-8
-    weight_decay: 0.01
-    warmup_ratio: 0.03
-    lr_scheduler_type: cosine
-    max_grad_norm: 1.0
-    bf16: true
-    logging_steps: 10
-    save_strategy: epoch
-    save_steps: 200
-    save_total_limit: 2
-    load_best_model_at_end: true
-    save_final_model: true
-    save_final_state: true
-    ddp_find_unused_parameters: false
-    report_to: ["wandb"]
-    init_from_checkpoint:
-    resume_from_checkpoint:
+train:
+  epochs: 1
+  max_steps: -1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  optimizer_name: adamw_torch
+  scheduler_name: auto
+  scheduler_num_cycles: 0.5
+  scheduler_power: 1.0
+  loss_name: auto
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 10
+  save_strategy: epoch
+  save_steps: 200
+  save_total_limit: 2
+  load_best_model_at_end: true
+  save_final_model: true
+  save_final_state: true
+  ddp_find_unused_parameters: false
+  report_to: ["wandb"]
+  init_from_checkpoint:
+  resume_from_checkpoint:
 
-  eval:
-    enabled: true
-    per_device_eval_batch_size: 1
-    eval_strategy: epoch
-    eval_steps: 200
-    do_sample: false
-    temperature: 0.0
-    max_new_tokens: 512
-    metric_for_best_model: eval_loss
-    greater_is_better: false
+eval:
+  enabled: true
+  per_device_eval_batch_size: 1
+  eval_strategy: epoch
+  eval_steps: 200
+  do_sample: false
+  temperature: 0.0
+  max_new_tokens: 512
+  metric_for_best_model: eval_loss
+  greater_is_better: false
 
 plugins:
   hooks: []

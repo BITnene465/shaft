@@ -70,7 +70,7 @@ python scripts/export.py merge-peft \
 
 ```yaml
 data:
-  catalog_path: ../data/datasets.yaml
+  catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
 ```
 
@@ -89,8 +89,12 @@ data:
 说明：
 
 - `catalog_path` 指向命名数据集 catalog YAML。
-- `catalog_names` 选择本次实验启用的命名数据集。
+- `catalog_names` 选择本次实验启用的命名数据集；**只有写进这里的数据集才会被加载**。
+- catalog 文件里的数据集不会因为 `catalog_path` 被设置就自动全部参与训练。
 - `DatasetSourceConfig.dataset_name` 是数据层统一标识字段。
+- `DatasetSourceConfig` 只描述配置输入；进入数据主链后会先解析成 `ShaftDatasetMeta`。
+- 仓库内置的 [`configs/data/example.yaml`](configs/data/example.yaml) 当前只是示例文件，里面的路径默认不保证存在。
+- 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
 
 ## 当前能力
 

@@ -1,0 +1,32 @@
+# 示例 catalog。
+# 说明：
+# 1. 这不是“自动加载全部数据集”的清单，只是可被引用的命名数据集目录。
+# 2. 训练时只有写进 `data.catalog_names` 的数据集才会被选中。
+# 3. 下面的路径当前都是示例路径，并不保证在本仓库存在；使用前请替换为你自己的真实数据路径。
+datasets:
+  arrow_multitask:
+    source_type: jsonl_sft
+    train_path: ../../data/shaft/train.jsonl
+    val_path: ../../data/shaft/test.jsonl
+    weight: 1.0
+    enabled: true
+    help: Arrow 多任务 SFT 示例数据集
+    tags: [arrow, sft, multitask]
+
+  dpo_pairwise:
+    source_type: jsonl_dpo
+    train_path: ../../data/train_dpo.jsonl
+    val_path: ../../data/val_dpo.jsonl
+    weight: 1.0
+    enabled: true
+    help: DPO 成对偏好数据集示例
+    tags: [preference, dpo]
+
+  ppo_rollout:
+    source_type: jsonl_ppo
+    train_path: ../../data/train_ppo.jsonl
+    val_path: ../../data/val_ppo.jsonl
+    weight: 1.0
+    enabled: true
+    help: PPO rollout 数据集示例
+    tags: [ppo, rollout]

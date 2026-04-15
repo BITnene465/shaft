@@ -49,7 +49,7 @@ def test_sft_collator_builds_labels() -> None:
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {
-            "dataset_id": "a",
+            "dataset_name": "a",
             "sample_id": "a1",
             "image_path": "/tmp/a.png",
             "image": image,
@@ -60,7 +60,7 @@ def test_sft_collator_builds_labels() -> None:
             "extra": {},
         },
         {
-            "dataset_id": "b",
+            "dataset_name": "b",
             "sample_id": "b1",
             "image_path": "/tmp/b.png",
             "image": image,
@@ -75,7 +75,7 @@ def test_sft_collator_builds_labels() -> None:
     assert "labels" in out
     assert out["input_ids"].shape[0] == 2
     assert out["labels"].shape[0] == 2
-    assert "dataset_id" in out["meta"]
+    assert "dataset_name" in out["meta"]
 
 
 def test_dpo_collator_builds_pairwise_batches() -> None:
@@ -89,7 +89,7 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {
-            "dataset_id": "a",
+            "dataset_name": "a",
             "sample_id": "a1",
             "image_path": "/tmp/a.png",
             "image": image,
@@ -101,7 +101,7 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
             "extra": {},
         },
         {
-            "dataset_id": "a",
+            "dataset_name": "a",
             "sample_id": "a2",
             "image_path": "/tmp/a2.png",
             "image": image,
@@ -131,7 +131,7 @@ def test_ppo_collator_builds_query_only_batch() -> None:
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {
-            "dataset_id": "a",
+            "dataset_name": "a",
             "sample_id": "a1",
             "image_path": "/tmp/a.png",
             "image": image,
@@ -141,7 +141,7 @@ def test_ppo_collator_builds_query_only_batch() -> None:
             "extra": {},
         },
         {
-            "dataset_id": "a",
+            "dataset_name": "a",
             "sample_id": "a2",
             "image_path": "/tmp/a2.png",
             "image": image,

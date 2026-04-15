@@ -83,7 +83,7 @@ flowchart TD
 | 模块 | 职责 | 关键稳定接口 | 明确禁止 |
 | --- | --- | --- | --- |
 | `config` | 配置 schema、YAML 加载、catalog 展开、严格校验 | `RuntimeConfig`、`load_config()`、`normalize_runtime_config()` | 训练循环、模型构建、JSONL 解析 |
-| `data` | 数据源、记录结构、增强、mixing、dataset、collator | `ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
+| `data` | 数据元信息、数据源、记录结构、增强、mixing、dataset、collator | `ShaftDatasetMeta`、`ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
 | `model` | 模型族元信息、HF 加载、PEFT 包装、processor/peft policy | `ModelMeta`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
 | `template` | 消息规范化、chat template、decode 约定 | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
 | `algorithms` | 构建 SFT/DPO/PPO trainer 与算法专属辅助对象 | `SFTAlgorithm`、`DPOAlgorithm`、`PPOAlgorithm` | 读取数据文件、控制 pipeline、硬编码模型族 |
@@ -125,6 +125,7 @@ sequenceDiagram
 
 - 配置：`RuntimeConfig`
 - 数据：`ShaftDataCenter`
+- 数据元信息：`ShaftDatasetMeta`
 - 模型：`build_model_tokenizer_processor()`
 - SFT 编排：`ShaftSFTPipeline`
 - RLHF 编排：`ShaftRLHFPipeline`
@@ -220,7 +221,7 @@ sequenceDiagram
 
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
-- 通过 `ShaftDataCenter` 统一多数据源、增强和 mixing。
+- 通过 `ShaftDatasetMeta -> BaseDataSource -> ShaftDataCenter` 统一多数据源、元信息、增强和 mixing。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 
 ### 9.2 禁止

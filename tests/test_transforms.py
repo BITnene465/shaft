@@ -5,9 +5,9 @@ from shaft.data import SFTRecord, build_offline_pipeline, build_online_pipeline
 
 def test_offline_dedup() -> None:
     records = [
-        SFTRecord(image_path="/tmp/a.png", target_text="{}", dataset_id="d"),
-        SFTRecord(image_path="/tmp/a.png", target_text="{}", dataset_id="d"),
-        SFTRecord(image_path="/tmp/a.png", target_text='{"x":1}', dataset_id="d"),
+        SFTRecord(image_path="/tmp/a.png", target_text="{}", dataset_name="d"),
+        SFTRecord(image_path="/tmp/a.png", target_text="{}", dataset_name="d"),
+        SFTRecord(image_path="/tmp/a.png", target_text='{"x":1}', dataset_name="d"),
     ]
     pipeline = build_offline_pipeline(["dedup_image_target"])
     out = pipeline(records)

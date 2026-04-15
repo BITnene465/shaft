@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .schema import RuntimeConfig
+from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
 _ALGORITHMS = {"sft", "dpo", "ppo"}
@@ -43,6 +43,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         dataset.source_type = str(dataset.source_type).strip().lower()
         dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
         dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
+        dataset.offline_transforms = [str(x).strip() for x in dataset.offline_transforms if str(x).strip()]
+        dataset.online_transforms = [str(x).strip() for x in dataset.online_transforms if str(x).strip()]
+        dataset.tags = [str(x).strip() for x in dataset.tags if str(x).strip()]
+        if dataset.help is not None:
+            dataset.help = str(dataset.help).strip() or None
         if dataset.train_path:
             dataset.train_paths = [str(dataset.train_path).strip(), *dataset.train_paths]
         if dataset.val_path:

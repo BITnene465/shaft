@@ -1,6 +1,7 @@
 from .collator import DPOCollator, PPOCollator, SFTCollator
 from .center import ShaftDataCenter, ShaftPreparedRecords
 from .dataset import DPODataset, DPORecord, PPODataset, PPORecord, SFTDataset, SFTRecord
+from .meta import ShaftDatasetMeta, build_dataset_metas
 from .mixing import MixedDatasetBuilder
 from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
 from .sources import (
@@ -29,9 +30,11 @@ __all__ = [
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
+    "ShaftDatasetMeta",
     "build_offline_pipeline",
     "build_online_pipeline",
     "build_data_source",
+    "build_dataset_metas",
     "DATA_SOURCE_REGISTRY",
     "MIX_STRATEGY_REGISTRY",
     "ShaftDataCenter",

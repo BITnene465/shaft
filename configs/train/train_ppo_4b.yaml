@@ -23,8 +23,8 @@ algorithm:
   name: ppo
 
 data:
-  registry_path: ../data/datasets.yaml
-  dataset_refs: [ppo_rollout]
+  catalog_path: ../data/example.yaml
+  catalog_names: [ppo_rollout]
   mix_strategy: interleave_under
   num_workers: 16
   pin_memory: true
@@ -32,31 +32,30 @@ data:
   min_pixels: 200704
   max_pixels: 1048576
 
-sft:
-  train:
-    epochs: 1
-    max_steps: -1
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
-    learning_rate: 1.0e-5
-    optimizer_name: adamw_torch
-    scheduler_name: cosine
-    loss_name: auto
-    bf16: true
-    use_cpu: false
-    logging_steps: 10
-    save_strategy: epoch
-    save_total_limit: 3
-    report_to: ["wandb"]
-    load_best_model_at_end: true
-    save_final_model: true
-    save_final_state: true
-  eval:
-    enabled: true
-    eval_strategy: epoch
-    per_device_eval_batch_size: 1
-    metric_for_best_model: eval_loss
-    greater_is_better: false
+train:
+  epochs: 1
+  max_steps: -1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  optimizer_name: adamw_torch
+  scheduler_name: cosine
+  loss_name: auto
+  bf16: true
+  use_cpu: false
+  logging_steps: 10
+  save_strategy: epoch
+  save_total_limit: 3
+  report_to: ["wandb"]
+  load_best_model_at_end: true
+  save_final_model: true
+  save_final_state: true
+eval:
+  enabled: true
+  eval_strategy: epoch
+  per_device_eval_batch_size: 1
+  metric_for_best_model: eval_loss
+  greater_is_better: false
 
 rlhf:
   enabled: true

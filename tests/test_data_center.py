@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from shaft.config import DataSourceConfig, RuntimeConfig
+from shaft.config import DatasetSourceConfig, RuntimeConfig
 from shaft.data import DPODataset, SFTDataset, ShaftDataCenter
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
@@ -18,7 +18,7 @@ if not ONLINE_TRANSFORM_REGISTRY.has(_MARK_DATASET_TRANSFORM):
     def _mark_dataset_transform(sample: dict[str, object]) -> dict[str, object]:
         updated = dict(sample)
         extra = dict(updated.get("extra", {}))
-        extra["marked_dataset"] = updated.get("dataset_id")
+        extra["marked_dataset"] = updated.get("dataset_name")
         updated["extra"] = extra
         return updated
 
@@ -62,14 +62,14 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     config.data.mix_strategy = "concat"
     config.data.shuffle = False
     config.data.datasets = [
-        DataSourceConfig(
-            name="ds_a",
+        DatasetSourceConfig(
+            dataset_name="ds_a",
             train_path=str(train_a),
             val_path=str(val_a),
             online_transforms=[_MARK_DATASET_TRANSFORM],
         ),
-        DataSourceConfig(
-            name="ds_b",
+        DatasetSourceConfig(
+            dataset_name="ds_b",
             train_path=str(train_b),
             val_path=str(val_b),
         ),
@@ -82,9 +82,9 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert len(val_dataset) == 2
     sample_a = train_dataset[0]
     sample_b = train_dataset[2]
-    assert sample_a["dataset_id"] == "ds_a"
+    assert sample_a["dataset_name"] == "ds_a"
     assert sample_a["extra"]["marked_dataset"] == "ds_a"
-    assert sample_b["dataset_id"] == "ds_b"
+    assert sample_b["dataset_name"] == "ds_b"
     assert "marked_dataset" not in sample_b["extra"]
 
 
@@ -116,8 +116,8 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     config = RuntimeConfig()
     config.algorithm.name = "dpo"
     config.data.datasets = [
-        DataSourceConfig(
-            name="dpo_ds",
+        DatasetSourceConfig(
+            dataset_name="dpo_ds",
             source_type="jsonl_dpo",
             train_path=str(train_path),
             val_path=str(val_path),
@@ -130,6 +130,6 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     assert len(train_dataset) == 1
     assert len(val_dataset) == 1
     sample = train_dataset[0]
-    assert sample["dataset_id"] == "dpo_ds"
+    assert sample["dataset_name"] == "dpo_ds"
     assert sample["chosen_text"] == "{\"ok\":1}"
     assert sample["rejected_text"] == "{\"ok\":0}"

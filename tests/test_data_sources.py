@@ -6,13 +6,14 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from shaft.config import DataSourceConfig
+from shaft.config import DatasetSourceConfig
+from shaft.data import ShaftDatasetMeta
 from shaft.data.sources import (
     DATA_SOURCE_REGISTRY,
     build_data_source,
     load_jsonl_dpo_records,
     load_jsonl_ppo_records,
-    load_jsonl_records,
+    load_jsonl_sft_records,
 )
 
 
@@ -22,7 +23,7 @@ def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: P
     jsonl = tmp_path / "samples.jsonl"
     sample = {
         "image": "img.png",
-        "dataset_id": "demo",
+        "dataset_name": "demo",
         "sample_id": "s1",
         "messages": [
             {"role": "system", "content": "system"},
@@ -31,10 +32,10 @@ def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: P
         ],
     }
     jsonl.write_text(json.dumps(sample, ensure_ascii=False) + "\n", encoding="utf-8")
-    records = load_jsonl_records(jsonl, dataset_id="fallback")
+    records = load_jsonl_sft_records(jsonl, dataset_name="fallback")
     assert len(records) == 1
     record = records[0]
-    assert record.dataset_id == "demo"
+    assert record.dataset_name == "demo"
     assert record.sample_id == "s1"
     assert record.target_text == "{\"ok\":1}"
     assert Path(record.image_path).is_absolute()
@@ -52,7 +53,7 @@ def test_missing_target_raises(tmp_path: Path) -> None:
     }
     jsonl.write_text(json.dumps(sample, ensure_ascii=False) + "\n", encoding="utf-8")
     with pytest.raises(ValueError):
-        load_jsonl_records(jsonl, dataset_id="x")
+        load_jsonl_sft_records(jsonl, dataset_name="x")
 
 
 def test_jsonl_loader_reports_aggregated_errors(tmp_path: Path) -> None:
@@ -61,16 +62,16 @@ def test_jsonl_loader_reports_aggregated_errors(tmp_path: Path) -> None:
     jsonl = tmp_path / "bad_many.jsonl"
     rows = [
         {"image_path": str(image), "target_text": "{\"ok\":1}"},
-        {"image_path": str(image)},  # missing target
-        "not-a-json-object",  # invalid row type
-        {"image_path": str(image)},  # missing target
+        {"image_path": str(image)},
+        "not-a-json-object",
+        {"image_path": str(image)},
     ]
     with jsonl.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     with pytest.raises(ValueError) as excinfo:
-        load_jsonl_records(jsonl, dataset_id="x", max_errors_to_report=2)
+        load_jsonl_sft_records(jsonl, dataset_name="x", max_errors_to_report=2)
     message = str(excinfo.value)
     assert "Failed to parse 3 row(s)" in message
     assert "Examples:" in message
@@ -93,13 +94,14 @@ def test_jsonl_source_supports_multi_paths(tmp_path: Path) -> None:
         }
         path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    source = build_data_source(
-        DataSourceConfig(
-            name="demo",
+    dataset_meta = ShaftDatasetMeta.from_config(
+        DatasetSourceConfig(
+            dataset_name="demo",
             train_paths=[str(train_a), str(train_b)],
             val_paths=[str(val_a)],
         )
     )
+    source = build_data_source(dataset_meta)
     train_records = source.load_split("train")
     val_records = source.load_split("val")
     assert [record.sample_id for record in train_records] == ["a", "b"]
@@ -122,7 +124,7 @@ def test_dpo_jsonl_source_parses_pairwise_fields(tmp_path: Path) -> None:
         "rejected": "{\"ok\":0}",
     }
     jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
-    records = load_jsonl_dpo_records(jsonl, dataset_id="dpo_ds")
+    records = load_jsonl_dpo_records(jsonl, dataset_name="dpo_ds")
     assert len(records) == 1
     assert records[0].chosen_text == "{\"ok\":1}"
     assert records[0].rejected_text == "{\"ok\":0}"
@@ -137,6 +139,6 @@ def test_ppo_jsonl_source_parses_prompt_fields(tmp_path: Path) -> None:
         "prompt": "detect objects",
     }
     jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
-    records = load_jsonl_ppo_records(jsonl, dataset_id="ppo_ds")
+    records = load_jsonl_ppo_records(jsonl, dataset_name="ppo_ds")
     assert len(records) == 1
     assert records[0].user_prompt == "detect objects"
