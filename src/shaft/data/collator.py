@@ -208,7 +208,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             "pixel_values": prefix_batch["pixel_values"],
             "image_grid_thw": prefix_batch.get("image_grid_thw"),
             "meta": {
-                "dataset_id": [item["dataset_id"] for item in batch],
+                "dataset_name": [item["dataset_name"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
@@ -254,7 +254,7 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 padding_value=0,
             ),
             "meta": {
-                "dataset_id": [item["dataset_id"] for item in batch],
+                "dataset_name": [item["dataset_name"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
             },
@@ -283,7 +283,7 @@ class PPOCollator(_ShaftSequenceCollatorBase):
             "input_ids": self._pad_sequences(input_rows, padding_value=int(pad_id)),
             "attention_mask": self._pad_sequences(attention_rows, padding_value=0),
             "meta": {
-                "dataset_id": [item["dataset_id"] for item in batch],
+                "dataset_name": [item["dataset_name"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
             },

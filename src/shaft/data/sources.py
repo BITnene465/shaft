@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Literal
 
-from shaft.config import DataSourceConfig
+from shaft.config import DatasetSourceConfig
 
 from .dataset import DPORecord, PPORecord, SFTRecord
 from .registry import DATA_SOURCE_REGISTRY, register_data_source
@@ -88,7 +88,7 @@ def _build_sft_record_from_raw(
     *,
     jsonl_path: Path,
     line_no: int,
-    dataset_id: str,
+    dataset_name: str,
 ) -> SFTRecord:
     image_path = _resolve_image_path(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
@@ -111,7 +111,7 @@ def _build_sft_record_from_raw(
     return SFTRecord(
         image_path=image_path,
         target_text=str(target_text),
-        dataset_id=str(raw.get("dataset_id", dataset_id)),
+        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -127,7 +127,7 @@ def _build_dpo_record_from_raw(
     *,
     jsonl_path: Path,
     line_no: int,
-    dataset_id: str,
+    dataset_name: str,
 ) -> DPORecord:
     image_path = _resolve_image_path(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
@@ -156,7 +156,7 @@ def _build_dpo_record_from_raw(
         image_path=image_path,
         chosen_text=str(chosen_text),
         rejected_text=str(rejected_text),
-        dataset_id=str(raw.get("dataset_id", dataset_id)),
+        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -172,7 +172,7 @@ def _build_ppo_record_from_raw(
     *,
     jsonl_path: Path,
     line_no: int,
-    dataset_id: str,
+    dataset_name: str,
 ) -> PPORecord:
     image_path = _resolve_image_path(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
@@ -197,7 +197,7 @@ def _build_ppo_record_from_raw(
     }
     return PPORecord(
         image_path=image_path,
-        dataset_id=str(raw.get("dataset_id", dataset_id)),
+        dataset_name=str(raw.get("dataset_name", raw.get("dataset_id", dataset_name))),
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -224,7 +224,7 @@ def _format_error_examples(
 def _load_jsonl_records_with_builder(
     path: str | Path,
     *,
-    dataset_id: str,
+    dataset_name: str,
     row_builder,
     max_errors_to_report: int = 20,
 ) -> list[Any]:
@@ -246,7 +246,7 @@ def _load_jsonl_records_with_builder(
                         raw,
                         jsonl_path=jsonl_path,
                         line_no=line_no,
-                        dataset_id=dataset_id,
+                        dataset_name=dataset_name,
                     )
                 )
             except Exception as exc:  # noqa: BLE001
@@ -264,15 +264,15 @@ def _load_jsonl_records_with_builder(
     return records
 
 
-def load_jsonl_records(
+def load_jsonl_sft_records(
     path: str | Path,
     *,
-    dataset_id: str,
+    dataset_name: str,
     max_errors_to_report: int = 20,
 ) -> list[SFTRecord]:
     return _load_jsonl_records_with_builder(
         path,
-        dataset_id=dataset_id,
+        dataset_name=dataset_name,
         row_builder=_build_sft_record_from_raw,
         max_errors_to_report=max_errors_to_report,
     )
@@ -281,12 +281,12 @@ def load_jsonl_records(
 def load_jsonl_dpo_records(
     path: str | Path,
     *,
-    dataset_id: str,
+    dataset_name: str,
     max_errors_to_report: int = 20,
 ) -> list[DPORecord]:
     return _load_jsonl_records_with_builder(
         path,
-        dataset_id=dataset_id,
+        dataset_name=dataset_name,
         row_builder=_build_dpo_record_from_raw,
         max_errors_to_report=max_errors_to_report,
     )
@@ -295,19 +295,19 @@ def load_jsonl_dpo_records(
 def load_jsonl_ppo_records(
     path: str | Path,
     *,
-    dataset_id: str,
+    dataset_name: str,
     max_errors_to_report: int = 20,
 ) -> list[PPORecord]:
     return _load_jsonl_records_with_builder(
         path,
-        dataset_id=dataset_id,
+        dataset_name=dataset_name,
         row_builder=_build_ppo_record_from_raw,
         max_errors_to_report=max_errors_to_report,
     )
 
 
 class BaseDataSource(ABC):
-    def __init__(self, config: DataSourceConfig) -> None:
+    def __init__(self, config: DatasetSourceConfig) -> None:
         self.config = config
 
     @abstractmethod
@@ -329,7 +329,7 @@ class JsonlSFTDataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[SFTRecord]:
         records: list[SFTRecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_records(path, dataset_id=self.config.name))
+            records.extend(load_jsonl_sft_records(path, dataset_name=self.config.dataset_name))
         return records
 
 
@@ -338,7 +338,7 @@ class JsonlDPODataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[DPORecord]:
         records: list[DPORecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_dpo_records(path, dataset_id=self.config.name))
+            records.extend(load_jsonl_dpo_records(path, dataset_name=self.config.dataset_name))
         return records
 
 
@@ -347,10 +347,10 @@ class JsonlPPODataSource(BaseDataSource):
     def load_split(self, split: Split) -> list[PPORecord]:
         records: list[PPORecord] = []
         for path in self._resolve_paths(split):
-            records.extend(load_jsonl_ppo_records(path, dataset_id=self.config.name))
+            records.extend(load_jsonl_ppo_records(path, dataset_name=self.config.dataset_name))
         return records
 
 
-def build_data_source(config: DataSourceConfig) -> BaseDataSource:
+def build_data_source(config: DatasetSourceConfig) -> BaseDataSource:
     source_cls = DATA_SOURCE_REGISTRY.get(config.source_type)
     return source_cls(config)

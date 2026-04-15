@@ -7,7 +7,7 @@ from .sources import (
     build_data_source,
     load_jsonl_dpo_records,
     load_jsonl_ppo_records,
-    load_jsonl_records,
+    load_jsonl_sft_records,
 )
 from .transforms import (
     OFFLINE_TRANSFORM_REGISTRY,
@@ -38,5 +38,5 @@ __all__ = [
     "ShaftPreparedRecords",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",
-    "load_jsonl_records",
+    "load_jsonl_sft_records",
 ]

@@ -86,7 +86,7 @@ algorithm:
   name: dpo
 data:
   datasets:
-    - name: dpo_ds
+    - dataset_name: dpo_ds
       source_type: jsonl_dpo
       train_path: {train_jsonl}
       val_path: {val_jsonl}
@@ -95,26 +95,25 @@ data:
   pin_memory: false
   min_pixels:
   max_pixels:
-sft:
-  train:
-    epochs: 1
-    max_steps: 1
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
-    learning_rate: 1.0e-3
-    optimizer_name: adamw_torch
-    scheduler_name: linear
-    loss_name: auto
-    logging_steps: 1
-    save_strategy: no
-    report_to: ["none"]
-    load_best_model_at_end: false
-    save_final_model: false
-    save_final_state: false
-    bf16: false
-    use_cpu: true
-  eval:
-    enabled: false
+train:
+  epochs: 1
+  max_steps: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-3
+  optimizer_name: adamw_torch
+  scheduler_name: linear
+  loss_name: auto
+  logging_steps: 1
+  save_strategy: no
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  bf16: false
+  use_cpu: true
+eval:
+  enabled: false
 rlhf:
   enabled: true
   dpo:
@@ -152,7 +151,7 @@ algorithm:
   name: ppo
 data:
   datasets:
-    - name: ppo_ds
+    - dataset_name: ppo_ds
       source_type: jsonl_ppo
       train_path: {train_jsonl}
       val_path: {val_jsonl}
@@ -161,26 +160,25 @@ data:
   pin_memory: false
   min_pixels:
   max_pixels:
-sft:
-  train:
-    epochs: 1
-    max_steps: 1
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
-    learning_rate: 1.0e-3
-    optimizer_name: adamw_torch
-    scheduler_name: linear
-    loss_name: auto
-    logging_steps: 1
-    save_strategy: no
-    report_to: ["none"]
-    load_best_model_at_end: false
-    save_final_model: false
-    save_final_state: false
-    bf16: false
-    use_cpu: true
-  eval:
-    enabled: false
+train:
+  epochs: 1
+  max_steps: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-3
+  optimizer_name: adamw_torch
+  scheduler_name: linear
+  loss_name: auto
+  logging_steps: 1
+  save_strategy: no
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  bf16: false
+  use_cpu: true
+eval:
+  enabled: false
 rlhf:
   enabled: true
   ppo:

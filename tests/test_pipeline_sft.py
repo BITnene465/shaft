@@ -9,7 +9,7 @@ from PIL import Image
 from shaft.config import RuntimeConfig, load_config
 from shaft.data import SFTDataset
 from shaft.model import build_model_meta
-from shaft.pipeline import run_train
+from shaft.pipeline import run_sft
 from shaft.template import build_template
 
 
@@ -90,7 +90,7 @@ experiment:
   output_dir: {tmp_path}/out
 data:
   datasets:
-    - name: ds
+    - dataset_name: ds
       train_path: {train_jsonl}
       val_path: {val_jsonl}
 algorithm:
@@ -115,9 +115,9 @@ eval:
     return load_config(cfg_path)
 
 
-def test_run_train_smoke(tmp_path: Path) -> None:
+def test_run_sft_smoke(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    with patch("shaft.pipeline.train.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
         mocked_builder.return_value = type(
             "Artifacts",
             (),
@@ -131,13 +131,13 @@ def test_run_train_smoke(tmp_path: Path) -> None:
             },
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            metrics = run_train(config)
+            metrics = run_sft(config)
     assert "train_loss" in metrics
 
 
 def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
     config = _write_config(tmp_path, hooks=["log_on_save"])
-    with patch("shaft.pipeline.train.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
         mocked_builder.return_value = type(
             "Artifacts",
             (),
@@ -151,13 +151,13 @@ def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
             },
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_train(config)
+            _ = run_sft(config)
     callbacks = _FakeTrainer.last_kwargs.get("callbacks")
     assert callbacks is not None
     assert len(callbacks) >= 1
 
 
-def test_run_train_uses_data_center(tmp_path: Path) -> None:
+def test_run_sft_uses_data_center(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     fake_train_dataset = object()
     fake_eval_dataset = object()
@@ -172,8 +172,8 @@ def test_run_train_uses_data_center(tmp_path: Path) -> None:
             captured["dataset_cls"] = dataset_cls
             return fake_train_dataset, fake_eval_dataset
 
-    with patch("shaft.pipeline.train.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.train.build_model_tokenizer_processor") as mocked_builder:
+    with patch("shaft.pipeline.sft.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
             mocked_builder.return_value = type(
                 "Artifacts",
                 (),
@@ -187,7 +187,7 @@ def test_run_train_uses_data_center(tmp_path: Path) -> None:
                 },
             )()
             with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-                _ = run_train(config)
+                _ = run_sft(config)
 
     assert captured["data_config"] is config.data
     assert captured["seed"] == config.experiment.seed

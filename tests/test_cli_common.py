@@ -92,7 +92,7 @@ def test_run_from_args_forced_algorithm() -> None:
     args = _build_min_args()
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_train", return_value={"train_loss": 0.1}) as mocked:
+        with patch("shaft.cli.common.run_sft", return_value={"train_loss": 0.1}) as mocked:
             run_from_args(args, forced_algorithm="sft")
     assert cfg.algorithm.name == "sft"
     mocked.assert_called_once()

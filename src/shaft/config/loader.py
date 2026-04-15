@@ -6,7 +6,7 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 
-from .data_registry import resolve_data_sources
+from .dataset_catalog import resolve_dataset_catalog
 from .normalize import normalize_runtime_config
 from .schema import RuntimeConfig
 
@@ -74,43 +74,12 @@ def _build_dataclass(cls: type[T], payload: dict[str, Any], *, path: str = "") -
     return cls(**kwargs)
 
 
-def _upgrade_legacy_layout(payload: dict[str, Any]) -> dict[str, Any]:
-    # Legacy root layout:
-    #   train: ...
-    #   eval: ...
-    # New layout:
-    #   sft:
-    #     train: ...
-    #     eval: ...
-    out = dict(payload)
-    has_legacy = "train" in out or "eval" in out
-    if not has_legacy:
-        return out
-    sft_raw = out.get("sft")
-    if sft_raw is None:
-        sft_raw = {}
-    if not isinstance(sft_raw, dict):
-        raise TypeError("Config key `sft` must be a mapping when provided.")
-    sft = dict(sft_raw)
-    if "train" in out:
-        if "train" in sft:
-            raise ValueError("Both root.train and sft.train are provided; keep only one.")
-        sft["train"] = out.pop("train")
-    if "eval" in out:
-        if "eval" in sft:
-            raise ValueError("Both root.eval and sft.eval are provided; keep only one.")
-        sft["eval"] = out.pop("eval")
-    out["sft"] = sft
-    return out
-
-
 def load_config(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
-    payload = _upgrade_legacy_layout(payload)
-    payload = resolve_data_sources(payload, config_path=config_path.resolve())
+    payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

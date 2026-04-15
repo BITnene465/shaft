@@ -39,8 +39,8 @@ class FinetuneConfig:
 
 
 @dataclass
-class DataSourceConfig:
-    name: str
+class DatasetSourceConfig:
+    dataset_name: str
     source_type: str = "jsonl_sft"
     train_path: str | None = None
     val_path: str | None = None
@@ -54,9 +54,9 @@ class DataSourceConfig:
 
 @dataclass
 class DataConfig:
-    registry_path: str | None = None
-    dataset_refs: list[str] = field(default_factory=list)
-    datasets: list[DataSourceConfig] = field(default_factory=list)
+    catalog_path: str | None = None
+    catalog_names: list[str] = field(default_factory=list)
+    datasets: list[DatasetSourceConfig] = field(default_factory=list)
     mix_strategy: str = "interleave_under"
     num_workers: int = 4
     pin_memory: bool = True
@@ -74,7 +74,7 @@ class AlgorithmConfig:
 
 
 @dataclass
-class SFTTrainConfig:
+class TrainConfig:
     epochs: int = 1
     max_steps: int = -1
     per_device_train_batch_size: int = 1
@@ -108,7 +108,7 @@ class SFTTrainConfig:
 
 
 @dataclass
-class SFTEvalConfig:
+class EvalConfig:
     enabled: bool = True
     per_device_eval_batch_size: int = 1
     eval_strategy: str = "epoch"  # no | steps | epoch
@@ -139,12 +139,6 @@ class ProgressConfig:
     enabled: bool = True
     leave: bool = False
     mininterval: float = 0.2
-
-
-@dataclass
-class SFTConfig:
-    train: SFTTrainConfig = field(default_factory=SFTTrainConfig)
-    eval: SFTEvalConfig = field(default_factory=SFTEvalConfig)
 
 
 @dataclass
@@ -192,23 +186,9 @@ class RuntimeConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
-    sft: SFTConfig = field(default_factory=SFTConfig)
+    train: TrainConfig = field(default_factory=TrainConfig)
+    eval: EvalConfig = field(default_factory=EvalConfig)
     rlhf: RLHFConfig = field(default_factory=RLHFConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     progress: ProgressConfig = field(default_factory=ProgressConfig)
-
-    @property
-    def train(self) -> SFTTrainConfig:
-        # Backward-compatible alias for legacy code paths.
-        return self.sft.train
-
-    @property
-    def eval(self) -> SFTEvalConfig:
-        # Backward-compatible alias for legacy code paths.
-        return self.sft.eval
-
-
-# Backward-compatible type aliases.
-TrainConfig = SFTTrainConfig
-EvalConfig = SFTEvalConfig

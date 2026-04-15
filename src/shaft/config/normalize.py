@@ -21,9 +21,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
         raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
-    config.data.dataset_refs = [str(x).strip() for x in config.data.dataset_refs if str(x).strip()]
-    if config.data.registry_path is not None:
-        config.data.registry_path = str(config.data.registry_path).strip() or None
+    config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
+    if config.data.catalog_path is not None:
+        config.data.catalog_path = str(config.data.catalog_path).strip() or None
 
     finetune = config.model.finetune
     finetune.mode = str(finetune.mode).strip().lower()
@@ -37,6 +37,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("model.finetune.target_modules cannot be empty.")
 
     for dataset in config.data.datasets:
+        dataset.dataset_name = str(dataset.dataset_name).strip()
+        if not dataset.dataset_name:
+            raise ValueError("data.datasets[*].dataset_name cannot be empty.")
         dataset.source_type = str(dataset.source_type).strip().lower()
         dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
         dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
@@ -45,53 +48,53 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         if dataset.val_path:
             dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
         if not dataset.train_paths:
-            raise ValueError(f"data.datasets[{dataset.name}].train_paths cannot be empty.")
-        if not dataset.val_paths and bool(config.sft.eval.enabled):
-            raise ValueError(f"data.datasets[{dataset.name}].val_paths cannot be empty.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}].train_paths cannot be empty.")
+        if not dataset.val_paths and bool(config.eval.enabled):
+            raise ValueError(f"data.datasets[{dataset.dataset_name}].val_paths cannot be empty.")
         if config.algorithm.name == "sft" and dataset.source_type == "jsonl_ppo":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_ppo but algorithm is sft.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is sft.")
         if config.algorithm.name == "sft" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_dpo but algorithm is sft.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is sft.")
         if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_sft but algorithm is dpo.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is dpo.")
         if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_ppo":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_ppo but algorithm is dpo.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is dpo.")
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_sft but algorithm is ppo.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo.")
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(f"data.datasets[{dataset.name}] uses jsonl_dpo but algorithm is ppo.")
+            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo.")
 
-    train = config.sft.train
+    train = config.train
     train.optimizer_name = str(train.optimizer_name).strip().lower()
     train.scheduler_name = str(train.scheduler_name).strip().lower()
     if train.scheduler_name in {"", "auto"}:
         train.scheduler_name = str(train.lr_scheduler_type).strip().lower()
     train.loss_name = str(train.loss_name).strip().lower()
     if train.loss_name not in _LOSS_NAMES:
-        raise ValueError(f"Unsupported sft.train.loss_name={train.loss_name!r}.")
+        raise ValueError(f"Unsupported train.loss_name={train.loss_name!r}.")
     train.lr_scheduler_type = str(train.lr_scheduler_type).strip().lower()
     if isinstance(train.save_strategy, bool):
         train.save_strategy = "no" if not train.save_strategy else "steps"
     else:
         train.save_strategy = str(train.save_strategy).strip().lower()
     if train.save_strategy not in {"no", "steps", "epoch"}:
-        raise ValueError(f"Unsupported sft.train.save_strategy={train.save_strategy!r}.")
+        raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
     if int(train.epochs) <= 0:
-        raise ValueError("sft.train.epochs must be > 0.")
+        raise ValueError("train.epochs must be > 0.")
     if int(train.max_steps) == 0:
-        raise ValueError("sft.train.max_steps cannot be 0. Use -1 or >0.")
+        raise ValueError("train.max_steps cannot be 0. Use -1 or >0.")
     if float(train.scheduler_num_cycles) <= 0:
-        raise ValueError("sft.train.scheduler_num_cycles must be > 0.")
+        raise ValueError("train.scheduler_num_cycles must be > 0.")
     if float(train.scheduler_power) <= 0:
-        raise ValueError("sft.train.scheduler_power must be > 0.")
+        raise ValueError("train.scheduler_power must be > 0.")
 
-    eval_cfg = config.sft.eval
+    eval_cfg = config.eval
     if isinstance(eval_cfg.eval_strategy, bool):
         eval_cfg.eval_strategy = "no" if not eval_cfg.eval_strategy else "steps"
     else:
         eval_cfg.eval_strategy = str(eval_cfg.eval_strategy).strip().lower()
     if eval_cfg.eval_strategy not in {"no", "steps", "epoch"}:
-        raise ValueError(f"Unsupported sft.eval.eval_strategy={eval_cfg.eval_strategy!r}.")
+        raise ValueError(f"Unsupported eval.eval_strategy={eval_cfg.eval_strategy!r}.")
 
     dpo_cfg = config.rlhf.dpo
     dpo_cfg.loss_type = str(dpo_cfg.loss_type).strip().lower()

@@ -10,7 +10,7 @@ from transformers import TrainingArguments
 from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 
-from shaft.training.rlhf import _DPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
+from shaft.training.trl_trainers import _DPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
 
 if TYPE_CHECKING:
     from shaft.model.types import ModelMeta

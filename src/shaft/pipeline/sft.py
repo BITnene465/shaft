@@ -32,9 +32,9 @@ from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
 
 
-@register_pipeline("shaft_train")
-class ShaftTrainPipeline:
-    """HF-first training pipeline.
+@register_pipeline("shaft_sft")
+class ShaftSFTPipeline:
+    """HF-first SFT pipeline.
 
     The pipeline only coordinates modules; business semantics stay in data/model/algorithms.
     """
@@ -51,13 +51,13 @@ class ShaftTrainPipeline:
         algorithm_name = str(config.algorithm.name).strip().lower()
         if algorithm_name != "sft":
             raise ValueError(
-                f"ShaftTrainPipeline only supports sft, got algorithm={algorithm_name!r}. "
+                f"ShaftSFTPipeline only supports sft, got algorithm={algorithm_name!r}. "
                 "Use ShaftRLHFPipeline for dpo/ppo."
             )
         validate_training_state_policy(config)
         artifacts = build_model_tokenizer_processor(
             config,
-            init_from_checkpoint=config.sft.train.init_from_checkpoint,
+            init_from_checkpoint=config.train.init_from_checkpoint,
         )
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         train_dataset, eval_dataset = data_center.build_dataset_pair(SFTDataset)
@@ -87,39 +87,39 @@ class ShaftTrainPipeline:
         algorithm = algorithm_cls()
         trainer = algorithm.build_trainer(
             context=AlgorithmContext(params=dict(config.algorithm.params)),
-            train_config=config.sft.train,
+            train_config=config.train,
             model=artifacts.model,
             args=self.build_training_args(),
             train_dataset=train_dataset,
-            eval_dataset=eval_dataset if config.sft.eval.enabled else None,
+            eval_dataset=eval_dataset if config.eval.enabled else None,
             processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,
         )
 
-        resume_checkpoint = resolve_resume_checkpoint(config.sft.train.resume_from_checkpoint)
+        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
         if resume_checkpoint is not None:
             validate_resume_checkpoint(resume_checkpoint, finetune_mode=config.model.finetune.mode)
         train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
         barrier_if_distributed()
-        if config.sft.train.save_final_model:
+        if config.train.save_final_model:
             trainer.save_model()
             ensure_hf_export_layout(
                 config.experiment.output_dir,
                 finetune_mode=config.model.finetune.mode,
                 model_meta=artifacts.model_adapter,
             )
-        if config.sft.train.save_final_state:
+        if config.train.save_final_state:
             trainer.save_state()
         barrier_if_distributed()
         return dict(train_result.metrics or {})
 
 
-def run_train(config: RuntimeConfig) -> dict[str, Any]:
-    pipeline_cls = PIPELINE_REGISTRY.get("shaft_train")
+def run_sft(config: RuntimeConfig) -> dict[str, Any]:
+    pipeline_cls = PIPELINE_REGISTRY.get("shaft_sft")
     pipeline = pipeline_cls(config)
     runner = ExecutionProxy(
-        point="pipeline.train.run",
+        point="pipeline.sft.run",
         target=pipeline.run,
         interceptor_manager=pipeline.interceptor_manager,
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from shaft.config import PPOConfig, SFTTrainConfig
+from shaft.config import PPOConfig, TrainConfig
 from shaft.training import ShaftPPOTrainer
 
 from .base import AlgorithmContext
@@ -23,7 +23,7 @@ class PPOAlgorithm:
 
     def build_trainer(self, *, context: AlgorithmContext, **kwargs: Any) -> ShaftPPOTrainer:
         _ = context
-        train_config: SFTTrainConfig = kwargs.pop("train_config")
+        train_config: TrainConfig = kwargs.pop("train_config")
         _ = train_config
         rlhf_config: PPOConfig = kwargs.pop("rlhf_config")
         training_args = kwargs.pop("args")

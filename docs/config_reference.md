@@ -1,0 +1,255 @@
+# Shaft 配置参考
+
+本文档描述 `RuntimeConfig` 的主要配置块和推荐使用方式。配置以 YAML 为主，CLI 只允许无歧义 override。
+
+## 1. 顶层结构
+
+训练主配置由 `RuntimeConfig` 组成：
+
+- `experiment`
+- `model`
+- `data`
+- `algorithm`
+- `train`
+- `eval`
+- `rlhf`
+- `plugins`
+- `logging`
+- `progress`
+
+## 2. `experiment`
+
+用途：实验元信息和输出目录。
+
+关键字段：
+
+- `name`
+- `seed`
+- `output_dir`
+- `run_id`
+
+约束：
+
+- `run_id` 用于区分同一实验模板下的不同运行实例。
+- `output_dir` 应视为当前运行的唯一产物目录。
+
+## 3. `model`
+
+用途：模型族、模型路径和微调方式。
+
+关键字段：
+
+- `model_type`
+- `model_name_or_path`
+- `template`
+- `trust_remote_code`
+- `attn_implementation`
+- `torch_dtype`
+- `finetune`
+
+### `model.finetune`
+
+关键字段：
+
+- `mode`: `full | lora | dora | qlora`
+- `target_modules`
+- `lora_r`
+- `lora_alpha`
+- `lora_dropout`
+- `lora_bias`
+- `use_rslora`
+- `qlora_load_in_4bit`
+- `qlora_use_double_quant`
+- `qlora_quant_type`
+- `qlora_compute_dtype`
+
+约束：
+
+- `target_modules=["auto"]` 表示交给模型族 `peft policy` 自动解析。
+- `init_from_checkpoint` 与 `resume_from_checkpoint` 的兼容矩阵由 `training/checkpointing.py` 统一校验。
+
+## 4. `data`
+
+用途：数据 catalog、多数据源、mixing 与批处理行为。
+
+关键字段：
+
+- `catalog_path`
+- `catalog_names`
+- `datasets`
+- `mix_strategy`
+- `num_workers`
+- `pin_memory`
+- `persistent_workers`
+- `min_pixels`
+- `max_pixels`
+- `add_eos_token`
+- `shuffle`
+
+### `data.datasets`
+
+每个条目是一个 `DatasetSourceConfig`：
+
+- `dataset_name`
+- `source_type`
+- `train_path`
+- `val_path`
+- `train_paths`
+- `val_paths`
+- `weight`
+- `enabled`
+- `offline_transforms`
+- `online_transforms`
+
+约束：
+
+- `catalog_path/catalog_names` 用于复用“命名数据集”。
+- `datasets` 用于当前 YAML 内联声明数据源。
+- 实际进入 `ShaftDataCenter` 前，catalog 会先展开成标准 `datasets` 列表。
+
+## 5. `algorithm`
+
+用途：选择训练算法与算法级参数。
+
+关键字段：
+
+- `name`: `sft | dpo | ppo`
+- `params`
+
+说明：
+
+- `params` 只保留算法的轻量补充参数。
+- DPO/PPO 的结构化核心参数在 `rlhf` 块中。
+
+## 6. `train`
+
+用途：训练行为、保存策略和 resume/init 规则。
+
+关键字段：
+
+- `epochs`
+- `max_steps`
+- `per_device_train_batch_size`
+- `gradient_accumulation_steps`
+- `learning_rate`
+- `optimizer_name`
+- `scheduler_name`
+- `loss_name`
+- `weight_decay`
+- `warmup_ratio`
+- `max_grad_norm`
+- `bf16`
+- `use_cpu`
+- `logging_steps`
+- `save_strategy`
+- `save_steps`
+- `save_total_limit`
+- `ddp_find_unused_parameters`
+- `report_to`
+- `load_best_model_at_end`
+- `save_final_model`
+- `save_final_state`
+- `init_from_checkpoint`
+- `resume_from_checkpoint`
+
+说明：
+
+- `train` 是 SFT 与 RLHF 共用的基础训练块。
+- `optimizer_name/scheduler_name/loss_name` 走注册表。
+
+## 7. `eval`
+
+用途：评估开关、频率和 best model 选择。
+
+关键字段：
+
+- `enabled`
+- `per_device_eval_batch_size`
+- `eval_strategy`
+- `eval_steps`
+- `do_sample`
+- `temperature`
+- `max_new_tokens`
+- `metric_for_best_model`
+- `greater_is_better`
+
+说明：
+
+- 当前训练链仍以 `eval_loss` 为主监控指标。
+- 结构化任务评估子系统尚未完成。
+
+## 8. `rlhf`
+
+用途：DPO/PPO 的结构化专属参数。
+
+### `rlhf.dpo`
+
+- `beta`
+- `label_smoothing`
+- `loss_type`
+- `precompute_ref_log_probs`
+- `use_weighting`
+
+### `rlhf.ppo`
+
+- `cliprange`
+- `cliprange_value`
+- `kl_coef`
+- `vf_coef`
+- `gamma`
+- `lam`
+- `whiten_rewards`
+- `response_length`
+- `temperature`
+- `num_ppo_epochs`
+- `num_mini_batches`
+- `local_rollout_forward_batch_size`
+- `num_sample_generations`
+- `stop_token`
+- `value_model_mode`
+- `reward_model_mode`
+- `train_value_backbone`
+- `allow_untrained_reward_model`
+- `allow_text_only_multimodal_ppo`
+
+说明：
+
+- PPO 仍是受限能力，文档与实现均不应把它表述为已完成生产方案。
+
+## 9. `plugins`
+
+- `hooks`
+- `interceptors`
+
+用途：
+
+- 为训练主链注入横切增强点。
+
+## 10. `logging`
+
+- `level`
+- `fmt`
+- `file_path`
+- `rank_zero_only`
+
+## 11. `progress`
+
+- `enabled`
+- `leave`
+- `mininterval`
+
+## 12. CLI override 原则
+
+只允许无歧义字段通过 CLI 覆盖，例如：
+
+- `run-id`
+- `seed`
+- `epochs`
+- `lr`
+- `resume-from`
+- `init-from`
+
+禁止：
+
+- 用 CLI 直接拼装复杂 `datasets` 列表
+- 用 CLI 覆盖多层嵌套且语义不清的配置对象

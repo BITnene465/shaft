@@ -6,7 +6,7 @@ from typing import Any
 
 from shaft.config import RuntimeConfig, load_config
 from shaft.observability import bind_log_context, configure_logging, set_log_context
-from shaft.pipeline import run_rlhf, run_train
+from shaft.pipeline import run_rlhf, run_sft
 
 
 def _as_bool(text: str) -> bool:
@@ -44,8 +44,8 @@ def add_common_train_args(parser: argparse.ArgumentParser) -> None:
 
 
 def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> RuntimeConfig:
-    sft_train = config.sft.train
-    sft_eval = config.sft.eval
+    train_config = config.train
+    eval_config = config.eval
     run_id = getattr(args, "run_id", None)
     seed = getattr(args, "seed", None)
     epochs = getattr(args, "epochs", None)
@@ -73,27 +73,27 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
     if seed is not None:
         config.experiment.seed = int(seed)
     if epochs is not None:
-        sft_train.epochs = int(epochs)
+        train_config.epochs = int(epochs)
     if max_steps is not None:
-        sft_train.max_steps = int(max_steps)
+        train_config.max_steps = int(max_steps)
     if learning_rate is not None:
-        sft_train.learning_rate = float(learning_rate)
+        train_config.learning_rate = float(learning_rate)
     if train_batch_size is not None:
-        sft_train.per_device_train_batch_size = int(train_batch_size)
+        train_config.per_device_train_batch_size = int(train_batch_size)
     if eval_batch_size is not None:
-        sft_eval.per_device_eval_batch_size = int(eval_batch_size)
+        eval_config.per_device_eval_batch_size = int(eval_batch_size)
     if mix_strategy is not None:
         config.data.mix_strategy = str(mix_strategy)
     if optimizer_name is not None:
-        sft_train.optimizer_name = str(optimizer_name)
+        train_config.optimizer_name = str(optimizer_name)
     if scheduler_name is not None:
-        sft_train.scheduler_name = str(scheduler_name)
+        train_config.scheduler_name = str(scheduler_name)
     if scheduler_num_cycles is not None:
-        sft_train.scheduler_num_cycles = float(scheduler_num_cycles)
+        train_config.scheduler_num_cycles = float(scheduler_num_cycles)
     if scheduler_power is not None:
-        sft_train.scheduler_power = float(scheduler_power)
+        train_config.scheduler_power = float(scheduler_power)
     if loss_name is not None:
-        sft_train.loss_name = str(loss_name)
+        train_config.loss_name = str(loss_name)
     if finetune_mode is not None:
         config.model.finetune.mode = str(finetune_mode)
     if lora_r is not None:
@@ -105,11 +105,11 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
     if qlora_load_in_4bit is not None:
         config.model.finetune.qlora_load_in_4bit = bool(qlora_load_in_4bit)
     if use_cpu is not None:
-        sft_train.use_cpu = bool(use_cpu)
+        train_config.use_cpu = bool(use_cpu)
     if init_from is not None:
-        sft_train.init_from_checkpoint = str(init_from)
+        train_config.init_from_checkpoint = str(init_from)
     if resume_from is not None:
-        sft_train.resume_from_checkpoint = str(resume_from)
+        train_config.resume_from_checkpoint = str(resume_from)
     return config
 
 
@@ -138,7 +138,7 @@ def run_from_args(
     with bind_log_context(algorithm=config.algorithm.name):
         logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
         if config.algorithm.name == "sft":
-            metrics = run_train(config)
+            metrics = run_sft(config)
         elif config.algorithm.name in {"dpo", "ppo"}:
             metrics = run_rlhf(config)
         else:

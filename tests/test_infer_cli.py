@@ -23,7 +23,7 @@ def test_infer_main_runs_pipeline() -> None:
             return {"ok": True}
 
     with patch("shaft.cli.infer.load_infer_config", return_value=fake_config) as load_cfg:
-        with patch("shaft.cli.infer.InferPipeline.from_config", return_value=_FakePipeline()) as build_pipeline:
+        with patch("shaft.cli.infer.ShaftInferPipeline.from_config", return_value=_FakePipeline()) as build_pipeline:
             main(["--config", "infer.yaml", "--image", "image.png", "--inputs", '{"task":"arrow"}'])
     load_cfg.assert_called_once_with("infer.yaml")
     build_pipeline.assert_called_once_with(fake_config)

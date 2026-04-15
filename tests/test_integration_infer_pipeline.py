@@ -4,13 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from shaft.infer import InferPipeline
-from shaft.infer.schema import (
-    InferGenerationConfig,
-    InferModelConfig,
-    InferPipelineConfig,
-    InferStageConfig,
-)
+from shaft.infer import InferEngineConfig, InferGenerationConfig, InferPipelineConfig, InferStageConfig, ShaftInferPipeline
 
 
 def _fixture_images(*, count: int = 2) -> list[Path]:
@@ -25,10 +19,10 @@ def _fixture_images(*, count: int = 2) -> list[Path]:
     return candidates[:count]
 
 
-def _build_smoke_pipeline(*, multi_stage: bool) -> InferPipeline:
+def _build_smoke_pipeline(*, multi_stage: bool) -> ShaftInferPipeline:
     cfg = InferPipelineConfig(
         engines={
-            "smoke": InferModelConfig(
+            "smoke": InferEngineConfig(
                 model_type="smoke_vlm",
                 model_name_or_path="unused",
                 backend="hf_local",
@@ -67,7 +61,7 @@ def _build_smoke_pipeline(*, multi_stage: bool) -> InferPipeline:
             ),
         ],
     )
-    return InferPipeline.from_config(cfg)
+    return ShaftInferPipeline.from_config(cfg)
 
 
 @pytest.mark.integration

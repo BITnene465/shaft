@@ -1,183 +1,244 @@
-# Shaft 架构总览与边界
+# Shaft 架构总览
 
-本文档描述 `src/shaft` 当前可运行架构，重点用于指导后续 agent 扩展和重构，避免跨层越界。
+本文档描述 `src/shaft` 的正式架构、模块边界和稳定接口，用于指导日常开发、架构评审、代码 review 与后续 agent 协作。
 
-## 0. 总原则：当前仅面向 Hugging Face 生态
+## 1. 目标与范围
 
-- Shaft 当前是 **HF-first** 框架，只面向 Hugging Face 生态组织训练、保存、续训与推理接入。
-- 当前默认依赖与边界：
-  - 模型加载基于 `transformers`
-  - 参数高效微调基于 `peft`
-  - 强化学习训练基于 `trl`
-  - 部署侧仅接入 HF 本地推理与 vLLM 的 OpenAI 兼容接口
-- 当前**不**以兼容 ModelScope、自定义 checkpoint 格式、非 HF Trainer 内核、多套模型仓库协议为目标。
-- 因此，新增能力时应优先复用 HF 标准对象与目录约定，而不是引入平行生态抽象层。
+### 1.1 当前目标
 
-## 1. 顶层分层
+- 以 `Hugging Face` 生态为唯一主干。
+- 围绕多模态模型训练与推理构建稳定框架。
+- 优先打磨 `Qwen3VL + SFT` 主路径。
+- 通过注册表和适配层支持后续模型族、算法和推理后端扩展。
+- 保持训练、保存、续训、导出都兼容 HF / PEFT / TRL 标准能力。
 
-### 1.1 `config`
-- 位置：`src/shaft/config`
-- 作用：配置 schema、YAML 加载、归一化校验。
-- 关键点：
-  - `RuntimeConfig` 是唯一入口对象。
-  - `algorithm.name` 当前支持：`sft` / `dpo` / `ppo`。
-  - `rlhf.dpo` / `rlhf.ppo` 为结构化配置，不再是无类型字典。
+### 1.2 当前非目标
 
-### 1.2 `data`
-- 位置：`src/shaft/data`
-- 作用：数据源注册、离线/在线 transform、样本级 mixing、dataset/collator。
-- 数据源：
-  - `jsonl_sft` -> `SFTRecord`
-  - `jsonl_dpo` -> `DPORecord`
-  - `jsonl_ppo` -> `PPORecord`
-- 关键点：
-  - `ShaftDataCenter` 是数据子系统的正式入口，统一负责：多数据源加载、offline transform、sample-level mixing、dataset-aware online transform 编排。
-  - `config` 层支持 `data.registry_path + data.dataset_refs`，可从外部 registry 文件解析命名数据集，再合并到 `data.datasets`。
-  - registry 文件中的相对路径按 registry 文件目录解析；主训练 YAML 中内联 `data.datasets` 的相对路径按训练 YAML 所在目录解析。
-  - JSONL 解析使用聚合报错，会汇总坏样本行号与错误原因。
-  - `ShaftDataCenter` 输出的是“标准 records / dataset pair”，不会感知 loss、optimizer、训练循环。
-  - 训练循环、loss、优化器逻辑禁止进入数据层。
+- 不做多生态兼容层，不接入 ModelScope 等平行生态。
+- 不设计自定义 checkpoint 格式。
+- 不将任务级语义路由放入训练内核。
+- 不把推理编排做成任务 DSL。
+- 不把 PPO/RM 包装成“已完成的生产能力”。
 
-### 1.3 `model`
-- 位置：`src/shaft/model`
-- 作用：模型族适配、processor/tokenizer/template 解析、finetune 策略注入。
-- 关键点：
-  - 统一入口：`build_model_tokenizer_processor`。
-  - 运行时统一适配对象：`ShaftModelAdapter`，负责收口模板选择、processor policy、peft policy、requires、additional_saved_files。
-  - `processor policy` / `peft policy` 通过模型层 registry 注册和复用，而不是在各模型文件里直接散落硬编码实例。
-  - `init_from_checkpoint` 支持 full 权重和 PEFT adapter 初始化。
-  - 模型族特化逻辑必须放在模型专属文件（例如 `qwen3vl.py`）。
+## 2. HF-first 边界
 
-### 1.4 `template`
-- 位置：`src/shaft/template`
-- 作用：模板注册和 prompt 渲染抽象。
-- 关键点：
-  - 模板层只负责消息拼装与 decode，不负责任务语义解析。
+Shaft 当前明确是 `HF-first` 框架，这个边界必须在所有设计、实现和文档中保持一致。
 
-### 1.5 `algorithms`
-- 位置：`src/shaft/algorithms`
-- 作用：算法注册 + trainer 构建。
-- 当前算法：
-  - `SFTAlgorithm` -> `ShaftSFTTrainer`
-  - `DPOAlgorithm` -> `ShaftDPOTrainer`（TRL DPOTrainer 内核）
-  - `PPOAlgorithm` -> `ShaftPPOTrainer`（TRL PPOTrainer 内核）
-- 关键点：
-  - 算法层负责“如何训练”，不负责“如何读取数据文件”。
-  - DPO 当前为基础工业实现，不是 TRL 全特性对齐版本（例如多损失家族/复杂偏好采样策略尚未全部接入）。
+- 训练内核：`transformers.Trainer` 与 `trl`
+- 参数高效微调：`peft`
+- 权重布局：HF full export / PEFT adapter export
+- 推理后端：
+  - `hf_local`
+  - `vllm_openai`
 
-### 1.6 `pipeline`
-- 位置：`src/shaft/pipeline`
-- 作用：按算法编排端到端训练流程。
-- 流水线：
-  - `shaft_train`：仅 `sft`
-  - `shaft_rlhf`：`dpo/ppo`
-- 关键点：
-  - SFT 与 RLHF 已分流，防止同一 pipeline 里塞 if-else 污染职责。
-  - pipeline 只负责装配组件；多数据源读取、增强与 mixing 统一委托给 `ShaftDataCenter`，不得在 pipeline 内重复实现。
+禁止：
 
-### 1.7 `training`
-- 位置：`src/shaft/training`
-- 作用：Trainer 扩展、loss/optimizer/scheduler 注册、checkpoint 规则。
-- 关键点：
-  - `ShaftSFTTrainer`
-  - `ShaftDPOTrainer`（TRL 包装类）
-  - `ShaftPPOTrainer`（TRL 包装类）
-  - `LOSS_REGISTRY` / `OPTIMIZER_REGISTRY` / `SCHEDULER_REGISTRY`
-  - checkpoint 校验：`ensure_hf_export_layout`、`validate_resume_checkpoint`
+1. 引入自定义模型保存格式。
+2. 在训练主干中塞入非 HF 生态的基础抽象。
+3. 为兼容外部平台而污染当前配置、数据、训练接口。
 
-### 1.8 `export`
-- 位置：`src/shaft/export`
-- 作用：HF/PEFT 标准目录检查与 adapter merge 工具。
-- 关键点：
-  - 只接受 HF/PEFT 标准目录，不引入自定义中间格式。
-  - `inspect`：判断目录是 `full` / `adapter` / `trainer_state_only` / `unknown`
-  - `validate`：校验目录是否满足当前 `finetune_mode` 约束
-  - `merge-peft`：将 adapter 合并为标准 HF full export
-  - “发布/上传”当前不在工具链主线范围内
+## 3. 架构分层
 
-### 1.9 `plugins`
-- 位置：`src/shaft/plugins`
-- 作用：hook/interceptor/proxy 横切机制。
-- 关键点：
-  - 插件只做横切增强（日志、监控、拦截），不替代主业务流程。
+```mermaid
+flowchart TD
+    Scripts["scripts/*.py<br/>薄包装入口"]
+    CLI["src/shaft/cli<br/>命令解析与调度"]
+    Config["config<br/>schema / loader / normalize / catalog"]
+    Pipeline["pipeline<br/>SFT / RLHF 编排"]
+    Data["data<br/>source / transform / mixing / dataset / collator"]
+    Model["model<br/>loader / adapter / policy / finetune"]
+    Template["template<br/>chat template / decode protocol"]
+    Algorithms["algorithms<br/>SFT / DPO / PPO trainer 装配"]
+    Training["training<br/>trainer / loss / optimizer / scheduler / checkpoint"]
+    Infer["infer<br/>engine / pipeline / codec"]
+    Export["export<br/>inspect / validate / merge-peft"]
+    Plugins["plugins<br/>registry / hook / interceptor / proxy"]
+    Obs["observability<br/>logging / context / events"]
 
-### 1.10 `infer`
-- 位置：`src/shaft/infer`
-- 作用：推理引擎与多阶段推理 pipeline。
-- 关键点：
-  - 与训练内核解耦，不依赖训练循环内部实现。
-  - `InferEngine` 使用 adapter 抽象（当前已实现 `hf_local` 与 `vllm_openai`）。
-  - pipeline 支持 stage 级 codec/retry/fail_fast，并输出 `__trace__` 便于后端排障。
+    Scripts --> CLI
+    CLI --> Config
+    CLI --> Pipeline
+    CLI --> Infer
+    CLI --> Export
 
-### 1.11 `cli`
-- 位置：`src/shaft/cli`
-- 作用：训练命令入口和参数覆写。
-- 命令：
-  - `scripts/train.py sft --config ...`
-  - `scripts/train.py rlhf --config ... --algorithm dpo|ppo`
-  - `scripts/export.py inspect|validate|merge-peft ...`
+    Config --> Data
+    Config --> Model
+    Pipeline --> Data
+    Pipeline --> Model
+    Pipeline --> Template
+    Pipeline --> Algorithms
+    Pipeline --> Training
+    Pipeline --> Plugins
+    Pipeline --> Obs
+    Model --> Template
+    Model --> Training
+    Infer --> Model
+    Infer --> Template
+    Export --> Model
+    Export --> Training
+```
 
-## 2. 关键边界（必须遵守）
+## 4. 模块职责矩阵
 
-1. 数据层不写 loss/优化器/梯度更新逻辑。  
-2. 算法层不解析 JSONL 路径和文件细节。  
-3. pipeline 层不实现模型族特化细节，也不实现多数据源/mixing/增强编排。  
-4. 模型特化能力（target modules/template/processor policy/peft policy）仅在 `model`/`template`。  
-5. checkpoint 格式必须遵循 HF/PEFT 生态，不引入自定义保存格式。  
+| 模块 | 职责 | 关键稳定接口 | 明确禁止 |
+| --- | --- | --- | --- |
+| `config` | 配置 schema、YAML 加载、catalog 展开、严格校验 | `RuntimeConfig`、`load_config()`、`normalize_runtime_config()` | 训练循环、模型构建、JSONL 解析 |
+| `data` | 数据源、记录结构、增强、mixing、dataset、collator | `ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
+| `model` | 模型族元信息、HF 加载、PEFT 包装、processor/peft policy | `ModelMeta`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
+| `template` | 消息规范化、chat template、decode 约定 | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
+| `algorithms` | 构建 SFT/DPO/PPO trainer 与算法专属辅助对象 | `SFTAlgorithm`、`DPOAlgorithm`、`PPOAlgorithm` | 读取数据文件、控制 pipeline、硬编码模型族 |
+| `pipeline` | 训练主链编排和阶段调度 | `ShaftSFTPipeline`、`ShaftRLHFPipeline`、`run_sft()`、`run_rlhf()` | 任务语义、数据格式解析、模型专属 patch |
+| `training` | Trainer 包装、loss/optimizer/scheduler、checkpoint 规则 | `ShaftSFTTrainer`、`ShaftDPOTrainer`、`ShaftPPOTrainer`、`build_optimizer()`、`build_scheduler()` | 配置加载、数据读取、导出发布 |
+| `infer` | 单阶段推理执行、多阶段上下文传递、codec 解码 | `InferEngineConfig`、`ShaftInferEngine`、`ShaftInferPipeline`、`decode_with_codec()` | 训练逻辑、离线任务 DSL |
+| `export` | HF 目录检查、PEFT merge、导出校验 | `inspect_hf_artifact()`、`validate_hf_artifact()`、`merge_peft_adapter()` | 自定义产物格式、发布平台适配 |
+| `plugins` | hook / interceptor / 执行代理 | `Registry`、`HookManager`、`InterceptorManager`、`ExecutionProxy` | 替代核心业务流程 |
+| `observability` | 日志、上下文、事件输出 | `configure_logging()`、`emit_event()` | checkpoint 决策、训练控制 |
+| `cli` | 命令解析、无歧义 override、路由到 pipeline/infer/export | `main()`、`register_command()`、`run_from_args()` | 在 CLI 中堆叠业务逻辑 |
 
-## 3. 训练状态与续训规则
+## 5. 训练主链
 
-- `init_from_checkpoint`：用于初始化权重（可从 full 或 adapter）。
-- `resume_from_checkpoint`：用于恢复 trainer 状态，要求存在 `trainer_state.json`。
-- 模式约束：
-  - `full` 续训要求 full checkpoint。
-  - `lora/dora/qlora` 续训要求 adapter checkpoint。
-- 导出约束：
-  - `full` 导出必须是 HF full 目录。
-  - `lora/dora/qlora` 导出必须是 PEFT adapter 目录。
+```mermaid
+sequenceDiagram
+    participant Script as scripts/train.py
+    participant CLI as shaft.cli
+    participant Config as shaft.config
+    participant Pipeline as shaft.pipeline
+    participant Model as shaft.model
+    participant Data as shaft.data
+    participant Algo as shaft.algorithms
+    participant Trainer as shaft.training
 
-## 4. 当前数据格式契约
+    Script->>CLI: sft / rlhf
+    CLI->>Config: load_config()
+    Config-->>CLI: RuntimeConfig
+    CLI->>Pipeline: run_sft() / run_rlhf()
+    Pipeline->>Model: build_model_tokenizer_processor()
+    Pipeline->>Data: ShaftDataCenter.build_dataset_pair()
+    Pipeline->>Algo: algorithm.build_trainer(...)
+    Algo-->>Pipeline: Trainer
+    Pipeline->>Trainer: train()
+    Trainer-->>Pipeline: metrics
+    Pipeline-->>CLI: metrics
+```
 
-### 4.0 命名数据集注册中心
-- 训练 YAML 可选：
-  - `data.registry_path`: 指向一个 YAML registry 文件
-  - `data.dataset_refs`: 指定要启用的命名数据集列表
-- registry 文件支持两种形式：
-  - `datasets: {name: {...}}`
-  - `datasets: [{name: ..., ...}, ...]`
-- 解析顺序：
-  - 先按 `data.dataset_refs` 解析 registry 命名数据集
-  - 再拼接主配置中的 `data.datasets`
-- 若 registry 数据集与 inline 数据集重名，会直接 fail-fast。
+### 5.1 训练阶段关键接口
 
-### 4.1 SFT (`jsonl_sft`)
-- 必填：`image_path|image|images` + `target_text`（或 `messages` 末尾 assistant）。
+- 配置：`RuntimeConfig`
+- 数据：`ShaftDataCenter`
+- 模型：`build_model_tokenizer_processor()`
+- SFT 编排：`ShaftSFTPipeline`
+- RLHF 编排：`ShaftRLHFPipeline`
+- HF 参数映射：`build_hf_training_args()`
+- checkpoint 规则：
+  - `inspect_checkpoint_layout()`
+  - `resolve_resume_checkpoint()`
+  - `validate_resume_checkpoint()`
+  - `validate_training_state_policy()`
 
-### 4.2 DPO (`jsonl_dpo`)
-- 必填：`image_path|image|images` + `chosen_text|chosen` + `rejected_text|rejected`。
+### 5.2 训练主链边界
 
-### 4.3 PPO (`jsonl_ppo`)
-- 必填：`image_path|image|images` + `messages` 或 `user_prompt|prompt`。
-- 说明：PPO 数据只提供 query/prompt，不再在样本内携带离线 `response/reward`。
-- 风险保护：
-  - `rlhf.ppo.allow_untrained_reward_model=false`（默认）时会拒绝启动，防止误用随机奖励头。
-  - 多模态模型默认拒绝走当前 text-only PPO 路径；仅在显式设置 `allow_text_only_multimodal_ppo=true` 时允许 smoke/debug。
-  - 当前 PPO 仅允许 `lora/dora/qlora`；`full` 模式会被拒绝。
-  - 默认 `value_model_mode=shared_backbone`、`reward_model_mode=adapter_disabled_policy`，用于降低显存占用。
+1. `pipeline` 只装配组件，不承载任务语义。
+2. `algorithms` 只构建 trainer，不读取 JSONL。
+3. `data` 只产出样本和 batch，不涉及 loss/optimizer。
+4. `model` 只负责模型族差异，不介入数据源路径和训练调度。
 
-## 5. 测试分层
+## 6. 推理主链
 
-- 默认回归：`pytest -q`
-- 集成：`pytest -q -m integration`
-- 手工：`pytest -q -m manual`
+```mermaid
+sequenceDiagram
+    participant Script as scripts/infer.py
+    participant Loader as shaft.infer.loader
+    participant Pipeline as shaft.infer.pipeline
+    participant Engine as shaft.infer.engine
+    participant Codec as shaft.infer.codec
 
-新增核心能力时，必须至少补：
-1. 单元测试（逻辑边界）  
-2. pipeline smoke（端到端最短链路）  
-3. 文档同步（架构 + 扩展指南）  
+    Script->>Loader: load_infer_config()
+    Loader-->>Script: InferPipelineConfig
+    Script->>Pipeline: ShaftInferPipeline.from_config()
+    loop 每个 stage
+        Pipeline->>Engine: run(ShaftInferRequest)
+        Engine-->>Pipeline: ShaftInferResponse
+        Pipeline->>Codec: decode_with_codec()
+        Codec-->>Pipeline: parsed payload
+    end
+    Pipeline-->>Script: outputs + __trace__
+```
 
-## 6. 能力成熟度说明
+### 6.1 推理主链关键接口
 
-- SFT：生产可用。  
-- DPO：已切换为 TRL 内核，可训练可回归。  
-- PPO：**暂停（非生产）**。当前仅保留 smoke 级能力；未完成项和恢复条件见 [docs/ppo_todo.md](ppo_todo.md)。  
+- schema：
+  - `InferEngineConfig`
+  - `InferStageConfig`
+  - `InferPipelineConfig`
+- engine：
+  - `ShaftInferEngine`
+  - `ShaftInferRequest`
+  - `ShaftInferResponse`
+- pipeline：
+  - `ShaftInferPipeline`
+  - `ShaftInferStageResult`
+- codec：
+  - `decode_with_codec()`
+  - `register_codec()`
+
+### 6.2 推理边界
+
+- stage 是编排单位，不是任务定义语言。
+- codec 是文本输出的结构化解码器，不负责训练时数据规约。
+- `backend_options` 是后端透传区，不应该变成模型专属大杂烩配置。
+
+## 7. 稳定接口与演进接口
+
+### 7.1 当前建议视为稳定的接口
+
+- `RuntimeConfig` 及其一级配置块
+- `ShaftDataCenter`
+- `ModelMeta` / `ShaftModelAdapter`
+- `TemplateMeta` / `Template`
+- `ShaftSFTPipeline` / `ShaftRLHFPipeline`
+- `ShaftSFTTrainer` / `ShaftDPOTrainer` / `ShaftPPOTrainer`
+- `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
+- `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
+
+### 7.2 当前不应在外部承诺长期稳定的接口
+
+- PPO 运行时细节与限制条件
+- interceptor 的 `point` 字符串全集
+- 单个模型族的细粒度 `processor_kwargs`
+- 临时 smoke model / smoke template 能力
+
+## 8. 当前明确受限的能力
+
+- PPO 仍是受限能力，不能视为完整生产功能。
+- 当前只有 `qwen3vl` 是正式模型族实现，`smoke_vlm` 仅用于测试。
+- 结构化任务评估还未形成独立评估子系统。
+- 发布到 Hub 的工具链尚未开始。
+
+## 9. 架构约束清单
+
+### 9.1 允许
+
+- 通过注册表扩展模型、模板、算法、数据源、codec、命令。
+- 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
+- 通过 `ShaftDataCenter` 统一多数据源、增强和 mixing。
+- 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
+
+### 9.2 禁止
+
+1. 在 `training` 中解析 JSONL 或图像路径。
+2. 在 `data` 中写 loss、optimizer、scheduler。
+3. 在 `pipeline` 中硬编码模型族模板细节。
+4. 在 `template` 中实现任务后处理或数据规约。
+5. 在 `export` 中引入自定义模型目录格式。
+
+## 10. 相关文档
+
+- [docs/README.md](README.md)
+- [docs/module_reference.md](module_reference.md)
+- [docs/config_reference.md](config_reference.md)
+- [docs/infer.md](infer.md)
+- [docs/export.md](export.md)
+- [docs/extension_guide.md](extension_guide.md)
+- [docs/development_workflow.md](development_workflow.md)
+- [docs/testing.md](testing.md)
+- [docs/project_skill.md](project_skill.md)

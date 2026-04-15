@@ -5,12 +5,12 @@ import time
 from typing import Any
 
 from .codec import decode_with_codec
-from .engine import InferEngine, InferRequest
+from .engine import ShaftInferEngine, ShaftInferRequest
 from .schema import InferPipelineConfig, InferStageConfig
 
 
 @dataclass
-class InferStageAttempt:
+class ShaftInferStageAttempt:
     attempt: int
     success: bool
     latency_ms: float
@@ -20,7 +20,7 @@ class InferStageAttempt:
 
 
 @dataclass
-class InferStageResult:
+class ShaftInferStageResult:
     stage: str
     engine: str
     output_key: str
@@ -32,27 +32,27 @@ class InferStageResult:
     parsed: Any = None
     error: str | None = None
     prompt: str | None = None
-    history: list[InferStageAttempt] | None = None
+    history: list[ShaftInferStageAttempt] | None = None
 
 
-class InferPipeline:
-    def __init__(self, *, engines: dict[str, InferEngine], stages: list[InferStageConfig]) -> None:
+class ShaftInferPipeline:
+    def __init__(self, *, engines: dict[str, ShaftInferEngine], stages: list[InferStageConfig]) -> None:
         if not engines:
-            raise ValueError("InferPipeline requires at least one engine.")
+            raise ValueError("ShaftInferPipeline requires at least one engine.")
         if not stages:
-            raise ValueError("InferPipeline requires at least one stage.")
+            raise ValueError("ShaftInferPipeline requires at least one stage.")
         self.engines = engines
         self.stages = stages
 
     @classmethod
-    def from_config(cls, config: InferPipelineConfig) -> "InferPipeline":
-        engines = {name: InferEngine.from_model_config(spec) for name, spec in config.engines.items()}
+    def from_config(cls, config: InferPipelineConfig) -> "ShaftInferPipeline":
+        engines = {name: ShaftInferEngine.from_engine_config(spec) for name, spec in config.engines.items()}
         return cls(engines=engines, stages=list(config.stages))
 
     def run(self, *, image_path: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         context: dict[str, Any] = dict(inputs or {})
         context["image_path"] = image_path
-        traces: list[InferStageResult] = []
+        traces: list[ShaftInferStageResult] = []
 
         for stage in self.stages:
             result = self._run_stage(stage=stage, image_path=image_path, context=context)
@@ -79,7 +79,7 @@ class InferPipeline:
         stage: InferStageConfig,
         image_path: str,
         context: dict[str, Any],
-    ) -> InferStageResult:
+    ) -> ShaftInferStageResult:
         engine = self.engines.get(stage.engine)
         if engine is None:
             raise KeyError(f"Engine {stage.engine!r} not found for stage {stage.name!r}.")
@@ -89,7 +89,7 @@ class InferPipeline:
         timeout_seconds = (
             float(stage.timeout_seconds) if stage.timeout_seconds is not None else None
         )
-        attempts: list[InferStageAttempt] = []
+        attempts: list[ShaftInferStageAttempt] = []
         stage_start = time.perf_counter()
         latest_error: str | None = None
         latest_output_text: str | None = None
@@ -101,7 +101,7 @@ class InferPipeline:
             try:
                 user_prompt = stage.user_prompt_template.format(**context)
                 response = engine.run(
-                    InferRequest(
+                    ShaftInferRequest(
                         image_path=image_path,
                         system_prompt=stage.system_prompt,
                         user_prompt=user_prompt,
@@ -119,7 +119,7 @@ class InferPipeline:
                 parsed = decode_with_codec(codec_name, response.text)
                 elapsed_ms = elapsed_seconds * 1000.0
                 attempts.append(
-                    InferStageAttempt(
+                    ShaftInferStageAttempt(
                         attempt=attempt_index + 1,
                         success=True,
                         latency_ms=elapsed_ms,
@@ -130,7 +130,7 @@ class InferPipeline:
                 latest_output_text = response.text
                 latest_prompt = response.prompt
                 latest_parsed = parsed
-                return InferStageResult(
+                return ShaftInferStageResult(
                     stage=stage.name,
                     engine=stage.engine,
                     output_key=output_key,
@@ -147,7 +147,7 @@ class InferPipeline:
                 elapsed_ms = (time.perf_counter() - t0) * 1000.0
                 latest_error = str(exc)
                 attempts.append(
-                    InferStageAttempt(
+                    ShaftInferStageAttempt(
                         attempt=attempt_index + 1,
                         success=False,
                         latency_ms=elapsed_ms,
@@ -157,7 +157,7 @@ class InferPipeline:
                 if attempt_index < max_retries and float(stage.retry_backoff_seconds) > 0:
                     time.sleep(float(stage.retry_backoff_seconds))
 
-        return InferStageResult(
+        return ShaftInferStageResult(
             stage=stage.name,
             engine=stage.engine,
             output_key=output_key,

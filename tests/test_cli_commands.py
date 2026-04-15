@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from shaft.cli.registry import COMMAND_REGISTRY
-from shaft.cli.train import build_parser, main
+from shaft.cli.main import build_parser, main
 from shaft.config import RuntimeConfig
 
 
@@ -28,7 +28,7 @@ def test_main_runs_sft_command() -> None:
         return {"ok": 1}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_train", side_effect=_fake_run):
+        with patch("shaft.cli.common.run_sft", side_effect=_fake_run):
             main(["sft", "--config", "dummy.yaml"])
     assert captured["algorithm"] == "sft"
 
@@ -56,6 +56,6 @@ def test_main_defaults_to_sft_when_command_omitted() -> None:
         return {"ok": 1}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
-        with patch("shaft.cli.common.run_train", side_effect=_fake_run):
+        with patch("shaft.cli.common.run_sft", side_effect=_fake_run):
             main(["--config", "dummy.yaml"])
     assert captured["algorithm"] == "sft"

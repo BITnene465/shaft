@@ -19,9 +19,9 @@ from transformers import TrainingArguments
 from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_loss
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
-from shaft.training.rlhf import ShaftDPOTrainer, ShaftPPOTrainer
+from shaft.training import ShaftDPOTrainer, ShaftPPOTrainer
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
-from shaft.training.trainer import ShaftSFTTrainer
+from shaft.training.sft_trainer import ShaftSFTTrainer
 
 
 class _DummyOutput:
@@ -153,11 +153,11 @@ def test_shaft_trainer_uses_custom_components() -> None:
         "input_ids": torch.tensor([[1, 2, 3]], device=device),
         "labels": torch.tensor([[1, 2, 3]], device=device),
     }
-    with patch("shaft.training.trainer.build_optimizer") as mocked_build_optim:
+    with patch("shaft.training.sft_trainer.build_optimizer") as mocked_build_optim:
         mocked_build_optim.return_value = torch.optim.AdamW(model.parameters(), lr=1e-3)
         trainer.create_optimizer()
         mocked_build_optim.assert_called_once()
-    with patch("shaft.training.trainer.build_scheduler") as mocked_build_sched:
+    with patch("shaft.training.sft_trainer.build_scheduler") as mocked_build_sched:
         mocked_build_sched.return_value = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda _: 1.0)
         trainer.create_scheduler(10)
         mocked_build_sched.assert_called_once()

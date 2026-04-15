@@ -4,7 +4,7 @@ import argparse
 import json
 from typing import Any
 
-from shaft.infer import InferPipeline, load_infer_config
+from shaft.infer import ShaftInferPipeline, load_infer_config
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     config = load_infer_config(args.config)
-    pipeline = InferPipeline.from_config(config)
+    pipeline = ShaftInferPipeline.from_config(config)
     inputs = json.loads(args.inputs)
     outputs = pipeline.run(image_path=args.image, inputs=inputs)
     print(json.dumps(outputs, ensure_ascii=False, indent=2, default=_json_default))

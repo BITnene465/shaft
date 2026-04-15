@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-from shaft.infer.engine import InferRequest, InferResponse
-from shaft.infer.pipeline import InferPipeline
+from shaft.infer.engine import ShaftInferRequest, ShaftInferResponse
+from shaft.infer.pipeline import ShaftInferPipeline
 from shaft.infer.schema import InferStageConfig
 
 
@@ -14,9 +14,9 @@ class _DummyEngine:
     def __init__(self, tag: str):
         self.tag = tag
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         text = f"{self.tag}:{request.user_prompt}"
-        return InferResponse(text=text, prompt=request.user_prompt, output_ids=[1, 2, 3])
+        return ShaftInferResponse(text=text, prompt=request.user_prompt, output_ids=[1, 2, 3])
 
 
 class _FlakyEngine:
@@ -25,11 +25,11 @@ class _FlakyEngine:
         self.payload = payload
         self.calls = 0
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         self.calls += 1
         if self.calls <= self.fail_times:
             raise RuntimeError("temporary failure")
-        return InferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[4, 5, 6])
+        return ShaftInferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[4, 5, 6])
 
 
 class _SlowEngine:
@@ -37,22 +37,22 @@ class _SlowEngine:
         self.sleep_seconds = float(sleep_seconds)
         self.payload = payload
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         time.sleep(self.sleep_seconds)
-        return InferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[7, 8, 9])
+        return ShaftInferResponse(text=self.payload, prompt=request.user_prompt, output_ids=[7, 8, 9])
 
 
 class _RecorderEngine:
     def __init__(self):
-        self.last_request: InferRequest | None = None
+        self.last_request: ShaftInferRequest | None = None
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         self.last_request = request
-        return InferResponse(text="ok", prompt=request.user_prompt, output_ids=[10])
+        return ShaftInferResponse(text="ok", prompt=request.user_prompt, output_ids=[10])
 
 
 def test_multistage_multi_engine_orchestration() -> None:
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={
             "det": _DummyEngine("det"),
             "struct": _DummyEngine("struct"),
@@ -82,7 +82,7 @@ def test_multistage_multi_engine_orchestration() -> None:
 
 def test_stage_codec_parses_json_object() -> None:
     payload = json.dumps({"score": 0.9, "ok": True}, ensure_ascii=False)
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": _FlakyEngine(fail_times=0, payload=payload)},
         stages=[
             InferStageConfig(
@@ -104,7 +104,7 @@ def test_stage_codec_parses_json_object() -> None:
 
 
 def test_stage_retry_then_success() -> None:
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": _FlakyEngine(fail_times=1, payload='{"ok":1}')},
         stages=[
             InferStageConfig(
@@ -129,7 +129,7 @@ def test_stage_retry_then_success() -> None:
 
 
 def test_stage_fail_fast_false_does_not_raise() -> None:
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": _FlakyEngine(fail_times=3, payload="{}")},
         stages=[
             InferStageConfig(
@@ -152,7 +152,7 @@ def test_stage_fail_fast_false_does_not_raise() -> None:
 
 
 def test_stage_fail_fast_true_raises() -> None:
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": _FlakyEngine(fail_times=2, payload="{}")},
         stages=[
             InferStageConfig(
@@ -171,7 +171,7 @@ def test_stage_fail_fast_true_raises() -> None:
 
 
 def test_stage_timeout_marks_failure_when_not_fail_fast() -> None:
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": _SlowEngine(sleep_seconds=0.02, payload='{"ok":1}')},
         stages=[
             InferStageConfig(
@@ -192,7 +192,7 @@ def test_stage_timeout_marks_failure_when_not_fail_fast() -> None:
 
 def test_stage_runtime_overrides_are_passed_to_engine_request() -> None:
     recorder = _RecorderEngine()
-    pipeline = InferPipeline(
+    pipeline = ShaftInferPipeline(
         engines={"det": recorder},
         stages=[
             InferStageConfig(

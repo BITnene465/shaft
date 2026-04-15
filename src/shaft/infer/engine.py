@@ -18,11 +18,11 @@ from shaft.config import RuntimeConfig
 from shaft.model import ShaftModelAdapter, build_model_tokenizer_processor
 from shaft.template import Template
 
-from .schema import InferGenerationConfig, InferModelConfig
+from .schema import InferEngineConfig, InferGenerationConfig
 
 
 @dataclass
-class InferRequest:
+class ShaftInferRequest:
     image_path: str
     user_prompt: str = ""
     system_prompt: str = ""
@@ -34,7 +34,7 @@ class InferRequest:
 
 
 @dataclass
-class InferResponse:
+class ShaftInferResponse:
     text: str
     prompt: str
     output_ids: list[int]
@@ -44,7 +44,7 @@ class InferResponse:
 
 class InferAdapter(ABC):
     @abstractmethod
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         raise NotImplementedError
 
 
@@ -73,7 +73,7 @@ class HFLocalInferAdapter(InferAdapter):
         self.max_pixels = max_pixels
         self.default_generation = default_generation or InferGenerationConfig()
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         messages = request.messages or self._build_messages(
             user_prompt=request.user_prompt,
             system_prompt=request.system_prompt,
@@ -94,7 +94,7 @@ class HFLocalInferAdapter(InferAdapter):
         prompt_len = int(batch["input_ids"].shape[1])
         output_ids = generated[0][prompt_len:].detach().cpu()
         text = self._decode(output_ids)
-        return InferResponse(
+        return ShaftInferResponse(
             text=text,
             prompt=prompt,
             output_ids=[int(x) for x in output_ids.tolist()],
@@ -279,7 +279,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             return "".join(parts).strip()
         return str(content).strip()
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         t0 = time.perf_counter()
         generation = request.generation or self.default_generation
         messages = request.messages or self._build_messages(
@@ -347,7 +347,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
 
         text = self._extract_text(response_payload)
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        return InferResponse(
+        return ShaftInferResponse(
             text=text,
             prompt=request.user_prompt,
             output_ids=[],
@@ -356,12 +356,12 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         )
 
 
-class InferEngine:
+class ShaftInferEngine:
     def __init__(self, *, adapter: InferAdapter):
         self.adapter = adapter
 
     @classmethod
-    def from_model_config(cls, config: InferModelConfig) -> "InferEngine":
+    def from_engine_config(cls, config: InferEngineConfig) -> "ShaftInferEngine":
         backend_name = str(config.backend).strip().lower()
         if backend_name == "vllm_openai":
             model_name = str(config.served_model_name or config.model_name_or_path).strip()
@@ -383,7 +383,7 @@ class InferEngine:
         runtime_config.model.trust_remote_code = bool(config.trust_remote_code)
         runtime_config.model.attn_implementation = config.attn_implementation
         runtime_config.model.torch_dtype = config.torch_dtype
-        runtime_config.model.finetune.mode = config.finetune_mode
+        runtime_config.model.finetune.mode = config.load_mode
         artifacts = build_model_tokenizer_processor(runtime_config)
         adapter = HFLocalInferAdapter(
             model=artifacts.model,
@@ -398,5 +398,5 @@ class InferEngine:
         )
         return cls(adapter=adapter)
 
-    def run(self, request: InferRequest) -> InferResponse:
+    def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         return self.adapter.run(request)

@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from shaft.infer import InferEngine, InferGenerationConfig, InferModelConfig, InferRequest
+from shaft.infer import (
+    InferEngineConfig,
+    InferGenerationConfig,
+    ShaftInferEngine,
+    ShaftInferRequest,
+)
 from shaft.model import MODEL_REGISTRY
 
 
@@ -23,8 +28,8 @@ def test_qwen3vl_standard_model_load_and_chat() -> None:
     if not image_path.exists():
         Image.new("RGB", (32, 32), color=(240, 240, 240)).save(image_path)
 
-    engine = InferEngine.from_model_config(
-        InferModelConfig(
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
             model_type="qwen3vl",
             model_name_or_path=str(model_path),
             template="qwen3vl",
@@ -39,7 +44,7 @@ def test_qwen3vl_standard_model_load_and_chat() -> None:
     )
 
     response = engine.run(
-        InferRequest(
+        ShaftInferRequest(
             image_path=str(image_path),
             system_prompt="You are an accurate image description assistant.",
             user_prompt="请只回答：图片里有一张桌子。",

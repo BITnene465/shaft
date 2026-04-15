@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.pipeline import run_train
+from shaft.pipeline import run_sft
 
 
 def _write_smoke_data(base_dir: Path) -> tuple[Path, Path]:
@@ -47,7 +47,7 @@ algorithm:
   name: sft
 data:
   datasets:
-    - name: smoke_ds
+    - dataset_name: smoke_ds
       train_path: {train_jsonl}
       val_path: {val_jsonl}
   num_workers: 0
@@ -55,29 +55,28 @@ data:
   pin_memory: false
   min_pixels:
   max_pixels:
-sft:
-  train:
-    epochs: 1
-    max_steps: 1
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
-    learning_rate: 1.0e-3
-    optimizer_name: adamw_torch
-    scheduler_name: linear
-    loss_name: auto
-    logging_steps: 1
-    save_strategy: no
-    report_to: ["none"]
-    load_best_model_at_end: false
-    save_final_model: false
-    save_final_state: false
-    bf16: false
-    use_cpu: true
-  eval:
-    enabled: true
-    eval_strategy: steps
-    eval_steps: 1
-    per_device_eval_batch_size: 1
+train:
+  epochs: 1
+  max_steps: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-3
+  optimizer_name: adamw_torch
+  scheduler_name: linear
+  loss_name: auto
+  logging_steps: 1
+  save_strategy: no
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  bf16: false
+  use_cpu: true
+eval:
+  enabled: true
+  eval_strategy: steps
+  eval_steps: 1
+  per_device_eval_batch_size: 1
 """,
         encoding="utf-8",
     )
@@ -87,7 +86,7 @@ sft:
 def _run_mode(tmp_path: Path, mode: str) -> None:
     cfg_path = _write_smoke_config(tmp_path, mode)
     cfg = load_config(cfg_path)
-    metrics = run_train(cfg)
+    metrics = run_sft(cfg)
     assert "train_loss" in metrics
     assert "epoch" in metrics
 

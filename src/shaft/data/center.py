@@ -42,12 +42,12 @@ class ShaftDataCenter:
         for source in self.data_config.datasets:
             if not source.enabled:
                 continue
-            weights[source.name] = float(source.weight)
+            weights[source.dataset_name] = float(source.weight)
             source_impl = build_data_source(source)
             offline_pipeline = build_offline_pipeline(source.offline_transforms)
-            records_by_dataset_train[source.name] = offline_pipeline(source_impl.load_split("train"))
-            records_by_dataset_val[source.name] = offline_pipeline(source_impl.load_split("val"))
-            dataset_online_pipelines[source.name] = build_online_pipeline(source.online_transforms)
+            records_by_dataset_train[source.dataset_name] = offline_pipeline(source_impl.load_split("train"))
+            records_by_dataset_val[source.dataset_name] = offline_pipeline(source_impl.load_split("val"))
+            dataset_online_pipelines[source.dataset_name] = build_online_pipeline(source.online_transforms)
 
         mixer = MixedDatasetBuilder(seed=self.seed)
         mixed_indices = mixer.build_indices(
@@ -57,12 +57,12 @@ class ShaftDataCenter:
             shuffle=self.data_config.shuffle,
         )
         train_records = [
-            records_by_dataset_train[dataset_id][row_index]
-            for dataset_id, row_index in mixed_indices
+            records_by_dataset_train[dataset_name][row_index]
+            for dataset_name, row_index in mixed_indices
         ]
         val_records: list[Any] = []
-        for dataset_id in sorted(records_by_dataset_val):
-            val_records.extend(records_by_dataset_val[dataset_id])
+        for dataset_name in sorted(records_by_dataset_val):
+            val_records.extend(records_by_dataset_val[dataset_name])
         return ShaftPreparedRecords(
             train_records=train_records,
             val_records=val_records,
@@ -77,8 +77,8 @@ class ShaftDataCenter:
         dataset_online_pipelines: dict[str, OnlineSampleTransform],
     ) -> OnlineSampleTransform:
         def _dataset_aware_online_transform(sample: dict[str, Any]) -> dict[str, Any]:
-            dataset_id = str(sample.get("dataset_id", "default"))
-            pipeline = dataset_online_pipelines.get(dataset_id)
+            dataset_name = str(sample.get("dataset_name", "default"))
+            pipeline = dataset_online_pipelines.get(dataset_name)
             if pipeline is None:
                 return sample
             return pipeline(sample)

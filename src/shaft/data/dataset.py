@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 class SFTRecord:
     image_path: str
     target_text: str
-    dataset_id: str = "default"
+    dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
@@ -25,7 +25,7 @@ class DPORecord:
     image_path: str
     chosen_text: str
     rejected_text: str
-    dataset_id: str = "default"
+    dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
@@ -36,7 +36,7 @@ class DPORecord:
 @dataclass
 class PPORecord:
     image_path: str
-    dataset_id: str = "default"
+    dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
@@ -74,7 +74,7 @@ class SFTDataset(_BaseVisionDataset):
         record = self.records[index]
         image = self._load_image(record.image_path)
         sample = {
-            "dataset_id": record.dataset_id,
+            "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or Path(record.image_path).stem,
             "image_path": record.image_path,
             "image": image,
@@ -104,7 +104,7 @@ class DPODataset(_BaseVisionDataset):
         record = self.records[index]
         image = self._load_image(record.image_path)
         sample = {
-            "dataset_id": record.dataset_id,
+            "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or Path(record.image_path).stem,
             "image_path": record.image_path,
             "image": image,
@@ -135,7 +135,7 @@ class PPODataset(_BaseVisionDataset):
         record = self.records[index]
         image = self._load_image(record.image_path)
         sample = {
-            "dataset_id": record.dataset_id,
+            "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or Path(record.image_path).stem,
             "image_path": record.image_path,
             "image": image,

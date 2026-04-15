@@ -1,49 +1,152 @@
-# 测试规范（shaft）
+# Shaft 测试规范
 
-本文档定义当前 `src/shaft` 的测试分层与执行规范。
+本文档定义当前仓库的测试层级、执行方式和模块责任矩阵。
 
-## 一、测试类型
+## 1. 测试目标
 
-- **快速回归（默认）**：`pytest -q`
-  - 覆盖绝大部分单元与轻量逻辑。
-  - 不加载大模型，不依赖外部推理服务。
+- 保证主干训练链可回归。
+- 保证推理、导出、配置等关键模块有单测兜底。
+- 把重型测试与日常快速回归分层管理。
 
-- **integration**：`pytest -q -m integration`
-  - 真实模型加载/推理链路。
-  - 包含推理编排集成测试（单阶段/多阶段），固定读取 `tests/fixtures/infer_images/` 下受 git 追踪的测试图片。
-  - 默认不在主执行命令中运行（由 CI 配置排除）。
+## 2. 测试层级
 
-- **manual**：`pytest -q -m manual`
-  - 人工触发的耗时检查。
-  - 用于本地模型完整加载、长耗时验证。
+### 2.1 单元测试
 
-## 二、运行约定
+特点：
 
-1. `pytest.ini` / `pyproject.toml` 中默认通过标记排除重型测试。
-2. integration/manual 用例必须支持 `skip`：
-   - 模型目录不存在
-   - 适配器未注册
-   - 运行环境缺少可用 GPU/大模型依赖（可按需放宽）
-3. 集成用例优先使用 `--maxfail=1 -q` 保护本地实验时间。
+- 不依赖大模型
+- 不依赖外部服务
+- 聚焦单模块行为
 
-## 三、新增测试规则
+典型覆盖：
 
-- 新加推理、训练关键改动后，先补对应单元测试。
-- 需要校验“真实流程”的场景，至少放一条 integration/manual 用例。
-- 若改动多数据源加载、mixing、增强编排，至少覆盖：
-  - `tests/test_data_sources.py`
-  - `tests/test_mixing.py`
-  - `tests/test_data_center.py`
-- 新增算法（如 DPO/PPO）必须覆盖：
-  - 配置归一化校验（参数与 source_type 匹配）
-  - collator 行为
-  - trainer loss 前向
-  - pipeline smoke（最短可训练链路）
-- 现阶段 PPO 用例按 smoke 级别维护，不作为生产能力验收；细节见 `docs/ppo_todo.md`。
-- 用例命名遵循：`test_<模块>_<行为>_integration` 或 `test_<模块>_<行为>_manual`（非强制）。
-- 新增/修改 marker 时同步更新 `pyproject.toml`。
+- config 校验
+- registry 行为
+- data source 解析
+- mixing / transform
+- optimizer / scheduler / loss 注册
+- export 校验逻辑
 
-## 四、与文档联动
+### 2.2 Smoke 测试
 
-- 与 README 的测试区块保持一致。
-- 与 `docs/architecture.md` 的测试边界描述保持一致。
+特点：
+
+- 跑一条最短主链
+- 使用轻量模型或最小数据
+- 验证组件装配是通的
+
+典型覆盖：
+
+- SFT 主链
+- RLHF 主链
+- 分布式最小链路
+
+### 2.3 Integration 测试
+
+特点：
+
+- 加载真实模型或真实推理后端
+- 运行真实推理链
+- 默认不进入快速回归
+
+### 2.4 Manual 测试
+
+特点：
+
+- 人工触发
+- 重型、耗时、依赖环境
+
+## 3. 推荐执行命令
+
+### 日常快速回归
+
+```bash
+pytest -q
+```
+
+### 只跑 integration
+
+```bash
+pytest -q -m integration
+```
+
+### 只跑 manual
+
+```bash
+pytest -q -m manual
+```
+
+## 4. 按模块划分的最低测试责任
+
+| 模块 | 至少需要的测试 |
+| --- | --- |
+| `config` | schema / loader / normalize |
+| `data` | source / dataset / collator / mixing / data center |
+| `model` | model registry / template registry / builder |
+| `pipeline` | SFT / RLHF pipeline smoke |
+| `training` | optimizer / scheduler / loss / checkpointing |
+| `infer` | loader / pipeline / codec / CLI |
+| `export` | inspect / validate / merge-peft |
+| `cli` | 命令解析与 override |
+
+## 5. 变更类型与必跑清单
+
+### 新增配置字段
+
+- 对应 `config` 测试
+- 至少一条消费该字段的 smoke
+
+### 新增数据源或 mixing 规则
+
+- `tests/test_data_sources.py`
+- `tests/test_data_center.py`
+- `tests/test_mixing.py`
+- 如涉及 batch 结构，再跑 `tests/test_collator.py`
+
+### 新增模型族或模板
+
+- `tests/test_model_registry.py`
+- `tests/test_template_registry.py`
+- 必要时补最短加载 smoke
+
+### 新增算法或训练编排变化
+
+- `tests/test_pipeline_sft.py` 或 `tests/test_pipeline_rlhf.py`
+- 对应算法单测
+- 必要时补 smoke
+
+### 新增推理能力
+
+- `tests/test_infer_loader.py`
+- `tests/test_infer_pipeline.py`
+- `tests/test_infer_cli.py`
+- 若涉及真实模型或后端，再补 integration/manual
+
+### 新增导出能力
+
+- `tests/test_export_tools.py`
+- `tests/test_export_cli.py`
+- 必要时加 checkpointing 测试
+
+## 6. 标记规则
+
+- `integration`: 真实模型加载、真实推理链路、依赖服务
+- `manual`: 人工触发的重型验证
+
+要求：
+
+- 重型用例必须支持 `skip`
+- skip 原因必须清晰，例如模型不存在、GPU 不可用、服务未启动
+
+## 7. 与文档的联动要求
+
+当测试边界变化时，需要同步更新：
+
+- `README.md`
+- `docs/architecture.md`
+- `docs/testing.md`
+
+## 8. 当前特别说明
+
+- PPO 仍是受限能力，现阶段只维持 smoke 级测试，不作为完整生产验收能力。
+- 真实 `Qwen3VL` 的推理 integration 可以长期保留，但不应默认进入快速回归。

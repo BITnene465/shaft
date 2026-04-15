@@ -1,11 +1,11 @@
 from .registry import PIPELINE_REGISTRY
 from .rlhf import ShaftRLHFPipeline, run_rlhf
-from .train import ShaftTrainPipeline, run_train
+from .sft import ShaftSFTPipeline, run_sft
 
 __all__ = [
-    "ShaftTrainPipeline",
+    "ShaftSFTPipeline",
     "ShaftRLHFPipeline",
     "PIPELINE_REGISTRY",
     "run_rlhf",
-    "run_train",
+    "run_sft",
 ]

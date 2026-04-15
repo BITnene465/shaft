@@ -93,16 +93,16 @@ def validate_resume_checkpoint(path: str | Path, *, finetune_mode: str) -> None:
 
 
 def validate_training_state_policy(config: RuntimeConfig) -> None:
-    train_cfg = config.sft.train
-    eval_cfg = config.sft.eval
+    train_cfg = config.train
+    eval_cfg = config.eval
     if not train_cfg.load_best_model_at_end:
         return
     if not eval_cfg.enabled:
-        raise ValueError("sft.train.load_best_model_at_end=true requires sft.eval.enabled=true.")
+        raise ValueError("train.load_best_model_at_end=true requires eval.enabled=true.")
     if train_cfg.save_strategy == "no":
-        raise ValueError("load_best_model_at_end requires sft.train.save_strategy != 'no'.")
+        raise ValueError("load_best_model_at_end requires train.save_strategy != 'no'.")
     if eval_cfg.eval_strategy == "no":
-        raise ValueError("load_best_model_at_end requires sft.eval.eval_strategy != 'no'.")
+        raise ValueError("load_best_model_at_end requires eval.eval_strategy != 'no'.")
     if train_cfg.save_strategy != eval_cfg.eval_strategy:
         raise ValueError("save_strategy and eval_strategy must match when load_best_model_at_end=true.")
     if train_cfg.save_strategy == "steps" and int(train_cfg.save_steps) % int(eval_cfg.eval_steps) != 0:

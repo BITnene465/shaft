@@ -46,7 +46,7 @@ def _load_yaml_mapping(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _coerce_registry_datasets(path: Path) -> dict[str, dict[str, Any]]:
+def _load_catalog_datasets(path: Path) -> dict[str, dict[str, Any]]:
     payload = _load_yaml_mapping(path)
     raw_datasets = payload.get("datasets", payload)
     if isinstance(raw_datasets, dict):
@@ -55,40 +55,40 @@ def _coerce_registry_datasets(path: Path) -> dict[str, dict[str, Any]]:
         items = []
         for index, item in enumerate(raw_datasets):
             if not isinstance(item, dict):
-                raise TypeError(f"Registry dataset entry must be a mapping: {path}:datasets[{index}]")
+                raise TypeError(f"Catalog dataset entry must be a mapping: {path}:datasets[{index}]")
             dataset_name = str(item.get("name", "")).strip()
             if not dataset_name:
-                raise ValueError(f"Registry dataset entry is missing name: {path}:datasets[{index}]")
+                raise ValueError(f"Catalog dataset entry is missing dataset_name: {path}:datasets[{index}]")
             items.append((dataset_name, item))
     else:
-        raise TypeError(f"Registry datasets must be a mapping or list: {path}")
+        raise TypeError(f"Catalog datasets must be a mapping or list: {path}")
 
     resolved: dict[str, dict[str, Any]] = {}
     for dataset_name, item in items:
         normalized_name = str(dataset_name).strip()
         if not normalized_name:
-            raise ValueError(f"Registry dataset name cannot be empty: {path}")
+            raise ValueError(f"Catalog dataset name cannot be empty: {path}")
         if not isinstance(item, dict):
-            raise TypeError(f"Registry dataset {normalized_name!r} must be a mapping: {path}")
+            raise TypeError(f"Catalog dataset {normalized_name!r} must be a mapping: {path}")
         current = copy.deepcopy(item)
-        current.setdefault("name", normalized_name)
-        resolved_name = str(current.get("name", "")).strip()
+        current.setdefault("dataset_name", normalized_name)
+        resolved_name = str(current.get("dataset_name", "")).strip()
         if not resolved_name:
-            raise ValueError(f"Registry dataset name cannot be empty: {path}")
+            raise ValueError(f"Catalog dataset_name cannot be empty: {path}")
         if resolved_name in resolved:
-            raise ValueError(f"Duplicate dataset name {resolved_name!r} in registry: {path}")
+            raise ValueError(f"Duplicate dataset_name {resolved_name!r} in catalog: {path}")
         resolved[resolved_name] = _resolve_dataset_paths(current, base_dir=path.parent)
     return resolved
 
 
 def _ensure_dataset_name(dataset_payload: dict[str, Any], *, scope: str) -> str:
-    dataset_name = str(dataset_payload.get("name", "")).strip()
+    dataset_name = str(dataset_payload.get("dataset_name", "")).strip()
     if not dataset_name:
-        raise ValueError(f"Dataset name cannot be empty in {scope}.")
+        raise ValueError(f"dataset_name cannot be empty in {scope}.")
     return dataset_name
 
 
-def resolve_data_sources(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
+def resolve_dataset_catalog(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
     resolved_payload = copy.deepcopy(payload)
     data_payload = resolved_payload.get("data")
     if data_payload is None:
@@ -109,49 +109,49 @@ def resolve_data_sources(payload: dict[str, Any], *, config_path: Path) -> dict[
         _ensure_dataset_name(resolved_item, scope=f"data.datasets[{index}]")
         resolved_inline_datasets.append(resolved_item)
 
-    registry_path_value = data_payload.get("registry_path")
-    dataset_refs = data_payload.get("dataset_refs", [])
-    if dataset_refs is None:
-        dataset_refs = []
-    if not isinstance(dataset_refs, list):
-        raise TypeError("Config key `data.dataset_refs` must be a list when provided.")
-    normalized_refs = [str(item).strip() for item in dataset_refs if str(item).strip()]
+    catalog_path_value = data_payload.get("catalog_path")
+    catalog_names = data_payload.get("catalog_names", [])
+    if catalog_names is None:
+        catalog_names = []
+    if not isinstance(catalog_names, list):
+        raise TypeError("Config key `data.catalog_names` must be a list when provided.")
+    normalized_catalog_names = [str(item).strip() for item in catalog_names if str(item).strip()]
 
-    if normalized_refs and not registry_path_value:
-        raise ValueError("Config key `data.registry_path` is required when `data.dataset_refs` is set.")
+    if normalized_catalog_names and not catalog_path_value:
+        raise ValueError("Config key `data.catalog_path` is required when `data.catalog_names` is set.")
 
     resolved_registry_datasets: list[dict[str, Any]] = []
-    if registry_path_value:
-        registry_path = Path(str(registry_path_value))
-        if not registry_path.is_absolute():
-            registry_path = (config_path.parent / registry_path).resolve()
-        if not registry_path.exists():
-            raise FileNotFoundError(f"Data registry path not found: {registry_path}")
-        registry_entries = _coerce_registry_datasets(registry_path)
-        data_payload["registry_path"] = str(registry_path)
-        for dataset_ref in normalized_refs:
-            if dataset_ref not in registry_entries:
-                available = ", ".join(sorted(registry_entries.keys()))
+    if catalog_path_value:
+        catalog_path = Path(str(catalog_path_value))
+        if not catalog_path.is_absolute():
+            catalog_path = (config_path.parent / catalog_path).resolve()
+        if not catalog_path.exists():
+            raise FileNotFoundError(f"Data catalog path not found: {catalog_path}")
+        catalog_entries = _load_catalog_datasets(catalog_path)
+        data_payload["catalog_path"] = str(catalog_path)
+        for dataset_name in normalized_catalog_names:
+            if dataset_name not in catalog_entries:
+                available = ", ".join(sorted(catalog_entries.keys()))
                 raise KeyError(
-                    f"Dataset ref {dataset_ref!r} not found in registry {registry_path}. "
+                    f"Catalog dataset {dataset_name!r} not found in catalog {catalog_path}. "
                     f"Available: [{available}]"
                 )
-            resolved_registry_datasets.append(copy.deepcopy(registry_entries[dataset_ref]))
+            resolved_registry_datasets.append(copy.deepcopy(catalog_entries[dataset_name]))
 
     dataset_name_to_scope: dict[str, str] = {}
     merged_datasets = [*resolved_registry_datasets, *resolved_inline_datasets]
     for index, dataset_payload in enumerate(merged_datasets):
         dataset_name = _ensure_dataset_name(dataset_payload, scope=f"data.datasets[{index}]")
         previous_scope = dataset_name_to_scope.get(dataset_name)
-        current_scope = "data.dataset_refs" if index < len(resolved_registry_datasets) else "data.datasets"
+        current_scope = "data.catalog_names" if index < len(resolved_registry_datasets) else "data.datasets"
         if previous_scope is not None:
             raise ValueError(
-                f"Duplicate dataset name {dataset_name!r} across resolved data sources: "
+                f"Duplicate dataset_name {dataset_name!r} across resolved data sources: "
                 f"{previous_scope} and {current_scope}."
             )
         dataset_name_to_scope[dataset_name] = current_scope
 
-    data_payload["dataset_refs"] = normalized_refs
+    data_payload["catalog_names"] = normalized_catalog_names
     data_payload["datasets"] = merged_datasets
     resolved_payload["data"] = data_payload
     return resolved_payload

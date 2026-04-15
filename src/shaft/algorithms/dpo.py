@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from shaft.config import DPOConfig, SFTTrainConfig
+from shaft.config import DPOConfig, TrainConfig
 from shaft.training import ShaftDPOTrainer
 
 from .base import AlgorithmContext
@@ -18,7 +18,7 @@ class DPOAlgorithm:
 
     def build_trainer(self, *, context: AlgorithmContext, **kwargs: Any) -> ShaftDPOTrainer:
         _ = context
-        train_config: SFTTrainConfig = kwargs.pop("train_config")
+        train_config: TrainConfig = kwargs.pop("train_config")
         _ = train_config
         rlhf_config: DPOConfig = kwargs.pop("rlhf_config")
         training_args = kwargs.pop("args")

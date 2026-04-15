@@ -2,7 +2,7 @@ from .loader import load_config
 from .schema import (
     AlgorithmConfig,
     DataConfig,
-    DataSourceConfig,
+    DatasetSourceConfig,
     DPOConfig,
     EvalConfig,
     ExperimentConfig,
@@ -14,16 +14,13 @@ from .schema import (
     ProgressConfig,
     RLHFConfig,
     RuntimeConfig,
-    SFTConfig,
-    SFTEvalConfig,
-    SFTTrainConfig,
     TrainConfig,
 )
 
 __all__ = [
     "AlgorithmConfig",
     "DataConfig",
-    "DataSourceConfig",
+    "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
     "ExperimentConfig",
@@ -35,9 +32,6 @@ __all__ = [
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
-    "SFTConfig",
-    "SFTEvalConfig",
-    "SFTTrainConfig",
     "TrainConfig",
     "load_config",
 ]

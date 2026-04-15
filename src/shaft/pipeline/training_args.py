@@ -9,8 +9,8 @@ from shaft.config import RuntimeConfig
 
 
 def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
-    train_cfg = config.sft.train
-    eval_cfg = config.sft.eval
+    train_cfg = config.train
+    eval_cfg = config.eval
     eval_strategy = "no" if not eval_cfg.enabled else eval_cfg.eval_strategy
     use_bf16 = bool(train_cfg.bf16) and torch.cuda.is_available()
     dataloader_num_workers = int(config.data.num_workers)

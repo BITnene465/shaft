@@ -25,11 +25,11 @@ class MixedDatasetBuilder:
             raise ValueError(f"Unsupported mix strategy: {strategy!r}.")
 
         active: dict[str, list[int]] = {}
-        for dataset_id, records in records_by_dataset.items():
-            weight = float(dataset_weights.get(dataset_id, 1.0))
+        for dataset_name, records in records_by_dataset.items():
+            weight = float(dataset_weights.get(dataset_name, 1.0))
             if weight <= 0.0 or not records:
                 continue
-            active[dataset_id] = list(range(len(records)))
+            active[dataset_name] = list(range(len(records)))
         if not active:
             raise ValueError("No active datasets for mixing.")
 
@@ -79,9 +79,9 @@ class MixedDatasetBuilder:
     ) -> list[tuple[str, int]]:
         resolution = 100
         cycle: list[str] = []
-        for dataset_id in sorted(quotas):
-            repeat = max(int(round(normalized_weights[dataset_id] * resolution)), 1)
-            cycle.extend([dataset_id] * repeat)
+        for dataset_name in sorted(quotas):
+            repeat = max(int(round(normalized_weights[dataset_name] * resolution)), 1)
+            cycle.extend([dataset_name] * repeat)
         if shuffle:
             rng.shuffle(cycle)
 
@@ -90,16 +90,16 @@ class MixedDatasetBuilder:
         remaining = dict(quotas)
         while sum(remaining.values()) > 0:
             progressed = False
-            for dataset_id in cycle:
-                if remaining.get(dataset_id, 0) <= 0:
+            for dataset_name in cycle:
+                if remaining.get(dataset_name, 0) <= 0:
                     continue
-                idxs = active[dataset_id]
+                idxs = active[dataset_name]
                 if not idxs:
                     continue
-                pos = cursor[dataset_id] % len(idxs)
-                output.append((dataset_id, idxs[pos]))
-                cursor[dataset_id] += 1
-                remaining[dataset_id] -= 1
+                pos = cursor[dataset_name] % len(idxs)
+                output.append((dataset_name, idxs[pos]))
+                cursor[dataset_name] += 1
+                remaining[dataset_name] -= 1
                 progressed = True
                 if sum(remaining.values()) <= 0:
                     break
@@ -119,8 +119,8 @@ def mix_concat(
 ) -> list[tuple[str, int]]:
     del builder, normalized_weights
     merged = []
-    for dataset_id, indices in sorted(active.items(), key=lambda x: x[0]):
-        merged.extend((dataset_id, i) for i in indices)
+    for dataset_name, indices in sorted(active.items(), key=lambda x: x[0]):
+        merged.extend((dataset_name, i) for i in indices)
     if shuffle:
         rng.shuffle(merged)
     return merged

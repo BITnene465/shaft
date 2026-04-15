@@ -14,14 +14,14 @@ class InferGenerationConfig:
 
 
 @dataclass
-class InferModelConfig:
+class InferEngineConfig:
     model_type: str = "qwen3vl"
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
     template: str | None = None
     trust_remote_code: bool = True
     attn_implementation: str | None = None
     torch_dtype: str = "bfloat16"
-    finetune_mode: str = "full"
+    load_mode: str = "full"
     backend: str = "hf_local"
     endpoint: str | None = None
     api_key: str | None = None
@@ -53,5 +53,5 @@ class InferStageConfig:
 
 @dataclass
 class InferPipelineConfig:
-    engines: dict[str, InferModelConfig] = field(default_factory=dict)
+    engines: dict[str, InferEngineConfig] = field(default_factory=dict)
     stages: list[InferStageConfig] = field(default_factory=list)

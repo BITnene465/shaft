@@ -1,10 +1,6 @@
 # shaft（重构中）
 
-当前仓库正在做“训练框架从头重构”：
-
-- 训练内核统一为 SFT/RL 算法抽象（SFT/DPO/PPO）。
-- 训练与保存强依赖 Hugging Face 标准能力（Trainer/TrainingArguments）。
-- 旧实现已迁移到 `old/` 目录归档。
+Shaft 是一个 `HF-first` 的多模态训练与推理框架。当前主目标是把 `Qwen3VL + SFT` 主链做稳，同时保留面向 RLHF、更多模型族与推理后端的扩展骨架。
 
 ## 快速开始
 
@@ -15,26 +11,28 @@ uv pip install -e .
 python scripts/train.py sft --config configs/train/train_sft_4b.yaml
 ```
 
-按用途安装扩展依赖（不改变 `transformers==4.57.6`）：
+按用途安装扩展依赖：
 
 ```bash
-# 训练基础（HF 生态）
+# HF 训练主依赖
 uv pip install -e ".[train]"
 
-# GPU 训练增强（8bit / bitsandbytes）
+# GPU 训练增强
 uv pip install -e ".[train,gpu]"
 
-# 可选 CUDA kernel 增强（FlashAttention，需要可用 CUDA toolchain / CUDA_HOME）
+# 可选 CUDA kernel 增强
 uv pip install -e ".[train,gpu,gpu-kernels]"
 
-# 强化学习（TRL）
+# RLHF
 uv pip install -e ".[train,rlhf]"
 
-# 部署（vLLM）
+# 部署 / vLLM
 uv pip install -e ".[serve]"
 ```
 
-统一训练入口在 `scripts/train.py`，任务命令在 `src/shaft/cli` 层实现：
+## 统一入口
+
+### 训练
 
 ```bash
 python scripts/train.py sft --config configs/train/train_sft_4b.yaml
@@ -42,16 +40,17 @@ python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml --algorith
 python scripts/train.py rlhf --config configs/train/train_ppo_4b.yaml --algorithm ppo
 ```
 
-HF 导出/合并工具入口在 `scripts/export.py`：
+### 推理
 
 ```bash
-# 查看目录类型（full / adapter / trainer_state_only / unknown）
+python scripts/infer.py --config configs/infer/pipeline_smoke.yaml --image /path/to/image.png
+```
+
+### 导出
+
+```bash
 python scripts/export.py inspect --path /path/to/checkpoint
-
-# 校验当前目录是否符合 HF/PEFT 标准导出
 python scripts/export.py validate --path /path/to/export --finetune-mode full --model-type qwen3vl
-
-# 将 adapter 合并为标准 HF full export
 python scripts/export.py merge-peft \
   --model-type qwen3vl \
   --adapter-path /path/to/adapter \
@@ -61,96 +60,116 @@ python scripts/export.py merge-peft \
 
 说明：
 
-- `full` 训练输出本身已经是 HF 标准目录，不需要额外“再导出一份”。
-- `lora/dora/qlora` 训练输出本身已经是 PEFT adapter 目录。
-- `merge-peft` 只负责把 adapter 合并成可部署的 HF full export，不生成自定义 metadata 或中间格式。
+- `scripts/*.py` 只做薄包装入口。
+- 真实 CLI 解析与命令调度在 `src/shaft/cli`。
+- 当前训练入口按 `sft / rlhf` 分流，推理与导出分别走独立 CLI。
 
-训练配置支持命名数据集注册中心：
+## 配置示例
+
+### 命名数据集 catalog
 
 ```yaml
 data:
-  registry_path: ../data/datasets.yaml
-  dataset_refs: [arrow_multitask]
+  catalog_path: ../data/datasets.yaml
+  catalog_names: [arrow_multitask]
 ```
 
-- `registry_path` 指向数据 registry YAML。
-- `dataset_refs` 指定本次实验启用哪些命名数据集。
-- registry 文件中的相对路径按 registry 文件目录解析；训练 YAML 中内联 `data.datasets` 的相对路径按训练 YAML 目录解析。
-
-推理支持引擎与多阶段流水线编排：
-
-```bash
-python scripts/infer.py --config configs/infer/pipeline_smoke.yaml --image /path/to/image.png
-```
-
-`infer` 支持 stage 级 `codec`、`max_retries`、`fail_fast`，并在输出 `__trace__` 中记录每阶段尝试历史与耗时。  
-`pixel budget` 支持 stage 级运行时覆盖：`min_pixels/max_pixels` 可在不同 stage 配不同值。  
-`json_*` codec 默认使用容错解析：会优先严格 JSON，失败后尝试抽取可解析片段并做截断修复（适配长输出被截断场景）。
-当前 backend：
-
-- `hf_local`：本地 HF 模型直接推理。
-- `vllm_openai`：调用 vLLM OpenAI 兼容接口（`endpoint + /v1/chat/completions`），stage 级 `min_pixels/max_pixels` 会透传为 `mm_processor_kwargs`。
-
-`flash-attn` 不再包含在默认 `gpu` extra 中。
-如果本机没有完整 CUDA 编译环境，请保持 `model.attn_implementation` 为空；只有在安装了 `.[gpu-kernels]` 后再显式设为 `flash_attention_2`。
-安装完成后，可用 `uv run --extra dev pytest -q -o addopts='' tests/test_flash_attn_smoke.py` 做一次手工 smoke test。
-
-可选 hooks（训练时触发）：
+### 内联数据源
 
 ```yaml
-plugins:
-  hooks: ["log_on_save"]
+data:
+  datasets:
+    - dataset_name: arrow_multitask
+      source_type: jsonl_sft
+      train_paths: [data/train.jsonl]
+      val_paths: [data/val.jsonl]
+      weight: 1.0
 ```
 
-## 新架构（进行中）
+说明：
 
-- `src/shaft/config`：强类型配置与加载。
-- `src/shaft/data`：数据源、样本级 mixing、SFT/DPO/PPO dataset/collator。
-- `src/shaft/model`：HF 模型/processor/tokenizer 构建。
-- `src/shaft/algorithms`：`sft/dpo/ppo` 算法注册与入口。
-- `src/shaft/pipeline`：训练流水线（`shaft_train`/`shaft_rlhf` 分流装配）。
-- `src/shaft/infer`：`InferEngine` 与 `InferPipeline`，支持单/多模型的多阶段推理编排。
-- `src/shaft/plugins`：注册表与 Hook 拦截机制。
-- `src/shaft/export`：HF 导出目录校验与 PEFT merge 工具。
+- `catalog_path` 指向命名数据集 catalog YAML。
+- `catalog_names` 选择本次实验启用的命名数据集。
+- `DatasetSourceConfig.dataset_name` 是数据层统一标识字段。
 
-## 说明
+## 当前能力
 
-- 本阶段先保证“最小可训练闭环 + 测试驱动重构”。
-- 当前模型注册仅启用 `qwen3vl`，其它模型后续按“每模型一实现文件”扩展。
-- 结构化任务语义评估会在后续以离线评估模块接入。
-- 新训练数据格式推荐使用 `messages`（尾部 assistant 作为监督目标）；兼容 legacy `target_text`。
-- `jsonl_sft/jsonl_dpo/jsonl_ppo` 都支持行级聚合报错（会汇总坏样本行号与原因，而不是只报第一条）。
-- DPO/PPO 已统一切换到 TRL 训练内核；Shaft 负责配置映射、数据形态与流水线编排。
-- `jsonl_ppo` 当前使用 query-only 数据格式（样本提供 prompt，不再提供离线 `reward` 字段）。
-- PPO 默认有两条安全保护：随机奖励头默认禁用（需显式开启 `allow_untrained_reward_model`），多模态模型默认禁用 text-only PPO 路径（需显式开启 `allow_text_only_multimodal_ppo`，仅建议 smoke/debug）。
-- PPO 当前只支持 `lora/dora/qlora`，并默认使用 `value_model_mode=shared_backbone` + `reward_model_mode=adapter_disabled_policy` 以降低显存。
-- PPO 暂停项与后续恢复条件见：[docs/ppo_todo.md](docs/ppo_todo.md)。
+### 训练
 
-## 测试约定
+- `SFT`
+- `DPO`
+- `PPO`（受限能力，非完整生产功能）
 
-测试默认执行“快速回归测试”（排除耗时/重依赖测试）：
+### 推理
+
+- 本地 HF 推理：`hf_local`
+- vLLM OpenAI 兼容后端：`vllm_openai`
+- 单阶段与多阶段推理编排
+- stage 级 `codec`、重试、超时、像素预算覆盖
+
+### 导出
+
+- HF / PEFT 目录识别
+- HF 兼容导出校验
+- `merge-peft` 合并 adapter 为标准 HF full export
+
+## 架构概览
+
+- `src/shaft/config`：配置 schema、YAML 加载、catalog 展开、归一化校验
+- `src/shaft/data`：数据源、增强、mixing、dataset、collator
+- `src/shaft/model`：模型族元信息、HF 加载、PEFT 包装、processor/peft policy
+- `src/shaft/template`：chat template 与 decode 约定
+- `src/shaft/algorithms`：SFT/DPO/PPO trainer 装配
+- `src/shaft/pipeline`：`ShaftSFTPipeline` / `ShaftRLHFPipeline`
+- `src/shaft/training`：trainer、optimizer、scheduler、loss、checkpoint 规则
+- `src/shaft/infer`：`ShaftInferEngine`、`ShaftInferPipeline`、codec
+- `src/shaft/export`：HF 兼容导出工具链
+- `src/shaft/plugins`：registry、hook、interceptor
+- `src/shaft/observability`：logging、context、events
+
+## 文档
+
+统一文档入口见：
+
+- [docs/README.md](docs/README.md)
+
+重点文档：
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/module_reference.md](docs/module_reference.md)
+- [docs/config_reference.md](docs/config_reference.md)
+- [docs/development_workflow.md](docs/development_workflow.md)
+- [docs/extension_guide.md](docs/extension_guide.md)
+- [docs/testing.md](docs/testing.md)
+- [docs/infer.md](docs/infer.md)
+- [docs/export.md](docs/export.md)
+
+## 测试
+
+快速回归：
 
 ```bash
 pytest -q
 ```
 
-集成测试通过 marker 管理：
-
-- `integration`：包含模型加载、真实推理链路等耗时用例（默认跳过）。
-- `manual`：仅在人工可控环境执行的重型验证。
-
-本地常用命令：
+只跑 integration：
 
 ```bash
-pytest -q -m integration   # 只跑集成测试（一般需要本地模型与资源）
-pytest -q -m manual        # 只跑手工验证测试
-pytest -q -m "integration or manual"  # 临时跑所有重型验证
+pytest -q -m integration
 ```
 
-新增集成/手工用例约定：
+只跑 manual：
 
-- 需有明确 `skip` 保护（如本地模型不存在时跳过）。
-- 失败路径与输出信息应明确（例如缺少模型权重、适配器未注册）。
-- 正式流水线默认仍执行 `pytest -q`（即跳过集成级用例）。
+```bash
+pytest -q -m manual
+```
 
-更完整测试规范见：[docs/testing.md](docs/testing.md)
+更多测试规范见 [docs/testing.md](docs/testing.md)。
+
+## 当前说明
+
+- 当前正式模型族实现以 `qwen3vl` 为主，`smoke_vlm` 只用于测试。
+- 训练和保存遵循 HF / PEFT / TRL 标准能力。
+- 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
+- 结构化任务离线评估子系统尚未完成。
+- PPO 暂停项见 [docs/ppo_todo.md](docs/ppo_todo.md)。

@@ -71,7 +71,7 @@ class ShaftRLHFPipeline:
         validate_training_state_policy(config)
         artifacts = build_model_tokenizer_processor(
             config,
-            init_from_checkpoint=config.sft.train.init_from_checkpoint,
+            init_from_checkpoint=config.train.init_from_checkpoint,
         )
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         dataset_cls = DPODataset if algorithm_name == "dpo" else PPODataset
@@ -97,20 +97,20 @@ class ShaftRLHFPipeline:
             algorithm_extra_kwargs["model_meta"] = artifacts.model_meta
         trainer = algorithm.build_trainer(
             context=AlgorithmContext(params=dict(config.algorithm.params)),
-            train_config=config.sft.train,
+            train_config=config.train,
             rlhf_config=getattr(config.rlhf, algorithm_name),
             finetune_mode=config.model.finetune.mode,
             model=artifacts.model,
             args=self.build_training_args(),
             train_dataset=train_dataset,
-            eval_dataset=eval_dataset if config.sft.eval.enabled else None,
+            eval_dataset=eval_dataset if config.eval.enabled else None,
             processing_class=processing_class,
             data_collator=self._build_collator(algorithm_name, artifacts=artifacts),
             callbacks=callbacks_or_none,
             **algorithm_extra_kwargs,
         )
 
-        resume_checkpoint = resolve_resume_checkpoint(config.sft.train.resume_from_checkpoint)
+        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
         if resume_checkpoint is not None:
             validate_resume_checkpoint(resume_checkpoint, finetune_mode=config.model.finetune.mode)
         if algorithm_name == "ppo":
@@ -120,14 +120,14 @@ class ShaftRLHFPipeline:
         else:
             train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
         barrier_if_distributed()
-        if config.sft.train.save_final_model:
+        if config.train.save_final_model:
             trainer.save_model()
             ensure_hf_export_layout(
                 config.experiment.output_dir,
                 finetune_mode=config.model.finetune.mode,
                 model_meta=artifacts.model_adapter,
             )
-        if config.sft.train.save_final_state:
+        if config.train.save_final_state:
             trainer.save_state()
         barrier_if_distributed()
         if train_result is not None and hasattr(train_result, "metrics"):

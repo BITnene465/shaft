@@ -8,22 +8,27 @@ import urllib.request
 from PIL import Image
 import torch
 
-from shaft.infer import InferEngine, InferGenerationConfig, InferModelConfig, InferRequest
+from shaft.infer import (
+    InferEngineConfig,
+    InferGenerationConfig,
+    ShaftInferEngine,
+    ShaftInferRequest,
+)
 
 
 def test_smoke_vlm_engine_can_generate(tmp_path: Path) -> None:
     image = tmp_path / "img.png"
     Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
 
-    model_config = InferModelConfig(
+    model_config = InferEngineConfig(
         model_type="smoke_vlm",
         model_name_or_path="unused",
         device="cpu",
         generation=InferGenerationConfig(max_new_tokens=8, do_sample=False),
     )
-    engine = InferEngine.from_model_config(model_config)
+    engine = ShaftInferEngine.from_engine_config(model_config)
     response = engine.run(
-        InferRequest(
+        ShaftInferRequest(
             image_path=str(image),
             system_prompt="you are tester",
             user_prompt="return json",
@@ -39,13 +44,13 @@ def test_smoke_vlm_engine_can_generate(tmp_path: Path) -> None:
 
 def test_infer_engine_generate_does_not_emit_invalid_sampling_flags_for_greedy() -> None:
 
-    model_config = InferModelConfig(
+    model_config = InferEngineConfig(
         model_type="smoke_vlm",
         model_name_or_path="unused",
         device="cpu",
         generation=InferGenerationConfig(max_new_tokens=8, do_sample=False),
     )
-    engine = InferEngine.from_model_config(model_config)
+    engine = ShaftInferEngine.from_engine_config(model_config)
     adapter = engine.adapter
 
     captured = {}
@@ -126,7 +131,7 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
-    model_config = InferModelConfig(
+    model_config = InferEngineConfig(
         model_type="qwen3vl",
         model_name_or_path="arrow_mixed_4b",
         backend="vllm_openai",
@@ -135,9 +140,9 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
         api_key="test-key",
         generation=InferGenerationConfig(max_new_tokens=16, do_sample=False),
     )
-    engine = InferEngine.from_model_config(model_config)
+    engine = ShaftInferEngine.from_engine_config(model_config)
     response = engine.run(
-        InferRequest(
+        ShaftInferRequest(
             image_path=str(image),
             system_prompt="you are tester",
             user_prompt="return json",

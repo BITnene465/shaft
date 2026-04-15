@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from shaft.config import SFTTrainConfig
+from shaft.config import TrainConfig
 from shaft.training import ShaftSFTTrainer
 
 from .base import AlgorithmContext
@@ -17,7 +17,7 @@ class SFTAlgorithm:
 
     def build_trainer(self, *, context: AlgorithmContext, **kwargs: Any) -> ShaftSFTTrainer:
         _ = context
-        train_config: SFTTrainConfig = kwargs.pop("train_config")
+        train_config: TrainConfig = kwargs.pop("train_config")
         return ShaftSFTTrainer(
             loss_name=train_config.loss_name,
             optimizer_name=train_config.optimizer_name,

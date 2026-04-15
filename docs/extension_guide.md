@@ -1,146 +1,205 @@
-# Shaft 扩展指南（SFT / RLHF / 模型适配 / 数据系统）
+# Shaft 扩展指南
 
-本文档是后续 agent 的“改代码说明书”。目标是：新增能力时，改动最少、边界清晰、可测试。
+本文档描述如何在当前框架中新增模型族、模板、数据源、算法、推理后端和导出能力。目标是：扩展能力时不破坏现有边界，不在错误层落逻辑。
 
-## 0. 扩展前提：默认沿用 Hugging Face 生态
+## 1. 总原则
 
-- Shaft 当前扩展默认前提是 **HF-first**。
-- 新增模型族、算法、数据能力时，优先接入以下已有生态：
-  - `transformers`
-  - `peft`
-  - `trl`
-  - HF 兼容保存目录与权重加载方式
-- 如果某项需求只能通过引入非 HF 生态才能完成，必须先在架构层重新确认边界；不要直接把新生态的概念和兼容逻辑塞进现有主干。
-- 换句话说：当前扩展目标是“在 HF 生态内做强做稳”，而不是把 Shaft 演化成多生态兼容层。
+- 先判断扩展属于哪一层，再改代码。
+- 先补测试，再补实现。
+- 优先复用注册表和适配层，不要平行复制一套流程。
+- 当前扩展前提是 `HF-first`。
 
-## 1. 新增训练算法（例如新 RL 算法）
+## 2. 新增模型族
 
-### 1.1 必改文件
-1. `src/shaft/algorithms/<algo>.py`
-2. `src/shaft/config/schema.py`（新增结构化配置）
-3. `src/shaft/config/normalize.py`（新增校验）
-4. `src/shaft/pipeline/rlhf.py` 或 `src/shaft/pipeline/train.py`（按算法归属接线）
-5. `src/shaft/cli/`（如需新命令或新参数）
-6. `tests/`（单测 + pipeline smoke）
+### 2.1 必改位置
 
-### 1.2 设计原则
-- 如果算法属于 RLHF（依赖 preference/reward），放到 `shaft_rlhf` 流水线，不要塞进 `shaft_train`。
-- 算法实现只负责 trainer 行为，不负责读取 JSONL。
-- 算法参数必须有强类型配置，不允许长期使用 `dict[str, Any]` 裸传。
+- `src/shaft/model/<family>.py`
+- `src/shaft/template/<family>.py`
+- `src/shaft/model/policies.py`（如需新增 policy）
+- `src/shaft/model/registry.py`
+- `src/shaft/template/registry.py`
 
-### 1.3 DPO/PPO 已有范式
-- DPO：`ShaftDPOTrainer`（TRL DPOTrainer），输入 pairwise（chosen/rejected）。
-- PPO：`ShaftPPOTrainer`（TRL PPOTrainer），输入 query/prompt（在线 rollout）。
-- 参考入口：
-  - `src/shaft/algorithms/dpo.py`
-  - `src/shaft/algorithms/ppo.py`
-  - `src/shaft/training/rlhf.py`
+### 2.2 推荐步骤
 
-### 1.4 当前能力边界（必须先读）
-- DPO/PPO 均使用 TRL 内核，Shaft 主要负责配置映射、数据形态和流水线编排。
-- PPO 默认数据格式为 query-only；当前实现有两条安全保护：
-  - 未显式开启 `allow_untrained_reward_model` 时，拒绝使用随机奖励头启动训练。
-  - 多模态模型默认拒绝进入 text-only PPO 路径，需显式开启 `allow_text_only_multimodal_ppo`（仅建议 smoke/debug）。
-- PPO 当前仅支持 `lora/dora/qlora` 模式；`full` 模式会 fail-fast。
-- 显存优化策略：
-  - `value_model_mode=shared_backbone`：value 共享 policy backbone，不再 deepcopy。
-  - `reward_model_mode=adapter_disabled_policy`：reward 走 policy 的 disable_adapter 路径，避免额外 reward backbone 拷贝。
-- 若要扩展到真正多模态在线 rollout，需要单独扩展 PPO pipeline/collator 与 TRL rollout 适配。
-- 新增策略时，优先扩展配置映射和数据适配层，不要重写训练核心。
-- PPO 当前处于“暂停开发（非生产）”状态；未完成项与恢复门槛统一记录在 [docs/ppo_todo.md](ppo_todo.md)。
+1. 定义 `ModelMeta`
+2. 实现对应 `ModelLoader`
+3. 需要时补 `ModelGroup`
+4. 注册 `processor policy` / `peft policy`
+5. 实现模板
+6. 补模型与模板测试
 
-## 2. 扩展数据层（新增 source_type / 新样本格式）
+### 2.3 不要做的事
 
-### 2.1 必改文件
-1. `src/shaft/data/dataset.py`（新增 Record / Dataset）
-2. `src/shaft/data/sources.py`（新增 loader + data source 注册）
-3. `src/shaft/data/center.py`（若改动影响多数据源装配 / mixing / online transform 编排）
-4. `src/shaft/data/collator.py`（新增 collator）
-5. `src/shaft/data/__init__.py`（导出）
-6. `tests/test_data_sources.py`、`tests/test_data_center.py`、`tests/test_collator.py`
+- 不要在 `pipeline` 里分支判断模型族
+- 不要在 `collator` 里重做模板解析
+- 不要在 `infer` 里重复实现模型族前处理规则
 
-### 2.2 规则
-- 新 source 必须使用注册器：`@register_data_source("xxx")`。
-- 解析失败必须走聚合错误机制（输出失败行号和示例原因），不要只报第一条。
-- Record 结构只描述“样本事实”，不要包含训练阶段状态。
-- 多数据源加载、offline transform、sample-level mixing、dataset-aware online transform 的汇总入口是 `ShaftDataCenter`；不要把这些逻辑重新写回 pipeline。
-- 如果扩展的是 mixing 规则或多源装配行为，优先修改 `src/shaft/data/center.py` / `src/shaft/data/mixing.py`，而不是在训练主流程里加分支。
-- 若是“命名数据集”扩展，优先新增/维护 registry YAML，而不是把所有数据源都直接写进训练 YAML。
-- `data.registry_path` 中的相对路径按 registry 文件目录解析；`data.datasets` 中的相对路径按主 config 文件目录解析。
-- registry 解析发生在 `config.load_config()` 阶段，进入 pipeline 之前必须已经落成标准 `DataSourceConfig` 列表。
+## 3. 新增模板
 
-## 3. 扩展模型族（Qwen3VL 之外）
+### 3.1 必改位置
 
-### 3.1 必改文件
-1. `src/shaft/model/<model_family>.py`
-2. `src/shaft/template/<model_family>.py`
-3. `src/shaft/model/policies.py`（若新增 processor/peft policy）
-4. `src/shaft/model/types.py`（必要时扩展 meta 字段 / `ShaftModelAdapter` 能力）
-5. `tests/test_model_registry.py`、`tests/test_template_registry.py`
+- `src/shaft/template/<family>.py`
+- `src/shaft/template/registry.py`
 
-### 3.2 规则
-- 模型专属实现必须显式带模型名，不使用泛名。
-- 模型运行时入口统一是 `ShaftModelAdapter`，loader/collator/infer 不应该分别手写模板解析、processor policy 调度、target_modules 解析。
-- `ModelMeta` 负责声明默认模型族元信息；`ShaftModelAdapter` 负责把模型名匹配结果与 group override 收敛成运行时单对象。
-- `processor_policy` / `peft_policy` 优先通过 `src/shaft/model/policies.py` 注册后复用，再挂到 `ModelMeta` 或 `ModelGroup`。
-- `ModelMeta` / `ModelGroup` 中明确：
-  - `default_template` / `template`
-  - `processor_policy`
-  - `peft_policy`
-  - `requires` / `additional_saved_files`
-- group 级 override 只允许放“模型匹配后确实会变化”的能力，例如模板、pixel budget 支持、target_modules 策略，不要把 loader 逻辑复制到 group 配置里。
-- checkpoint 兼容逻辑必须遵循 HF/PEFT 标准目录。
+### 3.2 关键点
 
-## 4. 续训与导出扩展
+- 模板只负责 `messages -> prompt`
+- 模板只负责 `token_ids -> text`
+- 模板元信息放在 `TemplateMeta`
 
-### 4.1 当前规则
-- `init_from_checkpoint`：初始化权重（full 或 adapter）。
-- `resume_from_checkpoint`：恢复 trainer 状态（需 `trainer_state.json`）。
-- 模式校验：
-  - full <-> full
-  - lora/dora/qlora <-> adapter
+禁止：
 
-### 4.2 当前工具链
+- 在模板里做图像裁剪
+- 在模板里做任务后处理
+- 在模板里决定 generation 策略
 
-- 工具入口：`scripts/export.py`
-- 当前子命令：
-  - `inspect`
-  - `validate`
-  - `merge-peft`
-- 设计约束：
-  - 只处理 HF/PEFT 标准目录
-  - `full` 输出不再重复复制一份
-  - adapter merge 后输出仍为标准 HF full export
-  - 不生成自定义 metadata 目录，不引入额外中间格式
+## 4. 新增数据源或样本格式
 
-### 4.3 新功能接入时
-- 先补测试矩阵，再改实现：
-  - `tests/test_checkpointing.py`
-  - `tests/test_export_tools.py`
-  - 必要时新增 `tests/test_<algo>_checkpointing.py`
+### 4.1 必改位置
 
-## 5. 命令行扩展规则
+- `src/shaft/data/sources.py`
+- `src/shaft/data/registry.py`
+- `src/shaft/data/dataset.py`
+- `src/shaft/data/collator.py`
+- `src/shaft/data/center.py`（仅在多源装配行为变化时）
 
-- 统一入口：`scripts/train.py`
-- 子命令注册：`src/shaft/cli/registry.py`
-- 公共参数：`src/shaft/cli/common.py`
-- 只允许无歧义覆盖参数（run-id/seed/epochs/lr/...）。
-- 覆盖逻辑必须映射到结构化 config 字段，禁止隐式魔法行为。
+### 4.2 关键点
 
-## 6. 测试要求（提交前）
+- 新 source 必须注册
+- 解析错误要聚合输出
+- 样本元信息统一使用 `dataset_name`
+- catalog 扩展通过：
+  - `data.catalog_path`
+  - `data.catalog_names`
 
-至少执行：
-1. `pytest -q`
-2. 新增能力对应测试文件单独执行一次（便于定位）
+### 4.3 不要做的事
 
-建议执行：
-1. `pytest -q -m integration`（若改动影响真实模型加载/推理）
+- 不要在 `pipeline` 中重写 mixing
+- 不要在 `training` 中解析样本字段
+- 不要把数据源路径逻辑塞进算法层
 
-## 7. 常见越界反例
+## 5. 新增训练算法
 
-1. 在 `training` 里解析 `jsonl` 字段。  
-2. 在 `data` 里写 optimizer/scheduler 分支。  
-3. 在 `pipeline` 中硬编码某个模型族的 tokenizer 细节。  
-4. 直接在 trainer 里拼装 prompt 模板字符串。  
+### 5.1 必改位置
 
-发现以上反例，应把逻辑迁回对应层再提交。  
+- `src/shaft/algorithms/<algo>.py`
+- `src/shaft/algorithms/registry.py`
+- `src/shaft/config/schema.py`
+- `src/shaft/config/normalize.py`
+- `src/shaft/pipeline/sft.py` 或 `src/shaft/pipeline/rlhf.py`
+
+### 5.2 选择落点
+
+- `sft` 类算法：进入 `ShaftSFTPipeline`
+- `dpo/ppo` 类 RLHF 算法：进入 `ShaftRLHFPipeline`
+
+### 5.3 原则
+
+- 算法只构建 trainer，不读 JSONL
+- 算法专属强类型配置优先放到 schema 中
+- 不要在算法层处理模型族模板细节
+
+## 6. 新增推理后端
+
+### 6.1 必改位置
+
+- `src/shaft/infer/engine.py`
+- `src/shaft/infer/schema.py`
+- `src/shaft/infer/loader.py`
+
+### 6.2 原则
+
+- 后端实现必须接受统一的 `ShaftInferRequest`
+- 返回统一的 `ShaftInferResponse`
+- stage 编排逻辑仍放在 `ShaftInferPipeline`
+
+禁止：
+
+- 后端实现直接依赖某个具体业务脚本
+- 在 engine 中写 stage 级上下文规则
+
+## 7. 新增 codec
+
+### 7.1 必改位置
+
+- `src/shaft/infer/codec.py`
+
+### 7.2 原则
+
+- codec 只做文本到结构化结果的变换
+- codec 应允许失败并给出可排障的错误
+- codec 不负责训练数据格式
+
+## 8. 新增优化器 / scheduler / loss
+
+### 8.1 必改位置
+
+- `src/shaft/training/optimizer.py`
+- `src/shaft/training/scheduler.py`
+- `src/shaft/training/loss.py`
+
+### 8.2 原则
+
+- 统一走注册表
+- 配置入口统一在 `TrainConfig`
+- 不要在 pipeline 中硬编码新分支
+
+## 9. 新增导出能力
+
+### 9.1 必改位置
+
+- `src/shaft/export/hf.py`
+- `src/shaft/cli/export.py`
+
+### 9.2 原则
+
+- 必须继续兼容 HF / PEFT 标准目录
+- 不要引入自定义 metadata 目录
+- 不要把发布逻辑塞进导出模块
+
+## 10. 扩展时必须同步的文档
+
+至少更新以下之一：
+
+- `docs/architecture.md`
+- `docs/module_reference.md`
+- `docs/config_reference.md`
+- `docs/extension_guide.md`
+- `docs/project_skill.md`
+
+如果新增的是用户会直接调用的能力，还要同步：
+
+- `README.md`
+- `docs/README.md`
+
+## 11. 必跑测试
+
+### 新模型族
+
+- `tests/test_model_registry.py`
+- `tests/test_template_registry.py`
+
+### 新数据源 / mixing / collator
+
+- `tests/test_data_sources.py`
+- `tests/test_data_center.py`
+- `tests/test_collator.py`
+- `tests/test_mixing.py`
+
+### 新算法 / pipeline
+
+- `tests/test_pipeline_sft.py`
+- `tests/test_pipeline_rlhf.py`
+- 对应算法专属测试
+
+### 新推理后端 / codec
+
+- `tests/test_infer_loader.py`
+- `tests/test_infer_pipeline.py`
+- `tests/test_infer_cli.py`
+
+### 新导出能力
+
+- `tests/test_export_tools.py`
+- `tests/test_export_cli.py`
+- 必要时加 checkpoint 兼容测试
