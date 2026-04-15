@@ -2,6 +2,17 @@
 
 本文档描述 `src/shaft` 当前可运行架构，重点用于指导后续 agent 扩展和重构，避免跨层越界。
 
+## 0. 总原则：当前仅面向 Hugging Face 生态
+
+- Shaft 当前是 **HF-first** 框架，只面向 Hugging Face 生态组织训练、保存、续训与推理接入。
+- 当前默认依赖与边界：
+  - 模型加载基于 `transformers`
+  - 参数高效微调基于 `peft`
+  - 强化学习训练基于 `trl`
+  - 部署侧仅接入 HF 本地推理与 vLLM 的 OpenAI 兼容接口
+- 当前**不**以兼容 ModelScope、自定义 checkpoint 格式、非 HF Trainer 内核、多套模型仓库协议为目标。
+- 因此，新增能力时应优先复用 HF 标准对象与目录约定，而不是引入平行生态抽象层。
+
 ## 1. 顶层分层
 
 ### 1.1 `config`

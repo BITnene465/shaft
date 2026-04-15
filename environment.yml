@@ -7,4 +7,4 @@ dependencies:
   - pip
   - pytorch
   - pip:
-      - -e .
+      - -e ".[serve]"

@@ -2746,6 +2746,8 @@ dev = [
 ]
 gpu = [
     { name = "bitsandbytes" },
+]
+gpu-kernels = [
     { name = "flash-attn" },
 ]
 rlhf = [
@@ -2769,7 +2771,7 @@ requires-dist = [
     { name = "cairosvg", specifier = ">=2.8" },
     { name = "datasets", marker = "extra == 'rlhf'", specifier = ">=3.0.0" },
     { name = "datasets", marker = "extra == 'train'", specifier = ">=3.0.0" },
-    { name = "flash-attn", marker = "extra == 'gpu'", specifier = "==2.8.3" },
+    { name = "flash-attn", marker = "extra == 'gpu-kernels'", specifier = "==2.8.3" },
     { name = "gradio", specifier = ">=5.22.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "modelscope", specifier = ">=1.35.3" },
@@ -2789,7 +2791,7 @@ requires-dist = [
     { name = "vllm", marker = "sys_platform == 'linux' and extra == 'serve'", specifier = "==0.19.0" },
     { name = "wandb", specifier = ">=0.19.0" },
 ]
-provides-extras = ["dev", "train", "gpu", "rlhf", "serve"]
+provides-extras = ["dev", "train", "gpu", "gpu-kernels", "rlhf", "serve"]
 
 [[package]]
 name = "shellingham"

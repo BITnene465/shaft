@@ -38,6 +38,8 @@ train = [
 ]
 gpu = [
   "bitsandbytes>=0.46.1",
+]
+gpu-kernels = [
   "flash-attn==2.8.3",
 ]
 rlhf = [

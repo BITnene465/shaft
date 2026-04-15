@@ -19,7 +19,7 @@ class InferModelConfig:
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
     template: str | None = None
     trust_remote_code: bool = True
-    attn_implementation: str | None = "flash_attention_2"
+    attn_implementation: str | None = None
     torch_dtype: str = "bfloat16"
     finetune_mode: str = "full"
     backend: str = "hf_local"

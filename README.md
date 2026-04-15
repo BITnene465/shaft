@@ -21,8 +21,11 @@ python scripts/train.py sft --config configs/train/train_sft_4b.yaml
 # 训练基础（HF 生态）
 uv pip install -e ".[train]"
 
-# GPU 训练增强（FlashAttention / 8bit）
+# GPU 训练增强（8bit / bitsandbytes）
 uv pip install -e ".[train,gpu]"
+
+# 可选 CUDA kernel 增强（FlashAttention，需要可用 CUDA toolchain / CUDA_HOME）
+uv pip install -e ".[train,gpu,gpu-kernels]"
 
 # 强化学习（TRL）
 uv pip install -e ".[train,rlhf]"
@@ -39,11 +42,22 @@ python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml --algorith
 python scripts/train.py rlhf --config configs/train/train_ppo_4b.yaml --algorithm ppo
 ```
 
+训练配置支持命名数据集注册中心：
+
+```yaml
+data:
+  registry_path: ../data/datasets.yaml
+  dataset_refs: [arrow_multitask]
+```
+
+- `registry_path` 指向数据 registry YAML。
+- `dataset_refs` 指定本次实验启用哪些命名数据集。
+- registry 文件中的相对路径按 registry 文件目录解析；训练 YAML 中内联 `data.datasets` 的相对路径按训练 YAML 目录解析。
+
 推理支持引擎与多阶段流水线编排：
 
 ```bash
 python scripts/infer.py --config configs/infer/pipeline_smoke.yaml --image /path/to/image.png
-python scripts/infer.py --config configs/infer/pipeline_vllm.yaml --image /path/to/image.png
 ```
 
 `infer` 支持 stage 级 `codec`、`max_retries`、`fail_fast`，并在输出 `__trace__` 中记录每阶段尝试历史与耗时。  
@@ -53,6 +67,10 @@ python scripts/infer.py --config configs/infer/pipeline_vllm.yaml --image /path/
 
 - `hf_local`：本地 HF 模型直接推理。
 - `vllm_openai`：调用 vLLM OpenAI 兼容接口（`endpoint + /v1/chat/completions`），stage 级 `min_pixels/max_pixels` 会透传为 `mm_processor_kwargs`。
+
+`flash-attn` 不再包含在默认 `gpu` extra 中。
+如果本机没有完整 CUDA 编译环境，请保持 `model.attn_implementation` 为空；只有在安装了 `.[gpu-kernels]` 后再显式设为 `flash_attention_2`。
+安装完成后，可用 `uv run --extra dev pytest -q -o addopts='' tests/test_flash_attn_smoke.py` 做一次手工 smoke test。
 
 可选 hooks（训练时触发）：
 
