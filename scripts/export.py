@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from shaft.export.cli import main
+from shaft.cli.export import main
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 
 from peft import PeftConfig, PeftModel
 
@@ -95,6 +96,40 @@ def _save_processing_assets(*, output_dir: Path, processor, tokenizer) -> None:
         tokenizer.save_pretrained(output_dir)
 
 
+_HF_PROCESSING_ASSET_NAMES = {
+    "added_tokens.json",
+    "chat_template.jinja",
+    "chat_template.json",
+    "preprocessor_config.json",
+    "processor_config.json",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+    "smoke_tokenizer.json",
+    "smoke_processor.json",
+}
+
+
+def _overlay_adapter_processing_assets(
+    *,
+    adapter_dir: Path,
+    output_dir: Path,
+    additional_saved_files: tuple[str, ...] = (),
+) -> None:
+    candidate_names = set(_HF_PROCESSING_ASSET_NAMES)
+    candidate_names.update(str(name).strip() for name in additional_saved_files if str(name).strip())
+    for name in sorted(candidate_names):
+        source = adapter_dir / name
+        if not source.is_file():
+            continue
+        target = output_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
 def merge_peft_adapter(
     *,
     model_type: str,
@@ -146,6 +181,11 @@ def merge_peft_adapter(
         output_dir=target_dir,
         processor=artifacts.processor,
         tokenizer=artifacts.tokenizer,
+    )
+    _overlay_adapter_processing_assets(
+        adapter_dir=adapter_dir,
+        output_dir=target_dir,
+        additional_saved_files=artifacts.model_adapter.required_saved_files(),
     )
     ensure_hf_export_layout(
         target_dir,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from shaft.export.cli import build_parser, main
+from shaft.cli.export import build_parser, main
 
 
 def test_export_parser_dispatches_merge_peft() -> None:
@@ -23,7 +23,7 @@ def test_export_parser_dispatches_merge_peft() -> None:
 
 
 def test_export_main_runs_inspect() -> None:
-    with patch("shaft.export.cli.inspect_hf_artifact") as mocked:
+    with patch("shaft.cli.export.inspect_hf_artifact") as mocked:
         mocked.return_value.path = "ckpt"
         mocked.return_value.kind = "full"
         mocked.return_value.has_trainer_state = True

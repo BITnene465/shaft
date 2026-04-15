@@ -44,6 +44,8 @@
 ## 5. 配置与 CLI 原则
 
 - 入口脚本：`scripts/train.py`（顶层编排，子命令如 `sft`/`rlhf`）；任务命令定义在 `src/shaft/cli`。
+- 所有 CLI 解析与命令编排必须放在 `src/shaft/cli`；`scripts/*.py` 只能做薄包装入口，不得在脚本文件里直接堆叠业务级 `argparse` 逻辑。
+- 新增 CLI 能力时，优先复用现有 `src/shaft/cli` 风格与公共约定，避免在 feature 子模块下再生一套平行 CLI。
 - YAML 为主，CLI 只允许无歧义覆写（run-id/seed/epochs/lr/mix-strategy/resume）。
 
 ## 6. 测试驱动

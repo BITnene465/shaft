@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from .hf import inspect_hf_artifact, merge_peft_adapter, validate_hf_artifact
+from shaft.export import inspect_hf_artifact, merge_peft_adapter, validate_hf_artifact
 
 
 def _as_bool(text: str) -> bool:

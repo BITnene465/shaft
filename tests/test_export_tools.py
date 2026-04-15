@@ -108,3 +108,24 @@ def test_merge_peft_adapter_reads_base_model_from_adapter(tmp_path: Path) -> Non
             torch_dtype="float32",
         )
     mocked.assert_called_once()
+
+
+def test_merge_peft_adapter_prefers_adapter_processing_assets(tmp_path: Path) -> None:
+    artifacts = _build_smoke_lora_artifacts()
+    adapter_dir = tmp_path / "adapter"
+    artifacts.model.save_pretrained(adapter_dir)
+    payload = {"source": "adapter"}
+    (adapter_dir / "smoke_tokenizer.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    (adapter_dir / "smoke_processor.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    output_dir = tmp_path / "merged"
+    merge_peft_adapter(
+        model_type="smoke_vlm",
+        adapter_path=adapter_dir,
+        output_dir=output_dir,
+        base_model_path="models/smoke-vlm",
+        torch_dtype="float32",
+    )
+
+    assert json.loads((output_dir / "smoke_tokenizer.json").read_text(encoding="utf-8")) == payload
+    assert json.loads((output_dir / "smoke_processor.json").read_text(encoding="utf-8")) == payload
