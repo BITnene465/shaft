@@ -6,6 +6,7 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 
+from .data_registry import resolve_data_sources
 from .normalize import normalize_runtime_config
 from .schema import RuntimeConfig
 
@@ -110,5 +111,6 @@ def load_config(path: str | Path) -> RuntimeConfig:
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
     payload = _upgrade_legacy_layout(payload)
+    payload = resolve_data_sources(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

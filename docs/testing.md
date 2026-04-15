@@ -30,6 +30,10 @@
 
 - 新加推理、训练关键改动后，先补对应单元测试。
 - 需要校验“真实流程”的场景，至少放一条 integration/manual 用例。
+- 若改动多数据源加载、mixing、增强编排，至少覆盖：
+  - `tests/test_data_sources.py`
+  - `tests/test_mixing.py`
+  - `tests/test_data_center.py`
 - 新增算法（如 DPO/PPO）必须覆盖：
   - 配置归一化校验（参数与 source_type 匹配）
   - collator 行为

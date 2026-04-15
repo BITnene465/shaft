@@ -8,12 +8,9 @@ from shaft.algorithms import ALGORITHM_REGISTRY, AlgorithmContext
 from shaft.algorithms import sft as _sft  # noqa: F401
 from shaft.config import RuntimeConfig
 from shaft.data import (
-    build_data_source,
-    MixedDatasetBuilder,
     SFTCollator,
+    ShaftDataCenter,
     SFTDataset,
-    build_offline_pipeline,
-    build_online_pipeline,
 )
 from shaft.model import build_model_tokenizer_processor
 from shaft.plugins import (
@@ -49,53 +46,6 @@ class ShaftTrainPipeline:
     def build_training_args(self) -> TrainingArguments:
         return build_hf_training_args(self.config)
 
-    def build_datasets(self) -> tuple[SFTDataset, SFTDataset]:
-        config = self.config
-        records_by_dataset_train: dict[str, list[Any]] = {}
-        records_by_dataset_val: dict[str, list[Any]] = {}
-        weights: dict[str, float] = {}
-        dataset_online_pipelines: dict[str, Any] = {}
-
-        for source in config.data.datasets:
-            if not source.enabled:
-                continue
-            weights[source.name] = float(source.weight)
-            source_impl = build_data_source(source)
-            offline_pipeline = build_offline_pipeline(source.offline_transforms)
-            train_records = source_impl.load_split("train")
-            val_records = source_impl.load_split("val")
-            records_by_dataset_train[source.name] = offline_pipeline(train_records)
-            records_by_dataset_val[source.name] = offline_pipeline(val_records)
-            dataset_online_pipelines[source.name] = build_online_pipeline(source.online_transforms)
-
-        mixer = MixedDatasetBuilder(seed=config.experiment.seed)
-        mixed_indices = mixer.build_indices(
-            records_by_dataset_train,
-            weights,
-            strategy=config.data.mix_strategy,
-            shuffle=config.data.shuffle,
-        )
-        mixed_train_records = [
-            records_by_dataset_train[dataset_id][row_index]
-            for dataset_id, row_index in mixed_indices
-        ]
-        val_records = []
-        for dataset_id in sorted(records_by_dataset_val):
-            val_records.extend(records_by_dataset_val[dataset_id])
-
-        def _dataset_aware_online_transform(sample: dict[str, Any]) -> dict[str, Any]:
-            dataset_id = str(sample.get("dataset_id", "default"))
-            pipeline = dataset_online_pipelines.get(dataset_id)
-            if pipeline is None:
-                return sample
-            return pipeline(sample)
-
-        online_transforms = [_dataset_aware_online_transform]
-        return SFTDataset(mixed_train_records, online_transforms=online_transforms), SFTDataset(
-            val_records,
-            online_transforms=online_transforms,
-        )
-
     def run(self) -> dict[str, Any]:
         config = self.config
         algorithm_name = str(config.algorithm.name).strip().lower()
@@ -109,7 +59,8 @@ class ShaftTrainPipeline:
             config,
             init_from_checkpoint=config.sft.train.init_from_checkpoint,
         )
-        train_dataset, eval_dataset = self.build_datasets()
+        data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+        train_dataset, eval_dataset = data_center.build_dataset_pair(SFTDataset)
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -123,7 +74,7 @@ class ShaftTrainPipeline:
             callbacks.append(TrainerHookCallback(hook_manager))
         callbacks_or_none = callbacks or None
         collator = SFTCollator(
-            model_meta=artifacts.model_meta,
+            model_adapter=artifacts.model_adapter,
             template=artifacts.template,
             processor=artifacts.processor,
             tokenizer=artifacts.tokenizer,
@@ -156,7 +107,7 @@ class ShaftTrainPipeline:
             ensure_hf_export_layout(
                 config.experiment.output_dir,
                 finetune_mode=config.model.finetune.mode,
-                model_meta=artifacts.model_meta,
+                model_meta=artifacts.model_adapter,
             )
         if config.sft.train.save_final_state:
             trainer.save_state()

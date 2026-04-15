@@ -315,7 +315,13 @@ class BaseDataSource(ABC):
         raise NotImplementedError
 
     def _resolve_paths(self, split: Split) -> list[str]:
-        return list(self.config.train_paths if split == "train" else self.config.val_paths)
+        paths = list(self.config.train_paths if split == "train" else self.config.val_paths)
+        single_path = self.config.train_path if split == "train" else self.config.val_path
+        if single_path:
+            normalized_single = str(single_path).strip()
+            if normalized_single and normalized_single not in paths:
+                paths = [normalized_single, *paths]
+        return paths
 
 
 @register_data_source("jsonl_sft")

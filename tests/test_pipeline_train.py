@@ -7,6 +7,7 @@ import torch
 from PIL import Image
 
 from shaft.config import RuntimeConfig, load_config
+from shaft.data import SFTDataset
 from shaft.model import build_model_meta
 from shaft.pipeline import run_train
 from shaft.template import build_template
@@ -125,6 +126,7 @@ def test_run_train_smoke(tmp_path: Path) -> None:
                 "tokenizer": _FakeTokenizer(),
                 "processor": _FakeProcessor(),
                 "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
                 "template": build_template("smoke_vlm"),
             },
         )()
@@ -144,6 +146,7 @@ def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
                 "tokenizer": _FakeTokenizer(),
                 "processor": _FakeProcessor(),
                 "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
                 "template": build_template("smoke_vlm"),
             },
         )()
@@ -152,3 +155,42 @@ def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
     callbacks = _FakeTrainer.last_kwargs.get("callbacks")
     assert callbacks is not None
     assert len(callbacks) >= 1
+
+
+def test_run_train_uses_data_center(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    fake_train_dataset = object()
+    fake_eval_dataset = object()
+    captured = {}
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed):
+            captured["data_config"] = data_config
+            captured["seed"] = seed
+
+        def build_dataset_pair(self, dataset_cls):
+            captured["dataset_cls"] = dataset_cls
+            return fake_train_dataset, fake_eval_dataset
+
+    with patch("shaft.pipeline.train.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.train.build_model_tokenizer_processor") as mocked_builder:
+            mocked_builder.return_value = type(
+                "Artifacts",
+                (),
+                {
+                    "model": _FakeModel(),
+                    "tokenizer": _FakeTokenizer(),
+                    "processor": _FakeProcessor(),
+                    "model_meta": build_model_meta("smoke_vlm"),
+                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                    "template": build_template("smoke_vlm"),
+                },
+            )()
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_train(config)
+
+    assert captured["data_config"] is config.data
+    assert captured["seed"] == config.experiment.seed
+    assert captured["dataset_cls"] is SFTDataset
+    assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert _FakeTrainer.last_kwargs["eval_dataset"] is None

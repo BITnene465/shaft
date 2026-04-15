@@ -6,7 +6,7 @@ from pathlib import Path
 from transformers.trainer_utils import get_last_checkpoint
 
 from shaft.config import RuntimeConfig
-from shaft.model import ModelMeta
+from shaft.model import ModelMeta, ShaftModelAdapter
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,12 @@ def inspect_checkpoint_layout(path: str | Path) -> CheckpointLayout:
     return CheckpointLayout(path=target, kind=kind, has_trainer_state=has_trainer_state)
 
 
-def ensure_hf_export_layout(path: str | Path, *, finetune_mode: str, model_meta: ModelMeta | None = None) -> None:
+def ensure_hf_export_layout(
+    path: str | Path,
+    *,
+    finetune_mode: str,
+    model_meta: ModelMeta | ShaftModelAdapter | None = None,
+) -> None:
     layout = inspect_checkpoint_layout(path)
     mode = str(finetune_mode).strip().lower()
     if mode == "full":

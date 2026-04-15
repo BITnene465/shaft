@@ -84,6 +84,17 @@ def _validate_adapter_compatibility(config: RuntimeConfig, adapter_config: dict[
         )
 
 
+def _build_artifacts_from_runtime_config(config: RuntimeConfig, *, model_meta) -> ModelArtifacts:
+    runtime_config = copy.deepcopy(config)
+    model_adapter = model_meta.resolve_adapter(
+        model_name_or_path=runtime_config.model.model_name_or_path,
+        template_type=runtime_config.model.template,
+    )
+    model_adapter.check_requires()
+    assert model_meta.loader is not None
+    return model_meta.loader.build(runtime_config, model_meta=model_meta, model_adapter=model_adapter)
+
+
 def build_model_tokenizer_processor(
     config: RuntimeConfig,
     *,
@@ -91,12 +102,8 @@ def build_model_tokenizer_processor(
 ) -> ModelArtifacts:
     model_type = str(config.model.model_type).strip().lower()
     model_meta = build_model_meta(model_type)
-    check_requires = getattr(model_meta, "check_requires", None)
-    if callable(check_requires):
-        check_requires(config.model.model_name_or_path)
     if init_from_checkpoint is None:
-        assert model_meta.loader is not None
-        return model_meta.loader.build(copy.deepcopy(config), model_meta=model_meta)
+        return _build_artifacts_from_runtime_config(config, model_meta=model_meta)
 
     init_path = Path(init_from_checkpoint)
     if not init_path.exists():
@@ -105,8 +112,7 @@ def build_model_tokenizer_processor(
     if _is_adapter_checkpoint(init_path):
         adapter_cfg = _load_adapter_config(init_path)
         _validate_adapter_compatibility(config, adapter_cfg, init_path)
-        assert model_meta.loader is not None
-        artifacts = model_meta.loader.build(copy.deepcopy(config), model_meta=model_meta)
+        artifacts = _build_artifacts_from_runtime_config(config, model_meta=model_meta)
         if not isinstance(artifacts.model, PeftModel):
             raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
         peft_state = load_peft_weights(str(init_path), device="cpu")
@@ -115,5 +121,4 @@ def build_model_tokenizer_processor(
 
     override_config = copy.deepcopy(config)
     override_config.model.model_name_or_path = str(init_path)
-    assert model_meta.loader is not None
-    return model_meta.loader.build(override_config, model_meta=model_meta)
+    return _build_artifacts_from_runtime_config(override_config, model_meta=model_meta)

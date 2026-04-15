@@ -13,10 +13,7 @@ from shaft.data import (
     DPODataset,
     PPOCollator,
     PPODataset,
-    MixedDatasetBuilder,
-    build_data_source,
-    build_offline_pipeline,
-    build_online_pipeline,
+    ShaftDataCenter,
 )
 from shaft.model import build_model_tokenizer_processor
 from shaft.plugins import (
@@ -47,62 +44,9 @@ class ShaftRLHFPipeline:
     def build_training_args(self) -> TrainingArguments:
         return build_hf_training_args(self.config)
 
-    def build_datasets(self, algorithm_name: str):
-        records_by_dataset_train: dict[str, list[Any]] = {}
-        records_by_dataset_val: dict[str, list[Any]] = {}
-        weights: dict[str, float] = {}
-        dataset_online_pipelines: dict[str, Any] = {}
-
-        for source in self.config.data.datasets:
-            if not source.enabled:
-                continue
-            weights[source.name] = float(source.weight)
-            source_impl = build_data_source(source)
-            offline_pipeline = build_offline_pipeline(source.offline_transforms)
-            train_records = source_impl.load_split("train")
-            val_records = source_impl.load_split("val")
-            records_by_dataset_train[source.name] = offline_pipeline(train_records)
-            records_by_dataset_val[source.name] = offline_pipeline(val_records)
-            dataset_online_pipelines[source.name] = build_online_pipeline(source.online_transforms)
-
-        mixer = MixedDatasetBuilder(seed=self.config.experiment.seed)
-        mixed_indices = mixer.build_indices(
-            records_by_dataset_train,
-            weights,
-            strategy=self.config.data.mix_strategy,
-            shuffle=self.config.data.shuffle,
-        )
-        mixed_train_records = [
-            records_by_dataset_train[dataset_id][row_index]
-            for dataset_id, row_index in mixed_indices
-        ]
-        val_records = []
-        for dataset_id in sorted(records_by_dataset_val):
-            val_records.extend(records_by_dataset_val[dataset_id])
-
-        def _dataset_aware_online_transform(sample: dict[str, Any]) -> dict[str, Any]:
-            dataset_id = str(sample.get("dataset_id", "default"))
-            pipeline = dataset_online_pipelines.get(dataset_id)
-            if pipeline is None:
-                return sample
-            return pipeline(sample)
-
-        online_transforms = [_dataset_aware_online_transform]
-        if algorithm_name == "dpo":
-            return (
-                DPODataset(mixed_train_records, online_transforms=online_transforms),
-                DPODataset(val_records, online_transforms=online_transforms),
-            )
-        if algorithm_name == "ppo":
-            return (
-                PPODataset(mixed_train_records, online_transforms=online_transforms),
-                PPODataset(val_records, online_transforms=online_transforms),
-            )
-        raise ValueError(f"Unsupported RLHF algorithm: {algorithm_name!r}.")
-
     def _build_collator(self, algorithm_name: str, *, artifacts):
         common_kwargs = {
-            "model_meta": artifacts.model_meta,
+            "model_adapter": artifacts.model_adapter,
             "template": artifacts.template,
             "processor": artifacts.processor,
             "tokenizer": artifacts.tokenizer,
@@ -129,7 +73,9 @@ class ShaftRLHFPipeline:
             config,
             init_from_checkpoint=config.sft.train.init_from_checkpoint,
         )
-        train_dataset, eval_dataset = self.build_datasets(algorithm_name)
+        data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+        dataset_cls = DPODataset if algorithm_name == "dpo" else PPODataset
+        train_dataset, eval_dataset = data_center.build_dataset_pair(dataset_cls)
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -179,7 +125,7 @@ class ShaftRLHFPipeline:
             ensure_hf_export_layout(
                 config.experiment.output_dir,
                 finetune_mode=config.model.finetune.mode,
-                model_meta=artifacts.model_meta,
+                model_meta=artifacts.model_adapter,
             )
         if config.sft.train.save_final_state:
             trainer.save_state()

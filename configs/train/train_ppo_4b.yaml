@@ -9,7 +9,8 @@ model:
   model_name_or_path: models/Qwen3-VL-4B-Instruct
   template: qwen3vl
   trust_remote_code: true
-  attn_implementation: flash_attention_2
+  # Optional: set to flash_attention_2 after installing `uv pip install -e ".[gpu-kernels]"`.
+  attn_implementation:
   torch_dtype: bfloat16
   finetune:
     mode: lora
@@ -22,12 +23,8 @@ algorithm:
   name: ppo
 
 data:
-  datasets:
-    - name: ppo_rollout
-      source_type: jsonl_ppo
-      train_path: data/train_ppo.jsonl
-      val_path: data/val_ppo.jsonl
-      weight: 1.0
+  registry_path: ../data/datasets.yaml
+  dataset_refs: [ppo_rollout]
   mix_strategy: interleave_under
   num_workers: 16
   pin_memory: true

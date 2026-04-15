@@ -33,6 +33,12 @@ def test_resolve_template_meta_uses_model_default() -> None:
     assert meta.template_type == "qwen3vl"
 
 
+def test_resolve_template_meta_accepts_model_adapter() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    meta = resolve_template_meta(model_adapter=model_adapter)
+    assert meta.template_type == "smoke_vlm"
+
+
 def test_template_instance_carries_meta() -> None:
     template = build_template("smoke_vlm")
     assert template.template_meta.template_type == "smoke_vlm"

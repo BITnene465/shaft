@@ -8,7 +8,8 @@ model:
   model_name_or_path: models/Qwen3-VL-4B-Instruct
   template: qwen3vl
   trust_remote_code: true
-  attn_implementation: flash_attention_2
+  # Optional: set to flash_attention_2 after installing `uv pip install -e ".[gpu-kernels]"`.
+  attn_implementation:
   torch_dtype: bfloat16
   finetune:
     mode: lora
@@ -21,12 +22,8 @@ algorithm:
   name: dpo
 
 data:
-  datasets:
-    - name: dpo_pairwise
-      source_type: jsonl_dpo
-      train_path: data/train_dpo.jsonl
-      val_path: data/val_dpo.jsonl
-      weight: 1.0
+  registry_path: ../data/datasets.yaml
+  dataset_refs: [dpo_pairwise]
   mix_strategy: interleave_under
   num_workers: 16
   pin_memory: true

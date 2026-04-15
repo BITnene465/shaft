@@ -21,6 +21,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
         raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
+    config.data.dataset_refs = [str(x).strip() for x in config.data.dataset_refs if str(x).strip()]
+    if config.data.registry_path is not None:
+        config.data.registry_path = str(config.data.registry_path).strip() or None
 
     finetune = config.model.finetune
     finetune.mode = str(finetune.mode).strip().lower()

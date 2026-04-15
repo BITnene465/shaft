@@ -2,11 +2,54 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+import torch
 from PIL import Image
 
 from shaft.config import load_config
+from shaft.data import DPODataset
+from shaft.model import build_model_meta
 from shaft.pipeline import run_rlhf
+from shaft.template import build_template
+
+
+class _FakeTokenizer:
+    eos_token_id = 2
+    pad_token_id = 0
+    eos_token = "</s>"
+
+
+class _FakeProcessor:
+    tokenizer = _FakeTokenizer()
+
+
+class _FakeModel(torch.nn.Module):
+    def forward(self, **kwargs):
+        _ = kwargs
+        return type("Out", (), {"loss": torch.tensor(0.1)})
+
+
+class _FakeTrainResult:
+    metrics = {"train_loss": 0.1}
+
+
+class _FakeTrainer:
+    last_kwargs = None
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        _FakeTrainer.last_kwargs = kwargs
+
+    def train(self, resume_from_checkpoint=None):
+        _ = resume_from_checkpoint
+        return _FakeTrainResult()
+
+    def save_model(self):
+        return None
+
+    def save_state(self):
+        return None
 
 
 def _write_common_image(base_dir: Path) -> Path:
@@ -165,3 +208,42 @@ def test_run_rlhf_ppo_smoke(tmp_path: Path) -> None:
     metrics = run_rlhf(cfg)
     assert "episode" in metrics
     assert "objective/rlhf_reward" in metrics
+
+
+def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    fake_train_dataset = object()
+    fake_eval_dataset = object()
+    captured = {}
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed):
+            captured["data_config"] = data_config
+            captured["seed"] = seed
+
+        def build_dataset_pair(self, dataset_cls):
+            captured["dataset_cls"] = dataset_cls
+            return fake_train_dataset, fake_eval_dataset
+
+    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+            mocked_builder.return_value = type(
+                "Artifacts",
+                (),
+                {
+                    "model": _FakeModel(),
+                    "tokenizer": _FakeTokenizer(),
+                    "processor": _FakeProcessor(),
+                    "model_meta": build_model_meta("smoke_vlm"),
+                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                    "template": build_template("smoke_vlm"),
+                },
+            )()
+            with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
+                _ = run_rlhf(cfg)
+
+    assert captured["data_config"] is cfg.data
+    assert captured["seed"] == cfg.experiment.seed
+    assert captured["dataset_cls"] is DPODataset
+    assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert _FakeTrainer.last_kwargs["eval_dataset"] is None

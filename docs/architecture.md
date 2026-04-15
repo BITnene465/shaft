@@ -20,7 +20,11 @@
   - `jsonl_dpo` -> `DPORecord`
   - `jsonl_ppo` -> `PPORecord`
 - 关键点：
+  - `ShaftDataCenter` 是数据子系统的正式入口，统一负责：多数据源加载、offline transform、sample-level mixing、dataset-aware online transform 编排。
+  - `config` 层支持 `data.registry_path + data.dataset_refs`，可从外部 registry 文件解析命名数据集，再合并到 `data.datasets`。
+  - registry 文件中的相对路径按 registry 文件目录解析；主训练 YAML 中内联 `data.datasets` 的相对路径按训练 YAML 所在目录解析。
   - JSONL 解析使用聚合报错，会汇总坏样本行号与错误原因。
+  - `ShaftDataCenter` 输出的是“标准 records / dataset pair”，不会感知 loss、optimizer、训练循环。
   - 训练循环、loss、优化器逻辑禁止进入数据层。
 
 ### 1.3 `model`
@@ -28,6 +32,8 @@
 - 作用：模型族适配、processor/tokenizer/template 解析、finetune 策略注入。
 - 关键点：
   - 统一入口：`build_model_tokenizer_processor`。
+  - 运行时统一适配对象：`ShaftModelAdapter`，负责收口模板选择、processor policy、peft policy、requires、additional_saved_files。
+  - `processor policy` / `peft policy` 通过模型层 registry 注册和复用，而不是在各模型文件里直接散落硬编码实例。
   - `init_from_checkpoint` 支持 full 权重和 PEFT adapter 初始化。
   - 模型族特化逻辑必须放在模型专属文件（例如 `qwen3vl.py`）。
 
@@ -56,6 +62,7 @@
   - `shaft_rlhf`：`dpo/ppo`
 - 关键点：
   - SFT 与 RLHF 已分流，防止同一 pipeline 里塞 if-else 污染职责。
+  - pipeline 只负责装配组件；多数据源读取、增强与 mixing 统一委托给 `ShaftDataCenter`，不得在 pipeline 内重复实现。
 
 ### 1.7 `training`
 - 位置：`src/shaft/training`
@@ -92,8 +99,8 @@
 
 1. 数据层不写 loss/优化器/梯度更新逻辑。  
 2. 算法层不解析 JSONL 路径和文件细节。  
-3. pipeline 层不实现模型族特化细节。  
-4. 模型特化能力（target modules/template/processor policy）仅在 `model`/`template`。  
+3. pipeline 层不实现模型族特化细节，也不实现多数据源/mixing/增强编排。  
+4. 模型特化能力（target modules/template/processor policy/peft policy）仅在 `model`/`template`。  
 5. checkpoint 格式必须遵循 HF/PEFT 生态，不引入自定义保存格式。  
 
 ## 3. 训练状态与续训规则
@@ -108,6 +115,18 @@
   - `lora/dora/qlora` 导出必须是 PEFT adapter 目录。
 
 ## 4. 当前数据格式契约
+
+### 4.0 命名数据集注册中心
+- 训练 YAML 可选：
+  - `data.registry_path`: 指向一个 YAML registry 文件
+  - `data.dataset_refs`: 指定要启用的命名数据集列表
+- registry 文件支持两种形式：
+  - `datasets: {name: {...}}`
+  - `datasets: [{name: ..., ...}, ...]`
+- 解析顺序：
+  - 先按 `data.dataset_refs` 解析 registry 命名数据集
+  - 再拼接主配置中的 `data.datasets`
+- 若 registry 数据集与 inline 数据集重名，会直接 fail-fast。
 
 ### 4.1 SFT (`jsonl_sft`)
 - 必填：`image_path|image|images` + `target_text`（或 `messages` 末尾 assistant）。

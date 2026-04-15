@@ -34,12 +34,17 @@ def build_template_meta(name: str) -> TemplateMeta:
 def resolve_template_meta(
     *,
     template_type: str | None = None,
+    model_adapter=None,
     model_meta=None,
     model_info=None,
 ) -> TemplateMeta:
     resolved = str(template_type).strip().lower() if template_type else None
     if resolved:
         return build_template_meta(resolved)
+    if model_adapter is not None:
+        resolved = str(getattr(model_adapter, "template_type", "")).strip().lower()
+        if resolved:
+            return build_template_meta(resolved)
     if model_meta is not None and model_info is not None:
         resolved = getattr(model_meta, "resolve_template_type", lambda _: None)(getattr(model_info, "model_dir", None))
         if resolved:

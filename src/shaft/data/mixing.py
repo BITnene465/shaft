@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 import random
 from collections import defaultdict
+from typing import Any
 
-from .dataset import SFTRecord
 from .registry import MIX_STRATEGY_REGISTRY, register_mix_strategy
 
 
@@ -14,7 +14,7 @@ class MixedDatasetBuilder:
 
     def build_indices(
         self,
-        records_by_dataset: dict[str, list[SFTRecord]],
+        records_by_dataset: dict[str, list[Any]],
         dataset_weights: dict[str, float],
         *,
         strategy: str = "interleave_under",

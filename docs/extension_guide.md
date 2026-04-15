@@ -43,30 +43,41 @@
 ### 2.1 必改文件
 1. `src/shaft/data/dataset.py`（新增 Record / Dataset）
 2. `src/shaft/data/sources.py`（新增 loader + data source 注册）
-3. `src/shaft/data/collator.py`（新增 collator）
-4. `src/shaft/data/__init__.py`（导出）
-5. `tests/test_data_sources.py`、`tests/test_collator.py`
+3. `src/shaft/data/center.py`（若改动影响多数据源装配 / mixing / online transform 编排）
+4. `src/shaft/data/collator.py`（新增 collator）
+5. `src/shaft/data/__init__.py`（导出）
+6. `tests/test_data_sources.py`、`tests/test_data_center.py`、`tests/test_collator.py`
 
 ### 2.2 规则
 - 新 source 必须使用注册器：`@register_data_source("xxx")`。
 - 解析失败必须走聚合错误机制（输出失败行号和示例原因），不要只报第一条。
 - Record 结构只描述“样本事实”，不要包含训练阶段状态。
+- 多数据源加载、offline transform、sample-level mixing、dataset-aware online transform 的汇总入口是 `ShaftDataCenter`；不要把这些逻辑重新写回 pipeline。
+- 如果扩展的是 mixing 规则或多源装配行为，优先修改 `src/shaft/data/center.py` / `src/shaft/data/mixing.py`，而不是在训练主流程里加分支。
+- 若是“命名数据集”扩展，优先新增/维护 registry YAML，而不是把所有数据源都直接写进训练 YAML。
+- `data.registry_path` 中的相对路径按 registry 文件目录解析；`data.datasets` 中的相对路径按主 config 文件目录解析。
+- registry 解析发生在 `config.load_config()` 阶段，进入 pipeline 之前必须已经落成标准 `DataSourceConfig` 列表。
 
 ## 3. 扩展模型族（Qwen3VL 之外）
 
 ### 3.1 必改文件
 1. `src/shaft/model/<model_family>.py`
 2. `src/shaft/template/<model_family>.py`
-3. `src/shaft/model/types.py`（必要时扩展 meta 字段）
-4. `tests/test_model_registry.py`、`tests/test_template_registry.py`
+3. `src/shaft/model/policies.py`（若新增 processor/peft policy）
+4. `src/shaft/model/types.py`（必要时扩展 meta 字段 / `ShaftModelAdapter` 能力）
+5. `tests/test_model_registry.py`、`tests/test_template_registry.py`
 
 ### 3.2 规则
 - 模型专属实现必须显式带模型名，不使用泛名。
-- `ModelMeta` 中明确：
-  - `default_template`
+- 模型运行时入口统一是 `ShaftModelAdapter`，loader/collator/infer 不应该分别手写模板解析、processor policy 调度、target_modules 解析。
+- `ModelMeta` 负责声明默认模型族元信息；`ShaftModelAdapter` 负责把模型名匹配结果与 group override 收敛成运行时单对象。
+- `processor_policy` / `peft_policy` 优先通过 `src/shaft/model/policies.py` 注册后复用，再挂到 `ModelMeta` 或 `ModelGroup`。
+- `ModelMeta` / `ModelGroup` 中明确：
+  - `default_template` / `template`
   - `processor_policy`
   - `peft_policy`
   - `requires` / `additional_saved_files`
+- group 级 override 只允许放“模型匹配后确实会变化”的能力，例如模板、pixel budget 支持、target_modules 策略，不要把 loader 逻辑复制到 group 配置里。
 - checkpoint 兼容逻辑必须遵循 HF/PEFT 标准目录。
 
 ## 4. 续训与导出扩展

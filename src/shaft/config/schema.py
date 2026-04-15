@@ -18,7 +18,7 @@ class ModelConfig:
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
     template: str | None = None
     trust_remote_code: bool = True
-    attn_implementation: str | None = "flash_attention_2"
+    attn_implementation: str | None = None
     torch_dtype: str = "bfloat16"
     finetune: "FinetuneConfig" = field(default_factory=lambda: FinetuneConfig())
 
@@ -54,6 +54,8 @@ class DataSourceConfig:
 
 @dataclass
 class DataConfig:
+    registry_path: str | None = None
+    dataset_refs: list[str] = field(default_factory=list)
     datasets: list[DataSourceConfig] = field(default_factory=list)
     mix_strategy: str = "interleave_under"
     num_workers: int = 4

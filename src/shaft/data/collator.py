@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from shaft.model import ModelMeta
+from shaft.model import ShaftModelAdapter
 from shaft.template import Template
 
 
@@ -12,7 +12,7 @@ class _ShaftSequenceCollatorBase:
     def __init__(
         self,
         *,
-        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
         template: Template,
         processor: Any,
         tokenizer: Any,
@@ -22,7 +22,7 @@ class _ShaftSequenceCollatorBase:
         ignore_index: int = -100,
         padding_side: str = "right",
     ) -> None:
-        self.model_meta = model_meta
+        self.model_adapter = model_adapter
         self.template = template
         self.processor = processor
         self.tokenizer = tokenizer
@@ -35,7 +35,7 @@ class _ShaftSequenceCollatorBase:
             raise ValueError("padding_side must be 'left' or 'right'.")
 
     def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> dict[str, torch.Tensor]:
-        return self.model_meta.processor_policy.build_inputs(
+        return self.model_adapter.build_processor_inputs(
             processor=self.processor,
             prompt_texts=prompt_texts,
             images=images,
@@ -164,7 +164,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
     def __init__(
         self,
         *,
-        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
         template: Template,
         processor: Any,
         tokenizer: Any,
@@ -176,7 +176,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         padding_side: str = "right",
     ) -> None:
         super().__init__(
-            model_meta=model_meta,
+            model_adapter=model_adapter,
             template=template,
             processor=processor,
             tokenizer=tokenizer,

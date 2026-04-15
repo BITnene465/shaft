@@ -1,0 +1,21 @@
+datasets:
+  arrow_multitask:
+    source_type: jsonl_sft
+    train_path: ../../data/shaft/train.jsonl
+    val_path: ../../data/shaft/test.jsonl
+    weight: 1.0
+    enabled: true
+
+  dpo_pairwise:
+    source_type: jsonl_dpo
+    train_path: ../../data/train_dpo.jsonl
+    val_path: ../../data/val_dpo.jsonl
+    weight: 1.0
+    enabled: true
+
+  ppo_rollout:
+    source_type: jsonl_ppo
+    train_path: ../../data/train_ppo.jsonl
+    val_path: ../../data/val_ppo.jsonl
+    weight: 1.0
+    enabled: true

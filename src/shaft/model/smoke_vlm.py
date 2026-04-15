@@ -13,18 +13,16 @@ from transformers.processing_utils import ProcessorMixin
 from transformers.modeling_outputs import CausalLMOutput
 
 from shaft.config import RuntimeConfig
-from shaft.template import build_template_from_meta, resolve_template_meta
 
 from .finetune import apply_finetune_strategy
+from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
 from .types import (
-    DefaultPeftPolicy,
     ModelArtifacts,
     ModelCapabilities,
-    ModelInfo,
     ModelLoader,
     ModelMeta,
-    ProcessorPolicy,
+    ShaftModelAdapter,
 )
 
 
@@ -92,6 +90,7 @@ class SmokeVLMModel(PreTrainedModel, GenerationMixin):
 
     def prepare_inputs_for_generation(self, input_ids: torch.Tensor, **kwargs: Any):
         return {"input_ids": input_ids, **kwargs}
+
 
 @dataclass
 class SmokeTokenizer:
@@ -219,41 +218,41 @@ SMOKE_VLM_META = ModelMeta(
     default_template="smoke_vlm",
     model_groups=default_model_groups("smoke-vlm", "models/smoke-vlm", template="smoke_vlm"),
     capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
-    processor_policy=ProcessorPolicy(supports_pixel_budget=False),
-    peft_policy=DefaultPeftPolicy(target_modules=["all-linear"]),
+    processor_policy=build_processor_policy("no_pixel_budget"),
+    peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
 )
 
 
 @register_model(SMOKE_VLM_META)
 class SmokeVLMLoader(ModelLoader):
-    def build(self, config: RuntimeConfig, *, model_meta: ModelMeta) -> ModelArtifacts:
-        config.model.finetune.target_modules = model_meta.resolve_target_modules(config.model.finetune.target_modules)
+    def build(
+        self,
+        config: RuntimeConfig,
+        *,
+        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
+    ) -> ModelArtifacts:
+        config.model.finetune.target_modules = model_adapter.resolve_target_modules(
+            config.model.finetune.target_modules
+        )
         model = SmokeVLMModel(SmokeVLMConfig())
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)
         model = apply_finetune_strategy(model, config.model.finetune)
         tokenizer = SmokeTokenizer()
         processor = SmokeProcessor(tokenizer=tokenizer)
-        model_info = ModelInfo(
-            model_type=model_meta.model_type,
-            model_dir=str(config.model.model_name_or_path),
+        model_info = model_adapter.build_model_info(
             torch_dtype=config.model.torch_dtype,
             max_model_len=128,
-            is_multimodal=model_meta.capabilities.is_multimodal,
-            family=model_meta.family,
         )
-        template_meta = resolve_template_meta(
-            template_type=config.model.template,
-            model_meta=model_meta,
-            model_info=model_info,
-        )
-        template = build_template_from_meta(template_meta)
+        template = model_adapter.build_template()
         return ModelArtifacts(
             model=model,
             tokenizer=tokenizer,
             processor=processor,
             model_meta=model_meta,
+            model_adapter=model_adapter,
             model_info=model_info,
             template=template,
         )

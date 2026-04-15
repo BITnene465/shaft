@@ -39,8 +39,9 @@ class _FakeProcessor:
 
 
 def test_sft_collator_builds_labels() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     collator = SFTCollator(
-        model_meta=build_model_meta("smoke_vlm"),
+        model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
         processor=_FakeProcessor(),
         tokenizer=_FakeTokenizer(),
@@ -78,8 +79,9 @@ def test_sft_collator_builds_labels() -> None:
 
 
 def test_dpo_collator_builds_pairwise_batches() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     collator = DPOCollator(
-        model_meta=build_model_meta("smoke_vlm"),
+        model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
         processor=_FakeProcessor(),
         tokenizer=_FakeTokenizer(),
@@ -119,8 +121,9 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
 
 
 def test_ppo_collator_builds_query_only_batch() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     collator = PPOCollator(
-        model_meta=build_model_meta("smoke_vlm"),
+        model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
         processor=_FakeProcessor(),
         tokenizer=_FakeTokenizer(),

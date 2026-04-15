@@ -15,7 +15,7 @@ import torch
 from PIL import Image
 
 from shaft.config import RuntimeConfig
-from shaft.model import ModelMeta, build_model_tokenizer_processor
+from shaft.model import ShaftModelAdapter, build_model_tokenizer_processor
 from shaft.template import Template
 
 from .schema import InferGenerationConfig, InferModelConfig
@@ -55,7 +55,7 @@ class HFLocalInferAdapter(InferAdapter):
         model: torch.nn.Module,
         tokenizer: Any,
         processor: Any,
-        model_meta: ModelMeta,
+        model_adapter: ShaftModelAdapter,
         template: Template,
         device: str | None = None,
         min_pixels: int | None = None,
@@ -67,7 +67,7 @@ class HFLocalInferAdapter(InferAdapter):
         self.model = model.to(self.device).eval()
         self.tokenizer = tokenizer
         self.processor = processor
-        self.model_meta = model_meta
+        self.model_adapter = model_adapter
         self.template = template
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
@@ -133,7 +133,7 @@ class HFLocalInferAdapter(InferAdapter):
         min_pixels: int | None,
         max_pixels: int | None,
     ) -> dict[str, torch.Tensor]:
-        batch = self.model_meta.processor_policy.build_inputs(
+        batch = self.model_adapter.build_processor_inputs(
             processor=self.processor,
             prompt_texts=[prompt],
             images=[image],
@@ -389,7 +389,7 @@ class InferEngine:
             model=artifacts.model,
             tokenizer=artifacts.tokenizer,
             processor=artifacts.processor,
-            model_meta=artifacts.model_meta,
+            model_adapter=artifacts.model_adapter,
             template=artifacts.template,
             device=config.device,
             min_pixels=config.min_pixels,

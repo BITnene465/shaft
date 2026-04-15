@@ -4,8 +4,6 @@ from collections.abc import Callable
 
 from shaft.plugins import Registry
 
-from .dataset import SFTRecord
-
 DataSourceFactory = Callable[..., object]
 MixStrategy = Callable[..., list[tuple[str, int]]]
 
@@ -19,4 +17,3 @@ def register_data_source(name: str):
 
 def register_mix_strategy(name: str):
     return MIX_STRATEGY_REGISTRY.register(name)
-

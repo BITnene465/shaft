@@ -1,4 +1,5 @@
 from .collator import DPOCollator, PPOCollator, SFTCollator
+from .center import ShaftDataCenter, ShaftPreparedRecords
 from .dataset import DPODataset, DPORecord, PPODataset, PPORecord, SFTDataset, SFTRecord
 from .mixing import MixedDatasetBuilder
 from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
@@ -33,6 +34,8 @@ __all__ = [
     "build_data_source",
     "DATA_SOURCE_REGISTRY",
     "MIX_STRATEGY_REGISTRY",
+    "ShaftDataCenter",
+    "ShaftPreparedRecords",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",
     "load_jsonl_records",

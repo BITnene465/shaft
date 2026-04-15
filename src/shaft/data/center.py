@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar
+
+from shaft.config import DataConfig
+
+from .mixing import MixedDatasetBuilder
+from .sources import build_data_source
+from .transforms import build_offline_pipeline, build_online_pipeline
+
+RecordT = TypeVar("RecordT")
+DatasetT = TypeVar("DatasetT")
+OnlineSampleTransform = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+@dataclass
+class ShaftPreparedRecords(Generic[RecordT]):
+    train_records: list[RecordT]
+    val_records: list[RecordT]
+    online_transforms: list[OnlineSampleTransform]
+
+    def build_dataset_pair(self, dataset_cls: type[DatasetT]) -> tuple[DatasetT, DatasetT]:
+        return (
+            dataset_cls(self.train_records, online_transforms=self.online_transforms),
+            dataset_cls(self.val_records, online_transforms=self.online_transforms),
+        )
+
+
+class ShaftDataCenter:
+    def __init__(self, data_config: DataConfig, *, seed: int = 42) -> None:
+        self.data_config = data_config
+        self.seed = int(seed)
+
+    def prepare_records(self) -> ShaftPreparedRecords[Any]:
+        records_by_dataset_train: dict[str, list[Any]] = {}
+        records_by_dataset_val: dict[str, list[Any]] = {}
+        weights: dict[str, float] = {}
+        dataset_online_pipelines: dict[str, OnlineSampleTransform] = {}
+
+        for source in self.data_config.datasets:
+            if not source.enabled:
+                continue
+            weights[source.name] = float(source.weight)
+            source_impl = build_data_source(source)
+            offline_pipeline = build_offline_pipeline(source.offline_transforms)
+            records_by_dataset_train[source.name] = offline_pipeline(source_impl.load_split("train"))
+            records_by_dataset_val[source.name] = offline_pipeline(source_impl.load_split("val"))
+            dataset_online_pipelines[source.name] = build_online_pipeline(source.online_transforms)
+
+        mixer = MixedDatasetBuilder(seed=self.seed)
+        mixed_indices = mixer.build_indices(
+            records_by_dataset_train,
+            weights,
+            strategy=self.data_config.mix_strategy,
+            shuffle=self.data_config.shuffle,
+        )
+        train_records = [
+            records_by_dataset_train[dataset_id][row_index]
+            for dataset_id, row_index in mixed_indices
+        ]
+        val_records: list[Any] = []
+        for dataset_id in sorted(records_by_dataset_val):
+            val_records.extend(records_by_dataset_val[dataset_id])
+        return ShaftPreparedRecords(
+            train_records=train_records,
+            val_records=val_records,
+            online_transforms=[self._build_dataset_aware_online_transform(dataset_online_pipelines)],
+        )
+
+    def build_dataset_pair(self, dataset_cls: type[DatasetT]) -> tuple[DatasetT, DatasetT]:
+        return self.prepare_records().build_dataset_pair(dataset_cls)
+
+    @staticmethod
+    def _build_dataset_aware_online_transform(
+        dataset_online_pipelines: dict[str, OnlineSampleTransform],
+    ) -> OnlineSampleTransform:
+        def _dataset_aware_online_transform(sample: dict[str, Any]) -> dict[str, Any]:
+            dataset_id = str(sample.get("dataset_id", "default"))
+            pipeline = dataset_online_pipelines.get(dataset_id)
+            if pipeline is None:
+                return sample
+            return pipeline(sample)
+
+        return _dataset_aware_online_transform
