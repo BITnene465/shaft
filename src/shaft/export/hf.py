@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from peft import PeftConfig, PeftModel
+
+from shaft.config import RuntimeConfig
+from shaft.model import build_model_meta, build_model_tokenizer_processor
+from shaft.training.checkpointing import (
+    CheckpointLayout,
+    ensure_hf_export_layout,
+    inspect_checkpoint_layout,
+)
+
+
+@dataclass(frozen=True)
+class ExportMergeResult:
+    output_dir: Path
+    base_model_path: str
+    adapter_path: Path
+    layout: CheckpointLayout
+
+
+def inspect_hf_artifact(path: str | Path) -> CheckpointLayout:
+    return inspect_checkpoint_layout(path)
+
+
+def infer_base_model_from_adapter(adapter_path: str | Path) -> str | None:
+    config = PeftConfig.from_pretrained(str(adapter_path))
+    value = getattr(config, "base_model_name_or_path", None)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _build_export_runtime_config(
+    *,
+    model_type: str,
+    model_name_or_path: str,
+    template: str | None,
+    trust_remote_code: bool,
+    torch_dtype: str,
+) -> RuntimeConfig:
+    config = RuntimeConfig()
+    config.model.model_type = str(model_type).strip().lower()
+    config.model.model_name_or_path = str(model_name_or_path)
+    config.model.template = template
+    config.model.trust_remote_code = bool(trust_remote_code)
+    config.model.torch_dtype = str(torch_dtype)
+    config.model.finetune.mode = "full"
+    return config
+
+
+def _resolve_model_export_meta(
+    *,
+    model_type: str | None,
+    model_name_or_path: str | None,
+    template: str | None,
+):
+    if model_type is None:
+        return None
+    model_meta = build_model_meta(str(model_type).strip().lower())
+    if model_name_or_path is None:
+        return model_meta
+    return model_meta.resolve_adapter(
+        model_name_or_path=str(model_name_or_path),
+        template_type=template,
+    )
+
+
+def validate_hf_artifact(
+    path: str | Path,
+    *,
+    finetune_mode: str,
+    model_type: str | None = None,
+    model_name_or_path: str | None = None,
+    template: str | None = None,
+) -> CheckpointLayout:
+    model_meta = _resolve_model_export_meta(
+        model_type=model_type,
+        model_name_or_path=model_name_or_path,
+        template=template,
+    )
+    ensure_hf_export_layout(path, finetune_mode=finetune_mode, model_meta=model_meta)
+    return inspect_hf_artifact(path)
+
+
+def _save_processing_assets(*, output_dir: Path, processor, tokenizer) -> None:
+    if processor is not None and hasattr(processor, "save_pretrained"):
+        processor.save_pretrained(output_dir)
+        return
+    if tokenizer is not None and hasattr(tokenizer, "save_pretrained"):
+        tokenizer.save_pretrained(output_dir)
+
+
+def merge_peft_adapter(
+    *,
+    model_type: str,
+    adapter_path: str | Path,
+    output_dir: str | Path,
+    base_model_path: str | None = None,
+    template: str | None = None,
+    trust_remote_code: bool = True,
+    torch_dtype: str = "bfloat16",
+    safe_serialization: bool = True,
+    max_shard_size: str = "5GB",
+) -> ExportMergeResult:
+    adapter_dir = Path(adapter_path)
+    ensure_hf_export_layout(adapter_dir, finetune_mode="lora")
+    resolved_base_model = base_model_path or infer_base_model_from_adapter(adapter_dir)
+    if resolved_base_model is None:
+        raise ValueError(
+            "Unable to infer base model from adapter_config.json. Please provide --base-model."
+        )
+
+    target_dir = Path(output_dir)
+    if target_dir.exists():
+        if not target_dir.is_dir():
+            raise ValueError(f"Output path exists and is not a directory: {target_dir}")
+        if any(target_dir.iterdir()):
+            raise ValueError(f"Output directory must be empty: {target_dir}")
+    else:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    config = _build_export_runtime_config(
+        model_type=model_type,
+        model_name_or_path=resolved_base_model,
+        template=template,
+        trust_remote_code=trust_remote_code,
+        torch_dtype=torch_dtype,
+    )
+    artifacts = build_model_tokenizer_processor(config)
+    merged_model = PeftModel.from_pretrained(
+        artifacts.model,
+        str(adapter_dir),
+        is_trainable=False,
+    ).merge_and_unload()
+    merged_model.save_pretrained(
+        target_dir,
+        safe_serialization=bool(safe_serialization),
+        max_shard_size=max_shard_size,
+    )
+    _save_processing_assets(
+        output_dir=target_dir,
+        processor=artifacts.processor,
+        tokenizer=artifacts.tokenizer,
+    )
+    ensure_hf_export_layout(
+        target_dir,
+        finetune_mode="full",
+        model_meta=artifacts.model_adapter,
+    )
+    return ExportMergeResult(
+        output_dir=target_dir,
+        base_model_path=str(resolved_base_model),
+        adapter_path=adapter_dir,
+        layout=inspect_hf_artifact(target_dir),
+    )

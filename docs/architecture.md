@@ -85,13 +85,23 @@
   - `LOSS_REGISTRY` / `OPTIMIZER_REGISTRY` / `SCHEDULER_REGISTRY`
   - checkpoint 校验：`ensure_hf_export_layout`、`validate_resume_checkpoint`
 
-### 1.8 `plugins`
+### 1.8 `export`
+- 位置：`src/shaft/export`
+- 作用：HF/PEFT 标准目录检查与 adapter merge 工具。
+- 关键点：
+  - 只接受 HF/PEFT 标准目录，不引入自定义中间格式。
+  - `inspect`：判断目录是 `full` / `adapter` / `trainer_state_only` / `unknown`
+  - `validate`：校验目录是否满足当前 `finetune_mode` 约束
+  - `merge-peft`：将 adapter 合并为标准 HF full export
+  - “发布/上传”当前不在工具链主线范围内
+
+### 1.9 `plugins`
 - 位置：`src/shaft/plugins`
 - 作用：hook/interceptor/proxy 横切机制。
 - 关键点：
   - 插件只做横切增强（日志、监控、拦截），不替代主业务流程。
 
-### 1.9 `infer`
+### 1.10 `infer`
 - 位置：`src/shaft/infer`
 - 作用：推理引擎与多阶段推理 pipeline。
 - 关键点：
@@ -99,12 +109,13 @@
   - `InferEngine` 使用 adapter 抽象（当前已实现 `hf_local` 与 `vllm_openai`）。
   - pipeline 支持 stage 级 codec/retry/fail_fast，并输出 `__trace__` 便于后端排障。
 
-### 1.10 `cli`
+### 1.11 `cli`
 - 位置：`src/shaft/cli`
 - 作用：训练命令入口和参数覆写。
 - 命令：
   - `scripts/train.py sft --config ...`
   - `scripts/train.py rlhf --config ... --algorithm dpo|ppo`
+  - `scripts/export.py inspect|validate|merge-peft ...`
 
 ## 2. 关键边界（必须遵守）
 

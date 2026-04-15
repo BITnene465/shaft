@@ -42,6 +42,29 @@ python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml --algorith
 python scripts/train.py rlhf --config configs/train/train_ppo_4b.yaml --algorithm ppo
 ```
 
+HF 导出/合并工具入口在 `scripts/export.py`：
+
+```bash
+# 查看目录类型（full / adapter / trainer_state_only / unknown）
+python scripts/export.py inspect --path /path/to/checkpoint
+
+# 校验当前目录是否符合 HF/PEFT 标准导出
+python scripts/export.py validate --path /path/to/export --finetune-mode full --model-type qwen3vl
+
+# 将 adapter 合并为标准 HF full export
+python scripts/export.py merge-peft \
+  --model-type qwen3vl \
+  --adapter-path /path/to/adapter \
+  --base-model /path/to/base_model \
+  --output-dir /path/to/merged_model
+```
+
+说明：
+
+- `full` 训练输出本身已经是 HF 标准目录，不需要额外“再导出一份”。
+- `lora/dora/qlora` 训练输出本身已经是 PEFT adapter 目录。
+- `merge-peft` 只负责把 adapter 合并成可部署的 HF full export，不生成自定义 metadata 或中间格式。
+
 训练配置支持命名数据集注册中心：
 
 ```yaml
@@ -88,6 +111,7 @@ plugins:
 - `src/shaft/pipeline`：训练流水线（`shaft_train`/`shaft_rlhf` 分流装配）。
 - `src/shaft/infer`：`InferEngine` 与 `InferPipeline`，支持单/多模型的多阶段推理编排。
 - `src/shaft/plugins`：注册表与 Hook 拦截机制。
+- `src/shaft/export`：HF 导出目录校验与 PEFT merge 工具。
 
 ## 说明
 

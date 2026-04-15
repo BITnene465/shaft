@@ -100,9 +100,23 @@
   - full <-> full
   - lora/dora/qlora <-> adapter
 
-### 4.2 新功能接入时
+### 4.2 当前工具链
+
+- 工具入口：`scripts/export.py`
+- 当前子命令：
+  - `inspect`
+  - `validate`
+  - `merge-peft`
+- 设计约束：
+  - 只处理 HF/PEFT 标准目录
+  - `full` 输出不再重复复制一份
+  - adapter merge 后输出仍为标准 HF full export
+  - 不生成自定义 metadata 目录，不引入额外中间格式
+
+### 4.3 新功能接入时
 - 先补测试矩阵，再改实现：
   - `tests/test_checkpointing.py`
+  - `tests/test_export_tools.py`
   - 必要时新增 `tests/test_<algo>_checkpointing.py`
 
 ## 5. 命令行扩展规则

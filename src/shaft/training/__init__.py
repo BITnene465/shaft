@@ -8,7 +8,7 @@ from .distributed import barrier_if_distributed, get_rank, get_world_size, is_di
 from .loss import LOSS_REGISTRY, build_loss, register_loss
 from .muon import Muon
 from .optimizer import OPTIMIZER_REGISTRY, build_optimizer, register_optimizer
-from .progress import ShaftProgressCallback
+from .progress_callback import ShaftProgressCallback
 from .rlhf import ShaftDPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .trainer import ShaftSFTTrainer
