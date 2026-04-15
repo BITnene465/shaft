@@ -11,6 +11,7 @@ _PPO_VALUE_MODEL_MODES = {"shared_backbone", "copy_backbone"}
 _PPO_REWARD_MODEL_MODES = {"adapter_disabled_policy", "copy_backbone"}
 _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
+_ONLINE_EVAL_NORMALIZERS = {"identity", "range"}
 
 
 def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
@@ -100,6 +101,97 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         eval_cfg.eval_strategy = str(eval_cfg.eval_strategy).strip().lower()
     if eval_cfg.eval_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported eval.eval_strategy={eval_cfg.eval_strategy!r}.")
+    if int(eval_cfg.max_new_tokens) <= 0:
+        raise ValueError("eval.max_new_tokens must be > 0.")
+    eval_cfg.metric_for_best_model = str(eval_cfg.metric_for_best_model).strip()
+    if not eval_cfg.metric_for_best_model:
+        raise ValueError("eval.metric_for_best_model cannot be empty.")
+    eval_cfg.online_metrics_enabled = bool(eval_cfg.online_metrics_enabled)
+    normalized_policies: dict[str, object] = {}
+    for dataset_name, policy in config.eval.datasets.items():
+        normalized_name = str(dataset_name).strip()
+        if not normalized_name:
+            raise ValueError("eval.datasets contains an empty dataset key.")
+        policy.prediction_codec = str(policy.prediction_codec).strip().lower()
+        if not policy.prediction_codec:
+            raise ValueError(f"eval.datasets.{normalized_name}.prediction_codec cannot be empty.")
+        policy.target_adapter = str(policy.target_adapter).strip().lower()
+        if not policy.target_adapter:
+            raise ValueError(f"eval.datasets.{normalized_name}.target_adapter cannot be empty.")
+        if not isinstance(policy.target_adapter_params, dict):
+            raise ValueError(f"eval.datasets.{normalized_name}.target_adapter_params must be a mapping.")
+        normalized_metrics: list[object] = []
+        seen_metric_names: set[str] = set()
+        for metric in policy.metrics:
+            metric.name = str(metric.name).strip().lower()
+            if not metric.name:
+                raise ValueError(f"eval.datasets.{normalized_name}.metrics[*].name cannot be empty.")
+            if metric.name in seen_metric_names:
+                raise ValueError(
+                    f"eval.datasets.{normalized_name}.metrics contains duplicate metric {metric.name!r}."
+                )
+            if not isinstance(metric.params, dict):
+                raise ValueError(
+                    f"eval.datasets.{normalized_name}.metrics[{metric.name}].params must be a mapping."
+                )
+            seen_metric_names.add(metric.name)
+            normalized_metrics.append(metric)
+        policy.metrics = normalized_metrics
+        policy.primary_metric = str(policy.primary_metric).strip().lower()
+        if policy.primary_metric and policy.primary_metric not in seen_metric_names:
+            raise ValueError(
+                f"eval.datasets.{normalized_name}.primary_metric={policy.primary_metric!r} "
+                "must appear in metrics."
+            )
+        policy.normalizer.type = str(policy.normalizer.type).strip().lower()
+        if policy.normalizer.type not in _ONLINE_EVAL_NORMALIZERS:
+            raise ValueError(
+                f"Unsupported eval.datasets.{normalized_name}.normalizer.type={policy.normalizer.type!r}."
+            )
+        if policy.normalizer.type == "range":
+            if policy.normalizer.min_value is None or policy.normalizer.max_value is None:
+                raise ValueError(
+                    f"eval.datasets.{normalized_name}.normalizer range requires min_value and max_value."
+                )
+            if float(policy.normalizer.max_value) <= float(policy.normalizer.min_value):
+                raise ValueError(
+                    f"eval.datasets.{normalized_name}.normalizer.max_value must be > min_value."
+                )
+        if float(policy.weight) <= 0:
+            raise ValueError(f"eval.datasets.{normalized_name}.weight must be > 0.")
+        normalized_policies[normalized_name] = policy
+    eval_cfg.datasets = normalized_policies
+    if eval_cfg.online_metrics_enabled:
+        if not eval_cfg.enabled:
+            raise ValueError("eval.online_metrics_enabled requires eval.enabled=true.")
+        if config.algorithm.name != "sft":
+            raise ValueError("eval.online_metrics_enabled is currently only supported for algorithm.name='sft'.")
+        if eval_cfg.do_sample:
+            raise ValueError("eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false.")
+        if not eval_cfg.datasets:
+            raise ValueError("eval.online_metrics_enabled requires eval.datasets to be configured.")
+        configured_dataset_names = {
+            dataset.dataset_name
+            for dataset in config.data.datasets
+            if dataset.enabled
+        }
+        missing_policies = sorted(configured_dataset_names - set(eval_cfg.datasets.keys()))
+        if missing_policies:
+            raise ValueError(
+                f"eval.online_metrics_enabled is missing online eval policies for datasets: {missing_policies}."
+            )
+        unknown_policies = sorted(set(eval_cfg.datasets.keys()) - configured_dataset_names)
+        if unknown_policies:
+            raise ValueError(
+                f"eval.datasets contains unknown dataset policies: {unknown_policies}."
+            )
+        for dataset_name, policy in eval_cfg.datasets.items():
+            if not policy.metrics:
+                raise ValueError(f"eval.datasets.{dataset_name}.metrics cannot be empty.")
+            if not policy.primary_metric:
+                raise ValueError(f"eval.datasets.{dataset_name}.primary_metric cannot be empty.")
+        eval_cfg.metric_for_best_model = "eval_final_score"
+        eval_cfg.greater_is_better = True
 
     dpo_cfg = config.rlhf.dpo
     dpo_cfg.loss_type = str(dpo_cfg.loss_type).strip().lower()

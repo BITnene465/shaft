@@ -20,6 +20,7 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training import ShaftProgressCallback
+from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     resolve_resume_checkpoint,
@@ -83,6 +84,21 @@ class ShaftSFTPipeline:
             add_eos_token=config.data.add_eos_token,
             include_targets_in_inputs=True,
         )
+        online_eval_runner = None
+        if config.eval.enabled and config.eval.online_metrics_enabled:
+            online_eval_runner = ShaftOnlineEvalRunner(
+                eval_config=config.eval,
+                prompt_collator=SFTCollator(
+                    model_adapter=artifacts.model_adapter,
+                    template=artifacts.template,
+                    processor=artifacts.processor,
+                    tokenizer=artifacts.tokenizer,
+                    min_pixels=config.data.min_pixels,
+                    max_pixels=config.data.max_pixels,
+                    add_eos_token=config.data.add_eos_token,
+                    include_targets_in_inputs=False,
+                ),
+            )
         algorithm_cls = ALGORITHM_REGISTRY.get(algorithm_name)
         algorithm = algorithm_cls()
         trainer = algorithm.build_trainer(
@@ -95,6 +111,7 @@ class ShaftSFTPipeline:
             processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,
+            online_eval_runner=online_eval_runner,
         )
 
         resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)

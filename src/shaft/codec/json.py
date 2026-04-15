@@ -4,13 +4,8 @@ import json
 import re
 from typing import Any
 
-from shaft.plugins import Registry
-
-CODEC_REGISTRY: Registry = Registry("infer_codec")
-
-
-def register_codec(name: str):
-    return CODEC_REGISTRY.register(name)
+from .base import ShaftCodecResult
+from .registry import register_codec
 
 
 def _strip_code_fence(text: str) -> str:
@@ -68,7 +63,6 @@ def _close_open_structures(fragment: str) -> str:
             if stack and ((stack[-1] == "{" and ch == "}") or (stack[-1] == "[" and ch == "]")):
                 stack.pop()
                 out.append(ch)
-            # Unmatched closing bracket is ignored during salvage.
             continue
         out.append(ch)
 
@@ -140,63 +134,106 @@ def _normalize_json_value(value: Any) -> Any:
     return value
 
 
-def _decode_json_lenient(raw_text: str) -> Any:
+def _decode_json_lenient(raw_text: str) -> ShaftCodecResult:
     primary = _extract_primary_json_fragment(raw_text)
-    attempts: list[str] = []
+    attempts: list[tuple[str, bool]] = []
 
-    def _push(candidate: str) -> None:
+    def _push(candidate: str, *, partial: bool) -> None:
         text = str(candidate).strip()
-        if text and text not in attempts:
-            attempts.append(text)
+        if text and all(existing != text for existing, _ in attempts):
+            attempts.append((text, partial))
 
-    _push(primary)
-    _push(_close_open_structures(primary))
+    if not primary:
+        return ShaftCodecResult(
+            raw_text=str(raw_text),
+            parsed=None,
+            valid=False,
+            partial=False,
+            error_type="json_decode_error",
+            error="Empty text cannot be parsed as JSON.",
+        )
+
+    _push(primary, partial=False)
+    _push(_close_open_structures(primary), partial=True)
     safe_prefix = _extract_safe_prefix(primary)
-    _push(safe_prefix)
-    _push(_close_open_structures(safe_prefix))
+    _push(safe_prefix, partial=True)
+    _push(_close_open_structures(safe_prefix), partial=True)
     if primary.startswith("{"):
-        _push("{}")
+        _push("{}", partial=True)
     if primary.startswith("["):
-        _push("[]")
+        _push("[]", partial=True)
 
     last_error: Exception | None = None
-    for candidate in attempts:
+    for candidate, partial in attempts:
         try:
             parsed = _try_loads_or_raw_decode(candidate)
-            return _normalize_json_value(parsed)
+            return ShaftCodecResult(
+                raw_text=str(raw_text),
+                parsed=_normalize_json_value(parsed),
+                valid=True,
+                partial=partial,
+                error_type=None,
+                error=None,
+            )
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             continue
-    raise ValueError(f"Failed to decode JSON from model output. last_error={last_error}")
+    return ShaftCodecResult(
+        raw_text=str(raw_text),
+        parsed=None,
+        valid=False,
+        partial=False,
+        error_type="json_decode_error",
+        error=f"Failed to decode JSON from model output. last_error={last_error}",
+    )
 
 
 @register_codec("text")
-def codec_text(raw_text: str) -> str:
-    return str(raw_text)
+def codec_text(raw_text: str) -> ShaftCodecResult:
+    return ShaftCodecResult(
+        raw_text=str(raw_text),
+        parsed=str(raw_text).strip(),
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
 
 
 @register_codec("json_any")
-def codec_json_any(raw_text: str) -> Any:
+def codec_json_any(raw_text: str) -> ShaftCodecResult:
     return _decode_json_lenient(raw_text)
 
 
 @register_codec("json_object")
-def codec_json_object(raw_text: str) -> dict[str, Any]:
-    parsed = codec_json_any(raw_text)
-    if not isinstance(parsed, dict):
-        raise TypeError(f"codec=json_object expects JSON object, got {type(parsed).__name__}.")
-    return parsed
+def codec_json_object(raw_text: str) -> ShaftCodecResult:
+    decoded = codec_json_any(raw_text)
+    if not decoded.valid:
+        return decoded
+    if not isinstance(decoded.parsed, dict):
+        return ShaftCodecResult(
+            raw_text=decoded.raw_text,
+            parsed=None,
+            valid=False,
+            partial=decoded.partial,
+            error_type="json_type_error",
+            error=f"codec=json_object expects JSON object, got {type(decoded.parsed).__name__}.",
+        )
+    return decoded
 
 
 @register_codec("json_list")
-def codec_json_list(raw_text: str) -> list[Any]:
-    parsed = codec_json_any(raw_text)
-    if not isinstance(parsed, list):
-        raise TypeError(f"codec=json_list expects JSON list, got {type(parsed).__name__}.")
-    return parsed
-
-
-def decode_with_codec(codec: str, raw_text: str) -> Any:
-    codec_name = str(codec).strip().lower()
-    decoder = CODEC_REGISTRY.get(codec_name)
-    return decoder(raw_text)
+def codec_json_list(raw_text: str) -> ShaftCodecResult:
+    decoded = codec_json_any(raw_text)
+    if not decoded.valid:
+        return decoded
+    if not isinstance(decoded.parsed, list):
+        return ShaftCodecResult(
+            raw_text=decoded.raw_text,
+            parsed=None,
+            valid=False,
+            partial=decoded.partial,
+            error_type="json_type_error",
+            error=f"codec=json_list expects JSON list, got {type(decoded.parsed).__name__}.",
+        )
+    return decoded

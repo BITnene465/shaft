@@ -212,6 +212,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
+                "extra": [dict(item.get("extra", {})) for item in batch],
             },
         }
         if mm_rows is not None:

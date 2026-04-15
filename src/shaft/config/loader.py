@@ -68,7 +68,17 @@ def _build_dataclass(cls: type[T], payload: dict[str, Any], *, path: str = "") -
         elif _is_dict(ann):
             if not isinstance(value, dict):
                 raise TypeError(f"Expected dict at {subpath}.")
-            kwargs[name] = value
+            key_type, item_type = get_args(ann)
+            if key_type is not str:
+                raise TypeError(f"Only str-key dict is supported at {subpath}.")
+            item_type = _unwrap_optional(item_type)
+            if is_dataclass(item_type):
+                kwargs[name] = {
+                    str(k): _build_dataclass(item_type, v, path=f"{subpath}.{k}")
+                    for k, v in value.items()
+                }
+            else:
+                kwargs[name] = value
         else:
             kwargs[name] = value
     return cls(**kwargs)

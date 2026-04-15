@@ -191,13 +191,92 @@
 - `do_sample`
 - `temperature`
 - `max_new_tokens`
+- `online_metrics_enabled`
+- `datasets`
 - `metric_for_best_model`
 - `greater_is_better`
 
 说明：
 
-- 当前训练链仍以 `eval_loss` 为主监控指标。
-- 结构化任务评估子系统尚未完成。
+- 当前训练链仍保留 `eval_loss` 作为基础监控指标。
+- 当 `online_metrics_enabled=true` 时，SFT 训练会额外挂接单阶段在线 task metric。
+
+### 7.1 在线 eval 配置
+
+当前版本已支持单阶段在线 eval，目标是：
+
+- 单阶段在线 eval
+- 多数据集
+- 多任务
+- 每个数据集只绑定一个 task
+- 通过一个 `eval_final_score` 做 best model 选择
+
+当前 dataset 级 eval policy 包含：
+
+- `prediction_codec`
+- `target_adapter`
+- `metrics`
+- `primary_metric`
+- `normalizer`
+- `weight`
+
+关键约束：
+
+1. 一个 `dataset_name` 只能绑定一个 eval policy
+2. 每个 dataset 只能有一个 `primary_metric`
+3. 每个 dataset 的 `primary_metric` 必须归一化到 `[0, 1]`
+4. `eval_final_score` 由各 dataset 的 normalized primary score 按权重加权求和得到
+
+示意配置如下：
+
+```yaml
+eval:
+  enabled: true
+  eval_strategy: epoch
+  metric_for_best_model: eval_final_score
+  greater_is_better: true
+  online_metrics_enabled: true
+  datasets:
+    det_dataset:
+      prediction_codec: det_json
+      target_adapter: det_annotation
+      metrics:
+        - name: parse_success
+        - name: det_f1
+          params:
+            iou_threshold: 0.5
+      primary_metric: det_f1
+      normalizer:
+        type: identity
+      weight: 0.6
+
+    keypoint_dataset:
+      prediction_codec: keypoint_json
+      target_adapter: keypoint_annotation
+      metrics:
+        - name: parse_success
+        - name: keypoint_pck
+          params:
+            threshold: 0.1
+      primary_metric: keypoint_pck
+      normalizer:
+        type: identity
+      weight: 0.4
+```
+
+说明：
+
+- 这部分当前已经可用，但实现边界仍限定在单阶段在线 eval。
+- 当前内置 metric 只有 `parse_success` 与 `exact_match`，结构化任务指标需要按扩展指南新增。
+- 当前内置 target adapter 只有 `target_text` 与 `extra_field`。
+- 当前 `normalizer.type` 只支持 `identity` 与 `range`。
+- 启用在线 eval 时，框架会强制使用贪心评估，并把 `metric_for_best_model` 收敛到 `eval_final_score`。
+- 若希望配置语义更直观，仍建议在 YAML 中显式写出 `metric_for_best_model: eval_final_score` 和 `greater_is_better: true`。
+- codec 已经作为共享层供 `infer` 和在线 eval 共用。
+
+详细设计见：
+
+- [docs/online_eval_design.md](online_eval_design.md)
 
 ## 8. `rlhf`
 

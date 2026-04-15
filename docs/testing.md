@@ -85,7 +85,9 @@ pytest -q -m manual
 | `model` | model registry / template registry / builder |
 | `pipeline` | SFT / RLHF pipeline smoke |
 | `training` | optimizer / scheduler / loss / checkpointing |
-| `infer` | loader / pipeline / codec / CLI |
+| `codec` | shared codec / JSON repair / partial parse |
+| `metrics` | online eval metric registry / aggregator |
+| `infer` | loader / pipeline / CLI |
 | `export` | inspect / validate / merge-peft |
 | `cli` | 命令解析与 override |
 
@@ -121,6 +123,13 @@ pytest -q -m manual
 - `tests/test_infer_pipeline.py`
 - `tests/test_infer_cli.py`
 - 若涉及真实模型或后端，再补 integration/manual
+
+### 新增共享 codec 或在线 eval 能力
+
+- `tests/test_codec.py`
+- `tests/test_online_eval.py`
+- `tests/test_config_loader.py`
+- 如改动 SFT 装配链，再跑 `tests/test_pipeline_sft.py` 与 `tests/test_training_modules.py`
 
 ### 新增导出能力
 

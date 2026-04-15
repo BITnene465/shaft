@@ -115,25 +115,88 @@
 - 后端实现必须接受统一的 `ShaftInferRequest`
 - 返回统一的 `ShaftInferResponse`
 - stage 编排逻辑仍放在 `ShaftInferPipeline`
+- 推理后端不得私有维护一套独立 codec；统一复用共享 codec 层
 
 禁止：
 
 - 后端实现直接依赖某个具体业务脚本
 - 在 engine 中写 stage 级上下文规则
 
-## 7. 新增 codec
+## 7. 新增 codec（共享层）
 
 ### 7.1 必改位置
 
-- `src/shaft/infer/codec.py`
+- `src/shaft/codec/registry.py`
+- `src/shaft/codec/base.py`
+- `src/shaft/codec/<name>.py`
 
 ### 7.2 原则
 
 - codec 只做文本到结构化结果的变换
-- codec 应允许失败并给出可排障的错误
+- codec 应允许失败，并给出可排障的错误
+- codec 应支持尽量修复和提取“合理部分”，尤其是 JSON 类输出
 - codec 不负责训练数据格式
+- codec 不负责指标计算
+- codec 不负责业务编排
 
-## 8. 新增优化器 / scheduler / loss
+建议输出统一结构，而不是直接返回裸对象：
+
+```python
+ShaftCodecResult(
+    raw_text=...,
+    parsed=...,
+    valid=True,
+    partial=False,
+    error_type=None,
+    error=None,
+)
+```
+
+说明：
+
+- `infer` 使用 codec 做推理后处理
+- 在线 eval 复用同一套 codec
+- 不允许在 `infer` 和 `eval` 各维护一套 JSON 修复/解析逻辑
+
+## 8. 新增在线 eval metric
+
+### 8.1 设计前提
+
+- 只考虑单阶段在线 eval
+- 支持多数据集、多任务
+- 每个数据集只绑定一个 task
+
+### 8.2 必改位置
+
+- `src/shaft/metrics/registry.py`
+- `src/shaft/metrics/base.py`
+- `src/shaft/metrics/builtin.py`
+- `src/shaft/training/online_eval.py`
+- `src/shaft/config/training.py`（`EvalConfig` / `EvalDatasetPolicyConfig`）
+
+### 8.3 关键点
+
+- 在线 eval 不直接耦合 `infer pipeline`
+- 按 `dataset_name` 路由到 dataset eval policy
+- target 侧统一走 `target_adapter`，不要把 GT 强行序列化回文本再解析
+- 每个 dataset 必须声明：
+  - `prediction_codec`
+  - `target_adapter`
+  - `metrics`
+  - `primary_metric`
+  - `normalizer`
+  - `weight`
+- 最终只输出一个 `eval_final_score` 作为 best model 选择依据
+
+### 8.4 不要做的事
+
+- 不要把多阶段业务编排塞进 trainer
+- 不要让 metric 直接处理原始模型输出字符串
+- 不要在进度条中实时刷 per-dataset task metrics
+- 不要让所有指标直接参与 `final_score`，只允许使用 `primary_metric`
+- 不要在启用在线 eval 时使用采样式评估；best-model 选择必须保持确定性
+
+## 9. 新增优化器 / scheduler / loss
 
 ### 8.1 必改位置
 
@@ -147,7 +210,7 @@
 - 配置入口统一在 `TrainConfig`
 - 不要在 pipeline 中硬编码新分支
 
-## 9. 新增导出能力
+## 10. 新增导出能力
 
 ### 9.1 必改位置
 
@@ -160,7 +223,7 @@
 - 不要引入自定义 metadata 目录
 - 不要把发布逻辑塞进导出模块
 
-## 10. 扩展时必须同步的文档
+## 11. 扩展时必须同步的文档
 
 至少更新以下之一：
 
@@ -168,6 +231,7 @@
 - `docs/module_reference.md`
 - `docs/config_reference.md`
 - `docs/extension_guide.md`
+- `docs/online_eval_design.md`
 - `docs/project_skill.md`
 
 如果新增的是用户会直接调用的能力，还要同步：
@@ -175,7 +239,7 @@
 - `README.md`
 - `docs/README.md`
 
-## 11. 必跑测试
+## 12. 必跑测试
 
 ### 新模型族
 
@@ -200,6 +264,12 @@
 - `tests/test_infer_loader.py`
 - `tests/test_infer_pipeline.py`
 - `tests/test_infer_cli.py`
+
+### 新在线 eval metric / codec 共享层
+
+- `tests/test_codec.py`
+- `tests/test_online_eval.py`
+- `tests/test_pipeline_sft.py`
 
 ### 新导出能力
 

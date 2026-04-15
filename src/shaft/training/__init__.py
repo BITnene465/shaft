@@ -8,6 +8,7 @@ from .distributed import barrier_if_distributed, get_rank, get_world_size, is_di
 from .loss import LOSS_REGISTRY, build_loss, register_loss
 from .muon import Muon
 from .optimizer import OPTIMIZER_REGISTRY, build_optimizer, register_optimizer
+from .online_eval import ShaftOnlineEvalRunner
 from .progress_callback import ShaftProgressCallback
 from .trl_trainers import ShaftDPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
@@ -18,6 +19,7 @@ __all__ = [
     "OPTIMIZER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "Muon",
+    "ShaftOnlineEvalRunner",
     "ShaftProgressCallback",
     "ShaftDPOTrainer",
     "ShaftPPOTrainer",

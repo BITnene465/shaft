@@ -6,7 +6,7 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 
-from .codec import CODEC_REGISTRY
+from shaft.codec import CODEC_REGISTRY
 from .schema import InferPipelineConfig
 
 T = TypeVar("T")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import time
 from typing import Any
 
-from .codec import decode_with_codec
+from shaft.codec import decode_with_codec
 from .engine import ShaftInferEngine, ShaftInferRequest
 from .schema import InferPipelineConfig, InferStageConfig
 
@@ -116,7 +116,9 @@ class ShaftInferPipeline:
                     raise TimeoutError(
                         f"Stage {stage.name!r} timeout: {elapsed_seconds:.3f}s > {timeout_seconds:.3f}s"
                     )
-                parsed = decode_with_codec(codec_name, response.text)
+                decoded = decode_with_codec(codec_name, response.text)
+                if not decoded.valid:
+                    raise ValueError(decoded.error or f"codec={codec_name!r} failed to decode model output.")
                 elapsed_ms = elapsed_seconds * 1000.0
                 attempts.append(
                     ShaftInferStageAttempt(
@@ -129,7 +131,7 @@ class ShaftInferPipeline:
                 )
                 latest_output_text = response.text
                 latest_prompt = response.prompt
-                latest_parsed = parsed
+                latest_parsed = decoded.parsed
                 return ShaftInferStageResult(
                     stage=stage.name,
                     engine=stage.engine,

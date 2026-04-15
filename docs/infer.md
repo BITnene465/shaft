@@ -2,6 +2,12 @@
 
 本文档描述 `src/shaft/infer` 的职责、关键接口和扩展边界。
 
+说明：
+
+- codec 已抽成共享层，供 `infer` 与在线 eval 共用。
+- 共享 codec 的唯一公开入口是 `shaft.codec`，不再通过 `shaft.infer` 重新导出。
+- 因此本文档中的 codec 边界应理解为“共享 decode 能力”，而不是 `infer` 私有能力。
+
 ## 1. 目标
 
 - 提供统一的单模型推理封装。
@@ -88,7 +94,7 @@
 - 通过 OpenAI 兼容 HTTP 接口访问 vLLM。
 - `min_pixels/max_pixels` 会透传到 `mm_processor_kwargs`。
 
-## 6. Codec 设计
+## 6. Codec 设计（共享层）
 
 codec 的职责是：
 
@@ -101,6 +107,7 @@ codec 的职责是：
 - codec 是稳定扩展点。
 - stage 编排不是任务 DSL。
 - codec 不负责训练数据规范。
+- codec 不负责指标计算。
 
 ## 7. 文档化边界
 

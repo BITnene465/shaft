@@ -9,6 +9,7 @@ from shaft.utils.distributed import barrier_if_distributed
 from .loss import build_loss
 from .optimizer import build_optimizer
 from .scheduler import build_scheduler
+from .online_eval import ShaftOnlineEvalRunner
 
 
 class ShaftSFTTrainer(Trainer):
@@ -24,6 +25,7 @@ class ShaftSFTTrainer(Trainer):
         adam_beta2: float = 0.999,
         adam_epsilon: float = 1e-8,
         ignore_index: int = -100,
+        online_eval_runner: ShaftOnlineEvalRunner | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -37,6 +39,7 @@ class ShaftSFTTrainer(Trainer):
         self.adam_beta2 = float(adam_beta2)
         self.adam_epsilon = float(adam_epsilon)
         self.ignore_index = int(ignore_index)
+        self.online_eval_runner = online_eval_runner
 
     @property
     def train_args(self) -> TrainingArguments:
@@ -92,6 +95,19 @@ class ShaftSFTTrainer(Trainer):
     def evaluate(self, *args: Any, **kwargs: Any):
         barrier_if_distributed()
         metrics = super().evaluate(*args, **kwargs)
+        eval_dataset = kwargs.get("eval_dataset")
+        if eval_dataset is None and args:
+            eval_dataset = args[0]
+        if eval_dataset is None:
+            eval_dataset = self.eval_dataset
+        if self.online_eval_runner is not None and eval_dataset is not None:
+            metric_key_prefix = str(kwargs.get("metric_key_prefix", "eval")).strip() or "eval"
+            online_metrics = self.online_eval_runner.evaluate(
+                self,
+                eval_dataset=eval_dataset,
+                metric_key_prefix=metric_key_prefix,
+            )
+            metrics.update(online_metrics)
         barrier_if_distributed()
         return metrics
 

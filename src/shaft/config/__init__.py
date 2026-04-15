@@ -4,7 +4,13 @@ from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig, DatasetSourceConfig
 from .model import FinetuneConfig, ModelConfig
 from .runtime import RuntimeConfig
-from .training import EvalConfig, TrainConfig
+from .training import (
+    EvalConfig,
+    EvalDatasetPolicyConfig,
+    EvalMetricConfig,
+    EvalNormalizerConfig,
+    TrainConfig,
+)
 
 __all__ = [
     "AlgorithmConfig",
@@ -12,6 +18,9 @@ __all__ = [
     "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
+    "EvalDatasetPolicyConfig",
+    "EvalMetricConfig",
+    "EvalNormalizerConfig",
     "ExperimentConfig",
     "FinetuneConfig",
     "LoggingConfig",

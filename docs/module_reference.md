@@ -33,6 +33,9 @@
 - `DatasetSourceConfig`
 - `TrainConfig`
 - `EvalConfig`
+- `EvalDatasetPolicyConfig`
+- `EvalMetricConfig`
+- `EvalNormalizerConfig`
 - `RLHFConfig`
 
 ### 关键函数
@@ -261,6 +264,7 @@
 相关文件：
 
 - `src/shaft/training/sft_trainer.py`
+- `src/shaft/training/online_eval.py`
 - `src/shaft/training/trl_trainers.py`
 - `src/shaft/training/loss.py`
 - `src/shaft/training/optimizer.py`
@@ -280,6 +284,7 @@
 - `ShaftSFTTrainer`
 - `ShaftDPOTrainer`
 - `ShaftPPOTrainer`
+- `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
 - `CheckpointLayout`
 - `Muon`
@@ -289,6 +294,7 @@
 - `build_loss()`
 - `build_optimizer()`
 - `build_scheduler()`
+- `register_target_adapter()`
 - `inspect_checkpoint_layout()`
 - `resolve_resume_checkpoint()`
 - `validate_resume_checkpoint()`
@@ -299,7 +305,62 @@
 - 允许：HF/TRL trainer 扩展、checkpoint 规则、优化器/调度器/loss
 - 禁止：数据读取、配置加载、导出发布
 
-## 8. `infer`
+## 8. `codec`
+
+相关文件：
+
+- `src/shaft/codec/base.py`
+- `src/shaft/codec/registry.py`
+- `src/shaft/codec/json.py`
+
+### 职能
+
+- 管理共享 codec 注册表。
+- 负责文本到规范结构的容错解析。
+- 为 `infer` 与在线 eval 提供统一 decode 能力。
+
+### 关键类
+
+- `ShaftCodecResult`
+
+### 关键函数
+
+- `decode_with_codec()`
+- `register_codec()`
+
+### 开发边界
+
+- 允许：JSON 修复、部分解析、共享 decode 扩展
+- 禁止：指标计算、业务编排、训练循环
+
+## 9. `metrics`
+
+相关文件：
+
+- `src/shaft/metrics/base.py`
+- `src/shaft/metrics/registry.py`
+- `src/shaft/metrics/builtin.py`
+
+### 职能
+
+- 管理在线 eval metric 注册表。
+- 提供单阶段在线 eval 的可复用指标实现。
+
+### 关键类
+
+- `ShaftEvalMetric`
+
+### 关键函数
+
+- `build_eval_metric()`
+- `register_eval_metric()`
+
+### 开发边界
+
+- 允许：轻量在线指标、per-dataset metric 扩展
+- 禁止：文本解析、数据路由、多阶段业务编排
+
+## 10. `infer`
 
 相关文件：
 
@@ -307,13 +368,12 @@
 - `src/shaft/infer/loader.py`
 - `src/shaft/infer/engine.py`
 - `src/shaft/infer/pipeline.py`
-- `src/shaft/infer/codec.py`
 
 ### 职能
 
 - 管理推理配置。
 - 封装本地 HF 与 vLLM OpenAI 兼容后端。
-- 做多阶段推理上下文传递与 codec 解码。
+- 做多阶段推理上下文传递，并复用共享 codec 解码。
 
 ### 关键类
 
@@ -329,15 +389,13 @@
 ### 关键函数
 
 - `load_infer_config()`
-- `decode_with_codec()`
-- `register_codec()`
 
 ### 开发边界
 
-- 允许：后端封装、stage 调度、codec 解析
+- 允许：后端封装、stage 调度、共享 codec 调用
 - 禁止：训练逻辑、离线业务脚本逻辑、任务 DSL
 
-## 9. `export`
+## 11. `export`
 
 相关文件：
 
@@ -364,7 +422,7 @@
 - 允许：HF/PEFT 目录校验、merge
 - 禁止：引入自定义格式、发布到第三方平台
 
-## 10. `plugins`
+## 12. `plugins`
 
 相关文件：
 
@@ -398,7 +456,7 @@
 - 允许：横切增强
 - 禁止：替代主业务流程、隐藏关键训练行为
 
-## 11. `observability`
+## 13. `observability`
 
 相关文件：
 

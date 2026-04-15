@@ -19,6 +19,10 @@
   - `RuntimeConfig` 主要配置块
   - 常用字段和使用原则
 
+- [online_eval_design.md](online_eval_design.md)
+  - 单阶段在线 eval 设计说明
+  - 多数据集、多任务、共享 codec、final score 设计
+
 ## 2. 开发与扩展
 
 - [development_workflow.md](development_workflow.md)
@@ -36,7 +40,7 @@
 
 - [infer.md](infer.md)
   - 推理子系统设计
-  - stage / engine / codec 边界
+  - stage / engine 边界
 
 - [export.md](export.md)
   - HF 导出、validate、merge-peft

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -38,6 +39,30 @@ class TrainConfig:
 
 
 @dataclass
+class EvalMetricConfig:
+    name: str
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class EvalNormalizerConfig:
+    type: str = "identity"
+    min_value: float | None = None
+    max_value: float | None = None
+
+
+@dataclass
+class EvalDatasetPolicyConfig:
+    prediction_codec: str = "text"
+    target_adapter: str = "target_text"
+    target_adapter_params: dict[str, Any] = field(default_factory=dict)
+    metrics: list[EvalMetricConfig] = field(default_factory=list)
+    primary_metric: str = ""
+    normalizer: EvalNormalizerConfig = field(default_factory=EvalNormalizerConfig)
+    weight: float = 1.0
+
+
+@dataclass
 class EvalConfig:
     enabled: bool = True
     per_device_eval_batch_size: int = 1
@@ -46,5 +71,7 @@ class EvalConfig:
     do_sample: bool = False
     temperature: float = 0.0
     max_new_tokens: int = 512
+    online_metrics_enabled: bool = False
+    datasets: dict[str, EvalDatasetPolicyConfig] = field(default_factory=dict)
     metric_for_best_model: str = "eval_loss"
     greater_is_better: bool = False

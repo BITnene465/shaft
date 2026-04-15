@@ -197,3 +197,141 @@ data:
 
     with pytest.raises(KeyError):
         load_config(config_path)
+
+
+def test_load_config_supports_online_eval_dataset_policies(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  enabled: true
+  online_metrics_enabled: true
+  metric_for_best_model: eval_final_score
+  greater_is_better: true
+  datasets:
+    ds1:
+      prediction_codec: json_object
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_object
+      metrics:
+        - name: parse_success
+        - name: exact_match
+      primary_metric: exact_match
+      normalizer:
+        type: identity
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    assert cfg.eval.online_metrics_enabled is True
+    assert cfg.eval.metric_for_best_model == "eval_final_score"
+    assert cfg.eval.greater_is_better is True
+    assert "ds1" in cfg.eval.datasets
+    policy = cfg.eval.datasets["ds1"]
+    assert policy.prediction_codec == "json_object"
+    assert policy.target_adapter == "target_text"
+    assert policy.target_adapter_params == {"codec": "json_object"}
+    assert [metric.name for metric in policy.metrics] == ["parse_success", "exact_match"]
+    assert policy.primary_metric == "exact_match"
+    assert policy.normalizer.type == "identity"
+
+
+def test_online_eval_requires_policy_for_each_dataset(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+    - dataset_name: ds2
+      train_path: train2.jsonl
+      val_path: val2.jsonl
+eval:
+  enabled: true
+  online_metrics_enabled: true
+  datasets:
+    ds1:
+      prediction_codec: text
+      target_adapter: target_text
+      metrics:
+        - name: exact_match
+      primary_metric: exact_match
+      normalizer:
+        type: identity
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="missing online eval policies"):
+        load_config(config_path)
+
+
+def test_online_eval_forces_final_score_as_best_metric(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  enabled: true
+  online_metrics_enabled: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  datasets:
+    ds1:
+      prediction_codec: text
+      target_adapter: target_text
+      metrics:
+        - name: exact_match
+      primary_metric: exact_match
+      normalizer:
+        type: identity
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    config = load_config(config_path)
+    assert config.eval.metric_for_best_model == "eval_final_score"
+    assert config.eval.greater_is_better is True
+
+
+def test_online_eval_rejects_sampling(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  enabled: true
+  online_metrics_enabled: true
+  do_sample: true
+  datasets:
+    ds1:
+      prediction_codec: text
+      target_adapter: target_text
+      metrics:
+        - name: exact_match
+      primary_metric: exact_match
+      normalizer:
+        type: identity
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="greedy decoding"):
+        load_config(config_path)

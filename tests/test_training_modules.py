@@ -168,6 +168,36 @@ def test_shaft_trainer_uses_custom_components() -> None:
     assert isinstance(loss, torch.Tensor)
 
 
+def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
+    model = _TinyModel()
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_trainer_eval_smoke",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+
+    class _FakeOnlineEvalRunner:
+        def evaluate(self, trainer, *, eval_dataset, metric_key_prefix="eval"):
+            _ = trainer, eval_dataset, metric_key_prefix
+            return {"eval_final_score": 0.8}
+
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[{"sample_id": "x"}],
+        data_collator=lambda x: x,
+        online_eval_runner=_FakeOnlineEvalRunner(),
+    )
+    with patch("transformers.Trainer.evaluate", return_value={"eval_loss": 0.2}):
+        metrics = trainer.evaluate()
+    assert metrics["eval_loss"] == pytest.approx(0.2)
+    assert metrics["eval_final_score"] == pytest.approx(0.8)
+
+
 def test_build_trl_dpo_config_from_training_args() -> None:
     args = TrainingArguments(
         output_dir="/tmp/shaft_dpo_config_smoke",
