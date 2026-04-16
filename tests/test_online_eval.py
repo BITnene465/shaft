@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 import torch
 
 from shaft.codec import ShaftCodecResult
@@ -175,3 +176,47 @@ def test_online_eval_runner_normalizes_with_range() -> None:
     metrics = runner.aggregate_samples(entries, metric_key_prefix="eval")
     assert metrics["eval_ds_exact_match"] == 0.5
     assert metrics["eval_ds_score"] == 0.25
+
+
+def test_online_eval_runner_skips_dataset_without_samples(caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    eval_config = EvalConfig(
+        enabled=True,
+        online_metrics_enabled=True,
+        datasets={
+            "ds_a": EvalDatasetPolicyConfig(
+                prediction_codec="text",
+                target_adapter="target_text",
+                metrics=[EvalMetricConfig(name="exact_match")],
+                primary_metric="exact_match",
+                normalizer=EvalNormalizerConfig(type="identity"),
+                weight=0.25,
+            ),
+            "ds_b": EvalDatasetPolicyConfig(
+                prediction_codec="text",
+                target_adapter="target_text",
+                metrics=[EvalMetricConfig(name="exact_match")],
+                primary_metric="exact_match",
+                normalizer=EvalNormalizerConfig(type="identity"),
+                weight=0.75,
+            ),
+        },
+    )
+    runner = ShaftOnlineEvalRunner(
+        eval_config=eval_config,
+        prompt_collator=_FakePromptCollator(),
+    )
+    entries = [
+        ShaftOnlineEvalSample(
+            dataset_name="ds_a",
+            sample_id="x",
+            prediction=ShaftCodecResult(raw_text="a", parsed="a", valid=True, partial=False, error_type=None, error=None),
+            target=ShaftTargetResult(value="a", valid=True, error=None),
+            meta={},
+        ),
+    ]
+    metrics = runner.aggregate_samples(entries, metric_key_prefix="eval")
+    assert metrics["eval_ds_a_score"] == pytest.approx(1.0)
+    assert "eval_ds_b_score" not in metrics
+    assert metrics["eval_final_score"] == pytest.approx(1.0)
+    assert "dataset=ds_b has no samples" in caplog.text

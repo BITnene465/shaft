@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import warnings
 from unittest.mock import patch
 
@@ -182,7 +183,10 @@ def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
     class _FakeOnlineEvalRunner:
         def evaluate(self, trainer, *, eval_dataset, metric_key_prefix="eval"):
             _ = trainer, eval_dataset, metric_key_prefix
-            return {"eval_final_score": 0.8}
+            return {
+                "eval_final_score": 0.8,
+                "eval_ds_a_exact_match": 0.7,
+            }
 
     trainer = ShaftSFTTrainer(
         model=model,
@@ -192,10 +196,47 @@ def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
         data_collator=lambda x: x,
         online_eval_runner=_FakeOnlineEvalRunner(),
     )
-    with patch("transformers.Trainer.evaluate", return_value={"eval_loss": 0.2}):
-        metrics = trainer.evaluate()
+    trainer.get_eval_dataloader = lambda eval_dataset=None: []  # type: ignore[method-assign]
+    trainer.evaluation_loop = lambda *a, **k: SimpleNamespace(metrics={"eval_loss": 0.2}, num_samples=1)  # type: ignore[method-assign]
+    logged: list[dict[str, float]] = []
+    trainer.log = lambda metrics, start_time=None: logged.append(dict(metrics))  # type: ignore[method-assign]
+    trainer.callback_handler.on_evaluate = lambda args, state, control, metrics: control  # type: ignore[method-assign]
+    metrics = trainer.evaluate()
     assert metrics["eval_loss"] == pytest.approx(0.2)
     assert metrics["eval_final_score"] == pytest.approx(0.8)
+    assert metrics["eval_ds_a_exact_match"] == pytest.approx(0.7)
+    assert logged == [{"eval_loss": 0.2, "eval_final_score": 0.8}]
+
+
+def test_shaft_trainer_evaluate_reports_only_eval_loss_without_online_eval() -> None:
+    model = _TinyModel()
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_trainer_eval_loss_only",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[{"sample_id": "x"}],
+        data_collator=lambda x: x,
+    )
+    trainer.get_eval_dataloader = lambda eval_dataset=None: []  # type: ignore[method-assign]
+    trainer.evaluation_loop = lambda *a, **k: SimpleNamespace(  # type: ignore[method-assign]
+        metrics={"eval_loss": 0.3, "eval_samples_per_second": 12.0},
+        num_samples=1,
+    )
+    logged: list[dict[str, float]] = []
+    trainer.log = lambda metrics, start_time=None: logged.append(dict(metrics))  # type: ignore[method-assign]
+    trainer.callback_handler.on_evaluate = lambda args, state, control, metrics: control  # type: ignore[method-assign]
+    metrics = trainer.evaluate()
+    assert metrics["eval_loss"] == pytest.approx(0.3)
+    assert "eval_samples_per_second" in metrics
+    assert logged == [{"eval_loss": 0.3}]
 
 
 def test_build_trl_dpo_config_from_training_args() -> None:

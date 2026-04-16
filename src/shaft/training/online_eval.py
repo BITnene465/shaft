@@ -147,6 +147,12 @@ class ShaftOnlineEvalRunner:
                 for entry in entries
                 if entry.dataset_name == dataset_name
             ]
+            if not dataset_entries:
+                logger.warning(
+                    "[eval] dataset=%s has no samples in this evaluation pass; skipping score aggregation",
+                    dataset_name,
+                )
+                continue
             metric_values = self._compute_dataset_metrics(policy, dataset_entries)
             for metric_name, metric_value in metric_values.items():
                 metrics[f"{metric_key_prefix}_{dataset_name}_{metric_name}"] = metric_value
@@ -154,6 +160,8 @@ class ShaftOnlineEvalRunner:
             metrics[f"{metric_key_prefix}_{dataset_name}_score"] = score
             weighted_sum += score * float(policy.weight)
             total_weight += float(policy.weight)
+        if total_weight == 0:
+            logger.warning("[eval] no dataset produced online metrics; final_score defaults to 0.0")
         metrics[f"{metric_key_prefix}_final_score"] = weighted_sum / total_weight if total_weight > 0 else 0.0
         return metrics
 
@@ -162,12 +170,14 @@ class ShaftOnlineEvalRunner:
             return
         for dataset_name in sorted(self.eval_config.datasets):
             policy = self.eval_config.datasets[dataset_name]
+            score_key = f"{metric_key_prefix}_{dataset_name}_score"
+            if score_key not in metrics:
+                continue
             parts = []
             for metric in policy.metrics:
                 key = f"{metric_key_prefix}_{dataset_name}_{metric.name}"
                 if key in metrics:
                     parts.append(f"{metric.name}={metrics[key]:.4g}")
-            score_key = f"{metric_key_prefix}_{dataset_name}_score"
             logger.info(
                 "[eval] dataset=%s %s normalized_score=%.4g weight=%.4g",
                 dataset_name,

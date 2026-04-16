@@ -162,6 +162,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         normalized_policies[normalized_name] = policy
     eval_cfg.datasets = normalized_policies
     if eval_cfg.online_metrics_enabled:
+        from shaft.codec import CODEC_REGISTRY
+        from shaft.metrics import EVAL_METRIC_REGISTRY
+        from shaft.training.online_eval import TARGET_ADAPTER_REGISTRY
+
         if not eval_cfg.enabled:
             raise ValueError("eval.online_metrics_enabled requires eval.enabled=true.")
         if config.algorithm.name != "sft":
@@ -186,10 +190,26 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                 f"eval.datasets contains unknown dataset policies: {unknown_policies}."
             )
         for dataset_name, policy in eval_cfg.datasets.items():
+            if not CODEC_REGISTRY.has(policy.prediction_codec):
+                raise ValueError(
+                    f"eval.datasets.{dataset_name}.prediction_codec={policy.prediction_codec!r} is unregistered. "
+                    f"Registered codecs: {sorted(CODEC_REGISTRY.keys())}."
+                )
+            if not TARGET_ADAPTER_REGISTRY.has(policy.target_adapter):
+                raise ValueError(
+                    f"eval.datasets.{dataset_name}.target_adapter={policy.target_adapter!r} is unregistered. "
+                    f"Registered target adapters: {sorted(TARGET_ADAPTER_REGISTRY.keys())}."
+                )
             if not policy.metrics:
                 raise ValueError(f"eval.datasets.{dataset_name}.metrics cannot be empty.")
             if not policy.primary_metric:
                 raise ValueError(f"eval.datasets.{dataset_name}.primary_metric cannot be empty.")
+            for metric in policy.metrics:
+                if not EVAL_METRIC_REGISTRY.has(metric.name):
+                    raise ValueError(
+                        f"eval.datasets.{dataset_name}.metrics includes unregistered metric {metric.name!r}. "
+                        f"Registered metrics: {sorted(EVAL_METRIC_REGISTRY.keys())}."
+                    )
         eval_cfg.metric_for_best_model = "eval_final_score"
         eval_cfg.greater_is_better = True
 

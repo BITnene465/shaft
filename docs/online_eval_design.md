@@ -324,6 +324,11 @@ eval 进度条上不显示 task metrics。
 [eval] final_score=0.79 metric_for_best_model=eval_final_score best_model_updated=true
 ```
 
+说明：
+
+- per-dataset 指标只进入本地 logger，不进入 `report_to`。
+- `report_to` 与 Trainer 回调链只接收 `eval_loss` 与 `eval_final_score`，避免 wandb 指标集合随任务集合变化而漂移。
+
 ## 10. 当前支持的配置形态
 
 ```yaml
@@ -370,7 +375,10 @@ eval:
 - 共享 codec 层已经独立为 `src/shaft/codec`
 - 在线 eval metric registry 已实现，当前内置 `parse_success` 与 `exact_match`
 - dataset eval policy 已接入 `EvalConfig.datasets`
+- `prediction_codec` / `target_adapter` / `metric` 已在配置加载阶段做注册校验
 - 启用在线 eval 时，best-model 选择统一使用 `eval_final_score`
+- 启用在线 eval 时，`report_to` 只上报 `eval_loss` 与 `eval_final_score`
+- 若某个 dataset 本次没有样本，会 warning 并跳过，不参与 `final_score`
 - 当前只支持 SFT 的单阶段在线 eval
 
 当前仍未做的部分：

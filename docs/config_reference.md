@@ -270,7 +270,10 @@ eval:
 - 当前内置 metric 只有 `parse_success` 与 `exact_match`，结构化任务指标需要按扩展指南新增。
 - 当前内置 target adapter 只有 `target_text` 与 `extra_field`。
 - 当前 `normalizer.type` 只支持 `identity` 与 `range`。
+- `prediction_codec`、`target_adapter`、`metric` 会在配置加载阶段校验是否已注册，避免第一次 eval 才报错。
 - 启用在线 eval 时，框架会强制使用贪心评估，并把 `metric_for_best_model` 收敛到 `eval_final_score`。
+- 启用在线 eval 时，`report_to` 只上报 `eval_loss` 与 `eval_final_score`；per-dataset 指标只写本地日志，不进入 wandb。
+- 若某个 dataset 在本次 eval 中没有样本，框架会打 warning 并跳过该 dataset，不把它计入 `final_score`。
 - 若希望配置语义更直观，仍建议在 YAML 中显式写出 `metric_for_best_model: eval_final_score` 和 `greater_is_better: true`。
 - codec 已经作为共享层供 `infer` 和在线 eval 共用。
 
