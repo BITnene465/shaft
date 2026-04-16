@@ -133,3 +133,45 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     assert sample["dataset_name"] == "dpo_ds"
     assert sample["chosen_text"] == "{\"ok\":1}"
     assert sample["rejected_text"] == "{\"ok\":0}"
+
+
+def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_a = _write_jsonl(
+        tmp_path / "train_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": "a1"}],
+    )
+    train_b = _write_jsonl(
+        tmp_path / "train_b.jsonl",
+        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": "b1"}],
+    )
+    val_a = _write_jsonl(
+        tmp_path / "val_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+    )
+
+    config = RuntimeConfig()
+    config.data.mix_strategy = "concat"
+    config.data.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="eval_ds",
+            train_path=str(train_a),
+            val_path=str(val_a),
+            use_for_eval=True,
+        ),
+        DatasetSourceConfig(
+            dataset_name="train_only_ds",
+            train_path=str(train_b),
+            use_for_eval=False,
+        ),
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    train_dataset, val_dataset = center.build_dataset_pair(SFTDataset)
+
+    assert len(train_dataset) == 2
+    assert len(val_dataset) == 1
+    assert train_dataset[0]["dataset_name"] == "eval_ds"
+    assert train_dataset[1]["dataset_name"] == "train_only_ds"
+    assert val_dataset[0]["dataset_name"] == "eval_ds"

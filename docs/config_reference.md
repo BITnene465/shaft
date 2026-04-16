@@ -109,6 +109,7 @@
 - `val_paths`
 - `weight`
 - `enabled`
+- `use_for_eval`
 - `offline_transforms`
 - `online_transforms`
 - `help`
@@ -122,6 +123,8 @@
 - `datasets` 用于当前 YAML 内联声明数据源。
 - 实际进入 `ShaftDataCenter` 前，catalog 会先展开成标准 `datasets` 列表。
 - `DatasetSourceConfig` 只描述配置输入；进入数据主链前，会先被解析成 `ShaftDatasetMeta`。
+- `use_for_eval=false` 表示该数据集只参与训练 mixing，不参与验证集构建，也不要求提供 `val_path/val_paths`。
+- 当 `eval.enabled=true` 时，至少要有一个 `enabled=true` 且 `use_for_eval=true` 的数据集。
 
 补充说明：
 
@@ -226,6 +229,7 @@
 2. 每个 dataset 只能有一个 `primary_metric`
 3. 每个 dataset 的 `primary_metric` 必须归一化到 `[0, 1]`
 4. `eval_final_score` 由各 dataset 的 normalized primary score 按权重加权求和得到
+5. 在线 eval policy 只要求为 `use_for_eval=true` 的数据集配置；训练专用数据集不会进入在线 eval
 
 示意配置如下：
 

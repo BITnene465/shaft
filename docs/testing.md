@@ -34,12 +34,14 @@
 - 跑一条最短主链
 - 使用轻量模型或最小数据
 - 验证组件装配是通的
+- 优先覆盖“首个关键阶段就会暴露”的失败点
 
 典型覆盖：
 
 - SFT 主链
 - RLHF 主链
 - 分布式最小链路
+- 首次在线 eval canary（生成、codec、target adapter、metric、best model 选择）
 
 ### 2.3 Integration 测试
 
@@ -130,6 +132,7 @@ pytest -q -m manual
 - `tests/test_online_eval.py`
 - `tests/test_config_loader.py`
 - 如改动 SFT 装配链，再跑 `tests/test_pipeline_sft.py` 与 `tests/test_training_modules.py`
+- 如改动首次 eval 路径，再跑 `tests/test_smoke_train_modes.py`
 
 ### 新增导出能力
 
@@ -159,3 +162,4 @@ pytest -q -m manual
 
 - PPO 仍是受限能力，现阶段只维持 smoke 级测试，不作为完整生产验收能力。
 - 真实 `Qwen3VL` 的推理 integration 可以长期保留，但不应默认进入快速回归。
+- 在线 eval 当前已有离线 smoke，目标是尽量提前暴露“训练跑完一个 epoch 才在第一次 eval 报错”的框架级问题。

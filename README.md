@@ -84,6 +84,7 @@ data:
       train_paths: [data/train.jsonl]
       val_paths: [data/val.jsonl]
       weight: 1.0
+      use_for_eval: true
 ```
 
 说明：
@@ -93,6 +94,7 @@ data:
 - catalog 文件里的数据集不会因为 `catalog_path` 被设置就自动全部参与训练。
 - `DatasetSourceConfig.dataset_name` 是数据层统一标识字段。
 - `DatasetSourceConfig` 只描述配置输入；进入数据主链后会先解析成 `ShaftDatasetMeta`。
+- `use_for_eval=false` 表示该数据集只参与训练，不参与验证集构建，也不要求提供 `val_paths`。
 - 仓库内置的 [`configs/data/example.yaml`](configs/data/example.yaml) 当前只是示例文件，里面的路径默认不保证存在。
 - 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
 

@@ -275,6 +275,38 @@ eval:
         load_config(config_path)
 
 
+def test_online_eval_ignores_train_only_dataset_policy_requirement(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: eval_ds
+      train_path: train.jsonl
+      val_path: val.jsonl
+    - dataset_name: train_only_ds
+      train_path: train2.jsonl
+      use_for_eval: false
+eval:
+  enabled: true
+  online_metrics_enabled: true
+  datasets:
+    eval_ds:
+      prediction_codec: text
+      target_adapter: target_text
+      metrics:
+        - name: exact_match
+      primary_metric: exact_match
+      normalizer:
+        type: identity
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    assert set(cfg.eval.datasets.keys()) == {"eval_ds"}
+
+
 def test_online_eval_forces_final_score_as_best_metric(tmp_path: Path) -> None:
     payload = """
 algorithm:
@@ -421,4 +453,63 @@ eval:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError, match="unregistered metric 'not_registered'|unregistered metric .*not_registered"):
+        load_config(config_path)
+
+
+def test_eval_enabled_allows_train_only_dataset(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: eval_ds
+      train_path: train.jsonl
+      val_path: val.jsonl
+    - dataset_name: train_only_ds
+      train_path: train2.jsonl
+      use_for_eval: false
+eval:
+  enabled: true
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    assert cfg.data.datasets[0].use_for_eval is True
+    assert cfg.data.datasets[1].use_for_eval is False
+    assert cfg.data.datasets[1].val_paths == []
+
+
+def test_eval_enabled_requires_val_for_eval_dataset(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      use_for_eval: true
+eval:
+  enabled: true
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="val_paths cannot be empty"):
+        load_config(config_path)
+
+
+def test_eval_enabled_requires_at_least_one_eval_dataset(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: train_only_ds
+      train_path: train.jsonl
+      use_for_eval: false
+eval:
+  enabled: true
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="at least one dataset with use_for_eval=true"):
         load_config(config_path)

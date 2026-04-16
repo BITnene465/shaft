@@ -47,7 +47,8 @@ class ShaftDataCenter:
             source_impl = build_data_source(dataset_meta)
             offline_pipeline = build_offline_pipeline(dataset_meta.offline_transforms)
             records_by_dataset_train[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("train"))
-            records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("val"))
+            if dataset_meta.use_for_eval:
+                records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("val"))
             dataset_online_pipelines[dataset_meta.dataset_name] = build_online_pipeline(
                 dataset_meta.online_transforms
             )

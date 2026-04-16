@@ -13,6 +13,7 @@ class ShaftDatasetMeta:
     val_paths: tuple[str, ...]
     weight: float
     enabled: bool
+    use_for_eval: bool
     offline_transforms: tuple[str, ...]
     online_transforms: tuple[str, ...]
     help: str | None = None
@@ -29,6 +30,7 @@ class ShaftDatasetMeta:
             val_paths=val_paths,
             weight=float(config.weight),
             enabled=bool(config.enabled),
+            use_for_eval=bool(config.use_for_eval),
             offline_transforms=tuple(config.offline_transforms),
             online_transforms=tuple(config.online_transforms),
             help=config.help,

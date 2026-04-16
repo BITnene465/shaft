@@ -109,6 +109,11 @@
 - 允许：样本格式、增强、mixing、collator
 - 禁止：训练状态、优化器、损失函数、任务级语义路由
 
+补充说明：
+
+- `ShaftDatasetMeta.use_for_eval` 用于表达“该数据集是否参与验证集构建与在线 eval”。
+- `ShaftDataCenter` 会始终构建训练 records，但只为 `use_for_eval=true` 的数据集加载 `val` split。
+
 ## 3. `model`
 
 相关文件：

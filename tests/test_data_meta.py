@@ -14,6 +14,7 @@ def test_dataset_meta_from_config_preserves_metadata_fields() -> None:
         val_paths=["val_a.jsonl", "val_b.jsonl"],
         weight=2.5,
         enabled=True,
+        use_for_eval=False,
         offline_transforms=["dedup"],
         online_transforms=["identity"],
         help="demo",
@@ -25,6 +26,7 @@ def test_dataset_meta_from_config_preserves_metadata_fields() -> None:
     assert meta.train_paths == ("train.jsonl",)
     assert meta.val_paths == ("val_a.jsonl", "val_b.jsonl")
     assert meta.weight == pytest.approx(2.5)
+    assert meta.use_for_eval is False
     assert meta.offline_transforms == ("dedup",)
     assert meta.online_transforms == ("identity",)
     assert meta.help == "demo"

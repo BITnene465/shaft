@@ -42,6 +42,8 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         if not dataset.dataset_name:
             raise ValueError("data.datasets[*].dataset_name cannot be empty.")
         dataset.source_type = str(dataset.source_type).strip().lower()
+        dataset.enabled = bool(dataset.enabled)
+        dataset.use_for_eval = bool(dataset.use_for_eval)
         dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
         dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
         dataset.offline_transforms = [str(x).strip() for x in dataset.offline_transforms if str(x).strip()]
@@ -55,7 +57,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
         if not dataset.train_paths:
             raise ValueError(f"data.datasets[{dataset.dataset_name}].train_paths cannot be empty.")
-        if not dataset.val_paths and bool(config.eval.enabled):
+        if not dataset.val_paths and bool(config.eval.enabled) and dataset.enabled and dataset.use_for_eval:
             raise ValueError(f"data.datasets[{dataset.dataset_name}].val_paths cannot be empty.")
         if config.algorithm.name == "sft" and dataset.source_type == "jsonl_ppo":
             raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is sft.")
@@ -69,6 +71,16 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo.")
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
             raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo.")
+
+    if bool(config.eval.enabled):
+        has_eval_dataset = any(
+            dataset.enabled and dataset.use_for_eval
+            for dataset in config.data.datasets
+        )
+        if not has_eval_dataset:
+            raise ValueError(
+                "eval.enabled=true requires at least one dataset with use_for_eval=true."
+            )
 
     train = config.train
     train.optimizer_name = str(train.optimizer_name).strip().lower()
@@ -177,7 +189,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         configured_dataset_names = {
             dataset.dataset_name
             for dataset in config.data.datasets
-            if dataset.enabled
+            if dataset.enabled and dataset.use_for_eval
         }
         missing_policies = sorted(configured_dataset_names - set(eval_cfg.datasets.keys()))
         if missing_policies:

@@ -13,6 +13,7 @@ class DatasetSourceConfig:
     val_paths: list[str] = field(default_factory=list)
     weight: float = 1.0
     enabled: bool = True
+    use_for_eval: bool = True
     offline_transforms: list[str] = field(default_factory=list)
     online_transforms: list[str] = field(default_factory=list)
     help: str | None = None

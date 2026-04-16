@@ -44,6 +44,7 @@
 - 一个 `dataset_name` 只能绑定一个在线 eval policy。
 - 如果同一底层数据需要评两个任务，必须拆成两个 dataset entry。
 - 不允许一个 dataset 在同一次在线 eval 中切换多种输出格式。
+- `data.datasets[*].use_for_eval=false` 的数据集不会进入在线 eval，也不要求配置 dataset eval policy。
 
 ### 3.2 轻量在线 eval
 
@@ -240,6 +241,14 @@ sequenceDiagram
   - metrics：`parse_success`、`keypoint_pck@0.1`
   - primary metric：`keypoint_pck@0.1`
   - weight：`0.4`
+
+如果还有一个只参与训练的数据集，例如：
+
+- `aux_train_only_dataset`
+  - `use_for_eval: false`
+  - 会参与训练 mixing
+  - 不会进入验证集
+  - 不会要求配置在线 eval policy
 
 ### 6.2 关系图
 
