@@ -149,6 +149,7 @@ data:
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
 - [docs/export.md](docs/export.md)
+- [docs/webui.md](docs/webui.md)
 
 ## 测试
 
@@ -178,4 +179,5 @@ pytest -q -m manual
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。
+- Web UI 处于设计阶段，定位为面向工程师/科研人员的 SFT 可视化控制台，真入口仍是 CLI。
 - PPO 暂停项见 [docs/ppo_todo.md](docs/ppo_todo.md)。

@@ -14,12 +14,14 @@
 - `algorithms`：`sft/dpo/ppo` 等训练算法抽象。
 - `pipeline`：训练流水线编排（组件装配与阶段调度）。
 - `plugins`：注册表、hook、拦截器。
+- `webui`：面向工程师/科研人员的可视化外壳，只做 YAML 编辑、CLI 调用、日志与状态展示，不承载训练内核逻辑。
 
 禁止：
 
 - 在训练内核写任务字段级语义解析。
 - 在数据层写训练循环逻辑。
 - 在算法层耦合具体数据来源路径。
+- 在 Web UI 中复制一套新的训练语义、数据语义或 checkpoint 语义。
 
 ## 3. 命名原则
 
@@ -47,6 +49,7 @@
 - 所有 CLI 解析与命令编排必须放在 `src/shaft/cli`；`scripts/*.py` 只能做薄包装入口，不得在脚本文件里直接堆叠业务级 `argparse` 逻辑。
 - 新增 CLI 能力时，优先复用现有 `src/shaft/cli` 风格与公共约定，避免在 feature 子模块下再生一套平行 CLI。
 - YAML 为主，CLI 只允许无歧义覆写（run-id/seed/epochs/lr/mix-strategy/resume）。
+- Web UI 只能依附现有 CLI：先生成 YAML，再调用 `scripts/train.py sft`；不能直接把训练内核做成第二套入口。
 
 ## 6. 测试驱动
 

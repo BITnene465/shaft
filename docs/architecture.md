@@ -224,9 +224,46 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
 - [docs/online_eval_design.md](online_eval_design.md)
 
-## 8. 稳定接口与演进接口
+## 8. Web UI 边界
 
-### 7.1 当前建议视为稳定的接口
+Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内核层的一部分。
+
+### 8.1 定位
+
+- 面向工程师与科研人员
+- 第一版只覆盖 `SFT` 训练
+- 目标是让 `YAML` 编辑、训练启动和日志查看更顺手
+- 不作为第二套训练系统
+
+### 8.2 推荐实现方式
+
+- 采用 `Gradio Blocks`
+- 通过生成 `YAML` 后调用现有 `scripts/train.py sft`
+- 训练真入口仍然是 CLI
+- Web UI 只负责表单、预览、状态和日志
+
+### 8.3 明确边界
+
+1. 不在 Web UI 中复制训练内核逻辑。
+2. 不在 Web UI 中引入新的配置语义。
+3. 不在 Web UI 中维护一套独立 checkpoint 或数据语义。
+4. 不从 Web UI 直接调用底层训练组件作为长期主入口。
+5. 不在第一版里把推理、导出、RLHF 一并展开。
+
+### 8.4 当前建议的关系图
+
+```mermaid
+flowchart LR
+    WebUI["Gradio Web UI"] --> YAML["YAML 生成/预览"]
+    YAML --> CLI["scripts/train.py sft"]
+    CLI --> Core["src/shaft 核心链路"]
+    Core --> Logs["日志 / 状态 / 产物目录"]
+    Logs --> WebUI
+```
+
+## 9. 稳定接口与演进接口
+
+### 9.1 当前建议视为稳定的接口
 
 - `RuntimeConfig` 及其一级配置块
 - `ShaftDataCenter`
@@ -237,23 +274,23 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
 - `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
 
-### 7.2 当前不应在外部承诺长期稳定的接口
+### 9.2 当前不应在外部承诺长期稳定的接口
 
 - PPO 运行时细节与限制条件
 - interceptor 的 `point` 字符串全集
 - 单个模型族的细粒度 `processor_kwargs`
 - 临时 smoke model / smoke template 能力
 
-## 9. 当前明确受限的能力
+## 10. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
 - 当前只有 `qwen3vl` 是正式模型族实现，`smoke_vlm` 仅用于测试。
 - 结构化任务评估已支持轻量在线 metric，但独立离线评估子系统仍未形成。
 - 发布到 Hub 的工具链尚未开始。
 
-## 10. 架构约束清单
+## 11. 架构约束清单
 
-### 9.1 允许
+### 11.1 允许
 
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
@@ -261,7 +298,7 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 
-### 9.2 禁止
+### 11.2 禁止
 
 1. 在 `training` 中解析 JSONL 或图像路径。
 2. 在 `data` 中写 loss、optimizer、scheduler。
@@ -270,7 +307,7 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 5. 在 `infer` 中维护私有 codec 逻辑而不与共享 codec 收敛。
 6. 在 `export` 中引入自定义模型目录格式。
 
-## 11. 相关文档
+## 12. 相关文档
 
 - [docs/README.md](README.md)
 - [docs/module_reference.md](module_reference.md)
@@ -282,3 +319,4 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - [docs/development_workflow.md](development_workflow.md)
 - [docs/testing.md](testing.md)
 - [docs/project_skill.md](project_skill.md)
+- [docs/webui.md](webui.md)

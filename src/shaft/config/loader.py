@@ -88,6 +88,16 @@ def load_config(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
+    return load_config_from_payload(payload, config_path=config_path)
+
+
+def load_config_from_text(text: str, *, config_path: str | Path) -> RuntimeConfig:
+    payload = yaml.safe_load(text) or {}
+    return load_config_from_payload(payload, config_path=config_path)
+
+
+def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path) -> RuntimeConfig:
+    config_path = Path(config_path)
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())

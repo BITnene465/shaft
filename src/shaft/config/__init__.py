@@ -1,4 +1,4 @@
-from .loader import load_config
+from .loader import load_config, load_config_from_payload, load_config_from_text
 from .algorithm import AlgorithmConfig, DPOConfig, PPOConfig, RLHFConfig
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig, DatasetSourceConfig
@@ -32,4 +32,6 @@ __all__ = [
     "RuntimeConfig",
     "TrainConfig",
     "load_config",
+    "load_config_from_payload",
+    "load_config_from_text",
 ]
