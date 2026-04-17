@@ -90,3 +90,26 @@
 说明：
 - 当前先把 `static / epoch_refresh` 的 sampler 主路径做稳。
 - 后续如果要继续投入，应优先把 mixing state / policy / sampler 明确拆层，而不是在 `data center` 里继续堆条件分支。
+
+## 5. Data Center / Dataset 增强边界重构
+
+- 当前暂不继续扩 `data center` 和 `dataset` 上的数据增强职责。
+- 当前结论：
+  - 训练期 `online transform` 仍可由 `data center -> dataset` 这条链统一编排。
+  - 真正的重型离线增强，例如：
+    - sliding window crop
+    - density crop
+    - hard negative 生成
+    - 图像写盘与新 JSONL 产物生成
+    继续放在 `scripts/tasks/prepare_*` 这类离线数据生产流程中处理。
+- 暂不在这一轮展开：
+  - `data center` 的 train/eval online transform 进一步拆分
+  - 运行时轻量 offline transform 与数据生产型 offline augmentation 的正式架构拆分
+  - `dataset` 层更细粒度的增强策略路由
+
+说明：
+- 当前不希望把数据资产生产逻辑继续塞进训练运行时主链。
+- 后续如果要继续做这块，应先明确：
+  - 哪些增强属于数据准备
+  - 哪些增强属于训练运行时
+  - 然后再决定是否重构 `data center / dataset / transforms` 的边界。

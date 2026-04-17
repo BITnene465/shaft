@@ -130,3 +130,88 @@ def test_train_service_marks_missing_pid_run_as_failed(tmp_path: Path) -> None:
     assert refreshed is not None
     assert refreshed.status == "failed"
     assert refreshed.return_code == -1
+
+
+def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    record = run_store.save_record(
+        ShaftRunRecord(
+            run_id="snapshot-run",
+            algorithm="sft",
+            status="succeeded",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path=str(run_store.get_resolved_config_path("snapshot-run")),
+            log_path=str(run_store.get_log_path("snapshot-run")),
+            output_dir="outputs/snapshot",
+            return_code=0,
+        )
+    )
+    run_store.get_run_dir(record.run_id).mkdir(parents=True, exist_ok=True)
+    run_store.get_resolved_config_path(record.run_id).write_text("experiment:\n  run_id: snapshot-run\n", encoding="utf-8")
+    run_store.get_log_path(record.run_id).write_text("hello webui\n", encoding="utf-8")
+
+    snapshot = service.load_run_snapshot(record.run_id)
+
+    assert snapshot is not None
+    assert snapshot["record"].run_id == "snapshot-run"
+    assert "run_id: snapshot-run" in snapshot["resolved_config"]
+    assert "hello webui" in snapshot["log"]
+
+
+def test_train_service_delete_run_removes_local_run_store_only(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    output_dir = repo_root / "outputs" / "kept"
+    output_dir.mkdir(parents=True)
+    record = run_store.save_record(
+        ShaftRunRecord(
+            run_id="delete-me",
+            algorithm="sft",
+            status="succeeded",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path=str(run_store.get_resolved_config_path("delete-me")),
+            log_path=str(run_store.get_log_path("delete-me")),
+            output_dir=str(output_dir),
+            return_code=0,
+        )
+    )
+
+    deleted = service.delete_run(record.run_id)
+
+    assert deleted is True
+    assert run_store.get_run_dir(record.run_id).exists() is False
+    assert output_dir.exists() is True
+
+
+def test_train_service_delete_run_rejects_active_run(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    run_store.save_record(
+        ShaftRunRecord(
+            run_id="active-run",
+            algorithm="sft",
+            status="running",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path=str(run_store.get_resolved_config_path("active-run")),
+            log_path=str(run_store.get_log_path("active-run")),
+            output_dir="outputs/active",
+            pid=12345,
+        )
+    )
+    with patch.object(service, "_is_pid_running", return_value=True):
+        try:
+            service.delete_run("active-run")
+        except ValueError as exc:
+            assert "Stop it before deleting" in str(exc)
+        else:
+            raise AssertionError("Expected deleting an active run to fail")

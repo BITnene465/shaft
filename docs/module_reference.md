@@ -599,7 +599,7 @@
 
 - 面向工程师与科研人员提供 `SFT` 训练的可视化控制台。
 - 复用现有 CLI、配置和日志体系。
-- 做 YAML 编辑、配置预览、任务启动、日志与状态展示。
+- 做 YAML 编辑、少量高频 override、任务启动、日志与状态展示。
 
 ### 当前原则
 
@@ -611,3 +611,24 @@
 
 - 允许：表单、预览、状态展示、日志轮询、CLI 调用封装
 - 禁止：直连训练内核、发明新配置语义、引入第二套训练入口
+
+### 当前实现结构
+
+- `app.py`
+  - `FastAPI` 路由装配与 HTML / JSON API 暴露
+  - 顶部导航壳与页面路由切分（`SFT / DPO / PPO / GRPO`）
+- `controller.py`
+  - Web UI 事件处理与视图返回协议
+- `templates/index.html`
+  - 页面骨架与初始状态注入
+- `static/webui.css`
+  - 视觉样式与亮暗主题变量
+- `static/webui.js`
+  - 前端交互、状态刷新、主题切换
+- `services/config_service.py`
+  - YAML 读取、解析、override 应用
+- `services/train_service.py`
+  - 子进程管理、run snapshot 读取
+- `services/run_store.py`
+  - 本地 run 目录、resolved config、日志与 record 管理
+  - 本地 run store 条目删除

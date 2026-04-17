@@ -11,8 +11,8 @@
   - 架构图与时序图
 
 - [webui.md](webui.md)
-  - 面向工程师/科研人员的 SFT Web UI 设计草案
-  - Python-only 可视化控制台边界
+  - 面向工程师/科研人员的 SFT Web UI 当前实现说明
+  - FastAPI/Jinja2 可视化控制台边界
   - 训练真入口与 YAML 真源约定
 
 - [module_reference.md](module_reference.md)

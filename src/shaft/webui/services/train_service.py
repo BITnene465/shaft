@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -44,13 +43,12 @@ class ShaftSFTTrainService:
     ) -> ShaftRunRecord:
         run_id = str(config.experiment.run_id or "").strip() or _build_default_run_id()
         config.experiment.run_id = run_id
-        run_dir = self.run_store.prepare_run_dir(run_id)
+        _ = self.run_store.prepare_run_dir(run_id)
         resolved_config_path = self.run_store.get_resolved_config_path(run_id)
-        resolved_yaml_text = yaml.safe_dump(
-            asdict(config),
-            sort_keys=False,
-            allow_unicode=True,
-        )
+        payload = yaml.safe_load(resolved_yaml_text) or {}
+        experiment_payload = payload.setdefault("experiment", {})
+        experiment_payload["run_id"] = run_id
+        resolved_yaml_text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         resolved_config_path.write_text(resolved_yaml_text, encoding="utf-8")
         log_path = self.run_store.get_log_path(run_id)
         command = [
@@ -142,6 +140,16 @@ class ShaftSFTTrainService:
         self._processes.pop(run_id, None)
         return self.run_store.save_record(record)
 
+    def delete_run(self, run_id: str) -> bool:
+        record = self.run_store.load_record(run_id)
+        if record is None:
+            return False
+        refreshed = self.refresh_run(run_id) or record
+        if not refreshed.is_terminal:
+            raise ValueError("Run is still active. Stop it before deleting the local Web UI record.")
+        self._processes.pop(run_id, None)
+        return self.run_store.delete_run(run_id)
+
     def list_runs(self, *, limit: int = 20) -> list[ShaftRunRecord]:
         records = self.run_store.list_records(limit=limit)
         refreshed: list[ShaftRunRecord] = []
@@ -152,6 +160,9 @@ class ShaftSFTTrainService:
     def read_log(self, run_id: str, *, max_chars: int = 12000) -> str:
         return self.run_store.tail_log(run_id, max_chars=max_chars)
 
+    def read_resolved_config(self, run_id: str) -> str:
+        return self.run_store.read_resolved_config(run_id)
+
     def load_summary(self, run_id: str) -> dict[str, Any]:
         record = self.refresh_run(run_id)
         if record is None:
@@ -160,6 +171,17 @@ class ShaftSFTTrainService:
         summary["status"] = record.status
         summary["return_code"] = record.return_code
         return summary
+
+    def load_run_snapshot(self, run_id: str) -> dict[str, Any] | None:
+        record = self.refresh_run(run_id)
+        if record is None:
+            return None
+        return {
+            "record": record,
+            "summary": self.load_summary(run_id),
+            "resolved_config": self.read_resolved_config(run_id),
+            "log": self.read_log(run_id),
+        }
 
     @staticmethod
     def _is_pid_running(pid: int | None) -> bool:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 
 from shaft.webui.types import ShaftRunRecord
@@ -43,6 +44,13 @@ class ShaftRunStore:
         temp_path.replace(path)
         return record
 
+    def delete_run(self, run_id: str) -> bool:
+        run_dir = self.get_run_dir(run_id)
+        if not run_dir.exists():
+            return False
+        shutil.rmtree(run_dir)
+        return True
+
     def load_record(self, run_id: str) -> ShaftRunRecord | None:
         path = self.get_record_path(run_id)
         if not path.exists():
@@ -67,6 +75,12 @@ class ShaftRunStore:
             return ""
         text = path.read_text(encoding="utf-8", errors="replace")
         return text[-max_chars:]
+
+    def read_resolved_config(self, run_id: str) -> str:
+        path = self.get_resolved_config_path(run_id)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
 
     def load_trainer_state_summary(self, output_dir: str | Path) -> dict[str, Any]:
         output_path = Path(output_dir)

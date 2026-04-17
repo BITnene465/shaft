@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/shaft/webui/static/logo.png" alt="Shaft hero illustration" width="680">
+</p>
+
 # shaft（重构中）
 
 Shaft 是一个 `HF-first` 的多模态训练与推理框架。当前主目标是把 `Qwen3VL + SFT` 主链做稳，同时保留面向 RLHF、更多模型族与推理后端的扩展骨架。
@@ -179,5 +183,5 @@ pytest -q -m manual
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。
-- Web UI 处于设计阶段，定位为面向工程师/科研人员的 SFT 可视化控制台，真入口仍是 CLI。
+- Web UI 当前已提供面向工程师/科研人员的 SFT 可视化控制台，真入口仍是 CLI。
 - PPO 暂停项见 [docs/ppo_todo.md](docs/ppo_todo.md)。

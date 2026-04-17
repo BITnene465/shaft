@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shaft Web UI</title>
+  <link rel="icon" href="{{ url_for('static', path='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', path='webui.css') }}">
+</head>
+<body>
+  <script>
+    window.__SHAFT_INITIAL_STATE__ = {};
+  </script>
+
+  <div class="shaft-shell">
+    <section class="shaft-hero">
+      <div class="shaft-hero-copy">
+        <div class="shaft-hero-kicker">{{ page_title }}</div>
+        <div class="shaft-hero-title">Shaft</div>
+        <div class="shaft-hero-subtitle">{{ page_subtitle }}</div>
+        <div class="shaft-hero-meta">
+          <span class="shaft-chip">YAML-first</span>
+          <span class="shaft-chip">CLI-backed</span>
+          <span class="shaft-chip">Engineer-facing</span>
+        </div>
+        <button type="button" class="shaft-theme-toggle" id="theme-toggle">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"></circle>
+            <path d="M12 2.8V5.4M12 18.6V21.2M21.2 12H18.6M5.4 12H2.8M18.3 5.7L16.4 7.6M7.6 16.4L5.7 18.3M18.3 18.3L16.4 16.4M7.6 7.6L5.7 5.7"></path>
+          </svg>
+          <span>Theme · <span data-shaft-theme-value>Light</span></span>
+        </button>
+      </div>
+      <div class="shaft-hero-visual">
+        <img
+          class="shaft-hero-image"
+          src="{{ url_for('static', path='logo.png') }}"
+          alt="Shaft hero illustration"
+        >
+      </div>
+    </section>
+  </div>
+
+  <nav class="shaft-shell shaft-nav" aria-label="Web UI sections">
+    {% for item in nav_items %}
+    <a class="shaft-nav-link{% if item.active %} shaft-nav-link-active{% endif %}" href="{{ item.href }}">{{ item.label }}</a>
+    {% endfor %}
+  </nav>
+
+  <main class="shaft-shell">
+    <section class="shaft-pane">
+      <div class="shaft-section-title">
+        <span class="shaft-section-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7.5H20V16.5H4z"></path>
+            <path d="M8 19H16"></path>
+            <path d="M9 12L11.5 9.5L14 12L16.5 8.5"></path>
+          </svg>
+        </span>
+        <div>
+          <small>Planned</small>
+          <strong>{{ page_title }}</strong>
+        </div>
+      </div>
+
+      <div class="shaft-output-surface shaft-placeholder-surface">
+        <div class="shaft-placeholder-eyebrow">Navigation shell is ready</div>
+        <div class="shaft-placeholder-title">{{ placeholder_title }}</div>
+        <div class="shaft-placeholder-copy">{{ placeholder_body }}</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', path='webui.js') }}"></script>
+</body>
+</html>

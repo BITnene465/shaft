@@ -125,7 +125,7 @@ python scripts/web.py --base-config configs/train/train_sft_4b.yaml
 ```
 
 说明：
-- 默认端口不固定；省略 `--port` 时由 Gradio 自动选择空闲端口
+- 默认端口不固定；省略 `--port` 时由 Web UI 服务自动选择空闲端口
 - `Ctrl-C` 视为正常退出
 
 ## 3. `scripts/tasks/`

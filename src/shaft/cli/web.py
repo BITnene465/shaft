@@ -12,10 +12,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--port",
         type=int,
         default=None,
-        help="Optional fixed port. Omit to let Gradio choose an available port.",
+        help="Optional fixed port. Omit to let the server choose an available port.",
     )
     parser.add_argument("--base-config", default="configs/train/train_sft_4b.yaml")
-    parser.add_argument("--share", action="store_true")
+    parser.add_argument(
+        "--share",
+        action="store_true",
+        help="Deprecated compatibility flag. Ignored by the FastAPI web UI.",
+    )
     return parser
 
 

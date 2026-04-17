@@ -259,9 +259,9 @@ Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内
 - 目标是让 `YAML` 编辑、训练启动和日志查看更顺手
 - 不作为第二套训练系统
 
-### 8.2 推荐实现方式
+### 8.2 当前实现方式
 
-- 采用 `Gradio Blocks`
+- 采用 `FastAPI + Jinja2 + 原生静态资源`
 - 通过生成 `YAML` 后调用现有 `scripts/train.py sft`
 - 训练真入口仍然是 CLI
 - Web UI 只负责表单、预览、状态和日志
@@ -278,7 +278,7 @@ Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内
 
 ```mermaid
 flowchart LR
-    WebUI["Gradio Web UI"] --> YAML["YAML 生成/预览"]
+    WebUI["FastAPI + Jinja2 Web UI"] --> YAML["YAML 生成/预览"]
     YAML --> CLI["scripts/train.py sft"]
     CLI --> Core["src/shaft 核心链路"]
     Core --> Logs["日志 / 状态 / 产物目录"]
