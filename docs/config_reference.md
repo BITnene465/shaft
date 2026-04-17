@@ -103,11 +103,15 @@
   - `vision_tower`
   - `aligner`
   - `generator`
+- `groups` 的匹配采用“最具体前缀优先”。
+  - 例如 `language_model=("model",)` 且 `vision_tower=("model.visual",)` 时，
+    `model.visual.*` 会归到 `vision_tower`，不会被 `language_model` 误伤。
 - `prefixes` / `regex` 用于冻结。
 - `trainable_prefixes` / `trainable_regex` 用于显式解冻，优先级高于冻结规则。
 
 执行语义：
 
+- 训练时会先把上述配置解析为一份 `resolved finetune plan`，后续训练执行与 adapter 导入校验都消费这份计划。
 - `full`
   - 先默认全部可训练
   - 再应用冻结规则
@@ -116,6 +120,7 @@
   - 冻结规则主要作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
   - 如果显式指定 `target_modules`，则保持显式配置权威
   - `trainable override` 会额外导出为 `modules_to_save`
+    - 这里的前缀匹配以模块名为准，例如 `lm_head`、`model.visual.merger`
   - 这类 adapter checkpoint 仍然是 PEFT 目录；如果后续部署后端只接受 full HF model，需要先 merge
 
 ## 4. `data`

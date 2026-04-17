@@ -150,6 +150,7 @@
 - `build_model_meta()`
 - `build_model_tokenizer_processor()`
 - `apply_finetune_strategy()`
+- `build_resolved_finetune_plan()`
 - `build_freeze_plan()`
 - `apply_full_freeze()`
 - `resolve_adapter_target_modules()`
@@ -175,8 +176,12 @@
   - `aligner`
   - `generator`
 - `src/shaft/model/freeze.py` 统一执行冻结逻辑：
-  - `full` 模式下改 `requires_grad`
-  - `lora / dora / qlora` 模式下过滤自动展开的 adapter target，并导出 `modules_to_save`
+  - 作为低层规则工具，负责 group/prefix/regex 匹配
+  - 结构分组匹配采用最具体前缀优先，例如 `model.visual.*` 会优先归到 `vision_tower`，不会被更宽的 `language_model=model` 误伤
+- `src/shaft/model/finetune_plan.py` 是冻结与 adapter 语义的单一真源：
+  - 解析 full 模式下真实可训练参数集合
+  - 解析 adapter 模式下真实 `target_modules / modules_to_save`
+  - 产出可用于训练执行与导入校验的 `peft signature`
 - `src/shaft/model/builder.py` 在 `init_from_checkpoint` 为 adapter 时，会校验：
   - `target_modules`
   - `modules_to_save`

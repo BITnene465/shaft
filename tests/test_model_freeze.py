@@ -20,6 +20,8 @@ from shaft.model.freeze import (
     resolve_adapter_modules_to_save,
     resolve_adapter_target_modules,
 )
+from shaft.model.qwen3vl import QWEN3VL_META
+from shaft.model.smoke_vlm import SMOKE_VLM_META
 
 
 class _TinyFreezeModel(torch.nn.Module):
@@ -68,6 +70,57 @@ def test_full_mode_freeze_group_disables_vision_tower_parameters() -> None:
     assert "vision_tower.0.bias" not in trainable
     assert "language_model.0.weight" in trainable
     assert "aligner.weight" in trainable
+
+
+def test_model_module_groups_resolve_most_specific_prefix() -> None:
+    groups = ModelModuleGroups(
+        language_model=("model",),
+        vision_tower=("model.visual",),
+        aligner=("model.visual.merger",),
+        generator=("lm_head",),
+    )
+
+    assert groups.resolve_group_for_name("model.layers.0.self_attn.q_proj.weight") == "language_model"
+    assert groups.resolve_group_for_name("model.visual.blocks.0.attn.q_proj.weight") == "vision_tower"
+    assert groups.resolve_group_for_name("model.visual.merger.mlp.0.weight") == "aligner"
+    assert groups.resolve_group_for_name("lm_head.weight") == "generator"
+    assert groups.resolve_group_for_name("model.visualish.proj.weight") == "language_model"
+
+
+def test_qwen_module_groups_do_not_freeze_visual_paths_when_language_model_group_is_selected() -> None:
+    adapter = QWEN3VL_META.resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
+    plan = build_freeze_plan(
+        model_adapter=adapter,
+        finetune=FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["language_model"])),
+    )
+
+    assert plan.should_train_name("model.layers.0.self_attn.q_proj.weight") is False
+    assert plan.should_train_name("model.visual.blocks.0.attn.q_proj.weight") is True
+    assert plan.should_train_name("model.visual.merger.mlp.0.weight") is True
+    assert plan.should_train_name("lm_head.weight") is True
+
+
+def test_qwen_module_groups_do_not_fold_aligner_into_vision_tower() -> None:
+    adapter = QWEN3VL_META.resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
+    plan = build_freeze_plan(
+        model_adapter=adapter,
+        finetune=FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["vision_tower"])),
+    )
+
+    assert plan.should_train_name("model.visual.blocks.0.attn.q_proj.weight") is False
+    assert plan.should_train_name("model.visual.merger.mlp.0.weight") is True
+
+
+def test_smoke_module_groups_match_real_module_prefixes() -> None:
+    adapter = SMOKE_VLM_META.resolve_adapter(model_name_or_path="models/smoke-vlm")
+    plan = build_freeze_plan(
+        model_adapter=adapter,
+        finetune=FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["language_model"])),
+    )
+
+    assert plan.should_train_name("embed_tokens.weight") is False
+    assert plan.should_train_name("proj.weight") is False
+    assert plan.should_train_name("lm_head.weight") is True
 
 
 def test_full_mode_trainable_prefix_override_wins_last() -> None:

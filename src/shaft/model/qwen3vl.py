@@ -8,7 +8,8 @@ from transformers import AutoModelForImageTextToText, AutoModelForVision2Seq, Au
 
 from shaft.config import RuntimeConfig
 
-from .finetune import apply_finetune_strategy, make_bnb_4bit_config
+from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
+from .finetune_plan import build_resolved_finetune_plan
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
 from .types import (
@@ -77,7 +78,6 @@ class Qwen3VLLoader(ModelLoader):
         model_name = config.model.model_name_or_path
         resolved_dtype = _resolve_dtype(config.model.torch_dtype)
         finetune = config.model.finetune
-        finetune.target_modules = model_adapter.resolve_target_modules(finetune.target_modules)
         common_kwargs = {
             "trust_remote_code": bool(config.model.trust_remote_code),
             "dtype": resolved_dtype,
@@ -116,7 +116,9 @@ class Qwen3VLLoader(ModelLoader):
             tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=config.model.trust_remote_code)
         if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = apply_finetune_strategy(model, finetune, model_adapter=model_adapter)
+        finetune_plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)
+        model = apply_resolved_finetune_plan(model, finetune_plan, finetune=finetune)
+        setattr(model, "_shaft_finetune_plan", finetune_plan)
         model_info = model_adapter.build_model_info(
             torch_dtype=resolved_dtype,
             max_model_len=getattr(getattr(model, "config", None), "max_position_embeddings", None),
@@ -130,4 +132,5 @@ class Qwen3VLLoader(ModelLoader):
             model_adapter=model_adapter,
             model_info=model_info,
             template=template,
+            finetune_plan=finetune_plan,
         )

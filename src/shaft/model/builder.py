@@ -42,6 +42,17 @@ def _normalize_name_list(value) -> list[str]:
     return []
 
 
+def _expected_adapter_names_from_artifacts(artifacts: ModelArtifacts) -> tuple[list[str] | None, list[str] | None]:
+    finetune_plan = getattr(artifacts, "finetune_plan", None)
+    if finetune_plan is None or getattr(finetune_plan, "adapter_plan", None) is None:
+        return None, None
+    adapter_plan = finetune_plan.adapter_plan
+    return (
+        list(getattr(adapter_plan, "resolved_target_modules", ()) or ()),
+        list(getattr(adapter_plan, "modules_to_save", ()) or ()),
+    )
+
+
 def _resolve_default_peft_config(model: PeftModel):
     peft_config = getattr(model, "peft_config", None)
     if isinstance(peft_config, dict):
@@ -137,11 +148,13 @@ def build_model_tokenizer_processor(
         artifacts = _build_artifacts_from_runtime_config(config, model_meta=model_meta)
         if not isinstance(artifacts.model, PeftModel):
             raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
-        peft_config = _resolve_default_peft_config(artifacts.model)
-        expected_target_modules = _normalize_name_list(
-            getattr(peft_config, "target_modules", config.model.finetune.target_modules)
-        )
-        expected_modules_to_save = _normalize_name_list(getattr(peft_config, "modules_to_save", None))
+        expected_target_modules, expected_modules_to_save = _expected_adapter_names_from_artifacts(artifacts)
+        if expected_target_modules is None:
+            peft_config = _resolve_default_peft_config(artifacts.model)
+            expected_target_modules = _normalize_name_list(
+                getattr(peft_config, "target_modules", config.model.finetune.target_modules)
+            )
+            expected_modules_to_save = _normalize_name_list(getattr(peft_config, "modules_to_save", None))
         _validate_adapter_compatibility(
             config,
             adapter_cfg,

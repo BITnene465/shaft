@@ -155,11 +155,17 @@ sequenceDiagram
 ### 5.3 冻结边界
 
 - 冻结规则统一落在 `model.finetune.freeze` 与 `src/shaft/model/freeze.py`。
+- `src/shaft/model/finetune_plan.py` 负责把：
+  - `model.finetune`
+  - `ModelModuleGroups`
+  - 模型实际参数/模块结构
+  解析成单一的 `resolved finetune plan`
 - `ModelModuleGroups` 负责声明模型族结构分组：
   - `language_model`
   - `vision_tower`
   - `aligner`
   - `generator`
+  - 分组匹配采用最具体前缀优先，而不是简单宽前缀命中
 - `full` 模式的冻结语义：
   - 先默认全部可训练
   - 再应用冻结规则
@@ -168,6 +174,7 @@ sequenceDiagram
   - 仅作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
   - 显式 `target_modules` 保持权威
   - `trainable override` 会额外导出为 `modules_to_save`
+- 训练执行、adapter 导入兼容性校验、后续导出语义都应消费同一份 `resolved finetune plan`，避免多处重复推导
 
 ## 6. 推理主链
 

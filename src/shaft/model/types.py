@@ -12,6 +12,14 @@ def _dedupe_non_empty(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
 
 
+def _matches_group_prefix(name: str, prefix: str) -> bool:
+    normalized_name = str(name).strip()
+    normalized_prefix = str(prefix).strip()
+    return bool(normalized_prefix) and (
+        normalized_name == normalized_prefix or normalized_name.startswith(f"{normalized_prefix}.")
+    )
+
+
 def _missing_requires(requires: tuple[str, ...]) -> list[str]:
     missing: list[str] = []
     for requirement in requires:
@@ -48,6 +56,23 @@ class ModelModuleGroups:
         if normalized not in {"language_model", "vision_tower", "aligner", "generator"}:
             raise KeyError(f"Unknown model module group: {group_name!r}")
         return getattr(self, normalized)
+
+    def resolve_group_for_name(self, name: str) -> str | None:
+        normalized_name = str(name).strip()
+        if not normalized_name:
+            return None
+
+        best_group: str | None = None
+        best_prefix_len = -1
+        for group_name in ("language_model", "vision_tower", "aligner", "generator"):
+            for prefix in self.prefixes_for_group(group_name):
+                if not _matches_group_prefix(normalized_name, prefix):
+                    continue
+                prefix_len = len(prefix)
+                if prefix_len > best_prefix_len:
+                    best_group = group_name
+                    best_prefix_len = prefix_len
+        return best_group
 
 
 @dataclass(frozen=True)
@@ -358,3 +383,4 @@ class ModelArtifacts:
     model_adapter: ShaftModelAdapter
     model_info: ModelInfo
     template: object
+    finetune_plan: object | None = None

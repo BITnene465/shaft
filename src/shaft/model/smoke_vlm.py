@@ -14,7 +14,8 @@ from transformers.modeling_outputs import CausalLMOutput
 
 from shaft.config import RuntimeConfig
 
-from .finetune import apply_finetune_strategy
+from .finetune import apply_resolved_finetune_plan
+from .finetune_plan import build_resolved_finetune_plan
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
 from .types import (
@@ -220,7 +221,7 @@ SMOKE_VLM_META = ModelMeta(
     model_groups=default_model_groups("smoke-vlm", "models/smoke-vlm", template="smoke_vlm"),
     capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
     module_groups=ModelModuleGroups(
-        language_model=("emb", "proj", "fc"),
+        language_model=("embed_tokens", "proj"),
         generator=("lm_head",),
     ),
     processor_policy=build_processor_policy("no_pixel_budget"),
@@ -238,13 +239,12 @@ class SmokeVLMLoader(ModelLoader):
         model_meta: ModelMeta,
         model_adapter: ShaftModelAdapter,
     ) -> ModelArtifacts:
-        config.model.finetune.target_modules = model_adapter.resolve_target_modules(
-            config.model.finetune.target_modules
-        )
         model = SmokeVLMModel(SmokeVLMConfig())
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)
-        model = apply_finetune_strategy(model, config.model.finetune, model_adapter=model_adapter)
+        finetune_plan = build_resolved_finetune_plan(model, config.model.finetune, model_adapter=model_adapter)
+        model = apply_resolved_finetune_plan(model, finetune_plan, finetune=config.model.finetune)
+        setattr(model, "_shaft_finetune_plan", finetune_plan)
         tokenizer = SmokeTokenizer()
         processor = SmokeProcessor(tokenizer=tokenizer)
         model_info = model_adapter.build_model_info(
@@ -260,4 +260,5 @@ class SmokeVLMLoader(ModelLoader):
             model_adapter=model_adapter,
             model_info=model_info,
             template=template,
+            finetune_plan=finetune_plan,
         )

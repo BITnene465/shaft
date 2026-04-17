@@ -8,12 +8,7 @@ from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_tr
 
 from shaft.config import FinetuneConfig
 
-from .freeze import (
-    apply_full_freeze,
-    build_freeze_plan,
-    resolve_adapter_modules_to_save,
-    resolve_adapter_target_modules,
-)
+from .finetune_plan import ShaftResolvedFinetunePlan, build_resolved_finetune_plan
 from .types import ShaftModelAdapter
 
 
@@ -40,47 +35,53 @@ def summarize_finetune(model: torch.nn.Module, mode: str) -> FinetuneSummary:
     return FinetuneSummary(mode=str(mode), total_params=total, trainable_params=trainable)
 
 
+def apply_resolved_finetune_plan(
+    model: torch.nn.Module,
+    plan: ShaftResolvedFinetunePlan,
+    *,
+    finetune: FinetuneConfig,
+) -> torch.nn.Module:
+    if plan.mode == "full":
+        trainable_names = set(plan.parameter_plan.trainable_parameter_names)
+        for parameter in model.parameters():
+            parameter.requires_grad_(True)
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad_(name in trainable_names)
+        return model
+
+    if plan.mode not in {"lora", "dora", "qlora"}:
+        raise ValueError(f"Unsupported finetune mode: {plan.mode!r}")
+
+    if plan.mode == "qlora":
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
+
+    if plan.adapter_plan is None:
+        raise ValueError(f"Missing adapter finetune plan for mode={plan.mode!r}.")
+
+    peft_config = LoraConfig(
+        r=plan.adapter_plan.peft_signature.r,
+        lora_alpha=plan.adapter_plan.peft_signature.lora_alpha,
+        lora_dropout=float(finetune.lora_dropout),
+        bias=plan.adapter_plan.peft_signature.lora_bias,
+        target_modules=list(plan.adapter_plan.resolved_target_modules),
+        modules_to_save=list(plan.adapter_plan.modules_to_save),
+        task_type=TaskType.CAUSAL_LM,
+        use_dora=plan.adapter_plan.peft_signature.use_dora,
+        use_rslora=plan.adapter_plan.peft_signature.use_rslora,
+    )
+    wrapped = get_peft_model(model, peft_config)
+    return wrapped
+
+
 def apply_finetune_strategy(
     model: torch.nn.Module,
     finetune: FinetuneConfig,
     *,
     model_adapter: ShaftModelAdapter,
 ) -> torch.nn.Module:
-    mode = str(finetune.mode).strip().lower()
-    freeze_plan = build_freeze_plan(model_adapter=model_adapter, finetune=finetune)
-    if mode == "full":
-        apply_full_freeze(model, freeze_plan)
-        return model
-
-    if mode not in {"lora", "dora", "qlora"}:
-        raise ValueError(f"Unsupported finetune mode: {mode!r}")
-
-    if mode == "qlora":
-        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
-
-    resolved_target_modules = resolve_adapter_target_modules(
-        model,
-        list(finetune.target_modules),
-        plan=freeze_plan,
-    )
-    modules_to_save = resolve_adapter_modules_to_save(
-        model,
-        plan=freeze_plan,
-        target_modules=resolved_target_modules,
-    )
-
-    peft_config = LoraConfig(
-        r=int(finetune.lora_r),
-        lora_alpha=int(finetune.lora_alpha),
-        lora_dropout=float(finetune.lora_dropout),
-        bias=str(finetune.lora_bias),
-        target_modules=resolved_target_modules,
-        modules_to_save=modules_to_save,
-        task_type=TaskType.CAUSAL_LM,
-        use_dora=(mode == "dora"),
-        use_rslora=bool(finetune.use_rslora),
-    )
-    wrapped = get_peft_model(model, peft_config)
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)
+    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    setattr(wrapped, "_shaft_finetune_plan", plan)
     return wrapped
 
 

@@ -238,10 +238,12 @@ ShaftCodecResult(
 - 冻结规则和模型结构分组必须分开：
   - 规则层：`groups / prefixes / regex / trainable override`
   - 结构层：`language_model / vision_tower / aligner / generator`
+- 训练执行与 adapter 导入校验必须共用同一份 `resolved finetune plan`，不要在 `loader / builder / export` 各自重复推导 target/modules_to_save
 - `trainable_*` 优先级高于 `freeze_*`
 - `full` 与 adapter 模式的冻结语义不同：
   - `full` 真正修改 `requires_grad`
   - `lora / dora / qlora` 只过滤自动展开的 adapter target，并补 `modules_to_save`
+- 结构分组冻结必须按最具体前缀优先匹配，不能让宽前缀分组吞掉更具体的 `vision_tower / aligner / generator`
 - 不要在 `pipeline`、`trainer`、`collator` 中写冻结逻辑
 - 不要把某个模型族的模块名前缀硬编码进通用层
 ## 11. 新增导出能力

@@ -15,8 +15,16 @@ def _dedupe(values: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
 
 
+def _matches_prefix(name: str, prefix: str) -> bool:
+    normalized_name = str(name).strip()
+    normalized_prefix = str(prefix).strip()
+    return bool(normalized_prefix) and (
+        normalized_name == normalized_prefix or normalized_name.startswith(f"{normalized_prefix}.")
+    )
+
+
 def _matches_prefixes(name: str, prefixes: tuple[str, ...]) -> bool:
-    return any(name.startswith(prefix) for prefix in prefixes)
+    return any(_matches_prefix(name, prefix) for prefix in prefixes)
 
 
 def _matches_regex(name: str, pattern: re.Pattern[str] | None) -> bool:
@@ -34,6 +42,8 @@ class ShaftFreezeSpec:
 
 @dataclass(frozen=True)
 class ShaftFreezePlan:
+    module_groups: ModelModuleGroups
+    frozen_groups: tuple[str, ...] = ()
     frozen_prefixes: tuple[str, ...] = ()
     frozen_regex: str | None = None
     trainable_prefixes: tuple[str, ...] = ()
@@ -46,7 +56,12 @@ class ShaftFreezePlan:
         return re.compile(self.trainable_regex) if self.trainable_regex else None
 
     def matches_frozen_rule(self, name: str) -> bool:
-        return _matches_prefixes(name, self.frozen_prefixes) or _matches_regex(name, self.compile_frozen_regex())
+        resolved_group = self.module_groups.resolve_group_for_name(name)
+        return (
+            (resolved_group is not None and resolved_group in self.frozen_groups)
+            or _matches_prefixes(name, self.frozen_prefixes)
+            or _matches_regex(name, self.compile_frozen_regex())
+        )
 
     def matches_trainable_override(self, name: str) -> bool:
         return _matches_prefixes(name, self.trainable_prefixes) or _matches_regex(
@@ -88,11 +103,10 @@ def build_freeze_spec(finetune: FinetuneConfig) -> ShaftFreezeSpec:
 
 def build_freeze_plan(*, model_adapter: ShaftModelAdapter, finetune: FinetuneConfig) -> ShaftFreezePlan:
     spec = build_freeze_spec(finetune)
-    group_prefixes: list[str] = []
-    for group_name in spec.groups:
-        group_prefixes.extend(model_adapter.module_groups.prefixes_for_group(group_name))
-    frozen_prefixes = _dedupe(group_prefixes + list(spec.prefixes))
+    frozen_prefixes = _dedupe(list(spec.prefixes))
     return ShaftFreezePlan(
+        module_groups=model_adapter.module_groups,
+        frozen_groups=spec.groups,
         frozen_prefixes=frozen_prefixes,
         frozen_regex=spec.regex,
         trainable_prefixes=spec.trainable_prefixes,
