@@ -16,6 +16,7 @@ from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.model import build_model_meta
 from transformers import TrainingArguments
+from shaft.data import SFTRecord, SFTDataset, ShaftMixedIndexSampler
 
 from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_cross_entropy, causal_lm_loss
 from shaft.training.muon import Muon
@@ -216,6 +217,43 @@ def test_shaft_trainer_uses_custom_components() -> None:
     loss = trainer.compute_loss(model, inputs)
     assert isinstance(loss, torch.Tensor)
     assert "loss_scale" not in (model.last_forward_kwargs or {})
+
+
+def test_shaft_trainer_uses_custom_train_sampler() -> None:
+    model = _TinyModel()
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_trainer_sampler",
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+    records = {
+        "a": [SFTRecord(image_path="/tmp/a.png", target_text="{}", dataset_name="a", sample_id="a0")],
+        "b": [SFTRecord(image_path="/tmp/b.png", target_text="{}", dataset_name="b", sample_id="b0")],
+    }
+    sampler = ShaftMixedIndexSampler(
+        records,
+        {"a": 1.0, "b": 1.0},
+        strategy="concat",
+        refresh_mode="epoch_refresh",
+        shuffle=False,
+        seed=3,
+        rank=0,
+        world_size=1,
+    )
+    train_dataset = SFTDataset(records, mixed_length=len(sampler), mixed_indices=sampler.current_indices)
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        eval_dataset=[],
+        train_sampler=sampler,
+        data_collator=lambda batch: batch,
+    )
+
+    train_dataloader = trainer.get_train_dataloader()
+    assert trainer._get_train_sampler(train_dataset) is sampler
+    assert train_dataloader.batch_sampler.sampler is sampler
 
 
 def test_shaft_trainer_evaluate_merges_online_metrics() -> None:

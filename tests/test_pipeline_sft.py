@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 
 from shaft.config import RuntimeConfig, load_config
-from shaft.data import SFTDataset
+from shaft.data import SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.pipeline import run_sft
 from shaft.template import build_template
@@ -188,6 +188,7 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     fake_train_dataset = object()
     fake_eval_dataset = object()
+    fake_train_sampler = object()
     captured = {}
 
     class _FakeDataCenter:
@@ -195,9 +196,13 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
             captured["data_config"] = data_config
             captured["seed"] = seed
 
-        def build_dataset_pair(self, dataset_cls):
+        def build_dataset_bundle(self, dataset_cls):
             captured["dataset_cls"] = dataset_cls
-            return fake_train_dataset, fake_eval_dataset
+            return ShaftDatasetBundle(
+                train_dataset=fake_train_dataset,
+                eval_dataset=fake_eval_dataset,
+                train_sampler=fake_train_sampler,
+            )
 
     with patch("shaft.pipeline.sft.ShaftDataCenter", _FakeDataCenter):
         with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
@@ -220,7 +225,49 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
     assert captured["seed"] == config.experiment.seed
     assert captured["dataset_cls"] is SFTDataset
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
+
+
+def test_run_sft_wires_data_center_train_sampler(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    fake_train_dataset = object()
+    fake_eval_dataset = object()
+    fake_train_sampler = object()
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed):
+            _ = data_config, seed
+
+        def build_dataset_bundle(self, dataset_cls):
+            _ = dataset_cls
+            return ShaftDatasetBundle(
+                train_dataset=fake_train_dataset,
+                eval_dataset=fake_eval_dataset,
+                train_sampler=fake_train_sampler,
+            )
+
+    with patch("shaft.pipeline.sft.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+            mocked_builder.return_value = type(
+                "Artifacts",
+                (),
+                {
+                    "model": _FakeModel(),
+                    "tokenizer": _FakeTokenizer(),
+                    "processor": _FakeProcessor(),
+                    "model_meta": build_model_meta("smoke_vlm"),
+                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                    "template": build_template("smoke_vlm"),
+                },
+            )()
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_sft(config)
+
+    assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
+    callbacks = _FakeTrainer.last_kwargs.get("callbacks")
+    assert callbacks is not None
+    assert all(callback.__class__.__name__ != "ShaftMixRefreshCallback" for callback in callbacks)
 
 
 def test_run_sft_wires_online_eval_runner(tmp_path: Path) -> None:

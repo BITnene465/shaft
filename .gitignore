@@ -1,5 +1,4 @@
 .DS_Store
-.codex
 .env
 __pycache__/
 *.pyc
@@ -29,4 +28,4 @@ old/
 experimental/
 /scripts/acc_exp/
 /deployment/
-*-test/
+/*-test/

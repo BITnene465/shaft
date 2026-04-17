@@ -26,6 +26,7 @@ class DataConfig:
     catalog_names: list[str] = field(default_factory=list)
     datasets: list[DatasetSourceConfig] = field(default_factory=list)
     mix_strategy: str = "interleave_under"
+    mix_refresh: str = "static"
     num_workers: int = 4
     pin_memory: bool = True
     persistent_workers: bool = True

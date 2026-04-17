@@ -34,6 +34,7 @@ algorithm:
   name: SFT
 data:
   mix_strategy: INTERLEAVE_OVER
+  mix_refresh: EPOCH_REFRESH
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -53,6 +54,7 @@ model:
     cfg = load_config(config_path)
     assert cfg.algorithm.name == "sft"
     assert cfg.data.mix_strategy == "interleave_over"
+    assert cfg.data.mix_refresh == "epoch_refresh"
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
     assert cfg.model.finetune.mode == "dora"
@@ -73,6 +75,21 @@ train:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported train.loss_scale"):
+        load_config(config_path)
+
+
+def test_invalid_mix_refresh_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  mix_refresh: every_step
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported data.mix_refresh"):
         load_config(config_path)
 
 

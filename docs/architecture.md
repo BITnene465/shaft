@@ -122,7 +122,7 @@ sequenceDiagram
     Config-->>CLI: RuntimeConfig
     CLI->>Pipeline: run_sft() / run_rlhf()
     Pipeline->>Model: build_model_tokenizer_processor()
-    Pipeline->>Data: ShaftDataCenter.build_dataset_pair()
+    Pipeline->>Data: ShaftDataCenter.build_dataset_bundle()
     Pipeline->>Algo: algorithm.build_trainer(...)
     Algo-->>Pipeline: Trainer
     Pipeline->>Trainer: train()
@@ -319,6 +319,10 @@ flowchart LR
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
 - 通过 `ShaftDatasetMeta -> BaseDataSource -> ShaftDataCenter` 统一多数据源、元信息、增强和 mixing。
+- train split 的 mixing 当前支持两种刷新语义：
+  - `static`
+  - `epoch_refresh`
+- train split 的 mixing 通过 `ShaftMixedIndexSampler` 在 sampler 层执行；`epoch_refresh` 通过 sampler 的 `set_epoch()` 在 epoch 边界重建混合索引。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 

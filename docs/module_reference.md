@@ -64,6 +64,7 @@
 - `src/shaft/data/dataset.py`
 - `src/shaft/data/collator.py`
 - `src/shaft/data/mixing.py`
+- `src/shaft/data/sampler.py`
 - `src/shaft/data/transforms.py`
 - `src/shaft/data/registry.py`
 
@@ -72,15 +73,18 @@
 - 读取多数据源。
 - 做离线/在线增强。
 - 做样本级 mixing。
-- 产出 `Dataset` 和 `Collator`。
+- 支持 train split 的 `static / epoch_refresh` sampler 刷新。
+- 产出 `Dataset`、`train sampler` 和 `Collator`。
 
 ### 关键类
 
 - `ShaftDataCenter`
+- `ShaftDatasetBundle`
 - `ShaftPreparedRecords`
 - `ShaftDatasetMeta`
 - `BaseDataSource`
 - `SFTRecord` / `DPORecord` / `PPORecord`
+- `ShaftMixedIndexSampler`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator`
 - `MixedDatasetBuilder`
@@ -89,6 +93,7 @@
 
 - `build_data_source()`
 - `build_dataset_metas()`
+- `build_dataset_bundle()`
 - `load_jsonl_sft_records()`
 - `load_jsonl_dpo_records()`
 - `load_jsonl_ppo_records()`
@@ -100,8 +105,9 @@
 - 输入：`DataConfig`、JSONL 文件、图像路径
 - 输出：
   - `ShaftDatasetMeta`
-  - 记录列表
+  - 训练记录池
   - `Dataset`
+  - `train sampler`
   - batch tensor 字典
 
 ### 开发边界
@@ -112,7 +118,8 @@
 补充说明：
 
 - `ShaftDatasetMeta.use_for_eval` 用于表达“该数据集是否参与验证集构建与在线 eval”。
-- `ShaftDataCenter` 会始终构建训练 records，但只为 `use_for_eval=true` 的数据集加载 `val` split。
+- `ShaftDataCenter` 会始终构建训练记录池，但只为 `use_for_eval=true` 的数据集加载 `val` split。
+- 训练集 mixing 不再在 `data center` 中物化为固定大列表，而是通过 `ShaftMixedIndexSampler` 在 train dataloader 层完成。
 
 ## 3. `model`
 

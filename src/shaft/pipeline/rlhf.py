@@ -75,7 +75,9 @@ class ShaftRLHFPipeline:
         )
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         dataset_cls = DPODataset if algorithm_name == "dpo" else PPODataset
-        train_dataset, eval_dataset = data_center.build_dataset_pair(dataset_cls)
+        dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
+        train_dataset = dataset_bundle.train_dataset
+        eval_dataset = dataset_bundle.eval_dataset
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -104,6 +106,7 @@ class ShaftRLHFPipeline:
             args=self.build_training_args(),
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
+            train_sampler=dataset_bundle.train_sampler,
             processing_class=processing_class,
             data_collator=self._build_collator(algorithm_name, artifacts=artifacts),
             callbacks=callbacks_or_none,

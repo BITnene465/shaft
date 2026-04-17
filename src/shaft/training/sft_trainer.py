@@ -14,9 +14,10 @@ from .loss import build_loss
 from .optimizer import build_optimizer
 from .scheduler import build_scheduler
 from .online_eval import ShaftOnlineEvalRunner
+from .train_sampler_mixin import ShaftTrainSamplerMixin
 
 
-class ShaftSFTTrainer(Trainer):
+class ShaftSFTTrainer(ShaftTrainSamplerMixin, Trainer):
     def __init__(
         self,
         *args: Any,

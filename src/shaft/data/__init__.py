@@ -1,8 +1,16 @@
 from .collator import DPOCollator, PPOCollator, SFTCollator
-from .center import ShaftDataCenter, ShaftPreparedRecords
-from .dataset import DPODataset, DPORecord, PPODataset, PPORecord, SFTDataset, SFTRecord
+from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
+from .dataset import (
+    DPODataset,
+    DPORecord,
+    PPODataset,
+    PPORecord,
+    SFTDataset,
+    SFTRecord,
+)
 from .meta import ShaftDatasetMeta, build_dataset_metas
 from .mixing import MixedDatasetBuilder
+from .sampler import ShaftMixedIndexSampler
 from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
 from .sources import (
     build_data_source,
@@ -30,6 +38,7 @@ __all__ = [
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
+    "ShaftDatasetBundle",
     "ShaftDatasetMeta",
     "build_offline_pipeline",
     "build_online_pipeline",
@@ -38,6 +47,7 @@ __all__ = [
     "DATA_SOURCE_REGISTRY",
     "MIX_STRATEGY_REGISTRY",
     "ShaftDataCenter",
+    "ShaftMixedIndexSampler",
     "ShaftPreparedRecords",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",

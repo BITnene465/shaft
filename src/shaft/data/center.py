@@ -6,8 +6,8 @@ from typing import Any, Generic, TypeVar
 
 from shaft.config import DataConfig
 
+from .sampler import ShaftMixedIndexSampler
 from .meta import build_dataset_metas
-from .mixing import MixedDatasetBuilder
 from .sources import build_data_source
 from .transforms import build_offline_pipeline, build_online_pipeline
 
@@ -18,15 +18,36 @@ OnlineSampleTransform = Callable[[dict[str, Any]], dict[str, Any]]
 
 @dataclass
 class ShaftPreparedRecords(Generic[RecordT]):
-    train_records: list[RecordT]
+    train_records: Any
     val_records: list[RecordT]
     online_transforms: list[OnlineSampleTransform]
+    train_sampler: ShaftMixedIndexSampler | None = None
 
     def build_dataset_pair(self, dataset_cls: type[DatasetT]) -> tuple[DatasetT, DatasetT]:
-        return (
-            dataset_cls(self.train_records, online_transforms=self.online_transforms),
-            dataset_cls(self.val_records, online_transforms=self.online_transforms),
+        bundle = self.build_dataset_bundle(dataset_cls)
+        return bundle.train_dataset, bundle.eval_dataset
+
+    def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
+        train_length = len(self.train_sampler) if self.train_sampler is not None else None
+        train_indices = list(self.train_sampler.current_indices) if self.train_sampler is not None else None
+        return ShaftDatasetBundle(
+            train_dataset=dataset_cls(
+                self.train_records,
+                online_transforms=self.online_transforms,
+                mixed_length=train_length,
+                mixed_indices=train_indices,
+                train_sampler=self.train_sampler,
+            ),
+            eval_dataset=dataset_cls(self.val_records, online_transforms=self.online_transforms),
+            train_sampler=self.train_sampler,
         )
+
+
+@dataclass
+class ShaftDatasetBundle(Generic[DatasetT]):
+    train_dataset: DatasetT
+    eval_dataset: DatasetT
+    train_sampler: ShaftMixedIndexSampler | None = None
 
 
 class ShaftDataCenter:
@@ -53,28 +74,29 @@ class ShaftDataCenter:
                 dataset_meta.online_transforms
             )
 
-        mixer = MixedDatasetBuilder(seed=self.seed)
-        mixed_indices = mixer.build_indices(
+        train_sampler = ShaftMixedIndexSampler(
             records_by_dataset_train,
             weights,
             strategy=self.data_config.mix_strategy,
+            refresh_mode=self.data_config.mix_refresh,
             shuffle=self.data_config.shuffle,
+            seed=self.seed,
         )
-        train_records = [
-            records_by_dataset_train[dataset_name][row_index]
-            for dataset_name, row_index in mixed_indices
-        ]
         val_records: list[Any] = []
         for dataset_name in sorted(records_by_dataset_val):
             val_records.extend(records_by_dataset_val[dataset_name])
         return ShaftPreparedRecords(
-            train_records=train_records,
+            train_records=records_by_dataset_train,
             val_records=val_records,
             online_transforms=[self._build_dataset_aware_online_transform(dataset_online_pipelines)],
+            train_sampler=train_sampler,
         )
 
     def build_dataset_pair(self, dataset_cls: type[DatasetT]) -> tuple[DatasetT, DatasetT]:
         return self.prepare_records().build_dataset_pair(dataset_cls)
+
+    def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
+        return self.prepare_records().build_dataset_bundle(dataset_cls)
 
     @staticmethod
     def _build_dataset_aware_online_transform(

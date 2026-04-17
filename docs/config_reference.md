@@ -133,6 +133,7 @@
 - `catalog_names`
 - `datasets`
 - `mix_strategy`
+- `mix_refresh`
 - `num_workers`
 - `pin_memory`
 - `persistent_workers`
@@ -169,6 +170,11 @@
 - `DatasetSourceConfig` 只描述配置输入；进入数据主链前，会先被解析成 `ShaftDatasetMeta`。
 - `use_for_eval=false` 表示该数据集只参与训练 mixing，不参与验证集构建，也不要求提供 `val_path/val_paths`。
 - 当 `eval.enabled=true` 时，至少要有一个 `enabled=true` 且 `use_for_eval=true` 的数据集。
+- `mix_refresh` 当前支持：
+  - `static`
+  - `epoch_refresh`
+- `static` 会在训练启动前构建一次 train sampler，整个 run 复用同一份混合索引。
+- `epoch_refresh` 会在每个 epoch 通过 train sampler 重建训练集 mixing 索引；验证集仍保持静态 concat。
 
 补充说明：
 

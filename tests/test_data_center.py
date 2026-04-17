@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from shaft.config import DatasetSourceConfig, RuntimeConfig
-from shaft.data import DPODataset, SFTDataset, ShaftDataCenter
+from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftMixedIndexSampler
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
 _MARK_DATASET_TRANSFORM = "mark_dataset_for_data_center_tests"
@@ -76,7 +76,9 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     ]
 
     center = ShaftDataCenter(config.data, seed=config.experiment.seed)
-    train_dataset, val_dataset = center.build_dataset_pair(SFTDataset)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+    train_dataset = dataset_bundle.train_dataset
+    val_dataset = dataset_bundle.eval_dataset
 
     assert len(train_dataset) == 3
     assert len(val_dataset) == 2
@@ -86,6 +88,9 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert sample_a["extra"]["marked_dataset"] == "ds_a"
     assert sample_b["dataset_name"] == "ds_b"
     assert "marked_dataset" not in sample_b["extra"]
+    assert isinstance(train_dataset.records, dict)
+    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
+    assert dataset_bundle.train_sampler.refresh_mode == "static"
 
 
 def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
@@ -125,7 +130,9 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     ]
 
     center = ShaftDataCenter(config.data, seed=config.experiment.seed)
-    train_dataset, val_dataset = center.build_dataset_pair(DPODataset)
+    dataset_bundle = center.build_dataset_bundle(DPODataset)
+    train_dataset = dataset_bundle.train_dataset
+    val_dataset = dataset_bundle.eval_dataset
 
     assert len(train_dataset) == 1
     assert len(val_dataset) == 1
@@ -168,10 +175,56 @@ def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     ]
 
     center = ShaftDataCenter(config.data, seed=config.experiment.seed)
-    train_dataset, val_dataset = center.build_dataset_pair(SFTDataset)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+    train_dataset = dataset_bundle.train_dataset
+    val_dataset = dataset_bundle.eval_dataset
 
     assert len(train_dataset) == 2
     assert len(val_dataset) == 1
     assert train_dataset[0]["dataset_name"] == "eval_ds"
     assert train_dataset[1]["dataset_name"] == "train_only_ds"
     assert val_dataset[0]["dataset_name"] == "eval_ds"
+
+
+def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_a = _write_jsonl(
+        tmp_path / "train_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": f"a{i}"} for i in range(4)],
+    )
+    train_b = _write_jsonl(
+        tmp_path / "train_b.jsonl",
+        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": f"b{i}"} for i in range(4)],
+    )
+    val_a = _write_jsonl(
+        tmp_path / "val_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+    )
+    val_b = _write_jsonl(
+        tmp_path / "val_b.jsonl",
+        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+    )
+
+    config = RuntimeConfig()
+    config.experiment.seed = 5
+    config.data.mix_strategy = "concat"
+    config.data.mix_refresh = "epoch_refresh"
+    config.data.shuffle = True
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
+        DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+    train_dataset = dataset_bundle.train_dataset
+
+    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
+    assert dataset_bundle.train_sampler.refresh_mode == "epoch_refresh"
+    first = list(dataset_bundle.train_sampler.current_indices)
+    first_sample = train_dataset[0]["sample_id"]
+    dataset_bundle.train_sampler.set_epoch(1)
+    second = list(dataset_bundle.train_sampler.current_indices)
+    second_sample = train_dataset[0]["sample_id"]
+    assert first != second
+    assert first_sample != second_sample

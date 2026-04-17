@@ -5,6 +5,7 @@ import re
 from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
+_MIX_REFRESH_MODES = {"static", "epoch_refresh"}
 _ALGORITHMS = {"sft", "dpo", "ppo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
 _LOSS_NAMES = {"auto", "causal_lm"}
@@ -41,6 +42,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
         raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
+    config.data.mix_refresh = str(config.data.mix_refresh).strip().lower()
+    if config.data.mix_refresh not in _MIX_REFRESH_MODES:
+        raise ValueError(f"Unsupported data.mix_refresh={config.data.mix_refresh!r}.")
     config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None

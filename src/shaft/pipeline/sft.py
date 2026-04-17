@@ -61,7 +61,9 @@ class ShaftSFTPipeline:
             init_from_checkpoint=config.train.init_from_checkpoint,
         )
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
-        train_dataset, eval_dataset = data_center.build_dataset_pair(SFTDataset)
+        dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
+        train_dataset = dataset_bundle.train_dataset
+        eval_dataset = dataset_bundle.eval_dataset
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -109,6 +111,7 @@ class ShaftSFTPipeline:
             args=self.build_training_args(),
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
+            train_sampler=dataset_bundle.train_sampler,
             processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,

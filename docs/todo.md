@@ -74,3 +74,19 @@
 说明：
 - 当前导出/合并只接受 **HF/PEFT 标准目录**。
 - 不引入额外中间格式，不生成自定义 metadata 目录，不复制已有 full checkpoint。
+
+## 4. 数据 Mixing 后续增强
+
+- 当前已支持：
+  - `static`
+  - `epoch_refresh`
+- 暂不在这一轮展开：
+  - staged / schedule-based mixing
+  - feedback-driven adaptive mixing
+  - mixing policy / state / sampler 进一步拆层
+  - 基于任务反馈的权重更新稳定化（EMA、最小步长、冷启动阶段）
+  - batch 级长度分桶与 prompt/image 复杂度联合采样
+
+说明：
+- 当前先把 `static / epoch_refresh` 的 sampler 主路径做稳。
+- 后续如果要继续投入，应优先把 mixing state / policy / sampler 明确拆层，而不是在 `data center` 里继续堆条件分支。

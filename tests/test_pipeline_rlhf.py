@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.data import DPODataset
+from shaft.data import DPODataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.pipeline import run_rlhf
 from shaft.template import build_template
@@ -212,6 +212,7 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     fake_train_dataset = object()
     fake_eval_dataset = object()
+    fake_train_sampler = object()
     captured = {}
 
     class _FakeDataCenter:
@@ -219,9 +220,13 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
             captured["data_config"] = data_config
             captured["seed"] = seed
 
-        def build_dataset_pair(self, dataset_cls):
+        def build_dataset_bundle(self, dataset_cls):
             captured["dataset_cls"] = dataset_cls
-            return fake_train_dataset, fake_eval_dataset
+            return ShaftDatasetBundle(
+                train_dataset=fake_train_dataset,
+                eval_dataset=fake_eval_dataset,
+                train_sampler=fake_train_sampler,
+            )
 
     with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
         with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
@@ -244,4 +249,5 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert captured["seed"] == cfg.experiment.seed
     assert captured["dataset_cls"] is DPODataset
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None

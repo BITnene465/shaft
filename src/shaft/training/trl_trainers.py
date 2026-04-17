@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from .train_sampler_mixin import ShaftTrainSamplerMixin
+
 os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
 
 try:
@@ -22,7 +24,7 @@ else:
     _PPO_IMPORT_ERROR = None
 
 
-class ShaftDPOTrainer(_TRLDPOTrainer):
+class ShaftDPOTrainer(ShaftTrainSamplerMixin, _TRLDPOTrainer):
     """TRL DPOTrainer wrapper with Shaft naming."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -33,7 +35,7 @@ class ShaftDPOTrainer(_TRLDPOTrainer):
         super().__init__(*args, **kwargs)
 
 
-class ShaftPPOTrainer(_TRLPPOTrainer):
+class ShaftPPOTrainer(ShaftTrainSamplerMixin, _TRLPPOTrainer):
     """TRL PPOTrainer wrapper with Shaft naming."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
