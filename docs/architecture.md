@@ -92,7 +92,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | `config` | 配置 schema、YAML 加载、catalog 展开、严格校验 | `RuntimeConfig`、`load_config()`、`normalize_runtime_config()` | 训练循环、模型构建、JSONL 解析 |
 | `data` | 数据元信息、数据源、记录结构、增强、mixing、dataset、collator | `ShaftDatasetMeta`、`ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
-| `model` | 模型族元信息、HF 加载、PEFT 包装、processor/peft policy | `ModelMeta`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
+| `model` | 模型族元信息、HF 加载、PEFT 包装、processor/peft policy、冻结执行计划 | `ModelMeta`、`ModelModuleGroups`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
 | `template` | 消息规范化、chat template、decode 约定、训练 supervision plan | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
 | `algorithms` | 构建 SFT/DPO/PPO trainer 与算法专属辅助对象 | `SFTAlgorithm`、`DPOAlgorithm`、`PPOAlgorithm` | 读取数据文件、控制 pipeline、硬编码模型族 |
 | `pipeline` | 训练主链编排和阶段调度 | `ShaftSFTPipeline`、`ShaftRLHFPipeline`、`run_sft()`、`run_rlhf()` | 任务语义、数据格式解析、模型专属 patch |
@@ -151,6 +151,23 @@ sequenceDiagram
 2. `algorithms` 只构建 trainer，不读取 JSONL。
 3. `data` 只产出样本和 batch，不涉及 loss/optimizer。
 4. `model` 只负责模型族差异，不介入数据源路径和训练调度。
+
+### 5.3 冻结边界
+
+- 冻结规则统一落在 `model.finetune.freeze` 与 `src/shaft/model/freeze.py`。
+- `ModelModuleGroups` 负责声明模型族结构分组：
+  - `language_model`
+  - `vision_tower`
+  - `aligner`
+  - `generator`
+- `full` 模式的冻结语义：
+  - 先默认全部可训练
+  - 再应用冻结规则
+  - 最后应用 `trainable override`
+- `lora / dora / qlora` 的冻结语义：
+  - 仅作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
+  - 显式 `target_modules` 保持权威
+  - `trainable override` 会额外导出为 `modules_to_save`
 
 ## 6. 推理主链
 

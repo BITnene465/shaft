@@ -4,8 +4,18 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class FreezeConfig:
+    groups: list[str] = field(default_factory=list)
+    prefixes: list[str] = field(default_factory=list)
+    regex: str | None = None
+    trainable_prefixes: list[str] = field(default_factory=list)
+    trainable_regex: str | None = None
+
+
+@dataclass
 class FinetuneConfig:
     mode: str = "full"  # full | lora | dora | qlora
+    freeze: FreezeConfig = field(default_factory=FreezeConfig)
     target_modules: list[str] = field(default_factory=lambda: ["auto"])
     lora_r: int = 16
     lora_alpha: int = 32

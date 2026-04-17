@@ -63,6 +63,7 @@
 关键字段：
 
 - `mode`: `full | lora | dora | qlora`
+- `freeze`
 - `target_modules`
 - `lora_r`
 - `lora_alpha`
@@ -77,7 +78,45 @@
 约束：
 
 - `target_modules=["auto"]` 表示交给模型族 `peft policy` 自动解析。
+- `freeze.groups` 当前只允许：
+  - `language_model`
+  - `vision_tower`
+  - `aligner`
+  - `generator`
+- `freeze.regex` 与 `freeze.trainable_regex` 必须是合法正则。
 - `init_from_checkpoint` 与 `resume_from_checkpoint` 的兼容矩阵由 `training/checkpointing.py` 统一校验。
+
+### `model.finetune.freeze`
+
+关键字段：
+
+- `groups`
+- `prefixes`
+- `regex`
+- `trainable_prefixes`
+- `trainable_regex`
+
+说明：
+
+- `groups` 使用模型族声明的结构分组：
+  - `language_model`
+  - `vision_tower`
+  - `aligner`
+  - `generator`
+- `prefixes` / `regex` 用于冻结。
+- `trainable_prefixes` / `trainable_regex` 用于显式解冻，优先级高于冻结规则。
+
+执行语义：
+
+- `full`
+  - 先默认全部可训练
+  - 再应用冻结规则
+  - 最后应用 `trainable override`
+- `lora / dora / qlora`
+  - 冻结规则主要作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
+  - 如果显式指定 `target_modules`，则保持显式配置权威
+  - `trainable override` 会额外导出为 `modules_to_save`
+  - 这类 adapter checkpoint 仍然是 PEFT 目录；如果后续部署后端只接受 full HF model，需要先 merge
 
 ## 4. `data`
 

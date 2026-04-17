@@ -34,15 +34,33 @@ def _load_adapter_config(path: Path) -> dict:
     return payload
 
 
-def _normalize_target_modules(value) -> list[str]:
+def _normalize_name_list(value) -> list[str]:
     if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
+        return [str(value)]
+    if isinstance(value, (list, tuple, set)):
         return [str(x) for x in value]
     return []
 
 
-def _validate_adapter_compatibility(config: RuntimeConfig, adapter_config: dict[str, object], path: Path) -> None:
+def _resolve_default_peft_config(model: PeftModel):
+    peft_config = getattr(model, "peft_config", None)
+    if isinstance(peft_config, dict):
+        if "default" in peft_config:
+            return peft_config["default"]
+        if peft_config:
+            return next(iter(peft_config.values()))
+        return None
+    return peft_config
+
+
+def _validate_adapter_compatibility(
+    config: RuntimeConfig,
+    adapter_config: dict[str, object],
+    path: Path,
+    *,
+    expected_target_modules: list[str] | None = None,
+    expected_modules_to_save: list[str] | None = None,
+) -> None:
     mode = str(config.model.finetune.mode).strip().lower()
     if mode == "full":
         raise ValueError(f"init_from={path} is a PEFT adapter checkpoint, but finetune.mode is 'full'.")
@@ -70,11 +88,15 @@ def _validate_adapter_compatibility(config: RuntimeConfig, adapter_config: dict[
     if adapter_bias != expected_bias:
         raise ValueError(f"LoRA bias mismatch: adapter={adapter_bias!r}, config={expected_bias!r}.")
 
-    expected_target_modules = _normalize_target_modules(config.model.finetune.target_modules)
-    adapter_target_modules = _normalize_target_modules(adapter_config.get("target_modules"))
-    if expected_target_modules not in (["all-linear"], ["auto"]) and adapter_target_modules:
+    adapter_target_modules = _normalize_name_list(adapter_config.get("target_modules"))
+    if expected_target_modules is not None and adapter_target_modules:
         if sorted(expected_target_modules) != sorted(adapter_target_modules):
             raise ValueError("LoRA target_modules mismatch between adapter and current config.")
+
+    if expected_modules_to_save is not None:
+        adapter_modules_to_save = _normalize_name_list(adapter_config.get("modules_to_save"))
+        if sorted(expected_modules_to_save) != sorted(adapter_modules_to_save):
+            raise ValueError("LoRA modules_to_save mismatch between adapter and current config.")
 
     expected_rslora = bool(config.model.finetune.use_rslora)
     adapter_rslora = bool(adapter_config.get("use_rslora", expected_rslora))
@@ -115,6 +137,18 @@ def build_model_tokenizer_processor(
         artifacts = _build_artifacts_from_runtime_config(config, model_meta=model_meta)
         if not isinstance(artifacts.model, PeftModel):
             raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
+        peft_config = _resolve_default_peft_config(artifacts.model)
+        expected_target_modules = _normalize_name_list(
+            getattr(peft_config, "target_modules", config.model.finetune.target_modules)
+        )
+        expected_modules_to_save = _normalize_name_list(getattr(peft_config, "modules_to_save", None))
+        _validate_adapter_compatibility(
+            config,
+            adapter_cfg,
+            init_path,
+            expected_target_modules=expected_target_modules,
+            expected_modules_to_save=expected_modules_to_save,
+        )
         peft_state = load_peft_weights(str(init_path), device="cpu")
         set_peft_model_state_dict(artifacts.model, peft_state, adapter_name="default")
         return artifacts

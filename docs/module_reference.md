@@ -136,6 +136,7 @@
 
 - `ModelMeta`
 - `ModelGroup`
+- `ModelModuleGroups`
 - `ShaftModelAdapter`
 - `ModelLoader`
 - `ModelArtifacts`
@@ -149,6 +150,9 @@
 - `build_model_meta()`
 - `build_model_tokenizer_processor()`
 - `apply_finetune_strategy()`
+- `build_freeze_plan()`
+- `apply_full_freeze()`
+- `resolve_adapter_target_modules()`
 - `summarize_finetune()`
 - `build_processor_policy()`
 - `build_peft_policy()`
@@ -160,8 +164,24 @@
 
 ### 开发边界
 
-- 允许：模型族差异、PEFT 策略、processor 策略、依赖检查
+- 允许：模型族差异、PEFT 策略、processor 策略、依赖检查、冻结执行计划
 - 禁止：数据源路径、训练调度、推理 pipeline 业务语义
+
+补充说明：
+
+- `ModelModuleGroups` 负责声明模型族的结构分组：
+  - `language_model`
+  - `vision_tower`
+  - `aligner`
+  - `generator`
+- `src/shaft/model/freeze.py` 统一执行冻结逻辑：
+  - `full` 模式下改 `requires_grad`
+  - `lora / dora / qlora` 模式下过滤自动展开的 adapter target，并导出 `modules_to_save`
+- `src/shaft/model/builder.py` 在 `init_from_checkpoint` 为 adapter 时，会校验：
+  - `target_modules`
+  - `modules_to_save`
+  - `r / alpha / bias / use_rslora / use_dora`
+  与当前训练配置一致，再执行权重导入
 
 ## 4. `template`
 

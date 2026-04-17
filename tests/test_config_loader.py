@@ -76,6 +76,87 @@ train:
         load_config(config_path)
 
 
+def test_normalization_supports_freeze_groups_and_prefixes(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+model:
+  finetune:
+    freeze:
+      groups: [Vision_Tower, aligner, vision_tower]
+      prefixes: [" model.visual ", "", "model.visual"]
+      trainable_prefixes: [" lm_head ", ""]
+      regex: ".*visual.*"
+      trainable_regex: ".*lm_head.*"
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    freeze = cfg.model.finetune.freeze
+    assert freeze.groups == ["vision_tower", "aligner"]
+    assert freeze.prefixes == ["model.visual"]
+    assert freeze.trainable_prefixes == ["lm_head"]
+    assert freeze.regex == ".*visual.*"
+    assert freeze.trainable_regex == ".*lm_head.*"
+
+
+def test_invalid_freeze_group_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+model:
+  finetune:
+    freeze:
+      groups: [unknown_group]
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported model.finetune.freeze.groups"):
+        load_config(config_path)
+
+
+def test_invalid_freeze_regex_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+model:
+  finetune:
+    freeze:
+      regex: "*invalid"
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="model.finetune.freeze.regex"):
+        load_config(config_path)
+
+
+def test_invalid_trainable_freeze_regex_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+model:
+  finetune:
+    freeze:
+      trainable_regex: "*invalid"
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="model.finetune.freeze.trainable_regex"):
+        load_config(config_path)
+
+
 def test_unknown_key_raises(tmp_path: Path) -> None:
     payload = """
 experiment:

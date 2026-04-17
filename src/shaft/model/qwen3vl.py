@@ -16,6 +16,7 @@ from .types import (
     ModelCapabilities,
     ModelLoader,
     ModelMeta,
+    ModelModuleGroups,
     ShaftModelAdapter,
 )
 
@@ -53,6 +54,12 @@ QWEN3VL_META = ModelMeta(
     default_template="qwen3vl",
     model_groups=default_model_groups("qwen3-vl-4b-instruct", "qwen3-vl", template="qwen3vl"),
     capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
+    module_groups=ModelModuleGroups(
+        language_model=("model",),
+        vision_tower=("model.visual",),
+        aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
+        generator=("lm_head",),
+    ),
     processor_policy=build_processor_policy("pixel_budget"),
     peft_policy=build_peft_policy("all_linear"),
 )
@@ -109,7 +116,7 @@ class Qwen3VLLoader(ModelLoader):
             tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=config.model.trust_remote_code)
         if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = apply_finetune_strategy(model, finetune)
+        model = apply_finetune_strategy(model, finetune, model_adapter=model_adapter)
         model_info = model_adapter.build_model_info(
             torch_dtype=resolved_dtype,
             max_model_len=getattr(getattr(model, "config", None), "max_position_embeddings", None),

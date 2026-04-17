@@ -28,6 +28,11 @@
 5. 实现模板
 6. 补模型与模板测试
 
+补充要求：
+
+- 如果模型族有明确的 `language_model / vision_tower / aligner / generator` 分界，必须同步补充 `ModelModuleGroups`。
+- 不要把模块名前缀写死在 `freeze.py` 或 `finetune.py` 中，冻结分组必须由模型族元信息声明。
+
 ### 2.3 不要做的事
 
 - 不要在 `pipeline` 里分支判断模型族
@@ -218,20 +223,41 @@ ShaftCodecResult(
   - `ShaftSFTTrainer` 负责把 `loss_scale` 从 batch 中剥离并传给 `loss.py`
   - `training/loss.py` 负责真正的加权 next-token loss 计算
 
-## 10. 新增导出能力
+## 10. 新增或修改冻结语义
 
-### 9.1 必改位置
+### 10.1 必改位置
+
+- `src/shaft/config/model.py`
+- `src/shaft/config/normalize.py`
+- `src/shaft/model/types.py`
+- `src/shaft/model/freeze.py`
+- `src/shaft/model/finetune.py`
+
+### 10.2 原则
+
+- 冻结规则和模型结构分组必须分开：
+  - 规则层：`groups / prefixes / regex / trainable override`
+  - 结构层：`language_model / vision_tower / aligner / generator`
+- `trainable_*` 优先级高于 `freeze_*`
+- `full` 与 adapter 模式的冻结语义不同：
+  - `full` 真正修改 `requires_grad`
+  - `lora / dora / qlora` 只过滤自动展开的 adapter target，并补 `modules_to_save`
+- 不要在 `pipeline`、`trainer`、`collator` 中写冻结逻辑
+- 不要把某个模型族的模块名前缀硬编码进通用层
+## 11. 新增导出能力
+
+### 11.1 必改位置
 
 - `src/shaft/export/hf.py`
 - `src/shaft/cli/export.py`
 
-### 9.2 原则
+### 11.2 原则
 
 - 必须继续兼容 HF / PEFT 标准目录
 - 不要引入自定义 metadata 目录
 - 不要把发布逻辑塞进导出模块
 
-## 11. 扩展时必须同步的文档
+## 12. 扩展时必须同步的文档
 
 至少更新以下之一：
 
@@ -246,7 +272,7 @@ ShaftCodecResult(
 - `README.md`
 - `docs/README.md`
 
-## 12. 必跑测试
+## 13. 必跑测试
 
 ### 新模型族
 

@@ -65,6 +65,12 @@
 - `adapter_config.json`
 - `adapter_model.safetensors` 或等价 adapter 权重文件
 
+说明：
+
+- adapter export 仍然是标准 PEFT 目录，不是标准 full HF model 目录。
+- adapter 目录可以包含 `modules_to_save` 对应的额外原始模块权重，这仍然属于 PEFT 语义。
+- 这类目录应通过 `base model + PeftModel.from_pretrained(...)` 使用；若部署后端只接受 full HF model，应先 `merge-peft`。
+
 ### 3.3 Trainer state
 
 需要有：
@@ -84,6 +90,10 @@
 - 可接受：
   - full checkpoint
   - adapter checkpoint
+- adapter checkpoint 初始化时，会额外校验：
+  - LoRA/DoRA/QLoRA 关键配置一致
+  - `target_modules` 一致
+  - `modules_to_save` 一致
 
 ### `resume_from_checkpoint`
 

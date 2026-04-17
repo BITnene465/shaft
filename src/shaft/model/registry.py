@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from shaft.plugins import Registry
 
-from .types import ModelCapabilities, ModelGroup, ModelLoader, ModelMeta, PeftPolicy, ProcessorPolicy
+from .types import ModelCapabilities, ModelGroup, ModelLoader, ModelMeta, ModelModuleGroups, PeftPolicy, ProcessorPolicy
 
 MODEL_REGISTRY: Registry[ModelMeta] = Registry("model")
 
@@ -25,6 +25,7 @@ def default_model_groups(
     *model_ids: str,
     template: str | None = None,
     capabilities: ModelCapabilities | None = None,
+    module_groups: ModelModuleGroups | None = None,
     processor_policy: ProcessorPolicy | None = None,
     peft_policy: PeftPolicy | None = None,
     requires: Iterable[str] = (),
@@ -37,6 +38,7 @@ def default_model_groups(
             model_ids=cleaned,
             template=template,
             capabilities=capabilities,
+            module_groups=module_groups,
             processor_policy=processor_policy,
             peft_policy=peft_policy,
             requires=tuple(str(item).strip() for item in requires if str(item).strip()),

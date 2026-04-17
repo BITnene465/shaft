@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
@@ -12,6 +14,23 @@ _PPO_REWARD_MODEL_MODES = {"adapter_disabled_policy", "copy_backbone"}
 _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
 _ONLINE_EVAL_NORMALIZERS = {"identity", "range"}
+_FREEZE_GROUPS = {"language_model", "vision_tower", "aligner", "generator"}
+
+
+def _normalize_string_list(values: list[str]) -> list[str]:
+    normalized = [str(item).strip() for item in values if str(item).strip()]
+    return list(dict.fromkeys(normalized))
+
+
+def _validate_optional_regex(value: str | None, field_name: str) -> str | None:
+    normalized = str(value).strip() if value is not None else ""
+    if not normalized:
+        return None
+    try:
+        re.compile(normalized)
+    except re.error as exc:
+        raise ValueError(f"{field_name} is not a valid regex: {exc}") from exc
+    return normalized
 
 
 def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
@@ -31,9 +50,25 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if finetune.mode not in _FINETUNE_MODES:
         raise ValueError(f"Unsupported model.finetune.mode={finetune.mode!r}.")
     finetune.lora_bias = str(finetune.lora_bias).strip().lower()
+    finetune.freeze.groups = _normalize_string_list([str(value).lower() for value in finetune.freeze.groups])
+    invalid_groups = sorted(set(finetune.freeze.groups) - _FREEZE_GROUPS)
+    if invalid_groups:
+        raise ValueError(
+            f"Unsupported model.finetune.freeze.groups={invalid_groups!r}. Expected only {_FREEZE_GROUPS}."
+        )
+    finetune.freeze.prefixes = _normalize_string_list(finetune.freeze.prefixes)
+    finetune.freeze.trainable_prefixes = _normalize_string_list(finetune.freeze.trainable_prefixes)
+    finetune.freeze.regex = _validate_optional_regex(
+        finetune.freeze.regex,
+        "model.finetune.freeze.regex",
+    )
+    finetune.freeze.trainable_regex = _validate_optional_regex(
+        finetune.freeze.trainable_regex,
+        "model.finetune.freeze.trainable_regex",
+    )
     if not finetune.target_modules:
         finetune.target_modules = ["auto"]
-    finetune.target_modules = [str(x).strip() for x in finetune.target_modules if str(x).strip()]
+    finetune.target_modules = _normalize_string_list(finetune.target_modules)
     if not finetune.target_modules:
         raise ValueError("model.finetune.target_modules cannot be empty.")
 
@@ -46,9 +81,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         dataset.use_for_eval = bool(dataset.use_for_eval)
         dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
         dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
-        dataset.offline_transforms = [str(x).strip() for x in dataset.offline_transforms if str(x).strip()]
-        dataset.online_transforms = [str(x).strip() for x in dataset.online_transforms if str(x).strip()]
-        dataset.tags = [str(x).strip() for x in dataset.tags if str(x).strip()]
+        dataset.offline_transforms = _normalize_string_list(dataset.offline_transforms)
+        dataset.online_transforms = _normalize_string_list(dataset.online_transforms)
+        dataset.tags = _normalize_string_list(dataset.tags)
         if dataset.help is not None:
             dataset.help = str(dataset.help).strip() or None
         if dataset.train_path:

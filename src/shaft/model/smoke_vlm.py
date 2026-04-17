@@ -22,6 +22,7 @@ from .types import (
     ModelCapabilities,
     ModelLoader,
     ModelMeta,
+    ModelModuleGroups,
     ShaftModelAdapter,
 )
 
@@ -218,6 +219,10 @@ SMOKE_VLM_META = ModelMeta(
     default_template="smoke_vlm",
     model_groups=default_model_groups("smoke-vlm", "models/smoke-vlm", template="smoke_vlm"),
     capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
+    module_groups=ModelModuleGroups(
+        language_model=("emb", "proj", "fc"),
+        generator=("lm_head",),
+    ),
     processor_policy=build_processor_policy("no_pixel_budget"),
     peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
@@ -239,7 +244,7 @@ class SmokeVLMLoader(ModelLoader):
         model = SmokeVLMModel(SmokeVLMConfig())
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)
-        model = apply_finetune_strategy(model, config.model.finetune)
+        model = apply_finetune_strategy(model, config.model.finetune, model_adapter=model_adapter)
         tokenizer = SmokeTokenizer()
         processor = SmokeProcessor(tokenizer=tokenizer)
         model_info = model_adapter.build_model_info(

@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import torch
+
 from shaft.config import RuntimeConfig
 from shaft.export import infer_base_model_from_adapter, merge_peft_adapter, validate_hf_artifact
 from shaft.model import build_model_tokenizer_processor, build_model_meta
+from shaft.model.smoke_vlm import SmokeVLMModel
 from shaft.training.checkpointing import ensure_hf_export_layout
 
 
@@ -129,3 +132,32 @@ def test_merge_peft_adapter_prefers_adapter_processing_assets(tmp_path: Path) ->
 
     assert json.loads((output_dir / "smoke_tokenizer.json").read_text(encoding="utf-8")) == payload
     assert json.loads((output_dir / "smoke_processor.json").read_text(encoding="utf-8")) == payload
+
+
+def test_merge_peft_adapter_preserves_modules_to_save_weights(tmp_path: Path) -> None:
+    cfg = RuntimeConfig()
+    cfg.model.model_type = "smoke_vlm"
+    cfg.model.model_name_or_path = "models/smoke-vlm"
+    cfg.model.finetune.mode = "lora"
+    cfg.model.finetune.target_modules = ["all-linear"]
+    cfg.model.finetune.freeze.trainable_prefixes = ["lm_head"]
+    artifacts = build_model_tokenizer_processor(cfg)
+    for name, parameter in artifacts.model.named_parameters():
+        if name.endswith("lm_head.modules_to_save.default.weight"):
+            parameter.data.fill_(0.375)
+
+    adapter_dir = tmp_path / "adapter"
+    artifacts.model.save_pretrained(adapter_dir)
+
+    output_dir = tmp_path / "merged"
+    merge_peft_adapter(
+        model_type="smoke_vlm",
+        adapter_path=adapter_dir,
+        output_dir=output_dir,
+        base_model_path="models/smoke-vlm",
+        torch_dtype="float32",
+    )
+
+    merged_model = SmokeVLMModel.from_pretrained(output_dir)
+    expected = torch.full_like(merged_model.lm_head.weight, 0.375)
+    assert torch.allclose(merged_model.lm_head.weight, expected)

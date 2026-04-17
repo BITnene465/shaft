@@ -28,6 +28,29 @@ class ModelCapabilities:
 
 
 @dataclass(frozen=True)
+class ModelModuleGroups:
+    language_model: tuple[str, ...] = ()
+    vision_tower: tuple[str, ...] = ()
+    aligner: tuple[str, ...] = ()
+    generator: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for key in ("language_model", "vision_tower", "aligner", "generator"):
+            value = getattr(self, key)
+            if isinstance(value, str):
+                coerced = (value,) if value.strip() else ()
+            else:
+                coerced = _dedupe_non_empty(tuple(value))
+            object.__setattr__(self, key, coerced)
+
+    def prefixes_for_group(self, group_name: str) -> tuple[str, ...]:
+        normalized = str(group_name).strip().lower()
+        if normalized not in {"language_model", "vision_tower", "aligner", "generator"}:
+            raise KeyError(f"Unknown model module group: {group_name!r}")
+        return getattr(self, normalized)
+
+
+@dataclass(frozen=True)
 class ProcessorPolicy:
     supports_pixel_budget: bool = True
 
@@ -92,6 +115,7 @@ class ModelGroup:
     model_ids: tuple[str, ...] = ()
     template: str | None = None
     capabilities: ModelCapabilities | None = None
+    module_groups: ModelModuleGroups | None = None
     processor_policy: ProcessorPolicy | None = None
     peft_policy: PeftPolicy | None = None
     requires: tuple[str, ...] = ()
@@ -115,6 +139,7 @@ class ModelMeta:
     default_template: str
     model_groups: tuple[ModelGroup, ...] = ()
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
+    module_groups: ModelModuleGroups = field(default_factory=ModelModuleGroups)
     processor_policy: ProcessorPolicy = field(default_factory=ProcessorPolicy)
     peft_policy: PeftPolicy = field(default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"]))
     requires: tuple[str, ...] = ()
@@ -128,6 +153,7 @@ class ModelMeta:
             default_template=self.default_template,
             model_groups=self.model_groups,
             capabilities=self.capabilities,
+            module_groups=self.module_groups,
             processor_policy=self.processor_policy,
             peft_policy=self.peft_policy,
             requires=self.requires,
@@ -150,6 +176,9 @@ class ModelMeta:
         capabilities = (
             matched.capabilities if matched is not None and matched.capabilities is not None else self.capabilities
         )
+        module_groups = (
+            matched.module_groups if matched is not None and matched.module_groups is not None else self.module_groups
+        )
         processor_policy = (
             matched.processor_policy
             if matched is not None and matched.processor_policy is not None
@@ -170,6 +199,7 @@ class ModelMeta:
             model_name_or_path=str(model_name_or_path),
             template_type=str(resolved_template).strip(),
             capabilities=capabilities,
+            module_groups=module_groups,
             processor_policy=processor_policy,
             peft_policy=peft_policy,
             requires=_dedupe_non_empty(tuple(requires)),
@@ -240,6 +270,7 @@ class ShaftModelAdapter:
     model_name_or_path: str
     template_type: str
     capabilities: ModelCapabilities
+    module_groups: ModelModuleGroups
     processor_policy: ProcessorPolicy
     peft_policy: PeftPolicy
     requires: tuple[str, ...] = ()
