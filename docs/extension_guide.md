@@ -311,3 +311,18 @@ ShaftCodecResult(
 - `tests/test_export_tools.py`
 - `tests/test_export_cli.py`
 - 必要时加 checkpoint 兼容测试
+
+## 14. 功能完成后的全局收口
+
+- 一个 feature 基本完成后，不要直接提交。
+- 先做一次“项目级别的收口 review”，重点看：
+  - 是否出现重复状态源
+  - 是否有逻辑落在错误层
+  - 是否留下临时桥接代码或双轨实现
+  - 是否需要在提交前先做一次小重构
+- 这一步已经沉淀为项目 skill：
+  - `.codex/skills/shaft-project/shaft-feature-review/SKILL.md`
+- 这类 review 不是泛泛检查格式，而是明确回答：
+  - 当前实现的真源在哪里
+  - 是否还有冗余状态或冗余语义
+  - 是否已经补齐必要测试和文档

@@ -36,6 +36,7 @@
 
 - [extension_guide.md](extension_guide.md)
   - 如何新增模型族、模板、数据源、算法、推理后端、导出能力
+  - 包含 feature 完成后的全局收口 review 流程入口
 
 ## 3. 运行与测试
 
