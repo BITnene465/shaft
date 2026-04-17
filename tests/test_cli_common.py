@@ -25,6 +25,7 @@ def test_apply_common_overrides() -> None:
         scheduler_num_cycles=2.0,
         scheduler_power=1.5,
         loss_name="auto",
+        loss_scale="all",
         finetune_mode="lora",
         lora_r=24,
         lora_alpha=48,
@@ -48,6 +49,7 @@ def test_apply_common_overrides() -> None:
     assert out.train.scheduler_num_cycles == pytest.approx(2.0)
     assert out.train.scheduler_power == pytest.approx(1.5)
     assert out.train.loss_name == "auto"
+    assert out.train.loss_scale == "all"
     assert out.model.finetune.mode == "lora"
     assert out.model.finetune.lora_r == 24
     assert out.model.finetune.lora_alpha == 48
@@ -74,6 +76,7 @@ def _build_min_args(**kwargs):
         scheduler_num_cycles=None,
         scheduler_power=None,
         loss_name=None,
+        loss_scale=None,
         finetune_mode=None,
         lora_r=None,
         lora_alpha=None,

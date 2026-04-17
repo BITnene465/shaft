@@ -196,19 +196,26 @@ ShaftCodecResult(
 - 不要让所有指标直接参与 `final_score`，只允许使用 `primary_metric`
 - 不要在启用在线 eval 时使用采样式评估；best-model 选择必须保持确定性
 
-## 9. 新增优化器 / scheduler / loss
+## 9. 新增优化器 / scheduler / loss / loss_scale
 
-### 8.1 必改位置
+### 9.1 必改位置
 
 - `src/shaft/training/optimizer.py`
 - `src/shaft/training/scheduler.py`
 - `src/shaft/training/loss.py`
+- `src/shaft/loss_scale/base.py`
+- `src/shaft/loss_scale/mapping.py`
 
-### 8.2 原则
+### 9.2 原则
 
 - 统一走注册表
 - 配置入口统一在 `TrainConfig`
 - 不要在 pipeline 中硬编码新分支
+- `loss_scale` 负责定义“哪些区段参与 loss”，不要把这类规则直接散写在 trainer 或模型 forward 中
+- 当前 `loss_scale` 的落点是：
+  - `SFTCollator` 负责根据多轮消息角色生成 `labels` / 可选 `loss_scale` tensor
+  - `ShaftSFTTrainer` 负责把 `loss_scale` 从 batch 中剥离并传给 `loss.py`
+  - `training/loss.py` 负责真正的加权 next-token loss 计算
 
 ## 10. 新增导出能力
 

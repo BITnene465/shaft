@@ -33,6 +33,7 @@ def add_common_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scheduler-num-cycles", type=float, default=None)
     parser.add_argument("--scheduler-power", type=float, default=None)
     parser.add_argument("--loss", dest="loss_name", default=None)
+    parser.add_argument("--loss-scale", dest="loss_scale", default=None)
     parser.add_argument("--finetune-mode", choices=["full", "lora", "dora", "qlora"], default=None)
     parser.add_argument("--lora-r", type=int, default=None)
     parser.add_argument("--lora-alpha", type=int, default=None)
@@ -59,6 +60,7 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
     scheduler_num_cycles = getattr(args, "scheduler_num_cycles", None)
     scheduler_power = getattr(args, "scheduler_power", None)
     loss_name = getattr(args, "loss_name", None)
+    loss_scale = getattr(args, "loss_scale", None)
     finetune_mode = getattr(args, "finetune_mode", None)
     lora_r = getattr(args, "lora_r", None)
     lora_alpha = getattr(args, "lora_alpha", None)
@@ -94,6 +96,8 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
         train_config.scheduler_power = float(scheduler_power)
     if loss_name is not None:
         train_config.loss_name = str(loss_name)
+    if loss_scale is not None:
+        train_config.loss_scale = str(loss_scale)
     if finetune_mode is not None:
         config.model.finetune.mode = str(finetune_mode)
     if lora_r is not None:

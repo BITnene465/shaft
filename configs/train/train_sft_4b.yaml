@@ -50,6 +50,7 @@ train:
   scheduler_num_cycles: 0.5
   scheduler_power: 1.0
   loss_name: auto
+  loss_scale: default
   adam_beta1: 0.9
   adam_beta2: 0.999
   adam_epsilon: 1.0e-8

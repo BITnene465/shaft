@@ -90,6 +90,12 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     train.loss_name = str(train.loss_name).strip().lower()
     if train.loss_name not in _LOSS_NAMES:
         raise ValueError(f"Unsupported train.loss_name={train.loss_name!r}.")
+    train.loss_scale = str(train.loss_scale).strip().lower() or "default"
+    from shaft.loss_scale import build_loss_scale
+    try:
+        build_loss_scale(train.loss_scale)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Unsupported train.loss_scale={train.loss_scale!r}.") from exc
     train.lr_scheduler_type = str(train.lr_scheduler_type).strip().lower()
     if isinstance(train.save_strategy, bool):
         train.save_strategy = "no" if not train.save_strategy else "steps"

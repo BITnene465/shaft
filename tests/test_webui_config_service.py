@@ -41,16 +41,19 @@ eval:
         overrides=ShaftSFTWebUIOverrides(
             run_id="web-run",
             learning_rate=2e-5,
+            loss_scale="all",
             use_cpu=True,
         ),
     )
     assert config.algorithm.name == "sft"
     assert config.experiment.run_id == "web-run"
     assert config.train.learning_rate == pytest.approx(2e-5)
+    assert config.train.loss_scale == "all"
     assert config.train.use_cpu is True
     assert config.data.datasets[0].train_paths == [str(train_path.resolve())]
     assert config.data.datasets[0].val_paths == [str(val_path.resolve())]
     assert "run_id: web-run" in rendered
+    assert "loss_scale: all" in rendered
 
 
 def test_webui_config_service_rejects_non_sft_config(tmp_path: Path) -> None:

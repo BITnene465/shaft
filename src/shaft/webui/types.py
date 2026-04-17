@@ -22,6 +22,7 @@ class ShaftSFTWebUIOverrides:
     scheduler_num_cycles: float | None = None
     scheduler_power: float | None = None
     loss_name: str | None = None
+    loss_scale: str | None = None
     finetune_mode: str | None = None
     lora_r: int | None = None
     lora_alpha: int | None = None

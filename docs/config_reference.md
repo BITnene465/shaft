@@ -159,6 +159,7 @@
 - `optimizer_name`
 - `scheduler_name`
 - `loss_name`
+- `loss_scale`
 - `weight_decay`
 - `warmup_ratio`
 - `max_grad_norm`
@@ -180,6 +181,13 @@
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。
 - `optimizer_name/scheduler_name/loss_name` 走注册表。
+- `loss_scale` 控制哪些粗粒度区段参与 loss 计算，当前内置：
+  - `default`: 监督所有 assistant 回答（包括多轮对话中的历史 assistant，以及当前 target/response）
+  - `last_round`: 只监督最后一轮 assistant 回答（当前 target/response）
+  - `all`: 同时监督 system/user/prefix 与 target/response
+- 当前 `loss_scale` 的落点在 `SFTCollator -> ShaftSFTTrainer -> training/loss.py` 这条链上，
+  主要用于决定 prefix 中哪些 role span 与最终 target 两段是否参与 next-token loss；更细粒度的
+  token 内部分段规则可以在后续通过自定义 `loss_scale` 策略继续扩展。
 
 ## 7. `eval`
 

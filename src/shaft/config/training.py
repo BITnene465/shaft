@@ -16,6 +16,7 @@ class TrainConfig:
     scheduler_num_cycles: float = 0.5
     scheduler_power: float = 1.0
     loss_name: str = "auto"
+    loss_scale: str = "default"
     adam_beta1: float = 0.9
     adam_beta2: float = 0.999
     adam_epsilon: float = 1e-8

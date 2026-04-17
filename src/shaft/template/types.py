@@ -29,6 +29,7 @@ class Template(ABC):
         processor: Any,
         tokenizer: Any,
         messages: list[dict[str, Any]],
+        add_generation_prompt: bool | None = None,
     ) -> str:
         raise NotImplementedError
 

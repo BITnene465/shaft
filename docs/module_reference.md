@@ -264,7 +264,35 @@
 - 允许：组件装配、resume/save 时序、回调装配
 - 禁止：硬编码模型族模板、解析 JSONL、实现 loss 公式
 
-## 7. `training`
+## 7. `loss_scale`
+
+相关文件：
+
+- `src/shaft/loss_scale/base.py`
+- `src/shaft/loss_scale/mapping.py`
+
+### 职能
+
+- 定义“哪些区段需要计算 loss”的策略对象。
+- 为 `SFTCollator` 提供多轮消息中各 role span 与 target 的监督开关或权重。
+- 让 `loss_scale` 作为独立能力存在，而不是散落在 `collator` 与 `loss.py` 中。
+
+### 关键类
+
+- `ShaftLossScale`
+- `ShaftLossScaleSpec`
+
+### 关键函数
+
+- `build_loss_scale()`
+- `register_loss_scale()`
+
+### 开发边界
+
+- 允许：prefix/target 粗粒度监督策略、自定义权重策略注册
+- 禁止：直接计算 loss、直接操作 optimizer/scheduler、在策略中耦合模型族细节
+
+## 8. `training`
 
 相关文件：
 
@@ -310,7 +338,7 @@
 - 允许：HF/TRL trainer 扩展、checkpoint 规则、优化器/调度器/loss
 - 禁止：数据读取、配置加载、导出发布
 
-## 8. `codec`
+## 9. `codec`
 
 相关文件：
 
@@ -338,7 +366,7 @@
 - 允许：JSON 修复、部分解析、共享 decode 扩展
 - 禁止：指标计算、业务编排、训练循环
 
-## 9. `metrics`
+## 10. `metrics`
 
 相关文件：
 
@@ -365,7 +393,7 @@
 - 允许：轻量在线指标、per-dataset metric 扩展
 - 禁止：文本解析、数据路由、多阶段业务编排
 
-## 10. `infer`
+## 11. `infer`
 
 相关文件：
 
@@ -400,7 +428,7 @@
 - 允许：后端封装、stage 调度、共享 codec 调用
 - 禁止：训练逻辑、离线业务脚本逻辑、任务 DSL
 
-## 11. `export`
+## 12. `export`
 
 相关文件：
 
@@ -427,7 +455,7 @@
 - 允许：HF/PEFT 目录校验、merge
 - 禁止：引入自定义格式、发布到第三方平台
 
-## 12. `plugins`
+## 13. `plugins`
 
 相关文件：
 
@@ -461,7 +489,7 @@
 - 允许：横切增强
 - 禁止：替代主业务流程、隐藏关键训练行为
 
-## 13. `observability`
+## 14. `observability`
 
 相关文件：
 
@@ -486,7 +514,7 @@
 - 允许：记录、格式化、注入上下文
 - 禁止：参与训练决策、替代指标系统
 
-## 12. `cli`
+## 15. `cli`
 
 相关文件：
 
@@ -524,7 +552,7 @@
 - 允许：参数解析、命令调度
 - 禁止：在 CLI 里堆叠训练、推理、导出业务逻辑
 
-## 13. `webui`（规划中）
+## 16. `webui`
 
 相关文档：
 

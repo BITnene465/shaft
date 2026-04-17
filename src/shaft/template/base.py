@@ -17,13 +17,19 @@ class ShaftChatTemplate(Template):
         processor: Any,
         tokenizer: Any,
         messages: list[dict[str, Any]],
+        add_generation_prompt: bool | None = None,
     ) -> str:
         owner = processor if hasattr(processor, "apply_chat_template") else tokenizer
         normalized_messages = self.prepare_messages(messages)
+        resolved_add_generation_prompt = (
+            self.template_meta.auto_add_generation_prompt
+            if add_generation_prompt is None
+            else bool(add_generation_prompt)
+        )
         return owner.apply_chat_template(
             normalized_messages,
             tokenize=False,
-            add_generation_prompt=self.template_meta.auto_add_generation_prompt,
+            add_generation_prompt=resolved_add_generation_prompt,
         )
 
     def decode(self, *, tokenizer: Any, token_ids: list[int]) -> str:

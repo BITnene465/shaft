@@ -57,14 +57,17 @@ class ShaftSFTTrainer(Trainer):
         num_items_in_batch: int | None = None,
     ):
         _ = num_items_in_batch
-        labels = inputs.get("labels")
-        outputs = model(**inputs)
+        model_inputs = dict(inputs)
+        labels = model_inputs.get("labels")
+        loss_scale = model_inputs.pop("loss_scale", None)
+        outputs = model(**model_inputs)
         loss = self.loss_fn(
             outputs=outputs,
             labels=labels,
             ignore_index=self.ignore_index,
+            loss_scale=loss_scale,
             model=model,
-            inputs=inputs,
+            inputs=model_inputs,
         )
         return (loss, outputs) if return_outputs else loss
 

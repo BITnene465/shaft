@@ -53,6 +53,7 @@ class ShaftWebUIConfigService:
             scheduler_num_cycles=overrides.scheduler_num_cycles,
             scheduler_power=overrides.scheduler_power,
             loss_name=overrides.loss_name,
+            loss_scale=overrides.loss_scale,
             finetune_mode=overrides.finetune_mode,
             lora_r=overrides.lora_r,
             lora_alpha=overrides.lora_alpha,

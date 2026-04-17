@@ -43,6 +43,7 @@ data:
 train:
   scheduler_name: auto
   lr_scheduler_type: LINEAR
+  loss_scale: ALL
 model:
   finetune:
     mode: DORA
@@ -53,9 +54,26 @@ model:
     assert cfg.algorithm.name == "sft"
     assert cfg.data.mix_strategy == "interleave_over"
     assert cfg.train.scheduler_name == "linear"
+    assert cfg.train.loss_scale == "all"
     assert cfg.model.finetune.mode == "dora"
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
+
+
+def test_invalid_loss_scale_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  loss_scale: missing_strategy
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported train.loss_scale"):
+        load_config(config_path)
 
 
 def test_unknown_key_raises(tmp_path: Path) -> None:

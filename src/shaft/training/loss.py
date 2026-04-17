@@ -57,8 +57,19 @@ def auto_loss(
     outputs: Any,
     labels: torch.Tensor | None,
     ignore_index: int = -100,
+    loss_scale: torch.Tensor | None = None,
     **_: Any,
 ) -> torch.Tensor:
+    if loss_scale is not None:
+        logits = _extract_logits(outputs)
+        if logits is None or labels is None:
+            raise ValueError("auto loss with loss_scale requires outputs.logits and labels.")
+        return causal_lm_cross_entropy(
+            logits=logits,
+            labels=labels,
+            ignore_index=ignore_index,
+            loss_scale=loss_scale,
+        )
     maybe_loss = _extract_loss(outputs)
     if isinstance(maybe_loss, torch.Tensor):
         return maybe_loss
@@ -74,12 +85,18 @@ def causal_lm_loss(
     outputs: Any,
     labels: torch.Tensor | None,
     ignore_index: int = -100,
+    loss_scale: torch.Tensor | None = None,
     **_: Any,
 ) -> torch.Tensor:
     logits = _extract_logits(outputs)
     if logits is None or labels is None:
         raise ValueError("causal_lm loss requires outputs.logits and labels.")
-    return causal_lm_cross_entropy(logits=logits, labels=labels, ignore_index=ignore_index)
+    return causal_lm_cross_entropy(
+        logits=logits,
+        labels=labels,
+        ignore_index=ignore_index,
+        loss_scale=loss_scale,
+    )
 
 
 def causal_lm_cross_entropy(
@@ -87,10 +104,24 @@ def causal_lm_cross_entropy(
     logits: torch.Tensor,
     labels: torch.Tensor,
     ignore_index: int = -100,
+    loss_scale: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    vocab_size = int(logits.shape[-1])
-    return F.cross_entropy(
-        logits.view(-1, vocab_size),
-        labels.view(-1),
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    vocab_size = int(shift_logits.shape[-1])
+    token_loss = F.cross_entropy(
+        shift_logits.view(-1, vocab_size),
+        shift_labels.view(-1),
         ignore_index=int(ignore_index),
-    )
+        reduction="none",
+    ).view_as(shift_labels)
+    valid_mask = shift_labels.ne(int(ignore_index))
+    if loss_scale is None:
+        weights = valid_mask.to(dtype=token_loss.dtype)
+    else:
+        shift_loss_scale = loss_scale[..., 1:].contiguous().to(device=token_loss.device, dtype=token_loss.dtype)
+        weights = shift_loss_scale * valid_mask.to(dtype=token_loss.dtype)
+    denom = weights.sum()
+    if float(denom.detach().item()) <= 0:
+        return token_loss.sum() * 0.0
+    return (token_loss * weights).sum() / denom

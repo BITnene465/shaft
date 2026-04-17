@@ -67,7 +67,12 @@ class _FakeTrainer:
         return None
 
 
-def _write_config(tmp_path: Path, *, hooks: list[str] | None = None) -> RuntimeConfig:
+def _write_config(
+    tmp_path: Path,
+    *,
+    hooks: list[str] | None = None,
+    loss_scale: str = "default",
+) -> RuntimeConfig:
     train_jsonl = tmp_path / "train.jsonl"
     val_jsonl = tmp_path / "val.jsonl"
     image = tmp_path / "img.png"
@@ -102,6 +107,7 @@ train:
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5
+  loss_scale: {loss_scale}
   use_cpu: true
   report_to: ["none"]
   load_best_model_at_end: false
@@ -133,6 +139,27 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             metrics = run_sft(config)
     assert "train_loss" in metrics
+
+
+def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
+    config = _write_config(tmp_path, loss_scale="all")
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "template": build_template("smoke_vlm"),
+            },
+        )()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            _ = run_sft(config)
+    collator = _FakeTrainer.last_kwargs["data_collator"]
+    assert collator.loss_scale_name == "all"
 
 
 def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
