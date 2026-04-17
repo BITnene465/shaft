@@ -177,12 +177,15 @@
 - 把消息列表转为模型可消费 prompt。
 - 定义 decode 协议。
 - 通过模板元信息管理模型族模板实现。
+- 在训练路径中直接生成 supervision plan 与单样本 `labels / loss_scale / span`。
 
 ### 关键类
 
 - `TemplateMeta`
 - `Template`
 - `ShaftChatTemplate`
+- `ShaftTemplateSupervisionPlan`
+- `ShaftTemplateSupervisedRow`
 - `Qwen3VLTemplate`
 
 ### 关键函数
@@ -191,11 +194,13 @@
 - `build_template()`
 - `build_template_from_meta()`
 - `register_template()`
+- `build_supervision_plan()`
+- `build_supervised_row()`
 
 ### 开发边界
 
-- 允许：messages 规范化、chat template、decode
-- 禁止：图像处理、任务后处理、训练超参数决策
+- 允许：messages 规范化、chat template、decode、训练 supervision span 规划
+- 禁止：图像后处理、任务指标计算、训练超参数决策
 
 ## 5. `algorithms`
 
@@ -274,8 +279,8 @@
 ### 职能
 
 - 定义“哪些区段需要计算 loss”的策略对象。
-- 为 `SFTCollator` 提供多轮消息中各 role span 与 target 的监督开关或权重。
-- 让 `loss_scale` 作为独立能力存在，而不是散落在 `collator` 与 `loss.py` 中。
+- 为 `template` 提供多轮消息中各 role span 与 target 的监督开关或权重。
+- 让 `loss_scale` 作为独立能力存在，而不是散落在 `template` 与 `loss.py` 中。
 
 ### 关键类
 

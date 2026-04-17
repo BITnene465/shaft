@@ -8,10 +8,19 @@ from .registry import (
     register_template,
     resolve_template_meta,
 )
-from .types import Template, TemplateMeta
+from .types import (
+    ShaftTemplateMessagePlan,
+    ShaftTemplateSupervisionPlan,
+    ShaftTemplateSupervisedRow,
+    Template,
+    TemplateMeta,
+)
 
 __all__ = [
     "TEMPLATE_REGISTRY",
+    "ShaftTemplateMessagePlan",
+    "ShaftTemplateSupervisionPlan",
+    "ShaftTemplateSupervisedRow",
     "Template",
     "TemplateMeta",
     "build_template",

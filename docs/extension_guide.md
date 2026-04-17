@@ -213,7 +213,8 @@ ShaftCodecResult(
 - 不要在 pipeline 中硬编码新分支
 - `loss_scale` 负责定义“哪些区段参与 loss”，不要把这类规则直接散写在 trainer 或模型 forward 中
 - 当前 `loss_scale` 的落点是：
-  - `SFTCollator` 负责根据多轮消息角色生成 `labels` / 可选 `loss_scale` tensor
+  - `template` 负责根据多轮消息角色生成 supervision plan，并直接产出单样本 `labels` / 可选 `loss_scale` tensor
+  - `SFTCollator` 只负责 batch 级 processor 调用、padding 与张量装配
   - `ShaftSFTTrainer` 负责把 `loss_scale` 从 batch 中剥离并传给 `loss.py`
   - `training/loss.py` 负责真正的加权 next-token loss 计算
 

@@ -185,9 +185,11 @@
   - `default`: 监督所有 assistant 回答（包括多轮对话中的历史 assistant，以及当前 target/response）
   - `last_round`: 只监督最后一轮 assistant 回答（当前 target/response）
   - `all`: 同时监督 system/user/prefix 与 target/response
-- 当前 `loss_scale` 的落点在 `SFTCollator -> ShaftSFTTrainer -> training/loss.py` 这条链上，
-  主要用于决定 prefix 中哪些 role span 与最终 target 两段是否参与 next-token loss；更细粒度的
-  token 内部分段规则可以在后续通过自定义 `loss_scale` 策略继续扩展。
+- 当前 `loss_scale` 的落点在 `template -> SFTCollator -> ShaftSFTTrainer -> training/loss.py`
+  这条链上：
+  - `template` 负责把多轮消息规范化为 supervision plan，并直接产出单样本 `labels / loss_scale / span`
+  - `SFTCollator` 只负责 batch 级 processor 调用、padding 与张量装配
+  - `training/loss.py` 负责真正的加权 next-token loss
 
 ## 7. `eval`
 
