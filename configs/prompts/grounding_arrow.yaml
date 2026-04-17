@@ -1,0 +1,10 @@
+metadata:
+  id: grounding_arrow.sft.v3
+  name: grounding arrow sft
+
+prompt:
+  system_prompt: >
+    You are a visual annotation assistant. Return only valid JSON with no markdown or extra text.
+  user_prompt: |
+    Detect every arrow instance in the image, including single_arrow and double_arrow.
+    Return all detections as a JSON array of arrow objects.

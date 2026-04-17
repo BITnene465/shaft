@@ -239,7 +239,6 @@ ShaftCodecResult(
 - `docs/config_reference.md`
 - `docs/extension_guide.md`
 - `docs/online_eval_design.md`
-- `docs/project_skill.md`
 
 如果新增的是用户会直接调用的能力，还要同步：
 

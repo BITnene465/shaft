@@ -109,7 +109,6 @@ flowchart LR
 - `docs/module_reference.md`
 - `docs/config_reference.md`
 - `docs/extension_guide.md`
-- `docs/project_skill.md`
 
 如果是用户可直接使用的能力，还应同步：
 

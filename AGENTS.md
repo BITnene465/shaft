@@ -35,7 +35,7 @@
   - 可复用通用实现必须明确是“框架级能力”，例如 `ShaftChatTemplate`、`ShaftSFTTrainer`、`ShaftProgressCallback`。
   - 与配置结构或文件格式强绑定的模块，名称应反映层级边界，如 `TrainConfig`、`EvalConfig`、`SFTDataset`、`DatasetSourceConfig`。
 - 禁止在通用类名上承载单模型语义（例如 `Template` 内部仅处理 `qwen3vl` 格式），单模型逻辑必须落在对应模型文件。
-- 新增能力必须同步更新 `docs/`，且至少在以下文档之一落地：`docs/architecture.md`、`docs/module_reference.md`、`docs/extension_guide.md`、`docs/project_skill.md`。
+- 新增能力必须同步更新 `docs/`，且至少在以下文档之一落地：`docs/architecture.md`、`docs/module_reference.md`、`docs/extension_guide.md`、`docs/config_reference.md`、`docs/online_eval_design.md`。
 
 ## 4. 训练与保存原则
 

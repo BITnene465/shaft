@@ -318,5 +318,4 @@ flowchart LR
 - [docs/extension_guide.md](extension_guide.md)
 - [docs/development_workflow.md](development_workflow.md)
 - [docs/testing.md](testing.md)
-- [docs/project_skill.md](project_skill.md)
 - [docs/webui.md](webui.md)

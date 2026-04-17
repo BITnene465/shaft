@@ -37,11 +37,11 @@
 - [extension_guide.md](extension_guide.md)
   - 如何新增模型族、模板、数据源、算法、推理后端、导出能力
 
-- [project_skill.md](project_skill.md)
-  - 项目级记忆
-  - 稳定共识与当前非目标
-
 ## 3. 运行与测试
+
+- [scripts.md](scripts.md)
+  - `scripts/` 目录的正式使用说明
+  - 顶层入口脚本与 `scripts/tasks/` 的稳定接口
 
 - [infer.md](infer.md)
   - 推理子系统设计
