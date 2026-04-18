@@ -86,7 +86,7 @@
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `ShaftMixedIndexSampler`
 - `SFTDataset` / `DPODataset` / `PPODataset`
-- `SFTCollator` / `DPOCollator` / `PPOCollator`
+- `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
 - `MixedDatasetBuilder`
 
 ### 关键函数
@@ -120,6 +120,9 @@
 - `ShaftDatasetMeta.use_for_eval` 用于表达“该数据集是否参与验证集构建与在线 eval”。
 - `ShaftDataCenter` 会始终构建训练记录池，但只为 `use_for_eval=true` 的数据集加载 `val` split。
 - 训练集 mixing 不再在 `data center` 中物化为固定大列表，而是通过 `ShaftMixedIndexSampler` 在 train dataloader 层完成。
+- GRPO 当前复用 `jsonl_sft` 数据：
+  - `SFTDataset` 提供 prompt-target 样本
+  - `GRPOCollator` 在 batch 级把样本转为 TRL GRPO 所需的 `list[dict]`
 
 ## 3. `model`
 
@@ -241,6 +244,8 @@
 - `src/shaft/algorithms/base.py`
 - `src/shaft/algorithms/sft.py`
 - `src/shaft/algorithms/dpo.py`
+- `src/shaft/algorithms/grpo.py`
+- `src/shaft/algorithms/grpo_rewards.py`
 - `src/shaft/algorithms/ppo.py`
 - `src/shaft/algorithms/rlhf_utils.py`
 - `src/shaft/algorithms/registry.py`
@@ -255,13 +260,16 @@
 - `AlgorithmContext`
 - `SFTAlgorithm`
 - `DPOAlgorithm`
+- `GRPOAlgorithm`
 - `PPOAlgorithm`
 
 ### 关键函数
 
 - `build_reference_model()`
 - `build_trl_dpo_config()`
+- `build_trl_grpo_config()`
 - `build_trl_ppo_config()`
+- `build_grpo_reward_functions()`
 - `build_ppo_value_and_reward_models()`
 - `validate_ppo_runtime_requirements()`
 
@@ -269,6 +277,14 @@
 
 - 允许：trainer 选择、算法专属辅助对象、算法配置映射
 - 禁止：加载数据文件、路径解析、主流程调度
+
+补充说明：
+
+- `GRPOAlgorithm` 当前使用共享 `codec` 注册表与内置 reward registry 组合 reward functions。
+- 当前内置 GRPO reward：
+  - `exact_match`
+  - `parse_success`
+- GRPO 明确要求 `data.mix_refresh=static`，避免与 TRL GRPOTrainer 内部的 prompt-repeat sampler 冲突。
 
 ## 6. `pipeline`
 

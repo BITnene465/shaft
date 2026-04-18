@@ -208,6 +208,41 @@ data:
         load_config(config_path)
 
 
+def test_grpo_requires_jsonl_sft_dataset(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: grpo
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_ppo
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="GRPO currently expects jsonl_sft data"):
+        load_config(config_path)
+
+
+def test_grpo_requires_static_mix_refresh(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: grpo
+data:
+  mix_refresh: epoch_refresh
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_sft
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="GRPO currently requires data.mix_refresh='static'"):
+        load_config(config_path)
+
+
 def test_rlhf_numeric_validation_raises(tmp_path: Path) -> None:
     payload = """
 algorithm:
@@ -226,6 +261,39 @@ rlhf:
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError):
         load_config(config_path)
+
+
+def test_load_config_supports_grpo_reward_config(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: grpo
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_sft
+      train_path: train.jsonl
+      val_path: val.jsonl
+rlhf:
+  enabled: true
+  grpo:
+    beta: 0.01
+    num_generations: 4
+    max_completion_length: 96
+    temperature: 0.8
+    top_p: 0.95
+    reward_functions:
+      - name: exact_match
+        codec: json_any
+        weight: 2.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    assert cfg.algorithm.name == "grpo"
+    assert cfg.rlhf.grpo.num_generations == 4
+    assert cfg.rlhf.grpo.reward_functions[0].name == "exact_match"
+    assert cfg.rlhf.grpo.reward_functions[0].codec == "json_any"
+    assert cfg.rlhf.grpo.reward_functions[0].weight == pytest.approx(2.0)
 
 
 def test_load_config_resolves_catalog_entries(tmp_path: Path) -> None:

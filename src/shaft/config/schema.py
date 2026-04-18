@@ -1,4 +1,4 @@
-from .algorithm import AlgorithmConfig, DPOConfig, PPOConfig, RLHFConfig
+from .algorithm import AlgorithmConfig, DPOConfig, GRPOConfig, GRPORewardConfig, PPOConfig, RLHFConfig
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig, DatasetSourceConfig
 from .model import FinetuneConfig, ModelConfig
@@ -13,6 +13,8 @@ __all__ = [
     "EvalConfig",
     "ExperimentConfig",
     "FinetuneConfig",
+    "GRPOConfig",
+    "GRPORewardConfig",
     "LoggingConfig",
     "ModelConfig",
     "PPOConfig",

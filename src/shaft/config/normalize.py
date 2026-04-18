@@ -6,7 +6,7 @@ from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
 _MIX_REFRESH_MODES = {"static", "epoch_refresh"}
-_ALGORITHMS = {"sft", "dpo", "ppo"}
+_ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
 _LOSS_NAMES = {"auto", "causal_lm"}
 _DPO_LOSS_TYPES = {"sigmoid"}
@@ -45,6 +45,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_refresh = str(config.data.mix_refresh).strip().lower()
     if config.data.mix_refresh not in _MIX_REFRESH_MODES:
         raise ValueError(f"Unsupported data.mix_refresh={config.data.mix_refresh!r}.")
+    if config.algorithm.name == "grpo" and config.data.mix_refresh != "static":
+        raise ValueError(
+            "GRPO currently requires data.mix_refresh='static' because TRL GRPO uses its own repeated "
+            "train sampler for grouped generations."
+        )
     config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None
@@ -110,6 +115,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo.")
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
             raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo.")
+        if config.algorithm.name == "grpo" and dataset.source_type != "jsonl_sft":
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses {dataset.source_type} but algorithm is grpo. "
+                "GRPO currently expects jsonl_sft data."
+            )
 
     if bool(config.eval.enabled):
         has_eval_dataset = any(
@@ -320,6 +330,55 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         )
     ppo_cfg.allow_untrained_reward_model = bool(ppo_cfg.allow_untrained_reward_model)
     ppo_cfg.allow_text_only_multimodal_ppo = bool(ppo_cfg.allow_text_only_multimodal_ppo)
+
+    grpo_cfg = config.rlhf.grpo
+    if float(grpo_cfg.beta) < 0:
+        raise ValueError("rlhf.grpo.beta must be >= 0.")
+    if int(grpo_cfg.num_generations) <= 0:
+        raise ValueError("rlhf.grpo.num_generations must be > 0.")
+    if grpo_cfg.num_generations_eval is not None and int(grpo_cfg.num_generations_eval) <= 0:
+        raise ValueError("rlhf.grpo.num_generations_eval must be > 0 when configured.")
+    if int(grpo_cfg.max_completion_length) <= 0:
+        raise ValueError("rlhf.grpo.max_completion_length must be > 0.")
+    if float(grpo_cfg.temperature) <= 0:
+        raise ValueError("rlhf.grpo.temperature must be > 0.")
+    if not (0.0 < float(grpo_cfg.top_p) <= 1.0):
+        raise ValueError("rlhf.grpo.top_p must be in (0, 1].")
+    if int(grpo_cfg.top_k) < 0:
+        raise ValueError("rlhf.grpo.top_k must be >= 0.")
+    if grpo_cfg.min_p is not None and not (0.0 <= float(grpo_cfg.min_p) <= 1.0):
+        raise ValueError("rlhf.grpo.min_p must be in [0, 1].")
+    if float(grpo_cfg.repetition_penalty) <= 0:
+        raise ValueError("rlhf.grpo.repetition_penalty must be > 0.")
+    if not grpo_cfg.reward_functions:
+        raise ValueError("rlhf.grpo.reward_functions cannot be empty.")
+    from shaft.algorithms.grpo_rewards import GRPO_REWARD_REGISTRY
+    from shaft.codec import CODEC_REGISTRY
+
+    normalized_rewards: list[object] = []
+    for reward in grpo_cfg.reward_functions:
+        reward.name = str(reward.name).strip().lower()
+        if not reward.name:
+            raise ValueError("rlhf.grpo.reward_functions[*].name cannot be empty.")
+        if not GRPO_REWARD_REGISTRY.has(reward.name):
+            raise ValueError(
+                f"rlhf.grpo.reward_functions[{reward.name}].name is unregistered. "
+                f"Registered rewards: {sorted(GRPO_REWARD_REGISTRY.keys())}."
+            )
+        reward.codec = str(reward.codec).strip().lower()
+        if not reward.codec:
+            raise ValueError(f"rlhf.grpo.reward_functions[{reward.name}].codec cannot be empty.")
+        if not CODEC_REGISTRY.has(reward.codec):
+            raise ValueError(
+                f"rlhf.grpo.reward_functions[{reward.name}].codec={reward.codec!r} is unregistered. "
+                f"Registered codecs: {sorted(CODEC_REGISTRY.keys())}."
+            )
+        if float(reward.weight) <= 0:
+            raise ValueError(f"rlhf.grpo.reward_functions[{reward.name}].weight must be > 0.")
+        if not isinstance(reward.params, dict):
+            raise ValueError(f"rlhf.grpo.reward_functions[{reward.name}].params must be a mapping.")
+        normalized_rewards.append(reward)
+    grpo_cfg.reward_functions = normalized_rewards
 
     config.plugins.hooks = [str(x).strip().lower() for x in config.plugins.hooks if str(x).strip()]
     config.plugins.interceptors = [

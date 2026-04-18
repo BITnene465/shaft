@@ -106,8 +106,18 @@ def test_run_from_args_allowed_algorithms() -> None:
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
-            run_from_args(args, allowed_algorithms={"dpo", "ppo"})
+            run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
     assert cfg.algorithm.name == "ppo"
+    mocked.assert_called_once()
+
+
+def test_run_from_args_supports_grpo() -> None:
+    args = _build_min_args(algorithm="grpo")
+    cfg = RuntimeConfig()
+    with patch("shaft.cli.common.load_config", return_value=cfg):
+        with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
+            run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
+    assert cfg.algorithm.name == "grpo"
     mocked.assert_called_once()
 
 
@@ -116,4 +126,4 @@ def test_run_from_args_rejects_disallowed_algorithm() -> None:
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with pytest.raises(ValueError):
-            run_from_args(args, allowed_algorithms={"dpo", "ppo"})
+            run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})

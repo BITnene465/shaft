@@ -8,9 +8,10 @@ import torch
 from transformers import TrainingArguments
 
 from shaft.config import DPOConfig as ShaftDPOConfig
+from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 
-from shaft.training.trl_trainers import _DPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
+from shaft.training.trl_trainers import _DPO_IMPORT_ERROR, _GRPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
 
 if TYPE_CHECKING:
     from shaft.model.types import ModelMeta
@@ -24,6 +25,11 @@ if _PPO_IMPORT_ERROR is None:
     from trl.experimental.ppo import PPOConfig as TRLPPOConfig
 else:
     TRLPPOConfig = None  # type: ignore[assignment]
+
+if _GRPO_IMPORT_ERROR is None:
+    from trl import GRPOConfig as TRLGRPOConfig
+else:
+    TRLGRPOConfig = None  # type: ignore[assignment]
 
 
 def _normalize_training_args_payload(train_args: TrainingArguments) -> dict[str, object]:
@@ -245,3 +251,37 @@ def build_trl_ppo_config(*, train_args: TrainingArguments, rlhf_config: ShaftPPO
         }
     )
     return TRLPPOConfig(**payload)
+
+
+def build_trl_grpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftGRPOConfig):
+    if TRLGRPOConfig is None:
+        raise ImportError(
+            "TRL GRPO config is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
+        ) from _GRPO_IMPORT_ERROR
+    payload = _normalize_training_args_payload(train_args)
+    world_size = int(getattr(train_args, "world_size", 1) or 1)
+    base_global_batch = max(1, int(train_args.per_device_train_batch_size) * world_size)
+    steps_per_generation = max(1, int(train_args.gradient_accumulation_steps))
+    num_generations = int(rlhf_config.num_generations)
+    while (base_global_batch * steps_per_generation) % num_generations != 0:
+        steps_per_generation += 1
+    payload.update(
+        {
+            "beta": float(rlhf_config.beta),
+            "num_generations": num_generations,
+            "num_generations_eval": (
+                int(rlhf_config.num_generations_eval)
+                if rlhf_config.num_generations_eval is not None
+                else None
+            ),
+            "max_completion_length": int(rlhf_config.max_completion_length),
+            "temperature": float(rlhf_config.temperature),
+            "top_p": float(rlhf_config.top_p),
+            "top_k": int(rlhf_config.top_k),
+            "min_p": float(rlhf_config.min_p) if rlhf_config.min_p is not None else None,
+            "repetition_penalty": float(rlhf_config.repetition_penalty),
+            "use_vllm": bool(rlhf_config.use_vllm),
+            "steps_per_generation": steps_per_generation,
+        }
+    )
+    return TRLGRPOConfig(**payload)

@@ -187,13 +187,13 @@
 
 关键字段：
 
-- `name`: `sft | dpo | ppo`
+- `name`: `sft | dpo | ppo | grpo`
 - `params`
 
 说明：
 
 - `params` 只保留算法的轻量补充参数。
-- DPO/PPO 的结构化核心参数在 `rlhf` 块中。
+- DPO/PPO/GRPO 的结构化核心参数在 `rlhf` 块中。
 
 ## 6. `train`
 
@@ -347,7 +347,7 @@ eval:
 
 ## 8. `rlhf`
 
-用途：DPO/PPO 的结构化专属参数。
+用途：DPO/PPO/GRPO 的结构化专属参数。
 
 ### `rlhf.dpo`
 
@@ -382,6 +382,39 @@ eval:
 说明：
 
 - PPO 仍是受限能力，文档与实现均不应把它表述为已完成生产方案。
+
+### `rlhf.grpo`
+
+- `beta`
+- `num_generations`
+- `num_generations_eval`
+- `max_completion_length`
+- `temperature`
+- `top_p`
+- `top_k`
+- `min_p`
+- `repetition_penalty`
+- `use_vllm`
+- `reward_functions`
+
+说明：
+
+- 当前 GRPO 复用 `jsonl_sft` 数据格式：
+  - prompt 来自 `messages` 或 `system_prompt + user_prompt`
+  - reward target 来自 `target_text`
+- 当前内置 reward 通过 `reward_functions` 配置，支持：
+  - `exact_match`
+  - `parse_success`
+- 每个 reward function 由以下字段描述：
+  - `name`
+  - `codec`
+  - `weight`
+  - `params`
+- `codec` 复用共享 `codec` 注册表，当前可以直接使用 `json_any / json_object / json_list / text`
+- Shaft 会自动解析 `steps_per_generation`，保证 TRL 的 `generation_batch_size` 与 `num_generations` 整除约束成立。
+- 当前 GRPO 明确要求 `data.mix_refresh=static`。
+  - 原因是 TRL GRPOTrainer 内部使用自己的 prompt-repeat sampler 来实现 grouped generation
+  - 这与 Shaft 的 `epoch_refresh` train sampler 语义冲突
 
 ## 9. `plugins`
 

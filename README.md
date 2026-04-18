@@ -42,6 +42,7 @@ uv pip install -e ".[serve]"
 python scripts/train.py sft --config configs/train/train_sft_4b.yaml
 python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml --algorithm dpo
 python scripts/train.py rlhf --config configs/train/train_ppo_4b.yaml --algorithm ppo
+python scripts/train.py rlhf --config configs/train/train_grpo_4b.yaml --algorithm grpo
 ```
 
 ### 推理
@@ -109,6 +110,7 @@ data:
 - `SFT`
 - `DPO`
 - `PPO`（受限能力，非完整生产功能）
+- `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据，并要求 `data.mix_refresh=static`）
 
 ### 推理
 
@@ -129,7 +131,7 @@ data:
 - `src/shaft/data`：数据源、增强、mixing、dataset、collator
 - `src/shaft/model`：模型族元信息、HF 加载、PEFT 包装、processor/peft policy
 - `src/shaft/template`：chat template 与 decode 约定
-- `src/shaft/algorithms`：SFT/DPO/PPO trainer 装配
+- `src/shaft/algorithms`：SFT/DPO/PPO/GRPO trainer 装配
 - `src/shaft/pipeline`：`ShaftSFTPipeline` / `ShaftRLHFPipeline`
 - `src/shaft/training`：trainer、optimizer、scheduler、loss、checkpoint 规则
 - `src/shaft/infer`：`ShaftInferEngine`、`ShaftInferPipeline`、codec

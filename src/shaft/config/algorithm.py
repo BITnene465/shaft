@@ -6,7 +6,7 @@ from typing import Any
 
 @dataclass
 class AlgorithmConfig:
-    name: str = "sft"  # sft | dpo | ppo
+    name: str = "sft"  # sft | dpo | ppo | grpo
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -43,7 +43,33 @@ class PPOConfig:
 
 
 @dataclass
+class GRPORewardConfig:
+    name: str = "exact_match"
+    codec: str = "json_any"
+    weight: float = 1.0
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class GRPOConfig:
+    beta: float = 0.0
+    num_generations: int = 8
+    num_generations_eval: int | None = 1
+    max_completion_length: int = 256
+    temperature: float = 1.0
+    top_p: float = 1.0
+    top_k: int = 0
+    min_p: float | None = None
+    repetition_penalty: float = 1.0
+    use_vllm: bool = False
+    reward_functions: list[GRPORewardConfig] = field(
+        default_factory=lambda: [GRPORewardConfig()]
+    )
+
+
+@dataclass
 class RLHFConfig:
     enabled: bool = False
     dpo: DPOConfig = field(default_factory=DPOConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
+    grpo: GRPOConfig = field(default_factory=GRPOConfig)

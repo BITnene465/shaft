@@ -6,13 +6,16 @@ from transformers import TrainingArguments
 
 from shaft.algorithms import ALGORITHM_REGISTRY, AlgorithmContext
 from shaft.algorithms import dpo as _dpo  # noqa: F401
+from shaft.algorithms import grpo as _grpo  # noqa: F401
 from shaft.algorithms import ppo as _ppo  # noqa: F401
 from shaft.config import RuntimeConfig
 from shaft.data import (
     DPOCollator,
     DPODataset,
+    GRPOCollator,
     PPOCollator,
     PPODataset,
+    SFTDataset,
     ShaftDataCenter,
 )
 from shaft.model import build_model_tokenizer_processor
@@ -58,14 +61,16 @@ class ShaftRLHFPipeline:
             return DPOCollator(**common_kwargs)
         if algorithm_name == "ppo":
             return PPOCollator(**common_kwargs)
+        if algorithm_name == "grpo":
+            return GRPOCollator(template=artifacts.template)
         raise ValueError(f"Unsupported RLHF algorithm: {algorithm_name!r}.")
 
     def run(self) -> dict[str, Any]:
         config = self.config
         algorithm_name = str(config.algorithm.name).strip().lower()
-        if algorithm_name not in {"dpo", "ppo"}:
+        if algorithm_name not in {"dpo", "ppo", "grpo"}:
             raise ValueError(
-                f"ShaftRLHFPipeline only supports dpo/ppo, got algorithm={algorithm_name!r}."
+                f"ShaftRLHFPipeline only supports dpo/ppo/grpo, got algorithm={algorithm_name!r}."
             )
 
         validate_training_state_policy(config)
@@ -74,7 +79,12 @@ class ShaftRLHFPipeline:
             init_from_checkpoint=config.train.init_from_checkpoint,
         )
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
-        dataset_cls = DPODataset if algorithm_name == "dpo" else PPODataset
+        if algorithm_name == "dpo":
+            dataset_cls = DPODataset
+        elif algorithm_name == "ppo":
+            dataset_cls = PPODataset
+        else:
+            dataset_cls = SFTDataset
         dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
         train_dataset = dataset_bundle.train_dataset
         eval_dataset = dataset_bundle.eval_dataset
@@ -106,7 +116,7 @@ class ShaftRLHFPipeline:
             args=self.build_training_args(),
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
-            train_sampler=dataset_bundle.train_sampler,
+            train_sampler=dataset_bundle.train_sampler if algorithm_name in {"dpo", "ppo"} else None,
             processing_class=processing_class,
             data_collator=self._build_collator(algorithm_name, artifacts=artifacts),
             callbacks=callbacks_or_none,

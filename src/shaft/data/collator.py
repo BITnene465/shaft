@@ -288,3 +288,25 @@ class PPOCollator(_ShaftSequenceCollatorBase):
             },
         }
         return out
+
+
+class GRPOCollator:
+    def __init__(self, *, template: Template) -> None:
+        self.template = template
+
+    def __call__(self, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for item in batch:
+            prompt = self.template.prepare_messages(self.template.resolve_messages(item))
+            rows.append(
+                {
+                    "prompt": prompt,
+                    "image": item.get("image"),
+                    "target_text": str(item.get("target_text", "")),
+                    "dataset_name": item.get("dataset_name"),
+                    "sample_id": item.get("sample_id"),
+                    "image_path": item.get("image_path"),
+                    "extra": dict(item.get("extra", {})),
+                }
+            )
+        return rows

@@ -143,7 +143,7 @@ def run_from_args(
         logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
         if config.algorithm.name == "sft":
             metrics = run_sft(config)
-        elif config.algorithm.name in {"dpo", "ppo"}:
+        elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
             metrics = run_rlhf(config)
         else:
             raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")

@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.data import DPODataset, ShaftDatasetBundle
+from shaft.data import DPODataset, SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.pipeline import run_rlhf
 from shaft.template import build_template
@@ -195,6 +195,76 @@ rlhf:
     return cfg
 
 
+def _write_grpo_config(base_dir: Path) -> Path:
+    image_path = _write_common_image(base_dir)
+    train_jsonl = base_dir / "train_grpo.jsonl"
+    val_jsonl = base_dir / "val_grpo.jsonl"
+    row = {
+        "image_path": str(image_path),
+        "target_text": "{\"ok\":1}",
+        "user_prompt": "return json",
+    }
+    train_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    val_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    cfg = base_dir / "config_grpo.yaml"
+    cfg.write_text(
+        f"""
+experiment:
+  name: smoke-grpo
+  output_dir: {base_dir}/outputs_grpo
+  seed: 7
+model:
+  model_type: smoke_vlm
+  finetune:
+    mode: lora
+    target_modules: ["all-linear"]
+algorithm:
+  name: grpo
+data:
+  datasets:
+    - dataset_name: grpo_ds
+      source_type: jsonl_sft
+      train_path: {train_jsonl}
+      val_path: {val_jsonl}
+  mix_refresh: static
+  num_workers: 0
+  persistent_workers: false
+  pin_memory: false
+  min_pixels:
+  max_pixels:
+train:
+  epochs: 1
+  max_steps: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-3
+  optimizer_name: adamw_torch
+  scheduler_name: linear
+  loss_name: auto
+  logging_steps: 1
+  save_strategy: no
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  bf16: false
+  use_cpu: true
+eval:
+  enabled: false
+rlhf:
+  enabled: true
+  grpo:
+    num_generations: 2
+    max_completion_length: 8
+    reward_functions:
+      - name: exact_match
+        codec: json_any
+""",
+        encoding="utf-8",
+    )
+    return cfg
+
+
 def test_run_rlhf_dpo_smoke(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     metrics = run_rlhf(cfg)
@@ -206,6 +276,13 @@ def test_run_rlhf_ppo_smoke(tmp_path: Path) -> None:
     metrics = run_rlhf(cfg)
     assert "episode" in metrics
     assert "objective/rlhf_reward" in metrics
+
+
+def test_run_rlhf_grpo_smoke(tmp_path: Path) -> None:
+    cfg = load_config(_write_grpo_config(tmp_path))
+    with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
+        metrics = run_rlhf(cfg)
+    assert "train_loss" in metrics
 
 
 def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
@@ -251,3 +328,45 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
+
+
+def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
+    cfg = load_config(_write_grpo_config(tmp_path))
+    fake_train_dataset = object()
+    fake_eval_dataset = object()
+    fake_train_sampler = object()
+    captured = {}
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed):
+            captured["data_config"] = data_config
+            captured["seed"] = seed
+
+        def build_dataset_bundle(self, dataset_cls):
+            captured["dataset_cls"] = dataset_cls
+            return ShaftDatasetBundle(
+                train_dataset=fake_train_dataset,
+                eval_dataset=fake_eval_dataset,
+                train_sampler=fake_train_sampler,
+            )
+
+    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+            mocked_builder.return_value = type(
+                "Artifacts",
+                (),
+                {
+                    "model": _FakeModel(),
+                    "tokenizer": _FakeTokenizer(),
+                    "processor": _FakeProcessor(),
+                    "model_meta": build_model_meta("smoke_vlm"),
+                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                    "template": build_template("smoke_vlm"),
+                },
+            )()
+            with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
+                _ = run_rlhf(cfg)
+
+    assert captured["dataset_cls"] is SFTDataset
+    assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert "train_sampler" not in _FakeTrainer.last_kwargs

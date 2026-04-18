@@ -10,7 +10,7 @@ from .muon import Muon
 from .optimizer import OPTIMIZER_REGISTRY, build_optimizer, register_optimizer
 from .online_eval import ShaftOnlineEvalRunner
 from .progress_callback import ShaftProgressCallback
-from .trl_trainers import ShaftDPOTrainer, ShaftPPOTrainer
+from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .sft_trainer import ShaftSFTTrainer
 
@@ -22,6 +22,7 @@ __all__ = [
     "ShaftOnlineEvalRunner",
     "ShaftProgressCallback",
     "ShaftDPOTrainer",
+    "ShaftGRPOTrainer",
     "ShaftPPOTrainer",
     "ShaftSFTTrainer",
     "barrier_if_distributed",

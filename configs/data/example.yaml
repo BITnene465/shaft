@@ -30,3 +30,12 @@ datasets:
     enabled: true
     help: PPO rollout 数据集示例
     tags: [ppo, rollout]
+
+  grpo_prompt_target:
+    source_type: jsonl_sft
+    train_path: ../../data/train_grpo.jsonl
+    val_path: ../../data/val_grpo.jsonl
+    weight: 1.0
+    enabled: true
+    help: GRPO prompt-target 数据集示例（复用 jsonl_sft）
+    tags: [grpo, sft_like]

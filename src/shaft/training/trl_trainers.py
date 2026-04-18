@@ -23,6 +23,14 @@ except Exception as exc:  # noqa: BLE001
 else:
     _PPO_IMPORT_ERROR = None
 
+try:
+    from trl import GRPOTrainer as _TRLGRPOTrainer
+except Exception as exc:  # noqa: BLE001
+    _TRLGRPOTrainer = object
+    _GRPO_IMPORT_ERROR = exc
+else:
+    _GRPO_IMPORT_ERROR = None
+
 
 class ShaftDPOTrainer(ShaftTrainSamplerMixin, _TRLDPOTrainer):
     """TRL DPOTrainer wrapper with Shaft naming."""
@@ -43,4 +51,15 @@ class ShaftPPOTrainer(ShaftTrainSamplerMixin, _TRLPPOTrainer):
             raise ImportError(
                 "TRL PPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
             ) from _PPO_IMPORT_ERROR
+        super().__init__(*args, **kwargs)
+
+
+class ShaftGRPOTrainer(_TRLGRPOTrainer):
+    """TRL GRPOTrainer wrapper with Shaft naming."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        if _GRPO_IMPORT_ERROR is not None:
+            raise ImportError(
+                "TRL GRPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
+            ) from _GRPO_IMPORT_ERROR
         super().__init__(*args, **kwargs)

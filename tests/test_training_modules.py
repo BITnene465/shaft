@@ -7,13 +7,17 @@ from unittest.mock import patch
 import pytest
 import torch
 from shaft.algorithms.rlhf_utils import (
+    build_trl_grpo_config,
     build_ppo_value_and_reward_models,
     build_trl_dpo_config,
     build_trl_ppo_config,
     validate_ppo_runtime_requirements,
 )
 from shaft.config import DPOConfig as ShaftDPOConfig
+from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
+from shaft.config import GRPORewardConfig
+from shaft.algorithms.grpo_rewards import build_grpo_reward_functions
 from shaft.model import build_model_meta
 from transformers import TrainingArguments
 from shaft.data import SFTRecord, SFTDataset, ShaftMixedIndexSampler
@@ -21,7 +25,7 @@ from shaft.data import SFTRecord, SFTDataset, ShaftMixedIndexSampler
 from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_cross_entropy, causal_lm_loss
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
-from shaft.training import ShaftDPOTrainer, ShaftPPOTrainer
+from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
@@ -394,9 +398,71 @@ def test_build_trl_ppo_config_from_training_args() -> None:
     assert ppo_args.num_ppo_epochs == 2
 
 
+def test_build_trl_grpo_config_from_training_args() -> None:
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_grpo_config_smoke",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=2,
+        use_cpu=True,
+        report_to=[],
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        grpo_args = build_trl_grpo_config(
+            train_args=args,
+            rlhf_config=ShaftGRPOConfig(
+                beta=0.01,
+                num_generations=4,
+                max_completion_length=96,
+                temperature=0.8,
+                top_p=0.95,
+                top_k=16,
+                min_p=0.05,
+                repetition_penalty=1.1,
+                use_vllm=False,
+            ),
+        )
+    assert all("push_to_hub_token" not in str(w.message) for w in caught)
+    assert grpo_args.beta == pytest.approx(0.01)
+    assert grpo_args.num_generations == 4
+    assert grpo_args.max_completion_length == 96
+    assert grpo_args.temperature == pytest.approx(0.8)
+    assert grpo_args.top_p == pytest.approx(0.95)
+    assert grpo_args.top_k == 16
+    assert grpo_args.min_p == pytest.approx(0.05)
+    assert grpo_args.repetition_penalty == pytest.approx(1.1)
+
+
 def test_shaft_rlhf_trainer_classes_are_importable() -> None:
     assert isinstance(ShaftDPOTrainer, type)
     assert isinstance(ShaftPPOTrainer, type)
+    assert isinstance(ShaftGRPOTrainer, type)
+
+
+def test_build_grpo_reward_functions_supports_exact_match_and_parse_success() -> None:
+    reward_funcs = build_grpo_reward_functions(
+        [
+            GRPORewardConfig(name="parse_success", codec="json_any", weight=0.5),
+            GRPORewardConfig(name="exact_match", codec="json_any", weight=2.0),
+        ]
+    )
+    parse_reward, exact_reward = reward_funcs
+    assert parse_reward(
+        completions=['{"ok": 1}', 'not-json'],
+        target_text=['{"ok": 1}', '{"ok": 0}'],
+    ) == [0.5, 0.0]
+    assert exact_reward(
+        completions=['{"ok": 1}', '{"ok": 0}'],
+        target_text=['{"ok": 1}', '{"ok": 1}'],
+    ) == [2.0, 0.0]
+    assert exact_reward(
+        completions=[
+            [{"role": "assistant", "content": [{"type": "text", "text": '{"ok": 1}'}]}],
+            [{"role": "assistant", "content": '{"ok": 0}'}],
+        ],
+        target_text=['{"ok": 1}', '{"ok": 1}'],
+    ) == [2.0, 0.0]
 
 
 def test_ppo_requires_explicit_random_reward_opt_in() -> None:

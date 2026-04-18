@@ -47,6 +47,20 @@ def test_main_runs_rlhf_command() -> None:
     assert captured["algorithm"] == "dpo"
 
 
+def test_main_runs_grpo_command() -> None:
+    cfg = RuntimeConfig()
+    captured: dict[str, str] = {}
+
+    def _fake_run(config):
+        captured["algorithm"] = config.algorithm.name
+        return {"ok": 1}
+
+    with patch("shaft.cli.common.load_config", return_value=cfg):
+        with patch("shaft.cli.common.run_rlhf", side_effect=_fake_run):
+            main(["rlhf", "--config", "dummy.yaml", "--algorithm", "grpo"])
+    assert captured["algorithm"] == "grpo"
+
+
 def test_main_defaults_to_sft_when_command_omitted() -> None:
     cfg = RuntimeConfig()
     captured: dict[str, str] = {}

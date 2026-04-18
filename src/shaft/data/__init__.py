@@ -1,4 +1,4 @@
-from .collator import DPOCollator, PPOCollator, SFTCollator
+from .collator import DPOCollator, GRPOCollator, PPOCollator, SFTCollator
 from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
 from .dataset import (
     DPODataset,
@@ -32,6 +32,7 @@ __all__ = [
     "DPOCollator",
     "DPODataset",
     "DPORecord",
+    "GRPOCollator",
     "PPOCollator",
     "PPODataset",
     "PPORecord",
