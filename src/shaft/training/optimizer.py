@@ -11,7 +11,7 @@ from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
 from shaft.plugins import Registry
 
-from .optimizer_plan import build_resolved_optimizer_plan
+from .optimizer_plan import ShaftResolvedOptimizerPlan, build_resolved_optimizer_plan
 from .muon import Muon
 
 OptimizerBuilder = Callable[..., torch.optim.Optimizer]
@@ -123,19 +123,47 @@ def build_optimizer(
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
 ) -> torch.optim.Optimizer:
+    optimizer, _ = build_optimizer_and_plan(
+        model=model,
+        args=args,
+        optimizer_name=optimizer_name,
+        adam_beta1=adam_beta1,
+        adam_beta2=adam_beta2,
+        adam_epsilon=adam_epsilon,
+        finetune_plan=finetune_plan,
+        model_adapter=model_adapter,
+        param_group_lrs=param_group_lrs,
+    )
+    return optimizer
+
+
+def build_optimizer_and_plan(
+    *,
+    model: torch.nn.Module,
+    args: TrainingArguments,
+    optimizer_name: str,
+    adam_beta1: float,
+    adam_beta2: float,
+    adam_epsilon: float,
+    finetune_plan: ShaftResolvedFinetunePlan | None = None,
+    model_adapter: ShaftModelAdapter | None = None,
+    param_group_lrs: dict[str, float] | None = None,
+) -> tuple[torch.optim.Optimizer, ShaftResolvedOptimizerPlan]:
     normalized = str(optimizer_name).strip().lower()
-    grouped_params = build_resolved_optimizer_plan(
+    resolved_plan = build_resolved_optimizer_plan(
         model=model,
         args=args,
         finetune_plan=finetune_plan,
         model_adapter=model_adapter,
         param_group_lrs=param_group_lrs,
-    ).to_optimizer_groups()
+    )
+    grouped_params = resolved_plan.to_optimizer_groups()
     builder = OPTIMIZER_REGISTRY.get(normalized)
-    return builder(
+    optimizer = builder(
         grouped_params=grouped_params,
         args=args,
         adam_beta1=float(adam_beta1),
         adam_beta2=float(adam_beta2),
         adam_epsilon=float(adam_epsilon),
     )
+    return optimizer, resolved_plan

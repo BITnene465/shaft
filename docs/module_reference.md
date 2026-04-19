@@ -416,6 +416,9 @@
   - `ShaftDPOTrainer`
   - `ShaftPPOTrainer`
   - `ShaftGRPOTrainer`
+  - 并在 optimizer 创建后写出：
+    - `shaft_optimizer_summary.json`
+    - 供 CLI 日志和 Web UI 回看 resolved optimizer groups
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`
@@ -674,7 +677,9 @@
 - `services/train_service.py`
   - 子进程管理、run snapshot 读取
   - 运行时 freeze summary 读取
+  - 运行时 optimizer group summary 读取
 - `services/run_store.py`
   - 本地 run 目录、resolved config、日志与 record 管理
   - `shaft_finetune_summary.json` 读取
+  - `shaft_optimizer_summary.json` 读取
   - 本地 run store 条目删除

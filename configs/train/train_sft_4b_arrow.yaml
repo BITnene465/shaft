@@ -30,7 +30,7 @@ data:
   catalog_path: ../data/arrow.yaml
   catalog_names: [grounding_arrow, keypoint_arrow, grounding_arrow_syn_avg]
   mix_strategy: interleave_under
-  num_workers: 16
+  num_workers: 12
   pin_memory: true
   persistent_workers: true
   min_pixels: 200704
@@ -43,7 +43,10 @@ train:
   max_steps: -1
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 2
-  learning_rate: 0.00003
+  learning_rate: 0.00002
+  param_group_lrs:
+    vision_tower: 0.000002
+    aligner: 0.000002
   optimizer_name: adamw_torch
   scheduler_name: auto
   scheduler_num_cycles: 0.5

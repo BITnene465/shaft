@@ -532,6 +532,35 @@ textarea {
   gap: 12px;
 }
 
+.shaft-meta-row-block {
+  align-items: start;
+}
+
+.shaft-meta-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--shaft-bg-muted) 88%, white 12%);
+  border: 1px solid var(--shaft-border);
+}
+
+[data-shaft-theme="dark"] .shaft-meta-block {
+  background: color-mix(in srgb, var(--shaft-bg-muted) 82%, black 18%);
+}
+
+.shaft-meta-block-title {
+  font-weight: 700;
+}
+
+.shaft-meta-block-subtitle {
+  color: var(--shaft-text-soft);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
 .shaft-meta-label,
 .shaft-summary-label {
   color: var(--shaft-text-soft);

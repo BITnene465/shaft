@@ -159,6 +159,11 @@ def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path:
         '{"mode":"lora","trainable_params":42,"resolved_target_modules":["proj"],"modules_to_save":["lm_head"]}',
         encoding="utf-8",
     )
+    optimizer_summary_path = repo_root / "outputs" / "snapshot" / "shaft_optimizer_summary.json"
+    optimizer_summary_path.write_text(
+        '{"total_trainable_params":42,"group_count":1,"groups":[{"logical_group":"lora_params","decay":true,"lr":0.0005,"weight_decay":0.01,"num_parameters":42,"num_tensors":2,"sample_parameter_names":["base_model.model.fc.lora_A.default.weight"]}]}',
+        encoding="utf-8",
+    )
 
     snapshot = service.load_run_snapshot(record.run_id)
 
@@ -167,6 +172,7 @@ def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path:
     assert "run_id: snapshot-run" in snapshot["resolved_config"]
     assert "hello webui" in snapshot["log"]
     assert snapshot["finetune_summary"]["resolved_target_modules"] == ["proj"]
+    assert snapshot["optimizer_summary"]["groups"][0]["logical_group"] == "lora_params"
 
 
 def test_train_service_delete_run_removes_local_run_store_only(tmp_path: Path) -> None:

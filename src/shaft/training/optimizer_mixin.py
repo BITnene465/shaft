@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import torch
@@ -8,8 +9,11 @@ from transformers import TrainingArguments
 from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
 
-from .optimizer import build_optimizer
+from .optimizer import build_optimizer_and_plan
+from .optimizer_plan import summarize_resolved_optimizer_plan, write_resolved_optimizer_summary
 from .scheduler import build_scheduler
+
+logger = logging.getLogger(__name__)
 
 
 class ShaftOptimizerMixin:
@@ -41,6 +45,8 @@ class ShaftOptimizerMixin:
             str(key).strip().lower(): float(value)
             for key, value in dict(param_group_lrs or {}).items()
         }
+        self.resolved_optimizer_plan = None
+        self.resolved_optimizer_summary = None
         super().__init__(*args, **kwargs)
 
     @property
@@ -49,7 +55,7 @@ class ShaftOptimizerMixin:
 
     def create_optimizer(self):
         if self.optimizer is None:
-            self.optimizer = build_optimizer(
+            self.optimizer, self.resolved_optimizer_plan = build_optimizer_and_plan(
                 model=self.model,
                 args=self.train_args,
                 optimizer_name=self.optimizer_name,
@@ -59,6 +65,15 @@ class ShaftOptimizerMixin:
                 finetune_plan=self.finetune_plan,
                 model_adapter=self.model_adapter,
                 param_group_lrs=self.param_group_lrs,
+            )
+            self.resolved_optimizer_summary = summarize_resolved_optimizer_plan(self.resolved_optimizer_plan)
+            write_resolved_optimizer_summary(
+                self.train_args.output_dir,
+                self.resolved_optimizer_summary,
+            )
+            logger.info(
+                "[startup] resolved optimizer groups: %s",
+                self.resolved_optimizer_summary.to_log_dict(),
             )
         return self.optimizer
 

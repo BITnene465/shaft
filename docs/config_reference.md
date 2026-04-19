@@ -114,6 +114,7 @@
 - 训练时会先把上述配置解析为一份 `resolved finetune plan`，后续训练执行与 adapter 导入校验都消费这份计划。
 - 训练启动后，CLI 会打印一份运行时 `resolved freeze summary`，并在输出目录写入：
   - `shaft_finetune_summary.json`
+  - `shaft_optimizer_summary.json`
 - `full`
   - 先默认全部可训练
   - 再应用冻结规则

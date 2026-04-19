@@ -230,6 +230,72 @@ def render_finetune_summary_html(summary: dict[str, Any] | None) -> str:
     return "".join(parts)
 
 
+def render_optimizer_summary_html(summary: dict[str, Any] | None) -> str:
+    summary = summary or {}
+    groups = summary.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return (
+            '<div class="shaft-card shaft-status-card">'
+            '<div class="shaft-note shaft-note-neutral">'
+            "No runtime optimizer summary yet. Start or reopen a run after optimizer creation."
+            "</div></div>"
+        )
+    total_trainable_params = summary.get("total_trainable_params", "-")
+    group_count = summary.get("group_count", len(groups))
+    parts = [
+        '<div class="shaft-card shaft-status-card">',
+        '<div class="shaft-status-head">',
+        '<div>',
+        '<div class="shaft-status-kicker">Resolved Optimizer</div>',
+        '<div class="shaft-status-title">Runtime Groups</div>',
+        "</div>",
+        f'<span class="shaft-status-badge shaft-status-validated">{escape(str(group_count))} groups</span>',
+        "</div>",
+        '<div class="shaft-status-grid-secondary">',
+    ]
+    for label, value in (
+        ("Trainable Params", total_trainable_params),
+        ("Group Count", group_count),
+    ):
+        parts.extend(
+            [
+                '<div class="shaft-summary-card shaft-summary-card-secondary">',
+                f'<span class="shaft-summary-label">{escape(str(label))}</span>',
+                f'<span class="shaft-summary-value shaft-summary-value-secondary">{escape(str(value))}</span>',
+                "</div>",
+            ]
+        )
+    parts.extend(["</div>", '<div class="shaft-meta-list">'])
+    for index, group in enumerate(groups, start=1):
+        if not isinstance(group, dict):
+            continue
+        label = str(group.get("logical_group", "default"))
+        if bool(group.get("decay")):
+            label = f"{label} · decay"
+        else:
+            label = f"{label} · no_decay"
+        parts.extend(
+            [
+                '<div class="shaft-meta-row shaft-meta-row-block">',
+                f'<span class="shaft-meta-label">{escape(f"Group {index}")}</span>',
+                '<div class="shaft-meta-block">',
+                f'<div class="shaft-meta-block-title">{escape(label)}</div>',
+                '<div class="shaft-chip-row">',
+                f'<span class="shaft-chip shaft-chip-compact">lr={escape(str(group.get("lr", "-")))}</span>',
+                f'<span class="shaft-chip shaft-chip-compact">weight_decay={escape(str(group.get("weight_decay", "-")))}</span>',
+                f'<span class="shaft-chip shaft-chip-compact">params={escape(str(group.get("num_parameters", "-")))}</span>',
+                f'<span class="shaft-chip shaft-chip-compact">tensors={escape(str(group.get("num_tensors", "-")))}</span>',
+                "</div>",
+                '<div class="shaft-meta-block-subtitle">Sample Parameters</div>',
+                _render_freeze_items(group.get("sample_parameter_names")),
+                "</div>",
+                "</div>",
+            ]
+        )
+    parts.extend(["</div>", "</div>"])
+    return "".join(parts)
+
+
 class ShaftSFTWebUIController:
     def __init__(
         self,
@@ -285,6 +351,7 @@ class ShaftSFTWebUIController:
             "status_html": default_status,
             "freeze_preview_html": freeze_preview_html,
             "freeze_summary_html": render_finetune_summary_html(None),
+            "optimizer_summary_html": render_optimizer_summary_html(None),
             "resolved_yaml": "",
             "log_text": "",
             "runs": self.build_runs_table(records),
@@ -311,6 +378,7 @@ class ShaftSFTWebUIController:
                     self.config_service.build_freeze_preview(config)
                 ),
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -325,6 +393,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=str(exc)),
                 "freeze_preview_html": render_freeze_preview_html(None),
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -357,6 +426,7 @@ class ShaftSFTWebUIController:
                     self.config_service.build_freeze_preview(config)
                 ),
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": resolved_yaml,
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
@@ -369,6 +439,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=str(exc)),
                 "freeze_preview_html": render_freeze_preview_html(None),
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
@@ -405,6 +476,9 @@ class ShaftSFTWebUIController:
                 "freeze_summary_html": render_finetune_summary_html(
                     self.train_service.load_finetune_summary(record.run_id)
                 ),
+                "optimizer_summary_html": render_optimizer_summary_html(
+                    self.train_service.load_optimizer_summary(record.run_id)
+                ),
                 "resolved_yaml": self.train_service.read_resolved_config(record.run_id),
                 "log_text": self.train_service.read_log(record.run_id),
                 "runs": self.build_runs_table(records),
@@ -420,6 +494,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=str(exc)),
                 "freeze_preview_html": render_freeze_preview_html(None),
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -438,6 +513,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, message="Refreshed recent runs."),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -457,6 +533,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error="No run is selected."),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -473,6 +550,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -487,6 +565,7 @@ class ShaftSFTWebUIController:
             "status_html": render_status_html(record, summary=snapshot.get("summary"), message="Run stopped."),
             "freeze_preview_html": None,
             "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
+            "optimizer_summary_html": render_optimizer_summary_html(snapshot.get("optimizer_summary")),
             "resolved_yaml": str(snapshot.get("resolved_config", "")),
             "log_text": str(snapshot.get("log", "")),
             "runs": self.build_runs_table(records),
@@ -505,6 +584,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, message="No run selected."),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -520,6 +600,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -534,6 +615,7 @@ class ShaftSFTWebUIController:
             "status_html": render_status_html(record, summary=snapshot["summary"]),
             "freeze_preview_html": None,
             "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
+            "optimizer_summary_html": render_optimizer_summary_html(snapshot.get("optimizer_summary")),
             "resolved_yaml": str(snapshot["resolved_config"]),
             "log_text": str(snapshot["log"]),
             "runs": self.build_runs_table(records),
@@ -552,6 +634,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error="No run is selected for deletion."),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "runs": self.build_runs_table(records_before),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -567,6 +650,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=str(exc)),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -581,6 +665,7 @@ class ShaftSFTWebUIController:
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
                 "freeze_preview_html": None,
                 "freeze_summary_html": render_finetune_summary_html(None),
+                "optimizer_summary_html": render_optimizer_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -591,6 +676,7 @@ class ShaftSFTWebUIController:
             "status_html": render_status_html(None, message=f"Deleted local Web UI run entry: {run_id}"),
             "freeze_preview_html": None,
             "freeze_summary_html": render_finetune_summary_html(None) if current_run_id == run_id else None,
+            "optimizer_summary_html": render_optimizer_summary_html(None) if current_run_id == run_id else None,
             "resolved_yaml": "" if current_run_id == run_id else None,
             "log_text": "" if current_run_id == run_id else None,
             "runs": self.build_runs_table(records),

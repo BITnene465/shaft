@@ -35,6 +35,7 @@ eval:
     assert "Resolved Runtime Config" in response.text
     assert "Freeze Configuration" in response.text
     assert 'id="freeze-summary-html"' in response.text
+    assert 'id="optimizer-summary-html"' in response.text
     assert "/static/webui.css" in response.text
     assert "/static/webui.js" in response.text
     assert "/static/logo.png" in response.text

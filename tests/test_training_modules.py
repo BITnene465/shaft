@@ -30,7 +30,7 @@ from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
-from shaft.training.optimizer_plan import build_resolved_optimizer_plan
+from shaft.training.optimizer_plan import build_resolved_optimizer_plan, summarize_resolved_optimizer_plan
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
@@ -266,6 +266,42 @@ def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> No
     )
 
 
+def test_optimizer_summary_reports_grouped_learning_rates() -> None:
+    model = _build_smoke_model()
+    adapter = _build_smoke_adapter()
+    finetune = FinetuneConfig(
+        mode="dora",
+        target_modules=["all-linear"],
+        freeze=FreezeConfig(trainable_prefixes=["lm_head"]),
+    )
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_optimizer_summary",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+
+    resolved = build_resolved_optimizer_plan(
+        model=wrapped,
+        args=args,
+        finetune_plan=plan,
+        model_adapter=adapter,
+        param_group_lrs={"lora_params": 5e-4, "modules_to_save": 2e-4},
+    )
+    summary = summarize_resolved_optimizer_plan(resolved)
+
+    assert summary.total_trainable_params > 0
+    assert summary.group_count == len(summary.groups)
+    assert any(group.logical_group == "lora_params" and group.lr == pytest.approx(5e-4) for group in summary.groups)
+    assert any(
+        group.logical_group == "modules_to_save" and group.lr == pytest.approx(2e-4)
+        for group in summary.groups
+    )
+
+
 def test_shaft_trainer_uses_custom_components() -> None:
     model = _TinyModel()
     args = TrainingArguments(
@@ -293,8 +329,17 @@ def test_shaft_trainer_uses_custom_components() -> None:
         "labels": torch.tensor([[1, 2, 3]], device=device),
         "loss_scale": torch.tensor([[0.0, 1.0, 1.0]], device=device),
     }
-    with patch("shaft.training.optimizer_mixin.build_optimizer") as mocked_build_optim:
-        mocked_build_optim.return_value = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    with patch("shaft.training.optimizer_mixin.build_optimizer_and_plan") as mocked_build_optim:
+        mocked_build_optim.return_value = (
+            torch.optim.AdamW(model.parameters(), lr=1e-3),
+            build_resolved_optimizer_plan(
+                model=model,
+                args=args,
+                finetune_plan=None,
+                model_adapter=None,
+                param_group_lrs={},
+            ),
+        )
         trainer.create_optimizer()
         mocked_build_optim.assert_called_once()
         _, kwargs = mocked_build_optim.call_args

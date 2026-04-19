@@ -9,6 +9,7 @@
     statusHtml: document.getElementById("status-html"),
     freezePreviewHtml: document.getElementById("freeze-preview-html"),
     freezeSummaryHtml: document.getElementById("freeze-summary-html"),
+    optimizerSummaryHtml: document.getElementById("optimizer-summary-html"),
     runsTableBody: document.getElementById("runs-table-body"),
     runSelector: document.getElementById("run-selector"),
     themeToggle: document.getElementById("theme-toggle"),
@@ -129,6 +130,9 @@
     }
     if (elements.freezeSummaryHtml && typeof state.freeze_summary_html === "string") {
       elements.freezeSummaryHtml.innerHTML = state.freeze_summary_html;
+    }
+    if (elements.optimizerSummaryHtml && typeof state.optimizer_summary_html === "string") {
+      elements.optimizerSummaryHtml.innerHTML = state.optimizer_summary_html;
     }
     if (elements.resolvedYaml && typeof state.resolved_yaml === "string") {
       elements.resolvedYaml.value = state.resolved_yaml;

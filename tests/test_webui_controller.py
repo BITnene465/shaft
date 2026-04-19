@@ -84,6 +84,10 @@ def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:
         '{"mode":"lora","trainable_params":42,"resolved_target_modules":["proj"],"modules_to_save":["lm_head"]}',
         encoding="utf-8",
     )
+    (output_dir / "shaft_optimizer_summary.json").write_text(
+        '{"total_trainable_params":42,"group_count":1,"groups":[{"logical_group":"lora_params","decay":true,"lr":0.0005,"weight_decay":0.01,"num_parameters":42,"num_tensors":2,"sample_parameter_names":["base_model.model.fc.lora_A.default.weight"]}]}',
+        encoding="utf-8",
+    )
 
     payload = controller.load_run("snapshot-run")
 
@@ -93,6 +97,8 @@ def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:
     assert "run_id: snapshot-run" in payload["resolved_yaml"]
     assert "hello webui" in payload["log_text"]
     assert "Resolved Target Modules" in payload["freeze_summary_html"]
+    assert "Resolved Optimizer" in payload["optimizer_summary_html"]
+    assert "lora_params" in payload["optimizer_summary_html"]
     assert payload["runs"][0]["run_id"] == "snapshot-run"
     assert payload["selected_run"] == "snapshot-run"
 
@@ -129,4 +135,5 @@ def test_webui_controller_delete_run_clears_current_snapshot(tmp_path: Path) -> 
     assert payload["current_run_id"] == ""
     assert payload["resolved_yaml"] == ""
     assert payload["log_text"] == ""
+    assert "No runtime optimizer summary yet" in payload["optimizer_summary_html"]
     assert payload["runs"] == []

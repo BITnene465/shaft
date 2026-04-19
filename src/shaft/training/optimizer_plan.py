@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -45,6 +47,51 @@ class ShaftResolvedOptimizerPlan:
 
     def to_optimizer_groups(self) -> list[dict[str, Any]]:
         return [group.to_optimizer_group() for group in self.groups]
+
+
+@dataclass(frozen=True)
+class ShaftResolvedOptimizerGroupSummary:
+    logical_group: str
+    decay: bool
+    lr: float
+    weight_decay: float
+    num_parameters: int
+    num_tensors: int
+    sample_parameter_names: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ShaftResolvedOptimizerSummary:
+    total_trainable_params: int
+    group_count: int
+    groups: tuple[ShaftResolvedOptimizerGroupSummary, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_log_dict(self) -> dict[str, Any]:
+        return {
+            "total_trainable_params": int(self.total_trainable_params),
+            "group_count": int(self.group_count),
+            "groups": [
+                {
+                    "logical_group": item.logical_group,
+                    "decay": item.decay,
+                    "lr": item.lr,
+                    "weight_decay": item.weight_decay,
+                    "num_parameters": item.num_parameters,
+                    "num_tensors": item.num_tensors,
+                    "sample_parameter_names": list(item.sample_parameter_names),
+                }
+                for item in self.groups
+            ],
+        }
+
+
+OPTIMIZER_SUMMARY_FILENAME = "shaft_optimizer_summary.json"
 
 
 def _normalize_runtime_parameter_name(name: str) -> str:
@@ -129,3 +176,47 @@ def build_resolved_optimizer_plan(
             )
         )
     return ShaftResolvedOptimizerPlan(groups=tuple(resolved_groups))
+
+
+def summarize_resolved_optimizer_plan(
+    plan: ShaftResolvedOptimizerPlan,
+    *,
+    sample_limit: int = 5,
+) -> ShaftResolvedOptimizerSummary:
+    group_summaries: list[ShaftResolvedOptimizerGroupSummary] = []
+    total_trainable_params = 0
+    for group in plan.groups:
+        num_parameters = sum(int(parameter.numel()) for parameter in group.parameters)
+        total_trainable_params += num_parameters
+        group_summaries.append(
+            ShaftResolvedOptimizerGroupSummary(
+                logical_group=group.logical_group,
+                decay=group.decay,
+                lr=float(group.lr),
+                weight_decay=float(group.weight_decay),
+                num_parameters=int(num_parameters),
+                num_tensors=len(group.parameters),
+                sample_parameter_names=tuple(group.parameter_names[:sample_limit]),
+            )
+        )
+    return ShaftResolvedOptimizerSummary(
+        total_trainable_params=int(total_trainable_params),
+        group_count=len(group_summaries),
+        groups=tuple(group_summaries),
+    )
+
+
+def resolved_optimizer_summary_path(output_dir: str | Path) -> Path:
+    return Path(output_dir) / OPTIMIZER_SUMMARY_FILENAME
+
+
+def write_resolved_optimizer_summary(
+    output_dir: str | Path,
+    summary: ShaftResolvedOptimizerSummary,
+) -> Path:
+    path = resolved_optimizer_summary_path(output_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(path)
+    return path

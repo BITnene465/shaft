@@ -5,7 +5,8 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from shaft.model import resolved_finetune_summary_path
+from shaft.model.finetune_plan import resolved_finetune_summary_path
+from shaft.training.optimizer_plan import resolved_optimizer_summary_path
 from shaft.webui.types import ShaftRunRecord
 
 
@@ -123,6 +124,27 @@ class ShaftRunStore:
             base_root = Path(repo_root) if repo_root is not None else _repo_root()
             output_path = (base_root / output_path).resolve()
         path = resolved_finetune_summary_path(output_path)
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return payload
+
+    def load_optimizer_summary(
+        self,
+        output_dir: str | Path,
+        *,
+        repo_root: str | Path | None = None,
+    ) -> dict[str, Any]:
+        output_path = Path(output_dir)
+        if not output_path.is_absolute():
+            base_root = Path(repo_root) if repo_root is not None else _repo_root()
+            output_path = (base_root / output_path).resolve()
+        path = resolved_optimizer_summary_path(output_path)
         if not path.exists():
             return {}
         try:

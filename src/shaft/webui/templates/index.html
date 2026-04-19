@@ -202,6 +202,11 @@
       </div>
 
       <div class="shaft-output-surface">
+        <div class="shaft-subsection-copy">Resolved optimizer groups are emitted after optimizer creation and show effective grouped learning rates.</div>
+        <div id="optimizer-summary-html">{{ state.optimizer_summary_html | safe }}</div>
+      </div>
+
+      <div class="shaft-output-surface">
         <div class="shaft-subsection-copy">Final runtime config after normalization and UI overrides. This is the exact config passed to the CLI.</div>
         <label class="shaft-field-label" for="resolved-yaml">Resolved Runtime Config</label>
         <textarea id="resolved-yaml" class="shaft-textarea shaft-code-area" readonly></textarea>

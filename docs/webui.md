@@ -196,6 +196,7 @@ src/shaft/webui/
 - `Editable YAML` 是源配置编辑区。
 - `Freeze Configuration` 是基于当前 YAML 与 Web UI override 生成的配置级预览。
 - `Resolved Freeze` 是训练进程在模型 build 后产出的运行时摘要。
+- `Resolved Optimizer` 是训练进程在 optimizer 创建后产出的运行时分组学习率摘要。
 - Web UI 不会直接覆写用户选中的源 YAML 文件。
 - 点击启动训练后，系统会把：
   - 源 YAML
@@ -207,7 +208,8 @@ src/shaft/webui/
 - CLI 实际读取的是这份 run-scoped resolved config。
 - 训练进程还会在输出目录写入：
   - `shaft_finetune_summary.json`
-  供 Web UI 回看运行时 resolved freeze summary。
+  - `shaft_optimizer_summary.json`
+  供 Web UI 回看运行时 resolved freeze 与 optimizer group summary。
 
 因此，页面中的 `Resolved Runtime Config` 与用户输入的源 YAML 不完全一致是预期行为。它是“最终执行配置”，不是“原始编辑文本”。
 
