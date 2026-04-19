@@ -153,6 +153,12 @@ def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path:
     run_store.get_run_dir(record.run_id).mkdir(parents=True, exist_ok=True)
     run_store.get_resolved_config_path(record.run_id).write_text("experiment:\n  run_id: snapshot-run\n", encoding="utf-8")
     run_store.get_log_path(record.run_id).write_text("hello webui\n", encoding="utf-8")
+    finetune_summary_path = repo_root / "outputs" / "snapshot" / "shaft_finetune_summary.json"
+    finetune_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    finetune_summary_path.write_text(
+        '{"mode":"lora","trainable_params":42,"resolved_target_modules":["proj"],"modules_to_save":["lm_head"]}',
+        encoding="utf-8",
+    )
 
     snapshot = service.load_run_snapshot(record.run_id)
 
@@ -160,6 +166,7 @@ def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path:
     assert snapshot["record"].run_id == "snapshot-run"
     assert "run_id: snapshot-run" in snapshot["resolved_config"]
     assert "hello webui" in snapshot["log"]
+    assert snapshot["finetune_summary"]["resolved_target_modules"] == ["proj"]
 
 
 def test_train_service_delete_run_removes_local_run_store_only(tmp_path: Path) -> None:

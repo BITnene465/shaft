@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from shaft.model import resolved_finetune_summary_path
 from shaft.webui.types import ShaftRunRecord
 
 
@@ -82,10 +83,16 @@ class ShaftRunStore:
             return ""
         return path.read_text(encoding="utf-8")
 
-    def load_trainer_state_summary(self, output_dir: str | Path) -> dict[str, Any]:
+    def load_trainer_state_summary(
+        self,
+        output_dir: str | Path,
+        *,
+        repo_root: str | Path | None = None,
+    ) -> dict[str, Any]:
         output_path = Path(output_dir)
         if not output_path.is_absolute():
-            output_path = (_repo_root() / output_path).resolve()
+            base_root = Path(repo_root) if repo_root is not None else _repo_root()
+            output_path = (base_root / output_path).resolve()
         candidates = [output_path / "trainer_state.json"]
         checkpoints = sorted(output_path.glob("checkpoint-*/trainer_state.json"))
         if checkpoints:
@@ -104,3 +111,24 @@ class ShaftRunStore:
                 "best_model_checkpoint": payload.get("best_model_checkpoint"),
             }
         return {}
+
+    def load_finetune_summary(
+        self,
+        output_dir: str | Path,
+        *,
+        repo_root: str | Path | None = None,
+    ) -> dict[str, Any]:
+        output_path = Path(output_dir)
+        if not output_path.is_absolute():
+            base_root = Path(repo_root) if repo_root is not None else _repo_root()
+            output_path = (base_root / output_path).resolve()
+        path = resolved_finetune_summary_path(output_path)
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return payload

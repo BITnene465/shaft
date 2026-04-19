@@ -130,6 +130,35 @@
             <input id="eval-batch-size" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
           </div>
         </div>
+        <div class="shaft-override-row">
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="freeze-groups">Freeze Groups</label>
+            <input id="freeze-groups" class="shaft-control shaft-input-control" type="text" placeholder="vision_tower,aligner">
+          </div>
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="freeze-prefixes">Freeze Prefixes</label>
+            <input id="freeze-prefixes" class="shaft-control shaft-input-control" type="text" placeholder="model.visual,model.visual.merger">
+          </div>
+        </div>
+        <div class="shaft-override-row">
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="freeze-regex">Freeze Regex</label>
+            <input id="freeze-regex" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
+          </div>
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="trainable-prefixes">Trainable Prefixes</label>
+            <input id="trainable-prefixes" class="shaft-control shaft-input-control" type="text" placeholder="lm_head,model.visual.merger">
+          </div>
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="trainable-regex">Trainable Regex</label>
+            <input id="trainable-regex" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
+          </div>
+        </div>
+      </div>
+
+      <div class="shaft-output-surface">
+        <div class="shaft-subsection-copy">Freeze and unfreeze inputs are previewed here before model build.</div>
+        <div id="freeze-preview-html">{{ state.freeze_preview_html | safe }}</div>
       </div>
 
       <div class="shaft-yaml-surface">
@@ -165,6 +194,11 @@
           </div>
           <button id="open-run-btn" class="shaft-button shaft-button-secondary" type="button">Open Selected Run</button>
         </div>
+      </div>
+
+      <div class="shaft-output-surface">
+        <div class="shaft-subsection-copy">Runtime freeze summary is emitted by the training pipeline after model build.</div>
+        <div id="freeze-summary-html">{{ state.freeze_summary_html | safe }}</div>
       </div>
 
       <div class="shaft-output-surface">

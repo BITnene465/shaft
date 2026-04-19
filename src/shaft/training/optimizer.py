@@ -7,8 +7,11 @@ import torch
 from transformers import TrainingArguments
 from transformers.optimization import Adafactor
 
+from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
+from shaft.model.types import ShaftModelAdapter
 from shaft.plugins import Registry
 
+from .optimizer_plan import build_resolved_optimizer_plan
 from .muon import Muon
 
 OptimizerBuilder = Callable[..., torch.optim.Optimizer]
@@ -17,35 +20,6 @@ OPTIMIZER_REGISTRY: Registry[OptimizerBuilder] = Registry("optimizer")
 
 def register_optimizer(name: str):
     return OPTIMIZER_REGISTRY.register(name)
-
-
-def _split_decay_parameters(model: torch.nn.Module) -> tuple[list[torch.nn.Parameter], list[torch.nn.Parameter]]:
-    decay_params: list[torch.nn.Parameter] = []
-    no_decay_params: list[torch.nn.Parameter] = []
-    for name, parameter in model.named_parameters():
-        if not parameter.requires_grad:
-            continue
-        if parameter.ndim <= 1 or name.endswith(".bias"):
-            no_decay_params.append(parameter)
-        else:
-            decay_params.append(parameter)
-    return decay_params, no_decay_params
-
-
-def _build_grouped_parameters(
-    model: torch.nn.Module,
-    *,
-    weight_decay: float,
-) -> list[dict[str, Any]]:
-    decay_params, no_decay_params = _split_decay_parameters(model)
-    grouped_params: list[dict[str, Any]] = []
-    if decay_params:
-        grouped_params.append({"params": decay_params, "weight_decay": float(weight_decay)})
-    if no_decay_params:
-        grouped_params.append({"params": no_decay_params, "weight_decay": 0.0})
-    if not grouped_params:
-        raise ValueError("No trainable parameters found for optimizer creation.")
-    return grouped_params
 
 
 @register_optimizer("adamw")
@@ -145,9 +119,18 @@ def build_optimizer(
     adam_beta1: float,
     adam_beta2: float,
     adam_epsilon: float,
+    finetune_plan: ShaftResolvedFinetunePlan | None = None,
+    model_adapter: ShaftModelAdapter | None = None,
+    param_group_lrs: dict[str, float] | None = None,
 ) -> torch.optim.Optimizer:
     normalized = str(optimizer_name).strip().lower()
-    grouped_params = _build_grouped_parameters(model, weight_decay=float(args.weight_decay))
+    grouped_params = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        finetune_plan=finetune_plan,
+        model_adapter=model_adapter,
+        param_group_lrs=param_group_lrs,
+    ).to_optimizer_groups()
     builder = OPTIMIZER_REGISTRY.get(normalized)
     return builder(
         grouped_params=grouped_params,

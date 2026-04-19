@@ -45,6 +45,9 @@ train:
   scheduler_name: auto
   lr_scheduler_type: LINEAR
   loss_scale: ALL
+  param_group_lrs:
+    Language_Model: 1.0e-5
+    modules_to_save: 2.5e-5
 model:
   finetune:
     mode: DORA
@@ -57,6 +60,10 @@ model:
     assert cfg.data.mix_refresh == "epoch_refresh"
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
+    assert cfg.train.param_group_lrs == {
+        "language_model": pytest.approx(1.0e-5),
+        "modules_to_save": pytest.approx(2.5e-5),
+    }
     assert cfg.model.finetune.mode == "dora"
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
@@ -75,6 +82,40 @@ train:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported train.loss_scale"):
+        load_config(config_path)
+
+
+def test_invalid_param_group_lr_key_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  param_group_lrs:
+    bad_group: 1.0e-5
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported train.param_group_lrs key"):
+        load_config(config_path)
+
+
+def test_invalid_param_group_lr_value_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  param_group_lrs:
+    aligner: 0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="train.param_group_lrs\\['aligner'\\] must be > 0"):
         load_config(config_path)
 
 

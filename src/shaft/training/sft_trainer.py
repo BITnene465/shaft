@@ -7,17 +7,16 @@ from typing import Any
 import torch
 import transformers.trainer as hf_trainer_module
 from transformers.debug_utils import DebugOption
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer
 
 from shaft.utils.distributed import barrier_if_distributed
 from .loss import build_loss
-from .optimizer import build_optimizer
-from .scheduler import build_scheduler
+from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
 from .train_sampler_mixin import ShaftTrainSamplerMixin
 
 
-class ShaftSFTTrainer(ShaftTrainSamplerMixin, Trainer):
+class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
     def __init__(
         self,
         *args: Any,
@@ -33,22 +32,21 @@ class ShaftSFTTrainer(ShaftTrainSamplerMixin, Trainer):
         online_eval_runner: ShaftOnlineEvalRunner | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            *args,
+            optimizer_name=optimizer_name,
+            scheduler_name=scheduler_name,
+            scheduler_num_cycles=scheduler_num_cycles,
+            scheduler_power=scheduler_power,
+            adam_beta1=adam_beta1,
+            adam_beta2=adam_beta2,
+            adam_epsilon=adam_epsilon,
+            **kwargs,
+        )
         self.loss_name = str(loss_name).strip().lower()
         self.loss_fn = build_loss(self.loss_name)
-        self.optimizer_name = str(optimizer_name).strip().lower()
-        self.scheduler_name = str(scheduler_name).strip().lower()
-        self.scheduler_num_cycles = float(scheduler_num_cycles)
-        self.scheduler_power = float(scheduler_power)
-        self.adam_beta1 = float(adam_beta1)
-        self.adam_beta2 = float(adam_beta2)
-        self.adam_epsilon = float(adam_epsilon)
         self.ignore_index = int(ignore_index)
         self.online_eval_runner = online_eval_runner
-
-    @property
-    def train_args(self) -> TrainingArguments:
-        return self.args
 
     def compute_loss(
         self,
@@ -71,34 +69,6 @@ class ShaftSFTTrainer(ShaftTrainSamplerMixin, Trainer):
             inputs=model_inputs,
         )
         return (loss, outputs) if return_outputs else loss
-
-    def create_optimizer(self):
-        if self.optimizer is None:
-            self.optimizer = build_optimizer(
-                model=self.model,
-                args=self.train_args,
-                optimizer_name=self.optimizer_name,
-                adam_beta1=self.adam_beta1,
-                adam_beta2=self.adam_beta2,
-                adam_epsilon=self.adam_epsilon,
-            )
-        return self.optimizer
-
-    def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer | None = None):
-        if self.lr_scheduler is None:
-            if optimizer is None:
-                optimizer = self.optimizer
-            if optimizer is None:
-                raise ValueError("Optimizer must be created before scheduler.")
-            self.lr_scheduler = build_scheduler(
-                scheduler_name=self.scheduler_name,
-                optimizer=optimizer,
-                num_warmup_steps=self.args.get_warmup_steps(num_training_steps),
-                num_training_steps=num_training_steps,
-                num_cycles=self.scheduler_num_cycles,
-                power=self.scheduler_power,
-            )
-        return self.lr_scheduler
 
     def evaluate(
         self,

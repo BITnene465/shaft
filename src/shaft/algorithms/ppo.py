@@ -24,7 +24,6 @@ class PPOAlgorithm:
     def build_trainer(self, *, context: AlgorithmContext, **kwargs: Any) -> ShaftPPOTrainer:
         _ = context
         train_config: TrainConfig = kwargs.pop("train_config")
-        _ = train_config
         rlhf_config: PPOConfig = kwargs.pop("rlhf_config")
         training_args = kwargs.pop("args")
         finetune_mode: str = kwargs.pop("finetune_mode")
@@ -58,5 +57,15 @@ class PPOAlgorithm:
             ref_model=ref_model,
             reward_model=reward_model,
             value_model=value_model,
+            optimizer_name=train_config.optimizer_name,
+            scheduler_name=train_config.scheduler_name,
+            scheduler_num_cycles=train_config.scheduler_num_cycles,
+            scheduler_power=train_config.scheduler_power,
+            adam_beta1=train_config.adam_beta1,
+            adam_beta2=train_config.adam_beta2,
+            adam_epsilon=train_config.adam_epsilon,
+            model_adapter=kwargs.pop("model_adapter"),
+            finetune_plan=kwargs.pop("finetune_plan"),
+            param_group_lrs=dict(train_config.param_group_lrs),
             **kwargs,  # train_dataset/eval_dataset/data_collator/callbacks
         )

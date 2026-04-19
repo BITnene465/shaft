@@ -11,6 +11,7 @@ class TrainConfig:
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     learning_rate: float = 1e-5
+    param_group_lrs: dict[str, float] = field(default_factory=dict)
     optimizer_name: str = "adamw_torch"
     scheduler_name: str = "auto"
     scheduler_num_cycles: float = 0.5

@@ -167,10 +167,16 @@ class ShaftSFTTrainService:
         record = self.refresh_run(run_id)
         if record is None:
             return {}
-        summary = self.run_store.load_trainer_state_summary(record.output_dir)
+        summary = self.run_store.load_trainer_state_summary(record.output_dir, repo_root=self.repo_root)
         summary["status"] = record.status
         summary["return_code"] = record.return_code
         return summary
+
+    def load_finetune_summary(self, run_id: str) -> dict[str, Any]:
+        record = self.refresh_run(run_id)
+        if record is None:
+            return {}
+        return self.run_store.load_finetune_summary(record.output_dir, repo_root=self.repo_root)
 
     def load_run_snapshot(self, run_id: str) -> dict[str, Any] | None:
         record = self.refresh_run(run_id)
@@ -179,6 +185,7 @@ class ShaftSFTTrainService:
         return {
             "record": record,
             "summary": self.load_summary(run_id),
+            "finetune_summary": self.load_finetune_summary(run_id),
             "resolved_config": self.read_resolved_config(run_id),
             "log": self.read_log(run_id),
         }

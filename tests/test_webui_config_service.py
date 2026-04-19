@@ -42,6 +42,7 @@ eval:
             run_id="web-run",
             learning_rate=2e-5,
             loss_scale="all",
+            freeze_groups="vision_tower,aligner",
             use_cpu=True,
         ),
     )
@@ -50,6 +51,7 @@ eval:
     assert config.train.learning_rate == pytest.approx(2e-5)
     assert config.train.loss_scale == "all"
     assert config.train.use_cpu is True
+    assert config.model.finetune.freeze.groups == ["vision_tower", "aligner"]
     assert config.data.datasets[0].train_paths == [str(train_path.resolve())]
     assert config.data.datasets[0].val_paths == [str(val_path.resolve())]
     assert "run_id: web-run" in rendered

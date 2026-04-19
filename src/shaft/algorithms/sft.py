@@ -27,6 +27,9 @@ class SFTAlgorithm:
             adam_beta1=train_config.adam_beta1,
             adam_beta2=train_config.adam_beta2,
             adam_epsilon=train_config.adam_epsilon,
+            model_adapter=kwargs.pop("model_adapter"),
+            finetune_plan=kwargs.pop("finetune_plan"),
+            param_group_lrs=dict(train_config.param_group_lrs),
             ignore_index=-100,
             **kwargs,
         )

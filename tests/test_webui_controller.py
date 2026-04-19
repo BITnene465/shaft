@@ -29,11 +29,28 @@ def test_webui_controller_initial_view_does_not_select_current_run(tmp_path: Pat
         train_service=ShaftSFTTrainService(run_store=run_store, repo_root=repo_root),
     )
 
-    state = controller.build_initial_view("configs/train/train_sft_4b.yaml", "experiment:\n  name: demo\n", "<div>ok</div>")
+    state = controller.build_initial_view(
+        "configs/train/train_sft_4b.yaml",
+        """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  report_to: ["none"]
+eval:
+  enabled: true
+""",
+        "<div>ok</div>",
+    )
 
     assert state["selected_run"] == "existing-run"
     assert state["current_run_id"] == ""
     assert state["runs"][0]["run_id"] == "existing-run"
+    assert "Freeze Configuration" in state["freeze_preview_html"]
 
 
 def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:
@@ -61,6 +78,12 @@ def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:
     run_store.get_run_dir(record.run_id).mkdir(parents=True, exist_ok=True)
     run_store.get_resolved_config_path(record.run_id).write_text("experiment:\n  run_id: snapshot-run\n", encoding="utf-8")
     run_store.get_log_path(record.run_id).write_text("hello webui\n", encoding="utf-8")
+    output_dir = repo_root / "outputs" / "snapshot"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "shaft_finetune_summary.json").write_text(
+        '{"mode":"lora","trainable_params":42,"resolved_target_modules":["proj"],"modules_to_save":["lm_head"]}',
+        encoding="utf-8",
+    )
 
     payload = controller.load_run("snapshot-run")
 
@@ -69,6 +92,7 @@ def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:
     assert "snapshot-run" in payload["status_html"]
     assert "run_id: snapshot-run" in payload["resolved_yaml"]
     assert "hello webui" in payload["log_text"]
+    assert "Resolved Target Modules" in payload["freeze_summary_html"]
     assert payload["runs"][0]["run_id"] == "snapshot-run"
     assert payload["selected_run"] == "snapshot-run"
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from transformers import TrainingArguments
@@ -13,6 +14,7 @@ from shaft.data import (
     SFTDataset,
 )
 from shaft.model import build_model_tokenizer_processor
+from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
@@ -31,6 +33,8 @@ from shaft.training.distributed import barrier_if_distributed
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
+
+logger = logging.getLogger(__name__)
 
 
 @register_pipeline("shaft_sft")
@@ -60,6 +64,16 @@ class ShaftSFTPipeline:
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
         )
+        finetune_plan = getattr(artifacts, "finetune_plan", None)
+        if finetune_plan is not None:
+            freeze_summary = summarize_resolved_finetune_plan(
+                artifacts.model,
+                finetune=config.model.finetune,
+                plan=finetune_plan,
+                model_adapter=artifacts.model_adapter,
+            )
+            write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
+            logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
@@ -116,6 +130,8 @@ class ShaftSFTPipeline:
             data_collator=collator,
             callbacks=callbacks_or_none,
             online_eval_runner=online_eval_runner,
+            model_adapter=artifacts.model_adapter,
+            finetune_plan=finetune_plan,
         )
 
         resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)

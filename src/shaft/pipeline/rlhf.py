@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from transformers import TrainingArguments
@@ -19,6 +20,7 @@ from shaft.data import (
     ShaftDataCenter,
 )
 from shaft.model import build_model_tokenizer_processor
+from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
@@ -36,6 +38,8 @@ from shaft.training.distributed import barrier_if_distributed
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
+
+logger = logging.getLogger(__name__)
 
 
 @register_pipeline("shaft_rlhf")
@@ -78,6 +82,16 @@ class ShaftRLHFPipeline:
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
         )
+        finetune_plan = getattr(artifacts, "finetune_plan", None)
+        if finetune_plan is not None:
+            freeze_summary = summarize_resolved_finetune_plan(
+                artifacts.model,
+                finetune=config.model.finetune,
+                plan=finetune_plan,
+                model_adapter=artifacts.model_adapter,
+            )
+            write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
+            logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         if algorithm_name == "dpo":
             dataset_cls = DPODataset
@@ -120,6 +134,8 @@ class ShaftRLHFPipeline:
             processing_class=processing_class,
             data_collator=self._build_collator(algorithm_name, artifacts=artifacts),
             callbacks=callbacks_or_none,
+            model_adapter=artifacts.model_adapter,
+            finetune_plan=finetune_plan,
             **algorithm_extra_kwargs,
         )
 

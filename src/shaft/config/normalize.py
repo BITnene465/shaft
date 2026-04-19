@@ -16,6 +16,14 @@ _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
 _ONLINE_EVAL_NORMALIZERS = {"identity", "range"}
 _FREEZE_GROUPS = {"language_model", "vision_tower", "aligner", "generator"}
+_PARAM_GROUP_LR_KEYS = {
+    "language_model",
+    "vision_tower",
+    "aligner",
+    "generator",
+    "lora_params",
+    "modules_to_save",
+}
 
 
 def _normalize_string_list(values: list[str]) -> list[str]:
@@ -160,6 +168,28 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("train.scheduler_num_cycles must be > 0.")
     if float(train.scheduler_power) <= 0:
         raise ValueError("train.scheduler_power must be > 0.")
+    normalized_param_group_lrs: dict[str, float] = {}
+    for key, value in dict(train.param_group_lrs).items():
+        normalized_key = str(key).strip().lower()
+        if not normalized_key:
+            raise ValueError("train.param_group_lrs contains an empty key.")
+        if normalized_key not in _PARAM_GROUP_LR_KEYS:
+            raise ValueError(
+                f"Unsupported train.param_group_lrs key={normalized_key!r}. "
+                f"Expected only {_PARAM_GROUP_LR_KEYS}."
+            )
+        try:
+            normalized_value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"train.param_group_lrs[{normalized_key!r}] must be a positive float."
+            ) from exc
+        if normalized_value <= 0:
+            raise ValueError(
+                f"train.param_group_lrs[{normalized_key!r}] must be > 0."
+            )
+        normalized_param_group_lrs[normalized_key] = normalized_value
+    train.param_group_lrs = normalized_param_group_lrs
 
     eval_cfg = config.eval
     if isinstance(eval_cfg.eval_strategy, bool):

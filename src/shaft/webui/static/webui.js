@@ -7,6 +7,8 @@
     resolvedYaml: document.getElementById("resolved-yaml"),
     logViewer: document.getElementById("log-viewer"),
     statusHtml: document.getElementById("status-html"),
+    freezePreviewHtml: document.getElementById("freeze-preview-html"),
+    freezeSummaryHtml: document.getElementById("freeze-summary-html"),
     runsTableBody: document.getElementById("runs-table-body"),
     runSelector: document.getElementById("run-selector"),
     themeToggle: document.getElementById("theme-toggle"),
@@ -25,6 +27,11 @@
     mixStrategy: document.getElementById("mix-strategy"),
     trainBatchSize: document.getElementById("train-batch-size"),
     evalBatchSize: document.getElementById("eval-batch-size"),
+    freezeGroups: document.getElementById("freeze-groups"),
+    freezePrefixes: document.getElementById("freeze-prefixes"),
+    freezeRegex: document.getElementById("freeze-regex"),
+    trainablePrefixes: document.getElementById("trainable-prefixes"),
+    trainableRegex: document.getElementById("trainable-regex"),
   };
 
   let currentRunId = "";
@@ -59,6 +66,11 @@
       mix_strategy: elements.mixStrategy ? elements.mixStrategy.value : "",
       train_batch_size: elements.trainBatchSize ? elements.trainBatchSize.value : "",
       eval_batch_size: elements.evalBatchSize ? elements.evalBatchSize.value : "",
+      freeze_groups: elements.freezeGroups ? elements.freezeGroups.value : "",
+      freeze_prefixes: elements.freezePrefixes ? elements.freezePrefixes.value : "",
+      freeze_regex: elements.freezeRegex ? elements.freezeRegex.value : "",
+      trainable_prefixes: elements.trainablePrefixes ? elements.trainablePrefixes.value : "",
+      trainable_regex: elements.trainableRegex ? elements.trainableRegex.value : "",
     };
   }
 
@@ -111,6 +123,12 @@
     }
     if (elements.statusHtml && typeof state.status_html === "string") {
       elements.statusHtml.innerHTML = state.status_html;
+    }
+    if (elements.freezePreviewHtml && typeof state.freeze_preview_html === "string") {
+      elements.freezePreviewHtml.innerHTML = state.freeze_preview_html;
+    }
+    if (elements.freezeSummaryHtml && typeof state.freeze_summary_html === "string") {
+      elements.freezeSummaryHtml.innerHTML = state.freeze_summary_html;
     }
     if (elements.resolvedYaml && typeof state.resolved_yaml === "string") {
       elements.resolvedYaml.value = state.resolved_yaml;

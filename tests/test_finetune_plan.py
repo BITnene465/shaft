@@ -6,7 +6,12 @@ from peft import PeftModel
 
 from shaft.config import FinetuneConfig, FreezeConfig, RuntimeConfig
 from shaft.model import build_model_meta, build_model_tokenizer_processor
-from shaft.model.finetune_plan import build_resolved_finetune_plan
+from shaft.model.finetune import apply_resolved_finetune_plan
+from shaft.model.finetune_plan import (
+    build_freeze_preview,
+    build_resolved_finetune_plan,
+    summarize_resolved_finetune_plan,
+)
 from shaft.model.smoke_vlm import SmokeVLMConfig, SmokeVLMModel
 
 
@@ -51,6 +56,48 @@ def test_build_resolved_finetune_plan_for_lora_mode_resolves_adapter_signature()
     assert plan.adapter_plan.resolved_target_modules == ("proj",)
     assert plan.adapter_plan.modules_to_save == ("lm_head",)
     assert plan.adapter_plan.peft_signature.modules_to_save == ("lm_head",)
+
+
+def test_build_freeze_preview_reports_policy_target_modules_for_auto() -> None:
+    adapter = _build_smoke_adapter()
+
+    preview = build_freeze_preview(
+        FinetuneConfig(mode="lora", target_modules=["auto"], freeze=FreezeConfig(groups=["vision_tower"])),
+        model_adapter=adapter,
+    )
+
+    assert preview.explicit_target_modules is False
+    assert preview.policy_target_modules == ("all-linear",)
+    assert preview.frozen_groups == ("vision_tower",)
+
+
+def test_summarize_resolved_finetune_plan_reports_runtime_targets_and_counts() -> None:
+    model = _build_smoke_model()
+    adapter = _build_smoke_adapter()
+    finetune = FinetuneConfig(
+        mode="lora",
+        target_modules=["all-linear"],
+        freeze=FreezeConfig(trainable_prefixes=["lm_head"]),
+    )
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+    wrapped = apply_resolved_finetune_plan(
+        model,
+        plan,
+        finetune=finetune,
+    )
+    summary = summarize_resolved_finetune_plan(
+        wrapped,
+        finetune=finetune,
+        plan=plan,
+        model_adapter=adapter,
+    )
+
+    assert summary.mode == "lora"
+    assert summary.resolved_target_modules == ("proj",)
+    assert summary.modules_to_save == ("lm_head",)
+    assert summary.trainable_params > 0
+    assert summary.frozen_params > 0
+    assert summary.sample_trainable_parameters
 
 
 def test_loader_populates_finetune_plan_on_artifacts() -> None:

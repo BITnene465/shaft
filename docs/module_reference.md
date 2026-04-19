@@ -351,6 +351,8 @@
 
 - `src/shaft/training/sft_trainer.py`
 - `src/shaft/training/online_eval.py`
+- `src/shaft/training/optimizer_mixin.py`
+- `src/shaft/training/optimizer_plan.py`
 - `src/shaft/training/trl_trainers.py`
 - `src/shaft/training/loss.py`
 - `src/shaft/training/optimizer.py`
@@ -363,6 +365,7 @@
 
 - 包装 HF/TRL trainer。
 - 管理 loss/optimizer/scheduler 注册表。
+- 解析运行时 optimizer param-group plan。
 - 统一 checkpoint 规则和分布式辅助能力。
 
 ### 关键类
@@ -370,6 +373,8 @@
 - `ShaftSFTTrainer`
 - `ShaftDPOTrainer`
 - `ShaftPPOTrainer`
+- `ShaftOptimizerMixin`
+- `ShaftResolvedOptimizerPlan`
 - `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
 - `CheckpointLayout`
@@ -379,6 +384,7 @@
 
 - `build_loss()`
 - `build_optimizer()`
+- `build_resolved_optimizer_plan()`
 - `build_scheduler()`
 - `register_target_adapter()`
 - `inspect_checkpoint_layout()`
@@ -390,6 +396,27 @@
 
 - 允许：HF/TRL trainer 扩展、checkpoint 规则、优化器/调度器/loss
 - 禁止：数据读取、配置加载、导出发布
+
+补充说明：
+
+- `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
+  - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`
+    解析真实 optimizer param groups
+  - 当前支持两层分组：
+    - 结构组：
+      - `language_model`
+      - `vision_tower`
+      - `aligner`
+      - `generator`
+    - 训练语义组：
+      - `lora_params`
+      - `modules_to_save`
+- `src/shaft/training/optimizer_mixin.py` 把同一套 optimizer/scheduler 构造链复用到：
+  - `ShaftSFTTrainer`
+  - `ShaftDPOTrainer`
+  - `ShaftPPOTrainer`
+  - `ShaftGRPOTrainer`
+- adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`
 
@@ -643,8 +670,11 @@
   - 前端交互、状态刷新、主题切换
 - `services/config_service.py`
   - YAML 读取、解析、override 应用
+  - 冻结配置预览构造
 - `services/train_service.py`
   - 子进程管理、run snapshot 读取
+  - 运行时 freeze summary 读取
 - `services/run_store.py`
   - 本地 run 目录、resolved config、日志与 record 管理
+  - `shaft_finetune_summary.json` 读取
   - 本地 run store 条目删除

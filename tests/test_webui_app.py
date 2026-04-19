@@ -33,6 +33,8 @@ eval:
     assert response.status_code == 200
     assert "SFT Research Console" in response.text
     assert "Resolved Runtime Config" in response.text
+    assert "Freeze Configuration" in response.text
+    assert 'id="freeze-summary-html"' in response.text
     assert "/static/webui.css" in response.text
     assert "/static/webui.js" in response.text
     assert "/static/logo.png" in response.text

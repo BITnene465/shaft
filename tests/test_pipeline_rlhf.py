@@ -328,6 +328,8 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
+    assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
+    assert _FakeTrainer.last_kwargs["finetune_plan"] is None
 
 
 def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
@@ -370,3 +372,5 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert captured["dataset_cls"] is SFTDataset
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert "train_sampler" not in _FakeTrainer.last_kwargs
+    assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
+    assert _FakeTrainer.last_kwargs["finetune_plan"] is None

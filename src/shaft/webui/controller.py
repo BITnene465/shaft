@@ -32,6 +32,11 @@ def _build_overrides(payload: dict[str, Any]) -> ShaftSFTWebUIOverrides:
         eval_batch_size=_as_optional_int(payload.get("eval_batch_size")),
         mix_strategy=_as_optional_text(payload.get("mix_strategy")),
         finetune_mode=_as_optional_text(payload.get("finetune_mode")),
+        freeze_groups=_as_optional_text(payload.get("freeze_groups")),
+        freeze_prefixes=_as_optional_text(payload.get("freeze_prefixes")),
+        freeze_regex=_as_optional_text(payload.get("freeze_regex")),
+        trainable_prefixes=_as_optional_text(payload.get("trainable_prefixes")),
+        trainable_regex=_as_optional_text(payload.get("trainable_regex")),
     )
 
 
@@ -101,6 +106,130 @@ def render_status_html(
     return "".join(parts)
 
 
+def _render_freeze_items(values: list[str] | tuple[str, ...] | None, *, empty_label: str = "None") -> str:
+    normalized = [str(item).strip() for item in (values or []) if str(item).strip()]
+    if not normalized:
+        return f'<span class="shaft-meta-value">{escape(empty_label)}</span>'
+    chips = "".join(
+        f'<span class="shaft-chip shaft-chip-compact">{escape(item)}</span>'
+        for item in normalized
+    )
+    return f'<div class="shaft-chip-row">{chips}</div>'
+
+
+def render_freeze_preview_html(preview: dict[str, Any] | None) -> str:
+    preview = preview or {}
+    if not preview:
+        return (
+            '<div class="shaft-card shaft-status-card">'
+            '<div class="shaft-note shaft-note-neutral">Freeze preview unavailable.</div>'
+            "</div>"
+        )
+    mode = str(preview.get("mode", "-"))
+    source = "explicit config" if preview.get("explicit_target_modules") else "policy default"
+    parts = [
+        '<div class="shaft-card shaft-status-card">',
+        '<div class="shaft-status-head">',
+        '<div>',
+        '<div class="shaft-status-kicker">Freeze Configuration</div>',
+        '<div class="shaft-status-title">Resolved Config Preview</div>',
+        "</div>",
+        f'<span class="shaft-status-badge shaft-status-validated">{escape(mode)}</span>',
+        "</div>",
+        '<div class="shaft-meta-list">',
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Frozen Groups</span>',
+        _render_freeze_items(preview.get("frozen_groups")),
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Frozen Prefixes</span>',
+        _render_freeze_items(preview.get("frozen_prefixes")),
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Frozen Regex</span>',
+        f'<span class="shaft-meta-value">{escape(str(preview.get("frozen_regex") or "None"))}</span>',
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Trainable Prefixes</span>',
+        _render_freeze_items(preview.get("trainable_prefixes")),
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Trainable Regex</span>',
+        f'<span class="shaft-meta-value">{escape(str(preview.get("trainable_regex") or "None"))}</span>',
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Target Modules Source</span>',
+        f'<span class="shaft-meta-value">{escape(source)}</span>',
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Target Modules Input</span>',
+        _render_freeze_items(preview.get("target_modules_input")),
+        "</div>",
+        '<div class="shaft-meta-row"><span class="shaft-meta-label">Policy Target Modules</span>',
+        _render_freeze_items(preview.get("policy_target_modules")),
+        "</div>",
+        "</div>",
+        '<div class="shaft-note shaft-note-neutral">'
+        "This preview comes from config normalization and model policy resolution. "
+        "Runtime target modules and modules_to_save appear after model build."
+        "</div>",
+        "</div>",
+    ]
+    return "".join(parts)
+
+
+def render_finetune_summary_html(summary: dict[str, Any] | None) -> str:
+    summary = summary or {}
+    if not summary:
+        return (
+            '<div class="shaft-card shaft-status-card">'
+            '<div class="shaft-note shaft-note-neutral">'
+            "No runtime freeze summary yet. Start or reopen a run after model build."
+            "</div></div>"
+        )
+    mode = str(summary.get("mode", "-"))
+    trainable_ratio = float(summary.get("trainable_ratio", 0.0) or 0.0)
+    parts = [
+        '<div class="shaft-card shaft-status-card">',
+        '<div class="shaft-status-head">',
+        '<div>',
+        '<div class="shaft-status-kicker">Resolved Freeze</div>',
+        '<div class="shaft-status-title">Runtime Summary</div>',
+        "</div>",
+        f'<span class="shaft-status-badge shaft-status-validated">{escape(mode)}</span>',
+        "</div>",
+        '<div class="shaft-status-grid-secondary">',
+    ]
+    for label, value in (
+        ("Total Params", summary.get("total_params", "-")),
+        ("Trainable Params", summary.get("trainable_params", "-")),
+        ("Frozen Params", summary.get("frozen_params", "-")),
+        ("Trainable Ratio", f"{trainable_ratio:.2%}"),
+    ):
+        parts.extend(
+            [
+                '<div class="shaft-summary-card shaft-summary-card-secondary">',
+                f'<span class="shaft-summary-label">{escape(label)}</span>',
+                f'<span class="shaft-summary-value shaft-summary-value-secondary">{escape(str(value))}</span>',
+                "</div>",
+            ]
+        )
+    parts.extend(
+        [
+            "</div>",
+            '<div class="shaft-meta-list">',
+            '<div class="shaft-meta-row"><span class="shaft-meta-label">Resolved Target Modules</span>',
+            _render_freeze_items(summary.get("resolved_target_modules")),
+            "</div>",
+            '<div class="shaft-meta-row"><span class="shaft-meta-label">Modules To Save</span>',
+            _render_freeze_items(summary.get("modules_to_save")),
+            "</div>",
+            '<div class="shaft-meta-row"><span class="shaft-meta-label">Sample Trainable Parameters</span>',
+            _render_freeze_items(summary.get("sample_trainable_parameters")),
+            "</div>",
+            '<div class="shaft-meta-row"><span class="shaft-meta-label">Sample Frozen Parameters</span>',
+            _render_freeze_items(summary.get("sample_frozen_parameters")),
+            "</div>",
+            "</div>",
+            "</div>",
+        ]
+    )
+    return "".join(parts)
+
+
 class ShaftSFTWebUIController:
     def __init__(
         self,
@@ -137,10 +266,25 @@ class ShaftSFTWebUIController:
     def build_initial_view(self, default_config_path: str, default_yaml_text: str, default_status: str) -> dict[str, Any]:
         records = self.train_service.list_runs()
         choices, selected_run = self.build_run_choices(records, None)
+        freeze_preview_html = render_freeze_preview_html(None)
+        try:
+            config, _ = self.config_service.resolve_sft_config(
+                config_path=default_config_path,
+                yaml_text=default_yaml_text,
+            )
+            freeze_preview_html = render_freeze_preview_html(self.config_service.build_freeze_preview(config))
+        except Exception as exc:  # noqa: BLE001
+            freeze_preview_html = (
+                '<div class="shaft-card shaft-status-card">'
+                f'<div class="shaft-note shaft-note-error">{escape(str(exc))}</div>'
+                "</div>"
+            )
         return {
             "config_path": default_config_path,
             "yaml_text": default_yaml_text,
             "status_html": default_status,
+            "freeze_preview_html": freeze_preview_html,
+            "freeze_summary_html": render_finetune_summary_html(None),
             "resolved_yaml": "",
             "log_text": "",
             "runs": self.build_runs_table(records),
@@ -153,12 +297,20 @@ class ShaftSFTWebUIController:
         records = self.train_service.list_runs()
         try:
             yaml_text = self.config_service.read_config_text(config_path)
+            config, _ = self.config_service.resolve_sft_config(
+                config_path=config_path,
+                yaml_text=yaml_text,
+            )
             run_choices, selected_run = self.build_run_choices(records, None)
             return {
                 "ok": True,
                 "config_path": config_path,
                 "yaml_text": yaml_text,
                 "status_html": render_status_html(None, message=f"Loaded base config: {config_path}"),
+                "freeze_preview_html": render_freeze_preview_html(
+                    self.config_service.build_freeze_preview(config)
+                ),
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -171,6 +323,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=str(exc)),
+                "freeze_preview_html": render_freeze_preview_html(None),
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -199,6 +353,10 @@ class ShaftSFTWebUIController:
             return {
                 "ok": True,
                 "status_html": render_status_html(None, message=message),
+                "freeze_preview_html": render_freeze_preview_html(
+                    self.config_service.build_freeze_preview(config)
+                ),
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": resolved_yaml,
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
@@ -209,6 +367,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=str(exc)),
+                "freeze_preview_html": render_freeze_preview_html(None),
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
@@ -239,6 +399,12 @@ class ShaftSFTWebUIController:
             return {
                 "ok": True,
                 "status_html": render_status_html(record, message="SFT training started."),
+                "freeze_preview_html": render_freeze_preview_html(
+                    self.config_service.build_freeze_preview(config)
+                ),
+                "freeze_summary_html": render_finetune_summary_html(
+                    self.train_service.load_finetune_summary(record.run_id)
+                ),
                 "resolved_yaml": self.train_service.read_resolved_config(record.run_id),
                 "log_text": self.train_service.read_log(record.run_id),
                 "runs": self.build_runs_table(records),
@@ -252,6 +418,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=str(exc)),
+                "freeze_preview_html": render_freeze_preview_html(None),
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -268,6 +436,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": True,
                 "status_html": render_status_html(None, message="Refreshed recent runs."),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -285,6 +455,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error="No run is selected."),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -299,6 +471,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -311,6 +485,8 @@ class ShaftSFTWebUIController:
         return {
             "ok": True,
             "status_html": render_status_html(record, summary=snapshot.get("summary"), message="Run stopped."),
+            "freeze_preview_html": None,
+            "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
             "resolved_yaml": str(snapshot.get("resolved_config", "")),
             "log_text": str(snapshot.get("log", "")),
             "runs": self.build_runs_table(records),
@@ -327,6 +503,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": True,
                 "status_html": render_status_html(None, message="No run selected."),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -340,6 +518,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "resolved_yaml": "",
                 "log_text": "",
                 "runs": self.build_runs_table(records),
@@ -352,6 +532,8 @@ class ShaftSFTWebUIController:
         return {
             "ok": True,
             "status_html": render_status_html(record, summary=snapshot["summary"]),
+            "freeze_preview_html": None,
+            "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
             "resolved_yaml": str(snapshot["resolved_config"]),
             "log_text": str(snapshot["log"]),
             "runs": self.build_runs_table(records),
@@ -368,6 +550,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error="No run is selected for deletion."),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "runs": self.build_runs_table(records_before),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -381,6 +565,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=str(exc)),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -393,6 +579,8 @@ class ShaftSFTWebUIController:
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error=f"Run not found: {run_id}"),
+                "freeze_preview_html": None,
+                "freeze_summary_html": render_finetune_summary_html(None),
                 "runs": self.build_runs_table(records),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
@@ -401,6 +589,8 @@ class ShaftSFTWebUIController:
         return {
             "ok": True,
             "status_html": render_status_html(None, message=f"Deleted local Web UI run entry: {run_id}"),
+            "freeze_preview_html": None,
+            "freeze_summary_html": render_finetune_summary_html(None) if current_run_id == run_id else None,
             "resolved_yaml": "" if current_run_id == run_id else None,
             "log_text": "" if current_run_id == run_id else None,
             "runs": self.build_runs_table(records),

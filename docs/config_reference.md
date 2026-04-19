@@ -112,6 +112,8 @@
 执行语义：
 
 - 训练时会先把上述配置解析为一份 `resolved finetune plan`，后续训练执行与 adapter 导入校验都消费这份计划。
+- 训练启动后，CLI 会打印一份运行时 `resolved freeze summary`，并在输出目录写入：
+  - `shaft_finetune_summary.json`
 - `full`
   - 先默认全部可训练
   - 再应用冻结规则
@@ -206,6 +208,7 @@
 - `per_device_train_batch_size`
 - `gradient_accumulation_steps`
 - `learning_rate`
+- `param_group_lrs`
 - `optimizer_name`
 - `scheduler_name`
 - `loss_name`
@@ -231,6 +234,28 @@
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。
 - `optimizer_name/scheduler_name/loss_name` 走注册表。
+- `param_group_lrs` 用于显式配置分组学习率。当前支持的键：
+  - `language_model`
+  - `vision_tower`
+  - `aligner`
+  - `generator`
+  - `lora_params`
+  - `modules_to_save`
+- 没有写进 `param_group_lrs` 的组，回退到全局 `train.learning_rate`。
+- 结构组与训练语义组是两层概念：
+  - 结构组：
+    - `language_model`
+    - `vision_tower`
+    - `aligner`
+    - `generator`
+  - 训练语义组：
+    - `lora_params`
+    - `modules_to_save`
+- `full`
+  - 主要按结构组分学习率。
+- `lora / dora / qlora`
+  - `lora_params` 和 `modules_to_save` 会优先于结构组命中。
+  - 其余仍可训练的原始参数，再按结构组回退。
 - `loss_scale` 控制哪些粗粒度区段参与 loss 计算，当前内置：
   - `default`: 监督所有 assistant 回答（包括多轮对话中的历史 assistant，以及当前 target/response）
   - `last_round`: 只监督最后一轮 assistant 回答（当前 target/response）

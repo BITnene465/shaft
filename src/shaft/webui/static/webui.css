@@ -164,6 +164,17 @@ textarea {
   font-weight: 600;
 }
 
+.shaft-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shaft-chip-compact {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
 .shaft-theme-toggle {
   display: inline-flex;
   align-items: center;

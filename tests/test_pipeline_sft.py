@@ -6,9 +6,10 @@ from unittest.mock import patch
 import torch
 from PIL import Image
 
-from shaft.config import RuntimeConfig, load_config
+from shaft.config import FinetuneConfig, RuntimeConfig, load_config
 from shaft.data import SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
+from shaft.model.finetune_plan import build_resolved_finetune_plan, resolved_finetune_summary_path
 from shaft.pipeline import run_sft
 from shaft.template import build_template
 
@@ -123,6 +124,7 @@ eval:
 
 def test_run_sft_smoke(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
+    adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
         mocked_builder.return_value = type(
             "Artifacts",
@@ -132,13 +134,19 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
                 "tokenizer": _FakeTokenizer(),
                 "processor": _FakeProcessor(),
                 "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "model_adapter": adapter,
                 "template": build_template("smoke_vlm"),
+                "finetune_plan": build_resolved_finetune_plan(
+                    _FakeModel(),
+                    FinetuneConfig(mode="full"),
+                    model_adapter=adapter,
+                ),
             },
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             metrics = run_sft(config)
     assert "train_loss" in metrics
+    assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
 
 
 def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
@@ -227,6 +235,8 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
+    assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
+    assert _FakeTrainer.last_kwargs["finetune_plan"] is None
 
 
 def test_run_sft_wires_data_center_train_sampler(tmp_path: Path) -> None:

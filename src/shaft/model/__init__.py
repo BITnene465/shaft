@@ -1,10 +1,16 @@
 from .builder import build_model_tokenizer_processor
 from .finetune_plan import (
     ShaftAdapterFinetunePlan,
+    ShaftFreezePreview,
     ShaftParameterSelectionPlan,
     ShaftPeftSignature,
+    ShaftResolvedFreezeSummary,
     ShaftResolvedFinetunePlan,
+    build_freeze_preview,
     build_resolved_finetune_plan,
+    resolved_finetune_summary_path,
+    summarize_resolved_finetune_plan,
+    write_resolved_finetune_summary,
 )
 from .freeze import (
     ShaftFreezePlan,
@@ -53,13 +59,16 @@ __all__ = [
     "PeftPolicy",
     "ProcessorPolicy",
     "ShaftAdapterFinetunePlan",
+    "ShaftFreezePreview",
     "ShaftFreezePlan",
     "ShaftFreezeSpec",
     "ShaftModelAdapter",
     "ShaftParameterSelectionPlan",
     "ShaftPeftSignature",
+    "ShaftResolvedFreezeSummary",
     "ShaftResolvedFinetunePlan",
     "apply_full_freeze",
+    "build_freeze_preview",
     "build_model_meta",
     "build_peft_policy",
     "build_processor_policy",
@@ -70,6 +79,9 @@ __all__ = [
     "default_model_groups",
     "register_peft_policy",
     "register_processor_policy",
+    "resolved_finetune_summary_path",
     "resolve_adapter_modules_to_save",
     "resolve_adapter_target_modules",
+    "summarize_resolved_finetune_plan",
+    "write_resolved_finetune_summary",
 ]

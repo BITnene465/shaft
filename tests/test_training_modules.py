@@ -13,12 +13,16 @@ from shaft.algorithms.rlhf_utils import (
     build_trl_ppo_config,
     validate_ppo_runtime_requirements,
 )
+from shaft.config import FinetuneConfig, FreezeConfig
 from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
 from shaft.algorithms.grpo_rewards import build_grpo_reward_functions
 from shaft.model import build_model_meta
+from shaft.model.finetune import apply_resolved_finetune_plan
+from shaft.model.finetune_plan import build_resolved_finetune_plan
+from shaft.model.smoke_vlm import SmokeVLMConfig, SmokeVLMModel
 from transformers import TrainingArguments
 from shaft.data import SFTRecord, SFTDataset, ShaftMixedIndexSampler
 
@@ -26,6 +30,7 @@ from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
+from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
@@ -56,6 +61,14 @@ class _TinyModel(torch.nn.Module):
                 ignore_index=-100,
             )
         return _DummyOutput(loss=loss, logits=logits)
+
+
+def _build_smoke_model() -> SmokeVLMModel:
+    return SmokeVLMModel(SmokeVLMConfig())
+
+
+def _build_smoke_adapter():
+    return build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/smoke-vlm")
 
 
 def test_loss_functions() -> None:
@@ -180,6 +193,79 @@ def test_optimizer_and_scheduler() -> None:
     assert isinstance(muon, Muon)
 
 
+def test_optimizer_supports_param_group_lrs_for_full_finetune() -> None:
+    model = _build_smoke_model()
+    adapter = _build_smoke_adapter()
+    finetune = FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["generator"]))
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+    apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_optimizer_groups_full",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+        weight_decay=0.1,
+    )
+
+    resolved = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        finetune_plan=plan,
+        model_adapter=adapter,
+        param_group_lrs={"language_model": 2.5e-4},
+    )
+
+    logical_groups = {group.logical_group for group in resolved.groups}
+    assert logical_groups == {"language_model"}
+    assert all(group.lr == pytest.approx(2.5e-4) for group in resolved.groups)
+    assert {group.weight_decay for group in resolved.groups} == {0.1, 0.0}
+
+
+def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> None:
+    model = _build_smoke_model()
+    adapter = _build_smoke_adapter()
+    finetune = FinetuneConfig(
+        mode="dora",
+        target_modules=["all-linear"],
+        freeze=FreezeConfig(trainable_prefixes=["lm_head"]),
+    )
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_optimizer_groups_dora",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+
+    resolved = build_resolved_optimizer_plan(
+        model=wrapped,
+        args=args,
+        finetune_plan=plan,
+        model_adapter=adapter,
+        param_group_lrs={"lora_params": 5e-4, "modules_to_save": 2e-4},
+    )
+
+    lora_groups = [group for group in resolved.groups if group.logical_group == "lora_params"]
+    modules_to_save_groups = [group for group in resolved.groups if group.logical_group == "modules_to_save"]
+    assert lora_groups
+    assert modules_to_save_groups
+    assert all(group.lr == pytest.approx(5e-4) for group in lora_groups)
+    assert all(group.lr == pytest.approx(2e-4) for group in modules_to_save_groups)
+    assert any(
+        "lora_magnitude_vector" in name
+        for group in lora_groups
+        for name in group.parameter_names
+    )
+    assert any(
+        ".modules_to_save." in name
+        for group in modules_to_save_groups
+        for name in group.parameter_names
+    )
+
+
 def test_shaft_trainer_uses_custom_components() -> None:
     model = _TinyModel()
     args = TrainingArguments(
@@ -207,11 +293,15 @@ def test_shaft_trainer_uses_custom_components() -> None:
         "labels": torch.tensor([[1, 2, 3]], device=device),
         "loss_scale": torch.tensor([[0.0, 1.0, 1.0]], device=device),
     }
-    with patch("shaft.training.sft_trainer.build_optimizer") as mocked_build_optim:
+    with patch("shaft.training.optimizer_mixin.build_optimizer") as mocked_build_optim:
         mocked_build_optim.return_value = torch.optim.AdamW(model.parameters(), lr=1e-3)
         trainer.create_optimizer()
         mocked_build_optim.assert_called_once()
-    with patch("shaft.training.sft_trainer.build_scheduler") as mocked_build_sched:
+        _, kwargs = mocked_build_optim.call_args
+        assert kwargs["param_group_lrs"] == {}
+        assert kwargs["model_adapter"] is None
+        assert kwargs["finetune_plan"] is None
+    with patch("shaft.training.optimizer_mixin.build_scheduler") as mocked_build_sched:
         mocked_build_sched.return_value = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda _: 1.0)
         trainer.create_scheduler(10)
         mocked_build_sched.assert_called_once()

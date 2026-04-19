@@ -28,6 +28,11 @@ class ShaftSFTWebUIOverrides:
     lora_alpha: int | None = None
     lora_dropout: float | None = None
     qlora_load_in_4bit: bool | None = None
+    freeze_groups: str | None = None
+    freeze_prefixes: str | None = None
+    freeze_regex: str | None = None
+    trainable_prefixes: str | None = None
+    trainable_regex: str | None = None
     use_cpu: bool | None = None
     init_from: str | None = None
     resume_from: str | None = None

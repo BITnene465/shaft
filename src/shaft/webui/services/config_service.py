@@ -8,10 +8,20 @@ import yaml
 
 from shaft.cli.common import apply_common_overrides
 from shaft.config import RuntimeConfig, load_config_from_text
+from shaft.config.normalize import normalize_runtime_config
+from shaft.model import builder as _model_builder  # noqa: F401
+from shaft.model import build_freeze_preview, build_model_meta
 from shaft.webui.types import ShaftSFTWebUIOverrides
 
 
 class ShaftWebUIConfigService:
+    @staticmethod
+    def _split_csv(text: str | None) -> list[str] | None:
+        if text is None:
+            return None
+        values = [item.strip() for item in str(text).split(",")]
+        return [item for item in values if item]
+
     def read_config_text(self, config_path: str | Path) -> str:
         path = Path(config_path)
         if not path.exists():
@@ -30,12 +40,40 @@ class ShaftWebUIConfigService:
             raise ValueError("Web UI 当前只支持 SFT 训练配置。")
         if overrides is not None:
             config = apply_common_overrides(config, self._build_override_namespace(overrides))
+            freeze = config.model.finetune.freeze
+            freeze_groups = self._split_csv(overrides.freeze_groups)
+            freeze_prefixes = self._split_csv(overrides.freeze_prefixes)
+            trainable_prefixes = self._split_csv(overrides.trainable_prefixes)
+            if freeze_groups is not None:
+                freeze.groups = freeze_groups
+            if freeze_prefixes is not None:
+                freeze.prefixes = freeze_prefixes
+            if overrides.freeze_regex is not None:
+                freeze.regex = str(overrides.freeze_regex).strip() or None
+            if trainable_prefixes is not None:
+                freeze.trainable_prefixes = trainable_prefixes
+            if overrides.trainable_regex is not None:
+                freeze.trainable_regex = str(overrides.trainable_regex).strip() or None
+            for dataset in config.data.datasets:
+                if dataset.train_paths:
+                    dataset.train_path = None
+                if dataset.val_paths:
+                    dataset.val_path = None
+            config = normalize_runtime_config(config)
         rendered = yaml.safe_dump(
             asdict(config),
             sort_keys=False,
             allow_unicode=True,
         )
         return config, rendered
+
+    def build_freeze_preview(self, config: RuntimeConfig) -> dict[str, object]:
+        model_meta = build_model_meta(config.model.model_type)
+        model_adapter = model_meta.resolve_adapter(
+            model_name_or_path=config.model.model_name_or_path,
+            template_type=config.model.template,
+        )
+        return build_freeze_preview(config.model.finetune, model_adapter=model_adapter).to_dict()
 
     @staticmethod
     def _build_override_namespace(overrides: ShaftSFTWebUIOverrides) -> argparse.Namespace:
