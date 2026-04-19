@@ -117,7 +117,12 @@ class Qwen3VLLoader(ModelLoader):
         if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
             tokenizer.pad_token = tokenizer.eos_token
         finetune_plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)
-        model = apply_resolved_finetune_plan(model, finetune_plan, finetune=finetune)
+        model = apply_resolved_finetune_plan(
+            model,
+            finetune_plan,
+            finetune=finetune,
+            gradient_checkpointing=bool(config.train.gradient_checkpointing),
+        )
         setattr(model, "_shaft_finetune_plan", finetune_plan)
         model_info = model_adapter.build_model_info(
             torch_dtype=resolved_dtype,

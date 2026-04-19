@@ -10,6 +10,7 @@ class TrainConfig:
     max_steps: int = -1
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
+    gradient_checkpointing: bool = False
     learning_rate: float = 1e-5
     param_group_lrs: dict[str, float] = field(default_factory=dict)
     optimizer_name: str = "adamw_torch"

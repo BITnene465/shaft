@@ -41,8 +41,9 @@ data:
 train:
   epochs: 4
   max_steps: -1
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 2
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
   learning_rate: 0.00002
   param_group_lrs:
     vision_tower: 0.000002
@@ -95,5 +96,5 @@ logging:
 
 progress:
   enabled: true
-  leave: false
+  leave: true
   mininterval: 0.2

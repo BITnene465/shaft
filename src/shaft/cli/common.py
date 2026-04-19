@@ -24,6 +24,7 @@ def add_common_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--max-steps", type=int, default=None)
+    parser.add_argument("--gradient-checkpointing", type=_as_bool, default=None)
     parser.add_argument("--learning-rate", "--lr", dest="learning_rate", type=float, default=None)
     parser.add_argument("--train-batch-size", type=int, default=None)
     parser.add_argument("--eval-batch-size", type=int, default=None)
@@ -51,6 +52,7 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
     seed = getattr(args, "seed", None)
     epochs = getattr(args, "epochs", None)
     max_steps = getattr(args, "max_steps", None)
+    gradient_checkpointing = getattr(args, "gradient_checkpointing", None)
     learning_rate = getattr(args, "learning_rate", None)
     train_batch_size = getattr(args, "train_batch_size", None)
     eval_batch_size = getattr(args, "eval_batch_size", None)
@@ -78,6 +80,8 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
         train_config.epochs = int(epochs)
     if max_steps is not None:
         train_config.max_steps = int(max_steps)
+    if gradient_checkpointing is not None:
+        train_config.gradient_checkpointing = bool(gradient_checkpointing)
     if learning_rate is not None:
         train_config.learning_rate = float(learning_rate)
     if train_batch_size is not None:

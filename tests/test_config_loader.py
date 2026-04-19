@@ -45,6 +45,7 @@ train:
   scheduler_name: auto
   lr_scheduler_type: LINEAR
   loss_scale: ALL
+  gradient_checkpointing: true
   param_group_lrs:
     Language_Model: 1.0e-5
     modules_to_save: 2.5e-5
@@ -60,6 +61,7 @@ model:
     assert cfg.data.mix_refresh == "epoch_refresh"
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
+    assert cfg.train.gradient_checkpointing is True
     assert cfg.train.param_group_lrs == {
         "language_model": pytest.approx(1.0e-5),
         "modules_to_save": pytest.approx(2.5e-5),

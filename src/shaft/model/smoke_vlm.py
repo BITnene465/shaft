@@ -243,7 +243,12 @@ class SmokeVLMLoader(ModelLoader):
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)
         finetune_plan = build_resolved_finetune_plan(model, config.model.finetune, model_adapter=model_adapter)
-        model = apply_resolved_finetune_plan(model, finetune_plan, finetune=config.model.finetune)
+        model = apply_resolved_finetune_plan(
+            model,
+            finetune_plan,
+            finetune=config.model.finetune,
+            gradient_checkpointing=bool(config.train.gradient_checkpointing),
+        )
         setattr(model, "_shaft_finetune_plan", finetune_plan)
         tokenizer = SmokeTokenizer()
         processor = SmokeProcessor(tokenizer=tokenizer)

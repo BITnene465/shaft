@@ -419,6 +419,12 @@
   - 并在 optimizer 创建后写出：
     - `shaft_optimizer_summary.json`
     - 供 CLI 日志和 Web UI 回看 resolved optimizer groups
+- `gradient checkpointing` 当前通过两层接通：
+  - `src/shaft/pipeline/training_args.py`
+    - 负责把 `train.gradient_checkpointing` 传给 `TrainingArguments`
+  - `src/shaft/model/finetune.py`
+    - 负责在训练态关闭 `use_cache`
+    - `qlora` 路径会把该开关传给 `prepare_model_for_kbit_training`
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`

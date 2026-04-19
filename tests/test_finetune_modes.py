@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from peft import PeftModel
 
 from shaft.config import FinetuneConfig
 from shaft.model import build_model_meta
-from shaft.model.finetune import apply_finetune_strategy, summarize_finetune
+from shaft.model.finetune import apply_resolved_finetune_plan, apply_finetune_strategy, summarize_finetune
+from shaft.model.finetune_plan import build_resolved_finetune_plan
 from shaft.model.smoke_vlm import SmokeVLMConfig, SmokeVLMModel
 
 
@@ -60,3 +63,37 @@ def test_qlora_mode_trainable_for_smoke_model() -> None:
     summary = summarize_finetune(model, "qlora")
     assert summary.trainable_params > 0
     assert summary.trainable_params < summary.total_params
+
+
+def test_gradient_checkpointing_disables_use_cache_for_full_mode() -> None:
+    model = _build_model()
+    model.config.use_cache = True
+    model = apply_finetune_strategy(
+        model,
+        FinetuneConfig(mode="full"),
+        model_adapter=_build_adapter(),
+        gradient_checkpointing=True,
+    )
+    assert model.config.use_cache is False
+
+
+def test_qlora_gradient_checkpointing_is_forwarded_to_prepare_model_for_kbit_training() -> None:
+    model = _build_model()
+    model.config.use_cache = True
+    adapter = _build_adapter()
+    finetune = FinetuneConfig(mode="qlora", target_modules=["all-linear"], qlora_load_in_4bit=False)
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+
+    with patch("shaft.model.finetune.prepare_model_for_kbit_training", side_effect=lambda m, **_: m) as mocked:
+        wrapped = apply_resolved_finetune_plan(
+            model,
+            plan,
+            finetune=finetune,
+            gradient_checkpointing=True,
+        )
+
+    assert isinstance(wrapped, PeftModel)
+    mocked.assert_called_once()
+    _, kwargs = mocked.call_args
+    assert kwargs["use_gradient_checkpointing"] is True
+    assert model.config.use_cache is False

@@ -40,7 +40,19 @@ def apply_resolved_finetune_plan(
     plan: ShaftResolvedFinetunePlan,
     *,
     finetune: FinetuneConfig,
+    gradient_checkpointing: bool = False,
 ) -> torch.nn.Module:
+    if gradient_checkpointing and getattr(model, "config", None) is not None:
+        try:
+            model.config.use_cache = False
+        except Exception:  # noqa: BLE001
+            pass
+    if gradient_checkpointing and getattr(model, "generation_config", None) is not None:
+        try:
+            model.generation_config.use_cache = False
+        except Exception:  # noqa: BLE001
+            pass
+
     if plan.mode == "full":
         trainable_names = set(plan.parameter_plan.trainable_parameter_names)
         for parameter in model.parameters():
@@ -53,7 +65,10 @@ def apply_resolved_finetune_plan(
         raise ValueError(f"Unsupported finetune mode: {plan.mode!r}")
 
     if plan.mode == "qlora":
-        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=bool(gradient_checkpointing),
+        )
 
     if plan.adapter_plan is None:
         raise ValueError(f"Missing adapter finetune plan for mode={plan.mode!r}.")
@@ -70,6 +85,8 @@ def apply_resolved_finetune_plan(
         use_rslora=plan.adapter_plan.peft_signature.use_rslora,
     )
     wrapped = get_peft_model(model, peft_config)
+    if gradient_checkpointing and hasattr(wrapped, "enable_input_require_grads"):
+        wrapped.enable_input_require_grads()
     return wrapped
 
 
@@ -78,9 +95,15 @@ def apply_finetune_strategy(
     finetune: FinetuneConfig,
     *,
     model_adapter: ShaftModelAdapter,
+    gradient_checkpointing: bool = False,
 ) -> torch.nn.Module:
     plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)
-    wrapped = apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    wrapped = apply_resolved_finetune_plan(
+        model,
+        plan,
+        finetune=finetune,
+        gradient_checkpointing=gradient_checkpointing,
+    )
     setattr(wrapped, "_shaft_finetune_plan", plan)
     return wrapped
 

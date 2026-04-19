@@ -208,6 +208,7 @@
 - `max_steps`
 - `per_device_train_batch_size`
 - `gradient_accumulation_steps`
+- `gradient_checkpointing`
 - `learning_rate`
 - `param_group_lrs`
 - `optimizer_name`
@@ -235,6 +236,10 @@
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。
 - `optimizer_name/scheduler_name/loss_name` 走注册表。
+- `gradient_checkpointing`
+  - 打开后会把 `TrainingArguments.gradient_checkpointing` 设为 `true`
+  - 并在模型装配阶段显式把训练态 `use_cache` 关闭
+  - `qlora` 路径会同步传给 `prepare_model_for_kbit_training(..., use_gradient_checkpointing=...)`
 - `param_group_lrs` 用于显式配置分组学习率。当前支持的键：
   - `language_model`
   - `vision_tower`

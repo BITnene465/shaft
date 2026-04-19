@@ -10,6 +10,7 @@ from shaft.config import FinetuneConfig, RuntimeConfig, load_config
 from shaft.data import SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.model.finetune_plan import build_resolved_finetune_plan, resolved_finetune_summary_path
+from shaft.pipeline.training_args import build_hf_training_args
 from shaft.pipeline import run_sft
 from shaft.template import build_template
 
@@ -147,6 +148,15 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
             metrics = run_sft(config)
     assert "train_loss" in metrics
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
+
+
+def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.gradient_checkpointing = True
+
+    args = build_hf_training_args(config)
+
+    assert args.gradient_checkpointing is True
 
 
 def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:

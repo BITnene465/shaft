@@ -22,6 +22,7 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         per_device_train_batch_size=int(train_cfg.per_device_train_batch_size),
         per_device_eval_batch_size=int(eval_cfg.per_device_eval_batch_size),
         gradient_accumulation_steps=int(train_cfg.gradient_accumulation_steps),
+        gradient_checkpointing=bool(train_cfg.gradient_checkpointing),
         learning_rate=float(train_cfg.learning_rate),
         weight_decay=float(train_cfg.weight_decay),
         warmup_ratio=float(train_cfg.warmup_ratio),
