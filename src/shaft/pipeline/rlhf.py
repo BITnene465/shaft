@@ -30,6 +30,7 @@ from shaft.plugins import (
 from shaft.training import ShaftProgressCallback
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
+    resolve_best_export_dir,
     resolve_resume_checkpoint,
     validate_resume_checkpoint,
     validate_training_state_policy,
@@ -150,9 +151,10 @@ class ShaftRLHFPipeline:
             train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
         barrier_if_distributed()
         if config.train.save_final_model:
-            trainer.save_model()
+            best_export_dir = resolve_best_export_dir(config.experiment.output_dir)
+            trainer.save_model(output_dir=str(best_export_dir))
             ensure_hf_export_layout(
-                config.experiment.output_dir,
+                best_export_dir,
                 finetune_mode=config.model.finetune.mode,
                 model_meta=artifacts.model_adapter,
             )

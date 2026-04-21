@@ -62,6 +62,10 @@ def ensure_hf_export_layout(
     raise ValueError(f"Unsupported finetune mode: {finetune_mode!r}.")
 
 
+def resolve_best_export_dir(output_dir: str | Path) -> Path:
+    return Path(output_dir) / "best"
+
+
 def resolve_resume_checkpoint(path: str | Path | None) -> str | None:
     if path is None:
         return None

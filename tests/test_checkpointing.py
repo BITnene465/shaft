@@ -8,6 +8,7 @@ from shaft.config import RuntimeConfig
 from shaft.model import build_model_meta
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
+    resolve_best_export_dir,
     resolve_resume_checkpoint,
     validate_resume_checkpoint,
     validate_training_state_policy,
@@ -50,6 +51,11 @@ def test_ensure_hf_export_layout_full(tmp_path: Path) -> None:
     (export_dir / "config.json").write_text("{}", encoding="utf-8")
     (export_dir / "model.safetensors").write_bytes(b"ok")
     ensure_hf_export_layout(export_dir, finetune_mode="full")
+
+
+def test_resolve_best_export_dir(tmp_path: Path) -> None:
+    assert resolve_best_export_dir(tmp_path) == tmp_path / "best"
+    assert resolve_best_export_dir(f"{tmp_path}") == tmp_path / "best"
 
 
 def test_ensure_hf_export_layout_adapter(tmp_path: Path) -> None:
