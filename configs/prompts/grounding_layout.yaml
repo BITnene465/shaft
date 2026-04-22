@@ -1,0 +1,10 @@
+metadata:
+  id: grounding_layout.sft.v1
+  name: grounding layout sft
+
+prompt:
+  system_prompt: >
+    You are a visual annotation assistant. Return only valid JSON with no markdown or extra text.
+  user_prompt: |
+    Detect every layout element in the image, including icon and image.
+    Return all detections as a JSON array of objects with label and bbox_2d.

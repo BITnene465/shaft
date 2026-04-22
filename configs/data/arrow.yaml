@@ -1,6 +1,6 @@
 # Arrow / keypoint SFT 数据集 catalog。
 # 说明：
-# 1. 这份 catalog 注册真实 grounding、合成 grounding、真实 keypoint 三份数据。
+# 1. 这份 catalog 注册真实 grounding、真实 layout grounding、合成 grounding、真实 keypoint 四份数据。
 # 2. synthetic 数据只参与 train，不参与 eval。
 # 3. 如果训练配置使用 `mix_strategy: concat`，每个 epoch 会遍历全部样本；`weight` 仅在 interleave 策略下生效。
 datasets:
@@ -8,16 +8,26 @@ datasets:
     source_type: jsonl_sft
     train_path: ../../data/grounding_arrow/sft/train.jsonl
     val_path: ../../data/grounding_arrow/sft/val.jsonl
-    weight: 1.0
+    weight: 0.5
     enabled: true
     use_for_eval: true
     help: 真实箭头 grounding SFT 数据
     tags: [arrow, grounding, real, sft]
 
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout/sft/train.jsonl
+    val_path: ../../data/grounding_layout/sft/val.jsonl
+    weight:  1
+    enabled: true
+    use_for_eval: true
+    help: 真实布局 grounding SFT 数据
+    tags: [layout, grounding, real, sft]
+
   grounding_arrow_syn_avg:
     source_type: jsonl_sft
     train_path: ../../data/grounding_arrow_syn/sft/train.jsonl
-    weight: 2.0
+    weight: 0.75
     enabled: true
     use_for_eval: false
     help: 合成箭头 grounding SFT 数据，仅参与 train
@@ -27,7 +37,7 @@ datasets:
     source_type: jsonl_sft
     train_path: ../../data/keypoint_arrow/sft/train.jsonl
     val_path: ../../data/keypoint_arrow/sft/val.jsonl
-    weight: 5.0
+    weight: 0.5
     enabled: true
     use_for_eval: true
     help: 真实箭头 keypoint SFT 数据
