@@ -35,7 +35,8 @@ def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: P
     records = load_jsonl_sft_records(jsonl, dataset_name="fallback")
     assert len(records) == 1
     record = records[0]
-    assert record.dataset_name == "demo"
+    assert record.dataset_name == "fallback"
+    assert record.extra["source_dataset_name"] == "demo"
     assert record.sample_id == "s1"
     assert record.target_text == "{\"ok\":1}"
     assert Path(record.image_path).is_absolute()

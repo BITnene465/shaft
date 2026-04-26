@@ -102,15 +102,18 @@ def _build_sft_record_from_raw(
             "Missing target text. Expected target_text or a trailing assistant message."
         )
 
+    raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
         for k, v in raw.items()
         if k not in {"image_path", "image", "images", "target_text", "messages", "conversation", "conversations"}
     }
+    if raw_dataset_name is not None and raw_dataset_name != dataset_name:
+        extra.setdefault("source_dataset_name", raw_dataset_name)
     return SFTRecord(
         image_path=image_path,
         target_text=str(target_text),
-        dataset_name=str(raw.get("dataset_name", dataset_name)),
+        dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -134,6 +137,7 @@ def _build_dpo_record_from_raw(
     rejected_text = raw.get("rejected_text", raw.get("rejected"))
     if chosen_text is None or rejected_text is None:
         raise ValueError("Missing chosen/rejected fields. Expected chosen_text/chosen and rejected_text/rejected.")
+    raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
         for k, v in raw.items()
@@ -151,11 +155,13 @@ def _build_dpo_record_from_raw(
             "rejected",
         }
     }
+    if raw_dataset_name is not None and raw_dataset_name != dataset_name:
+        extra.setdefault("source_dataset_name", raw_dataset_name)
     return DPORecord(
         image_path=image_path,
         chosen_text=str(chosen_text),
         rejected_text=str(rejected_text),
-        dataset_name=str(raw.get("dataset_name", dataset_name)),
+        dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
@@ -179,6 +185,7 @@ def _build_ppo_record_from_raw(
     user_prompt = str(raw.get("user_prompt", prompt_text))
     if messages is None and not user_prompt.strip():
         raise ValueError("Missing prompt for PPO sample. Expected messages or user_prompt/prompt.")
+    raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
         for k, v in raw.items()
@@ -194,9 +201,11 @@ def _build_ppo_record_from_raw(
             "user_prompt",
         }
     }
+    if raw_dataset_name is not None and raw_dataset_name != dataset_name:
+        extra.setdefault("source_dataset_name", raw_dataset_name)
     return PPORecord(
         image_path=image_path,
-        dataset_name=str(raw.get("dataset_name", dataset_name)),
+        dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
