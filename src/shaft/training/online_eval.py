@@ -10,6 +10,7 @@ import torch.distributed as dist
 from shaft.codec import ShaftCodecResult, decode_with_codec
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.metrics import build_eval_metric
+from shaft.model.generation import restore_model_use_cache, set_model_use_cache
 from shaft.plugins import Registry
 from shaft.utils.distributed import get_rank, get_world_size, is_distributed, is_rank_zero
 
@@ -110,23 +111,27 @@ class ShaftOnlineEvalRunner:
         model = trainer.model
         was_training = bool(getattr(model, "training", False))
         model.eval()
-        with torch.inference_mode():
-            for batch in dataloader:
-                meta = batch.pop("meta", None)
-                if not isinstance(meta, dict):
-                    raise ValueError("Online eval requires batch meta from collator.")
-                batch.pop("labels", None)
-                prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
-                prepared = trainer._prepare_inputs(batch)
-                generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
-                if isinstance(generated_tokens, tuple):
-                    generated_tokens = generated_tokens[0]
-                batch_entries = self._decode_batch_entries(
-                    generated_tokens=generated_tokens,
-                    prompt_lengths=prompt_lengths,
-                    meta=meta,
-                )
-                local_entries.extend(batch_entries)
+        previous_use_cache = set_model_use_cache(model, enabled=True)
+        try:
+            with torch.inference_mode():
+                for batch in dataloader:
+                    meta = batch.pop("meta", None)
+                    if not isinstance(meta, dict):
+                        raise ValueError("Online eval requires batch meta from collator.")
+                    batch.pop("labels", None)
+                    prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
+                    prepared = trainer._prepare_inputs(batch)
+                    generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
+                    if isinstance(generated_tokens, tuple):
+                        generated_tokens = generated_tokens[0]
+                    batch_entries = self._decode_batch_entries(
+                        generated_tokens=generated_tokens,
+                        prompt_lengths=prompt_lengths,
+                        meta=meta,
+                    )
+                    local_entries.extend(batch_entries)
+        finally:
+            restore_model_use_cache(model, previous_use_cache)
         if was_training:
             model.train()
         return self._gather_entries(local_entries)
@@ -206,6 +211,10 @@ class ShaftOnlineEvalRunner:
         }
         if self.eval_config.do_sample and float(self.eval_config.temperature) > 0:
             kwargs["temperature"] = float(self.eval_config.temperature)
+        else:
+            kwargs["temperature"] = 1.0
+            kwargs["top_p"] = 1.0
+            kwargs["top_k"] = 50
         tokenizer = getattr(self.prompt_collator, "tokenizer", None)
         if tokenizer is not None:
             if getattr(tokenizer, "pad_token_id", None) is not None:

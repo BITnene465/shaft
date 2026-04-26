@@ -30,6 +30,7 @@ from shaft.plugins import (
 from shaft.training import ShaftProgressCallback
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
+    prune_root_output_layout,
     resolve_best_export_dir,
     resolve_resume_checkpoint,
     validate_resume_checkpoint,
@@ -160,6 +161,7 @@ class ShaftRLHFPipeline:
             )
         if config.train.save_final_state:
             trainer.save_state()
+        prune_root_output_layout(config.experiment.output_dir)
         barrier_if_distributed()
         if train_result is not None and hasattr(train_result, "metrics"):
             return dict(train_result.metrics or {})

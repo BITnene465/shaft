@@ -57,6 +57,43 @@
   - 重型离线评测框架的接入，待真实 benchmark/统一评测需求出现后再单独立项
   - 在此之前，任务级离线评估统一放在 `scripts/eval/` 或其他脚本侧方案中解决
 
+### 2.5 Arrow SFT 在线 Eval 与 Best Model 选择
+
+- 当前箭头 SFT 配置仍然使用：
+  - `eval.metric_for_best_model = eval_loss`
+- 原因不是能力缺失，而是这份配置还没有把在线 task eval 配齐：
+  - `eval.online_metrics_enabled` 还没开
+  - `eval.datasets` 还没为：
+    - `grounding_arrow`
+    - `keypoint_arrow`
+    配置完整 policy
+
+- 下一个版本必须完成：
+  1. 给箭头 SFT 配置补齐在线 eval 数据集策略
+  2. 对 `grounding_arrow` 与 `keypoint_arrow` 分别配置：
+     - `prediction_codec`
+     - `target_adapter`
+     - `metrics`
+     - `primary_metric`
+     - `normalizer`
+  3. 打开：
+     - `eval.online_metrics_enabled = true`
+  4. 让配置在 normalize 阶段自动收口为：
+     - `eval.metric_for_best_model = eval_final_score`
+     - `eval.greater_is_better = true`
+
+- 当前不在这一轮展开：
+  - 新的复杂结构化任务指标实现
+  - 重型离线 benchmark 接入
+
+说明：
+- 这件事的目标不是简单把 best metric 从 `eval_loss` 改成字符串 `eval_final_score`。
+- 必须先把在线 eval 的数据策略和可用 metric 配齐，否则 best model 语义是空的。
+- 第一版可以先基于当前已有能力推进：
+  - `exact_match`
+  - `parse_success`
+  后续再补更贴近任务质量的结构化 metric。
+
 ## 3. 工具链范围
 
 ### 3.1 已纳入当前范围
@@ -90,6 +127,32 @@
 说明：
 - 当前先把 `static / epoch_refresh` 的 sampler 主路径做稳。
 - 后续如果要继续投入，应优先把 mixing state / policy / sampler 明确拆层，而不是在 `data center` 里继续堆条件分支。
+
+### 4.1 GRPO 与 mixing 刷新语义对齐
+
+- 当前 `GRPO` 明确只支持：
+  - `data.mix_refresh=static`
+- 原因：
+  - 现有实现依赖 TRL `GRPOTrainer` 自己的 prompt-repeat / grouped generation sampler
+  - Shaft 自己的 `epoch_refresh` train sampler 当前不会传入 `GRPOTrainer`
+  - 因此 `GRPO` 与 `epoch_refresh` 现在存在采样控制权冲突
+
+- 暂不在这一轮展开：
+  - 让 `GRPO` 直接复用现有 `ShaftMixedIndexSampler`
+  - 通过临时 callback 或 dataset 重建去桥接 `epoch_refresh`
+
+- 后续如果要支持 `GRPO + epoch_refresh`，正确方向是：
+  - 单独设计 `GRPO-aware sampler`
+  - 同时满足：
+    - dataset mixing
+    - prompt repeat
+    - grouped generations
+    - distributed sharding
+  - 而不是继续在 pipeline 或 trainer 外层叠桥接逻辑
+
+说明：
+- 这件事的核心不是“放开配置”，而是重构采样主控权。
+- 在没有 `GRPO-aware sampler` 之前，继续保持 `static-only` 是正确约束。
 
 ## 5. Data Center / Dataset 增强边界重构
 

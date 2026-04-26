@@ -15,6 +15,7 @@ from shaft.data import (
 )
 from shaft.model import build_model_tokenizer_processor
 from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
+from shaft.model.generation import align_model_generation_config
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
@@ -25,6 +26,7 @@ from shaft.training import ShaftProgressCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
+    prune_root_output_layout,
     resolve_best_export_dir,
     resolve_resume_checkpoint,
     validate_resume_checkpoint,
@@ -64,6 +66,14 @@ class ShaftSFTPipeline:
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
+        )
+        align_model_generation_config(
+            artifacts.model,
+            tokenizer=artifacts.tokenizer,
+            max_new_tokens=config.eval.max_new_tokens,
+            do_sample=config.eval.do_sample,
+            temperature=config.eval.temperature,
+            repetition_penalty=1.0,
         )
         finetune_plan = getattr(artifacts, "finetune_plan", None)
         if finetune_plan is not None:
@@ -150,6 +160,7 @@ class ShaftSFTPipeline:
             )
         if config.train.save_final_state:
             trainer.save_state()
+        prune_root_output_layout(config.experiment.output_dir)
         barrier_if_distributed()
         return dict(train_result.metrics or {})
 

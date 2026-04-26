@@ -16,6 +16,7 @@ from PIL import Image
 
 from shaft.config import RuntimeConfig
 from shaft.model import ShaftModelAdapter, build_model_tokenizer_processor
+from shaft.model.generation import align_model_generation_config, set_model_use_cache
 from shaft.template import Template
 
 from .schema import InferEngineConfig, InferGenerationConfig
@@ -65,13 +66,22 @@ class HFLocalInferAdapter(InferAdapter):
         resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(resolved_device)
         self.model = model.to(self.device).eval()
+        self._enable_generation_cache()
         self.tokenizer = tokenizer
         self.processor = processor
+        if hasattr(self.tokenizer, "padding_side"):
+            self.tokenizer.padding_side = "left"
+        processor_tokenizer = getattr(self.processor, "tokenizer", None)
+        if processor_tokenizer is not None and hasattr(processor_tokenizer, "padding_side"):
+            processor_tokenizer.padding_side = "left"
         self.model_adapter = model_adapter
         self.template = template
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.default_generation = default_generation or InferGenerationConfig()
+
+    def _enable_generation_cache(self) -> None:
+        _ = set_model_use_cache(self.model, enabled=True)
 
     def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         messages = request.messages or self._build_messages(
@@ -154,6 +164,7 @@ class HFLocalInferAdapter(InferAdapter):
     @torch.no_grad()
     def _generate(self, *, batch: dict[str, Any], generation: InferGenerationConfig) -> torch.Tensor:
         do_sample = bool(generation.do_sample)
+        self._enable_generation_cache()
         gen_config = getattr(self.model, "generation_config", None)
         if gen_config is None:
             kwargs = {
@@ -168,24 +179,17 @@ class HFLocalInferAdapter(InferAdapter):
             return self.model.generate(**batch, **kwargs)
 
         gen_config = copy.deepcopy(gen_config)
-        gen_config.max_new_tokens = int(generation.max_new_tokens)
-        gen_config.do_sample = do_sample
-        gen_config.repetition_penalty = float(generation.repetition_penalty)
-        if do_sample:
-            gen_config.top_p = float(generation.top_p)
-            gen_config.top_k = int(generation.top_k)
-            gen_config.temperature = float(generation.temperature)
-        else:
-            # Avoid invalid sampling-only warning flags in GenerationConfig validate.
-            gen_config.top_p = 1.0
-            gen_config.top_k = int(generation.top_k)
-            gen_config.temperature = 1.0
-        eos_token_id = getattr(self.tokenizer, "eos_token_id", None)
-        if eos_token_id is not None:
-            gen_config.eos_token_id = int(eos_token_id)
-        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
-        if pad_token_id is not None:
-            gen_config.pad_token_id = int(pad_token_id)
+        gen_config.use_cache = True
+        align_model_generation_config(
+            gen_config,
+            tokenizer=self.tokenizer,
+            max_new_tokens=int(generation.max_new_tokens),
+            do_sample=do_sample,
+            temperature=float(generation.temperature),
+            top_p=float(generation.top_p),
+            top_k=int(generation.top_k),
+            repetition_penalty=float(generation.repetition_penalty),
+        )
 
         return self.model.generate(
             **batch,

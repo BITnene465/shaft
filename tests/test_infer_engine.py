@@ -61,7 +61,9 @@ def test_infer_engine_generate_does_not_emit_invalid_sampling_flags_for_greedy()
 
     class DummyModel:
         def __init__(self):
+            self.config = SimpleNamespace(use_cache=False)
             self.generation_config = DummyGenerationConfig(
+                use_cache=False,
                 max_new_tokens=16,
                 do_sample=True,
                 top_p=0.95,
@@ -90,6 +92,9 @@ def test_infer_engine_generate_does_not_emit_invalid_sampling_flags_for_greedy()
     adapter._generate(batch=batch, generation=InferGenerationConfig(max_new_tokens=4, do_sample=False))
 
     gen_config = captured["kwargs"]["generation_config"]
+    assert adapter.model.config.use_cache is True
+    assert adapter.model.generation_config.use_cache is True
+    assert gen_config.use_cache is True
     assert gen_config.do_sample is False
     assert gen_config.top_p == 1.0
     assert gen_config.top_k == 50

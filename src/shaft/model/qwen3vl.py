@@ -110,10 +110,18 @@ class Qwen3VLLoader(ModelLoader):
                 "Please verify model path and transformers version."
             ) from last_err
 
-        processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=config.model.trust_remote_code)
+        processor = AutoProcessor.from_pretrained(
+            model_name,
+            trust_remote_code=config.model.trust_remote_code,
+            fix_mistral_regex=False,
+        )
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is None:
-            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=config.model.trust_remote_code)
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                trust_remote_code=config.model.trust_remote_code,
+                fix_mistral_regex=False,
+            )
         if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
             tokenizer.pad_token = tokenizer.eos_token
         finetune_plan = build_resolved_finetune_plan(model, finetune, model_adapter=model_adapter)

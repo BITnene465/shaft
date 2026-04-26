@@ -5,6 +5,7 @@ from typing import Any
 
 import torch
 from transformers import TrainingArguments
+from transformers.trainer_callback import PrinterCallback
 
 from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
@@ -48,6 +49,9 @@ class ShaftOptimizerMixin:
         self.resolved_optimizer_plan = None
         self.resolved_optimizer_summary = None
         super().__init__(*args, **kwargs)
+        # Shaft uses a custom tqdm callback; the default HF PrinterCallback only
+        # duplicates step logs and breaks progress-bar readability.
+        self.remove_callback(PrinterCallback)
 
     @property
     def train_args(self) -> TrainingArguments:

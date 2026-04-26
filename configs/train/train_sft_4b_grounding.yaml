@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3vl-4b-sft-grounding-full-mix
-  output_dir: outputs/qwen3vl-sft/4b/grounding-full-mix
+  name: qwen3vl-4b-sft-grounding-row-bucket-v2-under
+  output_dir: outputs/qwen3vl-sft/4b/grounding-row-bucket-v2-under
   seed: 42
 
 model:
@@ -29,7 +29,7 @@ algorithm:
 data:
   catalog_path: ../data/arrow.yaml
   catalog_names: [grounding_arrow, grounding_layout, keypoint_arrow, grounding_arrow_syn_avg]
-  mix_strategy: interleave_over
+  mix_strategy: interleave_under
   num_workers: 12
   pin_memory: true
   persistent_workers: true
@@ -39,10 +39,10 @@ data:
   shuffle: true
 
 train:
-  epochs: 2
+  epochs: 10
   max_steps: -1
-  per_device_train_batch_size: 2
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.00002
   param_group_lrs:
@@ -65,7 +65,7 @@ train:
   logging_steps: 50
   save_strategy: epoch
   save_steps: 200
-  save_total_limit: 2
+  save_total_limit: 6
   load_best_model_at_end: true
   save_final_model: true
   save_final_state: true
@@ -76,7 +76,7 @@ train:
 
 eval:
   enabled: true
-  per_device_eval_batch_size: 8
+  per_device_eval_batch_size: 2
   eval_strategy: epoch
   eval_steps: 200
   do_sample: false

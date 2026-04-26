@@ -15,6 +15,7 @@
 
 当前唯一例外是：
 - `scripts/tasks/convert_grounding_structured_to_sft.py`
+- `scripts/tasks/convert_grounding_structured_to_sft_row_major.py`
 
 它属于明确的任务数据准备脚本，不是训练内核入口。
 
@@ -221,10 +222,71 @@ python scripts/tasks/convert_grounding_structured_to_sft.py \
   --area-bucket-base 1.5
 ```
 
+### `scripts/tasks/convert_grounding_structured_to_sft_row_major.py`
+
+用途：
+- 把 `structured/*.jsonl` 的 grounding 结构化 GT 转成当前框架可训练的 `jsonl_sft`
+- 使用 `row-major` 的 canonical order，而不是面积分桶优先
+
+关键行为：
+- `bbox` 会量化到 `1000` bins，输出为 `bbox_2d`
+- `target_text` 是纯 JSON array
+- 排序规则：
+  - 先基于量化后的 `bbox_2d` 计算 `y_center`
+  - 用 `row_bucket = floor(y_center / row_bucket_size)` 做视觉行分组
+  - `row_bucket_size = max(8, round(median_height * 0.5))`
+  - 桶内按 `(x1, y1, y2, x2, label)` 排序
+  - 若量化坐标相同，再用原始浮点 bbox 做 tie-break，保证稳定性
+- prompt 从 YAML 配置文件读取
+
+常用形式：
+
+```bash
+python scripts/tasks/convert_grounding_structured_to_sft_row_major.py \
+  --input data/grounding_arrow/structured/train.jsonl \
+  --output data/grounding_arrow/sft/train.jsonl \
+  --dataset-name grounding_arrow
+```
+
+```bash
+python scripts/tasks/convert_grounding_structured_to_sft_row_major.py \
+  --input data/grounding_layout/structured/train.jsonl \
+  --output data/grounding_layout/sft/train.jsonl \
+  --dataset-name grounding_layout \
+  --prompt-config configs/prompts/grounding_layout.yaml
+```
+
+```bash
+python scripts/tasks/convert_grounding_structured_to_sft_row_major.py \
+  --input data/grounding_arrow_syn/structured/train.jsonl \
+  --output data/grounding_arrow_syn/sft/train.jsonl \
+  --dataset-name grounding_arrow_syn_avg
+```
+
+常用参数：
+- `--prompt-config`
+  - 默认：`configs/prompts/grounding_arrow.yaml`
+- `--num-bins`
+  - 默认：`1000`
+- `--no-readme`
+  - 跳过输出目录下的 `README.md`
+
+示例：
+
+```bash
+python scripts/tasks/convert_grounding_structured_to_sft_row_major.py \
+  --input data/grounding_layout/structured/val.jsonl \
+  --output data/grounding_layout/sft/val.jsonl \
+  --dataset-name grounding_layout \
+  --prompt-config configs/prompts/grounding_layout.yaml \
+  --num-bins 1000
+```
+
 原子写入约束：
 - JSONL 输出使用临时文件写完后 `os.replace`
 - README 也使用原子替换
 - 目的是避免训练进程读到半成品
+
 
 ## 4. 维护规则
 

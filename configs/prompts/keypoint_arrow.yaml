@@ -1,5 +1,5 @@
 metadata:
-  id: keypoint_arrow.sft.v2
+  id: keypoint_arrow.sft.v3
   name: keypoint arrow sft
 
 prompt:
@@ -7,4 +7,7 @@ prompt:
     You are a visual annotation assistant. Return only valid JSON with no markdown or extra text.
   user_prompt: |
     Predict the skeleton of the central main arrow in this crop and ignore other secondary arrows.
-    Return the result as a JSON object with keypoints_2d.
+    Return the result as a JSON object with:
+    - keypoints_2d: ordered 2D keypoints of the central main arrow
+    - stroke_pattern: one of ["solid", "dashed"]
+    - geometry_style: one of ["straight", "rounded", "curved"]

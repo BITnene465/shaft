@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import torch
@@ -42,6 +43,19 @@ class _FakeProcessor:
 
 
 class _FakeModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.config = SimpleNamespace(use_cache=False)
+        self.generation_config = SimpleNamespace(
+            use_cache=False,
+            max_new_tokens=32,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
+            repetition_penalty=1.0,
+        )
+
     def forward(self, **kwargs):
         _ = kwargs
         return type("Out", (), {"loss": torch.tensor(0.1)})
@@ -126,12 +140,13 @@ eval:
 def test_run_sft_smoke(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    fake_model = _FakeModel()
     with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
         mocked_builder.return_value = type(
             "Artifacts",
             (),
             {
-                "model": _FakeModel(),
+                "model": fake_model,
                 "tokenizer": _FakeTokenizer(),
                 "processor": _FakeProcessor(),
                 "model_meta": build_model_meta("smoke_vlm"),
@@ -147,6 +162,10 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             metrics = run_sft(config)
     assert "train_loss" in metrics
+    assert fake_model.generation_config.do_sample is False
+    assert fake_model.generation_config.temperature == 1.0
+    assert fake_model.generation_config.top_p == 1.0
+    assert fake_model.generation_config.top_k == 50
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
 
 

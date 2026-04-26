@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+from transformers.trainer_callback import PrinterCallback
 from shaft.algorithms.rlhf_utils import (
     build_trl_grpo_config,
     build_ppo_value_and_reward_models,
@@ -323,6 +324,7 @@ def test_shaft_trainer_uses_custom_components() -> None:
         scheduler_num_cycles=2.0,
         scheduler_power=1.5,
     )
+    assert not any(isinstance(callback, PrinterCallback) for callback in trainer.callback_handler.callbacks)
     device = next(model.parameters()).device
     inputs = {
         "input_ids": torch.tensor([[1, 2, 3]], device=device),

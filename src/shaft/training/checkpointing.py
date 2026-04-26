@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shutil
 from pathlib import Path
 
 from transformers.trainer_utils import get_last_checkpoint
@@ -78,6 +79,38 @@ def resolve_resume_checkpoint(path: str | Path | None) -> str | None:
     if last_checkpoint is not None:
         return str(last_checkpoint)
     raise ValueError(f"No trainer checkpoint found under: {target}")
+
+
+def prune_root_output_layout(output_dir: str | Path) -> None:
+    root = Path(output_dir)
+    if not root.is_dir():
+        return
+
+    has_checkpoint_dir = any(
+        item.is_dir() and item.name.startswith("checkpoint-") for item in root.iterdir()
+    )
+    if not has_checkpoint_dir and not (root / "best").exists():
+        return
+
+    layout = inspect_checkpoint_layout(root)
+    if layout.kind == "unknown":
+        return
+
+    if not any(
+        item.is_dir() and (item.name == "best" or item.name.startswith("checkpoint-"))
+        for item in root.iterdir()
+    ):
+        return
+
+    for item in root.iterdir():
+        if item.name.startswith("."):
+            continue
+        if item.is_dir() and (item.name == "best" or item.name.startswith("checkpoint-")):
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        elif item.is_file():
+            item.unlink(missing_ok=True)
 
 
 def validate_resume_checkpoint(path: str | Path, *, finetune_mode: str) -> None:

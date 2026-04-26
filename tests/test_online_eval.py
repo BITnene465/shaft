@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -49,14 +50,22 @@ class _FakeModel:
     def __init__(self) -> None:
         self.training = False
         self.grad_enabled_during_generate = None
+        self.generate_kwargs = None
+        self.use_cache_during_generate = None
+        self.config = SimpleNamespace(use_cache=False)
+        self.generation_config = SimpleNamespace(use_cache=False)
 
     def eval(self):
         self.training = False
         return self
 
     def generate(self, **kwargs):
-        _ = kwargs
+        self.generate_kwargs = dict(kwargs)
         self.grad_enabled_during_generate = torch.is_grad_enabled()
+        self.use_cache_during_generate = (
+            bool(self.config.use_cache),
+            bool(self.generation_config.use_cache),
+        )
         return torch.tensor([[11, 12, 101, 2], [21, 22, 102, 2]], dtype=torch.long)
 
 
@@ -133,6 +142,13 @@ def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
     assert metrics["eval_ds_b_score"] == 0.0
     assert metrics["eval_final_score"] == 0.25
     assert trainer.model.grad_enabled_during_generate is False
+    assert trainer.model.generate_kwargs["do_sample"] is False
+    assert trainer.model.generate_kwargs["temperature"] == 1.0
+    assert trainer.model.generate_kwargs["top_p"] == 1.0
+    assert trainer.model.generate_kwargs["top_k"] == 50
+    assert trainer.model.use_cache_during_generate == (True, True)
+    assert trainer.model.config.use_cache is False
+    assert trainer.model.generation_config.use_cache is False
     assert "dataset=ds_a" in caplog.text
     assert "dataset=ds_b" in caplog.text
     assert "final_score=0.25" in caplog.text
