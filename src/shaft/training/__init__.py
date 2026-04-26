@@ -19,6 +19,8 @@ from .optimizer_plan import (
     write_resolved_optimizer_summary,
 )
 from .online_eval import ShaftOnlineEvalRunner
+from .epoch_interval_callback import ShaftEpochIntervalCallback
+from .eval_policy import aggregate_weighted_dataset_values
 from .progress_callback import ShaftProgressCallback
 from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
@@ -29,6 +31,7 @@ __all__ = [
     "OPTIMIZER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "Muon",
+    "ShaftEpochIntervalCallback",
     "ShaftOnlineEvalRunner",
     "ShaftOptimizerMixin",
     "ShaftProgressCallback",
@@ -45,6 +48,7 @@ __all__ = [
     "build_optimizer_and_plan",
     "build_resolved_optimizer_plan",
     "build_scheduler",
+    "aggregate_weighted_dataset_values",
     "ensure_hf_export_layout",
     "get_rank",
     "get_world_size",

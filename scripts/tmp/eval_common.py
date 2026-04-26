@@ -11,7 +11,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import Image, ImageColor, ImageDraw
+from PIL import Image, ImageColor, ImageDraw, ImageFont
 from tqdm.auto import tqdm
 
 warnings.filterwarnings(
@@ -29,6 +29,21 @@ from shaft.infer.engine import HFLocalInferAdapter  # noqa: E402
 from shaft.metrics import EVAL_METRIC_REGISTRY, build_eval_metric  # noqa: E402
 from shaft.model import build_model_tokenizer_processor  # noqa: E402
 from shaft.training.checkpointing import inspect_checkpoint_layout  # noqa: E402
+
+_BOX_PALETTE = (
+    "#2563EB",
+    "#DC2626",
+    "#059669",
+    "#D97706",
+    "#7C3AED",
+    "#0F766E",
+    "#DB2777",
+    "#65A30D",
+)
+_LABEL_COLOR_OFFSETS = {
+    "image": 0,
+    "icon": 3,
+}
 
 
 def _optional_bool(text: str | None) -> bool | None:
@@ -233,6 +248,70 @@ def _scale_from_1000(x: float, y: float, width: int, height: int) -> tuple[float
     return float(x) * float(width) / 1000.0, float(y) * float(height) / 1000.0
 
 
+def _resolve_box_line_width(image_width: int, image_height: int) -> int:
+    short_edge = max(1, min(int(image_width), int(image_height)))
+    return max(3, int(round(short_edge / 180.0)))
+
+
+def _resolve_point_radius(image_width: int, image_height: int) -> int:
+    short_edge = max(1, min(int(image_width), int(image_height)))
+    return max(4, int(round(short_edge / 140.0)))
+
+
+def _resolve_annotation_font_size(image_width: int, image_height: int) -> int:
+    short_edge = max(1, min(int(image_width), int(image_height)))
+    return max(12, min(28, int(round(short_edge / 42.0))))
+
+
+def _load_annotation_font(font_size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    try:
+        return ImageFont.truetype("DejaVuSans.ttf", size=int(font_size))
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _resolve_box_color(label: str, index: int) -> tuple[int, int, int]:
+    palette_index = (_LABEL_COLOR_OFFSETS.get(label, 0) + max(0, index - 1)) % len(_BOX_PALETTE)
+    return ImageColor.getrgb(_BOX_PALETTE[palette_index])
+
+
+def _draw_labeled_box(
+    draw: ImageDraw.ImageDraw,
+    *,
+    bbox: tuple[int, int, int, int],
+    label: str,
+    index: int,
+    image_width: int,
+    image_height: int,
+    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
+) -> None:
+    x1, y1, x2, y2 = bbox
+    box_label = label or "box"
+    color = _resolve_box_color(box_label, index)
+    line_width = _resolve_box_line_width(image_width, image_height)
+    halo_width = line_width + max(2, line_width // 2)
+    draw.rectangle([x1, y1, x2, y2], outline="white", width=halo_width)
+    draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
+
+    label_text = f"{index}:{box_label}"
+    text_padding_x = max(4, line_width)
+    text_padding_y = max(2, line_width // 2)
+    text_bbox = draw.textbbox((0, 0), label_text, font=font)
+    text_width = max(1, text_bbox[2] - text_bbox[0])
+    text_height = max(1, text_bbox[3] - text_bbox[1])
+    label_x1 = max(0, min(x1, image_width - text_width - (text_padding_x * 2)))
+    preferred_y = y1 - text_height - (text_padding_y * 2) - line_width
+    if preferred_y >= 0:
+        label_y1 = preferred_y
+    else:
+        label_y1 = min(max(0, y1 + line_width), max(0, image_height - text_height - (text_padding_y * 2)))
+    label_x2 = min(image_width, label_x1 + text_width + (text_padding_x * 2))
+    label_y2 = min(image_height, label_y1 + text_height + (text_padding_y * 2))
+    draw.rectangle([label_x1, label_y1, label_x2, label_y2], fill="white")
+    draw.rectangle([label_x1, label_y1, label_x2, label_y2], outline=color, width=max(2, line_width - 1))
+    draw.text((label_x1 + text_padding_x, label_y1 + text_padding_y), label_text, fill=color, font=font)
+
+
 def _build_footer_image(image: Image.Image, lines: list[str]) -> Image.Image:
     footer_lines = [line for line in lines if line.strip()]
     if not footer_lines:
@@ -290,22 +369,44 @@ def _render_prediction_visualization(
         return None
 
     draw = ImageDraw.Draw(image)
-    color = ImageColor.getrgb("royalblue")
+    font = _load_annotation_font(_resolve_annotation_font_size(image.width, image.height))
+    point_radius = _resolve_point_radius(image.width, image.height)
+    point_line_width = max(2, _resolve_box_line_width(image.width, image.height))
 
     for idx, (label, bbox) in enumerate(boxes, start=1):
         x1, y1, x2, y2 = [int(round(v)) for v in bbox]
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        _draw_labeled_box(
+            draw,
+            bbox=(x1, y1, x2, y2),
+            label=label,
+            index=idx,
+            image_width=image.width,
+            image_height=image.height,
+            font=font,
+        )
 
     if points is not None:
         for idx, (x, y) in enumerate(points, start=1):
             cx = int(round(x))
             cy = int(round(y))
-            draw.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], outline=color, fill=color, width=2)
+            point_color = _resolve_box_color("keypoint", idx)
+            draw.ellipse(
+                [cx - point_radius, cy - point_radius, cx + point_radius, cy + point_radius],
+                outline="white",
+                fill="white",
+                width=point_line_width + 1,
+            )
+            draw.ellipse(
+                [cx - point_radius, cy - point_radius, cx + point_radius, cy + point_radius],
+                outline=point_color,
+                fill=point_color,
+                width=point_line_width,
+            )
         if len(points) >= 2:
             draw.line(
                 [(int(round(x)), int(round(y))) for x, y in points],
-                fill=color,
-                width=3,
+                fill=ImageColor.getrgb("#14B8A6"),
+                width=point_line_width,
                 joint="curve",
             )
 
@@ -353,10 +454,12 @@ def _run_infer_batch(
                 images.append(image_obj.convert("RGB"))
         batch = infer.model_adapter.build_processor_inputs(
             processor=infer.processor,
+            tokenizer=infer.tokenizer,
             prompt_texts=prompts,
             images=images,
             min_pixels=infer.min_pixels,
             max_pixels=infer.max_pixels,
+            padding_side="left",
         )
         batch = infer._move_batch_to_device(batch)
         generated = infer._generate(batch=batch, generation=generation)

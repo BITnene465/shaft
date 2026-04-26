@@ -94,6 +94,24 @@
   - `parse_success`
   后续再补更贴近任务质量的结构化 metric。
 
+- 需要继续收口的一项实现细节：
+  - `training / online eval / infer / offline eval` 对 `padding_side` 的需求不同：
+    - 训练态仍以 `right padding` 为主
+    - 生成态应统一使用 `left padding`
+  - 当前已经把这件事收敛到共享 `build_processor_inputs(..., padding_side=...)` 真源中，但还没有上升为正式的 processor-input policy 语义。
+  - 后续需要把“训练态 / 生成态 padding policy”进一步显式化，避免未来在某条新路径上重新出现局部补丁或遗漏 left padding 的问题。
+
+- 需要继续收口的另一项 eval 语义：
+  - 当前 `online eval` 的 pixel budget 仍然默认复用 `data.min_pixels / max_pixels`。
+  - 训练输入预算和评估输入预算不应长期耦合：
+    - 训练态 budget 更偏吞吐与稳定性
+    - eval / online eval budget 更偏任务质量与可比性
+  - 后续应把 pixel budget 正式分层为：
+    - `data.*` 负责训练数据默认预算
+    - `eval.*` 负责评估默认预算
+    - `eval.datasets.<name>.*` 允许对特定任务做 per-dataset override
+  - `eval_final_loss` 与 `eval_final_score` 应共享同一套 eval pixel budget 解析规则，避免 loss 和 generation score 在不同分辨率语义上比较。
+
 ## 3. 工具链范围
 
 ### 3.1 已纳入当前范围

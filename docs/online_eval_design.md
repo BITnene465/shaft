@@ -279,7 +279,8 @@ flowchart LR
 
 建议默认规则：
 
-- `parse_success` 单独统计
+- `parse_success` 只统计完整解析成功
+- `parse_partial_rate` 单独统计通过修复/截断恢复到部分可用结构的比例
 - task metric 以 **全样本** 为分母
 - parse 失败样本的 task score 直接记 `0`
 
@@ -322,8 +323,9 @@ eval 进度条上不显示 task metrics。
 1. 每个 dataset 的全部指标
 2. 每个 dataset 的 normalized score 与 weight
 3. `eval_final_score`
-4. `metric_for_best_model`
-5. 是否刷新 best model
+4. `eval_final_loss`
+5. `metric_for_best_model`
+6. 是否刷新 best model
 
 示例：
 
@@ -335,8 +337,14 @@ eval 进度条上不显示 task metrics。
 
 说明：
 
-- per-dataset 指标只进入本地 logger，不进入 `report_to`。
-- `report_to` 与 Trainer 回调链只接收 `eval_loss` 与 `eval_final_score`，避免 wandb 指标集合随任务集合变化而漂移。
+- per-dataset 指标会进入本地 logger，也会通过 `Trainer.log()` 进入 `report_to`。
+- dataset-policy eval 现在统一产出两类总览指标：
+  - `eval_final_loss`
+  - `eval_final_score`
+- 它们共用同一套 `eval.datasets` policy 与 `weight`，只是在底层分别对应：
+  - teacher-forced loss
+  - free-running generation metrics
+- per-dataset loss、per-dataset metrics / score 都需要进入统一日志流，方便在训练过程中直接定位是哪一个任务在退化。
 
 ## 10. 当前支持的配置形态
 
@@ -345,6 +353,7 @@ eval:
   enabled: true
   eval_strategy: epoch
   per_device_eval_batch_size: 2
+  loss_metrics_enabled: true
   metric_for_best_model: eval_final_score
   greater_is_better: true
   online_metrics_enabled: true
@@ -354,6 +363,7 @@ eval:
       target_adapter: det_annotation
       metrics:
         - name: parse_success
+        - name: parse_partial_rate
         - name: det_f1
           params:
             iou_threshold: 0.5
@@ -368,6 +378,7 @@ eval:
       target_adapter: keypoint_annotation
       metrics:
         - name: parse_success
+        - name: parse_partial_rate
         - name: keypoint_pck
           params:
             threshold: 0.1
@@ -382,11 +393,21 @@ eval:
 截至当前版本：
 
 - 共享 codec 层已经独立为 `src/shaft/codec`
-- 在线 eval metric registry 已实现，当前内置 `parse_success` 与 `exact_match`
+- 在线 eval metric registry 已实现，当前内置 `parse_success`、`parse_partial_rate` 与 `exact_match`
 - dataset eval policy 已接入 `EvalConfig.datasets`
 - `prediction_codec` / `target_adapter` / `metric` 已在配置加载阶段做注册校验
-- 启用在线 eval 时，best-model 选择统一使用 `eval_final_score`
-- 启用在线 eval 时，`report_to` 只上报 `eval_loss` 与 `eval_final_score`
+- dataset-policy eval 统一支持：
+  - `eval_final_score`
+  - `eval_final_loss`
+- `metric_for_best_model` 现在可以选择：
+  - `eval_final_score`
+  - `eval_final_loss`
+- `report_to` 会同时上报：
+  - per-dataset loss
+  - per-dataset metrics
+  - per-dataset normalized score
+  - `eval_final_loss`
+  - `eval_final_score`
 - 若某个 dataset 本次没有样本，会 warning 并跳过，不参与 `final_score`
 - 当前只支持 SFT 的单阶段在线 eval
 

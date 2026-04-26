@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pytest
 import torch
 from transformers.trainer_callback import PrinterCallback
+from transformers.trainer_callback import TrainerControl, TrainerState
+from transformers.trainer_utils import IntervalStrategy, SaveStrategy
 from shaft.algorithms.rlhf_utils import (
     build_trl_grpo_config,
     build_ppo_value_and_reward_models,
@@ -20,6 +22,7 @@ from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
 from shaft.algorithms.grpo_rewards import build_grpo_reward_functions
+from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.model import build_model_meta
 from shaft.model.finetune import apply_resolved_finetune_plan
 from shaft.model.finetune_plan import build_resolved_finetune_plan
@@ -31,6 +34,7 @@ from shaft.training.loss import LOSS_REGISTRY, auto_loss, build_loss, causal_lm_
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
+from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan, summarize_resolved_optimizer_plan
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
@@ -221,6 +225,47 @@ def test_optimizer_supports_param_group_lrs_for_full_finetune() -> None:
     assert logical_groups == {"language_model"}
     assert all(group.lr == pytest.approx(2.5e-4) for group in resolved.groups)
     assert {group.weight_decay for group in resolved.groups} == {0.1, 0.0}
+
+
+def test_optimizer_supports_no_decay_name_patterns() -> None:
+    model = _build_smoke_model()
+    adapter = _build_smoke_adapter()
+    finetune = FinetuneConfig(mode="full", freeze=FreezeConfig(groups=["generator"]))
+    plan = build_resolved_finetune_plan(model, finetune, model_adapter=adapter)
+    apply_resolved_finetune_plan(model, plan, finetune=finetune)
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_optimizer_groups_no_decay_name_patterns",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+        weight_decay=0.1,
+    )
+
+    baseline = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        finetune_plan=plan,
+        model_adapter=adapter,
+    )
+    baseline_group = next(
+        group for group in baseline.groups if any(name.endswith("embed_tokens.weight") for name in group.parameter_names)
+    )
+    assert baseline_group.decay is True
+    assert baseline_group.weight_decay == pytest.approx(0.1)
+
+    resolved = build_resolved_optimizer_plan(
+        model=model,
+        args=args,
+        finetune_plan=plan,
+        model_adapter=adapter,
+        no_decay_name_patterns=["embed_tokens.weight"],
+    )
+    embed_group = next(
+        group for group in resolved.groups if any(name.endswith("embed_tokens.weight") for name in group.parameter_names)
+    )
+    assert embed_group.decay is False
+    assert embed_group.weight_decay == pytest.approx(0.0)
 
 
 def test_optimizer_supports_param_group_lrs_for_lora_and_modules_to_save() -> None:
@@ -433,7 +478,77 @@ def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
     assert metrics["eval_loss"] == pytest.approx(0.2)
     assert metrics["eval_final_score"] == pytest.approx(0.8)
     assert metrics["eval_ds_a_exact_match"] == pytest.approx(0.7)
-    assert logged == [{"eval_loss": 0.2, "eval_final_score": 0.8}]
+    assert logged == [{"eval_loss": 0.2, "eval_final_score": 0.8, "eval_ds_a_exact_match": 0.7}]
+
+
+def test_shaft_trainer_evaluate_aggregates_final_loss_for_named_eval_datasets() -> None:
+    model = _TinyModel()
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_trainer_eval_named",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+
+    class _FakeOnlineEvalRunner:
+        def evaluate(self, trainer, *, eval_dataset, metric_key_prefix="eval"):
+            _ = trainer, eval_dataset, metric_key_prefix
+            return {
+                "eval_final_score": 0.8,
+                "eval_ds_a_exact_match": 0.7,
+                "eval_ds_b_exact_match": 0.9,
+            }
+
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset={"ds_a": [{"sample_id": "a"}], "ds_b": [{"sample_id": "b"}]},
+        data_collator=lambda x: x,
+        online_eval_runner=_FakeOnlineEvalRunner(),
+        eval_config=EvalConfig(
+            enabled=True,
+            loss_metrics_enabled=True,
+            online_metrics_enabled=True,
+            datasets={
+                "ds_a": EvalDatasetPolicyConfig(weight=0.25),
+                "ds_b": EvalDatasetPolicyConfig(weight=0.75),
+            },
+        ),
+    )
+    trainer.get_eval_dataloader = lambda eval_dataset=None: []  # type: ignore[method-assign]
+
+    def _fake_evaluation_loop(*args, **kwargs):
+        prefix = kwargs["metric_key_prefix"]
+        values = {
+            "eval_ds_a": 0.4,
+            "eval_ds_b": 0.2,
+        }
+        return SimpleNamespace(metrics={f"{prefix}_loss": values[prefix]}, num_samples=1)
+
+    trainer.evaluation_loop = _fake_evaluation_loop  # type: ignore[method-assign]
+    logged: list[dict[str, float]] = []
+    trainer.log = lambda metrics, start_time=None: logged.append(dict(metrics))  # type: ignore[method-assign]
+    trainer.callback_handler.on_evaluate = lambda args, state, control, metrics: control  # type: ignore[method-assign]
+    metrics = trainer.evaluate()
+    assert metrics["eval_ds_a_loss"] == pytest.approx(0.4)
+    assert metrics["eval_ds_b_loss"] == pytest.approx(0.2)
+    assert metrics["eval_final_loss"] == pytest.approx(0.25)
+    assert metrics["eval_final_score"] == pytest.approx(0.8)
+    assert metrics["eval_ds_a_exact_match"] == pytest.approx(0.7)
+    assert metrics["eval_ds_b_exact_match"] == pytest.approx(0.9)
+    assert logged == [
+        {
+            "eval_ds_a_loss": 0.4,
+            "eval_ds_b_loss": 0.2,
+            "eval_final_loss": 0.25,
+            "eval_final_score": 0.8,
+            "eval_ds_a_exact_match": 0.7,
+            "eval_ds_b_exact_match": 0.9,
+        }
+    ]
 
 
 def test_shaft_trainer_evaluate_reports_only_eval_loss_without_online_eval() -> None:
@@ -465,6 +580,33 @@ def test_shaft_trainer_evaluate_reports_only_eval_loss_without_online_eval() -> 
     assert metrics["eval_loss"] == pytest.approx(0.3)
     assert "eval_samples_per_second" in metrics
     assert logged == [{"eval_loss": 0.3}]
+
+
+def test_epoch_interval_callback_gates_eval_and_save_until_interval_or_final_epoch() -> None:
+    callback = ShaftEpochIntervalCallback(eval_epoch_interval=2, save_epoch_interval=2)
+    args = SimpleNamespace(
+        eval_strategy=IntervalStrategy.EPOCH,
+        save_strategy=SaveStrategy.EPOCH,
+        num_train_epochs=5,
+    )
+
+    control = TrainerControl(should_evaluate=True, should_save=True)
+    state = TrainerState(epoch=1.0)
+    result = callback.on_epoch_end(args, state, control)
+    assert result.should_evaluate is False
+    assert result.should_save is False
+
+    control = TrainerControl(should_evaluate=True, should_save=True)
+    state = TrainerState(epoch=2.0)
+    result = callback.on_epoch_end(args, state, control)
+    assert result.should_evaluate is True
+    assert result.should_save is True
+
+    control = TrainerControl(should_evaluate=True, should_save=True)
+    state = TrainerState(epoch=5.0)
+    result = callback.on_epoch_end(args, state, control)
+    assert result.should_evaluate is True
+    assert result.should_save is True
 
 
 def test_build_trl_dpo_config_from_training_args() -> None:

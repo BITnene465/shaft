@@ -340,6 +340,7 @@ train:
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5
+  save_epoch_interval: 2
   use_cpu: true
   report_to: ["none"]
   load_best_model_at_end: false
@@ -347,6 +348,7 @@ train:
   save_final_state: false
 eval:
   enabled: true
+  epoch_interval: 2
   online_metrics_enabled: true
   metric_for_best_model: eval_final_score
   greater_is_better: true
@@ -382,4 +384,78 @@ eval:
         )()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             _ = run_sft(config)
+    assert isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
+    assert set(_FakeTrainer.last_kwargs["eval_dataset"].keys()) == {"ds"}
     assert _FakeTrainer.last_kwargs["online_eval_runner"] is not None
+    assert _FakeTrainer.last_kwargs["eval_config"] is config.eval
+    assert _FakeTrainer.last_kwargs["online_eval_runner"].prompt_collator.padding_side == "left"
+    callbacks = _FakeTrainer.last_kwargs.get("callbacks")
+    assert callbacks is not None
+    assert any(callback.__class__.__name__ == "ShaftEpochIntervalCallback" for callback in callbacks)
+
+
+def test_run_sft_keeps_merged_eval_dataset_for_legacy_eval_loss_mode(tmp_path: Path) -> None:
+    train_jsonl = tmp_path / "train.jsonl"
+    val_jsonl = tmp_path / "val.jsonl"
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    train_jsonl.write_text(
+        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
+        encoding="utf-8",
+    )
+    val_jsonl.write_text(
+        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
+        encoding="utf-8",
+    )
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        f"""
+experiment:
+  name: test-legacy-eval-loss
+  output_dir: {tmp_path}/out
+data:
+  datasets:
+    - dataset_name: ds
+      train_path: {train_jsonl}
+      val_path: {val_jsonl}
+algorithm:
+  name: sft
+train:
+  epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  use_cpu: true
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+eval:
+  enabled: true
+  loss_metrics_enabled: false
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
+  datasets:
+    ds:
+      weight: 1.0
+""",
+        encoding="utf-8",
+    )
+    config = load_config(cfg_path)
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "template": build_template("smoke_vlm"),
+            },
+        )()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            _ = run_sft(config)
+    assert not isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
+    assert _FakeTrainer.last_kwargs["online_eval_runner"] is None

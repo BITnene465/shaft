@@ -122,6 +122,7 @@ def build_optimizer(
     finetune_plan: ShaftResolvedFinetunePlan | None = None,
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
+    no_decay_name_patterns: list[str] | None = None,
 ) -> torch.optim.Optimizer:
     optimizer, _ = build_optimizer_and_plan(
         model=model,
@@ -133,6 +134,7 @@ def build_optimizer(
         finetune_plan=finetune_plan,
         model_adapter=model_adapter,
         param_group_lrs=param_group_lrs,
+        no_decay_name_patterns=no_decay_name_patterns,
     )
     return optimizer
 
@@ -148,6 +150,7 @@ def build_optimizer_and_plan(
     finetune_plan: ShaftResolvedFinetunePlan | None = None,
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
+    no_decay_name_patterns: list[str] | None = None,
 ) -> tuple[torch.optim.Optimizer, ShaftResolvedOptimizerPlan]:
     normalized = str(optimizer_name).strip().lower()
     resolved_plan = build_resolved_optimizer_plan(
@@ -156,6 +159,7 @@ def build_optimizer_and_plan(
         finetune_plan=finetune_plan,
         model_adapter=model_adapter,
         param_group_lrs=param_group_lrs,
+        no_decay_name_patterns=no_decay_name_patterns,
     )
     grouped_params = resolved_plan.to_optimizer_groups()
     builder = OPTIMIZER_REGISTRY.get(normalized)

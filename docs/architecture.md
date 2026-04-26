@@ -234,20 +234,28 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - 支持 **多数据集、多任务**
 - 每个 `dataset_name` 只绑定一个 task / 一套 eval policy
 - codec 为共享层，`infer` 与在线 eval 共用
-- 最终只产出一个 `eval_final_score` 用于 best model 选择
+- dataset-policy eval 统一支持：
+  - `eval_final_score`
+  - `eval_final_loss`
 
 在线 eval 当前的关键层：
 
 1. `codec`
 2. `eval metric registry`
 3. `dataset eval policy`
-4. `score aggregator`
+4. `dataset-policy aggregator`
 
 说明：
 
-- `eval_loss` 仍保留为训练内基础监控指标
+- dataset-policy eval 会基于同一套 `eval.datasets` policy，同时聚合：
+  - teacher-forced `eval_final_loss`
+  - generation-based `eval_final_score`
 - task metric 不会实时塞进 eval 进度条
-- 每次 eval 完成后，使用日志统一打印 per-dataset metrics 与 `eval_final_score`
+- 每次 eval 完成后，使用日志统一打印：
+  - per-dataset loss
+  - per-dataset metrics / score
+  - `eval_final_loss`
+  - `eval_final_score`
 
 详细设计见：
 

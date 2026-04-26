@@ -82,6 +82,10 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
 
     assert len(train_dataset) == 3
     assert len(val_dataset) == 2
+    assert dataset_bundle.eval_datasets_by_name is not None
+    assert set(dataset_bundle.eval_datasets_by_name.keys()) == {"ds_a", "ds_b"}
+    assert len(dataset_bundle.eval_datasets_by_name["ds_a"]) == 1
+    assert len(dataset_bundle.eval_datasets_by_name["ds_b"]) == 1
     sample_a = train_dataset[0]
     sample_b = train_dataset[2]
     assert sample_a["dataset_name"] == "ds_a"
@@ -181,6 +185,8 @@ def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
 
     assert len(train_dataset) == 2
     assert len(val_dataset) == 1
+    assert dataset_bundle.eval_datasets_by_name is not None
+    assert set(dataset_bundle.eval_datasets_by_name.keys()) == {"eval_ds"}
     assert train_dataset[0]["dataset_name"] == "eval_ds"
     assert train_dataset[1]["dataset_name"] == "train_only_ds"
     assert val_dataset[0]["dataset_name"] == "eval_ds"

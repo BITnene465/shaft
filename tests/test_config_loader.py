@@ -46,9 +46,13 @@ train:
   lr_scheduler_type: LINEAR
   loss_scale: ALL
   gradient_checkpointing: true
+  save_epoch_interval: 2
   param_group_lrs:
     Language_Model: 1.0e-5
     modules_to_save: 2.5e-5
+  no_decay_name_patterns: [" Embed_Tokens.Weight ", "", "LM_HEAD.WEIGHT", "embed_tokens.weight"]
+eval:
+  epoch_interval: 3
 model:
   finetune:
     mode: DORA
@@ -62,10 +66,13 @@ model:
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
     assert cfg.train.gradient_checkpointing is True
+    assert cfg.train.save_epoch_interval == 2
+    assert cfg.eval.epoch_interval == 3
     assert cfg.train.param_group_lrs == {
         "language_model": pytest.approx(1.0e-5),
         "modules_to_save": pytest.approx(2.5e-5),
     }
+    assert cfg.train.no_decay_name_patterns == ["embed_tokens.weight", "lm_head.weight"]
     assert cfg.model.finetune.mode == "dora"
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
@@ -133,6 +140,38 @@ data:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported data.mix_refresh"):
+        load_config(config_path)
+
+
+def test_invalid_eval_epoch_interval_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  epoch_interval: 0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="eval.epoch_interval must be > 0"):
+        load_config(config_path)
+
+
+def test_invalid_save_epoch_interval_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  save_epoch_interval: 0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="train.save_epoch_interval must be > 0"):
         load_config(config_path)
 
 
@@ -458,6 +497,7 @@ eval:
     config_path.write_text(payload, encoding="utf-8")
     cfg = load_config(config_path)
     assert cfg.eval.online_metrics_enabled is True
+    assert cfg.eval.loss_metrics_enabled is True
     assert cfg.eval.metric_for_best_model == "eval_final_score"
     assert cfg.eval.greater_is_better is True
     assert "ds1" in cfg.eval.datasets
@@ -498,7 +538,7 @@ eval:
 """
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
-    with pytest.raises(ValueError, match="missing online eval policies"):
+    with pytest.raises(ValueError, match="dataset-policy eval is missing policies"):
         load_config(config_path)
 
 
@@ -564,6 +604,55 @@ eval:
     config = load_config(config_path)
     assert config.eval.metric_for_best_model == "eval_final_score"
     assert config.eval.greater_is_better is True
+
+
+def test_dataset_policy_eval_defaults_to_final_loss_without_online_metrics(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  enabled: true
+  metric_for_best_model: eval_loss
+  datasets:
+    ds1:
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    config = load_config(config_path)
+    assert config.eval.loss_metrics_enabled is True
+    assert config.eval.online_metrics_enabled is False
+    assert config.eval.metric_for_best_model == "eval_final_loss"
+    assert config.eval.greater_is_better is False
+
+
+def test_dataset_policy_eval_accepts_final_loss_as_best_metric(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: sft
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  enabled: true
+  loss_metrics_enabled: true
+  metric_for_best_model: eval_final_loss
+  datasets:
+    ds1:
+      weight: 1.0
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    config = load_config(config_path)
+    assert config.eval.metric_for_best_model == "eval_final_loss"
+    assert config.eval.greater_is_better is False
 
 
 def test_online_eval_rejects_sampling(tmp_path: Path) -> None:

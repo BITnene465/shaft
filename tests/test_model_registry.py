@@ -174,6 +174,38 @@ def test_processor_policy_can_disable_pixel_budget() -> None:
     assert "max_pixels" not in captured
 
 
+def test_processor_policy_temporarily_controls_padding_side() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
+    captured = {}
+
+    class _Tokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+    tokenizer = _Tokenizer()
+
+    class _Processor:
+        def __init__(self, tokenizer_obj) -> None:
+            self.tokenizer = tokenizer_obj
+
+        def __call__(self, **kwargs):
+            captured["padding_side_during_call"] = self.tokenizer.padding_side
+            return {"ok": True, "kwargs": kwargs}
+
+    processor = _Processor(tokenizer)
+    _ = model_adapter.build_processor_inputs(
+        processor=processor,
+        tokenizer=tokenizer,
+        prompt_texts=["hello"],
+        images=["img"],
+        min_pixels=16,
+        max_pixels=32,
+        padding_side="left",
+    )
+    assert captured["padding_side_during_call"] == "left"
+    assert tokenizer.padding_side == "right"
+
+
 def test_model_meta_can_resolve_unified_model_adapter() -> None:
     model_meta = build_model_meta("smoke_vlm")
     adapter = model_meta.resolve_adapter(model_name_or_path="models/Smoke-VLM")

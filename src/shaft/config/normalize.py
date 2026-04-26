@@ -160,6 +160,8 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         train.save_strategy = str(train.save_strategy).strip().lower()
     if train.save_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
+    if int(train.save_epoch_interval) <= 0:
+        raise ValueError("train.save_epoch_interval must be > 0.")
     if int(train.epochs) <= 0:
         raise ValueError("train.epochs must be > 0.")
     if int(train.max_steps) == 0:
@@ -190,6 +192,15 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             )
         normalized_param_group_lrs[normalized_key] = normalized_value
     train.param_group_lrs = normalized_param_group_lrs
+    normalized_no_decay_name_patterns: list[str] = []
+    seen_no_decay_name_patterns: set[str] = set()
+    for raw_pattern in list(train.no_decay_name_patterns):
+        normalized_pattern = str(raw_pattern).strip().lower()
+        if not normalized_pattern or normalized_pattern in seen_no_decay_name_patterns:
+            continue
+        seen_no_decay_name_patterns.add(normalized_pattern)
+        normalized_no_decay_name_patterns.append(normalized_pattern)
+    train.no_decay_name_patterns = normalized_no_decay_name_patterns
 
     eval_cfg = config.eval
     if isinstance(eval_cfg.eval_strategy, bool):
@@ -198,11 +209,14 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         eval_cfg.eval_strategy = str(eval_cfg.eval_strategy).strip().lower()
     if eval_cfg.eval_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported eval.eval_strategy={eval_cfg.eval_strategy!r}.")
+    if int(eval_cfg.epoch_interval) <= 0:
+        raise ValueError("eval.epoch_interval must be > 0.")
     if int(eval_cfg.max_new_tokens) <= 0:
         raise ValueError("eval.max_new_tokens must be > 0.")
     eval_cfg.metric_for_best_model = str(eval_cfg.metric_for_best_model).strip()
     if not eval_cfg.metric_for_best_model:
         raise ValueError("eval.metric_for_best_model cannot be empty.")
+    eval_cfg.loss_metrics_enabled = bool(eval_cfg.loss_metrics_enabled)
     eval_cfg.online_metrics_enabled = bool(eval_cfg.online_metrics_enabled)
     normalized_policies: dict[str, object] = {}
     for dataset_name, policy in config.eval.datasets.items():
@@ -258,34 +272,37 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             raise ValueError(f"eval.datasets.{normalized_name}.weight must be > 0.")
         normalized_policies[normalized_name] = policy
     eval_cfg.datasets = normalized_policies
-    if eval_cfg.online_metrics_enabled:
-        from shaft.codec import CODEC_REGISTRY
-        from shaft.metrics import EVAL_METRIC_REGISTRY
-        from shaft.training.online_eval import TARGET_ADAPTER_REGISTRY
-
+    configured_dataset_names = {
+        dataset.dataset_name
+        for dataset in config.data.datasets
+        if dataset.enabled and dataset.use_for_eval
+    }
+    if eval_cfg.datasets or eval_cfg.online_metrics_enabled or eval_cfg.metric_for_best_model == "eval_final_loss":
         if not eval_cfg.enabled:
-            raise ValueError("eval.online_metrics_enabled requires eval.enabled=true.")
-        if config.algorithm.name != "sft":
-            raise ValueError("eval.online_metrics_enabled is currently only supported for algorithm.name='sft'.")
-        if eval_cfg.do_sample:
-            raise ValueError("eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false.")
+            raise ValueError("dataset-policy eval requires eval.enabled=true.")
         if not eval_cfg.datasets:
-            raise ValueError("eval.online_metrics_enabled requires eval.datasets to be configured.")
-        configured_dataset_names = {
-            dataset.dataset_name
-            for dataset in config.data.datasets
-            if dataset.enabled and dataset.use_for_eval
-        }
+            raise ValueError(
+                "dataset-policy eval requires eval.datasets to be configured for final_loss/final_score aggregation."
+            )
         missing_policies = sorted(configured_dataset_names - set(eval_cfg.datasets.keys()))
         if missing_policies:
             raise ValueError(
-                f"eval.online_metrics_enabled is missing online eval policies for datasets: {missing_policies}."
+                f"dataset-policy eval is missing policies for datasets: {missing_policies}."
             )
         unknown_policies = sorted(set(eval_cfg.datasets.keys()) - configured_dataset_names)
         if unknown_policies:
             raise ValueError(
                 f"eval.datasets contains unknown dataset policies: {unknown_policies}."
             )
+    if eval_cfg.online_metrics_enabled:
+        from shaft.codec import CODEC_REGISTRY
+        from shaft.metrics import EVAL_METRIC_REGISTRY
+        from shaft.training.online_eval import TARGET_ADAPTER_REGISTRY
+
+        if config.algorithm.name != "sft":
+            raise ValueError("eval.online_metrics_enabled is currently only supported for algorithm.name='sft'.")
+        if eval_cfg.do_sample:
+            raise ValueError("eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false.")
         for dataset_name, policy in eval_cfg.datasets.items():
             if not CODEC_REGISTRY.has(policy.prediction_codec):
                 raise ValueError(
@@ -307,8 +324,23 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                         f"eval.datasets.{dataset_name}.metrics includes unregistered metric {metric.name!r}. "
                         f"Registered metrics: {sorted(EVAL_METRIC_REGISTRY.keys())}."
                     )
-        eval_cfg.metric_for_best_model = "eval_final_score"
+    if eval_cfg.metric_for_best_model == "eval_loss":
+        if eval_cfg.online_metrics_enabled and eval_cfg.datasets:
+            eval_cfg.metric_for_best_model = "eval_final_score"
+            eval_cfg.greater_is_better = True
+        elif eval_cfg.datasets and eval_cfg.loss_metrics_enabled:
+            eval_cfg.metric_for_best_model = "eval_final_loss"
+            eval_cfg.greater_is_better = False
+    elif eval_cfg.metric_for_best_model == "eval_final_score":
+        if not eval_cfg.online_metrics_enabled:
+            raise ValueError("eval.metric_for_best_model=eval_final_score requires eval.online_metrics_enabled=true.")
         eval_cfg.greater_is_better = True
+    elif eval_cfg.metric_for_best_model == "eval_final_loss":
+        if not eval_cfg.loss_metrics_enabled:
+            raise ValueError("eval.metric_for_best_model=eval_final_loss requires eval.loss_metrics_enabled=true.")
+        if not eval_cfg.datasets:
+            raise ValueError("eval.metric_for_best_model=eval_final_loss requires eval.datasets to be configured.")
+        eval_cfg.greater_is_better = False
 
     dpo_cfg = config.rlhf.dpo
     dpo_cfg.loss_type = str(dpo_cfg.loss_type).strip().lower()

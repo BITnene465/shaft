@@ -211,6 +211,7 @@
 - `gradient_checkpointing`
 - `learning_rate`
 - `param_group_lrs`
+- `no_decay_name_patterns`
 - `optimizer_name`
 - `scheduler_name`
 - `loss_name`
@@ -248,6 +249,13 @@
   - `lora_params`
   - `modules_to_save`
 - 没有写进 `param_group_lrs` 的组，回退到全局 `train.learning_rate`。
+- `no_decay_name_patterns` 用于把额外参数名并入 `no_decay` 规则。
+  - 匹配语义是“参数规范名后缀匹配”，例如：
+    - `embed_tokens.weight`
+    - `lm_head.weight`
+  - 这条规则会叠加在默认 `no_decay` 规则之上；默认规则仍然包括：
+    - `*.bias`
+    - `ndim <= 1` 的参数
 - 结构组与训练语义组是两层概念：
   - 结构组：
     - `language_model`
@@ -282,6 +290,7 @@
 - `per_device_eval_batch_size`
 - `eval_strategy`
 - `eval_steps`
+- `loss_metrics_enabled`
 - `do_sample`
 - `temperature`
 - `max_new_tokens`
@@ -290,10 +299,19 @@
 - `metric_for_best_model`
 - `greater_is_better`
 
+额外说明：
+
+- `eval.eval_strategy: epoch` 时，可以配合 `eval.epoch_interval` 控制“每隔多少个 epoch 才进行一次 eval”。
+- `train.save_strategy: epoch` 时，可以配合 `train.save_epoch_interval` 控制“每隔多少个 epoch 才保存一次 checkpoint”。
+- 当 interval 不能整除总 epoch 时，训练最后一个 epoch 仍会强制执行一次对应的 eval / save，避免漏掉最终结果。
+
 说明：
 
-- 当前训练链仍保留 `eval_loss` 作为基础监控指标。
-- 当 `online_metrics_enabled=true` 时，SFT 训练会额外挂接单阶段在线 task metric。
+- dataset-policy eval 现在统一产出两类聚合结果：
+  - `eval_final_loss`
+  - `eval_final_score`
+- `loss_metrics_enabled=true` 时，框架会按 dataset policy 分别计算 teacher-forced loss，并按同一套 `weight` 聚合为 `eval_final_loss`。
+- `online_metrics_enabled=true` 时，框架会按同一套 dataset policy 计算生成式任务指标，并聚合为 `eval_final_score`。
 
 ### 7.1 在线 eval 配置
 
@@ -303,7 +321,9 @@
 - 多数据集
 - 多任务
 - 每个数据集只绑定一个 task
-- 通过一个 `eval_final_score` 做 best model 选择
+- 通过一套统一 policy 同时支持：
+  - `eval_final_score`
+  - `eval_final_loss`
 
 当前 dataset 级 eval policy 包含：
 
@@ -320,7 +340,8 @@
 2. 每个 dataset 只能有一个 `primary_metric`
 3. 每个 dataset 的 `primary_metric` 必须归一化到 `[0, 1]`
 4. `eval_final_score` 由各 dataset 的 normalized primary score 按权重加权求和得到
-5. 在线 eval policy 只要求为 `use_for_eval=true` 的数据集配置；训练专用数据集不会进入在线 eval
+5. `eval_final_loss` 由各 dataset 的 teacher-forced loss 按同样的权重加权求和得到
+6. dataset policy 只要求为 `use_for_eval=true` 的数据集配置；训练专用数据集不会进入这一套聚合
 
 示意配置如下：
 
@@ -328,6 +349,7 @@
 eval:
   enabled: true
   eval_strategy: epoch
+  loss_metrics_enabled: true
   metric_for_best_model: eval_final_score
   greater_is_better: true
   online_metrics_enabled: true
@@ -337,6 +359,7 @@ eval:
       target_adapter: det_annotation
       metrics:
         - name: parse_success
+        - name: parse_partial_rate
         - name: det_f1
           params:
             iou_threshold: 0.5
@@ -350,6 +373,7 @@ eval:
       target_adapter: keypoint_annotation
       metrics:
         - name: parse_success
+        - name: parse_partial_rate
         - name: keypoint_pck
           params:
             threshold: 0.1
@@ -362,14 +386,26 @@ eval:
 说明：
 
 - 这部分当前已经可用，但实现边界仍限定在单阶段在线 eval。
-- 当前内置 metric 只有 `parse_success` 与 `exact_match`，结构化任务指标需要按扩展指南新增。
+- 当前内置 metric 包括 `parse_success`、`parse_partial_rate` 与 `exact_match`，结构化任务指标需要按扩展指南新增。
 - 当前内置 target adapter 只有 `target_text` 与 `extra_field`。
 - 当前 `normalizer.type` 只支持 `identity` 与 `range`。
 - `prediction_codec`、`target_adapter`、`metric` 会在配置加载阶段校验是否已注册，避免第一次 eval 才报错。
-- 启用在线 eval 时，框架会强制使用贪心评估，并把 `metric_for_best_model` 收敛到 `eval_final_score`。
-- 启用在线 eval 时，`report_to` 只上报 `eval_loss` 与 `eval_final_score`；per-dataset 指标只写本地日志，不进入 wandb。
+- 启用在线 eval 时，框架会强制使用贪心评估。
+- 当 `metric_for_best_model=eval_final_score` 时，要求 `online_metrics_enabled=true`，且 `greater_is_better` 会收敛为 `true`。
+- 当 `metric_for_best_model=eval_final_loss` 时，要求 `loss_metrics_enabled=true`，且 `greater_is_better` 会收敛为 `false`。
+- 若配置了 dataset policy 且仍保留旧式 `metric_for_best_model=eval_loss`，框架会自动收敛为：
+  - 有 online eval 时使用 `eval_final_score`
+  - 否则使用 `eval_final_loss`
+- 启用 dataset-policy eval 时，`report_to` 会同时上报：
+  - per-dataset loss
+  - per-dataset metrics
+  - per-dataset normalized score
+  - `eval_final_loss`
+  - `eval_final_score`
 - 若某个 dataset 在本次 eval 中没有样本，框架会打 warning 并跳过该 dataset，不把它计入 `final_score`。
-- 若希望配置语义更直观，仍建议在 YAML 中显式写出 `metric_for_best_model: eval_final_score` 和 `greater_is_better: true`。
+- 若希望配置语义更直观，仍建议在 YAML 中显式写出：
+  - `metric_for_best_model: eval_final_score`
+  - 或 `metric_for_best_model: eval_final_loss`
 - codec 已经作为共享层供 `infer` 和在线 eval 共用。
 
 详细设计见：

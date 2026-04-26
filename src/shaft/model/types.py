@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import importlib.util
 from typing import Any
@@ -27,6 +28,39 @@ def _missing_requires(requires: tuple[str, ...]) -> list[str]:
         if package and importlib.util.find_spec(package) is None:
             missing.append(requirement)
     return missing
+
+
+@contextmanager
+def _temporary_processor_padding_side(
+    *,
+    tokenizer: Any | None,
+    processor: Any,
+    padding_side: str | None,
+):
+    normalized = str(padding_side).strip().lower() if padding_side is not None else ""
+    if not normalized:
+        yield
+        return
+    if normalized not in {"left", "right"}:
+        raise ValueError("padding_side must be 'left' or 'right'.")
+
+    previous: list[tuple[Any, str]] = []
+    seen: set[int] = set()
+    candidates = [tokenizer, getattr(processor, "tokenizer", None)]
+    try:
+        for candidate in candidates:
+            if candidate is None or not hasattr(candidate, "padding_side"):
+                continue
+            candidate_id = id(candidate)
+            if candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+            previous.append((candidate, str(getattr(candidate, "padding_side"))))
+            setattr(candidate, "padding_side", normalized)
+        yield
+    finally:
+        for candidate, value in reversed(previous):
+            setattr(candidate, "padding_side", value)
 
 
 @dataclass(frozen=True)
@@ -83,10 +117,12 @@ class ProcessorPolicy:
         self,
         *,
         processor: Any,
+        tokenizer: Any | None,
         prompt_texts: list[str],
         images: list[Any],
         min_pixels: int | None,
         max_pixels: int | None,
+        padding_side: str | None = None,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "text": prompt_texts,
@@ -99,7 +135,12 @@ class ProcessorPolicy:
                 kwargs["min_pixels"] = int(min_pixels)
             if max_pixels is not None:
                 kwargs["max_pixels"] = int(max_pixels)
-        return processor(**kwargs)
+        with _temporary_processor_padding_side(
+            tokenizer=tokenizer,
+            processor=processor,
+            padding_side=padding_side,
+        ):
+            return processor(**kwargs)
 
 
 class PeftPolicy(ABC):
@@ -313,17 +354,21 @@ class ShaftModelAdapter:
         self,
         *,
         processor: Any,
+        tokenizer: Any | None = None,
         prompt_texts: list[str],
         images: list[Any],
         min_pixels: int | None,
         max_pixels: int | None,
+        padding_side: str | None = None,
     ) -> dict[str, Any]:
         return self.processor_policy.build_inputs(
             processor=processor,
+            tokenizer=tokenizer,
             prompt_texts=prompt_texts,
             images=images,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
+            padding_side=padding_side,
         )
 
     def required_saved_files(self) -> tuple[str, ...]:

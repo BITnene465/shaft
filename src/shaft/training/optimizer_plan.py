@@ -112,8 +112,24 @@ def _is_modules_to_save_parameter_name(name: str) -> bool:
     return ".modules_to_save." in str(name)
 
 
-def _is_no_decay_parameter(name: str, parameter: torch.nn.Parameter) -> bool:
-    return parameter.ndim <= 1 or str(name).endswith(".bias")
+def _matches_no_decay_name_pattern(name: str, no_decay_name_patterns: list[str] | None) -> bool:
+    if not no_decay_name_patterns:
+        return False
+    normalized_name = _normalize_runtime_parameter_name(name).lower()
+    return any(normalized_name.endswith(str(pattern).strip().lower()) for pattern in no_decay_name_patterns)
+
+
+def _is_no_decay_parameter(
+    name: str,
+    parameter: torch.nn.Parameter,
+    *,
+    no_decay_name_patterns: list[str] | None = None,
+) -> bool:
+    return (
+        parameter.ndim <= 1
+        or str(name).endswith(".bias")
+        or _matches_no_decay_name_pattern(name, no_decay_name_patterns)
+    )
 
 
 def _resolve_logical_group(
@@ -142,6 +158,7 @@ def build_resolved_optimizer_plan(
     finetune_plan: ShaftResolvedFinetunePlan | None = None,
     model_adapter: ShaftModelAdapter | None = None,
     param_group_lrs: dict[str, float] | None = None,
+    no_decay_name_patterns: list[str] | None = None,
 ) -> ShaftResolvedOptimizerPlan:
     configured_lrs = {str(key).strip().lower(): float(value) for key, value in dict(param_group_lrs or {}).items()}
     grouped_parameters: dict[tuple[str, bool], list[tuple[str, torch.nn.Parameter]]] = {}
@@ -153,7 +170,11 @@ def build_resolved_optimizer_plan(
             finetune_plan=finetune_plan,
             model_adapter=model_adapter,
         )
-        decay = not _is_no_decay_parameter(name, parameter)
+        decay = not _is_no_decay_parameter(
+            name,
+            parameter,
+            no_decay_name_patterns=no_decay_name_patterns,
+        )
         grouped_parameters.setdefault((logical_group, decay), []).append((name, parameter))
 
     if not grouped_parameters:

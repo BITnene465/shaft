@@ -31,6 +31,7 @@ class ShaftOptimizerMixin:
         model_adapter: ShaftModelAdapter | None = None,
         finetune_plan: ShaftResolvedFinetunePlan | None = None,
         param_group_lrs: dict[str, float] | None = None,
+        no_decay_name_patterns: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         self.optimizer_name = str(optimizer_name).strip().lower()
@@ -46,6 +47,11 @@ class ShaftOptimizerMixin:
             str(key).strip().lower(): float(value)
             for key, value in dict(param_group_lrs or {}).items()
         }
+        self.no_decay_name_patterns = [
+            str(pattern).strip().lower()
+            for pattern in list(no_decay_name_patterns or [])
+            if str(pattern).strip()
+        ]
         self.resolved_optimizer_plan = None
         self.resolved_optimizer_summary = None
         super().__init__(*args, **kwargs)
@@ -69,6 +75,7 @@ class ShaftOptimizerMixin:
                 finetune_plan=self.finetune_plan,
                 model_adapter=self.model_adapter,
                 param_group_lrs=self.param_group_lrs,
+                no_decay_name_patterns=self.no_decay_name_patterns,
             )
             self.resolved_optimizer_summary = summarize_resolved_optimizer_plan(self.resolved_optimizer_plan)
             write_resolved_optimizer_summary(

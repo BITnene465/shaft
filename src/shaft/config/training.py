@@ -13,6 +13,7 @@ class TrainConfig:
     gradient_checkpointing: bool = False
     learning_rate: float = 1e-5
     param_group_lrs: dict[str, float] = field(default_factory=dict)
+    no_decay_name_patterns: list[str] = field(default_factory=list)
     optimizer_name: str = "adamw_torch"
     scheduler_name: str = "auto"
     scheduler_num_cycles: float = 0.5
@@ -30,6 +31,7 @@ class TrainConfig:
     use_cpu: bool = False
     logging_steps: int = 10
     save_strategy: str = "epoch"  # no | steps | epoch
+    save_epoch_interval: int = 1
     save_steps: int = 200
     save_total_limit: int = 3
     ddp_find_unused_parameters: bool = False
@@ -70,7 +72,9 @@ class EvalConfig:
     enabled: bool = True
     per_device_eval_batch_size: int = 1
     eval_strategy: str = "epoch"  # no | steps | epoch
+    epoch_interval: int = 1
     eval_steps: int = 200
+    loss_metrics_enabled: bool = True
     do_sample: bool = False
     temperature: float = 0.0
     max_new_tokens: int = 512

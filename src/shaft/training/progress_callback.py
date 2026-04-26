@@ -52,7 +52,7 @@ class ShaftProgressCallback(TrainerCallback):
     ) -> None:
         if self.training_bar is None:
             return
-        keys = ("loss", "learning_rate", "grad_norm", "eval_loss")
+        keys = ("loss", "learning_rate", "grad_norm", "eval_loss", "eval_final_loss", "eval_final_score")
         if logs is not None:
             for key in keys:
                 if key not in logs:

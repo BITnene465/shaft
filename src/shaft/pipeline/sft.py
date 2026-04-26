@@ -23,6 +23,7 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training import ShaftProgressCallback
+from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
@@ -88,7 +89,18 @@ class ShaftSFTPipeline:
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
-        eval_dataset = dataset_bundle.eval_dataset
+        eval_dataset: Any = dataset_bundle.eval_dataset
+        use_named_eval_datasets = bool(
+            config.eval.enabled
+            and dataset_bundle.eval_datasets_by_name
+            and (
+                config.eval.loss_metrics_enabled
+                or config.eval.online_metrics_enabled
+                or config.eval.metric_for_best_model in {"eval_final_loss", "eval_final_score"}
+            )
+        )
+        if use_named_eval_datasets:
+            eval_dataset = dataset_bundle.eval_datasets_by_name
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -96,6 +108,16 @@ class ShaftSFTPipeline:
                 ShaftProgressCallback(
                     leave=config.progress.leave,
                     mininterval=config.progress.mininterval,
+                )
+            )
+        if (
+            (config.eval.enabled and config.eval.eval_strategy == "epoch" and int(config.eval.epoch_interval) > 1)
+            or (config.train.save_strategy == "epoch" and int(config.train.save_epoch_interval) > 1)
+        ):
+            callbacks.append(
+                ShaftEpochIntervalCallback(
+                    eval_epoch_interval=int(config.eval.epoch_interval),
+                    save_epoch_interval=int(config.train.save_epoch_interval),
                 )
             )
         if hook_manager.hooks:
@@ -125,7 +147,11 @@ class ShaftSFTPipeline:
                     max_pixels=config.data.max_pixels,
                     add_eos_token=config.data.add_eos_token,
                     include_targets_in_inputs=False,
+                    padding_side="left",
                 ),
+                progress_enabled=config.progress.enabled,
+                progress_leave=config.progress.leave,
+                progress_mininterval=config.progress.mininterval,
             )
         algorithm_cls = ALGORITHM_REGISTRY.get(algorithm_name)
         algorithm = algorithm_cls()
@@ -141,6 +167,7 @@ class ShaftSFTPipeline:
             data_collator=collator,
             callbacks=callbacks_or_none,
             online_eval_runner=online_eval_runner,
+            eval_config=config.eval,
             model_adapter=artifacts.model_adapter,
             finetune_plan=finetune_plan,
         )

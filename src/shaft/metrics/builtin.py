@@ -146,7 +146,32 @@ class ParseSuccessMetric(ShaftEvalMetric):
         sample_meta: dict[str, Any],
     ) -> None:
         _ = target, sample_meta
-        self.values.append(1.0 if prediction.valid else 0.0)
+        self.values.append(1.0 if prediction.valid and not prediction.partial else 0.0)
+
+    def compute(self) -> float:
+        if not self.values:
+            return 0.0
+        return float(sum(self.values) / len(self.values))
+
+    def reset(self) -> None:
+        self.values = []
+
+
+@register_eval_metric("parse_partial_rate")
+class ParsePartialRateMetric(ShaftEvalMetric):
+    def __init__(self, **params: Any) -> None:
+        super().__init__(**params)
+        self.values: list[float] = []
+
+    def update(
+        self,
+        *,
+        prediction: ShaftCodecResult,
+        target: Any,
+        sample_meta: dict[str, Any],
+    ) -> None:
+        _ = target, sample_meta
+        self.values.append(1.0 if prediction.valid and prediction.partial else 0.0)
 
     def compute(self) -> float:
         if not self.values:

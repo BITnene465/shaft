@@ -9,7 +9,9 @@ import transformers.trainer as hf_trainer_module
 from transformers.debug_utils import DebugOption
 from transformers import Trainer
 
+from shaft.config.training import EvalConfig
 from shaft.utils.distributed import barrier_if_distributed
+from .eval_policy import aggregate_weighted_dataset_values
 from .loss import build_loss
 from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
@@ -30,6 +32,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         adam_epsilon: float = 1e-8,
         ignore_index: int = -100,
         online_eval_runner: ShaftOnlineEvalRunner | None = None,
+        eval_config: EvalConfig | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -47,6 +50,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         self.loss_fn = build_loss(self.loss_name)
         self.ignore_index = int(ignore_index)
         self.online_eval_runner = online_eval_runner
+        self.eval_config = eval_config
 
     def compute_loss(
         self,
@@ -79,20 +83,55 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         barrier_if_distributed()
         override = eval_dataset is not None
         eval_dataset = eval_dataset if override else self.eval_dataset
-        if isinstance(eval_dataset, dict):
-            metrics = {}
-            for eval_dataset_name, dataset_value in eval_dataset.items():
-                dataset_metrics = self.evaluate(
-                    eval_dataset=dataset_value if override else eval_dataset_name,
-                    ignore_keys=ignore_keys,
-                    metric_key_prefix=f"{metric_key_prefix}_{eval_dataset_name}",
-                )
-                metrics.update(dataset_metrics)
-            barrier_if_distributed()
-            return metrics
 
         self._memory_tracker.start()
+        report_metrics: dict[str, float] = {}
+        metrics: dict[str, float] = {}
+        if isinstance(eval_dataset, dict):
+            loss_metrics, loss_report_metrics = self._evaluate_named_datasets(
+                eval_datasets=eval_dataset,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+            metrics.update(loss_metrics)
+            report_metrics.update(loss_report_metrics)
+        else:
+            merged_metrics = self._evaluate_single_dataset(
+                eval_dataset=eval_dataset,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+            metrics.update(merged_metrics)
+            loss_key = f"{metric_key_prefix}_loss"
+            if loss_key in merged_metrics:
+                report_metrics[loss_key] = float(merged_metrics[loss_key])
+        if self.online_eval_runner is not None and eval_dataset is not None:
+            online_metrics = self.online_eval_runner.evaluate(
+                self,
+                eval_dataset=eval_dataset,
+                metric_key_prefix=metric_key_prefix,
+            )
+            metrics.update(online_metrics)
+            report_metrics.update({key: float(value) for key, value in online_metrics.items()})
 
+        self.log(report_metrics)
+
+        if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
+            hf_trainer_module.xm.master_print(hf_trainer_module.met.metrics_report())
+
+        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, report_metrics)
+        self._memory_tracker.stop_and_update_metrics(report_metrics)
+
+        barrier_if_distributed()
+        return metrics
+
+    def _evaluate_single_dataset(
+        self,
+        *,
+        eval_dataset: Any,
+        ignore_keys: list[str] | None,
+        metric_key_prefix: str,
+    ) -> dict[str, float]:
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
         if self.is_fsdp_xla_v2_enabled:
             eval_dataloader = hf_trainer_module.tpu_spmd_dataloader(eval_dataloader)
@@ -120,33 +159,48 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
                 num_steps=math.ceil(output.num_samples / total_batch_size) if total_batch_size > 0 else 0,
             )
         )
+        return {key: float(value) for key, value in output.metrics.items()}
 
-        metrics = dict(output.metrics)
-        loss_key = f"{metric_key_prefix}_loss"
+    def _evaluate_named_datasets(
+        self,
+        *,
+        eval_datasets: dict[str, Any],
+        ignore_keys: list[str] | None,
+        metric_key_prefix: str,
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        if self.eval_config is not None and not self.eval_config.loss_metrics_enabled:
+            return {}, {}
+        metrics: dict[str, float] = {}
         report_metrics: dict[str, float] = {}
-        if loss_key in output.metrics:
-            report_metrics[loss_key] = float(output.metrics[loss_key])
-        if self.online_eval_runner is not None and eval_dataset is not None:
-            online_metrics = self.online_eval_runner.evaluate(
-                self,
-                eval_dataset=eval_dataset,
-                metric_key_prefix=metric_key_prefix,
+        loss_values: dict[str, float] = {}
+        for dataset_name in sorted(eval_datasets):
+            dataset_metrics = self._evaluate_single_dataset(
+                eval_dataset=eval_datasets[dataset_name],
+                ignore_keys=ignore_keys,
+                metric_key_prefix=f"{metric_key_prefix}_{dataset_name}",
             )
-            metrics.update(online_metrics)
-            final_score_key = f"{metric_key_prefix}_final_score"
-            if final_score_key in online_metrics:
-                report_metrics[final_score_key] = float(online_metrics[final_score_key])
+            metrics.update(dataset_metrics)
+            loss_key = f"{metric_key_prefix}_{dataset_name}_loss"
+            if loss_key in dataset_metrics:
+                loss_value = float(dataset_metrics[loss_key])
+                report_metrics[loss_key] = loss_value
+                loss_values[dataset_name] = loss_value
+        final_loss = self._aggregate_final_loss(loss_values)
+        if final_loss is not None:
+            metrics[f"{metric_key_prefix}_final_loss"] = final_loss
+            report_metrics[f"{metric_key_prefix}_final_loss"] = final_loss
+        return metrics, report_metrics
 
-        self.log(report_metrics)
-
-        if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
-            hf_trainer_module.xm.master_print(hf_trainer_module.met.metrics_report())
-
-        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, report_metrics)
-        self._memory_tracker.stop_and_update_metrics(report_metrics)
-
-        barrier_if_distributed()
-        return metrics
+    def _aggregate_final_loss(self, loss_values: dict[str, float]) -> float | None:
+        if not loss_values:
+            return None
+        if self.eval_config is None or not self.eval_config.datasets:
+            return None
+        return aggregate_weighted_dataset_values(
+            values_by_dataset=loss_values,
+            eval_config=self.eval_config,
+            metric_name="loss",
+        )
 
     def _save_checkpoint(self, model, trial) -> None:
         barrier_if_distributed()

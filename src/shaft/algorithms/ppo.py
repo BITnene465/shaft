@@ -67,5 +67,6 @@ class PPOAlgorithm:
             model_adapter=kwargs.pop("model_adapter"),
             finetune_plan=kwargs.pop("finetune_plan"),
             param_group_lrs=dict(train_config.param_group_lrs),
+            no_decay_name_patterns=list(train_config.no_decay_name_patterns),
             **kwargs,  # train_dataset/eval_dataset/data_collator/callbacks
         )

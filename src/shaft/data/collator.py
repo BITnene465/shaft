@@ -39,10 +39,12 @@ class _ShaftSequenceCollatorBase:
     def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> dict[str, torch.Tensor]:
         return self.model_adapter.build_processor_inputs(
             processor=self.processor,
+            tokenizer=self.tokenizer,
             prompt_texts=prompt_texts,
             images=images,
             min_pixels=self.min_pixels,
             max_pixels=self.max_pixels,
+            padding_side=self.padding_side,
         )
 
     def _apply_chat_template(

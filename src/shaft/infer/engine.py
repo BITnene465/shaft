@@ -69,11 +69,6 @@ class HFLocalInferAdapter(InferAdapter):
         self._enable_generation_cache()
         self.tokenizer = tokenizer
         self.processor = processor
-        if hasattr(self.tokenizer, "padding_side"):
-            self.tokenizer.padding_side = "left"
-        processor_tokenizer = getattr(self.processor, "tokenizer", None)
-        if processor_tokenizer is not None and hasattr(processor_tokenizer, "padding_side"):
-            processor_tokenizer.padding_side = "left"
         self.model_adapter = model_adapter
         self.template = template
         self.min_pixels = min_pixels
@@ -145,10 +140,12 @@ class HFLocalInferAdapter(InferAdapter):
     ) -> dict[str, torch.Tensor]:
         batch = self.model_adapter.build_processor_inputs(
             processor=self.processor,
+            tokenizer=self.tokenizer,
             prompt_texts=[prompt],
             images=[image],
             min_pixels=min_pixels,
             max_pixels=max_pixels,
+            padding_side="left",
         )
         return self._move_batch_to_device(batch)
 

@@ -12,7 +12,9 @@ from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.metrics import build_eval_metric
 from shaft.model.generation import restore_model_use_cache, set_model_use_cache
 from shaft.plugins import Registry
+from shaft.utils import create_progress_bar
 from shaft.utils.distributed import get_rank, get_world_size, is_distributed, is_rank_zero
+from .eval_policy import aggregate_weighted_dataset_values
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +85,20 @@ def target_adapter_extra_field(sample_meta: dict[str, Any], params: dict[str, An
 
 
 class ShaftOnlineEvalRunner:
-    def __init__(self, *, eval_config: EvalConfig, prompt_collator: Any) -> None:
+    def __init__(
+        self,
+        *,
+        eval_config: EvalConfig,
+        prompt_collator: Any,
+        progress_enabled: bool = True,
+        progress_leave: bool = False,
+        progress_mininterval: float = 0.2,
+    ) -> None:
         self.eval_config = eval_config
         self.prompt_collator = prompt_collator
+        self.progress_enabled = bool(progress_enabled)
+        self.progress_leave = bool(progress_leave)
+        self.progress_mininterval = float(progress_mininterval)
 
     @property
     def enabled(self) -> bool:
@@ -106,31 +119,37 @@ class ShaftOnlineEvalRunner:
         return metrics
 
     def collect_samples(self, trainer: Any, *, eval_dataset: Any) -> list[ShaftOnlineEvalSample]:
-        dataloader = self._get_prompt_eval_dataloader(trainer, eval_dataset)
+        dataloaders = self._get_prompt_eval_dataloaders(trainer, eval_dataset)
         local_entries: list[ShaftOnlineEvalSample] = []
         model = trainer.model
         was_training = bool(getattr(model, "training", False))
         model.eval()
         previous_use_cache = set_model_use_cache(model, enabled=True)
+        progress_bar = self._create_progress_bar(dataloaders)
         try:
             with torch.inference_mode():
-                for batch in dataloader:
-                    meta = batch.pop("meta", None)
-                    if not isinstance(meta, dict):
-                        raise ValueError("Online eval requires batch meta from collator.")
-                    batch.pop("labels", None)
-                    prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
-                    prepared = trainer._prepare_inputs(batch)
-                    generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
-                    if isinstance(generated_tokens, tuple):
-                        generated_tokens = generated_tokens[0]
-                    batch_entries = self._decode_batch_entries(
-                        generated_tokens=generated_tokens,
-                        prompt_lengths=prompt_lengths,
-                        meta=meta,
-                    )
-                    local_entries.extend(batch_entries)
+                for dataloader in dataloaders:
+                    for batch in dataloader:
+                        meta = batch.pop("meta", None)
+                        if not isinstance(meta, dict):
+                            raise ValueError("Online eval requires batch meta from collator.")
+                        batch.pop("labels", None)
+                        prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
+                        prepared = trainer._prepare_inputs(batch)
+                        generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
+                        if isinstance(generated_tokens, tuple):
+                            generated_tokens = generated_tokens[0]
+                        batch_entries = self._decode_batch_entries(
+                            generated_tokens=generated_tokens,
+                            prompt_lengths=prompt_lengths,
+                            meta=meta,
+                        )
+                        local_entries.extend(batch_entries)
+                        if progress_bar is not None:
+                            progress_bar.update(1)
         finally:
+            if progress_bar is not None:
+                progress_bar.close()
             restore_model_use_cache(model, previous_use_cache)
         if was_training:
             model.train()
@@ -143,8 +162,7 @@ class ShaftOnlineEvalRunner:
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
         metrics: dict[str, float] = {}
-        weighted_sum = 0.0
-        total_weight = 0.0
+        scores_by_dataset: dict[str, float] = {}
         for dataset_name in sorted(self.eval_config.datasets):
             policy = self.eval_config.datasets[dataset_name]
             dataset_entries = [
@@ -163,11 +181,13 @@ class ShaftOnlineEvalRunner:
                 metrics[f"{metric_key_prefix}_{dataset_name}_{metric_name}"] = metric_value
             score = self._normalize_score(metric_values[policy.primary_metric], policy)
             metrics[f"{metric_key_prefix}_{dataset_name}_score"] = score
-            weighted_sum += score * float(policy.weight)
-            total_weight += float(policy.weight)
-        if total_weight == 0:
-            logger.warning("[eval] no dataset produced online metrics; final_score defaults to 0.0")
-        metrics[f"{metric_key_prefix}_final_score"] = weighted_sum / total_weight if total_weight > 0 else 0.0
+            scores_by_dataset[dataset_name] = score
+        final_score = aggregate_weighted_dataset_values(
+            values_by_dataset=scores_by_dataset,
+            eval_config=self.eval_config,
+            metric_name="score",
+        )
+        metrics[f"{metric_key_prefix}_final_score"] = float(final_score or 0.0)
         return metrics
 
     def log_metrics(self, metrics: dict[str, float], *, metric_key_prefix: str = "eval") -> None:
@@ -196,11 +216,19 @@ class ShaftOnlineEvalRunner:
             self.eval_config.metric_for_best_model,
         )
 
-    def _get_prompt_eval_dataloader(self, trainer: Any, eval_dataset: Any):
+    def _get_prompt_eval_dataloaders(self, trainer: Any, eval_dataset: Any) -> list[Any]:
         original_collator = getattr(trainer, "data_collator", None)
         trainer.data_collator = self.prompt_collator
         try:
-            return trainer.get_eval_dataloader(eval_dataset)
+            if isinstance(eval_dataset, dict):
+                trainer_eval_dataset = getattr(trainer, "eval_dataset", None)
+                return [
+                    trainer.get_eval_dataloader(dataset_name)
+                    if isinstance(trainer_eval_dataset, dict) and dataset_name in trainer_eval_dataset
+                    else trainer.get_eval_dataloader(eval_dataset[dataset_name])
+                    for dataset_name in sorted(eval_dataset)
+                ]
+            return [trainer.get_eval_dataloader(eval_dataset)]
         finally:
             trainer.data_collator = original_collator
 
@@ -323,3 +351,23 @@ class ShaftOnlineEvalRunner:
         objects: list[Any] = [merged]
         dist.broadcast_object_list(objects, src=0)
         return list(objects[0])
+
+    def _create_progress_bar(self, dataloaders: list[Any]):
+        if not self.progress_enabled or not is_rank_zero():
+            return None
+        total = 0
+        unknown_total = False
+        for dataloader in dataloaders:
+            try:
+                total += len(dataloader)
+            except TypeError:
+                unknown_total = True
+                break
+        return create_progress_bar(
+            total=None if unknown_total else total,
+            desc="online_eval",
+            unit="batch",
+            leave=self.progress_leave,
+            mininterval=self.progress_mininterval,
+            colour="magenta",
+        )
