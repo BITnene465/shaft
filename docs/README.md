@@ -34,6 +34,10 @@
   - 标准开发流程
   - 测试、文档、提交前检查
 
+- [development_log.md](development_log.md)
+  - 已暴露工程问题、指标误判和重复 bug 的开发日志
+  - 根因、修复、回归测试和后续防线
+
 - [extension_guide.md](extension_guide.md)
   - 如何新增模型族、模板、数据源、算法、推理后端、导出能力
   - 包含 feature 完成后的全局收口 review 流程入口

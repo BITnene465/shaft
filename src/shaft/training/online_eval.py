@@ -134,19 +134,19 @@ class ShaftOnlineEvalRunner:
                         if not isinstance(meta, dict):
                             raise ValueError("Online eval requires batch meta from collator.")
                         batch.pop("labels", None)
-                        prompt_lengths = batch["attention_mask"].sum(dim=1).tolist()
                         prepared = trainer._prepare_inputs(batch)
+                        input_sequence_length = int(prepared["input_ids"].shape[1])
                         generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
                         if isinstance(generated_tokens, tuple):
                             generated_tokens = generated_tokens[0]
                         batch_entries = self._decode_batch_entries(
                             generated_tokens=generated_tokens,
-                            prompt_lengths=prompt_lengths,
+                            input_sequence_length=input_sequence_length,
                             meta=meta,
                         )
                         local_entries.extend(batch_entries)
                         if progress_bar is not None:
-                            progress_bar.update(1)
+                            progress_bar.update(self._progress_update_amount(progress_bar, batch_entries))
         finally:
             if progress_bar is not None:
                 progress_bar.close()
@@ -161,6 +161,7 @@ class ShaftOnlineEvalRunner:
         *,
         metric_key_prefix: str = "eval",
     ) -> dict[str, float]:
+        entries = self._deduplicate_entries(entries)
         metrics: dict[str, float] = {}
         scores_by_dataset: dict[str, float] = {}
         for dataset_name in sorted(self.eval_config.datasets):
@@ -255,7 +256,7 @@ class ShaftOnlineEvalRunner:
         self,
         *,
         generated_tokens: torch.Tensor,
-        prompt_lengths: list[int],
+        input_sequence_length: int,
         meta: dict[str, Any],
     ) -> list[ShaftOnlineEvalSample]:
         tokenizer = self.prompt_collator.tokenizer
@@ -267,8 +268,7 @@ class ShaftOnlineEvalRunner:
         batch_size = int(generated_tokens.shape[0])
         for index in range(batch_size):
             row = generated_tokens[index]
-            prompt_length = int(prompt_lengths[index])
-            completion_ids = row if is_encoder_decoder else row[prompt_length:]
+            completion_ids = row if is_encoder_decoder else row[int(input_sequence_length):]
             raw_text = template.decode(tokenizer=tokenizer, token_ids=completion_ids.tolist())
             sample_meta = {
                 "dataset_name": meta["dataset_name"][index],
@@ -352,6 +352,22 @@ class ShaftOnlineEvalRunner:
         dist.broadcast_object_list(objects, src=0)
         return list(objects[0])
 
+    @staticmethod
+    def _deduplicate_entries(entries: list[ShaftOnlineEvalSample]) -> list[ShaftOnlineEvalSample]:
+        deduped: list[ShaftOnlineEvalSample] = []
+        seen: set[tuple[str, str, str]] = set()
+        for entry in entries:
+            key = (
+                str(entry.dataset_name),
+                str(entry.sample_id),
+                str(entry.meta.get("image_path", "")),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(entry)
+        return deduped
+
     def _create_progress_bar(self, dataloaders: list[Any]):
         if not self.progress_enabled or not is_rank_zero():
             return None
@@ -359,15 +375,31 @@ class ShaftOnlineEvalRunner:
         unknown_total = False
         for dataloader in dataloaders:
             try:
-                total += len(dataloader)
+                total += len(dataloader.dataset)
             except TypeError:
                 unknown_total = True
                 break
+            except AttributeError:
+                try:
+                    total += len(dataloader)
+                except TypeError:
+                    unknown_total = True
+                    break
         return create_progress_bar(
             total=None if unknown_total else total,
             desc="online_eval",
-            unit="batch",
+            unit="sample",
             leave=self.progress_leave,
             mininterval=self.progress_mininterval,
             colour="magenta",
         )
+
+    def _progress_update_amount(self, progress_bar: Any, batch_entries: list[ShaftOnlineEvalSample]) -> int:
+        amount = len(batch_entries)
+        if is_distributed():
+            amount *= get_world_size()
+        total = getattr(progress_bar, "total", None)
+        current = getattr(progress_bar, "n", 0)
+        if total is not None:
+            amount = min(amount, max(0, int(total) - int(current)))
+        return max(0, int(amount))

@@ -71,6 +71,14 @@ target-version = "py311"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q -m 'not integration and not manual'"
+norecursedirs = [
+  "old",
+  "temp",
+  "build",
+  "outputs",
+  "wandb",
+  "rex-omni-test",
+]
 markers = [
   "integration: marks tests that run integration workflow (model loading / real inference).",
   "manual: marks tests that should be executed manually only.",

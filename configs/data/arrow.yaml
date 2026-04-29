@@ -8,7 +8,7 @@ datasets:
     source_type: jsonl_sft
     train_path: ../../data/grounding_arrow/sft/train.jsonl
     val_path: ../../data/grounding_arrow/sft/val.jsonl
-    weight: 1
+    weight: 2
     enabled: true
     use_for_eval: true
     help: 真实箭头 grounding SFT 数据
@@ -18,7 +18,7 @@ datasets:
     source_type: jsonl_sft
     train_path: ../../data/grounding_layout/sft/train.jsonl
     val_path: ../../data/grounding_layout/sft/val.jsonl
-    weight: 1.5
+    weight: 6
     enabled: true
     use_for_eval: true
     help: 真实布局 grounding SFT 数据
@@ -27,7 +27,7 @@ datasets:
   grounding_arrow_syn_avg:
     source_type: jsonl_sft
     train_path: ../../data/grounding_arrow_syn/sft/train.jsonl
-    weight: 0.5
+    weight: 1
     enabled: true
     use_for_eval: false
     help: 合成箭头 grounding SFT 数据，仅参与 train
@@ -37,7 +37,7 @@ datasets:
     source_type: jsonl_sft
     train_path: ../../data/keypoint_arrow/sft/train.jsonl
     val_path: ../../data/keypoint_arrow/sft/val.jsonl
-    weight: 1
+    weight: 16
     enabled: true
     use_for_eval: true
     help: 真实箭头 keypoint SFT 数据

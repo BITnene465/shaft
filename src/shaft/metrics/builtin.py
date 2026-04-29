@@ -61,6 +61,13 @@ def _coerce_field_map(value: Any) -> dict[str, Any] | None:
     return {str(key): value[key] for key in value}
 
 
+def _coerce_positive_float(value: Any) -> float | None:
+    number = _coerce_number(value)
+    if number is None or number <= 0:
+        return None
+    return float(number)
+
+
 def _normalize_label(value: Any) -> str:
     return str(value).strip().lower()
 
@@ -408,26 +415,7 @@ class KeypointPCKMetric(ShaftEvalMetric):
             self.values.append(1.0)
             return
 
-        image_width: float | None = None
-        image_height: float | None = None
-        extra = sample_meta.get("extra")
-        if isinstance(extra, dict):
-            iw = extra.get("image_width")
-            ih = extra.get("image_height")
-            if isinstance(iw, int | float):
-                image_width = float(iw)
-            if isinstance(ih, int | float):
-                image_height = float(ih)
-
-        if image_width is None or image_height is None:
-            all_x = [point[0] for point in pred_kpts + tgt_kpts]
-            all_y = [point[1] for point in pred_kpts + tgt_kpts]
-            image_width = max(all_x) - min(all_x)
-            image_height = max(all_y) - min(all_y)
-
-        scale_x = image_width if image_width and image_width > 0 else 1.0
-        scale_y = image_height if image_height and image_height > 0 else 1.0
-        scale = max(scale_x, scale_y)
+        scale = self._resolve_coordinate_scale(pred_kpts=pred_kpts, tgt_kpts=tgt_kpts, sample_meta=sample_meta)
 
         threshold = float(self.params.get("threshold", 0.05))
         threshold = max(0.0, threshold)
@@ -444,6 +432,36 @@ class KeypointPCKMetric(ShaftEvalMetric):
                 correct += 1
 
         self.values.append(correct / len(tgt_kpts))
+
+    def _resolve_coordinate_scale(
+        self,
+        *,
+        pred_kpts: list[tuple[float, float]],
+        tgt_kpts: list[tuple[float, float]],
+        sample_meta: dict[str, Any],
+    ) -> float:
+        coordinate_space = str(self.params.get("coordinate_space", "normalized_1000")).strip().lower()
+        if coordinate_space in {"normalized", "normalized_1000", "bbox_2d", "bins", "quantized"}:
+            return float(self.params.get("coordinate_scale", self.params.get("num_bins", 1000)))
+        if coordinate_space != "image":
+            raise ValueError(f"Unsupported keypoint_pck coordinate_space={coordinate_space!r}.")
+
+        image_width: float | None = None
+        image_height: float | None = None
+        extra = sample_meta.get("extra")
+        if isinstance(extra, dict):
+            image_width = _coerce_positive_float(extra.get("image_width"))
+            image_height = _coerce_positive_float(extra.get("image_height"))
+
+        if image_width is None or image_height is None:
+            all_x = [point[0] for point in pred_kpts + tgt_kpts]
+            all_y = [point[1] for point in pred_kpts + tgt_kpts]
+            image_width = max(all_x) - min(all_x)
+            image_height = max(all_y) - min(all_y)
+
+        scale_x = image_width if image_width and image_width > 0 else 1.0
+        scale_y = image_height if image_height and image_height > 0 else 1.0
+        return max(scale_x, scale_y)
 
     def compute(self) -> float:
         if not self.values:

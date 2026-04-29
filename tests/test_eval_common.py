@@ -3,6 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from PIL import Image
+
+from shaft.codec.base import ShaftCodecResult
+from shaft.metrics.visualization import (
+    ShaftVisualBox,
+    render_labeled_visualization,
+    resolve_annotation_font_size,
+    resolve_box_line_width,
+    resolve_label_color,
+    resolve_point_radius,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 TMP_SCRIPTS = ROOT / "scripts" / "tmp"
@@ -12,26 +23,78 @@ if str(TMP_SCRIPTS) not in sys.path:
 import eval_common  # noqa: E402
 
 
-def test_eval_common_visual_style_scales_with_image_size() -> None:
-    small_width = eval_common._resolve_box_line_width(512, 512)
-    large_width = eval_common._resolve_box_line_width(2048, 1536)
+def test_visualization_style_scales_with_image_size() -> None:
+    small_width = resolve_box_line_width(512, 512)
+    large_width = resolve_box_line_width(2048, 1536)
     assert small_width >= 3
     assert large_width > small_width
 
-    small_radius = eval_common._resolve_point_radius(512, 512)
-    large_radius = eval_common._resolve_point_radius(2048, 1536)
+    small_radius = resolve_point_radius(512, 512)
+    large_radius = resolve_point_radius(2048, 1536)
     assert small_radius >= 4
     assert large_radius > small_radius
 
-    small_font = eval_common._resolve_annotation_font_size(512, 512)
-    large_font = eval_common._resolve_annotation_font_size(2048, 1536)
-    assert small_font >= 12
+    small_font = resolve_annotation_font_size(512, 512)
+    large_font = resolve_annotation_font_size(2048, 1536)
+    assert small_font >= 14
     assert large_font > small_font
 
 
-def test_eval_common_box_palette_uses_multiple_colors() -> None:
-    image_first = eval_common._resolve_box_color("image", 1)
-    image_second = eval_common._resolve_box_color("image", 2)
-    icon_first = eval_common._resolve_box_color("icon", 1)
-    assert image_first != image_second
-    assert image_first != icon_first
+def test_visualization_uses_layout_preview_label_colors() -> None:
+    image_color = resolve_label_color("image", 1)
+    icon_color = resolve_label_color("icon", 1)
+    fallback_first = resolve_label_color("other", 1)
+    fallback_second = resolve_label_color("other", 2)
+
+    assert image_color == (220, 60, 115)
+    assert icon_color == (0, 180, 120)
+    assert image_color != icon_color
+    assert fallback_first != fallback_second
+
+
+def test_visualization_draws_visible_boxes_and_labels() -> None:
+    image = Image.new("RGB", (320, 220), "white")
+    rendered = render_labeled_visualization(
+        image,
+        boxes=[
+            ShaftVisualBox(label="icon", bbox=(30, 30, 140, 150), index=1),
+            ShaftVisualBox(label="image", bbox=(170, 40, 300, 190), index=2),
+        ],
+        footer_lines=["id=sample idx=000001"],
+    )
+
+    colors = {color for _, color in rendered.getcolors(maxcolors=1_000_000) or []}
+    assert rendered.width == 320
+    assert rendered.height > 220
+    assert (0, 180, 120) in colors
+    assert (220, 60, 115) in colors
+    assert (0, 0, 0) in colors
+
+
+def test_eval_common_prediction_visualization_saves_shared_style(tmp_path: Path) -> None:
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (200, 160), "white").save(image_path)
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed=[{"label": "icon", "bbox_2d": [100, 100, 800, 800]}],
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+
+    output = eval_common._render_prediction_visualization(
+        image_path=str(image_path),
+        sample_id="sample",
+        sample_index=1,
+        prediction=prediction,
+        out_dir=tmp_path,
+    )
+
+    assert output is not None
+    output_path = Path(output)
+    assert output_path.exists()
+    assert output_path.parent.name == "predictions"
+    with Image.open(output_path) as rendered:
+        assert rendered.width == 200
+        assert rendered.height > 160

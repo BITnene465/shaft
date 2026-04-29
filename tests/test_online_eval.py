@@ -31,8 +31,16 @@ class _FakeTokenizer:
             (101,): '{"ok": 1}',
             (102,): "oops",
         }
+        token_text = {
+            91: '["solid", "dashed"]',
+            92: " prompt tail ",
+            201: '{"ok": 1}',
+            202: '{"ok": 2}',
+        }
         key = tuple(int(x) for x in token_ids if not skip_special_tokens or int(x) not in {0, 2})
-        return mapping.get(key, "")
+        if key in mapping:
+            return mapping[key]
+        return "".join(token_text.get(token_id, "") for token_id in key)
 
 
 class _FakeTemplateMeta:
@@ -96,6 +104,27 @@ class _MappedFakeModel(_FakeModel):
         completion_token = 101 if first_token == 11 else 102
         prompt_ids = kwargs["input_ids"][0].tolist()
         return torch.tensor([prompt_ids + [completion_token, 2]], dtype=torch.long)
+
+
+class _LeftPaddedGenerateModel(_FakeModel):
+    def generate(self, **kwargs):
+        self.generate_kwargs = dict(kwargs)
+        self.grad_enabled_during_generate = torch.is_grad_enabled()
+        self.use_cache_during_generate = (
+            bool(self.config.use_cache),
+            bool(self.generation_config.use_cache),
+        )
+        rows = []
+        for index, prompt_ids in enumerate(kwargs["input_ids"].tolist()):
+            completion_token = 201 if index == 0 else 202
+            rows.append(prompt_ids + [completion_token, 2])
+        return torch.tensor(rows, dtype=torch.long)
+
+
+class _LeftPaddedTrainer(_FakeTrainer):
+    def __init__(self, batches):
+        super().__init__(batches)
+        self.model = _LeftPaddedGenerateModel()
 
 
 class _MappedTrainer(_FakeTrainer):
@@ -261,6 +290,61 @@ def test_online_eval_runner_supports_named_eval_datasets() -> None:
     assert metrics["eval_ds_a_exact_match"] == pytest.approx(1.0)
     assert metrics["eval_ds_b_exact_match"] == pytest.approx(0.0)
     assert metrics["eval_final_score"] == pytest.approx(0.25)
+
+
+def test_online_eval_runner_slices_left_padded_decoder_prompts_at_input_width() -> None:
+    eval_config = EvalConfig(
+        enabled=True,
+        online_metrics_enabled=True,
+        datasets={
+            "ds": EvalDatasetPolicyConfig(
+                prediction_codec="json_object",
+                target_adapter="target_text",
+                target_adapter_params={"codec": "json_object"},
+                metrics=[
+                    EvalMetricConfig(name="parse_success"),
+                    EvalMetricConfig(name="exact_match"),
+                ],
+                primary_metric="exact_match",
+                normalizer=EvalNormalizerConfig(type="identity"),
+                weight=1.0,
+            ),
+        },
+    )
+    runner = ShaftOnlineEvalRunner(
+        eval_config=eval_config,
+        prompt_collator=_FakePromptCollator(),
+    )
+    batch = {
+        "input_ids": torch.tensor(
+            [
+                [0, 0, 91, 92],
+                [81, 82, 83, 84],
+            ],
+            dtype=torch.long,
+        ),
+        "attention_mask": torch.tensor(
+            [
+                [0, 0, 1, 1],
+                [1, 1, 1, 1],
+            ],
+            dtype=torch.long,
+        ),
+        "pixel_values": torch.zeros((2, 3, 4, 4), dtype=torch.float32),
+        "labels": torch.full((2, 2), -100, dtype=torch.long),
+        "meta": {
+            "dataset_name": ["ds", "ds"],
+            "sample_id": ["left-padded", "full-width"],
+            "image_path": ["left.png", "right.png"],
+            "target_text": ['{"ok": 1}', '{"ok": 2}'],
+            "extra": [{}, {}],
+        },
+    }
+    trainer = _LeftPaddedTrainer([batch])
+    metrics = runner.evaluate(trainer, eval_dataset=object(), metric_key_prefix="eval")
+
+    assert metrics["eval_ds_parse_success"] == pytest.approx(1.0)
+    assert metrics["eval_ds_exact_match"] == pytest.approx(1.0)
 
 
 def test_online_eval_runner_uses_named_eval_keys_to_avoid_cached_eval_dataloader_collision() -> None:
@@ -465,6 +549,64 @@ def test_online_eval_runner_final_score_is_dataset_weighted_not_sample_weighted(
     assert metrics["eval_final_score"] == pytest.approx(0.8)
 
 
+def test_online_eval_runner_deduplicates_gathered_samples_before_metrics() -> None:
+    eval_config = EvalConfig(
+        enabled=True,
+        online_metrics_enabled=True,
+        datasets={
+            "ds": EvalDatasetPolicyConfig(
+                prediction_codec="text",
+                target_adapter="target_text",
+                metrics=[EvalMetricConfig(name="parse_success")],
+                primary_metric="parse_success",
+                normalizer=EvalNormalizerConfig(type="identity"),
+                weight=1.0,
+            ),
+        },
+    )
+    runner = ShaftOnlineEvalRunner(
+        eval_config=eval_config,
+        prompt_collator=_FakePromptCollator(),
+    )
+    valid = ShaftCodecResult(
+        raw_text='{"ok": 1}',
+        parsed={"ok": 1},
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    invalid_duplicate = ShaftCodecResult(
+        raw_text="oops",
+        parsed=None,
+        valid=False,
+        partial=False,
+        error_type="json_decode_error",
+        error="bad json",
+    )
+    entries = [
+        ShaftOnlineEvalSample(
+            dataset_name="ds",
+            sample_id="sample-0",
+            prediction=valid,
+            target=ShaftTargetResult(value='{"ok": 1}', valid=True, error=None),
+            meta={"image_path": "same.png"},
+        ),
+        ShaftOnlineEvalSample(
+            dataset_name="ds",
+            sample_id="sample-0",
+            prediction=invalid_duplicate,
+            target=ShaftTargetResult(value='{"ok": 1}', valid=True, error=None),
+            meta={"image_path": "same.png"},
+        ),
+    ]
+
+    metrics = runner.aggregate_samples(entries, metric_key_prefix="eval")
+
+    assert metrics["eval_ds_parse_success"] == pytest.approx(1.0)
+    assert metrics["eval_final_score"] == pytest.approx(1.0)
+
+
 def test_parse_metrics_distinguish_complete_and_partial_json() -> None:
     parse_success = build_eval_metric("parse_success")
     parse_partial_rate = build_eval_metric("parse_partial_rate")
@@ -500,3 +642,32 @@ def test_parse_metrics_distinguish_complete_and_partial_json() -> None:
 
     assert parse_success.compute() == pytest.approx(1.0 / 3.0)
     assert parse_partial_rate.compute() == pytest.approx(1.0 / 3.0)
+
+
+def test_keypoint_pck_uses_normalized_coordinate_scale_by_default() -> None:
+    metric = build_eval_metric("keypoint_pck")
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed={
+            "keypoints_2d": [[530, 500], [500, 470]],
+            "stroke_pattern": "solid",
+            "geometry_style": "straight",
+        },
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    target = {
+        "keypoints_2d": [[500, 500], [500, 500]],
+        "stroke_pattern": "solid",
+        "geometry_style": "straight",
+    }
+
+    metric.update(
+        prediction=prediction,
+        target=target,
+        sample_meta={"extra": {"image_width": 100, "image_height": 100}},
+    )
+
+    assert metric.compute() == pytest.approx(1.0)

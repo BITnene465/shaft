@@ -37,6 +37,7 @@ from shaft.training.checkpointing import (
     validate_training_state_policy,
 )
 from shaft.training.distributed import barrier_if_distributed
+from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
@@ -80,6 +81,7 @@ class ShaftRLHFPipeline:
             )
 
         validate_training_state_policy(config)
+        validate_training_topology(config)
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,

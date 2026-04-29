@@ -34,6 +34,7 @@ from shaft.training.checkpointing import (
     validate_training_state_policy,
 )
 from shaft.training.distributed import barrier_if_distributed
+from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
@@ -64,6 +65,7 @@ class ShaftSFTPipeline:
                 "Use ShaftRLHFPipeline for dpo/ppo."
             )
         validate_training_state_policy(config)
+        validate_training_topology(config)
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
@@ -93,6 +95,7 @@ class ShaftSFTPipeline:
         use_named_eval_datasets = bool(
             config.eval.enabled
             and dataset_bundle.eval_datasets_by_name
+            and config.eval.datasets
             and (
                 config.eval.loss_metrics_enabled
                 or config.eval.online_metrics_enabled

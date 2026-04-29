@@ -100,6 +100,7 @@
     - 生成态应统一使用 `left padding`
   - 当前已经把这件事收敛到共享 `build_processor_inputs(..., padding_side=...)` 真源中，但还没有上升为正式的 processor-input policy 语义。
   - 后续需要把“训练态 / 生成态 padding policy”进一步显式化，避免未来在某条新路径上重新出现局部补丁或遗漏 left padding 的问题。
+  - 2026-04-28 已在 `docs/development_log.md` 记录一次在线 eval 左 padding completion 切片事故；后续 processor-input policy 必须把该 invariant 固化为设计约束和测试要求。
 
 - 需要继续收口的另一项 eval 语义：
   - 当前 `online eval` 的 pixel budget 仍然默认复用 `data.min_pixels / max_pixels`。
@@ -111,6 +112,12 @@
     - `eval.*` 负责评估默认预算
     - `eval.datasets.<name>.*` 允许对特定任务做 per-dataset override
   - `eval_final_loss` 与 `eval_final_score` 应共享同一套 eval pixel budget 解析规则，避免 loss 和 generation score 在不同分辨率语义上比较。
+
+- 当前 grounding / keypoint 主线的阶段性目标先明确为：
+  - `grounding_arrow.det_f1 >= 0.90`
+  - `grounding_layout.det_f1 >= 0.80`
+  - `keypoint_arrow.keypoint_pck >= 0.85`
+- 后续调参、数据重配与离线验收默认按这组目标收口，不再只看单任务局部改善。
 
 ## 3. 工具链范围
 

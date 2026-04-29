@@ -462,24 +462,30 @@
 - `src/shaft/metrics/base.py`
 - `src/shaft/metrics/registry.py`
 - `src/shaft/metrics/builtin.py`
+- `src/shaft/metrics/visualization.py`
 
 ### 职能
 
 - 管理在线 eval metric 注册表。
 - 提供单阶段在线 eval 的可复用指标实现。
+- 提供 eval 结果保存图的共享标注渲染样式，供脚本侧离线 eval 复用。
 
 ### 关键类
 
 - `ShaftEvalMetric`
+- `ShaftVisualBox`
+- `ShaftVisualPoint`
 
 ### 关键函数
 
 - `build_eval_metric()`
+- `render_labeled_visualization()`
 - `register_eval_metric()`
+- `save_labeled_visualization()`
 
 ### 开发边界
 
-- 允许：轻量在线指标、per-dataset metric 扩展
+- 允许：轻量在线指标、per-dataset metric 扩展、eval 可视化标注渲染
 - 禁止：文本解析、数据路由、多阶段业务编排
 
 ## 11. `infer`

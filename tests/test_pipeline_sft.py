@@ -14,6 +14,7 @@ from shaft.model.finetune_plan import build_resolved_finetune_plan, resolved_fin
 from shaft.pipeline.training_args import build_hf_training_args
 from shaft.pipeline import run_sft
 from shaft.template import build_template
+from shaft.training.topology import validate_training_topology
 
 
 class _FakeTokenizer:
@@ -176,6 +177,37 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
     args = build_hf_training_args(config)
 
     assert args.gradient_checkpointing is True
+
+
+def test_training_topology_rejects_single_process_data_parallel(monkeypatch, tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.use_cpu = False
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.delenv("LOCAL_RANK", raising=False)
+    monkeypatch.delenv("RANK", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+
+    try:
+        validate_training_topology(config)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - defensive assertion path
+        raise AssertionError("validate_training_topology should reject single-process multi-GPU training")
+
+    assert "torch.nn.DataParallel" in message
+    assert "CUDA_VISIBLE_DEVICES=1" in message
+
+
+def test_training_topology_allows_distributed_launch(monkeypatch, tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.use_cpu = False
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+
+    validate_training_topology(config)
 
 
 def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
@@ -438,6 +470,69 @@ eval:
   datasets:
     ds:
       weight: 1.0
+""",
+        encoding="utf-8",
+    )
+    config = load_config(cfg_path)
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "template": build_template("smoke_vlm"),
+            },
+        )()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            _ = run_sft(config)
+    assert not isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
+    assert _FakeTrainer.last_kwargs["online_eval_runner"] is None
+
+
+def test_run_sft_keeps_merged_eval_dataset_when_eval_policies_are_absent(tmp_path: Path) -> None:
+    train_jsonl = tmp_path / "train.jsonl"
+    val_jsonl = tmp_path / "val.jsonl"
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    train_jsonl.write_text(
+        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
+        encoding="utf-8",
+    )
+    val_jsonl.write_text(
+        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
+        encoding="utf-8",
+    )
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        f"""
+experiment:
+  name: test-plain-eval-loss
+  output_dir: {tmp_path}/out
+data:
+  datasets:
+    - dataset_name: ds
+      train_path: {train_jsonl}
+      val_path: {val_jsonl}
+algorithm:
+  name: sft
+train:
+  epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-5
+  use_cpu: true
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+eval:
+  enabled: true
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
 """,
         encoding="utf-8",
     )

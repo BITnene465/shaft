@@ -105,7 +105,7 @@ eval:
       primary_metric: det_f1
       normalizer:
         type: identity
-      weight: 1.0
+      weight: 2
     grounding_layout:
       prediction_codec: json_list
       target_adapter: target_text
@@ -119,7 +119,7 @@ eval:
       primary_metric: det_f1
       normalizer:
         type: identity
-      weight: 1.5
+      weight: 2
     keypoint_arrow:
       prediction_codec: json_object
       target_adapter: target_text
@@ -130,10 +130,13 @@ eval:
         - name: parse_partial_rate
         - name: subattr_fields
         - name: keypoint_pck
+          params:
+            coordinate_space: normalized_1000
+            num_bins: 1000
       primary_metric: keypoint_pck
       normalizer:
         type: identity
-      weight: 1.0
+      weight: 1
 
 plugins:
   hooks: []

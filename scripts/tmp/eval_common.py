@@ -11,7 +11,8 @@ import warnings
 from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import Image, ImageColor, ImageDraw, ImageFont
+import torch
+from PIL import Image
 from tqdm.auto import tqdm
 
 warnings.filterwarnings(
@@ -27,23 +28,13 @@ from shaft.data import SFTRecord, load_jsonl_sft_records  # noqa: E402
 from shaft.infer import InferGenerationConfig, ShaftInferRequest, ShaftInferResponse  # noqa: E402
 from shaft.infer.engine import HFLocalInferAdapter  # noqa: E402
 from shaft.metrics import EVAL_METRIC_REGISTRY, build_eval_metric  # noqa: E402
+from shaft.metrics.visualization import (  # noqa: E402
+    ShaftVisualBox,
+    ShaftVisualPoint,
+    save_labeled_visualization,
+)
 from shaft.model import build_model_tokenizer_processor  # noqa: E402
 from shaft.training.checkpointing import inspect_checkpoint_layout  # noqa: E402
-
-_BOX_PALETTE = (
-    "#2563EB",
-    "#DC2626",
-    "#059669",
-    "#D97706",
-    "#7C3AED",
-    "#0F766E",
-    "#DB2777",
-    "#65A30D",
-)
-_LABEL_COLOR_OFFSETS = {
-    "image": 0,
-    "icon": 3,
-}
 
 
 def _optional_bool(text: str | None) -> bool | None:
@@ -248,86 +239,6 @@ def _scale_from_1000(x: float, y: float, width: int, height: int) -> tuple[float
     return float(x) * float(width) / 1000.0, float(y) * float(height) / 1000.0
 
 
-def _resolve_box_line_width(image_width: int, image_height: int) -> int:
-    short_edge = max(1, min(int(image_width), int(image_height)))
-    return max(3, int(round(short_edge / 180.0)))
-
-
-def _resolve_point_radius(image_width: int, image_height: int) -> int:
-    short_edge = max(1, min(int(image_width), int(image_height)))
-    return max(4, int(round(short_edge / 140.0)))
-
-
-def _resolve_annotation_font_size(image_width: int, image_height: int) -> int:
-    short_edge = max(1, min(int(image_width), int(image_height)))
-    return max(12, min(28, int(round(short_edge / 42.0))))
-
-
-def _load_annotation_font(font_size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size=int(font_size))
-    except Exception:
-        return ImageFont.load_default()
-
-
-def _resolve_box_color(label: str, index: int) -> tuple[int, int, int]:
-    palette_index = (_LABEL_COLOR_OFFSETS.get(label, 0) + max(0, index - 1)) % len(_BOX_PALETTE)
-    return ImageColor.getrgb(_BOX_PALETTE[palette_index])
-
-
-def _draw_labeled_box(
-    draw: ImageDraw.ImageDraw,
-    *,
-    bbox: tuple[int, int, int, int],
-    label: str,
-    index: int,
-    image_width: int,
-    image_height: int,
-    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
-) -> None:
-    x1, y1, x2, y2 = bbox
-    box_label = label or "box"
-    color = _resolve_box_color(box_label, index)
-    line_width = _resolve_box_line_width(image_width, image_height)
-    halo_width = line_width + max(2, line_width // 2)
-    draw.rectangle([x1, y1, x2, y2], outline="white", width=halo_width)
-    draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
-
-    label_text = f"{index}:{box_label}"
-    text_padding_x = max(4, line_width)
-    text_padding_y = max(2, line_width // 2)
-    text_bbox = draw.textbbox((0, 0), label_text, font=font)
-    text_width = max(1, text_bbox[2] - text_bbox[0])
-    text_height = max(1, text_bbox[3] - text_bbox[1])
-    label_x1 = max(0, min(x1, image_width - text_width - (text_padding_x * 2)))
-    preferred_y = y1 - text_height - (text_padding_y * 2) - line_width
-    if preferred_y >= 0:
-        label_y1 = preferred_y
-    else:
-        label_y1 = min(max(0, y1 + line_width), max(0, image_height - text_height - (text_padding_y * 2)))
-    label_x2 = min(image_width, label_x1 + text_width + (text_padding_x * 2))
-    label_y2 = min(image_height, label_y1 + text_height + (text_padding_y * 2))
-    draw.rectangle([label_x1, label_y1, label_x2, label_y2], fill="white")
-    draw.rectangle([label_x1, label_y1, label_x2, label_y2], outline=color, width=max(2, line_width - 1))
-    draw.text((label_x1 + text_padding_x, label_y1 + text_padding_y), label_text, fill=color, font=font)
-
-
-def _build_footer_image(image: Image.Image, lines: list[str]) -> Image.Image:
-    footer_lines = [line for line in lines if line.strip()]
-    if not footer_lines:
-        return image
-    draw = ImageDraw.Draw(image)
-    spacing = 4
-    footer_text = "\n".join(footer_lines)
-    bbox = draw.multiline_textbbox((0, 0), footer_text, spacing=spacing)
-    footer_height = max(32, (bbox[3] - bbox[1]) + 20)
-    canvas = Image.new("RGB", (image.width, image.height + footer_height), "white")
-    canvas.paste(image, (0, 0))
-    canvas_draw = ImageDraw.Draw(canvas)
-    canvas_draw.multiline_text((8, image.height + 8), footer_text, fill="black", spacing=spacing)
-    return canvas
-
-
 def _render_prediction_visualization(
     *,
     image_path: str,
@@ -337,13 +248,14 @@ def _render_prediction_visualization(
     out_dir: Path,
 ) -> str | None:
     try:
-        image = Image.open(image_path).convert("RGB")
+        with Image.open(image_path) as image:
+            image_width, image_height = image.size
     except Exception:
         return None
 
     payload = prediction.parsed
-    boxes: list[tuple[str, tuple[float, float, float, float]]] = []
-    points: list[tuple[float, float]] | None = None
+    boxes: list[ShaftVisualBox] = []
+    points: list[ShaftVisualPoint] = []
     summary_parts: list[str] = []
 
     if isinstance(payload, list):
@@ -353,62 +265,29 @@ def _render_prediction_visualization(
             bbox = _coerce_bbox(item.get("bbox_2d"))
             if bbox is None:
                 continue
-            x1, y1 = _scale_from_1000(bbox[0], bbox[1], image.width, image.height)
-            x2, y2 = _scale_from_1000(bbox[2], bbox[3], image.width, image.height)
-            boxes.append((str(item.get("label", "")).strip().lower(), (x1, y1, x2, y2)))
+            x1, y1 = _scale_from_1000(bbox[0], bbox[1], image_width, image_height)
+            x2, y2 = _scale_from_1000(bbox[2], bbox[3], image_width, image_height)
+            label = str(item.get("label", "")).strip().lower()
+            boxes.append(
+                ShaftVisualBox(
+                    label=label,
+                    bbox=(x1, y1, x2, y2),
+                    index=len(boxes) + 1,
+                )
+            )
     elif isinstance(payload, dict):
         raw_points = _coerce_keypoints(payload.get("keypoints_2d"))
         if raw_points is not None:
-            points = [_scale_from_1000(x, y, image.width, image.height) for x, y in raw_points]
+            for idx, (x, y) in enumerate(raw_points, start=1):
+                scaled_x, scaled_y = _scale_from_1000(x, y, image_width, image_height)
+                points.append(ShaftVisualPoint(x=scaled_x, y=scaled_y, index=idx))
         if payload.get("stroke_pattern") is not None:
             summary_parts.append(f"stroke={payload['stroke_pattern']}")
         if payload.get("geometry_style") is not None:
             summary_parts.append(f"geometry={payload['geometry_style']}")
 
-    if not boxes and points is None and not summary_parts:
+    if not boxes and not points and not summary_parts:
         return None
-
-    draw = ImageDraw.Draw(image)
-    font = _load_annotation_font(_resolve_annotation_font_size(image.width, image.height))
-    point_radius = _resolve_point_radius(image.width, image.height)
-    point_line_width = max(2, _resolve_box_line_width(image.width, image.height))
-
-    for idx, (label, bbox) in enumerate(boxes, start=1):
-        x1, y1, x2, y2 = [int(round(v)) for v in bbox]
-        _draw_labeled_box(
-            draw,
-            bbox=(x1, y1, x2, y2),
-            label=label,
-            index=idx,
-            image_width=image.width,
-            image_height=image.height,
-            font=font,
-        )
-
-    if points is not None:
-        for idx, (x, y) in enumerate(points, start=1):
-            cx = int(round(x))
-            cy = int(round(y))
-            point_color = _resolve_box_color("keypoint", idx)
-            draw.ellipse(
-                [cx - point_radius, cy - point_radius, cx + point_radius, cy + point_radius],
-                outline="white",
-                fill="white",
-                width=point_line_width + 1,
-            )
-            draw.ellipse(
-                [cx - point_radius, cy - point_radius, cx + point_radius, cy + point_radius],
-                outline=point_color,
-                fill=point_color,
-                width=point_line_width,
-            )
-        if len(points) >= 2:
-            draw.line(
-                [(int(round(x)), int(round(y))) for x, y in points],
-                fill=ImageColor.getrgb("#14B8A6"),
-                width=point_line_width,
-                joint="curve",
-            )
 
     footer_lines = [f"id={sample_id} idx={sample_index:06d}"]
     if not prediction.valid:
@@ -419,21 +298,26 @@ def _render_prediction_visualization(
         footer_lines.append(f"error: {prediction.error_type}")
     if boxes:
         box_parts: list[str] = []
-        for idx, (label, bbox) in enumerate(boxes, start=1):
-            x1, y1, x2, y2 = [int(round(v)) for v in bbox]
-            box_parts.append(f"{idx}:{label or 'box'}[{x1},{y1},{x2},{y2}]")
+        for box in boxes:
+            x1, y1, x2, y2 = [int(round(v)) for v in box.bbox]
+            box_parts.append(f"{box.index}:{box.label or 'box'}[{x1},{y1},{x2},{y2}]")
         footer_lines.append("boxes: " + " ".join(box_parts))
-    if points is not None:
-        point_parts = [f"{idx}=({int(round(x))},{int(round(y))})" for idx, (x, y) in enumerate(points, start=1)]
+    if points:
+        point_parts = [
+            f"{point.index}=({int(round(point.x))},{int(round(point.y))})" for point in points
+        ]
         footer_lines.append("points: " + " ".join(point_parts))
-
-    image = _build_footer_image(image, footer_lines)
 
     out_dir = out_dir / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / f"{_sanitize_filename(f'{sample_id}_{sample_index:06d}')}.jpg"
-    image.save(output_path, format="JPEG", quality=90, optimize=True)
-    return str(output_path)
+    return save_labeled_visualization(
+        image_path=image_path,
+        output_path=output_path,
+        boxes=boxes,
+        points=points,
+        footer_lines=footer_lines,
+    )
 
 
 def _run_infer_batch(
