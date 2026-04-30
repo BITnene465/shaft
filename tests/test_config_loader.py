@@ -359,10 +359,19 @@ rlhf:
   enabled: true
   grpo:
     beta: 0.01
-    num_generations: 4
-    max_completion_length: 96
-    temperature: 0.8
-    top_p: 0.95
+    rollout:
+      num_generations: 4
+      max_completion_length: 96
+      temperature: 0.8
+      top_p: 0.95
+      generation_kwargs:
+        frequency_penalty: 0.1
+    vllm:
+      enabled: true
+      mode: colocate
+      model_impl: transformers
+      gpu_memory_utilization: 0.25
+      max_model_length: 4096
     reward_functions:
       - name: exact_match
         codec: json_any
@@ -373,6 +382,15 @@ rlhf:
     cfg = load_config(config_path)
     assert cfg.algorithm.name == "grpo"
     assert cfg.rlhf.grpo.num_generations == 4
+    assert cfg.rlhf.grpo.rollout.num_generations == 4
+    assert cfg.rlhf.grpo.rollout.max_completion_length == 96
+    assert cfg.rlhf.grpo.rollout.generation_kwargs == {"frequency_penalty": 0.1}
+    assert cfg.rlhf.grpo.use_vllm is True
+    assert cfg.rlhf.grpo.vllm.enabled is True
+    assert cfg.rlhf.grpo.vllm.mode == "colocate"
+    assert cfg.rlhf.grpo.vllm.model_impl == "transformers"
+    assert cfg.rlhf.grpo.vllm.gpu_memory_utilization == pytest.approx(0.25)
+    assert cfg.rlhf.grpo.vllm.max_model_length == 4096
     assert cfg.rlhf.grpo.reward_functions[0].name == "exact_match"
     assert cfg.rlhf.grpo.reward_functions[0].codec == "json_any"
     assert cfg.rlhf.grpo.reward_functions[0].weight == pytest.approx(2.0)

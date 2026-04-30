@@ -396,22 +396,98 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     grpo_cfg = config.rlhf.grpo
     if float(grpo_cfg.beta) < 0:
         raise ValueError("rlhf.grpo.beta must be >= 0.")
-    if int(grpo_cfg.num_generations) <= 0:
-        raise ValueError("rlhf.grpo.num_generations must be > 0.")
-    if grpo_cfg.num_generations_eval is not None and int(grpo_cfg.num_generations_eval) <= 0:
-        raise ValueError("rlhf.grpo.num_generations_eval must be > 0 when configured.")
-    if int(grpo_cfg.max_completion_length) <= 0:
-        raise ValueError("rlhf.grpo.max_completion_length must be > 0.")
-    if float(grpo_cfg.temperature) <= 0:
-        raise ValueError("rlhf.grpo.temperature must be > 0.")
-    if not (0.0 < float(grpo_cfg.top_p) <= 1.0):
-        raise ValueError("rlhf.grpo.top_p must be in (0, 1].")
-    if int(grpo_cfg.top_k) < 0:
-        raise ValueError("rlhf.grpo.top_k must be >= 0.")
-    if grpo_cfg.min_p is not None and not (0.0 <= float(grpo_cfg.min_p) <= 1.0):
-        raise ValueError("rlhf.grpo.min_p must be in [0, 1].")
-    if float(grpo_cfg.repetition_penalty) <= 0:
-        raise ValueError("rlhf.grpo.repetition_penalty must be > 0.")
+
+    rollout_cfg = grpo_cfg.rollout
+    vllm_cfg = grpo_cfg.vllm
+    # Backward-compatible flat aliases. New configs should use rollout/vllm as the
+    # canonical GRPO runtime structure.
+    if grpo_cfg.num_generations is not None:
+        rollout_cfg.num_generations = int(grpo_cfg.num_generations)
+    if grpo_cfg.num_generations_eval is not None:
+        rollout_cfg.num_generations_eval = int(grpo_cfg.num_generations_eval)
+    if grpo_cfg.max_completion_length is not None:
+        rollout_cfg.max_completion_length = int(grpo_cfg.max_completion_length)
+    if grpo_cfg.temperature is not None:
+        rollout_cfg.temperature = float(grpo_cfg.temperature)
+    if grpo_cfg.top_p is not None:
+        rollout_cfg.top_p = float(grpo_cfg.top_p)
+    if grpo_cfg.top_k is not None:
+        rollout_cfg.top_k = int(grpo_cfg.top_k)
+    if grpo_cfg.min_p is not None:
+        rollout_cfg.min_p = float(grpo_cfg.min_p)
+    if grpo_cfg.repetition_penalty is not None:
+        rollout_cfg.repetition_penalty = float(grpo_cfg.repetition_penalty)
+    if grpo_cfg.use_vllm is not None:
+        vllm_cfg.enabled = bool(grpo_cfg.use_vllm)
+
+    if int(rollout_cfg.num_generations) <= 0:
+        raise ValueError("rlhf.grpo.rollout.num_generations must be > 0.")
+    if rollout_cfg.num_generations_eval is not None and int(rollout_cfg.num_generations_eval) <= 0:
+        raise ValueError("rlhf.grpo.rollout.num_generations_eval must be > 0 when configured.")
+    if int(rollout_cfg.max_completion_length) <= 0:
+        raise ValueError("rlhf.grpo.rollout.max_completion_length must be > 0.")
+    if float(rollout_cfg.temperature) <= 0:
+        raise ValueError("rlhf.grpo.rollout.temperature must be > 0.")
+    if not (0.0 < float(rollout_cfg.top_p) <= 1.0):
+        raise ValueError("rlhf.grpo.rollout.top_p must be in (0, 1].")
+    if int(rollout_cfg.top_k) < 0:
+        raise ValueError("rlhf.grpo.rollout.top_k must be >= 0.")
+    if rollout_cfg.min_p is not None and not (0.0 <= float(rollout_cfg.min_p) <= 1.0):
+        raise ValueError("rlhf.grpo.rollout.min_p must be in [0, 1].")
+    if float(rollout_cfg.repetition_penalty) <= 0:
+        raise ValueError("rlhf.grpo.rollout.repetition_penalty must be > 0.")
+    if not isinstance(rollout_cfg.generation_kwargs, dict):
+        raise ValueError("rlhf.grpo.rollout.generation_kwargs must be a mapping.")
+    rollout_cfg.cache_implementation = (
+        str(rollout_cfg.cache_implementation).strip()
+        if rollout_cfg.cache_implementation is not None
+        else None
+    )
+    rollout_cfg.use_transformers_paged = bool(rollout_cfg.use_transformers_paged)
+
+    vllm_cfg.enabled = bool(vllm_cfg.enabled)
+    vllm_cfg.mode = str(vllm_cfg.mode).strip().lower()
+    if vllm_cfg.mode not in {"server", "colocate"}:
+        raise ValueError("rlhf.grpo.vllm.mode must be 'server' or 'colocate'.")
+    vllm_cfg.model_impl = str(vllm_cfg.model_impl).strip().lower()
+    if vllm_cfg.model_impl not in {"vllm", "transformers"}:
+        raise ValueError("rlhf.grpo.vllm.model_impl must be 'vllm' or 'transformers'.")
+    vllm_cfg.enable_sleep_mode = bool(vllm_cfg.enable_sleep_mode)
+    vllm_cfg.structured_outputs_regex = (
+        str(vllm_cfg.structured_outputs_regex)
+        if vllm_cfg.structured_outputs_regex is not None
+        else None
+    )
+    vllm_cfg.server_base_url = (
+        str(vllm_cfg.server_base_url).strip() if vllm_cfg.server_base_url is not None else None
+    )
+    vllm_cfg.server_host = str(vllm_cfg.server_host).strip() or "0.0.0.0"
+    if int(vllm_cfg.server_port) <= 0:
+        raise ValueError("rlhf.grpo.vllm.server_port must be > 0.")
+    if float(vllm_cfg.server_timeout) <= 0:
+        raise ValueError("rlhf.grpo.vllm.server_timeout must be > 0.")
+    if int(vllm_cfg.group_port) <= 0:
+        raise ValueError("rlhf.grpo.vllm.group_port must be > 0.")
+    if not (0.0 < float(vllm_cfg.gpu_memory_utilization) <= 1.0):
+        raise ValueError("rlhf.grpo.vllm.gpu_memory_utilization must be in (0, 1].")
+    if vllm_cfg.max_model_length is not None and int(vllm_cfg.max_model_length) <= 0:
+        raise ValueError("rlhf.grpo.vllm.max_model_length must be > 0 when configured.")
+    if int(vllm_cfg.tensor_parallel_size) <= 0:
+        raise ValueError("rlhf.grpo.vllm.tensor_parallel_size must be > 0.")
+
+    grpo_cfg.num_generations = int(rollout_cfg.num_generations)
+    grpo_cfg.num_generations_eval = (
+        int(rollout_cfg.num_generations_eval)
+        if rollout_cfg.num_generations_eval is not None
+        else None
+    )
+    grpo_cfg.max_completion_length = int(rollout_cfg.max_completion_length)
+    grpo_cfg.temperature = float(rollout_cfg.temperature)
+    grpo_cfg.top_p = float(rollout_cfg.top_p)
+    grpo_cfg.top_k = int(rollout_cfg.top_k)
+    grpo_cfg.min_p = float(rollout_cfg.min_p) if rollout_cfg.min_p is not None else None
+    grpo_cfg.repetition_penalty = float(rollout_cfg.repetition_penalty)
+    grpo_cfg.use_vllm = bool(vllm_cfg.enabled)
     if not grpo_cfg.reward_functions:
         raise ValueError("rlhf.grpo.reward_functions cannot be empty.")
     from shaft.algorithms.grpo_rewards import GRPO_REWARD_REGISTRY

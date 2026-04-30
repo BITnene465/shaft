@@ -212,3 +212,223 @@ online_eval 2/2 batch
 
 - DDP eval 的 metric 聚合必须以全局唯一样本为准，不得让 sampler padding 改变指标。
 - DDP eval 的显示口径必须明确是全局样本进度，或在文案中显式标注为 local rank 进度。
+
+## 2026-04-30: GRPO/vLLM 绕过 SFT collator 导致图像 token 预算失效
+
+### 现象
+
+在 cuda1 上尝试单卡 `vllm.mode=colocate` 的 GRPO smoke 时，vLLM 能加载并完成 CUDA graph 初始化，但第一步 rollout 在输入校验阶段失败：
+
+```text
+The decoder prompt (length 12324) is longer than the maximum model length of 8192.
+```
+
+此前 `vllm.max_model_length=4096` 时也出现过同类错误，某个样本的 prompt 长度已经达到 6205 tokens。
+
+### 根因
+
+SFT/DPO/PPO collator 会通过 `model_adapter.build_processor_inputs(..., min_pixels, max_pixels)` 把 `data.max_pixels` 传给 processor。
+
+GRPO 使用 TRL `GRPOTrainer`，不走 Shaft 的 SFT collator。`GRPODataset` 之前直接返回原始 PIL 图像，TRL/vLLM 会按自己的 VLM 路径处理图像，导致 `data.max_pixels=262144` 没有生效。高分辨率图像被展开成过多 multimodal tokens，最终超过 vLLM context。
+
+这不是模型能力问题，也不是 reward/metric 问题，而是 GRPO 数据适配层没有继承 Shaft 图像 token 预算语义。
+
+### 影响范围
+
+- 影响 VLM GRPO，尤其是 `use_vllm=true` 的 rollout。
+- 非 vLLM GRPO 也会受到影响，因为 TRL 的 VLM prompt/forward 处理同样绕过 Shaft collator。
+- SFT 主链不受影响，SFT collator 已显式传入 `min_pixels / max_pixels`。
+
+### 修复
+
+- `GRPODataset` 新增 `min_pixels / max_pixels` 参数。
+- `ShaftRLHFPipeline` 构建 GRPO dataset 时传入 `config.data.min_pixels / max_pixels`。
+- `GRPODataset` 在样本进入 TRL 前按像素预算调整 PIL 图像，避免原始大图撑爆 multimodal token 数。
+- GRPO 配置结构同步改为：
+  - `rlhf.grpo.rollout`
+  - `rlhf.grpo.vllm`
+  并保留旧 flat 字段作为兼容入口。
+
+### 回归测试
+
+- `tests/test_pipeline_rlhf.py::test_grpo_dataset_applies_image_pixel_budget`
+- `tests/test_pipeline_rlhf.py::test_run_rlhf_uses_sft_dataset_for_grpo`
+- `tests/test_config_loader.py::test_load_config_supports_grpo_reward_config`
+- `tests/test_training_modules.py::test_build_trl_grpo_config_from_training_args`
+
+### 后续防线
+
+- 新增 RLHF/VLM 路径时，必须确认是否经过 Shaft collator；如果不经过，图像 token 预算要在 dataset adapter 或算法 adapter 层显式落地。
+- 不能只调大 `vllm.max_model_length` 来掩盖图像预算失效；必须先确认 `data.max_pixels` 对实际 rollout prompt 生效。
+- `rollout.max_completion_length` 只限制生成长度，不能替代 prompt multimodal token 控制。
+
+## 2026-04-30: GRPO/vLLM colocate sleep mode 触发每步磁盘重载 checkpoint
+
+### 现象
+
+启动 `grounding_grpo_vllm_colocate_g8_bs32_1024` 后，训练能正常进入 step，但每个 train step 前都会反复出现：
+
+```text
+Loading safetensors checkpoint shards: 0/2
+Loading safetensors checkpoint shards: 2/2
+```
+
+这和预期不一致。GRPO 中 vLLM rollout 副本确实需要随 policy 动态更新，但正常应从训练进程内存中的当前参数同步到 vLLM，而不是每步从磁盘 checkpoint 重新加载 safetensors。
+
+### 根因
+
+配置中开启了：
+
+```yaml
+rlhf:
+  grpo:
+    vllm:
+      enable_sleep_mode: true
+```
+
+当前 TRL/vLLM colocate 路径中：
+
+- `sync_weights()` 会把训练中的 policy 参数同步到 vLLM 副本。
+- `generate()` 在 `enable_sleep_mode=true` 时会唤醒 vLLM，并调用 `collective_rpc("reload_weights")`。
+- 在当前 `vLLM 0.19.0` 环境下，这个 `reload_weights` 会触发从磁盘 checkpoint shard 重新加载权重。
+
+因此日志中每个 step 的 safetensors reload 不是正常的 policy 内存同步，而是 sleep/wake 机制引入的额外磁盘重载。
+
+### 影响范围
+
+- 影响 GRPO `vllm.mode=colocate` 且 `enable_sleep_mode=true` 的训练。
+- 性能上会显著拖慢 step，因为每步多了一次 checkpoint shard 读取和加载。
+- 语义上存在风险：如果 `reload_weights` 从初始 checkpoint 重载，可能覆盖刚通过 `sync_weights()` 同步到 vLLM 的当前 policy 权重，使 rollout 退回旧权重。
+- `enable_sleep_mode=false` 时，vLLM 副本常驻显存，不触发这类 sleep/wake reload 路径。
+
+### 修复
+
+- 将 `configs/train/train_grpo_4b_grounding.yaml` 中的：
+
+```yaml
+enable_sleep_mode: true
+```
+
+改为：
+
+```yaml
+enable_sleep_mode: false
+```
+
+关闭后，vLLM 推理副本常驻显存。只要不 OOM，就优先使用这一设置，保证 rollout 权重同步语义和训练速度都更稳定。
+
+### 回归测试
+
+本问题主要通过训练日志验证：
+
+- 正常现象：vLLM 初始化阶段加载 checkpoint。
+- 异常现象：每个 train step 都出现 `Loading safetensors checkpoint shards`。
+- 修复后应重新启动同一训练命令，确认 step 间不再反复磁盘加载 safetensors。
+
+### 后续防线
+
+- GRPO/vLLM 的权重同步必须区分两种语义：
+  - 正确：optimizer step 后从训练进程当前参数同步到 vLLM。
+  - 错误：每步从磁盘 checkpoint 重新加载 vLLM 权重。
+- 开启 vLLM `sleep mode` 前必须先做多 step canary，确认不会反复触发 safetensors reload。
+- 如果关闭 sleep mode 后 OOM，优先考虑降低 `gpu_memory_utilization`、`max_model_length`、`max_completion_length`，或改用独立 vLLM server/单独 GPU rollout，而不是接受每步磁盘重载。
+
+## 2026-04-30: GRPO reward wrapper 导致 W&B per-reward 指标不可读
+
+### 现象
+
+检查 GRPO 监控项时发现，多个 reward function 传给 TRL 后函数名都叫 `_reward_func`。TRL 使用 `reward_func.__name__` 作为 W&B metric key，因此多个 reward 会写入同一类指标：
+
+```text
+rewards/_reward_func/mean
+rewards/_reward_func/std
+```
+
+同时，reward weight 被提前乘在 wrapper 返回值里，导致 per-reward mean/std 是加权后的数值。例如 `parse_success` 权重为 `0.05` 时，W&B 中该项最高只能到 `0.05`，不能直接看作 parse success rate。
+
+### 根因
+
+`build_grpo_reward_functions()` 为每个 reward 创建闭包，但没有设置可区分的 `__name__`。并且 reward 权重被内联进闭包返回值，而不是交给 TRL 原生的 `reward_weights`。
+
+### 影响范围
+
+- 影响 GRPO W&B 监控可读性。
+- 不影响总 reward 的数学结果，但会让 per-reward 监控误导：
+  - 无法区分 `parse_success` 和 `grounding_iou`
+  - 无法从 per-reward mean 直接读出原始 parse rate / IoU reward
+
+### 修复
+
+- 每个 GRPO reward wrapper 设置稳定名称：
+  - `grpo_reward_parse_success`
+  - `grpo_reward_grounding_iou`
+- reward function 返回原始 reward。
+- `build_trl_grpo_config()` 将配置中的权重传给 TRL `reward_weights`，由 TRL 聚合总 reward。
+
+### 回归测试
+
+- `tests/test_training_modules.py::test_build_grpo_reward_functions_supports_exact_match_and_parse_success`
+- `tests/test_training_modules.py::test_build_grpo_reward_functions_supports_grounding_iou`
+- `tests/test_training_modules.py::test_build_trl_grpo_config_from_training_args`
+
+### 后续防线
+
+- 新增 reward function 时，W&B key 必须稳定且可区分。
+- per-reward 指标应记录原始 reward；权重应放在聚合层，避免监控值被缩放后难以解释。
+
+## 2026-04-30: DDP 训练时 Shaft summary 元数据并发写入失败
+
+### 现象
+
+使用两卡启动 GRPO/vLLM colocate 训练：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun --standalone --nproc_per_node=2 scripts/train.py rlhf ...
+```
+
+vLLM 初始化成功，但训练创建 optimizer 时 rank0 报错：
+
+```text
+FileNotFoundError: shaft_optimizer_summary.tmp -> shaft_optimizer_summary.json
+```
+
+### 根因
+
+`ShaftOptimizerMixin.create_optimizer()` 在每个 DDP rank 上都会调用
+`write_resolved_optimizer_summary()`。该函数使用固定临时路径
+`shaft_optimizer_summary.tmp` 后再 `replace()` 到正式 json。多个 rank 同时写同一个
+tmp 文件时会产生竞争：一个 rank 已经把 tmp replace 掉，另一个 rank 再 replace
+同一路径时就会找不到文件。
+
+同类风险也存在于 `shaft_finetune_summary.json` 写入。
+训练结束阶段的 `ensure_hf_export_layout()` 和 `prune_root_output_layout()` 也是
+Shaft 自己的 run 级文件操作，不能在所有 rank 上重复执行。
+
+这不是模型能力问题，也不是 vLLM rollout 问题，而是训练元数据落盘没有遵守
+DDP single-writer 语义。
+
+### 影响范围
+
+- 影响所有 DDP 训练路径，包括 SFT 和 RLHF。
+- 单卡训练不受影响。
+- 小规模 DDP smoke 可能不稳定复现，因为 rank 间时序足够错开时不会撞到同一个 tmp 文件。
+
+### 修复
+
+- `shaft_optimizer_summary.json` 只在 rank0 写入和记录启动日志。
+- `shaft_finetune_summary.json` 只在 rank0 写入和记录启动日志。
+- final export layout 校验与 root output prune 只在 rank0 执行。
+- 非 rank0 仍正常创建 optimizer 和训练，只跳过 run 级 summary 落盘。
+
+### 回归测试
+
+- `tests/test_training_modules.py::test_optimizer_summary_is_written_only_on_rank_zero`
+- `tests/test_pipeline_sft.py::test_run_sft_rank_nonzero_skips_run_level_file_ops`
+- `tests/test_pipeline_rlhf.py::test_run_rlhf_rank_nonzero_skips_run_level_file_ops`
+- `tests/test_smoke_distributed.py::test_torchrun_train_eval_smoke`
+
+### 后续防线
+
+- DDP 下 run 级元数据必须是 single-writer，优先 rank0 写入。
+- 如果未来确实需要多 rank 分别写文件，文件名必须包含 rank 或使用独立子目录，不能共享固定 tmp 路径。
+- 多卡 smoke 不应只验证 forward/eval，也要覆盖 optimizer 创建和 run-level metadata 写入路径。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,6 +83,33 @@ class _BaseVisionDataset(Dataset):
         return records[int(index)]
 
 
+def _fit_image_to_pixel_budget(
+    image: Any,
+    *,
+    min_pixels: int | None,
+    max_pixels: int | None,
+) -> Any:
+    if not isinstance(image, Image.Image):
+        return image
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return image
+    area = width * height
+    target_area = area
+    if max_pixels is not None and area > int(max_pixels):
+        target_area = int(max_pixels)
+    elif min_pixels is not None and area < int(min_pixels):
+        target_area = int(min_pixels)
+    if target_area <= 0 or target_area == area:
+        return image
+    scale = math.sqrt(float(target_area) / float(area))
+    new_width = max(1, int(width * scale))
+    new_height = max(1, int(height * scale))
+    if new_width == width and new_height == height:
+        return image
+    return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+
 class SFTDataset(_BaseVisionDataset):
     def __init__(
         self,
@@ -123,6 +151,45 @@ class SFTDataset(_BaseVisionDataset):
             "extra": dict(record.extra),
         }
         return self._apply_online_transforms(sample)
+
+
+class GRPODataset(Dataset):
+    def __init__(
+        self,
+        dataset: Dataset,
+        *,
+        template: Any,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
+    ) -> None:
+        self.dataset = dataset
+        self.template = template
+        self.min_pixels = int(min_pixels) if min_pixels is not None else None
+        self.max_pixels = int(max_pixels) if max_pixels is not None else None
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    def __getitem__(self, index: int | tuple[str, int]) -> dict[str, Any]:
+        item = self.dataset[index]
+        image = _fit_image_to_pixel_budget(
+            item.get("image"),
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+        )
+        if image is not item.get("image"):
+            item = dict(item)
+            item["image"] = image
+        prompt = self.template.prepare_messages(self.template.resolve_messages(item))
+        return {
+            "prompt": prompt,
+            "image": image,
+            "target_text": str(item.get("target_text", "")),
+            "dataset_name": item.get("dataset_name"),
+            "sample_id": item.get("sample_id"),
+            "image_path": item.get("image_path"),
+            "extra": dict(item.get("extra", {})),
+        }
 
 
 class DPODataset(_BaseVisionDataset):

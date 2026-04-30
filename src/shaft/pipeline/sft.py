@@ -34,6 +34,7 @@ from shaft.training.checkpointing import (
     validate_training_state_policy,
 )
 from shaft.training.distributed import barrier_if_distributed
+from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
@@ -86,8 +87,9 @@ class ShaftSFTPipeline:
                 plan=finetune_plan,
                 model_adapter=artifacts.model_adapter,
             )
-            write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
-            logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
+            if is_rank_zero():
+                write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
+                logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
@@ -183,14 +185,16 @@ class ShaftSFTPipeline:
         if config.train.save_final_model:
             best_export_dir = resolve_best_export_dir(config.experiment.output_dir)
             trainer.save_model(output_dir=str(best_export_dir))
-            ensure_hf_export_layout(
-                best_export_dir,
-                finetune_mode=config.model.finetune.mode,
-                model_meta=artifacts.model_adapter,
-            )
+            if is_rank_zero():
+                ensure_hf_export_layout(
+                    best_export_dir,
+                    finetune_mode=config.model.finetune.mode,
+                    model_meta=artifacts.model_adapter,
+                )
         if config.train.save_final_state:
             trainer.save_state()
-        prune_root_output_layout(config.experiment.output_dir)
+        if is_rank_zero():
+            prune_root_output_layout(config.experiment.output_dir)
         barrier_if_distributed()
         return dict(train_result.metrics or {})
 

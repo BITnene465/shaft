@@ -30,6 +30,7 @@ from shaft.infer.engine import HFLocalInferAdapter  # noqa: E402
 from shaft.metrics import EVAL_METRIC_REGISTRY, build_eval_metric  # noqa: E402
 from shaft.metrics.visualization import (  # noqa: E402
     ShaftVisualBox,
+    ShaftVisualLineStrip,
     ShaftVisualPoint,
     save_labeled_visualization,
 )
@@ -256,6 +257,7 @@ def _render_prediction_visualization(
     payload = prediction.parsed
     boxes: list[ShaftVisualBox] = []
     points: list[ShaftVisualPoint] = []
+    line_strips: list[ShaftVisualLineStrip] = []
     summary_parts: list[str] = []
 
     if isinstance(payload, list):
@@ -278,15 +280,20 @@ def _render_prediction_visualization(
     elif isinstance(payload, dict):
         raw_points = _coerce_keypoints(payload.get("keypoints_2d"))
         if raw_points is not None:
+            keypoint_points: list[ShaftVisualPoint] = []
             for idx, (x, y) in enumerate(raw_points, start=1):
                 scaled_x, scaled_y = _scale_from_1000(x, y, image_width, image_height)
-                points.append(ShaftVisualPoint(x=scaled_x, y=scaled_y, index=idx))
+                keypoint_points.append(ShaftVisualPoint(x=scaled_x, y=scaled_y, index=idx))
+            if len(keypoint_points) >= 2:
+                line_strips.append(ShaftVisualLineStrip(points=tuple(keypoint_points)))
+            else:
+                points.extend(keypoint_points)
         if payload.get("stroke_pattern") is not None:
             summary_parts.append(f"stroke={payload['stroke_pattern']}")
         if payload.get("geometry_style") is not None:
             summary_parts.append(f"geometry={payload['geometry_style']}")
 
-    if not boxes and not points and not summary_parts:
+    if not boxes and not points and not line_strips and not summary_parts:
         return None
 
     footer_lines = [f"id={sample_id} idx={sample_index:06d}"]
@@ -307,6 +314,14 @@ def _render_prediction_visualization(
             f"{point.index}=({int(round(point.x))},{int(round(point.y))})" for point in points
         ]
         footer_lines.append("points: " + " ".join(point_parts))
+    if line_strips:
+        point_parts = []
+        for strip in line_strips:
+            for point in strip.points:
+                point_parts.append(
+                    f"{point.index}=({int(round(point.x))},{int(round(point.y))})"
+                )
+        footer_lines.append("points: " + " ".join(point_parts))
 
     out_dir = out_dir / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -316,6 +331,7 @@ def _render_prediction_visualization(
         output_path=output_path,
         boxes=boxes,
         points=points,
+        line_strips=line_strips,
         footer_lines=footer_lines,
     )
 

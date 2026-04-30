@@ -122,7 +122,8 @@
 - 训练集 mixing 不再在 `data center` 中物化为固定大列表，而是通过 `ShaftMixedIndexSampler` 在 train dataloader 层完成。
 - GRPO 当前复用 `jsonl_sft` 数据：
   - `SFTDataset` 提供 prompt-target 样本
-  - `GRPOCollator` 在 batch 级把样本转为 TRL GRPO 所需的 `list[dict]`
+  - `GRPODataset` 把样本适配为 TRL GRPO 所需的 `prompt / image / target_text` 字段
+  - `GRPODataset` 在交给 TRL/vLLM 前按 `data.min_pixels / data.max_pixels` 调整 PIL 图像，避免 GRPO 绕过 SFT collator 后使用原始大图撑爆 multimodal token 数
 
 ## 3. `model`
 
@@ -281,9 +282,11 @@
 补充说明：
 
 - `GRPOAlgorithm` 当前使用共享 `codec` 注册表与内置 reward registry 组合 reward functions。
+- GRPO 配置以 `rlhf.grpo.rollout` 描述采样参数，以 `rlhf.grpo.vllm` 描述 vLLM rollout 后端；旧 flat 字段仅作为兼容入口。
 - 当前内置 GRPO reward：
   - `exact_match`
   - `parse_success`
+  - `grounding_iou`
 - GRPO 明确要求 `data.mix_refresh=static`，避免与 TRL GRPOTrainer 内部的 prompt-repeat sampler 冲突。
 
 ## 6. `pipeline`
@@ -474,6 +477,7 @@
 
 - `ShaftEvalMetric`
 - `ShaftVisualBox`
+- `ShaftVisualLineStrip`
 - `ShaftVisualPoint`
 
 ### 关键函数
@@ -486,6 +490,7 @@
 ### 开发边界
 
 - 允许：轻量在线指标、per-dataset metric 扩展、eval 可视化标注渲染
+  （含 dense zoom mosaic、动态线宽/字号、带方向箭头的 line strip）
 - 禁止：文本解析、数据路由、多阶段业务编排
 
 ## 11. `infer`

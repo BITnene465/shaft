@@ -23,6 +23,7 @@ class GRPOAlgorithm:
         rlhf_config: GRPOConfig = kwargs.pop("rlhf_config")
         training_args = kwargs.pop("args")
         model = kwargs.pop("model")
+        kwargs.pop("finetune_mode", None)
         grpo_args = build_trl_grpo_config(
             train_args=training_args,
             rlhf_config=rlhf_config,

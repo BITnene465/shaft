@@ -3,6 +3,7 @@ from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
 from .dataset import (
     DPODataset,
     DPORecord,
+    GRPODataset,
     PPODataset,
     PPORecord,
     SFTDataset,
@@ -33,6 +34,7 @@ __all__ = [
     "DPODataset",
     "DPORecord",
     "GRPOCollator",
+    "GRPODataset",
     "PPOCollator",
     "PPODataset",
     "PPORecord",

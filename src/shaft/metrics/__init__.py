@@ -3,6 +3,7 @@ from .base import ShaftEvalMetric
 from .registry import EVAL_METRIC_REGISTRY, build_eval_metric, register_eval_metric
 from .visualization import (
     ShaftVisualBox,
+    ShaftVisualLineStrip,
     ShaftVisualizationStyle,
     ShaftVisualPoint,
     render_labeled_visualization,
@@ -13,6 +14,7 @@ __all__ = [
     "EVAL_METRIC_REGISTRY",
     "ShaftEvalMetric",
     "ShaftVisualBox",
+    "ShaftVisualLineStrip",
     "ShaftVisualPoint",
     "ShaftVisualizationStyle",
     "build_eval_metric",

@@ -21,6 +21,7 @@ from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
+from shaft.config import GRPORolloutConfig, GRPOVLLMConfig
 from shaft.algorithms.grpo_rewards import build_grpo_reward_functions
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.model import build_model_meta
@@ -405,6 +406,34 @@ def test_shaft_trainer_uses_custom_components() -> None:
     assert "loss_scale" not in (model.last_forward_kwargs or {})
 
 
+def test_optimizer_summary_is_written_only_on_rank_zero(tmp_path, monkeypatch) -> None:
+    model = _TinyModel()
+    args = TrainingArguments(
+        output_dir=str(tmp_path),
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+    )
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda x: x,
+        loss_name="causal_lm",
+        optimizer_name="adamw_torch",
+        scheduler_name="linear",
+    )
+
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setenv("RANK", "1")
+    with patch("shaft.training.optimizer_mixin.write_resolved_optimizer_summary") as mocked_write:
+        trainer.create_optimizer()
+
+    mocked_write.assert_not_called()
+
+
 def test_shaft_trainer_uses_custom_train_sampler() -> None:
     model = _TinyModel()
     args = TrainingArguments(
@@ -692,14 +721,31 @@ def test_build_trl_grpo_config_from_training_args() -> None:
             train_args=args,
             rlhf_config=ShaftGRPOConfig(
                 beta=0.01,
-                num_generations=4,
-                max_completion_length=96,
-                temperature=0.8,
-                top_p=0.95,
-                top_k=16,
-                min_p=0.05,
-                repetition_penalty=1.1,
-                use_vllm=False,
+                rollout=GRPORolloutConfig(
+                    num_generations=4,
+                    max_completion_length=96,
+                    temperature=0.8,
+                    top_p=0.95,
+                    top_k=16,
+                    min_p=0.05,
+                    repetition_penalty=1.1,
+                    generation_kwargs={"frequency_penalty": 0.1},
+                    cache_implementation="static",
+                    use_transformers_paged=True,
+                ),
+                vllm=GRPOVLLMConfig(
+                    enabled=True,
+                    mode="colocate",
+                    model_impl="transformers",
+                    enable_sleep_mode=True,
+                    gpu_memory_utilization=0.25,
+                    max_model_length=4096,
+                    tensor_parallel_size=1,
+                ),
+                reward_functions=[
+                    GRPORewardConfig(name="parse_success", codec="json_any", weight=0.25),
+                    GRPORewardConfig(name="exact_match", codec="json_any", weight=2.0),
+                ],
             ),
         )
     assert all("push_to_hub_token" not in str(w.message) for w in caught)
@@ -711,6 +757,17 @@ def test_build_trl_grpo_config_from_training_args() -> None:
     assert grpo_args.top_k == 16
     assert grpo_args.min_p == pytest.approx(0.05)
     assert grpo_args.repetition_penalty == pytest.approx(1.1)
+    assert grpo_args.generation_kwargs == {"frequency_penalty": 0.1}
+    assert grpo_args.cache_implementation == "static"
+    assert grpo_args.use_transformers_paged is True
+    assert grpo_args.use_vllm is True
+    assert grpo_args.vllm_mode == "colocate"
+    assert grpo_args.vllm_model_impl == "transformers"
+    assert grpo_args.vllm_enable_sleep_mode is True
+    assert grpo_args.vllm_gpu_memory_utilization == pytest.approx(0.25)
+    assert grpo_args.vllm_max_model_length == 4096
+    assert grpo_args.vllm_tensor_parallel_size == 1
+    assert grpo_args.reward_weights == [0.25, 2.0]
 
 
 def test_shaft_rlhf_trainer_classes_are_importable() -> None:
@@ -727,21 +784,52 @@ def test_build_grpo_reward_functions_supports_exact_match_and_parse_success() ->
         ]
     )
     parse_reward, exact_reward = reward_funcs
+    assert parse_reward.__name__ == "grpo_reward_parse_success"
+    assert exact_reward.__name__ == "grpo_reward_exact_match"
     assert parse_reward(
         completions=['{"ok": 1}', 'not-json'],
         target_text=['{"ok": 1}', '{"ok": 0}'],
-    ) == [0.5, 0.0]
+    ) == [1.0, 0.0]
     assert exact_reward(
         completions=['{"ok": 1}', '{"ok": 0}'],
         target_text=['{"ok": 1}', '{"ok": 1}'],
-    ) == [2.0, 0.0]
+    ) == [1.0, 0.0]
     assert exact_reward(
         completions=[
             [{"role": "assistant", "content": [{"type": "text", "text": '{"ok": 1}'}]}],
             [{"role": "assistant", "content": '{"ok": 0}'}],
         ],
         target_text=['{"ok": 1}', '{"ok": 1}'],
-    ) == [2.0, 0.0]
+    ) == [1.0, 0.0]
+
+
+def test_build_grpo_reward_functions_supports_grounding_iou() -> None:
+    reward_func = build_grpo_reward_functions(
+        [
+            GRPORewardConfig(
+                name="grounding_iou",
+                codec="json_list",
+                weight=2.0,
+            )
+        ]
+    )[0]
+
+    assert reward_func.__name__ == "grpo_reward_grounding_iou"
+
+    rewards = reward_func(
+        completions=[
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"image","bbox_2d":[0,0,100,100]}, {"label":"icon","bbox_2d":[500,500,600,600]}]',
+            "not-json",
+        ],
+        target_text=[
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"image","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+        ],
+    )
+
+    assert rewards == [pytest.approx(1.0), pytest.approx(0.5), 0.0]
 
 
 def test_ppo_requires_explicit_random_reward_opt_in() -> None:

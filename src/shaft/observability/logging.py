@@ -77,11 +77,12 @@ class _RankFilter(logging.Filter):
 def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> None:
     if run_id is not None:
         set_log_context(run_id=run_id)
+    rank = get_rank()
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(getattr(logging, config.level, logging.INFO))
     context_filter = _ContextFilter()
-    rank_filter = _RankFilter(rank=get_rank(), rank_zero_only=config.rank_zero_only)
+    rank_filter = _RankFilter(rank=rank, rank_zero_only=config.rank_zero_only)
 
     if config.fmt == "json":
         formatter: logging.Formatter = _JsonFormatter()
@@ -106,6 +107,11 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
         file_handler.addFilter(rank_filter)
         root.addHandler(file_handler)
 
-    hf_logging.set_verbosity(getattr(logging, config.level, logging.INFO))
+    if config.rank_zero_only and rank != 0:
+        hf_logging.set_verbosity_error()
+        hf_logging.disable_default_handler()
+        hf_logging.disable_progress_bar()
+    else:
+        hf_logging.set_verbosity(getattr(logging, config.level, logging.INFO))
 
     logging.getLogger(__name__).info("logging configured")

@@ -51,8 +51,7 @@ class GRPORewardConfig:
 
 
 @dataclass
-class GRPOConfig:
-    beta: float = 0.0
+class GRPORolloutConfig:
     num_generations: int = 8
     num_generations_eval: int | None = 1
     max_completion_length: int = 256
@@ -61,10 +60,46 @@ class GRPOConfig:
     top_k: int = 0
     min_p: float | None = None
     repetition_penalty: float = 1.0
-    use_vllm: bool = False
+    generation_kwargs: dict[str, Any] = field(default_factory=dict)
+    cache_implementation: str | None = None
+    use_transformers_paged: bool = False
+
+
+@dataclass
+class GRPOVLLMConfig:
+    enabled: bool = False
+    mode: str = "server"  # server | colocate
+    model_impl: str = "vllm"  # vllm | transformers
+    enable_sleep_mode: bool = False
+    structured_outputs_regex: str | None = None
+    server_base_url: str | None = None
+    server_host: str = "0.0.0.0"
+    server_port: int = 8000
+    server_timeout: float = 240.0
+    group_port: int = 51216
+    gpu_memory_utilization: float = 0.3
+    max_model_length: int | None = None
+    tensor_parallel_size: int = 1
+
+
+@dataclass
+class GRPOConfig:
+    beta: float = 0.0
+    rollout: GRPORolloutConfig = field(default_factory=GRPORolloutConfig)
+    vllm: GRPOVLLMConfig = field(default_factory=GRPOVLLMConfig)
     reward_functions: list[GRPORewardConfig] = field(
         default_factory=lambda: [GRPORewardConfig()]
     )
+    # Backward-compatible flat aliases. New configs should use rollout/vllm.
+    num_generations: int | None = None
+    num_generations_eval: int | None = None
+    max_completion_length: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    repetition_penalty: float | None = None
+    use_vllm: bool | None = None
 
 
 @dataclass

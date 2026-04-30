@@ -259,28 +259,73 @@ def build_trl_grpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftGR
             "TRL GRPO config is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
         ) from _GRPO_IMPORT_ERROR
     payload = _normalize_training_args_payload(train_args)
+    rollout_config = copy.deepcopy(rlhf_config.rollout)
+    vllm_config = copy.deepcopy(rlhf_config.vllm)
+    if rlhf_config.num_generations is not None:
+        rollout_config.num_generations = int(rlhf_config.num_generations)
+    if rlhf_config.num_generations_eval is not None:
+        rollout_config.num_generations_eval = int(rlhf_config.num_generations_eval)
+    if rlhf_config.max_completion_length is not None:
+        rollout_config.max_completion_length = int(rlhf_config.max_completion_length)
+    if rlhf_config.temperature is not None:
+        rollout_config.temperature = float(rlhf_config.temperature)
+    if rlhf_config.top_p is not None:
+        rollout_config.top_p = float(rlhf_config.top_p)
+    if rlhf_config.top_k is not None:
+        rollout_config.top_k = int(rlhf_config.top_k)
+    if rlhf_config.min_p is not None:
+        rollout_config.min_p = float(rlhf_config.min_p)
+    if rlhf_config.repetition_penalty is not None:
+        rollout_config.repetition_penalty = float(rlhf_config.repetition_penalty)
+    if rlhf_config.use_vllm is not None:
+        vllm_config.enabled = bool(rlhf_config.use_vllm)
     world_size = int(getattr(train_args, "world_size", 1) or 1)
     base_global_batch = max(1, int(train_args.per_device_train_batch_size) * world_size)
     steps_per_generation = max(1, int(train_args.gradient_accumulation_steps))
-    num_generations = int(rlhf_config.num_generations)
+    num_generations = int(rollout_config.num_generations)
     while (base_global_batch * steps_per_generation) % num_generations != 0:
         steps_per_generation += 1
+    generation_kwargs = dict(rollout_config.generation_kwargs)
     payload.update(
         {
             "beta": float(rlhf_config.beta),
+            "reward_weights": [float(reward.weight) for reward in rlhf_config.reward_functions],
             "num_generations": num_generations,
             "num_generations_eval": (
-                int(rlhf_config.num_generations_eval)
-                if rlhf_config.num_generations_eval is not None
+                int(rollout_config.num_generations_eval)
+                if rollout_config.num_generations_eval is not None
                 else None
             ),
-            "max_completion_length": int(rlhf_config.max_completion_length),
-            "temperature": float(rlhf_config.temperature),
-            "top_p": float(rlhf_config.top_p),
-            "top_k": int(rlhf_config.top_k),
-            "min_p": float(rlhf_config.min_p) if rlhf_config.min_p is not None else None,
-            "repetition_penalty": float(rlhf_config.repetition_penalty),
-            "use_vllm": bool(rlhf_config.use_vllm),
+            "max_completion_length": int(rollout_config.max_completion_length),
+            "temperature": float(rollout_config.temperature),
+            "top_p": float(rollout_config.top_p),
+            "top_k": int(rollout_config.top_k),
+            "min_p": float(rollout_config.min_p) if rollout_config.min_p is not None else None,
+            "generation_kwargs": generation_kwargs or None,
+            "cache_implementation": (
+                str(rollout_config.cache_implementation)
+                if rollout_config.cache_implementation is not None
+                else None
+            ),
+            "use_transformers_paged": bool(rollout_config.use_transformers_paged),
+            "repetition_penalty": float(rollout_config.repetition_penalty),
+            "use_vllm": bool(vllm_config.enabled),
+            "vllm_mode": str(vllm_config.mode),
+            "vllm_model_impl": str(vllm_config.model_impl),
+            "vllm_enable_sleep_mode": bool(vllm_config.enable_sleep_mode),
+            "vllm_structured_outputs_regex": vllm_config.structured_outputs_regex,
+            "vllm_server_base_url": vllm_config.server_base_url,
+            "vllm_server_host": str(vllm_config.server_host),
+            "vllm_server_port": int(vllm_config.server_port),
+            "vllm_server_timeout": float(vllm_config.server_timeout),
+            "vllm_group_port": int(vllm_config.group_port),
+            "vllm_gpu_memory_utilization": float(vllm_config.gpu_memory_utilization),
+            "vllm_max_model_length": (
+                int(vllm_config.max_model_length)
+                if vllm_config.max_model_length is not None
+                else None
+            ),
+            "vllm_tensor_parallel_size": int(vllm_config.tensor_parallel_size),
             "steps_per_generation": steps_per_generation,
         }
     )

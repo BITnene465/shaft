@@ -1,5 +1,14 @@
 from .loader import load_config, load_config_from_payload, load_config_from_text
-from .algorithm import AlgorithmConfig, DPOConfig, GRPOConfig, GRPORewardConfig, PPOConfig, RLHFConfig
+from .algorithm import (
+    AlgorithmConfig,
+    DPOConfig,
+    GRPOConfig,
+    GRPORewardConfig,
+    GRPORolloutConfig,
+    GRPOVLLMConfig,
+    PPOConfig,
+    RLHFConfig,
+)
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import DataConfig, DatasetSourceConfig
 from .model import FinetuneConfig, FreezeConfig, ModelConfig
@@ -25,6 +34,8 @@ __all__ = [
     "FinetuneConfig",
     "GRPOConfig",
     "GRPORewardConfig",
+    "GRPORolloutConfig",
+    "GRPOVLLMConfig",
     "FreezeConfig",
     "LoggingConfig",
     "ModelConfig",

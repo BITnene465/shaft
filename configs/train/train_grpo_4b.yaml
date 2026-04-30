@@ -61,14 +61,17 @@ rlhf:
   enabled: true
   grpo:
     beta: 0.0
-    num_generations: 8
-    num_generations_eval: 1
-    max_completion_length: 128
-    temperature: 1.0
-    top_p: 1.0
-    top_k: 0
-    repetition_penalty: 1.0
-    use_vllm: false
+    rollout:
+      num_generations: 8
+      num_generations_eval: 1
+      max_completion_length: 128
+      temperature: 1.0
+      top_p: 1.0
+      top_k: 0
+      repetition_penalty: 1.0
+    vllm:
+      enabled: false
+      mode: server
     reward_functions:
       - name: exact_match
         codec: json_any

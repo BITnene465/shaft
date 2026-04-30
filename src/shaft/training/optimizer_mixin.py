@@ -9,6 +9,7 @@ from transformers.trainer_callback import PrinterCallback
 
 from shaft.model.finetune_plan import ShaftResolvedFinetunePlan
 from shaft.model.types import ShaftModelAdapter
+from shaft.utils.distributed import is_rank_zero
 
 from .optimizer import build_optimizer_and_plan
 from .optimizer_plan import summarize_resolved_optimizer_plan, write_resolved_optimizer_summary
@@ -78,14 +79,15 @@ class ShaftOptimizerMixin:
                 no_decay_name_patterns=self.no_decay_name_patterns,
             )
             self.resolved_optimizer_summary = summarize_resolved_optimizer_plan(self.resolved_optimizer_plan)
-            write_resolved_optimizer_summary(
-                self.train_args.output_dir,
-                self.resolved_optimizer_summary,
-            )
-            logger.info(
-                "[startup] resolved optimizer groups: %s",
-                self.resolved_optimizer_summary.to_log_dict(),
-            )
+            if is_rank_zero():
+                write_resolved_optimizer_summary(
+                    self.train_args.output_dir,
+                    self.resolved_optimizer_summary,
+                )
+                logger.info(
+                    "[startup] resolved optimizer groups: %s",
+                    self.resolved_optimizer_summary.to_log_dict(),
+                )
         return self.optimizer
 
     def create_scheduler(self, num_training_steps: int, optimizer: torch.optim.Optimizer | None = None):

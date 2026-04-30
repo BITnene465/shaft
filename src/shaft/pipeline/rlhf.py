@@ -13,7 +13,7 @@ from shaft.config import RuntimeConfig
 from shaft.data import (
     DPOCollator,
     DPODataset,
-    GRPOCollator,
+    GRPODataset,
     PPOCollator,
     PPODataset,
     SFTDataset,
@@ -37,6 +37,7 @@ from shaft.training.checkpointing import (
     validate_training_state_policy,
 )
 from shaft.training.distributed import barrier_if_distributed
+from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
@@ -68,8 +69,6 @@ class ShaftRLHFPipeline:
             return DPOCollator(**common_kwargs)
         if algorithm_name == "ppo":
             return PPOCollator(**common_kwargs)
-        if algorithm_name == "grpo":
-            return GRPOCollator(template=artifacts.template)
         raise ValueError(f"Unsupported RLHF algorithm: {algorithm_name!r}.")
 
     def run(self) -> dict[str, Any]:
@@ -94,8 +93,9 @@ class ShaftRLHFPipeline:
                 plan=finetune_plan,
                 model_adapter=artifacts.model_adapter,
             )
-            write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
-            logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
+            if is_rank_zero():
+                write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
+                logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
         data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
         if algorithm_name == "dpo":
             dataset_cls = DPODataset
@@ -106,6 +106,18 @@ class ShaftRLHFPipeline:
         dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
         train_dataset = dataset_bundle.train_dataset
         eval_dataset = dataset_bundle.eval_dataset
+        if algorithm_name == "grpo":
+            grpo_dataset_kwargs = {
+                "template": artifacts.template,
+                "min_pixels": config.data.min_pixels,
+                "max_pixels": config.data.max_pixels,
+            }
+            train_dataset = GRPODataset(train_dataset, **grpo_dataset_kwargs)
+            eval_dataset = (
+                GRPODataset(eval_dataset, **grpo_dataset_kwargs)
+                if eval_dataset is not None
+                else None
+            )
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -125,22 +137,26 @@ class ShaftRLHFPipeline:
         algorithm_extra_kwargs: dict[str, Any] = {}
         if algorithm_name == "ppo":
             algorithm_extra_kwargs["model_meta"] = artifacts.model_meta
-        trainer = algorithm.build_trainer(
-            context=AlgorithmContext(params=dict(config.algorithm.params)),
-            train_config=config.train,
-            rlhf_config=getattr(config.rlhf, algorithm_name),
-            finetune_mode=config.model.finetune.mode,
-            model=artifacts.model,
-            args=self.build_training_args(),
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset if config.eval.enabled else None,
-            train_sampler=dataset_bundle.train_sampler if algorithm_name in {"dpo", "ppo"} else None,
-            processing_class=processing_class,
-            data_collator=self._build_collator(algorithm_name, artifacts=artifacts),
-            callbacks=callbacks_or_none,
-            model_adapter=artifacts.model_adapter,
-            finetune_plan=finetune_plan,
+        trainer_kwargs: dict[str, Any] = {
+            "context": AlgorithmContext(params=dict(config.algorithm.params)),
+            "train_config": config.train,
+            "rlhf_config": getattr(config.rlhf, algorithm_name),
+            "finetune_mode": config.model.finetune.mode,
+            "model": artifacts.model,
+            "args": self.build_training_args(),
+            "train_dataset": train_dataset,
+            "eval_dataset": eval_dataset if config.eval.enabled else None,
+            "train_sampler": dataset_bundle.train_sampler if algorithm_name in {"dpo", "ppo"} else None,
+            "processing_class": processing_class,
+            "callbacks": callbacks_or_none,
+            "model_adapter": artifacts.model_adapter,
+            "finetune_plan": finetune_plan,
             **algorithm_extra_kwargs,
+        }
+        if algorithm_name != "grpo":
+            trainer_kwargs["data_collator"] = self._build_collator(algorithm_name, artifacts=artifacts)
+        trainer = algorithm.build_trainer(
+            **trainer_kwargs,
         )
 
         resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
@@ -156,14 +172,16 @@ class ShaftRLHFPipeline:
         if config.train.save_final_model:
             best_export_dir = resolve_best_export_dir(config.experiment.output_dir)
             trainer.save_model(output_dir=str(best_export_dir))
-            ensure_hf_export_layout(
-                best_export_dir,
-                finetune_mode=config.model.finetune.mode,
-                model_meta=artifacts.model_adapter,
-            )
+            if is_rank_zero():
+                ensure_hf_export_layout(
+                    best_export_dir,
+                    finetune_mode=config.model.finetune.mode,
+                    model_meta=artifacts.model_adapter,
+                )
         if config.train.save_final_state:
             trainer.save_state()
-        prune_root_output_layout(config.experiment.output_dir)
+        if is_rank_zero():
+            prune_root_output_layout(config.experiment.output_dir)
         barrier_if_distributed()
         if train_result is not None and hasattr(train_result, "metrics"):
             return dict(train_result.metrics or {})

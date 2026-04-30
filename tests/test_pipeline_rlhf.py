@@ -8,7 +8,7 @@ import torch
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.data import DPODataset, SFTDataset, ShaftDatasetBundle
+from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.pipeline import run_rlhf
 from shaft.template import build_template
@@ -45,7 +45,8 @@ class _FakeTrainer:
         _ = resume_from_checkpoint
         return _FakeTrainResult()
 
-    def save_model(self):
+    def save_model(self, *args, **kwargs):
+        _ = args, kwargs
         return None
 
     def save_state(self):
@@ -285,6 +286,22 @@ def test_run_rlhf_grpo_smoke(tmp_path: Path) -> None:
     assert "train_loss" in metrics
 
 
+def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
+    cfg = load_config(_write_grpo_config(tmp_path))
+    cfg.train.save_final_model = True
+    cfg.train.save_final_state = True
+
+    with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
+        with patch("shaft.pipeline.rlhf.is_rank_zero", return_value=False):
+            with patch("shaft.pipeline.rlhf.ensure_hf_export_layout") as mocked_ensure:
+                with patch("shaft.pipeline.rlhf.prune_root_output_layout") as mocked_prune:
+                    metrics = run_rlhf(cfg)
+
+    assert "train_loss" in metrics
+    mocked_ensure.assert_not_called()
+    mocked_prune.assert_not_called()
+
+
 def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     fake_train_dataset = object()
@@ -370,7 +387,42 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
                 _ = run_rlhf(cfg)
 
     assert captured["dataset_cls"] is SFTDataset
-    assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
+    assert isinstance(_FakeTrainer.last_kwargs["train_dataset"], GRPODataset)
+    assert _FakeTrainer.last_kwargs["train_dataset"].dataset is fake_train_dataset
     assert "train_sampler" not in _FakeTrainer.last_kwargs
+    assert "finetune_mode" not in _FakeTrainer.last_kwargs
+    assert "data_collator" not in _FakeTrainer.last_kwargs
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
     assert _FakeTrainer.last_kwargs["finetune_plan"] is None
+
+
+def test_grpo_dataset_applies_image_pixel_budget() -> None:
+    image = Image.new("RGB", (100, 50), color=(255, 255, 255))
+
+    class _SingleImageDataset:
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            assert index == 0
+            return {
+                "image": image,
+                "target_text": "{\"ok\":1}",
+                "user_prompt": "return json",
+                "dataset_name": "grpo_ds",
+                "sample_id": "sample-1",
+                "image_path": "/tmp/sample.png",
+                "extra": {},
+            }
+
+    dataset = GRPODataset(
+        _SingleImageDataset(),
+        template=build_template("smoke_vlm"),
+        max_pixels=1000,
+    )
+
+    sample = dataset[0]
+
+    assert sample["image"].size[0] * sample["image"].size[1] <= 1000
+    assert sample["image"].size != image.size
+    assert image.size == (100, 50)

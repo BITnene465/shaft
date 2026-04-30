@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from shaft.codec import CODEC_REGISTRY
+from shaft.metrics.builtin import _coerce_instances, _iou_xyxy
 from shaft.plugins import Registry
 
 GRPO_REWARD_REGISTRY: Registry[Callable[..., list[float]]] = Registry("grpo_reward")
@@ -97,6 +98,76 @@ def grpo_reward_exact_match(
     return rewards
 
 
+def _grounding_iou_reward_value(
+    prediction_value: Any,
+    target_value: Any,
+    *,
+    min_iou: float,
+) -> float:
+    pred_instances = _coerce_instances(prediction_value)
+    target_instances = _coerce_instances(target_value)
+    pred_count = len(pred_instances)
+    target_count = len(target_instances)
+    if pred_count == 0 and target_count == 0:
+        return 1.0
+    if pred_count == 0 or target_count == 0:
+        return 0.0
+
+    candidates: list[tuple[float, int, int]] = []
+    for pred_idx, (pred_label, pred_bbox) in enumerate(pred_instances):
+        for target_idx, (target_label, target_bbox) in enumerate(target_instances):
+            if pred_label and target_label and pred_label != target_label:
+                continue
+            iou = _iou_xyxy(pred_bbox, target_bbox)
+            if iou >= min_iou:
+                candidates.append((iou, pred_idx, target_idx))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    used_pred: set[int] = set()
+    used_target: set[int] = set()
+    matched_iou = 0.0
+    for iou, pred_idx, target_idx in candidates:
+        if pred_idx in used_pred or target_idx in used_target:
+            continue
+        used_pred.add(pred_idx)
+        used_target.add(target_idx)
+        matched_iou += float(iou)
+
+    denominator = max(pred_count, target_count)
+    if denominator <= 0:
+        return 0.0
+    return max(0.0, min(1.0, matched_iou / float(denominator)))
+
+
+@register_grpo_reward("grounding_iou")
+def grpo_reward_grounding_iou(
+    *,
+    prediction_texts: list[str],
+    target_texts: list[str],
+    codec_name: str,
+    **params: Any,
+) -> list[float]:
+    codec = CODEC_REGISTRY.get(codec_name)
+    min_iou = float(params.get("min_iou", 0.0))
+    min_iou = max(0.0, min(1.0, min_iou))
+    rewards: list[float] = []
+    for prediction_text, target_text in zip(prediction_texts, target_texts, strict=True):
+        decoded = codec(str(prediction_text))
+        if not decoded.valid:
+            rewards.append(0.0)
+            continue
+        prediction_value = decoded.parsed if decoded.parsed is not None else decoded.raw_text
+        target_value = _decode_target(str(target_text), codec_name=codec_name)
+        rewards.append(
+            _grounding_iou_reward_value(
+                prediction_value,
+                target_value,
+                min_iou=min_iou,
+            )
+        )
+    return rewards
+
+
 def build_grpo_reward_functions(
     reward_configs: list[Any],
 ) -> list[Callable[..., list[float]]]:
@@ -104,7 +175,6 @@ def build_grpo_reward_functions(
     for reward_config in reward_configs:
         reward_impl = GRPO_REWARD_REGISTRY.get(reward_config.name)
         codec_name = str(reward_config.codec)
-        weight = float(reward_config.weight)
         params = dict(reward_config.params)
 
         def _reward_func(
@@ -113,7 +183,6 @@ def build_grpo_reward_functions(
             target_text,
             _reward_impl=reward_impl,
             _codec_name=codec_name,
-            _weight=weight,
             _params=params,
             **kwargs,
         ):
@@ -123,8 +192,10 @@ def build_grpo_reward_functions(
                 target_texts=[str(text) for text in target_text],
                 codec_name=_codec_name,
                 **_params,
+                **kwargs,
             )
-            return [float(_weight) * float(value) for value in values]
+            return [float(value) for value in values]
 
+        _reward_func.__name__ = f"grpo_reward_{reward_config.name}"
         reward_functions.append(_reward_func)
     return reward_functions

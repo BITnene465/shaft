@@ -453,6 +453,12 @@ eval:
 ### `rlhf.grpo`
 
 - `beta`
+- `rollout`
+- `vllm`
+- `reward_functions`
+
+### `rlhf.grpo.rollout`
+
 - `num_generations`
 - `num_generations_eval`
 - `max_completion_length`
@@ -461,17 +467,39 @@ eval:
 - `top_k`
 - `min_p`
 - `repetition_penalty`
-- `use_vllm`
-- `reward_functions`
+- `generation_kwargs`
+- `cache_implementation`
+- `use_transformers_paged`
+
+### `rlhf.grpo.vllm`
+
+- `enabled`
+- `mode`: `server | colocate`
+- `model_impl`: `vllm | transformers`
+- `enable_sleep_mode`
+- `structured_outputs_regex`
+- `server_base_url`
+- `server_host`
+- `server_port`
+- `server_timeout`
+- `group_port`
+- `gpu_memory_utilization`
+- `max_model_length`
+- `tensor_parallel_size`
 
 说明：
 
+- `rollout` 是 GRPO 采样行为的真源；旧的 flat 字段如 `max_completion_length` 和 `use_vllm` 仍兼容，但新配置应写入 `rollout / vllm`。
+- `vllm.mode=colocate` 表示 vLLM 与训练进程共享同一组 GPU，适合 smoke 或单机资源有限场景；长训更推荐 `server` 模式，把 rollout 服务和训练进程拆开。
+- 对 VLM GRPO，`data.max_pixels` 会在 `GRPODataset` 层先应用到 PIL 图像；否则 TRL/vLLM 会绕过 SFT collator，按原始大图展开过多 multimodal tokens。
+- `vllm.max_model_length` 必须覆盖实际 prompt multimodal tokens 与 `rollout.max_completion_length` 的总长度；`max_completion_length=1024` 只限制生成长度，不限制图像 prompt 长度。
 - 当前 GRPO 复用 `jsonl_sft` 数据格式：
   - prompt 来自 `messages` 或 `system_prompt + user_prompt`
   - reward target 来自 `target_text`
 - 当前内置 reward 通过 `reward_functions` 配置，支持：
   - `exact_match`
   - `parse_success`
+  - `grounding_iou`
 - 每个 reward function 由以下字段描述：
   - `name`
   - `codec`

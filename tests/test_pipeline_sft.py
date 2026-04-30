@@ -77,7 +77,8 @@ class _FakeTrainer:
         _ = resume_from_checkpoint
         return _FakeTrainResult()
 
-    def save_model(self):
+    def save_model(self, *args, **kwargs):
+        _ = args, kwargs
         return None
 
     def save_state(self):
@@ -168,6 +169,41 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
     assert fake_model.generation_config.top_p == 1.0
     assert fake_model.generation_config.top_k == 50
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
+
+
+def test_run_sft_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.save_final_model = True
+    config.train.save_final_state = True
+    adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": adapter,
+                "template": build_template("smoke_vlm"),
+                "finetune_plan": build_resolved_finetune_plan(
+                    _FakeModel(),
+                    FinetuneConfig(mode="full"),
+                    model_adapter=adapter,
+                ),
+            },
+        )()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            with patch("shaft.pipeline.sft.is_rank_zero", return_value=False):
+                with patch("shaft.pipeline.sft.ensure_hf_export_layout") as mocked_ensure:
+                    with patch("shaft.pipeline.sft.prune_root_output_layout") as mocked_prune:
+                        metrics = run_sft(config)
+
+    assert "train_loss" in metrics
+    mocked_ensure.assert_not_called()
+    mocked_prune.assert_not_called()
 
 
 def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) -> None:
