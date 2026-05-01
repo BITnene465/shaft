@@ -4,7 +4,14 @@ from .checkpointing import (
     validate_resume_checkpoint,
     validate_training_state_policy,
 )
-from .distributed import barrier_if_distributed, get_rank, get_world_size, is_distributed, is_rank_zero
+from .distributed import (
+    barrier_if_distributed,
+    destroy_process_group_if_initialized,
+    get_rank,
+    get_world_size,
+    is_distributed,
+    is_rank_zero,
+)
 from .loss import LOSS_REGISTRY, build_loss, register_loss
 from .muon import Muon
 from .optimizer_mixin import ShaftOptimizerMixin
@@ -43,6 +50,7 @@ __all__ = [
     "ShaftResolvedOptimizerSummary",
     "ShaftSFTTrainer",
     "barrier_if_distributed",
+    "destroy_process_group_if_initialized",
     "build_loss",
     "build_optimizer",
     "build_optimizer_and_plan",

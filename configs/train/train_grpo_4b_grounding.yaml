@@ -51,8 +51,8 @@ train:
   use_cpu: false
   logging_steps: 1
   save_strategy: steps
-  save_steps: 50
-  save_total_limit: 2
+  save_steps: 200
+  save_total_limit: 4
   report_to: ["wandb"]
   load_best_model_at_end: false
   save_final_model: true

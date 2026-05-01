@@ -72,7 +72,7 @@ def grpo_reward_parse_success(
     rewards: list[float] = []
     for text in prediction_texts:
         decoded = codec(str(text))
-        rewards.append(1.0 if decoded.valid else 0.0)
+        rewards.append(1.0 if decoded.valid and not decoded.partial else 0.0)
     return rewards
 
 
@@ -89,7 +89,7 @@ def grpo_reward_exact_match(
     rewards: list[float] = []
     for prediction_text, target_text in zip(prediction_texts, target_texts, strict=True):
         decoded = codec(str(prediction_text))
-        if not decoded.valid:
+        if not decoded.valid or decoded.partial:
             rewards.append(0.0)
             continue
         prediction_value = decoded.parsed if decoded.parsed is not None else decoded.raw_text
@@ -153,7 +153,7 @@ def grpo_reward_grounding_iou(
     rewards: list[float] = []
     for prediction_text, target_text in zip(prediction_texts, target_texts, strict=True):
         decoded = codec(str(prediction_text))
-        if not decoded.valid:
+        if not decoded.valid or decoded.partial:
             rewards.append(0.0)
             continue
         prediction_value = decoded.parsed if decoded.parsed is not None else decoded.raw_text

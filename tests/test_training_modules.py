@@ -790,10 +790,18 @@ def test_build_grpo_reward_functions_supports_exact_match_and_parse_success() ->
         completions=['{"ok": 1}', 'not-json'],
         target_text=['{"ok": 1}', '{"ok": 0}'],
     ) == [1.0, 0.0]
+    assert parse_reward(
+        completions=["["],
+        target_text=["[]"],
+    ) == [0.0]
     assert exact_reward(
         completions=['{"ok": 1}', '{"ok": 0}'],
         target_text=['{"ok": 1}', '{"ok": 1}'],
     ) == [1.0, 0.0]
+    assert exact_reward(
+        completions=["["],
+        target_text=["[]"],
+    ) == [0.0]
     assert exact_reward(
         completions=[
             [{"role": "assistant", "content": [{"type": "text", "text": '{"ok": 1}'}]}],
@@ -820,16 +828,18 @@ def test_build_grpo_reward_functions_supports_grounding_iou() -> None:
         completions=[
             '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
             '[{"label":"image","bbox_2d":[0,0,100,100]}, {"label":"icon","bbox_2d":[500,500,600,600]}]',
+            "[",
             "not-json",
         ],
         target_text=[
             '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
             '[{"label":"image","bbox_2d":[0,0,100,100]}]',
+            "[]",
             '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
         ],
     )
 
-    assert rewards == [pytest.approx(1.0), pytest.approx(0.5), 0.0]
+    assert rewards == [pytest.approx(1.0), pytest.approx(0.5), 0.0, 0.0]
 
 
 def test_ppo_requires_explicit_random_reward_opt_in() -> None:

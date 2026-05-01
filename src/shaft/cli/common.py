@@ -7,6 +7,7 @@ from typing import Any
 from shaft.config import RuntimeConfig, load_config
 from shaft.observability import bind_log_context, configure_logging, set_log_context
 from shaft.pipeline import run_rlhf, run_sft
+from shaft.training.distributed import destroy_process_group_if_initialized
 
 
 def _as_bool(text: str) -> bool:
@@ -143,13 +144,16 @@ def run_from_args(
             raise ValueError(f"Unsupported algorithm={algorithm_name!r}. Allowed: {allowed_sorted}")
         config.algorithm.name = algorithm_name
 
-    with bind_log_context(algorithm=config.algorithm.name):
-        logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
-        if config.algorithm.name == "sft":
-            metrics = run_sft(config)
-        elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
-            metrics = run_rlhf(config)
-        else:
-            raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")
-    logger.info("[done] train metrics: %s", metrics)
-    return metrics
+    try:
+        with bind_log_context(algorithm=config.algorithm.name):
+            logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
+            if config.algorithm.name == "sft":
+                metrics = run_sft(config)
+            elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
+                metrics = run_rlhf(config)
+            else:
+                raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")
+        logger.info("[done] train metrics: %s", metrics)
+        return metrics
+    finally:
+        destroy_process_group_if_initialized()

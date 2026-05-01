@@ -432,3 +432,95 @@ DDP single-writer 语义。
 - DDP 下 run 级元数据必须是 single-writer，优先 rank0 写入。
 - 如果未来确实需要多 rank 分别写文件，文件名必须包含 rank 或使用独立子目录，不能共享固定 tmp 路径。
 - 多卡 smoke 不应只验证 forward/eval，也要覆盖 optimizer 创建和 run-level metadata 写入路径。
+
+## 2026-04-30: GRPO reward 误把 partial JSON 当作完整有效输出
+
+### 现象
+
+检查 grounding GRPO reward 设计时发现，模型如果只输出一个未闭合 JSON 起始符：
+
+```text
+[
+```
+
+`json_list` codec 会将其修复为 partial `[]`。在空目标 hard negative 样本上，
+该输出可以同时拿到 `parse_success=1.0` 和 `grounding_iou=1.0`，形成格式层面的
+reward hacking 空间。
+
+### 根因
+
+GRPO reward 使用 codec 的 `decoded.valid` 判断解析成功，但没有区分
+`decoded.partial`。而 JSON codec 的 lenient repair 是为诊断和容错 eval 服务的，
+不应在训练 reward 中等价为完整正确输出。
+
+### 影响范围
+
+- 影响 GRPO 中使用 JSON codec 的 reward：
+  - `parse_success`
+  - `exact_match`
+  - `grounding_iou`
+- 对 grounding hard negative 样本尤其敏感，因为空目标 `[]` 是合法答案。
+- 这是 reward 语义偏差，不是模型能力问题，也不是 eval metric 的误判。
+
+### 修复
+
+- GRPO reward 只接受 `decoded.valid and not decoded.partial` 的完整解析结果。
+- partial decode 在 `parse_success` 中计为 0。
+- partial decode 在 `exact_match` 和 `grounding_iou` 中直接计为 0，避免修复后的
+  `[]`、`{}` 与目标偶然匹配。
+
+### 回归测试
+
+- `tests/test_training_modules.py::test_build_grpo_reward_functions_supports_exact_match_and_parse_success`
+- `tests/test_training_modules.py::test_build_grpo_reward_functions_supports_grounding_iou`
+
+### 后续防线
+
+- 训练 reward 应比离线诊断 codec 更严格；partial repair 可以用于观测，
+  不应默认给正 reward。
+- Grounding GRPO 监控需要单独记录 `parse_partial_rate`、`pred_empty_rate`、
+  `target_empty_rate`、`positive_pred_empty_rate`，避免只看总 reward。
+- 空目标 hard negative 应按 bucket 单独监控，防止模型通过过度输出空数组提高局部 reward。
+
+## 2026-05-01: DDP 正常结束后仍打印 process group 清理 warning
+
+### 现象
+
+两卡 GRPO 训练完整跑到 `global_step=1526`，最终 checkpoint 与 `best/` 均正常保存，
+但退出阶段打印：
+
+```text
+barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+WARNING: destroy_process_group() was not called before program exit
+```
+
+### 根因
+
+Shaft 在训练结束阶段会调用 distributed barrier，但没有为 NCCL barrier 显式传入当前
+CUDA device id。训练 CLI 退出时也没有显式调用 `torch.distributed.destroy_process_group()`，
+因此 PyTorch 在进程退出阶段提示 process group 未主动销毁。
+
+### 影响范围
+
+- 影响 torchrun/DDP 启动的训练退出日志可读性。
+- 不影响本次训练结果；本次运行已经成功完成并保存最终模型。
+- 该 warning 本身不是 NCCL 通信失败。真正通信失败通常会伴随 timeout、rank 非零退出、
+  `ChildFailedError` 或 barrier hang。
+
+### 修复
+
+- `barrier_if_distributed()` 在 NCCL backend 下显式传入当前 CUDA device id。
+- 新增 `destroy_process_group_if_initialized()`，仅在 distributed 已初始化时执行销毁。
+- 训练 CLI 在 `finally` 中调用销毁 helper，确保成功和异常退出都会清理 process group。
+
+### 回归测试
+
+- `tests/test_distributed_runtime.py::test_barrier_if_distributed_noop_without_dist`
+- `tests/test_distributed_runtime.py::test_barrier_if_distributed_passes_nccl_device_ids`
+- `tests/test_distributed_runtime.py::test_destroy_process_group_if_initialized_calls_dist_destroy`
+
+### 后续防线
+
+- 新增分布式收尾逻辑必须走 `shaft.utils.distributed`，避免各 pipeline 自己直接操作
+  `torch.distributed`。
+- torchrun/DDP smoke 除了检查训练完成，也应关注退出阶段是否还有 NCCL/process group 清理 warning。
