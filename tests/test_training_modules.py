@@ -770,6 +770,27 @@ def test_build_trl_grpo_config_from_training_args() -> None:
     assert grpo_args.reward_weights == [0.25, 2.0]
 
 
+def test_build_trl_grpo_config_sets_bf16_model_init_kwargs() -> None:
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_grpo_config_bf16",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=1,
+        use_cpu=True,
+        report_to=[],
+    )
+    args.bf16 = True
+
+    grpo_args = build_trl_grpo_config(
+        train_args=args,
+        rlhf_config=ShaftGRPOConfig(
+            reward_functions=[GRPORewardConfig(name="parse_success", codec="json_any")]
+        ),
+    )
+
+    assert grpo_args.model_init_kwargs == {"dtype": "bfloat16"}
+
+
 def test_shaft_rlhf_trainer_classes_are_importable() -> None:
     assert isinstance(ShaftDPOTrainer, type)
     assert isinstance(ShaftPPOTrainer, type)
@@ -840,6 +861,38 @@ def test_build_grpo_reward_functions_supports_grounding_iou() -> None:
     )
 
     assert rewards == [pytest.approx(1.0), pytest.approx(0.5), 0.0, 0.0]
+
+
+def test_build_grpo_reward_functions_supports_grounding_det_f1() -> None:
+    reward_func = build_grpo_reward_functions(
+        [
+            GRPORewardConfig(
+                name="grounding_det_f1",
+                codec="json_list",
+                weight=1.0,
+                params={"iou_threshold": 0.5},
+            )
+        ]
+    )[0]
+
+    assert reward_func.__name__ == "grpo_reward_grounding_det_f1"
+
+    rewards = reward_func(
+        completions=[
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"image","bbox_2d":[0,0,100,100]}, {"label":"icon","bbox_2d":[500,500,600,600]}]',
+            '[{"label":"icon","bbox_2d":[500,500,600,600]}]',
+            "[",
+        ],
+        target_text=[
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"image","bbox_2d":[0,0,100,100]}]',
+            '[{"label":"icon","bbox_2d":[0,0,100,100]}]',
+            "[]",
+        ],
+    )
+
+    assert rewards == [pytest.approx(1.0), pytest.approx(2 / 3), 0.0, 0.0]
 
 
 def test_ppo_requires_explicit_random_reward_opt_in() -> None:

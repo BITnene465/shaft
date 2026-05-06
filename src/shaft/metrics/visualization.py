@@ -56,6 +56,7 @@ class ShaftVisualizationStyle:
     medium_density_shapes: int = 40
     high_density_shapes: int = 80
     jpeg_quality: int = 92
+    enable_dense_zoom: bool = False
     dense_region_min_boxes: int = 6
     dense_region_max_panels: int = 6
     dense_region_padding_ratio: float = 0.035
@@ -168,7 +169,7 @@ def render_labeled_visualization(
         canvas = source.resize((width, height), Image.Resampling.LANCZOS)
     else:
         canvas = source.copy()
-    base_canvas = canvas.copy()
+    base_canvas = canvas.copy() if style.enable_dense_zoom else None
 
     draw = ImageDraw.Draw(canvas)
     font = load_annotation_font(
@@ -182,10 +183,14 @@ def render_labeled_visualization(
         for idx, box in enumerate(box_list)
     ]
     scaled_boxes = [item for item in scaled_boxes if item[2] is not None]
-    dense_regions = _find_dense_regions(
-        scaled_boxes=scaled_boxes,
-        image_size=(canvas.width, canvas.height),
-        style=style,
+    dense_regions = (
+        _find_dense_regions(
+            scaled_boxes=scaled_boxes,
+            image_size=(canvas.width, canvas.height),
+            style=style,
+        )
+        if style.enable_dense_zoom
+        else []
     )
     dense_box_indices = {
         box_index for region in dense_regions for box_index in region.box_indices
@@ -262,7 +267,7 @@ def render_labeled_visualization(
         shape_count=shape_count,
     )
 
-    if dense_regions:
+    if dense_regions and base_canvas is not None:
         region_color = (245, 158, 11)
         for region in dense_regions:
             _draw_dashed_rectangle(

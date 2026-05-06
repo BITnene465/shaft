@@ -312,6 +312,7 @@
   - `eval_final_score`
 - `loss_metrics_enabled=true` 时，框架会按 dataset policy 分别计算 teacher-forced loss，并按同一套 `weight` 聚合为 `eval_final_loss`。
 - `online_metrics_enabled=true` 时，框架会按同一套 dataset policy 计算生成式任务指标，并聚合为 `eval_final_score`。
+- 当前在线 eval 支持 SFT 与 GRPO。GRPO 训练侧使用 `GRPODataset` 做 rollout，在线 eval 侧保留原始 SFT 样本结构并复用 `SFTCollator` 生成评估 prompt。
 
 ### 7.1 在线 eval 配置
 
@@ -499,6 +500,7 @@ eval:
 - 当前内置 reward 通过 `reward_functions` 配置，支持：
   - `exact_match`
   - `parse_success`
+  - `grounding_det_f1`
   - `grounding_iou`
 - 每个 reward function 由以下字段描述：
   - `name`

@@ -524,3 +524,236 @@ CUDA device id。训练 CLI 退出时也没有显式调用 `torch.distributed.de
 - 新增分布式收尾逻辑必须走 `shaft.utils.distributed`，避免各 pipeline 自己直接操作
   `torch.distributed`。
 - torchrun/DDP smoke 除了检查训练完成，也应关注退出阶段是否还有 NCCL/process group 清理 warning。
+
+## 2026-05-03: Grounding GRPO 离线最优点早于最终 checkpoint
+
+### 现象
+
+两卡 grounding GRPO 训练完成后，对 SFT baseline 与 GRPO checkpoint 做离线 grounding eval。
+结果显示 `checkpoint-1200` 的 grounding macro F1 略高于 SFT，但最终 `checkpoint-1526`
+和 `best/` 回落，且 `best/` 与 final 指标一致。
+
+### 根因
+
+当前 GRPO 配置未开启 online eval，`load_best_model_at_end=false`，因此 `best/` 不是按
+validation `det_f1` 选择的 best，而是训练结束后的 final save。同时旧 reward 主要由
+`grounding_iou` 驱动，和 offline `det_f1` 并不完全一致；`beta=0.0` 也缺少对 SFT policy
+的 KL 约束，容易在 SFT 已较强时出现后段过优化。
+
+这是训练选择与 reward 对齐问题，不是 offline eval/codec/metric 的误判。
+
+### 影响范围
+
+- 影响 grounding GRPO checkpoint 选择；不能默认使用最终 `best/`。
+- 影响 reward 优化方向；单看 IoU reward 可能掩盖漏检、重复框和 precision/recall 退化。
+- 影响训练监控；没有 online eval 时无法及时发现真实 validation F1 的回落。
+
+### 修复
+
+- GRPO pipeline 支持 `eval.online_metrics_enabled=true`，复用 SFT 的
+  `ShaftOnlineEvalRunner` 做 generation-based validation。
+- GRPO 配置开启 grounding online eval，使用与 SFT 相同的 grounding eval policy 与
+  `max_new_tokens=2048`。
+- 新增 `grounding_det_f1` reward，使训练 reward 直接对齐 offline `det_f1` 的
+  IoU-threshold matching 语义。
+- 新一版 GRPO 配置降低学习率、增加 `beta=0.02`，并把 `grounding_iou` 降为辅助 reward。
+
+### 回归测试
+
+- `tests/test_config_loader.py::test_load_config_supports_grpo_online_eval_dataset_policies`
+- `tests/test_pipeline_rlhf.py::test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets`
+- `tests/test_training_modules.py::test_build_grpo_reward_functions_supports_grounding_det_f1`
+
+### 后续防线
+
+- GRPO 长训必须开启 online eval，并让 `save_steps` 与 `eval_steps` 对齐。
+- grounding reward 应至少包含 parse 完整性、det F1 和 IoU 辅助项，避免只优化局部框 IoU。
+- 若 `best/` 与 final 指标一致，需要确认是否真的启用了 `load_best_model_at_end` 和
+  `metric_for_best_model=eval_final_score`。
+
+## 2026-05-03: Grounding GRPO v2 首步长时间无进度
+
+### 现象
+
+启动两卡 GRPO v2 online eval 训练后，日志停在 `train: 1/1526` 附近。诊断时 rank0
+在 GPU0 上持续 100% 利用率，rank1 占用 GPU1 约 85GB 但 GPU 利用率为 0%，输出目录没有
+checkpoint 写入。
+
+### 根因
+
+本轮把 `rlhf.grpo.beta` 从 0 调到 0.02 后，TRL GRPO 会创建 reference model 用于 KL。
+当前 TRL 的 `create_model_from_path()` 在未显式传 `dtype` 时默认按 `float32` 加载 reference
+model；这与主模型 bf16 训练精度不一致，导致显存占用接近卡容量并明显拖慢首步。
+
+同时训练 rollout 的 `max_completion_length=2048` 会让每个 generation batch 采样更长 completion。
+这应与 online eval 的 `eval.max_new_tokens=2048` 区分；eval 需要和 SFT 对齐，训练 rollout
+不应默认使用同样长的上限。
+
+### 影响范围
+
+- 影响 `beta > 0` 的 GRPO full-finetune 训练，尤其是 colocate vLLM 场景。
+- 不影响 `beta=0` 的旧 run，因为旧配置不会创建 reference model。
+- 不影响 SFT online eval；这是 GRPO ref model 初始化精度与 rollout 长度组合导致的训练性能问题。
+
+### 修复
+
+- GRPO 的 TRL config 装配会根据 `TrainingArguments` 精度设置 `model_init_kwargs.dtype`：
+  - `bf16=true` 时传 `dtype=bfloat16`
+  - `fp16=true` 时传 `dtype=float16`
+- 训练 rollout 的 `max_completion_length` 调回 1024。
+- 保留 online eval 的 `eval.max_new_tokens=2048`，继续与 SFT 的生成评估口径对齐。
+
+### 回归测试
+
+- `tests/test_training_modules.py::test_build_trl_grpo_config_sets_bf16_model_init_kwargs`
+- `tests/test_training_modules.py::test_build_trl_grpo_config_from_training_args`
+
+### 后续防线
+
+- 以后只要 GRPO 开启 `beta > 0`，启动日志里 reference model 不应再出现
+  `default dtype torch.float32`。
+- 训练 rollout 长度和 eval 生成长度必须分开审查；为了监控能力可以让 eval 更长，但训练采样
+  应先按吞吐和 reward 可用性选上限。
+
+## 2026-05-03: GRPO online eval 在 step 200 触发 rollout prepare 报错
+
+### 现象
+
+GRPO v2 训练推进到 step 200 后触发 online eval，两个 rank 同时报错：
+`TypeError: string indices must be integers, not 'str'`。堆栈显示
+`ShaftOnlineEvalRunner.collect_samples()` 调用 `trainer._prepare_inputs(batch)` 后进入了
+TRL `GRPOTrainer._prepare_inputs()`，该函数继续调用 `_generate_and_score_completions()` 并按
+`x["prompt"]` 读取输入。
+
+### 根因
+
+SFT online eval 里 `trainer._prepare_inputs()` 只做标准 HF batch 设备搬运；但 GRPOTrainer
+覆写了同名方法，把它变成训练 rollout 的 generation/scoring 入口，要求输入是 GRPO 样本列表。
+online eval 使用的是 `SFTCollator` 产出的模型输入 dict，两者语义不兼容。
+
+这是 online eval 与 GRPO trainer 方法名复用导致的 trainer 接口误用，不是数据、codec 或 metric
+本身的问题。
+
+### 影响范围
+
+- 影响 `eval.online_metrics_enabled=true` 的 GRPO 训练。
+- 不影响 SFT online eval。
+- 不影响 GRPO step 200 前的训练；报错发生在 `_maybe_log_save_evaluate()` 的 eval 阶段。
+
+### 修复
+
+- `ShaftOnlineEvalRunner` 优先调用 trainer 的 `prepare_online_eval_inputs()` hook。
+- `ShaftGRPOTrainer.prepare_online_eval_inputs()` 显式调用 HF `Trainer._prepare_inputs()`，只做标准
+  batch 准备，绕开 TRL GRPO 的 rollout `_prepare_inputs()`。
+- 没有该 hook 的 trainer 继续走原有 `_prepare_inputs()`，保持 SFT 行为不变。
+
+### 回归测试
+
+- `tests/test_online_eval.py::test_online_eval_runner_uses_online_prepare_hook`
+- `tests/test_pipeline_rlhf.py::test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets`
+
+### 后续防线
+
+- online eval runner 不应直接假设所有 trainer 的 `_prepare_inputs()` 都是 HF 原始语义。
+- 接入新 trainer 时，如果它覆写了 `_prepare_inputs()`、`prediction_step()` 或 dataloader 行为，
+  必须显式确认 online eval 的 batch 准备路径不会触发训练专用逻辑。
+
+## 2026-05-05: raw arrow/layout 标注语义归一与噪声清理
+
+本次把 `data/raw_arrow/json` 统一为 `label=arrow + bbox + linestrip` schema；旧
+`c0-c7` bbox 标签的单/双头、直/曲、实/虚信息进入 `subattr`，新增 connector 数据缺少
+单/双头标注，因此保持 `arrow_type=unknown`。`data/raw_layout/json` 删除了 41 个零宽或零高
+噪声实例，并复查同图内同 label、同 bbox 重复数为 0。
+
+两个 raw 数据目录的当前状态和后续注意事项以各自 README 为维护入口：
+`data/raw_arrow/README.md`、`data/raw_layout/README.md`。
+
+## 2026-05-06: raw_layout/raw_arrow 合并为统一 raw_data 真源
+
+### 现象
+
+原始 layout 和 arrow 标注分散在两套 raw 目录中，同一张图片可能有 layout 层、arrow 层或只存在
+未标注库存图片。继续维护两套 raw 目录会让 split、preview、补标状态和后续派生数据生成出现多处
+状态源。
+
+### 根因
+
+`raw_layout` 和 `raw_arrow` 最初服务不同任务，目录结构和 split 独立；但后续多任务训练与补标流程
+需要以图片为中心管理 layer 覆盖状态。任务级 raw 目录不能表达“该图只标了 arrow、layout 未标”或
+“该图暂未进入任何标注层”的统一状态。
+
+### 影响范围
+
+- raw 真源切换为 `data/raw_data`；旧 `raw_layout` / `raw_arrow` 不再作为新维护入口。
+- 训练派生数据仍按任务读取：arrow 使用 arrow layer，layout 使用 layout layer。
+- `data/` 被 Git 忽略，实际 raw 数据通过共享目录同步；仓库中维护的是数据管理规则和生成代码。
+
+### 修复
+
+- 合并已有 JSON 标注为 instance-centric `shaft.raw_data.v1`：
+  - `annotation.layers` 记录覆盖层，固定按 `layout`、`arrow` 顺序。
+  - `annotation.status` 记录每个 layer 的流程状态。
+  - layout instance 保持 `label + bbox + extra`。
+  - arrow instance 保持 `label + bbox + linestrip + subattr + extra`。
+- 将 layout image-only 库存也写入 `raw_data`，使用
+  `annotation.layers=[]`、`annotation.status={}`、`instances=[]`，作为未来补标库存，
+  不作为任何任务负样本。
+- 按任务生成 split：`arrow_train/val` 和 `layout_train/val`；当前只从已标注 layer 中划分。
+- Preview 改为按 label 生成：`icon`、`image`、`shape`、`arrow`，并复用
+  `shaft.metrics.visualization` 的统一绘制风格。
+- `shaft-data-manager` skill 收口为统一 raw_data 维护入口，原数据增强 skill 并入该 skill。
+
+### 回归测试
+
+- 校验 `raw_data/json` 与 `raw_data/images` 一一对应。
+- 校验旧 layout/arrow instances 与合并后对应 layer 的 instances 完全一致。
+- 校验 split 中每个 stem 都存在 JSON 和图片。
+- 校验 preview 数量与每个 label 出现的 JSON 数一致。
+
+### 后续防线
+
+- 不再从旧 `raw_layout` / `raw_arrow` 目录启动新数据维护任务。
+- 缺失 layer 不能当作负样本；只有 completed layer 且无 instance 才能表示人工确认负样本。
+- raw split 和 preview 只是辅助状态，不替代 `annotation.layers` / `annotation.status`。
+
+## 2026-05-06: SFT arrow/layout/keypoint v2 训练 step 547 OOM 引发 NCCL timeout
+
+### 现象
+
+`train_sft_4b_grounding.yaml` 从旧 SFT best 初始化后，2 卡 full SFT 在 step 547 附近失败。
+rank1 在 `cross_entropy` 分配约 10.94 GiB 时 CUDA OOM；rank0 随后卡在 allreduce，30 分钟后
+NCCL watchdog 报 `WorkNCCL(ALLREDUCE) timeout` 并终止进程组。
+
+### 根因
+
+首要根因是单卡 micro-batch 过大：`per_device_train_batch_size=4` 配合 4B full finetune、
+`max_pixels=1048576` 和长 target 时，loss/logits 计算峰值显存超过 83GB 卡余量。NCCL timeout
+是某个 rank OOM 后其它 rank 继续等待 collective 的连带结果，不是通信链路先异常。
+
+日志里的 `Num examples = 22,196` 是当前 sharded mixed sampler 的单 rank 长度；全局 mix 仍按
+catalog 权重生成约 44,392 条/epoch，不是数据源只剩 keypoint。
+
+### 影响范围
+
+- 影响当前 4B full SFT v2 配置下的训练稳定性。
+- 不表示旧 SFT best checkpoint 损坏。
+- 不表示 DDP/NCCL 本身不可用；OOM 后的 allreduce timeout 是预期连锁失败。
+
+### 修复
+
+- 将训练 micro-batch 从 `per_device_train_batch_size=4` 降到 `2`。
+- 将 `gradient_accumulation_steps` 从 `2` 提到 `4`，保持 global batch size 仍为 16。
+- 将 online eval batch size 从 `8` 降到 `2`，避免 epoch 2 生成式 eval 再次触发显存峰值。
+- 建议重跑时设置 `PYTORCH_ALLOC_CONF=expandable_segments:True`，降低显存碎片导致的边界 OOM 风险。
+
+### 回归测试
+
+- 配置加载检查：确认 batch/accum/eval batch 字段解析为新值。
+- 训练重跑时以前 600 step 为 canary，若通过原失败点，说明本轮 OOM 风险已降低。
+
+### 后续防线
+
+- full finetune + multimodal large pixel budget 不应默认使用 per-device train batch 4。
+- 看到 NCCL timeout 时先检查其它 rank 是否 OOM、异常退出或数据读取失败，再判断通信问题。
+- 训练日志里的 `Num examples` 在 sharded custom sampler 场景下可能是单 rank 视角，数据 mix
+  应用 sampler/global quota 复核。

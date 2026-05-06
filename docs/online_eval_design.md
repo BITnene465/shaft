@@ -66,7 +66,7 @@
 
 ```mermaid
 flowchart TD
-    Trainer["ShaftSFTTrainer.evaluate()"]
+    Trainer["ShaftSFTTrainer.evaluate() / ShaftGRPOTrainer.evaluate()"]
     Runner["Online Eval Runner"]
     Policy["Dataset Eval Policy"]
     Codec["Shared Codec Registry"]
@@ -395,6 +395,7 @@ eval:
 - 共享 codec 层已经独立为 `src/shaft/codec`
 - 在线 eval metric registry 已实现，当前内置 `parse_success`、`parse_partial_rate` 与 `exact_match`
 - dataset eval policy 已接入 `EvalConfig.datasets`
+- 在线 eval runner 已接入 SFT 与 GRPO 的 trainer evaluate 路径
 - `prediction_codec` / `target_adapter` / `metric` 已在配置加载阶段做注册校验
 - dataset-policy eval 统一支持：
   - `eval_final_score`
@@ -409,7 +410,8 @@ eval:
   - `eval_final_loss`
   - `eval_final_score`
 - 若某个 dataset 本次没有样本，会 warning 并跳过，不参与 `final_score`
-- 当前只支持 SFT 的单阶段在线 eval
+- 当前支持 SFT 与 GRPO 的单阶段在线 eval
+- GRPO 训练集会转换为 `GRPODataset` 供 rollout 使用；在线 eval 的命名验证集保留原始 SFT 样本结构，由 `SFTCollator` 生成评估 prompt，避免把 reward/rollout 数据形态泄漏到 eval 层
 
 当前仍未做的部分：
 

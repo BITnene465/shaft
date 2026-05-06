@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3vl-4b-sft-grounding-row-bucket
-  output_dir: outputs/qwen3vl-sft/4b/grounding-row-bucket
+  name: qwen3vl-4b-sft-arrow-layout-keypoint-v2
+  output_dir: outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2
   seed: 42
 
 model:
@@ -40,10 +40,10 @@ data:
   shuffle: true
 
 train:
-  epochs: 10
+  epochs: 4
   max_steps: -1
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 2
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
   gradient_checkpointing: true
   learning_rate: 0.00002
   param_group_lrs:
@@ -80,7 +80,7 @@ train:
 
 eval:
   enabled: true
-  per_device_eval_batch_size: 8
+  per_device_eval_batch_size: 2
   eval_strategy: epoch
   epoch_interval: 2
   eval_steps: 200
@@ -128,7 +128,6 @@ eval:
       metrics:
         - name: parse_success
         - name: parse_partial_rate
-        - name: subattr_fields
         - name: keypoint_pck
           params:
             coordinate_space: normalized_1000

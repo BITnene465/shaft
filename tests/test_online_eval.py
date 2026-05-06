@@ -92,6 +92,20 @@ class _FakeTrainer:
         return inputs
 
 
+class _OnlinePrepareHookTrainer(_FakeTrainer):
+    def __init__(self, batches):
+        super().__init__(batches)
+        self.online_prepare_called = False
+
+    def _prepare_inputs(self, inputs):
+        _ = inputs
+        raise AssertionError("online eval should not call the trainer rollout _prepare_inputs")
+
+    def prepare_online_eval_inputs(self, inputs):
+        self.online_prepare_called = True
+        return inputs
+
+
 class _MappedFakeModel(_FakeModel):
     def generate(self, **kwargs):
         self.generate_kwargs = dict(kwargs)
@@ -224,6 +238,46 @@ def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
     assert "dataset=ds_a" in caplog.text
     assert "dataset=ds_b" in caplog.text
     assert "final_score=0.25" in caplog.text
+
+
+def test_online_eval_runner_uses_online_prepare_hook() -> None:
+    eval_config = EvalConfig(
+        enabled=True,
+        online_metrics_enabled=True,
+        datasets={
+            "ds": EvalDatasetPolicyConfig(
+                prediction_codec="json_object",
+                target_adapter="target_text",
+                target_adapter_params={"codec": "json_object"},
+                metrics=[EvalMetricConfig(name="parse_success")],
+                primary_metric="parse_success",
+                normalizer=EvalNormalizerConfig(type="identity"),
+                weight=1.0,
+            ),
+        },
+    )
+    runner = ShaftOnlineEvalRunner(
+        eval_config=eval_config,
+        prompt_collator=_FakePromptCollator(),
+    )
+    batch = {
+        "input_ids": torch.tensor([[11, 12], [21, 22]], dtype=torch.long),
+        "attention_mask": torch.tensor([[1, 1], [1, 1]], dtype=torch.long),
+        "labels": torch.full((2, 2), -100, dtype=torch.long),
+        "meta": {
+            "dataset_name": ["ds", "ds"],
+            "sample_id": ["a", "b"],
+            "image_path": ["a.png", "b.png"],
+            "target_text": ['{"ok": 1}', '{"ok": 2}'],
+            "extra": [{}, {}],
+        },
+    }
+    trainer = _OnlinePrepareHookTrainer([batch])
+
+    metrics = runner.evaluate(trainer, eval_dataset=object(), metric_key_prefix="eval")
+
+    assert trainer.online_prepare_called is True
+    assert metrics["eval_ds_parse_success"] == pytest.approx(0.5)
 
 
 def test_online_eval_runner_supports_named_eval_datasets() -> None:

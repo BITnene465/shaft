@@ -286,6 +286,7 @@
 - 当前内置 GRPO reward：
   - `exact_match`
   - `parse_success`
+  - `grounding_det_f1`
   - `grounding_iou`
 - GRPO 明确要求 `data.mix_refresh=static`，避免与 TRL GRPOTrainer 内部的 prompt-repeat sampler 冲突。
 

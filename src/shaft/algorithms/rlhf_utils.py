@@ -55,6 +55,28 @@ def _normalize_training_args_payload(train_args: TrainingArguments) -> dict[str,
     return payload
 
 
+def _precision_model_init_kwargs(train_args: TrainingArguments) -> dict[str, object]:
+    if bool(getattr(train_args, "bf16", False)):
+        return {"dtype": "bfloat16"}
+    if bool(getattr(train_args, "fp16", False)):
+        return {"dtype": "float16"}
+    return {}
+
+
+def _set_default_model_init_kwargs(
+    payload: dict[str, object],
+    defaults: dict[str, object],
+) -> None:
+    if not defaults:
+        return
+    model_init_kwargs = payload.get("model_init_kwargs")
+    if model_init_kwargs is None:
+        payload["model_init_kwargs"] = dict(defaults)
+    elif isinstance(model_init_kwargs, dict):
+        for key, value in defaults.items():
+            model_init_kwargs.setdefault(key, value)
+
+
 def build_reference_model(*, model: torch.nn.Module, finetune_mode: str) -> torch.nn.Module | None:
     mode = str(finetune_mode).strip().lower()
     if mode in {"lora", "dora", "qlora"} and callable(getattr(model, "disable_adapter", None)):
@@ -259,6 +281,7 @@ def build_trl_grpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftGR
             "TRL GRPO config is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
         ) from _GRPO_IMPORT_ERROR
     payload = _normalize_training_args_payload(train_args)
+    _set_default_model_init_kwargs(payload, _precision_model_init_kwargs(train_args))
     rollout_config = copy.deepcopy(rlhf_config.rollout)
     vllm_config = copy.deepcopy(rlhf_config.vllm)
     if rlhf_config.num_generations is not None:

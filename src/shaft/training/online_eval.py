@@ -134,7 +134,7 @@ class ShaftOnlineEvalRunner:
                         if not isinstance(meta, dict):
                             raise ValueError("Online eval requires batch meta from collator.")
                         batch.pop("labels", None)
-                        prepared = trainer._prepare_inputs(batch)
+                        prepared = self._prepare_model_inputs(trainer, batch)
                         input_sequence_length = int(prepared["input_ids"].shape[1])
                         generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
                         if isinstance(generated_tokens, tuple):
@@ -232,6 +232,12 @@ class ShaftOnlineEvalRunner:
             return [trainer.get_eval_dataloader(eval_dataset)]
         finally:
             trainer.data_collator = original_collator
+
+    def _prepare_model_inputs(self, trainer: Any, batch: dict[str, Any]) -> dict[str, Any]:
+        prepare_online_eval_inputs = getattr(trainer, "prepare_online_eval_inputs", None)
+        if callable(prepare_online_eval_inputs):
+            return prepare_online_eval_inputs(batch)
+        return trainer._prepare_inputs(batch)
 
     def _build_generation_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {

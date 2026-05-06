@@ -299,8 +299,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         from shaft.metrics import EVAL_METRIC_REGISTRY
         from shaft.training.online_eval import TARGET_ADAPTER_REGISTRY
 
-        if config.algorithm.name != "sft":
-            raise ValueError("eval.online_metrics_enabled is currently only supported for algorithm.name='sft'.")
+        if config.algorithm.name not in {"sft", "grpo"}:
+            raise ValueError(
+                "eval.online_metrics_enabled is currently only supported for "
+                "algorithm.name in {'sft', 'grpo'}."
+            )
         if eval_cfg.do_sample:
             raise ValueError("eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false.")
         for dataset_name, policy in eval_cfg.datasets.items():

@@ -239,7 +239,7 @@ def _build_readme(
         "- `extra`\n\n"
         "`target_text` is a pure JSON array of grounding instances:\n\n"
         "```json\n"
-        "[{\"label\":\"single_arrow\",\"bbox_2d\":[x1,y1,x2,y2]}]\n"
+        "[{\"label\":\"arrow\",\"bbox_2d\":[x1,y1,x2,y2]}]\n"
         "```\n"
     )
 

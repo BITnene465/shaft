@@ -396,6 +396,120 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["finetune_plan"] is None
 
 
+def test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets(tmp_path: Path) -> None:
+    image_path = _write_common_image(tmp_path)
+    train_jsonl = tmp_path / "train_grpo.jsonl"
+    val_jsonl = tmp_path / "val_grpo.jsonl"
+    row = {
+        "image_path": str(image_path),
+        "target_text": "{\"ok\":1}",
+        "user_prompt": "return json",
+    }
+    train_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    val_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    config_path = tmp_path / "config_grpo_eval.yaml"
+    config_path.write_text(
+        f"""
+experiment:
+  name: smoke-grpo-eval
+  output_dir: {tmp_path}/outputs_grpo_eval
+  seed: 7
+model:
+  model_type: smoke_vlm
+  finetune:
+    mode: lora
+    target_modules: ["all-linear"]
+algorithm:
+  name: grpo
+data:
+  datasets:
+    - dataset_name: grpo_ds
+      source_type: jsonl_sft
+      train_path: {train_jsonl}
+      val_path: {val_jsonl}
+  mix_refresh: static
+  num_workers: 0
+  persistent_workers: false
+  pin_memory: false
+train:
+  epochs: 1
+  max_steps: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-3
+  save_strategy: no
+  report_to: ["none"]
+  load_best_model_at_end: false
+  save_final_model: false
+  save_final_state: false
+  bf16: false
+  use_cpu: true
+eval:
+  enabled: true
+  loss_metrics_enabled: false
+  online_metrics_enabled: true
+  metric_for_best_model: eval_final_score
+  datasets:
+    grpo_ds:
+      prediction_codec: json_any
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_any
+      metrics:
+        - name: parse_success
+        - name: exact_match
+      primary_metric: exact_match
+rlhf:
+  enabled: true
+  grpo:
+    num_generations: 2
+    max_completion_length: 8
+    reward_functions:
+      - name: exact_match
+        codec: json_any
+""",
+        encoding="utf-8",
+    )
+    cfg = load_config(config_path)
+    fake_train_dataset = object()
+    fake_eval_dataset = object()
+    fake_eval_datasets_by_name = {"grpo_ds": fake_eval_dataset}
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed):
+            _ = data_config, seed
+
+        def build_dataset_bundle(self, dataset_cls):
+            assert dataset_cls is SFTDataset
+            return ShaftDatasetBundle(
+                train_dataset=fake_train_dataset,
+                eval_dataset=object(),
+                eval_datasets_by_name=fake_eval_datasets_by_name,
+            )
+
+    with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor") as mocked_builder:
+            mocked_builder.return_value = type(
+                "Artifacts",
+                (),
+                {
+                    "model": _FakeModel(),
+                    "tokenizer": _FakeTokenizer(),
+                    "processor": _FakeProcessor(),
+                    "model_meta": build_model_meta("smoke_vlm"),
+                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                    "template": build_template("smoke_vlm"),
+                },
+            )()
+            with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
+                _ = run_rlhf(cfg)
+
+    assert isinstance(_FakeTrainer.last_kwargs["train_dataset"], GRPODataset)
+    assert _FakeTrainer.last_kwargs["eval_dataset"] is fake_eval_datasets_by_name
+    assert _FakeTrainer.last_kwargs["online_eval_runner"] is not None
+    assert _FakeTrainer.last_kwargs["eval_config"] is cfg.eval
+
+
 def test_grpo_dataset_applies_image_pixel_budget() -> None:
     image = Image.new("RGB", (100, 50), color=(255, 255, 255))
 

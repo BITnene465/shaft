@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from shaft.codec import CODEC_REGISTRY
-from shaft.metrics.builtin import _coerce_instances, _iou_xyxy
+from shaft.metrics.builtin import _coerce_instances, _iou_xyxy, _match_instances
 from shaft.plugins import Registry
 
 GRPO_REWARD_REGISTRY: Registry[Callable[..., list[float]]] = Registry("grpo_reward")
@@ -137,6 +137,62 @@ def _grounding_iou_reward_value(
     if denominator <= 0:
         return 0.0
     return max(0.0, min(1.0, matched_iou / float(denominator)))
+
+
+def _grounding_det_f1_reward_value(
+    prediction_value: Any,
+    target_value: Any,
+    *,
+    iou_threshold: float,
+) -> float:
+    pred_instances = _coerce_instances(prediction_value)
+    target_instances = _coerce_instances(target_value)
+    pred_count = len(pred_instances)
+    target_count = len(target_instances)
+    if pred_count == 0 and target_count == 0:
+        return 1.0
+    if pred_count == 0 or target_count == 0:
+        return 0.0
+
+    true_positive, _ = _match_instances(
+        prediction_instances=pred_instances,
+        target_instances=target_instances,
+        threshold=iou_threshold,
+    )
+    precision = true_positive / pred_count if pred_count > 0 else 0.0
+    recall = true_positive / target_count if target_count > 0 else 0.0
+    if precision == 0.0 and recall == 0.0:
+        return 0.0
+    return float(2.0 * precision * recall / (precision + recall))
+
+
+@register_grpo_reward("grounding_det_f1")
+def grpo_reward_grounding_det_f1(
+    *,
+    prediction_texts: list[str],
+    target_texts: list[str],
+    codec_name: str,
+    **params: Any,
+) -> list[float]:
+    codec = CODEC_REGISTRY.get(codec_name)
+    iou_threshold = float(params.get("iou_threshold", 0.5))
+    iou_threshold = max(0.0, min(1.0, iou_threshold))
+    rewards: list[float] = []
+    for prediction_text, target_text in zip(prediction_texts, target_texts, strict=True):
+        decoded = codec(str(prediction_text))
+        if not decoded.valid or decoded.partial:
+            rewards.append(0.0)
+            continue
+        prediction_value = decoded.parsed if decoded.parsed is not None else decoded.raw_text
+        target_value = _decode_target(str(target_text), codec_name=codec_name)
+        rewards.append(
+            _grounding_det_f1_reward_value(
+                prediction_value,
+                target_value,
+                iou_threshold=iou_threshold,
+            )
+        )
+    return rewards
 
 
 @register_grpo_reward("grounding_iou")

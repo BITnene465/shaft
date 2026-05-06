@@ -62,9 +62,9 @@ prompt:
         "image_width": 1000,
         "image_height": 1000,
         "instances": [
-            {"label": "double_arrow", "bbox": [300, 200, 500, 400]},
-            {"label": "single_arrow", "bbox": [50, 50, 450, 450]},
-            {"label": "single_arrow", "bbox": [50, 100, 240, 310]},
+            {"label": "arrow", "bbox": [300, 200, 500, 400]},
+            {"label": "arrow", "bbox": [50, 50, 450, 450]},
+            {"label": "arrow", "bbox": [50, 100, 240, 310]},
         ],
         "extra": {"view_type": "identity"},
     }
@@ -91,9 +91,9 @@ prompt:
 
     target = json.loads(converted["target_text"])
     assert target == [
-        {"label": "single_arrow", "bbox_2d": [50, 50, 450, 450]},
-        {"label": "single_arrow", "bbox_2d": [50, 100, 240, 310]},
-        {"label": "double_arrow", "bbox_2d": [300, 200, 500, 400]},
+        {"label": "arrow", "bbox_2d": [50, 50, 450, 450]},
+        {"label": "arrow", "bbox_2d": [50, 100, 240, 310]},
+        {"label": "arrow", "bbox_2d": [300, 200, 500, 400]},
     ]
     assert converted["extra"]["prompt_id"] == "test.prompt"
     assert converted["extra"]["sort_policy"] == {

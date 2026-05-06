@@ -76,7 +76,7 @@ def test_visualization_draws_visible_boxes_and_labels() -> None:
     assert (0, 0, 0) in colors
 
 
-def test_visualization_adds_zoom_panel_for_dense_box_region() -> None:
+def test_visualization_keeps_dense_boxes_on_base_image_by_default() -> None:
     image = Image.new("RGB", (360, 260), "white")
     boxes = [
         ShaftVisualBox(label="icon", bbox=(40, 40 + index * 18, 62, 55 + index * 18), index=index + 1)
@@ -87,35 +87,11 @@ def test_visualization_adds_zoom_panel_for_dense_box_region() -> None:
     colors = {color for _, color in rendered.getcolors(maxcolors=1_000_000) or []}
     color_counts = {color: count for count, color in rendered.getcolors(maxcolors=1_000_000) or []}
 
-    assert max(rendered.width / rendered.height, rendered.height / rendered.width) < 1.6
-    assert rendered.height > 260
-    assert (245, 158, 11) in colors
+    assert rendered.size == image.size
+    assert (245, 158, 11) not in colors
     assert (0, 180, 120) in colors
-    assert color_counts[(0, 180, 120)] > 3000
-    main_y = (rendered.height - image.height) // 2 if rendered.width > image.width else 0
-    assert rendered.getpixel((40, main_y + 40)) == (255, 255, 255)
-
-
-def test_visualization_lays_out_multiple_zoom_panels_toward_square() -> None:
-    image = Image.new("RGB", (900, 520), "white")
-    boxes: list[ShaftVisualBox] = []
-    for cluster_index, x_start in enumerate((60, 380, 700)):
-        for index in range(7):
-            boxes.append(
-                ShaftVisualBox(
-                    label="icon",
-                    bbox=(x_start, 60 + index * 20, x_start + 24, 76 + index * 20),
-                    index=cluster_index * 10 + index + 1,
-                )
-            )
-
-    rendered = render_labeled_visualization(image, boxes=boxes)
-    aspect = max(rendered.width / rendered.height, rendered.height / rendered.width)
-    color_counts = {color: count for count, color in rendered.getcolors(maxcolors=1_000_000) or []}
-
-    assert aspect < 1.5
-    assert rendered.height > image.height
-    assert color_counts[(245, 158, 11)] > 5000
+    assert color_counts[(0, 180, 120)] > 2000
+    assert rendered.getpixel((40, 40)) in {(0, 0, 0), (0, 180, 120)}
 
 
 def test_visualization_draws_directional_linestrip_arrowheads() -> None:

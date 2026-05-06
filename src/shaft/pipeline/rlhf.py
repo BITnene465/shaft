@@ -16,6 +16,7 @@ from shaft.data import (
     GRPODataset,
     PPOCollator,
     PPODataset,
+    SFTCollator,
     SFTDataset,
     ShaftDataCenter,
 )
@@ -27,7 +28,7 @@ from shaft.plugins import (
     build_hook_manager,
     build_interceptor_manager,
 )
-from shaft.training import ShaftProgressCallback
+from shaft.training import ShaftOnlineEvalRunner, ShaftProgressCallback
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,
@@ -105,7 +106,20 @@ class ShaftRLHFPipeline:
             dataset_cls = SFTDataset
         dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
         train_dataset = dataset_bundle.train_dataset
-        eval_dataset = dataset_bundle.eval_dataset
+        eval_dataset: Any = dataset_bundle.eval_dataset
+        use_named_eval_datasets = bool(
+            algorithm_name == "grpo"
+            and config.eval.enabled
+            and dataset_bundle.eval_datasets_by_name
+            and config.eval.datasets
+            and (
+                config.eval.loss_metrics_enabled
+                or config.eval.online_metrics_enabled
+                or config.eval.metric_for_best_model in {"eval_final_loss", "eval_final_score"}
+            )
+        )
+        if use_named_eval_datasets:
+            eval_dataset = dataset_bundle.eval_datasets_by_name
         if algorithm_name == "grpo":
             grpo_dataset_kwargs = {
                 "template": artifacts.template,
@@ -113,11 +127,10 @@ class ShaftRLHFPipeline:
                 "max_pixels": config.data.max_pixels,
             }
             train_dataset = GRPODataset(train_dataset, **grpo_dataset_kwargs)
-            eval_dataset = (
-                GRPODataset(eval_dataset, **grpo_dataset_kwargs)
-                if eval_dataset is not None
-                else None
-            )
+            if eval_dataset is not None and not (
+                config.eval.online_metrics_enabled and use_named_eval_datasets
+            ):
+                eval_dataset = GRPODataset(eval_dataset, **grpo_dataset_kwargs)
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
         if config.progress.enabled:
@@ -130,6 +143,25 @@ class ShaftRLHFPipeline:
         if hook_manager.hooks:
             callbacks.append(TrainerHookCallback(hook_manager))
         callbacks_or_none = callbacks or None
+        online_eval_runner = None
+        if algorithm_name == "grpo" and config.eval.enabled and config.eval.online_metrics_enabled:
+            online_eval_runner = ShaftOnlineEvalRunner(
+                eval_config=config.eval,
+                prompt_collator=SFTCollator(
+                    model_adapter=artifacts.model_adapter,
+                    template=artifacts.template,
+                    processor=artifacts.processor,
+                    tokenizer=artifacts.tokenizer,
+                    min_pixels=config.data.min_pixels,
+                    max_pixels=config.data.max_pixels,
+                    add_eos_token=config.data.add_eos_token,
+                    include_targets_in_inputs=False,
+                    padding_side="left",
+                ),
+                progress_enabled=config.progress.enabled,
+                progress_leave=config.progress.leave,
+                progress_mininterval=config.progress.mininterval,
+            )
 
         algorithm_cls = ALGORITHM_REGISTRY.get(algorithm_name)
         algorithm = algorithm_cls()
@@ -153,6 +185,9 @@ class ShaftRLHFPipeline:
             "finetune_plan": finetune_plan,
             **algorithm_extra_kwargs,
         }
+        if algorithm_name == "grpo":
+            trainer_kwargs["online_eval_runner"] = online_eval_runner
+            trainer_kwargs["eval_config"] = config.eval
         if algorithm_name != "grpo":
             trainer_kwargs["data_collator"] = self._build_collator(algorithm_name, artifacts=artifacts)
         trainer = algorithm.build_trainer(

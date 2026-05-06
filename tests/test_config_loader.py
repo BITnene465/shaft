@@ -528,6 +528,50 @@ eval:
     assert policy.normalizer.type == "identity"
 
 
+def test_load_config_supports_grpo_online_eval_dataset_policies(tmp_path: Path) -> None:
+    payload = """
+algorithm:
+  name: grpo
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_sft
+      train_path: train.jsonl
+      val_path: val.jsonl
+  mix_refresh: static
+train:
+  load_best_model_at_end: false
+eval:
+  enabled: true
+  loss_metrics_enabled: false
+  online_metrics_enabled: true
+  metric_for_best_model: eval_final_score
+  greater_is_better: true
+  datasets:
+    ds1:
+      prediction_codec: json_object
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_object
+      metrics:
+        - name: parse_success
+        - name: exact_match
+      primary_metric: exact_match
+rlhf:
+  grpo:
+    reward_functions:
+      - name: exact_match
+        codec: json_object
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    cfg = load_config(config_path)
+    assert cfg.algorithm.name == "grpo"
+    assert cfg.eval.online_metrics_enabled is True
+    assert cfg.eval.metric_for_best_model == "eval_final_score"
+    assert "ds1" in cfg.eval.datasets
+
+
 def test_online_eval_requires_policy_for_each_dataset(tmp_path: Path) -> None:
     payload = """
 algorithm:
