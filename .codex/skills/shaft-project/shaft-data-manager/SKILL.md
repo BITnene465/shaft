@@ -23,6 +23,7 @@ preparation from the data side.
    - General grounding augmentation: `references/augmentation-grounding.md`
    - Layout grounding rules: `references/layout-grounding.md`
    - Arrow grounding rules: `references/arrow-grounding.md`
+   - Model-assisted prelabeling: `references/prelabeling.md`
    - Preview policy: `references/preview.md`
    - Derived structured/SFT rebuilds: `references/derived-datasets.md`
    - Data catalog usage from the data-prep side: `references/data-center.md`
@@ -43,6 +44,8 @@ preparation from the data side.
 - Do not mix train-only augmentation into validation data.
 - Do not leave temporary scripts behind. If a script should persist, place it under
   `scripts/tasks/` as a maintained entry.
+- Prelabeling outputs are review artifacts, not raw truth. Keep them under `temp/task*` or another
+  explicit handoff directory until a human imports them into raw annotations.
 - Keep rich annotation details in raw `extra` or `subattr`; do not copy that raw metadata into
   derived structured/SFT rows unless it is directly consumed by training or needed as a minimal
   source id.

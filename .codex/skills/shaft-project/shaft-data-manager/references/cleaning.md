@@ -23,6 +23,12 @@ Use cleaning to make the raw annotation truth consistent before building derived
 - Same basename across incoming datasets: inspect source paths and image identity before merging.
 - Same image with different task labels can coexist when the labels represent different domains
   or annotation layers.
+- For image-level dedupe, use perceptual hash as the primary criterion instead of exact content
+  hash. Different resolutions or encodings can still be duplicates for this project when the
+  visual content is the same or extremely similar. Use pHash Hamming distance `<= 6` as the
+  default near-duplicate threshold. Record aHash and wHash distances for auxiliary confirmation:
+  same-threshold agreement strengthens the duplicate candidate, while disagreement keeps the pair
+  in review-only unless the user explicitly approves merging.
 
 ## Output
 

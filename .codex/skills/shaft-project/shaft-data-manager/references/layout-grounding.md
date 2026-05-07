@@ -4,7 +4,8 @@ Use this for layout layers inside unified `raw_data` and for derived `grounding_
 
 ## Raw Input
 
-- Typical raw input is `data/raw_data/json` plus `data/raw_data/images`.
+- Typical maintained layout input is `data/raw_data/part1/json` plus
+  `data/raw_data/part1/images`.
 - Layout-labeled samples are JSON entries whose `annotation.layers` include `layout`.
 - Current maintained layout labels are `icon`, `image`, and `shape`.
 - Current maintained raw schema is `shaft.raw_data.v1`.
@@ -23,7 +24,8 @@ Use this for layout layers inside unified `raw_data` and for derived `grounding_
 ## Derived Grounding Policy
 
 - Split before augmentation. Prefer `data/raw_data/splits/layout_train.txt` and
-  `data/raw_data/splits/layout_val.txt` for layout derivation.
+  `data/raw_data/splits/layout_val.txt` for layout derivation. Split entries are
+  raw-data-relative JSON paths such as `part1/json/gemini_0001.json`, not bare stems.
 - Validation uses full-image only.
 - Train keeps full images and may add large density/sliding crops plus controlled hard negatives.
 - Use large crop sizes by default: 896, 1024, 1152, 1280.

@@ -4,7 +4,7 @@ Use this for arrow layers inside unified `raw_data` and for derived `grounding_a
 
 ## Raw Schema
 
-Current unified raw arrow annotations live in `data/raw_data/json` entries whose
+Current unified raw arrow annotations live in `data/raw_data/part1/json` entries whose
 `annotation.layers` include `arrow`. Arrow instances use:
 
 - each instance has `label: "arrow"`

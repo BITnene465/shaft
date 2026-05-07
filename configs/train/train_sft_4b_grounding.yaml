@@ -29,7 +29,7 @@ algorithm:
 data:
   catalog_path: ../data/arrow.yaml
   catalog_names: [grounding_arrow, grounding_layout, keypoint_arrow, grounding_arrow_syn_avg]
-  mix_strategy: interleave_under
+  mix_strategy: concat
   mix_refresh: epoch_refresh
   num_workers: 12
   pin_memory: true
@@ -40,7 +40,7 @@ data:
   shuffle: true
 
 train:
-  epochs: 4
+  epochs: 3
   max_steps: -1
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 4
@@ -67,7 +67,7 @@ train:
   bf16: true
   logging_steps: 50
   save_strategy: epoch
-  save_epoch_interval: 2
+  save_epoch_interval: 1
   save_steps: 200
   save_total_limit: 6
   load_best_model_at_end: true
@@ -80,14 +80,14 @@ train:
 
 eval:
   enabled: true
-  per_device_eval_batch_size: 2
+  per_device_eval_batch_size: 1
   eval_strategy: epoch
-  epoch_interval: 2
+  epoch_interval: 1
   eval_steps: 200
   loss_metrics_enabled: false
   do_sample: false
   temperature: 0.0
-  max_new_tokens: 2048
+  max_new_tokens: 4096
   online_metrics_enabled: true
   metric_for_best_model: eval_final_score
   greater_is_better: true
