@@ -226,7 +226,29 @@ sequenceDiagram
 - codec 是文本输出的结构化解码器，不负责训练时数据规约。
 - `backend_options` 是后端透传区，不应该变成模型专属大杂烩配置。
 
-## 7. 在线 Eval 边界
+## 7. Eval Bench 子项目边界
+
+`projects/eval_bench` 是 Shaft 仓库内的评测工作台子项目，用于管理离线 benchmark、评测运行、预测快照、指标、报告、可视化和后续排行榜。它不属于 `src/shaft` 训练/推理主链，也不维护独立依赖真源；依赖统一放在根目录 `pyproject.toml` 的 `eval-bench` extra 中。
+
+边界约定：
+
+- Eval Bench 是 dashboard-first 的内部系统：FastAPI 提供 API 和静态入口，React/Vite/TanStack/Radix 前端负责 benchmark、run、queue、comparison 等视图。
+- Eval Bench 不复用当前 online eval 数据流；它从 `raw_data` 验证 split 复制一份 benchmark 到 `eval_bench_store/benchmarks/` 后再运行评测。
+- Eval Bench 按企业级任务平台拆成 Control Plane、Execution Plane 和 Artifact Plane：
+  - Control Plane 由 Dashboard API、SQLite registry、job manifest、service registry、preflight 和状态机组成。
+  - Execution Plane 由 worker 领取 job，按 manifest 启动一次性 runtime 或连接已有 service，执行推理、解析、评估和 artifact 落盘。
+  - Artifact Plane 是 `eval_bench_store/` 中的 benchmark copy、run manifest、prediction snapshot、raw output、runtime log、report、comparison 和 trash。
+- Eval Bench 使用 `eval_bench_store/db/eval_bench.sqlite` 记录持久化 job；第一版正式支持 manifest-driven `eval_job`。Job manifest 由 `runtime` 和 `eval` 两块组成，前端只提供模板初始值，用户可以自由增加、删除或修改字段；提交前后端 preflight 会检查 benchmark/model/task/prompt，展示 vLLM 命令，并把未知 `runtime.args` 作为 CLI flags 保留。
+- `runtime.mode=ephemeral` 表示 job 自己启动一个短生命周期 vLLM OpenAI server，等待 ready 后执行 eval，结束或失败后关闭该进程，日志写入 `runs/<run_id>/logs/runtime.log`。`runtime.mode=existing_service` 表示 job 连接已有 endpoint，不负责启停服务。
+- Eval Bench 使用同一 SQLite store 管理长期 model service registry。Services 页可以登记外部 vLLM endpoint，也可以登记本地 vLLM OpenAI server 的 CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数；本地服务通过当前 `.venv` 的 Python 以 `python -m vllm.entrypoints.openai.api_server` 启动，日志写入 `eval_bench_store/services/<service_id>/service.log`，并提供 Start/Stop API。长期 vLLM 属于 Service，一次性 vLLM 属于 Job runtime，生命周期不能混用。
+- `src/shaft/infer`、`src/shaft/codec`、`src/shaft/metrics` 继续作为推理、解析、指标能力真源。
+- Eval Bench 负责把一次推理运行落成 raw-data-like prediction snapshot，并记录 `model_id`、模型路径、prompt ID/path/hash、prompt 文本快照、推理参数、job manifest、runtime/service 参数、创建时间、耗时、parser 信息等溯源元数据；这些字段是 run manifest 的一等快照，并在 dashboard 的 Run Inspector 中展示。
+- metric、preview、report、comparison 和样本级可视化只消费 benchmark、prediction snapshot 和 eval spec，不反向耦合训练内核或训练数据 catalog；预测结果和 test/GT 的对比统一走 benchmark copy + run prediction snapshot：benchmark copy 可以通过 `create-benchmark` 或 dashboard Benchmarks 页创建；`evaluate-run` 根据 run manifest 绑定的 benchmark split 读取 GT，再读取 `runs/<run_id>/predictions/`，计算 TP/FP/FN、IoU、per-label 指标和样本级诊断。外部预测目录通过 `import-predictions` 或 dashboard Runs 页的 `Import prediction snapshot` 导入为标准 run，它按 benchmark split 的相对路径、image path 或 basename 对齐 prediction JSON，导入后默认立即评估。当前已有 benchmark inspector 直接浏览 copied GT，dashboard 的 run 列表读取 `reports/summary.json` 的核心指标，run inspector 读取 `reports/metrics.json` 中的样本级 TP/FP/FN 诊断并结合 GT JSON、prediction snapshot 做交互式叠图检查。Run Inspector 以图像画布为主区域，支持 query chip 过滤、sample 序号直接跳转、`[`/`]` 快速切样本、图层显隐、对象 hover/click 高亮、可见标签 metric 聚合、滚轮缩放和拖拽平移；配置、prompt 和 label metric 明细默认折叠，避免低频信息挤占视觉检查空间。Runs/Jobs/Services 页提供 run 归档/删除、job 取消/删除、service 删除等管理入口，删除默认进入 `eval_bench_store/trash/`。Compare 页读取 `compare-runs`/`/api/comparisons` 的持久化报告做新旧 run 的整体 delta、已保存 comparison 查询、top case 跳转和并排样本对比。
+- 持久化目录默认是 `eval_bench_store/`，不写入训练 checkpoint 目录 `outputs/`。
+
+入口脚本是 `scripts/eval_bench.py`，只做薄包装：把 `projects/eval_bench` 加入 `sys.path` 并调用子项目 CLI。
+
+## 8. 在线 Eval 边界
 
 Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
@@ -261,25 +283,25 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
 - [docs/online_eval_design.md](online_eval_design.md)
 
-## 8. Web UI 边界
+## 9. Web UI 边界
 
 Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内核层的一部分。
 
-### 8.1 定位
+### 9.1 定位
 
 - 面向工程师与科研人员
 - 第一版只覆盖 `SFT` 训练
 - 目标是让 `YAML` 编辑、训练启动和日志查看更顺手
 - 不作为第二套训练系统
 
-### 8.2 当前实现方式
+### 9.2 当前实现方式
 
 - 采用 `FastAPI + Jinja2 + 原生静态资源`
 - 通过生成 `YAML` 后调用现有 `scripts/train.py sft`
 - 训练真入口仍然是 CLI
 - Web UI 只负责表单、预览、状态和日志
 
-### 8.3 明确边界
+### 9.3 明确边界
 
 1. 不在 Web UI 中复制训练内核逻辑。
 2. 不在 Web UI 中引入新的配置语义。
@@ -287,7 +309,7 @@ Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内
 4. 不从 Web UI 直接调用底层训练组件作为长期主入口。
 5. 不在第一版里把推理、导出、RLHF 一并展开。
 
-### 8.4 当前建议的关系图
+### 9.4 当前建议的关系图
 
 ```mermaid
 flowchart LR
@@ -298,9 +320,9 @@ flowchart LR
     Logs --> WebUI
 ```
 
-## 9. 稳定接口与演进接口
+## 10. 稳定接口与演进接口
 
-### 9.1 当前建议视为稳定的接口
+### 10.1 当前建议视为稳定的接口
 
 - `RuntimeConfig` 及其一级配置块
 - `ShaftDataCenter`
@@ -311,23 +333,23 @@ flowchart LR
 - `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
 - `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
 
-### 9.2 当前不应在外部承诺长期稳定的接口
+### 10.2 当前不应在外部承诺长期稳定的接口
 
 - PPO 运行时细节与限制条件
 - interceptor 的 `point` 字符串全集
 - 单个模型族的细粒度 `processor_kwargs`
 - 临时 smoke model / smoke template 能力
 
-## 10. 当前明确受限的能力
+## 11. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
 - 当前只有 `qwen3vl` 是正式模型族实现，`smoke_vlm` 仅用于测试。
-- 结构化任务评估已支持轻量在线 metric，但独立离线评估子系统仍未形成。
+- 结构化任务评估已支持轻量在线 metric；离线 Eval Bench 已具备 benchmark copy、benchmark inspector、持久化 job、vLLM OpenAI worker、metric report、画布优先 run inspector、leaderboard、pairwise comparison 和基础任务管理能力。后续重点是继续扩展真实生产 run 的长期归档、更多任务 metric profile 和更丰富的批量筛查工具。
 - 发布到 Hub 的工具链尚未开始。
 
-## 11. 架构约束清单
+## 12. 架构约束清单
 
-### 11.1 允许
+### 12.1 允许
 
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
@@ -339,7 +361,7 @@ flowchart LR
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 
-### 11.2 禁止
+### 12.2 禁止
 
 1. 在 `training` 中解析 JSONL 或图像路径。
 2. 在 `data` 中写 loss、optimizer、scheduler。
@@ -348,7 +370,7 @@ flowchart LR
 5. 在 `infer` 中维护私有 codec 逻辑而不与共享 codec 收敛。
 6. 在 `export` 中引入自定义模型目录格式。
 
-## 12. 相关文档
+## 13. 相关文档
 
 - [docs/README.md](README.md)
 - [docs/module_reference.md](module_reference.md)

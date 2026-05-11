@@ -32,6 +32,9 @@ uv pip install -e ".[train,rlhf]"
 
 # 部署 / vLLM
 uv pip install -e ".[serve]"
+
+# 离线 Eval Bench
+uv pip install -e ".[eval-bench]"
 ```
 
 ## 统一入口
@@ -62,6 +65,30 @@ python scripts/export.py merge-peft \
   --base-model /path/to/base_model \
   --output-dir /path/to/merged_model
 ```
+
+### Eval Bench
+
+```bash
+python scripts/eval_bench.py --help
+python scripts/eval_bench.py serve-dashboard --host 127.0.0.1 --port 8765
+```
+
+Dashboard 当前提供 benchmark、job queue、run/report 列表和交互式 run inspector；
+inspector 直接读取 benchmark GT 与 prediction snapshot，在原图上叠加 GT / Prediction
+实例，支持 label 过滤、图层显隐、对象 hover/click 高亮、滚轮缩放和拖拽平移，主视图按图像工作台设计，低频配置和明细默认折叠，便于检查
+漏检、误检和解析问题。Compare 页支持排行榜、run 成对 delta、top 改善/退化
+样本列表和并排样本对比，用于比较新旧权重或 prompt/推理参数变更。每个 run 会持久化
+模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget 和 vLLM 服务参数，
+并在 Run Inspector 顶部按需展开，便于复盘一次评测到底用了什么配置。
+Benchmarks 页可以从 raw_data split 创建 benchmark copy。
+Run Inspector 和 Benchmark Inspector 都支持直接输入 sample 序号跳转。
+Runs 页也可以把外部预测 JSON 目录导入为标准 run，并立即和对应 benchmark/test GT
+评估对比。
+Services 页可以登记外部 vLLM endpoint 或本地 vLLM OpenAI server 配置；本地服务会保存
+CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数，并提供 Start/Stop
+入口。Job 创建采用 manifest 模板 + 自由 JSON 编辑 + preflight 校验；一次性 vLLM runtime
+由 eval job 自己启动和关闭，长期 vLLM service 则在 Services 页独立管理，避免任务生命周期
+和常驻服务生命周期混在一起。
 
 说明：
 
@@ -138,6 +165,7 @@ data:
 - `src/shaft/export`：HF 兼容导出工具链
 - `src/shaft/plugins`：registry、hook、interceptor
 - `src/shaft/observability`：logging、context、events
+- `projects/eval_bench`：离线评测工作台子项目，管理 benchmark copy、run manifest、prediction snapshot、报告、对比与可视化
 
 ## 文档
 
@@ -156,6 +184,7 @@ data:
 - [docs/infer.md](docs/infer.md)
 - [docs/export.md](docs/export.md)
 - [docs/webui.md](docs/webui.md)
+- [projects/eval_bench/README.md](projects/eval_bench/README.md)
 
 ## 测试
 

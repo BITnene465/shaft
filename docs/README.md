@@ -28,6 +28,10 @@
   - 单阶段在线 eval 设计说明
   - 多数据集、多任务、共享 codec、final score 设计
 
+- [../projects/eval_bench/README.md](../projects/eval_bench/README.md)
+  - 离线 Eval Bench 子项目说明
+  - benchmark copy、prediction snapshot、run manifest、pairwise comparison、持久化目录边界
+
 ## 2. 开发与扩展
 
 - [development_workflow.md](development_workflow.md)
@@ -47,6 +51,7 @@
 - [scripts.md](scripts.md)
   - `scripts/` 目录的正式使用说明
   - 顶层入口脚本与 `scripts/tasks/` 的稳定接口
+  - 包含 `scripts/eval_bench.py` 入口说明
 
 - [infer.md](infer.md)
   - 推理子系统设计

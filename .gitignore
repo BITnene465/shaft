@@ -24,6 +24,7 @@ old/
 /outputs/
 /data/
 /wandb/
+/eval_bench_store/
 /temp/
 /runs/
 experimental/

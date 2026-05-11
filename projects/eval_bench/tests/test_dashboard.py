@@ -1,0 +1,741 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from eval_bench import services as services_module
+from eval_bench.dashboard import create_app
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _wait_for_job_status(client: TestClient, job_id: str, status: str) -> dict:
+    deadline = time.monotonic() + 5
+    latest: dict | None = None
+    while time.monotonic() < deadline:
+        jobs = client.get("/api/jobs").json()["jobs"]
+        latest = next((job for job in jobs if job["job_id"] == job_id), None)
+        if latest and latest["status"] == status:
+            return latest
+        time.sleep(0.05)
+    raise AssertionError(f"job {job_id} did not reach status={status!r}: {latest}")
+
+
+def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
+    benchmark_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\npart1/json/b.json\n", encoding="utf-8")
+    _write_json(
+        benchmark_manifest,
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection", "keypoint"],
+            "layers": ["layout", "arrow"],
+            "split": "val",
+            "sample_count": 2,
+            "root": str(tmp_path / "benchmarks" / "multitask_val_v1" / "data"),
+            "manifest_path": str(split_manifest),
+            "created_at": "2026-05-09T00:00:00Z",
+        },
+    )
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "run_id": "run1",
+            "status": "succeeded",
+            "created_at": "2026-05-09T00:10:00Z",
+            "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+            "benchmark": {
+                "benchmark_id": "multitask_val_v1",
+                "root": str(tmp_path / "benchmarks" / "multitask_val_v1" / "data"),
+                "split": "val",
+                "tasks": ["detection", "keypoint"],
+            },
+            "spec": {"task": "detection"},
+        },
+    )
+    _write_json(
+        tmp_path / "runs" / "run1" / "predictions" / "part1" / "json" / "a.json",
+        {"image": "part1/images/a.png", "instances": [], "metadata": {}},
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    health = client.get("/api/health").json()
+    assert health["ok"] is True
+    assert health["frontend_built"] is False
+    assert health["scheduler_enabled"] is False
+    assert client.get("/api/scheduler/status").json()["enabled"] is False
+
+    initial_logs = client.get("/api/logs/backend").json()
+    assert initial_logs["log_path"].endswith("backend.log")
+    assert isinstance(initial_logs["lines"], list)
+
+    state = client.get("/api/state").json()
+    assert state["benchmark_count"] == 1
+    assert state["run_count"] == 1
+    assert state["prediction_count"] == 1
+    assert state["benchmarks"][0]["layers"] == ["layout", "arrow"]
+    assert state["runs"][0]["model_id"] == "model-a"
+
+    assert client.get("/api/benchmarks").json()["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
+    assert client.get("/api/runs").json()["runs"][0]["run_id"] == "run1"
+    assert client.get("/api/jobs").json()["jobs"] == []
+    templates = client.get("/api/job-templates").json()["templates"]
+    assert "eval_job" in templates
+    assert "preannotate_job" not in templates
+    prompt_templates = client.get("/api/prompt-templates").json()
+    assert "grounding_layout.latest" in prompt_templates["by_id"]
+    saved_prompt = client.post(
+        "/api/prompt-templates",
+        json={
+            "prompt_id": "custom.layout",
+            "label": "Custom Layout",
+            "task": "detection",
+            "system_prompt": "JSON only.",
+            "user_prompt": "Detect icons.",
+            "parser": "raw_data_detection_v1",
+            "metric_profile": "detection_iou_v1",
+            "generation": {"max_tokens": 2048},
+            "data": {"max_pixels": 123456},
+        },
+    )
+    assert saved_prompt.status_code == 201
+    assert saved_prompt.json()["prompt_id"] == "custom.layout"
+
+    model_path = tmp_path / "models" / "model-a" / "best"
+    model_path.mkdir(parents=True)
+    preflight = client.post(
+        "/api/jobs/preflight",
+        json={
+            "kind": "eval",
+            "model_id": "model-a",
+            "model_path": str(model_path),
+            "benchmark_id": "multitask_val_v1",
+            "task": "detection",
+            "prompt_id": "custom.layout",
+            "max_tokens": 4096,
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.json()["ok"] is True
+    assert preflight.json()["resolved_payload"]["prompt_text"] == "Detect icons."
+    created = client.post(
+        "/api/jobs",
+        json={
+            "kind": "eval",
+            "model_id": "model-a",
+            "model_path": str(model_path),
+            "benchmark_id": "multitask_val_v1",
+            "task": "detection",
+            "prompt_id": "custom.layout",
+            "max_tokens": 4096,
+        },
+    )
+    assert created.status_code == 201
+    created_payload = created.json()
+    assert created_payload["kind"] == "eval"
+    assert created_payload["status"] == "queued"
+    assert created_payload["payload"]["model_id"] == "model-a"
+    assert created_payload["payload"]["prompt_text"] == "Detect icons."
+    assert client.get("/api/jobs").json()["jobs"][0]["job_id"] == created_payload["job_id"]
+
+    processed = client.post("/api/jobs/process-next")
+    assert processed.status_code == 200
+    processed_payload = processed.json()
+    assert processed_payload["processed"] is True
+    assert processed_payload["background"] is True
+    assert processed_payload["job"]["status"] == "running"
+    completed_job = _wait_for_job_status(client, created_payload["job_id"], "succeeded")
+    assert completed_job["metadata"]["run_id"] == created_payload["job_id"]
+    assert completed_job["metadata"]["progress_phase"] == "succeeded"
+    assert (tmp_path / "runs" / created_payload["job_id"] / "run.json").exists()
+    assert client.get("/api/state").json()["run_count"] == 2
+
+
+def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    missing = client.get("/api/runs/missing/report")
+
+    assert missing.status_code == 404
+    assert missing.headers.get("x-eval-bench-request-id")
+    backend_logs = client.get("/api/logs/backend").json()
+    assert "request returned error" in backend_logs["text"]
+    assert "/api/runs/missing/report" in backend_logs["text"]
+
+
+def test_dashboard_does_not_claim_next_job_while_live_job_is_running(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    database = app.state.eval_bench_database
+    running = database.create_job(
+        kind="eval",
+        payload={"run_id": "running-job"},
+        status="running",
+        metadata={"runtime_pid": os.getpid()},
+    )
+    queued = database.create_job(kind="eval", payload={"run_id": "queued-job"})
+
+    processed = client.post("/api/jobs/process-next")
+
+    assert processed.status_code == 200
+    payload = processed.json()
+    assert payload["processed"] is False
+    assert payload["job"]["job_id"] == running.job_id
+    assert database.get_job(queued.job_id).status == "queued"
+
+
+def test_dashboard_job_logs_can_return_full_log(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    log_path = tmp_path / "runs" / "job1" / "logs" / "runtime.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("a\nb\nc\n", encoding="utf-8")
+    app.state.eval_bench_database.create_job(
+        kind="eval",
+        job_id="job1",
+        payload={"run_id": "job1"},
+        status="running",
+        metadata={"runtime_log_path": str(log_path)},
+    )
+
+    tail = client.get("/api/jobs/job1/logs", params={"max_lines": 2}).json()
+    full = client.get("/api/jobs/job1/logs", params={"max_lines": 0}).json()
+
+    assert tail["lines"] == ["b\n", "c\n"]
+    assert full["lines"] == ["a\n", "b\n", "c\n"]
+
+
+def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "run_id": "run1",
+            "status": "succeeded",
+            "created_at": "2026-05-09T00:10:00Z",
+            "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+            "benchmark": {
+                "benchmark_id": "bench1",
+                "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+                "split": "val",
+                "tasks": ["detection"],
+            },
+            "spec": {"task": "detection"},
+        },
+    )
+    (tmp_path / "runs" / "run1" / "reports").mkdir(parents=True)
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    archived = client.post("/api/runs/run1/archive")
+    assert archived.status_code == 200
+    assert json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))[
+        "status"
+    ] == "archived"
+
+    deleted_run = client.delete("/api/runs/run1")
+    assert deleted_run.status_code == 200
+    assert not (tmp_path / "runs" / "run1").exists()
+    assert Path(deleted_run.json()["trash_path"]).exists()
+
+    model_path = tmp_path / "models" / "model-a" / "best"
+    model_path.mkdir(parents=True)
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "val",
+            "sample_count": 0,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    created_job = client.post(
+        "/api/jobs",
+        json={
+            "kind": "eval",
+            "model_id": "model-a",
+            "model_path": str(model_path),
+            "benchmark_id": "bench1",
+            "task": "detection",
+            "prompt_id": "grounding_layout.latest",
+        },
+    )
+    assert created_job.status_code == 201
+    job_id = created_job.json()["job_id"]
+    cancelled = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    deleted_job = client.delete(f"/api/jobs/{job_id}")
+    assert deleted_job.status_code == 200
+    assert client.get("/api/jobs").json()["jobs"] == []
+    assert Path(deleted_job.json()["trash_path"]).exists()
+
+    created_service = client.post(
+        "/api/services",
+        json={
+            "kind": "external_vllm",
+            "service_id": "external",
+            "endpoint": "http://127.0.0.1:8000/v1",
+        },
+    )
+    assert created_service.status_code == 201
+    deleted_service = client.delete("/api/services/external")
+    assert deleted_service.status_code == 200
+    assert deleted_service.json()["service"]["service_id"] == "external"
+    assert client.get("/api/services").json()["services"] == []
+
+
+def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw_data"
+    source_manifest = raw_root / "splits" / "layout_val.txt"
+    source_manifest.parent.mkdir(parents=True)
+    source_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    (raw_root / "part1" / "images").mkdir(parents=True)
+    (raw_root / "part1" / "images" / "a.png").write_bytes(b"image")
+    _write_json(
+        raw_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+        },
+    )
+
+    app = create_app(store_root=tmp_path / "store", frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    response = client.post(
+        "/api/benchmarks",
+        json={
+            "benchmark_id": "multitask_val_v1",
+            "source_root": str(raw_root),
+            "source_manifest": str(source_manifest),
+            "split": "val",
+            "tasks": ["detection", "keypoint"],
+            "layers": ["layout", "arrow"],
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["benchmark_id"] == "multitask_val_v1"
+    assert payload["sample_count"] == 1
+    assert payload["labels"] == ["icon"]
+    assert payload["layers"] == ["layout", "arrow"]
+    assert client.get("/api/state").json()["benchmark_count"] == 1
+    copied_sample = client.get("/api/benchmarks/multitask_val_v1/samples/0").json()
+    assert copied_sample["gt_instances"][0]["label"] == "icon"
+
+    conflict = client.post(
+        "/api/benchmarks",
+        json={
+            "benchmark_id": "multitask_val_v1",
+            "source_root": str(raw_root),
+            "source_manifest": str(source_manifest),
+            "split": "val",
+            "tasks": ["detection"],
+        },
+    )
+    assert conflict.status_code == 409
+
+
+def test_dashboard_serves_spa_fallback_when_frontend_is_built(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html><body>dashboard</body></html>", encoding="utf-8")
+    app = create_app(store_root=tmp_path / "store", frontend_dist=dist)
+    client = TestClient(app)
+
+    assert client.get("/").text == "<html><body>dashboard</body></html>"
+    assert client.get("/runs").text == "<html><body>dashboard</body></html>"
+    assert client.get("/api/does-not-exist").status_code == 404
+
+
+def test_dashboard_exposes_service_registry(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/services",
+        json={
+            "kind": "local_vllm",
+            "service_id": "local-vllm-0",
+            "model_path": "outputs/model/best",
+            "served_model_name": "qwen3vl-best",
+            "port": 8000,
+            "cuda_visible_devices": "0,1",
+            "tensor_parallel_size": 2,
+        },
+    )
+
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["service_id"] == "local-vllm-0"
+    assert payload["config"]["model_path"] == "outputs/model/best"
+
+    services = client.get("/api/services").json()["services"]
+    assert services[0]["service_id"] == "local-vllm-0"
+
+    command = client.get("/api/services/local-vllm-0/command").json()["command"]
+    assert command[1:4] == ["-m", "vllm.entrypoints.openai.api_server", "--model"]
+    assert "outputs/model/best" in command
+
+    invalid = client.post("/api/services", json={"kind": "external_vllm"})
+    assert invalid.status_code == 400
+
+
+def test_dashboard_exposes_service_health_and_logs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_probe(endpoint: str, *, timeout_s: float) -> dict:
+        return {
+            "ok": True,
+            "status": "ready",
+            "status_code": 200,
+            "url": f"{endpoint}/models",
+            "message": "HTTP 200",
+            "checked_at": "2026-05-09T00:00:00Z",
+        }
+
+    monkeypatch.setattr(services_module, "_probe_openai_endpoint", fake_probe)
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    client.post(
+        "/api/services",
+        json={
+            "kind": "external_vllm",
+            "service_id": "external",
+            "endpoint": "http://127.0.0.1:8000/v1",
+        },
+    )
+
+    health = client.post("/api/services/external/health").json()
+    assert health["status"] == "running"
+    assert health["runtime"]["health"]["ok"] is True
+
+    logs = client.get("/api/services/external/logs").json()
+    assert logs["service_id"] == "external"
+    assert logs["lines"] == []
+    assert logs["text"] == ""
+
+
+def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    (data_root / "part1" / "images").mkdir(parents=True)
+    (data_root / "part1" / "images" / "a.png").write_bytes(b"image")
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+        },
+    )
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "run_id": "run1",
+            "status": "succeeded",
+            "created_at": "2026-05-09T00:10:00Z",
+            "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+            "benchmark": {
+                "benchmark_id": "multitask_val_v1",
+                "root": str(data_root),
+                "split": "val",
+                "tasks": ["detection", "keypoint"],
+                "manifest_path": str(split_manifest),
+            },
+            "spec": {"task": "detection"},
+        },
+    )
+    _write_json(
+        tmp_path / "runs" / "run1" / "predictions" / "part1" / "json" / "a.json",
+        {
+            "image": "part1/images/a.png",
+            "instances": [{"label": "icon", "bbox": [2, 3, 11, 21]}],
+            "metadata": {},
+        },
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    samples = client.get("/api/runs/run1/samples").json()["samples"]
+    sample_page = client.get("/api/runs/run1/samples").json()
+    assert sample_page["total"] == 1
+    assert sample_page["labels"] == ["icon"]
+    assert client.get("/api/runs/run1/samples", params={"label": "icon"}).json()["total"] == 1
+    assert client.get("/api/runs/run1/samples", params={"label": "arrow"}).json()["total"] == 0
+    assert samples[0]["gt_instance_count"] == 1
+    assert samples[0]["pred_instance_count"] == 1
+    assert samples[0]["labels"] == ["icon"]
+    assert samples[0]["image_url"] == "/api/runs/run1/samples/0/image"
+
+    detail = client.get("/api/runs/run1/samples/0").json()
+    assert detail["gt_instances"][0]["bbox"] == [1.0, 2.0, 10.0, 20.0]
+    assert detail["pred_instances"][0]["bbox"] == [2.0, 3.0, 11.0, 21.0]
+    assert client.get("/api/runs/run1/samples/0/image").content == b"image"
+
+
+def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    prediction_root = tmp_path / "external_predictions"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    _write_json(
+        tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(data_root),
+            "manifest_path": str(split_manifest),
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [{"label": "icon", "bbox": [10, 10, 40, 40]}],
+        },
+    )
+    _write_json(
+        prediction_root / "part1" / "json" / "a.json",
+        {
+            "image": "part1/images/a.png",
+            "instances": [{"label": "icon", "bbox": [11, 11, 41, 41], "score": 0.9}],
+        },
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    response = client.post(
+        "/api/runs/import-predictions",
+        json={
+            "run_id": "imported_run",
+            "benchmark_id": "multitask_val_v1",
+            "prediction_root": str(prediction_root),
+            "task": "detection",
+            "model_id": "model-a",
+            "prompt_id": "grounding_layout.latest",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["run_id"] == "imported_run"
+    assert payload["imported_predictions"] == 1
+    assert payload["missing_prediction_count"] == 0
+    assert payload["report_path"].endswith("metrics.json")
+    assert client.get("/api/state").json()["runs"][0]["run_id"] == "imported_run"
+    detail = client.get("/api/runs/imported_run/samples/0").json()
+    assert detail["diagnostics"]["matched_count"] == 1
+    assert detail["pred_instances"][0]["score"] == 0.9
+
+    conflict = client.post(
+        "/api/runs/import-predictions",
+        json={
+            "run_id": "imported_run",
+            "benchmark_id": "multitask_val_v1",
+            "prediction_root": str(prediction_root),
+            "task": "detection",
+            "model_id": "model-a",
+        },
+    )
+    assert conflict.status_code == 409
+
+
+def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    (data_root / "part1" / "images").mkdir(parents=True)
+    (data_root / "part1" / "images" / "a.png").write_bytes(b"image")
+    _write_json(
+        tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection", "keypoint"],
+            "layers": ["layout", "arrow"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(data_root),
+            "manifest_path": str(split_manifest),
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+        },
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    samples = client.get("/api/benchmarks/multitask_val_v1/samples").json()["samples"]
+    sample_page = client.get("/api/benchmarks/multitask_val_v1/samples").json()
+    assert sample_page["total"] == 1
+    assert sample_page["labels"] == ["icon"]
+    assert (
+        client.get("/api/benchmarks/multitask_val_v1/samples", params={"label": "icon"}).json()[
+            "total"
+        ]
+        == 1
+    )
+    assert (
+        client.get("/api/benchmarks/multitask_val_v1/samples", params={"label": "arrow"}).json()[
+            "total"
+        ]
+        == 0
+    )
+    assert samples[0]["instance_count"] == 1
+    assert samples[0]["labels"] == ["icon"]
+    assert samples[0]["image_url"] == "/api/benchmarks/multitask_val_v1/samples/0/image"
+
+    detail = client.get("/api/benchmarks/multitask_val_v1/samples/0").json()
+    assert detail["gt_instances"][0]["bbox"] == [1.0, 2.0, 10.0, 20.0]
+    assert client.get("/api/benchmarks/multitask_val_v1/samples/0/image").content == b"image"
+
+    preview = client.get("/api/settings/preview-sample").json()
+    assert preview["benchmark_id"] == "multitask_val_v1"
+    assert preview["sample"]["image_url"] == "/api/benchmarks/multitask_val_v1/samples/0/image"
+    assert preview["gt_instances"][0]["label"] == "icon"
+
+
+def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+        },
+    )
+    for run_id, recall in (("baseline", 0.0), ("candidate", 1.0)):
+        _write_json(
+            tmp_path / "runs" / run_id / "run.json",
+            {
+                "run_id": run_id,
+                "status": "succeeded",
+                "created_at": "2026-05-09T00:10:00Z",
+                "model": {"model_id": run_id, "path": f"outputs/{run_id}/best"},
+                "benchmark": {
+                    "benchmark_id": "multitask_val_v1",
+                    "root": str(data_root),
+                    "split": "val",
+                    "tasks": ["detection"],
+                    "manifest_path": str(split_manifest),
+                },
+                "spec": {"task": "detection"},
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "predictions" / "part1" / "json" / "a.json",
+            {
+                "image": "part1/images/a.png",
+                "instances": [{"label": "icon", "bbox": [2 + recall, 3, 11, 21]}],
+                "metadata": {},
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "reports" / "metrics.json",
+            {
+                "run_id": run_id,
+                "task": "detection",
+                "precision_iou50": recall,
+                "recall_iou50": recall,
+                "mean_iou": recall,
+                "matched_count": int(recall),
+                "gt_instance_count": 1,
+                "pred_instance_count": 1,
+                "samples": [
+                    {
+                        "index": 0,
+                        "json_path": "part1/json/a.json",
+                        "image": "part1/images/a.png",
+                        "matched_count": int(recall),
+                        "false_positive_count": 0,
+                        "false_negative_count": 1 - int(recall),
+                        "mean_iou": recall,
+                        "labels": {
+                            "icon": {
+                                "matched_count": int(recall),
+                                "false_positive_count": 0,
+                                "false_negative_count": 1 - int(recall),
+                                "mean_iou": recall,
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    response = client.get(
+        "/api/comparisons",
+        params={"baseline_run_id": "baseline", "candidate_run_id": "candidate"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["delta"]["recall_iou50"] == 1.0
+    assert payload["summary"]["improved_samples"] == 1
+    assert payload["top_improvements"][0]["candidate_index"] == 0
+
+    listed = client.get("/api/comparisons").json()
+    assert listed["comparisons"][0]["baseline_run_id"] == "baseline"
+    assert listed["comparisons"][0]["candidate_run_id"] == "candidate"
+
+    sample_detail = client.get(
+        "/api/comparisons/sample",
+        params={
+            "baseline_run_id": "baseline",
+            "candidate_run_id": "candidate",
+            "sample_index": 0,
+        },
+    )
+    assert sample_detail.status_code == 200
+    sample_payload = sample_detail.json()
+    assert sample_payload["baseline"]["sample"]["image_url"] == "/api/runs/baseline/samples/0/image"
+    assert sample_payload["candidate"]["sample"]["image_url"] == "/api/runs/candidate/samples/0/image"
+    assert sample_payload["baseline"]["gt_instances"][0]["label"] == "icon"
+    assert sample_payload["candidate"]["pred_instances"][0]["bbox"] == [3.0, 3.0, 11.0, 21.0]
+
+    bad_request = client.get("/api/comparisons", params={"baseline_run_id": "baseline"})
+    assert bad_request.status_code == 400

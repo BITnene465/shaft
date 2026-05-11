@@ -9,6 +9,292 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-11: Eval Bench 页面廉价感、主画布不突出和组件重复
+
+### 现象
+
+用户多次反馈 Eval Bench dashboard 像表单堆叠页面：文字和按钮过多、可视化画布不是主区域、局部
+容器显示不全、展开面板容易挤占工作区，整体缺少类似 FiftyOne/CVAT 这类工程工作台的密度和质感。
+在真实 run inspector 渲染检查中也发现，主画布宽度只有 586px，而右侧对象检查器有 304px，图像区域
+没有成为视觉中心。
+
+### 根因
+
+前端早期迭代把页面功能直接堆在 `main.tsx` 和单个大样式文件里，低频操作表单、空状态、面板标题、
+表格、tabs 等重复结构没有统一组件边界。样式层也在基础样式后持续追加局部覆盖，缺少一个明确的
+dashboard 设计层，导致信息架构、视觉语言和工作区比例一起漂移。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的可用性、审美质量和长期维护成本。
+- 影响 benchmark/run/settings/compare 等需要长期盯图排障的页面。
+- 不影响 prediction artifact、metric 计算、job 执行语义和模型能力评估结论。
+
+### 修复方式
+
+- 新增 `frontend/src/ui.tsx`，抽出 `DataTable`、`WorkspaceTabs`、`PanelTitle`、`SectionHeader`、
+  `EmptyState`、`Badge` 和 `ActionPanel`，减少重复 UI 状态源。
+- 新增 `frontend/src/design.css` 作为独立视觉设计层，统一工程工作台色彩、字体、面板、表格、tabs、
+  action panel、viewer、settings preview 和 overlay 视觉效果。
+- 低频创建/导入/服务登记表单改用统一 `ActionPanel`，默认折叠，避免挤占主工作区。
+- 缩窄 benchmark/run 样本栏和 viewer 对象检查器的默认宽度，保留可拖拽调整，使图片画布成为主区域。
+- 移除未使用的前端错误通知 helper，避免继续保留临时桥接代码。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- Dashboard render check：
+  - `EVAL_BENCH_URL=http://127.0.0.1:8769/ npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8769/benchmarks/multitask_val_v1 INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8769/runs/config_smoke_prompt_params INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8769/settings INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8769/compare npm run render-check`
+
+### 后续防线
+
+- Dashboard 不能把低频管理表单常驻铺满主页面；应优先使用折叠面板、模板化表单和工作区侧栏。
+- 任何 inspector / compare / settings 变更都必须保证图片画布是主要区域，并用 render-check 约束
+  画布与侧栏比例。
+- 新增页面组件时先检查 `ui.tsx` 是否已有通用组件；不要在页面里复制新的 table、empty、badge、
+  action panel 或 tabs 实现。
+- 视觉层和基础布局层要分开维护；大范围审美调整优先进入 `design.css`，避免在业务组件里写局部补丁。
+
+## 2026-05-11: Eval Bench ephemeral vLLM runtime 成功后残留进程
+
+### 现象
+
+用户创建的 Eval Bench 评测 job 已经结束，但由 job 启动的临时 vLLM 进程没有自动关闭，需要用户手动
+kill。表面上 job 状态为 succeeded，但 GPU 和端口仍可能被残留 runtime 占用。
+
+### 根因
+
+`_stop_ephemeral_runtime()` 只在 `Popen` 父进程仍存活时才发送清理信号；如果 vLLM launcher 父进程已经
+退出，但同一个 process group 里的 engine/worker 子进程仍然存活，旧逻辑会因为 `process.poll() is not
+None` 提前返回，导致子进程残留。Eval Bench 以 `start_new_session=True` 启动 runtime，正确的生命周期边界
+应是整个 process group，而不是单个父进程。
+
+### 影响范围
+
+- 影响 Eval Bench ephemeral runtime 模式下的 vLLM job 清理。
+- 可能导致 GPU 显存、端口和后台进程残留，进而影响后续 job 调度。
+- 不影响 prediction artifact、metric 计算和模型能力评估结论。
+
+### 修复
+
+- `_stop_ephemeral_runtime()` 改为始终向 runtime process group 发送 `SIGTERM`，即使 launcher 父进程已经
+  退出也继续清理同组子进程。
+- 等待 process group 退出；超时后发送 `SIGKILL` 兜底。
+- 如果 `SIGKILL` 后 process group 仍存在，写 warning log，避免静默残留。
+
+### 回归测试
+
+- 覆盖父进程仍存活时的 process group 清理。
+- 覆盖父进程已退出但子进程仍存活时的 process group 清理。
+- 覆盖 worker 成功路径会关闭 ephemeral runtime。
+- 覆盖 worker 异常路径也会关闭 ephemeral runtime。
+- 本轮执行：`PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_worker.py`
+- 本轮执行：`PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests`
+
+### 后续防线
+
+- 任何由 job 启动的临时外部服务，都必须以 process group/session 为生命周期边界。
+- 新增 runtime backend 时必须补成功和失败两条生命周期测试，不能只测任务状态。
+- Job succeeded 只代表评测逻辑结束；runtime cleanup 必须作为独立验收条件进入测试。
+
+## 2026-05-11: Eval Bench job 同步执行导致前端状态一直停在排队中
+
+### 现象
+
+用户在 Dashboard 任务中心点击“处理下一条”后，job 实际已经被 worker claim 并开始执行，但前端表格
+仍长时间显示“排队中”。页面也没有样本级进度、当前阶段、runtime log tail 或实时监控区域，无法判断
+是在启动 vLLM、推理、计算指标，还是已经卡住。
+
+### 根因
+
+`/api/jobs/process-next` 直接同步调用 `EvalBenchWorker.process_next()`，HTTP 请求会一直阻塞到整个
+推理和评估完成才返回。虽然数据库中的 `claim_next_job()` 会把状态改为 `running`，但前端 mutation
+仍在等待响应，任务列表没有及时重新拉取，所以用户看到的是点击前的 queued 缓存。worker 也只在大阶段
+边界写少量 metadata，没有持续写 `done/total/current_sample` 这类可监控进度。
+
+### 影响范围
+
+- 影响 Dashboard 任务中心的状态展示和长任务可观测性。
+- 不影响 CLI `process-next-job`；CLI 同步执行仍然合理。
+- 不影响 metric 计算和 run artifact 格式。
+
+### 修复
+
+- Dashboard API 的 `/api/jobs/process-next` 改为：先 claim queued job 并立即返回 running job，再用
+  后台线程执行 worker。
+- CLI 仍保留同步 `EvalBenchWorker.process_next()` 行为，便于脚本和终端使用。
+- Worker 新增 `process_job(job_id)` 和统一 `_update_progress()`，在 resolving、starting runtime、
+  prepare run、inference、evaluating、succeeded、failed 等阶段持续写 job metadata。
+- 推理循环按 sample 更新 `progress_done`、`progress_total`、`progress_current_sample` 和
+  `progress_message`。
+- Dashboard 新增 `/api/jobs/{job_id}/logs`，读取当前 job 的 `runs/<run_id>/logs/runtime.log` tail。
+- 前端任务中心每 2 秒轮询 job record；有 running job 时显示实时监控面板、进度条、当前阶段、当前
+  sample 和 runtime log tail；runtime log 每 3 秒刷新。
+- Dashboard claim 新 job 前会检查已有 running job 的 `dashboard_worker_pid` 和 `runtime_pid` 是否
+  仍存活；旧 dashboard 进程或 vLLM runtime 还在执行时，不会误启动第二个评测 job。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_worker.py projects/eval_bench/tests/test_dashboard.py`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- Dashboard 中会运行较久的 action 不应同步阻塞 HTTP 请求；应尽早返回可轮询的持久化状态。
+- 长任务必须持续写 progress metadata，至少包含阶段、done/total、当前样本和更新时间。
+- 前端不能只依赖 mutation 返回值刷新长任务状态，必须对 job registry 做短间隔轮询或等价实时订阅。
+- 如果新版本 dashboard 与旧版本阻塞进程并存，必须用持久化 pid 检查区分“活着的 running job”和
+  “孤儿 running 状态”，避免绕开旧端口时并发启动第二个重型 job。
+
+## 2026-05-11: Eval Bench 需要自动调度队列而不是人工推进
+
+### 现象
+
+Dashboard 的任务中心仍然暴露“处理下一条”式的人工推进入口。用户需要判断何时启动 eval，且同一时间
+只能按单个 running job 的思路理解队列；任务运行日志也常驻显示在主队列里，占用了列表空间。
+
+### 根因
+
+队列推进逻辑落在 dashboard action 上，而不是独立的顶层调度器。后端没有一个统一组件同时看 queued
+job、live running job、CUDA 设备声明和并发上限，也没有把 runtime log 和队列摘要解耦。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的自动化程度和多任务吞吐。
+- 不影响已有 CLI `process-next-job` 的同步执行语义。
+- 不影响 run artifact、prediction snapshot 和 metric report 格式。
+
+### 修复
+
+- 新增 `EvalBenchOrchestrator`，Dashboard 启动时自动后台运行。
+- Orchestrator 按周期扫描 queued eval job，根据 live running job 数、`cuda_visible_devices`、
+  ephemeral runtime 端口和 `tensor_parallel_size` 判断是否可调度；CUDA 设备与端口都不冲突的 job
+  可并发启动。
+- 新增 `EvalBenchDatabase.claim_job(job_id)`，支持跳过资源暂不可用的 queued job 后 claim 其他可运行 job。
+- Dashboard 增加 `/api/scheduler/status`，前端任务中心展示自动调度状态、运行数、排队数、并发上限和占用
+  CUDA 设备。
+- 前端移除主队列中的手动推进入口和常驻 runtime log；点击 job row 后才打开嵌套详情面板读取完整日志。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_orchestrator.py projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_worker.py`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- Dashboard 长任务入口应优先进入 queue，由 orchestrator 统一调度，不再依赖用户手动推进。
+- 新增 job kind 时要补充资源声明和调度规则，避免每类 job 自己发明启动策略。
+- 高频列表只展示摘要状态；完整 runtime log、manifest 和 traceback 应进入按需打开的详情面板。
+
+## 2026-05-11: Eval Bench 服务入口重复与错误可观测性不足
+
+### 现象
+
+Dashboard 中“模型服务”和“任务中心”同时出现服务管理入口，用户难以判断长期 service 与单次 job
+runtime 到底应该在哪里管理。评测 job 失败后，前端只看到失败状态，缺少弹窗提醒和 request id；
+后端也没有统一的 dashboard 日志文件，只能靠 job runtime log 或终端输出排查。工作台设置里的叠图
+预览没有稳定样例图，演示效果不如真实 sample viewer。
+
+### 根因
+
+前端页面职责没有严格对应 Control Plane 对象：Service registry 被重复暴露在 Jobs 页和 Services
+页；job failure 只写入 job record，API 层的 HTTP 错误和 worker exception 没有统一落到 store
+日志。前端 API client 只抛出异常，没有把错误变成用户可见的 toast。设置页预览虽然复用
+`CanvasStage`，但缺少持久化静态样例图和固定 demo instances。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的可用性、失败排障和服务/job 生命周期理解。
+- 不影响 evaluator、metric 和 prediction artifact。
+- 不影响 `src/shaft` 训练主链。
+
+### 修复
+
+- Jobs 页只保留任务队列和新建评测；长期模型服务只在 Services 页管理。
+- Store 增加 `eval_bench_store/logs/backend.log`，FastAPI dashboard 启动时配置 `eval_bench`
+  logger。
+- Dashboard API 增加 request logging middleware 和 HTTPException handler；4xx/5xx 都写入
+  backend log，并把 `X-Eval-Bench-Request-Id` 返回给前端。
+- 新增 `/api/logs/backend`，用于读取 backend log tail。
+- Worker 捕获异常时使用 `LOGGER.exception` 写 traceback，并把可用的 `runtime_log_path` 记录到
+  failed job metadata。
+- 前端 API client 在 HTTP error 时派发全局错误事件，Shell 中的 `ToastHub` 统一弹出失败原因和
+  request id；处理下一条任务后如果 job 失败也立即弹出提醒。
+- 工作台设置叠图预览改用 `projects/eval_bench/static/settings_preview.svg` 作为稳定样例图，再叠加
+  固定 GT/Pred demo instances，保持和正常 sample viewer 相同的 `CanvasStage` 交互。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_worker.py`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- `EVAL_BENCH_URL=http://127.0.0.1:8766/settings INTERACTION_SMOKE=1 npm run render-check`
+
+### 后续防线
+
+- 长期共享模型服务只能放在 Service registry；job 专属 vLLM 进程只能作为 job runtime 记录，不能在
+  Jobs 页再做一套 service 管理。
+- Dashboard API 的新错误路径必须带 request id，并写入 `eval_bench_store/logs/backend.log`。
+- 前端所有会触发 API mutation 的动作都应能把失败原因变成用户可见反馈，不能只依赖表格状态变化。
+- 工作台设置里的可视化偏好预览必须使用稳定 sample asset 和真实 viewer 组件，避免和实际检查器
+  表现分叉。
+
+## 2026-05-11: Eval Bench 默认 vLLM tensor parallel 配置非法导致 job 秒失败
+
+### 现象
+
+在 Dashboard 新建评测任务并开始执行后，job 几秒内变成 `failed`。Job error 为：
+
+```text
+runtime process exited before ready: exitcode=1
+```
+
+对应 `runs/<run_id>/logs/runtime.log` 中 vLLM 启动失败：
+
+```text
+Total number of attention heads (32) must be divisible by tensor parallel size (3).
+```
+
+### 根因
+
+Eval Bench 的默认 `eval_job` 模板把 `tensor-parallel-size` 写成了 `3`，但当前 Qwen3VL text
+config 的 `num_attention_heads=32`。vLLM tensor parallel 要求 attention heads 能被 TP size 整除，
+所以 3 卡张量并行对该模型非法。此前 preflight 只检查模型路径、benchmark、task、prompt 和端口，
+没有读取模型 config 校验 vLLM TP 约束。
+
+### 影响范围
+
+- 影响从 Dashboard 默认模板创建的 ephemeral vLLM eval job。
+- 不影响已经登记的长期 service，也不表示模型权重或 benchmark 有问题。
+- 这是 runtime 参数配置问题，不是 metric、parser 或模型能力问题。
+
+### 修复
+
+- 默认 `eval_job` 模板改为 `CUDA_VISIBLE_DEVICES=0,2`、`tensor-parallel-size=2`。
+- 默认 runtime env 增加 `CUDA_DEVICE_ORDER=PCI_BUS_ID`，降低混合 GPU 顺序导致的误解。
+- Worker 启动 ephemeral runtime 时透传 manifest 中的 runtime env，而不是只透传 `CUDA_VISIBLE_DEVICES`。
+- Preflight 读取 `model_path/config.json` 中的 `text_config.num_attention_heads`，提前拒绝不能整除
+  attention heads 的 `tensor_parallel_size`。
+- Preflight 同时检查 `CUDA_VISIBLE_DEVICES` 数量不能少于 `tensor_parallel_size`。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_worker.py`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增或修改 vLLM job template 时，不能只看 GPU 数量；必须确认 TP size 是模型 attention heads 的因子。
+- Dashboard preflight 必须覆盖会导致 runtime 秒退的静态配置错误，避免用户启动 job 后才从 runtime log 查原因。
+- 允许用户在 manifest 中自由改 GPU 和 TP，但错误组合必须在 preflight 被明确报出。
+
 ## 2026-04-28: online eval 左 padding completion 切片污染 keypoint JSON 解析
 
 ### 现象
@@ -757,3 +1043,266 @@ catalog 权重生成约 44,392 条/epoch，不是数据源只剩 keypoint。
 - 看到 NCCL timeout 时先检查其它 rank 是否 OOM、异常退出或数据读取失败，再判断通信问题。
 - 训练日志里的 `Num examples` 在 sharded custom sampler 场景下可能是单 rank 视角，数据 mix
   应用 sampler/global quota 复核。
+
+## 2026-05-10: Eval Bench job/service/runtime 生命周期重新分层
+
+### 现象
+
+Eval Bench 初版同时存在 job queue、service registry 和前端创建表单，但 job 参数仍偏固定表单，
+一次性 vLLM runtime 与长期 service 的边界不够清楚。继续扩展时，容易把“开一个 eval job 就启动
+一套临时模型后端”和“长期共享 vLLM endpoint”混成同一类状态，导致任务记录、服务记录和 run
+manifest 之间缺少可复盘的配置真源。
+
+### 根因
+
+Control Plane、Execution Plane、Artifact Plane 没有显式分层；前端 job 创建直接暴露固定字段，
+后端 worker 只消费扁平 payload。这样短期能跑通，但无法承载可编辑参数模板、preflight、一次性
+runtime、长期 service、run 溯源和后续更多 job kind。
+
+### 影响范围
+
+- 影响 Eval Bench 的 job 创建、worker 执行、dashboard 使用流程和文档。
+- 不影响 `src/shaft` 训练主链、online eval 或既有 checkpoint。
+- 旧扁平 job payload 仍通过兼容转换进入 manifest 解析层。
+
+### 修复
+
+- 新增 manifest-driven job spec：`runtime` 管模型后端生命周期，`eval` 管任务、prompt、generation
+  和数据参数。
+- `eval_job` 支持 `runtime.mode=ephemeral`：worker 启动 job 专属 vLLM OpenAI server，等待 ready，
+  执行推理/解析/evaluate，最后关闭进程；runtime log 写入 `runs/<run_id>/logs/runtime.log`。
+- `runtime.mode=existing_service` 保持连接已有 endpoint，不负责启停长期服务。
+- 前端 Jobs 页改为模板 + JSON manifest 编辑 + `Validate` preflight；后端 preflight 检查
+  benchmark/model/task/prompt，并展示将要执行的 vLLM 命令。
+- 未知 `runtime.args` 保留为 vLLM CLI flags，避免每新增一个 vLLM 参数都要修改表单 schema。
+- 创建 job API 在入队前执行 preflight；当前 UI 只暴露已可执行的 `eval_job`，避免未接入 worker 的
+  job kind 进入队列。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m compileall -q projects/eval_bench/eval_bench`
+- `PYTHONPATH=projects/eval_bench pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_worker.py projects/eval_bench/tests/test_services.py projects/eval_bench/tests/test_dashboard.py`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增 job kind 时，必须同时补：manifest schema、preflight、worker 执行路径、artifact 落盘规则、
+  dashboard 模板和测试。
+- 长期模型服务继续用 Service registry 管理；单次任务自带的 vLLM 后端继续用 Job runtime 管理。
+- Dashboard 表单只生成初始 manifest，不作为参数真源；run manifest 和 job metadata 才是复盘真源。
+
+## 2026-05-10: Eval Bench prompt 模板进入持久化配置层
+
+### 现象
+
+Job manifest 已经可以自由编辑 runtime / eval 参数，但 prompt 仍只能在 JSON 中手写 `prompt_id`、
+`prompt_path` 或 inline 文本。前端不能选择 prompt，后端 preflight 也没有把 prompt 模板作为
+数据库状态管理，导致任务参数模板不完整，后续新增 prompt 或做 prompt A/B eval 时容易依赖聊天记录
+或临时 JSON。
+
+### 根因
+
+Prompt 是 eval spec 的核心输入，但上一版只把 job 和 service 放进 SQLite registry。Prompt 默认值
+仍散落在 repo YAML、job template 和 worker fallback 里，没有形成 dashboard、preflight、worker
+共享的配置层。
+
+### 影响范围
+
+- 影响 Eval Bench 的 Jobs 页、job preflight、worker 执行和 run 溯源。
+- 不影响 `src/shaft` 训练主链。
+- 旧 job payload 仍兼容；没有 prompt template 时仍可通过 inline prompt 或 prompt path 执行。
+
+### 修复
+
+- 新增 SQLite `prompt_templates` 表，字段包含 `prompt_id`、label、task、system/user prompt、
+  parser、metric profile、visualization profile、generation、data 和 metadata。
+- Dashboard 启动时从 `configs/prompts/grounding_layout.yaml`、`grounding_arrow.yaml`、
+  `keypoint_arrow.yaml` 种子化默认模板：`grounding_layout.latest`、`grounding_arrow.latest`、
+  `keypoint_arrow.latest`。
+- `job_spec` preflight 接收 prompt template map，按 `prompt_id` 把 prompt 文本、parser、metric、
+  generation 和 data 默认值写入 resolved manifest；显式 manifest 字段优先。
+- 创建 job 时保存 resolved payload + resolved manifest，避免 worker 后续依赖前端临时状态。
+- Worker 处理队列时也读取同一份 prompt template registry，保证 CLI/API 创建的 job 与 Dashboard
+  行为一致。
+- Jobs 页新增 prompt template 选择、应用和“从当前 manifest 保存为模板”入口。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_database.py projects/eval_bench/tests/test_worker.py`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增 prompt 不得只改前端 JSON 示例；必须进入 prompt template registry 或 repo prompt YAML 种子。
+- Job preflight、worker 和 run manifest 必须看到同一份 resolved prompt 文本和推理参数。
+- 允许用户自由添加 manifest 字段，但固定表单/模板只能作为初始值，不得成为第二套参数真源。
+
+## 2026-05-10: Eval Bench 检查器交互与可视化偏好收口
+
+### 现象
+
+Eval Bench 的基准集检查、评测记录检查和工作台设置之间存在体验不一致：基准集页面的图像容器不能
+缩放和平移，样本跳转输入框价值很低，样本列表和对象列表大量文本被省略号截断；滚轮缩放过于灵敏，
+且无法缩小到 100% 以下；工作台设置里的叠图颜色没有稳定传递到检查器；所有正常实例几乎只按
+GT/Pred 着色，无法按 label 调色；箭头 linestrip 只画骨干，没有端点和方向提示。评测记录表的
+选择列还依赖浏览器原生 checkbox 外观，在部分环境下会在 checkbox 旁边出现无语义的小点。
+
+### 根因
+
+前端检查器实现出现了双轨：benchmark viewer 和 run viewer 各自维护画布能力，叠图偏好也没有
+沉到单一 hook。布局层仍是固定 grid，无法像工程工作台一样调整左侧样本列表和右侧检查器比例。
+表格和样本卡片过度使用 `white-space: nowrap` 与 ellipsis，导致真实路径、标签和对象诊断信息
+在工程场景下不可读。叠图颜色只覆盖状态层，缺少 label 层颜色真源和方向几何表达。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的基准集检查、run 样本检查、工作台设置和评测记录表。
+- 不影响后端 evaluator、metric 计算和 run artifact 格式。
+- 不影响 `src/shaft` 训练主链。
+
+### 修复
+
+- 抽出共享 `CanvasStage`：benchmark 和 run 检查器统一使用同一套等比例自适应、滚轮缩放、拖拽
+  平移和图片预加载逻辑。
+- 缩放范围改为 25% 到 800%，滚轮灵敏度降到原先的低敏级别，缩小后仍允许拖拽查看画布位置。
+- 新增可复用 `ResizableSplit`，用于样本列表/主画布、主画布/对象检查器的可拖拽分栏，并持久化
+  用户调整后的宽度。
+- `ResizableSplit` 继续推广到 Compare 工作区、成对样本对比、工作台设置和 job manifest 编辑/预检查区，
+  避免这些工程面板继续使用固定比例 grid。
+- 分栏可拖拽范围扩大，并由容器宽度动态限制上限，避免稍微拖动就被固定 `maxSize` 锁死。
+- 新增 `frontend/src/workspaceSettings.ts` 作为浏览器侧用户设置真源，集中管理叠图颜色、label 颜色、
+  叠图样式、鼠标/滚轮交互参数、缩放上下限、sidebar 折叠状态和分栏尺寸读取。
+- 工作台设置页的叠图预览复用正常 `CanvasStage`；预览底图可以是稳定 sample asset，因此预览也
+  支持滚轮缩放、拖拽平移、GT/Pred 叠图、方向三角形和运行时 label 颜色匹配。
+- 左侧导航栏新增图标按钮控制收起/展开，折叠态保留 icon-only 导航并持久化。
+- 删除样本跳转输入框，保留列表选择、分页、`[`/`]` 快捷切换。
+- 叠图偏好统一由 `useWorkspaceSettings` 管理，工作台设置和检查器共享状态颜色、线宽、点大小、
+  标签字号与按 label 的颜色配置。
+- label 颜色不再内置 `arrow/icon/text` 等任务名；用户可手动添加任意 label 颜色规则，运行时按
+  实际 label 匹配，未配置时走稳定 fallback 色。
+- arrows/linestrip 增加起点、终点和位于中间线段的自适应方向三角形；误检/漏检优先使用状态色，
+  正常实例按 label 色显示。
+- 画布拖动灵敏度恢复为 1:1，滚轮缩放灵敏度调到当前低敏基线的 4 倍，兼顾局部排障速度和可控性。
+- 评测记录选择框改为显式 checkbox 样式，去掉浏览器原生外观造成的无语义小点。
+- 样本卡片和对象列表改为可换行排版，避免关键路径、label、IoU/诊断文本被省略号隐藏。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_dashboard.py`
+- Dashboard 页面渲染冒烟：基准集检查、run 检查、工作台设置、Compare 和 Jobs 页面。
+- 专项交互冒烟：sidebar 收起/展开、Settings 分栏大范围拖拽、动态 label 颜色添加与持久化。
+
+### 后续防线
+
+- 新增可视化页面不得再复制一套独立画布；默认复用 `CanvasStage` 和 `useWorkspaceSettings`。
+- 用户偏好不得继续散落在页面组件里；新增设置必须优先进入 `workspaceSettings.ts`，再由页面消费。
+- 任何工程检查列表默认不能用无条件 ellipsis 隐藏关键信息；必要时用可换行、title 或详情面板。
+- 新增颜色/样式偏好必须同时在工作台设置、benchmark viewer 和 run viewer 中生效。
+- 表格选择、状态点等 UI 元素必须有明确语义；纯浏览器默认外观导致的装饰性小点要用显式样式收口。
+
+## 2026-05-11: Eval Bench prompt 目标 label 语义与 Compare 页面收口
+
+### 现象
+
+使用 `grounding_layout.latest` prompt 在多任务 benchmark 上跑 eval 后，报告里几乎没有 arrow 预测结果，
+容易被误判为模型完全不会检测 arrow。进一步查看 run manifest 和 prompt 文本发现，这个 run 实际使用的是
+layout prompt，只要求输出 `icon / image / shape`；但 benchmark GT 同时包含 arrow，因此旧 evaluator
+把未要求输出的 arrow 当成了漏检。Compare 页面也只展示整体 delta 和样本表格，无法清楚说明当前 run
+实际评价了哪些 label；top 改善/退化样本表在窄列下大量显示省略号，排障价值不足。
+
+### 根因
+
+Eval Bench 之前把 `task=detection` 误当成完整评测语义，而没有把 prompt 的目标 label 集合纳入
+resolved manifest 和 `EvalSpec`。多任务 benchmark 下，`task=detection` 只能说明对象类型是 bbox，
+不能说明本次 prompt 应该覆盖 layout、arrow 还是两者。前端 compare 页面同样没有展示 target label
+约束，导致用户无法从报告上区分“模型没预测 arrow”和“本轮 layout prompt 没要求预测 arrow”。
+
+### 影响范围
+
+- 影响 Eval Bench 的 eval job、worker、evaluator、comparison report 和 dashboard compare 页面。
+- 影响多任务 benchmark 上的 layout/arrow 分任务评测解释；可能造成 arrow recall 被错误归因。
+- 不影响 raw prediction snapshot 的保存格式，也不影响 Shaft 训练主链。
+
+### 修复方式
+
+- Prompt template registry 为 `grounding_layout.latest`、`grounding_arrow.latest` 和
+  `keypoint_arrow.latest` 增加 `target_labels` 元数据。
+- Job manifest 默认值、prompt template 应用、preflight payload 和 worker 创建 `EvalSpec` 时都传递同一份
+  `target_labels`，避免前端、后端和 worker 各自推导。
+- Evaluator 在匹配前按 `target_labels` 同时过滤 GT 和 prediction，并把目标 label 写入 report summary。
+- Comparison report 写入 target label、per-label delta 和语义 warning；Dashboard Compare 页展示目标
+  label chip、warning、分 label delta，以及更可读的 top 改善/退化样本条目。
+- 工作台设置的叠图预览继续复用真实 viewer，新增标签底色透明度、bbox 填充透明度和方向箭头大小等可调项，
+  让设置页能实际观察 GT/Pred、FN/FP、label 色和 arrow 方向效果。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- Dashboard render check：
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/settings INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/compare npm run render-check`
+
+### 后续防线
+
+- 新增 prompt template 必须声明 `target_labels`；多任务 benchmark 上不能只靠 `task` 推断评测 label。
+- 评测报告和对比报告必须显示实际 target label，避免把 prompt 语义问题误判成模型能力问题。
+- Compare 页面不能只给整体分数；至少要保留 per-label delta、样本级改善/退化入口和目标 label 提示。
+- 工程排障表格不能把关键 sample id、图片名、TP/FP/FN/IoU 全部压成省略号；窄列下优先使用专用条目或换行布局。
+
+## 2026-05-11: Eval Bench detail 慢加载、真实预览和 Job/Run 工作区统一
+
+### 现象
+
+Benchmark inspector / run inspector 切换样本时经常出现“正在加载样本详情”的空白状态；切换到
+inspector 页面后左侧导航会被 CSS 自动压缩，表现和用户手动折叠不同；工作台设置页的预览仍是硬编码
+假样本；Jobs 和 Runs 分散在不同页面，用户需要在任务记录和评测结果之间来回跳转。Compare 页面虽然有
+整体 delta，但从报告跳到具体改善/退化样本仍不够直接。
+
+### 根因
+
+前端先请求 sample page，再按当前 index 单独请求 detail，切样本时没有保留上一份 detail，也没有预取邻近
+样本详情。后端 `store` 每次 detail/image 请求都会重新读取并展开 split manifest。样式层用
+`.app-shell:has(.visual-inspector-page)` 强制修改全局 grid，绕过了 `useSidebarPreference` 的唯一状态源。
+设置页为了演示 overlay 复制了一份固定图和固定实例，没有复用 benchmark 真值样本。Jobs 和 Runs 在信息架构
+上分裂，缺少 job 成功后到 run snapshot 的直接关系。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 benchmark inspector、run inspector、settings、jobs 和 compare 页面。
+- 不影响 prediction snapshot、metric 计算结果和 Shaft 训练主链。
+- 旧截图或浏览器缓存可能继续加载旧 Vite asset，dashboard 重启后会读取新的构建产物。
+
+### 修复方式
+
+- `EvalBenchStore` 增加 benchmark/run split JSON 路径缓存，避免重复读取 split manifest。
+- 前端 sample detail query 使用上一份 detail 作为 placeholder，并预取当前样本前后邻近详情；label 过滤后
+  以真实 `sample.index` 作为选择真源，不再把过滤列表位置误当成全局 index。
+- 删除 inspector 页面触发的全局 `:has(.visual-inspector-page)` 自动收缩 CSS，只保留用户手动折叠导航。
+- 新增 `/api/settings/preview-sample`，从现有 benchmark 选择带 bbox/linestrip/keypoints 的真实样本给设置页
+  预览；设置页仍复用 `CanvasStage` 和统一 overlay 配置。
+- `评测中心` 改为统一活动流：左侧 job 队列，右侧最近结果卡片；job 详情在已有 `run_id` 时提供“打开结果”
+  链接。完整 run 管理仍在 `结果库`。
+- Compare 报告增加 target label 过滤入口、首个改善/退化样本快捷入口，并在 top sample 中展示样本涉及的
+  label delta。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- Dashboard render check：
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/settings INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/benchmarks/multitask_val_v1 INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/jobs INTERACTION_SMOKE=1 npm run render-check`
+  - `EVAL_BENCH_URL=http://127.0.0.1:8767/compare INTERACTION_SMOKE=1 npm run render-check`
+
+### 后续防线
+
+- 任何需要跨页面共享的 UI 状态必须走显式 state/hook，不允许用页面级 CSS selector 改全局布局状态。
+- 检查器页面切换样本不能默认清空主画布；至少保留旧 detail、预取邻近样本或展示可定位的轻量刷新提示。
+- Settings preview 必须尽量使用真实 benchmark/run 样本；只有 store 里没有可绘制样本时才允许 fallback 示意图。
+- Jobs 是执行记录，Runs 是结果快照；前端可以统一入口，但数据语义不能合并成同一个对象。

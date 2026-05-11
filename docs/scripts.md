@@ -129,6 +129,170 @@ python scripts/web.py --base-config configs/train/train_sft_4b.yaml
 - 默认端口不固定；省略 `--port` 时由 Web UI 服务自动选择空闲端口
 - `Ctrl-C` 视为正常退出
 
+### `scripts/eval_bench.py`
+
+用途：
+- Eval Bench 的薄入口
+- 进入 `projects/eval_bench` 子项目 CLI
+- 创建 benchmark、初始化 run、校验和管理离线评测运行产物
+
+环境：
+
+```bash
+uv pip install -e ".[dev,eval-bench]"
+```
+
+常用形式：
+
+```bash
+python scripts/eval_bench.py --help
+```
+
+从 `raw_data` 验证集复制一份 benchmark 到 `eval_bench_store/`：
+
+```bash
+python scripts/eval_bench.py create-benchmark \
+  --benchmark-id multitask_val_v1 \
+  --task detection \
+  --task keypoint \
+  --source-root data/raw_data \
+  --source-manifest data/raw_data/splits/layout_val.txt \
+  --split val \
+  --layer layout \
+  --layer arrow
+```
+
+```bash
+python scripts/eval_bench.py init-run \
+  --run-id demo \
+  --model-id outputs/qwen3vl-sft/demo/best \
+  --model-path outputs/qwen3vl-sft/demo/best \
+  --benchmark-id multitask_val_v1 \
+  --task detection \
+  --benchmark-root eval_bench_store/benchmarks/multitask_val_v1/data \
+  --benchmark-manifest eval_bench_store/benchmarks/multitask_val_v1/splits/val.txt \
+  --benchmark-task detection \
+  --benchmark-task keypoint \
+  --split val \
+  --spec-id grounding_layout.latest \
+  --prompt-id grounding_layout.v1
+```
+
+```bash
+python scripts/eval_bench.py validate-prediction \
+  eval_bench_store/runs/demo/predictions/part2/json/pic001.json \
+  --task detection
+```
+
+创建和查看持久化 eval job：
+
+```bash
+python scripts/eval_bench.py create-job \
+  --kind eval \
+  --payload-json '{"manifest":{"kind":"eval_job","runtime":{"mode":"ephemeral","engine":"vllm_openai","env":{"CUDA_VISIBLE_DEVICES":"0,2","CUDA_DEVICE_ORDER":"PCI_BUS_ID"},"args":{"model":"outputs/qwen3vl-sft/run/best","served-model-name":"qwen3vl-best","host":"127.0.0.1","port":8000,"tensor-parallel-size":2,"max-model-len":32768,"gpu-memory-utilization":0.9,"max-num-seqs":8,"trust-remote-code":true}},"eval":{"model_id":"qwen3vl-best","benchmark_id":"multitask_val_v1","task":"detection","prompt_id":"grounding_layout.latest","prompt_path":"configs/prompts/grounding_layout.yaml","generation":{"max_tokens":4096,"temperature":0,"top_p":1},"data":{"max_pixels":1048576,"batch_size":1}}}}'
+
+python scripts/eval_bench.py list-jobs
+```
+
+登记和查看 model service：
+
+```bash
+python scripts/eval_bench.py register-service \
+  --kind local_vllm \
+  --service-id local-vllm-0 \
+  --model-path outputs/qwen3vl-sft/run/best \
+  --served-model-name qwen3vl-best \
+  --cuda-visible-devices 0,2 \
+  --tensor-parallel-size 2 \
+  --port 8000 \
+  --max-model-len 65536 \
+  --gpu-memory-utilization 0.9 \
+  --max-num-seqs 16
+
+python scripts/eval_bench.py list-services
+python scripts/eval_bench.py service-command --service-id local-vllm-0
+```
+
+本地 vLLM 服务也可以通过 CLI 启停：
+
+```bash
+python scripts/eval_bench.py start-service --service-id local-vllm-0
+python scripts/eval_bench.py stop-service --service-id local-vllm-0
+```
+
+处理下一个 queued eval job。CLI 会同步执行完整 worker，适合终端和脚本；Dashboard 启动后会由
+后台 orchestrator 自动调度 queued eval job，一般不需要人工调用：
+
+```bash
+python scripts/eval_bench.py process-next-job
+```
+
+对已有 prediction snapshot 的 run 生成指标报告：
+
+```bash
+python scripts/eval_bench.py evaluate-run --run-id <run_id>
+```
+
+对两个已经 evaluate 的 run 生成 pairwise comparison report：
+
+```bash
+python scripts/eval_bench.py compare-runs \
+  --baseline-run-id <old_run_id> \
+  --candidate-run-id <new_run_id>
+```
+
+运行 dashboard store 的轻量性能 smoke：
+
+```bash
+python scripts/eval_bench.py perf-smoke --iterations 5 --sample-limit 500
+```
+
+启动 dashboard：
+
+```bash
+python scripts/eval_bench.py serve-dashboard --host 127.0.0.1 --port 8765
+```
+
+前端构建与渲染检查：
+
+```bash
+cd projects/eval_bench/frontend
+npm install
+npm run build
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
+EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id>?sample=0 \
+  INTERACTION_SMOKE=1 \
+  npm run render-check
+```
+
+说明：
+- `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`
+- dashboard 前端在 `projects/eval_bench/frontend`，使用 React、Vite、TanStack 和 Radix
+- 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
+- `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
+- Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data
+- 默认持久化目录是 `eval_bench_store/`，不写入训练产物目录 `outputs/`
+- job registry 使用 `eval_bench_store/db/eval_bench.sqlite`
+- Dashboard 启动时会启动 Eval Bench orchestrator，自动扫描 queued eval job；它会根据 live running job 数、`cuda_visible_devices`、ephemeral runtime 端口和 `tensor_parallel_size` 判断资源是否足够，资源不冲突的 job 可并发启动。默认并发上限为 2，可通过 `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS` 调整；扫描间隔可通过 `EVAL_BENCH_SCHEDULER_INTERVAL_S` 调整
+- 当前 worker 支持 manifest-driven `eval_job`：claim queued job 后解析 manifest，按 `runtime.mode` 启动一次性 vLLM runtime 或连接已有 service，再写入 `runs/<run_id>/run.json`
+- job 创建支持模板 + 自由 JSON manifest。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
+- run manifest 会持久化模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget、job manifest 和 vLLM runtime/service 参数；dashboard 的 Run Inspector 顶部会按需展开这些配置
+- `register-service` 会把外部 vLLM endpoint 或本地 vLLM OpenAI server 参数写入 SQLite；dashboard 的 Services 页也使用同一套 API。长期 vLLM 放在 Services 页管理，一次性 vLLM 放在 job manifest 的 `runtime.mode=ephemeral` 中管理
+- `start-service` 使用当前 `.venv` 的 Python 启动 `vllm.entrypoints.openai.api_server`，日志写入 `eval_bench_store/services/<service_id>/service.log`；`stop-service` 会终止该本地服务进程
+- job manifest 使用 `runtime.mode=ephemeral` 时，worker 会启动 job 专属 vLLM，等待 endpoint ready，执行推理后关闭进程；runtime 日志写入 `runs/<run_id>/logs/runtime.log`，Dashboard 通过 `/api/jobs/<job_id>/logs` 读取 tail
+- worker 执行时会持续更新 job metadata 中的 `progress_phase`、`progress_done`、`progress_total`、`progress_current_sample` 和 `progress_message`；Dashboard 的任务中心每 2 秒刷新 job 和 scheduler 状态。runtime log 不在主列表常驻展示，点击某条 job row 后才会在嵌套详情面板中读取 `/api/jobs/<job_id>/logs?max_lines=0` 的完整日志
+- job manifest 使用 `runtime.mode=existing_service` 且提供 `endpoint` 时，worker 会调用 OpenAI-compatible `/v1/chat/completions`，写入 raw output、prediction snapshot 和 metric report，但不负责启停该服务
+- job payload 中设置 `"backend":"dry_run"` 时，会写空 prediction snapshot 并生成报告，用于端到端链路测试
+- `evaluate-run` 消费已经存在的 prediction snapshot，输出 `runs/<run_id>/reports/metrics.json` 和轻量 `runs/<run_id>/reports/summary.json`；前者包含整体指标、per-label 指标和 sample-level TP/FP/FN 诊断，后者供 dashboard 高频列表刷新使用
+- 预测结果和 test/GT 的对比不直接读取训练目录：先把 test split 复制成 benchmark，再把预测结果写入 `runs/<run_id>/predictions/`，最后由 `evaluate-run` 读取 benchmark GT 和 prediction snapshot 计算 TP/FP/FN、IoU 和 per-label 指标；Run Inspector 展示逐图 GT / Prediction 叠图
+- 如果预测 JSON 已经在外部目录，可以用 `import-predictions --benchmark-id <benchmark> --prediction-root <dir> --run-id <run>` 导入为 Eval Bench run；它会按 benchmark split 的相对路径、image path 或 basename 对齐 prediction JSON，默认导入后立即运行 `evaluate-run`。Dashboard 的 Runs 页也提供默认折叠的 `Import prediction snapshot` 入口，提交后直接生成可打开的 run
+- `compare-runs` 消费两个已有 `metrics.json`，输出 `eval_bench_store/exports/comparisons/<baseline>__vs__<candidate>.json`，其中包含整体指标 delta、样本改善/退化统计、sample index 和 top case 列表
+- `perf-smoke` 对 state summary、saved comparison listing、benchmark sample listing、run sample listing 等 dashboard 常用路径做本地耗时测量，输出 JSON 摘要
+- dashboard 的 Benchmarks 页可以从 raw_data split 创建 benchmark copy；benchmark inspector 会按样本读取 benchmark GT，并在原图上叠加 GT 框和 keypoints，支持服务端分页、sample 序号跳转和按 label 过滤样本
+- dashboard 的 run inspector 会按样本读取 benchmark GT 与 prediction snapshot，并在原图上叠加 GT / Prediction 框、linestrip 和 keypoints，支持服务端分页以及按 error type / label 过滤样本，用于快速定位漏检、误检和解析问题
+- sample viewer 支持 label 过滤、sample 序号直接跳转、GT/Prediction 与 box/line/point 图层显隐、可见标签 metric 聚合、对象列表联动、hover/click 高亮、滚轮缩放和拖拽平移；Run Inspector 以图像画布为主区域，配置、prompt 和 label metric 明细默认折叠；`INTERACTION_SMOKE=1 npm run render-check` 会自动跑一次 sample 跳转、筛选、复选框、缩放、平移和对象点击 smoke
+- dashboard 的 Compare 页提供基于 report summary 的排行榜、task/benchmark 过滤、成对 run 选择、整体 delta、已保存 comparison 列表，以及可跳转到并排样本对比视图的 top 改善/退化样本列表
+
 ## 3. `scripts/tasks/`
 
 `scripts/tasks/` 用于**任务级数据准备或转换脚本**。
