@@ -9,6 +9,60 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-12: Eval Bench 样本检视预加载过重和文本过度截断
+
+### 现象
+
+Eval Bench dashboard 中多处 run id、路径、样本文件名、表格单元格和设置项文本显示为省略号，影响排障时
+直接读取完整信息。部分样本进入图片可视化检视时出现明显等待，用户体感可到几十秒。
+
+### 根因
+
+- 文本层面：前端为了保护表格、卡片和工具栏布局，多个公共选择器使用 `overflow: hidden`、
+  `text-overflow: ellipsis` 和 `white-space: nowrap`，但没有区分“短标签控件”和“需要完整读取的工程信息”。
+- 性能层面：后端 sample detail API 和图片 FileResponse 本身不是瓶颈。本地实测：
+  - `/api/runs/config_smoke_prompt_params/samples/0` 约 3ms。
+  - `/api/runs/config_smoke_prompt_params/samples/0/image` 约 30ms，图片大小约 7MB。
+  - 当前 benchmark 中最大 PNG 约 11MB，分辨率可达 `4096x2234`。
+- 真实瓶颈是前端 `preloadSampleImages` 每次选中样本时预加载前后 4 个样本并包含当前样本，最多会并发触发 9 张
+  高分辨率 PNG 的本地 HTTP 传输和浏览器解码；这仍然会占用浏览器解码、内存和本机 IO，不是外网带宽问题。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的可读性和样本检视交互延迟。
+- 不影响模型评测结果、metric 计算或 prediction artifact。
+- 不属于模型能力问题，是 dashboard 前端资源调度和信息密度设计问题。
+
+### 修复方式
+
+- 文本显示改为默认允许换行和 `overflow-wrap: anywhere`，对 run id、路径、样本名、表格单元格、设置项、
+  service log path、shortcut action 等工程信息不再默认省略。
+- 图片预加载从“当前样本前后 4 个”收敛为“空闲时只预加载相邻样本”，并排除当前样本，避免和主 `<img>` 请求重复。
+- 为预加载增加简单 URL cache 和 effect cleanup，快速切换样本时取消尚未执行的 idle preload。
+- sample detail prefetch 从前后 3 个收敛为前后 1 个，减少后台 JSON 请求。
+- `test:viewer-performance` 增加初始检视图片请求数量断言，防止回退到一次打开多张大图。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:status-model`
+- `cd projects/eval_bench/frontend && npm run test:workspace-settings`
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts`
+- `cd projects/eval_bench/frontend && npm run test:viewer-performance`
+  - `canvas_renders_during_pan_zoom = 3`
+  - `gt_layer_renders_during_pan_zoom = 0`
+  - `pred_layer_renders_during_pan_zoom = 0`
+  - `image_requests_during_initial_inspection = 2`
+- `git diff --check`
+
+### 后续防线
+
+- 新增样本检视预加载时必须限制并发和半径，并优先使用 idle 调度。
+- 对 4K / 多 MB 图片，不能把“本地浏览器计算”误认为没有成本；浏览器解码、内存和本地 HTTP 传输仍是交互路径的一部分。
+- 工程信息字段默认应完整可读；只有固定宽度控件、图标按钮或明确需要单行的短标签可以使用省略号。
+
 ## 2026-05-12: Eval Bench 前端功能边界集中在 main.tsx
 
 ### 现象

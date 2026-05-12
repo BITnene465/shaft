@@ -701,6 +701,57 @@ tbody tr:hover td {
   border-radius: 2px;
 }
 
+.panel-title span,
+.action-panel summary strong,
+.run-config-panel summary strong,
+.config-item strong,
+.recent-run-head strong,
+.recent-run-meta,
+.compare-run-card strong,
+.compare-run-card span,
+.service-card-heading p,
+.service-health strong,
+.service-log-heading strong,
+.comparison-sample-row-head strong,
+.metric-delta strong,
+.viewer-toolbar h2,
+.viewer-toolbar p,
+.prompt-template-meta span,
+.label-color-name,
+.settings-profile-strip strong,
+.settings-profile-strip small,
+.settings-section-button small,
+.settings-preview-dock strong,
+.settings-drawer-head small,
+.settings-drawer-head p,
+.settings-preference-copy code,
+.settings-label-row span,
+.shortcut-map-row strong,
+.shortcut-map-row code,
+.settings-preview-head small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+td,
+tbody td {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table-shell {
+  overflow: auto;
+}
+
+.filter-select select,
+.query-chip {
+  text-overflow: clip;
+}
+
 .resizer-handle,
 .resizable-handle {
   background: linear-gradient(90deg, transparent, rgb(13 142 181 / 42%), transparent);

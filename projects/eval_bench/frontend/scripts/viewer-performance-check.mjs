@@ -6,11 +6,18 @@ const url = withPerfFlag(rawUrl);
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 const errors = [];
+let imageRequests = 0;
 
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("console", (message) => {
   if (message.type() === "error") {
     errors.push(message.text());
+  }
+});
+page.on("request", (request) => {
+  const requestUrl = request.url();
+  if (/\/api\/(?:runs|benchmarks)\/.+\/samples\/\d+\/image(?:\?|$)/.test(requestUrl)) {
+    imageRequests += 1;
   }
 });
 
@@ -65,6 +72,9 @@ if (gtLayerDelta + predLayerDelta > 1) {
     `pan/zoom should not rerender heavy overlay layers: gt=${gtLayerDelta}, pred=${predLayerDelta}`
   );
 }
+if (imageRequests > 3) {
+  throw new Error(`viewer opened too many image requests during initial inspection: ${imageRequests}`);
+}
 
 console.log(`viewer performance check passed ${url}`);
 console.log(
@@ -72,7 +82,8 @@ console.log(
     {
       canvas_renders_during_pan_zoom: canvasDelta,
       gt_layer_renders_during_pan_zoom: gtLayerDelta,
-      pred_layer_renders_during_pan_zoom: predLayerDelta
+      pred_layer_renders_during_pan_zoom: predLayerDelta,
+      image_requests_during_initial_inspection: imageRequests
     },
     null,
     2

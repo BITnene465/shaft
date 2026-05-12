@@ -649,7 +649,7 @@ function BenchmarkDetailPage() {
   }, [activeSample, selectedIndex]);
 
   useEffect(() => {
-    preloadSampleImages(samples, activeIndex);
+    return preloadSampleImages(samples, activeIndex);
   }, [activeIndex, samples]);
 
   useEffect(() => {
@@ -657,7 +657,7 @@ function BenchmarkDetailPage() {
       return;
     }
     const position = Math.max(0, samples.findIndex((sample) => sample.index === activeIndex));
-    const preload = samples.slice(Math.max(0, position - 3), position + 4);
+    const preload = samples.slice(Math.max(0, position - 1), position + 2);
     preload.forEach((sample) => {
       void queryClient.prefetchQuery({
         queryKey: ["benchmark-sample-detail", benchmarkId, sample.index],
@@ -1111,7 +1111,7 @@ function RunDetailPage() {
   }, [activeSample, selectedIndex]);
 
   useEffect(() => {
-    preloadSampleImages(samples, activeIndex);
+    return preloadSampleImages(samples, activeIndex);
   }, [activeIndex, samples]);
 
   useEffect(() => {
@@ -1119,7 +1119,7 @@ function RunDetailPage() {
       return;
     }
     const position = Math.max(0, samples.findIndex((sample) => sample.index === activeIndex));
-    const preload = samples.slice(Math.max(0, position - 3), position + 4);
+    const preload = samples.slice(Math.max(0, position - 1), position + 2);
     preload.forEach((sample) => {
       void queryClient.prefetchQuery({
         queryKey: ["run-sample-detail", runId, sample.index],

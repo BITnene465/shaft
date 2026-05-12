@@ -8,7 +8,14 @@ import type {
 } from "./workspaceSettings";
 
 const CANVAS_FIT_PADDING = 18;
-const PRELOAD_RADIUS = 4;
+const PRELOAD_RADIUS = 1;
+const MAX_PRELOADED_IMAGE_URLS = 96;
+const preloadedImageUrls = new Set<string>();
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
 
 export function resolveInstanceColor(
   label: string,
@@ -89,13 +96,47 @@ export function preloadSampleImages(
   selectedIndex: number
 ) {
   const nearby = samples.filter(
-    (sample) => Math.abs(sample.index - selectedIndex) <= PRELOAD_RADIUS && sample.image_url
+    (sample) =>
+      sample.index !== selectedIndex &&
+      Math.abs(sample.index - selectedIndex) <= PRELOAD_RADIUS &&
+      sample.image_url &&
+      !preloadedImageUrls.has(sample.image_url)
   );
-  for (const sample of nearby) {
-    const image = new Image();
-    image.decoding = "async";
-    image.src = sample.image_url;
+  if (nearby.length === 0) {
+    return () => undefined;
   }
+  let cancelled = false;
+  const loadNearby = () => {
+    if (cancelled) {
+      return;
+    }
+    for (const sample of nearby) {
+      if (cancelled || preloadedImageUrls.has(sample.image_url)) {
+        continue;
+      }
+      preloadedImageUrls.add(sample.image_url);
+      if (preloadedImageUrls.size > MAX_PRELOADED_IMAGE_URLS) {
+        const oldestUrl = preloadedImageUrls.values().next().value;
+        if (oldestUrl) {
+          preloadedImageUrls.delete(oldestUrl);
+        }
+      }
+      const image = new Image();
+      image.decoding = "async";
+      image.src = sample.image_url;
+    }
+  };
+  const idleWindow = window as IdleWindow;
+  const idleHandle =
+    idleWindow.requestIdleCallback?.(loadNearby, { timeout: 1_200 }) ?? window.setTimeout(loadNearby, 250);
+  return () => {
+    cancelled = true;
+    if (idleWindow.cancelIdleCallback) {
+      idleWindow.cancelIdleCallback(idleHandle);
+    } else {
+      window.clearTimeout(idleHandle);
+    }
+  };
 }
 
 export function computeFitSize(
