@@ -127,6 +127,9 @@ export type RunSampleSummary = {
   has_prediction: boolean;
   prediction_path: string | null;
   image_url: string;
+  image_preview_url?: string;
+  image_tile_url_template?: string;
+  image_tile_size?: number;
   diagnostics: SampleDiagnostics | null;
 };
 
@@ -139,6 +142,9 @@ export type BenchmarkSampleSummary = {
   instance_count: number;
   labels: string[];
   image_url: string;
+  image_preview_url?: string;
+  image_tile_url_template?: string;
+  image_tile_size?: number;
 };
 
 export type RunSampleDetail = {

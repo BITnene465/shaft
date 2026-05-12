@@ -16,7 +16,7 @@ page.on("console", (message) => {
 });
 page.on("request", (request) => {
   const requestUrl = request.url();
-  if (/\/api\/(?:runs|benchmarks)\/.+\/samples\/\d+\/image(?:\?|$)/.test(requestUrl)) {
+  if (/\/api\/(?:runs|benchmarks)\/.+\/samples\/\d+\/image(?:\/preview)?(?:\?|$)/.test(requestUrl)) {
     imageRequests += 1;
   }
 });

@@ -91,7 +91,8 @@ export function arrowHeadPoints(points: number[][], lineWidth: number, scale = 1
 
 export function preloadSampleImages(
   samples: Array<
-    Pick<RunSampleSummary, "index" | "image_url"> | Pick<BenchmarkSampleSummary, "index" | "image_url">
+    | Pick<RunSampleSummary, "index" | "image_url" | "image_preview_url">
+    | Pick<BenchmarkSampleSummary, "index" | "image_url" | "image_preview_url">
   >,
   selectedIndex: number
 ) {
@@ -99,8 +100,8 @@ export function preloadSampleImages(
     (sample) =>
       sample.index !== selectedIndex &&
       Math.abs(sample.index - selectedIndex) <= PRELOAD_RADIUS &&
-      sample.image_url &&
-      !preloadedImageUrls.has(sample.image_url)
+      displayImageUrl(sample) &&
+      !preloadedImageUrls.has(displayImageUrl(sample))
   );
   if (nearby.length === 0) {
     return () => undefined;
@@ -111,10 +112,11 @@ export function preloadSampleImages(
       return;
     }
     for (const sample of nearby) {
-      if (cancelled || preloadedImageUrls.has(sample.image_url)) {
+      const imageUrl = displayImageUrl(sample);
+      if (cancelled || preloadedImageUrls.has(imageUrl)) {
         continue;
       }
-      preloadedImageUrls.add(sample.image_url);
+      preloadedImageUrls.add(imageUrl);
       if (preloadedImageUrls.size > MAX_PRELOADED_IMAGE_URLS) {
         const oldestUrl = preloadedImageUrls.values().next().value;
         if (oldestUrl) {
@@ -123,7 +125,7 @@ export function preloadSampleImages(
       }
       const image = new Image();
       image.decoding = "async";
-      image.src = sample.image_url;
+      image.src = imageUrl;
     }
   };
   const idleWindow = window as IdleWindow;
@@ -137,6 +139,10 @@ export function preloadSampleImages(
       window.clearTimeout(idleHandle);
     }
   };
+}
+
+export function displayImageUrl(sample: { image_url: string; image_preview_url?: string | null }) {
+  return sample.image_preview_url || sample.image_url;
 }
 
 export function computeFitSize(

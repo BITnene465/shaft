@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-12: Eval Bench 原图直出导致检视首屏资源过重
+
+### 现象
+
+即使前端限制预加载半径，viewer 首屏仍然直接使用 `/image` 原图。对于 4K、多 MB PNG，浏览器仍需下载和解码
+完整图片后才能显示画布，影响样本检视首屏响应。
+
+### 根因
+
+Eval Bench 后端只有原图 FileResponse，没有面向 dashboard 检视的派生图层。前端无法区分“复盘证据原图”和
+“交互检视底图”，只能把原图同时作为证据文件和 viewer display source。
+
+### 影响范围
+
+- 影响 benchmark/run/comparison/settings preview 的图片检视首屏体感。
+- 不影响 benchmark copy、run prediction、metric 计算或原始证据文件。
+- 不属于模型能力问题，是 dashboard 图像资源分层缺失。
+
+### 修复方式
+
+- sample payload 保留 `image_url` 原图，同时新增：
+  - `image_preview_url`: `/image/preview?max_side=1800`，服务端生成并缓存 JPEG 缩略代理。
+  - `image_tile_url_template`: `/image/tiles/{level}/{x}/{y}`，服务端按 level/x/y 生成并缓存 JPEG 金字塔瓦片。
+  - `image_tile_size`: 当前瓦片边长，默认 512。
+- benchmark、run、settings preview 和 comparison sample 都走同一套 image URL payload。
+- viewer 和预加载默认使用 `image_preview_url`，原图仍保留在 API 中用于证据复核。
+- viewer 高倍缩放超过阈值并停顿后，按 `image_tile_url_template` 延迟加载少量金字塔瓦片；瓦片数量受上限保护，
+  不在首屏或连续滚轮过程中抢占资源。
+- 派生图缓存写入 `eval_bench_store/cache/image_proxy/`，缓存 key 包含源图路径、mtime、size 和派生参数。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_dashboard.py`
+- `python -m compileall projects/eval_bench/eval_bench`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- dashboard viewer 不应直接把多 MB 原图作为默认 display source；原图接口用于证据，检视默认走 preview proxy。
+- 金字塔瓦片必须延迟到用户高倍缩放并停顿后加载，并限制可见瓦片数量，避免把原图解码压力从首屏转移到滚轮事件。
+
 ## 2026-05-12: Eval Bench 样本检视预加载过重和文本过度截断
 
 ### 现象

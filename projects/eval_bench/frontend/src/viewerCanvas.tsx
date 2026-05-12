@@ -26,6 +26,10 @@ import type {
   OverlayStyle
 } from "./workspaceSettings";
 
+const TILE_LOAD_IDLE_DELAY_MS = 700;
+const TILE_ZOOM_THRESHOLD = 2.1;
+const MAX_RENDERED_TILES = 24;
+
 function recordViewerRenderMetric(name: string) {
   if (typeof window === "undefined" || !window.location.search.includes("perf=1")) {
     return;
@@ -52,6 +56,8 @@ export function CanvasStage({
   overlayColors,
   overlayStyle,
   labelColors,
+  imageTileUrlTemplate,
+  imageTileSize = 512,
   interactionSettings = DEFAULT_INTERACTION_SETTINGS,
   activeObjectId = null,
   onHover,
@@ -73,6 +79,8 @@ export function CanvasStage({
   overlayColors: OverlayColors;
   overlayStyle: OverlayStyle;
   labelColors: LabelColors;
+  imageTileUrlTemplate?: string | null;
+  imageTileSize?: number | null;
   interactionSettings?: InteractionSettings;
   activeObjectId?: string | null;
   onHover?: (objectId: string | null) => void;
@@ -97,9 +105,11 @@ export function CanvasStage({
   const pendingPanRef = React.useRef<{ x: number; y: number } | null>(null);
   const frameRef = React.useRef<number | null>(null);
   const transformingTimeoutRef = React.useRef<number | null>(null);
+  const tileLoadTimeoutRef = React.useRef<number | null>(null);
   const zoomLabelRef = React.useRef<HTMLSpanElement | null>(null);
   const viewportDirtyRef = React.useRef(false);
   const [viewportDirty, setViewportDirty] = useState(false);
+  const [tileLevel, setTileLevel] = useState<number | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1, height: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const fitSize = useMemo(
@@ -118,6 +128,7 @@ export function CanvasStage({
     }
     applyViewportToDom();
     updateViewportDirty(false);
+    setTileLevel(null);
     dragRef.current = null;
     setIsPanning(false);
   }, [imageUrl]);
@@ -169,6 +180,9 @@ export function CanvasStage({
       if (transformingTimeoutRef.current !== null) {
         window.clearTimeout(transformingTimeoutRef.current);
       }
+      if (tileLoadTimeoutRef.current !== null) {
+        window.clearTimeout(tileLoadTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -212,6 +226,26 @@ export function CanvasStage({
       node.classList.remove("transforming");
       transformingTimeoutRef.current = null;
     }, 140);
+  }
+
+  function scheduleTileLevelUpdate(nextZoom: number) {
+    if (!imageTileUrlTemplate || !imageTileSize) {
+      setTileLevel(null);
+      return;
+    }
+    if (tileLoadTimeoutRef.current !== null) {
+      window.clearTimeout(tileLoadTimeoutRef.current);
+    }
+    const nextTileLevel = tileLevelForZoom({
+      width,
+      height,
+      zoom: nextZoom,
+      tileSize: imageTileSize
+    });
+    tileLoadTimeoutRef.current = window.setTimeout(() => {
+      setTileLevel(nextTileLevel);
+      tileLoadTimeoutRef.current = null;
+    }, TILE_LOAD_IDLE_DELAY_MS);
   }
 
   function scheduleViewportUpdate() {
@@ -281,6 +315,7 @@ export function CanvasStage({
       pan: clampStagePan(nextPan, clampedZoom)
     };
     updateViewportDirty(true);
+    scheduleTileLevelUpdate(clampedZoom);
     markViewportTransforming();
     scheduleViewportUpdate();
   }
@@ -296,9 +331,14 @@ export function CanvasStage({
       window.clearTimeout(transformingTimeoutRef.current);
       transformingTimeoutRef.current = null;
     }
+    if (tileLoadTimeoutRef.current !== null) {
+      window.clearTimeout(tileLoadTimeoutRef.current);
+      tileLoadTimeoutRef.current = null;
+    }
     stageRef.current?.classList.remove("transforming");
     applyViewportToDom();
     updateViewportDirty(false);
+    setTileLevel(null);
     dragRef.current = null;
     setIsPanning(false);
   }
@@ -407,12 +447,22 @@ export function CanvasStage({
         }}
       >
         <img
+          className="base-image"
           src={imageUrl}
           alt={imageAlt}
           draggable={false}
           loading="eager"
           decoding="async"
         />
+        {imageTileUrlTemplate && imageTileSize && tileLevel !== null ? (
+          <PyramidTileLayer
+            width={width}
+            height={height}
+            tileSize={imageTileSize}
+            level={tileLevel}
+            urlTemplate={imageTileUrlTemplate}
+          />
+        ) : null}
         <svg
           className={overlayInteractive ? "overlay-svg interactive" : "overlay-svg"}
           viewBox={`0 0 ${width} ${height}`}
@@ -618,3 +668,95 @@ function InstanceLayer({
 }
 
 const MemoizedInstanceLayer = React.memo(InstanceLayer);
+
+function PyramidTileLayer({
+  width,
+  height,
+  tileSize,
+  level,
+  urlTemplate
+}: {
+  width: number;
+  height: number;
+  tileSize: number;
+  level: number;
+  urlTemplate: string;
+}) {
+  const scale = 2 ** level;
+  const levelWidth = Math.ceil(width / scale);
+  const levelHeight = Math.ceil(height / scale);
+  const columns = Math.ceil(levelWidth / tileSize);
+  const rows = Math.ceil(levelHeight / tileSize);
+  if (columns * rows > MAX_RENDERED_TILES) {
+    return null;
+  }
+  const tiles = [];
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < columns; x += 1) {
+      const originalLeft = x * tileSize * scale;
+      const originalTop = y * tileSize * scale;
+      const originalRight = Math.min(width, (x + 1) * tileSize * scale);
+      const originalBottom = Math.min(height, (y + 1) * tileSize * scale);
+      tiles.push({
+        key: `${level}-${x}-${y}`,
+        src: urlTemplate
+          .replace("{level}", String(level))
+          .replace("{x}", String(x))
+          .replace("{y}", String(y)),
+        left: `${(originalLeft / width) * 100}%`,
+        top: `${(originalTop / height) * 100}%`,
+        width: `${((originalRight - originalLeft) / width) * 100}%`,
+        height: `${((originalBottom - originalTop) / height) * 100}%`
+      });
+    }
+  }
+  return (
+    <div className="pyramid-tile-layer" aria-hidden="true">
+      {tiles.map((tile) => (
+        <img
+          key={tile.key}
+          className="pyramid-tile"
+          src={tile.src}
+          alt=""
+          draggable={false}
+          loading="lazy"
+          decoding="async"
+          style={{
+            left: tile.left,
+            top: tile.top,
+            width: tile.width,
+            height: tile.height
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function tileLevelForZoom({
+  width,
+  height,
+  zoom,
+  tileSize
+}: {
+  width: number;
+  height: number;
+  zoom: number;
+  tileSize: number;
+}) {
+  if (zoom < TILE_ZOOM_THRESHOLD || Math.max(width, height) <= IMAGE_PREVIEW_MAX_DISPLAY_SIDE) {
+    return null;
+  }
+  const preferredLevel = zoom >= 3.5 ? 0 : 1;
+  for (let level = preferredLevel; level <= 8; level += 1) {
+    const scale = 2 ** level;
+    const columns = Math.ceil(Math.ceil(width / scale) / tileSize);
+    const rows = Math.ceil(Math.ceil(height / scale) / tileSize);
+    if (columns * rows <= MAX_RENDERED_TILES) {
+      return level;
+    }
+  }
+  return null;
+}
+
+const IMAGE_PREVIEW_MAX_DISPLAY_SIDE = 1800;

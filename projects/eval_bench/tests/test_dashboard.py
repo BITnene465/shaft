@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -490,6 +491,9 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
     assert samples[0]["pred_instance_count"] == 1
     assert samples[0]["labels"] == ["icon"]
     assert samples[0]["image_url"] == "/api/runs/run1/samples/0/image"
+    assert samples[0]["image_preview_url"] == "/api/runs/run1/samples/0/image/preview?max_side=1800"
+    assert samples[0]["image_tile_url_template"] == "/api/runs/run1/samples/0/image/tiles/{level}/{x}/{y}"
+    assert samples[0]["image_tile_size"] == 512
 
     detail = client.get("/api/runs/run1/samples/0").json()
     assert detail["gt_instances"][0]["bbox"] == [1.0, 2.0, 10.0, 20.0]
@@ -621,6 +625,15 @@ def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> 
     assert samples[0]["instance_count"] == 1
     assert samples[0]["labels"] == ["icon"]
     assert samples[0]["image_url"] == "/api/benchmarks/multitask_val_v1/samples/0/image"
+    assert (
+        samples[0]["image_preview_url"]
+        == "/api/benchmarks/multitask_val_v1/samples/0/image/preview?max_side=1800"
+    )
+    assert (
+        samples[0]["image_tile_url_template"]
+        == "/api/benchmarks/multitask_val_v1/samples/0/image/tiles/{level}/{x}/{y}"
+    )
+    assert samples[0]["image_tile_size"] == 512
 
     detail = client.get("/api/benchmarks/multitask_val_v1/samples/0").json()
     assert detail["gt_instances"][0]["bbox"] == [1.0, 2.0, 10.0, 20.0]
@@ -629,7 +642,65 @@ def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> 
     preview = client.get("/api/settings/preview-sample").json()
     assert preview["benchmark_id"] == "multitask_val_v1"
     assert preview["sample"]["image_url"] == "/api/benchmarks/multitask_val_v1/samples/0/image"
+    assert (
+        preview["sample"]["image_preview_url"]
+        == "/api/benchmarks/multitask_val_v1/samples/0/image/preview?max_side=1800"
+    )
     assert preview["gt_instances"][0]["label"] == "icon"
+
+
+def test_dashboard_serves_image_preview_proxy_and_pyramid_tiles(tmp_path: Path) -> None:
+    from PIL import Image
+
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    image_path = data_root / "part1" / "images" / "a.png"
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (640, 320), (20, 60, 90)).save(image_path)
+    _write_json(
+        tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(data_root),
+            "manifest_path": str(split_manifest),
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 640,
+            "image_height": 320,
+            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+        },
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    preview_response = client.get(
+        "/api/benchmarks/multitask_val_v1/samples/0/image/preview",
+        params={"max_side": 256, "quality": 70},
+    )
+    assert preview_response.status_code == 200
+    assert preview_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(io.BytesIO(preview_response.content)) as preview_image:
+        assert max(preview_image.size) <= 256
+
+    tile_response = client.get("/api/benchmarks/multitask_val_v1/samples/0/image/tiles/1/0/0")
+    assert tile_response.status_code == 200
+    assert tile_response.headers["content-type"].startswith("image/jpeg")
+    with Image.open(io.BytesIO(tile_response.content)) as tile_image:
+        assert max(tile_image.size) <= 512
+
+    assert client.get("/api/benchmarks/multitask_val_v1/samples/0/image/tiles/0/99/0").status_code == 404
+    assert (tmp_path / "cache" / "image_proxy").exists()
 
 
 def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:

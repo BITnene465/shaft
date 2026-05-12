@@ -2894,6 +2894,19 @@ tbody tr:hover td {
   user-select: none;
 }
 
+.pyramid-tile-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.image-zoom-layer .pyramid-tile {
+  position: absolute;
+  display: block;
+  object-fit: fill;
+  user-select: none;
+}
+
 .overlay-svg {
   position: absolute;
   inset: 0;

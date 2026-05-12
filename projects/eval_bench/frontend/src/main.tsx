@@ -116,7 +116,7 @@ import {
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
-import { preloadSampleImages } from "./viewerGeometry";
+import { displayImageUrl, preloadSampleImages } from "./viewerGeometry";
 import { CanvasStage } from "./viewerCanvas";
 import {
   DiagnosticStrip,
@@ -816,8 +816,10 @@ function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
       <CanvasStage
         width={width}
         height={height}
-        imageUrl={detail.sample.image_url}
+        imageUrl={displayImageUrl(detail.sample)}
         imageAlt={detail.sample.image}
+        imageTileUrlTemplate={detail.sample.image_tile_url_template}
+        imageTileSize={detail.sample.image_tile_size}
         gtInstances={detail.gt_instances}
         predInstances={[]}
         diagnostics={null}
@@ -1503,8 +1505,10 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     <CanvasStage
       width={width}
       height={height}
-      imageUrl={detail.sample.image_url}
+      imageUrl={displayImageUrl(detail.sample)}
       imageAlt={detail.sample.image}
+      imageTileUrlTemplate={detail.sample.image_tile_url_template}
+      imageTileSize={detail.sample.image_tile_size}
       gtInstances={detail.gt_instances}
       predInstances={detail.pred_instances}
       diagnostics={detail.diagnostics}
@@ -1660,7 +1664,7 @@ function SettingsPage() {
   const previewSample = previewQuery.data?.sample ?? null;
   const previewWidth = previewSample?.image_width ?? 960;
   const previewHeight = previewSample?.image_height ?? 600;
-  const previewImageUrl = previewSample?.image_url ?? SETTINGS_PREVIEW_IMAGE_URL;
+  const previewImageUrl = previewSample ? displayImageUrl(previewSample) : SETTINGS_PREVIEW_IMAGE_URL;
   const previewMeta =
     previewQuery.data && previewSample
       ? `${previewQuery.data.benchmark_id} / #${previewSample.index + 1}`

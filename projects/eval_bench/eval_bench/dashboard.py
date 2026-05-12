@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import hashlib
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import socket
@@ -29,19 +31,34 @@ from .services import EvalBenchServiceManager
 from .store import EvalBenchStore
 from .worker import EvalBenchWorker
 
+IMAGE_PREVIEW_MAX_SIDE = 1800
+IMAGE_PREVIEW_QUALITY = 82
+IMAGE_TILE_SIZE = 512
+IMAGE_TILE_QUALITY = 86
+
 
 def _run_sample_detail_payload(run_id: str, detail: Any) -> dict[str, Any]:
     return {
         "run_id": run_id,
         "sample": {
             **detail.sample.__dict__,
-            "image_url": f"/api/runs/{run_id}/samples/{detail.sample.index}/image",
+            **_sample_image_urls("runs", run_id, detail.sample.index),
         },
         "gt_instances": detail.gt_instances,
         "pred_instances": detail.pred_instances,
         "raw_payload": detail.raw_payload,
         "prediction_payload": detail.prediction_payload,
         "diagnostics": detail.diagnostics,
+    }
+
+
+def _sample_image_urls(scope: str, owner_id: str, sample_index: int) -> dict[str, Any]:
+    image_url = f"/api/{scope}/{owner_id}/samples/{sample_index}/image"
+    return {
+        "image_url": image_url,
+        "image_preview_url": f"{image_url}/preview?max_side={IMAGE_PREVIEW_MAX_SIDE}",
+        "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}",
+        "image_tile_size": IMAGE_TILE_SIZE,
     }
 
 
@@ -109,6 +126,123 @@ def _frontend_not_built_html() -> str:
   </body>
 </html>
 """.strip()
+
+
+def _clamped_int(value: int, *, minimum: int, maximum: int) -> int:
+    return min(maximum, max(minimum, int(value)))
+
+
+def _cache_key(image_path: Path, *parts: object) -> str:
+    stat = image_path.stat()
+    payload = "|".join(
+        [
+            str(image_path.resolve()),
+            str(stat.st_mtime_ns),
+            str(stat.st_size),
+            *(str(part) for part in parts),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _image_cache_path(store_root: Path, image_path: Path, *parts: object) -> Path:
+    digest = _cache_key(image_path, *parts)
+    return store_root / "cache" / "image_proxy" / digest[:2] / f"{digest}.jpg"
+
+
+def _save_rgb_jpeg(image: Any, path: Path, *, quality: int) -> None:
+    from PIL import Image
+
+    if image.mode in {"RGBA", "LA"} or image.info.get("transparency") is not None:
+        background = Image.new("RGB", image.size, (255, 255, 255))
+        alpha = image.getchannel("A") if image.mode in {"RGBA", "LA"} else None
+        background.paste(image.convert("RGBA"), mask=alpha)
+        image = background
+    elif image.mode != "RGB":
+        image = image.convert("RGB")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(".tmp.jpg")
+    image.save(tmp_path, format="JPEG", quality=quality, optimize=True, progressive=True)
+    tmp_path.replace(path)
+
+
+def _image_preview_response(
+    *,
+    store_root: Path,
+    image_path: Path,
+    max_side: int,
+    quality: int,
+) -> FileResponse:
+    from PIL import Image
+
+    max_side = _clamped_int(max_side, minimum=256, maximum=4096)
+    quality = _clamped_int(quality, minimum=50, maximum=95)
+    cache_path = _image_cache_path(store_root, image_path, "preview", max_side, quality)
+    if not cache_path.exists():
+        with Image.open(image_path) as image:
+            image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+            _save_rgb_jpeg(image, cache_path, quality=quality)
+    return FileResponse(
+        cache_path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+def _image_tile_response(
+    *,
+    store_root: Path,
+    image_path: Path,
+    level: int,
+    tile_x: int,
+    tile_y: int,
+) -> FileResponse:
+    from PIL import Image
+
+    if level < 0 or tile_x < 0 or tile_y < 0:
+        raise HTTPException(status_code=400, detail="tile level and coordinates must be non-negative.")
+    quality = IMAGE_TILE_QUALITY
+    cache_path = _image_cache_path(
+        store_root,
+        image_path,
+        "tile",
+        level,
+        tile_x,
+        tile_y,
+        IMAGE_TILE_SIZE,
+        quality,
+    )
+    if not cache_path.exists():
+        scale = 2**level
+        with Image.open(image_path) as image:
+            width, height = image.size
+            level_width = math.ceil(width / scale)
+            level_height = math.ceil(height / scale)
+            max_tile_x = max(0, math.ceil(level_width / IMAGE_TILE_SIZE) - 1)
+            max_tile_y = max(0, math.ceil(level_height / IMAGE_TILE_SIZE) - 1)
+            if tile_x > max_tile_x or tile_y > max_tile_y:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"tile {level}/{tile_x}/{tile_y} outside pyramid bounds "
+                        f"{max_tile_x + 1}x{max_tile_y + 1}."
+                    ),
+                )
+            left = tile_x * IMAGE_TILE_SIZE * scale
+            top = tile_y * IMAGE_TILE_SIZE * scale
+            right = min(width, (tile_x + 1) * IMAGE_TILE_SIZE * scale)
+            bottom = min(height, (tile_y + 1) * IMAGE_TILE_SIZE * scale)
+            tile = image.crop((left, top, right, bottom))
+            if scale > 1:
+                tile_width = max(1, math.ceil((right - left) / scale))
+                tile_height = max(1, math.ceil((bottom - top) / scale))
+                tile = tile.resize((tile_width, tile_height), Image.Resampling.LANCZOS)
+            _save_rgb_jpeg(tile, cache_path, quality=quality)
+    return FileResponse(
+        cache_path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 def _prompt_template_map(database: EvalBenchDatabase) -> dict[str, dict[str, Any]]:
@@ -377,7 +511,7 @@ def create_app(
                 "samples": [
                     {
                         **sample.__dict__,
-                        "image_url": f"/api/benchmarks/{benchmark_id}/samples/{sample.index}/image",
+                        **_sample_image_urls("benchmarks", benchmark_id, sample.index),
                     }
                     for sample in page.samples
                 ],
@@ -400,7 +534,7 @@ def create_app(
                 "benchmark_id": benchmark_id,
                 "sample": {
                     **detail.sample.__dict__,
-                    "image_url": f"/api/benchmarks/{benchmark_id}/samples/{detail.sample.index}/image",
+                    **_sample_image_urls("benchmarks", benchmark_id, detail.sample.index),
                 },
                 "gt_instances": detail.gt_instances,
                 "raw_payload": detail.raw_payload,
@@ -422,6 +556,60 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
         return FileResponse(image_path)
 
+    @app.get("/api/benchmarks/{benchmark_id}/samples/{sample_index}/image/preview")
+    async def benchmark_sample_image_preview(
+        benchmark_id: str,
+        sample_index: int,
+        request: Request,
+        max_side: int = IMAGE_PREVIEW_MAX_SIDE,
+        quality: int = IMAGE_PREVIEW_QUALITY,
+    ):
+        try:
+            image_path = request.app.state.eval_bench_store.benchmark_sample_image_path(
+                benchmark_id,
+                sample_index=sample_index,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
+        return _image_preview_response(
+            store_root=request.app.state.eval_bench_store.layout.root,
+            image_path=image_path,
+            max_side=max_side,
+            quality=quality,
+        )
+
+    @app.get("/api/benchmarks/{benchmark_id}/samples/{sample_index}/image/tiles/{level}/{tile_x}/{tile_y}")
+    async def benchmark_sample_image_tile(
+        benchmark_id: str,
+        sample_index: int,
+        level: int,
+        tile_x: int,
+        tile_y: int,
+        request: Request,
+    ):
+        try:
+            image_path = request.app.state.eval_bench_store.benchmark_sample_image_path(
+                benchmark_id,
+                sample_index=sample_index,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
+        return _image_tile_response(
+            store_root=request.app.state.eval_bench_store.layout.root,
+            image_path=image_path,
+            level=level,
+            tile_x=tile_x,
+            tile_y=tile_y,
+        )
+
     @app.get("/api/settings/preview-sample")
     async def settings_preview_sample(request: Request, benchmark_id: str | None = None):
         try:
@@ -435,10 +623,7 @@ def create_app(
                 "benchmark_id": resolved_benchmark_id,
                 "sample": {
                     **detail.sample.__dict__,
-                    "image_url": (
-                        f"/api/benchmarks/{resolved_benchmark_id}/samples/"
-                        f"{detail.sample.index}/image"
-                    ),
+                    **_sample_image_urls("benchmarks", resolved_benchmark_id, detail.sample.index),
                 },
                 "gt_instances": detail.gt_instances,
                 "raw_payload": detail.raw_payload,
@@ -571,7 +756,7 @@ def create_app(
                 "samples": [
                     {
                         **sample.__dict__,
-                        "image_url": f"/api/runs/{run_id}/samples/{sample.index}/image",
+                        **_sample_image_urls("runs", run_id, sample.index),
                     }
                     for sample in page.samples
                 ],
@@ -605,6 +790,60 @@ def create_app(
         if not image_path.exists():
             raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
         return FileResponse(image_path)
+
+    @app.get("/api/runs/{run_id}/samples/{sample_index}/image/preview")
+    async def run_sample_image_preview(
+        run_id: str,
+        sample_index: int,
+        request: Request,
+        max_side: int = IMAGE_PREVIEW_MAX_SIDE,
+        quality: int = IMAGE_PREVIEW_QUALITY,
+    ):
+        try:
+            image_path = request.app.state.eval_bench_store.run_sample_image_path(
+                run_id,
+                sample_index=sample_index,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
+        return _image_preview_response(
+            store_root=request.app.state.eval_bench_store.layout.root,
+            image_path=image_path,
+            max_side=max_side,
+            quality=quality,
+        )
+
+    @app.get("/api/runs/{run_id}/samples/{sample_index}/image/tiles/{level}/{tile_x}/{tile_y}")
+    async def run_sample_image_tile(
+        run_id: str,
+        sample_index: int,
+        level: int,
+        tile_x: int,
+        tile_y: int,
+        request: Request,
+    ):
+        try:
+            image_path = request.app.state.eval_bench_store.run_sample_image_path(
+                run_id,
+                sample_index=sample_index,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail=f"sample image does not exist: {image_path}")
+        return _image_tile_response(
+            store_root=request.app.state.eval_bench_store.layout.root,
+            image_path=image_path,
+            level=level,
+            tile_x=tile_x,
+            tile_y=tile_y,
+        )
 
     @app.get("/api/jobs")
     async def jobs(request: Request):

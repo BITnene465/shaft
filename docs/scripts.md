@@ -283,6 +283,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 - 当前 worker 支持 manifest-driven `eval_job`：claim queued job 后解析 manifest，按 `runtime.mode` 启动一次性 vLLM runtime 或连接已有 service，再写入 `runs/<run_id>/run.json`
 - job 创建支持模板 + 自由 JSON manifest。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
 - run manifest 会持久化模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget、job manifest 和 vLLM runtime/service 参数；dashboard 的 Run Inspector 顶部会按需展开这些配置
+- sample image API 暴露三层图像资源：`/image` 返回原图，`/image/preview?max_side=1800` 返回缓存 JPEG 缩略代理，`/image/tiles/{level}/{x}/{y}` 返回缓存 JPEG 金字塔瓦片；dashboard viewer 默认使用 `image_preview_url`，高倍缩放停顿后延迟加载少量瓦片增强局部细节，派生缓存写入 `eval_bench_store/cache/image_proxy/`
 - `register-service` 会把外部 vLLM endpoint 或本地 vLLM OpenAI server 参数写入 SQLite；dashboard 的 Services 页也使用同一套 API。长期 vLLM 放在 Services 页管理，一次性 vLLM 放在 job manifest 的 `runtime.mode=ephemeral` 中管理
 - `start-service` 使用当前 `.venv` 的 Python 启动 `vllm.entrypoints.openai.api_server`，日志写入 `eval_bench_store/services/<service_id>/service.log`；`stop-service` 会终止该本地服务进程
 - job manifest 使用 `runtime.mode=ephemeral` 时，worker 会启动 job 专属 vLLM，等待 endpoint ready，执行推理后关闭进程；runtime 日志写入 `runs/<run_id>/logs/runtime.log`，Dashboard 通过 `/api/jobs/<job_id>/logs` 读取 tail
