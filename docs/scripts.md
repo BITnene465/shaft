@@ -262,12 +262,18 @@ npm run build
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id>?sample=0 \
   INTERACTION_SMOKE=1 \
-  npm run render-check
+npm run render-check
+npm run test:status-model
+npm run test:workspace-settings
+EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id> npm run test:viewer-performance
+EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 ```
 
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`
 - dashboard 前端在 `projects/eval_bench/frontend`，使用 React、Vite、TanStack 和 Radix
+- dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data
@@ -290,7 +296,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id>?sample=0 \
 - `perf-smoke` 对 state summary、saved comparison listing、benchmark sample listing、run sample listing 等 dashboard 常用路径做本地耗时测量，输出 JSON 摘要
 - dashboard 的 Benchmarks 页可以从 raw_data split 创建 benchmark copy；benchmark inspector 会按样本读取 benchmark GT，并在原图上叠加 GT 框和 keypoints，支持服务端分页、sample 序号跳转和按 label 过滤样本
 - dashboard 的 run inspector 会按样本读取 benchmark GT 与 prediction snapshot，并在原图上叠加 GT / Prediction 框、linestrip 和 keypoints，支持服务端分页以及按 error type / label 过滤样本，用于快速定位漏检、误检和解析问题
-- sample viewer 支持 label 过滤、sample 序号直接跳转、GT/Prediction 与 box/line/point 图层显隐、可见标签 metric 聚合、对象列表联动、hover/click 高亮、滚轮缩放和拖拽平移；Run Inspector 以图像画布为主区域，配置、prompt 和 label metric 明细默认折叠；`INTERACTION_SMOKE=1 npm run render-check` 会自动跑一次 sample 跳转、筛选、复选框、缩放、平移和对象点击 smoke
+- sample viewer 支持 label 过滤、sample 分页浏览、GT/Prediction 与 box/line/point 图层显隐、可见标签 metric 聚合、对象列表联动、hover/click 高亮、滚轮缩放、拖拽平移和可配置快捷键；Run Inspector 以图像画布为主区域，配置、prompt 和 label metric 明细默认折叠；`INTERACTION_SMOKE=1 npm run render-check` 会自动跑一次 sample 切换、筛选、复选框、缩放、平移和对象点击 smoke；`npm run test:shortcuts` 会静态扫描键盘入口，并在 benchmark、run、compare、settings 页面验证 keymap 行为
 - dashboard 的 Compare 页提供基于 report summary 的排行榜、task/benchmark 过滤、成对 run 选择、整体 delta、已保存 comparison 列表，以及可跳转到并排样本对比视图的 top 改善/退化样本列表
 
 ## 3. `scripts/tasks/`

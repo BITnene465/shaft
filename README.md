@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/shaft/webui/static/logo.png" alt="Shaft hero illustration" width="680">
+  <img src="src/shaft/webui/static/logo.png" alt="Shaft logo" width="680">
 </p>
 
 # shaft（重构中）

@@ -7,6 +7,11 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:metrics": "node scripts/test-viewer-metrics.mjs",
+    "test:status-model": "node scripts/test-status-model.mjs",
+    "test:workspace-settings": "node scripts/test-workspace-settings.mjs",
+    "test:viewer-performance": "node scripts/viewer-performance-check.mjs",
+    "test:settings-preview": "node scripts/settings-preview-check.mjs",
+    "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
     "render-check": "node scripts/render-check.mjs"
   },
   "dependencies": {

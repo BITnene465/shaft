@@ -8,7 +8,6 @@ import {
   useQuery,
   useQueryClient
 } from "@tanstack/react-query";
-import type { UseQueryResult } from "@tanstack/react-query";
 import {
   Link,
   Outlet,
@@ -23,7 +22,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
   Activity,
-  Archive,
   BarChart3,
   Database,
   Eye,
@@ -34,14 +32,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Play,
-  RotateCw,
   Search,
   Server,
   SlidersHorizontal,
-  Trash2,
   X
 } from "lucide-react";
 
+import { StyleSlider } from "./controlPrimitives";
 import {
   BenchmarkSampleDetail,
   BenchmarkSampleSummary,
@@ -53,84 +50,99 @@ import {
   ComparisonSummary,
   DashboardState,
   EvalInstance,
-  JobLog,
-  JobSummary,
-  PromptTemplate,
   RunSampleDetail,
   RunSampleSummary,
   RunSummary,
-  SchedulerStatus,
-  ServiceLog,
-  ServiceSummary,
-  archiveRun,
-  cancelJob,
-  checkServiceHealth,
   createBenchmark,
-  createJob,
-  createService,
-  deleteJob,
-  deleteRun,
-  deleteService,
-  evaluateRun,
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
   fetchComparison,
   fetchComparisonSample,
   fetchComparisons,
-  fetchJobLogs,
-  fetchJobs,
-  fetchJobTemplates,
-  fetchPromptTemplates,
   fetchRunSampleDetail,
   fetchRunSamples,
-  fetchSchedulerStatus,
-  fetchServiceLogs,
-  fetchServices,
   fetchSettingsPreviewSample,
-  fetchState,
-  importPredictions,
-  preflightJob,
-  startService,
-  stopService,
-  upsertPromptTemplate
+  importPredictions
 } from "./api";
 import {
   buildObjectRows,
-  countInstancesByLabel,
-  formatBbox,
-  objectMetricText,
-  objectStatusLabel,
   visibleLabelMetrics,
   visibleSampleMetrics
 } from "./viewerMetrics";
-import type {
-  LabelMetricRow,
-  ObjectKind,
-  ObjectRow,
-  VisibleMetrics
-} from "./viewerMetrics";
 import {
-  DEFAULT_INTERACTION_SETTINGS,
-  DEFAULT_OVERLAY_STYLE,
-  fallbackLabelColor,
-  loadSplitSize,
+  INTERACTION_SETTING_CONTROLS,
+  INSTANCE_COLOR_ROLES,
+  OVERLAY_STYLE_CONTROLS,
+  PRED_LINE_STYLE_OPTIONS,
+  explicitLabelColor,
+  settingControlValue,
+  settingValueFromControl,
   useSidebarPreference,
+  useWorkspaceShortcuts,
   useWorkspaceSettings
 } from "./workspaceSettings";
 import {
+  basename,
+  comparisonSampleHref,
+  formatCompactSignedMetric,
+  formatDate,
+  formatMetric,
+  formatRunOption,
+  formatSignedInteger,
+  formatSignedMetric,
+  inferenceValue,
+  isTextInputTarget,
+  pixelBudgetValue,
+  runIdExists,
+  runSampleHref,
+  samplingValue,
+  scoreRun,
+  stringValue,
+  unique
+} from "./formatters";
+import { useDashboardState } from "./dashboardState";
+import { FilterSelect } from "./filterControls";
+import { JobQueuePanel, JobsPage } from "./jobsPage";
+import { BenchmarkTable, RunTable } from "./runTables";
+import { ServicesPage } from "./servicesPage";
+import {
+  LabelColorQuickAdd,
+  SettingsEditorSection,
+  SettingsPreferenceRow,
+  ShortcutSettingsPanel
+} from "./settingsControls";
+import {
+  sampleIndexFromLocation,
+  samplePageOffsetFromLocation,
+  updateSampleIndexInLocation
+} from "./sampleNavigation";
+import { preloadSampleImages } from "./viewerGeometry";
+import { CanvasStage } from "./viewerCanvas";
+import {
+  DiagnosticStrip,
+  InstanceStats,
+  LabelMetricTable,
+  ObjectList,
+  ViewerControlPanel,
+  VisibleMetricStrip,
+  handleViewerShortcutAction
+} from "./viewerPanels";
+import {
   ActionPanel,
   Badge,
+  ConfigItem,
   DataTable,
   EmptyState,
   PanelTitle,
   SectionHeader,
   WorkspaceTabs
 } from "./ui";
+import { ResizableSplit } from "./workspaceLayout";
 import type {
   InteractionSettingKey,
   InteractionSettings,
+  InstanceColorRole,
   LabelColors,
-  OverlayColorKey,
   OverlayColors,
   OverlayStyle,
   OverlayStyleKey
@@ -148,8 +160,6 @@ const queryClient = new QueryClient({
   }
 });
 const SAMPLE_PAGE_SIZE = 80;
-const CANVAS_FIT_PADDING = 18;
-const PRELOAD_RADIUS = 4;
 const SETTINGS_PREVIEW_IMAGE_URL = "/static/settings_preview.svg";
 const SETTINGS_PREVIEW_LABELS = ["arrow", "icon"];
 
@@ -188,10 +198,6 @@ class AppErrorBoundary extends React.Component<
   }
 }
 
-function useDashboardState() {
-  return useQuery({ queryKey: ["dashboard-state"], queryFn: fetchState });
-}
-
 function Shell() {
   const stateQuery = useDashboardState();
   const state = stateQuery.data;
@@ -203,7 +209,7 @@ function Shell() {
     <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
         <div className="brand">
-          <ShaftMark />
+          <img className="brand-logo" src="/logo.png" alt="" aria-hidden="true" />
           <div className="brand-copy">
             <div className="brand-title">Shaft Eval Bench</div>
             <div className="brand-subtitle">视觉结构评测中心</div>
@@ -239,6 +245,10 @@ function Shell() {
             <h1>{pageTitle.title}</h1>
           </div>
           <div className="topbar-actions">
+            <div className="user-profile-chip" title="当前版本使用浏览器本地 profile 保存偏好">
+              <span>用户</span>
+              <strong>local</strong>
+            </div>
             <StatusPill loading={stateQuery.isFetching} error={stateQuery.isError} />
           </div>
         </header>
@@ -313,27 +323,6 @@ function getShellTitle(pathname: string) {
     return { kicker: "个人显示偏好", title: "工作台设置" };
   }
   return { kicker: "评测运营台", title: "总览" };
-}
-
-function ShaftMark() {
-  return (
-    <svg className="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
-      <defs>
-        <linearGradient id="shaftMarkGradient" x1="8" x2="40" y1="6" y2="42">
-          <stop offset="0" stopColor="#5ed3f3" />
-          <stop offset="0.52" stopColor="#8d7cf6" />
-          <stop offset="1" stopColor="#f7c948" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M10 15.5 24 7l14 8.5v17L24 41l-14-8.5v-17Z"
-        fill="#101820"
-        stroke="url(#shaftMarkGradient)"
-        strokeWidth="3"
-      />
-      <path d="M17 18h15l-9 12h9" fill="none" stroke="#f7f9fb" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 function NavItem({
@@ -598,6 +587,7 @@ function BenchmarkDetailPage() {
   const labels = page?.labels ?? [];
   const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
   const activeIndex = activeSample?.index ?? selectedIndex;
+  const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex],
     queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex),
@@ -638,18 +628,19 @@ function BenchmarkDetailPage() {
       if (isTextInputTarget(event.target)) {
         return;
       }
-      if (event.key === "[") {
+      const actionId = actionForEvent(event);
+      if (actionId === "sample.previous") {
         event.preventDefault();
         moveSample(-1);
       }
-      if (event.key === "]") {
+      if (actionId === "sample.next") {
         event.preventDefault();
         moveSample(1);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeIndex, page?.total, pageOffset, samples]);
+  }, [actionForEvent, activeIndex, page?.total, pageOffset, samples]);
 
   useEffect(() => {
     if (activeSample && activeSample.index !== selectedIndex) {
@@ -1054,6 +1045,7 @@ function RunDetailPage() {
   const labels = page?.labels ?? [];
   const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
   const activeIndex = activeSample?.index ?? selectedIndex;
+  const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["run-sample-detail", runId, activeIndex],
     queryFn: () => fetchRunSampleDetail(runId, activeIndex),
@@ -1098,18 +1090,19 @@ function RunDetailPage() {
       if (isTextInputTarget(event.target)) {
         return;
       }
-      if (event.key === "[") {
+      const actionId = actionForEvent(event);
+      if (actionId === "sample.previous") {
         event.preventDefault();
         moveSample(-1);
       }
-      if (event.key === "]") {
+      if (actionId === "sample.next") {
         event.preventDefault();
         moveSample(1);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeIndex, page?.total, pageOffset, samples]);
+  }, [actionForEvent, activeIndex, page?.total, pageOffset, samples]);
 
   useEffect(() => {
     if (activeSample && activeSample.index !== selectedIndex) {
@@ -1280,15 +1273,6 @@ function ConfigBlock({ title, children }: { title: string; children: React.React
   );
 }
 
-function ConfigItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="config-item">
-      <span>{label}</span>
-      <strong title={value}>{value}</strong>
-    </div>
-  );
-}
-
 function SampleFilters({
   errorFilter,
   labelFilter,
@@ -1318,68 +1302,6 @@ function SampleFilters({
         labels={{ all: "全部" }}
         onChange={onLabelFilterChange}
       />
-    </div>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  values,
-  labels,
-  onChange,
-  compact = false
-}: {
-  label: string;
-  value: string;
-  values: string[];
-  labels?: Record<string, string>;
-  onChange: (value: string) => void;
-  compact?: boolean;
-}) {
-  return (
-    <label className={compact ? "filter-select compact" : "filter-select"}>
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} title={label}>
-        {values.map((item) => (
-          <option key={item} value={item}>
-            {labels?.[item] ?? item}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function ChipGroup({
-  label,
-  value,
-  values,
-  labels,
-  onChange
-}: {
-  label: string;
-  value: string;
-  values: string[];
-  labels?: Record<string, string>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="chip-group">
-      <span>{label}</span>
-      <div className="chip-row">
-        {values.map((item) => (
-          <button
-            key={item}
-            className={item === value ? "query-chip active" : "query-chip"}
-            type="button"
-            onClick={() => onChange(item)}
-            title={item}
-          >
-            {labels?.[item] ?? item}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1471,397 +1393,8 @@ function SamplePager({
   );
 }
 
-function ResizableSplit({
-  className,
-  storageKey,
-  fixedPane = "first",
-  defaultSize,
-  minSize,
-  maxSize,
-  first,
-  second
-}: {
-  className: string;
-  storageKey: string;
-  fixedPane?: "first" | "second";
-  defaultSize: number;
-  minSize: number;
-  maxSize: number;
-  first: React.ReactNode;
-  second: React.ReactNode;
-}) {
-  const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState(() => loadSplitSize(storageKey, defaultSize, minSize, maxSize));
-  const [containerWidth, setContainerWidth] = useState(0);
-  const dragRef = React.useRef<{ pointerId: number; startX: number; startSize: number } | null>(null);
-  const effectiveMaxSize = Math.max(
-    minSize,
-    Math.min(maxSize, containerWidth > 0 ? containerWidth - minSize - 8 : maxSize)
-  );
-
-  useEffect(() => {
-    localStorage.setItem(storageKey, String(size));
-  }, [size, storageKey]);
-
-  useEffect(() => {
-    const node = rootRef.current;
-    if (!node) {
-      return undefined;
-    }
-    function updateWidth() {
-      setContainerWidth(Math.max(0, node?.getBoundingClientRect().width ?? 0));
-    }
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    setSize((current) => clampNumber(current, minSize, effectiveMaxSize));
-  }, [effectiveMaxSize, minSize]);
-
-  function startResize(event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startSize: size
-    };
-  }
-
-  function moveResize(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    const delta = event.clientX - drag.startX;
-    const signedDelta = fixedPane === "first" ? delta : -delta;
-    setSize(clampNumber(drag.startSize + signedDelta, minSize, effectiveMaxSize));
-  }
-
-  function endResize(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    dragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  return (
-    <div
-      ref={rootRef}
-      className={`${className} resizable-split ${fixedPane === "first" ? "fixed-first" : "fixed-second"}`}
-      style={{
-        gridTemplateColumns:
-          fixedPane === "first"
-            ? `${size}px 8px minmax(0, 1fr)`
-            : `minmax(0, 1fr) 8px ${size}px`
-      }}
-    >
-      {first}
-      <div
-        className="split-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        tabIndex={0}
-        onPointerDown={startResize}
-        onPointerMove={moveResize}
-        onPointerUp={endResize}
-        onPointerCancel={endResize}
-      />
-      {second}
-    </div>
-  );
-}
-
 function SampleViewer({ detail }: { detail: RunSampleDetail }) {
   return <InteractiveSampleViewer detail={detail} />;
-}
-
-function CanvasStage({
-  width,
-  height,
-  imageUrl,
-  imageAlt,
-  gtInstances,
-  predInstances,
-  diagnostics,
-  visibleLabels,
-  showGt,
-  showPred,
-  showBoxes,
-  showLines,
-  showKeypoints,
-  overlayColors,
-  overlayStyle,
-  labelColors,
-  interactionSettings = DEFAULT_INTERACTION_SETTINGS,
-  activeObjectId = null,
-  onHover,
-  onLock
-}: {
-  width: number;
-  height: number;
-  imageUrl: string;
-  imageAlt: string;
-  gtInstances: EvalInstance[];
-  predInstances: EvalInstance[];
-  diagnostics: RunSampleDetail["diagnostics"];
-  visibleLabels?: Set<string>;
-  showGt: boolean;
-  showPred: boolean;
-  showBoxes: boolean;
-  showLines: boolean;
-  showKeypoints: boolean;
-  overlayColors: OverlayColors;
-  overlayStyle: OverlayStyle;
-  labelColors: LabelColors;
-  interactionSettings?: InteractionSettings;
-  activeObjectId?: string | null;
-  onHover?: (objectId: string | null) => void;
-  onLock?: (objectId: string | null) => void;
-}) {
-  const stageRef = React.useRef<HTMLDivElement | null>(null);
-  const contentRef = React.useRef<HTMLDivElement | null>(null);
-  const dragRef = React.useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startPan: { x: number; y: number };
-  } | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [stageSize, setStageSize] = useState({ width: 1, height: 1 });
-  const [isPanning, setIsPanning] = useState(false);
-  const fitSize = useMemo(
-    () => computeFitSize(width, height, stageSize),
-    [height, stageSize, width]
-  );
-
-  useEffect(() => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-    dragRef.current = null;
-    setIsPanning(false);
-  }, [imageUrl]);
-
-  useEffect(() => {
-    const node = stageRef.current;
-    if (!node) {
-      return undefined;
-    }
-    const stageNode = node;
-    function updateStageSize() {
-      const rect = stageNode.getBoundingClientRect();
-      setStageSize({
-        width: Math.max(1, rect.width),
-        height: Math.max(1, rect.height)
-      });
-    }
-    updateStageSize();
-    const observer = new ResizeObserver(updateStageSize);
-    observer.observe(stageNode);
-    return () => observer.disconnect();
-  }, []);
-
-  function clampStagePan(nextPan: { x: number; y: number }, nextZoom = zoom) {
-    return clampPan(nextPan, nextZoom, stageRef.current, contentRef.current);
-  }
-
-  function applyZoom(nextZoom: number, anchor?: { x: number; y: number }) {
-    const clampedZoom = clampNumber(
-      nextZoom,
-      interactionSettings.minZoom,
-      interactionSettings.maxZoom
-    );
-    setZoom((currentZoom) => {
-      if (Math.abs(clampedZoom - currentZoom) < 0.001) {
-        return currentZoom;
-      }
-      setPan((currentPan) => {
-        if (!anchor) {
-          return clampStagePan(currentPan, clampedZoom);
-        }
-        const stage = stageRef.current;
-        const center = stage
-          ? { x: stage.clientWidth / 2, y: stage.clientHeight / 2 }
-          : { x: 0, y: 0 };
-        const scale = clampedZoom / currentZoom;
-        const relativeAnchor = {
-          x: anchor.x - center.x,
-          y: anchor.y - center.y
-        };
-        return clampStagePan(
-          {
-            x: relativeAnchor.x - (relativeAnchor.x - currentPan.x) * scale,
-            y: relativeAnchor.y - (relativeAnchor.y - currentPan.y) * scale
-          },
-          clampedZoom
-        );
-      });
-      return clampedZoom;
-    });
-  }
-
-  function resetViewport() {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-    dragRef.current = null;
-    setIsPanning(false);
-  }
-
-  function handleWheel(event: WheelEvent) {
-    event.preventDefault();
-    const node = stageRef.current;
-    if (!node) {
-      return;
-    }
-    const rect = node.getBoundingClientRect();
-    const anchor = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    };
-    applyZoom(zoom * Math.exp(-event.deltaY * interactionSettings.wheelZoomSensitivity), anchor);
-  }
-
-  useEffect(() => {
-    const node = stageRef.current;
-    if (!node) {
-      return undefined;
-    }
-    node.addEventListener("wheel", handleWheel, { passive: false });
-    return () => node.removeEventListener("wheel", handleWheel);
-  }, [interactionSettings.wheelZoomSensitivity, zoom]);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (isTextInputTarget(event.target)) {
-        return;
-      }
-      if (event.key.toLowerCase() === "f") {
-        resetViewport();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) {
-      return;
-    }
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startPan: pan
-    };
-    setIsPanning(true);
-  }
-
-  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    setPan(
-      clampStagePan({
-        x: drag.startPan.x + (event.clientX - drag.startX) * interactionSettings.panSensitivity,
-        y: drag.startPan.y + (event.clientY - drag.startY) * interactionSettings.panSensitivity
-      })
-    );
-  }
-
-  function endPan(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-    dragRef.current = null;
-    setIsPanning(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
-  return (
-    <div
-      ref={stageRef}
-      className={isPanning ? "image-stage panning" : "image-stage pannable"}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-    >
-      <div
-        ref={contentRef}
-        className="image-zoom-layer"
-        style={{
-          width: `${fitSize.width}px`,
-          height: `${fitSize.height}px`,
-          transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
-        }}
-      >
-        <img
-          src={imageUrl}
-          alt={imageAlt}
-          draggable={false}
-          loading="eager"
-          decoding="async"
-        />
-        <svg className="overlay-svg interactive" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-          {showGt ? (
-            <InstanceLayer
-              instances={gtInstances}
-              kind="gt"
-              diagnostics={diagnostics}
-              visibleLabels={visibleLabels}
-              showBoxes={showBoxes}
-              showLines={showLines}
-              showKeypoints={showKeypoints}
-              activeObjectId={activeObjectId}
-              overlayColors={overlayColors}
-              overlayStyle={overlayStyle}
-              labelColors={labelColors}
-              onHover={onHover}
-              onLock={onLock}
-            />
-          ) : null}
-          {showPred ? (
-            <InstanceLayer
-              instances={predInstances}
-              kind="pred"
-              diagnostics={diagnostics}
-              visibleLabels={visibleLabels}
-              showBoxes={showBoxes}
-              showLines={showLines}
-              showKeypoints={showKeypoints}
-              activeObjectId={activeObjectId}
-              overlayColors={overlayColors}
-              overlayStyle={overlayStyle}
-              labelColors={labelColors}
-              onHover={onHover}
-              onLock={onLock}
-            />
-          ) : null}
-        </svg>
-      </div>
-      <div className="canvas-hud">
-        <span>{Math.round(zoom * 100)}%</span>
-        {Math.abs(zoom - 1) > 0.01 || pan.x !== 0 || pan.y !== 0 ? (
-          <button type="button" onClick={resetViewport}>
-            复位
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
@@ -1886,11 +1419,9 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     labelColors,
     interactionSettings,
     overlayVars,
-    updateOverlayColor,
     updateOverlayStyle,
     updateLabelColor,
     removeLabelColor,
-    resetOverlayColors,
     resetOverlayStyle,
     resetLabelColors
   } = useWorkspaceSettings(labels);
@@ -1916,6 +1447,7 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
   );
   const visibleMetrics = visibleSampleMetrics(detail, activeLabelSet);
   const labelMetrics = visibleLabelMetrics(detail, activeLabelSet);
+  const { actionForEvent } = useWorkspaceShortcuts();
 
   useEffect(() => {
     setActiveLabels(labels);
@@ -1945,24 +1477,27 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
       if (isTextInputTarget(event.target)) {
         return;
       }
-      if (event.key === "Escape") {
-        setLockedObjectId(null);
-        setHoveredObjectId(null);
-      } else if (event.key.toLowerCase() === "g") {
-        setShowGt((value) => !value);
-      } else if (event.key.toLowerCase() === "p") {
-        setShowPred((value) => !value);
-      } else if (event.key.toLowerCase() === "b") {
-        setShowBoxes((value) => !value);
-      } else if (event.key.toLowerCase() === "l") {
-        setShowLines((value) => !value);
-      } else if (event.key.toLowerCase() === "k") {
-        setShowKeypoints((value) => !value);
+      const actionId = actionForEvent(event);
+      if (!actionId) {
+        return;
+      }
+      if (handleViewerShortcutAction(actionId, {
+        clearSelection: () => {
+          setLockedObjectId(null);
+          setHoveredObjectId(null);
+        },
+        toggleGt: () => setShowGt((value) => !value),
+        togglePred: () => setShowPred((value) => !value),
+        toggleBoxes: () => setShowBoxes((value) => !value),
+        toggleLines: () => setShowLines((value) => !value),
+        toggleKeypoints: () => setShowKeypoints((value) => !value)
+      })) {
+        event.preventDefault();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [actionForEvent]);
 
   const canvasStage = (
     <CanvasStage
@@ -2002,13 +1537,11 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
         showLines={showLines}
         showKeypoints={showKeypoints}
         onToggleLabel={toggleLabel}
-            onColorChange={updateOverlayColor}
-            onStyleChange={updateOverlayStyle}
-            onLabelColorChange={updateLabelColor}
-            onLabelColorRemove={removeLabelColor}
-            onResetColors={resetOverlayColors}
-            onResetStyle={resetOverlayStyle}
-            onResetLabelColors={resetLabelColors}
+        onStyleChange={updateOverlayStyle}
+        onLabelColorChange={updateLabelColor}
+        onLabelColorRemove={removeLabelColor}
+        onResetStyle={resetOverlayStyle}
+        onResetLabelColors={resetLabelColors}
         onShowGtChange={setShowGt}
         onShowPredChange={setShowPred}
         onShowBoxesChange={setShowBoxes}
@@ -2070,937 +1603,6 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
   );
 }
 
-function DiagnosticStrip({ diagnostics }: { diagnostics: NonNullable<RunSampleDetail["diagnostics"]> }) {
-  return (
-    <div className="diagnostic-strip">
-      <span>TP {diagnostics.matched_count.toLocaleString()}</span>
-      <span>FP {diagnostics.false_positive_count.toLocaleString()}</span>
-      <span>FN {diagnostics.false_negative_count.toLocaleString()}</span>
-      <span>平均 IoU {formatMetric(diagnostics.mean_iou)}</span>
-    </div>
-  );
-}
-
-function ViewerControlPanel({
-  labels,
-  activeLabels,
-  colors,
-  styleConfig,
-  labelColors,
-  showGt,
-  showPred,
-  showBoxes,
-  showLines,
-  showKeypoints,
-  onToggleLabel,
-  onColorChange,
-  onStyleChange,
-  onLabelColorChange,
-  onLabelColorRemove,
-  onResetColors,
-  onResetStyle,
-  onResetLabelColors,
-  onShowGtChange,
-  onShowPredChange,
-  onShowBoxesChange,
-  onShowLinesChange,
-  onShowKeypointsChange
-}: {
-  labels: string[];
-  activeLabels: string[];
-  colors: OverlayColors;
-  styleConfig: OverlayStyle;
-  labelColors: LabelColors;
-  showGt: boolean;
-  showPred: boolean;
-  showBoxes: boolean;
-  showLines: boolean;
-  showKeypoints: boolean;
-  onToggleLabel: (label: string) => void;
-  onColorChange: (key: OverlayColorKey, value: string) => void;
-  onStyleChange: (key: OverlayStyleKey, value: number | string) => void;
-  onLabelColorChange: (label: string, value: string) => void;
-  onLabelColorRemove: (label: string) => void;
-  onResetColors: () => void;
-  onResetStyle: () => void;
-  onResetLabelColors: () => void;
-  onShowGtChange: (value: boolean) => void;
-  onShowPredChange: (value: boolean) => void;
-  onShowBoxesChange: (value: boolean) => void;
-  onShowLinesChange: (value: boolean) => void;
-  onShowKeypointsChange: (value: boolean) => void;
-}) {
-  function layerPresetValue() {
-    if (showGt && showPred && showBoxes && showLines && showKeypoints) {
-      return "all";
-    }
-    if (showGt && !showPred && showBoxes && showLines && showKeypoints) {
-      return "gt";
-    }
-    if (!showGt && showPred && showBoxes && showLines && showKeypoints) {
-      return "pred";
-    }
-    if (showGt && showPred && showBoxes && !showLines && !showKeypoints) {
-      return "boxes";
-    }
-    if (showGt && showPred && !showBoxes && showLines && !showKeypoints) {
-      return "lines";
-    }
-    return "custom";
-  }
-
-  function applyLayerPreset(value: string) {
-    if (value === "gt") {
-      onShowGtChange(true);
-      onShowPredChange(false);
-      onShowBoxesChange(true);
-      onShowLinesChange(true);
-      onShowKeypointsChange(true);
-      return;
-    }
-    if (value === "pred") {
-      onShowGtChange(false);
-      onShowPredChange(true);
-      onShowBoxesChange(true);
-      onShowLinesChange(true);
-      onShowKeypointsChange(true);
-      return;
-    }
-    if (value === "boxes") {
-      onShowGtChange(true);
-      onShowPredChange(true);
-      onShowBoxesChange(true);
-      onShowLinesChange(false);
-      onShowKeypointsChange(false);
-      return;
-    }
-    if (value === "lines") {
-      onShowGtChange(true);
-      onShowPredChange(true);
-      onShowBoxesChange(false);
-      onShowLinesChange(true);
-      onShowKeypointsChange(false);
-      return;
-    }
-    onShowGtChange(true);
-    onShowPredChange(true);
-    onShowBoxesChange(true);
-    onShowLinesChange(true);
-    onShowKeypointsChange(true);
-  }
-
-  return (
-    <div className="viewer-controls">
-      <label className="compact-select">
-        <span>视图</span>
-        <select value={layerPresetValue()} onChange={(event) => applyLayerPreset(event.target.value)}>
-          <option value="all">真值 + 预测 / 全部几何</option>
-          <option value="gt">仅真值</option>
-          <option value="pred">仅预测</option>
-          <option value="boxes">只看框</option>
-          <option value="lines">只看线</option>
-          <option value="custom">自定义</option>
-        </select>
-      </label>
-      <div className="layer-toggle-strip" aria-label="图层开关">
-        <ToggleButton label="真值" active={showGt} onChange={onShowGtChange} />
-        <ToggleButton label="预测" active={showPred} onChange={onShowPredChange} />
-        <ToggleButton label="框" active={showBoxes} onChange={onShowBoxesChange} />
-        <ToggleButton label="线" active={showLines} onChange={onShowLinesChange} />
-        <ToggleButton label="点" active={showKeypoints} onChange={onShowKeypointsChange} />
-      </div>
-      <details className="control-popover">
-        <summary>
-          标签 <strong>{activeLabels.length}/{labels.length}</strong>
-        </summary>
-        <div className="label-select-grid">
-          {labels.map((label) => {
-            const active = activeLabels.includes(label);
-            return (
-              <button
-                key={label}
-                className={active ? "label-select active" : "label-select"}
-                type="button"
-                onClick={() => onToggleLabel(label)}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </details>
-      <OverlayAppearancePanel
-        colors={colors}
-        styleConfig={styleConfig}
-        onColorChange={onColorChange}
-        onStyleChange={onStyleChange}
-        onResetColors={onResetColors}
-        onResetStyle={onResetStyle}
-      />
-      <LabelColorPanel
-        labels={labels}
-        labelColors={labelColors}
-        onChange={onLabelColorChange}
-        onRemove={onLabelColorRemove}
-        onReset={onResetLabelColors}
-      />
-    </div>
-  );
-}
-
-function OverlayAppearancePanel({
-  colors,
-  styleConfig,
-  onColorChange,
-  onStyleChange,
-  onResetColors,
-  onResetStyle,
-  defaultOpen = false
-}: {
-  colors: OverlayColors;
-  styleConfig: OverlayStyle;
-  onColorChange: (key: OverlayColorKey, value: string) => void;
-  onStyleChange: (key: OverlayStyleKey, value: number | string) => void;
-  onResetColors: () => void;
-  onResetStyle: () => void;
-  defaultOpen?: boolean;
-}) {
-  return (
-    <>
-      <details className="control-popover" open={defaultOpen}>
-        <summary>
-          样式 <strong>框 / 线 / 点</strong>
-        </summary>
-        <div className="control-title-row">
-          <span>可视化参数</span>
-          <button className="text-button" type="button" onClick={onResetStyle}>
-            重置
-          </button>
-        </div>
-        <div className="style-control-grid">
-          <StyleSlider
-            label="框线宽"
-            value={styleConfig.boxStrokeWidth}
-            min={1}
-            max={10}
-            step={0.5}
-            onChange={(value) => onStyleChange("boxStrokeWidth", value)}
-          />
-          <StyleSlider
-            label="骨架线宽"
-            value={styleConfig.lineStrokeWidth}
-            min={1}
-            max={12}
-            step={0.5}
-            onChange={(value) => onStyleChange("lineStrokeWidth", value)}
-          />
-          <StyleSlider
-            label="点半径"
-            value={styleConfig.pointRadius}
-            min={1}
-            max={12}
-            step={0.5}
-            onChange={(value) => onStyleChange("pointRadius", value)}
-          />
-          <StyleSlider
-            label="标签字号"
-            value={styleConfig.labelFontSize}
-            min={9}
-            max={28}
-            step={1}
-            onChange={(value) => onStyleChange("labelFontSize", value)}
-          />
-          <StyleSlider
-            label="高亮线宽"
-            value={styleConfig.activeStrokeWidth}
-            min={2}
-            max={16}
-            step={0.5}
-            onChange={(value) => onStyleChange("activeStrokeWidth", value)}
-          />
-          <StyleSlider
-            label="标签描边"
-            value={styleConfig.labelStrokeWidth}
-            min={0}
-            max={8}
-            step={0.5}
-            onChange={(value) => onStyleChange("labelStrokeWidth", value)}
-          />
-          <StyleSlider
-            label="标签底色"
-            value={styleConfig.labelBackgroundOpacity}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(value) => onStyleChange("labelBackgroundOpacity", value)}
-          />
-          <StyleSlider
-            label="框填充"
-            value={styleConfig.boxFillOpacity}
-            min={0}
-            max={0.5}
-            step={0.02}
-            onChange={(value) => onStyleChange("boxFillOpacity", value)}
-          />
-          <StyleSlider
-            label="箭头大小"
-            value={styleConfig.directionHeadScale}
-            min={0.5}
-            max={2.5}
-            step={0.05}
-            onChange={(value) => onStyleChange("directionHeadScale", value)}
-          />
-          <StyleSlider
-            label="整体透明度"
-            value={styleConfig.opacity}
-            min={0.2}
-            max={1}
-            step={0.05}
-            onChange={(value) => onStyleChange("opacity", value)}
-          />
-          <label className="compact-select dense">
-            <span>预测线型</span>
-            <select
-              value={styleConfig.predLineStyle}
-              onChange={(event) => onStyleChange("predLineStyle", event.target.value)}
-            >
-              <option value="dashed">虚线</option>
-              <option value="solid">实线</option>
-            </select>
-          </label>
-        </div>
-      </details>
-      <details className="control-popover" open={defaultOpen}>
-        <summary>
-          颜色 <strong>叠图</strong>
-        </summary>
-        <div className="control-title-row">
-          <span />
-          <button className="text-button" type="button" onClick={onResetColors}>
-            重置
-          </button>
-        </div>
-        <div className="color-control-grid">
-          <ColorControl
-            label="真值"
-            value={colors.gt}
-            onChange={(value) => onColorChange("gt", value)}
-          />
-          <ColorControl
-            label="预测"
-            value={colors.pred}
-            onChange={(value) => onColorChange("pred", value)}
-          />
-          <ColorControl
-            label="漏检"
-            value={colors.fn}
-            onChange={(value) => onColorChange("fn", value)}
-          />
-          <ColorControl
-            label="误检"
-            value={colors.fp}
-            onChange={(value) => onColorChange("fp", value)}
-          />
-          <ColorControl
-            label="高亮"
-            value={colors.active}
-            onChange={(value) => onColorChange("active", value)}
-          />
-        </div>
-      </details>
-    </>
-  );
-}
-
-function LabelColorPanel({
-  labels,
-  labelColors,
-  onChange,
-  onRemove,
-  onReset,
-  defaultOpen = false
-}: {
-  labels: string[];
-  labelColors: LabelColors;
-  onChange: (label: string, value: string) => void;
-  onRemove: (label: string) => void;
-  onReset: () => void;
-  defaultOpen?: boolean;
-}) {
-  const [draftLabel, setDraftLabel] = useState("");
-  const [draftColor, setDraftColor] = useState("#2563eb");
-  const sortedLabels = useMemo(
-    () => [...labels].sort((left, right) => left.localeCompare(right)),
-    [labels]
-  );
-
-  function addLabelColor() {
-    const label = draftLabel.trim();
-    if (!label) {
-      return;
-    }
-    onChange(label, draftColor);
-    setDraftLabel("");
-  }
-
-  return (
-    <details className="control-popover" open={defaultOpen}>
-      <summary>
-        标签颜色 <strong>{sortedLabels.length}</strong>
-      </summary>
-      <div className="control-title-row">
-        <span>按运行时 label 匹配</span>
-        <button className="text-button" type="button" onClick={onReset}>
-          重置
-        </button>
-      </div>
-      <div className="label-color-add-row">
-        <input
-          value={draftLabel}
-          placeholder="输入 label"
-          onChange={(event) => setDraftLabel(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              addLabelColor();
-            }
-          }}
-        />
-        <input
-          aria-label="新增 label 颜色"
-          type="color"
-          value={draftColor}
-          onChange={(event) => setDraftColor(event.target.value)}
-        />
-        <button className="secondary-button dense" type="button" onClick={addLabelColor}>
-          添加
-        </button>
-      </div>
-      <div className="label-color-grid">
-        {sortedLabels.length === 0 ? (
-          <div className="muted-line">还没有自定义 label 颜色。</div>
-        ) : (
-          sortedLabels.map((label) => (
-            <div className="label-color-row" key={label}>
-              <ColorControl
-                label={label}
-                value={labelColors[label] ?? fallbackLabelColor(label)}
-                onChange={(value) => onChange(label, value)}
-              />
-              <button
-                className="icon-button dense"
-                type="button"
-                title={`移除 ${label} 颜色规则`}
-                onClick={() => onRemove(label)}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-    </details>
-  );
-}
-
-function InteractionSettingsPanel({
-  settings,
-  onChange,
-  onReset,
-  defaultOpen = false
-}: {
-  settings: InteractionSettings;
-  onChange: (key: InteractionSettingKey, value: number) => void;
-  onReset: () => void;
-  defaultOpen?: boolean;
-}) {
-  return (
-    <details className="control-popover" open={defaultOpen}>
-      <summary>
-        交互 <strong>4</strong>
-      </summary>
-      <div className="control-title-row">
-        <span>鼠标和画布范围</span>
-        <button className="text-button" type="button" onClick={onReset}>
-          重置
-        </button>
-      </div>
-      <div className="style-control-grid">
-        <StyleSlider
-          label="滚轮缩放灵敏度"
-          value={Math.round(settings.wheelZoomSensitivity * 100000)}
-          min={5}
-          max={300}
-          step={1}
-          onChange={(value) => onChange("wheelZoomSensitivity", value / 100000)}
-        />
-        <StyleSlider
-          label="拖拽平移灵敏度"
-          value={settings.panSensitivity}
-          min={0.2}
-          max={3}
-          step={0.05}
-          onChange={(value) => onChange("panSensitivity", value)}
-        />
-        <StyleSlider
-          label="最小缩放"
-          value={settings.minZoom}
-          min={0.1}
-          max={1}
-          step={0.05}
-          onChange={(value) => onChange("minZoom", value)}
-        />
-        <StyleSlider
-          label="最大缩放"
-          value={settings.maxZoom}
-          min={2}
-          max={20}
-          step={0.25}
-          onChange={(value) => onChange("maxZoom", value)}
-        />
-      </div>
-    </details>
-  );
-}
-
-function StyleSlider({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="style-slider">
-      <span>
-        {label}
-        <strong>{Number.isInteger(value) ? value : value.toFixed(2)}</strong>
-      </span>
-      <input
-        type="range"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
-function ColorControl({
-  label,
-  value,
-  onChange
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="color-control">
-      <span>{label}</span>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
-}
-
-function ToggleButton({
-  label,
-  active,
-  onChange
-}: {
-  label: string;
-  active: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className={active ? "control-check active" : "control-check"}>
-      <input type="checkbox" checked={active} onChange={() => onChange(!active)} />
-      {label}
-    </label>
-  );
-}
-
-function VisibleMetricStrip({ metrics }: { metrics: VisibleMetrics }) {
-  return (
-    <div className="diagnostic-strip">
-      <span>真值 {metrics.gtCount.toLocaleString()}</span>
-      <span>预测 {metrics.predCount.toLocaleString()}</span>
-      <span>TP {metrics.matchedCount.toLocaleString()}</span>
-      <span>FP {metrics.falsePositiveCount.toLocaleString()}</span>
-      <span>FN {metrics.falseNegativeCount.toLocaleString()}</span>
-      <span>平均 IoU {formatMetric(metrics.meanIou)}</span>
-    </div>
-  );
-}
-
-function LabelMetricTable({ rows }: { rows: LabelMetricRow[] }) {
-  return (
-    <details className="label-metric-card">
-      <summary>分标签指标</summary>
-      {rows.length === 0 ? (
-        <div className="muted-line">没有可见标签。</div>
-      ) : (
-        <div className="label-metric-table">
-          <table>
-            <thead>
-              <tr>
-                <th>标签</th>
-                <th>真值</th>
-                <th>预测</th>
-                <th>TP</th>
-                <th>FP</th>
-                <th>FN</th>
-                <th>P@.50</th>
-                <th>R@.50</th>
-                <th>平均 IoU</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <td title={row.label}>{row.label}</td>
-                  <td>{row.gtCount.toLocaleString()}</td>
-                  <td>{row.predCount.toLocaleString()}</td>
-                  <td>{row.matchedCount.toLocaleString()}</td>
-                  <td>{row.falsePositiveCount.toLocaleString()}</td>
-                  <td>{row.falseNegativeCount.toLocaleString()}</td>
-                  <td>{formatMetric(row.precision)}</td>
-                  <td>{formatMetric(row.recall)}</td>
-                  <td>{formatMetric(row.meanIou)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </details>
-  );
-}
-
-function InstanceLayer({
-  instances,
-  kind,
-  diagnostics,
-  visibleLabels,
-  showBoxes = true,
-  showLines = true,
-  showKeypoints = true,
-  activeObjectId = null,
-  overlayColors,
-  overlayStyle = DEFAULT_OVERLAY_STYLE,
-  labelColors,
-  onHover,
-  onLock
-}: {
-  instances: EvalInstance[];
-  kind: ObjectKind;
-  diagnostics: RunSampleDetail["diagnostics"];
-  visibleLabels?: Set<string>;
-  showBoxes?: boolean;
-  showLines?: boolean;
-  showKeypoints?: boolean;
-  activeObjectId?: string | null;
-  overlayColors: OverlayColors;
-  overlayStyle?: OverlayStyle;
-  labelColors: LabelColors;
-  onHover?: (objectId: string | null) => void;
-  onLock?: (objectId: string | null) => void;
-}) {
-  const matched = new Set(
-    (diagnostics?.matches ?? []).map((match) => (kind === "gt" ? match.gt_index : match.pred_index))
-  );
-  const errorItems =
-    kind === "gt" ? diagnostics?.false_negatives ?? [] : diagnostics?.false_positives ?? [];
-  const errors = new Set(errorItems.map((item) => item.index));
-  return (
-    <>
-      {instances.map((instance, index) => {
-        if (visibleLabels && !visibleLabels.has(instance.label)) {
-          return null;
-        }
-        const objectId = `${kind}:${index}`;
-        const bbox = normalizeBbox((instance as { bbox?: unknown }).bbox);
-        const linePoints = normalizePointList(
-          (instance as { linestrip?: unknown; line_strip?: unknown; points?: unknown }).linestrip ??
-            (instance as { line_strip?: unknown }).line_strip
-        );
-        const keypoints = normalizePointList((instance as { keypoints?: unknown }).keypoints);
-        const anchorBox = bbox ?? boundsFromPoints(linePoints ?? keypoints);
-        if (!bbox && (!linePoints || linePoints.length === 0) && (!keypoints || keypoints.length === 0)) {
-          return null;
-        }
-        const status = errors.has(index)
-          ? kind === "gt"
-            ? "fn"
-            : "fp"
-          : matched.has(index)
-            ? "match"
-            : "neutral";
-        const color = resolveInstanceColor(instance.label, status, kind, overlayColors, labelColors);
-        const directionHead =
-          linePoints && linePoints.length >= 2
-            ? arrowHeadPoints(
-                linePoints,
-                overlayStyle.lineStrokeWidth,
-                overlayStyle.directionHeadScale
-              )
-            : null;
-        const lineRadius = Math.max(overlayStyle.pointRadius, overlayStyle.lineStrokeWidth * 0.75);
-        const labelX = anchorBox ? anchorBox[0] + 3 : 0;
-        const labelY = anchorBox ? Math.max(12, anchorBox[1] - 4) : 0;
-        const labelWidth = Math.max(
-          28,
-          instance.label.length * overlayStyle.labelFontSize * 0.62 + 10
-        );
-        const labelHeight = overlayStyle.labelFontSize + 6;
-        return (
-          <g
-            key={objectId}
-            className={
-              objectId === activeObjectId
-                ? `overlay-instance ${kind} ${status} active`
-                : `overlay-instance ${kind} ${status}`
-            }
-            style={{ "--instance-color": color } as React.CSSProperties}
-            onPointerEnter={() => onHover?.(objectId)}
-            onPointerLeave={() => onHover?.(null)}
-            onClick={(event) => {
-              event.stopPropagation();
-              onLock?.(objectId);
-            }}
-          >
-            {showBoxes && bbox ? (
-              <rect x={bbox[0]} y={bbox[1]} width={bbox[2] - bbox[0]} height={bbox[3] - bbox[1]} />
-            ) : null}
-            {showBoxes && anchorBox ? (
-              <g className="overlay-label">
-                <rect
-                  className="label-backplate"
-                  x={labelX - 3}
-                  y={labelY - overlayStyle.labelFontSize - 3}
-                  width={labelWidth}
-                  height={labelHeight}
-                  rx={2}
-                />
-                <text x={labelX} y={labelY}>
-                  {instance.label}
-                </text>
-              </g>
-            ) : null}
-            {showLines && linePoints && linePoints.length >= 2 ? (
-              <>
-                <polyline points={linePoints.map((point) => `${point[0]},${point[1]}`).join(" ")} />
-                <circle
-                  className="line-endpoint start"
-                  cx={linePoints[0][0]}
-                  cy={linePoints[0][1]}
-                  r={lineRadius}
-                />
-                <circle
-                  className="line-endpoint end"
-                  cx={linePoints[linePoints.length - 1][0]}
-                  cy={linePoints[linePoints.length - 1][1]}
-                  r={lineRadius}
-                />
-                {directionHead ? (
-                  <polygon
-                    className="direction-head"
-                    points={directionHead.map((point) => `${point[0]},${point[1]}`).join(" ")}
-                  />
-                ) : null}
-              </>
-            ) : null}
-            {showKeypoints && keypoints && keypoints.length > 0 ? (
-              keypoints.map((point, pointIndex) => (
-                <circle
-                  key={`${objectId}-point-${pointIndex}`}
-                  cx={point[0]}
-                  cy={point[1]}
-                  r={overlayStyle.pointRadius}
-                />
-              ))
-            ) : null}
-          </g>
-        );
-      })}
-    </>
-  );
-}
-
-function ObjectList({
-  objects,
-  activeObjectId,
-  lockedObjectId,
-  onHover,
-  onLock
-}: {
-  objects: ObjectRow[];
-  activeObjectId: string | null;
-  lockedObjectId: string | null;
-  onHover: (objectId: string | null) => void;
-  onLock: (objectId: string | null) => void;
-}) {
-  return (
-    <div className="object-list">
-      <div className="instance-card-title">对象列表</div>
-      {objects.length === 0 ? (
-        <div className="muted-line">没有可见对象。</div>
-      ) : (
-        <div className="object-list-scroll">
-          {objects.map((object) => (
-            <button
-              key={object.id}
-              className={object.id === activeObjectId ? "object-row active" : "object-row"}
-              type="button"
-              onPointerEnter={() => onHover(object.id)}
-              onPointerLeave={() => onHover(null)}
-              onClick={() => onLock(object.id)}
-            >
-              <span className={`object-kind ${object.kind}`}>{objectKindLabel(object.kind)}</span>
-              <span className="object-main">
-                <span className="object-label">
-                  {object.label}
-                  <span className="object-index">#{object.index + 1}</span>
-                </span>
-                <span className="object-bbox">{formatBbox(object.bbox)}</span>
-              </span>
-              <span className={`object-status ${object.status}`}>
-                {objectStatusLabel(object.status)}
-              </span>
-              <span className="object-match">{objectMetricText(object, formatMetric)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InstanceStats({ title, instances }: { title: string; instances: EvalInstance[] }) {
-  const counts = countInstancesByLabel(instances);
-  const entries = Object.entries(counts).sort(([left], [right]) => left.localeCompare(right));
-  return (
-    <div className="instance-card">
-      <div className="instance-card-title">{title}</div>
-      {entries.length === 0 ? (
-        <div className="muted-line">没有实例。</div>
-      ) : (
-        <div className="label-chip-row">
-          {entries.map(([label, count]) => (
-            <span className="label-chip" key={label}>
-              {label} {count}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function JobsPage() {
-  const { data } = useDashboardState();
-  const recentRuns = data?.runs.slice(0, 12) ?? [];
-  return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="activity" label="评测中心">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="activity">活动流</Tabs.Trigger>
-          <Tabs.Trigger value="new">新建评测</Tabs.Trigger>
-          <Tabs.Trigger value="runs">结果库</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="activity" className="workspace-tab-panel">
-          <div className="job-activity-grid">
-            <div className="workspace-card fill">
-              <PanelTitle title="任务队列" meta="创建、执行、失败排障和 runtime log" />
-              <JobQueuePanel />
-            </div>
-            <div className="workspace-card fill">
-              <PanelTitle title="最近结果" meta="任务完成后会沉淀为可复查 run" />
-              <RecentRunList runs={recentRuns} />
-            </div>
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="new" className="workspace-tab-panel">
-          <JobCreatePanel benchmarks={data?.benchmarks ?? []} />
-        </Tabs.Content>
-        <Tabs.Content value="runs" className="workspace-tab-panel">
-          <div className="workspace-card fill">
-            <PanelTitle title="结果库" meta={`${(data?.runs.length ?? 0).toLocaleString()} 条记录`} />
-            <RunTable runs={data?.runs ?? []} />
-          </div>
-        </Tabs.Content>
-      </WorkspaceTabs>
-    </section>
-  );
-}
-
-function RecentRunList({ runs }: { runs: RunSummary[] }) {
-  if (runs.length === 0) {
-    return <div className="empty-panel">还没有评测结果。</div>;
-  }
-  return (
-    <div className="recent-run-list">
-      {runs.map((run) => (
-        <Link
-          className="recent-run-card"
-          key={run.run_id}
-          to="/runs/$runId"
-          params={{ runId: run.run_id }}
-        >
-          <span className="recent-run-head">
-            <strong title={run.run_id}>{run.run_id}</strong>
-            <Badge value={run.status} />
-          </span>
-          <span className="recent-run-meta" title={run.model_id}>
-            {run.model_id || "unknown model"}
-          </span>
-          <span className="recent-run-metrics">
-            <em>P {formatMetric(run.precision_iou50)}</em>
-            <em>R {formatMetric(run.recall_iou50)}</em>
-            <em>IoU {formatMetric(run.mean_iou)}</em>
-          </span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function ServicesPage() {
-  const servicesQuery = useQuery({ queryKey: ["services"], queryFn: fetchServices });
-  return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="registry" label="服务工作区">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="registry">服务目录</Tabs.Trigger>
-          <Tabs.Trigger value="register">登记服务</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="registry" className="workspace-tab-panel">
-          {servicesQuery.isLoading ? (
-            <EmptyState title="正在加载服务" />
-          ) : servicesQuery.error || !servicesQuery.data ? (
-            <EmptyState title="服务加载失败" tone="danger" />
-          ) : (
-            <ServiceGrid services={servicesQuery.data.services} />
-          )}
-        </Tabs.Content>
-        <Tabs.Content value="register" className="workspace-tab-panel">
-          <ServiceCreatePanel />
-        </Tabs.Content>
-      </WorkspaceTabs>
-    </section>
-  );
-}
-
 function SettingsPage() {
   const previewQuery = useQuery({
     queryKey: ["settings-preview-sample"],
@@ -3046,16 +1648,15 @@ function SettingsPage() {
     labelColors,
     interactionSettings,
     overlayVars,
-    updateOverlayColor,
     updateOverlayStyle,
     updateInteractionSetting,
     updateLabelColor,
     removeLabelColor,
-    resetOverlayColors,
     resetOverlayStyle,
     resetInteractionSettings,
     resetLabelColors
   } = useWorkspaceSettings(previewLabelsList.length ? previewLabelsList : SETTINGS_PREVIEW_LABELS);
+  const shortcutSettings = useWorkspaceShortcuts();
   const previewSample = previewQuery.data?.sample ?? null;
   const previewWidth = previewSample?.image_width ?? 960;
   const previewHeight = previewSample?.image_height ?? 600;
@@ -3064,401 +1665,267 @@ function SettingsPage() {
     previewQuery.data && previewSample
       ? `${previewQuery.data.benchmark_id} / #${previewSample.index + 1}`
       : "未找到基准集样本时使用内置示意图";
+  const [activeSettingsPanel, setActiveSettingsPanel] = useState("appearance");
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const sortedLabels = useMemo(
+    () => [...labels].sort((left, right) => left.localeCompare(right)),
+    [labels]
+  );
+  const settingsSections = [
+    { id: "appearance", label: "外观", meta: "几何样式" },
+    { id: "labels", label: "标签颜色", meta: `${sortedLabels.length} labels` },
+    { id: "interaction", label: "交互", meta: "缩放、拖拽和范围" },
+    { id: "workflow", label: "快捷键", meta: "Action map" }
+  ];
+  const query = settingsQuery.trim().toLowerCase();
+  const visiblePanels = query
+    ? settingsSections
+        .filter((section) => `${section.label} ${section.meta}`.toLowerCase().includes(query))
+        .map((section) => section.id)
+    : [activeSettingsPanel];
+  const showPanel = (id: string) => visiblePanels.includes(id);
+  const activeSection = settingsSections.find((section) => section.id === activeSettingsPanel);
+  const visibleSectionLabel = query ? "搜索结果" : activeSection?.label ?? "设置";
+  const visibleSectionMeta = query
+    ? `${visiblePanels.length} 个分组匹配`
+    : activeSection?.meta ?? "当前设置分组";
 
   return (
-    <section className="page-stack settings-page">
-      <WorkspaceTabs defaultValue="display" label="工作台设置">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="display">显示偏好</Tabs.Trigger>
-          <Tabs.Trigger value="workflow">使用习惯</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="display" className="workspace-tab-panel">
-          <ResizableSplit
-            className="settings-grid"
-            storageKey="eval_bench_settings_controls_width"
-            fixedPane="second"
-            defaultSize={420}
-            minSize={300}
-            maxSize={820}
-            first={
-              <div className="workspace-card settings-preview-card" style={overlayVars}>
-              <PanelTitle title="叠图预览" meta={previewMeta} />
-              <div className="settings-preview-stage">
-                {previewQuery.isFetching ? <div className="viewer-fetch-chip">正在刷新预览样本</div> : null}
-                <CanvasStage
-                  width={previewWidth}
-                  height={previewHeight}
-                  imageUrl={previewImageUrl}
-                  imageAlt="工作台设置预览"
-                  gtInstances={previewGtInstances}
-                  predInstances={[]}
-                  diagnostics={null}
-                  visibleLabels={visiblePreviewLabels}
-                  showGt={true}
-                  showPred={false}
-                  showBoxes={true}
-                  showLines={true}
-                  showKeypoints={true}
-                  overlayColors={overlayColors}
-                  overlayStyle={overlayStyle}
-                  labelColors={labelColors}
-                  interactionSettings={interactionSettings}
-                />
-              </div>
-              <div className="settings-preview-foot">
-                <span style={{ "--swatch": overlayColors.gt } as React.CSSProperties}>GT / label</span>
-                <span style={{ "--swatch": overlayColors.pred } as React.CSSProperties}>Pred</span>
-                <span style={{ "--swatch": overlayColors.fn } as React.CSSProperties}>FN</span>
-                <span style={{ "--swatch": overlayColors.fp } as React.CSSProperties}>FP</span>
-                <strong>滚轮缩放，拖拽检查局部</strong>
-              </div>
+    <section className="page-stack settings-page settings-workbench-page">
+      <div className="settings-workbench-shell settings-console-shell" style={overlayVars}>
+        <header className="settings-command-bar">
+          <div className="settings-command-title">
+            <div>
+              <span>Eval Bench Preferences</span>
+              <h2>工作台设置</h2>
             </div>
-            }
-            second={
-              <div className="workspace-card settings-control-card">
-              <PanelTitle title="可视化外观" meta="颜色、线宽、点和标签" />
-              <div className="viewer-controls settings-controls">
-                <OverlayAppearancePanel
-                  colors={overlayColors}
-                  styleConfig={overlayStyle}
-                  onColorChange={updateOverlayColor}
-                  onStyleChange={updateOverlayStyle}
-                  onResetColors={resetOverlayColors}
-                  onResetStyle={resetOverlayStyle}
-                  defaultOpen
-                />
-                <LabelColorPanel
-                  labels={labels}
-                  labelColors={labelColors}
-                  onChange={updateLabelColor}
-                  onRemove={removeLabelColor}
-                  onReset={resetLabelColors}
-                  defaultOpen
-                />
-                <InteractionSettingsPanel
-                  settings={interactionSettings}
-                  onChange={updateInteractionSetting}
-                  onReset={resetInteractionSettings}
-                  defaultOpen
-                />
-              </div>
+            <p>以最小控制面板管理视觉偏好，把主空间留给样本检查。</p>
+          </div>
+          <div className="settings-command-center">
+            <div className="settings-search-box">
+              <Search size={15} />
+              <input
+                value={settingsQuery}
+                placeholder="搜索设置"
+                onChange={(event) => setSettingsQuery(event.target.value)}
+              />
+              {settingsQuery ? (
+                <button type="button" onClick={() => setSettingsQuery("")} title="清空搜索">
+                  <X size={13} />
+                </button>
+              ) : null}
             </div>
-            }
-          />
-        </Tabs.Content>
-        <Tabs.Content value="workflow" className="workspace-tab-panel">
-          <div className="workspace-card settings-workflow-card">
-            <PanelTitle title="交互约定" meta="面向标注检查和评测排障" />
-            <div className="settings-note-grid">
-              <div>
-                <strong>画布</strong>
-                <span>滚轮缩放，拖拽平移，F 复位视图，Esc 取消对象锁定。</span>
-              </div>
-              <div>
-                <strong>图层</strong>
-                <span>G/P/B/L/K 可快速切换真值、预测、框、线和点。</span>
-              </div>
-              <div>
-                <strong>样本</strong>
-                <span>列表分页加载，使用样本列表或快捷键切换当前样本。</span>
-              </div>
+            <nav className="settings-section-nav" aria-label="工作台设置分组">
+              {settingsSections.map((section) => (
+                <button
+                  key={section.id}
+                  className={
+                    !query && activeSettingsPanel === section.id
+                      ? "settings-section-button active"
+                      : "settings-section-button"
+                  }
+                  type="button"
+                  onClick={() => {
+                    setActiveSettingsPanel(section.id);
+                    setSettingsQuery("");
+                  }}
+                >
+                  <span>{section.label}</span>
+                  <small>{section.meta}</small>
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="settings-profile-strip" title="当前版本使用浏览器本地 profile 保存设置">
+            <span>Profile</span>
+            <strong>Local Browser</strong>
+            <small>{sortedLabels.length} labels</small>
+          </div>
+        </header>
+
+        <main className="settings-visual-region">
+          <div className="settings-preview-stage">
+            {previewQuery.isFetching ? <div className="viewer-fetch-chip">正在刷新预览样本</div> : null}
+            <CanvasStage
+              width={previewWidth}
+              height={previewHeight}
+              imageUrl={previewImageUrl}
+              imageAlt="工作台设置预览"
+              gtInstances={previewGtInstances}
+              predInstances={[]}
+              diagnostics={null}
+              visibleLabels={visiblePreviewLabels}
+              showGt={true}
+              showPred={false}
+              showBoxes={true}
+              showLines={true}
+              showKeypoints={true}
+              overlayColors={overlayColors}
+              overlayStyle={overlayStyle}
+              labelColors={labelColors}
+              interactionSettings={interactionSettings}
+            />
+          </div>
+          <div className="settings-preview-dock">
+            <div>
+              <span>Preview</span>
+              <strong>{previewMeta}</strong>
+            </div>
+            <div className="settings-preview-foot">
+              <span style={{ "--swatch": overlayColors.gt } as React.CSSProperties}>GT</span>
+              <span style={{ "--swatch": overlayColors.pred } as React.CSSProperties}>Pred</span>
+              <span style={{ "--swatch": overlayColors.fn } as React.CSSProperties}>FN</span>
+              <span style={{ "--swatch": overlayColors.fp } as React.CSSProperties}>FP</span>
             </div>
           </div>
-        </Tabs.Content>
-      </WorkspaceTabs>
+        </main>
+
+        <section className="settings-preference-drawer">
+          <div className="settings-drawer-head">
+            <div>
+              <span>Settings</span>
+              <strong>{visibleSectionLabel}</strong>
+              <small>{visibleSectionMeta}</small>
+            </div>
+            <p>配置键名、控件和实时预览保持同步；搜索时只展示匹配分组。</p>
+          </div>
+          <div className="settings-drawer-scroll">
+
+          {showPanel("appearance") ? (
+            <SettingsEditorSection title="可视化外观" description="控制框、线、点和标签的几何表达。">
+              <SettingsPreferenceRow
+                title="几何样式"
+                settingKey="evalBench.overlay.style"
+                description="控制框、线、点和标签的绘制密度。"
+              >
+                <div className="settings-slider-grid">
+                  {OVERLAY_STYLE_CONTROLS.map((control) => (
+                    <StyleSlider
+                      key={control.key}
+                      label={control.label}
+                      value={overlayStyle[control.key]}
+                      min={control.min}
+                      max={control.max}
+                      step={control.step}
+                      onChange={(value) => updateOverlayStyle(control.key, value)}
+                    />
+                  ))}
+                  <label className="compact-select dense">
+                    <span>预测线型</span>
+                    <select
+                      value={overlayStyle.predLineStyle}
+                      onChange={(event) => updateOverlayStyle("predLineStyle", event.target.value)}
+                    >
+                      {PRED_LINE_STYLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <button className="settings-inline-action" type="button" onClick={resetOverlayStyle}>
+                  重置样式
+                </button>
+              </SettingsPreferenceRow>
+            </SettingsEditorSection>
+          ) : null}
+
+          {showPanel("labels") ? (
+            <SettingsEditorSection title="标签颜色" description="用于覆盖特定 label 的颜色；匹配大小写不敏感，但显示保留原始 label。">
+              <SettingsPreferenceRow
+                title="新增规则"
+                settingKey="evalBench.overlay.labelColors"
+                description="输入 label 后按 Enter 或点击添加。"
+              >
+                <LabelColorQuickAdd onChange={updateLabelColor} />
+              </SettingsPreferenceRow>
+              <SettingsPreferenceRow
+                title="当前 label"
+                settingKey="evalBench.overlay.labelColors.*"
+                description="来自当前预览样本和已保存的 label 规则。"
+              >
+                <div className="settings-label-table">
+                  {sortedLabels.length === 0 ? (
+                    <div className="muted-line">还没有可配置的 label。</div>
+                  ) : (
+                    sortedLabels.map((label) => (
+                      <div className="settings-label-row" key={label}>
+                        <span>{label}</span>
+                        <div className="settings-label-role-grid">
+                          {INSTANCE_COLOR_ROLES.map((role) => (
+                            <label key={role.key}>
+                              <small>{role.label}</small>
+                              <input
+                                aria-label={`${label} ${role.label} 颜色`}
+                                type="color"
+                                value={explicitLabelColor(labelColors, label, role.key) ?? overlayColors[role.key]}
+                                onChange={(event) =>
+                                  updateLabelColor(label, role.key, event.target.value)
+                                }
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <button type="button" onClick={() => removeLabelColor(label)}>
+                          清除
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button className="settings-inline-action" type="button" onClick={resetLabelColors}>
+                  清空 label 颜色
+                </button>
+              </SettingsPreferenceRow>
+            </SettingsEditorSection>
+          ) : null}
+
+          {showPanel("interaction") ? (
+            <SettingsEditorSection title="画布交互" description="让缩放和平移适配不同鼠标、触控板和大图场景。">
+              <SettingsPreferenceRow
+                title="鼠标操作"
+                settingKey="evalBench.viewer.interaction"
+                description="缩放灵敏度越低，滚轮越稳；平移灵敏度越低，拖拽越慢。"
+              >
+                <div className="settings-slider-grid">
+                  {INTERACTION_SETTING_CONTROLS.map((control) => (
+                    <StyleSlider
+                      key={control.key}
+                      label={control.label}
+                      value={settingControlValue(interactionSettings[control.key], control)}
+                      min={settingControlValue(control.min, control)}
+                      max={settingControlValue(control.max, control)}
+                      step={settingControlValue(control.step, control)}
+                      onChange={(value) =>
+                        updateInteractionSetting(control.key, settingValueFromControl(value, control))
+                      }
+                    />
+                  ))}
+                </div>
+                <button className="settings-inline-action" type="button" onClick={resetInteractionSettings}>
+                  重置交互
+                </button>
+              </SettingsPreferenceRow>
+            </SettingsEditorSection>
+          ) : null}
+
+          {showPanel("workflow") ? (
+            <SettingsEditorSection title="快捷键" description="按 action 管理键位，适配后续新增图层和工具。">
+              <ShortcutSettingsPanel
+                bindings={shortcutSettings.bindings}
+                onChange={shortcutSettings.updateShortcut}
+                onReset={shortcutSettings.resetShortcut}
+                onResetAll={shortcutSettings.resetShortcuts}
+              />
+            </SettingsEditorSection>
+          ) : null}
+
+          {visiblePanels.length === 0 ? <EmptyState title="没有匹配的设置项" /> : null}
+          </div>
+        </section>
+      </div>
     </section>
-  );
-}
-
-function ServiceCreatePanel() {
-  const queryClient = useQueryClient();
-  const [kind, setKind] = useState("local_vllm");
-  const [serviceId, setServiceId] = useState("local-vllm-0");
-  const [modelPath, setModelPath] = useState("");
-  const [servedModelName, setServedModelName] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [cudaVisibleDevices, setCudaVisibleDevices] = useState("");
-  const [tensorParallelSize, setTensorParallelSize] = useState(1);
-  const [port, setPort] = useState(8000);
-  const [maxModelLen, setMaxModelLen] = useState(32768);
-  const [gpuMemoryUtilization, setGpuMemoryUtilization] = useState(0.9);
-  const [maxNumSeqs, setMaxNumSeqs] = useState(8);
-  const mutation = useMutation({
-    mutationFn: createService,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["services"] });
-    }
-  });
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    mutation.mutate({
-      kind,
-      service_id: serviceId.trim() || undefined,
-      model_path: modelPath.trim() || undefined,
-      served_model_name: servedModelName.trim() || undefined,
-      endpoint: endpoint.trim() || undefined,
-      cuda_visible_devices: cudaVisibleDevices.trim() || undefined,
-      tensor_parallel_size: tensorParallelSize,
-      port,
-      max_model_len: maxModelLen,
-      gpu_memory_utilization: gpuMemoryUtilization,
-      max_num_seqs: maxNumSeqs
-    });
-  }
-
-  return (
-    <ActionPanel title="登记模型服务" meta="保存本地或外部 vLLM 服务参数">
-      <form className="job-form service-form" onSubmit={submit}>
-        <label>
-          <span>类型</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="local_vllm">本地 vLLM</option>
-            <option value="external_vllm">外部 vLLM</option>
-          </select>
-        </label>
-        <label>
-          <span>服务 ID</span>
-          <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
-        </label>
-        <label>
-          <span>模型路径</span>
-          <input
-            value={modelPath}
-            onChange={(event) => setModelPath(event.target.value)}
-            placeholder="outputs/qwen3vl-sft/run/best"
-          />
-        </label>
-        <label>
-          <span>服务模型名</span>
-          <input
-            value={servedModelName}
-            onChange={(event) => setServedModelName(event.target.value)}
-            placeholder="qwen3vl-best"
-          />
-        </label>
-        <label>
-          <span>端点</span>
-          <input
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="http://127.0.0.1:8000"
-          />
-        </label>
-        <label>
-          <span>CUDA</span>
-          <input
-            value={cudaVisibleDevices}
-            onChange={(event) => setCudaVisibleDevices(event.target.value)}
-            placeholder="0,2"
-          />
-        </label>
-        <label>
-          <span>TP 大小</span>
-          <input
-            type="number"
-            min={1}
-            value={tensorParallelSize}
-            onChange={(event) => setTensorParallelSize(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>端口</span>
-          <input
-            type="number"
-            min={1}
-            value={port}
-            onChange={(event) => setPort(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>最大上下文</span>
-          <input
-            type="number"
-            min={1}
-            value={maxModelLen}
-            onChange={(event) => setMaxModelLen(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>显存占比</span>
-          <input
-            type="number"
-            min={0}
-            max={1}
-            step={0.01}
-            value={gpuMemoryUtilization}
-            onChange={(event) => setGpuMemoryUtilization(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>最大并发序列</span>
-          <input
-            type="number"
-            min={1}
-            value={maxNumSeqs}
-            onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
-          />
-        </label>
-        <button className="primary-button" type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? "保存中" : "保存服务"}
-        </button>
-        {mutation.isError ? <div className="form-error">服务保存失败。</div> : null}
-      </form>
-    </ActionPanel>
-  );
-}
-
-function ServiceGrid({ services }: { services: ServiceSummary[] }) {
-  if (services.length === 0) {
-    return <EmptyState title="还没有登记模型服务。" />;
-  }
-  return (
-    <div className="service-grid">
-      {services.map((service) => (
-        <ServiceCard key={service.service_id} service={service} />
-      ))}
-    </div>
-  );
-}
-
-function ServiceCard({ service }: { service: ServiceSummary }) {
-  const queryClient = useQueryClient();
-  const [showLog, setShowLog] = useState(false);
-  const startMutation = useMutation({
-    mutationFn: () => startService(service.service_id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["services"] });
-    }
-  });
-  const healthMutation = useMutation({
-    mutationFn: () => checkServiceHealth(service.service_id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["services"] });
-    }
-  });
-  const stopMutation = useMutation({
-    mutationFn: () => stopService(service.service_id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["services"] });
-    }
-  });
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteService(service.service_id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["services"] });
-    }
-  });
-  const logQuery = useQuery({
-    queryKey: ["service-log", service.service_id],
-    queryFn: () => fetchServiceLogs(service.service_id),
-    enabled: showLog
-  });
-  const command = Array.isArray(service.runtime.command)
-    ? service.runtime.command.map(String).join(" ")
-    : "";
-  const health = serviceHealth(service);
-  return (
-    <div className="service-card">
-      <div className="service-card-heading">
-        <div>
-          <h2>{service.service_id}</h2>
-          <p>{serviceConfigValue(service, "model_path") || serviceConfigValue(service, "endpoint")}</p>
-        </div>
-        <Badge value={service.status} />
-      </div>
-      <div className="service-config-grid">
-        <ConfigItem label="类型" value={service.kind} />
-        <ConfigItem label="服务模型" value={serviceConfigValue(service, "served_model_name")} />
-        <ConfigItem label="端点" value={serviceEndpointValue(service)} />
-        <ConfigItem label="CUDA" value={serviceConfigValue(service, "cuda_visible_devices")} />
-        <ConfigItem label="TP" value={serviceConfigValue(service, "tensor_parallel_size")} />
-        <ConfigItem label="端口" value={serviceConfigValue(service, "port")} />
-        <ConfigItem label="上下文" value={serviceConfigValue(service, "max_model_len")} />
-        <ConfigItem label="显存占比" value={serviceConfigValue(service, "gpu_memory_utilization")} />
-        <ConfigItem label="并发序列" value={serviceConfigValue(service, "max_num_seqs")} />
-        <ConfigItem label="PID" value={runtimeValue(service, "pid")} />
-        <ConfigItem label="健康状态" value={health.status} />
-        <ConfigItem label="探测时间" value={health.checkedAt} />
-        <ConfigItem label="更新时间" value={formatDate(service.updated_at)} />
-      </div>
-      <div className={health.ok ? "service-health ok" : "service-health"}>
-        <span>{health.ok ? "就绪" : health.status}</span>
-        <strong title={health.message}>{health.message}</strong>
-      </div>
-      {command ? <pre className="service-command">{command}</pre> : null}
-      {service.error ? <div className="form-error">{service.error}</div> : null}
-      <div className="row-actions">
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={
-            service.kind !== "local_vllm" ||
-            service.status === "starting" ||
-            service.status === "running" ||
-            startMutation.isPending
-          }
-          onClick={() => startMutation.mutate()}
-        >
-          {startMutation.isPending ? "启动中" : "启动"}
-        </button>
-        <button
-          className="mini-button"
-          type="button"
-          disabled={healthMutation.isPending}
-          onClick={() => healthMutation.mutate()}
-        >
-          {healthMutation.isPending ? "探测中" : "探测"}
-        </button>
-        <button
-          className="mini-button"
-          type="button"
-          disabled={!["starting", "running"].includes(service.status) || stopMutation.isPending}
-          onClick={() => stopMutation.mutate()}
-        >
-          {stopMutation.isPending ? "停止中" : "停止"}
-        </button>
-        <button className="mini-button" type="button" onClick={() => setShowLog((value) => !value)}>
-          {showLog ? "隐藏日志" : "日志"}
-        </button>
-        <button
-          className="icon-button dense danger"
-          type="button"
-          disabled={deleteMutation.isPending}
-          title="删除服务记录"
-          onClick={() => {
-            if (confirm(`删除服务 ${service.service_id}？`)) {
-              deleteMutation.mutate();
-            }
-          }}
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-      {showLog ? <ServiceLogPanel query={logQuery} /> : null}
-    </div>
-  );
-}
-
-function ServiceLogPanel({
-  query
-}: {
-  query: UseQueryResult<ServiceLog, Error>;
-}) {
-  if (query.isLoading) {
-    return <div className="service-log-panel muted-line">正在加载日志</div>;
-  }
-  if (query.isError || !query.data) {
-    return <div className="service-log-panel form-error">日志加载失败。</div>;
-  }
-  return (
-    <div className="service-log-panel">
-      <div className="service-log-heading">
-        <span>日志尾部</span>
-        <strong title={query.data.log_path ?? ""}>{query.data.log_path ?? "没有日志文件"}</strong>
-      </div>
-      <pre>{query.data.text || "没有日志内容。"}</pre>
-    </div>
   );
 }
 
@@ -3634,7 +2101,7 @@ function RunSelectRail({
           <strong title={selected.run_id}>{selected.run_id}</strong>
           <span>{selected.model_id}</span>
           <div>
-            <Badge value={selected.status} />
+            <Badge value={selected.status} domain="run" />
             <em>R {formatMetric(selected.recall_iou50)}</em>
             <em>P {formatMetric(selected.precision_iou50)}</em>
           </div>
@@ -4129,1335 +2596,6 @@ function LeaderboardTable({ runs }: { runs: RunSummary[] }) {
     }
   ];
   return <DataTable columns={columns} data={runs} emptyText="没有符合过滤条件的 run。" />;
-}
-
-function JobQueuePanel({ compact = false }: { compact?: boolean }) {
-  const queryClient = useQueryClient();
-  const [selectedJobId, setSelectedJobId] = useState<string>("");
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: fetchJobs,
-    refetchInterval: 2_000
-  });
-  const schedulerQuery = useQuery({
-    queryKey: ["scheduler-status"],
-    queryFn: fetchSchedulerStatus,
-    refetchInterval: 2_000
-  });
-  const runningJobs = data?.jobs.filter((job) => job.status === "running") ?? [];
-  const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
-  const selectedRuntimeLogPath =
-    selectedJob && typeof selectedJob.metadata.runtime_log_path === "string"
-      ? selectedJob.metadata.runtime_log_path
-      : "";
-  const jobLogsQuery = useQuery({
-    queryKey: ["job-logs", selectedJob?.job_id ?? ""],
-    queryFn: () => fetchJobLogs(selectedJob?.job_id ?? "", 0),
-    enabled: Boolean(selectedJob?.job_id && selectedRuntimeLogPath),
-    refetchInterval: selectedJob?.status === "running" ? 3_000 : false
-  });
-  const cancelMutation = useMutation({
-    mutationFn: cancelJob,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    }
-  });
-  const deleteMutation = useMutation({
-    mutationFn: deleteJob,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    }
-  });
-  if (isLoading) {
-    return <div className="empty-panel">正在加载队列状态</div>;
-  }
-  if (error || !data) {
-    return <div className="empty-panel danger-text">队列状态加载失败</div>;
-  }
-  return (
-    <div className={compact ? "queue-stack compact" : "queue-stack"}>
-      <SchedulerStrip
-        jobs={data.jobs}
-        scheduler={schedulerQuery.data ?? { enabled: false }}
-      />
-      {data.jobs.length === 0 ? (
-        <div className="empty-panel">当前没有任务。</div>
-      ) : (
-        <div className={compact ? "table-shell compact" : "table-shell"}>
-          <table>
-            <thead>
-              <tr>
-                <th>任务</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>目标</th>
-                <th>创建时间</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.jobs.map((job) => (
-                <tr
-                  key={job.job_id}
-                  className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}
-                  onClick={() => setSelectedJobId(job.job_id)}
-                >
-                  <td>{job.job_id}</td>
-                  <td>{job.kind}</td>
-                  <td>
-                    <Badge value={job.status} />
-                    <JobProgressInline job={job} />
-                  </td>
-                  <td>
-                    <div className="job-target-cell">
-                      <span>{jobTarget(job.payload)}</span>
-                      {job.error ? <em title={job.error}>{job.error}</em> : null}
-                      {typeof job.metadata.runtime_log_path === "string" ? (
-                        <small title={job.metadata.runtime_log_path}>
-                          runtime log: {basename(job.metadata.runtime_log_path)}
-                        </small>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td>{formatDate(job.created_at)}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        className="icon-button dense"
-                        type="button"
-                        disabled={job.status !== "queued" || cancelMutation.isPending}
-                        title="取消排队任务"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          cancelMutation.mutate(job.job_id);
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                      <button
-                        className="icon-button dense danger"
-                        type="button"
-                        disabled={deleteMutation.isPending}
-                        title="删除任务记录"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (confirm(`删除任务记录 ${job.job_id}？`)) {
-                            deleteMutation.mutate(job.job_id);
-                          }
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {selectedJob ? <JobDetailPanel job={selectedJob} logs={jobLogsQuery.data ?? null} /> : null}
-    </div>
-  );
-}
-
-function SchedulerStrip({
-  jobs,
-  scheduler
-}: {
-  jobs: JobSummary[];
-  scheduler: SchedulerStatus;
-}) {
-  const queued = jobs.filter((job) => job.status === "queued").length;
-  const running = jobs.filter((job) => job.status === "running").length;
-  const failed = jobs.filter((job) => job.status === "failed").length;
-  const reservedDevices = scheduler.reserved_cuda_devices ?? [];
-  const reservedPorts = scheduler.reserved_runtime_ports ?? [];
-  return (
-    <div className="scheduler-strip">
-      <div>
-        <span className={scheduler.enabled ? "status-dot live" : "status-dot"} />
-        <strong>{scheduler.enabled ? "自动调度运行中" : "自动调度未启用"}</strong>
-      </div>
-      <span>运行 {running}</span>
-      <span>排队 {queued}</span>
-      {failed > 0 ? <span className="danger-text">失败 {failed}</span> : null}
-      <span>并发上限 {scheduler.max_concurrent_jobs ?? "-"}</span>
-      {reservedDevices.length > 0 ? <span>占用 CUDA {reservedDevices.join(",")}</span> : null}
-      {reservedPorts.length > 0 ? <span>占用端口 {reservedPorts.join(",")}</span> : null}
-    </div>
-  );
-}
-
-function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null }) {
-  const progress = jobProgress(job);
-  const lines = logs?.lines ?? [];
-  const linkedRunId = stringValue(job.metadata.run_id);
-  return (
-    <div className="job-detail-panel">
-      <div className="job-monitor-header">
-        <div>
-          <div className="eyebrow">任务详情</div>
-          <strong>{job.job_id}</strong>
-        </div>
-        <div className="job-monitor-actions">
-          {linkedRunId ? (
-            <Link className="mini-link" to="/runs/$runId" params={{ runId: linkedRunId }}>
-              打开结果
-            </Link>
-          ) : null}
-          <Badge value={job.status} />
-        </div>
-      </div>
-      <div className="job-progress-row">
-        <div className="job-progress-track" aria-label="任务进度">
-          <span style={{ width: `${progress.percent ?? 8}%` }} />
-        </div>
-        <span>{progress.text}</span>
-      </div>
-      <div className="job-monitor-meta">
-        <span>{progressPhaseText(progress.phase)}</span>
-        {progress.message ? <span>{progress.message}</span> : null}
-        {progress.currentSample ? <span title={progress.currentSample}>{progress.currentSample}</span> : null}
-      </div>
-      <div className="job-detail-grid">
-        <span>目标</span>
-        <strong>{jobTarget(job.payload)}</strong>
-        <span>创建</span>
-        <strong>{formatDate(job.created_at)}</strong>
-        <span>更新</span>
-        <strong>{formatDate(job.updated_at)}</strong>
-        <span>日志</span>
-        <strong>
-          {typeof job.metadata.runtime_log_path === "string"
-            ? job.metadata.runtime_log_path
-            : "runtime log 尚未创建"}
-        </strong>
-      </div>
-      {lines.length > 0 ? (
-        <pre className="job-log-tail">{lines.join("")}</pre>
-      ) : (
-        <div className="job-log-empty">
-          {logs?.log_path ? "runtime log 还没有新内容。" : "等待 runtime log。"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function JobProgressInline({ job }: { job: JobSummary }) {
-  if (job.status !== "running" && job.status !== "failed" && job.status !== "succeeded") {
-    return null;
-  }
-  const progress = jobProgress(job);
-  return (
-    <div className="job-progress-inline">
-      <div className="job-progress-mini">
-        <span style={{ width: `${progress.percent ?? (job.status === "succeeded" ? 100 : 0)}%` }} />
-      </div>
-      <small>{progress.text}</small>
-    </div>
-  );
-}
-
-function jobProgress(job: JobSummary) {
-  const metadata = job.metadata ?? {};
-  const done = metadataNumber(metadata.progress_done);
-  const total = metadataNumber(metadata.progress_total);
-  const phase = typeof metadata.progress_phase === "string" ? metadata.progress_phase : job.status;
-  const message = typeof metadata.progress_message === "string" ? metadata.progress_message : "";
-  const currentSample =
-    typeof metadata.progress_current_sample === "string" ? metadata.progress_current_sample : "";
-  const percent =
-    total && total > 0 && done !== null
-      ? Math.max(0, Math.min(100, Math.round((done / total) * 100)))
-      : job.status === "succeeded"
-        ? 100
-        : null;
-  const text =
-    total && total > 0 && done !== null
-      ? `${done}/${total} (${percent}%)`
-      : progressPhaseText(phase);
-  return { currentSample, done, message, percent, phase, text, total };
-}
-
-function metadataNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function progressPhaseText(value: string) {
-  const labels: Record<string, string> = {
-    resolving: "解析配置",
-    worker_starting: "启动后台 worker",
-    starting_runtime: "启动模型服务",
-    runtime_ready: "模型服务就绪",
-    prepare_run: "准备 run",
-    inference: "推理中",
-    evaluating: "计算指标",
-    succeeded: "完成",
-    failed: "失败",
-    running: "运行中",
-    queued: "排队中"
-  };
-  return labels[value] ?? value;
-}
-
-function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] }) {
-  const queryClient = useQueryClient();
-  const templatesQuery = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
-  const promptTemplatesQuery = useQuery({
-    queryKey: ["prompt-templates"],
-    queryFn: fetchPromptTemplates
-  });
-  const templates = templatesQuery.data?.templates ?? {};
-  const promptTemplates = promptTemplatesQuery.data?.templates ?? [];
-  const templateIds = Object.keys(templates);
-  const promptIds = promptTemplates.map((template) => template.prompt_id);
-  const [templateId, setTemplateId] = useState("eval_job");
-  const [promptId, setPromptId] = useState("grounding_layout.latest");
-  const [manifestText, setManifestText] = useState("");
-  const [parseError, setParseError] = useState<string | null>(null);
-  const mutation = useMutation({
-    mutationFn: createJob,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    }
-  });
-  const promptMutation = useMutation({
-    mutationFn: upsertPromptTemplate,
-    onSuccess: (record) => {
-      setPromptId(record.prompt_id);
-      void queryClient.invalidateQueries({ queryKey: ["prompt-templates"] });
-    }
-  });
-  const preflightMutation = useMutation({ mutationFn: preflightJob });
-  const selectedTemplate = templates[templateId] ?? templates[templateIds[0] ?? ""];
-  const selectedPrompt =
-    promptTemplates.find((template) => template.prompt_id === promptId) ?? promptTemplates[0];
-
-  useEffect(() => {
-    if (!manifestText && selectedTemplate?.manifest) {
-      setManifestText(formatManifest(applyBenchmarkDefault(selectedTemplate.manifest, benchmarks)));
-    }
-  }, [benchmarks, manifestText, selectedTemplate]);
-
-  useEffect(() => {
-    if (promptIds.length > 0 && !promptIds.includes(promptId)) {
-      setPromptId(promptIds[0]);
-    }
-  }, [promptId, promptIds.join("|")]);
-
-  function loadTemplate(nextTemplateId = templateId) {
-    const template = templates[nextTemplateId];
-    if (!template) {
-      return;
-    }
-    setTemplateId(nextTemplateId);
-    setManifestText(formatManifest(applyBenchmarkDefault(template.manifest, benchmarks)));
-    setParseError(null);
-    preflightMutation.reset();
-  }
-
-  function applySelectedPrompt(nextPromptId = promptId) {
-    const promptTemplate =
-      promptTemplates.find((template) => template.prompt_id === nextPromptId) ?? selectedPrompt;
-    if (!promptTemplate) {
-      return;
-    }
-    const manifest = parseManifest() ?? applyBenchmarkDefault(selectedTemplate?.manifest ?? {}, benchmarks);
-    setPromptId(promptTemplate.prompt_id);
-    setManifestText(formatManifest(applyPromptTemplateToManifest(manifest, promptTemplate)));
-    setParseError(null);
-    preflightMutation.reset();
-  }
-
-  function savePromptFromManifest() {
-    const manifest = parseManifest();
-    if (!manifest) {
-      return;
-    }
-    const draft = promptTemplateFromManifest(manifest, selectedPrompt);
-    promptMutation.mutate(draft);
-  }
-
-  function parseManifest(): Record<string, unknown> | null {
-    try {
-      const parsed = JSON.parse(manifestText) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setParseError("Manifest 必须是 JSON object。");
-        return null;
-      }
-      setParseError(null);
-      return parsed as Record<string, unknown>;
-    } catch (error) {
-      setParseError(error instanceof Error ? error.message : String(error));
-      return null;
-    }
-  }
-
-  function validateManifest() {
-    const manifest = parseManifest();
-    if (!manifest) {
-      return;
-    }
-    preflightMutation.mutate({ manifest });
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const manifest = parseManifest();
-    if (!manifest) {
-      return;
-    }
-    mutation.mutate({ manifest });
-  }
-
-  return (
-    <div className="workspace-card manifest-card">
-      <PanelTitle title="新建评测任务" meta="模板 manifest + 后端预检查" />
-      <form className="manifest-job-form" onSubmit={submit}>
-        <div className="manifest-toolbar">
-          <label className="filter-select compact">
-            <span>模板</span>
-            <select
-              value={templateId}
-              onChange={(event) => loadTemplate(event.target.value)}
-              disabled={templatesQuery.isLoading}
-            >
-              {templateIds.length === 0 ? <option value="eval_job">加载中</option> : null}
-              {templateIds.map((id) => (
-                <option key={id} value={id}>
-                  {templates[id]?.label ?? id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-select compact">
-            <span>Prompt</span>
-            <select
-              value={selectedPrompt?.prompt_id ?? promptId}
-              onChange={(event) => applySelectedPrompt(event.target.value)}
-              disabled={promptTemplatesQuery.isLoading || promptTemplates.length === 0}
-            >
-              {promptTemplates.length === 0 ? <option value={promptId}>加载中</option> : null}
-              {promptTemplates.map((template) => (
-                <option key={template.prompt_id} value={template.prompt_id}>
-                  {template.label || template.prompt_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="secondary-button" type="button" onClick={() => loadTemplate()}>
-            恢复模板
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => applySelectedPrompt()}
-            disabled={!selectedPrompt}
-          >
-            应用 Prompt
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={validateManifest}
-            disabled={preflightMutation.isPending}
-          >
-            {preflightMutation.isPending ? "检查中" : "预检查"}
-          </button>
-          <button className="primary-button" type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? "加入中" : "加入队列"}
-          </button>
-        </div>
-        <ResizableSplit
-          className="manifest-split"
-          storageKey="eval_bench_manifest_result_width"
-          fixedPane="second"
-          defaultSize={360}
-          minSize={240}
-          maxSize={820}
-          first={
-            <div className="manifest-editor-pane">
-              {selectedTemplate ? (
-                <p className="manifest-template-note">{selectedTemplate.description}</p>
-              ) : null}
-              <label className="manifest-editor-field">
-                <span>可编辑任务 Manifest</span>
-                <textarea
-                  spellCheck={false}
-                  value={manifestText}
-                  onChange={(event) => {
-                    setManifestText(event.target.value);
-                    setParseError(null);
-                    preflightMutation.reset();
-                  }}
-                />
-              </label>
-            </div>
-          }
-          second={
-            <div className="manifest-result-pane">
-              <PanelTitle title="预检查" meta="提交前的参数与运行时校验" />
-              {selectedPrompt ? (
-                <PromptTemplatePanel
-                  prompt={selectedPrompt}
-                  onSaveFromManifest={savePromptFromManifest}
-                  saving={promptMutation.isPending}
-                  saveError={promptMutation.isError}
-                />
-              ) : null}
-              {parseError ? <div className="form-error">JSON 解析错误：{parseError}</div> : null}
-              {preflightMutation.data ? <PreflightPanel result={preflightMutation.data} /> : null}
-              {preflightMutation.isError ? (
-                <div className="form-error">预检查请求失败。</div>
-              ) : null}
-              {mutation.isError ? <div className="form-error">任务入队失败。</div> : null}
-              {!parseError && !preflightMutation.data && !preflightMutation.isError && !mutation.isError ? (
-                <div className="manifest-placeholder">
-                  编辑 manifest 后执行预检查；通过后再加入队列。
-                </div>
-              ) : null}
-            </div>
-          }
-        />
-      </form>
-    </div>
-  );
-}
-
-function PreflightPanel({ result }: { result: { ok: boolean; errors: string[]; warnings: string[]; runtime_command?: string[] | null } }) {
-  return (
-    <div className={result.ok ? "preflight-panel ok" : "preflight-panel failed"}>
-      <div className="preflight-heading">
-        <strong>{result.ok ? "预检查通过" : "预检查失败"}</strong>
-        <span>{result.errors.length} 个错误 / {result.warnings.length} 个警告</span>
-      </div>
-      {result.errors.length > 0 ? (
-        <ul>
-          {result.errors.map((error) => (
-            <li key={error}>{error}</li>
-          ))}
-        </ul>
-      ) : null}
-      {result.warnings.length > 0 ? (
-        <ul>
-          {result.warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
-      ) : null}
-      {result.runtime_command && result.runtime_command.length > 0 ? (
-        <pre>{result.runtime_command.join(" ")}</pre>
-      ) : null}
-    </div>
-  );
-}
-
-function PromptTemplatePanel({
-  prompt,
-  onSaveFromManifest,
-  saving,
-  saveError
-}: {
-  prompt: PromptTemplate;
-  onSaveFromManifest: () => void;
-  saving: boolean;
-  saveError: boolean;
-}) {
-  const targetLabels = targetLabelsFromPrompt(prompt);
-  return (
-    <details className="prompt-template-panel" open>
-      <summary>
-        <span>{prompt.label || prompt.prompt_id}</span>
-        <Badge value={prompt.task} />
-      </summary>
-      <div className="prompt-template-meta">
-        <span>{prompt.prompt_id}</span>
-        <span>{prompt.parser ?? "parser 未设置"}</span>
-        <span>{prompt.metric_profile ?? "metric 未设置"}</span>
-        <span>目标 {targetLabels.length ? targetLabels.join(" / ") : "全部 label"}</span>
-      </div>
-      <div className="prompt-template-text">
-        <strong>System</strong>
-        <p>{prompt.system_prompt || "-"}</p>
-        <strong>User</strong>
-        <p>{prompt.user_prompt || "-"}</p>
-      </div>
-      <button
-        className="secondary-button dense"
-        type="button"
-        onClick={onSaveFromManifest}
-        disabled={saving}
-      >
-        {saving ? "保存中" : "将当前 Manifest 的 Prompt 保存为模板"}
-      </button>
-      {saveError ? <div className="form-error">Prompt 模板保存失败。</div> : null}
-    </details>
-  );
-}
-
-function BenchmarkTable({
-  benchmarks,
-  compact = false
-}: {
-  benchmarks: BenchmarkSummary[];
-  compact?: boolean;
-}) {
-  const columns: ColumnDef<BenchmarkSummary>[] = [
-    {
-      header: "基准集",
-      cell: ({ row }) => (
-        <Link to="/benchmarks/$benchmarkId" params={{ benchmarkId: row.original.benchmark_id }}>
-          {row.original.benchmark_id}
-        </Link>
-      )
-    },
-    { header: "任务", cell: ({ row }) => row.original.tasks.join(", ") || "-" },
-    { header: "标注层", cell: ({ row }) => row.original.layers.join(", ") || "-" },
-    { header: "Split", accessorKey: "split" },
-    {
-      header: "样本数",
-      accessorKey: "sample_count",
-      cell: ({ row }) => row.original.sample_count.toLocaleString()
-    },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) },
-    {
-      header: "",
-      id: "actions",
-      cell: ({ row }) => (
-        <Link
-          className="mini-link"
-          to="/benchmarks/$benchmarkId"
-          params={{ benchmarkId: row.original.benchmark_id }}
-          title="检查基准集真值样本"
-        >
-          <Eye size={13} />
-          检查
-        </Link>
-      )
-    }
-  ];
-  return (
-    <DataTable
-      columns={columns}
-      data={benchmarks}
-      emptyText="还没有登记基准集。"
-      compact={compact}
-    />
-  );
-}
-
-function RunTable({ runs, compact = false }: { runs: RunSummary[]; compact?: boolean }) {
-  const queryClient = useQueryClient();
-  const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [taskFilter, setTaskFilter] = useState("all");
-  const [benchmarkFilter, setBenchmarkFilter] = useState("all");
-  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
-  const evaluateMutation = useMutation({
-    mutationFn: evaluateRun,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-    }
-  });
-  const archiveMutation = useMutation({
-    mutationFn: archiveRun,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-    }
-  });
-  const deleteMutation = useMutation({
-    mutationFn: deleteRun,
-    onSuccess: () => {
-      setSelectedRunIds([]);
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-    }
-  });
-  const statuses = unique(runs.map((run) => run.status).filter(Boolean));
-  const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
-  const filteredRuns = compact
-    ? runs
-    : runs
-        .filter((run) => statusFilter === "all" || run.status === statusFilter)
-        .filter((run) => taskFilter === "all" || run.spec_task === taskFilter)
-        .filter((run) => benchmarkFilter === "all" || run.benchmark_id === benchmarkFilter)
-        .filter((run) => {
-          const query = searchText.trim().toLowerCase();
-          if (!query) {
-            return true;
-          }
-          return [
-            run.run_id,
-            run.model_id,
-            run.benchmark_id,
-            run.spec_task,
-            run.prompt_id
-          ].some((value) => String(value).toLowerCase().includes(query));
-        });
-  const comparableSelection = selectedRunIds.slice(0, 2);
-  const compareHref =
-    comparableSelection.length === 2
-      ? `/compare?baseline=${encodeURIComponent(comparableSelection[0])}&candidate=${encodeURIComponent(
-          comparableSelection[1]
-        )}`
-      : "/compare";
-  const columns: ColumnDef<RunSummary>[] = [
-    ...(compact
-      ? []
-      : [
-          {
-            header: "",
-            id: "select",
-            cell: ({ row }) => (
-              <input
-                className="row-select-checkbox"
-                aria-label={`选择 ${row.original.run_id} 进行对比`}
-                type="checkbox"
-                checked={selectedRunIds.includes(row.original.run_id)}
-                onChange={() => toggleRunSelection(row.original.run_id)}
-              />
-            )
-          } satisfies ColumnDef<RunSummary>
-        ]),
-    {
-      header: "记录",
-      cell: ({ row }) => (
-        <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
-          {row.original.run_id}
-        </Link>
-      )
-    },
-    { header: "状态", cell: ({ row }) => <Badge value={row.original.status} /> },
-    { header: "任务", accessorKey: "spec_task" },
-    { header: "基准集", accessorKey: "benchmark_id" },
-    { header: "模型", accessorKey: "model_id" },
-    {
-      header: "预测数",
-      accessorKey: "prediction_count",
-      cell: ({ row }) => row.original.prediction_count.toLocaleString()
-    },
-    { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },
-    { header: "R@.50", cell: ({ row }) => formatMetric(row.original.recall_iou50) },
-    { header: "报告数", accessorKey: "report_count" },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) },
-    {
-      header: "",
-      id: "actions",
-      cell: ({ row }) => (
-        <div className="row-actions">
-          <Link
-            className="icon-button dense"
-            to="/runs/$runId"
-            params={{ runId: row.original.run_id }}
-            title="检查样本级预测"
-          >
-            <Eye size={13} />
-          </Link>
-          <button
-            className="icon-button dense"
-            type="button"
-            onClick={() => evaluateMutation.mutate(row.original.run_id)}
-            disabled={evaluateMutation.isPending}
-            title="计算预测指标"
-          >
-            <RotateCw size={13} />
-          </button>
-          {!compact ? (
-            <>
-              <button
-                className="icon-button dense"
-                type="button"
-                onClick={() => archiveMutation.mutate(row.original.run_id)}
-                disabled={archiveMutation.isPending || row.original.status === "archived"}
-                title="归档 run"
-              >
-                <Archive size={14} />
-              </button>
-              <button
-                className="icon-button dense danger"
-                type="button"
-                onClick={() => {
-                  if (confirm(`将 run ${row.original.run_id} 移入回收站？`)) {
-                    deleteMutation.mutate(row.original.run_id);
-                  }
-                }}
-                disabled={deleteMutation.isPending}
-                title="删除 run"
-              >
-                <Trash2 size={14} />
-              </button>
-            </>
-          ) : null}
-        </div>
-      )
-    }
-  ];
-  function toggleRunSelection(runId: string) {
-    setSelectedRunIds((current) => {
-      if (current.includes(runId)) {
-        return current.filter((item) => item !== runId);
-      }
-      return [...current, runId].slice(-2);
-    });
-  }
-  return (
-    <div className={compact ? "run-table-stack compact" : "run-table-stack"}>
-      {!compact ? (
-        <div className="run-query-bar">
-          <label className="search-box">
-            <Search size={15} />
-            <input
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="搜索 run、模型、基准集"
-            />
-          </label>
-          <FilterSelect
-            label="状态"
-            value={statusFilter}
-            values={["all", ...statuses]}
-            labels={{ all: "全部" }}
-            onChange={setStatusFilter}
-            compact
-          />
-          <FilterSelect
-            label="任务"
-            value={taskFilter}
-            values={["all", ...tasks]}
-            labels={{ all: "全部" }}
-            onChange={setTaskFilter}
-            compact
-          />
-          <FilterSelect
-            label="基准集"
-            value={benchmarkFilter}
-            values={["all", ...benchmarks]}
-            labels={{ all: "全部" }}
-            onChange={setBenchmarkFilter}
-            compact
-          />
-          <a
-            className={
-              comparableSelection.length === 2 ? "mini-link compare-ready" : "mini-link disabled"
-            }
-            href={compareHref}
-          >
-            <GitCompare size={13} />
-            对比 {comparableSelection.length}/2
-          </a>
-        </div>
-      ) : null}
-      <DataTable
-        columns={columns}
-        data={filteredRuns}
-        emptyText="还没有评测记录。"
-        compact={compact}
-      />
-    </div>
-  );
-}
-
-function objectKindLabel(kind: ObjectKind) {
-  return kind === "gt" ? "真值" : "预测";
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-  return value.replace("T", " ").replace("Z", "");
-}
-
-function formatMetric(value: number | null) {
-  if (value === null || Number.isNaN(value)) {
-    return "-";
-  }
-  return value.toFixed(3);
-}
-
-function jobTarget(payload: Record<string, unknown>) {
-  const model = typeof payload.model_id === "string" ? payload.model_id : "model";
-  const benchmark =
-    typeof payload.benchmark_id === "string" ? payload.benchmark_id : "benchmark";
-  const task = typeof payload.task === "string" ? payload.task : "task";
-  return `${model} / ${benchmark} / ${task}`;
-}
-
-function basename(path: string) {
-  const parts = path.split("/");
-  return parts[parts.length - 1] || path;
-}
-
-function unique(values: string[]) {
-  return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
-}
-
-function isTextInputTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tag = target.tagName.toLowerCase();
-  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
-}
-
-function scoreRun(run: RunSummary) {
-  const precision = run.precision_iou50 ?? 0;
-  const recall = run.recall_iou50 ?? 0;
-  const meanIou = run.mean_iou ?? 0;
-  return precision * 0.45 + recall * 0.45 + meanIou * 0.1;
-}
-
-function formatRunOption(run: RunSummary) {
-  return `${run.run_id} / ${run.model_id} / R ${formatMetric(run.recall_iou50)}`;
-}
-
-function runIdExists(runs: RunSummary[], runId: string) {
-  return runs.some((run) => run.run_id === runId);
-}
-
-function stringValue(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
-function inferenceValue(inference: Record<string, unknown>, key: string) {
-  const value = inference[key];
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  return String(value);
-}
-
-function serviceConfigValue(service: ServiceSummary, key: string) {
-  const value = service.config[key];
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  return String(value);
-}
-
-function runtimeValue(service: ServiceSummary, key: string) {
-  const value = service.runtime[key];
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  return String(value);
-}
-
-function serviceHealth(service: ServiceSummary) {
-  const health = service.runtime.health;
-  if (!health || typeof health !== "object" || Array.isArray(health)) {
-    return {
-      ok: false,
-      status: "unchecked",
-      message: "health has not been checked",
-      checkedAt: "-"
-    };
-  }
-  const payload = health as Record<string, unknown>;
-  return {
-    ok: payload.ok === true,
-    status: stringValue(payload.status) || "unchecked",
-    message: stringValue(payload.message) || "-",
-    checkedAt: formatDate(stringValue(payload.checked_at) || null)
-  };
-}
-
-function serviceEndpointValue(service: ServiceSummary) {
-  const configured = serviceConfigValue(service, "endpoint");
-  if (configured !== "-") {
-    return configured;
-  }
-  const runtime = runtimeValue(service, "endpoint");
-  if (runtime !== "-") {
-    return runtime;
-  }
-  const host = serviceConfigValue(service, "host");
-  const port = serviceConfigValue(service, "port");
-  return port === "-" ? "-" : `http://${host === "-" ? "127.0.0.1" : host}:${port}`;
-}
-
-function pixelBudgetValue(inference: Record<string, unknown>) {
-  const minPixels = inferenceValue(inference, "min_pixels");
-  const maxPixels = inferenceValue(inference, "max_pixels");
-  if (minPixels === "-" && maxPixels === "-") {
-    return "-";
-  }
-  return `${minPixels} / ${maxPixels}`;
-}
-
-function samplingValue(inference: Record<string, unknown>) {
-  return `T ${inferenceValue(inference, "temperature")} / top_p ${inferenceValue(inference, "top_p")}`;
-}
-
-function resolveInstanceColor(
-  label: string,
-  status: "match" | "neutral" | "fn" | "fp",
-  kind: ObjectKind,
-  overlayColors: OverlayColors,
-  labelColors: LabelColors
-) {
-  if (status === "fn") {
-    return overlayColors.fn;
-  }
-  if (status === "fp") {
-    return overlayColors.fp;
-  }
-  return labelColors[label] ?? overlayColors[kind] ?? fallbackLabelColor(label);
-}
-
-function arrowHeadPoints(points: number[][], lineWidth: number, scale = 1): number[][] | null {
-  if (points.length < 2) {
-    return null;
-  }
-  const segments = points
-    .slice(0, -1)
-    .map((start, index) => {
-      const end = points[index + 1];
-      return { start, end, length: Math.hypot(end[0] - start[0], end[1] - start[1]) };
-    })
-    .filter((segment) => segment.length > 1);
-  if (segments.length === 0) {
-    return null;
-  }
-  const totalLength = segments.reduce((total, segment) => total + segment.length, 0);
-  const target = totalLength * 0.5;
-  let accumulated = 0;
-  let selected = segments[Math.floor(segments.length / 2)];
-  for (const segment of segments) {
-    if (accumulated + segment.length >= target) {
-      selected = segment;
-      break;
-    }
-    accumulated += segment.length;
-  }
-  const [x1, y1] = selected.start;
-  const [x2, y2] = selected.end;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const length = selected.length;
-  const baseSize = Math.max(6, Math.min(18, lineWidth * 2.4)) * scale;
-  const size = Math.min(baseSize, length * 0.22);
-  if (length < size * 1.8) {
-    return null;
-  }
-  const segmentOffset = Math.max(0, target - accumulated);
-  const localRatio = clampNumber(segmentOffset / length, 0.32, 0.68);
-  const unitX = dx / length;
-  const unitY = dy / length;
-  const tipX = x1 + dx * localRatio;
-  const tipY = y1 + dy * localRatio;
-  const baseX = tipX - unitX * size;
-  const baseY = tipY - unitY * size;
-  const wing = size * 0.45;
-  return [
-    [tipX, tipY],
-    [baseX - unitY * wing, baseY + unitX * wing],
-    [baseX + unitY * wing, baseY - unitX * wing]
-  ];
-}
-
-function preloadSampleImages(
-  samples: Array<Pick<RunSampleSummary, "index" | "image_url"> | Pick<BenchmarkSampleSummary, "index" | "image_url">>,
-  selectedIndex: number
-) {
-  const nearby = samples.filter(
-    (sample) => Math.abs(sample.index - selectedIndex) <= PRELOAD_RADIUS && sample.image_url
-  );
-  for (const sample of nearby) {
-    const image = new Image();
-    image.decoding = "async";
-    image.src = sample.image_url;
-  }
-}
-
-function computeFitSize(
-  width: number,
-  height: number,
-  stageSize: { width: number; height: number }
-) {
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-  const availableWidth = Math.max(1, stageSize.width - CANVAS_FIT_PADDING * 2);
-  const availableHeight = Math.max(1, stageSize.height - CANVAS_FIT_PADDING * 2);
-  const scale = Math.min(availableWidth / safeWidth, availableHeight / safeHeight);
-  return {
-    width: Math.max(1, Math.floor(safeWidth * scale)),
-    height: Math.max(1, Math.floor(safeHeight * scale))
-  };
-}
-
-function normalizeBbox(value: unknown): [number, number, number, number] | null {
-  if (Array.isArray(value) && value.length >= 4 && value.slice(0, 4).every(isFiniteNumber)) {
-    const [x1, y1, x2, y2] = value.slice(0, 4) as number[];
-    return normalizeBoxNumbers(x1, y1, x2, y2);
-  }
-  if (
-    Array.isArray(value) &&
-    value.length >= 2 &&
-    Array.isArray(value[0]) &&
-    Array.isArray(value[1]) &&
-    value[0].length >= 2 &&
-    value[1].length >= 2 &&
-    [value[0][0], value[0][1], value[1][0], value[1][1]].every(isFiniteNumber)
-  ) {
-    return normalizeBoxNumbers(value[0][0], value[0][1], value[1][0], value[1][1]);
-  }
-  return null;
-}
-
-function normalizeBoxNumbers(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-): [number, number, number, number] | null {
-  const left = Math.min(x1, x2);
-  const top = Math.min(y1, y2);
-  const right = Math.max(x1, x2);
-  const bottom = Math.max(y1, y2);
-  if (right <= left || bottom <= top) {
-    return null;
-  }
-  return [left, top, right, bottom];
-}
-
-function normalizePointList(value: unknown): number[][] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const points = value
-    .filter((point): point is [number, number] => {
-      return (
-        Array.isArray(point) &&
-        point.length >= 2 &&
-        isFiniteNumber(point[0]) &&
-        isFiniteNumber(point[1])
-      );
-    })
-    .map((point) => [point[0], point[1]]);
-  return points.length > 0 ? points : null;
-}
-
-function boundsFromPoints(points: number[][] | null): [number, number, number, number] | null {
-  if (!points || points.length === 0) {
-    return null;
-  }
-  const xs = points.map((point) => point[0]);
-  const ys = points.map((point) => point[1]);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function clampPan(
-  pan: { x: number; y: number },
-  zoom: number,
-  stage: HTMLDivElement | null,
-  content: HTMLDivElement | null
-) {
-  if (!stage || !content) {
-    return { x: 0, y: 0 };
-  }
-  const viewportWidth = stage.clientWidth;
-  const viewportHeight = stage.clientHeight;
-  const contentWidth = content.offsetWidth * zoom;
-  const contentHeight = content.offsetHeight * zoom;
-  const maxX = Math.max(0, Math.abs(contentWidth - viewportWidth) / 2);
-  const maxY = Math.max(0, Math.abs(contentHeight - viewportHeight) / 2);
-  return {
-    x: clampNumber(pan.x, -maxX, maxX),
-    y: clampNumber(pan.y, -maxY, maxY)
-  };
-}
-
-function formatSignedMetric(value: number) {
-  const prefix = value > 0 ? "+" : "";
-  return `${prefix}${value.toFixed(3)}`;
-}
-
-function formatCompactSignedMetric(value: number) {
-  const prefix = value > 0 ? "+" : "";
-  const absValue = Math.abs(value);
-  const digits = absValue >= 100 ? 0 : absValue >= 10 ? 1 : 2;
-  return `${prefix}${value.toFixed(digits)}`;
-}
-
-function formatSignedInteger(value: number) {
-  const prefix = value > 0 ? "+" : "";
-  return `${prefix}${value.toLocaleString()}`;
-}
-
-function sampleIndexFromLocation() {
-  if (typeof window === "undefined") {
-    return 0;
-  }
-  const value = new URLSearchParams(window.location.search).get("sample");
-  const index = Number(value);
-  return Number.isInteger(index) && index >= 0 ? index : 0;
-}
-
-function samplePageOffsetFromLocation(pageSize: number) {
-  const index = sampleIndexFromLocation();
-  return Math.floor(index / pageSize) * pageSize;
-}
-
-function updateSampleIndexInLocation(index: number) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const url = new URL(window.location.href);
-  url.searchParams.set("sample", String(index));
-  window.history.replaceState(null, "", url);
-}
-
-function runSampleHref(runId: string, sampleIndex: number) {
-  return `/runs/${encodeURIComponent(runId)}?sample=${sampleIndex}`;
-}
-
-function comparisonSampleHref(baselineRunId: string, candidateRunId: string, sampleIndex: number) {
-  return `/compare/${encodeURIComponent(baselineRunId)}/${encodeURIComponent(
-    candidateRunId
-  )}/${sampleIndex}`;
-}
-
-function formatManifest(value: unknown) {
-  return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function applyBenchmarkDefault(
-  manifest: Record<string, unknown>,
-  benchmarks: BenchmarkSummary[]
-): Record<string, unknown> {
-  const cloned = JSON.parse(JSON.stringify(manifest)) as Record<string, unknown>;
-  const benchmarkIds = benchmarks.map((benchmark) => benchmark.benchmark_id);
-  if (benchmarkIds.length === 0 || !isRecord(cloned.eval)) {
-    return cloned;
-  }
-  const currentBenchmarkId = cloned.eval.benchmark_id;
-  if (typeof currentBenchmarkId !== "string" || !benchmarkIds.includes(currentBenchmarkId)) {
-    cloned.eval.benchmark_id = benchmarkIds[0];
-  }
-  return cloned;
-}
-
-function applyPromptTemplateToManifest(
-  manifest: Record<string, unknown>,
-  prompt: PromptTemplate
-): Record<string, unknown> {
-  const cloned = JSON.parse(JSON.stringify(manifest)) as Record<string, unknown>;
-  const section = manifestPromptSection(cloned);
-  if (!section) {
-    cloned.eval = {};
-    return applyPromptTemplateToManifest(cloned, prompt);
-  }
-  section.prompt_id = prompt.prompt_id;
-  if (prompt.task) {
-    section.task = prompt.task;
-  }
-  section.system_prompt = prompt.system_prompt;
-  section.prompt_text = prompt.user_prompt;
-  if (prompt.parser) {
-    section.parser = prompt.parser;
-  }
-  if (prompt.metric_profile) {
-    section.metric_profile = prompt.metric_profile;
-  }
-  if (prompt.visualization_profile) {
-    section.visualization_profile = prompt.visualization_profile;
-  }
-  const targetLabels = targetLabelsFromPrompt(prompt);
-  if (targetLabels.length > 0) {
-    section.target_labels = targetLabels;
-  }
-  section.generation = mergeRecordDefaults(section.generation, prompt.generation);
-  section.data = mergeRecordDefaults(section.data, prompt.data);
-  section.prompt_template = {
-    prompt_id: prompt.prompt_id,
-    label: prompt.label,
-    task: prompt.task
-  };
-  return cloned;
-}
-
-function promptTemplateFromManifest(
-  manifest: Record<string, unknown>,
-  fallback?: PromptTemplate
-): Partial<PromptTemplate> {
-  const section = manifestPromptSection(manifest) ?? {};
-  const promptId = promptStringValue(section.prompt_id) ?? fallback?.prompt_id ?? "custom.prompt";
-  return {
-    prompt_id: promptId,
-    label: promptStringValue(section.label) ?? fallback?.label ?? promptId,
-    task: promptStringValue(section.task) ?? fallback?.task ?? "detection",
-    system_prompt: promptStringValue(section.system_prompt) ?? fallback?.system_prompt ?? "",
-    user_prompt:
-      promptStringValue(section.prompt_text) ??
-      promptStringValue(section.user_prompt) ??
-      fallback?.user_prompt ??
-      "",
-    parser: promptStringValue(section.parser) ?? fallback?.parser ?? null,
-    metric_profile: promptStringValue(section.metric_profile) ?? fallback?.metric_profile ?? null,
-    visualization_profile:
-      promptStringValue(section.visualization_profile) ?? fallback?.visualization_profile ?? null,
-    generation: isRecord(section.generation) ? section.generation : fallback?.generation ?? {},
-    data: isRecord(section.data) ? section.data : fallback?.data ?? {},
-    metadata: {
-      ...(fallback?.metadata ?? {}),
-      target_labels: isStringArray(section.target_labels)
-        ? section.target_labels
-        : targetLabelsFromPrompt(fallback),
-      source: "dashboard_manifest"
-    }
-  };
-}
-
-function targetLabelsFromPrompt(prompt?: Partial<PromptTemplate>) {
-  const labels = prompt?.metadata?.target_labels;
-  return isStringArray(labels) ? labels : [];
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function manifestPromptSection(manifest: Record<string, unknown>): Record<string, unknown> | null {
-  if (isRecord(manifest.eval)) {
-    return manifest.eval;
-  }
-  if (isRecord(manifest.preannotate)) {
-    return manifest.preannotate;
-  }
-  return null;
-}
-
-function mergeRecordDefaults(current: unknown, defaults: Record<string, unknown>) {
-  return {
-    ...defaults,
-    ...(isRecord(current) ? current : {})
-  };
-}
-
-function promptStringValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 const rootRoute = createRootRoute({ component: Shell });

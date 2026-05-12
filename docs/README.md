@@ -32,6 +32,10 @@
   - 离线 Eval Bench 子项目说明
   - benchmark copy、prediction snapshot、run manifest、pairwise comparison、持久化目录边界
 
+- [eval_bench_frontend_reference_study.md](eval_bench_frontend_reference_study.md)
+  - VSCode、FiftyOne、CVAT、Codex 客户端源码参考记录
+  - Eval Bench 前端模块边界、viewer、快捷键和状态模型设计启发
+
 ## 2. 开发与扩展
 
 - [development_workflow.md](development_workflow.md)

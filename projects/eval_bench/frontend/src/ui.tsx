@@ -7,6 +7,9 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ReactNode } from "react";
 
+import { statusClassName, statusInfo } from "./statusModel";
+import type { StatusDomain } from "./statusModel";
+
 export function DataTable<T>({
   columns,
   data,
@@ -92,9 +95,8 @@ export function EmptyState({ title, tone }: { title: string; tone?: "danger" }) 
   return <div className={tone === "danger" ? "empty-panel danger-text" : "empty-panel"}>{title}</div>;
 }
 
-export function Badge({ value }: { value: string }) {
-  const kind = value === "succeeded" ? "success" : value === "failed" ? "danger" : "neutral";
-  return <span className={`badge ${kind}`}>{statusText(value)}</span>;
+export function Badge({ value, domain }: { value: string; domain?: StatusDomain }) {
+  return <span className={statusClassName(value, domain)}>{statusInfo(value, domain).label}</span>;
 }
 
 export function ActionPanel({
@@ -117,20 +119,11 @@ export function ActionPanel({
   );
 }
 
-function statusText(value: string) {
-  const labels: Record<string, string> = {
-    queued: "排队中",
-    running: "运行中",
-    starting: "启动中",
-    succeeded: "成功",
-    failed: "失败",
-    cancelled: "已取消",
-    stopped: "已停止",
-    registered: "已登记",
-    imported: "已导入",
-    archived: "已归档",
-    detection: "检测",
-    keypoint: "关键点"
-  };
-  return labels[value] ?? value;
+export function ConfigItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="config-item">
+      <span>{label}</span>
+      <strong title={value}>{value}</strong>
+    </div>
+  );
 }

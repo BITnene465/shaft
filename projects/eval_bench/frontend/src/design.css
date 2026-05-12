@@ -98,7 +98,7 @@ body {
   letter-spacing: 0.02em;
 }
 
-.brand-mark {
+.brand-logo {
   filter: drop-shadow(0 8px 18px rgb(48 184 221 / 18%));
 }
 
@@ -358,6 +358,15 @@ tbody tr:hover td {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.mini-button:disabled,
+.icon-button:disabled {
+  transform: none;
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
 .primary-button {
   background: var(--bench-cyan-strong);
   border-color: #075d79;
@@ -583,6 +592,15 @@ tbody tr:hover td {
   r: 3.2;
 }
 
+.image-stage.panning .overlay-instance rect,
+.image-stage.panning .overlay-instance polyline,
+.image-stage.panning .overlay-instance .direction-head,
+.image-stage.transforming .overlay-instance rect,
+.image-stage.transforming .overlay-instance polyline,
+.image-stage.transforming .overlay-instance .direction-head {
+  filter: none;
+}
+
 .viewer-side-panel {
   background: #f7fafc;
   border-color: var(--bench-line);
@@ -662,7 +680,25 @@ tbody tr:hover td {
 }
 
 .settings-preview-foot {
-  border-top: 1px solid #dce7ef;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.settings-workbench-shell {
+  border-color: var(--bench-line);
+  box-shadow: 0 22px 54px rgb(20 37 52 / 9%);
+}
+
+.settings-editor-pane,
+.settings-activity-pane {
+  scrollbar-color: #a7c6d4 transparent;
+}
+
+.settings-section-button.active {
+  border-left-color: var(--bench-cyan);
+}
+
+.settings-inline-action {
+  border-radius: 2px;
 }
 
 .resizer-handle,

@@ -1,0 +1,354 @@
+import { useState } from "react";
+import type { FormEvent } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient
+} from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
+
+import {
+  ServiceLog,
+  ServiceSummary,
+  checkServiceHealth,
+  createService,
+  deleteService,
+  fetchServiceLogs,
+  fetchServices,
+  startService,
+  stopService
+} from "./api";
+import {
+  canDeleteService,
+  canStartService,
+  canStopService
+} from "./statusModel";
+import {
+  formatDate,
+  runtimeValue,
+  serviceConfigValue,
+  serviceEndpointValue,
+  serviceHealth
+} from "./formatters";
+import {
+  ActionPanel,
+  Badge,
+  ConfigItem,
+  EmptyState,
+  WorkspaceTabs
+} from "./ui";
+
+export function ServicesPage() {
+  const servicesQuery = useQuery({ queryKey: ["services"], queryFn: fetchServices });
+  return (
+    <section className="page-stack">
+      <WorkspaceTabs defaultValue="registry" label="服务工作区">
+        <Tabs.List className="workspace-tab-list">
+          <Tabs.Trigger value="registry">服务目录</Tabs.Trigger>
+          <Tabs.Trigger value="register">登记服务</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Content value="registry" className="workspace-tab-panel">
+          {servicesQuery.isLoading ? (
+            <EmptyState title="正在加载服务" />
+          ) : servicesQuery.error || !servicesQuery.data ? (
+            <EmptyState title="服务加载失败" tone="danger" />
+          ) : (
+            <ServiceGrid services={servicesQuery.data.services} />
+          )}
+        </Tabs.Content>
+        <Tabs.Content value="register" className="workspace-tab-panel">
+          <ServiceCreatePanel />
+        </Tabs.Content>
+      </WorkspaceTabs>
+    </section>
+  );
+}
+
+function ServiceCreatePanel() {
+  const queryClient = useQueryClient();
+  const [kind, setKind] = useState("local_vllm");
+  const [serviceId, setServiceId] = useState("local-vllm-0");
+  const [modelPath, setModelPath] = useState("");
+  const [servedModelName, setServedModelName] = useState("");
+  const [endpoint, setEndpoint] = useState("");
+  const [cudaVisibleDevices, setCudaVisibleDevices] = useState("");
+  const [tensorParallelSize, setTensorParallelSize] = useState(1);
+  const [port, setPort] = useState(8000);
+  const [maxModelLen, setMaxModelLen] = useState(32768);
+  const [gpuMemoryUtilization, setGpuMemoryUtilization] = useState(0.9);
+  const [maxNumSeqs, setMaxNumSeqs] = useState(8);
+  const mutation = useMutation({
+    mutationFn: createService,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["services"] });
+    }
+  });
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    mutation.mutate({
+      kind,
+      service_id: serviceId.trim() || undefined,
+      model_path: modelPath.trim() || undefined,
+      served_model_name: servedModelName.trim() || undefined,
+      endpoint: endpoint.trim() || undefined,
+      cuda_visible_devices: cudaVisibleDevices.trim() || undefined,
+      tensor_parallel_size: tensorParallelSize,
+      port,
+      max_model_len: maxModelLen,
+      gpu_memory_utilization: gpuMemoryUtilization,
+      max_num_seqs: maxNumSeqs
+    });
+  }
+
+  return (
+    <ActionPanel title="登记模型服务" meta="保存本地或外部 vLLM 服务参数">
+      <form className="job-form service-form" onSubmit={submit}>
+        <label>
+          <span>类型</span>
+          <select value={kind} onChange={(event) => setKind(event.target.value)}>
+            <option value="local_vllm">本地 vLLM</option>
+            <option value="external_vllm">外部 vLLM</option>
+          </select>
+        </label>
+        <label>
+          <span>服务 ID</span>
+          <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
+        </label>
+        <label>
+          <span>模型路径</span>
+          <input
+            value={modelPath}
+            onChange={(event) => setModelPath(event.target.value)}
+            placeholder="outputs/qwen3vl-sft/run/best"
+          />
+        </label>
+        <label>
+          <span>服务模型名</span>
+          <input
+            value={servedModelName}
+            onChange={(event) => setServedModelName(event.target.value)}
+            placeholder="qwen3vl-best"
+          />
+        </label>
+        <label>
+          <span>端点</span>
+          <input
+            value={endpoint}
+            onChange={(event) => setEndpoint(event.target.value)}
+            placeholder="http://127.0.0.1:8000"
+          />
+        </label>
+        <label>
+          <span>CUDA</span>
+          <input
+            value={cudaVisibleDevices}
+            onChange={(event) => setCudaVisibleDevices(event.target.value)}
+            placeholder="0,2"
+          />
+        </label>
+        <label>
+          <span>TP 大小</span>
+          <input
+            type="number"
+            min={1}
+            value={tensorParallelSize}
+            onChange={(event) => setTensorParallelSize(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>端口</span>
+          <input
+            type="number"
+            min={1}
+            value={port}
+            onChange={(event) => setPort(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>最大上下文</span>
+          <input
+            type="number"
+            min={1}
+            value={maxModelLen}
+            onChange={(event) => setMaxModelLen(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>显存占比</span>
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            value={gpuMemoryUtilization}
+            onChange={(event) => setGpuMemoryUtilization(Number(event.target.value))}
+          />
+        </label>
+        <label>
+          <span>最大并发序列</span>
+          <input
+            type="number"
+            min={1}
+            value={maxNumSeqs}
+            onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
+          />
+        </label>
+        <button className="primary-button" type="submit" disabled={mutation.isPending}>
+          {mutation.isPending ? "保存中" : "保存服务"}
+        </button>
+        {mutation.isError ? <div className="form-error">服务保存失败。</div> : null}
+      </form>
+    </ActionPanel>
+  );
+}
+
+function ServiceGrid({ services }: { services: ServiceSummary[] }) {
+  if (services.length === 0) {
+    return <EmptyState title="还没有登记模型服务。" />;
+  }
+  return (
+    <div className="service-grid">
+      {services.map((service) => (
+        <ServiceCard key={service.service_id} service={service} />
+      ))}
+    </div>
+  );
+}
+
+function ServiceCard({ service }: { service: ServiceSummary }) {
+  const queryClient = useQueryClient();
+  const [showLog, setShowLog] = useState(false);
+  const startMutation = useMutation({
+    mutationFn: () => startService(service.service_id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["services"] });
+    }
+  });
+  const healthMutation = useMutation({
+    mutationFn: () => checkServiceHealth(service.service_id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["services"] });
+    }
+  });
+  const stopMutation = useMutation({
+    mutationFn: () => stopService(service.service_id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["services"] });
+    }
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteService(service.service_id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["services"] });
+    }
+  });
+  const logQuery = useQuery({
+    queryKey: ["service-log", service.service_id],
+    queryFn: () => fetchServiceLogs(service.service_id),
+    enabled: showLog
+  });
+  const command = Array.isArray(service.runtime.command)
+    ? service.runtime.command.map(String).join(" ")
+    : "";
+  const health = serviceHealth(service);
+  return (
+    <div className="service-card">
+      <div className="service-card-heading">
+        <div>
+          <h2>{service.service_id}</h2>
+          <p>{serviceConfigValue(service, "model_path") || serviceConfigValue(service, "endpoint")}</p>
+        </div>
+        <Badge value={service.status} domain="service" />
+      </div>
+      <div className="service-config-grid">
+        <ConfigItem label="类型" value={service.kind} />
+        <ConfigItem label="服务模型" value={serviceConfigValue(service, "served_model_name")} />
+        <ConfigItem label="端点" value={serviceEndpointValue(service)} />
+        <ConfigItem label="CUDA" value={serviceConfigValue(service, "cuda_visible_devices")} />
+        <ConfigItem label="TP" value={serviceConfigValue(service, "tensor_parallel_size")} />
+        <ConfigItem label="端口" value={serviceConfigValue(service, "port")} />
+        <ConfigItem label="上下文" value={serviceConfigValue(service, "max_model_len")} />
+        <ConfigItem label="显存占比" value={serviceConfigValue(service, "gpu_memory_utilization")} />
+        <ConfigItem label="并发序列" value={serviceConfigValue(service, "max_num_seqs")} />
+        <ConfigItem label="PID" value={runtimeValue(service, "pid")} />
+        <ConfigItem label="健康状态" value={health.status} />
+        <ConfigItem label="探测时间" value={health.checkedAt} />
+        <ConfigItem label="更新时间" value={formatDate(service.updated_at)} />
+      </div>
+      <div className={health.ok ? "service-health ok" : "service-health"}>
+        <span>{health.ok ? "就绪" : health.status}</span>
+        <strong title={health.message}>{health.message}</strong>
+      </div>
+      {command ? <pre className="service-command">{command}</pre> : null}
+      {service.error ? <div className="form-error">{service.error}</div> : null}
+      <div className="row-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={!canStartService(service) || startMutation.isPending}
+          onClick={() => startMutation.mutate()}
+        >
+          {startMutation.isPending ? "启动中" : "启动"}
+        </button>
+        <button
+          className="mini-button"
+          type="button"
+          disabled={healthMutation.isPending}
+          onClick={() => healthMutation.mutate()}
+        >
+          {healthMutation.isPending ? "探测中" : "探测"}
+        </button>
+        <button
+          className="mini-button"
+          type="button"
+          disabled={!canStopService(service) || stopMutation.isPending}
+          onClick={() => stopMutation.mutate()}
+        >
+          {stopMutation.isPending ? "停止中" : "停止"}
+        </button>
+        <button className="mini-button" type="button" onClick={() => setShowLog((value) => !value)}>
+          {showLog ? "隐藏日志" : "日志"}
+        </button>
+        <button
+          className="icon-button dense danger"
+          type="button"
+          disabled={!canDeleteService(service) || deleteMutation.isPending}
+          title="删除服务记录"
+          onClick={() => {
+            if (confirm(`删除服务 ${service.service_id}？`)) {
+              deleteMutation.mutate();
+            }
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      {showLog ? <ServiceLogPanel query={logQuery} /> : null}
+    </div>
+  );
+}
+
+function ServiceLogPanel({
+  query
+}: {
+  query: UseQueryResult<ServiceLog, Error>;
+}) {
+  if (query.isLoading) {
+    return <div className="service-log-panel muted-line">正在加载日志</div>;
+  }
+  if (query.isError || !query.data) {
+    return <div className="service-log-panel form-error">日志加载失败。</div>;
+  }
+  return (
+    <div className="service-log-panel">
+      <div className="service-log-heading">
+        <span>日志尾部</span>
+        <strong title={query.data.log_path ?? ""}>{query.data.log_path ?? "没有日志文件"}</strong>
+      </div>
+      <pre>{query.data.text || "没有日志内容。"}</pre>
+    </div>
+  );
+}
