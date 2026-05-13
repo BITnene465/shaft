@@ -245,6 +245,22 @@ def test_worker_stops_ephemeral_runtime_after_failure(
     assert _wait_until_process_group_exits(process.pid)
 
 
+def test_worker_preserves_cancelled_job_status(tmp_path: Path) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    job = database.create_job(
+        kind="eval",
+        payload=_ephemeral_eval_job_payload(),
+        status="running",
+    )
+    database.cancel_job(job.job_id)
+
+    processed = EvalBenchWorker(tmp_path).process_job(job.job_id)
+
+    assert processed.status == "cancelled"
+    assert processed.metadata["progress_phase"] == "cancelled"
+    assert processed.metadata["worker_action"] == "cancelled"
+
+
 def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "benchmarks" / "bench1" / "benchmark.json",

@@ -34,6 +34,23 @@ def test_database_rejects_invalid_job_status(tmp_path: Path) -> None:
         database.create_job(kind="eval", payload={}, status="paused")
 
 
+def test_database_cancel_job_accepts_queued_and_running_only(tmp_path: Path) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    queued = database.create_job(kind="eval", payload={"run_id": "queued"})
+    running = database.create_job(kind="eval", payload={"run_id": "running"}, status="running")
+    succeeded = database.create_job(kind="eval", payload={"run_id": "done"}, status="succeeded")
+
+    cancelled_queued = database.cancel_job(queued.job_id)
+    cancelled_running = database.cancel_job(running.job_id)
+
+    assert cancelled_queued.status == "cancelled"
+    assert cancelled_running.status == "cancelled"
+    assert cancelled_running.metadata["cancel_requested"] is True
+    assert cancelled_running.metadata["progress_phase"] == "cancelled"
+    with pytest.raises(ValueError, match="only queued or running jobs"):
+        database.cancel_job(succeeded.job_id)
+
+
 def test_database_persists_model_services_across_instances(tmp_path: Path) -> None:
     first = EvalBenchDatabase(tmp_path)
     service = first.upsert_service(
@@ -55,6 +72,43 @@ def test_database_persists_model_services_across_instances(tmp_path: Path) -> No
     assert services[0].kind == "local_vllm"
     assert services[0].status == "registered"
     assert services[0].config["model_path"] == "outputs/model/best"
+
+
+def test_database_refreshes_repo_prompt_templates_without_overwriting_user_templates(
+    tmp_path: Path,
+) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    database.upsert_prompt_template(
+        {
+            "prompt_id": "grounding_arrow.latest",
+            "label": "Custom Arrow",
+            "task": "detection",
+            "system_prompt": "custom system",
+            "user_prompt": "custom prompt",
+            "metadata": {"source": "dashboard_manifest", "target_labels": ["custom"]},
+        }
+    )
+    database.upsert_prompt_template(
+        {
+            "prompt_id": "grounding_layout.latest",
+            "label": "Stale Layout",
+            "task": "detection",
+            "system_prompt": "stale system",
+            "user_prompt": "stale prompt",
+            "metadata": {},
+        }
+    )
+
+    refreshed = EvalBenchDatabase(tmp_path)
+
+    arrow = refreshed.get_prompt_template("grounding_arrow.latest")
+    layout = refreshed.get_prompt_template("grounding_layout.latest")
+    assert arrow is not None
+    assert arrow.label == "Custom Arrow"
+    assert arrow.metadata["target_labels"] == ["custom"]
+    assert layout is not None
+    assert layout.label == "Layout Detection"
+    assert layout.metadata["target_labels"] == ["icon", "image", "shape"]
 
 
 def test_database_rejects_invalid_service_status(tmp_path: Path) -> None:

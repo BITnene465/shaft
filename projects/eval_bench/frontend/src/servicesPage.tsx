@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import * as Tabs from "@radix-ui/react-tabs";
 import {
   useMutation,
   useQuery,
@@ -32,48 +31,56 @@ import {
   serviceEndpointValue,
   serviceHealth
 } from "./formatters";
+import { AppIcon } from "./iconLibrary";
 import {
-  ActionPanel,
   Badge,
   ConfigItem,
   EmptyState,
-  WorkspaceTabs
+  WorkspaceDialog
 } from "./ui";
 
 export function ServicesPage() {
   const servicesQuery = useQuery({ queryKey: ["services"], queryFn: fetchServices });
+  const [registerOpen, setRegisterOpen] = useState(false);
   return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="registry" label="服务工作区">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="registry">服务目录</Tabs.Trigger>
-          <Tabs.Trigger value="register">登记服务</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="registry" className="workspace-tab-panel">
-          {servicesQuery.isLoading ? (
-            <EmptyState title="正在加载服务" />
-          ) : servicesQuery.error || !servicesQuery.data ? (
-            <EmptyState title="服务加载失败" tone="danger" />
-          ) : (
-            <ServiceGrid services={servicesQuery.data.services} />
-          )}
-        </Tabs.Content>
-        <Tabs.Content value="register" className="workspace-tab-panel">
-          <ServiceCreatePanel />
-        </Tabs.Content>
-      </WorkspaceTabs>
+    <section className="page-stack density-page">
+      <div className="page-command-row">
+        <div>
+          <h2>模型服务</h2>
+          <span>长期 endpoint、健康检查和 runtime 日志</span>
+        </div>
+        <button className="primary-button command-button" type="button" onClick={() => setRegisterOpen(true)}>
+          <AppIcon name="registerService" size={17} />
+          <span>登记服务</span>
+        </button>
+      </div>
+      {servicesQuery.isLoading ? (
+        <EmptyState title="正在加载服务" />
+      ) : servicesQuery.error || !servicesQuery.data ? (
+        <EmptyState title="服务加载失败" tone="danger" />
+      ) : (
+        <ServiceGrid services={servicesQuery.data.services} />
+      )}
+      <WorkspaceDialog
+        open={registerOpen}
+        title="登记模型服务"
+        meta="保存本地或外部 vLLM 服务参数"
+        onClose={() => setRegisterOpen(false)}
+      >
+        <ServiceCreatePanel bare />
+      </WorkspaceDialog>
     </section>
   );
 }
 
-function ServiceCreatePanel() {
+function ServiceCreatePanel({ bare }: { bare?: boolean }) {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState("local_vllm");
   const [serviceId, setServiceId] = useState("local-vllm-0");
   const [modelPath, setModelPath] = useState("");
   const [servedModelName, setServedModelName] = useState("");
   const [endpoint, setEndpoint] = useState("");
-  const [cudaVisibleDevices, setCudaVisibleDevices] = useState("");
+  const [cudaVisibleDevices, setCudaVisibleDevices] = useState("0");
   const [tensorParallelSize, setTensorParallelSize] = useState(1);
   const [port, setPort] = useState(8000);
   const [maxModelLen, setMaxModelLen] = useState(32768);
@@ -103,8 +110,7 @@ function ServiceCreatePanel() {
     });
   }
 
-  return (
-    <ActionPanel title="登记模型服务" meta="保存本地或外部 vLLM 服务参数">
+  const content = (
       <form className="job-form service-form" onSubmit={submit}>
         <label>
           <span>类型</span>
@@ -117,7 +123,7 @@ function ServiceCreatePanel() {
           <span>服务 ID</span>
           <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
         </label>
-        <label>
+        <label className="wide-field">
           <span>模型路径</span>
           <input
             value={modelPath}
@@ -133,7 +139,7 @@ function ServiceCreatePanel() {
             placeholder="qwen3vl-best"
           />
         </label>
-        <label>
+        <label className="wide-field">
           <span>端点</span>
           <input
             value={endpoint}
@@ -146,7 +152,7 @@ function ServiceCreatePanel() {
           <input
             value={cudaVisibleDevices}
             onChange={(event) => setCudaVisibleDevices(event.target.value)}
-            placeholder="0,2"
+            placeholder="0"
           />
         </label>
         <label>
@@ -196,13 +202,14 @@ function ServiceCreatePanel() {
             onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
           />
         </label>
-        <button className="primary-button" type="submit" disabled={mutation.isPending}>
+        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending}>
+          <AppIcon name="saveService" size={16} />
           {mutation.isPending ? "保存中" : "保存服务"}
         </button>
-        {mutation.isError ? <div className="form-error">服务保存失败。</div> : null}
+        {mutation.isError ? <div className="form-error full-field">服务保存失败。</div> : null}
       </form>
-    </ActionPanel>
   );
+  return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
 }
 
 function ServiceGrid({ services }: { services: ServiceSummary[] }) {

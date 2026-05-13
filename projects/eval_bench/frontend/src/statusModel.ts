@@ -54,7 +54,7 @@ export function statusClassName(value: string, domain: StatusDomain = "generic")
 }
 
 export function canCancelJob(job: JobSummary) {
-  return job.status === "queued";
+  return job.status === "queued" || job.status === "running";
 }
 
 export function canDeleteJob(job: JobSummary) {

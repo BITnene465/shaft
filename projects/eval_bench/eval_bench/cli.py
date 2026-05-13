@@ -171,6 +171,13 @@ def _build_parser() -> argparse.ArgumentParser:
     import_predictions.add_argument("--model-path", default="imported")
     import_predictions.add_argument("--prompt-id", default="imported")
     import_predictions.add_argument("--spec-id", default=None)
+    import_predictions.add_argument(
+        "--target-label",
+        dest="target_labels",
+        action="append",
+        default=None,
+        help="Limit imported-run evaluation to this label; repeat for multiple labels.",
+    )
     import_predictions.add_argument("--strict", action="store_true")
     import_predictions.add_argument("--overwrite", action="store_true")
     import_predictions.add_argument("--skip-evaluate", action="store_true")
@@ -384,6 +391,7 @@ def _cmd_import_predictions(args: argparse.Namespace) -> None:
         model_path=str(args.model_path),
         prompt_id=str(args.prompt_id),
         spec_id=args.spec_id,
+        target_labels=args.target_labels,
         strict=bool(args.strict),
         overwrite=bool(args.overwrite),
         evaluate=not bool(args.skip_evaluate),

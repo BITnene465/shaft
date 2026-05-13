@@ -85,6 +85,48 @@ def test_import_predictions_creates_run_and_evaluates_against_benchmark(tmp_path
     assert detail.diagnostics["matched_count"] == 1
 
 
+def test_import_predictions_applies_prompt_target_labels(tmp_path: Path) -> None:
+    _write_benchmark(tmp_path)
+    data_root = tmp_path / "benchmarks" / "bench1" / "data"
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox": [0, 0, 100, 100]},
+                {"label": "arrow", "bbox": [200, 200, 260, 260]},
+            ],
+        },
+    )
+    prediction_root = tmp_path / "external_predictions"
+    _write_json(
+        prediction_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox_2d": [0, 0, 100, 100]},
+                {"label": "arrow", "bbox_2d": [200, 200, 260, 260]},
+            ],
+        },
+    )
+
+    result = import_predictions_for_benchmark(
+        store_root=tmp_path,
+        run_id="layout_import",
+        benchmark_id="bench1",
+        prediction_root=prediction_root,
+        task="detection",
+        model_id="external-model",
+        prompt_id="grounding_layout.latest",
+    )
+
+    assert result.report_path is not None
+    report = json.loads(result.report_path.read_text(encoding="utf-8"))
+    assert report["target_labels"] == ["icon", "image", "shape"]
+    assert [item["label"] for item in report["labels"]] == ["icon", "shape"]
+    assert "arrow" not in report["samples"][0]["labels"]
+
+
 def test_import_predictions_supports_flat_basename_lookup(tmp_path: Path) -> None:
     _write_benchmark(tmp_path)
     prediction_root = tmp_path / "external_predictions"

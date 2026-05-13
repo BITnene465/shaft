@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json
+from .label_policy import resolve_target_labels
 
 
 @dataclass(frozen=True)
@@ -236,19 +237,18 @@ def _sample_diagnostic(
 
 
 def _target_labels(spec: dict[str, Any]) -> list[str]:
-    labels = spec.get("target_labels") or []
-    if isinstance(labels, str):
-        values = labels.replace(",", " ").split()
-    elif isinstance(labels, list):
-        values = [str(item) for item in labels]
-    else:
-        return []
-    result: list[str] = []
-    for item in values:
-        label = str(item).strip()
-        if label and label not in result:
-            result.append(label)
-    return result
+    prompt = spec.get("prompt")
+    if not isinstance(prompt, dict):
+        prompt = {}
+    prompt_metadata = prompt.get("metadata")
+    if not isinstance(prompt_metadata, dict):
+        prompt_metadata = {}
+    return resolve_target_labels(
+        explicit=spec.get("target_labels"),
+        prompt_id=str(prompt.get("prompt_id") or ""),
+        task=str(spec.get("task") or ""),
+        prompt_metadata=prompt_metadata,
+    )
 
 
 def _report_summary(report: EvalReport) -> dict[str, Any]:

@@ -13,6 +13,7 @@ from .artifacts import (
     read_json,
 )
 from .evaluator import evaluate_run
+from .label_policy import resolve_target_labels
 from .schema import (
     BenchmarkRef,
     EvalRunManifest,
@@ -56,6 +57,7 @@ def import_predictions_for_benchmark(
     model_path: str = "imported",
     prompt_id: str = "imported",
     spec_id: str | None = None,
+    target_labels: list[str] | str | None = None,
     strict: bool = False,
     overwrite: bool = False,
     evaluate: bool = True,
@@ -95,6 +97,11 @@ def import_predictions_for_benchmark(
                 metadata={"source": "imported_prediction_snapshot"},
             ),
             inference=InferenceParams(backend="imported"),
+            target_labels=resolve_target_labels(
+                explicit=target_labels,
+                prompt_id=prompt_id,
+                task=task,
+            ),
             metadata={"source": "imported_prediction_snapshot"},
         ),
         status="succeeded",

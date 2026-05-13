@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 
 import type { EvalInstance, RunSampleDetail } from "./api";
-import { StyleSlider, ColorControl, ToggleButton } from "./controlPrimitives";
+import { NumberSettingControl, ColorControl, ToggleButton } from "./controlPrimitives";
 import { formatMetric } from "./formatters";
 import {
   countInstancesByLabel,
@@ -269,7 +269,7 @@ function OverlayAppearancePanel({
       </div>
       <div className="style-control-grid">
         {OVERLAY_STYLE_CONTROLS.map((control) => (
-          <StyleSlider
+          <NumberSettingControl
             key={control.key}
             label={control.label}
             value={styleConfig[control.key]}

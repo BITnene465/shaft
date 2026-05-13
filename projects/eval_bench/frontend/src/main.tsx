@@ -19,26 +19,15 @@ import {
   useParams
 } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import * as Tabs from "@radix-ui/react-tabs";
 import {
-  Activity,
-  BarChart3,
-  Database,
   Eye,
-  FileSearch,
-  Gauge,
-  GitCompare,
-  Layers,
   PanelLeftClose,
   PanelLeftOpen,
-  Play,
   Search,
-  Server,
-  SlidersHorizontal,
   X
 } from "lucide-react";
 
-import { StyleSlider } from "./controlPrimitives";
+import { NumberSettingControl } from "./controlPrimitives";
 import {
   BenchmarkSampleDetail,
   BenchmarkSampleSummary,
@@ -102,6 +91,7 @@ import {
 } from "./formatters";
 import { useDashboardState } from "./dashboardState";
 import { FilterSelect } from "./filterControls";
+import { AppIcon } from "./iconLibrary";
 import { JobQueuePanel, JobsPage } from "./jobsPage";
 import { BenchmarkTable, RunTable } from "./runTables";
 import { ServicesPage } from "./servicesPage";
@@ -128,14 +118,13 @@ import {
   handleViewerShortcutAction
 } from "./viewerPanels";
 import {
-  ActionPanel,
   Badge,
   ConfigItem,
   DataTable,
   EmptyState,
   PanelTitle,
   SectionHeader,
-  WorkspaceTabs
+  WorkspaceDialog
 } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 import type {
@@ -225,13 +214,13 @@ function Shell() {
           </button>
         </div>
         <nav className="nav-list">
-          <NavItem to="/" icon={<Gauge size={17} />} label="总览" />
-          <NavItem to="/benchmarks" icon={<Database size={17} />} label="基准集" />
-          <NavItem to="/services" icon={<Server size={17} />} label="模型服务" />
-          <NavItem to="/jobs" icon={<Play size={17} />} label="评测中心" />
-          <NavItem to="/runs" icon={<BarChart3 size={17} />} label="结果库" />
-          <NavItem to="/compare" icon={<GitCompare size={17} />} label="对比分析" />
-          <NavItem to="/settings" icon={<SlidersHorizontal size={17} />} label="工作台设置" />
+          <NavItem to="/" icon={<AppIcon name="overview" size={21} />} label="总览" />
+          <NavItem to="/benchmarks" icon={<AppIcon name="benchmark" size={21} />} label="基准集" />
+          <NavItem to="/services" icon={<AppIcon name="service" size={21} />} label="模型服务" />
+          <NavItem to="/jobs" icon={<AppIcon name="evalJob" size={21} />} label="评测中心" />
+          <NavItem to="/runs" icon={<AppIcon name="runResults" size={21} />} label="结果库" />
+          <NavItem to="/compare" icon={<AppIcon name="compareAnalysis" size={21} />} label="对比分析" />
+          <NavItem to="/settings" icon={<AppIcon name="workspaceSettings" size={21} />} label="工作台设置" />
         </nav>
         <div className="store-chip">
           <span>数据目录</span>
@@ -384,10 +373,10 @@ function OverviewPage() {
 function SummaryGrid({ state }: { state: DashboardState }) {
   return (
     <div className="summary-grid">
-      <MetricCard icon={<Database size={18} />} label="基准集" value={state.benchmark_count} />
-      <MetricCard icon={<Layers size={18} />} label="样本数" value={state.total_benchmark_samples} />
-      <MetricCard icon={<Activity size={18} />} label="评测记录" value={state.run_count} />
-      <MetricCard icon={<FileSearch size={18} />} label="预测实例" value={state.prediction_count} />
+      <MetricCard icon={<AppIcon name="benchmark" size={26} />} label="基准集" value={state.benchmark_count} />
+      <MetricCard icon={<AppIcon name="samples" size={26} />} label="样本数" value={state.total_benchmark_samples} />
+      <MetricCard icon={<AppIcon name="runResults" size={26} />} label="评测记录" value={state.run_count} />
+      <MetricCard icon={<AppIcon name="predictions" size={26} />} label="预测实例" value={state.prediction_count} />
     </div>
   );
 }
@@ -414,6 +403,7 @@ function MetricCard({
 
 function BenchmarksPage() {
   const { data, isLoading, error } = useDashboardState();
+  const [createOpen, setCreateOpen] = useState(false);
   if (isLoading) {
     return <EmptyState title="正在加载基准集" />;
   }
@@ -421,30 +411,33 @@ function BenchmarksPage() {
     return <EmptyState title="基准集加载失败" tone="danger" />;
   }
   return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="catalog" label="基准集工作区">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="catalog">样本目录</Tabs.Trigger>
-          <Tabs.Trigger value="create">创建副本</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="catalog" className="workspace-tab-panel">
-          <div className="workspace-card fill">
-            <PanelTitle
-              title="基准集目录"
-              meta={`${data.benchmarks.length.toLocaleString()} 个副本`}
-            />
-            <BenchmarkTable benchmarks={data.benchmarks} />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="create" className="workspace-tab-panel">
-          <BenchmarkCreatePanel />
-        </Tabs.Content>
-      </WorkspaceTabs>
+    <section className="page-stack density-page">
+      <div className="page-command-row">
+        <div>
+          <h2>基准集目录</h2>
+          <span>{data.benchmarks.length.toLocaleString()} 个不可变副本</span>
+        </div>
+        <button className="primary-button command-button" type="button" onClick={() => setCreateOpen(true)}>
+          <AppIcon name="createBenchmark" size={17} />
+          <span>创建副本</span>
+        </button>
+      </div>
+      <div className="workspace-card fill">
+        <BenchmarkTable benchmarks={data.benchmarks} />
+      </div>
+      <WorkspaceDialog
+        open={createOpen}
+        title="创建 benchmark 副本"
+        meta="从 raw_data split 复制不可变 test/val 集"
+        onClose={() => setCreateOpen(false)}
+      >
+        <BenchmarkCreatePanel bare />
+      </WorkspaceDialog>
     </section>
   );
 }
 
-function BenchmarkCreatePanel() {
+function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
   const queryClient = useQueryClient();
   const [benchmarkId, setBenchmarkId] = useState("");
   const [sourceRoot, setSourceRoot] = useState("data/raw_data");
@@ -485,8 +478,7 @@ function BenchmarkCreatePanel() {
     });
   }
 
-  return (
-    <ActionPanel title="创建 benchmark 副本" meta="从 raw_data split 复制不可变 test/val 集">
+  const content = (
       <form className="job-form benchmark-form" onSubmit={submit}>
         <label>
         <span>基准集 ID</span>
@@ -545,11 +537,12 @@ function BenchmarkCreatePanel() {
           />
           <span>覆盖已有副本</span>
         </label>
-        <button type="submit" disabled={mutation.isPending || tasks.length === 0}>
+        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending || tasks.length === 0}>
+          <AppIcon name="submitCreate" size={16} />
           创建
         </button>
         {mutation.data ? (
-          <div className="form-result wide-field">
+          <div className="form-result full-field">
             已创建 {mutation.data.benchmark_id}，包含 {mutation.data.sample_count.toLocaleString()} 个样本。{" "}
             <Link
               to="/benchmarks/$benchmarkId"
@@ -560,11 +553,11 @@ function BenchmarkCreatePanel() {
           </div>
         ) : null}
         {mutation.error ? (
-          <div className="form-result error wide-field">{mutation.error.message}</div>
+          <div className="form-result error full-field">{mutation.error.message}</div>
         ) : null}
       </form>
-    </ActionPanel>
   );
+  return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
 }
 
 function BenchmarkDetailPage() {
@@ -843,6 +836,7 @@ function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
 
 function RunsPage() {
   const { data, isLoading, error } = useDashboardState();
+  const [importOpen, setImportOpen] = useState(false);
   if (isLoading) {
     return <EmptyState title="正在加载评测记录" />;
   }
@@ -850,30 +844,33 @@ function RunsPage() {
     return <EmptyState title="评测记录加载失败" tone="danger" />;
   }
   return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="runs" label="评测记录工作区">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="runs">记录库</Tabs.Trigger>
-          <Tabs.Trigger value="import">导入预测</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="runs" className="workspace-tab-panel">
-          <div className="workspace-card fill">
-            <PanelTitle
-              title="评测记录库"
-              meta={`${data.runs.length.toLocaleString()} 条记录`}
-            />
-            <RunTable runs={data.runs} />
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="import" className="workspace-tab-panel">
-          <ImportPredictionsPanel benchmarks={data.benchmarks} />
-        </Tabs.Content>
-      </WorkspaceTabs>
+    <section className="page-stack density-page">
+      <div className="page-command-row">
+        <div>
+          <h2>评测记录库</h2>
+          <span>{data.runs.length.toLocaleString()} 条 run snapshot</span>
+        </div>
+        <button className="secondary-button command-button" type="button" onClick={() => setImportOpen(true)}>
+          <AppIcon name="importPrediction" size={17} />
+          <span>导入预测</span>
+        </button>
+      </div>
+      <div className="workspace-card fill">
+        <RunTable runs={data.runs} />
+      </div>
+      <WorkspaceDialog
+        open={importOpen}
+        title="导入预测快照"
+        meta="把外部预测目录导入为 run，并和 GT 对比"
+        onClose={() => setImportOpen(false)}
+      >
+        <ImportPredictionsPanel benchmarks={data.benchmarks} bare />
+      </WorkspaceDialog>
     </section>
   );
 }
 
-function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[] }) {
+function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSummary[]; bare?: boolean }) {
   const queryClient = useQueryClient();
   const [runId, setRunId] = useState("");
   const [benchmarkId, setBenchmarkId] = useState(benchmarks[0]?.benchmark_id ?? "");
@@ -882,6 +879,7 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
   const [modelId, setModelId] = useState("");
   const [modelPath, setModelPath] = useState("imported");
   const [promptId, setPromptId] = useState("imported");
+  const [targetLabels, setTargetLabels] = useState("icon,image,shape");
   const [specId, setSpecId] = useState("");
   const [strict, setStrict] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -905,14 +903,14 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
       model_path: modelPath.trim() || "imported",
       prompt_id: promptId.trim() || "imported",
       spec_id: specId.trim() || undefined,
+      target_labels: parseTargetLabels(targetLabels),
       strict,
       overwrite,
       evaluate
     });
   }
 
-  return (
-    <ActionPanel title="导入预测快照" meta="把外部预测目录导入为 run，并和 GT 对比">
+  const content = (
       <form className="job-form import-form" onSubmit={submit}>
         <label>
           <span>记录 ID</span>
@@ -949,7 +947,16 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
         </label>
         <label>
           <span>任务</span>
-          <select value={task} onChange={(event) => setTask(event.target.value)}>
+          <select
+            value={task}
+            onChange={(event) => {
+              const nextTask = event.target.value;
+              setTask(nextTask);
+              if (nextTask === "keypoint" && targetLabels.trim() === "icon,image,shape") {
+                setTargetLabels("arrow");
+              }
+            }}
+          >
             <option value="detection">检测</option>
             <option value="keypoint">关键点</option>
           </select>
@@ -963,13 +970,31 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
             required
           />
         </label>
-        <label>
+        <label className="wide-field">
           <span>模型路径</span>
           <input value={modelPath} onChange={(event) => setModelPath(event.target.value)} />
         </label>
         <label>
           <span>Prompt</span>
-          <input value={promptId} onChange={(event) => setPromptId(event.target.value)} />
+          <input
+            value={promptId}
+            onChange={(event) => {
+              const nextPromptId = event.target.value;
+              setPromptId(nextPromptId);
+              const inferredLabels = targetLabelsForPrompt(nextPromptId);
+              if (inferredLabels) {
+                setTargetLabels(inferredLabels);
+              }
+            }}
+          />
+        </label>
+        <label>
+          <span>目标标签</span>
+          <input
+            value={targetLabels}
+            onChange={(event) => setTargetLabels(event.target.value)}
+            placeholder="icon,image,shape"
+          />
         </label>
         <label>
           <span>规格</span>
@@ -1003,11 +1028,12 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
           />
           <span>导入后计算指标</span>
         </label>
-        <button type="submit" disabled={mutation.isPending || benchmarks.length === 0}>
+        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending || benchmarks.length === 0}>
+          <AppIcon name="importPrediction" size={16} />
           导入
         </button>
         {mutation.data ? (
-          <div className="form-result wide-field">
+          <div className="form-result full-field">
             已导入 {mutation.data.imported_predictions.toLocaleString()} 条预测，缺失{" "}
             {mutation.data.missing_prediction_count.toLocaleString()} 条。{" "}
             <Link to="/runs/$runId" params={{ runId: mutation.data.run_id }}>
@@ -1016,11 +1042,30 @@ function ImportPredictionsPanel({ benchmarks }: { benchmarks: BenchmarkSummary[]
           </div>
         ) : null}
         {mutation.error ? (
-          <div className="form-result error wide-field">{mutation.error.message}</div>
+          <div className="form-result error full-field">{mutation.error.message}</div>
         ) : null}
       </form>
-    </ActionPanel>
   );
+  return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
+}
+
+function parseTargetLabels(value: string) {
+  return value
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function targetLabelsForPrompt(promptId: string) {
+  const normalized = promptId.toLowerCase();
+  if (normalized.includes("layout")) {
+    return "icon,image,shape";
+  }
+  if (normalized.includes("arrow") || normalized.includes("keypoint")) {
+    return "arrow";
+  }
+  return null;
 }
 
 function RunDetailPage() {
@@ -1802,9 +1847,9 @@ function SettingsPage() {
                 settingKey="evalBench.overlay.style"
                 description="控制框、线、点和标签的绘制密度。"
               >
-                <div className="settings-slider-grid">
+                <div className="settings-number-grid">
                   {OVERLAY_STYLE_CONTROLS.map((control) => (
-                    <StyleSlider
+                    <NumberSettingControl
                       key={control.key}
                       label={control.label}
                       value={overlayStyle[control.key]}
@@ -1829,6 +1874,7 @@ function SettingsPage() {
                   </label>
                 </div>
                 <button className="settings-inline-action" type="button" onClick={resetOverlayStyle}>
+                  <AppIcon name="resetSettings" size={16} />
                   重置样式
                 </button>
               </SettingsPreferenceRow>
@@ -1879,6 +1925,7 @@ function SettingsPage() {
                   )}
                 </div>
                 <button className="settings-inline-action" type="button" onClick={resetLabelColors}>
+                  <AppIcon name="clearRules" size={16} />
                   清空 label 颜色
                 </button>
               </SettingsPreferenceRow>
@@ -1892,9 +1939,9 @@ function SettingsPage() {
                 settingKey="evalBench.viewer.interaction"
                 description="缩放灵敏度越低，滚轮越稳；平移灵敏度越低，拖拽越慢。"
               >
-                <div className="settings-slider-grid">
+                <div className="settings-number-grid">
                   {INTERACTION_SETTING_CONTROLS.map((control) => (
-                    <StyleSlider
+                    <NumberSettingControl
                       key={control.key}
                       label={control.label}
                       value={settingControlValue(interactionSettings[control.key], control)}
@@ -1908,6 +1955,7 @@ function SettingsPage() {
                   ))}
                 </div>
                 <button className="settings-inline-action" type="button" onClick={resetInteractionSettings}>
+                  <AppIcon name="resetSettings" size={16} />
                   重置交互
                 </button>
               </SettingsPreferenceRow>

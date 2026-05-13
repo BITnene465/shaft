@@ -290,6 +290,7 @@ export type ImportPredictionPayload = {
   model_path?: string;
   prompt_id?: string;
   spec_id?: string;
+  target_labels?: string[];
   strict?: boolean;
   overwrite?: boolean;
   evaluate?: boolean;

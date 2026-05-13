@@ -29,7 +29,7 @@ from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
 from .services import EvalBenchServiceManager
 from .store import EvalBenchStore
-from .worker import EvalBenchWorker
+from .worker import EvalBenchWorker, terminate_runtime_process_group
 
 IMAGE_PREVIEW_MAX_SIDE = 1800
 IMAGE_PREVIEW_QUALITY = 82
@@ -317,6 +317,14 @@ def _pid_exists(pid: Any) -> bool:
     return True
 
 
+def _metadata_int(metadata: dict[str, Any], key: str) -> int | None:
+    try:
+        parsed = int(metadata.get(key))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _is_live_running_job(job: Any) -> bool:
     metadata = job.metadata if isinstance(job.metadata, dict) else {}
     return any(
@@ -359,6 +367,7 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=str(static_dir()), check_dir=False), name="static")
     app.mount("/assets", StaticFiles(directory=str(dist / "assets"), check_dir=False), name="assets")
+    app.mount("/icons", StaticFiles(directory=str(dist / "icons"), check_dir=False), name="icons")
 
     @app.middleware("http")
     async def request_logging_middleware(request: Request, call_next):
@@ -657,6 +666,7 @@ def create_app(
                 model_path=str(payload.get("model_path") or "imported"),
                 prompt_id=str(payload.get("prompt_id") or "imported"),
                 spec_id=str(payload.get("spec_id") or "").strip() or None,
+                target_labels=payload.get("target_labels"),
                 strict=bool(payload.get("strict", False)),
                 overwrite=bool(payload.get("overwrite", False)),
                 evaluate=bool(payload.get("evaluate", True)),
@@ -917,12 +927,25 @@ def create_app(
 
     @app.post("/api/jobs/{job_id}/cancel")
     async def cancel_job(job_id: str, request: Request):
+        database = request.app.state.eval_bench_database
         try:
-            record = request.app.state.eval_bench_database.cancel_job(job_id)
+            record = database.cancel_job(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        runtime_pid = _metadata_int(record.metadata, "runtime_pid")
+        if runtime_pid is not None:
+            terminated = terminate_runtime_process_group(runtime_pid)
+            record = database.update_job(
+                job_id,
+                status="cancelled",
+                metadata_update={
+                    "runtime_termination_requested_at": utc_now_iso(),
+                    "runtime_terminated": terminated,
+                    "runtime_terminated_pid": runtime_pid,
+                },
+            )
         return JSONResponse(record.to_dict())
 
     @app.delete("/api/jobs/{job_id}")
@@ -1175,6 +1198,17 @@ def create_app(
         if index.exists():
             return _spa_index_response(index)
         return HTMLResponse(_frontend_not_built_html(), status_code=200)
+
+    @app.get("/logo.png", include_in_schema=False)
+    async def frontend_logo(request: Request):
+        logo = request.app.state.frontend_dist / "logo.png"
+        if logo.exists():
+            return FileResponse(
+                logo,
+                media_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        raise HTTPException(status_code=404)
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa_fallback(path: str, request: Request):

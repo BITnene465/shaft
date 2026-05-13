@@ -24,44 +24,83 @@ class ResolvedJobSpec:
 def job_templates() -> dict[str, Any]:
     return {
         "eval_job": {
-            "label": "Eval Job",
-            "description": "启动临时模型 runtime，在 benchmark 上推理并生成 run/report。",
-            "manifest": {
-                "kind": "eval_job",
-                "runtime": {
-                    "mode": "ephemeral",
-                    "engine": "vllm_openai",
-                    "env": {"CUDA_VISIBLE_DEVICES": "0,2", "CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
-                    "args": {
-                        "model": "outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best",
-                        "served-model-name": "qwen3vl-latest",
-                        "host": "127.0.0.1",
-                        "port": 8000,
-                        "tensor-parallel-size": 2,
-                        "max-model-len": 32768,
-                        "gpu-memory-utilization": 0.9,
-                        "max-num-seqs": 8,
-                        "trust-remote-code": True,
-                    },
-                },
-                "eval": {
-                    "model_id": "qwen3vl-latest",
-                    "benchmark_id": "multitask_val_v1",
-                    "task": "detection",
-                    "prompt_id": "grounding_layout.latest",
-                    "parser": "raw_data_detection_v1",
-                    "metric_profile": "detection_iou_v1",
-                    "target_labels": ["icon", "image", "shape"],
-                    "generation": {
-                        "max_tokens": 4096,
-                        "temperature": 0,
-                        "top_p": 1,
-                    },
-                    "data": {
-                        "max_pixels": 1048576,
-                        "batch_size": 1,
-                    },
-                },
+            "label": "Arrow Detection Eval Job",
+            "description": "启动临时模型 runtime，在 benchmark 上执行箭头检测并生成 run/report。",
+            "manifest": _eval_job_manifest(
+                task="detection",
+                prompt_id="grounding_arrow.latest",
+                parser="raw_data_detection_v1",
+                metric_profile="detection_iou_v1",
+                target_labels=["arrow"],
+            ),
+        },
+        "layout_eval_job": {
+            "label": "Layout Detection Eval Job",
+            "description": "启动临时模型 runtime，在 benchmark 上执行 layout 检测并生成 run/report。",
+            "manifest": _eval_job_manifest(
+                task="detection",
+                prompt_id="grounding_layout.latest",
+                parser="raw_data_detection_v1",
+                metric_profile="detection_iou_v1",
+                target_labels=["icon", "image", "shape"],
+            ),
+        },
+        "keypoint_eval_job": {
+            "label": "Arrow Keypoint Eval Job",
+            "description": "启动临时模型 runtime，在 benchmark 上执行箭头关键点评估并生成 run/report。",
+            "manifest": _eval_job_manifest(
+                task="keypoint",
+                prompt_id="keypoint_arrow.latest",
+                parser="raw_data_keypoint_v1",
+                metric_profile="keypoint_endpoint_v1",
+                target_labels=["arrow"],
+            ),
+        },
+    }
+
+
+def _eval_job_manifest(
+    *,
+    task: str,
+    prompt_id: str,
+    parser: str,
+    metric_profile: str,
+    target_labels: list[str],
+) -> dict[str, Any]:
+    return {
+        "kind": "eval_job",
+        "runtime": {
+            "mode": "ephemeral",
+            "engine": "vllm_openai",
+            "env": {"CUDA_VISIBLE_DEVICES": "0", "CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+            "args": {
+                "model": "outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best",
+                "served-model-name": "qwen3vl-latest",
+                "host": "127.0.0.1",
+                "port": 8000,
+                "tensor-parallel-size": 1,
+                "max-model-len": 32768,
+                "gpu-memory-utilization": 0.9,
+                "max-num-seqs": 8,
+                "trust-remote-code": True,
+            },
+        },
+        "eval": {
+            "model_id": "qwen3vl-latest",
+            "benchmark_id": "multitask_val_v1",
+            "task": task,
+            "prompt_id": prompt_id,
+            "parser": parser,
+            "metric_profile": metric_profile,
+            "target_labels": target_labels,
+            "generation": {
+                "max_tokens": 4096,
+                "temperature": 0,
+                "top_p": 1,
+            },
+            "data": {
+                "max_pixels": 1048576,
+                "batch_size": 1,
             },
         },
     }

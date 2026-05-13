@@ -7,15 +7,16 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:metrics": "node scripts/test-viewer-metrics.mjs",
+    "test:manifest-tools": "node scripts/test-manifest-tools.mjs",
     "test:status-model": "node scripts/test-status-model.mjs",
     "test:workspace-settings": "node scripts/test-workspace-settings.mjs",
     "test:viewer-performance": "node scripts/viewer-performance-check.mjs",
     "test:settings-preview": "node scripts/settings-preview-check.mjs",
+    "test:dialogs": "node scripts/dialog-smoke-check.mjs",
     "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
     "render-check": "node scripts/render-check.mjs"
   },
   "dependencies": {
-    "@radix-ui/react-tabs": "^1.1.13",
     "@tanstack/react-query": "^5.100.9",
     "@tanstack/react-router": "^1.169.2",
     "@tanstack/react-table": "^8.21.3",

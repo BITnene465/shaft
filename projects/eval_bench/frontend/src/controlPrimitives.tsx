@@ -1,4 +1,4 @@
-export function StyleSlider({
+export function NumberSettingControl({
   label,
   value,
   min,
@@ -14,13 +14,13 @@ export function StyleSlider({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="style-slider">
+    <label className="number-setting-control">
       <span>
         {label}
         <strong>{Number.isInteger(value) ? value : value.toFixed(2)}</strong>
       </span>
       <input
-        type="range"
+        type="number"
         value={value}
         min={min}
         max={max}

@@ -29,7 +29,7 @@ assert.equal(model.statusInfo("imported", "run").label, "待评估");
 assert.equal(model.statusClassName("running", "service"), "badge success live");
 
 assert.equal(model.canCancelJob({ status: "queued" }), true);
-assert.equal(model.canCancelJob({ status: "running" }), false);
+assert.equal(model.canCancelJob({ status: "running" }), true);
 assert.equal(model.canDeleteJob({ status: "running" }), false);
 assert.equal(model.canDeleteJob({ status: "failed" }), true);
 

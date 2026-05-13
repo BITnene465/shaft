@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 import pytest
@@ -28,6 +30,15 @@ def _wait_for_job_status(client: TestClient, job_id: str, status: str) -> dict:
             return latest
         time.sleep(0.05)
     raise AssertionError(f"job {job_id} did not reach status={status!r}: {latest}")
+
+
+def _wait_for_process_exit(process: subprocess.Popen[bytes], *, timeout_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return True
+        time.sleep(0.05)
+    return process.poll() is not None
 
 
 def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
@@ -301,6 +312,36 @@ def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
     assert client.get("/api/services").json()["services"] == []
 
 
+def test_dashboard_cancel_running_job_requests_runtime_termination(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, enable_orchestrator=False)
+    runtime = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    try:
+        job = app.state.eval_bench_database.create_job(
+            kind="eval",
+            payload={"run_id": "running-job"},
+            status="running",
+            metadata={"runtime_pid": runtime.pid},
+        )
+        client = TestClient(app)
+
+        response = client.post(f"/api/jobs/{job.job_id}/cancel")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "cancelled"
+        assert payload["metadata"]["cancel_requested"] is True
+        assert payload["metadata"]["runtime_terminated_pid"] == runtime.pid
+        runtime.wait(timeout=5)
+        assert _wait_for_process_exit(runtime)
+    finally:
+        if runtime.poll() is None:
+            runtime.terminate()
+            runtime.wait(timeout=5)
+
+
 def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw_data"
     source_manifest = raw_root / "splits" / "layout_val.txt"
@@ -358,12 +399,17 @@ def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
 def test_dashboard_serves_spa_fallback_when_frontend_is_built(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
+    (dist / "icons" / "eval-bench").mkdir(parents=True)
     (dist / "index.html").write_text("<html><body>dashboard</body></html>", encoding="utf-8")
+    (dist / "logo.png").write_bytes(b"logo")
+    (dist / "icons" / "eval-bench" / "overview.png").write_bytes(b"icon")
     app = create_app(store_root=tmp_path / "store", frontend_dist=dist)
     client = TestClient(app)
 
     assert client.get("/").text == "<html><body>dashboard</body></html>"
     assert client.get("/runs").text == "<html><body>dashboard</body></html>"
+    assert client.get("/logo.png").content == b"logo"
+    assert client.get("/icons/eval-bench/overview.png").content == b"icon"
     assert client.get("/api/does-not-exist").status_code == 404
 
 

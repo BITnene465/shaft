@@ -48,6 +48,8 @@ export function applyPromptTemplateToManifest(
   const targetLabels = targetLabelsFromPrompt(prompt);
   if (targetLabels.length > 0) {
     section.target_labels = targetLabels;
+  } else {
+    delete section.target_labels;
   }
   section.generation = mergeRecordDefaults(section.generation, prompt.generation);
   section.data = mergeRecordDefaults(section.data, prompt.data);

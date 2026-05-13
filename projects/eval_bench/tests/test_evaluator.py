@@ -139,6 +139,44 @@ def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:
     assert "arrow" not in report["samples"][0]["labels"]
 
 
+def test_evaluate_run_infers_layout_target_labels_from_prompt_id(tmp_path: Path) -> None:
+    artifacts = _write_run(tmp_path, task="detection")
+    run_payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
+    run_payload["spec"]["prompt"]["prompt_id"] = "grounding_layout.latest"
+    run_payload["spec"].pop("target_labels", None)
+    artifacts.manifest_path.write_text(json.dumps(run_payload), encoding="utf-8")
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "data" / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox": [0, 0, 100, 100]},
+                {"label": "arrow", "bbox": [200, 200, 260, 260]},
+            ],
+        },
+    )
+    artifacts.write_prediction(
+        PredictionDocument(
+            image="part1/images/a.png",
+            instances=[
+                PredictionInstance(label="icon", bbox=[0, 0, 100, 100]),
+                PredictionInstance(label="arrow", bbox=[200, 200, 260, 260]),
+            ],
+            metadata={"producer": "test"},
+        ),
+        task="detection",
+    )
+
+    report_path = evaluate_run(store_root=tmp_path, run_id="run_detection")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report["target_labels"] == ["icon", "image", "shape"]
+    assert report["gt_instance_count"] == 1
+    assert report["pred_instance_count"] == 1
+    assert [item["label"] for item in report["labels"]] == ["icon"]
+    assert "arrow" not in report["samples"][0]["labels"]
+
+
 def test_evaluate_run_records_keypoint_distance(tmp_path: Path) -> None:
     artifacts = _write_run(tmp_path, task="keypoint")
     _write_json(

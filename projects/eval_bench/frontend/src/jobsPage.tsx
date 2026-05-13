@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import * as Tabs from "@radix-ui/react-tabs";
 import { Trash2, X } from "lucide-react";
 
 import type { BenchmarkSummary, JobLog, JobSummary, PromptTemplate, RunSummary, SchedulerStatus } from "./api";
@@ -20,6 +19,7 @@ import {
 } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { basename, formatDate, formatMetric, jobTarget, stringValue } from "./formatters";
+import { AppIcon } from "./iconLibrary";
 import {
   applyBenchmarkDefault,
   applyPromptTemplateToManifest,
@@ -27,49 +27,50 @@ import {
   promptTemplateFromManifest,
   targetLabelsFromPrompt
 } from "./manifestTools";
-import { RunTable } from "./runTables";
 import {
   canCancelJob,
   canDeleteJob,
   jobProgress,
   progressPhaseText
 } from "./statusModel";
-import { Badge, PanelTitle, WorkspaceTabs } from "./ui";
+import { Badge, PanelTitle, WorkspaceDialog } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function JobsPage() {
   const { data } = useDashboardState();
+  const [createOpen, setCreateOpen] = useState(false);
   const recentRuns = data?.runs.slice(0, 12) ?? [];
   return (
-    <section className="page-stack">
-      <WorkspaceTabs defaultValue="activity" label="评测中心">
-        <Tabs.List className="workspace-tab-list">
-          <Tabs.Trigger value="activity">活动流</Tabs.Trigger>
-          <Tabs.Trigger value="new">新建评测</Tabs.Trigger>
-          <Tabs.Trigger value="runs">结果库</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="activity" className="workspace-tab-panel">
-          <div className="job-activity-grid">
-            <div className="workspace-card fill">
-              <PanelTitle title="任务队列" meta="创建、执行、失败排障和 runtime log" />
-              <JobQueuePanel />
-            </div>
-            <div className="workspace-card fill">
-              <PanelTitle title="最近结果" meta="任务完成后会沉淀为可复查 run" />
-              <RecentRunList runs={recentRuns} />
-            </div>
-          </div>
-        </Tabs.Content>
-        <Tabs.Content value="new" className="workspace-tab-panel">
-          <JobCreatePanel benchmarks={data?.benchmarks ?? []} />
-        </Tabs.Content>
-        <Tabs.Content value="runs" className="workspace-tab-panel">
-          <div className="workspace-card fill">
-            <PanelTitle title="结果库" meta={`${(data?.runs.length ?? 0).toLocaleString()} 条记录`} />
-            <RunTable runs={data?.runs ?? []} />
-          </div>
-        </Tabs.Content>
-      </WorkspaceTabs>
+    <section className="page-stack density-page">
+      <div className="page-command-row">
+        <div>
+          <h2>评测中心</h2>
+          <span>队列、runtime log 和最近结果</span>
+        </div>
+        <button className="primary-button command-button" type="button" onClick={() => setCreateOpen(true)}>
+          <AppIcon name="createEval" size={17} />
+          <span>新建评测</span>
+        </button>
+      </div>
+      <div className="job-activity-grid">
+        <div className="workspace-card fill">
+          <PanelTitle title="任务队列" meta="执行、失败排障和 runtime log" />
+          <JobQueuePanel />
+        </div>
+        <div className="workspace-card fill">
+          <PanelTitle title="最近结果" meta="完整结果在结果库页面" />
+          <RecentRunList runs={recentRuns} />
+        </div>
+      </div>
+      <WorkspaceDialog
+        open={createOpen}
+        title="新建评测任务"
+        meta="模板 manifest + 后端预检查"
+        wide
+        onClose={() => setCreateOpen(false)}
+      >
+        <JobCreatePanel benchmarks={data?.benchmarks ?? []} bare />
+      </WorkspaceDialog>
     </section>
   );
 }
@@ -134,6 +135,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     mutationFn: cancelJob,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["scheduler-status"] });
     }
   });
   const deleteMutation = useMutation({
@@ -200,7 +202,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                         className="icon-button dense"
                         type="button"
                         disabled={!canCancelJob(job) || cancelMutation.isPending}
-                        title="取消排队任务"
+                        title={job.status === "running" ? "终止运行中评测" : "取消排队任务"}
                         onClick={(event) => {
                           event.stopPropagation();
                           cancelMutation.mutate(job.job_id);
@@ -334,7 +336,7 @@ function JobProgressInline({ job }: { job: JobSummary }) {
   );
 }
 
-export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] }) {
+export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSummary[]; bare?: boolean }) {
   const queryClient = useQueryClient();
   const templatesQuery = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
   const promptTemplatesQuery = useQuery({
@@ -346,7 +348,7 @@ export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] 
   const templateIds = Object.keys(templates);
   const promptIds = promptTemplates.map((template) => template.prompt_id);
   const [templateId, setTemplateId] = useState("eval_job");
-  const [promptId, setPromptId] = useState("grounding_layout.latest");
+  const [promptId, setPromptId] = useState("grounding_arrow.latest");
   const [manifestText, setManifestText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const mutation = useMutation({
@@ -445,8 +447,8 @@ export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] 
   }
 
   return (
-    <div className="workspace-card manifest-card">
-      <PanelTitle title="新建评测任务" meta="模板 manifest + 后端预检查" />
+    <div className={bare ? "manifest-card bare" : "workspace-card manifest-card"}>
+      {bare ? null : <PanelTitle title="新建评测任务" meta="模板 manifest + 后端预检查" />}
       <form className="manifest-job-form" onSubmit={submit}>
         <div className="manifest-toolbar">
           <label className="filter-select compact">
@@ -480,6 +482,7 @@ export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] 
             </select>
           </label>
           <button className="secondary-button" type="button" onClick={() => loadTemplate()}>
+            <AppIcon name="restoreTemplate" size={16} />
             恢复模板
           </button>
           <button
@@ -488,6 +491,7 @@ export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] 
             onClick={() => applySelectedPrompt()}
             disabled={!selectedPrompt}
           >
+            <AppIcon name="applyPrompt" size={16} />
             应用 Prompt
           </button>
           <button
@@ -496,9 +500,11 @@ export function JobCreatePanel({ benchmarks }: { benchmarks: BenchmarkSummary[] 
             onClick={validateManifest}
             disabled={preflightMutation.isPending}
           >
+            <AppIcon name="preflightValidate" size={16} />
             {preflightMutation.isPending ? "检查中" : "预检查"}
           </button>
           <button className="primary-button" type="submit" disabled={mutation.isPending}>
+            <AppIcon name="enqueueJob" size={16} />
             {mutation.isPending ? "加入中" : "加入队列"}
           </button>
         </div>
@@ -622,10 +628,10 @@ function PromptTemplatePanel({
         onClick={onSaveFromManifest}
         disabled={saving}
       >
+        <AppIcon name="applyPrompt" size={16} />
         {saving ? "保存中" : "将当前 Manifest 的 Prompt 保存为模板"}
       </button>
       {saveError ? <div className="form-error">Prompt 模板保存失败。</div> : null}
     </details>
   );
 }
-

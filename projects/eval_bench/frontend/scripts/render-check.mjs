@@ -254,9 +254,9 @@ async function exerciseOverlayStyleControls(page) {
   if (!(await stylePanel.evaluate((node) => node.hasAttribute("open")))) {
     await summary.click();
   }
-  const firstRange = stylePanel.locator('input[type="range"]').first();
-  await firstRange.waitFor({ timeout: 3_000 });
-  await firstRange.fill("5");
+  const firstNumber = stylePanel.locator('input[type="number"]').first();
+  await firstNumber.waitFor({ timeout: 3_000 });
+  await firstNumber.fill("5");
   const lineStyle = stylePanel.locator("select").first();
   if ((await lineStyle.count()) > 0) {
     await lineStyle.selectOption("solid");

@@ -50,11 +50,16 @@ def _parse_detection_instances(
     for item in _items_from_payload(payload):
         if not isinstance(item, dict):
             continue
-        label = _normalize_detection_label(item.get("label"))
+        raw_label = item.get("label")
+        label = _normalize_detection_label(raw_label)
         bbox = _bbox_from_item(item, image_width=image_width, image_height=image_height)
         if label is None or bbox is None:
             continue
-        instances.append(PredictionInstance(label=label, bbox=bbox))
+        extra: dict[str, Any] = {}
+        original_label = _label_text(raw_label)
+        if original_label and original_label != label:
+            extra["source_label_before_normalization"] = original_label
+        instances.append(PredictionInstance(label=label, bbox=bbox, extra=extra))
     return instances
 
 
@@ -102,12 +107,18 @@ def _items_from_payload(payload: Any) -> list[Any]:
 
 
 def _normalize_detection_label(value: Any) -> str | None:
-    label = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    label = _label_text(value)
     if label == "shape_combination":
         label = "icon"
+    if label in {"single_arrow", "double_arrow", "arrow_instance", "arrows"}:
+        label = "arrow"
     if label in {"icon", "image", "shape", "arrow"}:
         return label
     return None
+
+
+def _label_text(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _bbox_from_item(

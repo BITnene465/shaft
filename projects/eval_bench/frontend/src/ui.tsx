@@ -1,10 +1,10 @@
-import * as Tabs from "@radix-ui/react-tabs";
 import {
   flexRender,
   getCoreRowModel,
   useReactTable
 } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useEffect, useId } from "react";
 import type { ReactNode } from "react";
 
 import { statusClassName, statusInfo } from "./statusModel";
@@ -55,22 +55,6 @@ export function DataTable<T>({
   );
 }
 
-export function WorkspaceTabs({
-  defaultValue,
-  label,
-  children
-}: {
-  defaultValue: string;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <Tabs.Root defaultValue={defaultValue} className="workspace-tabs" aria-label={label}>
-      {children}
-    </Tabs.Root>
-  );
-}
-
 export function PanelTitle({ title, meta }: { title: string; meta?: string }) {
   return (
     <div className="panel-title">
@@ -116,6 +100,67 @@ export function ActionPanel({
       </summary>
       {children}
     </details>
+  );
+}
+
+export function WorkspaceDialog({
+  open,
+  title,
+  meta,
+  wide,
+  onClose,
+  children
+}: {
+  open: boolean;
+  title: string;
+  meta?: string;
+  wide?: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+  if (!open) {
+    return null;
+  }
+  return (
+    <div
+      className="workspace-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className={wide ? "workspace-dialog wide" : "workspace-dialog"}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <header className="workspace-dialog-head">
+          <div>
+            <strong id={titleId}>{title}</strong>
+            {meta ? <span>{meta}</span> : null}
+          </div>
+          <button className="icon-button dense" type="button" onClick={onClose} title="关闭">
+            <span aria-hidden="true">x</span>
+          </button>
+        </header>
+        <div className="workspace-dialog-body">{children}</div>
+      </section>
+    </div>
   );
 }
 

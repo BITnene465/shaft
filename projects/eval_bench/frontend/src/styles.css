@@ -2562,12 +2562,12 @@ tbody tr:hover td {
   padding-top: 8px;
 }
 
-.style-slider {
+.number-setting-control {
   display: grid;
   gap: 6px;
 }
 
-.style-slider span {
+.number-setting-control span {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2576,15 +2576,14 @@ tbody tr:hover td {
   font-weight: 720;
 }
 
-.style-slider strong {
+.number-setting-control strong {
   color: #0f172a;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-.style-slider input[type="range"] {
+.number-setting-control input[type="number"] {
   width: 100%;
-  accent-color: #155f84;
 }
 
 .compact-select.dense {
@@ -5261,24 +5260,24 @@ tbody tr:hover td {
   border-color: #bdcad6;
 }
 
-.settings-slider-grid {
+.settings-number-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(120px, 1fr));
   gap: 8px 14px;
 }
 
-.settings-editor-pane .style-slider {
+.settings-editor-pane .number-setting-control {
   gap: 4px;
 }
 
-.settings-editor-pane .style-slider span {
+.settings-editor-pane .number-setting-control span {
   color: #415366;
   font-size: 11px;
   font-weight: 720;
 }
 
-.settings-editor-pane .style-slider input[type="range"] {
-  height: 18px;
+.settings-editor-pane .number-setting-control input[type="number"] {
+  height: 28px;
 }
 
 .settings-editor-pane .compact-select {

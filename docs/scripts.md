@@ -189,7 +189,7 @@ python scripts/eval_bench.py validate-prediction \
 ```bash
 python scripts/eval_bench.py create-job \
   --kind eval \
-  --payload-json '{"manifest":{"kind":"eval_job","runtime":{"mode":"ephemeral","engine":"vllm_openai","env":{"CUDA_VISIBLE_DEVICES":"0,2","CUDA_DEVICE_ORDER":"PCI_BUS_ID"},"args":{"model":"outputs/qwen3vl-sft/run/best","served-model-name":"qwen3vl-best","host":"127.0.0.1","port":8000,"tensor-parallel-size":2,"max-model-len":32768,"gpu-memory-utilization":0.9,"max-num-seqs":8,"trust-remote-code":true}},"eval":{"model_id":"qwen3vl-best","benchmark_id":"multitask_val_v1","task":"detection","prompt_id":"grounding_layout.latest","prompt_path":"configs/prompts/grounding_layout.yaml","generation":{"max_tokens":4096,"temperature":0,"top_p":1},"data":{"max_pixels":1048576,"batch_size":1}}}}'
+  --payload-json '{"manifest":{"kind":"eval_job","runtime":{"mode":"ephemeral","engine":"vllm_openai","env":{"CUDA_VISIBLE_DEVICES":"0","CUDA_DEVICE_ORDER":"PCI_BUS_ID"},"args":{"model":"outputs/qwen3vl-sft/run/best","served-model-name":"qwen3vl-best","host":"127.0.0.1","port":8000,"tensor-parallel-size":1,"max-model-len":32768,"gpu-memory-utilization":0.9,"max-num-seqs":8,"trust-remote-code":true}},"eval":{"model_id":"qwen3vl-best","benchmark_id":"multitask_val_v1","task":"detection","prompt_id":"grounding_arrow.latest","target_labels":["arrow"],"prompt_path":"configs/prompts/grounding_arrow.yaml","generation":{"max_tokens":4096,"temperature":0,"top_p":1},"data":{"max_pixels":1048576,"batch_size":1}}}}'
 
 python scripts/eval_bench.py list-jobs
 ```
@@ -202,8 +202,8 @@ python scripts/eval_bench.py register-service \
   --service-id local-vllm-0 \
   --model-path outputs/qwen3vl-sft/run/best \
   --served-model-name qwen3vl-best \
-  --cuda-visible-devices 0,2 \
-  --tensor-parallel-size 2 \
+  --cuda-visible-devices 0 \
+  --tensor-parallel-size 1 \
   --port 8000 \
   --max-model-len 65536 \
   --gpu-memory-utilization 0.9 \
@@ -264,7 +264,9 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id>?sample=0 \
   INTERACTION_SMOKE=1 \
 npm run render-check
 npm run test:status-model
+npm run test:manifest-tools
 npm run test:workspace-settings
+EVAL_BENCH_URL=http://127.0.0.1:8765 npm run test:dialogs
 EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id> npm run test:viewer-performance
 EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
@@ -272,8 +274,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`
-- dashboard 前端在 `projects/eval_bench/frontend`，使用 React、Vite、TanStack 和 Radix
-- dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`
+- dashboard 前端在 `projects/eval_bench/frontend`，使用 React、Vite 和 TanStack
+- dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`；业务 PNG 图标映射在 `iconLibrary.tsx`
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data
@@ -281,12 +283,17 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 - job registry 使用 `eval_bench_store/db/eval_bench.sqlite`
 - Dashboard 启动时会启动 Eval Bench orchestrator，自动扫描 queued eval job；它会根据 live running job 数、`cuda_visible_devices`、ephemeral runtime 端口和 `tensor_parallel_size` 判断资源是否足够，资源不冲突的 job 可并发启动。默认并发上限为 2，可通过 `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS` 调整；扫描间隔可通过 `EVAL_BENCH_SCHEDULER_INTERVAL_S` 调整
 - 当前 worker 支持 manifest-driven `eval_job`：claim queued job 后解析 manifest，按 `runtime.mode` 启动一次性 vLLM runtime 或连接已有 service，再写入 `runs/<run_id>/run.json`
-- job 创建支持模板 + 自由 JSON manifest。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
+- job 创建支持模板 + 自由 JSON manifest。默认 `eval_job` 模板是箭头检测，layout 检测保留为 `layout_eval_job`，箭头关键点评估保留为 `keypoint_eval_job`。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
+- Dashboard 主页面不再使用嵌套 tab 承载低频表单；新建评测、创建 benchmark、导入 prediction snapshot 和登记 service 都通过临时弹层打开，主页面只保留队列、目录、结果和服务状态。
+- Dashboard 业务图标库位于 `projects/eval_bench/frontend/public/icons/eval-bench/`，由 image_gen 母版裁剪得到；运行时统一通过 `iconLibrary.tsx` 使用，通用工具动作仍保留矢量图标。
+- prompt template registry 的 repo 内置项会随代码启动刷新；用户从 dashboard 保存过的自定义 prompt 不会被内置 seed 覆盖。应用 prompt 时会同步写入或清空 `target_labels`，避免从 layout prompt 切换到 arrow prompt 后仍沿用 `icon/image/shape`
+- evaluator 的目标标签优先级是 run spec 显式 `target_labels`、prompt metadata、内置 prompt ID 推断；layout 检测只评价 `icon/image/shape`，arrow 检测只评价 `arrow`。导入外部 prediction snapshot 时也要传 prompt ID 或 `--target-label`，不能只用 `task=detection` 表示子任务。
 - run manifest 会持久化模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget、job manifest 和 vLLM runtime/service 参数；dashboard 的 Run Inspector 顶部会按需展开这些配置
 - sample image API 暴露三层图像资源：`/image` 返回原图，`/image/preview?max_side=1800` 返回缓存 JPEG 缩略代理，`/image/tiles/{level}/{x}/{y}` 返回缓存 JPEG 金字塔瓦片；dashboard viewer 默认使用 `image_preview_url`，高倍缩放停顿后延迟加载少量瓦片增强局部细节，派生缓存写入 `eval_bench_store/cache/image_proxy/`
 - `register-service` 会把外部 vLLM endpoint 或本地 vLLM OpenAI server 参数写入 SQLite；dashboard 的 Services 页也使用同一套 API。长期 vLLM 放在 Services 页管理，一次性 vLLM 放在 job manifest 的 `runtime.mode=ephemeral` 中管理
 - `start-service` 使用当前 `.venv` 的 Python 启动 `vllm.entrypoints.openai.api_server`，日志写入 `eval_bench_store/services/<service_id>/service.log`；`stop-service` 会终止该本地服务进程
 - job manifest 使用 `runtime.mode=ephemeral` 时，worker 会启动 job 专属 vLLM，等待 endpoint ready，执行推理后关闭进程；runtime 日志写入 `runs/<run_id>/logs/runtime.log`，Dashboard 通过 `/api/jobs/<job_id>/logs` 读取 tail
+- `/api/jobs/<job_id>/cancel` 可取消 queued job，也可终止 running job；running job 会写入 `cancel_requested`，worker 在 runtime 启动、样本推理和评估阶段检查该标记，并尽量终止 job 专属 ephemeral runtime 进程组。
 - worker 执行时会持续更新 job metadata 中的 `progress_phase`、`progress_done`、`progress_total`、`progress_current_sample` 和 `progress_message`；Dashboard 的任务中心每 2 秒刷新 job 和 scheduler 状态。runtime log 不在主列表常驻展示，点击某条 job row 后才会在嵌套详情面板中读取 `/api/jobs/<job_id>/logs?max_lines=0` 的完整日志
 - job manifest 使用 `runtime.mode=existing_service` 且提供 `endpoint` 时，worker 会调用 OpenAI-compatible `/v1/chat/completions`，写入 raw output、prediction snapshot 和 metric report，但不负责启停该服务
 - job payload 中设置 `"backend":"dry_run"` 时，会写空 prediction snapshot 并生成报告，用于端到端链路测试

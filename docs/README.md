@@ -36,6 +36,10 @@
   - VSCode、FiftyOne、CVAT、Codex 客户端源码参考记录
   - Eval Bench 前端模块边界、viewer、快捷键和状态模型设计启发
 
+- [eval_bench_ui_icon_design.md](eval_bench_ui_icon_design.md)
+  - Eval Bench UI 压缩原则
+  - image_gen PNG 图标库、资产路径和前端接入边界
+
 ## 2. 开发与扩展
 
 - [development_workflow.md](development_workflow.md)

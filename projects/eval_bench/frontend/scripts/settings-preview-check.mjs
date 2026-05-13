@@ -59,7 +59,7 @@ await expectPreviewColor(
 );
 
 await page.getByRole("button", { name: /外观/ }).click();
-await page.locator(".settings-slider-grid input[type='range']").first().fill("9");
+await page.locator(".settings-number-grid input[type='number']").first().fill("9");
 await expectPreviewStrokeWidth(page, 9, "box stroke width did not update preview");
 
 await browser.close();

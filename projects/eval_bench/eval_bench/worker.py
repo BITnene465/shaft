@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 import logging
@@ -8,14 +9,14 @@ from pathlib import Path
 import signal
 import subprocess
 import time
-from typing import Any
-from dataclasses import replace
+from typing import Any, Callable
 
 from .artifacts import DEFAULT_STORE_ROOT, BenchmarkArtifacts, RunArtifacts, atomic_write_json
 from .adapters.vllm_openai import OpenAICompatibleVLLMAdapter
 from .database import EvalBenchDatabase, JobRecord
 from .evaluator import evaluate_run
 from .job_spec import resolve_job_payload
+from .label_policy import normalize_target_labels, resolve_target_labels
 from .prediction_parser import parse_prediction_text
 from .schema import (
     BenchmarkRef,
@@ -33,6 +34,10 @@ from .services import build_vllm_command_from_config, _probe_openai_endpoint
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOGGER = logging.getLogger("eval_bench.worker")
+
+
+class JobCancelled(RuntimeError):
+    pass
 
 
 class EvalBenchWorker:
@@ -68,6 +73,7 @@ class EvalBenchWorker:
             for record in self.database.list_prompt_templates(limit=1000)
         }
         try:
+            self._raise_if_cancelled(job)
             self._update_progress(
                 job,
                 phase="resolving",
@@ -76,6 +82,7 @@ class EvalBenchWorker:
             resolved = resolve_job_payload(job.payload, prompt_templates=prompt_templates)
             resolved_kind = resolved.kind
             job = replace(job, payload=resolved.payload)
+            self._raise_if_cancelled(job)
             if _should_start_ephemeral_runtime(job.payload):
                 self._update_progress(
                     job,
@@ -83,6 +90,7 @@ class EvalBenchWorker:
                     message="Starting ephemeral vLLM runtime.",
                 )
                 runtime_process, runtime_log_path = self.start_ephemeral_runtime(job)
+                self._raise_if_cancelled(job)
                 endpoint = _endpoint_from_job_payload(job.payload)
                 job.payload["endpoint"] = endpoint
                 self.database.update_job(
@@ -98,6 +106,7 @@ class EvalBenchWorker:
                         "runtime_endpoint": endpoint,
                     },
                 )
+            self._raise_if_cancelled(job)
             self._update_progress(
                 job,
                 phase="prepare_run",
@@ -146,7 +155,37 @@ class EvalBenchWorker:
                         "progress_updated_at": utc_now_iso(),
                     }
                 )
+        except JobCancelled as exc:
+            LOGGER.info("job cancelled job_id=%s kind=%s", job.job_id, job.kind)
+            _mark_run_cancelled_if_exists(self.root, job, message=str(exc))
+            return self.database.update_job(
+                job.job_id,
+                status="cancelled",
+                error=None,
+                metadata_update={
+                    "worker_action": "cancelled",
+                    "job_kind": resolved_kind,
+                    "progress_phase": "cancelled",
+                    "progress_message": str(exc) or "Job cancelled.",
+                    "progress_updated_at": utc_now_iso(),
+                },
+            )
         except Exception as exc:
+            if self._cancel_requested(job):
+                LOGGER.info("job stopped after cancellation job_id=%s kind=%s", job.job_id, job.kind)
+                _mark_run_cancelled_if_exists(self.root, job, message="Job cancelled.")
+                return self.database.update_job(
+                    job.job_id,
+                    status="cancelled",
+                    error=None,
+                    metadata_update={
+                        "worker_action": "cancelled",
+                        "job_kind": resolved_kind,
+                        "progress_phase": "cancelled",
+                        "progress_message": "Job cancelled.",
+                        "progress_updated_at": utc_now_iso(),
+                    },
+                )
             LOGGER.exception("job failed job_id=%s kind=%s error=%s", job.job_id, job.kind, exc)
             _mark_run_failed_if_exists(self.root, job, error=str(exc))
             failure_metadata: dict[str, Any] = {"worker_action": "failed"}
@@ -170,6 +209,20 @@ class EvalBenchWorker:
         finally:
             if runtime_process is not None:
                 _stop_ephemeral_runtime(runtime_process)
+        if self._cancel_requested(job):
+            _mark_run_cancelled_if_exists(self.root, job, message="Job cancelled.")
+            return self.database.update_job(
+                job.job_id,
+                status="cancelled",
+                error=None,
+                metadata_update={
+                    "worker_action": "cancelled",
+                    "job_kind": resolved_kind,
+                    "progress_phase": "cancelled",
+                    "progress_message": "Job cancelled.",
+                    "progress_updated_at": utc_now_iso(),
+                },
+            )
         return self.database.update_job(
             job.job_id,
             status="succeeded",
@@ -186,6 +239,7 @@ class EvalBenchWorker:
         message: str | None = None,
         current_sample: str | None = None,
     ) -> None:
+        self._raise_if_cancelled(job)
         metadata: dict[str, Any] = {
             "worker_action": phase,
             "progress_phase": phase,
@@ -200,6 +254,17 @@ class EvalBenchWorker:
         if current_sample is not None:
             metadata["progress_current_sample"] = current_sample
         self.database.update_job(job.job_id, status="running", metadata_update=metadata)
+
+    def _cancel_requested(self, job: JobRecord) -> bool:
+        current = self.database.get_job(job.job_id)
+        if current is None:
+            return False
+        metadata = current.metadata if isinstance(current.metadata, dict) else {}
+        return current.status == "cancelled" or bool(metadata.get("cancel_requested"))
+
+    def _raise_if_cancelled(self, job: JobRecord) -> None:
+        if self._cancel_requested(job):
+            raise JobCancelled("Job cancelled by user.")
 
     def start_ephemeral_runtime(self, job: JobRecord) -> tuple[subprocess.Popen[bytes], Path]:
         run_id = str(job.payload.get("run_id") or job.job_id)
@@ -229,7 +294,24 @@ class EvalBenchWorker:
         finally:
             log_file.close()
         endpoint = _endpoint_from_job_payload(job.payload)
-        _wait_for_runtime_ready(endpoint, process=process, timeout_s=float(job.payload.get("runtime_timeout_s") or 900.0))
+        self.database.update_job(
+            job.job_id,
+            status="running",
+            metadata_update={
+                "runtime_pid": process.pid,
+                "runtime_log_path": str(log_path),
+                "runtime_endpoint": endpoint,
+                "progress_phase": "starting_runtime",
+                "progress_message": "vLLM runtime process started; waiting for health check.",
+                "progress_updated_at": utc_now_iso(),
+            },
+        )
+        _wait_for_runtime_ready(
+            endpoint,
+            process=process,
+            timeout_s=float(job.payload.get("runtime_timeout_s") or 900.0),
+            cancel_check=lambda: self._raise_if_cancelled(job),
+        )
         return process, log_path
 
     def prepare_run(self, job: JobRecord) -> Path:
@@ -291,8 +373,11 @@ class EvalBenchWorker:
                 parser=str(payload.get("parser") or "shaft.codec.json_any"),
                 metric_profile=str(payload.get("metric_profile") or "default"),
                 visualization_profile=str(payload.get("visualization_profile") or "default"),
-                target_labels=_label_list(payload.get("target_labels"))
-                or (["arrow"] if task == "keypoint" else []),
+                target_labels=resolve_target_labels(
+                    explicit=payload.get("target_labels"),
+                    prompt_id=str(payload.get("prompt_id") or ""),
+                    task=task,
+                ),
                 inference=inference_params,
             ),
             artifact_root=str(RunArtifacts(self.root, run_id).run_dir),
@@ -319,6 +404,7 @@ class EvalBenchWorker:
         total = len(json_relatives)
         self._update_progress(job, phase="inference", done=0, total=total, message="Dry-run inference.")
         for index, json_relative in enumerate(json_relatives, start=1):
+            self._raise_if_cancelled(job)
             gt_doc = _load_json(benchmark_root / json_relative)
             image = _image_path_from_gt(json_relative, gt_doc)
             prediction = PredictionDocument(
@@ -347,6 +433,7 @@ class EvalBenchWorker:
                 current_sample=str(json_relative),
             )
         self._update_progress(job, phase="evaluating", done=total, total=total, message="Computing metrics.")
+        self._raise_if_cancelled(job)
         report_path = evaluate_run(store_root=self.root, run_id=run_id)
         _update_run_status(artifacts.manifest_path, status="succeeded")
         return report_path
@@ -379,6 +466,7 @@ class EvalBenchWorker:
         total = len(json_relatives)
         self._update_progress(job, phase="inference", done=0, total=total, message="Running model inference.")
         for index, json_relative in enumerate(json_relatives, start=1):
+            self._raise_if_cancelled(job)
             gt_doc = _load_json(benchmark_root / json_relative)
             image = _image_path_from_gt(json_relative, gt_doc)
             image_path = benchmark_root / image
@@ -422,6 +510,7 @@ class EvalBenchWorker:
                 current_sample=str(json_relative),
             )
         self._update_progress(job, phase="evaluating", done=total, total=total, message="Computing metrics.")
+        self._raise_if_cancelled(job)
         report_path = evaluate_run(store_root=self.root, run_id=run_id)
         _update_run_status(artifacts.manifest_path, status="succeeded")
         return report_path
@@ -459,6 +548,20 @@ def _mark_run_failed_if_exists(root: Path, job: JobRecord, *, error: str) -> Non
     payload["status"] = "failed"
     metadata = dict(payload.get("metadata") or {})
     metadata["error"] = error
+    payload["metadata"] = metadata
+    atomic_write_json(path, payload)
+
+
+def _mark_run_cancelled_if_exists(root: Path, job: JobRecord, *, message: str) -> None:
+    run_id = str(job.payload.get("run_id") or job.job_id)
+    path = RunArtifacts(root, run_id).manifest_path
+    if not path.exists():
+        return
+    payload = _load_json(path)
+    payload["status"] = "cancelled"
+    metadata = dict(payload.get("metadata") or {})
+    metadata["cancelled_at"] = utc_now_iso()
+    metadata["cancelled_message"] = message
     payload["metadata"] = metadata
     atomic_write_json(path, payload)
 
@@ -521,10 +624,13 @@ def _wait_for_runtime_ready(
     *,
     process: subprocess.Popen[bytes],
     timeout_s: float,
+    cancel_check: Callable[[], None] | None = None,
 ) -> None:
     deadline = time.monotonic() + timeout_s
     last_message = "runtime did not become ready"
     while time.monotonic() < deadline:
+        if cancel_check is not None:
+            cancel_check()
         if process.poll() is not None:
             raise RuntimeError(f"runtime process exited before ready: exitcode={process.returncode}")
         health = _probe_openai_endpoint(endpoint, timeout_s=2.0)
@@ -538,23 +644,38 @@ def _wait_for_runtime_ready(
 def _stop_ephemeral_runtime(process: subprocess.Popen[bytes]) -> None:
     # start_ephemeral_runtime starts a fresh session, so the launcher pid is the process group id.
     # vLLM may leave engine children alive after the launcher exits; cleanup must target the group.
-    pgid = process.pid
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
+    _signal_process_group(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         pass
-    if _wait_process_group_exit(pgid, timeout_s=30.0):
+    if _wait_process_group_exit(process.pid, timeout_s=30.0):
         return
+    _signal_process_group(process.pid, signal.SIGKILL)
     try:
-        os.killpg(pgid, signal.SIGKILL)
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    if not _wait_process_group_exit(process.pid, timeout_s=10.0):
+        LOGGER.warning(
+            "ephemeral runtime process group still exists after SIGKILL pgid=%s",
+            process.pid,
+        )
+
+
+def terminate_runtime_process_group(pgid: int) -> bool:
+    _signal_process_group(pgid, signal.SIGTERM)
+    if _wait_process_group_exit(pgid, timeout_s=2.0):
+        return True
+    _signal_process_group(pgid, signal.SIGKILL)
+    return _wait_process_group_exit(pgid, timeout_s=2.0)
+
+
+def _signal_process_group(pgid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pgid, sig)
     except ProcessLookupError:
         return
-    if not _wait_process_group_exit(pgid, timeout_s=10.0):
-        LOGGER.warning("ephemeral runtime process group still exists after SIGKILL pgid=%s", pgid)
 
 
 def _wait_process_group_exit(pgid: int, *, timeout_s: float) -> bool:
@@ -616,20 +737,7 @@ def _require_task(payload: dict[str, Any]) -> TaskKind:
 
 
 def _label_list(value: Any) -> list[str]:
-    if value in (None, ""):
-        return []
-    if isinstance(value, str):
-        values = value.replace(",", " ").split()
-    elif isinstance(value, list):
-        values = [str(item) for item in value]
-    else:
-        raise ValueError("target_labels must be a list or a comma/space separated string.")
-    labels: list[str] = []
-    for item in values:
-        label = str(item).strip()
-        if label and label not in labels:
-            labels.append(label)
-    return labels
+    return normalize_target_labels(value)
 
 
 def _read_split(path: Path) -> list[Path]:

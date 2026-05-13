@@ -391,9 +391,22 @@ class EvalBenchDatabase:
         current = self.get_job(job_id)
         if current is None:
             raise KeyError(f"unknown job_id: {job_id}")
-        if current.status != "queued":
-            raise ValueError(f"only queued jobs can be cancelled, current status is {current.status!r}")
-        return self.update_job(job_id, status="cancelled")
+        if current.status not in {"queued", "running"}:
+            raise ValueError(
+                "only queued or running jobs can be cancelled, "
+                f"current status is {current.status!r}"
+            )
+        return self.update_job(
+            job_id,
+            status="cancelled",
+            metadata_update={
+                "cancel_requested": True,
+                "cancel_requested_at": utc_now_iso(),
+                "progress_phase": "cancelled",
+                "progress_message": "Cancellation requested by user.",
+                "progress_updated_at": utc_now_iso(),
+            },
+        )
 
     def delete_job(self, job_id: str) -> JobRecord:
         current = self.get_job(job_id)
@@ -580,10 +593,23 @@ class EvalBenchDatabase:
         with self.engine.begin() as connection:
             for template in templates:
                 record = self._prompt_template_from_payload(template, created_at=now, updated_at=now)
+                existing = connection.execute(
+                    text(
+                        """
+                        SELECT metadata_json
+                        FROM prompt_templates
+                        WHERE prompt_id = :prompt_id
+                        """
+                    ),
+                    {"prompt_id": record.prompt_id},
+                ).mappings().first()
+                if existing is not None and not _is_repo_prompt_metadata(existing["metadata_json"]):
+                    continue
+                params = _prompt_template_params(record)
                 connection.execute(
                     text(
                         """
-                        INSERT OR IGNORE INTO prompt_templates (
+                        INSERT INTO prompt_templates (
                             prompt_id, label, task, system_prompt, user_prompt, parser,
                             metric_profile, visualization_profile, generation_json, data_json,
                             metadata_json, created_at, updated_at
@@ -592,9 +618,21 @@ class EvalBenchDatabase:
                             :metric_profile, :visualization_profile, :generation_json, :data_json,
                             :metadata_json, :created_at, :updated_at
                         )
+                        ON CONFLICT(prompt_id) DO UPDATE SET
+                            label = excluded.label,
+                            task = excluded.task,
+                            system_prompt = excluded.system_prompt,
+                            user_prompt = excluded.user_prompt,
+                            parser = excluded.parser,
+                            metric_profile = excluded.metric_profile,
+                            visualization_profile = excluded.visualization_profile,
+                            generation_json = excluded.generation_json,
+                            data_json = excluded.data_json,
+                            metadata_json = excluded.metadata_json,
+                            updated_at = excluded.updated_at
                         """
                     ),
-                    _prompt_template_params(record),
+                    params,
                 )
 
     def upsert_prompt_template(self, payload: dict[str, Any]) -> PromptTemplateRecord:
@@ -784,6 +822,16 @@ def _optional_string(value: Any) -> str | None:
     if value not in (None, "") and not isinstance(value, (dict, list)):
         return str(value)
     return None
+
+
+def _is_repo_prompt_metadata(value: Any) -> bool:
+    try:
+        metadata = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(metadata, dict) and (
+        metadata.get("source") == "repo_config" or not metadata
+    )
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:

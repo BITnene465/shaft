@@ -21,14 +21,24 @@ def test_eval_job_manifest_resolves_to_worker_payload() -> None:
     assert resolved.payload["backend"] == "vllm_openai"
     assert resolved.payload["model_path"] == "outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best"
     assert resolved.payload["served_model_name"] == "qwen3vl-latest"
-    assert resolved.payload["cuda_visible_devices"] == "0,2"
-    assert resolved.payload["tensor_parallel_size"] == 2
+    assert resolved.payload["cuda_visible_devices"] == "0"
+    assert resolved.payload["tensor_parallel_size"] == 1
     assert resolved.payload["max_model_len"] == 32768
     assert resolved.payload["max_tokens"] == 4096
     assert resolved.payload["max_pixels"] == 1048576
     assert resolved.payload["batch_size"] == 1
-    assert resolved.payload["target_labels"] == ["icon", "image", "shape"]
+    assert resolved.payload["prompt_id"] == "grounding_arrow.latest"
+    assert resolved.payload["target_labels"] == ["arrow"]
     assert "--trust-remote-code" in resolved.payload["extra_args"]
+
+
+def test_layout_eval_job_template_remains_available() -> None:
+    manifest = job_templates()["layout_eval_job"]["manifest"]
+    resolved = resolve_job_payload({"manifest": manifest})
+
+    assert resolved.payload["prompt_id"] == "grounding_layout.latest"
+    assert resolved.payload["task"] == "detection"
+    assert resolved.payload["target_labels"] == ["icon", "image", "shape"]
 
 
 def test_eval_job_manifest_preserves_unknown_runtime_args_as_cli_extra_args() -> None:
