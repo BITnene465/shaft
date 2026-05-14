@@ -13,7 +13,7 @@ from .artifacts import (
     read_json,
 )
 from .evaluator import evaluate_run
-from .label_policy import resolve_target_labels
+from .label_policy import resolve_target_label_policy
 from .schema import (
     BenchmarkRef,
     EvalRunManifest,
@@ -78,6 +78,11 @@ def import_predictions_for_benchmark(
     benchmark_root = Path(str(benchmark_manifest.get("root") or benchmark_artifacts.data_dir))
     split_entries = _read_split(split_path)
     tasks = [str(item) for item in benchmark_manifest.get("tasks") or [task]]
+    target_policy = resolve_target_label_policy(
+        explicit=target_labels,
+        prompt_id=prompt_id,
+        task=task,
+    )
 
     manifest = EvalRunManifest(
         run_id=run_id,
@@ -97,12 +102,11 @@ def import_predictions_for_benchmark(
                 metadata={"source": "imported_prediction_snapshot"},
             ),
             inference=InferenceParams(backend="imported"),
-            target_labels=resolve_target_labels(
-                explicit=target_labels,
-                prompt_id=prompt_id,
-                task=task,
-            ),
-            metadata={"source": "imported_prediction_snapshot"},
+            target_labels=target_policy.labels,
+            metadata={
+                "source": "imported_prediction_snapshot",
+                "target_labels_source": target_policy.source,
+            },
         ),
         status="succeeded",
         artifact_root=str(run_artifacts.run_dir),

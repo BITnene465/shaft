@@ -24,6 +24,7 @@ from .comparison import compare_runs, list_comparison_reports
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
 from .job_spec import job_templates, preflight_job_payload, resolve_job_payload
+from .job_lifecycle import job_holds_scheduler_resources
 from .orchestrator import EvalBenchOrchestrator
 from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
@@ -1152,7 +1153,7 @@ def create_app(
             (
                 record
                 for record in database.list_jobs(limit=200)
-                if record.status == "running" and _is_live_running_job(record)
+                if job_holds_scheduler_resources(record) and _is_live_running_job(record)
             ),
             None,
         )

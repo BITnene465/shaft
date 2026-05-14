@@ -197,6 +197,7 @@ export type ComparisonReport = {
   baseline_run_id: string;
   candidate_run_id: string;
   task: string;
+  metric_profile?: string;
   target_labels?: string[];
   warnings?: string[];
   sample_count: number;
@@ -204,7 +205,9 @@ export type ComparisonReport = {
     precision_iou50: number;
     recall_iou50: number;
     mean_iou: number;
+    mean_keypoint_distance: number;
     matched_count: number;
+    keypoint_pair_count: number;
     false_positive_count: number;
     false_negative_count: number;
   };
@@ -255,6 +258,8 @@ export type ComparisonSample = {
       false_positive_count: number;
       false_negative_count: number;
       mean_iou: number;
+      keypoint_pair_count: number;
+      mean_keypoint_distance: number;
     }
   >;
   delta_score: number;
@@ -263,6 +268,8 @@ export type ComparisonSample = {
     false_positive_count: number;
     false_negative_count: number;
     mean_iou: number;
+    keypoint_pair_count: number;
+    mean_keypoint_distance: number;
   };
 };
 
@@ -275,7 +282,9 @@ export type ComparisonLabelDelta = {
     precision_iou50: number;
     recall_iou50: number;
     mean_iou: number;
+    mean_keypoint_distance: number;
     matched_count: number;
+    keypoint_pair_count: number;
     false_positive_count: number;
     false_negative_count: number;
   };

@@ -9,6 +9,55 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-13: Eval Bench 子系统中间层不足导致语义漂移
+
+### 现象
+
+对子系统 review 后发现，Eval Bench 虽然已有 Control / Execution / Artifact 三层描述，但层级太粗。
+target label scope、metric profile、job cancellation/resource lease 和 viewer/action 语义仍容易被
+UI、worker、evaluator、import 和 comparison 各自推断。
+
+### 根因
+
+评估语义没有独立中间层，`task=detection` 被误用为 layout/arrow 子任务真源；job 生命周期缺少统一
+resource lease 判断；metric profile 只是字符串字段，没有 registry 边界；pytest 直接跑
+`projects/eval_bench/tests` 时也需要人工补 `PYTHONPATH`。
+
+### 影响范围
+
+影响 Eval Bench 的 evaluator、prediction import、comparison、orchestrator、dashboard fallback
+worker 调度，以及后续新增任务类型、指标 profile、label scope、快捷键 action 和 viewer capability 的
+扩展方式。
+
+### 修复方式
+
+- 新增 `eval_semantics.py`，统一解析 `task`、`metric_profile`、`target_labels` 和
+  `target_labels_source`。
+- 新增 `metric_profiles.py`，建立 `detection_iou_v1` 和 `keypoint_endpoint_v1` 的 profile registry。
+- 新增 `metrics/` 包，把 matcher、sample diagnostic、geometry primitive 和 label aggregation 从
+  `evaluator.py` 中拆出；`keypoint_endpoint_v1` 改为有序 endpoint distance matcher，bbox IoU 只作为
+  诊断字段保留，不再决定 keypoint TP/FP/FN。
+- Comparison report 和 Dashboard Compare 页保留 endpoint distance / endpoint pair delta，并把
+  endpoint distance 下降作为 `keypoint_endpoint_v1` 的改善信号。
+- 扩展 `label_policy.py`，返回 label 集合及来源，兼容旧 prompt ID 推断但明确标记为
+  `legacy_prompt_id`。
+- 新增 `job_lifecycle.py`，集中维护 job terminal/active/cancelled-resource lease 语义；取消请求后的
+  live job 仍会占用 scheduler 资源。
+- 更新 `docs/eval_bench_architecture.md`、`docs/architecture.md` 和 `projects/eval_bench/README.md`，
+  把 Eval Bench 正式拆成七层。
+- 在根目录 pytest 配置中加入 `projects/eval_bench` pythonpath，降低 focused test 入口成本。
+
+### 回归测试
+
+- `uv run pytest -q projects/eval_bench/tests/test_eval_semantics.py projects/eval_bench/tests/test_evaluator.py projects/eval_bench/tests/test_prediction_import.py`
+- `uv run pytest -q projects/eval_bench/tests/test_eval_semantics.py projects/eval_bench/tests/test_evaluator.py projects/eval_bench/tests/test_prediction_import.py projects/eval_bench/tests/test_orchestrator.py projects/eval_bench/tests/test_dashboard.py`
+
+### 后续防线
+
+- 新增任务类型必须先进入 Evaluation Semantics Layer，再接 prompt、parser、metric 和 viewer。
+- 新增 job 状态必须先进入 `job_lifecycle.py`，再接 database、scheduler、dashboard 和 status model。
+- 新增 metric profile 时必须同时补 matcher 行为测试，防止 profile 只停留在字符串字段。
+
 ## 2026-05-13: Eval Bench running job 终止和 layout 指标作用域缺口
 
 ### 现象

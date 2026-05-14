@@ -76,6 +76,7 @@ target-version = "py311"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q -m 'not integration and not manual'"
+pythonpath = ["projects/eval_bench"]
 norecursedirs = [
   "old",
   "temp",

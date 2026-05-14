@@ -281,13 +281,13 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data
 - 默认持久化目录是 `eval_bench_store/`，不写入训练产物目录 `outputs/`
 - job registry 使用 `eval_bench_store/db/eval_bench.sqlite`
-- Dashboard 启动时会启动 Eval Bench orchestrator，自动扫描 queued eval job；它会根据 live running job 数、`cuda_visible_devices`、ephemeral runtime 端口和 `tensor_parallel_size` 判断资源是否足够，资源不冲突的 job 可并发启动。默认并发上限为 2，可通过 `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS` 调整；扫描间隔可通过 `EVAL_BENCH_SCHEDULER_INTERVAL_S` 调整
+- Dashboard 启动时会启动 Eval Bench orchestrator，自动扫描 queued eval job；它会根据 live running job 数、`cuda_visible_devices`、ephemeral runtime 端口和 `tensor_parallel_size` 判断资源是否足够，资源不冲突的 job 可并发启动。已请求取消但 worker/runtime 仍存活的 job 仍由 `job_lifecycle.py` 视为资源占用。默认并发上限为 2，可通过 `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS` 调整；扫描间隔可通过 `EVAL_BENCH_SCHEDULER_INTERVAL_S` 调整
 - 当前 worker 支持 manifest-driven `eval_job`：claim queued job 后解析 manifest，按 `runtime.mode` 启动一次性 vLLM runtime 或连接已有 service，再写入 `runs/<run_id>/run.json`
 - job 创建支持模板 + 自由 JSON manifest。默认 `eval_job` 模板是箭头检测，layout 检测保留为 `layout_eval_job`，箭头关键点评估保留为 `keypoint_eval_job`。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
 - Dashboard 主页面不再使用嵌套 tab 承载低频表单；新建评测、创建 benchmark、导入 prediction snapshot 和登记 service 都通过临时弹层打开，主页面只保留队列、目录、结果和服务状态。
 - Dashboard 业务图标库位于 `projects/eval_bench/frontend/public/icons/eval-bench/`，由 image_gen 母版裁剪得到；运行时统一通过 `iconLibrary.tsx` 使用，通用工具动作仍保留矢量图标。
 - prompt template registry 的 repo 内置项会随代码启动刷新；用户从 dashboard 保存过的自定义 prompt 不会被内置 seed 覆盖。应用 prompt 时会同步写入或清空 `target_labels`，避免从 layout prompt 切换到 arrow prompt 后仍沿用 `icon/image/shape`
-- evaluator 的目标标签优先级是 run spec 显式 `target_labels`、prompt metadata、内置 prompt ID 推断；layout 检测只评价 `icon/image/shape`，arrow 检测只评价 `arrow`。导入外部 prediction snapshot 时也要传 prompt ID 或 `--target-label`，不能只用 `task=detection` 表示子任务。
+- evaluator / import / comparison 统一通过 `eval_semantics.py` 解析评估语义。目标标签优先级是 run spec 显式 `target_labels`、prompt metadata、legacy prompt ID 兼容推断、task default、unscoped；report 会记录 `target_labels_source`。layout 检测只评价 `icon/image/shape`，arrow 检测只评价 `arrow`。导入外部 prediction snapshot 时也要传 prompt ID 或 `--target-label`，不能只用 `task=detection` 表示子任务。
 - run manifest 会持久化模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget、job manifest 和 vLLM runtime/service 参数；dashboard 的 Run Inspector 顶部会按需展开这些配置
 - sample image API 暴露三层图像资源：`/image` 返回原图，`/image/preview?max_side=1800` 返回缓存 JPEG 缩略代理，`/image/tiles/{level}/{x}/{y}` 返回缓存 JPEG 金字塔瓦片；dashboard viewer 默认使用 `image_preview_url`，高倍缩放停顿后延迟加载少量瓦片增强局部细节，派生缓存写入 `eval_bench_store/cache/image_proxy/`
 - `register-service` 会把外部 vLLM endpoint 或本地 vLLM OpenAI server 参数写入 SQLite；dashboard 的 Services 页也使用同一套 API。长期 vLLM 放在 Services 页管理，一次性 vLLM 放在 job manifest 的 `runtime.mode=ephemeral` 中管理

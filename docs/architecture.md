@@ -234,16 +234,24 @@ sequenceDiagram
 
 - Eval Bench 是 dashboard-first 的内部系统：FastAPI 提供 API 和静态入口，React/Vite/TanStack/Radix 前端负责 benchmark、run、queue、comparison 等视图。
 - Eval Bench 不复用当前 online eval 数据流；它从 `raw_data` 验证 split 复制一份 benchmark 到 `eval_bench_store/benchmarks/` 后再运行评测。
-- Eval Bench 按企业级任务平台拆成 Control Plane、Execution Plane 和 Artifact Plane：
-  - Control Plane 由 Dashboard API、SQLite registry、job manifest、service registry、preflight 和状态机组成。
-  - Execution Plane 由 worker 领取 job，按 manifest 启动一次性 runtime 或连接已有 service，执行推理、解析、评估和 artifact 落盘。
-  - Artifact Plane 是 `eval_bench_store/` 中的 benchmark copy、run manifest、prediction snapshot、raw output、runtime log、report、comparison 和 trash。
+- Eval Bench 按七层架构维护，详细规则见 `docs/eval_bench_architecture.md`：
+  - Presentation Layer：React 页面、workspace layout、dialog、table、viewer panel，只做展示和交互编排。
+  - API Facade Layer：FastAPI route、request/response 转换、错误响应和日志。
+  - Control and Lifecycle Layer：SQLite job/service registry、scheduler、resource lease、cancel request 和状态机。
+  - Execution Layer：worker、runtime adapter、OpenAI/vLLM client、process group cleanup 和 prediction snapshot 落盘。
+  - Evaluation Semantics Layer：prompt template、target label policy、metric profile、parser/profile 选择。
+  - Artifact and Store Layer：benchmark copy、run manifest、prediction snapshot、report、comparison 和 trash。
+  - Rendering and Asset Layer：image proxy、preview/tile、viewer geometry、overlay color/style。
 - Eval Bench 使用 `eval_bench_store/db/eval_bench.sqlite` 记录持久化 job；第一版正式支持 manifest-driven `eval_job`。Job manifest 由 `runtime` 和 `eval` 两块组成，前端只提供模板初始值，用户可以自由增加、删除或修改字段；提交前后端 preflight 会检查 benchmark/model/task/prompt，展示 vLLM 命令，并把未知 `runtime.args` 作为 CLI flags 保留。
 - `runtime.mode=ephemeral` 表示 job 自己启动一个短生命周期 vLLM OpenAI server，等待 ready 后执行 eval，结束或失败后关闭该进程，日志写入 `runs/<run_id>/logs/runtime.log`。`runtime.mode=existing_service` 表示 job 连接已有 endpoint，不负责启停服务。
 - Eval Bench 使用同一 SQLite store 管理长期 model service registry。Services 页可以登记外部 vLLM endpoint，也可以登记本地 vLLM OpenAI server 的 CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数；本地服务通过当前 `.venv` 的 Python 以 `python -m vllm.entrypoints.openai.api_server` 启动，日志写入 `eval_bench_store/services/<service_id>/service.log`，并提供 Start/Stop API。长期 vLLM 属于 Service，一次性 vLLM 属于 Job runtime，生命周期不能混用。
+- `eval_semantics.py` 是 evaluator、prediction import 和 comparison 的评估语义入口；`label_policy.py`
+  负责 target label scope 及来源，`metric_profiles.py` 负责 metric profile registry，
+  `job_lifecycle.py` 负责 job 状态和调度资源占用规则。新增任务、指标、label scope 或 job
+  状态必须先更新这些中间层，再接 UI/API/worker。
 - `src/shaft/infer`、`src/shaft/codec`、`src/shaft/metrics` 继续作为推理、解析、指标能力真源。
 - Eval Bench 负责把一次推理运行落成 raw-data-like prediction snapshot，并记录 `model_id`、模型路径、prompt ID/path/hash、prompt 文本快照、推理参数、job manifest、runtime/service 参数、创建时间、耗时、parser 信息等溯源元数据；这些字段是 run manifest 的一等快照，并在 dashboard 的 Run Inspector 中展示。
-- metric、preview、report、comparison 和样本级可视化只消费 benchmark、prediction snapshot 和 eval spec，不反向耦合训练内核或训练数据 catalog；预测结果和 test/GT 的对比统一走 benchmark copy + run prediction snapshot：benchmark copy 可以通过 `create-benchmark` 或 dashboard Benchmarks 页创建；`evaluate-run` 根据 run manifest 绑定的 benchmark split 读取 GT，再读取 `runs/<run_id>/predictions/`，计算 TP/FP/FN、IoU、per-label 指标和样本级诊断。外部预测目录通过 `import-predictions` 或 dashboard Runs 页的 `Import prediction snapshot` 导入为标准 run，它按 benchmark split 的相对路径、image path 或 basename 对齐 prediction JSON，导入后默认立即评估。当前已有 benchmark inspector 直接浏览 copied GT，dashboard 的 run 列表读取 `reports/summary.json` 的核心指标，run inspector 读取 `reports/metrics.json` 中的样本级 TP/FP/FN 诊断并结合 GT JSON、prediction snapshot 做交互式叠图检查。Run Inspector 以图像画布为主区域，支持 query chip 过滤、sample 序号直接跳转、`[`/`]` 快速切样本、图层显隐、对象 hover/click 高亮、可见标签 metric 聚合、滚轮缩放和拖拽平移；配置、prompt 和 label metric 明细默认折叠，避免低频信息挤占视觉检查空间。Runs/Jobs/Services 页提供 run 归档/删除、job 取消/删除、service 删除等管理入口，删除默认进入 `eval_bench_store/trash/`。Compare 页读取 `compare-runs`/`/api/comparisons` 的持久化报告做新旧 run 的整体 delta、已保存 comparison 查询、top case 跳转和并排样本对比。
+- metric、preview、report、comparison 和样本级可视化只消费 benchmark、prediction snapshot 和 eval spec，不反向耦合训练内核或训练数据 catalog；预测结果和 test/GT 的对比统一走 benchmark copy + run prediction snapshot：benchmark copy 可以通过 `create-benchmark` 或 dashboard Benchmarks 页创建；`evaluate-run` 根据 run manifest 绑定的 benchmark split 读取 GT，再读取 `runs/<run_id>/predictions/`，按 metric profile 计算 TP/FP/FN、IoU 或 endpoint distance、per-label 指标和样本级诊断。外部预测目录通过 `import-predictions` 或 dashboard Runs 页的 `Import prediction snapshot` 导入为标准 run，它按 benchmark split 的相对路径、image path 或 basename 对齐 prediction JSON，导入后默认立即评估。当前已有 benchmark inspector 直接浏览 copied GT，dashboard 的 run 列表读取 `reports/summary.json` 的核心指标，run inspector 读取 `reports/metrics.json` 中的样本级 TP/FP/FN 诊断并结合 GT JSON、prediction snapshot 做交互式叠图检查。Run Inspector 以图像画布为主区域，支持 query chip 过滤、sample 序号直接跳转、`[`/`]` 快速切样本、图层显隐、对象 hover/click 高亮、可见标签 metric 聚合、滚轮缩放和拖拽平移；配置、prompt 和 label metric 明细默认折叠，避免低频信息挤占视觉检查空间。Runs/Jobs/Services 页提供 run 归档/删除、job 取消/删除、service 删除等管理入口，删除默认进入 `eval_bench_store/trash/`。Compare 页读取 `compare-runs`/`/api/comparisons` 的持久化报告做新旧 run 的整体 delta、已保存 comparison 查询、top case 跳转和并排样本对比，并保留 endpoint distance 这类 profile 主指标的改善/退化语义。
 - 持久化目录默认是 `eval_bench_store/`，不写入训练 checkpoint 目录 `outputs/`。
 
 入口脚本是 `scripts/eval_bench.py`，只做薄包装：把 `projects/eval_bench` 加入 `sys.path` 并调用子项目 CLI。

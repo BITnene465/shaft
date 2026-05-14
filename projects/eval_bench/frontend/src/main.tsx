@@ -2182,6 +2182,10 @@ function ComparisonPanel({ report }: { report: ComparisonReport }) {
   );
   const firstImprovement = firstComparableSample(filteredImprovements);
   const firstRegression = firstComparableSample(filteredRegressions);
+  const showsEndpointMetric =
+    report.metric_profile === "keypoint_endpoint_v1" ||
+    report.delta.keypoint_pair_count !== 0 ||
+    report.delta.mean_keypoint_distance !== 0;
   return (
     <div className="comparison-panel">
       <div className="comparison-title-row">
@@ -2209,7 +2213,13 @@ function ComparisonPanel({ report }: { report: ComparisonReport }) {
         <DeltaCard label="P@.50" value={report.delta.precision_iou50} />
         <DeltaCard label="R@.50" value={report.delta.recall_iou50} />
         <DeltaCard label="平均 IoU" value={report.delta.mean_iou} />
+        {showsEndpointMetric ? (
+          <DeltaCard label="端点距离" value={report.delta.mean_keypoint_distance} inverted />
+        ) : null}
         <DeltaCard label="匹配数" value={report.delta.matched_count} integer />
+        {showsEndpointMetric ? (
+          <DeltaCard label="端点对" value={report.delta.keypoint_pair_count} integer />
+        ) : null}
         <DeltaCard label="误检" value={report.delta.false_positive_count} integer inverted />
         <DeltaCard label="漏检" value={report.delta.false_negative_count} integer inverted />
       </div>
@@ -2373,7 +2383,11 @@ function ComparisonLabelDeltaStrip({
             key={item.label}
           >
             <span>{item.label}</span>
-            <strong>R {formatSignedMetric(item.delta.recall_iou50)}</strong>
+            <strong>
+              {item.delta.keypoint_pair_count !== 0 || item.delta.mean_keypoint_distance !== 0
+                ? `D ${formatSignedMetric(item.delta.mean_keypoint_distance)}`
+                : `R ${formatSignedMetric(item.delta.recall_iou50)}`}
+            </strong>
             <em>
               TP {formatSignedInteger(item.delta.matched_count)} · FP{" "}
               {formatSignedInteger(item.delta.false_positive_count)} · FN{" "}
@@ -2453,6 +2467,17 @@ function ComparisonSampleTable({
                     inverted
                   />
                   <MetricDelta label="IoU" value={sample.delta.mean_iou} />
+                  {sample.delta.keypoint_pair_count !== 0 ||
+                  sample.delta.mean_keypoint_distance !== 0 ? (
+                    <>
+                      <MetricDelta
+                        label="D"
+                        value={sample.delta.mean_keypoint_distance}
+                        inverted
+                      />
+                      <MetricDelta label="Pts" value={sample.delta.keypoint_pair_count} integer />
+                    </>
+                  ) : null}
                 </span>
               </>
             );

@@ -5,11 +5,11 @@ import logging
 import os
 from pathlib import Path
 import threading
-import time
 from typing import Any
 
 from .artifacts import DEFAULT_STORE_ROOT
 from .database import EvalBenchDatabase, JobRecord
+from .job_lifecycle import job_holds_scheduler_resources
 from .schema import utc_now_iso
 from .worker import EvalBenchWorker
 
@@ -96,7 +96,7 @@ class EvalBenchOrchestrator:
         return [
             job
             for job in self.database.list_jobs(limit=500)
-            if job.status == "running" and _job_has_live_process(job)
+            if job_holds_scheduler_resources(job) and _job_has_live_process(job)
         ]
 
     def schedule_once(self) -> list[JobRecord]:

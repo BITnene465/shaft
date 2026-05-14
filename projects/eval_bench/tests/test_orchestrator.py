@@ -82,6 +82,39 @@ def test_orchestrator_skips_queued_job_when_cuda_device_is_reserved(
     assert database.get_job(schedulable.job_id).status == "running"
 
 
+def test_orchestrator_reserves_cancel_requested_live_job_resources(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    cancelled_live = database.create_job(
+        kind="eval",
+        payload={"cuda_visible_devices": "0"},
+        status="running",
+        metadata={"dashboard_worker_pid": os.getpid()},
+    )
+    database.cancel_job(cancelled_live.job_id)
+    blocked = database.create_job(kind="eval", payload={"cuda_visible_devices": "0"})
+    schedulable = database.create_job(kind="eval", payload={"cuda_visible_devices": "1"})
+    orchestrator = EvalBenchOrchestrator(
+        tmp_path,
+        config=SchedulerConfig(max_concurrent_jobs=3, interval_s=0.01),
+    )
+    monkeypatch.setattr(
+        EvalBenchWorker,
+        "process_job",
+        lambda self, job_id: self.database.get_job(job_id),
+    )
+
+    launched = orchestrator.schedule_once()
+
+    assert [job.job_id for job in launched] == [schedulable.job_id]
+    assert database.get_job(blocked.job_id).status == "queued"
+    assert "already reserved" in database.get_job(blocked.job_id).metadata[
+        "scheduler_blocked_reason"
+    ]
+
+
 def test_orchestrator_blocks_invalid_tensor_parallel_request(tmp_path: Path) -> None:
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(

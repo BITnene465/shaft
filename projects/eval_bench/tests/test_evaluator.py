@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from eval_bench.artifacts import RunArtifacts
-from eval_bench.comparison import compare_runs
+from eval_bench.comparison import compare_report_payloads, compare_runs
 from eval_bench.evaluator import evaluate_run
 from eval_bench.schema import (
     BenchmarkRef,
@@ -132,7 +132,10 @@ def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:
     summary = json.loads((report_path.parent / "summary.json").read_text(encoding="utf-8"))
 
     assert report["target_labels"] == ["icon"]
+    assert report["target_labels_source"] == "explicit"
     assert summary["target_labels"] == ["icon"]
+    assert summary["target_labels_source"] == "explicit"
+    assert summary["metric_profile"] == "detection_iou_v1"
     assert report["gt_instance_count"] == 1
     assert report["pred_instance_count"] == 1
     assert [item["label"] for item in report["labels"]] == ["icon"]
@@ -171,6 +174,7 @@ def test_evaluate_run_infers_layout_target_labels_from_prompt_id(tmp_path: Path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
     assert report["target_labels"] == ["icon", "image", "shape"]
+    assert report["target_labels_source"] == "legacy_prompt_id"
     assert report["gt_instance_count"] == 1
     assert report["pred_instance_count"] == 1
     assert [item["label"] for item in report["labels"]] == ["icon"]
@@ -212,7 +216,51 @@ def test_evaluate_run_records_keypoint_distance(tmp_path: Path) -> None:
 
     assert report["labels"][0]["keypoint_pair_count"] == 1
     assert report["labels"][0]["mean_keypoint_distance"] == 5.0
+    assert report["keypoint_pair_count"] == 1
+    assert report["mean_keypoint_distance"] == 5.0
     assert report["samples"][0]["matches"][0]["keypoint_distance"] == 5.0
+
+
+def test_keypoint_profile_matches_by_endpoint_distance_not_bbox_iou(tmp_path: Path) -> None:
+    artifacts = _write_run(tmp_path, task="keypoint")
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "data" / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {
+                    "label": "arrow",
+                    "bbox": [0, 0, 100, 20],
+                    "linestrip": [[0, 10], [100, 10]],
+                }
+            ],
+        },
+    )
+    artifacts.write_prediction(
+        PredictionDocument(
+            image="part1/images/a.png",
+            instances=[
+                PredictionInstance(
+                    label="arrow",
+                    bbox=[0, 0, 100, 20],
+                    keypoints=[[90, 10], [0, 10]],
+                )
+            ],
+            metadata={"producer": "test"},
+        ),
+        task="keypoint",
+    )
+
+    report_path = evaluate_run(store_root=tmp_path, run_id="run_keypoint")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report["metric_profile"] == "keypoint_endpoint_v1"
+    assert report["matched_count"] == 0
+    assert report["precision_iou50"] == 0.0
+    assert report["recall_iou50"] == 0.0
+    assert report["keypoint_pair_count"] == 0
+    assert report["samples"][0]["false_negative_count"] == 1
+    assert report["samples"][0]["false_positive_count"] == 1
 
 
 def test_compare_runs_reports_improvements_and_regressions(tmp_path: Path) -> None:
@@ -287,3 +335,112 @@ def test_compare_runs_reports_improvements_and_regressions(tmp_path: Path) -> No
     shape_delta = next(item for item in comparison["labels"] if item["label"] == "shape")
     assert shape_delta["delta"]["matched_count"] == 1
     assert shape_delta["delta"]["false_negative_count"] == -1
+
+
+def test_compare_reports_warns_when_target_label_scope_differs() -> None:
+    comparison = compare_report_payloads(
+        baseline_run_id="baseline",
+        candidate_run_id="candidate",
+        baseline={
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": [],
+            "samples": [],
+            "labels": [],
+        },
+        candidate={
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["arrow"],
+            "samples": [],
+            "labels": [],
+        },
+    )
+
+    assert "baseline and candidate target labels differ" in comparison["warnings"]
+
+
+def test_compare_reports_scores_keypoint_distance_as_lower_better() -> None:
+    baseline_sample = {
+        "index": 0,
+        "json_path": "part1/json/a.json",
+        "image": "part1/images/a.png",
+        "matched_count": 1,
+        "false_positive_count": 0,
+        "false_negative_count": 0,
+        "mean_iou": 1.0,
+        "keypoint_pair_count": 1,
+        "mean_keypoint_distance": 10.0,
+        "labels": {
+            "arrow": {
+                "matched_count": 1,
+                "false_positive_count": 0,
+                "false_negative_count": 0,
+                "mean_iou": 1.0,
+                "keypoint_pair_count": 1,
+                "mean_keypoint_distance": 10.0,
+            }
+        },
+    }
+    candidate_sample = {
+        **baseline_sample,
+        "mean_keypoint_distance": 4.0,
+        "labels": {
+            "arrow": {
+                "matched_count": 1,
+                "false_positive_count": 0,
+                "false_negative_count": 0,
+                "mean_iou": 1.0,
+                "keypoint_pair_count": 1,
+                "mean_keypoint_distance": 4.0,
+            }
+        },
+    }
+    comparison = compare_report_payloads(
+        baseline_run_id="baseline",
+        candidate_run_id="candidate",
+        baseline={
+            "task": "keypoint",
+            "metric_profile": "keypoint_endpoint_v1",
+            "matched_count": 1,
+            "keypoint_pair_count": 1,
+            "mean_keypoint_distance": 10.0,
+            "samples": [baseline_sample],
+            "labels": [
+                {
+                    "label": "arrow",
+                    "gt_count": 1,
+                    "pred_count": 1,
+                    "matched_count": 1,
+                    "keypoint_pair_count": 1,
+                    "mean_keypoint_distance": 10.0,
+                }
+            ],
+        },
+        candidate={
+            "task": "keypoint",
+            "metric_profile": "keypoint_endpoint_v1",
+            "matched_count": 1,
+            "keypoint_pair_count": 1,
+            "mean_keypoint_distance": 4.0,
+            "samples": [candidate_sample],
+            "labels": [
+                {
+                    "label": "arrow",
+                    "gt_count": 1,
+                    "pred_count": 1,
+                    "matched_count": 1,
+                    "keypoint_pair_count": 1,
+                    "mean_keypoint_distance": 4.0,
+                }
+            ],
+        },
+    )
+
+    assert comparison["delta"]["mean_keypoint_distance"] == -6.0
+    assert comparison["summary"]["improved_samples"] == 1
+    assert comparison["summary"]["regressed_samples"] == 0
+    assert comparison["top_improvements"][0]["delta"]["mean_keypoint_distance"] == -6.0
+    assert comparison["top_improvements"][0]["delta_score"] > 0.0
+    assert comparison["labels"][0]["delta"]["mean_keypoint_distance"] == -6.0
+    assert comparison["labels"][0]["delta_score"] > 0.0

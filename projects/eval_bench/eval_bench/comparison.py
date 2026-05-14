@@ -80,7 +80,10 @@ def compare_report_payloads(
         "baseline_run_id": baseline_run_id,
         "candidate_run_id": candidate_run_id,
         "task": candidate.get("task") or baseline.get("task"),
+        "metric_profile": candidate.get("metric_profile") or baseline.get("metric_profile"),
         "target_labels": _target_labels(candidate) or _target_labels(baseline),
+        "target_labels_source": candidate.get("target_labels_source")
+        or baseline.get("target_labels_source"),
         "warnings": _comparison_warnings(baseline, candidate),
         "sample_count": len(keys),
         "baseline": _run_metrics(baseline),
@@ -89,8 +92,15 @@ def compare_report_payloads(
             "precision_iou50": _metric_delta(candidate, baseline, "precision_iou50"),
             "recall_iou50": _metric_delta(candidate, baseline, "recall_iou50"),
             "mean_iou": _metric_delta(candidate, baseline, "mean_iou"),
+            "mean_keypoint_distance": _metric_delta(
+                candidate,
+                baseline,
+                "mean_keypoint_distance",
+            ),
             "matched_count": int(candidate.get("matched_count") or 0)
             - int(baseline.get("matched_count") or 0),
+            "keypoint_pair_count": int(candidate.get("keypoint_pair_count") or 0)
+            - int(baseline.get("keypoint_pair_count") or 0),
             "false_positive_count": sum(int(item["delta"]["false_positive_count"]) for item in sample_deltas),
             "false_negative_count": sum(int(item["delta"]["false_negative_count"]) for item in sample_deltas),
         },
@@ -150,12 +160,18 @@ def _compare_sample(
         "false_negative_count": candidate_metrics["false_negative_count"]
         - baseline_metrics["false_negative_count"],
         "mean_iou": candidate_metrics["mean_iou"] - baseline_metrics["mean_iou"],
+        "keypoint_pair_count": candidate_metrics["keypoint_pair_count"]
+        - baseline_metrics["keypoint_pair_count"],
+        "mean_keypoint_distance": candidate_metrics["mean_keypoint_distance"]
+        - baseline_metrics["mean_keypoint_distance"],
     }
     delta_score = (
         delta["matched_count"]
         - delta["false_positive_count"]
         - delta["false_negative_count"]
         + delta["mean_iou"] * 0.25
+        + delta["keypoint_pair_count"]
+        - delta["mean_keypoint_distance"] * 0.05
     )
     if delta_score > 0:
         status = "improved"
@@ -185,12 +201,16 @@ def _sample_metrics(sample: dict[str, Any] | None) -> dict[str, Any]:
             "false_positive_count": 0,
             "false_negative_count": 0,
             "mean_iou": 0.0,
+            "keypoint_pair_count": 0,
+            "mean_keypoint_distance": 0.0,
         }
     return {
         "matched_count": int(sample.get("matched_count") or 0),
         "false_positive_count": int(sample.get("false_positive_count") or 0),
         "false_negative_count": int(sample.get("false_negative_count") or 0),
         "mean_iou": float(sample.get("mean_iou") or 0.0),
+        "keypoint_pair_count": int(sample.get("keypoint_pair_count") or 0),
+        "mean_keypoint_distance": float(sample.get("mean_keypoint_distance") or 0.0),
     }
 
 
@@ -213,6 +233,9 @@ def _compare_sample_labels(
             "false_positive_count": cand["false_positive_count"] - base["false_positive_count"],
             "false_negative_count": cand["false_negative_count"] - base["false_negative_count"],
             "mean_iou": cand["mean_iou"] - base["mean_iou"],
+            "keypoint_pair_count": cand["keypoint_pair_count"] - base["keypoint_pair_count"],
+            "mean_keypoint_distance": cand["mean_keypoint_distance"]
+            - base["mean_keypoint_distance"],
         }
     return labels
 
@@ -228,7 +251,10 @@ def _compare_run_labels(baseline: dict[str, Any], candidate: dict[str, Any]) -> 
             "precision_iou50": cand["precision_iou50"] - base["precision_iou50"],
             "recall_iou50": cand["recall_iou50"] - base["recall_iou50"],
             "mean_iou": cand["mean_iou"] - base["mean_iou"],
+            "mean_keypoint_distance": cand["mean_keypoint_distance"]
+            - base["mean_keypoint_distance"],
             "matched_count": cand["matched_count"] - base["matched_count"],
+            "keypoint_pair_count": cand["keypoint_pair_count"] - base["keypoint_pair_count"],
             "false_positive_count": cand["false_positive_count"] - base["false_positive_count"],
             "false_negative_count": cand["false_negative_count"] - base["false_negative_count"],
         }
@@ -237,6 +263,8 @@ def _compare_run_labels(baseline: dict[str, Any], candidate: dict[str, Any]) -> 
             - delta["false_positive_count"]
             - delta["false_negative_count"]
             + delta["mean_iou"] * 0.25
+            + delta["keypoint_pair_count"]
+            - delta["mean_keypoint_distance"] * 0.05
         )
         rows.append(
             {
@@ -275,6 +303,8 @@ def _run_label_metrics(label: dict[str, Any] | None) -> dict[str, Any]:
             "precision_iou50": 0.0,
             "recall_iou50": 0.0,
             "mean_iou": 0.0,
+            "keypoint_pair_count": 0,
+            "mean_keypoint_distance": 0.0,
         }
     gt_count = int(label.get("gt_count") or 0)
     pred_count = int(label.get("pred_count") or 0)
@@ -288,6 +318,8 @@ def _run_label_metrics(label: dict[str, Any] | None) -> dict[str, Any]:
         "precision_iou50": float(label.get("precision_iou50") or 0.0),
         "recall_iou50": float(label.get("recall_iou50") or 0.0),
         "mean_iou": float(label.get("mean_iou") or 0.0),
+        "keypoint_pair_count": int(label.get("keypoint_pair_count") or 0),
+        "mean_keypoint_distance": float(label.get("mean_keypoint_distance") or 0.0),
     }
 
 
@@ -296,6 +328,8 @@ def _run_metrics(report: dict[str, Any]) -> dict[str, Any]:
         "precision_iou50": float(report.get("precision_iou50") or 0.0),
         "recall_iou50": float(report.get("recall_iou50") or 0.0),
         "mean_iou": float(report.get("mean_iou") or 0.0),
+        "keypoint_pair_count": int(report.get("keypoint_pair_count") or 0),
+        "mean_keypoint_distance": float(report.get("mean_keypoint_distance") or 0.0),
         "matched_count": int(report.get("matched_count") or 0),
         "gt_instance_count": int(report.get("gt_instance_count") or 0),
         "pred_instance_count": int(report.get("pred_instance_count") or 0),
@@ -317,9 +351,11 @@ def _comparison_warnings(baseline: dict[str, Any], candidate: dict[str, Any]) ->
     warnings: list[str] = []
     if str(baseline.get("task") or "") != str(candidate.get("task") or ""):
         warnings.append("baseline and candidate tasks differ")
+    if str(baseline.get("metric_profile") or "") != str(candidate.get("metric_profile") or ""):
+        warnings.append("baseline and candidate metric profiles differ")
     baseline_labels = _target_labels(baseline)
     candidate_labels = _target_labels(candidate)
-    if baseline_labels and candidate_labels and baseline_labels != candidate_labels:
+    if baseline_labels != candidate_labels:
         warnings.append("baseline and candidate target labels differ")
     return warnings
 
