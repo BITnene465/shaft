@@ -1,18 +1,90 @@
-# Shaft TODO（延后项与未开工项）
+# Shaft TODO（P0、延后项与未开工项）
 
-本文档记录当前明确“暂不展开”的能力，避免后续重构把主线拉散。
+本文档记录当前 P0 待办、明确暂缓的能力，以及后续增强边界，避免后续重构把主线拉散。
 
 ## 1. 当前主线
 
 - 当前主线需求仍是：**Qwen3VL 的 SFT / DPO / HF-first 训练与部署闭环**。
 - 因此，优先投入：
   - 训练主链路稳定性
+  - 多机多卡训练拓扑
+  - online policy distillation
   - HF 兼容 checkpoint / export / merge 工具链
   - 数据中心、模型适配、模板与推理链路收口
 
-## 2. 暂缓项
+## 2. P0 待办
 
-### 2.1 第二个真实模型族接入
+### 2.1 多机多卡训练拓扑
+
+状态：**P0，进入训练主线规划**。
+
+目标：
+- 支持 `torchrun` / DDP 语义下的多机多卡训练。
+- 明确区分：
+  - 单机单卡
+  - 单机多卡 DDP
+  - 多机多卡 DDP
+  - 非法的单进程多卡 `DataParallel`
+- 训练、保存、resume、online eval、export summary 和日志都必须具备 rank-aware 语义。
+
+必须覆盖的设计边界：
+- `config`
+  - 增加分布式拓扑配置与 normalize/validation。
+  - 不把用户机器的 GPU 拓扑硬编码进训练配置。
+- `pipeline / training`
+  - 统一分布式启动环境解析。
+  - rank0-only artifact 写入、checkpoint metadata 写入和 summary 写入必须集中处理。
+  - all-rank barrier、异常传播和退出状态要有明确规则。
+- `data`
+  - sampler / mixing / eval dataset 在 distributed sharding 下语义一致。
+  - 不允许为多机多卡复制第二套 data center。
+- `training/online_eval`
+  - 复用现有 all-gather 与去重防线。
+  - DDP 与单卡的 metric 口径必须一致。
+- `observability`
+  - 日志和事件要包含 rank、local rank、world size、node rank。
+
+验收要求：
+1. 配置 schema、normalize、CLI dry-run 和错误信息覆盖单机/多机拓扑。
+2. 非分布式启动但可见多张 GPU 时继续拒绝 `DataParallel` 路径。
+3. rank0-only 写文件和非 rank0 跳过写文件都有测试。
+4. 在线 eval 在 DDP 下保持全局聚合、样本去重和单卡一致口径。
+5. 文档给出 `torchrun --nnodes ... --nproc-per-node ...` 的推荐启动方式。
+
+### 2.2 Online Policy Distillation
+
+状态：**P0，进入训练主线规划**。
+
+目标：
+- 支持训练过程中从 teacher policy 在线产生监督信号，供 student policy 做蒸馏更新。
+- 第一版优先服务 Qwen3VL 视觉结构任务，不先扩成通用蒸馏平台。
+- teacher 可以是冻结 HF 模型、vLLM/OpenAI-compatible endpoint，或后续扩展的策略服务。
+
+必须覆盖的设计边界：
+- `config`
+  - 新增 distillation 配置块，描述 teacher、采样参数、更新频率、缓存策略和 loss 权重。
+  - 与 `eval.online_metrics_enabled`、`generation`、`data` 的字段边界保持清晰。
+- `algorithms`
+  - 新增 policy distillation 算法抽象或 RLHF 子算法，不把 teacher 调用写进 SFT trainer。
+  - 第一版可从 response-level distillation 开始；logprob/KL distillation 作为显式后续能力。
+- `pipeline / training`
+  - 负责 teacher/student 装配、批次调度、异常处理和 checkpoint 追踪。
+  - DDP 下 teacher 请求、缓存命中和 student 更新必须有明确 rank 策略。
+- `infer / codec`
+  - teacher 输出解析复用共享 codec，不维护一套平行 JSON 修复逻辑。
+- `data`
+  - 在线生成的 teacher response 必须有 artifact / trace，不能污染原始训练数据真源。
+
+验收要求：
+1. fake teacher adapter 单测覆盖 deterministic response-level distillation。
+2. 配置 normalize 能拒绝缺失 teacher、非法采样参数和不兼容 loss 组合。
+3. 训练 smoke 能在小样本上完成 teacher 生成、student loss、checkpoint metadata 和在线 eval。
+4. DDP 策略有测试或明确 skip 原因，不能只在单卡路径可用。
+5. 文档明确 teacher 输出缓存、溯源和失败恢复规则。
+
+## 3. 暂缓项
+
+### 3.1 第二个真实模型族接入
 
 - 当前暂不把 `GLM/Gemma` 等第二个真实模型族接入主干。
 - 原因：
@@ -22,7 +94,7 @@
   - 保留当前 `model/template/policy` 扩展入口
   - 待真实第二模型需求出现时，再用真实接入来验证抽象边界
 
-### 2.2 Reward Model（RM）子系统
+### 3.2 Reward Model（RM）子系统
 
 - 当前暂不展开 RM 训练、RM 数据格式、RM 评估与 RM 加载链路。
 - 原因：
@@ -32,7 +104,7 @@
   - RM 作为 PPO 恢复开发前的前置工程，单独立项处理
   - 相关未完成项继续以 [docs/ppo_todo.md](ppo_todo.md) 为补充说明
 
-### 2.3 Infer 子系统重构
+### 3.3 Infer 子系统重构
 
 - 当前 `infer` 模块已经能支撑基础单阶段/多阶段推理，但整体完成度仍然不够，设计也不够稳定。
 - 当前问题：
@@ -45,7 +117,7 @@
   - 后续如需投入，应先做一次正式架构设计与边界重审，再进入实现阶段
   - 在重构完成前，复杂离线业务优先放在 `scripts/` 侧解决，不要持续污染 `src/shaft/infer`
 
-### 2.4 离线 Eval 框架集成
+### 3.4 离线 Eval 框架集成
 
 - 当前暂不集成重型离线评测框架，例如 `EvalScope`、`OpenCompass`、`VLMEvalKit` 等。
 - 原因：
@@ -57,7 +129,7 @@
   - 重型离线评测框架的接入，待真实 benchmark/统一评测需求出现后再单独立项
   - 在此之前，任务级离线评估统一放在 `scripts/eval/` 或其他脚本侧方案中解决
 
-### 2.5 Arrow SFT 在线 Eval 与 Best Model 选择
+### 3.5 Arrow SFT 在线 Eval 与 Best Model 选择
 
 - 当前箭头 SFT 配置仍然使用：
   - `eval.metric_for_best_model = eval_loss`
@@ -119,15 +191,15 @@
   - `keypoint_arrow.keypoint_pck >= 0.85`
 - 后续调参、数据重配与离线验收默认按这组目标收口，不再只看单任务局部改善。
 
-## 3. 工具链范围
+## 4. 工具链范围
 
-### 3.1 已纳入当前范围
+### 4.1 已纳入当前范围
 
 - HF 导出目录校验
 - PEFT adapter -> HF full export 合并
 - `scripts/export.py` 工具入口
 
-### 3.2 暂不展开
+### 4.2 暂不展开
 
 - 模型发布/上传工具链
 - Hub 发布自动化
@@ -137,7 +209,7 @@
 - 当前导出/合并只接受 **HF/PEFT 标准目录**。
 - 不引入额外中间格式，不生成自定义 metadata 目录，不复制已有 full checkpoint。
 
-## 4. 数据 Mixing 后续增强
+## 5. 数据 Mixing 后续增强
 
 - 当前已支持：
   - `static`
@@ -153,7 +225,7 @@
 - 当前先把 `static / epoch_refresh` 的 sampler 主路径做稳。
 - 后续如果要继续投入，应优先把 mixing state / policy / sampler 明确拆层，而不是在 `data center` 里继续堆条件分支。
 
-### 4.1 GRPO 与 mixing 刷新语义对齐
+### 5.1 GRPO 与 mixing 刷新语义对齐
 
 - 当前 `GRPO` 明确只支持：
   - `data.mix_refresh=static`
@@ -179,7 +251,7 @@
 - 这件事的核心不是“放开配置”，而是重构采样主控权。
 - 在没有 `GRPO-aware sampler` 之前，继续保持 `static-only` 是正确约束。
 
-## 5. Data Center / Dataset 增强边界重构
+## 6. Data Center / Dataset 增强边界重构
 
 - 当前暂不继续扩 `data center` 和 `dataset` 上的数据增强职责。
 - 当前结论：

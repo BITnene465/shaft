@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3vl-4b-sft-arrow-layout-keypoint-v2
-  output_dir: outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2
+  name: qwen3vl-4b-sft-arrow-layout-keypoint-v2-e2-stepckpt
+  output_dir: outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2-e2-stepckpt
   seed: 42
 
 model:
@@ -40,7 +40,7 @@ data:
   shuffle: true
 
 train:
-  epochs: 3
+  epochs: 2
   max_steps: -1
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 4
@@ -66,11 +66,11 @@ train:
   max_grad_norm: 1.0
   bf16: true
   logging_steps: 50
-  save_strategy: epoch
+  save_strategy: steps
   save_epoch_interval: 1
-  save_steps: 200
-  save_total_limit: 6
-  load_best_model_at_end: true
+  save_steps: 1000
+  save_total_limit: 20
+  load_best_model_at_end: false
   save_final_model: true
   save_final_state: true
   ddp_find_unused_parameters: false
@@ -81,16 +81,16 @@ train:
 eval:
   enabled: true
   per_device_eval_batch_size: 1
-  eval_strategy: epoch
+  eval_strategy: no
   epoch_interval: 1
   eval_steps: 200
   loss_metrics_enabled: false
   do_sample: false
   temperature: 0.0
   max_new_tokens: 4096
-  online_metrics_enabled: true
-  metric_for_best_model: eval_final_score
-  greater_is_better: true
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
   datasets:
     grounding_arrow:
       prediction_codec: json_list
