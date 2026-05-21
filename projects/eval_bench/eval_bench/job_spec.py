@@ -72,13 +72,13 @@ def _eval_job_manifest(
         "runtime": {
             "mode": "ephemeral",
             "engine": "vllm_openai",
-            "env": {"CUDA_VISIBLE_DEVICES": "0", "CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+            "env": {"CUDA_VISIBLE_DEVICES": "", "CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
             "args": {
-                "model": "outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best",
-                "served-model-name": "qwen3vl-latest",
+                "model": "",
+                "served-model-name": "",
                 "host": "127.0.0.1",
-                "port": 8000,
-                "tensor-parallel-size": 1,
+                "port": None,
+                "tensor-parallel-size": None,
                 "max-model-len": 32768,
                 "gpu-memory-utilization": 0.9,
                 "max-num-seqs": 8,
@@ -86,8 +86,8 @@ def _eval_job_manifest(
             },
         },
         "eval": {
-            "model_id": "qwen3vl-latest",
-            "benchmark_id": "multitask_val_v1",
+            "model_id": "",
+            "benchmark_id": "",
             "task": task,
             "prompt_id": prompt_id,
             "parser": parser,
@@ -294,6 +294,7 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         runtime_args.get("model_path"),
         original.get("model_path"),
     )
+    default_model_id = _default_model_id_from_path(model_path)
     served_model_name = _first_string(
         runtime_args.get("served_model_name"),
         runtime_args.get("served-model-name"),
@@ -301,10 +302,34 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         runtime.get("served-model-name"),
         eval_config.get("model_id"),
         original.get("served_model_name"),
+        original.get("model_id"),
+        default_model_id,
     )
-    model_id = _first_string(eval_config.get("model_id"), served_model_name, original.get("model_id"))
+    model_id = _first_string(
+        eval_config.get("model_id"),
+        original.get("model_id"),
+        served_model_name,
+        default_model_id,
+    )
     runtime_mode = str(runtime.get("mode") or "ephemeral")
     backend = str(runtime.get("engine") or eval_config.get("backend") or original.get("backend") or "vllm_openai")
+    host = _first_string(runtime_args.get("host"), runtime.get("host"), original.get("host"), "127.0.0.1")
+    cuda_visible_devices = _first_string(
+        env.get("CUDA_VISIBLE_DEVICES"),
+        env.get("cuda_visible_devices"),
+        runtime_args.get("cuda_visible_devices"),
+        original.get("cuda_visible_devices"),
+    )
+    tensor_parallel_size = _first_value(
+        runtime_args.get("tensor_parallel_size"),
+        runtime_args.get("tensor-parallel-size"),
+        original.get("tensor_parallel_size"),
+    )
+    if tensor_parallel_size in (None, ""):
+        tensor_parallel_size = len(_cuda_visible_devices(cuda_visible_devices)) or 1
+    port = _first_value(runtime_args.get("port"), runtime.get("port"), original.get("port"))
+    if port in (None, "") and runtime_mode == "ephemeral" and backend == "vllm_openai":
+        port = _first_available_port(host or "127.0.0.1")
     payload = {
         **{key: value for key, value in original.items() if key not in {"manifest", "runtime", "eval", "kind"}},
         "job_manifest": manifest,
@@ -327,15 +352,10 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         "endpoint": _first_string(runtime.get("endpoint"), original.get("endpoint")),
         "service_id": _first_string(runtime.get("service_id"), original.get("service_id")),
         "served_model_name": served_model_name,
-        "host": _first_string(runtime_args.get("host"), runtime.get("host"), original.get("host"), "127.0.0.1"),
-        "port": _first_value(runtime_args.get("port"), runtime.get("port"), original.get("port")),
-        "cuda_visible_devices": _first_string(
-            env.get("CUDA_VISIBLE_DEVICES"),
-            env.get("cuda_visible_devices"),
-            runtime_args.get("cuda_visible_devices"),
-            original.get("cuda_visible_devices"),
-        ),
-        "tensor_parallel_size": _first_value(runtime_args.get("tensor_parallel_size"), runtime_args.get("tensor-parallel-size"), original.get("tensor_parallel_size")),
+        "host": host,
+        "port": port,
+        "cuda_visible_devices": cuda_visible_devices,
+        "tensor_parallel_size": tensor_parallel_size,
         "max_model_len": _first_value(runtime_args.get("max_model_len"), runtime_args.get("max-model-len"), original.get("max_model_len")),
         "gpu_memory_utilization": _first_value(runtime_args.get("gpu_memory_utilization"), runtime_args.get("gpu-memory-utilization"), original.get("gpu_memory_utilization")),
         "max_num_seqs": _first_value(runtime_args.get("max_num_seqs"), runtime_args.get("max-num-seqs"), original.get("max_num_seqs")),
@@ -621,10 +641,32 @@ def _resolve_repo_path(value: str | Path) -> Path:
     return REPO_ROOT / path
 
 
+def _default_model_id_from_path(value: str | None) -> str | None:
+    if not value:
+        return None
+    path = Path(str(value).rstrip("/"))
+    name = path.name
+    if not name:
+        return None
+    if name in {"best", "latest"} or name.startswith("checkpoint-"):
+        parent = path.parent.name
+        if parent:
+            return f"{parent}-{name}"
+    return name
+
+
+def _first_available_port(host: str, *, start: int = 8000, limit: int = 100) -> int:
+    for port in range(start, start + limit):
+        if _port_available(host, port):
+            return port
+    raise ValueError(f"no available runtime port found in range {start}-{start + limit - 1}.")
+
+
 def _port_available(host: str, port: int) -> bool:
+    check_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
-        return sock.connect_ex((host, int(port))) != 0
+        return sock.connect_ex((check_host, int(port))) != 0
 
 
 def _first_string(*values: Any) -> str | None:

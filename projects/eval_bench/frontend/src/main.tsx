@@ -109,7 +109,6 @@ import {
 import { displayImageUrl, preloadSampleImages } from "./viewerGeometry";
 import { CanvasStage } from "./viewerCanvas";
 import {
-  DiagnosticStrip,
   InstanceStats,
   LabelMetricTable,
   ObjectList,
@@ -1465,12 +1464,7 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     overlayStyle,
     labelColors,
     interactionSettings,
-    overlayVars,
-    updateOverlayStyle,
-    updateLabelColor,
-    removeLabelColor,
-    resetOverlayStyle,
-    resetLabelColors
+    overlayVars
   } = useWorkspaceSettings(labels);
   const activeObjectId = lockedObjectId ?? hoveredObjectId;
   const activeLabelSet = useMemo(() => new Set(activeLabels), [activeLabels]);
@@ -1577,20 +1571,12 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
       <ViewerControlPanel
         labels={labels}
         activeLabels={activeLabels}
-        colors={overlayColors}
-        styleConfig={overlayStyle}
-        labelColors={labelColors}
         showGt={showGt}
         showPred={showPred}
         showBoxes={showBoxes}
         showLines={showLines}
         showKeypoints={showKeypoints}
         onToggleLabel={toggleLabel}
-        onStyleChange={updateOverlayStyle}
-        onLabelColorChange={updateLabelColor}
-        onLabelColorRemove={removeLabelColor}
-        onResetStyle={resetOverlayStyle}
-        onResetLabelColors={resetLabelColors}
         onShowGtChange={setShowGt}
         onShowPredChange={setShowPred}
         onShowBoxesChange={setShowBoxes}

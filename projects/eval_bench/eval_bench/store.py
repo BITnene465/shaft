@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, StoreLayout
+from .sample_paths import sample_image_string
+from .sample_scope import (
+    filter_instances_by_labels,
+    filter_payload_instances,
+    run_target_label_set,
+    run_target_labels,
+    scope_sample_diagnostics,
+)
 
 
 def _read_json_or_none(path: Path) -> dict[str, Any] | None:
@@ -313,13 +321,19 @@ class EvalBenchStore:
             diagnostics=diagnostics,
         )
         prediction_payload = _read_json_or_none(Path(summary.prediction_path or ""))
+        target_labels = run_target_label_set(payload)
+        filtered_raw_payload = filter_payload_instances(raw_payload, target_labels)
+        filtered_prediction_payload = filter_payload_instances(prediction_payload, target_labels)
         return RunSampleDetail(
             sample=summary,
-            gt_instances=_raw_instances(raw_payload),
-            pred_instances=_prediction_instances(prediction_payload),
-            raw_payload=raw_payload,
-            prediction_payload=prediction_payload,
-            diagnostics=diagnostics,
+            gt_instances=filter_instances_by_labels(_raw_instances(raw_payload), target_labels),
+            pred_instances=filter_instances_by_labels(
+                _prediction_instances(prediction_payload),
+                target_labels,
+            ),
+            raw_payload=filtered_raw_payload,
+            prediction_payload=filtered_prediction_payload,
+            diagnostics=summary.diagnostics,
         )
 
     def run_sample_image_path(self, run_id: str, *, sample_index: int) -> Path:
@@ -529,6 +543,10 @@ class EvalBenchStore:
     ) -> list[str]:
         if run_id in self._run_label_cache:
             return self._run_label_cache[run_id]
+        target_labels = run_target_labels(run_payload)
+        if target_labels:
+            self._run_label_cache[run_id] = target_labels
+            return target_labels
         summary = _read_json_or_none(self.layout.runs_dir / run_id / "reports" / "summary.json")
         labels = _labels_from_summary(summary)
         if labels:
@@ -599,8 +617,20 @@ class EvalBenchStore:
         image = _sample_image(raw_payload, json_path, root)
         prediction_path = RunArtifacts(self.layout.root, run_id).prediction_path(image)
         prediction_payload = _read_json_or_none(prediction_path)
-        gt_instances = _raw_instances(raw_payload)
-        pred_instances = _prediction_instances(prediction_payload)
+        target_labels = run_target_label_set(run_payload)
+        all_gt_instances = _raw_instances(raw_payload)
+        all_pred_instances = _prediction_instances(prediction_payload)
+        gt_instances = filter_instances_by_labels(all_gt_instances, target_labels)
+        pred_instances = filter_instances_by_labels(
+            all_pred_instances,
+            target_labels,
+        )
+        scoped_diagnostics = scope_sample_diagnostics(
+            diagnostics,
+            gt_instances=all_gt_instances,
+            pred_instances=all_pred_instances,
+            labels=target_labels,
+        )
         labels = sorted(
             {str(item.get("label") or "") for item in gt_instances + pred_instances if item.get("label")}
         )
@@ -615,7 +645,7 @@ class EvalBenchStore:
             labels=labels,
             has_prediction=prediction_payload is not None,
             prediction_path=str(prediction_path) if prediction_payload is not None else None,
-            diagnostics=diagnostics,
+            diagnostics=scoped_diagnostics,
         )
 
     def _benchmark_sample_summary(
@@ -727,17 +757,7 @@ def _benchmark_root(run_payload: dict[str, Any]) -> Path:
 
 
 def _sample_image(raw_payload: dict[str, Any], json_path: Path, root: Path) -> str:
-    image = str(raw_payload.get("image_path") or raw_payload.get("image") or "")
-    if image:
-        return image
-    try:
-        relative_json = json_path.relative_to(root)
-    except ValueError:
-        relative_json = json_path
-    parts = relative_json.parts
-    if len(parts) >= 3 and parts[1] == "json":
-        return str(Path(parts[0]) / "images" / relative_json.with_suffix(".png").name)
-    return str(relative_json.with_suffix(".png"))
+    return sample_image_string(json_path, raw_payload, root=root)
 
 
 def _raw_instances(payload: dict[str, Any] | None) -> list[dict[str, Any]]:

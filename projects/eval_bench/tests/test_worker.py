@@ -5,12 +5,15 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 from eval_bench.adapters.vllm_openai import GeneratedText
 from eval_bench.database import EvalBenchDatabase
+from eval_bench.sample_paths import sample_image_path
 from eval_bench.worker import (
     EvalBenchWorker,
+    _default_vllm_internal_port,
     _process_group_exists,
     _resolve_prompt,
     _stop_ephemeral_runtime,
@@ -152,6 +155,26 @@ def _ephemeral_eval_job_payload() -> dict:
             },
         }
     }
+
+
+def test_default_vllm_internal_port_is_separate_from_api_port() -> None:
+    port = _default_vllm_internal_port({"port": 8000})
+
+    assert 28000 <= port < 28100
+
+
+def test_image_path_from_gt_uses_existing_non_png_suffix(tmp_path: Path) -> None:
+    image_path = tmp_path / "part2" / "images" / "prod_000876.jpg"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(b"image")
+
+    resolved = sample_image_path(
+        Path("part2/json/prod_000876.json"),
+        {},
+        root=tmp_path,
+    )
+
+    assert resolved == Path("part2/images/prod_000876.jpg")
 
 
 def test_worker_stops_ephemeral_runtime_after_success(
@@ -360,7 +383,7 @@ def test_worker_default_prompt_resolution_is_repo_rooted(tmp_path: Path, monkeyp
 
     assert "Return only valid JSON" in system_prompt
     assert "Detect every top-level layout element" in user_prompt
-    assert prompt_id == "grounding_layout.sft.v3"
+    assert prompt_id == "banana.grounding_layout.sft.v1"
 
 
 def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
@@ -499,3 +522,95 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
     )
     assert report["precision_iou50"] == 1.0
     assert report["recall_iou50"] == 1.0
+
+
+def test_worker_vllm_openai_runs_requests_concurrently(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+    calls: list[str] = []
+
+    class FakeAdapter:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate(self, **kwargs):
+            nonlocal active, max_active
+            image_name = Path(kwargs["image_path"]).name
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                calls.append(image_name)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            return GeneratedText(
+                text='[{"label":"icon","bbox_2d":[0,0,1000,1000]}]',
+                latency_ms=12.5,
+                raw_response={"choices": []},
+            )
+
+    monkeypatch.setattr("eval_bench.worker.OpenAICompatibleVLLMAdapter", FakeAdapter)
+    split_path = tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"
+    split_path.parent.mkdir(parents=True)
+    split_path.write_text(
+        "\n".join(f"part1/json/{name}.json" for name in ["a", "b", "c", "d"]) + "\n",
+        encoding="utf-8",
+    )
+    data_root = tmp_path / "benchmarks" / "bench1" / "data"
+    (data_root / "part1" / "images").mkdir(parents=True)
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "val",
+            "sample_count": 4,
+            "root": str(data_root),
+            "manifest_path": str(split_path),
+        },
+    )
+    for name in ["a", "b", "c", "d"]:
+        (data_root / "part1" / "images" / f"{name}.png").write_bytes(b"image")
+        _write_json(
+            data_root / "part1" / "json" / f"{name}.json",
+            {
+                "image_path": f"part1/images/{name}.png",
+                "image_width": 100,
+                "image_height": 50,
+                "instances": [{"label": "icon", "bbox": [0, 0, 100, 50]}],
+            },
+        )
+    database = EvalBenchDatabase(tmp_path)
+    job = database.create_job(
+        kind="eval",
+        payload={
+            "model_id": "model-a",
+            "model_path": "outputs/model-a/best",
+            "served_model_name": "served-model",
+            "benchmark_id": "bench1",
+            "task": "detection",
+            "prompt_id": "grounding_layout.latest",
+            "prompt_text": "detect icons",
+            "backend": "vllm_openai",
+            "endpoint": "http://127.0.0.1:8000",
+            "max_tokens": 4096,
+            "max_num_seqs": 3,
+            "batch_size": 1,
+        },
+    )
+
+    processed = EvalBenchWorker(tmp_path).process_next()
+
+    assert processed is not None
+    assert processed.status == "succeeded"
+    assert max_active > 1
+    assert sorted(calls) == ["a.png", "b.png", "c.png", "d.png"]
+    prediction_path = tmp_path / "runs" / job.job_id / "predictions" / "part1" / "json" / "a.json"
+    prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
+    assert prediction["metadata"]["inference_params"]["request_concurrency"] == 3
+    assert len(list((tmp_path / "runs" / job.job_id / "predictions").rglob("*.json"))) == 4

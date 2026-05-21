@@ -8,6 +8,7 @@ from typing import Any
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json
 from .eval_semantics import resolve_eval_semantics
 from .metrics import LabelMetric, MetricSample, evaluate_metric_samples
+from .sample_paths import prediction_json_path, sample_image_path
 
 
 @dataclass(frozen=True)
@@ -85,8 +86,8 @@ def evaluate_manifest(
 
     for sample_index, json_relative in enumerate(sample_entries):
         gt_doc = _load_json(benchmark_root / json_relative)
-        image = _image_path_from_gt(json_relative, gt_doc)
-        prediction_path = _prediction_path(predictions_dir, image)
+        image = sample_image_path(json_relative, gt_doc, root=benchmark_root)
+        prediction_path = prediction_json_path(predictions_dir, image)
         if prediction_path.exists():
             pred_doc = _load_json(prediction_path)
             prediction_file_count += 1
@@ -161,22 +162,6 @@ def _report_summary(report: EvalReport) -> dict[str, Any]:
         "target_labels_source": report.target_labels_source,
         "missing_prediction_count": len(report.missing_predictions),
     }
-
-
-def _prediction_path(predictions_dir: Path, image: Path) -> Path:
-    parts = image.parts
-    if len(parts) >= 3 and parts[1] == "images":
-        return predictions_dir / Path(parts[0]) / "json" / image.with_suffix(".json").name
-    return predictions_dir / image.with_suffix(".json")
-
-
-def _image_path_from_gt(json_relative: Path, payload: dict[str, Any]) -> Path:
-    image_path = payload.get("image_path")
-    if isinstance(image_path, str) and image_path.strip():
-        return Path(image_path)
-    if len(json_relative.parts) >= 2 and json_relative.parts[1] == "json":
-        return Path(json_relative.parts[0]) / "images" / json_relative.with_suffix(".png").name
-    return json_relative.with_suffix(".png")
 
 
 def _normalize_instance(payload: Any) -> dict[str, Any]:

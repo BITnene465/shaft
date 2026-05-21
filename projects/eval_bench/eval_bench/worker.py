@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import logging
@@ -18,6 +19,7 @@ from .evaluator import evaluate_run
 from .job_spec import resolve_job_payload
 from .label_policy import normalize_target_labels, resolve_target_labels
 from .prediction_parser import parse_prediction_text
+from .sample_paths import sample_image_path
 from .schema import (
     BenchmarkRef,
     EvalRunManifest,
@@ -38,6 +40,15 @@ LOGGER = logging.getLogger("eval_bench.worker")
 
 class JobCancelled(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class _VLLMSampleResult:
+    index: int
+    json_relative: Path
+    image: Path
+    text: str
+    prediction: PredictionDocument
 
 
 class EvalBenchWorker:
@@ -281,6 +292,7 @@ class EvalBenchWorker:
         cuda_devices = job.payload.get("cuda_visible_devices")
         if cuda_devices:
             env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices)
+        env.setdefault("VLLM_PORT", str(_default_vllm_internal_port(job.payload)))
         log_file = log_path.open("ab")
         try:
             process = subprocess.Popen(
@@ -406,7 +418,7 @@ class EvalBenchWorker:
         for index, json_relative in enumerate(json_relatives, start=1):
             self._raise_if_cancelled(job)
             gt_doc = _load_json(benchmark_root / json_relative)
-            image = _image_path_from_gt(json_relative, gt_doc)
+            image = sample_image_path(json_relative, gt_doc, root=benchmark_root)
             prediction = PredictionDocument(
                 image=str(image),
                 instances=[],
@@ -464,56 +476,142 @@ class EvalBenchWorker:
         )
         json_relatives = _read_split(split_path)
         total = len(json_relatives)
-        self._update_progress(job, phase="inference", done=0, total=total, message="Running model inference.")
-        for index, json_relative in enumerate(json_relatives, start=1):
-            self._raise_if_cancelled(job)
-            gt_doc = _load_json(benchmark_root / json_relative)
-            image = _image_path_from_gt(json_relative, gt_doc)
-            image_path = benchmark_root / image
-            image_width, image_height = _image_size(gt_doc, image_path)
-            result = adapter.generate(
-                image_path=image_path,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens=int(inference.get("max_tokens") or job.payload.get("max_tokens") or 4096),
-                temperature=float(inference.get("temperature") or job.payload.get("temperature") or 0.0),
-                top_p=float(inference.get("top_p") or job.payload.get("top_p") or 1.0),
-            )
-            _write_raw_output(artifacts, image=image, text=result.text)
-            prediction = parse_prediction_text(
-                text=result.text,
-                task=task,
-                image=str(image),
-                image_width=image_width,
-                image_height=image_height,
-                metadata={
-                    "producer": "eval_bench",
-                    "run_id": run_id,
-                    "model_id": str(job.payload.get("model_id") or ""),
-                    "task": task,
-                    "created_at": utc_now_iso(),
-                    "latency_ms": result.latency_ms,
-                    "inference_params": inference,
-                    "parser": {
-                        "name": "eval_bench.prediction_parser",
-                        "prompt_id": prompt_id,
-                    },
-                },
-            )
-            artifacts.write_prediction(prediction, task=task)
-            self._update_progress(
-                job,
-                phase="inference",
-                done=index,
-                total=total,
-                message=f"Model inference {index}/{total}.",
-                current_sample=str(json_relative),
-            )
+        request_concurrency = _inference_request_concurrency(inference, job.payload)
+        self._update_progress(
+            job,
+            phase="inference",
+            done=0,
+            total=total,
+            message=f"Running model inference with concurrency={request_concurrency}.",
+        )
+        completed = 0
+        remaining = iter(enumerate(json_relatives, start=1))
+        futures: dict[Future[_VLLMSampleResult], Path] = {}
+        max_tokens = int(inference.get("max_tokens") or job.payload.get("max_tokens") or 4096)
+        temperature = float(inference.get("temperature") or job.payload.get("temperature") or 0.0)
+        top_p = float(inference.get("top_p") or job.payload.get("top_p") or 1.0)
+
+        with ThreadPoolExecutor(max_workers=request_concurrency) as executor:
+            def submit_next() -> bool:
+                try:
+                    index, json_relative = next(remaining)
+                except StopIteration:
+                    return False
+                future = executor.submit(
+                    _generate_vllm_sample_prediction,
+                    adapter=adapter,
+                    benchmark_root=benchmark_root,
+                    json_relative=json_relative,
+                    index=index,
+                    task=task,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    prompt_id=prompt_id,
+                    model_id=str(job.payload.get("model_id") or ""),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    inference=inference,
+                    request_concurrency=request_concurrency,
+                    run_id=run_id,
+                )
+                futures[future] = json_relative
+                return True
+
+            for _ in range(min(request_concurrency, total)):
+                submit_next()
+
+            try:
+                while futures:
+                    self._raise_if_cancelled(job)
+                    done, _ = wait(futures, timeout=0.5, return_when=FIRST_COMPLETED)
+                    if not done:
+                        continue
+                    for future in done:
+                        json_relative = futures.pop(future)
+                        result = future.result()
+                        _write_raw_output(artifacts, image=result.image, text=result.text)
+                        artifacts.write_prediction(result.prediction, task=task)
+                        completed += 1
+                        self._update_progress(
+                            job,
+                            phase="inference",
+                            done=completed,
+                            total=total,
+                            message=f"Model inference {completed}/{total}.",
+                            current_sample=str(json_relative),
+                        )
+                        submit_next()
+            except BaseException:
+                for future in futures:
+                    future.cancel()
+                raise
         self._update_progress(job, phase="evaluating", done=total, total=total, message="Computing metrics.")
         self._raise_if_cancelled(job)
         report_path = evaluate_run(store_root=self.root, run_id=run_id)
         _update_run_status(artifacts.manifest_path, status="succeeded")
         return report_path
+
+
+def _generate_vllm_sample_prediction(
+    *,
+    adapter: OpenAICompatibleVLLMAdapter,
+    benchmark_root: Path,
+    json_relative: Path,
+    index: int,
+    task: TaskKind,
+    system_prompt: str,
+    user_prompt: str,
+    prompt_id: str,
+    model_id: str,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    inference: dict[str, Any],
+    request_concurrency: int,
+    run_id: str,
+) -> _VLLMSampleResult:
+    gt_doc = _load_json(benchmark_root / json_relative)
+    image = sample_image_path(json_relative, gt_doc, root=benchmark_root)
+    image_path = benchmark_root / image
+    image_width, image_height = _image_size(gt_doc, image_path)
+    result = adapter.generate(
+        image_path=image_path,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+    )
+    inference_metadata = dict(inference)
+    inference_metadata["request_concurrency"] = request_concurrency
+    prediction = parse_prediction_text(
+        text=result.text,
+        task=task,
+        image=str(image),
+        image_width=image_width,
+        image_height=image_height,
+        metadata={
+            "producer": "eval_bench",
+            "run_id": run_id,
+            "model_id": model_id,
+            "task": task,
+            "created_at": utc_now_iso(),
+            "latency_ms": result.latency_ms,
+            "inference_params": inference_metadata,
+            "parser": {
+                "name": "eval_bench.prediction_parser",
+                "prompt_id": prompt_id,
+            },
+        },
+    )
+    return _VLLMSampleResult(
+        index=index,
+        json_relative=json_relative,
+        image=image,
+        text=result.text,
+        prediction=prediction,
+    )
 
 
 def _load_benchmark_payload(root: Path, benchmark_id: str) -> dict[str, Any]:
@@ -608,6 +706,23 @@ def _runtime_env_from_payload(payload: dict[str, Any]) -> dict[str, str]:
         for key, value in env.items()
         if key and value not in (None, "")
     }
+
+
+def _default_vllm_internal_port(payload: dict[str, Any]) -> int:
+    api_port = int(payload.get("port") or 8000)
+    start_port = 20_000 + api_port % 10_000
+    for port in range(start_port, start_port + 100):
+        if _tcp_port_available(port):
+            return port
+    raise RuntimeError(f"could not find an open vLLM internal port from {start_port}.")
+
+
+def _tcp_port_available(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", int(port))) != 0
 
 
 def _endpoint_from_job_payload(payload: dict[str, Any]) -> str:
@@ -722,6 +837,23 @@ def _optional_int(payload: dict[str, Any], key: str) -> int | None:
     return int(value)
 
 
+def _inference_request_concurrency(inference: dict[str, Any], payload: dict[str, Any]) -> int:
+    values = [
+        _positive_int(inference.get("batch_size")),
+        _positive_int(payload.get("batch_size")),
+        _positive_int(inference.get("max_num_seqs")),
+        _positive_int(payload.get("max_num_seqs")),
+    ]
+    return max([1, *[value for value in values if value is not None]])
+
+
+def _positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
 def _optional_float(payload: dict[str, Any], key: str) -> float | None:
     value = payload.get(key)
     if value is None or value == "":
@@ -746,15 +878,6 @@ def _read_split(path: Path) -> list[Path]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
-
-
-def _image_path_from_gt(json_relative: Path, payload: dict[str, Any]) -> Path:
-    image_path = payload.get("image_path")
-    if isinstance(image_path, str) and image_path.strip():
-        return Path(image_path)
-    if len(json_relative.parts) >= 2 and json_relative.parts[1] == "json":
-        return Path(json_relative.parts[0]) / "images" / json_relative.with_suffix(".png").name
-    return json_relative.with_suffix(".png")
 
 
 def _resolve_prompt(payload: dict[str, Any], *, task: TaskKind) -> tuple[str, str, str]:

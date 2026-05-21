@@ -1,6 +1,6 @@
 metadata:
-  id: banana.keypoint_arrow.sft.v1
-  name: banana keypoint_arrow compatibility alias
+  id: banana.point_arrow.sft.v1
+  name: banana point_arrow sft
   task: banana
   subtask: point_arrow
 

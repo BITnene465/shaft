@@ -1,6 +1,6 @@
 experiment:
-  name: qwen3vl-4b-sft-arrow-layout-keypoint-v2-e2-stepckpt
-  output_dir: outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2-e2-stepckpt
+  name: banana-qwen3vl-4b-sft-v2.2
+  output_dir: outputs/qwen3vl-sft/4b/banana-v2.2
   seed: 42
 
 model:
@@ -27,23 +27,23 @@ algorithm:
   params: {}
 
 data:
-  catalog_path: ../data/arrow.yaml
-  catalog_names: [grounding_arrow, grounding_layout, keypoint_arrow, grounding_arrow_syn_avg]
-  mix_strategy: concat
+  catalog_path: ../data/banana.yaml
+  catalog_names: [grounding_arrow, grounding_layout, point_arrow]
+  mix_strategy: interleave_under
   mix_refresh: epoch_refresh
-  num_workers: 12
+  num_workers: 4
   pin_memory: true
   persistent_workers: true
   min_pixels: 200704
-  max_pixels: 1048576
+  max_pixels: 2000000
   add_eos_token: true
   shuffle: true
 
 train:
-  epochs: 2
+  epochs: 3
   max_steps: -1
   per_device_train_batch_size: 2
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.00002
   param_group_lrs:
@@ -75,7 +75,7 @@ train:
   save_final_state: true
   ddp_find_unused_parameters: false
   report_to: ["wandb"]
-  init_from_checkpoint:
+  init_from_checkpoint: outputs/qwen3vl-sft/4b/banana-v2.1/best
   resume_from_checkpoint:
 
 eval:
@@ -120,7 +120,7 @@ eval:
       normalizer:
         type: identity
       weight: 2
-    keypoint_arrow:
+    point_arrow:
       prediction_codec: json_object
       target_adapter: target_text
       target_adapter_params:

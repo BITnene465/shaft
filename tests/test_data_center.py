@@ -234,3 +234,45 @@ def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
     second_sample = train_dataset[0]["sample_id"]
     assert first != second
     assert first_sample != second_sample
+
+
+def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "8")
+    monkeypatch.setenv("RANK", "3")
+    image = _write_image(tmp_path / "img.png")
+    train_a = _write_jsonl(
+        tmp_path / "train_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": f"a{i}"} for i in range(8)],
+    )
+    train_b = _write_jsonl(
+        tmp_path / "train_b.jsonl",
+        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": f"b{i}"} for i in range(8)],
+    )
+    val_a = _write_jsonl(
+        tmp_path / "val_a.jsonl",
+        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+    )
+    val_b = _write_jsonl(
+        tmp_path / "val_b.jsonl",
+        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+    )
+
+    config = RuntimeConfig()
+    config.experiment.seed = 5
+    config.data.mix_strategy = "concat"
+    config.data.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
+        DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+
+    assert len(dataset_bundle.train_sampler) == 16
+    assert len(dataset_bundle.train_dataset) == 16
+    assert dataset_bundle.train_sampler.rank == 0
+    assert dataset_bundle.train_sampler.world_size == 1

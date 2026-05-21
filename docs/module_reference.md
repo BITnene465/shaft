@@ -485,6 +485,7 @@
 
 - `build_eval_metric()`
 - `render_labeled_visualization()`
+- `render_prediction_visualization()`
 - `register_eval_metric()`
 - `save_labeled_visualization()`
 

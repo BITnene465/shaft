@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 
 from PIL import Image
 
 from shaft.codec.base import ShaftCodecResult
+from shaft.metrics import prediction_visualization
 from shaft.metrics.visualization import (
     ShaftVisualBox,
     ShaftVisualLineStrip,
@@ -16,13 +16,6 @@ from shaft.metrics.visualization import (
     resolve_label_color,
     resolve_point_radius,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
-TMP_SCRIPTS = ROOT / "scripts" / "tmp"
-if str(TMP_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(TMP_SCRIPTS))
-
-import eval_common  # noqa: E402
 
 
 def test_visualization_style_scales_with_image_size() -> None:
@@ -151,7 +144,7 @@ def test_visualization_ignores_duplicate_linestrip_points() -> None:
     assert rendered.size == image.size
 
 
-def test_eval_common_prediction_visualization_saves_shared_style(tmp_path: Path) -> None:
+def test_prediction_visualization_saves_shared_style(tmp_path: Path) -> None:
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (200, 160), "white").save(image_path)
     prediction = ShaftCodecResult(
@@ -163,7 +156,7 @@ def test_eval_common_prediction_visualization_saves_shared_style(tmp_path: Path)
         error=None,
     )
 
-    output = eval_common._render_prediction_visualization(
+    output = prediction_visualization.render_prediction_visualization(
         image_path=str(image_path),
         sample_id="sample",
         sample_index=1,
@@ -180,7 +173,7 @@ def test_eval_common_prediction_visualization_saves_shared_style(tmp_path: Path)
         assert rendered.height > 160
 
 
-def test_eval_common_keypoint_visualization_uses_line_strip(tmp_path: Path, monkeypatch) -> None:
+def test_prediction_visualization_keypoint_uses_line_strip(tmp_path: Path, monkeypatch) -> None:
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (200, 160), "white").save(image_path)
     prediction = ShaftCodecResult(
@@ -197,9 +190,13 @@ def test_eval_common_keypoint_visualization_uses_line_strip(tmp_path: Path, monk
         captured.update(kwargs)
         return str(tmp_path / "predictions" / "sample.jpg")
 
-    monkeypatch.setattr(eval_common, "save_labeled_visualization", fake_save_labeled_visualization)
+    monkeypatch.setattr(
+        prediction_visualization,
+        "save_labeled_visualization",
+        fake_save_labeled_visualization,
+    )
 
-    output = eval_common._render_prediction_visualization(
+    output = prediction_visualization.render_prediction_visualization(
         image_path=str(image_path),
         sample_id="sample",
         sample_index=1,

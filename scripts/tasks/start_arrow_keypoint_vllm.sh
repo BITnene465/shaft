@@ -6,7 +6,7 @@ cd "$(dirname "$0")/../.."
 export CUDA_DEVICE_ORDER="${CUDA_DEVICE_ORDER:-PCI_BUS_ID}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
-MODEL_PATH="${MODEL_PATH:-outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best}"
+MODEL_PATH="${MODEL_PATH:-outputs/qwen3vl-sft/4b/banana-v2.1/best}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-prelabel_latest}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8100}"

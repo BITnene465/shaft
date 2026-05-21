@@ -1,8 +1,5 @@
-import { useMemo, useState } from "react";
-import { X } from "lucide-react";
-
-import type { EvalInstance, RunSampleDetail } from "./api";
-import { NumberSettingControl, ColorControl, ToggleButton } from "./controlPrimitives";
+import type { EvalInstance } from "./api";
+import { ToggleButton } from "./controlPrimitives";
 import { formatMetric } from "./formatters";
 import {
   countInstancesByLabel,
@@ -16,53 +13,17 @@ import type {
   ObjectRow,
   VisibleMetrics
 } from "./viewerMetrics";
-import {
-  INSTANCE_COLOR_ROLES,
-  OVERLAY_STYLE_CONTROLS,
-  PRED_LINE_STYLE_OPTIONS,
-  explicitLabelColor
-} from "./workspaceSettings";
-import type {
-  InstanceColorRole,
-  LabelColors,
-  OverlayColors,
-  OverlayStyle,
-  OverlayStyleKey,
-  ShortcutActionId
-} from "./workspaceSettings";
-
-export function DiagnosticStrip({
-  diagnostics
-}: {
-  diagnostics: NonNullable<RunSampleDetail["diagnostics"]>;
-}) {
-  return (
-    <div className="diagnostic-strip">
-      <span>TP {diagnostics.matched_count.toLocaleString()}</span>
-      <span>FP {diagnostics.false_positive_count.toLocaleString()}</span>
-      <span>FN {diagnostics.false_negative_count.toLocaleString()}</span>
-      <span>平均 IoU {formatMetric(diagnostics.mean_iou)}</span>
-    </div>
-  );
-}
+import type { ShortcutActionId } from "./workspaceSettings";
 
 export function ViewerControlPanel({
   labels,
   activeLabels,
-  colors,
-  styleConfig,
-  labelColors,
   showGt,
   showPred,
   showBoxes,
   showLines,
   showKeypoints,
   onToggleLabel,
-  onStyleChange,
-  onLabelColorChange,
-  onLabelColorRemove,
-  onResetStyle,
-  onResetLabelColors,
   onShowGtChange,
   onShowPredChange,
   onShowBoxesChange,
@@ -71,20 +32,12 @@ export function ViewerControlPanel({
 }: {
   labels: string[];
   activeLabels: string[];
-  colors: OverlayColors;
-  styleConfig: OverlayStyle;
-  labelColors: LabelColors;
   showGt: boolean;
   showPred: boolean;
   showBoxes: boolean;
   showLines: boolean;
   showKeypoints: boolean;
   onToggleLabel: (label: string) => void;
-  onStyleChange: (key: OverlayStyleKey, value: number | string) => void;
-  onLabelColorChange: (label: string, role: InstanceColorRole, value: string) => void;
-  onLabelColorRemove: (label: string, role?: InstanceColorRole) => void;
-  onResetStyle: () => void;
-  onResetLabelColors: () => void;
   onShowGtChange: (value: boolean) => void;
   onShowPredChange: (value: boolean) => void;
   onShowBoxesChange: (value: boolean) => void;
@@ -190,19 +143,6 @@ export function ViewerControlPanel({
           })}
         </div>
       </details>
-      <OverlayAppearancePanel
-        styleConfig={styleConfig}
-        onStyleChange={onStyleChange}
-        onResetStyle={onResetStyle}
-      />
-      <LabelColorPanel
-        labels={labels}
-        overlayColors={colors}
-        labelColors={labelColors}
-        onChange={onLabelColorChange}
-        onRemove={onLabelColorRemove}
-        onReset={onResetLabelColors}
-      />
     </div>
   );
 }
@@ -243,169 +183,6 @@ export function handleViewerShortcutAction(
     return true;
   }
   return false;
-}
-
-function OverlayAppearancePanel({
-  styleConfig,
-  onStyleChange,
-  onResetStyle,
-  defaultOpen = false
-}: {
-  styleConfig: OverlayStyle;
-  onStyleChange: (key: OverlayStyleKey, value: number | string) => void;
-  onResetStyle: () => void;
-  defaultOpen?: boolean;
-}) {
-  return (
-    <details className="control-popover" open={defaultOpen}>
-      <summary>
-        样式 <strong>框 / 线 / 点</strong>
-      </summary>
-      <div className="control-title-row">
-        <span>可视化参数</span>
-        <button className="text-button" type="button" onClick={onResetStyle}>
-          重置
-        </button>
-      </div>
-      <div className="style-control-grid">
-        {OVERLAY_STYLE_CONTROLS.map((control) => (
-          <NumberSettingControl
-            key={control.key}
-            label={control.label}
-            value={styleConfig[control.key]}
-            min={control.min}
-            max={control.max}
-            step={control.step}
-            onChange={(value) => onStyleChange(control.key, value)}
-          />
-        ))}
-        <label className="compact-select dense">
-          <span>预测线型</span>
-          <select
-            value={styleConfig.predLineStyle}
-            onChange={(event) => onStyleChange("predLineStyle", event.target.value)}
-          >
-            {PRED_LINE_STYLE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </details>
-  );
-}
-
-function LabelColorPanel({
-  labels,
-  overlayColors,
-  labelColors,
-  onChange,
-  onRemove,
-  onReset,
-  defaultOpen = false
-}: {
-  labels: string[];
-  overlayColors: OverlayColors;
-  labelColors: LabelColors;
-  onChange: (label: string, role: InstanceColorRole, value: string) => void;
-  onRemove: (label: string, role?: InstanceColorRole) => void;
-  onReset: () => void;
-  defaultOpen?: boolean;
-}) {
-  const [draftLabel, setDraftLabel] = useState("");
-  const [draftRole, setDraftRole] = useState<InstanceColorRole>("gt");
-  const [draftColor, setDraftColor] = useState("#2563eb");
-  const sortedLabels = useMemo(
-    () => [...labels].sort((left, right) => left.localeCompare(right)),
-    [labels]
-  );
-
-  function addLabelColor() {
-    const label = draftLabel.trim();
-    if (!label) {
-      return;
-    }
-    onChange(label, draftRole, draftColor);
-    setDraftLabel("");
-  }
-
-  return (
-    <details className="control-popover" open={defaultOpen}>
-      <summary>
-        标签颜色 <strong>{sortedLabels.length}</strong>
-      </summary>
-      <div className="control-title-row">
-        <span>按 label 匹配，大小写不敏感</span>
-        <button className="text-button" type="button" onClick={onReset}>
-          重置
-        </button>
-      </div>
-      <div className="label-color-add-row">
-        <input
-          value={draftLabel}
-          placeholder="输入 label"
-          onChange={(event) => setDraftLabel(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              addLabelColor();
-            }
-          }}
-        />
-        <input
-          aria-label="新增 label 颜色"
-          type="color"
-          value={draftColor}
-          onChange={(event) => setDraftColor(event.target.value)}
-        />
-        <select
-          aria-label="新增 label 颜色角色"
-          value={draftRole}
-          onChange={(event) => setDraftRole(event.target.value as InstanceColorRole)}
-        >
-          {INSTANCE_COLOR_ROLES.map((role) => (
-            <option key={role.key} value={role.key}>
-              {role.label}
-            </option>
-          ))}
-        </select>
-        <button className="secondary-button dense" type="button" onClick={addLabelColor}>
-          添加
-        </button>
-      </div>
-      <div className="label-color-grid">
-        {sortedLabels.length === 0 ? (
-          <div className="muted-line">还没有自定义 label 颜色。</div>
-        ) : (
-          sortedLabels.map((label) => (
-            <div className="label-color-row" key={label}>
-              <span className="label-color-name" title={label}>{label}</span>
-              <div className="label-color-role-grid">
-                {INSTANCE_COLOR_ROLES.map((role) => (
-                  <ColorControl
-                    key={role.key}
-                    label={role.label}
-                    value={explicitLabelColor(labelColors, label, role.key) ?? overlayColors[role.key]}
-                    onChange={(value) => onChange(label, role.key, value)}
-                  />
-                ))}
-              </div>
-              <button
-                className="icon-button dense"
-                type="button"
-                title={`移除 ${label} 颜色规则`}
-                onClick={() => onRemove(label)}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-    </details>
-  );
 }
 
 export function VisibleMetricStrip({ metrics }: { metrics: VisibleMetrics }) {

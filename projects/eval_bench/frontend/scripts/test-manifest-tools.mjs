@@ -50,6 +50,35 @@ assert.deepEqual(arrowManifest.eval.target_labels, ["arrow"]);
 assert.equal(arrowManifest.eval.prompt_id, "grounding_arrow.latest");
 assert.equal(arrowManifest.eval.prompt_text, "Detect arrows.");
 
+const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
+  { kind: "eval_job", eval: { task: "keypoint", benchmark_id: "" } },
+  [
+    {
+      benchmark_id: "banana_bench",
+      tasks: ["detection"],
+      layers: [],
+      split: "val",
+      sample_count: 400,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null
+    },
+    {
+      benchmark_id: "banana_point_arrow_bench",
+      tasks: ["keypoint"],
+      layers: [],
+      split: "val",
+      sample_count: 1966,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null
+    }
+  ]
+);
+assert.equal(benchmarkDefaultManifest.eval.benchmark_id, "banana_point_arrow_bench");
+
 const customPromptWithoutLabels = {
   ...arrowPrompt,
   prompt_id: "custom.no-labels",

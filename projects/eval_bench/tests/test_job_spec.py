@@ -13,16 +13,27 @@ def _write_json(path: Path, payload: dict) -> None:
 
 def test_eval_job_manifest_resolves_to_worker_payload() -> None:
     manifest = job_templates()["eval_job"]["manifest"]
+    assert manifest["runtime"]["args"]["model"] == ""
+    assert manifest["runtime"]["args"]["served-model-name"] == ""
+    assert manifest["runtime"]["args"]["port"] is None
+    assert manifest["runtime"]["args"]["tensor-parallel-size"] is None
+    assert manifest["eval"]["model_id"] == ""
+    assert manifest["eval"]["benchmark_id"] == ""
+
+    manifest["runtime"]["args"]["model"] = "outputs/qwen3vl-sft/4b/banana-v2.1/best"
+    manifest["runtime"]["env"]["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
     resolved = resolve_job_payload({"manifest": manifest})
 
     assert resolved.kind == "eval_job"
     assert resolved.payload["job_kind"] == "eval_job"
     assert resolved.payload["runtime_mode"] == "ephemeral"
     assert resolved.payload["backend"] == "vllm_openai"
-    assert resolved.payload["model_path"] == "outputs/qwen3vl-sft/4b/arrow-layout-keypoint-v2/best"
-    assert resolved.payload["served_model_name"] == "qwen3vl-latest"
-    assert resolved.payload["cuda_visible_devices"] == "0"
-    assert resolved.payload["tensor_parallel_size"] == 1
+    assert resolved.payload["model_id"] == "banana-v2.1-best"
+    assert resolved.payload["model_path"] == "outputs/qwen3vl-sft/4b/banana-v2.1/best"
+    assert resolved.payload["served_model_name"] == "banana-v2.1-best"
+    assert resolved.payload["cuda_visible_devices"] == "0,1,2,3"
+    assert resolved.payload["tensor_parallel_size"] == 4
+    assert int(resolved.payload["port"]) >= 8000
     assert resolved.payload["max_model_len"] == 32768
     assert resolved.payload["max_tokens"] == 4096
     assert resolved.payload["max_pixels"] == 1048576

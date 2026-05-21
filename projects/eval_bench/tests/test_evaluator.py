@@ -140,6 +140,15 @@ def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:
     assert report["pred_instance_count"] == 1
     assert [item["label"] for item in report["labels"]] == ["icon"]
     assert "arrow" not in report["samples"][0]["labels"]
+    store = EvalBenchStore(tmp_path)
+    sample_page = store.run_sample_page("run_detection")
+    assert sample_page.labels == ["icon"]
+    assert sample_page.samples[0].gt_instance_count == 1
+    assert sample_page.samples[0].pred_instance_count == 1
+    assert sample_page.samples[0].labels == ["icon"]
+    sample_detail = store.run_sample_detail("run_detection", sample_index=0)
+    assert [item["label"] for item in sample_detail.gt_instances] == ["icon"]
+    assert [item["label"] for item in sample_detail.pred_instances] == ["icon"]
 
 
 def test_evaluate_run_infers_layout_target_labels_from_prompt_id(tmp_path: Path) -> None:

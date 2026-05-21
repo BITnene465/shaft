@@ -88,6 +88,8 @@ class ShaftDataCenter:
             refresh_mode=self.data_config.mix_refresh,
             shuffle=self.data_config.shuffle,
             seed=self.seed,
+            rank=0,
+            world_size=1,
         )
         val_records: list[Any] = []
         for dataset_name in sorted(records_by_dataset_val):

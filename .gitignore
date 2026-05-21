@@ -14,7 +14,6 @@ dist/
 push_banana.sh
 AGENT_CODING.md
 CONTEXT.md
-llamafactory_qwen3vl_grounding/
 .vscode/
 /tmp/
 scripts/tmp/

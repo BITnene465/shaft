@@ -45,12 +45,16 @@ FALLBACK_LAYOUT_GROUNDING_PROMPT = (
     "Return all detections as a JSON array of objects with label and bbox_2d."
 )
 FALLBACK_ARROW_KEYPOINT_PROMPT = (
-    "Predict the ordered keypoints of the central arrow and return a JSON object with keypoints_2d."
+    "The image is a crop around one arrow.\n"
+    "Predict the ordered keypoints along the arrow linestrip.\n"
+    "Return a JSON object exactly like {\"keypoints_2d\":[[x1,y1],[x2,y2]]}.\n"
+    "Use integer keypoints_2d coordinates in the 0-999 normalized crop coordinate space.\n"
+    "Do not return bbox, labels, markdown, or any extra text."
 )
 
 DEFAULT_ARROW_PROMPT_PATH = REPO_ROOT / "configs/prompts/grounding_arrow.yaml"
 DEFAULT_LAYOUT_PROMPT_PATH = REPO_ROOT / "configs/prompts/grounding_layout.yaml"
-DEFAULT_KEYPOINT_PROMPT_PATH = REPO_ROOT / "configs/prompts/keypoint_arrow.yaml"
+DEFAULT_KEYPOINT_PROMPT_PATH = REPO_ROOT / "configs/prompts/point_arrow.yaml"
 NUM_BINS = 1000
 OUTPUT_DIR = REPO_ROOT / "temp/arrow_keypoint_demo/outputs"
 LABELS = ("arrow", "icon", "image", "shape")

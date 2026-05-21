@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .sample_paths import prediction_json_relative_path
 from .schema import BenchmarkManifest, EvalRunManifest, PredictionDocument, TaskKind
 
 DEFAULT_STORE_ROOT = Path("eval_bench_store")
@@ -185,13 +186,7 @@ class RunArtifacts:
         return self.manifest_path
 
     def prediction_path(self, image: str) -> Path:
-        image_path = Path(image)
-        parts = image_path.parts
-        if len(parts) >= 3 and parts[1] == "images":
-            relative = Path(parts[0]) / "json" / image_path.with_suffix(".json").name
-        else:
-            relative = image_path.with_suffix(".json")
-        return self.predictions_dir / relative
+        return self.predictions_dir / prediction_json_relative_path(image)
 
     def write_prediction(self, prediction: PredictionDocument, *, task: TaskKind) -> Path:
         prediction.validate(task=task)

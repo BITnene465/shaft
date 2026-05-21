@@ -14,6 +14,7 @@ from .artifacts import (
 )
 from .evaluator import evaluate_run
 from .label_policy import resolve_target_label_policy
+from .sample_paths import sample_image_path
 from .schema import (
     BenchmarkRef,
     EvalRunManifest,
@@ -123,7 +124,7 @@ def import_predictions_for_benchmark(
         gt_payload = read_json(benchmark_root / json_relative)
         if not isinstance(gt_payload, dict):
             raise ValueError(f"GT JSON must be an object: {benchmark_root / json_relative}")
-        image = _image_path_from_gt(json_relative, gt_payload)
+        image = sample_image_path(json_relative, gt_payload, root=benchmark_root)
         source_path = source_index.find(json_relative=json_relative, image=image)
         if source_path is None:
             missing.append(str(json_relative))
@@ -198,16 +199,6 @@ def _read_split(path: Path) -> list[Path]:
     if not path.exists():
         raise FileNotFoundError(f"benchmark split manifest does not exist: {path}")
     return [Path(line.strip()) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-
-
-def _image_path_from_gt(json_relative: Path, payload: dict[str, Any]) -> Path:
-    image_value = payload.get("image") or payload.get("image_path") or payload.get("imagePath")
-    if isinstance(image_value, str) and image_value.strip():
-        return Path(image_value)
-    parts = json_relative.parts
-    if len(parts) >= 3 and parts[1] == "json":
-        return Path(parts[0]) / "images" / json_relative.with_suffix(".png").name
-    return json_relative.with_suffix(".png")
 
 
 def _prediction_from_payload(

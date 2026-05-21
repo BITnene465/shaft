@@ -34,10 +34,18 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - Benchmark copy、run manifest、prediction snapshot、report、comparison、trash。
    - Artifact 是可追溯事实，不从 UI 临时状态回填语义。
    - Store 可做索引、分页和读取优化，但不改变评估标准。
+   - `sample_paths.py` 是 GT JSON、原图路径和 prediction JSON 路径映射的单一真源。
+     worker、evaluator、prediction import、store 不允许各自复制 `.png/.jpg` fallback 规则。
+   - `sample_scope.py` 是 run sample 按 `target_labels` 裁剪 GT、prediction payload 和 diagnostics
+     的单一真源。
+   - Benchmark sample 视图展示原始 benchmark 的全量 label；Run sample 视图必须按 run
+     spec 的 `target_labels` 过滤 GT、prediction、label options 和实例计数。
 7. **Rendering and Asset Layer**
    - Image proxy、preview、tile、viewer geometry、overlay color/style。
    - 只消费 sample detail 和 workspace settings，不参与 metric 计算。
    - 图片派生缓存和叠图渲染需要可测的性能边界。
+   - 样本检查器只放高频审阅控件，例如 label、GT/pred 和几何层开关；overlay 数值样式、
+     label 颜色和快捷键配置统一归入工作台设置页，避免在样本页形成第二套设置入口。
 
 ## Dependency Direction
 
@@ -71,6 +79,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     `task_default` 或 `unscoped` 来源。
 - `projects/eval_bench/eval_bench/job_lifecycle.py`
   - 维护 job terminal/active/cancelled-resource lease 语义。
+- `projects/eval_bench/eval_bench/sample_paths.py`
+  - 维护 sample image path 和 prediction JSON relative path 的命名与 fallback 规则。
+- `projects/eval_bench/eval_bench/sample_scope.py`
+  - 维护 run target label scope、实例过滤、payload 裁剪和 sample diagnostics 重映射。
 - `projects/eval_bench/frontend/src/statusModel.ts`
   - 维护前端状态文案和操作启用条件。
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
@@ -83,6 +95,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 target label scope：先加 prompt metadata 或显式 spec 字段，不允许通过 UI 默认值悄悄覆盖。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
+- 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused
+  测试证明四条调用链一致。
+- 新增 run sample 展示范围规则：只改 `sample_scope.py`，不能在 dashboard route、viewer 或 store 中各自
+  手写 label 过滤。
 
 ## Tests Required By Layer
 

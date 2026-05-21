@@ -32,6 +32,25 @@ Do not use JPEG compression as a default grounding augmentation. It mostly simul
 degradation and has weak expected value for precise bbox localization compared with view
 construction, scale coverage, clean hard negatives, and dense-region crops.
 
+## Density Crop Selection
+
+For `grounding_arrow` and `grounding_layout`, train augmentation should prefer high-density local
+regions instead of mechanically cropping every image:
+
+- Keep the full-image row for every train sample.
+- Generate at most 2 positive crop rows per source image.
+- Candidate crops may come from sliding windows, instance-center windows, or other deterministic
+  window proposals.
+- Score candidates primarily by the number of fully contained task GT instances.
+- Reject a crop if any task GT partially intersects the crop boundary. Do not train on clipped
+  partial GT.
+- Reject crops that are too close to the full image; a local crop should materially reduce the
+  visible canvas, not duplicate the full-image row.
+- Require enough contained GT before accepting a crop. The threshold can be task-specific, but the
+  default should favor dense regions rather than sparse positives.
+- Deduplicate selected crops by high overlap and identical contained instance sets.
+- Validation remains full-image only.
+
 ## Context Padding Jitter
 
 Use `context_padding_jitter` as the preferred lightweight positive augmentation when a new

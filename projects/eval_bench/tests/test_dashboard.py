@@ -355,7 +355,10 @@ def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
             "image_path": "part1/images/a.png",
             "image_width": 100,
             "image_height": 50,
-            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+            "instances": [
+                {"label": "icon", "bbox": [1, 2, 10, 20]},
+                {"label": "arrow", "bbox": [30, 30, 40, 40]},
+            ],
         },
     )
 
@@ -377,11 +380,11 @@ def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["benchmark_id"] == "multitask_val_v1"
     assert payload["sample_count"] == 1
-    assert payload["labels"] == ["icon"]
+    assert payload["labels"] == ["arrow", "icon"]
     assert payload["layers"] == ["layout", "arrow"]
     assert client.get("/api/state").json()["benchmark_count"] == 1
     copied_sample = client.get("/api/benchmarks/multitask_val_v1/samples/0").json()
-    assert copied_sample["gt_instances"][0]["label"] == "icon"
+    assert [item["label"] for item in copied_sample["gt_instances"]] == ["icon", "arrow"]
 
     conflict = client.post(
         "/api/benchmarks",
@@ -495,7 +498,10 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
             "image_path": "part1/images/a.png",
             "image_width": 100,
             "image_height": 50,
-            "instances": [{"label": "icon", "bbox": [1, 2, 10, 20]}],
+            "instances": [
+                {"label": "icon", "bbox": [1, 2, 10, 20]},
+                {"label": "arrow", "bbox": [30, 30, 40, 40]},
+            ],
         },
     )
     _write_json(
@@ -512,15 +518,62 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
                 "tasks": ["detection", "keypoint"],
                 "manifest_path": str(split_manifest),
             },
-            "spec": {"task": "detection"},
+            "spec": {"task": "detection", "target_labels": ["icon"]},
         },
     )
     _write_json(
         tmp_path / "runs" / "run1" / "predictions" / "part1" / "json" / "a.json",
         {
             "image": "part1/images/a.png",
-            "instances": [{"label": "icon", "bbox": [2, 3, 11, 21]}],
+            "instances": [
+                {"label": "icon", "bbox": [2, 3, 11, 21]},
+                {"label": "arrow", "bbox": [31, 31, 41, 41]},
+            ],
             "metadata": {},
+        },
+    )
+    _write_json(
+        tmp_path / "runs" / "run1" / "reports" / "metrics.json",
+        {
+            "run_id": "run1",
+            "task": "detection",
+            "samples": [
+                {
+                    "index": 0,
+                    "json_path": "part1/json/a.json",
+                    "image": "part1/images/a.png",
+                    "gt_instance_count": 2,
+                    "pred_instance_count": 2,
+                    "matched_count": 2,
+                    "false_negative_count": 0,
+                    "false_positive_count": 0,
+                    "mean_iou": 1.0,
+                    "matches": [
+                        {"label": "icon", "gt_index": 0, "pred_index": 0, "iou": 1.0},
+                        {"label": "arrow", "gt_index": 1, "pred_index": 1, "iou": 1.0},
+                    ],
+                    "false_negatives": [],
+                    "false_positives": [],
+                    "labels": {
+                        "icon": {
+                            "gt_count": 1,
+                            "pred_count": 1,
+                            "matched_count": 1,
+                            "false_negative_count": 0,
+                            "false_positive_count": 0,
+                            "mean_iou": 1.0,
+                        },
+                        "arrow": {
+                            "gt_count": 1,
+                            "pred_count": 1,
+                            "matched_count": 1,
+                            "false_negative_count": 0,
+                            "false_positive_count": 0,
+                            "mean_iou": 1.0,
+                        },
+                    },
+                }
+            ],
         },
     )
 
@@ -536,6 +589,8 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
     assert samples[0]["gt_instance_count"] == 1
     assert samples[0]["pred_instance_count"] == 1
     assert samples[0]["labels"] == ["icon"]
+    assert samples[0]["diagnostics"]["matched_count"] == 1
+    assert list(samples[0]["diagnostics"]["labels"]) == ["icon"]
     assert samples[0]["image_url"] == "/api/runs/run1/samples/0/image"
     assert samples[0]["image_preview_url"] == "/api/runs/run1/samples/0/image/preview?max_side=1800"
     assert samples[0]["image_tile_url_template"] == "/api/runs/run1/samples/0/image/tiles/{level}/{x}/{y}"
@@ -543,7 +598,15 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
 
     detail = client.get("/api/runs/run1/samples/0").json()
     assert detail["gt_instances"][0]["bbox"] == [1.0, 2.0, 10.0, 20.0]
+    assert [item["label"] for item in detail["gt_instances"]] == ["icon"]
+    assert [item["label"] for item in detail["raw_payload"]["instances"]] == ["icon"]
     assert detail["pred_instances"][0]["bbox"] == [2.0, 3.0, 11.0, 21.0]
+    assert [item["label"] for item in detail["pred_instances"]] == ["icon"]
+    assert [item["label"] for item in detail["prediction_payload"]["instances"]] == ["icon"]
+    assert detail["diagnostics"]["matched_count"] == 1
+    assert detail["diagnostics"]["matches"] == [
+        {"label": "icon", "gt_index": 0, "pred_index": 0, "iou": 1.0}
+    ]
     assert client.get("/api/runs/run1/samples/0/image").content == b"image"
 
 

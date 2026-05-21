@@ -9,6 +9,127 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-21: Eval Bench ephemeral vLLM TP 启动端口冲突
+
+### 现象
+
+Eval Bench ephemeral vLLM job 在服务健康检查前退出，worker 报：
+`runtime process exited before ready: exitcode=1`。runtime 日志中 vLLM EngineCore 初始化失败，
+TP worker 在 `tcp://127.0.0.1:10013` 建立 `TCPStore` 时报 `EADDRINUSE`。
+
+### 根因
+
+vLLM TP worker 会为内部分布式初始化随机选择本地通信端口。当前机器上随机选到的 `10013` 与已有端口
+占用发生冲突，导致 rank0 的 TCPStore 无法监听，其他 rank 随后连接失败。这是 eval runtime 启动环境
+问题，不是模型能力问题，也不是 codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench 使用 `runtime.mode=ephemeral` 且 `tensor-parallel-size > 1` 启动本地 vLLM 的 job。
+- 不影响已有 external/existing service 模式，也不影响已经生成的 prediction snapshot 和 metric 计算。
+- 不影响 SFT 训练数据或训练主链。
+
+### 修复方式
+
+- `EvalBenchWorker.start_ephemeral_runtime` 在启动 vLLM 前自动设置 `VLLM_PORT`，由 API 端口派生独立内部
+  端口段，例如 API `8000` 对应从 `28000` 开始查找可用端口。
+- 保留用户显式设置的 `runtime.env.VLLM_PORT`，只在未设置时自动填充。
+
+### 回归测试
+
+- `.venv/bin/python -m pytest -q projects/eval_bench/tests/test_worker.py`
+- `.venv/bin/python -m compileall -q projects/eval_bench/eval_bench scripts/eval_bench.py`
+
+### 后续防线
+
+- 新增本地多进程/多卡 runtime 时，不只检查 OpenAI API 端口，也要为后端内部通信端口预留稳定范围。
+- Eval Bench 的 runtime 日志排障优先看第一个 `WorkerProc failed to start` 或 `EngineCore failed to start`
+  的 root cause，避免只停留在 dashboard 外层的 `exitcode=1`。
+
+## 2026-05-21: Banana Bench 隐式 PNG 图像路径导致 detection 评测失败
+
+### 现象
+
+`banana_bench` 上两个 detection job 在 inference 中途失败，报：
+`No such file or directory: eval_bench_store/benchmarks/banana_bench/data/part2/images/prod_000876.png`。
+实际 benchmark store 中存在的是 `prod_000876.jpg`。
+
+### 根因
+
+部分 benchmark JSON 没有显式 `image_path`。Eval Bench worker 对 `part*/json/*.json` 使用历史默认规则推断
+同名 `.png` 图像，但 banana 原始 part2 图像包含 `.jpg`。这是 eval benchmark 数据路径标准不一致导致的
+运行失败，不是模型能力问题，也不是 metric / codec 误判。
+
+### 影响范围
+
+- 影响共用 `banana_bench` 的 `grounding_arrow` 和 `grounding_layout` detection 评测。
+- 不影响 `banana_point_arrow_bench`，该任务已经成功完成。
+- 不影响训练数据和已完成的 point_arrow 评测结果。
+
+### 修复方式
+
+- 为 `eval_bench_store/benchmarks/banana_bench/data` 下 300 个 JSON 补充正确的 `image_path`，指向实际存在的
+  `.jpg/.png` 图像。
+- 新增 `projects/eval_bench/eval_bench/sample_paths.py` 作为 sample image / prediction JSON 路径映射的
+  单一真源；worker、evaluator、prediction import、store 均复用这份 root-aware fallback。
+- 新增 `projects/eval_bench/eval_bench/sample_scope.py` 作为 run sample target-label scope 的单一真源；
+  run sample 的 GT、prediction、raw payload、prediction payload 和 diagnostics 都按 `target_labels` 展示。
+- 当 JSON 未提供 `image_path` 时，按 `.png/.jpg/.jpeg/.webp` 顺序查找实际存在的同名图像，再回退到旧
+  `.png` 规则。
+
+### 回归测试
+
+- `.venv/bin/python -m pytest -q projects/eval_bench/tests/test_evaluator.py projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_worker.py`
+- `.venv/bin/python -m compileall -q projects/eval_bench/eval_bench scripts/eval_bench.py`
+- 重新提交两个 detection job 后，二者均越过原失败样本位置继续 inference。
+
+### 后续防线
+
+- 创建 benchmark 时应尽量写入显式 `image_path`，不要依赖固定 `.png` 推断。
+- 评测前的数据校验要覆盖“JSON image path 与真实图像后缀一致性”，尤其是混合 `.jpg/.png` 的 raw source。
+- 后续新增路径兼容规则只能改 `sample_paths.py`，不能在 worker/evaluator/import/store 中继续复制私有 helper。
+- 后续新增 run sample 展示范围或 diagnostics 兼容规则只能改 `sample_scope.py`；前端和 dashboard route
+  只消费已经 scoped 的 API payload。
+
+## 2026-05-19: Eval 可视化测试依赖已删除临时脚本
+
+### 现象
+
+快速回归 `uv run pytest -q` 在 collection 阶段失败，`tests/test_eval_common.py` 导入
+`eval_common` 报 `ModuleNotFoundError`。该测试仍手动把 `scripts/tmp` 加入 `sys.path`，但
+`scripts/tmp/eval_common.py` 已经不在当前仓库。
+
+### 根因
+
+离线 eval 预测结果转可视化快照的逻辑曾停留在临时脚本中；共享标注渲染已经进入
+`src/shaft/metrics/visualization.py`，但 codec 结果到 boxes / keypoints / footer 的快照转换没有
+同步迁入正式模块，测试也仍指向临时入口。
+
+### 影响范围
+
+影响默认快速回归的 collection，不影响模型能力，也不是 metric 计算或 codec 解析误判。风险在于 eval
+可视化快照语义继续依赖 `scripts/tmp` 这类非稳定接口，后续迁移容易再次断链。
+
+### 修复方式
+
+- 新增 `src/shaft/metrics/prediction_visualization.py`，作为预测快照可视化的正式真源。
+- `shaft.metrics` 导出 `render_prediction_visualization()`。
+- 将测试重命名为 `tests/test_prediction_visualization.py`，不再修改 `sys.path` 或导入临时脚本。
+- 更新 `docs/module_reference.md` 与 Eval Bench adapter 注释，移除已删除 `eval_common` 入口引用。
+
+### 回归测试
+
+- `uv run pytest -q tests/test_prediction_visualization.py`
+- `uv run pytest -q`
+- `uv run ruff check src/shaft/metrics/prediction_visualization.py src/shaft/metrics/__init__.py tests/test_prediction_visualization.py projects/eval_bench/eval_bench/adapters/__init__.py`
+- `.venv/bin/python -m compileall -q src/shaft tests`
+
+### 后续防线
+
+- 测试不应把 `scripts/tmp` 加入导入路径；需要复用的 eval 能力必须先进入 `src/shaft` 正式模块。
+- 临时离线脚本只允许编排，不应成为 codec / metric / visualization 共享语义的真源。
+- 删除或迁移临时脚本时必须同时搜索测试、adapter 注释和模块文档中的旧入口引用。
+
 ## 2026-05-13: Eval Bench 子系统中间层不足导致语义漂移
 
 ### 现象
