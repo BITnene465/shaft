@@ -33,9 +33,10 @@ codec / metric 误判。
 - Rank Board 增加折叠式 `Weighted rank scheme` 面板，接受与 CLI/API 相同的 JSON。
 - 前端只做基础 JSON 和字段校验，实际 weighted score、score formula、rank scheme 和 score components
   仍由 `/api/rank-board` 返回。
+- 后端拒绝 scheme 时，错误显示在 weighted 面板内，表格继续保留上一份可用排行，避免核心页面整体失败。
 - 加权模式下表格额外展示 `Weighted` 和 `Components` 列；默认模式仍保持 `f1_iou50` 主指标。
 - Layout smoke 在真实 dashboard 上展开该面板、填入有效 scheme、启用加权排行，并断言 weighted chip
-  和 weighted/components 表头出现。
+  和 weighted/components 表头出现；随后填入不支持的 metric，确认错误留在面板内且表格不消失。
 
 ### 回归测试
 
@@ -46,6 +47,7 @@ codec / metric 误判。
 
 - Rank Board 的默认主指标仍是 F1；任何综合分都必须由显式 `rank_scheme` 触发。
 - 前端不能复制 weighted score 计算，只能把方案传给 API 并展示 API 返回的 `score_components`。
+- Rank scheme API 错误必须是局部错误态，不能让独立排行榜主工作区整页失败。
 
 ## 2026-05-25: Eval Bench 标准动作按钮在业务页回流为原生 button
 

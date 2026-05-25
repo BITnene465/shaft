@@ -38,6 +38,7 @@ export function RankBoardPage() {
   const [sortOrder, setSortOrder] = useState("desc");
   const [rankSchemeEnabled, setRankSchemeEnabled] = useState(false);
   const [rankSchemeDraft, setRankSchemeDraft] = useState(defaultRankSchemeDraft());
+  const [rankSchemeRequestError, setRankSchemeRequestError] = useState<string | null>(null);
   const rankSchemeError = rankSchemeEnabled ? validateRankSchemeDraft(rankSchemeDraft) : null;
   const rankSchemeParam = rankSchemeEnabled && !rankSchemeError ? rankSchemeDraft : undefined;
   const boardQuery = useQuery({
@@ -56,23 +57,34 @@ export function RankBoardPage() {
       sortOrder,
       rankSchemeParam
     ],
-    queryFn: () =>
-      fetchRankBoard({
-        offset: 0,
-        limit: 200,
-        query: searchText,
-        task: taskFilter,
-        benchmarkId: benchmarkFilter,
-        status: statusFilter,
-        label: labelFilter,
-        modelId: modelFilter,
-        promptId: promptFilter,
-        metricProfile: metricProfileFilter,
-        minScore: minScoreFilter,
-        sortBy,
-        sortOrder,
-        rankScheme: rankSchemeParam
-      })
+    queryFn: async () => {
+      try {
+        const nextBoard = await fetchRankBoard({
+          offset: 0,
+          limit: 200,
+          query: searchText,
+          task: taskFilter,
+          benchmarkId: benchmarkFilter,
+          status: statusFilter,
+          label: labelFilter,
+          modelId: modelFilter,
+          promptId: promptFilter,
+          metricProfile: metricProfileFilter,
+          minScore: minScoreFilter,
+          sortBy,
+          sortOrder,
+          rankScheme: rankSchemeParam
+        });
+        setRankSchemeRequestError(null);
+        return nextBoard;
+      } catch (error) {
+        if (rankSchemeParam) {
+          setRankSchemeRequestError(error instanceof Error ? error.message : String(error));
+        }
+        throw error;
+      }
+    },
+    placeholderData: (previousData) => previousData
   });
   const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
   const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
@@ -85,12 +97,13 @@ export function RankBoardPage() {
   const entries = board?.entries ?? [];
   const best = entries[0] ?? null;
 
-  if (dashboardQuery.isLoading || boardQuery.isLoading) {
+  if (dashboardQuery.isLoading || (boardQuery.isLoading && !board)) {
     return <EmptyState title="正在加载排行榜" />;
   }
-  if (dashboardQuery.error || boardQuery.error || !board) {
+  if (dashboardQuery.error || !board) {
     return <EmptyState title="排行榜加载失败" tone="danger" />;
   }
+  const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
 
   return (
     <section className="page-stack density-page rank-board-page">
@@ -239,6 +252,7 @@ export function RankBoardPage() {
         enabled={rankSchemeEnabled}
         draft={rankSchemeDraft}
         error={rankSchemeError}
+        apiError={rankSchemeApiError}
         board={board}
         benchmarks={benchmarks}
         onEnabledChange={setRankSchemeEnabled}
@@ -365,6 +379,7 @@ function RankSchemePanel({
   enabled,
   draft,
   error,
+  apiError,
   board,
   benchmarks,
   onEnabledChange,
@@ -373,6 +388,7 @@ function RankSchemePanel({
   enabled: boolean;
   draft: string;
   error: string | null;
+  apiError: string | null;
   board: RankBoard;
   benchmarks: string[];
   onEnabledChange: (value: boolean) => void;
@@ -404,8 +420,8 @@ function RankSchemePanel({
           aria-label="Weighted rank scheme JSON"
         />
         <div className="rank-scheme-footer">
-          <span className={error ? "rank-scheme-status error" : "rank-scheme-status"}>
-            {error ?? (applied ? board.score_formula : "默认按 F1@.50 排序，不使用综合分。")}
+          <span className={error || apiError ? "rank-scheme-status error" : "rank-scheme-status"}>
+            {error ?? apiError ?? (applied ? board.score_formula : "默认按 F1@.50 排序，不使用综合分。")}
           </span>
           <ActionButton
             variant="mini"

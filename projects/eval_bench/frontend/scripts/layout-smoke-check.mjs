@@ -1,6 +1,7 @@
 import { chromium } from "@playwright/test";
 
 const baseUrl = (process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/").replace(/\/+$/, "");
+const expectedConsoleErrors = new WeakMap();
 
 const viewports = [
   { name: "desktop", width: 1440, height: 960 },
@@ -153,7 +154,13 @@ function attachErrorListeners(page, errors, scope) {
   page.on("pageerror", (error) => errors.push(`${scope}: page error: ${error.message}`));
   page.on("console", (message) => {
     if (message.type() === "error") {
-      errors.push(`${scope}: console error: ${message.text()}`);
+      const text = message.text();
+      const allowedCount = expectedConsoleErrors.get(page) ?? 0;
+      if (allowedCount > 0 && text.includes("400 (Bad Request)")) {
+        expectedConsoleErrors.set(page, allowedCount - 1);
+        return;
+      }
+      errors.push(`${scope}: console error: ${text}`);
     }
   });
 }
@@ -632,6 +639,35 @@ async function assertRankSchemePanel(page, scope) {
   }));
   if (!weightedState.chipText.includes("Weighted") || weightedState.weightedHeaders < 2) {
     throw new Error(`${scope}: weighted rank scheme did not apply ${JSON.stringify(weightedState)}`);
+  }
+  const invalidScheme = JSON.stringify(
+    {
+      name: "layout_smoke_invalid",
+      terms: [
+        { benchmark_id: benchmarkId, metric: "unsupported_metric", weight: 1, missing: "drop" }
+      ]
+    },
+    null,
+    2
+  );
+  expectedConsoleErrors.set(page, (expectedConsoleErrors.get(page) ?? 0) + 2);
+  await page.locator(".rank-scheme-panel textarea").fill(invalidScheme);
+  await page.locator(".rank-scheme-status.error").waitFor({ timeout: 10_000 });
+  const invalidState = await page.evaluate(() => ({
+    statusText: document.querySelector(".rank-scheme-status")?.textContent?.trim() ?? "",
+    hasTable: Boolean(document.querySelector(".table-shell")),
+    bodyText: document.body.textContent ?? ""
+  }));
+  if (!invalidState.statusText.includes("metric is not supported") || !invalidState.hasTable) {
+    throw new Error(
+      `${scope}: invalid weighted scheme should stay inline ${JSON.stringify({
+        statusText: invalidState.statusText,
+        hasTable: invalidState.hasTable
+      })}`
+    );
+  }
+  if (invalidState.bodyText.includes("排行榜加载失败")) {
+    throw new Error(`${scope}: invalid weighted scheme collapsed the whole rank-board page`);
   }
 }
 
