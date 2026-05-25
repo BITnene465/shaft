@@ -17,6 +17,7 @@ import {
   preflightJob,
   upsertPromptTemplate
 } from "./api";
+import { CompactSelectControl } from "./controlPrimitives";
 import { useDashboardState } from "./dashboardState";
 import { basename, formatDate, formatMetric, jobTarget, stringValue, unique } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
@@ -558,36 +559,31 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
       {bare ? null : <PanelTitle title="新建评测任务" meta="模板 manifest + 后端预检查" />}
       <form className="manifest-job-form" onSubmit={submit}>
         <div className="manifest-toolbar">
-          <label className="filter-select compact">
-            <span>模板</span>
-            <select
-              value={templateId}
-              onChange={(event) => loadTemplate(event.target.value)}
-              disabled={templatesQuery.isLoading}
-            >
-              {templateIds.length === 0 ? <option value="eval_job">加载中</option> : null}
-              {templateIds.map((id) => (
-                <option key={id} value={id}>
-                  {templates[id]?.label ?? id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="filter-select compact">
-            <span>Prompt</span>
-            <select
-              value={selectedPrompt?.prompt_id ?? promptId}
-              onChange={(event) => applySelectedPrompt(event.target.value)}
-              disabled={promptTemplatesQuery.isLoading || promptTemplates.length === 0}
-            >
-              {promptTemplates.length === 0 ? <option value={promptId}>加载中</option> : null}
-              {promptTemplates.map((template) => (
-                <option key={template.prompt_id} value={template.prompt_id}>
-                  {template.label || template.prompt_id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CompactSelectControl
+            label="模板"
+            value={templateId}
+            onChange={loadTemplate}
+            disabled={templatesQuery.isLoading}
+            options={
+              templateIds.length === 0
+                ? [{ value: "eval_job", label: "加载中" }]
+                : templateIds.map((id) => ({ value: id, label: templates[id]?.label ?? id }))
+            }
+          />
+          <CompactSelectControl
+            label="Prompt"
+            value={selectedPrompt?.prompt_id ?? promptId}
+            onChange={applySelectedPrompt}
+            disabled={promptTemplatesQuery.isLoading || promptTemplates.length === 0}
+            options={
+              promptTemplates.length === 0
+                ? [{ value: promptId, label: "加载中" }]
+                : promptTemplates.map((template) => ({
+                    value: template.prompt_id,
+                    label: template.label || template.prompt_id
+                  }))
+            }
+          />
           <ActionButton
             variant="secondary"
             icon={<AppIcon name="restoreTemplate" size={16} />}

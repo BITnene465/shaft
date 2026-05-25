@@ -48,6 +48,40 @@ export function ColorControl({
   );
 }
 
+export function CompactSelectControl({
+  label,
+  value,
+  options,
+  disabled = false,
+  dense = false,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  dense?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className={dense ? "compact-select dense" : "compact-select"}>
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        title={label}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function ToggleButton({
   label,
   active,

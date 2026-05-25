@@ -31,6 +31,18 @@ assert(
   !jobsPage.includes('<button type="submit">添加</button>'),
   "label subtask submit regressed to a raw button",
 );
+assert(
+  jobsPage.includes("import { CompactSelectControl } from \"./controlPrimitives\";"),
+  "manifest toolbar selects must use CompactSelectControl",
+);
+assert(
+  (jobsPage.match(/<CompactSelectControl/g) ?? []).length >= 2,
+  "manifest toolbar must render template and prompt through CompactSelectControl",
+);
+assert(
+  !jobsPage.includes('className="filter-select compact"'),
+  "jobs page must not create ad hoc compact filter selects outside filterControls",
+);
 
 const settingsControls = await readSource("src/settingsControls.tsx");
 assert(

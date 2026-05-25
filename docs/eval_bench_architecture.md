@@ -18,6 +18,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
    - 标准按钮统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`；业务页只保留样本行、
      label chip、画布 HUD 等专用交互控件。
+   - 页面局部输入控件优先走 `controlPrimitives.tsx`；业务页不能为了局部 toolbar 继续复制
+     `filter-select compact` 这类筛选样式。
 2. **API Facade Layer**
    - FastAPI route、request/response 转换、错误响应和日志。
    - 不直接实现 metric、runtime lifecycle、prediction parsing。
@@ -111,6 +113,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
   - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件真源。
+- `projects/eval_bench/frontend/src/controlPrimitives.tsx`
+  - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer 和 settings
+    不各自复制 select/input 外壳。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
 - `projects/eval_bench/frontend/src/comparePage.tsx`
