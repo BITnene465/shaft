@@ -111,9 +111,7 @@ export function RankBoardPage() {
         <div>
           <h2>独立排行榜</h2>
           <span>
-            {board.total.toLocaleString()} 条 run，按{" "}
-            {board.primary_metric_label || rankSortLabel(board.sort_by)}{" "}
-            {board.sort_order === "asc" ? "升序" : "降序"}
+            {board.total.toLocaleString()} 条 run，{rankBoardOrderLabel(board)}
           </span>
         </div>
         {best ? (
@@ -242,9 +240,14 @@ export function RankBoardPage() {
         ]}
         actions={
           <span className={board.rank_scheme ? "rank-formula-chip weighted" : "rank-formula-chip"}>
-            {board.rank_scheme
-              ? `Weighted ${board.primary_metric_label}`
-              : `主指标 ${rankSortLabel(board.sort_by)}`}
+            <strong>
+              {board.rank_scheme
+                ? `Weighted ${board.primary_metric_label}`
+                : `主指标 ${board.primary_metric_label}`}
+            </strong>
+            {board.sort_by !== board.primary_metric ? (
+              <em>排序 {rankSortLabel(board.sort_by)}</em>
+            ) : null}
           </span>
         }
       />
@@ -286,6 +289,16 @@ export function RankBoardPage() {
 
 function rankSortLabel(value: string) {
   return RANK_SORT_LABELS[value] ?? value;
+}
+
+function rankBoardOrderLabel(
+  board: Pick<RankBoard, "primary_metric" | "primary_metric_label" | "sort_by" | "sort_order">
+) {
+  const direction = board.sort_order === "asc" ? "升序" : "降序";
+  if (board.sort_by !== board.primary_metric) {
+    return `主指标 ${board.primary_metric_label}，按 ${rankSortLabel(board.sort_by)} ${direction}`;
+  }
+  return `按主指标 ${board.primary_metric_label} ${direction}`;
 }
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {

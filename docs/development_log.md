@@ -3418,3 +3418,45 @@ dashboard route 私有 helper 中。CLI/API/前端没有共享一个读取 compa
 
 - Agent 新增读取对象时，先提供 CLI/API 稳定入口；不要要求 agent 读取前端状态、SQLite 或 store artifact 文件。
 - Dashboard route 私有 payload helper 如果开始被 CLI 需要，应收敛到后端模块真源，而不是复制一份。
+
+## 2026-05-25: Eval Bench Rank Board 主指标切换语义修正
+
+### 现象
+
+Rank Board 的 API/CLI/前端已经允许 `sort_by=recall_iou50`、`precision_iou50`、`mean_iou` 等排序，
+但返回的 `primary_metric`、`primary_metric_label` 和 `score_formula` 仍固定为 F1。前端切到
+Recall 排序后，页面标题和 chip 仍显示“按 F1”，agent 读取 JSON 时也无法区分“当前排行主指标”和
+“默认 F1”。
+
+### 根因
+
+前一轮只把“默认不加权、默认 F1”收口了，但没有把非加权主指标切换建模为后端返回语义。`score`
+仍被固定当作 F1 兼容字段，导致 `sort_by` 已变化时，主指标字段和 entry 级 score 不同步。
+
+### 影响范围
+
+- 影响 Eval Bench Rank Board 的 API/CLI 返回语义和 Dashboard 排序说明。
+- 不改变默认 F1 排行结果、显式 weighted scheme、comparison report 或 evaluator 指标计算。
+
+### 修复方式
+
+- `EvalBenchStore.rank_board()` 在非加权模式下根据 `sort_by` 推导 `primary_metric` 和
+  `primary_metric_label`；默认仍是 `f1_iou50`。
+- 非加权 entry `score` 改为镜像当前主指标；当 `sort_by` 是 `created_at` 或 `run_id` 这类列表排序维度时，
+  主指标和 score 仍回落到 F1。
+- Rank Board 前端标题和 formula chip 改为同时显示主指标与排序维度，避免主指标和列表排序混淆。
+- README 和 `docs/eval_bench_architecture.md` 同步更新 Rank Board 主指标切换边界。
+
+### 回归测试
+
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+- `uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run pytest -q projects/eval_bench/tests/test_dashboard.py`
+- `cd projects/eval_bench/frontend && npm run build`
+- `git diff --check`
+
+### 后续防线
+
+- Rank Board 新增可排序指标时，必须同时补齐 `primary_metric`、`primary_metric_label`、entry `score`
+  和前端标签展示测试。
+- `created_at`、`run_id` 这类列表排序维度不能伪装成评测主指标。

@@ -610,6 +610,23 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert payload["entries"][0]["score"] == pytest.approx(0.9)
     assert payload["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
 
+    metric_args = _build_parser().parse_args(
+        [
+            "rank-board",
+            "--output-root",
+            str(tmp_path),
+            "--sort-by",
+            "recall_iou50",
+        ]
+    )
+    _cmd_rank_board(metric_args)
+    metric_payload = json.loads(capsys.readouterr().out)
+    assert metric_payload["primary_metric"] == "recall_iou50"
+    assert metric_payload["primary_metric_label"] == "R@.50"
+    assert metric_payload["score_formula"] == "R@.50"
+    assert metric_payload["entries"][0]["run_id"] == "run_a"
+    assert metric_payload["entries"][0]["score"] == pytest.approx(0.9)
+
 
 def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     tmp_path: Path,

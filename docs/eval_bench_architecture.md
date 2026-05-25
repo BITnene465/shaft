@@ -103,8 +103,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 benchmark summary 的 `labels` 输出；manifest 缺少 labels 时可通过 sample scan fallback 补齐。
     任务创建 UI 和 agent CLI 只能消费这个 store 字段，不能自行扫描 benchmark artifact。
   - 维护 run note 的读写、列表摘要和长度校验；dashboard/API/CLI 不直接改 `note.json`。
-  - 维护 rank board 的过滤、facet 计数、F1 默认主指标、可切换排序指标和分页输出；
-    Compare 页不能再作为排行榜真源。`score` 仅作为兼容字段镜像 F1，不再代表默认加权排名。
+  - 维护 rank board 的过滤、facet 计数、F1 默认主指标、非加权主指标切换、列表排序维度和分页输出；
+    Compare 页不能再作为排行榜真源。`score` 在非加权模式下镜像当前主指标，显式 weighted scheme
+    下才代表加权分。
 - `projects/eval_bench/eval_bench/comparison.py`
   - 维护 pairwise comparison 报告生成、已保存 report 读取、成对样本详情 payload、历史摘要和
     task/label/query 过滤；API/CLI/前端不各自复制 comparison 历史检索或样本 payload 语义。
@@ -188,7 +189,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   这类不同 UI 语义不能复用同一个通用 metrics icon。
 - 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含
   `benchmark_id`、`metric`、`weight` 和缺失指标处理规则；前端必须标明当前使用的是 weighted scheme。
-  默认 Rank Board 始终保持 `f1_iou50` 主指标排序，不能把加权结果重新命名成默认分数；显式 weighted
+  默认 Rank Board 始终以 `f1_iou50` 作为主指标；用户切换到 precision、recall、mIoU 或预测数时，
+  store/API/CLI 必须同步更新 `primary_metric`、`primary_metric_label` 和 entry `score`。不能把加权结果
+  重新命名成默认分数；显式 weighted
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
   一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。

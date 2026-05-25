@@ -1043,6 +1043,7 @@ h2 {
 .rank-formula-chip {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   min-height: 34px;
   padding: 0 10px;
   color: #174d65;
@@ -1051,6 +1052,15 @@ h2 {
   white-space: nowrap;
   background: #f2f8fb;
   border: 1px solid #d7e6ee;
+}
+
+.rank-formula-chip strong {
+  font-weight: 720;
+}
+
+.rank-formula-chip em {
+  color: #5c7380;
+  font-style: normal;
 }
 
 .rank-formula-chip.weighted {

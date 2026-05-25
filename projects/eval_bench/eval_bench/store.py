@@ -576,7 +576,11 @@ class EvalBenchStore:
             )
             if resolved_rank_scheme is not None and weighted is None:
                 continue
-            score = weighted.score if weighted is not None else f1_iou50
+            score = (
+                weighted.score
+                if weighted is not None
+                else _rank_primary_score_for_run(run, resolved_sort_by)
+            )
             score_components = weighted.components if weighted is not None else []
             min_score_value = (
                 score
@@ -624,22 +628,29 @@ class EvalBenchStore:
         ]
         start = max(0, int(offset))
         page_limit = max(1, int(limit))
+        primary_metric = (
+            WEIGHTED_RANK_SORT_BY
+            if resolved_rank_scheme
+            else _primary_metric_for_sort(resolved_sort_by)
+        )
         return RankBoard(
             offset=start,
             limit=page_limit,
             total=len(ranked),
             evaluated_count=evaluated_count,
             filters=filters,
-            primary_metric="weighted_score" if resolved_rank_scheme else DEFAULT_RANK_SORT_BY,
+            primary_metric=primary_metric,
             primary_metric_label=(
-                resolved_rank_scheme.name if resolved_rank_scheme else RANK_PRIMARY_METRIC_LABEL
+                resolved_rank_scheme.name
+                if resolved_rank_scheme
+                else _rank_metric_label(primary_metric)
             ),
             sort_by=resolved_sort_by,
             sort_order=resolved_sort_order,
             score_formula=(
                 _rank_scheme_formula(resolved_rank_scheme)
                 if resolved_rank_scheme
-                else RANK_PRIMARY_METRIC_LABEL
+                else _rank_metric_label(primary_metric)
             ),
             rank_scheme=resolved_rank_scheme.to_dict() if resolved_rank_scheme else None,
             facets=facets,
@@ -1377,6 +1388,24 @@ def _normalize_rank_sort_by(value: str, *, weighted: bool = False) -> str:
     return WEIGHTED_RANK_SORT_BY if weighted else DEFAULT_RANK_SORT_BY
 
 
+def _primary_metric_for_sort(sort_by: str) -> str:
+    if sort_by in _allowed_rank_metrics():
+        return sort_by
+    return DEFAULT_RANK_SORT_BY
+
+
+def _rank_metric_label(metric: str) -> str:
+    labels = {
+        "f1_iou50": RANK_PRIMARY_METRIC_LABEL,
+        "precision_iou50": "P@.50",
+        "recall_iou50": "R@.50",
+        "mean_iou": "mIoU",
+        "prediction_count": "Prediction Count",
+        WEIGHTED_RANK_SORT_BY: "Weighted",
+    }
+    return labels.get(metric, metric)
+
+
 def _sort_rank_entries(
     entries: list[RankBoardEntry],
     *,
@@ -1431,6 +1460,14 @@ def _rank_run_metric_value(run: RunSummary, sort_by: str) -> float | int | str |
     if sort_by == "run_id":
         return run.run_id or None
     return _rank_f1_iou50(run)
+
+
+def _rank_primary_score_for_run(run: RunSummary, sort_by: str) -> float | None:
+    primary_metric = _primary_metric_for_sort(sort_by)
+    value = _rank_run_metric_value(run, primary_metric)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
 
 
 def _rank_weighted_score(run: RunSummary, scheme: RankScheme | None) -> WeightedRankScore | None:

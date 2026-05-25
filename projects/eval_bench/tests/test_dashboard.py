@@ -415,7 +415,11 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     ).json()
     assert recall_ascending["sort_by"] == "recall_iou50"
     assert recall_ascending["sort_order"] == "asc"
+    assert recall_ascending["primary_metric"] == "recall_iou50"
+    assert recall_ascending["primary_metric_label"] == "R@.50"
+    assert recall_ascending["score_formula"] == "R@.50"
     assert [entry["run_id"] for entry in recall_ascending["entries"]] == ["run_b", "run_a"]
+    assert recall_ascending["entries"][0]["score"] == pytest.approx(0.5)
 
     rank_scheme = {
         "name": "bench1_quality",
