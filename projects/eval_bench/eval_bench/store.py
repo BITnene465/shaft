@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, StoreLayout, atomic_write_json
 from .sample_paths import sample_image_string
@@ -20,6 +20,33 @@ from .schema import utc_now_iso
 MAX_RUN_NOTE_LENGTH = 20_000
 DEFAULT_RANK_SORT_BY = "f1_iou50"
 RANK_PRIMARY_METRIC_LABEL = "F1@.50"
+WEIGHTED_RANK_SORT_BY = "weighted_score"
+
+
+@dataclass(frozen=True)
+class RankSchemeTerm:
+    benchmark_id: str
+    metric: str
+    weight: float
+    missing: str = "drop"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RankScheme:
+    name: str
+    terms: list[RankSchemeTerm]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "terms": [term.to_dict() for term in self.terms]}
+
+
+@dataclass(frozen=True)
+class WeightedRankScore:
+    score: float
+    components: list[dict[str, Any]]
 
 
 def _read_json_or_none(path: Path) -> dict[str, Any] | None:
@@ -137,6 +164,7 @@ class RankBoardEntry:
     mean_iou: float | None
     created_at: str | None
     note: str
+    score_components: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -151,6 +179,7 @@ class RankBoard:
     sort_by: str
     sort_order: str
     score_formula: str
+    rank_scheme: dict[str, Any] | None
     facets: dict[str, list[dict[str, Any]]]
     entries: list[RankBoardEntry]
 
@@ -473,8 +502,13 @@ class EvalBenchStore:
         sort_by: str = DEFAULT_RANK_SORT_BY,
         sort_order: str = "desc",
         query: str | None = None,
+        rank_scheme: Mapping[str, Any] | str | None = None,
     ) -> RankBoard:
-        resolved_sort_by = _normalize_rank_sort_by(sort_by)
+        resolved_rank_scheme = _normalize_rank_scheme(rank_scheme)
+        resolved_sort_by = _normalize_rank_sort_by(
+            sort_by,
+            weighted=resolved_rank_scheme is not None,
+        )
         resolved_sort_order = "asc" if str(sort_order).lower() == "asc" else "desc"
         filters = {
             "task": _normalize_filter_value(task) or "",
@@ -486,6 +520,7 @@ class EvalBenchStore:
             "metric_profile": _normalize_filter_value(metric_profile) or "",
             "min_score": "" if min_score is None else str(float(min_score)),
             "query": (query or "").strip(),
+            "rank_scheme": resolved_rank_scheme.name if resolved_rank_scheme else "",
         }
         query_text = filters["query"].lower()
         entries: list[RankBoardEntry] = []
@@ -507,9 +542,22 @@ class EvalBenchStore:
             if query_text and not _rank_query_matches(run, query_text):
                 continue
             f1_iou50 = _rank_f1_iou50(run)
-            min_score_value = _rank_run_metric_value(run, resolved_sort_by)
+            weighted = (
+                _rank_weighted_score(run, resolved_rank_scheme)
+                if resolved_rank_scheme is not None
+                else None
+            )
+            if resolved_rank_scheme is not None and weighted is None:
+                continue
+            score = weighted.score if weighted is not None else f1_iou50
+            score_components = weighted.components if weighted is not None else []
+            min_score_value = (
+                score
+                if resolved_sort_by == "weighted_score"
+                else _rank_run_metric_value(run, resolved_sort_by)
+            )
             if not isinstance(min_score_value, (int, float)):
-                min_score_value = f1_iou50
+                min_score_value = score
             if min_score is not None and (
                 min_score_value is None or min_score_value < float(min_score)
             ):
@@ -519,7 +567,7 @@ class EvalBenchStore:
                     rank=0,
                     f1_iou50=f1_iou50,
                     run_id=run.run_id,
-                    score=f1_iou50,
+                    score=score,
                     status=run.status,
                     benchmark_id=run.benchmark_id,
                     task=run.spec_task,
@@ -533,6 +581,7 @@ class EvalBenchStore:
                     mean_iou=run.mean_iou,
                     created_at=run.created_at,
                     note=run.note,
+                    score_components=score_components,
                 )
             )
         facets = _rank_facets(entries)
@@ -554,11 +603,18 @@ class EvalBenchStore:
             total=len(ranked),
             evaluated_count=evaluated_count,
             filters=filters,
-            primary_metric=DEFAULT_RANK_SORT_BY,
-            primary_metric_label=RANK_PRIMARY_METRIC_LABEL,
+            primary_metric="weighted_score" if resolved_rank_scheme else DEFAULT_RANK_SORT_BY,
+            primary_metric_label=(
+                resolved_rank_scheme.name if resolved_rank_scheme else RANK_PRIMARY_METRIC_LABEL
+            ),
             sort_by=resolved_sort_by,
             sort_order=resolved_sort_order,
-            score_formula=RANK_PRIMARY_METRIC_LABEL,
+            score_formula=(
+                _rank_scheme_formula(resolved_rank_scheme)
+                if resolved_rank_scheme
+                else RANK_PRIMARY_METRIC_LABEL
+            ),
+            rank_scheme=resolved_rank_scheme.to_dict() if resolved_rank_scheme else None,
             facets=facets,
             entries=ranked[start : start + page_limit],
         )
@@ -1207,10 +1263,78 @@ def _rank_f1_iou50(run: RunSummary) -> float | None:
     return (2 * precision * recall) / denominator
 
 
-def _normalize_rank_sort_by(value: str) -> str:
+def _normalize_rank_scheme(value: Mapping[str, Any] | str | None) -> RankScheme | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("rank_scheme must be a JSON object.") from exc
+    else:
+        payload = dict(value)
+    if not isinstance(payload, dict):
+        raise ValueError("rank_scheme must be a JSON object.")
+    name = str(payload.get("name") or payload.get("rank_profile") or "weighted_score").strip()
+    terms_payload = payload.get("terms") or payload.get("weights")
+    if not isinstance(terms_payload, list) or not terms_payload:
+        raise ValueError("rank_scheme.terms must be a non-empty list.")
+    terms: list[RankSchemeTerm] = []
+    for index, item in enumerate(terms_payload):
+        if not isinstance(item, dict):
+            raise ValueError(f"rank_scheme.terms[{index}] must be a JSON object.")
+        benchmark_id = str(item.get("benchmark_id") or "").strip()
+        metric = _normalize_rank_metric(str(item.get("metric") or ""))
+        missing = str(item.get("missing") or "drop").strip().lower()
+        if not benchmark_id:
+            raise ValueError(f"rank_scheme.terms[{index}].benchmark_id is required.")
+        if metric not in _allowed_rank_metrics():
+            raise ValueError(f"rank_scheme.terms[{index}].metric is not supported: {metric}")
+        if missing not in {"drop", "skip", "zero"}:
+            raise ValueError("rank_scheme term missing must be one of: drop, skip, zero.")
+        try:
+            weight = float(item.get("weight"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"rank_scheme.terms[{index}].weight must be numeric.") from exc
+        if weight <= 0:
+            raise ValueError(f"rank_scheme.terms[{index}].weight must be positive.")
+        terms.append(
+            RankSchemeTerm(
+                benchmark_id=benchmark_id,
+                metric=metric,
+                weight=weight,
+                missing=missing,
+            )
+        )
+    return RankScheme(name=name or "weighted_score", terms=terms)
+
+
+def _allowed_rank_metrics() -> set[str]:
+    return {
+        "f1_iou50",
+        "precision_iou50",
+        "recall_iou50",
+        "mean_iou",
+        "prediction_count",
+    }
+
+
+def _normalize_rank_metric(value: str) -> str:
     normalized = str(value or DEFAULT_RANK_SORT_BY).strip()
     if normalized == "score":
         return DEFAULT_RANK_SORT_BY
+    return normalized
+
+
+def _normalize_rank_sort_by(value: str, *, weighted: bool = False) -> str:
+    normalized = str(value or DEFAULT_RANK_SORT_BY).strip()
+    if normalized == "score":
+        return WEIGHTED_RANK_SORT_BY if weighted else DEFAULT_RANK_SORT_BY
+    if weighted and normalized == DEFAULT_RANK_SORT_BY:
+        return WEIGHTED_RANK_SORT_BY
     allowed = {
         "f1_iou50",
         "precision_iou50",
@@ -1219,8 +1343,11 @@ def _normalize_rank_sort_by(value: str) -> str:
         "prediction_count",
         "created_at",
         "run_id",
+        WEIGHTED_RANK_SORT_BY,
     }
-    return normalized if normalized in allowed else DEFAULT_RANK_SORT_BY
+    if normalized in allowed:
+        return normalized
+    return WEIGHTED_RANK_SORT_BY if weighted else DEFAULT_RANK_SORT_BY
 
 
 def _sort_rank_entries(
@@ -1240,6 +1367,8 @@ def _sort_rank_entries(
 
 
 def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str | None:
+    if sort_by == WEIGHTED_RANK_SORT_BY:
+        return entry.score
     if sort_by == "f1_iou50":
         return entry.f1_iou50
     if sort_by == "precision_iou50":
@@ -1258,6 +1387,8 @@ def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str |
 
 
 def _rank_run_metric_value(run: RunSummary, sort_by: str) -> float | int | str | None:
+    if sort_by == WEIGHTED_RANK_SORT_BY:
+        return None
     if sort_by == "f1_iou50":
         return _rank_f1_iou50(run)
     if sort_by == "precision_iou50":
@@ -1273,6 +1404,60 @@ def _rank_run_metric_value(run: RunSummary, sort_by: str) -> float | int | str |
     if sort_by == "run_id":
         return run.run_id or None
     return _rank_f1_iou50(run)
+
+
+def _rank_weighted_score(run: RunSummary, scheme: RankScheme | None) -> WeightedRankScore | None:
+    if scheme is None:
+        return None
+    matched_terms = [term for term in scheme.terms if term.benchmark_id == run.benchmark_id]
+    if not matched_terms:
+        return None
+    total_weight = 0.0
+    weighted_sum = 0.0
+    components: list[dict[str, Any]] = []
+    for term in matched_terms:
+        value = _rank_run_metric_value(run, term.metric)
+        numeric_value = float(value) if isinstance(value, (int, float)) else None
+        if numeric_value is None:
+            components.append(
+                {
+                    "benchmark_id": term.benchmark_id,
+                    "metric": term.metric,
+                    "weight": term.weight,
+                    "missing": term.missing,
+                    "value": None,
+                    "contribution": None,
+                }
+            )
+            if term.missing == "drop":
+                return None
+            if term.missing == "skip":
+                continue
+            numeric_value = 0.0
+        contribution = numeric_value * term.weight
+        components.append(
+            {
+                "benchmark_id": term.benchmark_id,
+                "metric": term.metric,
+                "weight": term.weight,
+                "missing": term.missing,
+                "value": numeric_value,
+                "contribution": contribution,
+            }
+        )
+        weighted_sum += contribution
+        total_weight += term.weight
+    if total_weight <= 0:
+        return None
+    return WeightedRankScore(score=weighted_sum / total_weight, components=components)
+
+
+def _rank_scheme_formula(scheme: RankScheme) -> str:
+    parts = [
+        f"{term.weight:g}*{term.benchmark_id}.{term.metric}[missing={term.missing}]"
+        for term in scheme.terms
+    ]
+    return f"{scheme.name}: " + " + ".join(parts)
 
 
 def _rank_facets(entries: list[RankBoardEntry]) -> dict[str, list[dict[str, Any]]]:

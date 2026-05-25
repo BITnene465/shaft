@@ -355,6 +355,37 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert recall_ascending["sort_order"] == "asc"
     assert [entry["run_id"] for entry in recall_ascending["entries"]] == ["run_b", "run_a"]
 
+    rank_scheme = {
+        "name": "bench1_quality",
+        "terms": [
+            {
+                "benchmark_id": "bench1",
+                "metric": "precision_iou50",
+                "weight": 0.25,
+                "missing": "drop",
+            },
+            {
+                "benchmark_id": "bench1",
+                "metric": "mean_iou",
+                "weight": 0.75,
+                "missing": "zero",
+            },
+        ],
+    }
+    weighted = client.get(
+        "/api/rank-board",
+        params={"rank_scheme": json.dumps(rank_scheme)},
+    ).json()
+    assert weighted["primary_metric"] == "weighted_score"
+    assert weighted["primary_metric_label"] == "bench1_quality"
+    assert weighted["sort_by"] == "weighted_score"
+    assert weighted["rank_scheme"] == rank_scheme
+    assert weighted["entries"][0]["score"] == pytest.approx(0.75)
+    assert weighted["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
+
+    bad_scheme = client.get("/api/rank-board", params={"rank_scheme": '{"terms": []}'})
+    assert bad_scheme.status_code == 400
+
 
 def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")

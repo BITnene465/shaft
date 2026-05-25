@@ -2309,3 +2309,47 @@ run 计数拆出语义 key。顶栏状态也只复用了通用 pill 样式，没
 
 - 新增 dashboard 图标时必须先补 `AppIcon` 语义 key；不同业务状态不能只因为都属于指标域而复用同一个图标。
 - 顶栏运行态优先使用状态 capsule，不在页面中散落独立同步文字。
+
+## 2026-05-25: Eval Bench Rank Board 显式加权排行入口
+
+### 现象
+
+Rank Board 默认排行已经改为 F1 主指标，但仍缺少一个 agent-safe 的显式加权方案入口。用户需要在不改变默认
+F1 排行语义的前提下，按指定 benchmark 和 metric 权重得到一个最终分，并能解释每条 entry 的分数来源。
+
+### 根因
+
+早期实现把 `score` 固定为 F1 兼容字段，只允许在已有单项 metric 之间切换排序。加权排行还停留在设计约束，
+没有进入 store/API/CLI 的正式参数，也没有返回可审计的贡献项。
+
+### 影响范围
+
+- 影响 Eval Bench Rank Board 的 API/CLI 排序能力和 agent 自动排行能力。
+- 不影响默认 `/api/rank-board`、CLI `rank-board` 的 F1 排行结果。
+- 不影响 evaluator report、prediction snapshot 或 run note。
+
+### 修复方式
+
+- `EvalBenchStore.rank_board()` 增加显式 `rank_scheme` 输入；没有 scheme 时仍返回 `primary_metric=f1_iou50`。
+- `rank_scheme` terms 要求包含 `benchmark_id`、`metric`、`weight` 和 `missing`，缺失策略支持
+  `drop`、`skip`、`zero`。
+- 显式 weighted scheme 会返回 `primary_metric=weighted_score`、原始 `rank_scheme`、`score_formula` 和
+  entry-level `score_components`。
+- `/api/rank-board` 接受 JSON string 形式的 `rank_scheme` query 参数，非法 scheme 返回 400。
+- CLI `rank-board` 增加 `--rank-scheme-json` 和 `--rank-scheme-file`，供 agent 直接传入方案。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m compileall -q projects/eval_bench/eval_bench projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_cli.py`
+- `.venv/bin/ruff check projects/eval_bench/eval_bench/store.py projects/eval_bench/eval_bench/cli.py projects/eval_bench/eval_bench/dashboard.py projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py`
+- Store 直调 smoke：构造两个 succeeded run，确认默认 board 仍是 `f1_iou50`，显式 scheme 返回
+  `weighted_score`、原始 `rank_scheme` 和 `score_components`。
+- `cd projects/eval_bench/frontend && npm run build`
+- `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=projects/eval_bench timeout 90 .venv/bin/pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_independent_rank_board projects/eval_bench/tests/test_cli.py::test_cli_prints_filtered_rank_board`
+  当前机器上该 focused pytest 在 CLI/dashboard 重依赖 import 阶段超时无输出，未拿到 pytest 结果；后续需要在
+  import 性能恢复后重跑。
+
+### 后续防线
+
+- 加权排行只能通过显式 scheme 启用；不能把 weighted score 回写成默认 `score` 语义或覆盖默认 F1。
+- 新增 weighted metric 时必须同时补 `score_components`，保证 agent 能解释最终分数。

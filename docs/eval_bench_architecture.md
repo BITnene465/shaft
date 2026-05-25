@@ -146,7 +146,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   这类不同 UI 语义不能复用同一个通用 metrics icon。
 - 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含
   `benchmark_id`、`metric`、`weight` 和缺失指标处理规则；前端必须标明当前使用的是 weighted scheme。
-  默认 Rank Board 始终保持 `f1_iou50` 主指标排序，不能把加权结果重新命名成默认分数。
+  默认 Rank Board 始终保持 `f1_iou50` 主指标排序，不能把加权结果重新命名成默认分数；显式 weighted
+  scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
   HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused

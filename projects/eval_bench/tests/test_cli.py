@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from eval_bench.cli import (
     _build_parser,
     _cmd_create_job,
@@ -446,18 +448,44 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
             "run_id",
             "--sort-order",
             "desc",
+            "--rank-scheme-json",
+            json.dumps(
+                {
+                    "name": "agent_weighted_quality",
+                    "terms": [
+                        {
+                            "benchmark_id": "bench1",
+                            "metric": "precision_iou50",
+                            "weight": 0.4,
+                            "missing": "drop",
+                        },
+                        {
+                            "benchmark_id": "bench1",
+                            "metric": "mean_iou",
+                            "weight": 0.6,
+                            "missing": "zero",
+                        },
+                    ],
+                }
+            ),
         ]
     )
     _cmd_rank_board(args)
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["total"] == 1
+    assert payload["primary_metric"] == "weighted_score"
+    assert payload["primary_metric_label"] == "agent_weighted_quality"
     assert payload["sort_by"] == "run_id"
     assert payload["sort_order"] == "desc"
     assert payload["filters"]["min_score"] == "0.7"
+    assert payload["filters"]["rank_scheme"] == "agent_weighted_quality"
+    assert payload["rank_scheme"]["name"] == "agent_weighted_quality"
     assert payload["facets"]["metric_profiles"] == [{"value": "detection_iou_v1", "count": 1}]
     assert payload["entries"][0]["run_id"] == "run_a"
     assert payload["entries"][0]["rank"] == 1
+    assert payload["entries"][0]["score"] == pytest.approx(0.9)
+    assert payload["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
 
 
 def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(

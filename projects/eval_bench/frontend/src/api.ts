@@ -105,6 +105,7 @@ export type RankBoardEntry = {
   mean_iou: number | null;
   created_at: string | null;
   note: string;
+  score_components: Array<Record<string, unknown>>;
 };
 
 export type RankBoard = {
@@ -118,6 +119,7 @@ export type RankBoard = {
   sort_by: string;
   sort_order: string;
   score_formula: string;
+  rank_scheme: Record<string, unknown> | null;
   facets: Record<string, Array<{ value: string; count: number }>>;
   entries: RankBoardEntry[];
 };
