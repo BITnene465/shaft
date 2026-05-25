@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 目录分页控件在六个页面重复实现
+
+### 现象
+
+Runs、Benchmarks、Jobs、Services、Compare 候选 run 和 Rank Board 都已经接入后端分页，但前端各页面仍各自
+维护一份本地 pager 函数。每份函数都重复计算 start/end、previous/next offset 和按钮禁用状态。
+后续如果其中一个页面改动分页边界，很容易造成禁用逻辑、offset clamp 或样式 className 分叉。
+
+### 根因
+
+分页能力是先按页面逐步补齐的：每补一个目录页面，就复制一份最小 pager。样本分页已经有
+`samplePager.tsx`，但它只暴露 `SamplePager`，没有作为目录分页 primitive 使用。
+
+### 影响范围
+
+- 影响 Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 的前端分页一致性与维护成本。
+- 不影响后端分页 API、查询语义、rank board 排序、comparison 计算或样本分页 URL 语义。
+
+### 修复方式
+
+- `samplePager.tsx` 新增 `PagerControl`，统一 range 展示、上一页/下一页按钮、禁用逻辑和可选 meta。
+- `samplePager.tsx` 新增 `clampListPageOffset`，统一目录列表 offset 合法化。
+- Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 删除本地 pager 函数，改为传入业务
+  className、offset/limit/total 和必要 meta。
+- UI contract 改为检查这些页面必须复用 `PagerControl` / `clampListPageOffset`，并禁止本地 pager
+  函数回流。
+- README 和架构文档同步目录分页真源。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增目录型页面时，分页只能复用 `PagerControl`；页面不应复制按钮、range 或 offset clamp。
+- 如果未来需要页码跳转、每页大小切换或键盘分页，应先扩展 `PagerControl`，不要在单个页面局部实现。
+
 ## 2026-05-25: Eval Bench 窄屏 inspector split 把图片画布压缩到 2px
 
 ### 现象

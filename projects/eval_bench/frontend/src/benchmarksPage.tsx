@@ -21,7 +21,7 @@ import {
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
-import { SamplePager } from "./samplePager";
+import { PagerControl, SamplePager, clampListPageOffset } from "./samplePager";
 import {
   ActionButton,
   CommandButton,
@@ -74,7 +74,7 @@ export function BenchmarksPage() {
     setPageOffset(0);
   }, [searchText, taskFilter, layerFilter, splitFilter]);
   useEffect(() => {
-    const nextOffset = clampBenchmarkPageOffset(pageOffset, totalBenchmarks);
+    const nextOffset = clampListPageOffset(pageOffset, totalBenchmarks, BENCHMARK_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -142,7 +142,8 @@ export function BenchmarksPage() {
       />
       <div className="workspace-card fill">
         <BenchmarkTable benchmarks={benchmarks} />
-        <BenchmarkListPager
+        <PagerControl
+          className="rank-board-pager benchmark-list-pager"
           offset={benchmarksQuery.data.offset ?? pageOffset}
           limit={benchmarksQuery.data.limit ?? BENCHMARK_PAGE_SIZE}
           total={totalBenchmarks}
@@ -158,53 +159,6 @@ export function BenchmarksPage() {
         <BenchmarkCreatePanel bare />
       </WorkspaceDialog>
     </section>
-  );
-}
-
-function clampBenchmarkPageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / BENCHMARK_PAGE_SIZE) * BENCHMARK_PAGE_SIZE;
-}
-
-function BenchmarkListPager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager benchmark-list-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
-    </div>
   );
 }
 

@@ -39,6 +39,7 @@ import {
   jobProgress,
   progressPhaseText
 } from "./statusModel";
+import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
   ActionButton,
   Badge,
@@ -204,7 +205,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     if (compact) {
       return;
     }
-    const nextOffset = clampJobPageOffset(pageOffset, totalJobs);
+    const nextOffset = clampListPageOffset(pageOffset, totalJobs, JOB_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -332,7 +333,8 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       {!compact ? (
-        <JobListPager
+        <PagerControl
+          className="rank-board-pager job-list-pager"
           offset={data.offset ?? pageOffset}
           limit={data.limit ?? JOB_PAGE_SIZE}
           total={totalJobs}
@@ -354,53 +356,6 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           }
         }}
       />
-    </div>
-  );
-}
-
-function clampJobPageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / JOB_PAGE_SIZE) * JOB_PAGE_SIZE;
-}
-
-function JobListPager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager job-list-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
     </div>
   );
 }

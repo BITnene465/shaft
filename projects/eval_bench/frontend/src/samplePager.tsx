@@ -1,14 +1,27 @@
+import type { ReactNode } from "react";
+
 import { ActionButton } from "./ui";
 
-export function SamplePager({
+export function clampListPageOffset(offset: number, total: number, pageSize: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / pageSize) * pageSize;
+}
+
+export function PagerControl({
+  className,
   offset,
   limit,
   total,
+  meta,
   onPageChange
 }: {
+  className: string;
   offset: number;
   limit: number;
   total: number;
+  meta?: ReactNode;
   onPageChange: (offset: number) => void;
 }) {
   const start = total === 0 ? 0 : offset + 1;
@@ -16,9 +29,10 @@ export function SamplePager({
   const previousOffset = Math.max(0, offset - limit);
   const nextOffset = offset + limit;
   return (
-    <div className="sample-pager">
+    <div className={className}>
       <span>
         {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+        {meta}
       </span>
       <div>
         <ActionButton
@@ -37,5 +51,27 @@ export function SamplePager({
         </ActionButton>
       </div>
     </div>
+  );
+}
+
+export function SamplePager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  return (
+    <PagerControl
+      className="sample-pager"
+      offset={offset}
+      limit={limit}
+      total={total}
+      onPageChange={onPageChange}
+    />
   );
 }

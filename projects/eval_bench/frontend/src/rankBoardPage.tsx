@@ -9,6 +9,7 @@ import { useDashboardState } from "./dashboardState";
 import { AdvancedFilterBar } from "./filterControls";
 import { formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
+import { PagerControl, clampListPageOffset } from "./samplePager";
 import { ActionButton, Badge, DataTable, EmptyState, MetricCard } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
@@ -119,7 +120,7 @@ export function RankBoardPage() {
     if (!board) {
       return;
     }
-    const nextOffset = clampRankPageOffset(pageOffset, board.total);
+    const nextOffset = clampListPageOffset(pageOffset, board.total, RANK_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -309,7 +310,8 @@ export function RankBoardPage() {
       </div>
       <RankFacetRail board={board} />
       <div className="workspace-card fill">
-        <RankBoardPager
+        <PagerControl
+          className="rank-board-pager"
           offset={board.offset}
           limit={board.limit}
           total={board.total}
@@ -337,53 +339,6 @@ function rankBoardOrderLabel(
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
   return board.facets[key]?.length ?? 0;
-}
-
-function clampRankPageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / RANK_PAGE_SIZE) * RANK_PAGE_SIZE;
-}
-
-function RankBoardPager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
-    </div>
-  );
 }
 
 function RankFacetRail({ board }: { board: Pick<RankBoard, "facets"> }) {

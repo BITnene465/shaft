@@ -125,7 +125,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
-  - 维护 benchmark/run 检查器共享样本分页控件；分页按钮统一走基础 action 组件。
+  - 维护 benchmark/run 检查器共享样本分页控件、目录分页 `PagerControl` 和通用 offset clamp；
+    Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 只能传 className/meta，不各自复制上一页/下一页逻辑。
 - `projects/eval_bench/frontend/src/runsPage.tsx`
   - 维护结果库、导入预测弹窗、run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
 - `projects/eval_bench/frontend/src/sampleViewer.tsx`
@@ -235,6 +236,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 inspector / viewer 响应式布局：桌面优先保持工作区一屏内分栏；compact / narrow 视口下 split
   堆叠时，`.visual-inspector-page` 必须允许局部滚动，`.image-stage` 必须保留可操作高度，对象检查器继续
   在自己的面板内滚动；不能用外层 `overflow: hidden` 把画布压成不可见。
+- 新增目录分页页面：只允许复用 `PagerControl` 和 `clampListPageOffset`；页面可以定义 page size、
+  API filter 和业务 className，但不能复制 pager range、上一页/下一页禁用和 offset clamp 逻辑。
 - 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；TP、FP、FN、IoU、P/R
   等精细指标必须留在折叠式分 label 明细、对象诊断、排行榜或对比页中。
 

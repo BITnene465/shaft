@@ -25,6 +25,7 @@ import {
   canStartService,
   canStopService
 } from "./statusModel";
+import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
   formatDate,
   runtimeValue,
@@ -92,7 +93,7 @@ export function ServicesPage() {
     setPageOffset(0);
   }, [searchText, statusFilter, kindFilter]);
   useEffect(() => {
-    const nextOffset = clampServicePageOffset(pageOffset, totalServices);
+    const nextOffset = clampListPageOffset(pageOffset, totalServices, SERVICE_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -150,7 +151,8 @@ export function ServicesPage() {
             ]}
           />
           <ServiceGrid services={services} />
-          <ServiceListPager
+          <PagerControl
+            className="rank-board-pager service-list-pager"
             offset={servicesQuery.data.offset ?? pageOffset}
             limit={servicesQuery.data.limit ?? SERVICE_PAGE_SIZE}
             total={totalServices}
@@ -167,53 +169,6 @@ export function ServicesPage() {
         <ServiceCreatePanel bare />
       </WorkspaceDialog>
     </section>
-  );
-}
-
-function clampServicePageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / SERVICE_PAGE_SIZE) * SERVICE_PAGE_SIZE;
-}
-
-function ServiceListPager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager service-list-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
-    </div>
   );
 }
 

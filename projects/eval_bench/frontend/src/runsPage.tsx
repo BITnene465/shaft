@@ -34,7 +34,7 @@ import {
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
-import { SamplePager } from "./samplePager";
+import { PagerControl, SamplePager, clampListPageOffset } from "./samplePager";
 import { SampleViewer } from "./sampleViewer";
 import {
   ActionButton,
@@ -118,7 +118,7 @@ export function RunsPage() {
     metricProfileFilter
   ]);
   useEffect(() => {
-    const nextOffset = clampRunPageOffset(pageOffset, totalRuns);
+    const nextOffset = clampListPageOffset(pageOffset, totalRuns, RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -223,7 +223,8 @@ export function RunsPage() {
             }
           ]}
           footer={
-            <RunListPager
+            <PagerControl
+              className="rank-board-pager run-list-pager"
               offset={runsQuery.data.offset ?? pageOffset}
               limit={runsQuery.data.limit ?? RUN_PAGE_SIZE}
               total={totalRuns}
@@ -241,53 +242,6 @@ export function RunsPage() {
         <ImportPredictionsPanel benchmarks={benchmarkOptions} bare />
       </WorkspaceDialog>
     </section>
-  );
-}
-
-function clampRunPageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / RUN_PAGE_SIZE) * RUN_PAGE_SIZE;
-}
-
-function RunListPager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager run-list-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
-    </div>
   );
 }
 

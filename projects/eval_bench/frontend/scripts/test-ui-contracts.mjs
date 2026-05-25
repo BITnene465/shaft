@@ -17,6 +17,13 @@ for (const filePath of sourceFiles) {
 const jobsPage = await readSource("src/jobsPage.tsx");
 const uiSource = await readSource("src/ui.tsx");
 const filterControls = await readSource("src/filterControls.tsx");
+const samplePagerSource = await readSource("src/samplePager.tsx");
+assert(
+  samplePagerSource.includes("export function PagerControl(") &&
+    samplePagerSource.includes("export function clampListPageOffset(") &&
+    samplePagerSource.includes("export function SamplePager("),
+  "paged list controls must share PagerControl and clampListPageOffset",
+);
 assert(
   filterControls.includes('import { ActionButton } from "./ui";') &&
     filterControls.includes("function resetAdvancedFilters()") &&
@@ -54,9 +61,11 @@ assert(
 );
 assert(
   jobsPage.includes("const JOB_PAGE_SIZE = 80;") &&
-    jobsPage.includes("function JobListPager(") &&
+    jobsPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    jobsPage.includes('<PagerControl\n          className="rank-board-pager job-list-pager"') &&
     jobsPage.includes("offset: compact ? 0 : pageOffset") &&
     jobsPage.includes("limit: compact ? 12 : JOB_PAGE_SIZE") &&
+    !jobsPage.includes("function JobListPager(") &&
     !jobsPage.includes("limit: compact ? 12 : 200") &&
     !jobsPage.includes("limit: 200"),
   "jobs queue page must use paged API requests instead of a fixed 200-job slice",
@@ -189,9 +198,11 @@ assert(
 );
 assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
-    benchmarksPage.includes("function BenchmarkListPager(") &&
+    benchmarksPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
+    benchmarksPage.includes('className="rank-board-pager benchmark-list-pager"') &&
     benchmarksPage.includes("offset: pageOffset") &&
     benchmarksPage.includes("limit: BENCHMARK_PAGE_SIZE") &&
+    !benchmarksPage.includes("function BenchmarkListPager(") &&
     !benchmarksPage.includes("limit: 200"),
   "benchmarks page must use paged API requests instead of a fixed 200-row slice",
 );
@@ -214,9 +225,11 @@ assert(
 );
 assert(
   runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
-    runsPage.includes("function RunListPager(") &&
+    runsPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
+    runsPage.includes('className="rank-board-pager run-list-pager"') &&
     runsPage.includes("offset: pageOffset") &&
     runsPage.includes("limit: RUN_PAGE_SIZE") &&
+    !runsPage.includes("function RunListPager(") &&
     !runsPage.includes("limit: 200"),
   "runs page must use paged API requests instead of a fixed 200-row slice",
 );
@@ -242,9 +255,11 @@ assert(
 const servicesPage = await readSource("src/servicesPage.tsx");
 assert(
   servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
-    servicesPage.includes("function ServiceListPager(") &&
+    servicesPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    servicesPage.includes('className="rank-board-pager service-list-pager"') &&
     servicesPage.includes("offset: pageOffset") &&
     servicesPage.includes("limit: SERVICE_PAGE_SIZE") &&
+    !servicesPage.includes("function ServiceListPager(") &&
     !servicesPage.includes("limit: 200"),
   "services page must use paged API requests instead of a fixed 200-service slice",
 );
@@ -259,10 +274,12 @@ const comparePage = await readSource("src/comparePage.tsx");
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
   comparePage.includes("const COMPARE_RUN_PAGE_SIZE = 80;") &&
-    comparePage.includes("function CompareRunPager(") &&
+    comparePage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    comparePage.includes('className="rank-board-pager compare-run-pager"') &&
     comparePage.includes("offset: pageOffset") &&
     comparePage.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
     comparePage.includes("已选择；当前页未加载该 run") &&
+    !comparePage.includes("function CompareRunPager(") &&
     !comparePage.includes("limit: 200"),
   "compare run rail must use paged API requests while preserving selected run ids",
 );
@@ -280,9 +297,11 @@ assert(
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 assert(
   rankBoardPage.includes("const RANK_PAGE_SIZE = 80;") &&
-    rankBoardPage.includes("function RankBoardPager(") &&
+    rankBoardPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    rankBoardPage.includes('className="rank-board-pager"') &&
     rankBoardPage.includes("offset: pageOffset") &&
     rankBoardPage.includes("limit: RANK_PAGE_SIZE") &&
+    !rankBoardPage.includes("function RankBoardPager(") &&
     !rankBoardPage.includes("limit: 200"),
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );

@@ -27,7 +27,8 @@ import {
   unique
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
-import { ActionButton, Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
+import { PagerControl, clampListPageOffset } from "./samplePager";
+import { Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 const COMPARE_RUN_PAGE_SIZE = 80;
@@ -128,7 +129,7 @@ export function ComparePage() {
     setPageOffset(0);
   }, [searchText, statusFilter, taskFilter, benchmarkFilter, labelFilter, modelFilter, promptFilter]);
   useEffect(() => {
-    const nextOffset = clampCompareRunPageOffset(pageOffset, filteredCount);
+    const nextOffset = clampListPageOffset(pageOffset, filteredCount, COMPARE_RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
@@ -243,12 +244,17 @@ export function ComparePage() {
               disabled={filteredCount < 2 && !effectiveCandidate}
               onChange={setCandidateRunId}
             />
-            <CompareRunPager
+            <PagerControl
+              className="rank-board-pager compare-run-pager"
               offset={runPageOffset}
               limit={runPageLimit}
               total={filteredCount}
-              visibleCount={runs.length}
-              comparableCount={comparableRuns.length}
+              meta={
+                <>
+                  {" · "}
+                  {runs.length.toLocaleString()} visible / {comparableRuns.length.toLocaleString()} reports
+                </>
+              }
               onPageChange={setPageOffset}
             />
             <ComparisonHistoryPanel
@@ -296,13 +302,6 @@ export function ComparePage() {
       />
     </section>
   );
-}
-
-function clampCompareRunPageOffset(offset: number, total: number) {
-  if (total <= 0 || offset < total) {
-    return Math.max(0, offset);
-  }
-  return Math.floor((total - 1) / COMPARE_RUN_PAGE_SIZE) * COMPARE_RUN_PAGE_SIZE;
 }
 
 function RunSelectRail({
@@ -358,52 +357,6 @@ function RunSelectRail({
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function CompareRunPager({
-  offset,
-  limit,
-  total,
-  visibleCount,
-  comparableCount,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  visibleCount: number;
-  comparableCount: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="rank-board-pager compare-run-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-        {" · "}
-        {visibleCount.toLocaleString()} visible / {comparableCount.toLocaleString()} reports
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          disabled={offset <= 0}
-          onClick={() => onPageChange(previousOffset)}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          disabled={nextOffset >= total}
-          onClick={() => onPageChange(nextOffset)}
-        >
-          下一页
-        </ActionButton>
-      </div>
     </div>
   );
 }
