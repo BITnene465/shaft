@@ -111,7 +111,43 @@ def test_eval_job_manifest_resolves_prompt_template_defaults() -> None:
     assert resolved.payload["max_pixels"] == 123456
     assert resolved.payload["batch_size"] == 2
     assert resolved.manifest["eval"]["target_labels"] == ["icon"]
+    assert resolved.manifest["eval"]["target_labels_source"] == "prompt_metadata"
     assert resolved.payload["target_labels"] == ["icon"]
+    assert resolved.payload["target_labels_source"] == "prompt_metadata"
+
+
+def test_prompt_template_target_labels_replace_empty_manifest_list() -> None:
+    resolved = resolve_job_payload(
+        {
+            "manifest": {
+                "kind": "eval_job",
+                "runtime": {"mode": "existing_service", "engine": "vllm_openai"},
+                "eval": {
+                    "model_id": "model-a",
+                    "benchmark_id": "bench1",
+                    "prompt_id": "custom.arrow",
+                    "target_labels": [],
+                },
+            }
+        },
+        prompt_templates={
+            "custom.arrow": {
+                "prompt_id": "custom.arrow",
+                "label": "Custom Arrow",
+                "task": "detection",
+                "system_prompt": "JSON only.",
+                "user_prompt": "Detect arrows.",
+                "parser": "raw_data_detection_v1",
+                "metric_profile": "detection_iou_v1",
+                "metadata": {"target_labels": ["arrow"]},
+            }
+        },
+    )
+
+    assert resolved.manifest["eval"]["target_labels"] == ["arrow"]
+    assert resolved.manifest["eval"]["target_labels_source"] == "prompt_metadata"
+    assert resolved.payload["target_labels"] == ["arrow"]
+    assert resolved.payload["target_labels_source"] == "prompt_metadata"
 
 
 def test_legacy_eval_payload_preserves_target_labels_in_resolved_manifest() -> None:

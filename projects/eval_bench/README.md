@@ -163,10 +163,12 @@ label 集合：
 
 Evaluator 会在匹配前按 `target_labels` 同时过滤 GT 和 prediction，report summary 和 comparison
 也会记录这组 label 以及 `target_labels_source`。`target_labels` 的优先级是：run spec 显式声明、
-prompt metadata、legacy prompt ID 兼容推断、task default、unscoped。这样 layout prompt 在包含
-arrow GT 的 benchmark 上评测时，不会把未要求输出的 arrow 误算成漏检；如果要做全任务评测，应
-显式使用包含所有目标 label 的 prompt/template，而不是只改 `task=detection`。外部 prediction
-snapshot 导入时也必须保留这组目标标签，不能只靠 `task=detection` 表达 layout 或 arrow 子任务。
+prompt metadata、legacy prompt ID 兼容推断、task default、unscoped；这套来源会写入 run spec
+metadata 并在 report 中保留，避免 prompt/template 推导出的 label 范围被误记为人工显式声明。
+这样 layout prompt 在包含 arrow GT 的 benchmark 上评测时，不会把未要求输出的 arrow 误算成漏检；
+如果要做全任务评测，应显式使用包含所有目标 label 的 prompt/template，而不是只改
+`task=detection`。外部 prediction snapshot 导入时也必须保留这组目标标签，不能只靠
+`task=detection` 表达 layout 或 arrow 子任务。
 
 `eval_job` 的最小 manifest 形态：
 
@@ -375,7 +377,8 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 `grounding_layout.latest` 或显式传 `--target-label icon --target-label image --target-label shape`；
 否则 evaluator 无法知道本轮 detection 是否应排除 arrow。
 
-`init-run` 也支持 `--target-label`，用于直接初始化 detection 的 label 子任务：
+`init-run` 也支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
+后端会按同一份 `label_policy.py` 从 prompt id / task 推导默认范围：
 
 ```bash
 .venv/bin/python scripts/eval_bench.py init-run \

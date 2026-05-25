@@ -17,7 +17,12 @@ from .adapters.vllm_openai import OpenAICompatibleVLLMAdapter
 from .database import EvalBenchDatabase, JobRecord
 from .evaluator import evaluate_run
 from .job_spec import resolve_job_payload
-from .label_policy import normalize_target_labels, resolve_target_labels
+from .label_policy import (
+    TARGET_LABEL_SOURCES,
+    TargetLabelPolicy,
+    normalize_target_labels,
+    resolve_target_label_policy,
+)
 from .prediction_parser import parse_prediction_text
 from .sample_paths import sample_image_path
 from .schema import (
@@ -358,6 +363,18 @@ class EvalBenchWorker:
             batch_size=int(payload.get("batch_size") or 1),
             extra=dict(payload.get("inference_extra") or {}),
         )
+        target_policy = resolve_target_label_policy(
+            explicit=payload.get("target_labels"),
+            prompt_id=str(payload.get("prompt_id") or ""),
+            task=task,
+        )
+        target_labels_source = _optional_string(payload, "target_labels_source")
+        if target_labels_source in TARGET_LABEL_SOURCES:
+            target_policy = TargetLabelPolicy(
+                labels=target_policy.labels,
+                source=target_labels_source,
+            )
+
         manifest = EvalRunManifest(
             run_id=run_id,
             status="queued",
@@ -385,12 +402,9 @@ class EvalBenchWorker:
                 parser=str(payload.get("parser") or "shaft.codec.json_any"),
                 metric_profile=str(payload.get("metric_profile") or "default"),
                 visualization_profile=str(payload.get("visualization_profile") or "default"),
-                target_labels=resolve_target_labels(
-                    explicit=payload.get("target_labels"),
-                    prompt_id=str(payload.get("prompt_id") or ""),
-                    task=task,
-                ),
+                target_labels=target_policy.labels,
                 inference=inference_params,
+                metadata={"target_labels_source": target_policy.source},
             ),
             artifact_root=str(RunArtifacts(self.root, run_id).run_dir),
             metadata={

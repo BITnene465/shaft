@@ -8,6 +8,7 @@ import socket
 from typing import Any, Mapping
 
 from .artifacts import BenchmarkArtifacts, DEFAULT_STORE_ROOT
+from .label_policy import normalize_target_labels
 from .services import build_vllm_command_from_config
 
 
@@ -265,7 +266,7 @@ def _apply_prompt_template_to_manifest(
     _set_default(section, "parser", template.get("parser"))
     _set_default(section, "metric_profile", template.get("metric_profile"))
     _set_default(section, "visualization_profile", template.get("visualization_profile"))
-    _set_default(section, "target_labels", _target_labels_from_template(template))
+    _set_target_labels_default(section, _target_labels_from_template(template))
     section["generation"] = _merge_defaults(
         _normalized_mapping(template.get("generation")),
         _normalized_mapping(section.get("generation")),
@@ -350,6 +351,7 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         "metric_profile": _first_string(eval_config.get("metric_profile"), original.get("metric_profile")),
         "visualization_profile": _first_string(eval_config.get("visualization_profile"), original.get("visualization_profile")),
         "target_labels": _first_label_list(eval_config.get("target_labels"), original.get("target_labels")),
+        "target_labels_source": _first_string(eval_config.get("target_labels_source"), original.get("target_labels_source")),
         "endpoint": _first_string(runtime.get("endpoint"), original.get("endpoint")),
         "service_id": _first_string(runtime.get("service_id"), original.get("service_id")),
         "served_model_name": served_model_name,
@@ -579,6 +581,13 @@ def _set_default(target: dict[str, Any], key: str, *values: Any) -> None:
         target[key] = value
 
 
+def _set_target_labels_default(target: dict[str, Any], labels: list[str]) -> None:
+    if not labels or _label_list(target.get("target_labels")):
+        return
+    target["target_labels"] = labels
+    target["target_labels_source"] = "prompt_metadata"
+
+
 def _merge_defaults(defaults: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     merged = {key: value for key, value in defaults.items() if value not in (None, "")}
     merged.update({key: value for key, value in overrides.items() if value not in (None, "")})
@@ -601,20 +610,7 @@ def _first_label_list(*values: Any) -> list[str]:
 
 
 def _label_list(value: Any) -> list[str]:
-    if value in (None, ""):
-        return []
-    if isinstance(value, str):
-        values = value.replace(",", " ").split()
-    elif isinstance(value, list):
-        values = [str(item) for item in value]
-    else:
-        raise ValueError("target_labels must be a list or a comma/space separated string.")
-    labels: list[str] = []
-    for item in values:
-        label = str(item).strip()
-        if label and label not in labels:
-            labels.append(label)
-    return labels
+    return normalize_target_labels(value)
 
 
 def _string_list(value: Any) -> list[str]:

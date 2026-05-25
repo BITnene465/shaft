@@ -61,6 +61,41 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
     assert payload["spec"]["target_labels"] == ["icon", "image"]
+    assert payload["spec"]["metadata"]["target_labels_source"] == "explicit"
+
+
+def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) -> None:
+    args = _build_parser().parse_args(
+        [
+            "init-run",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--task",
+            "detection",
+            "--model-id",
+            "model-a",
+            "--model-path",
+            "outputs/model-a/best",
+            "--benchmark-id",
+            "bench1",
+            "--benchmark-root",
+            str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "--split",
+            "val",
+            "--spec-id",
+            "layout.default",
+            "--prompt-id",
+            "grounding_layout.latest",
+        ]
+    )
+
+    _cmd_init_run(args)
+
+    payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
+    assert payload["spec"]["target_labels"] == ["icon", "image", "shape"]
+    assert payload["spec"]["metadata"]["target_labels_source"] == "legacy_prompt_id"
 
 
 def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:

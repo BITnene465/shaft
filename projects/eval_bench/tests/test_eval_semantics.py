@@ -32,6 +32,21 @@ def test_target_label_policy_records_legacy_prompt_id_source() -> None:
     assert policy.source == "legacy_prompt_id"
 
 
+def test_eval_semantics_preserves_resolved_target_label_source() -> None:
+    semantics = resolve_eval_semantics(
+        {
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["icon"],
+            "metadata": {"target_labels_source": "prompt_metadata"},
+            "prompt": {"prompt_id": "custom.layout"},
+        }
+    )
+
+    assert semantics.target_labels == ["icon"]
+    assert semantics.target_labels_source == "prompt_metadata"
+
+
 def test_metric_profile_default_follows_task() -> None:
     assert resolve_metric_profile("default", task="detection").profile_id == "detection_iou_v1"
     keypoint = resolve_metric_profile("default", task="keypoint")

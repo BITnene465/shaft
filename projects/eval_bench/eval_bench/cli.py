@@ -11,6 +11,7 @@ from .database import EvalBenchDatabase
 from .dashboard import main as serve_dashboard
 from .evaluator import evaluate_run
 from .job_spec import preflight_job_payload
+from .label_policy import resolve_target_label_policy
 from .perf import run_perf_smoke
 from .prediction_import import import_predictions_for_benchmark
 from .schema import (
@@ -321,6 +322,11 @@ def _cmd_create_benchmark(args: argparse.Namespace) -> None:
 
 def _cmd_init_run(args: argparse.Namespace) -> None:
     task: TaskKind = args.task
+    target_policy = resolve_target_label_policy(
+        explicit=args.target_labels,
+        prompt_id=str(args.prompt_id),
+        task=task,
+    )
     manifest = EvalRunManifest(
         run_id=str(args.run_id),
         submitter=str(args.submitter),
@@ -336,7 +342,7 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
             spec_id=str(args.spec_id),
             task=task,
             prompt=PromptRef(prompt_id=str(args.prompt_id), path=args.prompt_path),
-            target_labels=args.target_labels or [],
+            target_labels=target_policy.labels,
             inference=InferenceParams(
                 backend=str(args.backend),
                 endpoint=args.endpoint,
@@ -355,6 +361,7 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
                 max_pixels=args.max_pixels,
                 batch_size=int(args.batch_size),
             ),
+            metadata={"target_labels_source": target_policy.source},
         ),
         artifact_root=str(Path(args.output_root) / "runs" / str(args.run_id)),
     )

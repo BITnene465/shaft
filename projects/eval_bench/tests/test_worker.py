@@ -333,6 +333,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert run_payload["status"] == "queued"
     assert run_payload["spec"]["task"] == "keypoint"
     assert run_payload["spec"]["target_labels"] == ["arrow"]
+    assert run_payload["spec"]["metadata"]["target_labels_source"] == "legacy_prompt_id"
     assert run_payload["spec"]["inference"]["batch_size"] == 2
     assert run_payload["spec"]["inference"]["service_id"] == "local-vllm-0"
     assert run_payload["spec"]["inference"]["cuda_visible_devices"] == "0,1,2"
@@ -435,6 +436,8 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
     report_path = tmp_path / "runs" / job.job_id / "reports" / "metrics.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["prediction_file_count"] == 1
+    assert report["target_labels"] == ["icon", "image", "shape"]
+    assert report["target_labels_source"] == "prompt_metadata"
     assert report["recall_iou50"] == 0.0
     run_payload = json.loads((tmp_path / "runs" / job.job_id / "run.json").read_text(encoding="utf-8"))
     assert run_payload["status"] == "succeeded"

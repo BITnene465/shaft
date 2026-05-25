@@ -6,6 +6,9 @@ from typing import Any, Mapping
 
 LAYOUT_TARGET_LABELS = ("icon", "image", "shape")
 ARROW_TARGET_LABELS = ("arrow",)
+TARGET_LABEL_SOURCES = frozenset(
+    {"explicit", "prompt_metadata", "legacy_prompt_id", "task_default", "unscoped"}
+)
 
 
 @dataclass(frozen=True)
