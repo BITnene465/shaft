@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Runs 高级检索仍固定首屏 200 条
+
+### 现象
+
+Rank Board 已经使用 `/api/rank-board?offset&limit` 和独立 pager，但 Runs 页仍固定请求
+`/api/runs?offset=0&limit=200`。当 run 数超过 200 时，结果库只能看到首屏窗口；高级检索虽然接入后端，
+但没有完整分页浏览能力，筛选后的列表也不能在页面内继续翻页。
+
+### 根因
+
+早期 Runs 页把高级筛选和表格显示先接到同一份 `RunTable`，默认用固定 limit 简化列表；后续 Rank Board
+已经补了分页契约，但 Runs 页没有同步收敛到同一类后端分页模式。
+
+### 影响范围
+
+- 影响 Runs 结果库在大量 run 下的完整浏览、筛选后的可恢复翻页和滚动稳定性。
+- 不影响 run note 真源、rank-board 排序、evaluation 语义、label subtask 或后端 store schema。
+
+### 修复方式
+
+- Runs 页新增 `RUN_PAGE_SIZE=80`、`pageOffset` 和 `RunListPager`，请求 `/api/runs` 时传入 offset/limit。
+- 筛选条件变化自动回到第一页；总数变化或删除 run 后，offset 会 clamp 到最后一个有效页。
+- `RunTable` 增加 `footer` slot，让结果页分页控件留在统一表格栈内部，不复制表格实现。
+- UI contract 锁住 Runs 页不能回退到固定 `limit: 200`；layout smoke 要求 `/runs` 存在 `.run-list-pager`。
+- README 和架构文档同步 Runs / Rank Board 结果列表必须后端分页。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增结果列表页时，不要用固定首屏 slice 代替分页；高级检索、分页和 total 必须来自同一个后端查询。
+- 任何筛选条件变化都要重置 offset；删除、归档或数据减少后要 clamp 到有效页，避免“有结果但当前页空白”。
+
 ## 2026-05-25: Eval Bench agent 命令发现缺少稳定调用形态
 
 ### 现象

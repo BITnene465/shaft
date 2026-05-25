@@ -48,6 +48,8 @@ import { preloadSampleImages } from "./viewerGeometry";
 import { ResizableSplit } from "./workspaceLayout";
 import { useWorkspaceShortcuts } from "./workspaceSettings";
 
+const RUN_PAGE_SIZE = 80;
+
 export function RunsPage() {
   const dashboardQuery = useDashboardState();
   const [importOpen, setImportOpen] = useState(false);
@@ -59,10 +61,11 @@ export function RunsPage() {
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
   const [metricProfileFilter, setMetricProfileFilter] = useState("all");
+  const [pageOffset, setPageOffset] = useState(0);
   const runFilters = useMemo(
     () => ({
-      offset: 0,
-      limit: 200,
+      offset: pageOffset,
+      limit: RUN_PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
       task: taskFilter !== "all" ? taskFilter : undefined,
       benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
@@ -77,6 +80,7 @@ export function RunsPage() {
       labelFilter,
       metricProfileFilter,
       modelFilter,
+      pageOffset,
       promptFilter,
       searchText,
       statusFilter,
@@ -100,6 +104,25 @@ export function RunsPage() {
   const models = unique(runFacets.map((run) => run.model_id).filter(Boolean));
   const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
   const metricProfiles = unique(runFacets.map((run) => run.metric_profile).filter(Boolean));
+  const totalRuns = runsQuery.data?.total ?? runs.length;
+  useEffect(() => {
+    setPageOffset(0);
+  }, [
+    searchText,
+    statusFilter,
+    taskFilter,
+    benchmarkFilter,
+    labelFilter,
+    modelFilter,
+    promptFilter,
+    metricProfileFilter
+  ]);
+  useEffect(() => {
+    const nextOffset = clampRunPageOffset(pageOffset, totalRuns);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [pageOffset, totalRuns]);
   if (runsQuery.isLoading || dashboardQuery.isLoading) {
     return <EmptyState title="正在加载评测记录" />;
   }
@@ -112,7 +135,7 @@ export function RunsPage() {
       <div className="page-command-row">
         <div>
           <h2>评测记录库</h2>
-          <span>{(runsQuery.data.total ?? runs.length).toLocaleString()} 条 run snapshot</span>
+          <span>{totalRuns.toLocaleString()} 条 run snapshot</span>
         </div>
         <CommandButton
           variant="secondary"
@@ -125,7 +148,7 @@ export function RunsPage() {
       <div className="workspace-card fill">
         <RunTable
           runs={runs}
-          filterMeta={`${runs.length.toLocaleString()} / ${(runsQuery.data.total ?? runs.length).toLocaleString()} 条 run`}
+          filterMeta={`${runs.length.toLocaleString()} / ${totalRuns.toLocaleString()} 条 run`}
           filterControls={[
             {
               type: "search",
@@ -199,6 +222,14 @@ export function RunsPage() {
               onChange: setMetricProfileFilter
             }
           ]}
+          footer={
+            <RunListPager
+              offset={runsQuery.data.offset ?? pageOffset}
+              limit={runsQuery.data.limit ?? RUN_PAGE_SIZE}
+              total={totalRuns}
+              onPageChange={setPageOffset}
+            />
+          }
         />
       </div>
       <WorkspaceDialog
@@ -210,6 +241,53 @@ export function RunsPage() {
         <ImportPredictionsPanel benchmarks={benchmarkOptions} bare />
       </WorkspaceDialog>
     </section>
+  );
+}
+
+function clampRunPageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / RUN_PAGE_SIZE) * RUN_PAGE_SIZE;
+}
+
+function RunListPager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager run-list-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 

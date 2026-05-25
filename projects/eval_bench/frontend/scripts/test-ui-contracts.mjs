@@ -194,9 +194,24 @@ assert(
   "runs page module must export list and detail pages",
 );
 assert(
+  runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
+    runsPage.includes("function RunListPager(") &&
+    runsPage.includes("offset: pageOffset") &&
+    runsPage.includes("limit: RUN_PAGE_SIZE") &&
+    !runsPage.includes("limit: 200"),
+  "runs page must use paged API requests instead of a fixed 200-row slice",
+);
+assert(
   runsPage.includes("SelectableRowButton") &&
     !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
+);
+const runTables = await readSource("src/runTables.tsx");
+assert(
+  runTables.includes("footer?: ReactNode") &&
+    runTables.includes("{footer}") &&
+    runTables.includes("import type { ReactNode }"),
+  "run table must expose a footer slot for paged result controls",
 );
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
 assertNoRawSelectElement(runsPage, "runsPage.tsx");

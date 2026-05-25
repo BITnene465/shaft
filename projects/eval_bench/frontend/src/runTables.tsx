@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -68,13 +69,15 @@ export function RunTable({
   compact = false,
   filterControls,
   filterMeta,
-  filterTitle = "结果高级检索"
+  filterTitle = "结果高级检索",
+  footer
 }: {
   runs: RunSummary[];
   compact?: boolean;
   filterControls?: AdvancedFilterControl[];
   filterMeta?: string;
   filterTitle?: string;
+  footer?: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState("");
@@ -336,6 +339,7 @@ export function RunTable({
         emptyText="还没有评测记录。"
         compact={compact}
       />
+      {footer}
       <DangerConfirmDialog
         open={Boolean(deleteRunTarget)}
         title="删除 run"

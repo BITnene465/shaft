@@ -43,7 +43,7 @@ const staticRoutes = [
   {
     name: "runs",
     path: "/runs",
-    selectors: [".run-table-stack", ".advanced-filter-bar", ".table-shell"],
+    selectors: [".run-table-stack", ".advanced-filter-bar", ".table-shell", ".run-list-pager"],
     requireRunsChunk: true
   },
   {
