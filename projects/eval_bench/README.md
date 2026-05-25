@@ -747,7 +747,9 @@ npm run test:layout
 判断“能不能取消、删除、启动、停止、评估”。
 `test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
 绕过标准 action button；Settings、Runs、Services 和 Compare 的局部 select、搜索清空、重置和 label
-清除动作也在这个边界内。
+清除动作也在这个边界内。Overview 的静态契约也由这里锁住：源码必须使用 command desk 的
+`overview-workbench`、`overview-ops-surface` 和 `overview-bottleneck-panel`，不能重新引用旧
+`overview-command-deck`、`overview-focus-panel`、`overview-side-stack` 或活动矩阵组件。
 
 `test:workspace-settings` 会检查 viewer/settings 共享配置 schema，确保数值配置项、UI number input 范围、
 归一化范围和显示缩放系数来自同一份定义，避免配置层级再次分叉。

@@ -300,7 +300,9 @@ UI contract 还会锁住 Rank Board 表格第一分数列必须使用 active pri
   `OptionChipButton`，对象行和可选卡片使用 `SelectableCardButton`，折叠面板入口使用
   `PanelToggleButton`；紧凑 select、表单 select、number、color 和 toggle 控件位于 `controlPrimitives.tsx`。
   `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接，并固定
-  高级检索折叠头和清空动作必须在 `AdvancedFilterBar` 内统一实现。
+  高级检索折叠头和清空动作必须在 `AdvancedFilterBar` 内统一实现；Overview 静态契约必须使用
+  command desk 的 `overview-workbench` / `overview-ops-surface` / `overview-bottleneck-panel`，
+  不能回流旧 `overview-command-deck`、`overview-focus-panel` 或活动矩阵组件。
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data

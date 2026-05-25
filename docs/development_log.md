@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Overview 静态 UI 契约仍锁旧结构
+
+### 现象
+
+总览页已经从旧的 `overview-command-deck` / `overview-focus-panel` / 活动矩阵改成 command desk，
+但 `test-ui-contracts.mjs` 仍要求旧 class 和 `OverviewActivityMatrix` 存在。这样会让后续静态检查把旧结构误认为正确形态。
+
+### 根因
+
+上一轮只更新了运行时 layout smoke，没有同步静态 UI contract。Overview 的结构边界同时由源码模块和 smoke 检查约束，
+只更新其中一个会形成双轨标准。
+
+### 影响范围
+
+- 影响 Overview 模块的长期重构防线和后续 UI 组件化约束。
+- 不影响 dashboard API、run/report/rank 数据或评测指标。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- `test:ui-contracts` 改为要求 `overview-command-center-redesign`、`overview-workbench`、`overview-ops-surface`、
+  `overview-bottleneck-panel` 和 `overview-right-rail`。
+- 静态契约明确禁止 Overview 源码回流 `overview-command-deck`、`overview-focus-panel`、`overview-side-stack`、
+  `OverviewActivityMatrix` 和 `overview-activity-matrix`。
+- README 与脚本文档同步这条静态防线。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- Overview 布局重构必须同时更新 runtime layout smoke 和 static UI contract；不能只改其中一层。
+
 ## 2026-05-25: Eval Bench Overview 活动矩阵和面板墙降低首页价值
 
 ### 现象

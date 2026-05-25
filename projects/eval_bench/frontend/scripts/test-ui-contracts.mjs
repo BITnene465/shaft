@@ -162,8 +162,9 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-command-deck") &&
-    overviewPage.includes("overview-focus-panel") &&
+  overviewPage.includes("overview-command-center-redesign") &&
+    overviewPage.includes("overview-workbench") &&
+    overviewPage.includes("overview-ops-surface") &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewPipeline") &&
     overviewPage.includes("OverviewReadinessPanel") &&
@@ -172,10 +173,16 @@ assert(
     overviewPage.includes("overviewRecentRuns(data.runs") &&
     overviewPage.includes("OverviewSignalStrip") &&
     overviewPage.includes("overview-signal-strip") &&
-    overviewPage.includes("OverviewActivityMatrix") &&
+    overviewPage.includes("OverviewBottleneckPanel") &&
+    overviewPage.includes("overview-bottleneck-panel") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-operational-grid") &&
-    overviewPage.includes("overview-side-stack") &&
+    overviewPage.includes("overview-right-rail") &&
+    !overviewPage.includes("overview-command-deck") &&
+    !overviewPage.includes("overview-focus-panel") &&
+    !overviewPage.includes("overview-side-stack") &&
+    !overviewPage.includes("OverviewActivityMatrix") &&
+    !overviewPage.includes("overview-activity-matrix") &&
     !overviewPage.includes("OverviewTrackGroup") &&
     !overviewPage.includes("OverviewMiniChartPanel") &&
     !overviewPage.includes("overviewCharts") &&
