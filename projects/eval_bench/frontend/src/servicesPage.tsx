@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   useMutation,
@@ -46,19 +46,23 @@ import {
   WorkspaceDialog
 } from "./ui";
 
+const SERVICE_PAGE_SIZE = 80;
+
 export function ServicesPage() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
+  const [pageOffset, setPageOffset] = useState(0);
   const serviceFilters = useMemo(
     () => ({
+      offset: pageOffset,
+      limit: SERVICE_PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
       kind: kindFilter !== "all" ? kindFilter : undefined,
-      query: searchText.trim() || undefined,
-      limit: 200
+      query: searchText.trim() || undefined
     }),
-    [kindFilter, searchText, statusFilter]
+    [kindFilter, pageOffset, searchText, statusFilter]
   );
   const servicesQuery = useQuery({
     queryKey: ["services", serviceFilters],
@@ -70,6 +74,7 @@ export function ServicesPage() {
   });
   const services = servicesQuery.data?.services ?? [];
   const serviceFacets = serviceFacetsQuery.data?.services ?? services;
+  const totalServices = servicesQuery.data?.total ?? services.length;
   const statuses = unique([
     "registered",
     "starting",
@@ -83,6 +88,15 @@ export function ServicesPage() {
     "external_vllm",
     ...serviceFacets.map((service) => service.kind).filter(Boolean)
   ]);
+  useEffect(() => {
+    setPageOffset(0);
+  }, [searchText, statusFilter, kindFilter]);
+  useEffect(() => {
+    const nextOffset = clampServicePageOffset(pageOffset, totalServices);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [pageOffset, totalServices]);
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -105,7 +119,7 @@ export function ServicesPage() {
         <>
           <AdvancedFilterBar
             title="服务高级检索"
-            meta={`${services.length.toLocaleString()} / ${(servicesQuery.data.total ?? services.length).toLocaleString()} 个服务`}
+            meta={`${services.length.toLocaleString()} / ${totalServices.toLocaleString()} 个服务`}
             controls={[
               {
                 type: "search",
@@ -136,6 +150,12 @@ export function ServicesPage() {
             ]}
           />
           <ServiceGrid services={services} />
+          <ServiceListPager
+            offset={servicesQuery.data.offset ?? pageOffset}
+            limit={servicesQuery.data.limit ?? SERVICE_PAGE_SIZE}
+            total={totalServices}
+            onPageChange={setPageOffset}
+          />
         </>
       )}
       <WorkspaceDialog
@@ -147,6 +167,53 @@ export function ServicesPage() {
         <ServiceCreatePanel bare />
       </WorkspaceDialog>
     </section>
+  );
+}
+
+function clampServicePageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / SERVICE_PAGE_SIZE) * SERVICE_PAGE_SIZE;
+}
+
+function ServiceListPager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager service-list-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 

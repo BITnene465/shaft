@@ -61,7 +61,7 @@ const staticRoutes = [
   {
     name: "services",
     path: "/services",
-    selectors: [".advanced-filter-bar"]
+    selectors: [".advanced-filter-bar", ".service-list-pager"]
   },
   {
     name: "settings",

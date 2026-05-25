@@ -231,6 +231,14 @@ assert(
   "runs import dialog selects must use FormSelectControl",
 );
 const servicesPage = await readSource("src/servicesPage.tsx");
+assert(
+  servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
+    servicesPage.includes("function ServiceListPager(") &&
+    servicesPage.includes("offset: pageOffset") &&
+    servicesPage.includes("limit: SERVICE_PAGE_SIZE") &&
+    !servicesPage.includes("limit: 200"),
+  "services page must use paged API requests instead of a fixed 200-service slice",
+);
 assertNoLegacyFormSubmitClass(servicesPage, "servicesPage.tsx");
 assertNoRawSelectElement(servicesPage, "servicesPage.tsx");
 assert(

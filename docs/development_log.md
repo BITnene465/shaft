@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Services 高级检索仍固定首屏 200 条
+
+### 现象
+
+Runs、Benchmarks 和 Rank Board 已经接入后端分页，但 Services 页仍固定请求
+`/api/services?limit=200`。当服务登记、历史 stopped/failed 记录或外部 endpoint 变多时，模型服务目录只能看到首屏窗口；
+高级检索虽然走后端过滤，但没有完整翻页能力。
+
+### 根因
+
+Service manager、API 和 CLI 已经有 `offset/limit`，但前端模型服务页沿用了早期“先拉 200 条”的目录模式。
+分页契约先在结果库、基准集和排行榜补齐，Services 没有同步收敛到同一类后端分页结构。
+
+### 影响范围
+
+- 影响 Services 页在大量服务记录下的完整浏览、筛选后翻页和删除后 offset 恢复。
+- 不影响 service registry、runtime 启停、health check、job 调度或 eval metric 语义。
+
+### 修复方式
+
+- Services 页新增 `SERVICE_PAGE_SIZE=80`、`pageOffset` 和 `ServiceListPager`。
+- 请求 `/api/services` 时传入 offset/limit；筛选条件变化回到第一页，数据减少时 clamp 到最后有效页。
+- layout smoke 要求 `/services` 存在 `.service-list-pager`。
+- UI contract 锁住 Services 页不能回退到固定 `limit: 200`。
+- README 和架构文档同步 Runs / Benchmarks / Services / Rank Board 结果列表必须后端分页。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增目录型页面时，不要用固定首屏 slice 代替分页；高级检索、分页和 total 必须来自同一个后端查询。
+- 页面筛选变化必须重置 offset，删除或数据减少后必须 clamp，避免“目录有数据但当前页空白”。
+
 ## 2026-05-25: Eval Bench 总览 command deck 仍像低价值面板组
 
 ### 现象
