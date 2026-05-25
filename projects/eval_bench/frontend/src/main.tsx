@@ -363,10 +363,10 @@ function OverviewPage() {
             <p>只保留系统运行态、数据规模和近期写入节奏；精细指标进入排行榜与对比页。</p>
           </div>
           <div className="overview-stat-row">
-            <OverviewStat label="Benchmarks" value={data.benchmark_count} />
+            <OverviewStat label="Bench" value={data.benchmark_count} />
             <OverviewStat label="Runs" value={data.run_count} />
-            <OverviewStat label="Evaluated" value={evaluatedRuns} />
-            <OverviewStat label="Active" value={activeRuns} tone={activeRuns > 0 ? "live" : "idle"} />
+            <OverviewStat label="Done" value={evaluatedRuns} />
+            <OverviewStat label="Live" value={activeRuns} tone={activeRuns > 0 ? "live" : "idle"} />
           </div>
         </div>
         <div className="overview-console-side">
