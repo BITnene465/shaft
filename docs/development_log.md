@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench AdvancedFilterBar 折叠头仍使用 raw button
+
+### 现象
+
+大部分业务动作已经收敛到 `ActionButton`、`IconActionButton`、`OptionChipButton` 和
+`SelectableCardButton`，但共享 `AdvancedFilterBar` 的折叠头仍直接写原生 `<button>`。
+它是所有高级检索入口的通用交互，如果继续保留 raw button，后续 hover、active、aria 和样式层级容易继续漂移。
+
+### 根因
+
+早期收口只覆盖了业务页里的按钮和高级检索的清空动作，没有给“折叠面板入口”建一个独立按钮原语。
+`AdvancedFilterBar` 虽然是共享组件，但它内部仍绕过 `ui.tsx` 的按钮体系。
+
+### 影响范围
+
+- 影响 Runs、Benchmarks、Jobs、Services、Compare、Rank Board 和 inspector 筛选入口的交互一致性。
+- 不影响筛选查询、API、分页、排序或评测指标。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- `ui.tsx` 新增 `PanelToggleButton`，统一折叠/展开按钮的 `aria-expanded`、active class 和基础 button 语义。
+- `AdvancedFilterBar` 的 `.advanced-filter-head` 改用 `PanelToggleButton`，保留现有视觉样式和展开逻辑。
+- UI contract 增加静态防线：`filterControls.tsx` 必须导入并使用 `PanelToggleButton`，不能再出现
+  `advanced-filter-head` raw button。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增折叠面板、抽屉入口或高级筛选头时，先复用 `PanelToggleButton`；业务页不直接写 raw `<button>`
+  来模拟可展开标题。
+
 ## 2026-05-25: Eval Bench Jobs 应用 Prompt 后 benchmark 未按 task 重选
 
 ### 现象

@@ -643,7 +643,8 @@ Job lifecycle 不能复用目录页首屏窗口：`EvalBenchDatabase.matching_jo
 固定 `limit=200/500/1000` 代替完整 running/queued job 扫描。
 后续页面新增 filter 应优先复用；页面局部下拉输入优先复用 `controlPrimitives.tsx`，不能在业务页直接复制
 `filter-select compact` 或 raw `<select>`。弹窗统一走 `WorkspaceDialog`，关闭按钮、Escape、backdrop 点击和内部滚动都由
-该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`，业务页只为
+该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton`、`IconActionButton` 或
+`PanelToggleButton`，业务页只为
 画布 HUD 这类低层交互保留专用样式；viewer 图层预设使用 `CompactSelectControl`，
 label chip 使用 `OptionChipButton`；Compare label delta 和 viewer object row 这类可选卡片使用 `SelectableCardButton`；
 弹窗表单和对比选择轨的 select 使用 `FormSelectControl`；

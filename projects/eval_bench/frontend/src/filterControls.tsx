@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 
-import { ActionButton } from "./ui";
+import { ActionButton, PanelToggleButton } from "./ui";
 
 export function FilterSelect({
   label,
@@ -94,10 +94,9 @@ export function AdvancedFilterBar({
       className={open ? "advanced-filter-bar open" : "advanced-filter-bar"}
       aria-label={`${title}: ${meta}`}
     >
-      <button
+      <PanelToggleButton
+        active={open}
         className="advanced-filter-head"
-        type="button"
-        aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <SlidersHorizontal size={15} />
@@ -105,7 +104,7 @@ export function AdvancedFilterBar({
           <strong>{title}</strong>
           <span>{summary}</span>
         </div>
-      </button>
+      </PanelToggleButton>
       {hasActions ? (
         <div className="advanced-filter-actions">
           {actions}

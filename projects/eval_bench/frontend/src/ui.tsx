@@ -94,6 +94,27 @@ export function IconActionButton({
   );
 }
 
+export function PanelToggleButton({
+  active,
+  className,
+  children,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  active?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      aria-expanded={active ?? props["aria-expanded"]}
+      className={joinClassNames("panel-toggle-button", active && "active", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function SelectableRowButton({
   selected,
   className,

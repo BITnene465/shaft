@@ -17,8 +17,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
     `AdvancedFilterBar` 中维护。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
-   - 标准按钮统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`；业务页只保留样本行、
-     label chip、画布 HUD 等专用交互控件。
+   - 标准按钮统一走 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；
+     业务页只保留样本行、label chip、画布 HUD 等专用交互控件。
    - 页面局部输入控件优先走 `controlPrimitives.tsx`；业务页不能为了局部 toolbar 继续复制
      `filter-select compact` 这类筛选样式。
 2. **API Facade Layer**
@@ -142,8 +142,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/settingsPage.tsx`
   - 维护工作台设置页面；`main.tsx` 只负责路由到该页面，不承载设置页预览、分组或本地偏好编排。
 - `projects/eval_bench/frontend/src/ui.tsx`
-  - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton` 和
-    `IconActionButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
+  - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton`、
+    `IconActionButton` 和 `PanelToggleButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
     使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
     也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
     业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
@@ -233,7 +233,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
   一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。
-- 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有画布
+- 新增页面标准动作：先复用 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；只有画布
   HUD 这类低层交互允许保留专用样式。样本行必须通过
   `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
   `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过

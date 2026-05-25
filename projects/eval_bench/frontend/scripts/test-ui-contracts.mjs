@@ -25,11 +25,17 @@ assert(
   "paged list controls must share PagerControl and clampListPageOffset",
 );
 assert(
-  filterControls.includes('import { ActionButton } from "./ui";') &&
+  filterControls.includes('import { ActionButton, PanelToggleButton } from "./ui";') &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function defaultFilterValue(") &&
-    filterControls.includes('className="advanced-filter-clear"'),
+    filterControls.includes('className="advanced-filter-clear"') &&
+    filterControls.includes("<PanelToggleButton") &&
+    !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
   "advanced filter reset action must be centralized in AdvancedFilterBar",
+);
+assert(
+  uiSource.includes("export function PanelToggleButton("),
+  "collapsible panel toggles must share PanelToggleButton",
 );
 assert(
   uiSource.includes("export function SelectableRowButton("),
