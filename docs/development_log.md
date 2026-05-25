@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 弹窗只统一了外壳但没有统一焦点和滚动语义
+
+### 现象
+
+Dashboard 业务页已经统一使用 `WorkspaceDialog` 外壳，但弹窗打开后仍缺少明确的焦点进入、Tab 焦点闭环、
+body scroll lock 和关闭后的焦点恢复验收。后续业务页如果为了修复单个弹窗体验各自补 effect，
+会重新出现弹窗交互语义分叉。
+
+### 根因
+
+前期弹窗收口只把 class、标题、关闭按钮、Escape/backdrop 和 body 滚动容器合并到 `WorkspaceDialog`，
+没有把可访问性和页面滚动锁作为共享原语的一部分；dialog smoke 也只检查能打开和 Escape 关闭，
+没有验证焦点与页面滚动状态。
+
+### 影响范围
+
+- 影响 Jobs、Benchmarks、Runs、Services 和危险确认弹窗的交互一致性。
+- 影响窄屏或长表单弹窗打开时页面滚动和键盘焦点稳定性。
+- 不影响 eval、codec、metric、data 或 store 语义；这不是模型能力问题，也不是评估误判。
+
+### 修复方式
+
+- `WorkspaceDialog` 增加 body scroll lock、初始焦点、Tab 焦点闭环、关闭后焦点恢复和 `aria-describedby`。
+- `dialog-smoke-check` 打开每类弹窗后检查焦点在弹窗内、body overflow 被锁住、Tab 不逃逸，关闭后恢复滚动。
+- `layout-smoke-check` 在弹窗布局验收中同步检查焦点与 body scroll lock。
+- `test:ui-contracts` 静态锁住 `WorkspaceDialog` 的焦点、滚动锁和可访问性 wiring。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:dialogs`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增弹窗只允许组合 `WorkspaceDialog`，不能在业务页直接写 body overflow、keydown focus trap 或 dialog shell class。
+- 如果需要 footer、危险确认或 wizard 行为，应扩展共享弹窗原语或共享子组件，而不是在单个业务页复制交互 effect。
+
 ## 2026-05-25: Eval Bench 首页仍缺少可行动价值和整体交互感
 
 ### 现象

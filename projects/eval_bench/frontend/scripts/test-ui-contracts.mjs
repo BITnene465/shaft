@@ -51,6 +51,14 @@ assert(
   "query chip selection must be centralized in OptionChipButton",
 );
 assert(
+  uiSource.includes("const DIALOG_FOCUSABLE_SELECTOR =") &&
+    uiSource.includes("document.body.style.overflow = \"hidden\"") &&
+    uiSource.includes("previouslyFocused?.focus()") &&
+    uiSource.includes("tabIndex={-1}") &&
+    uiSource.includes("aria-describedby={meta ? metaId : undefined}"),
+  "WorkspaceDialog must own focus trapping, body scroll lock, and accessibility wiring",
+);
+assert(
   labelSubtaskControls.includes('<ActionButton variant="mini" onClick={() => onChange(labelOptions)}>'),
   "label subtask select-all action must use ActionButton",
 );

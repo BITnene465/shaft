@@ -26,8 +26,14 @@ for (const item of cases) {
   await page.getByRole("button", { name: item.button }).click();
   await page.locator(".workspace-dialog").first().waitFor({ timeout: 5_000 });
   await page.locator(item.form).first().waitFor({ timeout: 5_000 });
+  await assertDialogInteraction(page, `dialog:${item.path}`);
+  for (let index = 0; index < 8; index += 1) {
+    await page.keyboard.press("Tab");
+    await assertDialogInteraction(page, `dialog:${item.path}:tab-${index}`);
+  }
   await page.keyboard.press("Escape");
   await page.locator(".workspace-dialog").waitFor({ state: "hidden", timeout: 5_000 });
+  await assertBodyScrollRestored(page, `dialog:${item.path}`);
 }
 
 await browser.close();
@@ -37,3 +43,35 @@ if (errors.length > 0) {
 }
 
 console.log(`dialog smoke passed on ${baseUrl}`);
+
+async function assertDialogInteraction(page, scope) {
+  const state = await page.evaluate(() => {
+    const dialog = document.querySelector(".workspace-dialog");
+    return {
+      exists: Boolean(dialog),
+      activeInside: dialog ? dialog.contains(document.activeElement) : false,
+      bodyOverflow: document.body.style.overflow,
+      tabIndex: dialog?.getAttribute("tabindex") ?? "",
+      describedBy: dialog?.getAttribute("aria-describedby") ?? ""
+    };
+  });
+  if (!state.exists) {
+    throw new Error(`${scope}: dialog is missing`);
+  }
+  if (!state.activeInside) {
+    throw new Error(`${scope}: focus escaped workspace dialog`);
+  }
+  if (state.bodyOverflow !== "hidden") {
+    throw new Error(`${scope}: body scroll is not locked while dialog is open`);
+  }
+  if (state.tabIndex !== "-1" || !state.describedBy) {
+    throw new Error(`${scope}: dialog accessibility attributes are incomplete`);
+  }
+}
+
+async function assertBodyScrollRestored(page, scope) {
+  const overflow = await page.evaluate(() => document.body.style.overflow);
+  if (overflow === "hidden") {
+    throw new Error(`${scope}: body scroll lock was not restored after dialog closed`);
+  }
+}

@@ -16,7 +16,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
     避免把多组 select 直接堆在主工作区；清空筛选、默认值判定和生效条件计数也只在
     `AdvancedFilterBar` 中维护。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
-   - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
+   - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop、body scroll lock、焦点进入、Tab 焦点闭环、
+     关闭后焦点恢复和 dialog body 滚动语义不能在业务页复制。
    - 标准按钮统一走 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；
      业务页只保留样本行、label chip、画布 HUD 等专用交互控件。
    - 页面局部输入控件优先走 `controlPrimitives.tsx`；业务页不能为了局部 toolbar 继续复制
@@ -153,6 +154,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
     也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
     业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
+  - `WorkspaceDialog` 是弹窗焦点、滚动锁和可访问性属性的单一真源；业务页只传 title/meta/content，不直接操作
+    body overflow 或手写焦点陷阱。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护紧凑 select、表单 select、数值输入、颜色输入和开关等基础控制原语；viewer 图层预设、
     settings 控件、manifest toolbar、Runs/Services 弹窗和 Compare 选择轨不直接手写同类 select 外壳。

@@ -966,6 +966,9 @@ async function assertDialogLayout(page, scope) {
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
       dialogRect,
+      activeInside: dialog.contains(document.activeElement),
+      documentBodyOverflow: document.body.style.overflow,
+      dialogTabIndex: dialog.getAttribute("tabindex") ?? "",
       bodyScrollHeight: body.scrollHeight,
       bodyClientHeight: body.clientHeight,
       bodyScrollWidth: body.scrollWidth,
@@ -976,6 +979,17 @@ async function assertDialogLayout(page, scope) {
   });
   if (!state) {
     throw new Error(`${scope}: dialog is missing`);
+  }
+  if (!state.activeInside || state.dialogTabIndex !== "-1") {
+    throw new Error(
+      `${scope}: dialog focus is not managed ${JSON.stringify({
+        activeInside: state.activeInside,
+        tabIndex: state.dialogTabIndex
+      })}`
+    );
+  }
+  if (state.documentBodyOverflow !== "hidden") {
+    throw new Error(`${scope}: dialog does not lock body scroll`);
   }
   if (
     state.dialogRect.left < -2 ||
