@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent 契约未描述 run/sample inspection 输出
+
+### 现象
+
+agent 已经可以通过 `list-runs`、`show-run`、`list-run-samples`、`show-run-sample`、
+`list-benchmark-samples` 和 `show-benchmark-sample` 做结果库与样本级排障，但 `show-agent-command`
+没有描述这些命令的返回结构。agent 需要从样例或 store dataclass 推断 run summary、sample summary、
+GT/prediction payload、diagnostics 和 scoped label 字段。
+
+### 根因
+
+前两轮 output schema 优先覆盖了 Rank Board、run note 和 label policy；结果库与样本检查命令虽然已经稳定，
+但没有同步进入 agent contract schema 真源。
+
+### 影响范围
+
+- 影响 agent 做 run 检索、样本级错误定位、label 过滤后实例计数判断和 benchmark sample 检查。
+- 不改变 store/API/CLI 实际 JSON 输出、sample scope、label filtering、eval metric 或 rank-board 语义；这是 agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- 新增 run summary、benchmark summary、run sample summary 和 benchmark sample summary 的 output shape。
+- `list-runs` / `show-run` 暴露 run summary schema，包含 `target_labels`、note 字段和核心指标。
+- `list-run-samples` / `show-run-sample` 暴露 sample summary、GT/prediction payload 和 diagnostics schema。
+- `list-benchmark-samples` / `show-benchmark-sample` 暴露 benchmark sample summary、GT payload schema。
+- README、架构文档和 CLI contract 测试同步这些 agent-safe 输出边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- Agent 能直接消费的查询命令必须有足够的 `output_schema`；尤其是会参与自动排障、过滤或复现报告生成的命令，不能只依赖自然语言 help。
+
 ## 2026-05-25: Eval Bench agent 契约未描述 run note 与 label policy 输出
 
 ### 现象

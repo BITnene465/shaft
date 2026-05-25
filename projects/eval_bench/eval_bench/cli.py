@@ -82,6 +82,72 @@ AGENT_DESTRUCTIVE_COMMANDS = frozenset(
         "stop-service",
     }
 )
+RUN_SUMMARY_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "status": "str",
+    "benchmark_id": "str",
+    "tasks": "list[str]",
+    "spec_task": "str",
+    "target_labels": "list[str]",
+    "model_id": "str",
+    "prompt_id": "str",
+    "metric_profile": "str",
+    "created_at": "str|null",
+    "prediction_count": "int",
+    "report_count": "int",
+    "report_path": "str|null",
+    "note": "str",
+    "note_updated_at": "str|null",
+    "note_max_length": "int",
+    "precision_iou50": "float|null",
+    "recall_iou50": "float|null",
+    "mean_iou": "float|null",
+}
+BENCHMARK_SUMMARY_OUTPUT_SHAPE = {
+    "benchmark_id": "str",
+    "tasks": "list[str]",
+    "labels": "list[str]",
+    "layers": "list[str]",
+    "split": "str",
+    "sample_count": "int",
+    "root": "str",
+    "manifest_path": "str",
+    "created_at": "str|null",
+    "source_manifest_path": "str|null",
+}
+RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
+    "index": "int",
+    "image": "str",
+    "json_path": "str",
+    "image_width": "int|null",
+    "image_height": "int|null",
+    "gt_instance_count": "int",
+    "pred_instance_count": "int",
+    "labels": "list[str]",
+    "has_prediction": "bool",
+    "prediction_path": "str|null",
+    "diagnostics": "object|null",
+}
+BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
+    "index": "int",
+    "image": "str",
+    "json_path": "str",
+    "image_width": "int|null",
+    "image_height": "int|null",
+    "instance_count": "int",
+    "labels": "list[str]",
+}
+RUN_NOTE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["run_id", "note", "updated_at", "path", "max_length"],
+    "properties": {
+        "run_id": {"type": "str"},
+        "note": {"type": "str"},
+        "updated_at": {"type": "str|null"},
+        "path": {"type": "str"},
+        "max_length": {"type": "int"},
+    },
+}
 AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "resolve-target-labels": {
         "type": "object",
@@ -164,39 +230,84 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             },
         },
     },
-    "get-run-note": {
+    "list-benchmarks": {
         "type": "object",
-        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "required": ["offset", "limit", "total", "filters", "benchmarks"],
         "properties": {
-            "run_id": {"type": "str"},
-            "note": {"type": "str"},
-            "updated_at": {"type": "str|null"},
-            "path": {"type": "str"},
-            "max_length": {"type": "int"},
+            "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
     },
-    "set-run-note": {
+    "show-benchmark": {
         "type": "object",
-        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "required": ["benchmark"],
         "properties": {
-            "run_id": {"type": "str"},
-            "note": {"type": "str"},
-            "updated_at": {"type": "str|null"},
-            "path": {"type": "str"},
-            "max_length": {"type": "int"},
+            "benchmark": {"type": "object", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
     },
-    "append-run-note": {
+    "list-runs": {
         "type": "object",
-        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "required": ["offset", "limit", "total", "filters", "runs"],
         "properties": {
-            "run_id": {"type": "str"},
-            "note": {"type": "str"},
-            "updated_at": {"type": "str|null"},
-            "path": {"type": "str"},
-            "max_length": {"type": "int"},
+            "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
     },
+    "show-run": {
+        "type": "object",
+        "required": ["run"],
+        "properties": {"run": {"type": "object", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE}},
+    },
+    "list-run-samples": {
+        "type": "object",
+        "required": ["run_id", "offset", "limit", "total", "labels", "samples"],
+        "properties": {
+            "run_id": {"type": "str"},
+            "labels": {"type": "list[str]"},
+            "samples": {"type": "array", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
+        },
+    },
+    "show-run-sample": {
+        "type": "object",
+        "required": [
+            "run_id",
+            "sample",
+            "gt_instances",
+            "pred_instances",
+            "raw_payload",
+            "prediction_payload",
+            "diagnostics",
+        ],
+        "properties": {
+            "run_id": {"type": "str"},
+            "sample": {"type": "object", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
+            "gt_instances": {"type": "list[object]"},
+            "pred_instances": {"type": "list[object]"},
+            "raw_payload": {"type": "object"},
+            "prediction_payload": {"type": "object|null"},
+            "diagnostics": {"type": "object|null"},
+        },
+    },
+    "list-benchmark-samples": {
+        "type": "object",
+        "required": ["benchmark_id", "offset", "limit", "total", "labels", "samples"],
+        "properties": {
+            "benchmark_id": {"type": "str"},
+            "labels": {"type": "list[str]"},
+            "samples": {"type": "array", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
+        },
+    },
+    "show-benchmark-sample": {
+        "type": "object",
+        "required": ["benchmark_id", "sample", "gt_instances", "raw_payload"],
+        "properties": {
+            "benchmark_id": {"type": "str"},
+            "sample": {"type": "object", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
+            "gt_instances": {"type": "list[object]"},
+            "raw_payload": {"type": "object"},
+        },
+    },
+    "get-run-note": RUN_NOTE_OUTPUT_SCHEMA,
+    "set-run-note": RUN_NOTE_OUTPUT_SCHEMA,
+    "append-run-note": RUN_NOTE_OUTPUT_SCHEMA,
 }
 
 

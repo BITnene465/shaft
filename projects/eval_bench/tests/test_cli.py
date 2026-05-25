@@ -215,6 +215,36 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     ]
     assert "detection" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
+    runs_output_schema = commands_by_name["list-runs"]["output_schema"]
+    assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "runs"]
+    assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
+    assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
+    assert commands_by_name["show-run"]["output_schema"]["properties"]["run"]["item_shape"] == (
+        runs_output_schema["properties"]["runs"]["item_shape"]
+    )
+    run_samples_output_schema = commands_by_name["list-run-samples"]["output_schema"]
+    assert run_samples_output_schema["required"] == [
+        "run_id",
+        "offset",
+        "limit",
+        "total",
+        "labels",
+        "samples",
+    ]
+    assert run_samples_output_schema["properties"]["samples"]["item_shape"]["gt_instance_count"] == "int"
+    assert run_samples_output_schema["properties"]["samples"]["item_shape"]["diagnostics"] == "object|null"
+    assert (
+        commands_by_name["show-run-sample"]["output_schema"]["properties"]["sample"]["item_shape"]
+        == run_samples_output_schema["properties"]["samples"]["item_shape"]
+    )
+    benchmark_samples_output_schema = commands_by_name["list-benchmark-samples"]["output_schema"]
+    assert benchmark_samples_output_schema["properties"]["samples"]["item_shape"]["instance_count"] == "int"
+    assert (
+        commands_by_name["show-benchmark-sample"]["output_schema"]["properties"]["sample"][
+            "item_shape"
+        ]
+        == benchmark_samples_output_schema["properties"]["samples"]["item_shape"]
+    )
     assert commands_by_name["service-health"]["mutates_state"] is True
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True
@@ -336,6 +366,21 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     note_command = json.loads(capsys.readouterr().out)["command"]
     assert note_command["output_schema"]["properties"]["updated_at"]["type"] == "str|null"
     assert note_command["output_schema"]["properties"]["max_length"]["type"] == "int"
+
+    list_runs_args = _build_parser().parse_args(["show-agent-command", "--name", "list-runs"])
+    _cmd_show_agent_command(list_runs_args)
+    list_runs_command = json.loads(capsys.readouterr().out)["command"]
+    assert list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["run_id"] == "str"
+    assert (
+        list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["note_max_length"]
+        == "int"
+    )
+
+    sample_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run-sample"])
+    _cmd_show_agent_command(sample_args)
+    sample_command = json.loads(capsys.readouterr().out)["command"]
+    assert sample_command["output_schema"]["properties"]["sample"]["item_shape"]["labels"] == "list[str]"
+    assert sample_command["output_schema"]["properties"]["prediction_payload"]["type"] == "object|null"
 
 
 def _write_sample_store(tmp_path: Path) -> None:
