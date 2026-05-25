@@ -127,7 +127,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载下一步动作、hero 路线图、评测管线、运行压力、阻塞优先级、readiness switchboard 和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测管线、核心运行态、readiness switchboard 和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`

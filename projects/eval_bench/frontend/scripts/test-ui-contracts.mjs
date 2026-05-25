@@ -262,6 +262,21 @@ assert(
     designSource.includes(".nav-item:hover .app-icon"),
   "overview and shared controls must keep tactile hover and motion feedback",
 );
+assert(
+  ![
+    "overview-home-v6",
+    "overview-home-v7",
+    "overview-command-deck",
+    "overview-command-center-redesign",
+    "overview-focus-panel",
+    "overview-side-stack",
+    "overview-right-rail",
+    "overview-activity-matrix",
+    "overview-chart-matrix",
+    "overview-mini-chart"
+  ].some((token) => styleSource.includes(token)),
+  "overview stylesheet must keep only the active v8 surface, not old design tracks",
+);
 const mainEntry = await readSource("src/main.tsx");
 assert(
   mainEntry.includes('import { OverviewPage } from "./overviewPage";'),

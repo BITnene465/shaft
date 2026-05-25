@@ -9,6 +9,74 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 对比样本页 compact 视口横向裁切
+
+### 现象
+
+`test:layout` 在 compact 视口进入成对样本对比页时发现 `.comparison-run-panel` 的 `scrollWidth` 大于
+`clientWidth`，但 pane 的 `overflow-x` 是 hidden，导致 run id 和“打开 run”入口组合在窄 pane 中可能被横向裁切。
+
+### 根因
+
+`comparison-run-heading` 是 flex 行，但标题容器没有 `min-width: 0`，长 run id 会按内容宽度参与布局，挤压右侧链接后扩大
+panel 的横向 scroll size。外层 pane 为了避免 viewer 溢出设置了 hidden，因此问题表现为裁切而不是可滚动。
+
+### 影响范围
+
+- 影响 Compare Sample 页面 compact / narrow 视口下的可读性和滚动稳定性。
+- 不改变 eval、codec、metric、rank-board、job、service 或数据语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 给 `.comparison-run-heading` 及其标题容器补 `min-width: 0`。
+- 将 run id 标题 `max-width` 约束到当前容器，并继续使用 `overflow-wrap: anywhere`，让长 id 在 pane 内换行。
+- 在 `.comparison-run-panel` 嵌入场景隐藏 SampleViewer toolbar 的 legend/control 行；该 panel 已隐藏 side inspector，
+  “收起检查器”和 FN/FP legend 在这里没有操作价值，继续显示只会撑开窄 pane。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- split pane 内的 heading / toolbar 必须显式处理 `min-width: 0`；layout smoke 的横向裁切检查继续覆盖 compact 对比页。
+
+## 2026-05-25: Eval Bench Overview 旧设计 CSS 轨道未清理
+
+### 现象
+
+总览页运行时代码已经切到 `overview-home-v8`，但 `styles.css` 仍保留 v2-v7 的 Overview 样式轨道，包括
+`overview-command-deck`、`overview-home-v6`、`overview-home-v7`、旧活动矩阵和 orbit 相关样式。页面能正常显示，
+但 CSS 真源同时描述多套互斥设计，后续维护时很容易把旧结构当成可复用状态。
+
+### 根因
+
+前几轮为了快速迭代首页视觉，把新样式追加到文件末尾，并依靠更高优先级 selector 覆盖旧样式；没有在结构稳定后做样式级收口。
+UI contract 只检查 Overview 源码不回流旧组件，没有检查 stylesheet 是否还保留旧设计轨道。
+
+### 影响范围
+
+- 影响 Dashboard 总览页样式维护边界和静态契约可信度。
+- 不改变 eval、codec、metric、rank-board、job、service 或数据语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 删除 v2-v7 Overview CSS 轨道，只保留 `overview-home-v8` decision surface 和当前动画 keyframes。
+- `test:ui-contracts` 增加 stylesheet 防线，禁止 `overview-home-v6`、`overview-home-v7`、`overview-command-deck`、
+  `overview-command-center-redesign`、`overview-focus-panel`、`overview-side-stack`、`overview-right-rail`、
+  `overview-activity-matrix`、`overview-chart-matrix` 和 `overview-mini-chart` 回流。
+- README 和架构文档同步 Overview 模块描述，不再把独立阻塞优先级面板列为页面职责。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 后续视觉迭代必须替换当前轨道，而不是继续追加互斥版本；静态契约同时检查 TSX 和 CSS 两个真源。
+
 ## 2026-05-25: Eval Bench 首页 v7 仍像低价值面板堆叠
 
 ### 现象
