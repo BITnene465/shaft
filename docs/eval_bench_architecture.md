@@ -135,7 +135,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/sampleViewer.tsx`
   - 维护 Run Inspector 与成对样本对比共享的 GT / Prediction 叠图、对象检查器和 viewer 偏好状态。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
-  - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
+  - 维护独立排行榜工作台页面；作为懒加载路由拆分，承载可见的主指标切换、升降序、Top contenders、score spread、
+    facet rail、weighted scheme 和分页表格，避免继续把核心工作台堆进 `main.tsx` 或藏进 Compare。
 - `projects/eval_bench/frontend/src/comparePage.tsx`
   - 维护成对 run 对比工作台页面；只展示 comparison 报告、历史对比和上下文入口，不再维护排行榜语义。
 - `projects/eval_bench/frontend/src/comparisonSamplePage.tsx`

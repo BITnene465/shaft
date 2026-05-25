@@ -22,6 +22,15 @@ const RANK_SORT_LABELS: Record<string, string> = {
   run_id: "Run ID",
   weighted_score: "Weighted"
 };
+const RANK_DIRECT_METRICS = [
+  "f1_iou50",
+  "precision_iou50",
+  "recall_iou50",
+  "mean_iou",
+  "prediction_count",
+  "created_at",
+  "run_id"
+];
 const RANK_PAGE_SIZE = 80;
 
 export function RankBoardPage() {
@@ -154,6 +163,14 @@ export function RankBoardPage() {
           </Link>
         ) : null}
       </div>
+      <RankDecisionPanel
+        board={board}
+        entries={entries}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+        onSortByChange={setSortBy}
+        onSortOrderChange={setSortOrder}
+      />
       <AdvancedFilterBar
         title="排行榜高级检索"
         meta="按论文检索式筛 run：任务、基准集、状态、label、模型、prompt、metric、分数门槛与备注全文"
@@ -239,32 +256,6 @@ export function RankBoardPage() {
             step: 0.01,
             placeholder: "0.70",
             onChange: setMinScoreFilter
-          },
-          {
-            type: "select",
-            id: "rank-sort-by",
-            label: "排序",
-            value: sortBy,
-            values: [
-              "f1_iou50",
-              "precision_iou50",
-              "recall_iou50",
-              "mean_iou",
-              "prediction_count",
-              "created_at",
-              "run_id"
-            ],
-            labels: RANK_SORT_LABELS,
-            onChange: setSortBy
-          },
-          {
-            type: "select",
-            id: "rank-sort-order",
-            label: "方向",
-            value: sortOrder,
-            values: ["desc", "asc"],
-            labels: { desc: "降序", asc: "升序" },
-            onChange: setSortOrder
           }
         ]}
         actions={
@@ -348,6 +339,114 @@ export function RankBoardPage() {
   );
 }
 
+function RankDecisionPanel({
+  board,
+  entries,
+  sortBy,
+  sortOrder,
+  onSortByChange,
+  onSortOrderChange
+}: {
+  board: RankBoard;
+  entries: RankBoardEntry[];
+  sortBy: string;
+  sortOrder: string;
+  onSortByChange: (value: string) => void;
+  onSortOrderChange: (value: string) => void;
+}) {
+  const topEntries = entries.slice(0, 3);
+  return (
+    <section className="rank-decision-panel">
+      <div className="rank-decision-hero">
+        <div className="rank-decision-eyebrow">
+          <AppIcon name="rankBoard" size={18} />
+          <span>Ranking basis</span>
+        </div>
+        <h3>{board.primary_metric_label}</h3>
+        <p>{rankBoardOrderLabel(board)}</p>
+        <div className="rank-sort-dial" role="group" aria-label="排行榜主指标">
+          {RANK_DIRECT_METRICS.map((metric) => (
+            <OptionChipButton
+              key={metric}
+              active={sortBy === metric}
+              className="rank-sort-chip"
+              onClick={() => onSortByChange(metric)}
+            >
+              {rankSortLabel(metric)}
+            </OptionChipButton>
+          ))}
+        </div>
+        <div className="rank-order-row">
+          <OptionChipButton
+            active={sortOrder === "desc"}
+            className="rank-order-chip"
+            onClick={() => onSortOrderChange("desc")}
+          >
+            降序
+          </OptionChipButton>
+          <OptionChipButton
+            active={sortOrder === "asc"}
+            className="rank-order-chip"
+            onClick={() => onSortOrderChange("asc")}
+          >
+            升序
+          </OptionChipButton>
+          <span>{board.score_formula}</span>
+        </div>
+      </div>
+      <div className="rank-top-panel">
+        <div className="rank-top-head">
+          <strong>Top contenders</strong>
+          <span>{board.offset === 0 ? "全局当前页" : `从 #${board.offset + 1} 开始`}</span>
+        </div>
+        <div className="rank-top-list">
+          {topEntries.length > 0 ? (
+            topEntries.map((entry) => (
+              <Link
+                className="rank-top-row"
+                key={entry.run_id}
+                to="/runs/$runId"
+                params={{ runId: entry.run_id }}
+              >
+                <span>#{entry.rank}</span>
+                <div>
+                  <strong>{entry.run_id}</strong>
+                  <em>{entry.model_id}</em>
+                </div>
+                <b>{formatMetric(entry.score)}</b>
+                <i style={{ width: `${rankScoreWidth(entry.score)}%` }} />
+              </Link>
+            ))
+          ) : (
+            <span className="rank-top-empty">暂无符合条件的 run</span>
+          )}
+        </div>
+      </div>
+      <RankScoreSpread entries={entries} />
+    </section>
+  );
+}
+
+function RankScoreSpread({ entries }: { entries: RankBoardEntry[] }) {
+  const buckets = scoreBuckets(entries);
+  return (
+    <div className="rank-spread-panel">
+      <div className="rank-top-head">
+        <strong>Score spread</strong>
+        <span>{entries.length.toLocaleString()} on page</span>
+      </div>
+      <div className="rank-spread-bars" aria-label="当前页分数分布">
+        {buckets.map((bucket) => (
+          <span key={bucket.label} title={`${bucket.label}: ${bucket.count}`}>
+            <i style={{ height: `${bucket.height}%` }} />
+            <em>{bucket.label}</em>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function rankSortLabel(value: string) {
   return RANK_SORT_LABELS[value] ?? value;
 }
@@ -364,6 +463,32 @@ function rankBoardOrderLabel(
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
   return board.facets[key]?.length ?? 0;
+}
+
+function rankScoreWidth(value: number | null) {
+  if (value === null || Number.isNaN(value)) {
+    return 8;
+  }
+  return Math.max(8, Math.min(100, value * 100));
+}
+
+function scoreBuckets(entries: RankBoardEntry[]) {
+  const labels = ["0-.2", ".2-.4", ".4-.6", ".6-.8", ".8-1"];
+  const counts = [0, 0, 0, 0, 0];
+  for (const entry of entries) {
+    const value = typeof entry.score === "number" ? entry.score : -1;
+    if (value < 0) {
+      continue;
+    }
+    const index = Math.min(4, Math.floor(value / 0.2));
+    counts[index] += 1;
+  }
+  const maxCount = Math.max(1, ...counts);
+  return labels.map((label, index) => ({
+    label,
+    count: counts[index],
+    height: Math.max(8, Math.round((counts[index] / maxCount) * 100))
+  }));
 }
 
 function RankFacetRail({

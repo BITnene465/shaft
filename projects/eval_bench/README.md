@@ -635,6 +635,8 @@ label、model、prompt、metric 和 note 全文查询语义；Runs、Compare、B
 和 CLI `list-jobs` 共享 kind、status、query、offset 和 limit 语义；Services 页直接请求 `GET /api/services`，
 和 CLI `list-services` 共享 kind、status、query、offset 和 limit 语义；Rank Board 前端和 CLI/API 默认用
 `f1_iou50` 作为主指标排序，用户可以把主指标切到 precision、recall、mIoU 或预测数，也可以按创建时间或 run id 排列列表；
+Rank Board 的主指标切换、升降序、Top contenders 和当前页 score spread 必须作为页面首层 `RankDecisionPanel` 展示，
+不能藏进高级检索浮层；高级检索只承载筛选条件和最低分门槛。
 Rank Board 页面使用后端 `offset/limit` 分页请求，不再只取固定前 200 条，翻页时保留当前筛选、排序和 weighted scheme；
 显式 weighted scheme 可通过 CLI/API 或前端折叠面板传入，会返回 `weighted_score`、`rank_scheme` 和每条
 entry 的 `score_components`，便于 agent 解释最终分。Rank Board 表格的第一分数列必须跟随后端

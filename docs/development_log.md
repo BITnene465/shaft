@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board 主指标控制藏在高级检索里
+
+### 现象
+
+Rank Board 已经从 Compare 中独立出来，并支持 F1 默认排序、切换主指标和 weighted scheme。
+但主指标切换与升降序控制仍主要位于高级检索表单里，核心排行榜首屏缺少直接表达“当前排名依据”的工作区。
+用户需要展开 Filter 才能改排名依据，页面更像结果表而不是核心 rank-board。
+
+### 根因
+
+前期优先把排序语义接到后端 `fetchRankBoard()` 和分页表格，没有把“排名依据”提升为 Rank Board 自身的首层交互。
+高级检索同时承载筛选条件和主指标控制，导致核心操作和检索条件混在一个浮层里。
+
+### 影响范围
+
+- 影响 Rank Board 的核心使用体验和可解释性。
+- 不影响后端排序、weighted scheme 计算、CLI/API、run note 或 eval metric。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- 新增 `RankDecisionPanel`，首层展示当前 ranking basis、主指标 chip、升降序、score formula。
+- 新增 Top contenders 和当前页 score spread，让 rank-board 不只是表格。
+- 将 `rank-sort-by` / `rank-sort-order` 从高级检索中移出；高级检索只保留筛选和最低分门槛。
+- 更新 layout smoke 和 UI contract，防止主指标控制回流高级检索浮层。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Rank Board 的排名依据必须保持在页面首层；高级检索只负责检索范围。
+- 新增主指标或排序方式时，需要同时更新 `RankDecisionPanel`、后端 rank-board API/CLI 和 UI contract。
+
 ## 2026-05-25: Eval Bench 高级筛选仍占用页面主内容空间
 
 ### 现象

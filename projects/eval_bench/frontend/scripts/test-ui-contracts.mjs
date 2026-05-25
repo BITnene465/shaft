@@ -343,6 +343,17 @@ assert(
     !rankBoardPage.includes('header: "Weighted"'),
   "rank board table must render the active primary metric as the first score column",
 );
+assert(
+  rankBoardPage.includes("function RankDecisionPanel(") &&
+    rankBoardPage.includes('className="rank-decision-panel"') &&
+    rankBoardPage.includes("const RANK_DIRECT_METRICS = [") &&
+    rankBoardPage.includes('className="rank-sort-chip"') &&
+    rankBoardPage.includes('className="rank-top-panel"') &&
+    rankBoardPage.includes('className="rank-spread-panel"') &&
+    !rankBoardPage.includes('id: "rank-sort-by"') &&
+    !rankBoardPage.includes('id: "rank-sort-order"'),
+  "rank board primary metric controls must live in the visible rank decision panel, not inside advanced filters",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),

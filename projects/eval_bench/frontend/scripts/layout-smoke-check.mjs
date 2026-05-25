@@ -34,6 +34,10 @@ const staticRoutes = [
     path: "/rank-board",
     selectors: [
       ".rank-board-page",
+      ".rank-decision-panel",
+      ".rank-sort-chip",
+      ".rank-top-panel",
+      ".rank-spread-panel",
       ".advanced-filter-bar",
       ".rank-scheme-panel",
       ".rank-facet-rail",
@@ -125,6 +129,7 @@ try {
       }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
+        await assertRankDecisionPanel(page, `${viewport.name}:${route.name}`);
         await assertRankFacetRail(page, `${viewport.name}:${route.name}`);
         await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
       }
@@ -1014,6 +1019,42 @@ async function assertRankFacetRail(page, scope) {
   }
   await page.locator(".rank-facet-button").first().click();
   await page.locator(".rank-facet-button.active").first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
+}
+
+async function assertRankDecisionPanel(page, scope) {
+  const state = await page.evaluate(() => {
+    const panel = document.querySelector(".rank-decision-panel");
+    const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip"));
+    const orderChips = Array.from(document.querySelectorAll(".rank-order-chip"));
+    const activeSortChips = sortChips.filter((chip) => chip.classList.contains("active"));
+    const topRows = document.querySelectorAll(".rank-top-row");
+    const spreadBars = document.querySelectorAll(".rank-spread-bars span");
+    const advancedSortControls = Array.from(document.querySelectorAll(".advanced-filter-bar [id]"))
+      .map((node) => node.id)
+      .filter((id) => id.includes("rank-sort"));
+    return {
+      hasPanel: Boolean(panel),
+      sortChipCount: sortChips.length,
+      orderChipCount: orderChips.length,
+      activeSortChipCount: activeSortChips.length,
+      topRowCount: topRows.length,
+      spreadBarCount: spreadBars.length,
+      advancedSortControls
+    };
+  });
+  if (
+    !state.hasPanel ||
+    state.sortChipCount < 5 ||
+    state.orderChipCount !== 2 ||
+    state.activeSortChipCount !== 1 ||
+    state.spreadBarCount !== 5 ||
+    state.advancedSortControls.length > 0
+  ) {
+    throw new Error(`${scope}: rank decision panel contract failed ${JSON.stringify(state)}`);
+  }
+  await page.locator(".rank-sort-chip", { hasText: "mIoU" }).first().click();
+  await page.locator(".rank-sort-chip.active", { hasText: "mIoU" }).first().waitFor({ timeout: 10_000 });
   await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
 }
 
