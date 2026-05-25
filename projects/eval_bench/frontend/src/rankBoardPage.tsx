@@ -311,12 +311,18 @@ export function RankBoardPage() {
       <RankFacetRail
         board={board}
         filters={{
+          task: taskFilter,
+          benchmark: benchmarkFilter,
+          status: statusFilter,
           label: labelFilter,
           model: modelFilter,
           prompt: promptFilter,
           metricProfile: metricProfileFilter
         }}
         onFilterChange={{
+          task: setTaskFilter,
+          benchmark: setBenchmarkFilter,
+          status: setStatusFilter,
           label: setLabelFilter,
           model: setModelFilter,
           prompt: setPromptFilter,
@@ -367,12 +373,18 @@ function RankFacetRail({
 }: {
   board: Pick<RankBoard, "facets">;
   filters: {
+    task: string;
+    benchmark: string;
+    status: string;
     label: string;
     model: string;
     prompt: string;
     metricProfile: string;
   };
   onFilterChange: {
+    task: (value: string) => void;
+    benchmark: (value: string) => void;
+    status: (value: string) => void;
     label: (value: string) => void;
     model: (value: string) => void;
     prompt: (value: string) => void;
@@ -381,6 +393,24 @@ function RankFacetRail({
 }) {
   return (
     <div className="rank-facet-rail">
+      <RankFacetGroup
+        title="Tasks"
+        items={board.facets.tasks ?? []}
+        activeValue={filters.task}
+        onSelect={onFilterChange.task}
+      />
+      <RankFacetGroup
+        title="Benchmarks"
+        items={board.facets.benchmarks ?? []}
+        activeValue={filters.benchmark}
+        onSelect={onFilterChange.benchmark}
+      />
+      <RankFacetGroup
+        title="Status"
+        items={board.facets.statuses ?? []}
+        activeValue={filters.status}
+        onSelect={onFilterChange.status}
+      />
       <RankFacetGroup
         title="Labels"
         items={board.facets.labels ?? []}

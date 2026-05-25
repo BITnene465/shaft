@@ -169,7 +169,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。
   表格第一分数列必须消费后端 `primary_metric_label` 和 entry `score`，不能在主指标切换后仍固定展示
   F1 作为排名依据。
-  前端 facet rail 必须直接驱动同一份高级检索状态，不能维护一套只展示 facet 计数的静态 UI。
+  前端 facet rail 必须以 API 返回的 Tasks、Benchmarks、Status、Labels、Models、Prompts 和 Metrics
+  为真源，直接驱动同一份高级检索状态，不能维护一套只展示 facet 计数的静态 UI。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
   `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、

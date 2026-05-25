@@ -984,8 +984,16 @@ async function assertRankFacetRail(page, scope) {
       staticCountNodes: document.querySelectorAll(".rank-facet-group em strong").length
     };
   });
-  if (state.groups.length !== 4) {
-    throw new Error(`${scope}: rank facet rail should expose four groups ${JSON.stringify(state)}`);
+  const expectedGroups = ["Tasks", "Benchmarks", "Status", "Labels", "Models", "Prompts", "Metrics"];
+  const actualGroups = state.groups.map((group) => group.title);
+  const missingGroups = expectedGroups.filter((title) => !actualGroups.includes(title));
+  if (missingGroups.length > 0 || state.groups.length < expectedGroups.length) {
+    throw new Error(
+      `${scope}: rank facet rail should expose all backend groups ${JSON.stringify({
+        ...state,
+        missingGroups
+      })}`
+    );
   }
   if (state.buttonCount === 0) {
     return;

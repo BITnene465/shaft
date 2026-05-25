@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board facet rail 漏接任务与状态筛选
+
+### 现象
+
+Rank Board 后端 `/api/rank-board` 已经返回 Tasks、Benchmarks、Status、Labels、Models、Prompts
+和 Metrics 七类 facet，但前端 facet rail 只把 Labels、Models、Prompts 和 Metrics 接成可点击 chip。
+用户要按任务、基准集或 run 状态收窄排行榜时，仍必须回到高级检索面板手动选择。
+
+### 根因
+
+上一轮把 facet rail 从静态计数改成可点击交互时，只覆盖了原来已经显示在 rail 里的四类 facet，
+没有以 API facet 真源为边界做完整对齐。高级检索状态本身已经有 task、benchmark 和 status，
+前端遗漏的是同一状态的第二入口 wiring。
+
+### 影响范围
+
+- 影响 Rank Board 核心页面的检索效率和交互一致性。
+- 不影响后端 facet 计算、排行榜排序、weighted scheme、CLI/API 输出或 report 指标。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- Rank Board facet rail 现在暴露 Tasks、Benchmarks、Status、Labels、Models、Prompts 和 Metrics。
+- 新增的三个 facet chip 直接更新同一份高级检索状态；再次点击 active chip 回到 `all`。
+- facet rail 保持最多四列，较窄视口降到两列/一列，并补充 hover/active 动效。
+- UI contract 和 layout smoke 锁住七类后端 facet 都必须作为可点击 `.rank-facet-button` 出现。
+- README、架构文档和脚本文档同步 facet rail 的完整交互边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增 Rank Board facet 时，必须以 API 返回的 facet group 为真源，先接入同一份高级检索状态，再更新
+  UI contract 和 layout smoke；不能只补一个摘要面板。
+
 ## 2026-05-25: Eval Bench Rank Board 主指标切换后表格仍固定显示 F1
 
 ### 现象

@@ -309,9 +309,15 @@ assert(
   rankBoardPage.includes("OptionChipButton") &&
     rankBoardPage.includes('className="rank-facet-button"') &&
     rankBoardPage.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
+    rankBoardPage.includes("onFilterChange.task") &&
+    rankBoardPage.includes("onFilterChange.benchmark") &&
+    rankBoardPage.includes("onFilterChange.status") &&
     rankBoardPage.includes("onFilterChange.label") &&
-    rankBoardPage.includes("onFilterChange.metricProfile"),
-  "rank board facet rail must be clickable filter chips instead of static counts",
+    rankBoardPage.includes("onFilterChange.metricProfile") &&
+    rankBoardPage.includes("board.facets.tasks") &&
+    rankBoardPage.includes("board.facets.benchmarks") &&
+    rankBoardPage.includes("board.facets.statuses"),
+  "rank board facet rail must expose all backend facets as clickable filter chips",
 );
 assert(
   rankBoardPage.includes("primaryMetricLabel") &&

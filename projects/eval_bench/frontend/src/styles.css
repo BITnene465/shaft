@@ -1270,6 +1270,16 @@ h2 {
   border: 1px solid #dbe3ec;
   border-radius: 2px;
   box-shadow: 0 8px 20px rgb(15 23 42 / 4%);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.rank-facet-group:hover {
+  border-color: #c2d8e3;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 7%);
+  transform: translateY(-1px);
 }
 
 .rank-facet-group > span {
@@ -1310,6 +1320,12 @@ h2 {
   min-height: 28px;
   cursor: pointer;
   border-radius: 999px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
 }
 
 .rank-facet-button:hover,
@@ -1318,6 +1334,7 @@ h2 {
   background: #e9f7fb;
   border-color: #9fd0df;
   box-shadow: 0 8px 18px rgb(23 77 101 / 10%);
+  transform: translateY(-1px);
 }
 
 .rank-facet-button.active {
@@ -7771,6 +7788,10 @@ tbody tr:hover td {
   }
 
   .advanced-filter-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rank-facet-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
