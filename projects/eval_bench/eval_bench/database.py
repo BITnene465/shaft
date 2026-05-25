@@ -408,6 +408,31 @@ class EvalBenchDatabase:
             "status": _filter_value(status),
             "query": (query or "").strip(),
         }
+        jobs = self.matching_jobs(
+            kind=filters["kind"],
+            status=filters["status"],
+            query=filters["query"],
+        )
+        return JobListPage(
+            offset=start,
+            limit=page_limit,
+            total=len(jobs),
+            filters=filters,
+            jobs=jobs[start : start + page_limit],
+        )
+
+    def matching_jobs(
+        self,
+        *,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> list[JobRecord]:
+        filters = {
+            "kind": _filter_value(kind),
+            "status": _filter_value(status),
+            "query": (query or "").strip(),
+        }
         with self.engine.begin() as connection:
             rows = connection.execute(
                 text(
@@ -429,13 +454,7 @@ class EvalBenchDatabase:
                     query=filters["query"].lower(),
                 )
             ]
-        return JobListPage(
-            offset=start,
-            limit=page_limit,
-            total=len(jobs),
-            filters=filters,
-            jobs=jobs[start : start + page_limit],
-        )
+        return jobs
 
     def list_jobs(
         self,

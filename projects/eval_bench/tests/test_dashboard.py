@@ -494,6 +494,37 @@ def test_dashboard_does_not_claim_next_job_while_live_job_is_running(tmp_path: P
     assert database.get_job(queued.job_id).status == "queued"
 
 
+def test_dashboard_process_next_checks_live_jobs_beyond_first_page(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    database = app.state.eval_bench_database
+    running = database.create_job(
+        kind="eval",
+        job_id="aaa_running",
+        payload={"run_id": "running-job"},
+        status="running",
+        metadata={"runtime_pid": os.getpid()},
+    )
+    queued = database.create_job(kind="eval", job_id="zzz_queued", payload={"run_id": "queued-job"})
+    for index in range(220):
+        database.create_job(
+            kind="eval",
+            job_id=f"zzz_finished_{index:04d}",
+            payload={"run_id": f"finished-{index}"},
+            status="succeeded",
+        )
+
+    assert all(job.job_id != running.job_id for job in database.list_jobs(limit=200))
+
+    processed = client.post("/api/jobs/process-next")
+
+    assert processed.status_code == 200
+    payload = processed.json()
+    assert payload["processed"] is False
+    assert payload["job"]["job_id"] == running.job_id
+    assert database.get_job(queued.job_id).status == "queued"
+
+
 def test_dashboard_job_logs_can_return_full_log(tmp_path: Path) -> None:
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
     client = TestClient(app)

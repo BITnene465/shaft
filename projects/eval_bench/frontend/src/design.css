@@ -1433,6 +1433,102 @@ tbody td {
   gap: 6px 12px;
 }
 
+/* Shared interaction layer: make the whole workbench feel responsive without changing layout. */
+.workspace-card,
+.table-shell,
+.action-panel,
+.service-card,
+.instance-card,
+.viewer-panel,
+.settings-control-card,
+.settings-workflow-card,
+.compare-context-pane,
+.compare-run-rail,
+.compare-report-pane {
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.workspace-card:hover,
+.action-panel:hover,
+.service-card:hover,
+.instance-card:hover,
+.settings-control-card:hover,
+.settings-workflow-card:hover {
+  transform: translateY(-2px);
+  border-color: #a9cfde;
+  box-shadow: 0 18px 38px rgb(24 54 75 / 12%);
+}
+
+.table-shell tbody tr {
+  transition:
+    background 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.table-shell tbody tr:hover {
+  transform: translateX(2px);
+  box-shadow: inset 3px 0 0 rgb(13 142 181 / 46%);
+}
+
+.nav-item,
+.query-chip,
+.summary-pill,
+.sample-count-chip,
+.label-chip,
+.badge {
+  transition:
+    transform 130ms ease,
+    border-color 130ms ease,
+    background 130ms ease,
+    color 130ms ease,
+    box-shadow 130ms ease;
+}
+
+.nav-item:hover {
+  transform: translateX(2px);
+}
+
+.query-chip:hover,
+.summary-pill:hover,
+.sample-count-chip:hover,
+.label-chip:hover {
+  transform: translateY(-1px);
+}
+
+.command-button,
+.primary-button,
+.secondary-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.command-button::after,
+.primary-button::after,
+.secondary-button::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(110deg, transparent 0 38%, rgb(255 255 255 / 34%) 50%, transparent 62%);
+  opacity: 0;
+  transform: translateX(-68%);
+  transition:
+    opacity 140ms ease,
+    transform 320ms ease;
+  pointer-events: none;
+}
+
+.command-button:hover::after,
+.primary-button:hover::after,
+.secondary-button:hover::after {
+  opacity: 1;
+  transform: translateX(68%);
+}
+
 @media (max-width: 1180px) {
   .panel-title span,
   .viewer-toolbar h2 {

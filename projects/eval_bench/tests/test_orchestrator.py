@@ -66,11 +66,7 @@ def test_orchestrator_skips_queued_job_when_cuda_device_is_reserved(
         tmp_path,
         config=SchedulerConfig(max_concurrent_jobs=3, interval_s=0.01),
     )
-    monkeypatch.setattr(
-        EvalBenchWorker,
-        "process_job",
-        lambda self, job_id: self.database.get_job(job_id),
-    )
+    monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
 
     launched = orchestrator.schedule_once()
 
@@ -80,6 +76,32 @@ def test_orchestrator_skips_queued_job_when_cuda_device_is_reserved(
     assert blocked_after.status == "queued"
     assert "already reserved" in blocked_after.metadata["scheduler_blocked_reason"]
     assert database.get_job(schedulable.job_id).status == "running"
+
+
+def test_orchestrator_scans_queued_jobs_beyond_first_page(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    target = database.create_job(kind="eval", job_id="aaa_target", payload={"run_id": "target"})
+    for index in range(1005):
+        database.create_job(
+            kind="eval",
+            job_id=f"zzz_backlog_{index:04d}",
+            payload={"run_id": f"backlog-{index}"},
+        )
+    monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
+    orchestrator = EvalBenchOrchestrator(
+        tmp_path,
+        config=SchedulerConfig(max_concurrent_jobs=1, interval_s=0.01),
+    )
+
+    assert all(job.job_id != target.job_id for job in database.list_jobs(limit=1000))
+
+    launched = orchestrator.schedule_once()
+
+    assert [job.job_id for job in launched] == [target.job_id]
+    assert database.get_job(target.job_id).status == "running"
 
 
 def test_orchestrator_reserves_cancel_requested_live_job_resources(
@@ -100,11 +122,7 @@ def test_orchestrator_reserves_cancel_requested_live_job_resources(
         tmp_path,
         config=SchedulerConfig(max_concurrent_jobs=3, interval_s=0.01),
     )
-    monkeypatch.setattr(
-        EvalBenchWorker,
-        "process_job",
-        lambda self, job_id: self.database.get_job(job_id),
-    )
+    monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
 
     launched = orchestrator.schedule_once()
 
@@ -152,11 +170,7 @@ def test_orchestrator_reserves_ephemeral_runtime_ports(
         kind="eval",
         payload={"runtime_mode": "ephemeral", "port": 8001},
     )
-    monkeypatch.setattr(
-        EvalBenchWorker,
-        "process_job",
-        lambda self, job_id: self.database.get_job(job_id),
-    )
+    monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
     orchestrator = EvalBenchOrchestrator(
         tmp_path,
         config=SchedulerConfig(max_concurrent_jobs=3, interval_s=0.01),

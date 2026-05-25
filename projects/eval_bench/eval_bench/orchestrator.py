@@ -94,7 +94,7 @@ class EvalBenchOrchestrator:
     def live_running_jobs(self) -> list[JobRecord]:
         return [
             job
-            for job in self.database.list_jobs(limit=500)
+            for job in self.database.matching_jobs()
             if job_holds_scheduler_resources(job) and _job_has_live_process(job)
         ]
 
@@ -109,7 +109,7 @@ class EvalBenchOrchestrator:
             reserved_devices = _reserved_cuda_devices(running_jobs)
             reserved_ports = _reserved_runtime_ports(running_jobs)
             launched: list[JobRecord] = []
-            for job in _fifo_jobs(self.database.list_jobs(limit=1000)):
+            for job in _fifo_jobs(self.database.matching_jobs(kind="eval", status="queued")):
                 if job.status != "queued" or job.kind != "eval":
                     continue
                 if len(launched) >= available_slots:

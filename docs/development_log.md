@@ -9,6 +9,86 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 首页再次退化成低价值状态墙
+
+### 现象
+
+总览页已经从旧 mini chart wall 收敛成 command deck，但第一屏仍把标题、统计块、下一步动作、管线、
+活动矩阵和 readiness 分散展示。用户进入首页后仍需要自己判断“下一步该点哪里”，页面像状态字段展示，
+而不是评测运营入口；同时整体交互反馈不够明显，hover 和状态流动感不足。
+
+### 根因
+
+上一版主要修复“信息太多”和“低价值面板回流”，但没有把首页的视觉优先级绑定到行动决策：下一步动作
+只位于 focus panel 内部，顶部 hero 仍是静态摘要；通用 hover/transition 也只覆盖了部分按钮和总览卡片，
+没有成为 dashboard 级交互层。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 首页的第一屏判断效率、可点击性和实时感。
+- 不影响 dashboard API、store schema、job/service 生命周期、rank board 排序或评估指标。
+- 这不是模型能力问题，也不是 eval/codec/metric 误判。
+
+### 修复方式
+
+- 总览顶部改为优先动作 hero：标题直接表达当前状态，右侧大行动卡直接跳转到失败任务、待评估 run、
+  队列、服务、排行榜或新建任务。
+- 右侧 dock 只保留同步状态、四个紧凑运行态数值和三条高频入口，避免无意义面板占位。
+- 主体 focus panel 改为“评测闭环”：四个可行动信号、四段管线和三泳道近期活动矩阵服务同一个判断。
+- readiness 和最近产物保留在侧栏，作为可操作入口和最新产物索引，不承载二级诊断。
+- 增加 dashboard 级 shared interaction layer，给 workspace card、表格行、chip、导航和标准命令补 hover、
+  shimmer、lift 与 rail 动效；动效只表达可点击性和实时反馈，不改变数据语义。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 首页新增内容必须先回答“是否驱动下一步动作”；不能把 run manifest、artifact、parser、任务类型、
+  模型分布或其它低频诊断字段搬回总览。
+- 交互动效应落在可点击对象、状态胶囊、轨道和局部 hover 上；不能使用大面积装饰动画制造布局抖动。
+
+## 2026-05-25: Eval Bench job 调度仍受固定首屏窗口影响
+
+### 现象
+
+前端目录页已经接入分页，但后端 job 生命周期仍存在固定窗口：dashboard 的 `/api/jobs/process-next`
+只检查前 200 条 job，orchestrator 只扫描前 500 条 running job 和前 1000 条 queued job。当旧 running job
+或 FIFO 中最早的 queued job 排在这个窗口之外时，调度器可能误判资源空闲或漏掉应优先启动的任务。
+
+### 根因
+
+`list_jobs(limit=...)` 同时承担 UI 列表分页和后端生命周期扫描两个职责。目录分页接入后，生命周期代码
+仍复用面向页面的首屏窗口，没有单独的“完整匹配 job 集合”真源。
+
+### 影响范围
+
+- 影响 dashboard fallback worker 和 orchestrator 的 job claim / queue scan 正确性。
+- 可能导致重复启动评测、跳过 FIFO 早期任务或错误释放 runtime/device/port 资源。
+- 不影响评估指标、prediction parser、rank board 分数或模型能力；这是 dashboard/job lifecycle 误判。
+
+### 修复方式
+
+- `EvalBenchDatabase` 新增 `matching_jobs()`，作为不分页的完整匹配 job 真源。
+- `job_page()` 继续负责 UI/API 分页，但复用 `matching_jobs()` 后再切片，避免过滤语义分叉。
+- dashboard `/api/jobs/process-next` 和 orchestrator live-running / queued scan 改用 `matching_jobs()`。
+- 增加回归：running job 超出前 200 条时 dashboard 不 claim 新任务；queued job 超出前 1000 条时
+  orchestrator 仍按 FIFO 启动。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_dashboard.py -k 'process_next or live_job'`
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_orchestrator.py -k 'queued_jobs_beyond_first_page or reserved or skips'`
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_database.py`
+
+### 后续防线
+
+- UI/API 目录列表可以分页；job lifecycle、调度资源检查和 FIFO queue scan 不能使用固定 `limit` 首屏窗口。
+- 新增 job lifecycle 入口时，先判断需要的是分页列表还是完整匹配集合；完整扫描必须走 `matching_jobs()`。
+
 ## 2026-05-25: Eval Bench 目录分页控件在六个页面重复实现
 
 ### 现象

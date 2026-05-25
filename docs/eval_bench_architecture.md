@@ -93,6 +93,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/database.py`
   - 维护 job/service/prompt template registry；job/service 列表过滤和分页由 `job_page` /
     `service_page` 提供，CLI/API/Jobs/Services 页面不能各自复制高级检索语义。
+  - `matching_jobs()` 是 job lifecycle 和 scheduler 的完整匹配集合真源；`job_page()` / `list_jobs()`
+    只负责分页展示，不能用于 running resource check 或 queued FIFO scan。
 - `projects/eval_bench/eval_bench/sample_paths.py`
   - 维护 sample image path 和 prediction JSON relative path 的命名与 fallback 规则。
 - `projects/eval_bench/eval_bench/sample_scope.py`
@@ -187,6 +189,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 agent 生命周期入口：CLI 必须优先复用 `EvalBenchStore`、`EvalBenchDatabase`、`EvalBenchServiceManager`
   和 `log_utils.py`；不能让 agent 直接改 run manifest、SQLite、service 目录或 runtime log 路径。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
+- 新增 job 调度或 worker claim 入口：资源占用检查、running job 检查和 queued FIFO scan 必须使用
+  `EvalBenchDatabase.matching_jobs()`，不能复用 UI 列表的固定 `limit` 窗口。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。Benchmark Inspector / Run Inspector
   的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
@@ -195,9 +199,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能用固定 `limit=200` 的首屏 slice 代替完整结果浏览。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 next action、四个可行动信号、pipeline progress rail 和活动矩阵服务“当前是否可用、
+- 新增总览视觉模块：优先用 hero next action、四个可行动信号、pipeline progress rail 和活动矩阵服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall 或 Run/Ops/Volume 面板组；总览主体保持一个 focus panel、
-  readiness switchboard 和最近 run 紧凑摘要组成的 command deck。readiness switchboard 固定聚合
+  readiness switchboard 和最近 run 紧凑摘要组成的 command deck。顶部 hero 只能承载当前优先动作、
+  同步态和少量运行态数值，不能回流二级诊断。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
   必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
@@ -205,6 +210,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   compact 视口需要滚动时由 command deck 自身滚动，最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。
 - 新增 dashboard 交互动效：hover、pulse、rail transition 和入场动画只用于状态反馈、可点击性和实时感；
   不允许用大面积装饰动画替代信息结构，也不能让动效改变数据语义或造成滚动/布局抖动。
+- 新增 dashboard 通用交互反馈：优先扩展共享按钮、卡片、表格行、chip、导航和状态胶囊的 hover/focus/active
+  反馈，不要在单个业务页复制私有动效。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill
   本身，避免 wrapper 承担状态语义。
 - 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态

@@ -1275,7 +1275,7 @@ def create_app(
         running = next(
             (
                 record
-                for record in database.list_jobs(limit=200)
+                for record in database.matching_jobs()
                 if job_holds_scheduler_resources(record) and _is_live_running_job(record)
             ),
             None,
