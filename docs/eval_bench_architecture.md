@@ -167,7 +167,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `list-benchmarks`、`show-benchmark`、`list-runs`、`list-jobs`、`show-job`、`list-services`、
   `show-service`、`list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
   读取前端状态、SQLite 或扫描 artifact 目录。CLI parser 暴露的每个子命令必须登记到 `_command_handlers()`，
-  agent 稳定命令必须登记到 `AGENT_SAFE_COMMANDS` 并可由 `list-agent-commands` 发现；这些集合由
+  agent 稳定命令必须登记到 `AGENT_STABLE_COMMANDS` 并可由 `list-agent-commands` 发现；这些集合由
   `test_cli_parser_commands_have_handlers_for_agent_contract` 锁住，避免新增命令只加 parser 或只加 handler。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、

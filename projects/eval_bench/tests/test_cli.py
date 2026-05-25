@@ -8,7 +8,7 @@ import pytest
 
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
-    AGENT_SAFE_COMMANDS,
+    AGENT_STABLE_COMMANDS,
     _build_parser,
     _command_handlers,
     _cmd_archive_run,
@@ -72,20 +72,27 @@ def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
     handler_names = set(_command_handlers())
 
     assert command_names == handler_names
-    assert AGENT_SAFE_COMMANDS <= command_names
+    assert AGENT_STABLE_COMMANDS <= command_names
 
 
-def test_cli_lists_agent_safe_commands(capsys) -> None:
+def test_cli_lists_agent_stable_commands(capsys) -> None:
     args = _build_parser().parse_args(["list-agent-commands"])
     _cmd_list_agent_commands(args)
     payload = json.loads(capsys.readouterr().out)
 
     command_names = [item["name"] for item in payload["commands"]]
-    assert payload["total"] == len(AGENT_SAFE_COMMANDS)
-    assert command_names == sorted(AGENT_SAFE_COMMANDS)
+    assert payload["total"] == len(AGENT_STABLE_COMMANDS)
+    assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
+    assert "register-service" in command_names
+    assert "start-service" in command_names
+    assert "stop-service" in command_names
+    assert "compare-runs" in command_names
+    assert "import-predictions" in command_names
+    assert "upsert-prompt-template" in command_names
     assert "show-comparison-sample" in command_names
     assert "serve-dashboard" not in command_names
+    assert "write-demo-prediction" not in command_names
     assert all(item["help"] for item in payload["commands"])
 
 

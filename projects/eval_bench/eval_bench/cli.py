@@ -9,9 +9,10 @@ from pathlib import Path
 from .artifacts import DEFAULT_STORE_ROOT
 
 
-AGENT_SAFE_COMMANDS = frozenset(
+AGENT_STABLE_COMMANDS = frozenset(
     {
         "list-agent-commands",
+        "create-benchmark",
         "dashboard-state",
         "scheduler-status",
         "backend-logs",
@@ -22,6 +23,8 @@ AGENT_SAFE_COMMANDS = frozenset(
         "list-prompt-templates",
         "show-prompt-template",
         "resolve-target-labels",
+        "upsert-prompt-template",
+        "delete-prompt-template",
         "list-jobs",
         "show-job",
         "cancel-job",
@@ -41,12 +44,18 @@ AGENT_SAFE_COMMANDS = frozenset(
         "set-run-note",
         "archive-run",
         "delete-run",
+        "import-predictions",
+        "evaluate-run",
         "list-services",
         "show-service",
+        "register-service",
         "service-command",
+        "start-service",
         "service-health",
         "service-logs",
+        "stop-service",
         "delete-service",
+        "compare-runs",
         "list-comparisons",
         "show-comparison",
         "show-comparison-sample",
@@ -133,7 +142,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "list-agent-commands",
-        help="List stable agent-safe CLI commands.",
+        help="List stable agent CLI commands.",
     )
 
     scheduler_status = subparsers.add_parser(
@@ -681,7 +690,7 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     command_help = _parser_command_help(_build_parser())
     commands = [
         {"name": name, "help": command_help.get(name, "")}
-        for name in sorted(AGENT_SAFE_COMMANDS)
+        for name in sorted(AGENT_STABLE_COMMANDS)
     ]
     print(
         json.dumps(

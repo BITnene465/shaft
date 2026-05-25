@@ -13,7 +13,7 @@
 
 ### 现象
 
-Eval Bench 已经补齐大量 agent-safe CLI，但 parser 定义和 `main()` 分发是两份手写列表。测试主要直接调用
+Eval Bench 已经补齐大量 agent-facing CLI，但 parser 定义和 `main()` 分发是两份手写列表。测试主要直接调用
 `_cmd_*` 函数，无法证明 `scripts/eval_bench.py <command>` 真实入口一定能调到对应 handler。后续新增命令时，
 很容易出现 help 中能看到命令，但入口分发遗漏的情况。
 
@@ -30,10 +30,12 @@ CLI 子命令的真源不够集中：`_build_parser()` 维护命令名，`main()
 ### 修复方式
 
 - 将 `main()` 分发收敛到 `_command_handlers()` 映射。
-- 新增 `AGENT_SAFE_COMMANDS` 作为稳定 agent 命令集合真源，并通过 `list-agent-commands` 输出给 agent。
+- 新增 `AGENT_STABLE_COMMANDS` 作为稳定 agent 命令集合真源，并通过 `list-agent-commands` 输出给 agent。
 - 新增 CLI 合约测试：parser 暴露的命令集合必须等于 handler 映射集合。
-- 同一测试锁住 `AGENT_SAFE_COMMANDS`，避免 dashboard-state、rank-board、run note、sample detail、comparison、
+- 同一测试锁住 `AGENT_STABLE_COMMANDS`，避免 dashboard-state、rank-board、run note、sample detail、comparison、
   service/job 生命周期等稳定入口被误删。
+- 稳定命令面覆盖会改变 store 或外部进程状态的操作，例如 register/start/stop service、import/evaluate、
+  compare 和 prompt template 写操作；名称不再使用 “safe”，避免误解为无副作用命令。
 
 ### 回归测试
 
@@ -44,7 +46,7 @@ CLI 子命令的真源不够集中：`_build_parser()` 维护命令名，`main()
 ### 后续防线
 
 - 新增 CLI 子命令时必须同时更新 parser 和 `_command_handlers()`；测试失败即表示真实入口不可执行。
-- 新增稳定 agent 命令时必须同步更新 `AGENT_SAFE_COMMANDS`，使 `list-agent-commands` 成为 agent 可发现入口。
+- 新增稳定 agent 命令时必须同步更新 `AGENT_STABLE_COMMANDS`，使 `list-agent-commands` 成为 agent 可发现入口。
 - agent-facing 命令不要只加内部 `_cmd_*` 单测，还要保证 parser/handler 合约覆盖到命令名。
 
 ## 2026-05-25: Eval Bench 总览页低价值面板回流
