@@ -95,7 +95,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 run target label scope、实例过滤、payload 裁剪和 sample diagnostics 重映射。
 - `projects/eval_bench/eval_bench/store.py`
   - 维护 benchmark/run 列表过滤、分页和 query 语义；CLI 与 `/api/benchmarks`、`/api/runs`
-    必须复用同一份 store page 方法。
+    必须复用同一份 store page 方法；Runs 页面只能提交查询条件，不能复制 run 高级检索语义。
   - 维护 run note 的读写、列表摘要和长度校验；dashboard/API/CLI 不直接改 `note.json`。
   - 维护 rank board 的过滤、facet 计数、综合分公式、排序和分页输出；Compare 页不能再作为排行榜真源。
 - `projects/eval_bench/eval_bench/comparison.py`

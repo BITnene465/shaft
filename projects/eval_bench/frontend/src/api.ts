@@ -40,6 +40,27 @@ export type RunSummary = {
   mean_iou: number | null;
 };
 
+export type RunListFilters = {
+  offset?: number;
+  limit?: number;
+  task?: string;
+  benchmarkId?: string;
+  status?: string;
+  label?: string;
+  modelId?: string;
+  promptId?: string;
+  metricProfile?: string;
+  query?: string;
+};
+
+export type RunListResponse = {
+  runs: RunSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  filters?: Record<string, string>;
+};
+
 export type RunNote = {
   run_id: string;
   note: string;
@@ -674,6 +695,42 @@ export function deleteJob(jobId: string): Promise<DeleteResult & { job_id: strin
   return fetchJson<DeleteResult & { job_id: string }>(`/api/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE"
   });
+}
+
+export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse> {
+  const params = new URLSearchParams();
+  if (filters.offset !== undefined) {
+    params.set("offset", String(filters.offset));
+  }
+  if (filters.limit !== undefined) {
+    params.set("limit", String(filters.limit));
+  }
+  if (filters.task && filters.task !== "all") {
+    params.set("task", filters.task);
+  }
+  if (filters.benchmarkId && filters.benchmarkId !== "all") {
+    params.set("benchmark_id", filters.benchmarkId);
+  }
+  if (filters.status && filters.status !== "all") {
+    params.set("status", filters.status);
+  }
+  if (filters.label && filters.label !== "all") {
+    params.set("label", filters.label);
+  }
+  if (filters.modelId && filters.modelId !== "all") {
+    params.set("model_id", filters.modelId);
+  }
+  if (filters.promptId && filters.promptId !== "all") {
+    params.set("prompt_id", filters.promptId);
+  }
+  if (filters.metricProfile && filters.metricProfile !== "all") {
+    params.set("metric_profile", filters.metricProfile);
+  }
+  if (filters.query?.trim()) {
+    params.set("query", filters.query.trim());
+  }
+  const query = params.toString();
+  return fetchJson<RunListResponse>(`/api/runs${query ? `?${query}` : ""}`);
 }
 
 export function evaluateRun(runId: string): Promise<{ run_id: string; report_path: string }> {

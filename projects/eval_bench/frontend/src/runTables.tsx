@@ -7,6 +7,7 @@ import { Archive, Eye, FileText, GitCompare, RotateCw, Trash2 } from "lucide-rea
 import type { BenchmarkSummary, RunSummary } from "./api";
 import { archiveRun, deleteRun, evaluateRun } from "./api";
 import { AdvancedFilterBar } from "./filterControls";
+import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
 import { Badge, DataTable, IconActionButton } from "./ui";
@@ -62,7 +63,19 @@ export function BenchmarkTable({
   );
 }
 
-export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compact?: boolean }) {
+export function RunTable({
+  runs,
+  compact = false,
+  filterControls,
+  filterMeta,
+  filterTitle = "结果高级检索"
+}: {
+  runs: RunSummary[];
+  compact?: boolean;
+  filterControls?: AdvancedFilterControl[];
+  filterMeta?: string;
+  filterTitle?: string;
+}) {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -72,32 +85,29 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
-  const evaluateMutation = useMutation({
-    mutationFn: evaluateRun,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-    }
-  });
-  const archiveMutation = useMutation({
-    mutationFn: archiveRun,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-    }
-  });
+  const refreshRunViews = () => {
+    void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+    void queryClient.invalidateQueries({ queryKey: ["runs"] });
+    void queryClient.invalidateQueries({ queryKey: ["rank-board"] });
+    void queryClient.invalidateQueries({ queryKey: ["comparisons"] });
+  };
+  const evaluateMutation = useMutation({ mutationFn: evaluateRun, onSuccess: refreshRunViews });
+  const archiveMutation = useMutation({ mutationFn: archiveRun, onSuccess: refreshRunViews });
   const deleteMutation = useMutation({
     mutationFn: deleteRun,
     onSuccess: () => {
       setSelectedRunIds([]);
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+      refreshRunViews();
     }
   });
+  const usesExternalFilters = Boolean(filterControls);
   const statuses = unique(runs.map((run) => run.status).filter(Boolean));
   const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
   const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
   const labels = unique(runs.flatMap((run) => run.target_labels).filter(Boolean));
   const models = unique(runs.map((run) => run.model_id).filter(Boolean));
   const prompts = unique(runs.map((run) => run.prompt_id).filter(Boolean));
-  const filteredRuns = compact
+  const filteredRuns = compact || usesExternalFilters
     ? runs
     : runs
         .filter((run) => statusFilter === "all" || run.status === statusFilter)
@@ -241,72 +251,74 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
     <div className={compact ? "run-table-stack compact" : "run-table-stack"}>
       {!compact ? (
         <AdvancedFilterBar
-          title="结果高级检索"
-          meta={`${filteredRuns.length.toLocaleString()} / ${runs.length.toLocaleString()} 条 run`}
-          controls={[
-            {
-              type: "search",
-              id: "query",
-              label: "全文检索",
-              value: searchText,
-              onChange: setSearchText,
-              placeholder: "搜索 run、模型、基准集、备注"
-            },
-            {
-              type: "select",
-              id: "status",
-              label: "状态",
-              value: statusFilter,
-              values: ["all", ...statuses],
-              labels: { all: "全部" },
-              onChange: setStatusFilter
-            },
-            {
-              type: "select",
-              id: "task",
-              label: "任务",
-              value: taskFilter,
-              values: ["all", ...tasks],
-              labels: { all: "全部" },
-              onChange: setTaskFilter
-            },
-            {
-              type: "select",
-              id: "benchmark",
-              label: "基准集",
-              value: benchmarkFilter,
-              values: ["all", ...benchmarks],
-              labels: { all: "全部" },
-              onChange: setBenchmarkFilter
-            },
-            {
-              type: "select",
-              id: "label",
-              label: "标签",
-              value: labelFilter,
-              values: ["all", ...labels],
-              labels: { all: "全部" },
-              onChange: setLabelFilter
-            },
-            {
-              type: "select",
-              id: "model",
-              label: "模型",
-              value: modelFilter,
-              values: ["all", ...models],
-              labels: { all: "全部" },
-              onChange: setModelFilter
-            },
-            {
-              type: "select",
-              id: "prompt",
-              label: "Prompt",
-              value: promptFilter,
-              values: ["all", ...prompts],
-              labels: { all: "全部" },
-              onChange: setPromptFilter
-            }
-          ]}
+          title={filterTitle}
+          meta={filterMeta ?? `${filteredRuns.length.toLocaleString()} / ${runs.length.toLocaleString()} 条 run`}
+          controls={
+            filterControls ?? [
+              {
+                type: "search",
+                id: "query",
+                label: "全文检索",
+                value: searchText,
+                onChange: setSearchText,
+                placeholder: "搜索 run、模型、基准集、备注"
+              },
+              {
+                type: "select",
+                id: "status",
+                label: "状态",
+                value: statusFilter,
+                values: ["all", ...statuses],
+                labels: { all: "全部" },
+                onChange: setStatusFilter
+              },
+              {
+                type: "select",
+                id: "task",
+                label: "任务",
+                value: taskFilter,
+                values: ["all", ...tasks],
+                labels: { all: "全部" },
+                onChange: setTaskFilter
+              },
+              {
+                type: "select",
+                id: "benchmark",
+                label: "基准集",
+                value: benchmarkFilter,
+                values: ["all", ...benchmarks],
+                labels: { all: "全部" },
+                onChange: setBenchmarkFilter
+              },
+              {
+                type: "select",
+                id: "label",
+                label: "标签",
+                value: labelFilter,
+                values: ["all", ...labels],
+                labels: { all: "全部" },
+                onChange: setLabelFilter
+              },
+              {
+                type: "select",
+                id: "model",
+                label: "模型",
+                value: modelFilter,
+                values: ["all", ...models],
+                labels: { all: "全部" },
+                onChange: setModelFilter
+              },
+              {
+                type: "select",
+                id: "prompt",
+                label: "Prompt",
+                value: promptFilter,
+                values: ["all", ...prompts],
+                labels: { all: "全部" },
+                onChange: setPromptFilter
+              }
+            ]
+          }
           actions={
             <a
               className={

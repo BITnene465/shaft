@@ -47,6 +47,7 @@ import {
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
   fetchComparisonSample,
+  fetchRuns,
   fetchRunSampleDetail,
   fetchRunSamples,
   fetchSettingsPreviewSample,
@@ -1048,20 +1049,70 @@ function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
 }
 
 function RunsPage() {
-  const { data, isLoading, error } = useDashboardState();
+  const dashboardQuery = useDashboardState();
   const [importOpen, setImportOpen] = useState(false);
-  if (isLoading) {
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [taskFilter, setTaskFilter] = useState("all");
+  const [benchmarkFilter, setBenchmarkFilter] = useState("all");
+  const [labelFilter, setLabelFilter] = useState("all");
+  const [modelFilter, setModelFilter] = useState("all");
+  const [promptFilter, setPromptFilter] = useState("all");
+  const [metricProfileFilter, setMetricProfileFilter] = useState("all");
+  const runFilters = useMemo(
+    () => ({
+      offset: 0,
+      limit: 200,
+      status: statusFilter !== "all" ? statusFilter : undefined,
+      task: taskFilter !== "all" ? taskFilter : undefined,
+      benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
+      label: labelFilter !== "all" ? labelFilter : undefined,
+      modelId: modelFilter !== "all" ? modelFilter : undefined,
+      promptId: promptFilter !== "all" ? promptFilter : undefined,
+      metricProfile: metricProfileFilter !== "all" ? metricProfileFilter : undefined,
+      query: searchText.trim() || undefined
+    }),
+    [
+      benchmarkFilter,
+      labelFilter,
+      metricProfileFilter,
+      modelFilter,
+      promptFilter,
+      searchText,
+      statusFilter,
+      taskFilter
+    ]
+  );
+  const runsQuery = useQuery({
+    queryKey: ["runs", runFilters],
+    queryFn: () => fetchRuns(runFilters)
+  });
+  const runFacetsQuery = useQuery({
+    queryKey: ["runs", "facets"],
+    queryFn: () => fetchRuns({ limit: 500 })
+  });
+  const runs = runsQuery.data?.runs ?? [];
+  const runFacets = runFacetsQuery.data?.runs ?? runs;
+  const tasks = unique(runFacets.map((run) => run.spec_task).filter(Boolean));
+  const benchmarks = unique(runFacets.map((run) => run.benchmark_id).filter(Boolean));
+  const statuses = unique(runFacets.map((run) => run.status).filter(Boolean));
+  const labels = unique(runFacets.flatMap((run) => run.target_labels).filter(Boolean));
+  const models = unique(runFacets.map((run) => run.model_id).filter(Boolean));
+  const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
+  const metricProfiles = unique(runFacets.map((run) => run.metric_profile).filter(Boolean));
+  if (runsQuery.isLoading || dashboardQuery.isLoading) {
     return <EmptyState title="正在加载评测记录" />;
   }
-  if (error || !data) {
+  if (runsQuery.error || !runsQuery.data) {
     return <EmptyState title="评测记录加载失败" tone="danger" />;
   }
+  const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
         <div>
           <h2>评测记录库</h2>
-          <span>{data.runs.length.toLocaleString()} 条 run snapshot</span>
+          <span>{(runsQuery.data.total ?? runs.length).toLocaleString()} 条 run snapshot</span>
         </div>
         <CommandButton
           variant="secondary"
@@ -1072,7 +1123,83 @@ function RunsPage() {
         </CommandButton>
       </div>
       <div className="workspace-card fill">
-        <RunTable runs={data.runs} />
+        <RunTable
+          runs={runs}
+          filterMeta={`${runs.length.toLocaleString()} / ${(runsQuery.data.total ?? runs.length).toLocaleString()} 条 run`}
+          filterControls={[
+            {
+              type: "search",
+              id: "run-query",
+              label: "全文检索",
+              value: searchText,
+              onChange: setSearchText,
+              placeholder: "搜索 run、模型、基准集、备注"
+            },
+            {
+              type: "select",
+              id: "run-status",
+              label: "状态",
+              value: statusFilter,
+              values: ["all", ...statuses],
+              labels: { all: "全部" },
+              onChange: setStatusFilter
+            },
+            {
+              type: "select",
+              id: "run-task",
+              label: "任务",
+              value: taskFilter,
+              values: ["all", ...tasks],
+              labels: { all: "全部" },
+              onChange: setTaskFilter
+            },
+            {
+              type: "select",
+              id: "run-benchmark",
+              label: "基准集",
+              value: benchmarkFilter,
+              values: ["all", ...benchmarks],
+              labels: { all: "全部" },
+              onChange: setBenchmarkFilter
+            },
+            {
+              type: "select",
+              id: "run-label",
+              label: "标签",
+              value: labelFilter,
+              values: ["all", ...labels],
+              labels: { all: "全部" },
+              onChange: setLabelFilter
+            },
+            {
+              type: "select",
+              id: "run-model",
+              label: "模型",
+              value: modelFilter,
+              values: ["all", ...models],
+              labels: { all: "全部" },
+              onChange: setModelFilter
+            },
+            {
+              type: "select",
+              id: "run-prompt",
+              label: "Prompt",
+              value: promptFilter,
+              values: ["all", ...prompts],
+              labels: { all: "全部" },
+              onChange: setPromptFilter
+            },
+            {
+              type: "select",
+              id: "run-metric",
+              label: "Metric",
+              value: metricProfileFilter,
+              values: ["all", ...metricProfiles],
+              labels: { all: "全部" },
+              onChange: setMetricProfileFilter
+            }
+          ]}
+        />
       </div>
       <WorkspaceDialog
         open={importOpen}
@@ -1080,7 +1207,7 @@ function RunsPage() {
         meta="把外部预测目录导入为 run，并和 GT 对比"
         onClose={() => setImportOpen(false)}
       >
-        <ImportPredictionsPanel benchmarks={data.benchmarks} bare />
+        <ImportPredictionsPanel benchmarks={benchmarkOptions} bare />
       </WorkspaceDialog>
     </section>
   );
@@ -1104,6 +1231,9 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
     mutationFn: importPredictions,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["rank-board"] });
+      void queryClient.invalidateQueries({ queryKey: ["comparisons"] });
     }
   });
   const effectiveBenchmarkId = benchmarkId || benchmarks[0]?.benchmark_id || "";
