@@ -12,6 +12,8 @@ from .artifacts import DEFAULT_STORE_ROOT
 AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "list-agent-commands": {"domain": "meta", "mutates_state": False},
     "create-benchmark": {"domain": "benchmark", "mutates_state": True},
+    "init-run": {"domain": "run", "mutates_state": True},
+    "validate-prediction": {"domain": "prediction", "mutates_state": False},
     "dashboard-state": {"domain": "state", "mutates_state": False},
     "scheduler-status": {"domain": "state", "mutates_state": False},
     "backend-logs": {"domain": "logs", "mutates_state": False},
@@ -54,6 +56,7 @@ AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "service-logs": {"domain": "logs", "mutates_state": False},
     "stop-service": {"domain": "service", "mutates_state": True},
     "delete-service": {"domain": "service", "mutates_state": True},
+    "process-next-job": {"domain": "job", "mutates_state": True},
     "compare-runs": {"domain": "comparison", "mutates_state": True},
     "list-comparisons": {"domain": "comparison", "mutates_state": False},
     "show-comparison": {"domain": "comparison", "mutates_state": False},

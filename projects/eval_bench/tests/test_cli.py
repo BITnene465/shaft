@@ -104,6 +104,9 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
     assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
+    assert "init-run" in command_names
+    assert "validate-prediction" in command_names
+    assert "process-next-job" in command_names
     assert "register-service" in command_names
     assert "start-service" in command_names
     assert "stop-service" in command_names
@@ -130,6 +133,12 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert "rank-scheme-json" in commands_by_name["rank-board"]["usage"]
     assert commands_by_name["create-job"]["domain"] == "job"
     assert commands_by_name["create-job"]["mutates_state"] is True
+    assert commands_by_name["init-run"]["domain"] == "run"
+    assert commands_by_name["init-run"]["mutates_state"] is True
+    assert commands_by_name["validate-prediction"]["domain"] == "prediction"
+    assert commands_by_name["validate-prediction"]["mutates_state"] is False
+    assert commands_by_name["process-next-job"]["domain"] == "job"
+    assert commands_by_name["process-next-job"]["mutates_state"] is True
     assert commands_by_name["start-service"]["domain"] == "service"
     assert commands_by_name["start-service"]["mutates_state"] is True
     assert commands_by_name["service-health"]["mutates_state"] is True
@@ -148,6 +157,26 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert create_benchmark_args["task"]["choices"] == ["detection", "keypoint"]
     assert create_benchmark_args["overwrite"]["type"] == "bool"
     assert create_benchmark_args["overwrite"]["action"] == "store_true"
+
+    init_run_args = {item["dest"]: item for item in commands_by_name["init-run"]["arguments"]}
+    assert init_run_args["task"]["choices"] == ["detection", "keypoint"]
+    assert init_run_args["benchmark_id"]["required"] is True
+    assert init_run_args["target_labels"]["action"] == "append"
+    assert init_run_args["target_labels"]["repeatable"] is True
+    assert init_run_args["max_tokens"]["type"] == "int"
+    assert init_run_args["batch_size"]["default"] == 1
+
+    validate_args = {
+        item["dest"]: item for item in commands_by_name["validate-prediction"]["arguments"]
+    }
+    assert validate_args["path"]["positional"] is True
+    assert validate_args["path"]["required"] is True
+    assert validate_args["task"]["choices"] == ["detection", "keypoint"]
+
+    process_args = {
+        item["dest"]: item for item in commands_by_name["process-next-job"]["arguments"]
+    }
+    assert process_args["kind"]["default"] == "eval"
 
     preflight_args = {item["dest"]: item for item in commands_by_name["preflight-job"]["arguments"]}
     assert preflight_args["payload_json"]["required"] is False

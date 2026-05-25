@@ -169,8 +169,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
-  `list-benchmarks`、`show-benchmark`、`list-runs`、`list-jobs`、`show-job`、`list-services`、
-  `show-service`、`list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
+  `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、
+  `list-jobs`、`show-job`、`process-next-job`、`list-services`、`show-service`、
+  `list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
   读取前端状态、SQLite 或扫描 artifact 目录。CLI parser 暴露的每个子命令必须登记到 `_command_handlers()`，
   agent 稳定命令必须登记到 `AGENT_COMMAND_METADATA` 并可由 `list-agent-commands` 发现；metadata 需要声明
   `domain` 和 `mutates_state`，命令发现输出还必须包含顶层 `recommended_runner`、每条命令的

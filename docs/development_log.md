@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 稳定 agent 命令面漏掉已有关键 CLI
+
+### 现象
+
+`init-run`、`validate-prediction` 和 `process-next-job` 已经是可用 CLI，但没有进入
+`list-agent-commands` 的稳定命令面。Agent 通过正式发现入口只能看到 create/import/evaluate/list 等
+命令，无法稳定发现“初始化 run manifest”“校验单个 prediction 文档”和“手动推进下一个 queued job”。
+
+### 根因
+
+这些命令早于 agent command metadata 收口存在，后续补 `AGENT_COMMAND_METADATA` 时只覆盖了主要目录、
+service、rank、comparison 和 note 入口，没有把已有基础 CLI 全量纳入 agent contract。
+
+### 影响范围
+
+- 影响 agent-safe CLI discoverability；agent 可能退回读取文档、猜 hidden 命令或直接调用 Python 内部 API。
+- 不影响 dashboard UI、store artifact 格式、job worker、rank board 或评估指标。
+- 这不是模型能力问题，也不是 eval/codec/metric 误判。
+
+### 修复方式
+
+- 将 `init-run` 标记为稳定 mutating run 命令。
+- 将 `validate-prediction` 标记为稳定只读 prediction 命令。
+- 将 `process-next-job` 标记为稳定 mutating job 命令。
+- CLI contract 测试检查三者出现在 `list-agent-commands`，并验证关键参数 schema、repeatable
+  `--target-label`、positional prediction path 和 `--kind` 默认值。
+- README、架构文档和脚本文档同步 agent 稳定命令面边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py -k 'agent_stable_commands or parser_commands'`
+
+### 后续防线
+
+- 新增 agent 可直接操作的 CLI 时，不能只加 parser/handler；必须同步 `AGENT_COMMAND_METADATA`，
+  并让 `list-agent-commands` 输出足够的参数 schema，避免 agent 从自然语言 help 或源码猜调用形态。
+
 ## 2026-05-25: Eval Bench 首页再次退化成低价值状态墙
 
 ### 现象
