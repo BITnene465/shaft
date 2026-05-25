@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench run note 覆盖保存缺少版本保护
+
+### 现象
+
+Run note 已经有 Dashboard 编辑、API 覆盖写、CLI 覆盖写和 agent append 入口，但覆盖保存没有声明“基于哪个
+`updated_at` 保存”。如果用户打开 Run Inspector 后，agent 通过 `append-run-note` 追加复现线索，用户再点击旧页面里的保存，
+旧草稿会覆盖 agent 刚写入的内容。
+
+### 根因
+
+`note.json` 已经是独立 artifact 真源，但 `update_run_note()` 只做长度校验和原子写入，没有可选的乐观并发 guard。
+前端保存和 CLI `set-run-note` 也没有把读取到的 `updated_at` 带回后端。
+
+### 影响范围
+
+- 影响人类和 agent 同时维护同一份 run note 时的复现线索稳定性。
+- 不改变 eval、codec、metric、rank-board、job 或数据语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- `EvalBenchStore.update_run_note()` 新增可选 `expected_updated_at`，不匹配当前 note 时抛出 `RunNoteConflictError`。
+- Dashboard `PATCH /api/runs/{run_id}/note` 支持 `{ "expected_updated_at": ... }`，冲突时返回 HTTP 409。
+- CLI `set-run-note` 新增 `--expected-updated-at`，agent 可先 `get-run-note` 再做 guarded 覆盖；`append-run-note`
+  仍作为增量记录入口。
+- Run Inspector 保存备注时带上当前 `run.note_updated_at`，避免旧页面静默覆盖新备注。
+- README、架构文档、Dashboard 测试和 CLI 测试同步该并发边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_updates_editable_run_note projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers_for_agent_contract projects/eval_bench/tests/test_cli.py::test_cli_gets_and_sets_run_note`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 覆盖式 run artifact 写入必须考虑 expected version；agent 增量写入优先提供 append/patch 语义，避免读改写覆盖。
+- 前端保存失败遇到 409 时必须展示 API 错误并刷新 state，不能吞掉冲突。
+
 ## 2026-05-25: Eval Bench 高级检索展开后仍挤压主工作区
 
 ### 现象

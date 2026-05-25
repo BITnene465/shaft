@@ -338,8 +338,25 @@ def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
     assert state_run["note"] == append_payload["note"]
     assert state_run["note_updated_at"] == append_payload["updated_at"]
 
+    stale = client.patch(
+        "/api/runs/run1/note",
+        json={"note": "stale overwrite", "expected_updated_at": "2026-01-01T00:00:00Z"},
+    )
+    assert stale.status_code == 409
+    guarded = client.patch(
+        "/api/runs/run1/note",
+        json={"note": "guarded overwrite", "expected_updated_at": append_payload["updated_at"]},
+    )
+    assert guarded.status_code == 200
+    assert guarded.json()["note"] == "guarded overwrite"
+
     bad = client.patch("/api/runs/run1/note", json={"note": ["not", "text"]})
     assert bad.status_code == 400
+    bad_expected = client.patch(
+        "/api/runs/run1/note",
+        json={"note": "x", "expected_updated_at": ["bad"]},
+    )
+    assert bad_expected.status_code == 400
     bad_append = client.post("/api/runs/run1/note/append", json={"note": "x", "heading": ["bad"]})
     assert bad_append.status_code == 400
     missing = client.patch("/api/runs/missing/note", json={"note": "x"})

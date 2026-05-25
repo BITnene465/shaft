@@ -44,7 +44,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
 6. **Artifact and Store Layer**
    - Benchmark copy、run manifest、editable run note、prediction snapshot、report、comparison、trash。
    - Artifact 是可追溯事实，不从 UI 临时状态回填语义。
-   - `run.json` 是评测配置快照；`runs/<run_id>/note.json` 是可编辑备注真源，供人类和 agent 记录复现线索、idea 来源与排障细节。
+   - `run.json` 是评测配置快照；`runs/<run_id>/note.json` 是可编辑备注真源，供人类和 agent 记录复现线索、idea 来源与排障细节；
+     覆盖写必须支持基于 `updated_at` 的乐观并发校验，避免旧页面或旧 agent 上下文覆盖新备注。
    - Store 可做索引、分页和读取优化，但不改变评估标准。
    - `sample_paths.py` 是 GT JSON、原图路径和 prediction JSON 路径映射的单一真源。
      worker、evaluator、prediction import、store 不允许各自复制 `.png/.jpg` fallback 规则。
@@ -178,6 +179,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   只保留默认 arrow 关键点评估范围。`label_policy.py` 是这条边界的后端真源，preflight、init-run、
   prediction import、worker 和 evaluator 都必须拒绝 keypoint 上非 `arrow` 的显式 `target_labels`。
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
+  覆盖类写入必须支持 expected `updated_at` 保护；agent 增量线索优先使用 append 入口。
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。
   表格第一分数列必须消费后端 `primary_metric_label` 和 entry `score`，不能在主指标切换后仍固定展示
   F1 作为排名依据。

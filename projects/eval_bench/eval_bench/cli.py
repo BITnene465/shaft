@@ -424,6 +424,14 @@ def _build_parser() -> argparse.ArgumentParser:
     note_source = set_run_note.add_mutually_exclusive_group(required=True)
     note_source.add_argument("--note", default=None)
     note_source.add_argument("--note-file", default=None)
+    set_run_note.add_argument(
+        "--expected-updated-at",
+        default=None,
+        help=(
+            "Optional optimistic concurrency guard from get-run-note.updated_at; "
+            "use an empty string when the note has not been written yet."
+        ),
+    )
 
     append_run_note = subparsers.add_parser(
         "append-run-note",
@@ -1199,7 +1207,14 @@ def _cmd_set_run_note(args: argparse.Namespace) -> None:
         if args.note_file is not None
         else str(args.note)
     )
-    note = EvalBenchStore(args.output_root).update_run_note(str(args.run_id), note_text)
+    if args.expected_updated_at is not None:
+        note = EvalBenchStore(args.output_root).update_run_note(
+            str(args.run_id),
+            note_text,
+            expected_updated_at=str(args.expected_updated_at),
+        )
+    else:
+        note = EvalBenchStore(args.output_root).update_run_note(str(args.run_id), note_text)
     print(json.dumps(note.to_dict(), ensure_ascii=False))
 
 

@@ -57,6 +57,7 @@ from eval_bench.cli import (
     _cmd_show_service,
     _cmd_upsert_prompt_template,
 )
+from eval_bench.store import RunNoteConflictError
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -171,6 +172,10 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     }
     assert show_agent_args["name"]["required"] is True
     assert "rank-board" in show_agent_args["name"]["choices"]
+    set_note_args = {
+        item["dest"]: item for item in commands_by_name["set-run-note"]["arguments"]
+    }
+    assert set_note_args["expected_updated_at"]["flags"] == ["--expected-updated-at"]
 
     create_benchmark_args = {
         item["dest"]: item for item in commands_by_name["create-benchmark"]["arguments"]
@@ -551,12 +556,47 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     assert append_payload["note"].startswith("repro: ckpt epoch_3\nidea: prompt v2\n\n")
     assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
 
+    guarded_file = tmp_path / "guarded.md"
+    guarded_file.write_text("curated guarded note", encoding="utf-8")
+    stale_set_args = _build_parser().parse_args(
+        [
+            "set-run-note",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--note-file",
+            str(guarded_file),
+            "--expected-updated-at",
+            "2026-01-01T00:00:00Z",
+        ]
+    )
+    with pytest.raises(RunNoteConflictError):
+        _cmd_set_run_note(stale_set_args)
+
+    guarded_set_args = _build_parser().parse_args(
+        [
+            "set-run-note",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--note-file",
+            str(guarded_file),
+            "--expected-updated-at",
+            append_payload["updated_at"],
+        ]
+    )
+    _cmd_set_run_note(guarded_set_args)
+    guarded_payload = json.loads(capsys.readouterr().out)
+    assert guarded_payload["note"] == "curated guarded note"
+
     get_args = _build_parser().parse_args(
         ["get-run-note", "--output-root", str(tmp_path), "--run-id", "run1"]
     )
     _cmd_get_run_note(get_args)
     get_payload = json.loads(capsys.readouterr().out)
-    assert get_payload["note"] == append_payload["note"]
+    assert get_payload["note"] == guarded_payload["note"]
 
 
 def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) -> None:

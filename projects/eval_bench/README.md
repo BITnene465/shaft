@@ -447,6 +447,7 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 .venv/bin/python scripts/eval_bench.py get-run-note --run-id imported_test_predictions
 .venv/bin/python scripts/eval_bench.py set-run-note \
   --run-id imported_test_predictions \
+  --expected-updated-at "2026-05-25T12:00:00Z" \
   --note "reproduce: ckpt epoch_3; idea: prompt v2"
 .venv/bin/python scripts/eval_bench.py append-run-note \
   --run-id imported_test_predictions \
@@ -454,10 +455,13 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
   --note "next: inspect icon false positives"
 ```
 
-`set-run-note` 会覆盖整份 note，适合人工整理后的最终版本；`append-run-note` 会追加带 heading
+`set-run-note` 会覆盖整份 note，适合人工整理后的最终版本；传入从 `get-run-note.updated_at`
+取得的 `--expected-updated-at` 后会启用乐观并发校验，避免覆盖其他人或 agent 刚写入的线索。
+`append-run-note` 会追加带 heading
 的结构化段落，适合 agent 或批处理任务持续补充复现线索，不需要先读写 `note.json`。
 Dashboard API 提供同一语义：`GET /api/runs/{run_id}/note` 读取，`PATCH /api/runs/{run_id}/note`
-覆盖，`POST /api/runs/{run_id}/note/append` 追加 `{ "heading": "...", "note": "..." }`。
+覆盖，可选 `{ "expected_updated_at": "..." }` 做并发保护；`POST /api/runs/{run_id}/note/append`
+追加 `{ "heading": "...", "note": "..." }`。
 
 Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 artifact 目录：
 

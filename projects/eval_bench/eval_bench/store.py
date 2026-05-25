@@ -21,6 +21,19 @@ MAX_RUN_NOTE_LENGTH = 20_000
 DEFAULT_RANK_SORT_BY = "f1_iou50"
 RANK_PRIMARY_METRIC_LABEL = "F1@.50"
 WEIGHTED_RANK_SORT_BY = "weighted_score"
+_RUN_NOTE_EXPECTED_UNSET = object()
+
+
+class RunNoteConflictError(RuntimeError):
+    def __init__(self, run_id: str, *, expected_updated_at: str | None, actual_updated_at: str | None):
+        self.run_id = run_id
+        self.expected_updated_at = expected_updated_at
+        self.actual_updated_at = actual_updated_at
+        super().__init__(
+            "run note was updated by another writer "
+            f"(run_id={run_id!r}, expected_updated_at={expected_updated_at!r}, "
+            f"actual_updated_at={actual_updated_at!r})."
+        )
 
 
 @dataclass(frozen=True)
@@ -476,12 +489,28 @@ class EvalBenchStore:
         payload = self._run_manifest(run_id)
         return self._run_note_for_payload(run_id, payload)
 
-    def update_run_note(self, run_id: str, note: str) -> RunNote:
-        self._run_manifest(run_id)
+    def update_run_note(
+        self,
+        run_id: str,
+        note: str,
+        *,
+        expected_updated_at: str | None | object = _RUN_NOTE_EXPECTED_UNSET,
+    ) -> RunNote:
+        current = self.run_note(run_id)
         if not isinstance(note, str):
             raise ValueError("note must be a string.")
         if len(note) > MAX_RUN_NOTE_LENGTH:
             raise ValueError(f"note must be at most {MAX_RUN_NOTE_LENGTH} characters.")
+        if expected_updated_at is not _RUN_NOTE_EXPECTED_UNSET:
+            expected = str(expected_updated_at) if expected_updated_at is not None else None
+            if expected == "":
+                expected = None
+            if current.updated_at != expected:
+                raise RunNoteConflictError(
+                    run_id,
+                    expected_updated_at=expected,
+                    actual_updated_at=current.updated_at,
+                )
         artifacts = RunArtifacts(self.layout.root, run_id)
         artifacts.ensure()
         updated = RunNote(

@@ -40,7 +40,7 @@ from .orchestrator import EvalBenchOrchestrator
 from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
 from .services import EvalBenchServiceManager
-from .store import EvalBenchStore
+from .store import EvalBenchStore, RunNoteConflictError
 
 IMAGE_PREVIEW_MAX_SIDE = 1800
 IMAGE_PREVIEW_QUALITY = 82
@@ -727,10 +727,26 @@ def create_app(
         note = payload.get("note")
         if not isinstance(note, str):
             raise HTTPException(status_code=400, detail="note must be a string")
+        has_expected_updated_at = "expected_updated_at" in payload
+        expected_updated_at = payload.get("expected_updated_at")
+        if has_expected_updated_at and expected_updated_at is not None and not isinstance(
+            expected_updated_at,
+            str,
+        ):
+            raise HTTPException(status_code=400, detail="expected_updated_at must be a string or null")
         try:
-            updated = request.app.state.eval_bench_store.update_run_note(run_id, note)
+            if has_expected_updated_at:
+                updated = request.app.state.eval_bench_store.update_run_note(
+                    run_id,
+                    note,
+                    expected_updated_at=expected_updated_at,
+                )
+            else:
+                updated = request.app.state.eval_bench_store.update_run_note(run_id, note)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RunNoteConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse(updated.to_dict())

@@ -636,7 +636,7 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
   const queryClient = useQueryClient();
   const [noteDraft, setNoteDraft] = useState(run.note || "");
   const noteMutation = useMutation({
-    mutationFn: (note: string) => updateRunNote(run.run_id, note),
+    mutationFn: (note: string) => updateRunNote(run.run_id, note, run.note_updated_at),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
     }

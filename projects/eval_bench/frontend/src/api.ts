@@ -797,11 +797,15 @@ export function fetchRunNote(runId: string): Promise<RunNote> {
   return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`);
 }
 
-export function updateRunNote(runId: string, note: string): Promise<RunNote> {
+export function updateRunNote(
+  runId: string,
+  note: string,
+  expectedUpdatedAt?: string | null
+): Promise<RunNote> {
   return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note })
+    body: JSON.stringify({ note, expected_updated_at: expectedUpdatedAt ?? null })
   });
 }
 
