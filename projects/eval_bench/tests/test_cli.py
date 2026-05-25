@@ -8,6 +8,7 @@ import pytest
 
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
+    AGENT_COMMAND_METADATA,
     AGENT_STABLE_COMMANDS,
     _build_parser,
     _command_handlers,
@@ -73,6 +74,14 @@ def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
 
     assert command_names == handler_names
     assert AGENT_STABLE_COMMANDS <= command_names
+    assert set(AGENT_COMMAND_METADATA) == AGENT_STABLE_COMMANDS
+    assert all(
+        isinstance(item["domain"], str) and item["domain"]
+        for item in AGENT_COMMAND_METADATA.values()
+    )
+    assert all(
+        isinstance(item["mutates_state"], bool) for item in AGENT_COMMAND_METADATA.values()
+    )
 
 
 def test_cli_lists_agent_stable_commands(capsys) -> None:
@@ -81,7 +90,17 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
 
     command_names = [item["name"] for item in payload["commands"]]
+    commands_by_name = {item["name"]: item for item in payload["commands"]}
     assert payload["total"] == len(AGENT_STABLE_COMMANDS)
+    assert payload["mutating_count"] == sum(
+        1 for item in AGENT_COMMAND_METADATA.values() if item["mutates_state"]
+    )
+    assert payload["read_only_count"] == sum(
+        1 for item in AGENT_COMMAND_METADATA.values() if not item["mutates_state"]
+    )
+    assert set(payload["domains"]) == {
+        item["domain"] for item in AGENT_COMMAND_METADATA.values()
+    }
     assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
     assert "register-service" in command_names
@@ -94,6 +113,18 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert "serve-dashboard" not in command_names
     assert "write-demo-prediction" not in command_names
     assert all(item["help"] for item in payload["commands"])
+    assert all(item["domain"] for item in payload["commands"])
+    assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
+    assert commands_by_name["rank-board"]["domain"] == "rank"
+    assert commands_by_name["rank-board"]["mutates_state"] is False
+    assert commands_by_name["create-job"]["domain"] == "job"
+    assert commands_by_name["create-job"]["mutates_state"] is True
+    assert commands_by_name["start-service"]["domain"] == "service"
+    assert commands_by_name["start-service"]["mutates_state"] is True
+    assert commands_by_name["service-health"]["mutates_state"] is True
+    assert commands_by_name["compare-runs"]["domain"] == "comparison"
+    assert commands_by_name["compare-runs"]["mutates_state"] is True
+    assert commands_by_name["list-agent-commands"]["domain"] == "meta"
 
 
 def _write_sample_store(tmp_path: Path) -> None:

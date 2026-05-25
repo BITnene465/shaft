@@ -464,8 +464,10 @@ comparison 列表同样由后端分页过滤，单个 job / service 详情用 `s
 筛选任务类型，并按需维护 prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、
 evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
 `list-agent-commands` 会输出当前稳定 agent 命令面；真实分发集中在 `eval_bench.cli._command_handlers()`。
-新增 agent 命令必须同时进入 parser、handler 映射和 `AGENT_STABLE_COMMANDS`，测试会检查这些集合一致，
-避免 agent 看到 help 里的命令却无法通过真实入口执行。
+每条命令还会带 `domain` 和 `mutates_state`，便于 agent 区分只读查询、artifact 写入和 service/job 生命周期操作；
+`mutates_state` 只是副作用标记，不是权限控制。新增 agent 命令必须同时进入 parser、handler 映射和
+`AGENT_COMMAND_METADATA`，`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合一致，避免
+agent 看到 help 里的命令却无法通过真实入口执行或无法判断副作用。
 
 ```bash
 .venv/bin/python scripts/eval_bench.py list-agent-commands

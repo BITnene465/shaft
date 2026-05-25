@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent CLI 缺少副作用元信息
+
+### 现象
+
+`list-agent-commands` 已经能列出稳定 agent CLI 命令，但输出只有 `name` 和 `help`。agent 可以发现命令，
+却仍要从自然语言 help 猜测命令属于 benchmark、run、job、service 还是 comparison，也无法机器可读地区分
+只读查询和会写 artifact、更新 SQLite 或启动/停止外部进程的操作。
+
+### 根因
+
+稳定命令集合只有 `AGENT_STABLE_COMMANDS` 一个平面 set，没有命令级 metadata 真源。副作用语义停留在文档和
+命令帮助里，无法被测试锁住。这是 agent 操作合约问题，不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 agent 在自动编排 Eval Bench CLI 时的风险判断和命令选择。
+- 不改变任何 CLI 参数、store 写入、dashboard API、rank board、job/service 生命周期或指标计算。
+
+### 修复方式
+
+- 新增 `AGENT_COMMAND_METADATA` 作为稳定 agent 命令真源，每条命令声明 `domain` 和 `mutates_state`。
+- `AGENT_STABLE_COMMANDS` 改为由 metadata 派生，避免命令集合和 metadata 集合漂移。
+- `list-agent-commands` 输出 `domain`、`mutates_state`、`mutating_count`、`read_only_count` 和 domain 列表。
+- CLI 合约测试同时检查 metadata 覆盖、字段类型、读写计数和典型命令的副作用标记。
+- README、架构文档和脚本文档同步说明：`mutates_state` 是副作用标记，不是权限控制。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run python scripts/eval_bench.py list-agent-commands`
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增稳定 agent 命令必须先补 `AGENT_COMMAND_METADATA`，不能只补 `AGENT_STABLE_COMMANDS`。
+- 会写 store、artifact、SQLite 或外部 service 进程状态的命令必须标记 `mutates_state=true`。
+- agent-facing 文档不要把稳定命令描述成无副作用；稳定只表示接口可依赖。
+
 ## 2026-05-25: Eval Bench 总览仍在堆低价值状态面板
 
 ### 现象

@@ -9,58 +9,57 @@ from pathlib import Path
 from .artifacts import DEFAULT_STORE_ROOT
 
 
-AGENT_STABLE_COMMANDS = frozenset(
-    {
-        "list-agent-commands",
-        "create-benchmark",
-        "dashboard-state",
-        "scheduler-status",
-        "backend-logs",
-        "preflight-job",
-        "create-job",
-        "list-job-templates",
-        "show-job-template",
-        "list-prompt-templates",
-        "show-prompt-template",
-        "resolve-target-labels",
-        "upsert-prompt-template",
-        "delete-prompt-template",
-        "list-jobs",
-        "show-job",
-        "cancel-job",
-        "delete-job",
-        "job-logs",
-        "list-benchmarks",
-        "show-benchmark",
-        "list-runs",
-        "show-run",
-        "show-run-report",
-        "list-run-samples",
-        "show-run-sample",
-        "list-benchmark-samples",
-        "show-benchmark-sample",
-        "rank-board",
-        "get-run-note",
-        "set-run-note",
-        "archive-run",
-        "delete-run",
-        "import-predictions",
-        "evaluate-run",
-        "list-services",
-        "show-service",
-        "register-service",
-        "service-command",
-        "start-service",
-        "service-health",
-        "service-logs",
-        "stop-service",
-        "delete-service",
-        "compare-runs",
-        "list-comparisons",
-        "show-comparison",
-        "show-comparison-sample",
-    }
-)
+AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
+    "list-agent-commands": {"domain": "meta", "mutates_state": False},
+    "create-benchmark": {"domain": "benchmark", "mutates_state": True},
+    "dashboard-state": {"domain": "state", "mutates_state": False},
+    "scheduler-status": {"domain": "state", "mutates_state": False},
+    "backend-logs": {"domain": "logs", "mutates_state": False},
+    "preflight-job": {"domain": "job", "mutates_state": False},
+    "create-job": {"domain": "job", "mutates_state": True},
+    "list-job-templates": {"domain": "template", "mutates_state": False},
+    "show-job-template": {"domain": "template", "mutates_state": False},
+    "list-prompt-templates": {"domain": "prompt", "mutates_state": False},
+    "show-prompt-template": {"domain": "prompt", "mutates_state": False},
+    "resolve-target-labels": {"domain": "label", "mutates_state": False},
+    "upsert-prompt-template": {"domain": "prompt", "mutates_state": True},
+    "delete-prompt-template": {"domain": "prompt", "mutates_state": True},
+    "list-jobs": {"domain": "job", "mutates_state": False},
+    "show-job": {"domain": "job", "mutates_state": False},
+    "cancel-job": {"domain": "job", "mutates_state": True},
+    "delete-job": {"domain": "job", "mutates_state": True},
+    "job-logs": {"domain": "logs", "mutates_state": False},
+    "list-benchmarks": {"domain": "benchmark", "mutates_state": False},
+    "show-benchmark": {"domain": "benchmark", "mutates_state": False},
+    "list-runs": {"domain": "run", "mutates_state": False},
+    "show-run": {"domain": "run", "mutates_state": False},
+    "show-run-report": {"domain": "run", "mutates_state": False},
+    "list-run-samples": {"domain": "sample", "mutates_state": False},
+    "show-run-sample": {"domain": "sample", "mutates_state": False},
+    "list-benchmark-samples": {"domain": "sample", "mutates_state": False},
+    "show-benchmark-sample": {"domain": "sample", "mutates_state": False},
+    "rank-board": {"domain": "rank", "mutates_state": False},
+    "get-run-note": {"domain": "note", "mutates_state": False},
+    "set-run-note": {"domain": "note", "mutates_state": True},
+    "archive-run": {"domain": "run", "mutates_state": True},
+    "delete-run": {"domain": "run", "mutates_state": True},
+    "import-predictions": {"domain": "run", "mutates_state": True},
+    "evaluate-run": {"domain": "run", "mutates_state": True},
+    "list-services": {"domain": "service", "mutates_state": False},
+    "show-service": {"domain": "service", "mutates_state": False},
+    "register-service": {"domain": "service", "mutates_state": True},
+    "service-command": {"domain": "service", "mutates_state": False},
+    "start-service": {"domain": "service", "mutates_state": True},
+    "service-health": {"domain": "service", "mutates_state": True},
+    "service-logs": {"domain": "logs", "mutates_state": False},
+    "stop-service": {"domain": "service", "mutates_state": True},
+    "delete-service": {"domain": "service", "mutates_state": True},
+    "compare-runs": {"domain": "comparison", "mutates_state": True},
+    "list-comparisons": {"domain": "comparison", "mutates_state": False},
+    "show-comparison": {"domain": "comparison", "mutates_state": False},
+    "show-comparison-sample": {"domain": "comparison", "mutates_state": False},
+}
+AGENT_STABLE_COMMANDS = frozenset(AGENT_COMMAND_METADATA)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -689,13 +688,21 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     del args
     command_help = _parser_command_help(_build_parser())
     commands = [
-        {"name": name, "help": command_help.get(name, "")}
+        {
+            "name": name,
+            "domain": AGENT_COMMAND_METADATA[name]["domain"],
+            "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
+            "help": command_help.get(name, ""),
+        }
         for name in sorted(AGENT_STABLE_COMMANDS)
     ]
     print(
         json.dumps(
             {
                 "total": len(commands),
+                "mutating_count": sum(1 for command in commands if command["mutates_state"]),
+                "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
+                "domains": sorted({str(command["domain"]) for command in commands}),
                 "commands": commands,
             },
             ensure_ascii=False,
