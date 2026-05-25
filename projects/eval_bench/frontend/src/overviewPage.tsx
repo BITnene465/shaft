@@ -209,10 +209,10 @@ export function OverviewPage() {
     totalRuns,
     schedulerEnabled
   });
-  const recentRuns = overviewRecentRuns(data.runs, 2);
+  const recentRuns = overviewRecentRuns(data.runs, 3);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v8">
+    <section className="page-stack dashboard-home overview-home-v9">
       <div className="overview-command-center">
         <section className={`overview-priority-stage ${nextAction.tone}`}>
           <div className="overview-priority-copy">
@@ -247,6 +247,13 @@ export function OverviewPage() {
         </section>
 
         <aside className="overview-command-rail" aria-label="首页核心状态">
+          <div className="overview-rail-head">
+            <div>
+              <span>Live Signals</span>
+              <strong>{activeQueue > 0 ? "推进中" : failedJobs > 0 ? "有阻塞" : "可调度"}</strong>
+            </div>
+            <i>{overviewSyncing ? "sync" : "steady"}</i>
+          </div>
           <OverviewSignalStack signals={signalItems} />
           <div className="overview-console-links">
             <Link to="/rank-board">
@@ -270,7 +277,7 @@ export function OverviewPage() {
           <div className="overview-section-head">
             <div>
               <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
-              <h3>行动入口</h3>
+              <h3>下一步控制台</h3>
             </div>
             <strong>{coveragePercent}% complete</strong>
           </div>

@@ -204,10 +204,11 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v8") &&
+  overviewPage.includes("overview-home-v9") &&
     overviewPage.includes("overview-command-center") &&
     overviewPage.includes("overview-priority-stage") &&
     overviewPage.includes("overview-command-rail") &&
+    overviewPage.includes("overview-rail-head") &&
     overviewPage.includes("overview-workbench") &&
     overviewPage.includes("overview-ops-surface") &&
     overviewPage.includes("OverviewNextAction") &&
@@ -226,6 +227,7 @@ assert(
     overviewPage.includes("overview-action-list") &&
     !overviewPage.includes("overview-home-v6") &&
     !overviewPage.includes("overview-home-v7") &&
+    !overviewPage.includes("overview-home-v8") &&
     !overviewPage.includes("overview-command-center-redesign") &&
     !overviewPage.includes("OverviewHeroMap") &&
     !overviewPage.includes("overview-orbit-map") &&
@@ -253,12 +255,14 @@ assert(
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 assert(
-  styleSource.includes("Overview v8: decision-first command surface") &&
+  styleSource.includes("Overview v9: mission-control home") &&
     styleSource.includes("@keyframes overview-flow-sweep") &&
     styleSource.includes("@keyframes overview-live-breathe") &&
     styleSource.includes("@keyframes overview-card-float") &&
+    styleSource.includes("@keyframes overview-radar-spin") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
+    designSource.includes(".workspace-card:not(.fill):hover") &&
     designSource.includes(".nav-item:hover .app-icon"),
   "overview and shared controls must keep tactile hover and motion feedback",
 );
@@ -266,6 +270,7 @@ assert(
   ![
     "overview-home-v6",
     "overview-home-v7",
+    "overview-home-v8",
     "overview-command-deck",
     "overview-command-center-redesign",
     "overview-focus-panel",
@@ -275,7 +280,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must keep only the active v8 surface, not old design tracks",
+  "overview stylesheet must keep only the active v9 surface, not old design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

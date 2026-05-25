@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 主页仍缺少可行动价值和交互反馈
+
+### 现象
+
+总览页虽然已经收敛到 `overview-home-v8`，但视觉上仍像多个状态块拼接：priority stage、信号列、
+行动入口和最近 run 摘要之间的主次关系不够明确，鼠标悬浮、状态动效和共享 workspace 反馈也不足。
+用户进入首页后仍感觉“没有任何价值”，不能快速形成“当前该处理什么”的操作判断。
+
+### 根因
+
+上一版解决了低价值面板回流，但信息架构仍按模块陈列，而不是按实时控制台的决策链组织。
+全局交互动效只覆盖部分按钮和总览卡片，缺少统一的 surface hover / active 反馈，因此页面看起来静态。
+
+### 影响范围
+
+- 影响 Dashboard 总览页的第一屏判断效率和操作引导。
+- 不改变 eval、codec、metric、data 或 rank-board 排名语义；这是前端信息架构和交互反馈问题，不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v9` mission-control surface：主舞台承载当前判断、同步态、主动作、关键规模和四段评测流线。
+- 右侧 command rail 改成实时信号板，固定展示覆盖、待评、队列和服务四个可点击入口。
+- 底部只保留下一步控制台 readiness switchboard 和最近产物 ticker，最近 run 增加到 3 条但仍只展示 benchmark/model 与 prediction/report 数量。
+- 增加 homepage radar、flow sweep、状态 pulse、入口 hover/active/focus，以及共享 workspace surface/nav/button 的触觉反馈。
+- README、架构文档、脚本文档、UI contract 和 layout smoke 同步 v9 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 首页新增模块必须先回答“当前是否可用、卡在哪里、下一步去哪”；不能为了视觉丰富把低频诊断字段搬回总览。
+- 动效只服务状态感和可点击性，不能引入独立于 backend state 的 UI 私有业务语义。
+
 ## 2026-05-25: Eval Bench target-label CLI 文案误导 keypoint 子任务语义
 
 ### 现象

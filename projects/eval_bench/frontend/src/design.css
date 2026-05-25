@@ -155,16 +155,18 @@ body {
   min-height: 36px;
   color: #a9b8c7;
   border: 1px solid transparent;
-  border-radius: 2px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 680;
   transition:
+    transform 140ms ease,
     color 140ms ease,
     background 140ms ease,
     border-color 140ms ease;
 }
 
 .nav-item:hover {
+  transform: translateX(2px);
   color: #ffffff;
   background: rgb(255 255 255 / 7%);
   border-color: rgb(255 255 255 / 10%);
@@ -387,9 +389,32 @@ h1 {
 .settings-workflow-card {
   background: color-mix(in srgb, var(--bench-surface) 94%, white);
   border: 1px solid var(--bench-line);
-  border-radius: 2px;
+  border-radius: 8px;
   box-shadow: var(--bench-shadow-tight);
   animation: panel-rise 190ms ease-out both;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.workspace-card:not(.fill):hover,
+.tab-block:hover,
+.table-shell:hover,
+.action-panel:hover,
+.run-config-panel:hover,
+.service-card:hover,
+.instance-card:hover,
+.compare-run-rail:hover,
+.compare-report-pane:hover,
+.compare-context-pane:hover,
+.settings-preview-card:hover,
+.settings-control-card:hover,
+.settings-workflow-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--bench-cyan) 28%, var(--bench-line));
+  box-shadow: 0 18px 42px rgb(18 32 46 / 12%);
 }
 
 .workspace-tabs {
@@ -532,12 +557,12 @@ tbody tr:hover td {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 2px;
+  border-radius: 8px;
   font-weight: 780;
   letter-spacing: 0;
   text-decoration: none;
   transition:
-    transform 100ms ease,
+    transform 130ms ease,
     background 140ms ease,
     border-color 140ms ease,
     color 140ms ease,
@@ -549,7 +574,7 @@ tbody tr:hover td {
 .mini-button:hover,
 .mini-link:hover,
 .icon-button:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 
 .primary-button:active,
