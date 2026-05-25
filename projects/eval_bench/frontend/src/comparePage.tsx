@@ -11,8 +11,7 @@ import type {
   ComparisonSummary,
   RunSummary
 } from "./api";
-import { fetchComparison, fetchComparisons } from "./api";
-import { useDashboardState } from "./dashboardState";
+import { fetchComparison, fetchComparisons, fetchRuns } from "./api";
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
@@ -30,7 +29,6 @@ import { Badge, DataTable, EmptyState } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function ComparePage() {
-  const { data, isLoading, error } = useDashboardState();
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [taskFilter, setTaskFilter] = useState("all");
@@ -53,26 +51,50 @@ export function ComparePage() {
     }),
     [labelFilter, searchText, taskFilter]
   );
+  const runFilters = useMemo(
+    () => ({
+      offset: 0,
+      limit: 200,
+      status: statusFilter !== "all" ? statusFilter : undefined,
+      task: taskFilter !== "all" ? taskFilter : undefined,
+      benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
+      label: labelFilter !== "all" ? labelFilter : undefined,
+      modelId: modelFilter !== "all" ? modelFilter : undefined,
+      promptId: promptFilter !== "all" ? promptFilter : undefined,
+      query: searchText.trim() || undefined
+    }),
+    [
+      benchmarkFilter,
+      labelFilter,
+      modelFilter,
+      promptFilter,
+      searchText,
+      statusFilter,
+      taskFilter
+    ]
+  );
   const comparisonListQuery = useQuery({
     queryKey: ["comparisons", comparisonFilters],
     queryFn: () => fetchComparisons(comparisonFilters)
   });
-  const runs = data?.runs ?? [];
-  const statuses = unique(runs.map((run) => run.status).filter(Boolean));
-  const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
-  const labels = unique(runs.flatMap((run) => run.target_labels).filter(Boolean));
-  const models = unique(runs.map((run) => run.model_id).filter(Boolean));
-  const prompts = unique(runs.map((run) => run.prompt_id).filter(Boolean));
-  const filteredRuns = runs
-    .filter((run) => statusFilter === "all" || run.status === statusFilter)
-    .filter((run) => taskFilter === "all" || run.spec_task === taskFilter)
-    .filter((run) => benchmarkFilter === "all" || run.benchmark_id === benchmarkFilter)
-    .filter((run) => labelFilter === "all" || run.target_labels.includes(labelFilter))
-    .filter((run) => modelFilter === "all" || run.model_id === modelFilter)
-    .filter((run) => promptFilter === "all" || run.prompt_id === promptFilter)
-    .filter((run) => runMatchesCompareQuery(run, searchText));
-  const comparableRuns = filteredRuns.filter((run) => run.report_path);
+  const runsQuery = useQuery({
+    queryKey: ["runs", "compare", runFilters],
+    queryFn: () => fetchRuns(runFilters)
+  });
+  const runFacetsQuery = useQuery({
+    queryKey: ["runs", "compare", "facets"],
+    queryFn: () => fetchRuns({ limit: 500 })
+  });
+  const runs = runsQuery.data?.runs ?? [];
+  const runFacets = runFacetsQuery.data?.runs ?? runs;
+  const statuses = unique(runFacets.map((run) => run.status).filter(Boolean));
+  const tasks = unique(runFacets.map((run) => run.spec_task).filter(Boolean));
+  const benchmarks = unique(runFacets.map((run) => run.benchmark_id).filter(Boolean));
+  const labels = unique(runFacets.flatMap((run) => run.target_labels).filter(Boolean));
+  const models = unique(runFacets.map((run) => run.model_id).filter(Boolean));
+  const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
+  const comparableRuns = runs.filter((run) => run.report_path);
+  const filteredCount = runsQuery.data?.total ?? runs.length;
   const fallbackCandidate = comparableRuns[0]?.run_id ?? "";
   const fallbackBaseline =
     comparableRuns.find((run) => run.run_id !== fallbackCandidate)?.run_id ?? "";
@@ -97,10 +119,10 @@ export function ComparePage() {
     }
   }, [comparisonListQuery.refetch, comparisonQuery.data?.comparison_id]);
 
-  if (isLoading) {
+  if (runsQuery.isLoading) {
     return <EmptyState title="正在加载对比状态" />;
   }
-  if (error || !data) {
+  if (runsQuery.error || !runsQuery.data) {
     return <EmptyState title="对比状态加载失败" tone="danger" />;
   }
 
@@ -109,7 +131,7 @@ export function ComparePage() {
       <div className="compare-topbar">
         <div className="compare-title">
           <span>对比工作区</span>
-          <strong>{filteredRuns.length.toLocaleString()} 条 run</strong>
+          <strong>{filteredCount.toLocaleString()} 条 run</strong>
         </div>
         <Link className="mini-link compare-ready" to="/rank-board">
           <Trophy size={13} />
@@ -239,7 +261,7 @@ export function ComparePage() {
               <aside className="compare-context-pane">
                 <div className="comparison-sample-title">对比上下文</div>
                 <CompareContextPanel
-                  filteredCount={filteredRuns.length}
+                  filteredCount={filteredCount}
                   comparableCount={comparableRuns.length}
                   baselineRunId={effectiveBaseline}
                   candidateRunId={effectiveCandidate}
@@ -251,24 +273,6 @@ export function ComparePage() {
       />
     </section>
   );
-}
-
-function runMatchesCompareQuery(run: RunSummary, query: string) {
-  const text = query.trim().toLowerCase();
-  if (!text) {
-    return true;
-  }
-  return [
-    run.run_id,
-    run.model_id,
-    run.benchmark_id,
-    run.spec_task,
-    run.status,
-    run.prompt_id,
-    run.target_labels.join(" "),
-    run.metric_profile,
-    run.note
-  ].some((value) => String(value).toLowerCase().includes(text));
 }
 
 function RunSelectRail({
