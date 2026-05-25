@@ -5,31 +5,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json, load_prediction
-from .benchmark import create_benchmark_from_raw_data
-from .comparison import compare_runs, filter_comparison_reports, list_comparison_reports
-from .database import EvalBenchDatabase
-from .dashboard import main as serve_dashboard
-from .evaluator import evaluate_run
-from .job_spec import job_templates, preflight_job_payload
-from .label_policy import resolve_target_label_policy
-from .perf import run_perf_smoke
-from .prediction_import import import_predictions_for_benchmark
-from .schema import (
-    BenchmarkRef,
-    EvalRunManifest,
-    EvalSpec,
-    InferenceParams,
-    ModelRef,
-    PredictionDocument,
-    PredictionInstance,
-    PromptRef,
-    TaskKind,
-    utc_now_iso,
-)
-from .services import EvalBenchServiceManager
-from .store import EvalBenchStore
-from .worker import EvalBenchWorker
+from .artifacts import DEFAULT_STORE_ROOT
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -409,6 +385,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_create_benchmark(args: argparse.Namespace) -> None:
+    from .benchmark import create_benchmark_from_raw_data
+
     manifest = create_benchmark_from_raw_data(
         store_root=args.output_root,
         benchmark_id=str(args.benchmark_id),
@@ -423,7 +401,18 @@ def _cmd_create_benchmark(args: argparse.Namespace) -> None:
 
 
 def _cmd_init_run(args: argparse.Namespace) -> None:
-    task: TaskKind = args.task
+    from .artifacts import RunArtifacts
+    from .label_policy import resolve_target_label_policy
+    from .schema import (
+        BenchmarkRef,
+        EvalRunManifest,
+        EvalSpec,
+        InferenceParams,
+        ModelRef,
+        PromptRef,
+    )
+
+    task = args.task
     target_policy = resolve_target_label_policy(
         explicit=args.target_labels,
         prompt_id=str(args.prompt_id),
@@ -473,12 +462,17 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
 
 
 def _cmd_validate_prediction(args: argparse.Namespace) -> None:
+    from .artifacts import load_prediction
+
     doc = load_prediction(args.path, task=args.task)
     print(json.dumps({"ok": True, "image": doc.image, "instances": len(doc.instances)}))
 
 
 def _cmd_write_demo_prediction(args: argparse.Namespace) -> None:
-    task: TaskKind = args.task
+    from .artifacts import atomic_write_json
+    from .schema import PredictionDocument, PredictionInstance, utc_now_iso
+
+    task = args.task
     instances = [
         PredictionInstance(
             label="arrow" if task == "keypoint" else "icon",
@@ -507,6 +501,8 @@ def _cmd_write_demo_prediction(args: argparse.Namespace) -> None:
 
 
 def _cmd_serve_dashboard(args: argparse.Namespace) -> None:
+    from .dashboard import main as serve_dashboard
+
     serve_dashboard(
         host=str(args.host),
         port=args.port,
@@ -516,6 +512,9 @@ def _cmd_serve_dashboard(args: argparse.Namespace) -> None:
 
 
 def _cmd_create_job(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+    from .job_spec import preflight_job_payload
+
     database = EvalBenchDatabase(args.output_root)
     preflight = preflight_job_payload(
         _job_payload_from_args(args),
@@ -535,6 +534,9 @@ def _cmd_create_job(args: argparse.Namespace) -> None:
 
 
 def _cmd_preflight_job(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+    from .job_spec import preflight_job_payload
+
     database = EvalBenchDatabase(args.output_root)
     result = preflight_job_payload(
         _job_payload_from_args(args),
@@ -545,6 +547,8 @@ def _cmd_preflight_job(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_job_templates(args: argparse.Namespace) -> None:
+    from .job_spec import job_templates
+
     query = _normalize_cli_filter(args.query).lower()
     templates = job_templates()
     if query:
@@ -566,6 +570,8 @@ def _cmd_list_job_templates(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
     filters = {
         "task": _normalize_cli_filter(args.task),
         "query": _normalize_cli_filter(args.query),
@@ -594,16 +600,22 @@ def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
 
 
 def _cmd_upsert_prompt_template(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
     record = EvalBenchDatabase(args.output_root).upsert_prompt_template(_json_payload_from_args(args))
     print(json.dumps(record.to_dict(), ensure_ascii=False))
 
 
 def _cmd_delete_prompt_template(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
     record = EvalBenchDatabase(args.output_root).delete_prompt_template(str(args.prompt_id))
     print(json.dumps({"prompt_id": record.prompt_id, "deleted": True}, ensure_ascii=False))
 
 
 def _cmd_list_jobs(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
     database = EvalBenchDatabase(args.output_root)
     page = database.job_page(
         offset=args.offset,
@@ -616,6 +628,8 @@ def _cmd_list_jobs(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_benchmarks(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     page = EvalBenchStore(args.output_root).benchmark_page(
         offset=args.offset,
         limit=args.limit,
@@ -628,6 +642,8 @@ def _cmd_list_benchmarks(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_runs(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     page = EvalBenchStore(args.output_root).run_page(
         offset=args.offset,
         limit=args.limit,
@@ -644,6 +660,8 @@ def _cmd_list_runs(args: argparse.Namespace) -> None:
 
 
 def _cmd_show_run(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     run = next(
         (item for item in EvalBenchStore(args.output_root).runs() if item.run_id == str(args.run_id)),
         None,
@@ -654,6 +672,8 @@ def _cmd_show_run(args: argparse.Namespace) -> None:
 
 
 def _cmd_show_run_report(args: argparse.Namespace) -> None:
+    from .artifacts import RunArtifacts
+
     report_name = "summary.json" if bool(args.summary) else "metrics.json"
     report_path = RunArtifacts(args.output_root, str(args.run_id)).reports_dir / report_name
     if not report_path.exists():
@@ -662,6 +682,8 @@ def _cmd_show_run_report(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_run_samples(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     page = EvalBenchStore(args.output_root).run_sample_page(
         str(args.run_id),
         offset=max(0, int(args.offset)),
@@ -685,6 +707,8 @@ def _cmd_list_run_samples(args: argparse.Namespace) -> None:
 
 
 def _cmd_show_run_sample(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     detail = EvalBenchStore(args.output_root).run_sample_detail(
         str(args.run_id),
         sample_index=int(args.sample_index),
@@ -706,6 +730,8 @@ def _cmd_show_run_sample(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_benchmark_samples(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     page = EvalBenchStore(args.output_root).benchmark_sample_page(
         str(args.benchmark_id),
         offset=max(0, int(args.offset)),
@@ -728,6 +754,8 @@ def _cmd_list_benchmark_samples(args: argparse.Namespace) -> None:
 
 
 def _cmd_show_benchmark_sample(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     detail = EvalBenchStore(args.output_root).benchmark_sample_detail(
         str(args.benchmark_id),
         sample_index=int(args.sample_index),
@@ -746,6 +774,8 @@ def _cmd_show_benchmark_sample(args: argparse.Namespace) -> None:
 
 
 def _cmd_rank_board(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     board = EvalBenchStore(args.output_root).rank_board(
         offset=max(0, int(args.offset)),
         limit=max(1, int(args.limit)),
@@ -766,11 +796,15 @@ def _cmd_rank_board(args: argparse.Namespace) -> None:
 
 
 def _cmd_get_run_note(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     note = EvalBenchStore(args.output_root).run_note(str(args.run_id))
     print(json.dumps(note.to_dict(), ensure_ascii=False))
 
 
 def _cmd_set_run_note(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
     note_text = (
         Path(str(args.note_file)).read_text(encoding="utf-8")
         if args.note_file is not None
@@ -781,6 +815,8 @@ def _cmd_set_run_note(args: argparse.Namespace) -> None:
 
 
 def _cmd_register_service(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     record = manager.register_service(
         {
@@ -803,6 +839,8 @@ def _cmd_register_service(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_services(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     page = manager.service_page(
         offset=args.offset,
@@ -815,39 +853,53 @@ def _cmd_list_services(args: argparse.Namespace) -> None:
 
 
 def _cmd_service_command(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     print(json.dumps({"command": manager.launch_command(str(args.service_id))}, ensure_ascii=False))
 
 
 def _cmd_start_service(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     print(json.dumps(manager.start_service(str(args.service_id)).to_dict(), ensure_ascii=False))
 
 
 def _cmd_service_health(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     record = manager.check_service_health(str(args.service_id), timeout_s=float(args.timeout_s))
     print(json.dumps(record.to_dict(), ensure_ascii=False))
 
 
 def _cmd_service_logs(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     payload = manager.service_log(str(args.service_id), max_lines=int(args.max_lines))
     print(json.dumps(payload, ensure_ascii=False))
 
 
 def _cmd_stop_service(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
     manager = EvalBenchServiceManager(args.output_root)
     print(json.dumps(manager.stop_service(str(args.service_id)).to_dict(), ensure_ascii=False))
 
 
 def _cmd_process_next_job(args: argparse.Namespace) -> None:
+    from .worker import EvalBenchWorker
+
     worker = EvalBenchWorker(args.output_root)
     job = worker.process_next(kind=str(args.kind))
     print(json.dumps({"job": job.to_dict() if job else None}, ensure_ascii=False))
 
 
 def _cmd_evaluate_run(args: argparse.Namespace) -> None:
+    from .evaluator import evaluate_run
+
     path = evaluate_run(
         store_root=args.output_root,
         run_id=str(args.run_id),
@@ -857,6 +909,8 @@ def _cmd_evaluate_run(args: argparse.Namespace) -> None:
 
 
 def _cmd_import_predictions(args: argparse.Namespace) -> None:
+    from .prediction_import import import_predictions_for_benchmark
+
     result = import_predictions_for_benchmark(
         store_root=args.output_root,
         run_id=str(args.run_id),
@@ -876,6 +930,8 @@ def _cmd_import_predictions(args: argparse.Namespace) -> None:
 
 
 def _cmd_compare_runs(args: argparse.Namespace) -> None:
+    from .comparison import compare_runs
+
     path = compare_runs(
         store_root=args.output_root,
         baseline_run_id=str(args.baseline_run_id),
@@ -885,6 +941,8 @@ def _cmd_compare_runs(args: argparse.Namespace) -> None:
 
 
 def _cmd_list_comparisons(args: argparse.Namespace) -> None:
+    from .comparison import filter_comparison_reports, list_comparison_reports
+
     filters = {
         "task": _normalize_cli_filter(args.task),
         "baseline_run_id": _normalize_cli_filter(args.baseline_run_id),
@@ -915,6 +973,8 @@ def _cmd_list_comparisons(args: argparse.Namespace) -> None:
 
 
 def _cmd_perf_smoke(args: argparse.Namespace) -> None:
+    from .perf import run_perf_smoke
+
     report = run_perf_smoke(
         store_root=args.output_root,
         iterations=int(args.iterations),
@@ -995,7 +1055,7 @@ def _template_query_matches(template_id: str, payload: dict[str, object], query:
     return query in " ".join(haystack).lower()
 
 
-def _prompt_template_map(database: EvalBenchDatabase) -> dict[str, dict[str, object]]:
+def _prompt_template_map(database) -> dict[str, dict[str, object]]:
     return {
         record.prompt_id: record.to_dict()
         for record in database.list_prompt_templates(limit=1000)

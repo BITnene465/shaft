@@ -133,6 +133,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`list-prompt-templates`、`list-benchmarks`、`list-runs`、`list-jobs`、
   `list-services`、`list-comparisons`，不要让 agent 读取前端状态或扫描 artifact 目录。
+- 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
+  Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
+  run note 等 agent-safe 入口可以快速 import。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用
@@ -142,6 +145,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
+- 新增总览视觉模块：优先用微型柱状、环形占比、紧凑条带和矩阵化小图表表达，不再把低频信息做成大块空白
+  card；最近 run 只能用内容自适应的紧凑行，不允许按剩余高度拉伸。
+- 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill
+  本身，避免 wrapper 承担状态语义。
 - 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态
   这类不同 UI 语义不能复用同一个通用 metrics icon。
 - 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含

@@ -12,7 +12,13 @@ const routes = [
   {
     name: "overview",
     path: "/",
-    selectors: [".dashboard-home", ".overview-console", ".overview-grid.refined"]
+    selectors: [
+      ".dashboard-home",
+      ".overview-console",
+      ".overview-rhythm-strip",
+      ".overview-grid.refined",
+      ".overview-mini-chart"
+    ]
   },
   {
     name: "rank-board",

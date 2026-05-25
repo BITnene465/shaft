@@ -369,6 +369,8 @@ function OverviewPage() {
   }
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
+  const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
+  const promptRows = countBy(data.runs, (run) => run.prompt_id || "unknown");
   const timelineRows = runTimeline(data.runs, 12);
   const activeRuns = data.runs.filter((run) =>
     ["created", "queued", "running"].includes(run.status)
@@ -424,6 +426,7 @@ function OverviewPage() {
         <OverviewDatum label="Notes" value={notedRuns} />
         <OverviewDatum label="Tasks" value={taskRows.length} />
       </div>
+      <OverviewWriteRhythm rows={timelineRows} />
       <OverviewTelemetryPanel
         queuedJobs={queuedJobs}
         runningJobs={runningJobs}
@@ -434,10 +437,11 @@ function OverviewPage() {
         syncing={overviewSyncing}
       />
       <div className="overview-grid refined">
-        <OverviewTimelinePanel rows={timelineRows} />
         <div className="overview-side-stack">
-          <OverviewBarPanel title="Run 生命周期" meta="状态分布" rows={statusRows} />
-          <OverviewBarPanel title="任务类型" meta="detection / keypoint" rows={taskRows} />
+          <OverviewMiniChartPanel title="Run 生命周期" meta="状态分布" rows={statusRows} />
+          <OverviewMiniChartPanel title="任务类型" meta="任务分布" rows={taskRows} />
+          <OverviewMiniChartPanel title="模型分布" meta="model_id" rows={modelRows} />
+          <OverviewMiniChartPanel title="Prompt 分布" meta="prompt_id" rows={promptRows} />
         </div>
         <div className="workspace-card overview-recent-panel">
           <PanelTitle title="最近 run" meta={`最新 ${Math.min(4, data.runs.length)} 条`} />
@@ -532,7 +536,7 @@ function OverviewTelemetryPanel({
   );
 }
 
-function OverviewBarPanel({
+function OverviewMiniChartPanel({
   title,
   meta,
   rows
@@ -542,56 +546,103 @@ function OverviewBarPanel({
   rows: Array<{ key: string; count: number }>;
 }) {
   const maxCount = Math.max(1, ...rows.map((row) => row.count));
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  const topRows = rows.slice(0, 4);
+  const ringStyle = {
+    "--overview-ring": overviewConicGradient(rows)
+  } as React.CSSProperties;
   return (
     <div className="workspace-card overview-chart-card compact">
       <PanelTitle title={title} meta={meta} />
-      <div className="overview-bar-list">
-        {rows.length === 0 ? (
-          <div className="empty-inline">暂无数据</div>
-        ) : (
-          rows.map((row) => (
-            <div className="overview-bar-row" key={row.key}>
-              <span>{row.key}</span>
-              <div>
-                <i style={{ width: `${Math.max(4, (row.count / maxCount) * 100)}%` }} />
+      <div className="overview-mini-chart">
+        <div className="overview-chart-ring" style={ringStyle}>
+          <span>{rows.length.toLocaleString()}</span>
+          <strong>{total.toLocaleString()}</strong>
+        </div>
+        <div className="overview-bar-list">
+          {topRows.length === 0 ? (
+            <div className="empty-inline">暂无数据</div>
+          ) : (
+            topRows.map((row, index) => (
+              <div className="overview-bar-row" key={row.key}>
+                <span>{row.key}</span>
+                <div>
+                  <i
+                    style={
+                      {
+                        width: `${Math.max(4, (row.count / maxCount) * 100)}%`,
+                        "--overview-bar-fill": overviewChartColor(index)
+                      } as React.CSSProperties
+                    }
+                  />
+                </div>
+                <strong>{row.count.toLocaleString()}</strong>
               </div>
-              <strong>{row.count.toLocaleString()}</strong>
-            </div>
-          ))
-        )}
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function OverviewTimelinePanel({ rows }: { rows: Array<{ key: string; count: number }> }) {
-  const maxCount = Math.max(1, ...rows.map((row) => row.count));
-  const points = rows.map((row, index) => {
-    const x = rows.length <= 1 ? 50 : (index / (rows.length - 1)) * 100;
-    const y = 92 - (row.count / maxCount) * 78;
-    return `${x},${y}`;
+function overviewConicGradient(rows: Array<{ key: string; count: number }>) {
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  if (total <= 0) {
+    return "conic-gradient(#d8e4ec 0deg 360deg)";
+  }
+  let cursor = 0;
+  const segments = rows.slice(0, 6).map((row, index) => {
+    const start = cursor;
+    const end = cursor + (row.count / total) * 360;
+    cursor = end;
+    return `${overviewChartColor(index)} ${start.toFixed(1)}deg ${end.toFixed(1)}deg`;
   });
+  if (cursor < 360) {
+    segments.push(`#dbe5ed ${cursor.toFixed(1)}deg 360deg`);
+  }
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function overviewChartColor(index: number) {
+  const colors = ["#23a36f", "#1d5d7a", "#d68722", "#8d5fb8", "#d04f66", "#5e7892"];
+  return colors[index % colors.length];
+}
+
+function OverviewWriteRhythm({ rows }: { rows: Array<{ key: string; count: number }> }) {
+  const maxCount = Math.max(1, ...rows.map((row) => row.count));
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  const activeBuckets = rows.filter((row) => row.count > 0).length;
+  const latest = rows.at(-1);
   return (
-    <div className="workspace-card overview-chart-card overview-timeline-panel">
-      <PanelTitle title="Run 写入节奏" meta="最近 12 个日期桶" />
-      <div className="overview-sparkline">
-        <BarChart3 size={18} />
-        <svg viewBox="0 0 100 100" role="img" aria-label="run timeline">
-          <polyline points={points.join(" ")} />
-          {rows.map((row, index) => {
-            const x = rows.length <= 1 ? 50 : (index / (rows.length - 1)) * 100;
-            const y = 92 - (row.count / maxCount) * 78;
-            return <circle key={row.key} cx={x} cy={y} r="2.4" />;
-          })}
-        </svg>
+    <div className="overview-rhythm-strip">
+      <div className="overview-rhythm-copy">
+        <span>
+          <BarChart3 size={14} />
+          写入节奏
+        </span>
+        <strong>{total.toLocaleString()} runs / 12d</strong>
       </div>
-      <div className="overview-timeline-labels">
+      <div className="overview-rhythm-bars" aria-label="最近 12 个日期桶的 run 写入节奏">
         {rows.map((row) => (
-          <span key={row.key}>
-            {row.key}
-            <strong>{row.count}</strong>
+          <span
+            key={row.key}
+            style={
+              {
+                "--rhythm-height": `${Math.max(10, (row.count / maxCount) * 100)}%`
+              } as React.CSSProperties
+            }
+            title={`${row.key}: ${row.count.toLocaleString()} runs`}
+          >
+            <i />
           </span>
         ))}
+      </div>
+      <div className="overview-rhythm-meta">
+        <span>{latest?.key ?? "-"}</span>
+        <strong>
+          活跃 {activeBuckets}/{rows.length}
+        </strong>
       </div>
     </div>
   );
@@ -601,9 +652,8 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   if (runs.length === 0) {
     return <div className="empty-inline">暂无 run。</div>;
   }
-  const columnCount = runs.length <= 2 ? runs.length : Math.min(4, runs.length);
   const listStyle = {
-    "--overview-run-columns": String(columnCount)
+    "--overview-run-columns": "1"
   } as React.CSSProperties;
   return (
     <div className="overview-run-list" style={listStyle}>

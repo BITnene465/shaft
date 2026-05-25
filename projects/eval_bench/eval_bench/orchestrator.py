@@ -11,7 +11,6 @@ from .artifacts import DEFAULT_STORE_ROOT
 from .database import EvalBenchDatabase, JobRecord
 from .job_lifecycle import job_holds_scheduler_resources
 from .schema import utc_now_iso
-from .worker import EvalBenchWorker
 
 
 LOGGER = logging.getLogger("eval_bench.orchestrator")
@@ -170,6 +169,8 @@ class EvalBenchOrchestrator:
         LOGGER.info("orchestrator stopped")
 
     def _run_job(self, job_id: str) -> None:
+        from .worker import EvalBenchWorker
+
         try:
             EvalBenchWorker(self.root).process_job(job_id)
         finally:

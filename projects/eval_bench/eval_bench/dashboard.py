@@ -30,7 +30,6 @@ from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
 from .services import EvalBenchServiceManager
 from .store import EvalBenchStore
-from .worker import EvalBenchWorker, terminate_runtime_process_group
 
 IMAGE_PREVIEW_MAX_SIDE = 1800
 IMAGE_PREVIEW_QUALITY = 82
@@ -295,6 +294,8 @@ def _tail_text_lines(path: Path, *, max_lines: int) -> list[str]:
 
 
 def _process_job_in_background(store_root: Path, job_id: str) -> None:
+    from .worker import EvalBenchWorker
+
     EvalBenchWorker(store_root).process_job(job_id)
 
 
@@ -347,7 +348,6 @@ def create_app(
     store = EvalBenchStore(store_root)
     database = EvalBenchDatabase(store_root)
     service_manager = EvalBenchServiceManager(store_root)
-    worker = EvalBenchWorker(store_root)
     orchestrator = EvalBenchOrchestrator.from_env(store_root) if enable_orchestrator else None
     dist = Path(frontend_dist) if frontend_dist is not None else frontend_dist_dir()
     logger = _configure_backend_logging(store)
@@ -366,7 +366,6 @@ def create_app(
     app.state.eval_bench_store = store
     app.state.eval_bench_database = database
     app.state.eval_bench_services = service_manager
-    app.state.eval_bench_worker = worker
     app.state.eval_bench_orchestrator = orchestrator
     app.state.frontend_dist = dist
 
@@ -1055,6 +1054,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         runtime_pid = _metadata_int(record.metadata, "runtime_pid")
         if runtime_pid is not None:
+            from .worker import terminate_runtime_process_group
+
             terminated = terminate_runtime_process_group(runtime_pid)
             record = database.update_job(
                 job_id,
@@ -1319,7 +1320,9 @@ def create_app(
                     "message": "a job is already running",
                 }
             )
-        record = request.app.state.eval_bench_worker.claim_next(kind="eval")
+        from .worker import EvalBenchWorker
+
+        record = EvalBenchWorker(request.app.state.eval_bench_store.layout.root).claim_next(kind="eval")
         if record is None:
             return JSONResponse({"job": None, "processed": False})
         record = database.update_job(

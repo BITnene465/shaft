@@ -220,22 +220,17 @@ body {
 
 .topbar-actions {
   gap: 8px;
-  padding: 5px;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 84%), rgb(244 249 252 / 76%)),
-    rgb(255 255 255 / 70%);
-  border: 1px solid #d4e4ed;
-  border-radius: 18px;
-  box-shadow:
-    0 12px 28px rgb(20 37 52 / 8%),
-    inset 0 1px 0 rgb(255 255 255 / 78%);
-  backdrop-filter: blur(14px);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .user-profile-chip,
 .status-pill {
   min-height: 34px;
-  border-radius: 14px;
+  border-radius: 999px;
 }
 
 .user-profile-chip {
@@ -263,10 +258,12 @@ body {
 }
 
 .status-pill {
+  position: relative;
+  overflow: hidden;
   gap: 8px;
   padding: 0 13px;
   font-size: 12px;
-  border-radius: 14px;
+  border-radius: 999px;
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 50%),
     0 0 0 0 rgb(35 163 111 / 0%);
@@ -286,8 +283,14 @@ body {
 .status-pill.online {
   color: #0b6b4d;
   background:
+    radial-gradient(circle at 18% 50%, rgb(35 163 111 / 18%), transparent 31%),
     linear-gradient(180deg, #effaf5 0%, #e3f5ed 100%);
   border-color: #b8e1ce;
+  animation: status-online-breathe 2.4s ease-in-out infinite;
+}
+
+.status-pill.online::before {
+  animation: status-dot-breathe 1.8s ease-in-out infinite;
 }
 
 .status-pill.loading {
@@ -319,6 +322,21 @@ body {
     box-shadow:
       inset 0 0 0 1px rgb(255 255 255 / 65%),
       0 0 0 5px rgb(33 196 232 / 12%);
+  }
+}
+
+@keyframes status-online-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 52%),
+      0 0 0 0 rgb(35 163 111 / 0%);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 68%),
+      0 0 0 4px rgb(35 163 111 / 10%);
   }
 }
 
@@ -486,7 +504,6 @@ tbody tr:hover td {
 }
 
 .badge,
-.status-pill,
 .sample-status,
 .object-kind,
 .object-status,
@@ -498,6 +515,10 @@ tbody tr:hover td {
 .summary-pill {
   border-radius: 2px;
   font-variant-numeric: tabular-nums;
+}
+
+.topbar .status-pill {
+  border-radius: 999px;
 }
 
 .primary-button,
