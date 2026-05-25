@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 from pathlib import Path
 
@@ -155,6 +156,63 @@ def _build_parser() -> argparse.ArgumentParser:
     list_runs.add_argument("--prompt-id", default=None)
     list_runs.add_argument("--metric-profile", default=None)
     list_runs.add_argument("--query", default=None)
+
+    show_run = subparsers.add_parser("show-run", help="Print one run summary for agents.")
+    show_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_run.add_argument("--run-id", required=True)
+
+    show_run_report = subparsers.add_parser(
+        "show-run-report",
+        help="Print a run metric report without reading store files directly.",
+    )
+    show_run_report.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_run_report.add_argument("--run-id", required=True)
+    show_run_report.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print reports/summary.json instead of reports/metrics.json.",
+    )
+
+    list_run_samples = subparsers.add_parser(
+        "list-run-samples",
+        help="List run samples with target-label scoping and diagnostics.",
+    )
+    list_run_samples.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    list_run_samples.add_argument("--run-id", required=True)
+    list_run_samples.add_argument("--offset", type=int, default=0)
+    list_run_samples.add_argument("--limit", type=int, default=80)
+    list_run_samples.add_argument("--label", default=None)
+    list_run_samples.add_argument(
+        "--error-filter",
+        choices=("all", "fn", "fp", "missing", "clean"),
+        default="all",
+    )
+
+    show_run_sample = subparsers.add_parser(
+        "show-run-sample",
+        help="Print one run sample detail with scoped GT, predictions, and diagnostics.",
+    )
+    show_run_sample.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_run_sample.add_argument("--run-id", required=True)
+    show_run_sample.add_argument("--sample-index", type=int, required=True)
+
+    list_benchmark_samples = subparsers.add_parser(
+        "list-benchmark-samples",
+        help="List benchmark samples through the store API.",
+    )
+    list_benchmark_samples.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    list_benchmark_samples.add_argument("--benchmark-id", required=True)
+    list_benchmark_samples.add_argument("--offset", type=int, default=0)
+    list_benchmark_samples.add_argument("--limit", type=int, default=80)
+    list_benchmark_samples.add_argument("--label", default=None)
+
+    show_benchmark_sample = subparsers.add_parser(
+        "show-benchmark-sample",
+        help="Print one benchmark sample detail through the store API.",
+    )
+    show_benchmark_sample.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_benchmark_sample.add_argument("--benchmark-id", required=True)
+    show_benchmark_sample.add_argument("--sample-index", type=int, required=True)
 
     rank_board = subparsers.add_parser("rank-board", help="Print the run ranking board.")
     rank_board.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -482,6 +540,108 @@ def _cmd_list_runs(args: argparse.Namespace) -> None:
     print(json.dumps(page.to_dict(), ensure_ascii=False))
 
 
+def _cmd_show_run(args: argparse.Namespace) -> None:
+    run = next(
+        (item for item in EvalBenchStore(args.output_root).runs() if item.run_id == str(args.run_id)),
+        None,
+    )
+    if run is None:
+        raise FileNotFoundError(f"run does not exist: {args.run_id}")
+    print(json.dumps({"run": asdict(run)}, ensure_ascii=False))
+
+
+def _cmd_show_run_report(args: argparse.Namespace) -> None:
+    report_name = "summary.json" if bool(args.summary) else "metrics.json"
+    report_path = RunArtifacts(args.output_root, str(args.run_id)).reports_dir / report_name
+    if not report_path.exists():
+        raise FileNotFoundError(f"run report does not exist: {report_path}")
+    print(report_path.read_text(encoding="utf-8"))
+
+
+def _cmd_list_run_samples(args: argparse.Namespace) -> None:
+    page = EvalBenchStore(args.output_root).run_sample_page(
+        str(args.run_id),
+        offset=max(0, int(args.offset)),
+        limit=max(1, int(args.limit)),
+        label=args.label,
+        error_filter=str(args.error_filter),
+    )
+    print(
+        json.dumps(
+            {
+                "run_id": str(args.run_id),
+                "offset": page.offset,
+                "limit": page.limit,
+                "total": page.total,
+                "labels": page.labels,
+                "samples": [asdict(sample) for sample in page.samples],
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _cmd_show_run_sample(args: argparse.Namespace) -> None:
+    detail = EvalBenchStore(args.output_root).run_sample_detail(
+        str(args.run_id),
+        sample_index=int(args.sample_index),
+    )
+    print(
+        json.dumps(
+            {
+                "run_id": str(args.run_id),
+                "sample": asdict(detail.sample),
+                "gt_instances": detail.gt_instances,
+                "pred_instances": detail.pred_instances,
+                "raw_payload": detail.raw_payload,
+                "prediction_payload": detail.prediction_payload,
+                "diagnostics": detail.diagnostics,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _cmd_list_benchmark_samples(args: argparse.Namespace) -> None:
+    page = EvalBenchStore(args.output_root).benchmark_sample_page(
+        str(args.benchmark_id),
+        offset=max(0, int(args.offset)),
+        limit=max(1, int(args.limit)),
+        label=args.label,
+    )
+    print(
+        json.dumps(
+            {
+                "benchmark_id": str(args.benchmark_id),
+                "offset": page.offset,
+                "limit": page.limit,
+                "total": page.total,
+                "labels": page.labels,
+                "samples": [asdict(sample) for sample in page.samples],
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _cmd_show_benchmark_sample(args: argparse.Namespace) -> None:
+    detail = EvalBenchStore(args.output_root).benchmark_sample_detail(
+        str(args.benchmark_id),
+        sample_index=int(args.sample_index),
+    )
+    print(
+        json.dumps(
+            {
+                "benchmark_id": str(args.benchmark_id),
+                "sample": asdict(detail.sample),
+                "gt_instances": detail.gt_instances,
+                "raw_payload": detail.raw_payload,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def _cmd_rank_board(args: argparse.Namespace) -> None:
     board = EvalBenchStore(args.output_root).rank_board(
         offset=max(0, int(args.offset)),
@@ -734,6 +894,18 @@ def main() -> None:
         _cmd_list_benchmarks(args)
     elif args.command == "list-runs":
         _cmd_list_runs(args)
+    elif args.command == "show-run":
+        _cmd_show_run(args)
+    elif args.command == "show-run-report":
+        _cmd_show_run_report(args)
+    elif args.command == "list-run-samples":
+        _cmd_list_run_samples(args)
+    elif args.command == "show-run-sample":
+        _cmd_show_run_sample(args)
+    elif args.command == "list-benchmark-samples":
+        _cmd_list_benchmark_samples(args)
+    elif args.command == "show-benchmark-sample":
+        _cmd_show_benchmark_sample(args)
     elif args.command == "rank-board":
         _cmd_rank_board(args)
     elif args.command == "get-run-note":
