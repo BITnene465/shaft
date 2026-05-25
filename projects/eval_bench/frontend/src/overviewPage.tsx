@@ -4,7 +4,6 @@ import { Link } from "@tanstack/react-router";
 import { Activity, BarChart3 } from "lucide-react";
 
 import type {
-  BenchmarkSummary,
   JobSummary,
   RunSummary,
   SchedulerStatus,
@@ -66,128 +65,22 @@ export function OverviewPage() {
     jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
-  const runTaskRows = countMany(data.runs, (run) => run.tasks);
-  const runBenchmarkRows = countBy(data.runs, (run) => run.benchmark_id || "unknown");
   const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
-  const promptRows = countBy(data.runs, (run) => run.prompt_id || "unknown");
-  const parserRows = countBy(data.runs, (run) => run.parser || "unknown");
-  const viewRows = countBy(data.runs, (run) => run.visualization_profile || "default");
-  const metricProfileRows = countBy(data.runs, (run) => run.metric_profile || "default");
-  const modelSourceRows = runModelSourceRows(data.runs);
-  const promptHashRows = promptHashCoverageRows(data.runs);
-  const reportScaleRows = countBy(data.runs, (run) => reportScaleBucket(run.report_count));
-  const noteFreshnessRows = timestampFreshnessRows(data.runs, (run) => run.note_updated_at);
-  const inferenceBackendRows = countBy(data.runs, (run) =>
-    inferenceString(run.inference, "backend")
-  );
-  const servedModelRows = countBy(data.runs, (run) =>
-    inferenceString(run.inference, "served_model_name")
-  );
-  const tensorParallelRows = countBy(data.runs, (run) =>
-    sizeBucket(inferenceNumber(run.inference, "tensor_parallel_size"))
-  );
-  const batchSizeRows = countBy(data.runs, (run) =>
-    sizeBucket(inferenceNumber(run.inference, "batch_size"))
-  );
-  const maxSeqRows = countBy(data.runs, (run) =>
-    sizeBucket(inferenceNumber(run.inference, "max_num_seqs"))
-  );
-  const maxTokenRows = countBy(data.runs, (run) =>
-    tokenBudgetBucket(inferenceNumber(run.inference, "max_tokens"))
-  );
-  const pixelBudgetRows = countBy(data.runs, (run) =>
-    pixelBudgetBucket(inferenceNumber(run.inference, "max_pixels"))
-  );
-  const temperatureRows = countBy(data.runs, (run) =>
-    rateBucket(inferenceNumber(run.inference, "temperature"))
-  );
-  const topPRows = countBy(data.runs, (run) => rateBucket(inferenceNumber(run.inference, "top_p")));
-  const cudaRows = countBy(data.runs, (run) => cudaDeviceBucket(run.inference));
   const benchmarkTaskRows = countMany(data.benchmarks, (benchmark) => benchmark.tasks);
   const benchmarkLabelRows = countMany(data.benchmarks, (benchmark) => benchmark.labels);
-  const benchmarkLayerRows = countMany(data.benchmarks, (benchmark) => benchmark.layers);
-  const splitRows = countBy(data.benchmarks, (benchmark) => benchmark.split || "unknown");
-  const benchmarkFreshnessRows = timestampFreshnessRows(data.benchmarks, (benchmark) => benchmark.created_at);
-  const benchmarkSourceRows = benchmarkSourceCoverageRows(data.benchmarks);
   const coverageRows = runCoverageRows(data.runs);
   const sampleScaleRows = countBy(data.benchmarks, (benchmark) =>
     sampleScaleBucket(benchmark.sample_count)
   );
-  const targetLabelRows = countMany(data.runs, (run) =>
-    run.target_labels.length > 0 ? run.target_labels : ["unscoped"]
-  );
-  const freshnessRows = runFreshnessRows(data.runs);
-  const predictionRows = countBy(data.runs, (run) => predictionScaleBucket(run.prediction_count));
-  const noteRows = runNoteRows(data.runs);
   const jobStatusRows = countBy(jobs, (job) => job.status || "unknown");
-  const jobKindRows = countBy(jobs, (job) => job.kind || "unknown");
-  const jobPhaseRows = countBy(jobs, (job) => metadataString(job.metadata, "progress_phase"));
-  const jobHealthRows = runtimeHealthRows(jobs);
   const serviceStatusRows = countBy(services, (service) => service.status || "unknown");
-  const serviceKindRows = countBy(services, (service) => service.kind || "unknown");
-  const serviceHealthRows = runtimeHealthRows(services);
-  const serviceFreshnessRows = timestampFreshnessRows(
-    services,
-    (service) => service.updated_at ?? service.created_at
-  );
   const jobTimelineRows = itemTimeline(jobs, 12, (job) => job.created_at);
-  const serviceTimelineRows = itemTimeline(
-    services,
-    12,
-    (service) => service.updated_at ?? service.created_at
-  );
-  const runHourRows = timestampHourBandRows(data.runs, (run) => run.created_at);
-  const jobHourRows = timestampHourBandRows(jobs, (job) => job.created_at);
-  const runWeekdayRows = timestampWeekdayRows(data.runs, (run) => run.created_at);
-  const runTaskSpanRows = countBy(data.runs, (run) => spanBucket(run.tasks.length));
-  const runLabelSpanRows = countBy(data.runs, (run) => spanBucket(run.target_labels.length));
-  const benchmarkTaskSpanRows = countBy(data.benchmarks, (benchmark) =>
-    spanBucket(benchmark.tasks.length)
-  );
-  const benchmarkLabelSpanRows = countBy(data.benchmarks, (benchmark) =>
-    spanBucket(benchmark.labels.length)
-  );
-  const sampleTaskWeightRows = sumMany(
-    data.benchmarks,
-    (benchmark) => benchmark.tasks,
-    (benchmark) => benchmark.sample_count
-  );
   const sampleLabelWeightRows = sumMany(
     data.benchmarks,
     (benchmark) => benchmark.labels,
     (benchmark) => benchmark.sample_count
   );
-  const sampleLayerWeightRows = sumMany(
-    data.benchmarks,
-    (benchmark) => benchmark.layers,
-    (benchmark) => benchmark.sample_count
-  );
-  const sampleSplitWeightRows = sumBy(
-    data.benchmarks,
-    (benchmark) => benchmark.split || "unknown",
-    (benchmark) => benchmark.sample_count
-  );
-  const predictionStatusRows = sumBy(
-    data.runs,
-    (run) => run.status || "unknown",
-    (run) => run.prediction_count
-  );
-  const reportStatusWeightRows = sumBy(
-    data.runs,
-    (run) => run.status || "unknown",
-    (run) => run.report_count
-  );
-  const artifactRows = runArtifactCoverageRows(data.runs);
-  const configSnapshotRows = runConfigSnapshotRows(data.runs);
-  const benchmarkManifestRows = benchmarkManifestRowsFor(data.benchmarks);
-  const liveSignalRows = [
-    { key: "queued jobs", count: queuedJobs },
-    { key: "running jobs", count: runningJobs },
-    { key: "live services", count: liveServices },
-    { key: "active runs", count: activeRuns }
-  ];
   const schedulerRows = schedulerResourceRows(schedulerStatus);
-  const schedulerLoopRows = schedulerLoopStateRows(schedulerStatus);
   const timelineRows = runTimeline(data.runs, 12);
   const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
@@ -196,68 +89,16 @@ export function OverviewPage() {
     { title: "Run 生命周期", meta: "status", rows: statusRows, kind: "ring" },
     { title: "评测覆盖", meta: "report state", rows: coverageRows, kind: "meter" },
     { title: "Run 任务", meta: "spec_task", rows: taskRows, kind: "rails" },
-    { title: "Run task set", meta: "tasks", rows: runTaskRows, kind: "cells" },
-    { title: "Run benchmark", meta: "benchmark_id", rows: runBenchmarkRows, kind: "cells" },
-    { title: "模型分布", meta: "model_id", rows: modelRows, kind: "cells" },
-    { title: "模型来源", meta: "model_path", rows: modelSourceRows, kind: "meter" },
-    { title: "推理 backend", meta: "inference", rows: inferenceBackendRows, kind: "ring" },
-    { title: "served model", meta: "runtime name", rows: servedModelRows, kind: "cells" },
-    { title: "TP size", meta: "tensor parallel", rows: tensorParallelRows, kind: "meter" },
-    { title: "CUDA slots", meta: "visible devices", rows: cudaRows, kind: "meter" },
-    { title: "batch size", meta: "inference", rows: batchSizeRows, kind: "meter" },
-    { title: "max seqs", meta: "scheduler input", rows: maxSeqRows, kind: "meter" },
-    { title: "max tokens", meta: "generation", rows: maxTokenRows, kind: "rails" },
-    { title: "pixel budget", meta: "vision input", rows: pixelBudgetRows, kind: "rails" },
-    { title: "temperature", meta: "sampling", rows: temperatureRows, kind: "meter" },
-    { title: "top_p", meta: "sampling", rows: topPRows, kind: "meter" },
-    { title: "Prompt 分布", meta: "prompt_id", rows: promptRows, kind: "cells" },
-    { title: "Prompt hash", meta: "snapshot", rows: promptHashRows, kind: "meter" },
-    { title: "Parser", meta: "decode path", rows: parserRows, kind: "rails" },
-    { title: "Metric profile", meta: "eval profile", rows: metricProfileRows, kind: "ring" },
-    { title: "Viewer profile", meta: "visual mode", rows: viewRows, kind: "cells" },
+    { title: "Run 日历", meta: "12d write", rows: timelineRows, kind: "spark" },
     { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows, kind: "rails" },
-    { title: "Benchmark 新鲜度", meta: "created_at", rows: benchmarkFreshnessRows, kind: "meter" },
-    { title: "Benchmark 来源", meta: "source", rows: benchmarkSourceRows, kind: "meter" },
     { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows, kind: "cells" },
     { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows, kind: "ring" },
-    { title: "数据层", meta: "benchmark layers", rows: benchmarkLayerRows, kind: "rails" },
-    { title: "Split 分布", meta: "dataset split", rows: splitRows, kind: "meter" },
-    { title: "Label scope", meta: "run labels", rows: targetLabelRows, kind: "cells" },
-    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows, kind: "meter" },
-    { title: "Run 日历", meta: "12d write", rows: timelineRows, kind: "spark" },
-    { title: "Job 日历", meta: "12d queue", rows: jobTimelineRows, kind: "spark" },
-    { title: "Service 日历", meta: "12d runtime", rows: serviceTimelineRows, kind: "spark" },
-    { title: "Run 小时", meta: "utc bands", rows: runHourRows, kind: "mosaic" },
-    { title: "Job 小时", meta: "utc bands", rows: jobHourRows, kind: "mosaic" },
-    { title: "Run 周期", meta: "weekday", rows: runWeekdayRows, kind: "mosaic" },
-    { title: "预测规模", meta: "prediction files", rows: predictionRows, kind: "ring" },
-    { title: "预测/状态", meta: "artifact weight", rows: predictionStatusRows, kind: "spark" },
-    { title: "Report 规模", meta: "report files", rows: reportScaleRows, kind: "meter" },
-    { title: "Report/状态", meta: "artifact weight", rows: reportStatusWeightRows, kind: "spark" },
-    { title: "Artifact 覆盖", meta: "run files", rows: artifactRows, kind: "mosaic" },
-    { title: "配置快照", meta: "run config", rows: configSnapshotRows, kind: "mosaic" },
-    { title: "备注覆盖", meta: "run notes", rows: noteRows, kind: "meter" },
-    { title: "备注新鲜度", meta: "note updated", rows: noteFreshnessRows, kind: "rails" },
-    { title: "Run task span", meta: "task count", rows: runTaskSpanRows, kind: "meter" },
-    { title: "Run label span", meta: "label count", rows: runLabelSpanRows, kind: "meter" },
-    { title: "Bench task span", meta: "task count", rows: benchmarkTaskSpanRows, kind: "meter" },
-    { title: "Bench label span", meta: "label count", rows: benchmarkLabelSpanRows, kind: "meter" },
-    { title: "样本/任务", meta: "sample weight", rows: sampleTaskWeightRows, kind: "mosaic" },
     { title: "样本/label", meta: "sample weight", rows: sampleLabelWeightRows, kind: "mosaic" },
-    { title: "样本/层", meta: "sample weight", rows: sampleLayerWeightRows, kind: "mosaic" },
-    { title: "样本/split", meta: "sample weight", rows: sampleSplitWeightRows, kind: "spark" },
-    { title: "Manifest 覆盖", meta: "benchmark files", rows: benchmarkManifestRows, kind: "mosaic" },
+    { title: "模型分布", meta: "model_id", rows: modelRows, kind: "cells" },
     { title: "Job 状态", meta: "queue state", rows: jobStatusRows, kind: "ring" },
-    { title: "Job 类型", meta: "job kind", rows: jobKindRows, kind: "cells" },
-    { title: "Job 阶段", meta: "progress phase", rows: jobPhaseRows, kind: "rails" },
-    { title: "Job health", meta: "errors", rows: jobHealthRows, kind: "meter" },
+    { title: "Job 日历", meta: "12d queue", rows: jobTimelineRows, kind: "spark" },
     { title: "Service 状态", meta: "runtime state", rows: serviceStatusRows, kind: "ring" },
-    { title: "Service 类型", meta: "runtime kind", rows: serviceKindRows, kind: "cells" },
-    { title: "Service health", meta: "errors", rows: serviceHealthRows, kind: "meter" },
-    { title: "Service 新鲜度", meta: "updated_at", rows: serviceFreshnessRows, kind: "rails" },
-    { title: "实时信号", meta: "live counters", rows: liveSignalRows, kind: "rails" },
-    { title: "Scheduler 资源", meta: "resource slots", rows: schedulerRows, kind: "cells" },
-    { title: "Scheduler loop", meta: "control loop", rows: schedulerLoopRows, kind: "meter" }
+    { title: "Scheduler 资源", meta: "resource slots", rows: schedulerRows, kind: "cells" }
   ];
   return (
     <section className="page-stack dashboard-home">
@@ -860,268 +701,6 @@ function sampleScaleBucket(sampleCount: number) {
   return "10k+";
 }
 
-function predictionScaleBucket(predictionCount: number) {
-  if (predictionCount <= 0) {
-    return "0";
-  }
-  if (predictionCount < 10) {
-    return "1-9";
-  }
-  if (predictionCount < 100) {
-    return "10-99";
-  }
-  if (predictionCount < 1_000) {
-    return "100-999";
-  }
-  return "1k+";
-}
-
-function reportScaleBucket(reportCount: number) {
-  if (reportCount <= 0) {
-    return "0";
-  }
-  if (reportCount < 10) {
-    return "1-9";
-  }
-  if (reportCount < 100) {
-    return "10-99";
-  }
-  return "100+";
-}
-
-function runNoteRows(runs: RunSummary[]) {
-  return [
-    { key: "有备注", count: runs.filter((run) => run.note.trim()).length },
-    { key: "无备注", count: runs.filter((run) => !run.note.trim()).length }
-  ];
-}
-
-function runArtifactCoverageRows(runs: RunSummary[]) {
-  return [
-    { key: "manifest", count: runs.filter((run) => Boolean(run.manifest_path)).length },
-    { key: "predictions", count: runs.filter((run) => run.prediction_count > 0).length },
-    { key: "reports", count: runs.filter((run) => run.report_count > 0).length },
-    { key: "notes", count: runs.filter((run) => run.note.trim()).length }
-  ];
-}
-
-function runConfigSnapshotRows(runs: RunSummary[]) {
-  return [
-    { key: "prompt path", count: runs.filter((run) => Boolean(run.prompt_path)).length },
-    { key: "prompt hash", count: runs.filter((run) => Boolean(run.prompt_hash)).length },
-    { key: "model path", count: runs.filter((run) => Boolean(run.model_path.trim())).length },
-    {
-      key: "inference",
-      count: runs.filter((run) => Object.keys(run.inference).length > 0).length
-    }
-  ];
-}
-
-function benchmarkManifestRowsFor(benchmarks: BenchmarkSummary[]) {
-  return [
-    { key: "manifest", count: benchmarks.filter((benchmark) => Boolean(benchmark.manifest_path)).length },
-    {
-      key: "source manifest",
-      count: benchmarks.filter((benchmark) => Boolean(benchmark.source_manifest_path)).length
-    },
-    { key: "root", count: benchmarks.filter((benchmark) => Boolean(benchmark.root)).length }
-  ];
-}
-
-function spanBucket(count: number) {
-  if (count <= 0) {
-    return "0";
-  }
-  if (count === 1) {
-    return "1";
-  }
-  if (count <= 3) {
-    return "2-3";
-  }
-  return "4+";
-}
-
-function timestampFreshnessRows<T>(items: T[], timestampForItem: (item: T) => string | null | undefined) {
-  const timestamps = items
-    .map((item) => {
-      const timestamp = timestampForItem(item);
-      return timestamp ? Date.parse(timestamp) : Number.NaN;
-    })
-    .filter(Number.isFinite);
-  const anchor = timestamps.length > 0 ? new Date(Math.max(...timestamps)) : new Date();
-  return countBy(items, (item) => {
-    const timestamp = timestampForItem(item);
-    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
-    if (!Number.isFinite(parsed)) {
-      return "unknown";
-    }
-    const days = Math.max(0, Math.floor((anchor.getTime() - parsed) / (24 * 60 * 60 * 1_000)));
-    if (days === 0) {
-      return "latest day";
-    }
-    if (days <= 3) {
-      return "1-3d";
-    }
-    if (days <= 7) {
-      return "4-7d";
-    }
-    return "older";
-  });
-}
-
-function promptHashCoverageRows(runs: RunSummary[]) {
-  return [
-    { key: "snapshotted", count: runs.filter((run) => Boolean(run.prompt_hash)).length },
-    { key: "missing", count: runs.filter((run) => !run.prompt_hash).length }
-  ];
-}
-
-function runModelSourceRows(runs: RunSummary[]) {
-  return countBy(runs, (run) => {
-    const path = run.model_path.trim();
-    if (!path) {
-      return "missing";
-    }
-    if (path.startsWith("/") || path.startsWith(".")) {
-      return "local";
-    }
-    if (/^[\w.-]+\/[\w.-]+/.test(path)) {
-      return "hub";
-    }
-    return "custom";
-  });
-}
-
-function benchmarkSourceCoverageRows(
-  benchmarks: Array<{ source_manifest_path: string | null }>
-) {
-  return [
-    {
-      key: "source manifest",
-      count: benchmarks.filter((benchmark) => Boolean(benchmark.source_manifest_path)).length
-    },
-    {
-      key: "direct",
-      count: benchmarks.filter((benchmark) => !benchmark.source_manifest_path).length
-    }
-  ];
-}
-
-function metadataString(metadata: Record<string, unknown>, key: string) {
-  const value = metadata[key];
-  return typeof value === "string" && value.trim() ? value : "unknown";
-}
-
-function inferenceString(inference: Record<string, unknown>, key: string) {
-  const value = inference[key];
-  if (value === null || value === undefined || value === "") {
-    return "unset";
-  }
-  return String(value);
-}
-
-function inferenceNumber(inference: Record<string, unknown>, key: string) {
-  const value = inference[key];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function sizeBucket(value: number | null) {
-  if (value === null) {
-    return "unset";
-  }
-  if (value <= 0) {
-    return "0";
-  }
-  if (value === 1) {
-    return "1";
-  }
-  if (value === 2) {
-    return "2";
-  }
-  if (value <= 4) {
-    return "3-4";
-  }
-  return "5+";
-}
-
-function tokenBudgetBucket(value: number | null) {
-  if (value === null) {
-    return "unset";
-  }
-  if (value < 1_024) {
-    return "<1k";
-  }
-  if (value < 4_096) {
-    return "1k-4k";
-  }
-  if (value === 4_096) {
-    return "4k";
-  }
-  return ">4k";
-}
-
-function pixelBudgetBucket(value: number | null) {
-  if (value === null) {
-    return "unset";
-  }
-  if (value < 1_000_000) {
-    return "<1MP";
-  }
-  if (value < 4_000_000) {
-    return "1-4MP";
-  }
-  return "4MP+";
-}
-
-function rateBucket(value: number | null) {
-  if (value === null) {
-    return "unset";
-  }
-  if (value <= 0) {
-    return "0";
-  }
-  if (value < 0.5) {
-    return "0-0.5";
-  }
-  if (value < 1) {
-    return "0.5-1";
-  }
-  return "1";
-}
-
-function cudaDeviceBucket(inference: Record<string, unknown>) {
-  const value = inference.cuda_visible_devices;
-  if (typeof value !== "string" || !value.trim()) {
-    return "unset";
-  }
-  const count = value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean).length;
-  return `${count} cuda`;
-}
-
-function runtimeHealthRows(items: Array<{ status: string; error: string | null }>) {
-  return [
-    { key: "error", count: items.filter((item) => Boolean(item.error)).length },
-    {
-      key: "failed",
-      count: items.filter((item) => !item.error && item.status === "failed").length
-    },
-    {
-      key: "clean",
-      count: items.filter((item) => !item.error && item.status !== "failed").length
-    }
-  ];
-}
-
 function schedulerResourceRows(status: SchedulerStatus | undefined) {
   if (!status) {
     return [{ key: "unknown", count: 1 }];
@@ -1133,18 +712,6 @@ function schedulerResourceRows(status: SchedulerStatus | undefined) {
     { key: "workers", count: status.active_worker_threads?.length ?? 0 },
     { key: "cuda", count: status.reserved_cuda_devices?.length ?? 0 },
     { key: "ports", count: status.reserved_runtime_ports?.length ?? 0 }
-  ];
-}
-
-function schedulerLoopStateRows(status: SchedulerStatus | undefined) {
-  if (!status) {
-    return [{ key: "unknown", count: 1 }];
-  }
-  return [
-    { key: status.enabled ? "enabled" : "disabled", count: 1 },
-    { key: status.loop_alive ? "loop alive" : "loop idle", count: 1 },
-    { key: "capacity", count: status.max_concurrent_jobs ?? 0 },
-    { key: "interval", count: Math.round(status.interval_s ?? 0) }
   ];
 }
 
@@ -1207,45 +774,6 @@ function timelineRowsForItems<T>(
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
 }
 
-function timestampHourBandRows<T>(
-  items: T[],
-  timestampForItem: (item: T) => string | null | undefined
-) {
-  const rows = [
-    { key: "00-05", count: 0 },
-    { key: "06-11", count: 0 },
-    { key: "12-17", count: 0 },
-    { key: "18-23", count: 0 }
-  ];
-  for (const item of items) {
-    const timestamp = timestampForItem(item);
-    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
-    if (!Number.isFinite(parsed)) {
-      continue;
-    }
-    const hour = new Date(parsed).getUTCHours();
-    rows[Math.floor(hour / 6)].count += 1;
-  }
-  return rows;
-}
-
-function timestampWeekdayRows<T>(
-  items: T[],
-  timestampForItem: (item: T) => string | null | undefined
-) {
-  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const rows = labels.map((key) => ({ key, count: 0 }));
-  for (const item of items) {
-    const timestamp = timestampForItem(item);
-    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
-    if (!Number.isFinite(parsed)) {
-      continue;
-    }
-    rows[new Date(parsed).getUTCDay()].count += 1;
-  }
-  return rows;
-}
-
 function overviewTimelineKeys(endDate: Date, bucketCount: number) {
   return Array.from({ length: bucketCount }, (_, index) => {
     const date = new Date(endDate);
@@ -1272,36 +800,8 @@ function latestActivityDate(
   return new Date(Math.max(...timestamps));
 }
 
-function runFreshnessRows(runs: RunSummary[]) {
-  const anchor = latestRunDate(runs) ?? new Date();
-  return countBy(runs, (run) => {
-    const timestamp = run.created_at ? Date.parse(run.created_at) : Number.NaN;
-    if (!Number.isFinite(timestamp)) {
-      return "unknown";
-    }
-    const days = Math.max(
-      0,
-      Math.floor((anchor.getTime() - timestamp) / (24 * 60 * 60 * 1_000))
-    );
-    if (days === 0) {
-      return "latest day";
-    }
-    if (days <= 3) {
-      return "1-3d";
-    }
-    if (days <= 7) {
-      return "4-7d";
-    }
-    return "older";
-  });
-}
-
 function runTimeline(runs: RunSummary[], bucketCount: number) {
   return itemTimeline(runs, bucketCount, (run) => run.created_at);
-}
-
-function latestRunDate(runs: RunSummary[]) {
-  return latestItemDate(runs, (run) => run.created_at);
 }
 
 function latestItemDate<T>(

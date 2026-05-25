@@ -1214,6 +1214,38 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.rank-board-pager {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 7px 10px;
+  background:
+    linear-gradient(90deg, rgb(23 77 101 / 5%), transparent 52%),
+    #ffffff;
+  border-bottom: 1px solid #e5ebf1;
+}
+
+.rank-board-pager > span {
+  color: #445466;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.rank-board-pager > div {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.rank-board-page .workspace-card.fill .table-shell {
+  flex: 1 1 auto;
+}
+
 .rank-facet-rail {
   display: grid;
   flex: 0 0 auto;
@@ -6182,8 +6214,8 @@ tbody tr:hover td {
 .overview-console {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(224px, 0.25fr);
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.28fr);
+  gap: 10px;
 }
 
 .overview-console-main,
@@ -6199,11 +6231,11 @@ tbody tr:hover td {
 
 .overview-console-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(224px, 0.36fr);
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.36fr);
+  gap: 14px;
   align-items: center;
-  min-height: 72px;
-  padding: 8px 10px;
+  min-height: 92px;
+  padding: 14px 16px;
   color: #dce8ef;
   background:
     linear-gradient(135deg, rgb(7 13 20 / 94%), rgb(18 34 51 / 96%)),
@@ -6214,7 +6246,7 @@ tbody tr:hover td {
 
 .overview-title-block h2 {
   color: #f8fbfd;
-  font-size: 19px;
+  font-size: 26px;
   line-height: 1;
 }
 
@@ -6229,12 +6261,12 @@ tbody tr:hover td {
 .overview-stat-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
+  gap: 8px;
 }
 
 .overview-stat {
   min-width: 0;
-  padding: 5px 6px;
+  padding: 10px;
   background: rgb(255 255 255 / 7%);
   border: 1px solid rgb(125 211 252 / 18%);
   border-radius: 5px;
@@ -6250,7 +6282,7 @@ tbody tr:hover td {
 .overview-store-line span {
   display: block;
   color: #6a7b8e;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 780;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -6262,19 +6294,19 @@ tbody tr:hover td {
 
 .overview-stat strong {
   display: block;
-  margin-top: 2px;
+  margin-top: 5px;
   color: #f8fbfd;
-  font-size: 15px;
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .overview-console-side {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   align-content: space-between;
-  min-height: 72px;
-  padding: 8px;
+  min-height: 92px;
+  padding: 12px;
 }
 
 .overview-store-line strong {
@@ -6290,7 +6322,7 @@ tbody tr:hover td {
 .overview-console-links {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
+  gap: 7px;
 }
 
 .overview-console-links a {
@@ -6298,14 +6330,14 @@ tbody tr:hover td {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 26px;
-  padding: 0 7px;
+  min-height: 32px;
+  padding: 0 9px;
   color: #1c4259;
   text-decoration: none;
   background: #f5f9fb;
   border: 1px solid #d5e3ec;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 760;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6327,26 +6359,26 @@ tbody tr:hover td {
   flex: 0 0 auto;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
-  min-height: 40px;
+  min-height: 58px;
 }
 
 .overview-signal-deck {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(158px, 0.17fr) minmax(284px, 0.31fr) minmax(0, 1fr);
-  gap: 6px;
-  min-height: 48px;
+  grid-template-columns: minmax(220px, 0.2fr) minmax(360px, 0.34fr) minmax(0, 1fr);
+  gap: 10px;
+  min-height: 70px;
   overflow: hidden;
 }
 
 .overview-signal-deck .overview-ops-strip {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-height: 48px;
+  min-height: 70px;
 }
 
 .overview-datum {
   min-width: 0;
-  padding: 6px 10px;
+  padding: 9px 12px;
   border-right: 1px solid #e2e8ef;
 }
 
@@ -6355,7 +6387,7 @@ tbody tr:hover td {
 }
 
 .overview-signal-deck .overview-datum {
-  padding: 4px 8px;
+  padding: 8px 10px;
 }
 
 .overview-signal-deck .overview-datum:nth-child(1),
@@ -6369,9 +6401,9 @@ tbody tr:hover td {
 
 .overview-datum strong {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   color: #172332;
-  font-size: 14px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -6379,14 +6411,14 @@ tbody tr:hover td {
 .overview-telemetry-panel {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(96px, 0.14fr) minmax(0, 1fr);
-  gap: 6px;
-  min-height: 44px;
+  grid-template-columns: minmax(122px, 0.16fr) minmax(0, 1fr);
+  gap: 10px;
+  min-height: 68px;
   min-width: 0;
 }
 
 .overview-signal-deck .overview-telemetry-panel {
-  min-height: 48px;
+  min-height: 70px;
 }
 
 .telemetry-signal,
@@ -6402,9 +6434,9 @@ tbody tr:hover td {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 10px;
+  padding: 0 12px;
   color: #4d6274;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 820;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -6431,8 +6463,8 @@ tbody tr:hover td {
 }
 
 .overview-telemetry-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1px;
   overflow: hidden;
   background: #dbe3ec;
@@ -6441,11 +6473,13 @@ tbody tr:hover td {
 .telemetry-cell {
   position: relative;
   display: grid;
+  flex: 1 1 30%;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-height: 34px;
   min-width: 0;
-  padding: 5px 8px 5px 10px;
+  padding: 9px 10px 9px 12px;
   overflow: hidden;
   background:
     linear-gradient(90deg, rgb(13 93 124 / 6%), transparent 42%),
@@ -6472,7 +6506,7 @@ tbody tr:hover td {
   min-width: 0;
   overflow: hidden;
   color: #607386;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 790;
   letter-spacing: 0;
   text-overflow: ellipsis;
@@ -6482,7 +6516,7 @@ tbody tr:hover td {
 
 .telemetry-cell strong {
   color: #172332;
-  font-size: 13px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
@@ -6502,23 +6536,19 @@ tbody tr:hover td {
 }
 
 .overview-grid.refined {
-  display: grid;
+  display: block;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
   min-height: 0;
   overflow: hidden;
 }
 
 .overview-chart-matrix {
-  display: grid;
-  grid-column: 1;
-  grid-row: 1;
-  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-  grid-auto-rows: minmax(58px, 72px);
-  align-content: start;
+  display: block;
+  height: 100%;
   min-height: 0;
-  gap: 4px;
+  column-count: 2;
+  column-gap: 12px;
+  padding-right: 2px;
   overflow: auto;
   scrollbar-width: thin;
 }
@@ -6533,13 +6563,16 @@ tbody tr:hover td {
 }
 
 .overview-chart-card {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 1px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
   min-height: 0;
-  padding: 2px;
+  margin: 0 0 12px;
+  padding: 9px;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 7px;
+  break-inside: avoid;
 }
 
 .overview-chart-card.compact {
@@ -6547,16 +6580,16 @@ tbody tr:hover td {
 }
 
 .overview-chart-card .panel-title {
-  gap: 3px;
-  min-height: 16px;
-  padding: 0 2px;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0;
   border-bottom: 0;
 }
 
 .overview-chart-card .panel-title strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6565,16 +6598,15 @@ tbody tr:hover td {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .overview-mini-chart {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 4px;
+  display: flex;
+  gap: 10px;
   min-height: 0;
   align-items: center;
 }
@@ -6582,17 +6614,18 @@ tbody tr:hover td {
 .overview-mini-chart.meter,
 .overview-mini-chart.spark,
 .overview-mini-chart.mosaic {
-  grid-template-columns: minmax(0, 1fr);
-  align-content: center;
-  gap: 3px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 7px;
 }
 
 .overview-chart-ring {
   position: relative;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 54px;
+  height: 54px;
   color: #173244;
   background: var(--overview-ring);
   border: 1px solid #d7e4ec;
@@ -6602,7 +6635,7 @@ tbody tr:hover td {
 
 .overview-chart-ring::after {
   position: absolute;
-  inset: 8px;
+  inset: 13px;
   content: "";
   background:
     linear-gradient(180deg, #ffffff 0%, #f4f8fb 100%);
@@ -6620,7 +6653,7 @@ tbody tr:hover td {
 .overview-chart-ring span {
   align-self: end;
   color: #68798b;
-  font-size: 6px;
+  font-size: 8px;
   font-weight: 820;
   text-transform: uppercase;
 }
@@ -6629,25 +6662,25 @@ tbody tr:hover td {
   align-self: start;
   margin-top: 1px;
   color: #172332;
-  font-size: 10px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
 .overview-bar-list {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: 5px;
   min-height: 0;
   overflow: hidden;
 }
 
 .overview-bar-row {
   display: grid;
-  grid-template-columns: minmax(30px, 0.72fr) minmax(0, 1fr) 19px;
-  gap: 3px;
+  grid-template-columns: minmax(68px, 0.8fr) minmax(0, 1fr) 36px;
+  gap: 6px;
   align-items: center;
   color: #46596a;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .overview-bar-row > span {
@@ -6657,7 +6690,7 @@ tbody tr:hover td {
 }
 
 .overview-bar-row > div {
-  height: 3px;
+  height: 5px;
   overflow: hidden;
   background: #edf3f7;
   border: 1px solid #d9e4ec;
@@ -6687,9 +6720,9 @@ tbody tr:hover td {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
-  gap: 2px;
-  height: 34px;
-  padding: 4px 3px 3px;
+  gap: 4px;
+  height: 54px;
+  padding: 7px 6px 5px;
   background:
     linear-gradient(180deg, transparent 0 44%, rgb(202 216 226 / 52%) 45% 46%, transparent 47%),
     #f6fafc;
@@ -6709,9 +6742,9 @@ tbody tr:hover td {
 .overview-cell-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: 9px;
-  gap: 2px;
-  padding: 4px;
+  grid-auto-rows: 15px;
+  gap: 4px;
+  padding: 6px;
   background: #f7fafc;
   border: 1px solid #dbe6ee;
   border-radius: 5px;
@@ -6725,15 +6758,16 @@ tbody tr:hover td {
 }
 
 .overview-meter-chart {
-  display: grid;
-  align-content: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   gap: 5px;
   min-height: 0;
 }
 
 .overview-stack-meter {
   display: flex;
-  height: 8px;
+  height: 12px;
   min-width: 0;
   overflow: hidden;
   background: #edf3f7;
@@ -6750,8 +6784,9 @@ tbody tr:hover td {
 
 .overview-spark-chart,
 .overview-mosaic-chart {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
   min-width: 0;
   min-height: 0;
 }
@@ -6760,8 +6795,8 @@ tbody tr:hover td {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: end;
-  gap: 2px;
-  height: 34px;
+  gap: 4px;
+  height: 56px;
   min-width: 0;
   padding: 3px 3px 2px;
   background:
@@ -6791,11 +6826,11 @@ tbody tr:hover td {
 .overview-spark-caption {
   display: grid;
   grid-template-columns: auto 1fr auto 1fr;
-  gap: 3px;
+  gap: 6px;
   align-items: center;
   min-width: 0;
   color: #617487;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 790;
   line-height: 1;
   text-transform: uppercase;
@@ -6804,7 +6839,7 @@ tbody tr:hover td {
 .overview-spark-caption strong {
   overflow: hidden;
   color: #172332;
-  font-size: 8px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6813,10 +6848,10 @@ tbody tr:hover td {
 .overview-mosaic-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-auto-rows: 8px;
-  gap: 2px;
+  grid-auto-rows: 13px;
+  gap: 4px;
   min-width: 0;
-  padding: 4px;
+  padding: 6px;
   background: #f7fafc;
   border: 1px solid #dbe6ee;
   border-radius: 5px;
@@ -6833,11 +6868,11 @@ tbody tr:hover td {
 .overview-rhythm-strip {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(118px, 0.18fr) minmax(0, 1fr) minmax(84px, 0.12fr);
-  gap: 6px;
+  grid-template-columns: minmax(150px, 0.2fr) minmax(0, 1fr) minmax(100px, 0.14fr);
+  gap: 10px;
   align-items: center;
-  min-height: 42px;
-  padding: 5px 8px;
+  min-height: 66px;
+  padding: 9px 12px;
   overflow: hidden;
   background:
     linear-gradient(90deg, rgb(29 93 122 / 7%), transparent 34%),
@@ -6847,7 +6882,7 @@ tbody tr:hover td {
 }
 
 .overview-signal-deck .overview-rhythm-strip {
-  min-height: 48px;
+  min-height: 70px;
 }
 
 .overview-rhythm-copy,
@@ -6863,7 +6898,7 @@ tbody tr:hover td {
   align-items: center;
   gap: 6px;
   color: #607386;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 820;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -6872,7 +6907,7 @@ tbody tr:hover td {
 .overview-rhythm-copy strong {
   overflow: hidden;
   color: #172332;
-  font-size: 12px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6883,7 +6918,7 @@ tbody tr:hover td {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: end;
   gap: 4px;
-  height: 28px;
+  height: 42px;
   min-width: 0;
 }
 
@@ -6907,31 +6942,31 @@ tbody tr:hover td {
 }
 
 .overview-activity-matrix {
-  grid-template-columns: minmax(102px, 0.16fr) minmax(0, 1fr) minmax(78px, 0.12fr);
-  gap: 6px;
-  padding: 4px 7px;
+  grid-template-columns: minmax(132px, 0.2fr) minmax(0, 1fr) minmax(92px, 0.14fr);
+  gap: 10px;
+  padding: 9px 12px;
 }
 
 .overview-activity-lanes {
   display: grid;
-  gap: 2px;
+  gap: 5px;
   min-width: 0;
 }
 
 .overview-activity-lane {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 24px;
-  gap: 4px;
+  grid-template-columns: 42px minmax(0, 1fr) 36px;
+  gap: 7px;
   align-items: center;
   min-width: 0;
-  min-height: 12px;
+  min-height: 15px;
 }
 
 .overview-activity-lane > span,
 .overview-activity-lane > strong {
   overflow: hidden;
   color: #52687a;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 820;
   line-height: 1;
   text-overflow: ellipsis;
@@ -6948,9 +6983,9 @@ tbody tr:hover td {
 .overview-activity-cells {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
-  height: 8px;
+  height: 10px;
 }
 
 .overview-activity-cells i {
@@ -6973,7 +7008,7 @@ tbody tr:hover td {
 .overview-rhythm-meta {
   justify-items: end;
   color: #647589;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 760;
   text-align: right;
 }
@@ -6988,27 +7023,25 @@ tbody tr:hover td {
 
 .overview-rhythm-meta strong {
   color: #1d5d7a;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .overview-run-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
-  grid-auto-rows: minmax(22px, auto);
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  gap: 2px;
-  padding: 2px;
+  gap: 6px;
+  padding: 0;
   overflow: hidden;
 }
 
 .overview-run-list a {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 4px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
-  min-height: 22px;
-  padding: 2px 3px;
+  min-height: 34px;
+  padding: 5px 6px;
   color: inherit;
   text-decoration: none;
   background: #fbfdff;
@@ -7019,13 +7052,13 @@ tbody tr:hover td {
 .overview-run-list a > em {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   color: #0d5d7c;
   background: #eaf6fa;
   border: 1px solid #c8e0eb;
   border-radius: 999px;
-  font-size: 8px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 820;
   font-variant-numeric: tabular-nums;
@@ -7050,42 +7083,49 @@ tbody tr:hover td {
 
 .overview-run-list strong {
   color: #172332;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .overview-run-list small {
   color: #667789;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .overview-run-list .status-pill {
-  min-height: 17px;
-  padding: 0 5px;
+  min-height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 760;
 }
 
 .overview-recent-card {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  grid-column: span 3;
+  display: inline-flex;
+  flex-direction: column;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 7px;
 }
 
 .overview-recent-card .panel-title {
-  min-height: 16px;
-}
-
-.overview-recent-card .overview-run-list {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-height: 24px;
 }
 
 .empty-inline {
   padding: 12px;
   color: #718294;
   font-size: 12px;
+}
+
+@media (min-width: 1500px) {
+  .overview-chart-matrix {
+    column-count: 3;
+  }
+}
+
+@media (min-width: 1920px) {
+  .overview-chart-matrix {
+    column-count: 4;
+  }
 }
 
 @media (max-width: 1180px) {
@@ -7121,10 +7161,6 @@ tbody tr:hover td {
 
   .overview-signal-deck .overview-telemetry-panel {
     min-height: 48px;
-  }
-
-  .overview-telemetry-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .overview-rhythm-strip {
@@ -7180,18 +7216,15 @@ tbody tr:hover td {
 
   .overview-signal-deck .overview-rhythm-strip,
   .overview-signal-deck .overview-telemetry-panel {
-    min-height: 48px;
+    min-height: 64px;
   }
 
   .overview-signal-deck .overview-telemetry-panel {
     grid-template-columns: minmax(82px, 0.28fr) minmax(0, 1fr);
   }
 
-  .overview-telemetry-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .telemetry-cell {
+    flex-basis: 44%;
     padding: 7px 8px 7px 10px;
   }
 }
@@ -7237,13 +7270,8 @@ tbody tr:hover td {
   }
 
   .overview-chart-matrix {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .overview-chart-matrix {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-auto-rows: minmax(78px, auto);
+    height: auto;
+    column-count: 1;
   }
 
   .overview-rhythm-strip {
@@ -7263,11 +7291,7 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .overview-telemetry-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .overview-recent-card {
-    grid-column: span 2;
+    width: 100%;
   }
 }

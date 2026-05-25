@@ -3539,3 +3539,38 @@ Compare label delta 是卡片式选项，早期没有对应共享组件，所以
 ### 后续防线
 
 - 新增卡片式选项按钮时优先复用 `SelectableCardButton`；只有画布 HUD、对象行或快捷键捕获这类专用输入控件允许保留局部 raw button。
+
+## 2026-05-25: Eval Bench Overview 高价值面板收口
+
+### 现象
+
+总览页从 56+ mini chart 图表墙降密度后，仍保留了 parser、配置快照、artifact 覆盖、备注新鲜度、推理参数桶等低频排障信息。页面可读性改善了，但面板价值没有被重新筛选，导致总控工作台仍像“把所有字段可视化”的集合。
+
+### 根因
+
+前一轮主要解决图表过密和纯 grid 问题，没有把“是否帮助调度判断”作为总览准入标准。旧图表 spec 裁剪后仍沿用了过多 run manifest / artifact 细节计算，和 Runs、Inspector、Rank Board 的职责重叠。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 总览页的信息架构和第一屏判断效率。
+- 不改变后端 API、rank board 排序语义、run note、sample viewer 或评估指标计算。
+
+### 修复方式
+
+- Overview 主区域收敛为 8-16 个高价值粗粒度面板，只保留运行态、评估覆盖、数据规模、label footprint、模型分布、job/service/scheduler 和近期写入信号。
+- 删除总览里 parser、配置快照、artifact 明细、备注新鲜度、推理参数桶等低频排障面板及对应死计算。
+- UI 合约和 layout smoke 从“24-40 个可读 chart”改为“8-16 个高价值 chart”，继续要求 2 列起、最多 4 列 capped masonry columns，且不能退回纯 grid。
+- README、`docs/eval_bench_architecture.md` 和 `docs/scripts.md` 同步新的总览准入边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_dashboard.py -k 'rank_board'`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_readable.png npm run render-check`
+
+### 后续防线
+
+- Overview 新增面板必须先回答是否帮助调度、覆盖和近期写入判断；低频复现线索和排障细节默认进入 Runs / Inspector / Rank Board。
+- UI smoke 不再奖励更多图表数量，防线应限制上限并检查可读性、分栏上限和滚动边界。

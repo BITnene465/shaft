@@ -121,13 +121,13 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 56 &&
+  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 8 &&
     overviewPage.includes(
       'type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";',
     ) &&
     overviewPage.includes("function OverviewSparkChart(") &&
     overviewPage.includes("function OverviewMosaicChart("),
-  "overview must stay a dense mixed-form chart wall",
+  "overview must stay a readable mixed-form chart board",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
@@ -189,6 +189,15 @@ assert(
     (comparePage.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
     !/<button[\s\S]{0,240}label-delta-card/.test(comparePage),
   "compare label delta cards must use SelectableCardButton instead of raw buttons",
+);
+const rankBoardPage = await readSource("src/rankBoardPage.tsx");
+assert(
+  rankBoardPage.includes("const RANK_PAGE_SIZE = 80;") &&
+    rankBoardPage.includes("function RankBoardPager(") &&
+    rankBoardPage.includes("offset: pageOffset") &&
+    rankBoardPage.includes("limit: RANK_PAGE_SIZE") &&
+    !rankBoardPage.includes("limit: 200"),
+  "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(

@@ -434,6 +434,8 @@ async function assertOverviewDensity(page, scope) {
       signalDeckHeight: signalDeck ? Math.round(signalDeck.getBoundingClientRect().height) : 0,
       chartMatrixScrollHeight: chartMatrix?.scrollHeight ?? 0,
       chartMatrixClientHeight: chartMatrix?.clientHeight ?? 0,
+      chartMatrixDisplay: chartMatrixStyle?.display ?? "",
+      chartMatrixColumnCount: chartMatrixStyle?.columnCount ?? "",
       activityMatrixOverflowX: activityMatrixStyle?.overflowX ?? "",
       activityMatrixOverflowY: activityMatrixStyle?.overflowY ?? "",
       signalDeckOverflowX: signalDeckStyle?.overflowX ?? "",
@@ -449,9 +451,23 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.miniCharts < 56) {
+  if (state.miniCharts < 8 || state.miniCharts > 16) {
     throw new Error(
-      `${scope}: overview should expose at least fifty-six mini charts, got ${state.miniCharts}`
+      `${scope}: overview should expose a curated 8-16 chart board, got ${state.miniCharts}`
+    );
+  }
+  const columnCount = Number.parseInt(state.chartMatrixColumnCount, 10);
+  if (
+    state.chartMatrixDisplay === "grid" ||
+    !Number.isFinite(columnCount) ||
+    columnCount < 1 ||
+    columnCount > 4
+  ) {
+    throw new Error(
+      `${scope}: overview chart board should use capped masonry columns, not a pure grid ${JSON.stringify({
+        display: state.chartMatrixDisplay,
+        columnCount: state.chartMatrixColumnCount
+      })}`
     );
   }
   if (state.chartKinds.length < 6) {
@@ -474,11 +490,11 @@ async function assertOverviewDensity(page, scope) {
   if (state.recentRows.some((height) => height > 72)) {
     throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
   }
-  if (state.chartCardHeights.some((height) => height > 150)) {
+  if (state.chartCardHeights.some((height) => height > 280)) {
     throw new Error(`${scope}: overview chart cards are stretched ${state.chartCardHeights.join(",")}`);
   }
   if (
-    state.activityMatrixHeight > 110 ||
+    state.activityMatrixHeight > 150 ||
     state.activityMatrixOverflowX === "visible" ||
     state.activityMatrixOverflowY === "visible"
   ) {
@@ -491,7 +507,7 @@ async function assertOverviewDensity(page, scope) {
     );
   }
   if (
-    state.signalDeckHeight > 140 ||
+    state.signalDeckHeight > 170 ||
     state.signalDeckOverflowX === "visible" ||
     state.signalDeckOverflowY === "visible"
   ) {
@@ -518,6 +534,9 @@ async function assertOverviewDensity(page, scope) {
   for (const [index, rect] of state.chartRects.entries()) {
     if (rect.width <= 0 || rect.height <= 0) {
       throw new Error(`${scope}: mini chart ${index} is not visible ${JSON.stringify(rect)}`);
+    }
+    if (!scope.startsWith("narrow") && rect.width < 180) {
+      throw new Error(`${scope}: mini chart ${index} is too compressed ${JSON.stringify(rect)}`);
     }
   }
 }

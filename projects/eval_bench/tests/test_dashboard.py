@@ -396,6 +396,13 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
         "count": 2,
     }
 
+    paged = client.get("/api/rank-board", params={"offset": 1, "limit": 1}).json()
+    assert paged["offset"] == 1
+    assert paged["limit"] == 1
+    assert paged["total"] == 2
+    assert [entry["run_id"] for entry in paged["entries"]] == ["run_b"]
+    assert paged["entries"][0]["rank"] == 2
+
     arrow_board = client.get("/api/rank-board", params={"label": "arrow"}).json()
     assert arrow_board["total"] == 1
     assert arrow_board["entries"][0]["run_id"] == "run_b"

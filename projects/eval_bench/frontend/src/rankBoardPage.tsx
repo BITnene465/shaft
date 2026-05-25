@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -21,6 +21,7 @@ const RANK_SORT_LABELS: Record<string, string> = {
   run_id: "Run ID",
   weighted_score: "Weighted"
 };
+const RANK_PAGE_SIZE = 80;
 
 export function RankBoardPage() {
   const dashboardQuery = useDashboardState();
@@ -36,6 +37,7 @@ export function RankBoardPage() {
   const [minScoreFilter, setMinScoreFilter] = useState("");
   const [sortBy, setSortBy] = useState("f1_iou50");
   const [sortOrder, setSortOrder] = useState("desc");
+  const [pageOffset, setPageOffset] = useState(0);
   const [rankSchemeEnabled, setRankSchemeEnabled] = useState(false);
   const [rankSchemeDraft, setRankSchemeDraft] = useState(defaultRankSchemeDraft());
   const [rankSchemeRequestError, setRankSchemeRequestError] = useState<string | null>(null);
@@ -55,13 +57,14 @@ export function RankBoardPage() {
       minScoreFilter,
       sortBy,
       sortOrder,
+      pageOffset,
       rankSchemeParam
     ],
     queryFn: async () => {
       try {
         const nextBoard = await fetchRankBoard({
-          offset: 0,
-          limit: 200,
+          offset: pageOffset,
+          limit: RANK_PAGE_SIZE,
           query: searchText,
           task: taskFilter,
           benchmarkId: benchmarkFilter,
@@ -96,6 +99,31 @@ export function RankBoardPage() {
   const board = boardQuery.data;
   const entries = board?.entries ?? [];
   const best = entries[0] ?? null;
+  useEffect(() => {
+    setPageOffset(0);
+  }, [
+    searchText,
+    taskFilter,
+    benchmarkFilter,
+    statusFilter,
+    labelFilter,
+    modelFilter,
+    promptFilter,
+    metricProfileFilter,
+    minScoreFilter,
+    sortBy,
+    sortOrder,
+    rankSchemeParam
+  ]);
+  useEffect(() => {
+    if (!board) {
+      return;
+    }
+    const nextOffset = clampRankPageOffset(pageOffset, board.total);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [board?.total, pageOffset]);
 
   if (dashboardQuery.isLoading || (boardQuery.isLoading && !board)) {
     return <EmptyState title="正在加载排行榜" />;
@@ -121,7 +149,7 @@ export function RankBoardPage() {
             params={{ runId: best.run_id }}
           >
             <AppIcon name="rankBoard" size={13} />
-            当前第一 {best.run_id}
+            {board.offset === 0 ? "当前第一" : "本页第一"} {best.run_id}
           </Link>
         ) : null}
       </div>
@@ -281,6 +309,12 @@ export function RankBoardPage() {
       </div>
       <RankFacetRail board={board} />
       <div className="workspace-card fill">
+        <RankBoardPager
+          offset={board.offset}
+          limit={board.limit}
+          total={board.total}
+          onPageChange={setPageOffset}
+        />
         <RankBoardTable entries={entries} weighted={Boolean(board.rank_scheme)} />
       </div>
     </section>
@@ -303,6 +337,53 @@ function rankBoardOrderLabel(
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
   return board.facets[key]?.length ?? 0;
+}
+
+function clampRankPageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / RANK_PAGE_SIZE) * RANK_PAGE_SIZE;
+}
+
+function RankBoardPager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
+    </div>
+  );
 }
 
 function RankFacetRail({ board }: { board: Pick<RankBoard, "facets"> }) {
