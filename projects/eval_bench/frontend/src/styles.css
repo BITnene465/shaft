@@ -1244,6 +1244,12 @@ h2 {
 
 .rank-board-page .workspace-card.fill .table-shell {
   flex: 1 1 auto;
+  min-height: 260px;
+}
+
+.rank-board-page .workspace-card.fill {
+  flex: 0 0 auto;
+  min-height: min(520px, 58vh);
 }
 
 .rank-facet-rail {
@@ -7248,6 +7254,10 @@ tbody tr:hover td {
   .rank-scheme-body,
   .rank-scheme-footer {
     grid-template-columns: 1fr;
+  }
+
+  .rank-board-page .workspace-card.fill {
+    min-height: 340px;
   }
 }
 

@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 总览页低价值面板回流
+
+### 现象
+
+总览页压缩后仍把 Notes、任务类型、模型分布、benchmark task、label footprint、样本/label 权重、
+Job 日历和 scheduler 资源等二级诊断统计放进首页。用户在总控页看到很多面板，但这些面板不能直接支持
+调度、数据规模判断、服务状态判断或最近 run 复盘，反而稀释了真正有价值的运行态信号。
+
+### 根因
+
+总览页的 smoke 只约束了“8-16 个图表”和图表形态，没有把首页信息价值作为边界约束。实现为了满足
+密度和可视化数量，把可在 Runs、Inspector、Rank Board 或 Services 中查看的低频诊断维度也纳入总览。
+这是前端信息架构问题，不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Overview 页面信息密度和可读性。
+- 不影响后端 store、rank board、comparison、metric report 或 job/service 生命周期。
+
+### 修复方式
+
+- Overview 主图表收敛为 run 生命周期、评测覆盖、数据规模、队列健康和服务运行态。
+- Signal deck 只保留 Benchmarks、Runs、GT samples、Predictions、Run/Job/Service 活动矩阵和实时遥测。
+- 删除 Notes、任务类型、模型分布、benchmark task、label footprint、样本/label 权重、Job 日历和 scheduler
+  资源在总览里的常显入口。
+- Layout smoke 改为要求 4-7 个高价值 mini chart，并显式禁止这些低价值总览标题回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增 Overview 面板前必须说明它能支持调度、数据规模、覆盖进度、队列/服务状态或最近 run 复盘中的哪一类操作。
+- 排障型、归档型和模型/label 维度统计优先放在 Runs、Inspector、Rank Board 或 Services，不进入首页。
+- Layout smoke 继续以禁止标题回流的方式防止低价值面板再次堆到总览。
+
 ## 2026-05-25: Eval Bench Rank Board 加权方案只在 CLI/API 可用
 
 ### 现象

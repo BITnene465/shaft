@@ -98,6 +98,7 @@ try {
       await assertShellLayout(page, `${viewport.name}:${route.name}`);
       await assertTopbarStatus(page, `${viewport.name}:${route.name}`);
       await assertPageStack(page, `${viewport.name}:${route.name}`);
+      await assertNoClippedPanels(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
       if (route.name === "runs" || route.name === "rank-board") {
@@ -340,6 +341,74 @@ async function assertPageStack(page, scope) {
   }
 }
 
+async function assertNoClippedPanels(page, scope) {
+  const panels = await page.evaluate(() => {
+    const selectors = [
+      ".workspace-card",
+      ".queue-stack",
+      ".manifest-card",
+      ".manifest-editor-pane",
+      ".manifest-result-pane",
+      ".visual-inspector-page",
+      ".inspector-sidebar",
+      ".viewer-panel",
+      ".viewer-side-panel",
+      ".compare-workspace",
+      ".compare-report-pane",
+      ".compare-context-pane",
+      ".comparison-sample-detail",
+      ".comparison-run-panel",
+      ".settings-workbench-shell",
+      ".settings-drawer-scroll",
+      ".settings-preview-stage"
+    ];
+    return selectors.flatMap((selector) =>
+      Array.from(document.querySelectorAll(selector))
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .map((node, index) => {
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          return {
+            selector,
+            index,
+            rect,
+            scrollWidth: node.scrollWidth,
+            clientWidth: node.clientWidth,
+            scrollHeight: node.scrollHeight,
+            clientHeight: node.clientHeight,
+            overflowX: style.overflowX,
+            overflowY: style.overflowY
+          };
+        })
+    );
+  });
+  for (const panel of panels) {
+    if (panel.scrollWidth > panel.clientWidth + 2 && clipsOverflow(panel.overflowX)) {
+      throw new Error(
+        `${scope}: ${panel.selector}[${panel.index}] clips horizontal content ${JSON.stringify({
+          scrollWidth: panel.scrollWidth,
+          clientWidth: panel.clientWidth,
+          overflowX: panel.overflowX,
+          rect: formatRect(panel.rect)
+        })}`
+      );
+    }
+    if (panel.scrollHeight > panel.clientHeight + 2 && clipsOverflow(panel.overflowY)) {
+      throw new Error(
+        `${scope}: ${panel.selector}[${panel.index}] clips vertical content ${JSON.stringify({
+          scrollHeight: panel.scrollHeight,
+          clientHeight: panel.clientHeight,
+          overflowY: panel.overflowY,
+          rect: formatRect(panel.rect)
+        })}`
+      );
+    }
+  }
+}
+
 async function assertTopbarStatus(page, scope) {
   const state = await page.evaluate(() => {
     const actions = document.querySelector(".topbar-actions");
@@ -451,9 +520,9 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.miniCharts < 8 || state.miniCharts > 16) {
+  if (state.miniCharts < 4 || state.miniCharts > 7) {
     throw new Error(
-      `${scope}: overview should expose a curated 8-16 chart board, got ${state.miniCharts}`
+      `${scope}: overview should expose a curated 4-7 high-value chart board, got ${state.miniCharts}`
     );
   }
   const columnCount = Number.parseInt(state.chartMatrixColumnCount, 10);
@@ -470,7 +539,7 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.chartKinds.length < 6) {
+  if (state.chartKinds.length < 4) {
     throw new Error(`${scope}: overview chart wall lost mixed chart forms ${state.chartKinds.join(",")}`);
   }
   if (state.recentCardsInMatrix !== 1 || state.legacyRecentPanels > 0) {
@@ -486,6 +555,13 @@ async function assertOverviewDensity(page, scope) {
   }
   if (/\b(precision|recall|iou|miou)\b/i.test(state.bodyText)) {
     throw new Error(`${scope}: overview exposes fine-grained eval metric text`);
+  }
+  if (
+    /Notes|Tasks|Label footprint|样本\/label|模型分布|Job 日历|Scheduler 资源|Benchmark 任务|Run 日历/.test(
+      state.bodyText
+    )
+  ) {
+    throw new Error(`${scope}: overview exposes low-value diagnostic panels`);
   }
   if (state.recentRows.some((height) => height > 72)) {
     throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
@@ -962,6 +1038,10 @@ async function assertComparisonSamplePageChunkLoaded(page, scope) {
 
 function allowsScroll(value) {
   return value === "auto" || value === "scroll";
+}
+
+function clipsOverflow(value) {
+  return value === "hidden" || value === "clip";
 }
 
 function formatRect(rect) {

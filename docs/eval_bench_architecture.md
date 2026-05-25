@@ -185,9 +185,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 signal deck、微型柱状、环形占比、栅格热区、堆叠条、sparkline 和 mosaic 小图表表达，
   不再把低频信息做成大块空白 card；signal deck 的时间维度优先压缩成 Run/Job/Service 三泳道活动矩阵。
-  主矩阵保持 8-16 个高价值粗粒度 mini chart，并同时保留多种微图表形态；默认使用 2 列 capped masonry columns，
+  主矩阵保持 4-7 个高价值粗粒度 mini chart，并同时保留多种微图表形态；默认使用 2 列 capped masonry columns，
   宽屏最多 4 列，不能回退成均匀 grid 图表墙。
-  Parser、配置快照、artifact 明细、备注新鲜度、推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board。
+  Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
+  Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
   compact 视口需要滚动时只能由矩阵自身滚动，最近 run 必须嵌入矩阵成为紧凑事件 tile，
   不允许按剩余高度拉伸成独立大块面板。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill

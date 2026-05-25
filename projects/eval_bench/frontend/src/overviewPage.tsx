@@ -3,12 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Activity, BarChart3 } from "lucide-react";
 
-import type {
-  JobSummary,
-  RunSummary,
-  SchedulerStatus,
-  ServiceSummary
-} from "./api";
+import type { JobSummary, RunSummary, ServiceSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
@@ -64,41 +59,20 @@ export function OverviewPage() {
   const overviewSyncing =
     jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
-  const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
-  const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
-  const benchmarkTaskRows = countMany(data.benchmarks, (benchmark) => benchmark.tasks);
-  const benchmarkLabelRows = countMany(data.benchmarks, (benchmark) => benchmark.labels);
   const coverageRows = runCoverageRows(data.runs);
   const sampleScaleRows = countBy(data.benchmarks, (benchmark) =>
     sampleScaleBucket(benchmark.sample_count)
   );
   const jobStatusRows = countBy(jobs, (job) => job.status || "unknown");
   const serviceStatusRows = countBy(services, (service) => service.status || "unknown");
-  const jobTimelineRows = itemTimeline(jobs, 12, (job) => job.created_at);
-  const sampleLabelWeightRows = sumMany(
-    data.benchmarks,
-    (benchmark) => benchmark.labels,
-    (benchmark) => benchmark.sample_count
-  );
-  const schedulerRows = schedulerResourceRows(schedulerStatus);
-  const timelineRows = runTimeline(data.runs, 12);
   const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
-  const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
   const overviewCharts: OverviewChartSpec[] = [
     { title: "Run 生命周期", meta: "status", rows: statusRows, kind: "ring" },
     { title: "评测覆盖", meta: "report state", rows: coverageRows, kind: "meter" },
-    { title: "Run 任务", meta: "spec_task", rows: taskRows, kind: "rails" },
-    { title: "Run 日历", meta: "12d write", rows: timelineRows, kind: "spark" },
-    { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows, kind: "rails" },
-    { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows, kind: "cells" },
-    { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows, kind: "ring" },
-    { title: "样本/label", meta: "sample weight", rows: sampleLabelWeightRows, kind: "mosaic" },
-    { title: "模型分布", meta: "model_id", rows: modelRows, kind: "cells" },
-    { title: "Job 状态", meta: "queue state", rows: jobStatusRows, kind: "ring" },
-    { title: "Job 日历", meta: "12d queue", rows: jobTimelineRows, kind: "spark" },
-    { title: "Service 状态", meta: "runtime state", rows: serviceStatusRows, kind: "ring" },
-    { title: "Scheduler 资源", meta: "resource slots", rows: schedulerRows, kind: "cells" }
+    { title: "数据规模", meta: "sample buckets", rows: sampleScaleRows, kind: "cells" },
+    { title: "队列健康", meta: "job state", rows: jobStatusRows, kind: "rails" },
+    { title: "服务运行态", meta: "runtime state", rows: serviceStatusRows, kind: "ring" }
   ];
   return (
     <section className="page-stack dashboard-home">
@@ -138,10 +112,10 @@ export function OverviewPage() {
       </div>
       <div className="overview-signal-deck">
         <div className="overview-ops-strip">
+          <OverviewDatum label="Benchmarks" value={data.benchmark_count} />
+          <OverviewDatum label="Runs" value={data.run_count} />
           <OverviewDatum label="GT samples" value={data.total_benchmark_samples} />
           <OverviewDatum label="Predictions" value={data.prediction_count} />
-          <OverviewDatum label="Notes" value={notedRuns} />
-          <OverviewDatum label="Tasks" value={taskRows.length} />
         </div>
         <OverviewActivityMatrix lanes={activityLanes} />
         <OverviewTelemetryPanel
@@ -621,52 +595,6 @@ function countBy<T>(items: T[], keyForItem: (item: T) => string) {
     .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 }
 
-function countMany<T>(items: T[], keysForItem: (item: T) => string[]) {
-  return countBy(
-    items.flatMap((item) => {
-      const keys = keysForItem(item)
-        .map((key) => key.trim())
-        .filter(Boolean);
-      return keys.length > 0 ? keys : ["unknown"];
-    }),
-    (key) => key
-  );
-}
-
-function sumBy<T>(
-  items: T[],
-  keyForItem: (item: T) => string,
-  valueForItem: (item: T) => number
-) {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const key = keyForItem(item).trim() || "unknown";
-    const value = valueForItem(item);
-    counts.set(key, (counts.get(key) ?? 0) + (Number.isFinite(value) ? Math.max(0, value) : 0));
-  }
-  return Array.from(counts.entries())
-    .map(([key, count]) => ({ key, count }))
-    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
-}
-
-function sumMany<T>(
-  items: T[],
-  keysForItem: (item: T) => string[],
-  valueForItem: (item: T) => number
-) {
-  return sumBy(
-    items.flatMap((item) => {
-      const keys = keysForItem(item)
-        .map((key) => key.trim())
-        .filter(Boolean);
-      const value = valueForItem(item);
-      return (keys.length > 0 ? keys : ["unknown"]).map((key) => ({ key, value }));
-    }),
-    (item) => item.key,
-    (item) => item.value
-  );
-}
-
 function runCoverageRows(runs: RunSummary[]) {
   const rows = [
     {
@@ -699,20 +627,6 @@ function sampleScaleBucket(sampleCount: number) {
     return "1k-9.9k";
   }
   return "10k+";
-}
-
-function schedulerResourceRows(status: SchedulerStatus | undefined) {
-  if (!status) {
-    return [{ key: "unknown", count: 1 }];
-  }
-  const liveJobs = status.live_running_count ?? status.live_running_jobs?.length ?? 0;
-  return [
-    { key: status.enabled ? "auto" : "manual", count: 1 },
-    { key: "live jobs", count: liveJobs },
-    { key: "workers", count: status.active_worker_threads?.length ?? 0 },
-    { key: "cuda", count: status.reserved_cuda_devices?.length ?? 0 },
-    { key: "ports", count: status.reserved_runtime_ports?.length ?? 0 }
-  ];
 }
 
 function overviewActivityLanes(
@@ -751,16 +665,6 @@ function overviewActivityLanes(
   ];
 }
 
-function itemTimeline<T>(
-  items: T[],
-  bucketCount: number,
-  timestampForItem: (item: T) => string | null | undefined
-) {
-  const endDate = latestItemDate(items, timestampForItem) ?? new Date();
-  const keys = overviewTimelineKeys(endDate, bucketCount);
-  return timelineRowsForItems(items, keys, timestampForItem);
-}
-
 function timelineRowsForItems<T>(
   items: T[],
   keys: string[],
@@ -793,26 +697,6 @@ function latestActivityDate(
     ...services.map((service) => service.updated_at ?? service.created_at)
   ]
     .map((timestamp) => (timestamp ? Date.parse(timestamp) : Number.NaN))
-    .filter(Number.isFinite);
-  if (timestamps.length === 0) {
-    return null;
-  }
-  return new Date(Math.max(...timestamps));
-}
-
-function runTimeline(runs: RunSummary[], bucketCount: number) {
-  return itemTimeline(runs, bucketCount, (run) => run.created_at);
-}
-
-function latestItemDate<T>(
-  items: T[],
-  timestampForItem: (item: T) => string | null | undefined
-) {
-  const timestamps = items
-    .map((item) => {
-      const timestamp = timestampForItem(item);
-      return timestamp ? Date.parse(timestamp) : Number.NaN;
-    })
     .filter(Number.isFinite);
   if (timestamps.length === 0) {
     return null;

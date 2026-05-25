@@ -132,13 +132,17 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 8 &&
+  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 5 &&
+    (overviewPage.match(/\{\s*title:/g) ?? []).length <= 7 &&
     overviewPage.includes(
       'type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";',
     ) &&
     overviewPage.includes("function OverviewSparkChart(") &&
-    overviewPage.includes("function OverviewMosaicChart("),
-  "overview must stay a readable mixed-form chart board",
+    overviewPage.includes("function OverviewMosaicChart(") &&
+    !/Notes|Tasks|Label footprint|样本\/label|模型分布|Job 日历|Scheduler 资源|Benchmark 任务|Run 日历/.test(
+      overviewPage,
+    ),
+  "overview must stay a curated high-value mixed-form chart board",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
