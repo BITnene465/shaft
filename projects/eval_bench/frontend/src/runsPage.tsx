@@ -34,7 +34,14 @@ import {
 } from "./sampleNavigation";
 import { SamplePager } from "./samplePager";
 import { SampleViewer } from "./sampleViewer";
-import { ActionButton, CommandButton, ConfigItem, EmptyState, WorkspaceDialog } from "./ui";
+import {
+  ActionButton,
+  CommandButton,
+  ConfigItem,
+  EmptyState,
+  SelectableRowButton,
+  WorkspaceDialog
+} from "./ui";
 import { preloadSampleImages } from "./viewerGeometry";
 import { ResizableSplit } from "./workspaceLayout";
 import { useWorkspaceShortcuts } from "./workspaceSettings";
@@ -729,10 +736,9 @@ function SampleList({
   return (
     <div className="sample-list">
       {samples.map((sample) => (
-        <button
+        <SelectableRowButton
           key={sample.index}
-          className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}
-          type="button"
+          selected={sample.index === selectedIndex}
           onClick={() => onSelect(sample.index)}
         >
           <span className="sample-row-main">
@@ -746,7 +752,7 @@ function SampleList({
           <span className={sample.has_prediction ? "sample-status ok" : "sample-status missing"}>
             {sample.has_prediction ? "已预测" : "缺预测"}
           </span>
-        </button>
+        </SelectableRowButton>
       ))}
     </div>
   );

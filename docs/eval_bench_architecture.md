@@ -138,7 +138,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护工作台设置页面；`main.tsx` 只负责路由到该页面，不承载设置页预览、分组或本地偏好编排。
 - `projects/eval_bench/frontend/src/ui.tsx`
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton` 和
-    `IconActionButton` 等基础展示组件；业务页不直接实现弹窗外壳或标准按钮层级。
+    `IconActionButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
+    使用 `OptionChipButton`；业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
 
 ## Extension Rules
 
@@ -184,9 +185,11 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
   一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
-  HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。
+  HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。样本行必须通过
+  `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
+  `OptionChipButton` 维护 active / aria-pressed 语义，避免业务页重复拼 className。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell
-  和已收敛标准动作回流。
+  和已收敛标准动作、row/chip 原语回流。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused
   测试证明四条调用链一致。
 - 新增 run sample 展示范围规则：只改 `sample_scope.py`，不能在 dashboard route、viewer 或 store 中各自

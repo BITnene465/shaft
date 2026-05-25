@@ -94,6 +94,48 @@ export function IconActionButton({
   );
 }
 
+export function SelectableRowButton({
+  selected,
+  className,
+  children,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  selected?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      aria-current={selected ? "true" : props["aria-current"]}
+      className={joinClassNames("sample-row", selected && "selected", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function OptionChipButton({
+  active,
+  className,
+  children,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  active?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      aria-pressed={active ?? props["aria-pressed"]}
+      className={joinClassNames("query-chip", active && "active", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function MetricCard({
   icon,
   label,

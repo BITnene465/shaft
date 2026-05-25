@@ -23,6 +23,7 @@ import {
   useWorkspaceSettings,
   useWorkspaceShortcuts
 } from "./workspaceSettings";
+import { OptionChipButton } from "./ui";
 
 export function SampleViewer({ detail }: { detail: RunSampleDetail }) {
   return <InteractiveSampleViewer detail={detail} />;
@@ -203,13 +204,9 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
           <span className="legend-item fn">漏检</span>
           <span className="legend-item pred">预测匹配</span>
           <span className="legend-item fp">误检</span>
-          <button
-            className="query-chip"
-            type="button"
-            onClick={() => setInspectorCollapsed((value) => !value)}
-          >
+          <OptionChipButton onClick={() => setInspectorCollapsed((value) => !value)}>
             {inspectorCollapsed ? "显示检查器" : "收起检查器"}
-          </button>
+          </OptionChipButton>
         </div>
       </div>
       {inspectorCollapsed ? (

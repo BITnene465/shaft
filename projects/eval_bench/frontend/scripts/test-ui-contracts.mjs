@@ -15,6 +15,15 @@ for (const filePath of sourceFiles) {
 }
 
 const jobsPage = await readSource("src/jobsPage.tsx");
+const uiSource = await readSource("src/ui.tsx");
+assert(
+  uiSource.includes("export function SelectableRowButton("),
+  "sample row selection must be centralized in SelectableRowButton",
+);
+assert(
+  uiSource.includes("export function OptionChipButton("),
+  "query chip selection must be centralized in OptionChipButton",
+);
 assert(
   jobsPage.includes('<ActionButton variant="mini" onClick={() => onChange(labelOptions)}>'),
   "label subtask select-all action must use ActionButton",
@@ -42,6 +51,15 @@ assert(
 assert(
   !jobsPage.includes('className="filter-select compact"'),
   "jobs page must not create ad hoc compact filter selects outside filterControls",
+);
+assert(
+  jobsPage.includes('OptionChipButton,'),
+  "label subtask chips must import OptionChipButton",
+);
+assert(
+  jobsPage.includes("<OptionChipButton") &&
+    !jobsPage.includes('className={selectedSet.has(label) ? "query-chip active" : "query-chip"}'),
+  "label subtask chips must use OptionChipButton instead of raw query-chip buttons",
 );
 
 const settingsControls = await readSource("src/settingsControls.tsx");
@@ -98,6 +116,11 @@ assert(
   "benchmarks page module must export list and detail pages",
 );
 assert(
+  benchmarksPage.includes("SelectableRowButton") &&
+    !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
+  "benchmark sample list rows must use SelectableRowButton",
+);
+assert(
   mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")') &&
     mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")'),
   "main.tsx must lazy-route to the extracted benchmarks page module",
@@ -108,10 +131,19 @@ assert(
     runsPage.includes("export function RunDetailPage()"),
   "runs page module must export list and detail pages",
 );
+assert(
+  runsPage.includes("SelectableRowButton") &&
+    !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
+  "run sample list rows must use SelectableRowButton",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),
   "sample viewer module must export the shared SampleViewer",
+);
+assert(
+  sampleViewer.includes("OptionChipButton") && !sampleViewer.includes('className="query-chip"'),
+  "sample viewer utility chips must use OptionChipButton",
 );
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunsPage")') &&

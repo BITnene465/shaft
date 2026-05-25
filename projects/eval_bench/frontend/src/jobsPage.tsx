@@ -45,6 +45,7 @@ import {
   CommandButton,
   DangerConfirmDialog,
   IconActionButton,
+  OptionChipButton,
   PanelTitle,
   WorkspaceDialog
 } from "./ui";
@@ -745,14 +746,13 @@ function LabelSubtaskPanel({
       </div>
       <div className="label-subtask-chips">
         {labelOptions.map((label) => (
-          <button
+          <OptionChipButton
             key={label}
-            type="button"
-            className={selectedSet.has(label) ? "query-chip active" : "query-chip"}
+            active={selectedSet.has(label)}
             onClick={() => toggleLabel(label)}
           >
             {label}
-          </button>
+          </OptionChipButton>
         ))}
         {labelOptions.length === 0 ? <span className="label-subtask-empty">暂无 label 索引</span> : null}
       </div>

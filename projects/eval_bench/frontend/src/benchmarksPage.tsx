@@ -21,7 +21,14 @@ import {
   updateSampleIndexInLocation
 } from "./sampleNavigation";
 import { SamplePager } from "./samplePager";
-import { ActionButton, CommandButton, EmptyState, SectionHeader, WorkspaceDialog } from "./ui";
+import {
+  ActionButton,
+  CommandButton,
+  EmptyState,
+  SectionHeader,
+  SelectableRowButton,
+  WorkspaceDialog
+} from "./ui";
 import { CanvasStage } from "./viewerCanvas";
 import { displayImageUrl, preloadSampleImages } from "./viewerGeometry";
 import { InstanceStats } from "./viewerPanels";
@@ -459,10 +466,9 @@ function BenchmarkSampleList({
   return (
     <div className="sample-list">
       {samples.map((sample) => (
-        <button
+        <SelectableRowButton
           key={sample.index}
-          className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}
-          type="button"
+          selected={sample.index === selectedIndex}
           onClick={() => onSelect(sample.index)}
         >
           <span className="sample-row-main">
@@ -472,7 +478,7 @@ function BenchmarkSampleList({
           <span className="sample-row-meta">
             真值 {sample.instance_count.toLocaleString()} / 标签 {sample.labels.join(", ") || "-"}
           </span>
-        </button>
+        </SelectableRowButton>
       ))}
     </div>
   );
