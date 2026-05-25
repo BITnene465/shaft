@@ -940,6 +940,7 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
         {
             "benchmark_id": "bench1",
             "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
             "split": "val",
             "sample_count": 1,
             "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
@@ -1027,6 +1028,69 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     assert jobs["total"] == 1
     assert jobs["filters"]["kind"] == "eval"
     assert jobs["jobs"][0]["job_id"] == job["job_id"]
+
+
+def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> None:
+    model_path = tmp_path / "models" / "model-a"
+    _write_json(model_path / "config.json", {"num_attention_heads": 4})
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    payload_path = tmp_path / "job.json"
+    _write_json(
+        payload_path,
+        {
+            "manifest": {
+                "kind": "eval_job",
+                "runtime": {
+                    "mode": "ephemeral",
+                    "engine": "vllm_openai",
+                    "env": {"CUDA_VISIBLE_DEVICES": "0"},
+                    "args": {
+                        "model": str(model_path),
+                        "served-model-name": "model-a",
+                        "host": "127.0.0.1",
+                        "tensor-parallel-size": 1,
+                        "trust-remote-code": True,
+                    },
+                },
+                "eval": {
+                    "model_id": "model-a",
+                    "benchmark_id": "bench1",
+                    "task": "detection",
+                    "prompt_id": "grounding_arrow.latest",
+                    "target_labels": ["arrwo"],
+                },
+            }
+        },
+    )
+
+    preflight_args = _build_parser().parse_args(
+        [
+            "preflight-job",
+            "--output-root",
+            str(tmp_path),
+            "--payload-file",
+            str(payload_path),
+        ]
+    )
+    _cmd_preflight_job(preflight_args)
+    preflight = json.loads(capsys.readouterr().out)
+
+    assert preflight["ok"] is False
+    assert any(
+        "target_labels not found in benchmark label index: arrwo" in item
+        for item in preflight["errors"]
+    )
 
 
 def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:

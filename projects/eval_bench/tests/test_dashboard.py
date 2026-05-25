@@ -174,6 +174,26 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert preflight.status_code == 200
     assert preflight.json()["ok"] is True
     assert preflight.json()["resolved_payload"]["prompt_text"] == "Detect icons."
+    bad_label_preflight = client.post(
+        "/api/jobs/preflight",
+        json={
+            "kind": "eval",
+            "model_id": "model-a",
+            "model_path": str(model_path),
+            "benchmark_id": "multitask_val_v1",
+            "task": "detection",
+            "prompt_id": "custom.layout",
+            "target_labels": ["typo_label"],
+            "max_tokens": 4096,
+        },
+    )
+    assert bad_label_preflight.status_code == 200
+    bad_label_payload = bad_label_preflight.json()
+    assert bad_label_payload["ok"] is False
+    assert any(
+        "target_labels not found in benchmark label index: typo_label" in item
+        for item in bad_label_payload["errors"]
+    )
     created = client.post(
         "/api/jobs",
         json={

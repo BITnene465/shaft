@@ -429,19 +429,98 @@ def _check_eval_payload(
                 warnings=warnings,
             )
     benchmark_id = _first_string(payload.get("benchmark_id"))
+    benchmark_payload: dict[str, Any] | None = None
     if benchmark_id:
         benchmark_path = BenchmarkArtifacts(store_root, benchmark_id).manifest_path
         if not benchmark_path.exists():
             errors.append(f"benchmark does not exist: {benchmark_id}")
+        else:
+            benchmark_payload = _load_benchmark_manifest_for_preflight(
+                benchmark_path,
+                errors=errors,
+            )
     task = _first_string(payload.get("task"))
     if task and task not in {"detection", "keypoint"}:
         errors.append(f"unsupported task: {task}")
+    if benchmark_payload is not None:
+        _check_eval_task_against_benchmark(
+            task=task,
+            benchmark_id=benchmark_id or "",
+            benchmark_payload=benchmark_payload,
+            errors=errors,
+        )
+        _check_target_labels_against_benchmark(
+            payload,
+            benchmark_id=benchmark_id or "",
+            benchmark_payload=benchmark_payload,
+            errors=errors,
+            warnings=warnings,
+        )
     prompt_id = _first_string(payload.get("prompt_id"))
     if prompt_id and prompt_templates is not None and prompt_id not in prompt_templates:
         if not _first_string(payload.get("prompt_path"), payload.get("prompt_text"), payload.get("user_prompt")):
             errors.append(f"unknown prompt_id and no inline prompt/path was provided: {prompt_id}")
     if str(payload.get("runtime_mode") or "") == "existing_service" and not _first_string(payload.get("endpoint")):
         warnings.append("existing_service mode has no endpoint; select a service or provide endpoint.")
+
+
+def _load_benchmark_manifest_for_preflight(
+    path: Path,
+    *,
+    errors: list[str],
+) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"could not read benchmark manifest {path}: {exc}")
+        return None
+    if not isinstance(payload, dict):
+        errors.append(f"benchmark manifest must be a JSON object: {path}")
+        return None
+    return payload
+
+
+def _check_eval_task_against_benchmark(
+    *,
+    task: str | None,
+    benchmark_id: str,
+    benchmark_payload: dict[str, Any],
+    errors: list[str],
+) -> None:
+    if not task:
+        return
+    benchmark_tasks = [str(item) for item in benchmark_payload.get("tasks") or []]
+    if benchmark_tasks and task not in benchmark_tasks:
+        errors.append(
+            f"job task={task!r} is not available in benchmark {benchmark_id}: {benchmark_tasks}"
+        )
+
+
+def _check_target_labels_against_benchmark(
+    payload: dict[str, Any],
+    *,
+    benchmark_id: str,
+    benchmark_payload: dict[str, Any],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    target_labels = _label_list(payload.get("target_labels"))
+    if not target_labels:
+        return
+    benchmark_labels = _label_list(benchmark_payload.get("labels"))
+    if not benchmark_labels:
+        warnings.append(
+            f"benchmark {benchmark_id} has no label index; "
+            "target_labels could not be preflight-validated."
+        )
+        return
+    available = set(benchmark_labels)
+    missing = [label for label in target_labels if label not in available]
+    if missing:
+        errors.append(
+            "target_labels not found in benchmark label index: "
+            f"{', '.join(missing)}. Available labels: {', '.join(benchmark_labels)}"
+        )
 
 
 def _check_tensor_parallel_compatibility(

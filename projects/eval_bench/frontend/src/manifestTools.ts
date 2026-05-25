@@ -48,8 +48,10 @@ export function applyPromptTemplateToManifest(
   const targetLabels = targetLabelsFromPrompt(prompt);
   if (targetLabels.length > 0) {
     section.target_labels = targetLabels;
+    section.target_labels_source = "prompt_metadata";
   } else {
     delete section.target_labels;
+    delete section.target_labels_source;
   }
   section.generation = mergeRecordDefaults(section.generation, prompt.generation);
   section.data = mergeRecordDefaults(section.data, prompt.data);
@@ -126,8 +128,10 @@ export function updateManifestTargetLabels(
   const normalizedLabels = uniqueLabels(labels);
   if (normalizedLabels.length > 0) {
     section.target_labels = normalizedLabels;
+    section.target_labels_source = "explicit";
   } else {
     delete section.target_labels;
+    delete section.target_labels_source;
   }
   return cloned;
 }

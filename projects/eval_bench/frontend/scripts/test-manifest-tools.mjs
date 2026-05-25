@@ -47,6 +47,7 @@ const arrowPrompt = {
 
 const arrowManifest = tools.applyPromptTemplateToManifest(layoutManifest, arrowPrompt);
 assert.deepEqual(arrowManifest.eval.target_labels, ["arrow"]);
+assert.equal(arrowManifest.eval.target_labels_source, "prompt_metadata");
 assert.equal(arrowManifest.eval.prompt_id, "grounding_arrow.latest");
 assert.equal(arrowManifest.eval.prompt_text, "Detect arrows.");
 
@@ -86,6 +87,15 @@ const customPromptWithoutLabels = {
 };
 const customManifest = tools.applyPromptTemplateToManifest(layoutManifest, customPromptWithoutLabels);
 assert.equal("target_labels" in customManifest.eval, false);
+assert.equal("target_labels_source" in customManifest.eval, false);
+
+const explicitLabelManifest = tools.updateManifestTargetLabels(layoutManifest, ["icon"]);
+assert.deepEqual(explicitLabelManifest.eval.target_labels, ["icon"]);
+assert.equal(explicitLabelManifest.eval.target_labels_source, "explicit");
+
+const defaultPolicyManifest = tools.updateManifestTargetLabels(explicitLabelManifest, []);
+assert.equal("target_labels" in defaultPolicyManifest.eval, false);
+assert.equal("target_labels_source" in defaultPolicyManifest.eval, false);
 
 await rm(tmpDir, { recursive: true, force: true });
 console.log("manifest tools checks passed");

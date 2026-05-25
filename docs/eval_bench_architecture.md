@@ -149,7 +149,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
   layout/arrow 的默认 label policy。
 - 新增 detection label 子任务 UI：必须通过 manifest `target_labels` 修改显式 spec，候选 label 来自
-  benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。
+  benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
+  必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
 - 新增 rank board 字段、facet 或排序规则：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格和测试。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
