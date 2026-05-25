@@ -489,6 +489,10 @@ async function assertOverviewDensity(page, scope) {
     return {
       pipelineStages: document.querySelectorAll(".overview-pipeline-stage").length,
       actionLinks: document.querySelectorAll(".overview-action-link").length,
+      actionMeters: document.querySelectorAll(".overview-action-meter i").length,
+      actionStates: Array.from(document.querySelectorAll(".overview-action-link b")).map(
+        (node) => node.textContent?.trim() ?? ""
+      ),
       nextActions: document.querySelectorAll(".overview-next-action").length,
       activityLanes: document.querySelectorAll(".overview-activity-lane").length,
       activityCells: document.querySelectorAll(".overview-activity-cells i").length,
@@ -542,12 +546,20 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.pipelineStages !== 4 || state.nextActions !== 1 || state.actionLinks < 3) {
+  if (
+    state.pipelineStages !== 4 ||
+    state.nextActions !== 1 ||
+    state.actionLinks !== 4 ||
+    state.actionMeters !== 4 ||
+    state.actionStates.some((value) => !value)
+  ) {
     throw new Error(
-      `${scope}: overview should expose pipeline stages, one next action, and action links ${JSON.stringify({
+      `${scope}: overview should expose pipeline stages, one next action, and readiness links ${JSON.stringify({
         pipelineStages: state.pipelineStages,
         nextActions: state.nextActions,
-        actionLinks: state.actionLinks
+        actionLinks: state.actionLinks,
+        actionMeters: state.actionMeters,
+        actionStates: state.actionStates
       })}`
     );
   }

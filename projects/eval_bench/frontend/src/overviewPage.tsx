@@ -51,6 +51,11 @@ type OverviewAction = {
   tone: OverviewTone;
   icon: React.ReactNode;
 };
+type OverviewReadinessItem = OverviewAction & {
+  state: string;
+  value: number;
+  total: number;
+};
 
 export function OverviewPage() {
   const { data, isLoading, error } = useDashboardState();
@@ -101,6 +106,14 @@ export function OverviewPage() {
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
   const activeQueue = queuedJobs + runningJobs;
   const schedulerEnabled = Boolean(schedulerStatus?.enabled);
+  const postureLine = overviewPostureLine({
+    failedJobs,
+    waitingEvaluation,
+    activeQueue,
+    liveServices,
+    serviceCount: services.length,
+    evaluatedRuns
+  });
   const nextAction = overviewNextAction({
     failedJobs,
     waitingEvaluation,
@@ -214,6 +227,18 @@ export function OverviewPage() {
       tone: failedJobs > 0 ? "danger" : "idle"
     }
   ];
+  const readinessItems = overviewReadinessItems({
+    failedJobs,
+    waitingEvaluation,
+    queuedJobs,
+    runningJobs,
+    liveServices,
+    serviceCount: services.length,
+    evaluatedRuns,
+    totalRuns,
+    schedulerEnabled
+  });
+  const recentRuns = overviewRecentRuns(data.runs, 6);
 
   return (
     <section className="page-stack dashboard-home">
@@ -222,6 +247,7 @@ export function OverviewPage() {
           <div className="overview-title-block">
             <div className="eyebrow">Eval Bench Control</div>
             <h2>总览</h2>
+            <p>{postureLine}</p>
           </div>
           <div className="overview-stat-row">
             <OverviewStat label="Coverage" value={`${coveragePercent}%`} />
@@ -280,13 +306,8 @@ export function OverviewPage() {
         </section>
 
         <aside className="overview-side-stack">
-          <OverviewActionPanel
-            schedulerEnabled={schedulerEnabled}
-            liveServices={liveServices}
-            serviceCount={services.length}
-            activeQueue={activeQueue}
-          />
-          <OverviewRecentRunsPanel runs={data.runs.slice(0, 6)} />
+          <OverviewReadinessPanel schedulerEnabled={schedulerEnabled} items={readinessItems} />
+          <OverviewRecentRunsPanel runs={recentRuns} />
         </aside>
       </div>
     </section>
@@ -345,49 +366,28 @@ function OverviewPipeline({ stages }: { stages: OverviewPipelineStage[] }) {
   );
 }
 
-function OverviewActionPanel({
+function OverviewReadinessPanel({
   schedulerEnabled,
-  liveServices,
-  serviceCount,
-  activeQueue
+  items
 }: {
   schedulerEnabled: boolean;
-  liveServices: number;
-  serviceCount: number;
-  activeQueue: number;
+  items: OverviewReadinessItem[];
 }) {
-  const actions = [
-    {
-      label: "Rank Board",
-      detail: "查看当前可入榜结果",
-      to: "/rank-board" as OverviewRoute,
-      icon: <Trophy size={15} />
-    },
-    {
-      label: "Create Job",
-      detail: activeQueue > 0 ? `${activeQueue} active jobs` : "队列空闲",
-      to: "/jobs" as OverviewRoute,
-      icon: <PlayCircle size={15} />
-    },
-    {
-      label: "Services",
-      detail: serviceCount > 0 ? `${liveServices}/${serviceCount} running` : "未登记服务",
-      to: "/services" as OverviewRoute,
-      icon: <Server size={15} />
-    }
-  ];
   return (
     <section className="workspace-card overview-action-panel">
-      <PanelTitle title="行动入口" meta={schedulerEnabled ? "scheduler auto" : "scheduler manual"} />
+      <PanelTitle title="Readiness" meta={schedulerEnabled ? "scheduler auto" : "scheduler manual"} />
       <div className="overview-action-list">
-        {actions.map((action) => (
-          <Link className="overview-action-link" to={action.to} key={action.label}>
-            <span>{action.icon}</span>
+        {items.map((item) => (
+          <Link className={`overview-action-link ${item.tone}`} to={item.to} key={item.label}>
+            <span>{item.icon}</span>
             <div>
-              <strong>{action.label}</strong>
-              <em>{action.detail}</em>
+              <strong>{item.label}</strong>
+              <em>{item.detail}</em>
+              <div className="overview-action-meter" aria-hidden="true">
+                <i style={{ width: `${trackPercent(item.value, item.total)}%` }} />
+              </div>
             </div>
-            <ArrowRight size={14} />
+            <b>{item.state}</b>
           </Link>
         ))}
       </div>
@@ -564,6 +564,127 @@ function overviewNextAction({
     tone: evaluatedRuns > 0 ? "good" : "idle",
     icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <Layers3 size={16} />
   };
+}
+
+function overviewPostureLine({
+  failedJobs,
+  waitingEvaluation,
+  activeQueue,
+  liveServices,
+  serviceCount,
+  evaluatedRuns
+}: {
+  failedJobs: number;
+  waitingEvaluation: number;
+  activeQueue: number;
+  liveServices: number;
+  serviceCount: number;
+  evaluatedRuns: number;
+}) {
+  if (failedJobs > 0) {
+    return `${failedJobs.toLocaleString()} failed jobs need inspection`;
+  }
+  if (waitingEvaluation > 0) {
+    return `${waitingEvaluation.toLocaleString()} runs are ready for evaluation`;
+  }
+  if (activeQueue > 0) {
+    return `${activeQueue.toLocaleString()} jobs are moving through the queue`;
+  }
+  if (serviceCount > 0 && liveServices === 0) {
+    return "rank data is ready; model service is idle";
+  }
+  if (evaluatedRuns > 0) {
+    return `${evaluatedRuns.toLocaleString()} evaluated runs are ready for ranking`;
+  }
+  return "no evaluated run yet; create a job to start the loop";
+}
+
+function overviewReadinessItems({
+  failedJobs,
+  waitingEvaluation,
+  queuedJobs,
+  runningJobs,
+  liveServices,
+  serviceCount,
+  evaluatedRuns,
+  totalRuns,
+  schedulerEnabled
+}: {
+  failedJobs: number;
+  waitingEvaluation: number;
+  queuedJobs: number;
+  runningJobs: number;
+  liveServices: number;
+  serviceCount: number;
+  evaluatedRuns: number;
+  totalRuns: number;
+  schedulerEnabled: boolean;
+}): OverviewReadinessItem[] {
+  const activeJobs = queuedJobs + runningJobs;
+  const jobTotal = Math.max(activeJobs + failedJobs, 1);
+  return [
+    {
+      label: "Services",
+      detail:
+        serviceCount > 0
+          ? `${liveServices}/${serviceCount} model services live`
+          : "no service registered",
+      to: "/services",
+      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle",
+      icon: <Server size={15} />,
+      state: liveServices > 0 ? "LIVE" : serviceCount > 0 ? "IDLE" : "NONE",
+      value: liveServices,
+      total: Math.max(serviceCount, 1)
+    },
+    {
+      label: "Queue",
+      detail:
+        failedJobs > 0
+          ? `${failedJobs} failed jobs`
+          : schedulerEnabled
+            ? "scheduler is armed"
+            : "manual worker mode",
+      to: "/jobs",
+      tone: failedJobs > 0 ? "danger" : activeJobs > 0 ? "live" : "good",
+      icon: <PlayCircle size={15} />,
+      state: failedJobs > 0 ? "CHECK" : activeJobs > 0 ? "ACTIVE" : "CLEAR",
+      value: activeJobs + failedJobs,
+      total: jobTotal
+    },
+    {
+      label: "Evaluation",
+      detail: waitingEvaluation > 0 ? `${waitingEvaluation} runs waiting` : `${evaluatedRuns} evaluated runs`,
+      to: "/runs",
+      tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
+      icon: <Gauge size={15} />,
+      state: waitingEvaluation > 0 ? "WAIT" : evaluatedRuns > 0 ? "DONE" : "EMPTY",
+      value: evaluatedRuns,
+      total: totalRuns
+    },
+    {
+      label: "Rank Board",
+      detail: evaluatedRuns > 0 ? "global ranking is available" : "needs evaluated reports",
+      to: "/rank-board",
+      tone: evaluatedRuns > 0 ? "good" : "idle",
+      icon: <Trophy size={15} />,
+      state: evaluatedRuns > 0 ? "READY" : "LOCKED",
+      value: evaluatedRuns,
+      total: totalRuns
+    }
+  ];
+}
+
+function overviewRecentRuns(runs: RunSummary[], limit: number) {
+  return [...runs]
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.created_at ?? "");
+      const rightTime = Date.parse(right.created_at ?? "");
+      return (
+        (Number.isFinite(rightTime) ? rightTime : 0) -
+        (Number.isFinite(leftTime) ? leftTime : 0)
+      );
+    })
+    .slice(0, limit);
 }
 
 function percent(value: number, total: number) {

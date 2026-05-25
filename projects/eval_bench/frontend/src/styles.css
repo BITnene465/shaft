@@ -7246,7 +7246,7 @@ tbody tr:hover td {
 
 .overview-action-link {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 16px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   min-height: 48px;
@@ -7256,6 +7256,75 @@ tbody tr:hover td {
   background: #fbfdff;
   border: 1px solid #dce8ef;
   border-radius: 7px;
+}
+
+.overview-action-link b {
+  display: inline-grid;
+  place-items: center;
+  min-width: 48px;
+  min-height: 22px;
+  padding: 0 8px;
+  color: #566c7f;
+  background: #eef4f7;
+  border: 1px solid #d6e3eb;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 860;
+  letter-spacing: 0;
+}
+
+.overview-action-link.good b {
+  color: #0b6a4d;
+  background: #e8f8f1;
+  border-color: #bfe7d5;
+}
+
+.overview-action-link.live b {
+  color: #0e5a74;
+  background: #e8f6fb;
+  border-color: #c1e3ee;
+}
+
+.overview-action-link.warm b {
+  color: #8a530c;
+  background: #fff4df;
+  border-color: #efd39d;
+}
+
+.overview-action-link.danger b {
+  color: #9d2840;
+  background: #fff0f3;
+  border-color: #ecc2cb;
+}
+
+.overview-action-meter {
+  height: 5px;
+  margin-top: 7px;
+  overflow: hidden;
+  background: #edf3f7;
+  border: 1px solid #d9e4ec;
+  border-radius: 999px;
+}
+
+.overview-action-meter i {
+  display: block;
+  height: 100%;
+  min-width: 5px;
+  background: linear-gradient(90deg, #23a36f, #1d5d7a);
+  border-radius: inherit;
+  transition: width 220ms ease;
+}
+
+.overview-action-link.warm .overview-action-meter i {
+  background: #d68722;
+}
+
+.overview-action-link.danger .overview-action-meter i {
+  background: #d04f66;
+}
+
+.overview-action-link.idle .overview-action-meter i {
+  background: #9aaabb;
 }
 
 .overview-action-link:hover,

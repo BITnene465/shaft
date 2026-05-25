@@ -121,7 +121,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测管线、运行压力、活动矩阵、行动入口和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测管线、运行压力、活动矩阵、readiness switchboard 和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
@@ -192,7 +192,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 next action、pipeline progress rail、track rail 和活动矩阵服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall；总览主体保持一个 focus panel、
-  行动入口和最近 run 紧凑摘要组成的 command deck。
+  readiness switchboard 和最近 run 紧凑摘要组成的 command deck。readiness switchboard 固定聚合
+  service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
+  必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
   compact 视口需要滚动时由 command deck 自身滚动，最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。

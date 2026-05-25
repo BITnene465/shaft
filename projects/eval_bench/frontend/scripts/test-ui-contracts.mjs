@@ -142,7 +142,10 @@ assert(
     overviewPage.includes("overview-focus-panel") &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewPipeline") &&
-    overviewPage.includes("OverviewActionPanel") &&
+    overviewPage.includes("OverviewReadinessPanel") &&
+    overviewPage.includes("overviewReadinessItems") &&
+    overviewPage.includes("overviewPostureLine") &&
+    overviewPage.includes("overviewRecentRuns(data.runs") &&
     overviewPage.includes("OverviewTrackGroup") &&
     overviewPage.includes("OverviewActivityMatrix") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&

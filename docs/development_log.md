@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Overview 右侧行动入口信息密度不足
+
+### 现象
+
+总览页已经从旧 mini chart wall 收敛为 command deck，但右侧“行动入口”仍只是 Rank Board / Create Job /
+Services 三个普通链接。它能导航，但不能直接回答 service 是否在线、队列是否健康、是否还有待评估 run、
+排行榜是否可用；最近 run 也直接取 `data.runs.slice(0, 6)`，隐含依赖 API 返回顺序。
+
+### 根因
+
+总览的信息架构只约束了“保留行动入口”，没有把行动入口定义成状态聚合组件。结果右侧空间承担了入口功能，
+但没有承载“当前是否可用”和“下一步去哪”的组合判断。
+
+### 影响范围
+
+- 影响 Overview 首页的决策效率和视觉价值感。
+- 不影响 rank board 计算、run note、job lifecycle、service health 或后端评估语义。
+
+### 修复方式
+
+- 将行动入口升级为 `OverviewReadinessPanel`：固定聚合 Services、Queue、Evaluation、Rank Board 四个状态入口。
+- 每个入口展示状态 capsule、数量占比 rail、详情文案和目标路由，hover 动效沿用 overview command deck 体系。
+- 顶部 console 增加动态 posture line，显示当前系统最重要的粗粒度状态。
+- 最近 run 改为按 `created_at` 倒序截取，避免依赖 `/api/state` 返回顺序。
+- README、架构文档和 layout/UI contract 同步记录 readiness switchboard 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- Overview 新增模块必须继续回答“当前是否可用、卡在哪里、下一步去哪”，不要把低频诊断信息搬回首页。
+- 行动入口不能回退成普通链接列表；必须保留状态、占比轨道和路由三类信息。
+- 最近 run、最近 job 这类时间窗口必须显式排序，不依赖后端默认返回顺序。
+
 ## 2026-05-25: Eval Bench settings 快捷键捕获仍使用 raw button
 
 ### 现象
