@@ -537,8 +537,8 @@ weighted 面板内，排行榜表格继续显示上一份可用结果。
 Dashboard 总览页是总控工作台，不展示 recall 这类精细评测指标；它聚合 run 生命周期、评测覆盖、
 任务类型、模型分布、Prompt 分布、parser、viewer profile、benchmark task、label footprint、样本规模、
 数据层、split、label scope、run 新鲜度、预测规模、备注覆盖、job、service 和 scheduler 粗粒度状态。
-总览视觉模块按高密度控制台处理：ops、连续 12 个日期桶的写入节奏和实时遥测压缩在同一条 signal deck，
-主区域压缩为 20+ 个环形占比 + 条形图 mini chart；compact 视口下由图表矩阵自身滚动，不能被外层 hidden 裁切。最近 run 只作为底部横向事件条，不再用大块低信息密度 card 拉伸页面。高级检索 UI 已组件化为
+总览视觉模块按高密度控制台处理：ops、Run/Job/Service 三泳道 12 日期桶活动矩阵和实时遥测压缩在同一条 signal deck，
+主区域压缩为 40+ 个环形占比、柱状、栅格和堆叠条 mini chart；compact 视口下由图表矩阵自身滚动，不能被外层 hidden 裁切。最近 run 只作为底部横向事件条，不再用大块低信息密度 card 拉伸页面。高级检索 UI 已组件化为
 `AdvancedFilterBar`，默认收敛为一个 Filter 按钮，展开后才显示检索表单；Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；
 Benchmark Inspector 和 Run Inspector 的样本级 label/error 筛选也复用同一个折叠式高级检索条，避免侧栏堆叠多个 select；
 排行榜入口、入榜状态和已评估状态使用独立 `AppIcon` 语义 key，避免用同一个 metrics 图标表达不同含义。

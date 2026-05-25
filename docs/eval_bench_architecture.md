@@ -173,7 +173,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 signal deck、微型柱状、环形占比、栅格热区、堆叠条和矩阵化小图表表达，
-  不再把低频信息做成大块空白 card；主矩阵至少保持 40 个粗粒度 mini chart，并同时保留多种微图表形态。
+  不再把低频信息做成大块空白 card；signal deck 的时间维度优先压缩成 Run/Job/Service 三泳道活动矩阵。
+  主矩阵至少保持 40 个粗粒度 mini chart，并同时保留多种微图表形态。
   compact 视口需要滚动时只能由矩阵自身滚动，最近 run 必须嵌入矩阵成为紧凑事件 tile，
   不允许按剩余高度拉伸成独立大块面板。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill

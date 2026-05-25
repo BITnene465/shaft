@@ -3094,3 +3094,41 @@ target label scope 的真源在 `label_policy.py`，但 preflight 没有把 reso
 - 新增任务或 prompt template 时必须保证 benchmark label index、prompt metadata 和显式 `target_labels`
   的语义可由 preflight 验证。
 - agent 创建 job 必须先跑 `preflight-job`；不能绕过 label 子任务校验直接写 SQLite job record。
+
+## 2026-05-25: Eval Bench Overview 活动矩阵
+
+### 现象
+
+总览页已经有 40+ 个粗粒度 mini chart，但 signal deck 中的时间图仍只表达 run 写入节奏。用户继续要求
+总览拥有更多可视化图表，并进一步压缩信息密度。
+
+### 根因
+
+原来的 12 桶 rhythm 只消费 `runs.created_at`，没有把 job queue 和 service runtime 的变化纳入同一时间面板。
+这会让实时控制台看起来仍偏静态，agent 或用户需要跨多个区域才能判断 run、job、service 是否同步活跃。
+
+### 影响范围
+
+- 影响 Dashboard Overview 的 signal deck 视觉和 layout smoke 验收。
+- 不改变后端 store、job、service 或 scheduler API；前端只消费已有 `runs`、`jobs`、`services` 字段。
+- Overview 仍不展示 precision / recall / IoU 等细粒度评测指标。
+
+### 修复方式
+
+- 将原单条 `OverviewWriteRhythm` 升级为 `OverviewActivityMatrix`，用 Run / Job / Service 三条泳道展示最近
+  12 个日期桶的活动密度。
+- 活动矩阵继续留在 signal deck 内，与 ops 和实时遥测同屏，不新增整行低密度面板。
+- 复用同一套日期桶生成 helper，避免 run timeline 和 activity matrix 各自维护日期桶算法。
+- `layout-smoke-check.mjs` 将 Overview 时间图验收更新为 3 条 12-cell 活动泳道。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- Overview 新增实时信号优先进入活动矩阵、telemetry cell 或 mini chart，不新增大块说明面板。
+- 如果后续需要分钟级实时状态，应新增专门的轻量 API 聚合，不要在前端扫描原始 artifact 文件。

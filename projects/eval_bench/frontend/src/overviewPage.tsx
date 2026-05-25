@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Activity, BarChart3 } from "lucide-react";
 
-import type { RunSummary, SchedulerStatus } from "./api";
+import type { JobSummary, RunSummary, SchedulerStatus, ServiceSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
@@ -11,6 +11,12 @@ import { Badge, EmptyState, PanelTitle } from "./ui";
 
 type OverviewChartKind = "ring" | "rails" | "cells" | "meter";
 type OverviewChartRow = { key: string; count: number };
+type OverviewActivityLane = {
+  label: string;
+  tone: "run" | "job" | "service";
+  rows: OverviewChartRow[];
+  total: number;
+};
 type OverviewChartSpec = {
   title: string;
   meta: string;
@@ -127,6 +133,7 @@ export function OverviewPage() {
   const schedulerRows = schedulerResourceRows(schedulerStatus);
   const schedulerLoopRows = schedulerLoopStateRows(schedulerStatus);
   const timelineRows = runTimeline(data.runs, 12);
+  const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
   const overviewCharts: OverviewChartSpec[] = [
@@ -221,7 +228,7 @@ export function OverviewPage() {
           <OverviewDatum label="Notes" value={notedRuns} />
           <OverviewDatum label="Tasks" value={taskRows.length} />
         </div>
-        <OverviewWriteRhythm rows={timelineRows} />
+        <OverviewActivityMatrix lanes={activityLanes} />
         <OverviewTelemetryPanel
           queuedJobs={queuedJobs}
           runningJobs={runningJobs}
@@ -534,39 +541,52 @@ function overviewChartColor(index: number) {
   return colors[index % colors.length];
 }
 
-function OverviewWriteRhythm({ rows }: { rows: Array<{ key: string; count: number }> }) {
-  const maxCount = Math.max(1, ...rows.map((row) => row.count));
-  const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const activeBuckets = rows.filter((row) => row.count > 0).length;
-  const latest = rows.at(-1);
+function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
+  const maxCount = Math.max(
+    1,
+    ...lanes.flatMap((lane) => lane.rows.map((row) => row.count))
+  );
+  const total = lanes.reduce((sum, lane) => sum + lane.total, 0);
+  const activeCells = lanes.reduce(
+    (sum, lane) => sum + lane.rows.filter((row) => row.count > 0).length,
+    0
+  );
+  const bucketCount = lanes[0]?.rows.length ?? 0;
+  const latest = lanes[0]?.rows.at(-1);
   return (
-    <div className="overview-rhythm-strip">
+    <div className="overview-rhythm-strip overview-activity-matrix">
       <div className="overview-rhythm-copy">
         <span>
           <BarChart3 size={14} />
-          写入节奏
+          活动矩阵
         </span>
-        <strong>{total.toLocaleString()} runs / 12d</strong>
+        <strong>{total.toLocaleString()} events / {bucketCount}d</strong>
       </div>
-      <div className="overview-rhythm-bars" aria-label="最近 12 个日期桶的 run 写入节奏">
-        {rows.map((row) => (
-          <span
-            key={row.key}
-            style={
-              {
-                "--rhythm-height": `${Math.max(10, (row.count / maxCount) * 100)}%`
-              } as React.CSSProperties
-            }
-            title={`${row.key}: ${row.count.toLocaleString()} runs`}
-          >
-            <i />
-          </span>
+      <div className="overview-activity-lanes" aria-label="最近日期桶的 run job service 活动">
+        {lanes.map((lane) => (
+          <div className={`overview-activity-lane ${lane.tone}`} key={lane.label}>
+            <span>{lane.label}</span>
+            <div className="overview-activity-cells">
+              {lane.rows.map((row) => (
+                <i
+                  key={row.key}
+                  style={
+                    {
+                      opacity: row.count > 0 ? Math.max(0.32, row.count / maxCount) : 0.12
+                    } as React.CSSProperties
+                  }
+                  title={`${lane.label} ${row.key}: ${row.count.toLocaleString()}`}
+                />
+              ))}
+            </div>
+            <strong>{lane.total.toLocaleString()}</strong>
+          </div>
         ))}
       </div>
       <div className="overview-rhythm-meta">
         <span>{latest?.key ?? "-"}</span>
         <strong>
-          活跃 {activeBuckets}/{rows.length}
+          active {activeCells}/{lanes.length * bucketCount}
         </strong>
       </div>
     </div>
@@ -902,6 +922,81 @@ function schedulerLoopStateRows(status: SchedulerStatus | undefined) {
   ];
 }
 
+function overviewActivityLanes(
+  runs: RunSummary[],
+  jobs: JobSummary[],
+  services: ServiceSummary[],
+  bucketCount: number
+): OverviewActivityLane[] {
+  const keys = overviewTimelineKeys(
+    latestActivityDate(runs, jobs, services) ?? new Date(),
+    bucketCount
+  );
+  return [
+    {
+      label: "Runs",
+      tone: "run",
+      rows: timelineRowsForItems(runs, keys, (run) => run.created_at),
+      total: runs.length
+    },
+    {
+      label: "Jobs",
+      tone: "job",
+      rows: timelineRowsForItems(jobs, keys, (job) => job.created_at),
+      total: jobs.length
+    },
+    {
+      label: "Svc",
+      tone: "service",
+      rows: timelineRowsForItems(
+        services,
+        keys,
+        (service) => service.updated_at ?? service.created_at
+      ),
+      total: services.length
+    }
+  ];
+}
+
+function timelineRowsForItems<T>(
+  items: T[],
+  keys: string[],
+  timestampForItem: (item: T) => string | null | undefined
+) {
+  const counts = countBy(items, (item) => {
+    const timestamp = timestampForItem(item);
+    return timestamp ? timestamp.slice(0, 10) : "unknown";
+  });
+  const countMap = new Map(counts.map((row) => [row.key, row.count]));
+  return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
+}
+
+function overviewTimelineKeys(endDate: Date, bucketCount: number) {
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const date = new Date(endDate);
+    date.setUTCDate(endDate.getUTCDate() - (bucketCount - 1 - index));
+    return date.toISOString().slice(0, 10);
+  });
+}
+
+function latestActivityDate(
+  runs: RunSummary[],
+  jobs: JobSummary[],
+  services: ServiceSummary[]
+) {
+  const timestamps = [
+    ...runs.map((run) => run.created_at),
+    ...jobs.map((job) => job.created_at),
+    ...services.map((service) => service.updated_at ?? service.created_at)
+  ]
+    .map((timestamp) => (timestamp ? Date.parse(timestamp) : Number.NaN))
+    .filter(Number.isFinite);
+  if (timestamps.length === 0) {
+    return null;
+  }
+  return new Date(Math.max(...timestamps));
+}
+
 function runFreshnessRows(runs: RunSummary[]) {
   const anchor = latestRunDate(runs) ?? new Date();
   return countBy(runs, (run) => {
@@ -928,11 +1023,7 @@ function runFreshnessRows(runs: RunSummary[]) {
 
 function runTimeline(runs: RunSummary[], bucketCount: number) {
   const endDate = latestRunDate(runs) ?? new Date();
-  const keys = Array.from({ length: bucketCount }, (_, index) => {
-    const date = new Date(endDate);
-    date.setUTCDate(endDate.getUTCDate() - (bucketCount - 1 - index));
-    return date.toISOString().slice(0, 10);
-  });
+  const keys = overviewTimelineKeys(endDate, bucketCount);
   const counts = countBy(runs, (run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"));
   const countMap = new Map(counts.map((row) => [row.key, row.count]));
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));

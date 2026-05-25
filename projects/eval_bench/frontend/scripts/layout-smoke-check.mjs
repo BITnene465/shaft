@@ -17,7 +17,7 @@ const staticRoutes = [
       ".dashboard-home",
       ".overview-console",
       ".overview-signal-deck",
-      ".overview-rhythm-strip",
+      ".overview-activity-matrix",
       ".overview-grid.refined",
       ".overview-chart-matrix",
       ".overview-mini-chart",
@@ -399,15 +399,16 @@ async function assertOverviewDensity(page, scope) {
     const chartCardHeights = Array.from(document.querySelectorAll(".overview-chart-card")).map((node) =>
       Math.round(node.getBoundingClientRect().height)
     );
-    const rhythm = document.querySelector(".overview-rhythm-strip");
+    const activityMatrix = document.querySelector(".overview-activity-matrix");
     const signalDeck = document.querySelector(".overview-signal-deck");
     const chartMatrix = document.querySelector(".overview-chart-matrix");
-    const rhythmStyle = rhythm ? getComputedStyle(rhythm) : null;
+    const activityMatrixStyle = activityMatrix ? getComputedStyle(activityMatrix) : null;
     const signalDeckStyle = signalDeck ? getComputedStyle(signalDeck) : null;
     const chartMatrixStyle = chartMatrix ? getComputedStyle(chartMatrix) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
-      rhythmBars: document.querySelectorAll(".overview-rhythm-bars span").length,
+      activityLanes: document.querySelectorAll(".overview-activity-lane").length,
+      activityCells: document.querySelectorAll(".overview-activity-cells i").length,
       miniCharts: chartRects.length,
       chartKinds: Array.from(chartKinds),
       chartRects,
@@ -419,19 +420,26 @@ async function assertOverviewDensity(page, scope) {
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
       bodyText,
-      rhythmHeight: rhythm ? Math.round(rhythm.getBoundingClientRect().height) : 0,
+      activityMatrixHeight: activityMatrix
+        ? Math.round(activityMatrix.getBoundingClientRect().height)
+        : 0,
       signalDeckHeight: signalDeck ? Math.round(signalDeck.getBoundingClientRect().height) : 0,
       chartMatrixScrollHeight: chartMatrix?.scrollHeight ?? 0,
       chartMatrixClientHeight: chartMatrix?.clientHeight ?? 0,
-      rhythmOverflowX: rhythmStyle?.overflowX ?? "",
-      rhythmOverflowY: rhythmStyle?.overflowY ?? "",
+      activityMatrixOverflowX: activityMatrixStyle?.overflowX ?? "",
+      activityMatrixOverflowY: activityMatrixStyle?.overflowY ?? "",
       signalDeckOverflowX: signalDeckStyle?.overflowX ?? "",
       signalDeckOverflowY: signalDeckStyle?.overflowY ?? "",
       chartMatrixOverflowY: chartMatrixStyle?.overflowY ?? ""
     };
   });
-  if (state.rhythmBars !== 12) {
-    throw new Error(`${scope}: overview rhythm should use 12 compact bars, got ${state.rhythmBars}`);
+  if (state.activityLanes !== 3 || state.activityCells !== 36) {
+    throw new Error(
+      `${scope}: overview activity matrix should use three 12-cell lanes ${JSON.stringify({
+        lanes: state.activityLanes,
+        cells: state.activityCells
+      })}`
+    );
   }
   if (state.miniCharts < 40) {
     throw new Error(`${scope}: overview should expose at least forty mini charts, got ${state.miniCharts}`);
@@ -459,12 +467,16 @@ async function assertOverviewDensity(page, scope) {
   if (state.chartCardHeights.some((height) => height > 150)) {
     throw new Error(`${scope}: overview chart cards are stretched ${state.chartCardHeights.join(",")}`);
   }
-  if (state.rhythmHeight > 90 || state.rhythmOverflowX === "visible" || state.rhythmOverflowY === "visible") {
+  if (
+    state.activityMatrixHeight > 110 ||
+    state.activityMatrixOverflowX === "visible" ||
+    state.activityMatrixOverflowY === "visible"
+  ) {
     throw new Error(
-      `${scope}: rhythm strip is not compact ${JSON.stringify({
-        height: state.rhythmHeight,
-        overflowX: state.rhythmOverflowX,
-        overflowY: state.rhythmOverflowY
+      `${scope}: activity matrix is not compact ${JSON.stringify({
+        height: state.activityMatrixHeight,
+        overflowX: state.activityMatrixOverflowX,
+        overflowY: state.activityMatrixOverflowY
       })}`
     );
   }

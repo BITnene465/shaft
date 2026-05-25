@@ -275,7 +275,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高密度约束：顶栏 status 必须是独立
-圆角 capsule，ops / 写入节奏 / 实时遥测必须压缩在 signal deck，写入节奏必须是 12 桶微型条，Overview 至少保留 40 个 mini chart，
+圆角 capsule，ops / Run-Job-Service 活动矩阵 / 实时遥测必须压缩在 signal deck，活动矩阵必须是 3 条 12 桶泳道，Overview 至少保留 40 个 mini chart，
 并同时包含环形、柱状、栅格和堆叠条等多种微图表形态；Overview 不能出现 precision/recall/IoU 这类细指标文案；
 图表矩阵需要滚动时不能被 hidden 裁切，最近 run 必须嵌入图表矩阵，不能回退成独立大块面板。
 
