@@ -371,12 +371,38 @@ function OverviewPage() {
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
   const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
   const promptRows = countBy(data.runs, (run) => run.prompt_id || "unknown");
+  const benchmarkTaskRows = countMany(data.benchmarks, (benchmark) => benchmark.tasks);
+  const benchmarkLabelRows = countMany(data.benchmarks, (benchmark) => benchmark.labels);
+  const benchmarkLayerRows = countMany(data.benchmarks, (benchmark) => benchmark.layers);
+  const splitRows = countBy(data.benchmarks, (benchmark) => benchmark.split || "unknown");
+  const coverageRows = runCoverageRows(data.runs);
+  const sampleScaleRows = countBy(data.benchmarks, (benchmark) =>
+    sampleScaleBucket(benchmark.sample_count)
+  );
+  const targetLabelRows = countMany(data.runs, (run) =>
+    run.target_labels.length > 0 ? run.target_labels : ["unscoped"]
+  );
+  const freshnessRows = runFreshnessRows(data.runs);
   const timelineRows = runTimeline(data.runs, 12);
   const activeRuns = data.runs.filter((run) =>
     ["created", "queued", "running"].includes(run.status)
   ).length;
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
+  const overviewCharts = [
+    { title: "Run 生命周期", meta: "status", rows: statusRows },
+    { title: "评测覆盖", meta: "report state", rows: coverageRows },
+    { title: "Run 任务", meta: "spec_task", rows: taskRows },
+    { title: "模型分布", meta: "model_id", rows: modelRows },
+    { title: "Prompt 分布", meta: "prompt_id", rows: promptRows },
+    { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows },
+    { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows },
+    { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows },
+    { title: "数据层", meta: "benchmark layers", rows: benchmarkLayerRows },
+    { title: "Split 分布", meta: "dataset split", rows: splitRows },
+    { title: "Label scope", meta: "run labels", rows: targetLabelRows },
+    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows }
+  ];
   const jobs = jobsQuery.data?.jobs ?? [];
   const services = servicesQuery.data?.services ?? [];
   const queuedJobs = jobs.filter((job) => job.status === "queued").length;
@@ -437,15 +463,19 @@ function OverviewPage() {
         syncing={overviewSyncing}
       />
       <div className="overview-grid refined">
-        <div className="overview-side-stack">
-          <OverviewMiniChartPanel title="Run 生命周期" meta="状态分布" rows={statusRows} />
-          <OverviewMiniChartPanel title="任务类型" meta="任务分布" rows={taskRows} />
-          <OverviewMiniChartPanel title="模型分布" meta="model_id" rows={modelRows} />
-          <OverviewMiniChartPanel title="Prompt 分布" meta="prompt_id" rows={promptRows} />
+        <div className="overview-chart-matrix">
+          {overviewCharts.map((chart) => (
+            <OverviewMiniChartPanel
+              key={chart.title}
+              title={chart.title}
+              meta={chart.meta}
+              rows={chart.rows}
+            />
+          ))}
         </div>
         <div className="workspace-card overview-recent-panel">
-          <PanelTitle title="最近 run" meta={`最新 ${Math.min(4, data.runs.length)} 条`} />
-          <OverviewRunList runs={data.runs.slice(0, 4)} />
+          <PanelTitle title="最近 run" meta={`最新 ${Math.min(6, data.runs.length)} 条`} />
+          <OverviewRunList runs={data.runs.slice(0, 6)} />
         </div>
       </div>
     </section>
@@ -680,6 +710,76 @@ function countBy<T>(items: T[], keyForItem: (item: T) => string) {
   return Array.from(counts.entries())
     .map(([key, count]) => ({ key, count }))
     .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function countMany<T>(items: T[], keysForItem: (item: T) => string[]) {
+  return countBy(
+    items.flatMap((item) => {
+      const keys = keysForItem(item)
+        .map((key) => key.trim())
+        .filter(Boolean);
+      return keys.length > 0 ? keys : ["unknown"];
+    }),
+    (key) => key
+  );
+}
+
+function runCoverageRows(runs: RunSummary[]) {
+  const rows = [
+    {
+      key: "已评估",
+      count: runs.filter((run) => Boolean(run.report_path)).length
+    },
+    {
+      key: "有预测",
+      count: runs.filter((run) => !run.report_path && run.prediction_count > 0).length
+    },
+    {
+      key: "仅记录",
+      count: runs.filter((run) => !run.report_path && run.prediction_count <= 0).length
+    }
+  ];
+  return rows.filter((row) => row.count > 0);
+}
+
+function sampleScaleBucket(sampleCount: number) {
+  if (sampleCount <= 0) {
+    return "0";
+  }
+  if (sampleCount < 100) {
+    return "1-99";
+  }
+  if (sampleCount < 1_000) {
+    return "100-999";
+  }
+  if (sampleCount < 10_000) {
+    return "1k-9.9k";
+  }
+  return "10k+";
+}
+
+function runFreshnessRows(runs: RunSummary[]) {
+  const anchor = latestRunDate(runs) ?? new Date();
+  return countBy(runs, (run) => {
+    const timestamp = run.created_at ? Date.parse(run.created_at) : Number.NaN;
+    if (!Number.isFinite(timestamp)) {
+      return "unknown";
+    }
+    const days = Math.max(
+      0,
+      Math.floor((anchor.getTime() - timestamp) / (24 * 60 * 60 * 1_000))
+    );
+    if (days === 0) {
+      return "latest day";
+    }
+    if (days <= 3) {
+      return "1-3d";
+    }
+    if (days <= 7) {
+      return "4-7d";
+    }
+    return "older";
+  });
 }
 
 function runTimeline(runs: RunSummary[], bucketCount: number) {

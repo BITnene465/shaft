@@ -18,6 +18,7 @@ const staticRoutes = [
       ".overview-console",
       ".overview-rhythm-strip",
       ".overview-grid.refined",
+      ".overview-chart-matrix",
       ".overview-mini-chart"
     ]
   },
@@ -354,16 +355,22 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
+    const chartCardHeights = Array.from(document.querySelectorAll(".overview-chart-card")).map((node) =>
+      Math.round(node.getBoundingClientRect().height)
+    );
     const rhythm = document.querySelector(".overview-rhythm-strip");
     const rhythmStyle = rhythm ? getComputedStyle(rhythm) : null;
+    const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
       rhythmBars: document.querySelectorAll(".overview-rhythm-bars span").length,
       miniCharts: chartRects.length,
       chartRects,
+      chartCardHeights,
       recentRows,
       oldTimelinePanels: document.querySelectorAll(
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
+      bodyText,
       rhythmHeight: rhythm ? Math.round(rhythm.getBoundingClientRect().height) : 0,
       rhythmOverflowX: rhythmStyle?.overflowX ?? "",
       rhythmOverflowY: rhythmStyle?.overflowY ?? ""
@@ -372,14 +379,20 @@ async function assertOverviewDensity(page, scope) {
   if (state.rhythmBars !== 12) {
     throw new Error(`${scope}: overview rhythm should use 12 compact bars, got ${state.rhythmBars}`);
   }
-  if (state.miniCharts < 4) {
-    throw new Error(`${scope}: overview should expose at least four mini charts, got ${state.miniCharts}`);
+  if (state.miniCharts < 12) {
+    throw new Error(`${scope}: overview should expose at least twelve mini charts, got ${state.miniCharts}`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
   }
+  if (/\b(precision|recall|iou|miou)\b/i.test(state.bodyText)) {
+    throw new Error(`${scope}: overview exposes fine-grained eval metric text`);
+  }
   if (state.recentRows.some((height) => height > 72)) {
     throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
+  }
+  if (state.chartCardHeights.some((height) => height > 150)) {
+    throw new Error(`${scope}: overview chart cards are stretched ${state.chartCardHeights.join(",")}`);
   }
   if (state.rhythmHeight > 90 || state.rhythmOverflowX === "visible" || state.rhythmOverflowY === "visible") {
     throw new Error(
