@@ -202,6 +202,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
+- 新增或改动 agent 关键命令：`show-agent-command` / `list-agent-commands` 必须同步暴露可执行参数、
+  互斥组、副作用标记和必要的 `output_schema`。Rank Board 这类核心只读命令必须描述分页、filters、
+  facets、primary metric 和 entry 字段，避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用

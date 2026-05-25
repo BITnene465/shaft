@@ -138,11 +138,38 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
+    assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
     assert commands_by_name["rank-board"]["domain"] == "rank"
     assert commands_by_name["rank-board"]["mutates_state"] is False
     assert "rank-board" in commands_by_name["rank-board"]["usage"]
     assert "pytest" not in commands_by_name["rank-board"]["usage"]
     assert "rank-scheme-json" in commands_by_name["rank-board"]["usage"]
+    rank_output_schema = commands_by_name["rank-board"]["output_schema"]
+    assert rank_output_schema["required"] == [
+        "offset",
+        "limit",
+        "total",
+        "evaluated_count",
+        "filters",
+        "primary_metric",
+        "primary_metric_label",
+        "sort_by",
+        "sort_order",
+        "score_formula",
+        "rank_scheme",
+        "facets",
+        "entries",
+    ]
+    assert rank_output_schema["properties"]["facets"]["keys"] == [
+        "tasks",
+        "benchmarks",
+        "statuses",
+        "labels",
+        "models",
+        "prompts",
+        "metric_profiles",
+    ]
+    assert "score_delta" in rank_output_schema["properties"]["entries"]["item_shape"]
     assert commands_by_name["create-job"]["domain"] == "job"
     assert commands_by_name["create-job"]["mutates_state"] is True
     assert commands_by_name["init-run"]["domain"] == "run"
@@ -254,6 +281,11 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     assert command["destructive"] is False
     assert command["argv_prefix"] == ["scripts/eval_bench.py", "rank-board"]
     assert "rank-board" in command["usage"]
+    assert command["output_schema"]["properties"]["facets"]["item_shape"] == {
+        "value": "str",
+        "count": "int",
+    }
+    assert command["output_schema"]["properties"]["entries"]["item_shape"]["score"] == "float|null"
     args_by_dest = {item["dest"]: item for item in command["arguments"]}
     assert args_by_dest["sort_by"]["default"] == "f1_iou50"
     assert "weighted_score" in args_by_dest["sort_by"]["choices"]

@@ -82,6 +82,61 @@ AGENT_DESTRUCTIVE_COMMANDS = frozenset(
         "stop-service",
     }
 )
+AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
+    "rank-board": {
+        "type": "object",
+        "required": [
+            "offset",
+            "limit",
+            "total",
+            "evaluated_count",
+            "filters",
+            "primary_metric",
+            "primary_metric_label",
+            "sort_by",
+            "sort_order",
+            "score_formula",
+            "rank_scheme",
+            "facets",
+            "entries",
+        ],
+        "properties": {
+            "facets": {
+                "type": "object",
+                "keys": [
+                    "tasks",
+                    "benchmarks",
+                    "statuses",
+                    "labels",
+                    "models",
+                    "prompts",
+                    "metric_profiles",
+                ],
+                "item_shape": {"value": "str", "count": "int"},
+            },
+            "entries": {
+                "type": "array",
+                "item_shape": {
+                    "rank": "int",
+                    "run_id": "str",
+                    "score": "float|null",
+                    "score_delta": "float|null",
+                    "f1_iou50": "float|null",
+                    "status": "str",
+                    "benchmark_id": "str",
+                    "task": "str",
+                    "target_labels": "list[str]",
+                    "model_id": "str",
+                    "prompt_id": "str",
+                    "metric_profile": "str",
+                    "prediction_count": "int",
+                    "note": "str",
+                    "score_components": "list[object]",
+                },
+            },
+        },
+    }
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1638,6 +1693,7 @@ def _agent_command_contract_from_maps(
         "argv_prefix": ["scripts/eval_bench.py", name],
         "arguments": command_arguments[name]["arguments"],
         "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
+        "output_schema": AGENT_COMMAND_OUTPUT_SCHEMAS.get(name, {}),
     }
 
 

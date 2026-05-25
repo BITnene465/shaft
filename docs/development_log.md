@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench rank-board agent 契约缺少输出结构
+
+### 现象
+
+`rank-board` 已经是稳定 agent CLI 命令，且实际 JSON 输出包含分页、filters、facets、主指标和 entries。
+但 `show-agent-command --name rank-board` 只暴露参数和互斥组，不说明输出结构。agent 可以知道如何调用，
+却仍需要通过样例输出或内部 store 代码猜测 `facets`、`entries`、`score_delta` 等字段。
+
+### 根因
+
+agent command contract 初期只解决“命令是否稳定、参数如何传、是否有副作用”的问题，没有把核心只读命令的
+返回结构纳入契约。Rank Board 后续变成核心功能后，输出 schema 没有跟着进入 agent 面。
+
+### 影响范围
+
+- 影响 agent 对 `rank-board` 的自动化调用、字段选择和后续筛选决策。
+- 不改变 `/api/rank-board`、CLI `rank-board` 实际输出、rank score、metric、eval 或 store 语义；这是 agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- 新增 `AGENT_COMMAND_OUTPUT_SCHEMAS`，先为核心 `rank-board` 命令声明输出 required 字段、七类 facet keys、facet item shape 和 entry item shape。
+- `list-agent-commands` 与 `show-agent-command` 统一带出 `output_schema`，未声明 schema 的命令返回空对象。
+- CLI contract 测试锁住 `rank-board` 的输出字段、facet keys、facet item shape 和 entry score/score_delta 字段。
+- README 和架构文档同步 agent output schema 边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_cli.py::test_cli_prints_filtered_rank_board`
+
+### 后续防线
+
+- 新增核心 agent 只读命令时，如果调用方需要稳定消费 JSON 字段，应同步补 `output_schema`，不要让 agent 通过读取内部实现推断返回结构。
+
 ## 2026-05-25: Eval Bench Rank Board 长 facet 值不可达
 
 ### 现象
