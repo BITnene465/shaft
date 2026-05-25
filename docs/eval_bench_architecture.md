@@ -122,6 +122,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
   - 维护 benchmark/run 检查器共享样本分页控件；分页按钮统一走基础 action 组件。
+- `projects/eval_bench/frontend/src/runsPage.tsx`
+  - 维护结果库、导入预测弹窗、run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
+- `projects/eval_bench/frontend/src/sampleViewer.tsx`
+  - 维护 Run Inspector 与成对样本对比共享的 GT / Prediction 叠图、对象检查器和 viewer 偏好状态。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
 - `projects/eval_bench/frontend/src/comparePage.tsx`

@@ -37,7 +37,8 @@ const staticRoutes = [
   {
     name: "runs",
     path: "/runs",
-    selectors: [".run-table-stack", ".advanced-filter-bar", ".table-shell"]
+    selectors: [".run-table-stack", ".advanced-filter-bar", ".table-shell"],
+    requireRunsChunk: true
   },
   {
     name: "benchmarks",
@@ -113,6 +114,9 @@ try {
       }
       if (route.requireBenchmarksChunk) {
         await assertBenchmarksPageChunkLoaded(page, `${viewport.name}:${route.name}`);
+      }
+      if (route.requireRunsChunk) {
+        await assertRunsPageChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireCompareChunk) {
         await assertComparePageChunkLoaded(page, `${viewport.name}:${route.name}`);
@@ -210,7 +214,8 @@ async function discoverInspectorRoutes(rootUrl) {
           ".viewer-panel"
         ],
         requireInspectorFilters: true,
-        requireRunInspectorCounts: true
+        requireRunInspectorCounts: true,
+        requireRunsChunk: true
       });
     }
     return routes;
@@ -709,6 +714,18 @@ async function assertBenchmarksPageChunkLoaded(page, scope) {
   );
   if (loaded.length === 0) {
     throw new Error(`${scope}: benchmarks route did not load the independent benchmarksPage chunk`);
+  }
+}
+
+async function assertRunsPageChunkLoaded(page, scope) {
+  const loaded = await page.evaluate(() =>
+    performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => name.includes("runsPage"))
+  );
+  if (loaded.length === 0) {
+    throw new Error(`${scope}: runs route did not load the independent runsPage chunk`);
   }
 }
 

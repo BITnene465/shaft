@@ -2811,3 +2811,44 @@ Settings 页在早期为了快速迭代直接落在 `main.tsx`，后续虽然陆
 
 - 基准集列表、创建副本、真值检查器和相关筛选只在 `benchmarksPage.tsx` 中演进，不回流到 `main.tsx`。
 - 检查器分页继续复用 `samplePager.tsx`，避免 benchmark/run 两套分页按钮和滚动行为分叉。
+
+## 2026-05-25: Eval Bench Runs 页面和共享样本 Viewer 从 main.tsx 拆出
+
+### 现象
+
+`main.tsx` 仍承载结果库高级检索、导入预测弹窗、run note 编辑器、run 样本检查器和完整样本 viewer。
+这些能力对应目标中的 run note、agent 可导入预测、样本翻页、viewer 偏好状态和滚动布局，是后续高频迭代面；
+继续留在入口文件会让 route shell、run 工作台和成对样本对比共用逻辑混在一起。
+
+### 根因
+
+Run Inspector 最初和成对样本对比共享同一个 `SampleViewer`，为了快速复用直接写在 `main.tsx`。
+后续虽然抽出了 `viewerCanvas.tsx`、`viewerPanels.tsx`、`viewerMetrics.ts` 和 `samplePager.tsx`，
+但没有把页面容器和共享 viewer 编排拆出。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 前端模块边界、代码分块、run note 编辑器和样本 viewer 可维护性。
+- 不改变 run note API、导入预测 payload、样本筛选语义、viewer 偏好持久化或后端评估语义。
+
+### 修复方式
+
+- 新增 `runsPage.tsx`，承载结果库、导入预测弹窗、run note 编辑器、run 样本检查器和相关 helper。
+- `/runs` 与 `/runs/$runId` 改为 lazy route，加载独立 `runsPage` chunk。
+- 新增 `sampleViewer.tsx`，作为 Run Inspector 和成对样本对比共享叠图 / 对象检查器真源。
+- `main.tsx` 删除 Runs 页面实现，只保留 shell、route 和成对样本对比的轻量页面容器。
+- `test:ui-contracts` 增加防线：`main.tsx` 不能再实现 Runs 页面或 run 检查器。
+- layout smoke 增加 chunk 检查：`/runs` 和 run inspector 必须加载独立 `runsPage` chunk。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 补充模块边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/runs npm run render-check`
+
+### 后续防线
+
+- 结果库、导入预测、run note、run 样本筛选和 run 检查器只在 `runsPage.tsx` 中演进。
+- Run Inspector 与成对样本对比继续复用 `sampleViewer.tsx`，避免 viewer 偏好状态和对象检查器出现双轨实现。
