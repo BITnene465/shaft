@@ -9,7 +9,7 @@ import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
 import { Badge, EmptyState, PanelTitle } from "./ui";
 
-type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";
+type OverviewChartKind = "ring" | "rails" | "cells" | "meter";
 type OverviewChartRow = { key: string; count: number };
 type OverviewActivityLane = {
   label: string;
@@ -257,10 +257,6 @@ function OverviewMiniChartPanel({
           <OverviewCellsChart rows={visibleRows} maxCount={maxCount} />
         ) : kind === "meter" ? (
           <OverviewMeterChart rows={visibleRows} total={total} maxCount={maxCount} />
-        ) : kind === "spark" ? (
-          <OverviewSparkChart rows={visibleRows} total={total} maxCount={maxCount} />
-        ) : kind === "mosaic" ? (
-          <OverviewMosaicChart rows={visibleRows} maxCount={maxCount} />
         ) : (
           <OverviewRingChart
             rows={visibleRows}
@@ -276,9 +272,6 @@ function OverviewMiniChartPanel({
 }
 
 function overviewVisibleRows(kind: OverviewChartKind, rows: OverviewChartRow[]) {
-  if (kind === "spark" || kind === "mosaic") {
-    return rows.slice(0, 12);
-  }
   const positiveRows = rows.filter((row) => row.count > 0);
   return (positiveRows.length > 0 ? positiveRows : rows).slice(0, 3);
 }
@@ -377,68 +370,6 @@ function OverviewMeterChart({
         )}
       </div>
       <OverviewBarList rows={rows} maxCount={maxCount} />
-    </div>
-  );
-}
-
-function OverviewSparkChart({
-  rows,
-  total,
-  maxCount
-}: {
-  rows: OverviewChartRow[];
-  total: number;
-  maxCount: number;
-}) {
-  const displayRows = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
-  const peak = Math.max(0, ...displayRows.map((row) => row.count));
-  return (
-    <div className="overview-spark-chart">
-      <div className="overview-spark-bars" aria-hidden="true">
-        {displayRows.map((row, index) => (
-          <span key={`${row.key}-${index}`} title={`${row.key}: ${row.count.toLocaleString()}`}>
-            <i
-              style={
-                {
-                  "--overview-spark-height":
-                    row.count > 0 ? `${Math.max(12, (row.count / maxCount) * 100)}%` : "5%",
-                  "--overview-bar-fill": overviewChartColor(index)
-                } as React.CSSProperties
-              }
-            />
-          </span>
-        ))}
-      </div>
-      <div className="overview-spark-caption">
-        <span>sum</span>
-        <strong>{total.toLocaleString()}</strong>
-        <span>peak</span>
-        <strong>{peak.toLocaleString()}</strong>
-      </div>
-    </div>
-  );
-}
-
-function OverviewMosaicChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
-  const displayRows = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
-  const cells = Array.from({ length: 12 }, (_, index) => displayRows[index] ?? null);
-  return (
-    <div className="overview-mosaic-chart">
-      <div className="overview-mosaic-grid" aria-hidden="true">
-        {cells.map((row, index) => (
-          <span
-            key={row ? `${row.key}-${index}` : `empty-${index}`}
-            title={row ? `${row.key}: ${row.count.toLocaleString()}` : "empty"}
-            style={
-              {
-                opacity: row && row.count > 0 ? Math.max(0.28, row.count / maxCount) : 0.12,
-                background: row ? overviewChartColor(index) : "#dce7ef"
-              } as React.CSSProperties
-            }
-          />
-        ))}
-      </div>
-      <OverviewBarList rows={displayRows.slice(0, 2)} maxCount={maxCount} />
     </div>
   );
 }

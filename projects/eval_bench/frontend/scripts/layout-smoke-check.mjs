@@ -468,7 +468,7 @@ async function assertOverviewDensity(page, scope) {
     });
     const chartKinds = new Set(
       Array.from(document.querySelectorAll(".overview-mini-chart")).flatMap((node) =>
-        ["ring", "rails", "cells", "meter", "spark", "mosaic"].filter((kind) =>
+        ["ring", "rails", "cells", "meter"].filter((kind) =>
           node.classList.contains(kind)
         )
       )

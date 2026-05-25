@@ -183,7 +183,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 signal deck、微型柱状、环形占比、栅格热区、堆叠条、sparkline 和 mosaic 小图表表达，
+- 新增总览视觉模块：优先用 signal deck、环形占比、栅格热区、堆叠条和微型柱状图表达，
   不再把低频信息做成大块空白 card；signal deck 的时间维度优先压缩成 Run/Job/Service 三泳道活动矩阵。
   主矩阵保持 4-7 个高价值粗粒度 mini chart，并同时保留多种微图表形态；默认使用 2 列 capped masonry columns，
   宽屏最多 4 列，不能回退成均匀 grid 图表墙。

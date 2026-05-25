@@ -135,10 +135,14 @@ assert(
   (overviewPage.match(/\{\s*title:/g) ?? []).length >= 5 &&
     (overviewPage.match(/\{\s*title:/g) ?? []).length <= 7 &&
     overviewPage.includes(
-      'type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";',
+      'type OverviewChartKind = "ring" | "rails" | "cells" | "meter";',
     ) &&
-    overviewPage.includes("function OverviewSparkChart(") &&
-    overviewPage.includes("function OverviewMosaicChart(") &&
+    overviewPage.includes('kind: "ring"') &&
+    overviewPage.includes('kind: "meter"') &&
+    overviewPage.includes('kind: "cells"') &&
+    overviewPage.includes('kind: "rails"') &&
+    !overviewPage.includes("function OverviewSparkChart(") &&
+    !overviewPage.includes("function OverviewMosaicChart(") &&
     !/Notes|Tasks|Label footprint|样本\/label|模型分布|Job 日历|Scheduler 资源|Benchmark 任务|Run 日历/.test(
       overviewPage,
     ),
