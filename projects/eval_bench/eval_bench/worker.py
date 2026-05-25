@@ -22,6 +22,7 @@ from .label_policy import (
     TargetLabelPolicy,
     normalize_target_labels,
     resolve_target_label_policy,
+    validate_target_labels_for_task,
 )
 from .prediction_parser import parse_prediction_text
 from .sample_paths import sample_image_path
@@ -374,6 +375,7 @@ class EvalBenchWorker:
                 labels=target_policy.labels,
                 source=target_labels_source,
             )
+        validate_target_labels_for_task(task=task, labels=target_policy.labels)
 
         manifest = EvalRunManifest(
             run_id=run_id,

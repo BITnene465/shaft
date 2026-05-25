@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench keypoint label 子任务可绕过 UI 创建
+
+### 现象
+
+Jobs 页已经只在 `task=detection` 时显示 label 子任务面板，agent 的 `resolve-target-labels` 也会对 keypoint 返回
+`label_subtasks_supported=false`。但后端仍可能接受 keypoint manifest 或 CLI/import 输入中的
+`target_labels=["icon"]` 这类非 arrow 标签，导致绕过 UI 后创建出不符合关键点评估边界的 run/job。
+
+### 根因
+
+此前 detection/keypoint 的“是否支持 label 子任务”主要停留在前端显示和 agent 查询 payload；真正的后端校验只检查
+target label 是否存在于 benchmark label index，没有按 task 校验 keypoint 只能使用 `arrow`。这是 eval semantics /
+label policy 边界缺口，不是模型能力问题。
+
+### 影响范围
+
+- 影响 keypoint job、init-run、prediction import、worker 执行和 evaluator 入口的 label scope 一致性。
+- detection label 子任务能力不变，仍支持显式 label 子集。
+
+### 修复方式
+
+- `label_policy.py` 新增 keypoint task-level 校验真源：keypoint `target_labels` 只允许 `arrow`。
+- `resolve_eval_semantics()`、`init-run`、prediction import 和 worker 都调用同一校验，避免不同入口绕过。
+- job preflight 在 benchmark label index 校验前先做 task-level target label 校验；agent 查询也把该错误放入
+  `resolve-target-labels` payload。
+- CLI / eval semantics focused 测试覆盖 keypoint 非 arrow label 被拒绝。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_eval_semantics.py projects/eval_bench/tests/test_cli.py::test_cli_resolves_target_labels_for_agent_label_subtasks projects/eval_bench/tests/test_cli.py::test_cli_preflight_rejects_keypoint_label_subtasks projects/eval_bench/tests/test_cli.py::test_cli_preflight_rejects_unknown_target_label`
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+
+### 后续防线
+
+- 任务级 label scope 规则只在 `label_policy.py` 增加，UI、worker、import 和 evaluator 不各自硬编码。
+- 新增 task 子类型时必须同时定义是否支持 label 子任务，以及非法显式 label 的后端拒绝路径。
+
 ## 2026-05-25: Eval Bench 首页缺少可行动的下一步判断
 
 ### 现象

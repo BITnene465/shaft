@@ -940,6 +940,28 @@ def test_cli_resolves_target_labels_for_agent_label_subtasks(
     assert keypoint_payload["label_subtasks_supported"] is False
     assert keypoint_payload["valid"] is True
 
+    bad_keypoint_args = _build_parser().parse_args(
+        [
+            "resolve-target-labels",
+            "--output-root",
+            str(tmp_path),
+            "--benchmark-id",
+            "bench1",
+            "--task",
+            "keypoint",
+            "--target-label",
+            "icon",
+        ]
+    )
+    _cmd_resolve_target_labels(bad_keypoint_args)
+    bad_keypoint_payload = json.loads(capsys.readouterr().out)
+    assert bad_keypoint_payload["label_subtasks_supported"] is False
+    assert bad_keypoint_payload["valid"] is False
+    assert any(
+        "keypoint target_labels only support arrow" in item
+        for item in bad_keypoint_payload["errors"]
+    )
+
     bad_args = _build_parser().parse_args(
         [
             "resolve-target-labels",
@@ -1393,6 +1415,69 @@ def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> N
     assert any(
         "target_labels not found in benchmark label index: arrwo" in item
         for item in preflight["errors"]
+    )
+
+
+def test_cli_preflight_rejects_keypoint_label_subtasks(tmp_path: Path, capsys) -> None:
+    model_path = tmp_path / "models" / "model-a"
+    _write_json(model_path / "config.json", {"num_attention_heads": 4})
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["keypoint"],
+            "labels": ["arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    payload_path = tmp_path / "job.json"
+    _write_json(
+        payload_path,
+        {
+            "manifest": {
+                "kind": "eval_job",
+                "runtime": {
+                    "mode": "ephemeral",
+                    "engine": "vllm_openai",
+                    "env": {"CUDA_VISIBLE_DEVICES": "0"},
+                    "args": {
+                        "model": str(model_path),
+                        "served-model-name": "model-a",
+                        "host": "127.0.0.1",
+                        "tensor-parallel-size": 1,
+                        "trust-remote-code": True,
+                    },
+                },
+                "eval": {
+                    "model_id": "model-a",
+                    "benchmark_id": "bench1",
+                    "task": "keypoint",
+                    "prompt_id": "keypoint_arrow.latest",
+                    "metric_profile": "keypoint_endpoint_v1",
+                    "target_labels": ["icon"],
+                },
+            }
+        },
+    )
+
+    preflight_args = _build_parser().parse_args(
+        [
+            "preflight-job",
+            "--output-root",
+            str(tmp_path),
+            "--payload-file",
+            str(payload_path),
+        ]
+    )
+    _cmd_preflight_job(preflight_args)
+    preflight = json.loads(capsys.readouterr().out)
+
+    assert preflight["ok"] is False
+    assert any(
+        "keypoint target_labels only support arrow" in item for item in preflight["errors"]
     )
 
 

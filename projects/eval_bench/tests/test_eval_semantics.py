@@ -47,6 +47,18 @@ def test_eval_semantics_preserves_resolved_target_label_source() -> None:
     assert semantics.target_labels_source == "prompt_metadata"
 
 
+def test_eval_semantics_rejects_keypoint_label_subtasks() -> None:
+    with pytest.raises(ValueError, match="keypoint target_labels only support arrow"):
+        resolve_eval_semantics(
+            {
+                "task": "keypoint",
+                "metric_profile": "keypoint_endpoint_v1",
+                "target_labels": ["icon"],
+                "prompt": {"prompt_id": "keypoint_arrow.latest"},
+            }
+        )
+
+
 def test_metric_profile_default_follows_task() -> None:
     assert resolve_metric_profile("default", task="detection").profile_id == "detection_iou_v1"
     keypoint = resolve_metric_profile("default", task="keypoint")

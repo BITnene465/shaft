@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .label_policy import TARGET_LABEL_SOURCES, TargetLabelPolicy, resolve_target_label_policy
+from .label_policy import (
+    TARGET_LABEL_SOURCES,
+    TargetLabelPolicy,
+    resolve_target_label_policy,
+    validate_target_labels_for_task,
+)
 from .metric_profiles import MetricProfile, resolve_metric_profile
 
 
@@ -36,6 +41,7 @@ def resolve_eval_semantics(spec: Mapping[str, Any]) -> EvalSemantics:
     target_labels_source = str(metadata.get("target_labels_source") or "").strip()
     if target_policy.source == "explicit" and target_labels_source in TARGET_LABEL_SOURCES:
         target_policy = TargetLabelPolicy(labels=target_policy.labels, source=target_labels_source)
+    validate_target_labels_for_task(task=task, labels=target_policy.labels)
     metric_profile = resolve_metric_profile(str(spec.get("metric_profile") or ""), task=task)
     return EvalSemantics(
         task=task,

@@ -8,7 +8,7 @@ import socket
 from typing import Any, Mapping
 
 from .artifacts import BenchmarkArtifacts, DEFAULT_STORE_ROOT
-from .label_policy import normalize_target_labels
+from .label_policy import normalize_target_labels, target_label_task_errors
 from .services import build_vllm_command_from_config
 
 
@@ -514,6 +514,9 @@ def _check_target_labels_against_benchmark(
     target_labels = _label_list(payload.get("target_labels"))
     if not target_labels:
         return
+    errors.extend(
+        target_label_task_errors(task=str(payload.get("task") or ""), labels=target_labels)
+    )
     benchmark_labels = _label_list(benchmark_payload.get("labels"))
     if not benchmark_labels:
         warnings.append(

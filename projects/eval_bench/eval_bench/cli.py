@@ -569,7 +569,7 @@ def _cmd_create_benchmark(args: argparse.Namespace) -> None:
 
 def _cmd_init_run(args: argparse.Namespace) -> None:
     from .artifacts import RunArtifacts
-    from .label_policy import resolve_target_label_policy
+    from .label_policy import resolve_target_label_policy, validate_target_labels_for_task
     from .schema import (
         BenchmarkRef,
         EvalRunManifest,
@@ -585,6 +585,7 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
         prompt_id=str(args.prompt_id),
         task=task,
     )
+    validate_target_labels_for_task(task=task, labels=target_policy.labels)
     manifest = EvalRunManifest(
         run_id=str(args.run_id),
         submitter=str(args.submitter),

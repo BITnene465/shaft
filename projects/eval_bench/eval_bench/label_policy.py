@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 LAYOUT_TARGET_LABELS = ("icon", "image", "shape")
 ARROW_TARGET_LABELS = ("arrow",)
+KEYPOINT_TARGET_LABELS = frozenset(ARROW_TARGET_LABELS)
 TARGET_LABEL_SOURCES = frozenset(
     {"explicit", "prompt_metadata", "legacy_prompt_id", "task_default", "unscoped"}
 )
@@ -58,6 +59,24 @@ def resolve_target_label_policy(
     return TargetLabelPolicy(labels=[], source="unscoped")
 
 
+def target_label_task_errors(*, task: str | None, labels: list[str]) -> list[str]:
+    if task != "keypoint" or not labels:
+        return []
+    unsupported = [label for label in labels if label not in KEYPOINT_TARGET_LABELS]
+    if not unsupported:
+        return []
+    return [
+        "keypoint target_labels only support arrow; "
+        f"unsupported labels: {', '.join(unsupported)}"
+    ]
+
+
+def validate_target_labels_for_task(*, task: str | None, labels: list[str]) -> None:
+    errors = target_label_task_errors(task=task, labels=labels)
+    if errors:
+        raise ValueError(errors[0])
+
+
 def resolve_target_labels(
     *,
     explicit: Any = None,
@@ -101,6 +120,7 @@ def target_label_resolution_payload(
     )
     errors: list[str] = []
     warnings: list[str] = []
+    errors.extend(target_label_task_errors(task=task, labels=policy.labels))
     if available_labels and policy.labels:
         missing = [label for label in policy.labels if label not in set(available_labels)]
         if missing:
