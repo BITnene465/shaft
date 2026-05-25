@@ -121,6 +121,9 @@ try {
       if (route.requireCompareChunk) {
         await assertComparePageChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
+      if (route.requireComparisonSampleChunk) {
+        await assertComparisonSamplePageChunkLoaded(page, `${viewport.name}:${route.name}`);
+      }
     }
     await page.close();
   }
@@ -217,6 +220,28 @@ async function discoverInspectorRoutes(rootUrl) {
         requireRunInspectorCounts: true,
         requireRunsChunk: true
       });
+    }
+    const comparisonsResponse = await fetch(`${rootUrl}/api/comparisons?limit=1`);
+    if (comparisonsResponse.ok) {
+      const comparisonsState = await comparisonsResponse.json();
+      const comparison = Array.isArray(comparisonsState.comparisons)
+        ? comparisonsState.comparisons[0]
+        : null;
+      if (comparison?.baseline_run_id && comparison?.candidate_run_id) {
+        routes.push({
+          name: "comparison-sample",
+          path: `/compare/${encodeURIComponent(comparison.baseline_run_id)}/${encodeURIComponent(
+            comparison.candidate_run_id
+          )}/0`,
+          selectors: [
+            ".comparison-sample-page",
+            ".comparison-sample-detail",
+            ".comparison-run-panel",
+            ".viewer-stack"
+          ],
+          requireComparisonSampleChunk: true
+        });
+      }
     }
     return routes;
   } catch {
@@ -726,6 +751,20 @@ async function assertRunsPageChunkLoaded(page, scope) {
   );
   if (loaded.length === 0) {
     throw new Error(`${scope}: runs route did not load the independent runsPage chunk`);
+  }
+}
+
+async function assertComparisonSamplePageChunkLoaded(page, scope) {
+  const loaded = await page.evaluate(() =>
+    performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => name.includes("comparisonSamplePage"))
+  );
+  if (loaded.length === 0) {
+    throw new Error(
+      `${scope}: comparison sample route did not load the independent comparisonSamplePage chunk`
+    );
   }
 }
 

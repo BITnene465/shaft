@@ -2852,3 +2852,41 @@ Run Inspector 最初和成对样本对比共享同一个 `SampleViewer`，为了
 
 - 结果库、导入预测、run note、run 样本筛选和 run 检查器只在 `runsPage.tsx` 中演进。
 - Run Inspector 与成对样本对比继续复用 `sampleViewer.tsx`，避免 viewer 偏好状态和对象检查器出现双轨实现。
+
+## 2026-05-25: Eval Bench 成对样本对比详情从 main.tsx 拆出
+
+### 现象
+
+`main.tsx` 已经只剩 shell 和少量 route，但仍承载 `/compare/$baseline/$candidate/$sampleIndex` 的成对样本
+对比详情、左右分栏和 SampleViewer 调用。这样会让 Compare 工作台的详情页继续成为入口文件里的业务页面。
+
+### 根因
+
+成对样本详情最初为了复用 run sample viewer 直接写在 `main.tsx`，直到 `sampleViewer.tsx` 抽出后才具备
+干净迁移条件。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 前端模块边界和 compare sample 代码分块。
+- 不改变 comparison report API、样本对比 URL、左右分栏持久化 key 或共享 viewer 行为。
+
+### 修复方式
+
+- 新增 `comparisonSamplePage.tsx`，承载成对样本对比详情、左右 run panel 和 comparison sample query。
+- `/compare/$baselineRunId/$candidateRunId/$sampleIndex` 改为 lazy route，加载独立 `comparisonSamplePage` chunk。
+- `comparisonSamplePage.tsx` 继续复用 `sampleViewer.tsx`，不维护第二套 GT / Prediction 叠图。
+- `test:ui-contracts` 增加防线：`main.tsx` 不能再实现成对样本详情，详情页必须复用共享 `SampleViewer`。
+- layout smoke 在存在 comparison artifact 时打开第 0 个样本对比详情，并检查独立 chunk 与 viewer 结构。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 补充模块边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/compare npm run render-check`
+
+### 后续防线
+
+- Compare 总览继续在 `comparePage.tsx` 中演进；成对样本详情只在 `comparisonSamplePage.tsx` 中演进。
+- Run Inspector 与 Compare sample 继续共用 `sampleViewer.tsx`，避免叠图、对象检查器和偏好状态分叉。

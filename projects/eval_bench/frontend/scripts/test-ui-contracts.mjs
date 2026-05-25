@@ -118,6 +118,21 @@ assert(
     mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunDetailPage")'),
   "main.tsx must lazy-route to the extracted runs page module",
 );
+const comparisonSamplePage = await readSource("src/comparisonSamplePage.tsx");
+assert(
+  comparisonSamplePage.includes("export function ComparisonSamplePage()"),
+  "comparison sample page module must export ComparisonSamplePage",
+);
+assert(
+  comparisonSamplePage.includes('import { SampleViewer } from "./sampleViewer";'),
+  "comparison sample page must reuse the shared SampleViewer",
+);
+assert(
+  mainEntry.includes(
+    'lazyRouteComponent(() => import("./comparisonSamplePage"), "ComparisonSamplePage")',
+  ),
+  "main.tsx must lazy-route to the extracted comparison sample page module",
+);
 assert(
   !mainEntryHasOverviewImplementation(mainEntry),
   "main.tsx should only route to OverviewPage, not implement the overview workbench",
@@ -129,6 +144,10 @@ assert(
 assert(
   !mainEntryHasRunsImplementation(mainEntry),
   "main.tsx should only route to RunsPage, not implement run workbenches",
+);
+assert(
+  !mainEntryHasComparisonSampleImplementation(mainEntry),
+  "main.tsx should only route to ComparisonSamplePage, not implement comparison sample workbenches",
 );
 assert(
   !mainEntryHasSettingsImplementation(mainEntry),
@@ -202,5 +221,14 @@ function mainEntryHasRunsImplementation(source) {
     source.includes("run-config-panel") ||
     source.includes("import-form") ||
     source.includes("eval_bench_run_sidebar_width")
+  );
+}
+
+function mainEntryHasComparisonSampleImplementation(source) {
+  return (
+    /function\s+ComparisonSamplePage\s*\(/.test(source) ||
+    /function\s+ComparisonSampleViewer\s*\(/.test(source) ||
+    source.includes("comparison-sample-detail") ||
+    source.includes("eval_bench_comparison_sample_candidate_width")
   );
 }

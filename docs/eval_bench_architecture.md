@@ -130,6 +130,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
 - `projects/eval_bench/frontend/src/comparePage.tsx`
   - 维护成对 run 对比工作台页面；只展示 comparison 报告、历史对比和上下文入口，不再维护排行榜语义。
+- `projects/eval_bench/frontend/src/comparisonSamplePage.tsx`
+  - 维护成对样本对比详情；作为懒加载路由拆分，复用 `sampleViewer.tsx` 而不维护第二套叠图。
 - `projects/eval_bench/frontend/src/settingsPage.tsx`
   - 维护工作台设置页面；`main.tsx` 只负责路由到该页面，不承载设置页预览、分组或本地偏好编排。
 - `projects/eval_bench/frontend/src/ui.tsx`
