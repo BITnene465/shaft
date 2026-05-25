@@ -831,6 +831,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert payload["entries"][0]["run_id"] == "run_a"
     assert payload["entries"][0]["rank"] == 1
     assert payload["entries"][0]["score"] == pytest.approx(0.9)
+    assert payload["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert payload["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
 
     metric_args = _build_parser().parse_args(
@@ -849,6 +850,8 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert metric_payload["score_formula"] == "R@.50"
     assert metric_payload["entries"][0]["run_id"] == "run_a"
     assert metric_payload["entries"][0]["score"] == pytest.approx(0.9)
+    assert metric_payload["entries"][0]["score_delta"] == pytest.approx(0.0)
+    assert metric_payload["entries"][1]["score_delta"] < 0
 
 
 def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(

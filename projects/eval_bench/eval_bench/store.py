@@ -164,6 +164,7 @@ class RankBoardEntry:
     mean_iou: float | None
     created_at: str | None
     note: str
+    score_delta: float | None = None
     score_components: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -634,8 +635,15 @@ class EvalBenchStore:
             sort_by=resolved_sort_by,
             sort_order=resolved_sort_order,
         )
+        leader_score = _rank_numeric_score(ranked[0].score) if ranked else None
         ranked = [
-            RankBoardEntry(**{**asdict(entry), "rank": index})
+            RankBoardEntry(
+                **{
+                    **asdict(entry),
+                    "rank": index,
+                    "score_delta": _rank_score_delta(entry.score, leader_score),
+                }
+            )
             for index, entry in enumerate(ranked, start=1)
         ]
         start = max(0, int(offset))
@@ -1432,6 +1440,19 @@ def _sort_rank_entries(
     )
     missing.sort(key=lambda entry: entry.run_id)
     return valued + missing
+
+
+def _rank_numeric_score(value: float | int | None) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _rank_score_delta(score: float | int | None, leader_score: float | None) -> float | None:
+    numeric_score = _rank_numeric_score(score)
+    if numeric_score is None or leader_score is None:
+        return None
+    return numeric_score - leader_score
 
 
 def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str | None:

@@ -242,6 +242,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   store/API/CLI 必须同步更新 `primary_metric`、`primary_metric_label` 和 entry `score`。不能把加权结果
   重新命名成默认分数；显式 weighted
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
+  Rank Board entry 必须同时输出 `score_delta`，以当前完整排序的第一名为基准计算主分数差值；分页后的
+  entry 不能改用当前页第一名作为基准，避免人类和 agent 误判 leader gap。
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
   一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；只有画布

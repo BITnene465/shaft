@@ -92,6 +92,7 @@ export type RankBoardEntry = {
   f1_iou50: number | null;
   run_id: string;
   score: number | null;
+  score_delta?: number | null;
   status: string;
   benchmark_id: string;
   task: string;

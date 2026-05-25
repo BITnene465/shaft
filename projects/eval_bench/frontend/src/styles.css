@@ -1666,6 +1666,39 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.rank-score-delta {
+  display: inline-flex;
+  min-width: 68px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  color: #536b7b;
+  background: #f3f8fb;
+  border: 1px solid #d7e7ef;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 840;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-score-delta.negative {
+  color: #5f5961;
+  background: #f8f4f0;
+  border-color: #e4d6cb;
+}
+
+.rank-score-delta.positive {
+  color: #5f5961;
+  background: #f8f4f0;
+  border-color: #e4d6cb;
+}
+
+.rank-score-delta.neutral {
+  color: #0b6f90;
+  background: #e9f7fb;
+  border-color: #bfe1eb;
+}
+
 .filter-select {
   display: flex;
   min-width: 0;

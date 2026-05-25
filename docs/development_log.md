@@ -48,6 +48,43 @@
 - 首页新增内容必须能直接强化“当前判断、下一步动作、评测流向、最近产物”之一；不能新增独立低价值面板。
 - Overview 契约必须同时约束源码结构、运行时高度和 hover/transition，不只检查 selector 存在。
 
+## 2026-05-25: Eval Bench Rank Board 缺少与榜首的差距解释
+
+### 现象
+
+Rank Board 已经支持默认 F1 主指标、主指标切换、显式 weighted scheme、facet 和后端分页，但 entry 只返回
+当前分数。用户或 agent 看到第 2 名、第 10 名时，需要自行拿榜首分数做差，分页后更容易只拿当前页第一条误判差距。
+
+### 根因
+
+上一版把排序、分页和 weighted score 的真源放在 store/API/CLI，但没有把“相对当前榜首的主分数差值”作为
+rank-board 输出契约的一部分。前端 score spread 只能描述当前页分布，不能解释每条 run 和全局当前第一名的距离。
+
+### 影响范围
+
+- 影响 Rank Board 核心页面、CLI/API 输出和 agent 对排行结果的可解释性。
+- 不改变 eval、codec、metric、data 或 weighted score 计算语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- `RankBoardEntry` 新增 `score_delta`，由 store 在完整排序后按 entry `score - leader.score` 计算。
+- 分页前完成 delta 计算，因此 offset 页仍以完整当前排行第一名为基准，而不是当前页第一条。
+- CLI `rank-board` 和 `/api/rank-board` 通过同一 dataclass 序列化输出 `score_delta`。
+- Rank Board 表格新增 `Delta leader` 列，Top contenders 也显示每条 run 的 leader-relative delta。
+- README、架构文档、脚本文档、dashboard/CLI 测试和 UI contract 同步该输出契约。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_independent_rank_board projects/eval_bench/tests/test_cli.py::test_cli_prints_filtered_rank_board`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Rank Board 新增排序或主指标时，必须同步检查 `entry.score`、`primary_metric_label` 和 `score_delta` 是否仍基于同一主分数。
+- 前端不能用当前页局部第一条自行计算 leader gap；差距解释必须来自 store/API/CLI 真源。
+
 ## 2026-05-25: Eval Bench Agent 命令只能全量发现不能单条查询
 
 ### 现象

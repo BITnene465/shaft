@@ -652,9 +652,12 @@ Rank Board 的主指标切换、升降序、Top contenders 和当前页 score sp
 不能藏进高级检索浮层；高级检索只承载筛选条件和最低分门槛。
 Rank Board 页面使用后端 `offset/limit` 分页请求，不再只取固定前 200 条，翻页时保留当前筛选、排序和 weighted scheme；
 显式 weighted scheme 可通过 CLI/API 或前端折叠面板传入，会返回 `weighted_score`、`rank_scheme` 和每条
-entry 的 `score_components`，便于 agent 解释最终分。Rank Board 表格的第一分数列必须跟随后端
+entry 的 `score_components`，便于 agent 解释最终分。每条 entry 还返回 `score_delta`，表示该 run 的
+当前主分数与当前排序第一名的差值；分页后的条目仍使用完整排序榜首作为基准，便于 agent 和人类判断差距。
+Rank Board 表格的第一分数列必须跟随后端
 `primary_metric_label` 和 entry `score` 动态变化：默认显示 F1@.50，切到 mIoU、P/R 或 weighted scheme
-时直接显示当前主指标，不把固定 F1 列伪装成当前排名依据。
+时直接显示当前主指标，不把固定 F1 列伪装成当前排名依据；第二个分数列显示 `score_delta`，帮助解释
+leader gap，而不是只给出孤立分数。
 Rank Board 的 facet rail 不是静态摘要：Tasks、Benchmarks、Status、Labels、Models、Prompts 和
 Metrics facet 都是可点击检索 chip，点击会同步更新同一份高级检索状态，再次点击当前 facet 会回到
 `all`，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。

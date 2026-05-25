@@ -390,8 +390,10 @@ assert(
   rankBoardPage.includes("primaryMetricLabel") &&
     rankBoardPage.includes('primaryMetric !== "f1_iou50"') &&
     rankBoardPage.includes('className="rank-primary-score"') &&
+    rankBoardPage.includes("formatScoreDelta(row.original.score_delta)") &&
+    rankBoardPage.includes("function rankDeltaClassName") &&
     !rankBoardPage.includes('header: "Weighted"'),
-  "rank board table must render the active primary metric as the first score column",
+  "rank board table must render the active primary metric and leader-relative delta columns",
 );
 assert(
   rankBoardPage.includes("function RankDecisionPanel(") &&

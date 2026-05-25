@@ -403,7 +403,9 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert board["entries"][0]["rank"] == 1
     assert board["entries"][0]["f1_iou50"] == pytest.approx(0.8470588235)
     assert board["entries"][0]["score"] == pytest.approx(0.8470588235)
+    assert board["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert board["entries"][0]["score"] > board["entries"][1]["score"]
+    assert board["entries"][1]["score_delta"] < 0
     assert board["entries"][0]["note"] == "layout idea"
     assert board["entries"][0]["target_labels"] == ["icon"]
     assert board["facets"]["labels"][0] == {"value": "arrow", "count": 1}
@@ -418,6 +420,7 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert paged["total"] == 2
     assert [entry["run_id"] for entry in paged["entries"]] == ["run_b"]
     assert paged["entries"][0]["rank"] == 2
+    assert paged["entries"][0]["score_delta"] == pytest.approx(board["entries"][1]["score_delta"])
 
     arrow_board = client.get("/api/rank-board", params={"label": "arrow"}).json()
     assert arrow_board["total"] == 1
@@ -443,6 +446,8 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert recall_ascending["score_formula"] == "R@.50"
     assert [entry["run_id"] for entry in recall_ascending["entries"]] == ["run_b", "run_a"]
     assert recall_ascending["entries"][0]["score"] == pytest.approx(0.5)
+    assert recall_ascending["entries"][0]["score_delta"] == pytest.approx(0.0)
+    assert recall_ascending["entries"][1]["score_delta"] == pytest.approx(0.3)
 
     rank_scheme = {
         "name": "bench1_quality",
@@ -470,6 +475,7 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert weighted["sort_by"] == "weighted_score"
     assert weighted["rank_scheme"] == rank_scheme
     assert weighted["entries"][0]["score"] == pytest.approx(0.75)
+    assert weighted["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert weighted["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
 
     bad_scheme = client.get("/api/rank-board", params={"rank_scheme": '{"terms": []}'})

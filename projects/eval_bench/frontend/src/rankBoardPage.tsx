@@ -411,7 +411,9 @@ function RankDecisionPanel({
                 <span>#{entry.rank}</span>
                 <div>
                   <strong>{entry.run_id}</strong>
-                  <em>{entry.model_id}</em>
+                  <em>
+                    {entry.model_id} · {formatScoreDelta(entry.score_delta)}
+                  </em>
                 </div>
                 <b>{formatMetric(entry.score)}</b>
                 <i style={{ width: `${rankScoreWidth(entry.score)}%` }} />
@@ -627,6 +629,14 @@ function RankBoardTable({
     {
       header: primaryMetricLabel,
       cell: ({ row }) => <span className="rank-primary-score">{formatMetric(row.original.score)}</span>
+    },
+    {
+      header: "Δ leader",
+      cell: ({ row }) => (
+        <span className={rankDeltaClassName(row.original.score_delta)}>
+          {formatScoreDelta(row.original.score_delta)}
+        </span>
+      )
     }
   ];
   if (weighted) {
@@ -740,6 +750,24 @@ function RankScoreComponents({ components }: { components: Array<Record<string, 
 
 function rankF1Score(entry: RankBoardEntry) {
   return entry.f1_iou50 ?? entry.score ?? null;
+}
+
+function rankDeltaClassName(value: number | null | undefined) {
+  if (value === null || value === undefined || Math.abs(value) < 0.000_000_1) {
+    return "rank-score-delta neutral";
+  }
+  return value > 0 ? "rank-score-delta positive" : "rank-score-delta negative";
+}
+
+function formatScoreDelta(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (Math.abs(value) < 0.000_000_1) {
+    return "leader";
+  }
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatMetric(value)}`;
 }
 
 function defaultRankSchemeDraft(benchmarks: string[] = []) {
