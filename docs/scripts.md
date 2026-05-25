@@ -281,7 +281,7 @@ precision/recall/IoU 这类细指标文案；最近 run 行不能被面板高度
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`
 - dashboard 前端在 `projects/eval_bench/frontend`，使用 React、Vite 和 TanStack
-- dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；基础输入控件在 `controlPrimitives.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页分组控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`；业务 PNG 图标映射在 `iconLibrary.tsx`
+- dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；基础输入控件在 `controlPrimitives.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页页面在 `settingsPage.tsx`；设置页分组控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`；业务 PNG 图标映射在 `iconLibrary.tsx`
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data

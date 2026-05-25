@@ -56,30 +56,34 @@ assert(
   "shortcut reset-all action must use ActionButton",
 );
 
-const mainPage = await readSource("src/main.tsx");
+const settingsPage = await readSource("src/settingsPage.tsx");
 assert(
-  mainPage.includes('import { CompactSelectControl, NumberSettingControl } from "./controlPrimitives";'),
+  settingsPage.includes('import { CompactSelectControl, NumberSettingControl } from "./controlPrimitives";'),
   "settings page selects must use CompactSelectControl",
 );
 assert(
-  /<CompactSelectControl\s+dense\s+label="预测线型"/.test(mainPage),
+  /<CompactSelectControl\s+dense\s+label="预测线型"/.test(settingsPage),
   "settings prediction line style select must use CompactSelectControl",
 );
 assert(
-  mainPage.includes('className="settings-search-clear"'),
+  settingsPage.includes('className="settings-search-clear"'),
   "settings search clear action must use IconActionButton",
 );
 assert(
-  !mainPage.includes('className="compact-select dense"'),
+  !settingsPage.includes('className="compact-select dense"'),
   "settings page must not create ad hoc compact select shells",
 );
 assert(
-  !/<button[^>]+className="settings-inline-action"/.test(mainPage),
+  !/<button[^>]+className="settings-inline-action"/.test(settingsPage),
   "settings inline standard actions must use ActionButton",
 );
 assert(
-  !/<button[^>]+removeLabelColor/.test(mainPage),
+  !/<button[^>]+removeLabelColor/.test(settingsPage),
   "settings label clear action must use ActionButton",
+);
+assert(
+  !mainEntryHasSettingsImplementation(await readSource("src/main.tsx")),
+  "main.tsx should only route to SettingsPage, not implement the settings workbench",
 );
 
 console.log("ui contract checks passed");
@@ -119,4 +123,8 @@ function assertNoBusinessDialogShell(source, relativePath) {
 
 function assertNoLegacySampleFilters(source, relativePath) {
   assert(!source.includes("sample-filters"), `${relativePath}: legacy sample-filters are not allowed`);
+}
+
+function mainEntryHasSettingsImplementation(source) {
+  return /function\s+SettingsPage\s*\(/.test(source) || source.includes("settings-workbench-shell");
 }
