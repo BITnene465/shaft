@@ -2436,3 +2436,39 @@ Rank Board 加权排行完成后，focused pytest 一度卡在 CLI/dashboard imp
 ### 后续防线
 
 - Overview 或顶栏样式变更必须继续跑 `test:layout`；如果有新的高密度控制台模块，也应把关键密度约束放入该 smoke。
+
+## 2026-05-25: Eval Bench inspector 样本筛选收敛到高级检索
+
+### 现象
+
+Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 已经复用 `AdvancedFilterBar`，但 Benchmark
+Inspector 和 Run Inspector 的样本侧栏仍直接堆叠 `FilterSelect`。这和“论文检索式高级检索”的交互目标不一致，
+也会在窄侧栏里继续增加固定高度。
+
+### 根因
+
+样本检查器最早只需要 label/error 两个条件，所以保留了局部 `sample-filters` 容器；后续全站筛选体系升级后，
+该局部实现没有回收到统一组件，layout smoke 也没有进入有数据的 inspector detail route 检查筛选形态。
+
+### 影响范围
+
+- 影响 Benchmark Inspector / Run Inspector 样本侧栏的信息密度、筛选一致性和窄屏滚动边界。
+- 不影响后端 sample API、label scope、metric report 或 viewer 几何渲染。
+
+### 修复方式
+
+- Benchmark Inspector 的 label 筛选改为折叠式 `AdvancedFilterBar`。
+- Run Inspector 的 error + label 筛选改为折叠式 `AdvancedFilterBar`。
+- 删除旧 `.sample-filters` 样式，并为 inspector 侧栏增加紧凑版 advanced filter 样式。
+- `layout-smoke-check.mjs` 动态读取 `/api/state`，在有 benchmark/run 数据时加入 inspector detail route，
+  并检查 inspector 样本筛选必须使用 `AdvancedFilterBar`、默认折叠、不能溢出侧栏。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增样本级筛选条件也要进入 `AdvancedFilterBar`，不能恢复局部 `sample-filters` 容器。
+- 有真实 store 数据时，layout smoke 必须继续覆盖 benchmark/run inspector detail route。

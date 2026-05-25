@@ -12,7 +12,7 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - React pages、workspace layout、dialog、table、viewer panel。
    - 只负责展示和用户操作编排，不推断 eval 语义。
    - 前端全局命令必须走 command/action registry，不能直接写死快捷键。
-  - 页面级筛选优先复用 `AdvancedFilterBar`；默认只露出 Filter 入口，展开后再显示检索表单，
+   - 页面级筛选优先复用 `AdvancedFilterBar`；默认只露出 Filter 入口，展开后再显示检索表单，
     避免把多组 select 直接堆在主工作区。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
@@ -142,7 +142,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `preflight-job` 校验，再用 `create-job` 入队，不能直接写 SQLite job record。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
-- 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。
+- 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。Benchmark Inspector / Run Inspector
+  的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用微型柱状、环形占比、紧凑条带和矩阵化小图表表达，不再把低频信息做成大块空白

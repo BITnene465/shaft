@@ -8,7 +8,7 @@ const viewports = [
   { name: "narrow", width: 760, height: 860 }
 ];
 
-const routes = [
+const staticRoutes = [
   {
     name: "overview",
     path: "/",
@@ -60,6 +60,8 @@ const routes = [
   }
 ];
 
+const routes = [...staticRoutes, ...(await discoverInspectorRoutes(baseUrl))];
+
 const dialogCases = [
   { path: "/jobs", button: "新建评测", form: ".manifest-job-form" },
   { path: "/benchmarks", button: "创建副本", form: ".benchmark-form" },
@@ -89,6 +91,9 @@ try {
       await assertForbiddenSelectors(page, `${viewport.name}:${route.name}`, route.forbiddenSelectors ?? []);
       if (route.name === "overview") {
         await assertOverviewDensity(page, `${viewport.name}:${route.name}`);
+      }
+      if (route.requireInspectorFilters) {
+        await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
@@ -141,6 +146,54 @@ function attachErrorListeners(page, errors, scope) {
       errors.push(`${scope}: console error: ${message.text()}`);
     }
   });
+}
+
+async function discoverInspectorRoutes(rootUrl) {
+  try {
+    const response = await fetch(`${rootUrl}/api/state`);
+    if (!response.ok) {
+      return [];
+    }
+    const state = await response.json();
+    const routes = [];
+    const benchmark = Array.isArray(state.benchmarks)
+      ? state.benchmarks.find((item) => item.sample_count > 0)
+      : null;
+    const run = Array.isArray(state.runs)
+      ? state.runs.find((item) => item.benchmark_id && item.report_path)
+      : null;
+    if (benchmark?.benchmark_id) {
+      routes.push({
+        name: "benchmark-inspector",
+        path: `/benchmarks/${encodeURIComponent(benchmark.benchmark_id)}`,
+        selectors: [
+          ".visual-inspector-page",
+          ".inspector-sidebar",
+          ".advanced-filter-bar",
+          ".sample-list",
+          ".viewer-panel"
+        ],
+        requireInspectorFilters: true
+      });
+    }
+    if (run?.run_id) {
+      routes.push({
+        name: "run-inspector",
+        path: `/runs/${encodeURIComponent(run.run_id)}`,
+        selectors: [
+          ".visual-inspector-page",
+          ".inspector-sidebar",
+          ".advanced-filter-bar",
+          ".sample-list",
+          ".viewer-panel"
+        ],
+        requireInspectorFilters: true
+      });
+    }
+    return routes;
+  } catch {
+    return [];
+  }
 }
 
 async function assertShellLayout(page, scope) {
@@ -383,6 +436,50 @@ async function assertAdvancedFilters(page, scope) {
     if (filter.scrollHeight > filter.clientHeight + 2 && !allowsScroll(filter.overflowY)) {
       throw new Error(`${scope}: advanced filter ${filter.index} clips vertically`);
     }
+  }
+}
+
+async function assertInspectorFilters(page, scope) {
+  const state = await page.evaluate(() => {
+    const sidebar = document.querySelector(".inspector-sidebar");
+    const filter = sidebar?.querySelector(".advanced-filter-bar");
+    const oldFilters = sidebar?.querySelectorAll(".sample-filters").length ?? 0;
+    const filterRect = filter?.getBoundingClientRect();
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const controlsVisible = Boolean(filter?.querySelector(".advanced-filter-controls"));
+    const button = filter?.querySelector(".advanced-filter-head");
+    const buttonRect = button?.getBoundingClientRect();
+    return {
+      hasFilter: Boolean(filter),
+      oldFilters,
+      controlsVisible,
+      filterRect,
+      sidebarRect,
+      buttonRect,
+      expanded: button?.getAttribute("aria-expanded") ?? null
+    };
+  });
+  if (!state.hasFilter) {
+    throw new Error(`${scope}: inspector sample filters are not using AdvancedFilterBar`);
+  }
+  if (state.oldFilters > 0) {
+    throw new Error(`${scope}: legacy sample-filters container is still present`);
+  }
+  if (state.controlsVisible || state.expanded !== "false") {
+    throw new Error(`${scope}: inspector advanced filters should be collapsed by default`);
+  }
+  if (!state.filterRect || !state.sidebarRect || !state.buttonRect) {
+    throw new Error(`${scope}: inspector filter geometry is missing`);
+  }
+  if (state.filterRect.right > state.sidebarRect.right + 2) {
+    throw new Error(
+      `${scope}: inspector filter overflows sidebar filter=${formatRect(
+        state.filterRect
+      )}, sidebar=${formatRect(state.sidebarRect)}`
+    );
+  }
+  if (state.buttonRect.height > 44) {
+    throw new Error(`${scope}: inspector collapsed filter head is too tall ${formatRect(state.buttonRect)}`);
   }
 }
 

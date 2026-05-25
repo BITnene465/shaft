@@ -2508,44 +2508,6 @@ tbody tr:hover td {
   overflow: hidden;
 }
 
-.sample-filters {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  padding: 8px;
-  background: #ffffff;
-  border: 1px solid #dbe3ec;
-  border-radius: 3px;
-}
-
-.sample-filters.single {
-  grid-template-columns: 1fr;
-}
-
-.sample-filters label {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.sample-filters span {
-  color: #607080;
-  font-size: 11px;
-  font-weight: 760;
-  text-transform: uppercase;
-}
-
-.sample-filters select,
-.sample-filters input {
-  min-height: 32px;
-  padding: 0 8px;
-  color: #17202b;
-  background: #f8fafc;
-  border: 1px solid #cfd9e4;
-  border-radius: 2px;
-}
-
 .sample-list,
 .viewer-panel {
   background: #ffffff;
@@ -5946,6 +5908,25 @@ tbody tr:hover td {
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
+}
+
+.inspector-sidebar .advanced-filter-bar {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px;
+  box-shadow: none;
+}
+
+.inspector-sidebar .advanced-filter-head {
+  min-height: 32px;
+  padding: 0 9px;
+}
+
+.inspector-sidebar .advanced-filter-controls {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding-top: 6px;
 }
 
 .overview-console {

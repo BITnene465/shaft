@@ -89,7 +89,7 @@ import {
   unique
 } from "./formatters";
 import { useDashboardState } from "./dashboardState";
-import { AdvancedFilterBar, FilterSelect } from "./filterControls";
+import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { JobsPage } from "./jobsPage";
 import { BenchmarkTable, RunTable } from "./runTables";
@@ -1115,15 +1115,21 @@ function BenchmarkSampleFilters({
   onLabelFilterChange: (value: string) => void;
 }) {
   return (
-    <div className="sample-filters single">
-      <FilterSelect
-        label="标签"
-        value={labelFilter}
-        values={["all", ...labels]}
-        labels={{ all: "全部" }}
-        onChange={onLabelFilterChange}
-      />
-    </div>
+    <AdvancedFilterBar
+      title="样本检索"
+      meta={`${labels.length.toLocaleString()} labels`}
+      controls={[
+        {
+          type: "select",
+          id: "label",
+          label: "标签",
+          value: labelFilter,
+          values: ["all", ...labels],
+          labels: { all: "全部" },
+          onChange: onLabelFilterChange
+        }
+      ]}
+    />
   );
 }
 
@@ -1868,22 +1874,30 @@ function SampleFilters({
   onLabelFilterChange: (value: string) => void;
 }) {
   return (
-    <div className="sample-filters">
-      <FilterSelect
-        label="状态"
-        value={errorFilter}
-        values={["all", "fn", "fp", "missing", "clean"]}
-        labels={{ all: "全部", fn: "漏检", fp: "误检", missing: "缺失预测", clean: "正常" }}
-        onChange={onErrorFilterChange}
-      />
-      <FilterSelect
-        label="标签"
-        value={labelFilter}
-        values={["all", ...labels]}
-        labels={{ all: "全部" }}
-        onChange={onLabelFilterChange}
-      />
-    </div>
+    <AdvancedFilterBar
+      title="样本检索"
+      meta={`${labels.length.toLocaleString()} labels`}
+      controls={[
+        {
+          type: "select",
+          id: "error",
+          label: "状态",
+          value: errorFilter,
+          values: ["all", "fn", "fp", "missing", "clean"],
+          labels: { all: "全部", fn: "漏检", fp: "误检", missing: "缺失预测", clean: "正常" },
+          onChange: onErrorFilterChange
+        },
+        {
+          type: "select",
+          id: "label",
+          label: "标签",
+          value: labelFilter,
+          values: ["all", ...labels],
+          labels: { all: "全部" },
+          onChange: onLabelFilterChange
+        }
+      ]}
+    />
   );
 }
 
