@@ -412,9 +412,18 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 Agent 检索基础对象走稳定 CLI/API，不需要读取前端 state 或手扫 store 目录。CLI 的
 `list-benchmarks` / `list-runs` 与 API 的 `GET /api/benchmarks` / `GET /api/runs`
 共享 task、label、model、prompt、metric 和全文查询语义；job、service 和 comparison
-列表同样由后端分页过滤：
+列表同样由后端分页过滤。Job template 和 prompt template 也有 CLI 入口，agent 创建 job 前可以先
+发现模板、筛选任务类型，并按需维护 prompt template registry：
 
 ```bash
+.venv/bin/python scripts/eval_bench.py list-job-templates --query keypoint
+.venv/bin/python scripts/eval_bench.py list-prompt-templates \
+  --task detection \
+  --query arrow
+.venv/bin/python scripts/eval_bench.py upsert-prompt-template \
+  --payload-file /path/to/prompt_template.json
+.venv/bin/python scripts/eval_bench.py delete-prompt-template \
+  --prompt-id custom.arrow.v1
 .venv/bin/python scripts/eval_bench.py list-benchmarks \
   --task detection \
   --layer layout \

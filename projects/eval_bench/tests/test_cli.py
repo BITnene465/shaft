@@ -12,18 +12,22 @@ from eval_bench.cli import (
     _cmd_list_benchmarks,
     _cmd_list_benchmark_samples,
     _cmd_list_comparisons,
+    _cmd_list_job_templates,
     _cmd_list_jobs,
+    _cmd_list_prompt_templates,
     _cmd_list_run_samples,
     _cmd_list_runs,
     _cmd_list_services,
     _cmd_preflight_job,
     _cmd_rank_board,
     _cmd_register_service,
+    _cmd_delete_prompt_template,
     _cmd_set_run_note,
     _cmd_show_benchmark_sample,
     _cmd_show_run,
     _cmd_show_run_report,
     _cmd_show_run_sample,
+    _cmd_upsert_prompt_template,
 )
 
 
@@ -613,6 +617,75 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
     assert comparisons["comparisons"][0]["metric_profile"] == "detection_iou_v1"
+
+
+def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys) -> None:
+    job_template_args = _build_parser().parse_args(["list-job-templates", "--query", "keypoint"])
+    _cmd_list_job_templates(job_template_args)
+    job_templates = json.loads(capsys.readouterr().out)
+    assert job_templates["total"] == 1
+    assert "keypoint_eval_job" in job_templates["templates"]
+    assert job_templates["templates"]["keypoint_eval_job"]["manifest"]["eval"]["task"] == "keypoint"
+
+    list_args = _build_parser().parse_args(
+        ["list-prompt-templates", "--output-root", str(tmp_path), "--task", "detection"]
+    )
+    _cmd_list_prompt_templates(list_args)
+    prompt_templates = json.loads(capsys.readouterr().out)
+    assert prompt_templates["total"] >= 1
+    assert "grounding_arrow.latest" in prompt_templates["by_id"]
+    assert prompt_templates["by_id"]["grounding_arrow.latest"]["task"] == "detection"
+
+    custom_payload = {
+        "prompt_id": "custom.arrow.v1",
+        "label": "Custom Arrow",
+        "task": "detection",
+        "system_prompt": "You inspect visual structures.",
+        "user_prompt": "Detect arrows only.",
+        "parser": "raw_data_detection_v1",
+        "metric_profile": "detection_iou_v1",
+        "metadata": {"target_labels": ["arrow"], "source": "agent_cli_test"},
+    }
+    upsert_args = _build_parser().parse_args(
+        [
+            "upsert-prompt-template",
+            "--output-root",
+            str(tmp_path),
+            "--payload-json",
+            json.dumps(custom_payload),
+        ]
+    )
+    _cmd_upsert_prompt_template(upsert_args)
+    upserted = json.loads(capsys.readouterr().out)
+    assert upserted["prompt_id"] == "custom.arrow.v1"
+    assert upserted["metadata"]["target_labels"] == ["arrow"]
+
+    custom_list_args = _build_parser().parse_args(
+        [
+            "list-prompt-templates",
+            "--output-root",
+            str(tmp_path),
+            "--query",
+            "agent_cli_test",
+        ]
+    )
+    _cmd_list_prompt_templates(custom_list_args)
+    custom_list = json.loads(capsys.readouterr().out)
+    assert custom_list["total"] == 1
+    assert custom_list["templates"][0]["prompt_id"] == "custom.arrow.v1"
+
+    delete_args = _build_parser().parse_args(
+        [
+            "delete-prompt-template",
+            "--output-root",
+            str(tmp_path),
+            "--prompt-id",
+            "custom.arrow.v1",
+        ]
+    )
+    _cmd_delete_prompt_template(delete_args)
+    deleted = json.loads(capsys.readouterr().out)
+    assert deleted == {"prompt_id": "custom.arrow.v1", "deleted": True}
 
 
 def test_cli_reads_run_reports_and_scoped_samples_for_agents(tmp_path: Path, capsys) -> None:

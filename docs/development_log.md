@@ -2200,3 +2200,42 @@ Benchmark manifest 写入了 `labels`，但 `BenchmarkSummary` 没有把这组 l
 
 - 新增子任务入口时，候选项必须来自 store/API/CLI 的正式字段，不能让前端扫描 artifact 文件。
 - 留空 target labels 的语义继续归 `label_policy.py`，前端只负责显式写入用户选择的 `target_labels`。
+
+## 2026-05-25: Eval Bench agent 模板发现与 prompt registry CLI 闭环
+
+### 现象
+
+Dashboard 可以通过 `/api/job-templates` 和 `/api/prompt-templates` 发现 job/prompt 模板，也能在 UI 中保存
+prompt template；但 CLI 没有对应入口。Agent 如果要创建 manifest-first job，仍需要知道前端 API 或直接读
+SQLite / 前端状态，和“agent 不做 hack”的目标不一致。
+
+### 根因
+
+早期 CLI 优先补了 job 入队、run/rank/benchmark/comparison 查询和 run note，但 prompt template registry
+的读写仍只暴露在 dashboard API。模板发现和 prompt registry 管理没有进入 agent-safe CLI surface。
+
+### 影响范围
+
+- 影响 agent 自动创建 eval job 前的模板发现、prompt 选择和 prompt template 维护。
+- 不影响已有 dashboard UI、job worker、metric report 或训练主链。
+
+### 修复方式
+
+- 新增 `list-job-templates`，直接输出 `job_spec.job_templates()`。
+- 新增 `list-prompt-templates --task --query --offset --limit`，复用 `EvalBenchDatabase.list_prompt_templates()`。
+- 新增 `upsert-prompt-template --payload-json/--payload-file` 和 `delete-prompt-template --prompt-id`，
+  CLI 与 dashboard API 共用同一个 prompt template registry。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py::test_cli_manages_job_and_prompt_templates_for_agents`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_api_exposes_store_state`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run python -m compileall -q projects/eval_bench/eval_bench scripts/eval_bench.py`
+- `uv run python scripts/eval_bench.py list-job-templates --query keypoint`
+- `uv run python scripts/eval_bench.py list-prompt-templates --task detection --query arrow --limit 2`
+
+### 后续防线
+
+- 新增 dashboard 可操作对象时，必须同步检查是否需要 agent-safe CLI 发现和维护入口。
+- Prompt template 的唯一真源是 database registry；前端和 CLI 只能通过同一 registry 读写。

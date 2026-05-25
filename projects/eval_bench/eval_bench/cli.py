@@ -11,7 +11,7 @@ from .comparison import compare_runs, filter_comparison_reports, list_comparison
 from .database import EvalBenchDatabase
 from .dashboard import main as serve_dashboard
 from .evaluator import evaluate_run
-from .job_spec import preflight_job_payload
+from .job_spec import job_templates, preflight_job_payload
 from .label_policy import resolve_target_label_policy
 from .perf import run_perf_smoke
 from .prediction_import import import_predictions_for_benchmark
@@ -112,6 +112,38 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight_source = preflight_job.add_mutually_exclusive_group(required=True)
     preflight_source.add_argument("--payload-json", default=None)
     preflight_source.add_argument("--payload-file", default=None)
+
+    list_job_templates = subparsers.add_parser(
+        "list-job-templates",
+        help="List manifest-first job templates for humans and agents.",
+    )
+    list_job_templates.add_argument("--query", default=None)
+
+    list_prompt_templates = subparsers.add_parser(
+        "list-prompt-templates",
+        help="List prompt templates from the registry for humans and agents.",
+    )
+    list_prompt_templates.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    list_prompt_templates.add_argument("--task", choices=("detection", "keypoint"), default=None)
+    list_prompt_templates.add_argument("--query", default=None)
+    list_prompt_templates.add_argument("--offset", type=int, default=0)
+    list_prompt_templates.add_argument("--limit", type=int, default=100)
+
+    upsert_prompt_template = subparsers.add_parser(
+        "upsert-prompt-template",
+        help="Create or update a prompt template from JSON.",
+    )
+    upsert_prompt_template.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    prompt_template_source = upsert_prompt_template.add_mutually_exclusive_group(required=True)
+    prompt_template_source.add_argument("--payload-json", default=None)
+    prompt_template_source.add_argument("--payload-file", default=None)
+
+    delete_prompt_template = subparsers.add_parser(
+        "delete-prompt-template",
+        help="Delete a prompt template from the registry.",
+    )
+    delete_prompt_template.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    delete_prompt_template.add_argument("--prompt-id", required=True)
 
     create_job = subparsers.add_parser(
         "create-job",
@@ -500,6 +532,65 @@ def _cmd_preflight_job(args: argparse.Namespace) -> None:
     print(json.dumps(result, ensure_ascii=False))
 
 
+def _cmd_list_job_templates(args: argparse.Namespace) -> None:
+    query = _normalize_cli_filter(args.query).lower()
+    templates = job_templates()
+    if query:
+        templates = {
+            template_id: template
+            for template_id, template in templates.items()
+            if _template_query_matches(template_id, template, query)
+        }
+    print(
+        json.dumps(
+            {
+                "templates": templates,
+                "total": len(templates),
+                "filters": {"query": query},
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
+    filters = {
+        "task": _normalize_cli_filter(args.task),
+        "query": _normalize_cli_filter(args.query),
+    }
+    records = [
+        record.to_dict()
+        for record in EvalBenchDatabase(args.output_root).list_prompt_templates(
+            task=filters["task"] or None,
+            limit=1000,
+        )
+    ]
+    query = filters["query"].lower()
+    if query:
+        records = [
+            record for record in records if _template_query_matches(str(record["prompt_id"]), record, query)
+        ]
+    payload = _paged_payload(
+        "templates",
+        records,
+        offset=args.offset,
+        limit=args.limit,
+        filters=filters,
+    )
+    payload["by_id"] = {record["prompt_id"]: record for record in payload["templates"]}  # type: ignore[index]
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def _cmd_upsert_prompt_template(args: argparse.Namespace) -> None:
+    record = EvalBenchDatabase(args.output_root).upsert_prompt_template(_json_payload_from_args(args))
+    print(json.dumps(record.to_dict(), ensure_ascii=False))
+
+
+def _cmd_delete_prompt_template(args: argparse.Namespace) -> None:
+    record = EvalBenchDatabase(args.output_root).delete_prompt_template(str(args.prompt_id))
+    print(json.dumps({"prompt_id": record.prompt_id, "deleted": True}, ensure_ascii=False))
+
+
 def _cmd_list_jobs(args: argparse.Namespace) -> None:
     database = EvalBenchDatabase(args.output_root)
     page = database.job_page(
@@ -842,7 +933,7 @@ def _paged_payload(
     }
 
 
-def _job_payload_from_args(args: argparse.Namespace) -> dict[str, object]:
+def _json_payload_from_args(args: argparse.Namespace) -> dict[str, object]:
     source_text = (
         Path(str(args.payload_file)).read_text(encoding="utf-8")
         if getattr(args, "payload_file", None)
@@ -850,11 +941,31 @@ def _job_payload_from_args(args: argparse.Namespace) -> dict[str, object]:
     )
     payload = json.loads(source_text)
     if not isinstance(payload, dict):
-        raise ValueError("job payload must be a JSON object.")
+        raise ValueError("payload must be a JSON object.")
+    return payload
+
+
+def _job_payload_from_args(args: argparse.Namespace) -> dict[str, object]:
+    payload = _json_payload_from_args(args)
     kind = getattr(args, "kind", None)
     if kind:
         payload.setdefault("kind", str(kind))
     return payload
+
+
+def _template_query_matches(template_id: str, payload: dict[str, object], query: str) -> bool:
+    haystack = [
+        template_id,
+        str(payload.get("label") or ""),
+        str(payload.get("description") or ""),
+        str(payload.get("task") or ""),
+        str(payload.get("parser") or ""),
+        str(payload.get("metric_profile") or ""),
+        str(payload.get("visualization_profile") or ""),
+        str(payload.get("metadata") or ""),
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+    ]
+    return query in " ".join(haystack).lower()
 
 
 def _prompt_template_map(database: EvalBenchDatabase) -> dict[str, dict[str, object]]:
@@ -888,6 +999,14 @@ def main() -> None:
         _cmd_create_job(args)
     elif args.command == "preflight-job":
         _cmd_preflight_job(args)
+    elif args.command == "list-job-templates":
+        _cmd_list_job_templates(args)
+    elif args.command == "list-prompt-templates":
+        _cmd_list_prompt_templates(args)
+    elif args.command == "upsert-prompt-template":
+        _cmd_upsert_prompt_template(args)
+    elif args.command == "delete-prompt-template":
+        _cmd_delete_prompt_template(args)
     elif args.command == "list-jobs":
         _cmd_list_jobs(args)
     elif args.command == "list-benchmarks":

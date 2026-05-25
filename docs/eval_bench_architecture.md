@@ -131,7 +131,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
 - 新增 rank board 字段、facet 或排序规则：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格和测试。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
-  `list-benchmarks`、`list-runs`、`list-jobs`、`list-services`、`list-comparisons`，不要让 agent 读取前端状态或扫描 artifact 目录。
+  `list-job-templates`、`list-prompt-templates`、`list-benchmarks`、`list-runs`、`list-jobs`、
+  `list-services`、`list-comparisons`，不要让 agent 读取前端状态或扫描 artifact 目录。
+- 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
+  同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用
   `preflight-job` 校验，再用 `create-job` 入队，不能直接写 SQLite job record。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
