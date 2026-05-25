@@ -739,12 +739,12 @@ function LabelSubtaskPanel({
           <span>{benchmarkId || "未选择 benchmark"}</span>
         </div>
         <div className="label-subtask-actions">
-          <button type="button" onClick={() => onChange(labelOptions)}>
+          <ActionButton variant="mini" onClick={() => onChange(labelOptions)}>
             全部候选
-          </button>
-          <button type="button" onClick={() => onChange([])}>
+          </ActionButton>
+          <ActionButton variant="mini" onClick={() => onChange([])}>
             默认策略
-          </button>
+          </ActionButton>
         </div>
       </div>
       <div className="label-subtask-chips">
@@ -766,7 +766,9 @@ function LabelSubtaskPanel({
           onChange={(event) => setDraftLabel(event.target.value)}
           placeholder="自定义 label"
         />
-        <button type="submit">添加</button>
+        <ActionButton variant="mini" type="submit">
+          添加
+        </ActionButton>
       </form>
     </div>
   );

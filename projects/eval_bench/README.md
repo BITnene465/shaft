@@ -520,7 +520,8 @@ Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent 
 benchmark 文件。
 后续页面新增 filter 应优先复用。弹窗统一走 `WorkspaceDialog`，关闭按钮、Escape、backdrop 点击和内部滚动都由
 该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`，业务页只为
-样本行、画布 HUD、label chip 等专用交互保留独立 button 样式。
+样本行、画布 HUD、label chip 等专用交互保留独立 button 样式；`test:ui-contracts` 会阻止原生
+confirm/alert/prompt、业务页自建 dialog shell、旧 `sample-filters` 和已收敛标准动作回流。
 
 Dashboard 的 Runs 页也提供同一能力：展开 `Import prediction snapshot`，填写
 `run_id`、benchmark、prediction root、task、model ID 和可选 target labels 后提交。target labels
@@ -591,12 +592,15 @@ cd projects/eval_bench/frontend
 npm run test:metrics
 npm run test:status-model
 npm run test:workspace-settings
+npm run test:ui-contracts
 npm run test:shortcuts
 npm run test:layout
 ```
 
 `test:status-model` 会检查 job、run、service 的状态文案、视觉 tone 和可执行动作规则，避免组件自己临时
 判断“能不能取消、删除、启动、停止、评估”。
+`test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
+绕过标准 action button。
 
 `test:workspace-settings` 会检查 viewer/settings 共享配置 schema，确保数值配置项、UI number input 范围、
 归一化范围和显示缩放系数来自同一份定义，避免配置层级再次分叉。

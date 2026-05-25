@@ -160,16 +160,16 @@ export function ShortcutSettingsPanel({
               >
                 {binding || "未设置"}
               </button>
-              <button type="button" onClick={() => onReset(action.id)}>
+              <ActionButton variant="mini" onClick={() => onReset(action.id)}>
                 重置
-              </button>
+              </ActionButton>
             </div>
           );
         })}
       </div>
-      <button className="settings-inline-action" type="button" onClick={onResetAll}>
+      <ActionButton variant="secondary" className="settings-inline-action" onClick={onResetAll}>
         重置全部快捷键
-      </button>
+      </ActionButton>
     </SettingsPreferenceRow>
   );
 }

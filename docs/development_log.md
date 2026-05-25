@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 标准动作按钮在业务页回流为原生 button
+
+### 现象
+
+Detection label 子任务面板和快捷键设置面板中，部分标准动作仍直接使用业务页原生 `button`：
+`全部候选`、`默认策略`、自定义 label `添加`、单个快捷键 `重置` 和 `重置全部快捷键`。这会让按钮层级、
+hover/disabled 状态和后续 dialog/action 规范继续出现双轨。
+
+### 根因
+
+早期页面在交互收口前先按局部样式补了按钮，后续虽然已经引入 `ActionButton`、`CommandButton`、
+`IconActionButton` 和 `WorkspaceDialog`，但没有静态防线防止业务页继续保留标准动作按钮样式。这是前端
+展示层组件边界问题，不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Jobs 新建评测弹窗和 Settings 快捷键设置面板。
+- 不影响 job manifest、label policy、run note、Rank Board 或后端 CLI/API 行为。
+
+### 修复方式
+
+- Detection label 子任务的批量选择、默认策略和自定义 label 提交统一改用 `ActionButton variant="mini"`。
+- 快捷键单项重置和重置全部统一改用 `ActionButton`，保留快捷键捕获按钮作为专用输入控件。
+- 新增 `npm run test:ui-contracts`，静态阻止阻塞式浏览器弹窗、业务页自建 dialog shell、旧
+  `sample-filters` 和这次已收敛标准动作回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增页面动作先使用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布 HUD、
+  label chip、快捷键捕获这类具有独立输入语义的控件保留专用 button。
+- 对 UI 边界的规则要进入可运行脚本，不只停留在 README 或架构说明里。
+
 ## 2026-05-25: Eval Bench 可视化检查器主统计条精细指标外露
 
 ### 现象

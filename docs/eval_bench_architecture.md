@@ -158,6 +158,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
   HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。
+  前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell
+  和已收敛标准动作回流。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused
   测试证明四条调用链一致。
 - 新增 run sample 展示范围规则：只改 `sample_scope.py`，不能在 dashboard route、viewer 或 store 中各自
