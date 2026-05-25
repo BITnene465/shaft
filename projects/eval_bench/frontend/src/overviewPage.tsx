@@ -18,7 +18,7 @@ import type { RunSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
-import { Badge, EmptyState, PanelTitle } from "./ui";
+import { Badge, EmptyState } from "./ui";
 
 type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks";
 type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
@@ -50,14 +50,6 @@ type OverviewReadinessItem = OverviewAction & {
   state: string;
   value: number;
   total: number;
-};
-type OverviewBottleneck = {
-  label: string;
-  value: string;
-  detail: string;
-  to: OverviewRoute;
-  tone: OverviewTone;
-  progress: number;
 };
 
 export function OverviewPage() {
@@ -128,7 +120,7 @@ export function OverviewPage() {
       value: data.benchmark_count,
       total: Math.max(data.benchmark_count, 1),
       meta: `${data.total_benchmark_samples.toLocaleString()} samples`,
-      to: "/benchmarks" as OverviewRoute,
+      to: "/benchmarks",
       tone: data.benchmark_count > 0 ? "good" : "warm"
     },
     {
@@ -159,47 +151,47 @@ export function OverviewPage() {
 
   const signalItems: OverviewSignal[] = [
     {
-      label: "报告覆盖",
+      label: "覆盖",
       value: `${coveragePercent}%`,
-      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
+      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} reports`,
       to: "/runs",
       tone: evaluatedRuns > 0 ? "good" : "idle",
       icon: <CheckCircle2 size={16} />,
       progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "待评估",
+      label: "待评",
       value: waitingEvaluation.toLocaleString(),
       detail:
         waitingEvaluation > 0
-          ? `${runsWithPredictions.toLocaleString()} 个 run 已有预测`
-          : "没有积压的预测产物",
+          ? `${runsWithPredictions.toLocaleString()} runs with predictions`
+          : "no report backlog",
       to: "/runs",
       tone: waitingEvaluation > 0 ? "warm" : "idle",
       icon: <Gauge size={16} />,
       progress: trackPercent(waitingEvaluation, totalRuns)
     },
     {
-      label: "队列压力",
+      label: "队列",
       value: activeQueue.toLocaleString(),
       detail:
         failedJobs > 0
-          ? `${failedJobs.toLocaleString()} 个失败任务`
-          : `${queuedJobs.toLocaleString()} 排队 / ${runningJobs.toLocaleString()} 运行`,
+          ? `${failedJobs.toLocaleString()} failed jobs`
+          : `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
       to: "/jobs",
       tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
       icon: activeQueue > 0 ? <Activity size={16} /> : <Clock3 size={16} />,
       progress: trackPercent(activeQueue + failedJobs, totalJobs)
     },
     {
-      label: "在线服务",
+      label: "服务",
       value: `${liveServices}/${services.length}`,
       detail:
         services.length > 0
-          ? `${services.length.toLocaleString()} 个服务已登记`
+          ? `${services.length.toLocaleString()} services registered`
           : schedulerEnabled
-            ? "自动调度等待服务"
-            : "手动推进等待服务",
+            ? "auto scheduler waiting"
+            : "manual mode",
       to: "/services",
       tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle",
       icon: <Server size={16} />,
@@ -217,61 +209,29 @@ export function OverviewPage() {
     totalRuns,
     schedulerEnabled
   });
-  const bottlenecks = overviewBottlenecks({
-    failedJobs,
-    waitingEvaluation,
-    activeQueue,
-    liveServices,
-    serviceCount: services.length,
-    evaluatedRuns,
-    totalRuns,
-    totalJobs,
-    totalServices
-  });
-  const recentRuns = overviewRecentRuns(data.runs, 5);
+  const recentRuns = overviewRecentRuns(data.runs, 2);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v6">
-      <div className="overview-command-center overview-command-center-redesign">
-        <div className="overview-console-main overview-hero-stage">
-          <div className="overview-title-block">
-            <div className="eyebrow">Eval Bench Control</div>
+    <section className="page-stack dashboard-home overview-home-v7">
+      <div className="overview-home-shell">
+        <section className={`overview-priority-stage ${nextAction.tone}`}>
+          <div className="overview-priority-copy">
+            <div className="overview-kicker-row">
+              <span className="overview-live-dot" />
+              <span>Eval Bench Control</span>
+              <i className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
+                {overviewSyncing ? "同步中" : "已同步"}
+              </i>
+            </div>
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
-            <div className="overview-hero-route">
-              <span>{data.benchmark_count.toLocaleString()} benchmark</span>
-              <i />
-              <span>{data.run_count.toLocaleString()} run</span>
-              <i />
-              <span>{evaluatedRuns.toLocaleString()} report</span>
-            </div>
+            <OverviewNextAction action={nextAction} />
           </div>
           <OverviewHeroMap stages={pipelineStages} />
-          <div className="overview-hero-metrics">
-            <OverviewStat label="调度" value={schedulerEnabled ? "Auto" : "Manual"} />
-            <OverviewStat
-              label="失败"
-              value={failedJobs}
-              tone={failedJobs > 0 ? "live" : "idle"}
-            />
-            <OverviewStat
-              label="运行"
-              value={runningJobs}
-              tone={runningJobs > 0 ? "live" : "idle"}
-            />
-            <OverviewStat
-              label="在线"
-              value={`${liveServices}/${services.length}`}
-              tone={liveServices > 0 ? "live" : "idle"}
-            />
-          </div>
-        </div>
-        <div className="overview-pulse-dock overview-control-dock">
-          <div className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
-            <span />
-            <strong>{overviewSyncing ? "同步中" : "已同步"}</strong>
-          </div>
-          <OverviewNextAction action={nextAction} />
+        </section>
+
+        <aside className="overview-command-rail" aria-label="首页核心状态">
+          <OverviewSignalStack signals={signalItems} />
           <div className="overview-console-links">
             <Link to="/rank-board">
               <AppIcon name="rankBoard" size={14} />
@@ -286,23 +246,19 @@ export function OverviewPage() {
               任务
             </Link>
           </div>
-        </div>
+        </aside>
       </div>
 
       <div className="overview-workbench">
         <section className="overview-ops-surface">
-          <div className="overview-focus-head">
-            <PanelTitle title="评测闭环" meta="当前最该看的运营信号" />
-            <div className="overview-focus-summary">
-              <strong>{coveragePercent}%</strong>
-              <span>报告覆盖</span>
+          <div className="overview-section-head">
+            <div>
+              <span>Evaluation Flow</span>
+              <h3>评测流向</h3>
             </div>
+            <strong>{coveragePercent}% complete</strong>
           </div>
-          <OverviewSignalStrip signals={signalItems} />
-          <div className="overview-flow-and-bottleneck">
-            <OverviewPipeline stages={pipelineStages} />
-            <OverviewBottleneckPanel items={bottlenecks} />
-          </div>
+          <OverviewPipeline stages={pipelineStages} />
         </section>
 
         <aside className="overview-right-rail">
@@ -322,7 +278,7 @@ function OverviewHeroMap({ stages }: { stages: OverviewPipelineStage[] }) {
         <span
           className={`overview-orbit-node ${stage.tone}`}
           key={stage.label}
-          style={{ animationDelay: `${index * 130}ms` }}
+          style={{ animationDelay: `${index * 140}ms` }}
         >
           <i />
           <b>{String(index + 1).padStart(2, "0")}</b>
@@ -332,39 +288,22 @@ function OverviewHeroMap({ stages }: { stages: OverviewPipelineStage[] }) {
   );
 }
 
-function OverviewSignalStrip({ signals }: { signals: OverviewSignal[] }) {
+function OverviewSignalStack({ signals }: { signals: OverviewSignal[] }) {
   return (
-    <div className="overview-signal-strip overview-operational-grid">
+    <div className="overview-signal-stack overview-operational-grid">
       {signals.map((signal) => (
         <Link className={`overview-signal-card ${signal.tone}`} to={signal.to} key={signal.label}>
           <span>{signal.icon}</span>
           <div>
             <strong>{signal.value}</strong>
             <em>{signal.label}</em>
+            <small>{signal.detail}</small>
           </div>
-          <small>{signal.detail}</small>
           <i aria-hidden="true">
             <b style={{ width: `${signal.progress}%` }} />
           </i>
         </Link>
       ))}
-    </div>
-  );
-}
-
-function OverviewStat({
-  label,
-  value,
-  tone = "idle"
-}: {
-  label: string;
-  value: number | string;
-  tone?: "idle" | "live";
-}) {
-  return (
-    <div className={tone === "live" ? "overview-stat live" : "overview-stat"}>
-      <span>{label}</span>
-      <strong>{typeof value === "number" ? value.toLocaleString() : value}</strong>
     </div>
   );
 }
@@ -429,7 +368,12 @@ function OverviewReadinessPanel({
 }) {
   return (
     <section className="workspace-card overview-action-panel">
-      <PanelTitle title="行动入口" meta={schedulerEnabled ? "自动调度" : "手动推进"} />
+      <div className="overview-section-head compact">
+        <div>
+          <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
+          <h3>行动入口</h3>
+        </div>
+      </div>
       <div className="overview-action-list">
         {items.map((item) => (
           <Link className={`overview-action-link ${item.tone}`} to={item.to} key={item.label}>
@@ -446,26 +390,6 @@ function OverviewReadinessPanel({
         ))}
       </div>
     </section>
-  );
-}
-
-function OverviewBottleneckPanel({ items }: { items: OverviewBottleneck[] }) {
-  return (
-    <div className="overview-bottleneck-panel" aria-label="当前阻塞优先级">
-      <PanelTitle title="阻塞优先级" meta="按需要处理的程度排序" />
-      <div className="overview-bottleneck-list">
-        {items.map((item) => (
-          <Link className={`overview-bottleneck-row ${item.tone}`} to={item.to} key={item.label}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-            <em>{item.detail}</em>
-            <i aria-hidden="true">
-              <b style={{ width: `${item.progress}%` }} />
-            </i>
-          </Link>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -498,7 +422,13 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
 function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
   return (
     <section className="workspace-card overview-recent-card">
-      <PanelTitle title="最近产物" meta={`latest ${runs.length}`} />
+      <div className="overview-section-head compact">
+        <div>
+          <span>Latest Runs</span>
+          <h3>最近产物</h3>
+        </div>
+        <strong>{runs.length}</strong>
+      </div>
       <OverviewRunList runs={runs} />
     </section>
   );
@@ -670,85 +600,6 @@ function overviewReadinessItems({
       total: totalRuns
     }
   ];
-}
-
-function overviewBottlenecks({
-  failedJobs,
-  waitingEvaluation,
-  activeQueue,
-  liveServices,
-  serviceCount,
-  evaluatedRuns,
-  totalRuns,
-  totalJobs,
-  totalServices
-}: {
-  failedJobs: number;
-  waitingEvaluation: number;
-  activeQueue: number;
-  liveServices: number;
-  serviceCount: number;
-  evaluatedRuns: number;
-  totalRuns: number;
-  totalJobs: number;
-  totalServices: number;
-}): OverviewBottleneck[] {
-  const items: OverviewBottleneck[] = [
-    {
-      label: "失败任务",
-      value: failedJobs.toLocaleString(),
-      detail: failedJobs > 0 ? "先处理失败队列" : "没有失败任务",
-      to: "/jobs",
-      tone: failedJobs > 0 ? "danger" : "good",
-      progress: trackPercent(failedJobs, totalJobs)
-    },
-    {
-      label: "待评估 run",
-      value: waitingEvaluation.toLocaleString(),
-      detail: waitingEvaluation > 0 ? "已有预测但缺报告" : "没有待补报告",
-      to: "/runs",
-      tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
-      progress: trackPercent(waitingEvaluation, totalRuns)
-    },
-    {
-      label: "队列压力",
-      value: activeQueue.toLocaleString(),
-      detail: activeQueue > 0 ? "排队或运行中的任务" : "队列空闲",
-      to: "/jobs",
-      tone: activeQueue > 0 ? "live" : "good",
-      progress: trackPercent(activeQueue, totalJobs)
-    },
-    {
-      label: "服务在线",
-      value: `${liveServices}/${serviceCount}`,
-      detail:
-        serviceCount === 0
-          ? "还未登记服务"
-          : liveServices > 0
-            ? "可以承接评测"
-            : "评测前需启动服务",
-      to: "/services",
-      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle",
-      progress: trackPercent(liveServices, totalServices)
-    }
-  ];
-  return items.sort((left, right) => toneWeight(right.tone) - toneWeight(left.tone));
-}
-
-function toneWeight(tone: OverviewTone) {
-  if (tone === "danger") {
-    return 5;
-  }
-  if (tone === "warm") {
-    return 4;
-  }
-  if (tone === "live") {
-    return 3;
-  }
-  if (tone === "idle") {
-    return 2;
-  }
-  return 1;
 }
 
 function overviewRecentRuns(runs: RunSummary[], limit: number) {

@@ -276,10 +276,10 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立
-圆角 capsule，Overview 必须保留 hero next action、四段管线、阻塞优先级、行动入口、一个 operations surface 和最近 run 紧凑摘要，
+圆角 capsule，Overview 必须保留 priority stage、command rail、hero next action、四段管线、行动入口、一个 operations surface 和最近 run 紧凑摘要，
 旧活动矩阵、mini chart wall 和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
-command desk 需要滚动时不能被 hidden 裁切，operations、行动入口和最近 run 面板必须保持可读高度，不能在
+home cockpit 需要滚动时不能被 hidden 裁切，priority stage、command rail、operations、行动入口和最近 run 面板必须保持可读高度，不能在
 compact / narrow 视口塌缩成 30-40px 外壳；最近 run 只能是可点击紧凑摘要，关键入口必须保留 hover/transition 反馈。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
 inspector split 内，不能卸载成全页 EmptyState。
@@ -301,8 +301,9 @@ UI contract 还会锁住 Rank Board 表格第一分数列必须使用 active pri
   `PanelToggleButton`；紧凑 select、表单 select、number、color 和 toggle 控件位于 `controlPrimitives.tsx`。
   `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接，并固定
   高级检索折叠头和清空动作必须在 `AdvancedFilterBar` 内统一实现；Overview 静态契约必须使用
-  command desk 的 `overview-workbench` / `overview-ops-surface` / `overview-bottleneck-panel`，
-  不能回流旧 `overview-command-deck`、`overview-focus-panel` 或活动矩阵组件。
+  home cockpit 的 `overview-home-v7` / `overview-priority-stage` / `overview-command-rail` /
+  `overview-workbench` / `overview-ops-surface`，不能回流旧 `overview-home-v6`、`overview-command-deck`、
+  `overview-focus-panel`、阻塞优先级面板或活动矩阵组件。
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data

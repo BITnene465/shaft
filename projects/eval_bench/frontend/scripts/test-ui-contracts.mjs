@@ -179,28 +179,34 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v6") &&
-    overviewPage.includes("overview-command-center-redesign") &&
+  overviewPage.includes("overview-home-v7") &&
+    overviewPage.includes("overview-home-shell") &&
+    overviewPage.includes("overview-priority-stage") &&
+    overviewPage.includes("overview-command-rail") &&
     overviewPage.includes("overview-workbench") &&
     overviewPage.includes("overview-ops-surface") &&
     overviewPage.includes("OverviewHeroMap") &&
     overviewPage.includes("overview-orbit-map") &&
-    overviewPage.includes("overview-hero-route") &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewPipeline") &&
     overviewPage.includes("OverviewReadinessPanel") &&
     overviewPage.includes("overviewReadinessItems") &&
     overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("overviewRecentRuns(data.runs") &&
-    overviewPage.includes("OverviewSignalStrip") &&
-    overviewPage.includes("overview-signal-strip") &&
-    overviewPage.includes("OverviewBottleneckPanel") &&
-    overviewPage.includes("overview-bottleneck-panel") &&
-    overviewPage.includes("overview-flow-and-bottleneck") &&
+    overviewPage.includes("OverviewSignalStack") &&
+    overviewPage.includes("overview-signal-stack") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-operational-grid") &&
     overviewPage.includes("overview-right-rail") &&
+    !overviewPage.includes("overview-home-v6") &&
+    !overviewPage.includes("overview-command-center-redesign") &&
+    !overviewPage.includes("overview-hero-route") &&
+    !overviewPage.includes("OverviewSignalStrip") &&
+    !overviewPage.includes("overview-signal-strip") &&
+    !overviewPage.includes("OverviewBottleneckPanel") &&
+    !overviewPage.includes("overview-bottleneck-panel") &&
+    !overviewPage.includes("overview-flow-and-bottleneck") &&
     !overviewPage.includes("overview-command-deck") &&
     !overviewPage.includes("overview-focus-panel") &&
     !overviewPage.includes("overview-side-stack") &&
@@ -216,9 +222,10 @@ assert(
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 assert(
-  styleSource.includes("Overview v6: decision-first command surface") &&
-    styleSource.includes("@keyframes overview-scanline") &&
-    styleSource.includes("@keyframes overview-node-breathe") &&
+  styleSource.includes("Overview v7: action-first home cockpit") &&
+    styleSource.includes("@keyframes overview-flow-sweep") &&
+    styleSource.includes("@keyframes overview-live-breathe") &&
+    styleSource.includes("@keyframes overview-card-float") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".nav-item:hover .app-icon"),

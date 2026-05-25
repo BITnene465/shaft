@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 首页 command desk 仍缺少主判断链路
+
+### 现象
+
+总览页已经多次删除低价值面板，但用户仍反馈“主页没有任何价值”。当前首屏把 hero、四个信号、管线、
+阻塞优先级、行动入口和最近 run 分散摆放，页面虽然不再是图表墙，但视觉上仍像多个模块并列。
+鼠标悬浮和同步状态动效也不够统一，系统缺少实时控制台的互动感。
+
+### 根因
+
+上一版把“卡在哪里”拆成独立阻塞优先级面板，又把信号、管线和行动入口分成多组，导致用户需要自己把这些块重新合成下一步判断。
+布局契约也仍以旧 command desk 为中心，约束了元素存在，但没有约束首页必须先给出主判断和主动作。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 首页第一屏判断效率、空间层级和交互质感。
+- 不改变 eval、codec、metric、data、store 或 rank-board 语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v7`，改成 home cockpit：左侧 priority stage 直接给出当前判断、同步状态、
+  下一步主动作和四段路线图。
+- 右侧 command rail 只保留覆盖、待评、队列和服务四个可点击状态入口，下方保留一个评测流向 surface、
+  readiness switchboard 和最近 run 紧凑摘要。
+- 移除单独常驻的阻塞优先级面板，卡点由主动作和状态入口表达，避免首页继续并列堆模块。
+- 补充统一 hover、live pulse、sync sheen、flow sweep 和卡片抬升动效，动效只表达可点击性和实时状态。
+- 同步 README、架构文档、脚本说明、静态 UI contract 和 layout smoke 的新首页边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 首页新增内容必须能直接强化“当前判断、下一步动作、评测流向、最近产物”之一；不能新增独立低价值面板。
+- Overview 契约必须同时约束源码结构、运行时高度和 hover/transition，不只检查 selector 存在。
+
 ## 2026-05-25: Eval Bench Agent 命令只能全量发现不能单条查询
 
 ### 现象
