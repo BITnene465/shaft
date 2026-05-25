@@ -10,7 +10,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import { formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { ActionButton, Badge, DataTable, EmptyState, MetricCard, OptionChipButton } from "./ui";
+import { ActionButton, Badge, DataTable, EmptyState, InlineNavLink, MetricCard, OptionChipButton } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
   f1_iou50: "F1@.50",
@@ -153,14 +153,14 @@ export function RankBoardPage() {
           </span>
         </div>
         {best ? (
-          <Link
-            className="mini-link compare-ready"
+          <InlineNavLink
+            className="compare-ready"
+            icon={<AppIcon name="rankBoard" size={13} />}
             to="/runs/$runId"
             params={{ runId: best.run_id }}
           >
-            <AppIcon name="rankBoard" size={13} />
             {board.offset === 0 ? "当前第一" : "本页第一"} {best.run_id}
-          </Link>
+          </InlineNavLink>
         ) : null}
       </div>
       <RankDecisionPanel

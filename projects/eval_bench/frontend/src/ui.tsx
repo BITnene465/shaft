@@ -128,6 +128,30 @@ export function IconNavLink({
   );
 }
 
+export function InlineNavLink({
+  icon,
+  children,
+  className,
+  ...props
+}: {
+  icon?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  [key: string]: unknown;
+}) {
+  return createElement(
+    Link as ElementType,
+    {
+      ...props,
+      className: joinClassNames("mini-link", className)
+    },
+    <>
+      {icon}
+      {children}
+    </>,
+  );
+}
+
 export function PanelToggleButton({
   active,
   className,

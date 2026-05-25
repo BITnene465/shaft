@@ -47,6 +47,7 @@ import {
   CommandButton,
   DangerConfirmDialog,
   IconActionButton,
+  InlineNavLink,
   PanelTitle,
   WorkspaceDialog
 } from "./ui";
@@ -401,9 +402,9 @@ function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null })
         </div>
         <div className="job-monitor-actions">
           {linkedRunId ? (
-            <Link className="mini-link" to="/runs/$runId" params={{ runId: linkedRunId }}>
+            <InlineNavLink to="/runs/$runId" params={{ runId: linkedRunId }}>
               打开结果
-            </Link>
+            </InlineNavLink>
           ) : null}
           <Badge value={job.status} domain="job" />
         </div>

@@ -28,7 +28,7 @@ import {
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
+import { Badge, DataTable, EmptyState, InlineNavLink, SelectableCardButton } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 const COMPARE_RUN_PAGE_SIZE = 80;
@@ -149,10 +149,9 @@ export function ComparePage() {
           <span>对比工作区</span>
           <strong>{filteredCount.toLocaleString()} 条 run</strong>
         </div>
-        <Link className="mini-link compare-ready" to="/rank-board">
-          <AppIcon name="rankBoard" size={13} />
+        <InlineNavLink className="compare-ready" icon={<AppIcon name="rankBoard" size={13} />} to="/rank-board">
           排行榜
-        </Link>
+        </InlineNavLink>
       </div>
       <AdvancedFilterBar
         title="对比高级检索"
@@ -783,10 +782,13 @@ function CompareContextPanel({
           <em>report</em>
         </div>
       </div>
-      <Link className="mini-link compare-ready compare-rank-link" to="/rank-board">
-        <AppIcon name="rankBoard" size={13} />
+      <InlineNavLink
+        className="compare-ready compare-rank-link"
+        icon={<AppIcon name="rankBoard" size={13} />}
+        to="/rank-board"
+      >
         打开独立排行榜
-      </Link>
+      </InlineNavLink>
       <div className="compare-context-links">
         {baselineRunId ? (
           <Link to="/runs/$runId" params={{ runId: baselineRunId }}>

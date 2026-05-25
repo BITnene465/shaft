@@ -11,7 +11,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
-import { Badge, DangerConfirmDialog, DataTable, IconActionButton, IconNavLink } from "./ui";
+import { Badge, DangerConfirmDialog, DataTable, IconActionButton, IconNavLink, InlineNavLink } from "./ui";
 
 export function BenchmarkTable({
   benchmarks,
@@ -42,15 +42,14 @@ export function BenchmarkTable({
       header: "",
       id: "actions",
       cell: ({ row }) => (
-        <Link
-          className="mini-link"
+        <InlineNavLink
+          icon={<Eye size={13} />}
           to="/benchmarks/$benchmarkId"
           params={{ benchmarkId: row.original.benchmark_id }}
           title="检查基准集真值样本"
         >
-          <Eye size={13} />
           检查
-        </Link>
+        </InlineNavLink>
       )
     }
   ];
