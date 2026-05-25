@@ -2929,3 +2929,44 @@ run / benchmark 的静态汇总，job、service、scheduler、备注覆盖和预
 
 - Overview 新增运行态内容必须优先进入 signal deck 或 mini chart 矩阵，不再新增整行低密度 block。
 - 细粒度模型能力指标继续留在 Rank Board、Run Inspector 和 Compare，不进入总览。
+
+## 2026-05-25: Eval Bench Agent 生命周期 CLI 补齐
+
+### 现象
+
+Dashboard API 已经支持 run archive/delete、job cancel/delete/log tail、service delete、backend log 和 scheduler
+status，但 CLI 仍主要覆盖创建、列表、评估和 note。agent 如果要完成生命周期操作，仍容易退回到直接改
+SQLite、移动 store 目录或猜 runtime log 路径。
+
+### 根因
+
+前期优先把人工 Dashboard 操作闭环做通，CLI 只补了 preflight、create、list、rank-board、run note 和
+service 基础命令；API 侧新增的生命周期操作没有同步抽出共享后端 helper，也没有进入 CLI contract。
+
+### 影响范围
+
+- 影响 Eval Bench 的 agent 可操作性和排障路径。
+- 不改变 job 状态机、service 管理语义、rank-board 排序或评估指标。
+- 删除 run/service 仍走 trash，避免直接丢证据。
+
+### 修复方式
+
+- 新增 `log_utils.py`，集中维护 backend log tail、job runtime log tail 和 job log path 解析，Dashboard API 与 CLI 共用。
+- `EvalBenchStore` 新增 `archive_run` / `delete_run`，Dashboard API 和 CLI 不再各自直接改 manifest 或移动 run 目录。
+- CLI 新增 `dashboard-state`、`scheduler-status`、`backend-logs`、`archive-run`、`delete-run`、
+  `cancel-job`、`delete-job`、`job-logs` 和 `delete-service`。
+- 补充 CLI 测试，覆盖 state/log/run/job/service 生命周期命令。
+- README、`docs/eval_bench_architecture.md` 和 `docs/scripts.md` 补充 agent CLI 边界和命令入口。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_dashboard.py`
+- `python3 -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+
+### 后续防线
+
+- 新增 Dashboard 生命周期 API 时必须同步考虑 CLI 入口；agent 不应通过手写 SQLite、直接改 run manifest 或
+  直接拼 runtime log 路径完成操作。
+- run artifact 生命周期优先落到 `EvalBenchStore`；job record 生命周期优先落到 `EvalBenchDatabase`；
+  service 生命周期优先落到 `EvalBenchServiceManager`。

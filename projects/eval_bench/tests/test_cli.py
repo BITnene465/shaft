@@ -5,12 +5,21 @@ from pathlib import Path
 
 import pytest
 
+from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
     _build_parser,
+    _cmd_archive_run,
+    _cmd_backend_logs,
+    _cmd_cancel_job,
     _cmd_create_job,
+    _cmd_dashboard_state,
+    _cmd_delete_job,
+    _cmd_delete_run,
+    _cmd_delete_service,
     _cmd_get_run_note,
     _cmd_init_run,
     _cmd_import_predictions,
+    _cmd_job_logs,
     _cmd_list_benchmarks,
     _cmd_list_benchmark_samples,
     _cmd_list_comparisons,
@@ -23,6 +32,7 @@ from eval_bench.cli import (
     _cmd_preflight_job,
     _cmd_rank_board,
     _cmd_register_service,
+    _cmd_scheduler_status,
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
     _cmd_show_benchmark_sample,
@@ -321,6 +331,116 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     assert get_payload["note"] == set_payload["note"]
     assert get_payload["path"].endswith("runs/run1/note.json")
     assert get_payload["max_length"] == 20_000
+
+
+def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) -> None:
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "run_id": "run1",
+            "status": "succeeded",
+            "created_at": "2026-05-09T00:10:00Z",
+            "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+            "benchmark": {
+                "benchmark_id": "bench1",
+                "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+                "split": "val",
+                "tasks": ["detection"],
+            },
+            "spec": {"task": "detection"},
+        },
+    )
+    state_args = _build_parser().parse_args(["dashboard-state", "--output-root", str(tmp_path)])
+    _cmd_dashboard_state(state_args)
+    assert json.loads(capsys.readouterr().out)["run_count"] == 1
+
+    archive_args = _build_parser().parse_args(
+        ["archive-run", "--output-root", str(tmp_path), "--run-id", "run1"]
+    )
+    _cmd_archive_run(archive_args)
+    archived = json.loads(capsys.readouterr().out)
+    assert archived["status"] == "archived"
+    assert json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))[
+        "status"
+    ] == "archived"
+
+    backend_log = tmp_path / "logs" / "backend.log"
+    backend_log.parent.mkdir(parents=True)
+    backend_log.write_text("alpha\nbeta\n", encoding="utf-8")
+    backend_log_args = _build_parser().parse_args(
+        ["backend-logs", "--output-root", str(tmp_path), "--max-lines", "1"]
+    )
+    _cmd_backend_logs(backend_log_args)
+    assert json.loads(capsys.readouterr().out)["lines"] == ["beta\n"]
+
+    runtime_log = tmp_path / "runs" / "run1" / "logs" / "runtime.log"
+    runtime_log.parent.mkdir(parents=True)
+    runtime_log.write_text("step1\nstep2\nstep3\n", encoding="utf-8")
+    database = EvalBenchDatabase(tmp_path)
+    database.create_job(
+        kind="eval",
+        job_id="job1",
+        payload={"run_id": "run1"},
+        status="queued",
+        metadata={"runtime_log_path": str(runtime_log)},
+    )
+    job_log_args = _build_parser().parse_args(
+        ["job-logs", "--output-root", str(tmp_path), "--job-id", "job1", "--max-lines", "2"]
+    )
+    _cmd_job_logs(job_log_args)
+    assert json.loads(capsys.readouterr().out)["lines"] == ["step2\n", "step3\n"]
+
+    cancel_args = _build_parser().parse_args(
+        ["cancel-job", "--output-root", str(tmp_path), "--job-id", "job1"]
+    )
+    _cmd_cancel_job(cancel_args)
+    assert json.loads(capsys.readouterr().out)["status"] == "cancelled"
+
+    delete_job_args = _build_parser().parse_args(
+        ["delete-job", "--output-root", str(tmp_path), "--job-id", "job1"]
+    )
+    _cmd_delete_job(delete_job_args)
+    assert json.loads(capsys.readouterr().out)["deleted"] is True
+    assert database.get_job("job1") is None
+
+    scheduler_args = _build_parser().parse_args(
+        ["scheduler-status", "--output-root", str(tmp_path)]
+    )
+    _cmd_scheduler_status(scheduler_args)
+    scheduler_payload = json.loads(capsys.readouterr().out)
+    assert scheduler_payload["source"] == "cli_snapshot"
+    assert scheduler_payload["enabled"] is False
+
+    register_service_args = _build_parser().parse_args(
+        [
+            "register-service",
+            "--output-root",
+            str(tmp_path),
+            "--kind",
+            "external_vllm",
+            "--service-id",
+            "svc1",
+            "--endpoint",
+            "http://127.0.0.1:8000/v1",
+        ]
+    )
+    _cmd_register_service(register_service_args)
+    assert json.loads(capsys.readouterr().out)["service_id"] == "svc1"
+
+    delete_service_args = _build_parser().parse_args(
+        ["delete-service", "--output-root", str(tmp_path), "--service-id", "svc1"]
+    )
+    _cmd_delete_service(delete_service_args)
+    assert json.loads(capsys.readouterr().out)["service"]["service_id"] == "svc1"
+
+    delete_run_args = _build_parser().parse_args(
+        ["delete-run", "--output-root", str(tmp_path), "--run-id", "run1"]
+    )
+    _cmd_delete_run(delete_run_args)
+    deleted_run = json.loads(capsys.readouterr().out)
+    assert deleted_run["deleted"] is True
+    assert not (tmp_path / "runs" / "run1").exists()
+    assert Path(deleted_run["trash_path"]).exists()
 
 
 def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, capsys) -> None:

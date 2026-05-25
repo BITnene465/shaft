@@ -18,13 +18,14 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json, read_json
+from .artifacts import DEFAULT_STORE_ROOT, atomic_write_json
 from .benchmark import create_benchmark_from_raw_data
 from .comparison import compare_runs, filter_comparison_reports, list_comparison_reports
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
 from .job_spec import job_templates, preflight_job_payload, resolve_job_payload
 from .job_lifecycle import job_holds_scheduler_resources
+from .log_utils import job_runtime_log_path, tail_text_lines
 from .orchestrator import EvalBenchOrchestrator
 from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
@@ -284,27 +285,10 @@ def _configure_backend_logging(store: EvalBenchStore) -> logging.Logger:
     return logger
 
 
-def _tail_text_lines(path: Path, *, max_lines: int) -> list[str]:
-    if not path.exists():
-        return []
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-    if max_lines <= 0:
-        return lines
-    return lines[-max_lines:]
-
-
 def _process_job_in_background(store_root: Path, job_id: str) -> None:
     from .worker import EvalBenchWorker
 
     EvalBenchWorker(store_root).process_job(job_id)
-
-
-def _job_runtime_log_path(store_root: Path, job: Any) -> Path:
-    runtime_log_path = job.metadata.get("runtime_log_path") if isinstance(job.metadata, dict) else None
-    if isinstance(runtime_log_path, str) and runtime_log_path.strip():
-        return Path(runtime_log_path)
-    run_id = str(job.payload.get("run_id") or job.job_id)
-    return RunArtifacts(store_root, run_id).logs_dir / "runtime.log"
 
 
 def _pid_exists(pid: Any) -> bool:
@@ -445,7 +429,7 @@ def create_app(
     async def backend_logs(request: Request, max_lines: int = 200):
         log_path = request.app.state.eval_bench_store.layout.logs_dir / "backend.log"
         line_limit = 0 if max_lines <= 0 else min(max_lines, 2000)
-        lines = _tail_text_lines(log_path, max_lines=line_limit)
+        lines = tail_text_lines(log_path, max_lines=line_limit)
         return JSONResponse(
             {
                 "log_path": str(log_path),
@@ -797,38 +781,19 @@ def create_app(
 
     @app.post("/api/runs/{run_id}/archive")
     async def archive_run_endpoint(run_id: str, request: Request):
-        run_dir = request.app.state.eval_bench_store.layout.runs_dir / run_id
-        manifest_path = run_dir / "run.json"
-        if not manifest_path.exists():
-            raise HTTPException(status_code=404, detail=f"run does not exist: {run_id}")
-        payload = read_json(manifest_path)
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=400, detail=f"invalid run manifest: {manifest_path}")
-        payload["status"] = "archived"
-        metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-        metadata["archived_at"] = utc_now_iso()
-        payload["metadata"] = metadata
-        atomic_write_json(manifest_path, payload)
-        return JSONResponse({"run_id": run_id, "status": "archived"})
+        try:
+            payload = request.app.state.eval_bench_store.archive_run(run_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse(payload)
 
     @app.delete("/api/runs/{run_id}")
     async def delete_run_endpoint(run_id: str, request: Request):
-        run_dir = request.app.state.eval_bench_store.layout.runs_dir / run_id
-        if not run_dir.exists():
-            raise HTTPException(status_code=404, detail=f"run does not exist: {run_id}")
-        trash_path = request.app.state.eval_bench_store.layout.move_to_trash(
-            run_dir,
-            category="runs",
-        )
-        return JSONResponse(
-            {
-                "run_id": run_id,
-                "deleted": True,
-                "trash_path": str(trash_path) if trash_path is not None else None,
-            }
-        )
+        try:
+            payload = request.app.state.eval_bench_store.delete_run(run_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse(payload)
 
     @app.get("/api/runs/{run_id}/report")
     async def run_report(run_id: str, request: Request):
@@ -983,12 +948,12 @@ def create_app(
         record = request.app.state.eval_bench_database.get_job(job_id)
         if record is None:
             raise HTTPException(status_code=404, detail=f"job does not exist: {job_id}")
-        log_path = _job_runtime_log_path(
+        log_path = job_runtime_log_path(
             request.app.state.eval_bench_store.layout.root,
             record,
         )
         line_limit = 0 if max_lines <= 0 else min(max_lines, 2000)
-        lines = _tail_text_lines(log_path, max_lines=line_limit)
+        lines = tail_text_lines(log_path, max_lines=line_limit)
         return JSONResponse(
             {
                 "job_id": job_id,

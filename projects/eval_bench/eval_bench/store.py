@@ -486,6 +486,33 @@ class EvalBenchStore:
         atomic_write_json(artifacts.note_path, updated.to_dict())
         return updated
 
+    def archive_run(self, run_id: str) -> dict[str, Any]:
+        payload = self._run_manifest(run_id)
+        manifest_path = self.layout.runs_dir / run_id / "run.json"
+        payload["status"] = "archived"
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata["archived_at"] = utc_now_iso()
+        payload["metadata"] = metadata
+        atomic_write_json(manifest_path, payload)
+        return {
+            "run_id": run_id,
+            "status": "archived",
+            "manifest_path": str(manifest_path),
+        }
+
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        run_dir = self.layout.runs_dir / run_id
+        if not run_dir.exists():
+            raise FileNotFoundError(f"run does not exist: {run_id}")
+        trash_path = self.layout.move_to_trash(run_dir, category="runs")
+        return {
+            "run_id": run_id,
+            "deleted": True,
+            "trash_path": str(trash_path) if trash_path is not None else None,
+        }
+
     def rank_board(
         self,
         *,

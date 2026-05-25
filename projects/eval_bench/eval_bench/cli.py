@@ -79,6 +79,22 @@ def _build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--store-root", default=str(DEFAULT_STORE_ROOT))
     dashboard.add_argument("--frontend-dist", default=None)
 
+    dashboard_state = subparsers.add_parser(
+        "dashboard-state",
+        help="Print the same coarse dashboard state used by /api/state.",
+    )
+    dashboard_state.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+
+    scheduler_status = subparsers.add_parser(
+        "scheduler-status",
+        help="Print an agent-safe scheduler/resource snapshot from the job registry.",
+    )
+    scheduler_status.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+
+    backend_logs = subparsers.add_parser("backend-logs", help="Print backend.log tail.")
+    backend_logs.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    backend_logs.add_argument("--max-lines", type=int, default=200)
+
     preflight_job = subparsers.add_parser(
         "preflight-job",
         help="Resolve and validate a manifest-first Eval Bench job without enqueueing it.",
@@ -138,6 +154,22 @@ def _build_parser() -> argparse.ArgumentParser:
     list_jobs.add_argument("--kind", default=None)
     list_jobs.add_argument("--status", default=None)
     list_jobs.add_argument("--query", default=None)
+
+    cancel_job = subparsers.add_parser(
+        "cancel-job",
+        help="Request cancellation for a queued/running job.",
+    )
+    cancel_job.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    cancel_job.add_argument("--job-id", required=True)
+
+    delete_job = subparsers.add_parser("delete-job", help="Delete a terminal/demo job record.")
+    delete_job.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    delete_job.add_argument("--job-id", required=True)
+
+    job_logs = subparsers.add_parser("job-logs", help="Print a job runtime log tail.")
+    job_logs.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    job_logs.add_argument("--job-id", required=True)
+    job_logs.add_argument("--max-lines", type=int, default=200)
 
     list_benchmarks = subparsers.add_parser(
         "list-benchmarks", help="List benchmark manifests for humans and agents."
@@ -273,6 +305,14 @@ def _build_parser() -> argparse.ArgumentParser:
     note_source.add_argument("--note", default=None)
     note_source.add_argument("--note-file", default=None)
 
+    archive_run = subparsers.add_parser("archive-run", help="Mark a run as archived.")
+    archive_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    archive_run.add_argument("--run-id", required=True)
+
+    delete_run = subparsers.add_parser("delete-run", help="Move a run artifact directory to trash.")
+    delete_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    delete_run.add_argument("--run-id", required=True)
+
     register_service = subparsers.add_parser("register-service", help="Register a model service.")
     register_service.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     register_service.add_argument(
@@ -323,6 +363,13 @@ def _build_parser() -> argparse.ArgumentParser:
     stop_service = subparsers.add_parser("stop-service", help="Stop a local vLLM service.")
     stop_service.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     stop_service.add_argument("--service-id", required=True)
+
+    delete_service = subparsers.add_parser(
+        "delete-service",
+        help="Stop and delete a registered service.",
+    )
+    delete_service.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    delete_service.add_argument("--service-id", required=True)
 
     process_next = subparsers.add_parser(
         "process-next-job", help="Process the next queued Eval Bench job."
@@ -511,6 +558,39 @@ def _cmd_serve_dashboard(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_dashboard_state(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
+    print(json.dumps(EvalBenchStore(args.output_root).state().to_dict(), ensure_ascii=False))
+
+
+def _cmd_scheduler_status(args: argparse.Namespace) -> None:
+    from .orchestrator import EvalBenchOrchestrator
+
+    status = EvalBenchOrchestrator.from_env(args.output_root).status()
+    status["source"] = "cli_snapshot"
+    print(json.dumps(status, ensure_ascii=False))
+
+
+def _cmd_backend_logs(args: argparse.Namespace) -> None:
+    from .log_utils import tail_text_lines
+    from .store import EvalBenchStore
+
+    log_path = EvalBenchStore(args.output_root).layout.logs_dir / "backend.log"
+    line_limit = _log_line_limit(args.max_lines)
+    lines = tail_text_lines(log_path, max_lines=line_limit)
+    print(
+        json.dumps(
+            {
+                "log_path": str(log_path) if log_path.exists() else None,
+                "lines": lines,
+                "text": "".join(lines),
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def _cmd_create_job(args: argparse.Namespace) -> None:
     from .database import EvalBenchDatabase
     from .job_spec import preflight_job_payload
@@ -625,6 +705,44 @@ def _cmd_list_jobs(args: argparse.Namespace) -> None:
         query=args.query,
     )
     print(json.dumps(page.to_dict(), ensure_ascii=False))
+
+
+def _cmd_cancel_job(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
+    record = EvalBenchDatabase(args.output_root).cancel_job(str(args.job_id))
+    print(json.dumps(record.to_dict(), ensure_ascii=False))
+
+
+def _cmd_delete_job(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
+    record = EvalBenchDatabase(args.output_root).delete_job(str(args.job_id))
+    print(json.dumps({"job": record.to_dict(), "deleted": True}, ensure_ascii=False))
+
+
+def _cmd_job_logs(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+    from .log_utils import job_runtime_log_path, tail_text_lines
+
+    database = EvalBenchDatabase(args.output_root)
+    record = database.get_job(str(args.job_id))
+    if record is None:
+        raise FileNotFoundError(f"job does not exist: {args.job_id}")
+    log_path = job_runtime_log_path(args.output_root, record)
+    line_limit = _log_line_limit(args.max_lines)
+    lines = tail_text_lines(log_path, max_lines=line_limit)
+    print(
+        json.dumps(
+            {
+                "job_id": str(args.job_id),
+                "log_path": str(log_path) if log_path.exists() else None,
+                "lines": lines,
+                "text": "".join(lines),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_list_benchmarks(args: argparse.Namespace) -> None:
@@ -814,6 +932,20 @@ def _cmd_set_run_note(args: argparse.Namespace) -> None:
     print(json.dumps(note.to_dict(), ensure_ascii=False))
 
 
+def _cmd_archive_run(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
+    payload = EvalBenchStore(args.output_root).archive_run(str(args.run_id))
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def _cmd_delete_run(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
+    payload = EvalBenchStore(args.output_root).delete_run(str(args.run_id))
+    print(json.dumps(payload, ensure_ascii=False))
+
+
 def _cmd_register_service(args: argparse.Namespace) -> None:
     from .services import EvalBenchServiceManager
 
@@ -887,6 +1019,13 @@ def _cmd_stop_service(args: argparse.Namespace) -> None:
 
     manager = EvalBenchServiceManager(args.output_root)
     print(json.dumps(manager.stop_service(str(args.service_id)).to_dict(), ensure_ascii=False))
+
+
+def _cmd_delete_service(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
+    manager = EvalBenchServiceManager(args.output_root)
+    print(json.dumps(manager.delete_service(str(args.service_id)), ensure_ascii=False))
 
 
 def _cmd_process_next_job(args: argparse.Namespace) -> None:
@@ -987,6 +1126,11 @@ def _normalize_cli_filter(value: object) -> str:
     return str(value).strip() if value is not None else ""
 
 
+def _log_line_limit(value: object) -> int:
+    parsed = int(value)
+    return 0 if parsed <= 0 else min(parsed, 2000)
+
+
 def _paged_payload(
     key: str,
     items: list[dict],
@@ -1082,6 +1226,12 @@ def main() -> None:
         _cmd_write_demo_prediction(args)
     elif args.command == "serve-dashboard":
         _cmd_serve_dashboard(args)
+    elif args.command == "dashboard-state":
+        _cmd_dashboard_state(args)
+    elif args.command == "scheduler-status":
+        _cmd_scheduler_status(args)
+    elif args.command == "backend-logs":
+        _cmd_backend_logs(args)
     elif args.command == "create-job":
         _cmd_create_job(args)
     elif args.command == "preflight-job":
@@ -1096,6 +1246,12 @@ def main() -> None:
         _cmd_delete_prompt_template(args)
     elif args.command == "list-jobs":
         _cmd_list_jobs(args)
+    elif args.command == "cancel-job":
+        _cmd_cancel_job(args)
+    elif args.command == "delete-job":
+        _cmd_delete_job(args)
+    elif args.command == "job-logs":
+        _cmd_job_logs(args)
     elif args.command == "list-benchmarks":
         _cmd_list_benchmarks(args)
     elif args.command == "list-runs":
@@ -1118,6 +1274,10 @@ def main() -> None:
         _cmd_get_run_note(args)
     elif args.command == "set-run-note":
         _cmd_set_run_note(args)
+    elif args.command == "archive-run":
+        _cmd_archive_run(args)
+    elif args.command == "delete-run":
+        _cmd_delete_run(args)
     elif args.command == "register-service":
         _cmd_register_service(args)
     elif args.command == "list-services":
@@ -1132,6 +1292,8 @@ def main() -> None:
         _cmd_service_logs(args)
     elif args.command == "stop-service":
         _cmd_stop_service(args)
+    elif args.command == "delete-service":
+        _cmd_delete_service(args)
     elif args.command == "process-next-job":
         _cmd_process_next_job(args)
     elif args.command == "evaluate-run":

@@ -116,6 +116,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer 和 settings
     不各自复制 select/input 外壳。
+- `projects/eval_bench/eval_bench/log_utils.py`
+  - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
   - 维护总控工作台页面；作为独立路由模块承载高密度粗粒度图表、运行态遥测和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
@@ -159,6 +161,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用
   `preflight-job` 校验，再用 `create-job` 入队，不能直接写 SQLite job record。
+- 新增 agent 生命周期入口：CLI 必须优先复用 `EvalBenchStore`、`EvalBenchDatabase`、`EvalBenchServiceManager`
+  和 `log_utils.py`；不能让 agent 直接改 run manifest、SQLite、service 目录或 runtime log 路径。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。Benchmark Inspector / Run Inspector
