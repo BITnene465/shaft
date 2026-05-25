@@ -132,21 +132,18 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 5 &&
-    (overviewPage.match(/\{\s*title:/g) ?? []).length <= 7 &&
-    overviewPage.includes(
-      'type OverviewChartKind = "ring" | "rails" | "cells" | "meter";',
-    ) &&
-    overviewPage.includes('kind: "ring"') &&
-    overviewPage.includes('kind: "meter"') &&
-    overviewPage.includes('kind: "cells"') &&
-    overviewPage.includes('kind: "rails"') &&
-    !overviewPage.includes("function OverviewSparkChart(") &&
-    !overviewPage.includes("function OverviewMosaicChart(") &&
+  overviewPage.includes("overview-command-deck") &&
+    overviewPage.includes("overview-focus-panel") &&
+    overviewPage.includes("OverviewTrackGroup") &&
+    overviewPage.includes("OverviewActivityMatrix") &&
+    overviewPage.includes("OverviewRecentRunsPanel") &&
+    !overviewPage.includes("OverviewMiniChartPanel") &&
+    !overviewPage.includes("overviewCharts") &&
+    !overviewPage.includes("overview-chart-matrix") &&
     !/Notes|Tasks|Label footprint|样本\/label|模型分布|Job 日历|Scheduler 资源|Benchmark 任务|Run 日历/.test(
       overviewPage,
     ),
-  "overview must stay a curated high-value mixed-form chart board",
+  "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

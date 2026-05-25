@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Activity, BarChart3 } from "lucide-react";
+import { Activity, ArrowRight, BarChart3, Gauge } from "lucide-react";
 
 import type { JobSummary, RunSummary, ServiceSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
@@ -9,19 +9,19 @@ import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
 import { Badge, EmptyState, PanelTitle } from "./ui";
 
-type OverviewChartKind = "ring" | "rails" | "cells" | "meter";
-type OverviewChartRow = { key: string; count: number };
 type OverviewActivityLane = {
   label: string;
   tone: "run" | "job" | "service";
-  rows: OverviewChartRow[];
+  rows: OverviewTrackRow[];
   total: number;
 };
-type OverviewChartSpec = {
-  title: string;
+type OverviewTrackRow = { key: string; count: number };
+type OverviewTrack = {
+  label: string;
+  value: number;
+  total: number;
   meta: string;
-  rows: OverviewChartRow[];
-  kind?: OverviewChartKind;
+  tone: "idle" | "live" | "warm" | "good";
 };
 
 export function OverviewPage() {
@@ -47,33 +47,101 @@ export function OverviewPage() {
   if (error || !data) {
     return <EmptyState title="看板状态加载失败" tone="danger" />;
   }
+
   const jobs = jobsQuery.data?.jobs ?? [];
   const services = servicesQuery.data?.services ?? [];
   const schedulerStatus = schedulerQuery.data;
-  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
-  const runningJobs = jobs.filter((job) => job.status === "running").length;
-  const liveServices = services.filter((service) => service.status === "running").length;
+  const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
+  const runsWithPredictions = data.runs.filter((run) => run.prediction_count > 0).length;
+  const waitingEvaluation = data.runs.filter(
+    (run) => !run.report_path && run.prediction_count > 0
+  ).length;
   const activeRuns = data.runs.filter((run) =>
     ["created", "queued", "running"].includes(run.status)
   ).length;
+  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
+  const runningJobs = jobs.filter((job) => job.status === "running").length;
+  const failedJobs = jobs.filter((job) => job.status === "failed").length;
+  const liveServices = services.filter((service) => service.status === "running").length;
   const overviewSyncing =
     jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
-  const statusRows = countBy(data.runs, (run) => run.status || "unknown");
-  const coverageRows = runCoverageRows(data.runs);
-  const sampleScaleRows = countBy(data.benchmarks, (benchmark) =>
-    sampleScaleBucket(benchmark.sample_count)
-  );
-  const jobStatusRows = countBy(jobs, (job) => job.status || "unknown");
-  const serviceStatusRows = countBy(services, (service) => service.status || "unknown");
+  const totalRuns = Math.max(data.run_count, 1);
+  const totalJobs = Math.max(jobs.length, 1);
+  const totalServices = Math.max(services.length, 1);
+  const coveragePercent = percent(evaluatedRuns, totalRuns);
   const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
-  const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
-  const overviewCharts: OverviewChartSpec[] = [
-    { title: "Run 生命周期", meta: "status", rows: statusRows, kind: "ring" },
-    { title: "评测覆盖", meta: "report state", rows: coverageRows, kind: "meter" },
-    { title: "数据规模", meta: "sample buckets", rows: sampleScaleRows, kind: "cells" },
-    { title: "队列健康", meta: "job state", rows: jobStatusRows, kind: "rails" },
-    { title: "服务运行态", meta: "runtime state", rows: serviceStatusRows, kind: "ring" }
+  const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
+
+  const runTracks: OverviewTrack[] = [
+    {
+      label: "已评估",
+      value: evaluatedRuns,
+      total: totalRuns,
+      meta: `${coveragePercent}%`,
+      tone: "good"
+    },
+    {
+      label: "有预测待评估",
+      value: waitingEvaluation,
+      total: totalRuns,
+      meta: `${runsWithPredictions.toLocaleString()} with pred`,
+      tone: waitingEvaluation > 0 ? "warm" : "idle"
+    },
+    {
+      label: "活跃 run",
+      value: activeRuns,
+      total: totalRuns,
+      meta: activeRuns > 0 ? "live" : "idle",
+      tone: activeRuns > 0 ? "live" : "idle"
+    }
   ];
+  const opsTracks: OverviewTrack[] = [
+    {
+      label: "Queued jobs",
+      value: queuedJobs,
+      total: totalJobs,
+      meta: `${jobs.length.toLocaleString()} jobs`,
+      tone: queuedJobs > 0 ? "warm" : "idle"
+    },
+    {
+      label: "Running jobs",
+      value: runningJobs,
+      total: totalJobs,
+      meta: Boolean(schedulerStatus?.enabled) ? "auto" : "manual",
+      tone: runningJobs > 0 ? "live" : "idle"
+    },
+    {
+      label: "Live services",
+      value: liveServices,
+      total: totalServices,
+      meta: `${liveServices}/${services.length}`,
+      tone: liveServices > 0 ? "live" : "idle"
+    }
+  ];
+  const volumeTracks: OverviewTrack[] = [
+    {
+      label: "GT samples",
+      value: data.total_benchmark_samples,
+      total: volumeTotal,
+      meta: `${data.benchmark_count.toLocaleString()} bench`,
+      tone: "good"
+    },
+    {
+      label: "Predictions",
+      value: data.prediction_count,
+      total: volumeTotal,
+      meta: `${data.run_count.toLocaleString()} runs`,
+      tone: data.prediction_count > 0 ? "live" : "idle"
+    },
+    {
+      label: "Failed jobs",
+      value: failedJobs,
+      total: totalJobs,
+      meta: failedJobs > 0 ? "needs check" : "clear",
+      tone: failedJobs > 0 ? "warm" : "idle"
+    }
+  ];
+
   return (
     <section className="page-stack dashboard-home">
       <div className="overview-console">
@@ -83,16 +151,16 @@ export function OverviewPage() {
             <h2>总览</h2>
           </div>
           <div className="overview-stat-row">
-            <OverviewStat label="Bench" value={data.benchmark_count} />
-            <OverviewStat label="Runs" value={data.run_count} />
-            <OverviewStat label="Done" value={evaluatedRuns} />
-            <OverviewStat label="Live" value={activeRuns} tone={activeRuns > 0 ? "live" : "idle"} />
+            <OverviewStat label="Coverage" value={`${coveragePercent}%`} />
+            <OverviewStat label="Pending" value={waitingEvaluation} tone={waitingEvaluation > 0 ? "live" : "idle"} />
+            <OverviewStat label="Queue" value={queuedJobs + runningJobs} tone={queuedJobs + runningJobs > 0 ? "live" : "idle"} />
+            <OverviewStat label="Services" value={`${liveServices}/${services.length}`} tone={liveServices > 0 ? "live" : "idle"} />
           </div>
         </div>
         <div className="overview-console-side">
-          <div className="overview-store-line">
-            <span>Store</span>
-            <strong title={data.store_root}>{data.store_root}</strong>
+          <div className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
+            <span />
+            <strong>{overviewSyncing ? "同步中" : "已同步"}</strong>
           </div>
           <div className="overview-console-links">
             <Link to="/rank-board">
@@ -110,37 +178,29 @@ export function OverviewPage() {
           </div>
         </div>
       </div>
-      <div className="overview-signal-deck">
-        <div className="overview-ops-strip">
-          <OverviewDatum label="Benchmarks" value={data.benchmark_count} />
-          <OverviewDatum label="Runs" value={data.run_count} />
-          <OverviewDatum label="GT samples" value={data.total_benchmark_samples} />
-          <OverviewDatum label="Predictions" value={data.prediction_count} />
-        </div>
-        <OverviewActivityMatrix lanes={activityLanes} />
-        <OverviewTelemetryPanel
-          queuedJobs={queuedJobs}
-          runningJobs={runningJobs}
-          liveServices={liveServices}
-          totalJobs={jobs.length}
-          totalServices={services.length}
-          schedulerEnabled={Boolean(schedulerStatus?.enabled)}
-          syncing={overviewSyncing}
-        />
-      </div>
-      <div className="overview-grid refined">
-        <div className="overview-chart-matrix">
-          {overviewCharts.map((chart) => (
-            <OverviewMiniChartPanel
-              key={chart.title}
-              title={chart.title}
-              meta={chart.meta}
-              rows={chart.rows}
-              kind={chart.kind}
-            />
-          ))}
-          <OverviewRecentRunsPanel runs={data.runs.slice(0, 4)} />
-        </div>
+
+      <div className="overview-command-deck">
+        <section className="workspace-card overview-focus-panel">
+          <PanelTitle title="评测推进" meta="coverage / backlog / volume" />
+          <div className="overview-primary-meter">
+            <div>
+              <span>evaluated</span>
+              <strong>{evaluatedRuns.toLocaleString()} / {data.run_count.toLocaleString()}</strong>
+            </div>
+            <div className="overview-meter-rail" aria-hidden="true">
+              <i style={{ width: `${coveragePercent}%` }} />
+            </div>
+            <Badge value={waitingEvaluation > 0 ? "pending" : "clear"} domain="job" />
+          </div>
+          <div className="overview-track-stack">
+            <OverviewTrackGroup icon={<Gauge size={15} />} title="Run" tracks={runTracks} />
+            <OverviewTrackGroup icon={<Activity size={15} />} title="Ops" tracks={opsTracks} />
+            <OverviewTrackGroup icon={<BarChart3 size={15} />} title="Volume" tracks={volumeTracks} />
+          </div>
+          <OverviewActivityMatrix lanes={activityLanes} />
+        </section>
+
+        <OverviewRecentRunsPanel runs={data.runs.slice(0, 6)} />
       </div>
     </section>
   );
@@ -152,286 +212,48 @@ function OverviewStat({
   tone = "idle"
 }: {
   label: string;
-  value: number;
+  value: number | string;
   tone?: "idle" | "live";
 }) {
   return (
     <div className={tone === "live" ? "overview-stat live" : "overview-stat"}>
       <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
+      <strong>{typeof value === "number" ? value.toLocaleString() : value}</strong>
     </div>
   );
 }
 
-function OverviewDatum({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="overview-datum">
-      <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
-    </div>
-  );
-}
-
-function OverviewTelemetryPanel({
-  queuedJobs,
-  runningJobs,
-  liveServices,
-  totalJobs,
-  totalServices,
-  schedulerEnabled,
-  syncing
-}: {
-  queuedJobs: number;
-  runningJobs: number;
-  liveServices: number;
-  totalJobs: number;
-  totalServices: number;
-  schedulerEnabled: boolean;
-  syncing: boolean;
-}) {
-  const cells = [
-    {
-      label: "Scheduler",
-      value: schedulerEnabled ? "AUTO" : "MANUAL",
-      tone: schedulerEnabled ? "live" : "idle"
-    },
-    {
-      label: "Queued jobs",
-      value: queuedJobs.toLocaleString(),
-      tone: queuedJobs > 0 ? "warm" : "idle"
-    },
-    {
-      label: "Running jobs",
-      value: runningJobs.toLocaleString(),
-      tone: runningJobs > 0 ? "live" : "idle"
-    },
-    {
-      label: "Services",
-      value: `${liveServices}/${totalServices}`,
-      tone: liveServices > 0 ? "live" : "idle"
-    },
-    { label: "Job records", value: totalJobs.toLocaleString(), tone: "idle" }
-  ] as const;
-  return (
-    <div className="overview-telemetry-panel">
-      <div className={syncing ? "telemetry-signal syncing" : "telemetry-signal"}>
-        <span />
-        <strong>{syncing ? "syncing" : "stable"}</strong>
-      </div>
-      <div className="overview-telemetry-grid">
-        {cells.map((cell) => (
-          <div className={`telemetry-cell ${cell.tone}`} key={cell.label}>
-            <span>{cell.label}</span>
-            <strong>{cell.value}</strong>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function OverviewMiniChartPanel({
+function OverviewTrackGroup({
+  icon,
   title,
-  meta,
-  rows,
-  kind = "ring"
+  tracks
 }: {
+  icon: React.ReactNode;
   title: string;
-  meta: string;
-  rows: OverviewChartRow[];
-  kind?: OverviewChartKind;
-}) {
-  const maxCount = Math.max(1, ...rows.map((row) => row.count));
-  const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const visibleRows = overviewVisibleRows(kind, rows);
-  const ringStyle = {
-    "--overview-ring": overviewConicGradient(rows)
-  } as React.CSSProperties;
-  return (
-    <div className={`workspace-card overview-chart-card compact ${kind}`}>
-      <PanelTitle title={title} meta={meta} />
-      <div className={`overview-mini-chart ${kind}`}>
-        {kind === "rails" ? (
-          <OverviewRailsChart rows={visibleRows} maxCount={maxCount} />
-        ) : kind === "cells" ? (
-          <OverviewCellsChart rows={visibleRows} maxCount={maxCount} />
-        ) : kind === "meter" ? (
-          <OverviewMeterChart rows={visibleRows} total={total} maxCount={maxCount} />
-        ) : (
-          <OverviewRingChart
-            rows={visibleRows}
-            total={total}
-            maxCount={maxCount}
-            ringStyle={ringStyle}
-            groupCount={rows.length}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function overviewVisibleRows(kind: OverviewChartKind, rows: OverviewChartRow[]) {
-  const positiveRows = rows.filter((row) => row.count > 0);
-  return (positiveRows.length > 0 ? positiveRows : rows).slice(0, 3);
-}
-
-function OverviewRingChart({
-  rows,
-  total,
-  maxCount,
-  ringStyle,
-  groupCount
-}: {
-  rows: OverviewChartRow[];
-  total: number;
-  maxCount: number;
-  ringStyle: React.CSSProperties;
-  groupCount: number;
+  tracks: OverviewTrack[];
 }) {
   return (
-    <>
-      <div className="overview-chart-ring" style={ringStyle}>
-        <span>{groupCount.toLocaleString()}</span>
-        <strong>{total.toLocaleString()}</strong>
+    <div className="overview-track-group">
+      <div className="overview-track-heading">
+        {icon}
+        <strong>{title}</strong>
       </div>
-      <OverviewBarList rows={rows} maxCount={maxCount} />
-    </>
-  );
-}
-
-function OverviewRailsChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
-  return (
-    <>
-      <div className="overview-rail-plot" aria-hidden="true">
-        {railRows(rows).map((row, index) => (
-          <span
-            key={`${row.key}-${index}`}
-            style={
-              {
-                "--overview-rail-height":
-                  row.count > 0 ? `${Math.max(12, (row.count / maxCount) * 100)}%` : "6%",
-                "--overview-bar-fill": overviewChartColor(index)
-              } as React.CSSProperties
-            }
-          />
-        ))}
-      </div>
-      <OverviewBarList rows={rows} maxCount={maxCount} />
-    </>
-  );
-}
-
-function OverviewCellsChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
-  return (
-    <>
-      <div className="overview-cell-grid" aria-hidden="true">
-        {cellRows(rows).map((row, index) => (
-          <span
-            key={`${row.key}-${index}`}
-            style={
-              {
-                opacity: row.count > 0 ? Math.max(0.34, row.count / maxCount) : 0.16,
-                background: overviewChartColor(index)
-              } as React.CSSProperties
-            }
-          />
-        ))}
-      </div>
-      <OverviewBarList rows={rows} maxCount={maxCount} />
-    </>
-  );
-}
-
-function OverviewMeterChart({
-  rows,
-  total,
-  maxCount
-}: {
-  rows: OverviewChartRow[];
-  total: number;
-  maxCount: number;
-}) {
-  return (
-    <div className="overview-meter-chart">
-      <div className="overview-stack-meter" aria-hidden="true">
-        {rows.length === 0 || total <= 0 ? (
-          <i style={{ width: "100%", background: "#d8e4ec" }} />
-        ) : (
-          rows.map((row, index) => (
-            <i
-              key={row.key}
-              style={{
-                width: `${Math.max(6, (row.count / total) * 100)}%`,
-                background: overviewChartColor(index)
-              }}
-            />
-          ))
-        )}
-      </div>
-      <OverviewBarList rows={rows} maxCount={maxCount} />
-    </div>
-  );
-}
-
-function OverviewBarList({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
-  return (
-    <div className="overview-bar-list">
-      {rows.length === 0 ? (
-        <div className="empty-inline">暂无数据</div>
-      ) : (
-        rows.map((row, index) => (
-          <div className="overview-bar-row" key={row.key}>
-            <span>{row.key}</span>
+      <div className="overview-track-list">
+        {tracks.map((track) => (
+          <div className={`overview-track ${track.tone}`} key={track.label}>
             <div>
-              <i
-                style={
-                  {
-                    width:
-                      row.count > 0 ? `${Math.max(4, (row.count / maxCount) * 100)}%` : "0%",
-                    "--overview-bar-fill": overviewChartColor(index)
-                  } as React.CSSProperties
-                }
-              />
+              <span>{track.label}</span>
+              <strong>{track.value.toLocaleString()}</strong>
+              <em>{track.meta}</em>
             </div>
-            <strong>{row.count.toLocaleString()}</strong>
+            <div className="overview-track-rail" aria-hidden="true">
+              <i style={{ width: `${trackWidth(track)}%` }} />
+            </div>
           </div>
-        ))
-      )}
+        ))}
+      </div>
     </div>
   );
-}
-
-function railRows(rows: OverviewChartRow[]) {
-  return rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
-}
-
-function cellRows(rows: OverviewChartRow[]) {
-  const fallback = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
-  return Array.from({ length: 6 }, (_, index) => fallback[index % fallback.length]);
-}
-
-function overviewConicGradient(rows: OverviewChartRow[]) {
-  const total = rows.reduce((sum, row) => sum + row.count, 0);
-  if (total <= 0) {
-    return "conic-gradient(#d8e4ec 0deg 360deg)";
-  }
-  let cursor = 0;
-  const segments = rows.slice(0, 6).map((row, index) => {
-    const start = cursor;
-    const end = cursor + (row.count / total) * 360;
-    cursor = end;
-    return `${overviewChartColor(index)} ${start.toFixed(1)}deg ${end.toFixed(1)}deg`;
-  });
-  if (cursor < 360) {
-    segments.push(`#dbe5ed ${cursor.toFixed(1)}deg 360deg`);
-  }
-  return `conic-gradient(${segments.join(", ")})`;
-}
-
-function overviewChartColor(index: number) {
-  const colors = ["#23a36f", "#1d5d7a", "#d68722", "#8d5fb8", "#d04f66", "#5e7892"];
-  return colors[index % colors.length];
 }
 
 function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
@@ -440,18 +262,14 @@ function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
     ...lanes.flatMap((lane) => lane.rows.map((row) => row.count))
   );
   const total = lanes.reduce((sum, lane) => sum + lane.total, 0);
-  const activeCells = lanes.reduce(
-    (sum, lane) => sum + lane.rows.filter((row) => row.count > 0).length,
-    0
-  );
   const bucketCount = lanes[0]?.rows.length ?? 0;
   const latest = lanes[0]?.rows.at(-1);
   return (
-    <div className="overview-rhythm-strip overview-activity-matrix">
-      <div className="overview-rhythm-copy">
+    <div className="overview-activity-matrix">
+      <div className="overview-activity-header">
         <span>
           <BarChart3 size={14} />
-          活动矩阵
+          活动节奏
         </span>
         <strong>{total.toLocaleString()} events / {bucketCount}d</strong>
       </div>
@@ -476,11 +294,9 @@ function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
           </div>
         ))}
       </div>
-      <div className="overview-rhythm-meta">
+      <div className="overview-activity-footer">
         <span>{latest?.key ?? "-"}</span>
-        <strong>
-          active {activeCells}/{lanes.length * bucketCount}
-        </strong>
+        <ArrowRight size={13} />
       </div>
     </div>
   );
@@ -508,56 +324,25 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
 
 function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
   return (
-    <div className="workspace-card overview-chart-card overview-recent-card">
+    <section className="workspace-card overview-recent-card">
       <PanelTitle title="最近 run" meta={`latest ${runs.length}`} />
       <OverviewRunList runs={runs} />
-    </div>
+    </section>
   );
 }
 
-function countBy<T>(items: T[], keyForItem: (item: T) => string) {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const key = keyForItem(item).trim() || "unknown";
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+function percent(value: number, total: number) {
+  if (total <= 0) {
+    return 0;
   }
-  return Array.from(counts.entries())
-    .map(([key, count]) => ({ key, count }))
-    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+  return Math.round((value / total) * 100);
 }
 
-function runCoverageRows(runs: RunSummary[]) {
-  const rows = [
-    {
-      key: "已评估",
-      count: runs.filter((run) => Boolean(run.report_path)).length
-    },
-    {
-      key: "有预测",
-      count: runs.filter((run) => !run.report_path && run.prediction_count > 0).length
-    },
-    {
-      key: "仅记录",
-      count: runs.filter((run) => !run.report_path && run.prediction_count <= 0).length
-    }
-  ];
-  return rows.filter((row) => row.count > 0);
-}
-
-function sampleScaleBucket(sampleCount: number) {
-  if (sampleCount <= 0) {
-    return "0";
+function trackWidth(track: OverviewTrack) {
+  if (track.total <= 0 || track.value <= 0) {
+    return 0;
   }
-  if (sampleCount < 100) {
-    return "1-99";
-  }
-  if (sampleCount < 1_000) {
-    return "100-999";
-  }
-  if (sampleCount < 10_000) {
-    return "1k-9.9k";
-  }
-  return "10k+";
+  return Math.max(5, Math.min(100, (track.value / track.total) * 100));
 }
 
 function overviewActivityLanes(
@@ -607,6 +392,17 @@ function timelineRowsForItems<T>(
   });
   const countMap = new Map(counts.map((row) => [row.key, row.count]));
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
+}
+
+function countBy<T>(items: T[], keyForItem: (item: T) => string) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keyForItem(item).trim() || "unknown";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 }
 
 function overviewTimelineKeys(endDate: Date, bucketCount: number) {

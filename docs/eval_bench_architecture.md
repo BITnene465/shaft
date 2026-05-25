@@ -121,7 +121,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载可读分栏粗粒度 mini chart、运行态遥测和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载两列 command deck、评测推进轨道、运行压力、活动矩阵和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
@@ -185,14 +185,11 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 signal deck、环形占比、栅格热区、堆叠条和微型柱状图表达，
-  不再把低频信息做成大块空白 card；signal deck 的时间维度优先压缩成 Run/Job/Service 三泳道活动矩阵。
-  主矩阵保持 4-7 个高价值粗粒度 mini chart，并同时保留多种微图表形态；默认使用 2 列 capped masonry columns，
-  宽屏最多 4 列，不能回退成均匀 grid 图表墙。
+- 新增总览视觉模块：优先用 progress rail、track rail 和活动矩阵服务评测推进、运行压力和数据规模判断，
+  不再把状态分布拆成低价值 mini chart wall；总览主体保持一个 focus panel 加一个最近 run panel 的两列 command deck。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
-  compact 视口需要滚动时只能由矩阵自身滚动，最近 run 必须嵌入矩阵成为紧凑事件 tile，
-  不允许按剩余高度拉伸成独立大块面板。
+  compact 视口需要滚动时由 command deck 自身滚动，最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill
   本身，避免 wrapper 承担状态语义。
 - 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态

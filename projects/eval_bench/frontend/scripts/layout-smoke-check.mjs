@@ -16,11 +16,10 @@ const staticRoutes = [
     selectors: [
       ".dashboard-home",
       ".overview-console",
-      ".overview-signal-deck",
+      ".overview-command-deck",
+      ".overview-focus-panel",
       ".overview-activity-matrix",
-      ".overview-grid.refined",
-      ".overview-chart-matrix",
-      ".overview-mini-chart",
+      ".overview-track-group",
       ".overview-recent-card"
     ]
   },
@@ -462,37 +461,35 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return Math.round(rect.height);
     });
-    const chartRects = Array.from(document.querySelectorAll(".overview-mini-chart")).map((node) => {
+    const trackGroups = Array.from(document.querySelectorAll(".overview-track-group")).map((node) => {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const chartKinds = new Set(
-      Array.from(document.querySelectorAll(".overview-mini-chart")).flatMap((node) =>
-        ["ring", "rails", "cells", "meter"].filter((kind) =>
-          node.classList.contains(kind)
-        )
-      )
+    const commandDeck = document.querySelector(".overview-command-deck");
+    const focusPanel = document.querySelector(".overview-focus-panel");
+    const trackStack = document.querySelector(".overview-track-stack");
+    const trackRails = Array.from(document.querySelectorAll(".overview-track-rail i")).map((node) =>
+      Math.round(node.getBoundingClientRect().width)
     );
-    const chartCardHeights = Array.from(document.querySelectorAll(".overview-chart-card")).map((node) =>
+    const panelHeights = Array.from(document.querySelectorAll(".overview-focus-panel, .overview-recent-card")).map((node) =>
       Math.round(node.getBoundingClientRect().height)
     );
     const activityMatrix = document.querySelector(".overview-activity-matrix");
-    const signalDeck = document.querySelector(".overview-signal-deck");
-    const chartMatrix = document.querySelector(".overview-chart-matrix");
     const activityMatrixStyle = activityMatrix ? getComputedStyle(activityMatrix) : null;
-    const signalDeckStyle = signalDeck ? getComputedStyle(signalDeck) : null;
-    const chartMatrixStyle = chartMatrix ? getComputedStyle(chartMatrix) : null;
+    const commandDeckStyle = commandDeck ? getComputedStyle(commandDeck) : null;
+    const trackStackStyle = trackStack ? getComputedStyle(trackStack) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
       activityLanes: document.querySelectorAll(".overview-activity-lane").length,
       activityCells: document.querySelectorAll(".overview-activity-cells i").length,
-      miniCharts: chartRects.length,
-      chartKinds: Array.from(chartKinds),
-      chartRects,
-      chartCardHeights,
+      trackGroups,
+      trackRails,
+      panelHeights,
       recentRows,
-      recentCardsInMatrix: document.querySelectorAll(".overview-chart-matrix .overview-recent-card").length,
-      legacyRecentPanels: document.querySelectorAll(".overview-recent-panel").length,
+      recentCards: document.querySelectorAll(".overview-command-deck .overview-recent-card").length,
+      focusPanels: document.querySelectorAll(".overview-command-deck .overview-focus-panel").length,
+      miniCharts: document.querySelectorAll(".overview-mini-chart").length,
+      chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
       oldTimelinePanels: document.querySelectorAll(
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
@@ -500,16 +497,14 @@ async function assertOverviewDensity(page, scope) {
       activityMatrixHeight: activityMatrix
         ? Math.round(activityMatrix.getBoundingClientRect().height)
         : 0,
-      signalDeckHeight: signalDeck ? Math.round(signalDeck.getBoundingClientRect().height) : 0,
-      chartMatrixScrollHeight: chartMatrix?.scrollHeight ?? 0,
-      chartMatrixClientHeight: chartMatrix?.clientHeight ?? 0,
-      chartMatrixDisplay: chartMatrixStyle?.display ?? "",
-      chartMatrixColumnCount: chartMatrixStyle?.columnCount ?? "",
+      commandDeckHeight: commandDeck ? Math.round(commandDeck.getBoundingClientRect().height) : 0,
+      commandDeckScrollHeight: commandDeck?.scrollHeight ?? 0,
+      commandDeckClientHeight: commandDeck?.clientHeight ?? 0,
+      commandDeckDisplay: commandDeckStyle?.display ?? "",
+      trackStackDisplay: trackStackStyle?.display ?? "",
       activityMatrixOverflowX: activityMatrixStyle?.overflowX ?? "",
       activityMatrixOverflowY: activityMatrixStyle?.overflowY ?? "",
-      signalDeckOverflowX: signalDeckStyle?.overflowX ?? "",
-      signalDeckOverflowY: signalDeckStyle?.overflowY ?? "",
-      chartMatrixOverflowY: chartMatrixStyle?.overflowY ?? ""
+      commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
     };
   });
   if (state.activityLanes !== 3 || state.activityCells !== 36) {
@@ -520,33 +515,27 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.miniCharts < 4 || state.miniCharts > 7) {
+  if (state.miniCharts !== 0 || state.chartMatrix !== 0) {
     throw new Error(
-      `${scope}: overview should expose a curated 4-7 high-value chart board, got ${state.miniCharts}`
-    );
-  }
-  const columnCount = Number.parseInt(state.chartMatrixColumnCount, 10);
-  if (
-    state.chartMatrixDisplay === "grid" ||
-    !Number.isFinite(columnCount) ||
-    columnCount < 1 ||
-    columnCount > 4
-  ) {
-    throw new Error(
-      `${scope}: overview chart board should use capped masonry columns, not a pure grid ${JSON.stringify({
-        display: state.chartMatrixDisplay,
-        columnCount: state.chartMatrixColumnCount
+      `${scope}: overview should not expose the old low-value mini chart wall ${JSON.stringify({
+        miniCharts: state.miniCharts,
+        chartMatrix: state.chartMatrix
       })}`
     );
   }
-  if (state.chartKinds.length < 4) {
-    throw new Error(`${scope}: overview chart wall lost mixed chart forms ${state.chartKinds.join(",")}`);
-  }
-  if (state.recentCardsInMatrix !== 1 || state.legacyRecentPanels > 0) {
+  if (state.commandDeckDisplay !== "flex" || state.trackStackDisplay !== "flex") {
     throw new Error(
-      `${scope}: recent runs should be embedded in the chart matrix ${JSON.stringify({
-        recentCardsInMatrix: state.recentCardsInMatrix,
-        legacyRecentPanels: state.legacyRecentPanels
+      `${scope}: overview should use a two-column command deck with flex composition ${JSON.stringify({
+        commandDeckDisplay: state.commandDeckDisplay,
+        trackStackDisplay: state.trackStackDisplay
+      })}`
+    );
+  }
+  if (state.focusPanels !== 1 || state.recentCards !== 1) {
+    throw new Error(
+      `${scope}: overview should keep one focus panel and one recent run panel ${JSON.stringify({
+        focusPanels: state.focusPanels,
+        recentCards: state.recentCards
       })}`
     );
   }
@@ -566,14 +555,22 @@ async function assertOverviewDensity(page, scope) {
   if (state.recentRows.some((height) => height > 72)) {
     throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
   }
-  if (state.chartCardHeights.some((height) => height > 280)) {
-    throw new Error(`${scope}: overview chart cards are stretched ${state.chartCardHeights.join(",")}`);
+  if (state.panelHeights.some((height) => height <= 0)) {
+    throw new Error(`${scope}: overview panels are not visible ${state.panelHeights.join(",")}`);
   }
   if (
-    state.activityMatrixHeight > 150 ||
-    state.activityMatrixOverflowX === "visible" ||
-    state.activityMatrixOverflowY === "visible"
+    state.trackGroups.length !== 3 ||
+    state.trackRails.length !== 9 ||
+    !state.trackRails.some((width) => width > 0)
   ) {
+    throw new Error(
+      `${scope}: overview track visualization is missing ${JSON.stringify({
+        groups: state.trackGroups.length,
+        rails: state.trackRails
+      })}`
+    );
+  }
+  if (state.activityMatrixOverflowX === "visible" || state.activityMatrixOverflowY === "visible") {
     throw new Error(
       `${scope}: activity matrix is not compact ${JSON.stringify({
         height: state.activityMatrixHeight,
@@ -583,36 +580,23 @@ async function assertOverviewDensity(page, scope) {
     );
   }
   if (
-    state.signalDeckHeight > 170 ||
-    state.signalDeckOverflowX === "visible" ||
-    state.signalDeckOverflowY === "visible"
+    state.commandDeckScrollHeight > state.commandDeckClientHeight + 2 &&
+    !allowsScroll(state.commandDeckOverflowY)
   ) {
     throw new Error(
-      `${scope}: overview signal deck is not compact ${JSON.stringify({
-        height: state.signalDeckHeight,
-        overflowX: state.signalDeckOverflowX,
-        overflowY: state.signalDeckOverflowY
+      `${scope}: overview command deck clips content without scroll ${JSON.stringify({
+        scrollHeight: state.commandDeckScrollHeight,
+        clientHeight: state.commandDeckClientHeight,
+        overflowY: state.commandDeckOverflowY
       })}`
     );
   }
-  if (
-    state.chartMatrixScrollHeight > state.chartMatrixClientHeight + 2 &&
-    !allowsScroll(state.chartMatrixOverflowY)
-  ) {
-    throw new Error(
-      `${scope}: overview chart matrix clips charts without scroll ${JSON.stringify({
-        scrollHeight: state.chartMatrixScrollHeight,
-        clientHeight: state.chartMatrixClientHeight,
-        overflowY: state.chartMatrixOverflowY
-      })}`
-    );
-  }
-  for (const [index, rect] of state.chartRects.entries()) {
+  for (const [index, rect] of state.trackGroups.entries()) {
     if (rect.width <= 0 || rect.height <= 0) {
-      throw new Error(`${scope}: mini chart ${index} is not visible ${JSON.stringify(rect)}`);
+      throw new Error(`${scope}: track group ${index} is not visible ${JSON.stringify(rect)}`);
     }
-    if (!scope.startsWith("narrow") && rect.width < 180) {
-      throw new Error(`${scope}: mini chart ${index} is too compressed ${JSON.stringify(rect)}`);
+    if (!scope.startsWith("narrow") && rect.width < 170) {
+      throw new Error(`${scope}: track group ${index} is too compressed ${JSON.stringify(rect)}`);
     }
   }
 }

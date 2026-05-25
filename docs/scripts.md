@@ -275,10 +275,11 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 ```
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
-高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高密度约束：顶栏 status 必须是独立
-圆角 capsule，ops / Run-Job-Service 活动矩阵 / 实时遥测必须保留在 signal deck，活动矩阵必须是 3 条 12 桶泳道，Overview 保留 4-7 个高价值可读 mini chart，
-并同时包含多种微图表形态；图表主区域必须使用 capped masonry columns，默认 2 列、最多 4 列，不能退回纯 grid；Overview 不能出现 precision/recall/IoU 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
-图表矩阵需要滚动时不能被 hidden 裁切，最近 run 必须嵌入图表矩阵，不能回退成独立大块面板。
+高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立
+圆角 capsule，Overview 必须保持一个 focus panel 加一个最近 run panel 的 command deck，活动矩阵必须是
+3 条 12 桶泳道，旧 mini chart wall 和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
+这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
+command deck 需要滚动时不能被 hidden 裁切，最近 run 只能是可点击紧凑摘要。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
 inspector split 内，不能卸载成全页 EmptyState。
 Runs / Rank Board 会实际输入检索词并点击 `AdvancedFilterBar` 的清空动作，确认 search/number/select

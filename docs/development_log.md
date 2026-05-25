@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 总览仍在堆低价值状态面板
+
+### 现象
+
+总览页已经从 56+ mini chart 降到 5 个面板，但页面仍把 run 生命周期、数据规模、队列健康和服务运行态
+拆成独立小面板。它们看起来更紧凑，却没有把用户真正需要的“评测推进、待评估 backlog、运行压力、最近 run”
+组织成可直接判断下一步动作的控制台。
+
+### 根因
+
+上一轮约束仍以“保留 4-7 个高价值 mini chart”为目标，测试也在维护 chart matrix 和图表形态数量。
+这会继续诱导实现为了满足面板数而把可由 track 或 rail 表达的状态拆成多个卡片。这是前端信息架构问题，
+不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard Overview 的第一屏判断效率和可读性。
+- 不影响 store、rank board、evaluator、comparison、job/service 生命周期或指标计算。
+
+### 修复方式
+
+- 删除 Overview 的 `overviewCharts`、`OverviewMiniChartPanel` 和 `overview-chart-matrix` 渲染路径。
+- 首页改为两列 command deck：左侧一个 focus panel 承载 coverage progress rail、Run/Ops/Volume track rail
+  和 Run/Job/Service 三泳道活动矩阵；右侧只保留最近 run 紧凑摘要。
+- 顶部只保留 Coverage、Pending、Queue、Services 四个可行动数字，避免 Bench/Runs/Done 这类重复汇总占位。
+- UI 合约和 layout smoke 改为禁止旧 mini chart wall/chart matrix 回流，并检查 focus panel、recent panel、
+  track rail 和 3x12 活动矩阵存在。
+- README、架构文档和脚本文档同步更新为 command deck 约束。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 总览新增内容必须先归入评测推进、待评估 backlog、运行压力、数据/预测规模或最近 run 复盘之一。
+- 不再以“面板数量”作为总览可视化目标；优先把同一判断链路合并到 track rail、progress rail 或活动矩阵。
+- 排障型和维度分布型信息继续留在 Runs、Inspector、Rank Board、Services 或 Compare 页面。
+
 ## 2026-05-25: Eval Bench CLI 子命令分发缺少统一合约
 
 ### 现象
