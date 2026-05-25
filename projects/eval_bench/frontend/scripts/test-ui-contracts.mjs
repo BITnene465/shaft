@@ -54,6 +54,11 @@ assert(
   "collapsible panel toggles must share PanelToggleButton",
 );
 assert(
+  uiSource.includes("export function IconNavLink(") &&
+    uiSource.includes('className: joinClassNames("icon-button", dense && "dense", className)'),
+  "router icon links must share IconNavLink",
+);
+assert(
   uiSource.includes("export function SelectableRowButton("),
   "sample row selection must be centralized in SelectableRowButton",
 );
@@ -317,6 +322,11 @@ assert(
     runTables.includes("{footer}") &&
     runTables.includes("import type { ReactNode }"),
   "run table must expose a footer slot for paged result controls",
+);
+assert(
+  runTables.includes("IconNavLink") &&
+    !runTables.includes('className="icon-button dense"'),
+  "run table row icon links must use IconNavLink instead of ad hoc icon-button links",
 );
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
 assertNoRawSelectElement(runsPage, "runsPage.tsx");

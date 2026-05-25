@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 表格图标导航链接仍手写 icon-button
+
+### 现象
+
+Dashboard 已经把按钮、chip、card 和弹窗交互大多收敛到 `ui.tsx`，但 Runs 表格中的样本检查入口仍直接在
+业务页写 `Link className="icon-button dense"`。这个入口本质是标准图标导航链接，却没有共享 `title`、
+`aria-label`、dense class 和 icon-button 样式拼接逻辑。
+
+### 根因
+
+前期只给可触发动作的图标按钮建立了 `IconActionButton`，没有给 router link 形态的图标入口建立对应原语。
+因此表格行 action 区仍保留了一条页面私有的 icon-button 链接路径。
+
+### 影响范围
+
+- 影响 run 表格行操作区的按钮/链接组件边界和可访问性一致性。
+- 不改变 API、run note、rank-board、eval metric、viewer 几何或数据语义。
+
+### 修复方式
+
+- `ui.tsx` 新增 `IconNavLink`，统一 router 图标链接的 `icon-button`、dense、`title` 和 `aria-label` 语义。
+- Runs 表格样本检查入口改用 `IconNavLink`。
+- UI contract 增加防线，禁止 run table row icon link 回退为业务页手写 `icon-button dense`。
+- README 和架构文档同步按钮/链接原语边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增 router 图标入口优先复用 `IconNavLink`；只有普通正文链接或明确的业务导航卡片可以直接使用 `Link` 样式。
+
 ## 2026-05-25: Eval Bench run note 覆盖保存缺少版本保护
 
 ### 现象

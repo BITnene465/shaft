@@ -4,8 +4,9 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useEffect, useId, useRef } from "react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { createElement, useEffect, useId, useRef } from "react";
+import type { ButtonHTMLAttributes, ElementType, ReactNode } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import { statusClassName, statusInfo } from "./statusModel";
@@ -99,6 +100,31 @@ export function IconActionButton({
     >
       {icon}
     </button>
+  );
+}
+
+export function IconNavLink({
+  icon,
+  title,
+  dense = true,
+  className,
+  ...props
+}: {
+  icon: ReactNode;
+  title: string;
+  dense?: boolean;
+  className?: string;
+  [key: string]: unknown;
+}) {
+  return createElement(
+    Link as ElementType,
+    {
+      ...props,
+      title,
+      "aria-label": (props["aria-label"] as string | undefined) ?? title,
+      className: joinClassNames("icon-button", dense && "dense", className)
+    },
+    icon,
   );
 }
 

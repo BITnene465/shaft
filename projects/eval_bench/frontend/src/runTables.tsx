@@ -11,7 +11,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
-import { Badge, DangerConfirmDialog, DataTable, IconActionButton } from "./ui";
+import { Badge, DangerConfirmDialog, DataTable, IconActionButton, IconNavLink } from "./ui";
 
 export function BenchmarkTable({
   benchmarks,
@@ -205,14 +205,12 @@ export function RunTable({
       id: "actions",
       cell: ({ row }) => (
         <div className="row-actions">
-          <Link
-            className="icon-button dense"
+          <IconNavLink
+            icon={<Eye size={13} />}
             to="/runs/$runId"
             params={{ runId: row.original.run_id }}
             title="检查样本级预测"
-          >
-            <Eye size={13} />
-          </Link>
+          />
           <IconActionButton
             icon={<RotateCw size={13} />}
             onClick={() => evaluateMutation.mutate(row.original.run_id)}
