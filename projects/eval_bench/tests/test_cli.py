@@ -9,6 +9,7 @@ import pytest
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
     _build_parser,
+    _command_handlers,
     _cmd_archive_run,
     _cmd_backend_logs,
     _cmd_cancel_job,
@@ -55,6 +56,61 @@ from eval_bench.cli import (
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _parser_command_names() -> set[str]:
+    subparsers_action = next(
+        action for action in _build_parser()._actions if action.dest == "command"
+    )
+    return set(subparsers_action.choices)
+
+
+def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
+    command_names = _parser_command_names()
+    handler_names = set(_command_handlers())
+    agent_safe_commands = {
+        "dashboard-state",
+        "scheduler-status",
+        "backend-logs",
+        "preflight-job",
+        "create-job",
+        "list-job-templates",
+        "show-job-template",
+        "list-prompt-templates",
+        "show-prompt-template",
+        "resolve-target-labels",
+        "list-jobs",
+        "show-job",
+        "cancel-job",
+        "delete-job",
+        "job-logs",
+        "list-benchmarks",
+        "show-benchmark",
+        "list-runs",
+        "show-run",
+        "show-run-report",
+        "list-run-samples",
+        "show-run-sample",
+        "list-benchmark-samples",
+        "show-benchmark-sample",
+        "rank-board",
+        "get-run-note",
+        "set-run-note",
+        "archive-run",
+        "delete-run",
+        "list-services",
+        "show-service",
+        "service-command",
+        "service-health",
+        "service-logs",
+        "delete-service",
+        "list-comparisons",
+        "show-comparison",
+        "show-comparison-sample",
+    }
+
+    assert command_names == handler_names
+    assert agent_safe_commands <= command_names
 
 
 def _write_sample_store(tmp_path: Path) -> None:

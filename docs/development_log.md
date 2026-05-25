@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench CLI 子命令分发缺少统一合约
+
+### 现象
+
+Eval Bench 已经补齐大量 agent-safe CLI，但 parser 定义和 `main()` 分发是两份手写列表。测试主要直接调用
+`_cmd_*` 函数，无法证明 `scripts/eval_bench.py <command>` 真实入口一定能调到对应 handler。后续新增命令时，
+很容易出现 help 中能看到命令，但入口分发遗漏的情况。
+
+### 根因
+
+CLI 子命令的真源不够集中：`_build_parser()` 维护命令名，`main()` 维护一条很长的 `if/elif` 分发链。
+这不是模型能力问题，也不是 eval / codec / metric 误判，而是 agent 操作面的工程合约缺口。
+
+### 影响范围
+
+- 影响 Eval Bench agent CLI 的可维护性和新增命令可靠性。
+- 不改变任何 job、service、run note、rank board、evaluator 或 dashboard API 语义。
+
+### 修复方式
+
+- 将 `main()` 分发收敛到 `_command_handlers()` 映射。
+- 新增 CLI 合约测试：parser 暴露的命令集合必须等于 handler 映射集合。
+- 同一测试锁住 agent-safe 命令集合，避免 dashboard-state、rank-board、run note、sample detail、comparison、
+  service/job 生命周期等稳定入口被误删。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增 CLI 子命令时必须同时更新 parser 和 `_command_handlers()`；测试失败即表示真实入口不可执行。
+- agent-facing 命令不要只加内部 `_cmd_*` 单测，还要保证 parser/handler 合约覆盖到命令名。
+
 ## 2026-05-25: Eval Bench 总览页低价值面板回流
 
 ### 现象

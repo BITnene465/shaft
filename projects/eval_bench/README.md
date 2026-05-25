@@ -463,6 +463,8 @@ comparison 列表同样由后端分页过滤，单个 job / service 详情用 `s
 读取。Job template 和 prompt template 也有 CLI 入口，agent 创建 job 前可以先发现模板、读取单个模板、
 筛选任务类型，并按需维护 prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、
 evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
+CLI 子命令的真实分发集中在 `eval_bench.cli._command_handlers()`；新增 agent 命令必须同时进入 parser
+和 handler 映射，测试会检查两者集合一致，避免 agent 看到 help 里的命令却无法通过真实入口执行。
 
 ```bash
 .venv/bin/python scripts/eval_bench.py list-job-templates --query keypoint

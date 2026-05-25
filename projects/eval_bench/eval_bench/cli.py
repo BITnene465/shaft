@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -1388,116 +1389,70 @@ def _database_job_kind(resolved_kind: str) -> str:
     raise ValueError(f"unsupported job kind: {resolved_kind}")
 
 
+def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
+    return {
+        "create-benchmark": _cmd_create_benchmark,
+        "init-run": _cmd_init_run,
+        "validate-prediction": _cmd_validate_prediction,
+        "write-demo-prediction": _cmd_write_demo_prediction,
+        "serve-dashboard": _cmd_serve_dashboard,
+        "dashboard-state": _cmd_dashboard_state,
+        "scheduler-status": _cmd_scheduler_status,
+        "backend-logs": _cmd_backend_logs,
+        "preflight-job": _cmd_preflight_job,
+        "list-job-templates": _cmd_list_job_templates,
+        "show-job-template": _cmd_show_job_template,
+        "list-prompt-templates": _cmd_list_prompt_templates,
+        "show-prompt-template": _cmd_show_prompt_template,
+        "resolve-target-labels": _cmd_resolve_target_labels,
+        "upsert-prompt-template": _cmd_upsert_prompt_template,
+        "delete-prompt-template": _cmd_delete_prompt_template,
+        "create-job": _cmd_create_job,
+        "list-jobs": _cmd_list_jobs,
+        "show-job": _cmd_show_job,
+        "cancel-job": _cmd_cancel_job,
+        "delete-job": _cmd_delete_job,
+        "job-logs": _cmd_job_logs,
+        "list-benchmarks": _cmd_list_benchmarks,
+        "show-benchmark": _cmd_show_benchmark,
+        "list-runs": _cmd_list_runs,
+        "show-run": _cmd_show_run,
+        "show-run-report": _cmd_show_run_report,
+        "list-run-samples": _cmd_list_run_samples,
+        "show-run-sample": _cmd_show_run_sample,
+        "list-benchmark-samples": _cmd_list_benchmark_samples,
+        "show-benchmark-sample": _cmd_show_benchmark_sample,
+        "rank-board": _cmd_rank_board,
+        "get-run-note": _cmd_get_run_note,
+        "set-run-note": _cmd_set_run_note,
+        "archive-run": _cmd_archive_run,
+        "delete-run": _cmd_delete_run,
+        "register-service": _cmd_register_service,
+        "list-services": _cmd_list_services,
+        "show-service": _cmd_show_service,
+        "service-command": _cmd_service_command,
+        "start-service": _cmd_start_service,
+        "service-health": _cmd_service_health,
+        "service-logs": _cmd_service_logs,
+        "stop-service": _cmd_stop_service,
+        "delete-service": _cmd_delete_service,
+        "process-next-job": _cmd_process_next_job,
+        "evaluate-run": _cmd_evaluate_run,
+        "import-predictions": _cmd_import_predictions,
+        "compare-runs": _cmd_compare_runs,
+        "show-comparison": _cmd_show_comparison,
+        "list-comparisons": _cmd_list_comparisons,
+        "show-comparison-sample": _cmd_show_comparison_sample,
+        "perf-smoke": _cmd_perf_smoke,
+    }
+
+
 def main() -> None:
     args = _build_parser().parse_args()
-    if args.command == "create-benchmark":
-        _cmd_create_benchmark(args)
-    elif args.command == "init-run":
-        _cmd_init_run(args)
-    elif args.command == "validate-prediction":
-        _cmd_validate_prediction(args)
-    elif args.command == "write-demo-prediction":
-        _cmd_write_demo_prediction(args)
-    elif args.command == "serve-dashboard":
-        _cmd_serve_dashboard(args)
-    elif args.command == "dashboard-state":
-        _cmd_dashboard_state(args)
-    elif args.command == "scheduler-status":
-        _cmd_scheduler_status(args)
-    elif args.command == "backend-logs":
-        _cmd_backend_logs(args)
-    elif args.command == "create-job":
-        _cmd_create_job(args)
-    elif args.command == "preflight-job":
-        _cmd_preflight_job(args)
-    elif args.command == "list-job-templates":
-        _cmd_list_job_templates(args)
-    elif args.command == "show-job-template":
-        _cmd_show_job_template(args)
-    elif args.command == "list-prompt-templates":
-        _cmd_list_prompt_templates(args)
-    elif args.command == "show-prompt-template":
-        _cmd_show_prompt_template(args)
-    elif args.command == "resolve-target-labels":
-        _cmd_resolve_target_labels(args)
-    elif args.command == "upsert-prompt-template":
-        _cmd_upsert_prompt_template(args)
-    elif args.command == "delete-prompt-template":
-        _cmd_delete_prompt_template(args)
-    elif args.command == "list-jobs":
-        _cmd_list_jobs(args)
-    elif args.command == "show-job":
-        _cmd_show_job(args)
-    elif args.command == "cancel-job":
-        _cmd_cancel_job(args)
-    elif args.command == "delete-job":
-        _cmd_delete_job(args)
-    elif args.command == "job-logs":
-        _cmd_job_logs(args)
-    elif args.command == "list-benchmarks":
-        _cmd_list_benchmarks(args)
-    elif args.command == "show-benchmark":
-        _cmd_show_benchmark(args)
-    elif args.command == "list-runs":
-        _cmd_list_runs(args)
-    elif args.command == "show-run":
-        _cmd_show_run(args)
-    elif args.command == "show-run-report":
-        _cmd_show_run_report(args)
-    elif args.command == "list-run-samples":
-        _cmd_list_run_samples(args)
-    elif args.command == "show-run-sample":
-        _cmd_show_run_sample(args)
-    elif args.command == "list-benchmark-samples":
-        _cmd_list_benchmark_samples(args)
-    elif args.command == "show-benchmark-sample":
-        _cmd_show_benchmark_sample(args)
-    elif args.command == "rank-board":
-        _cmd_rank_board(args)
-    elif args.command == "get-run-note":
-        _cmd_get_run_note(args)
-    elif args.command == "set-run-note":
-        _cmd_set_run_note(args)
-    elif args.command == "archive-run":
-        _cmd_archive_run(args)
-    elif args.command == "delete-run":
-        _cmd_delete_run(args)
-    elif args.command == "register-service":
-        _cmd_register_service(args)
-    elif args.command == "list-services":
-        _cmd_list_services(args)
-    elif args.command == "show-service":
-        _cmd_show_service(args)
-    elif args.command == "service-command":
-        _cmd_service_command(args)
-    elif args.command == "start-service":
-        _cmd_start_service(args)
-    elif args.command == "service-health":
-        _cmd_service_health(args)
-    elif args.command == "service-logs":
-        _cmd_service_logs(args)
-    elif args.command == "stop-service":
-        _cmd_stop_service(args)
-    elif args.command == "delete-service":
-        _cmd_delete_service(args)
-    elif args.command == "process-next-job":
-        _cmd_process_next_job(args)
-    elif args.command == "evaluate-run":
-        _cmd_evaluate_run(args)
-    elif args.command == "import-predictions":
-        _cmd_import_predictions(args)
-    elif args.command == "compare-runs":
-        _cmd_compare_runs(args)
-    elif args.command == "show-comparison":
-        _cmd_show_comparison(args)
-    elif args.command == "list-comparisons":
-        _cmd_list_comparisons(args)
-    elif args.command == "show-comparison-sample":
-        _cmd_show_comparison_sample(args)
-    elif args.command == "perf-smoke":
-        _cmd_perf_smoke(args)
-    else:  # pragma: no cover
+    handler = _command_handlers().get(args.command)
+    if handler is None:  # pragma: no cover
         raise AssertionError(f"unhandled command: {args.command}")
+    handler(args)
 
 
 if __name__ == "__main__":
