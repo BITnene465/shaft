@@ -116,6 +116,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer 和 settings
     不各自复制 select/input 外壳。
+- `projects/eval_bench/frontend/src/overviewPage.tsx`
+  - 维护总控工作台页面；作为独立路由模块承载高密度粗粒度图表、运行态遥测和最近 run 摘要。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
 - `projects/eval_bench/frontend/src/comparePage.tsx`

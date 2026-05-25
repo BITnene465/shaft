@@ -81,8 +81,22 @@ assert(
   !/<button[^>]+removeLabelColor/.test(settingsPage),
   "settings label clear action must use ActionButton",
 );
+const overviewPage = await readSource("src/overviewPage.tsx");
 assert(
-  !mainEntryHasSettingsImplementation(await readSource("src/main.tsx")),
+  overviewPage.includes("export function OverviewPage()"),
+  "overview page module must export OverviewPage",
+);
+const mainEntry = await readSource("src/main.tsx");
+assert(
+  mainEntry.includes('import { OverviewPage } from "./overviewPage";'),
+  "main.tsx must route to the extracted OverviewPage module",
+);
+assert(
+  !mainEntryHasOverviewImplementation(mainEntry),
+  "main.tsx should only route to OverviewPage, not implement the overview workbench",
+);
+assert(
+  !mainEntryHasSettingsImplementation(mainEntry),
   "main.tsx should only route to SettingsPage, not implement the settings workbench",
 );
 
@@ -127,4 +141,12 @@ function assertNoLegacySampleFilters(source, relativePath) {
 
 function mainEntryHasSettingsImplementation(source) {
   return /function\s+SettingsPage\s*\(/.test(source) || source.includes("settings-workbench-shell");
+}
+
+function mainEntryHasOverviewImplementation(source) {
+  return (
+    /function\s+OverviewPage\s*\(/.test(source) ||
+    source.includes("overview-console") ||
+    source.includes("overview-chart-matrix")
+  );
 }

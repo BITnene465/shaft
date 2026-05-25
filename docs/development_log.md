@@ -2736,3 +2736,39 @@ Settings 页在早期为了快速迭代直接落在 `main.tsx`，后续虽然陆
 
 - 页面级工作台继续从 `main.tsx` 拆出；`main.tsx` 只能保留 shell、route、轻量 page orchestration。
 - Settings 新能力落在 `settingsPage.tsx` / `settingsControls.tsx` / `workspaceSettings.ts` 的对应层，不回流到主入口。
+
+## 2026-05-25: Eval Bench 总览页面从 main.tsx 拆出
+
+### 现象
+
+“总览”已经承担总控工作台职责，包含 12 个粗粒度图表、运行态遥测、写入节奏和最近 run 摘要，但页面实现
+和 helper 仍全部堆在 `main.tsx`。这会让入口文件继续膨胀，也削弱了后续对工作台图表、密度和动效做
+页面级迭代的边界。
+
+### 根因
+
+总览页最初作为首页直接写入路由入口，后续完成高密度图表设计后只更新了视觉层，没有同步抽出页面模块。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 前端模块边界和 `main.tsx` 可维护性。
+- 不改变总览指标语义、API 请求、排行榜主指标或后端存储结构。
+
+### 修复方式
+
+- 新增 `overviewPage.tsx`，承载总览页 query、图表装配、运行态遥测和最近 run 摘要。
+- `main.tsx` 删除总览页面实现，只保留 route 绑定。
+- `test:ui-contracts` 增加防线：`main.tsx` 不能再实现 `OverviewPage` 或包含总览工作台 class。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 补充 `overviewPage.tsx` 模块边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- 首页新增图表、遥测和最近 run 设计时只改 `overviewPage.tsx` 与样式层，不回流到 `main.tsx`。
+- 页面级工作台继续按模块拆分；`main.tsx` 保持 shell、route 和轻量 orchestration。
