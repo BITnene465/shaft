@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Evaluated run">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)" stroke="#20262b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 34h92l36 36v151H64z" fill="#f7fafc"/>
+    <path d="M156 34v40h36" fill="#dce7ef"/>
+    <path d="M88 96h66" fill="none"/>
+    <path d="M88 132h50" fill="none"/>
+    <path d="M88 168h34" fill="none"/>
+    <path d="M63 204c31-47 55 20 88-30 22-34 40-27 54-11" stroke="#21c4e8" fill="none"/>
+    <circle cx="179" cy="174" r="36" fill="#23a36f"/>
+    <path d="M161 173l13 13 27-31" stroke="#ffffff" fill="none"/>
+    <path d="M42 65h22" stroke="#ffbf1f" fill="none"/>
+    <path d="M42 92h22" stroke="#ffbf1f" fill="none"/>
+  </g>
+</svg>

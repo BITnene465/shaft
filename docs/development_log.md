@@ -2239,3 +2239,73 @@ SQLite / 前端状态，和“agent 不做 hack”的目标不一致。
 
 - 新增 dashboard 可操作对象时，必须同步检查是否需要 agent-safe CLI 发现和维护入口。
 - Prompt template 的唯一真源是 database registry；前端和 CLI 只能通过同一 registry 读写。
+
+## 2026-05-25: Eval Bench Overview 实时总控信号收口
+
+### 现象
+
+总览页已经移除了长说明文字和精细指标，但页面仍更像静态汇总面板。用户需要它承担实时控制台职责：
+只显示系统运行态、数据规模和近期写入节奏，同时保持单屏可读，不把排行榜或对比页的细指标搬回来。
+
+### 根因
+
+Overview 只消费 `/api/state` 的 run/benchmark 粗汇总，缺少 job queue、service 和 scheduler 这类实时运行态。
+写入节奏也只按已有 run 日期聚合，缺少连续日期桶，导致稀疏数据时空间利用不稳定。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Overview 信息架构和实时可观测性。
+- 不影响 Rank Board 的默认 F1 排序、run sample viewer、job worker 或评测报告语义。
+
+### 修复方式
+
+- Overview 增加 telemetry strip，复用现有 jobs、services 和 scheduler API，展示 scheduler、queued jobs、
+  running jobs、service live count 和 job records。
+- Run 写入节奏改为以最新 run 日期为右边界的连续 12 个日期桶，没有写入的日期显式显示为 0。
+- Overview 保持粗粒度控制台视角，不展示 precision、recall、mIoU 等精细评测指标。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- Playwright smoke：打开 `http://127.0.0.1:8766/`，确认 `.overview-telemetry-panel` 存在、
+  telemetry cell 数为 5、timeline 日期桶数为 12，且总览页正文不包含 `precision` / `recall`。
+
+### 后续防线
+
+- Overview 新增状态只能接入已有 store/API/CLI 真源，不能在页面层复制 scheduler、job 或 service 状态机。
+- Overview 继续只承载总控信号；精细指标和排行策略留在 Rank Board 与 Compare。
+
+## 2026-05-25: Eval Bench 顶栏状态胶囊与排行榜 icon 语义收口
+
+### 现象
+
+顶栏 `Profile local / 同步中` 状态区仍是硬边框小块，和当前工作台的轻量状态设计不一致；Rank Board
+的“入榜”“已评估”和页面入口“排行榜”复用同一个 metrics icon，导致三个不同语义在视觉上无法区分。
+
+### 根因
+
+早期 dashboard icon 只按“指标/结果”粗分类复用资产，没有为 rank board 页面入口、rank entry 计数和 evaluated
+run 计数拆出语义 key。顶栏状态也只复用了通用 pill 样式，没有区分在线、同步中和异常的视觉节奏。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 顶栏状态识别和 Rank Board 指标卡识别。
+- 不影响 API、CLI、metric report 或评测语义。
+
+### 修复方式
+
+- `iconLibrary.tsx` 增加 `rankBoard`、`rankEntry` 和 `evaluatedRun` 语义图标。
+- 侧栏、总览快捷入口、Compare 的排行榜入口统一使用 `rankBoard`。
+- Rank Board 的“入榜”使用 `rankEntry`，“已评估”使用 `evaluatedRun`。
+- 顶栏 profile/status 区改为圆角 capsule 组；同步中状态增加克制的 breathing 动效和状态点。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- 新增 dashboard 图标时必须先补 `AppIcon` 语义 key；不同业务状态不能只因为都属于指标域而复用同一个图标。
+- 顶栏运行态优先使用状态 capsule，不在页面中散落独立同步文字。

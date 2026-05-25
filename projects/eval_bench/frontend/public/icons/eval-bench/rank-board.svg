@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Rank board">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)" stroke="#20262b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M80 58h96v42c0 34-20 56-48 56s-48-22-48-56z" fill="#5f6872"/>
+    <path d="M80 80H50c0 30 14 49 42 51" fill="none"/>
+    <path d="M176 80h30c0 30-14 49-42 51" fill="none"/>
+    <path d="M128 156v31" fill="none"/>
+    <path d="M91 188h74" fill="none"/>
+    <path d="M72 214h112" fill="none"/>
+    <path d="M111 89l17-12 17 12-7 21 17 13h-22l-5 21-7-21H99l17-13z" fill="#ffbf1f"/>
+    <path d="M42 194v-22" stroke="#21c4e8" fill="none"/>
+    <path d="M214 194v-44" stroke="#21c4e8" fill="none"/>
+    <path d="M42 218h172" stroke="#21c4e8" fill="none"/>
+  </g>
+</svg>

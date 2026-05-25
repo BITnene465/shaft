@@ -46,10 +46,13 @@ import {
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
   fetchComparisonSample,
+  fetchJobs,
   fetchRuns,
   fetchRunSampleDetail,
   fetchRunSamples,
+  fetchSchedulerStatus,
   fetchSettingsPreviewSample,
+  fetchServices,
   importPredictions,
   updateRunNote
 } from "./api";
@@ -217,7 +220,7 @@ function Shell() {
           <NavItem to="/services" icon={<AppIcon name="service" size={21} />} label="模型服务" />
           <NavItem to="/jobs" icon={<AppIcon name="evalJob" size={21} />} label="评测中心" />
           <NavItem to="/runs" icon={<AppIcon name="runResults" size={21} />} label="结果库" />
-          <NavItem to="/rank-board" icon={<AppIcon name="metrics" size={21} />} label="排行榜" />
+          <NavItem to="/rank-board" icon={<AppIcon name="rankBoard" size={21} />} label="排行榜" />
           <NavItem to="/compare" icon={<AppIcon name="compareAnalysis" size={21} />} label="对比分析" />
           <NavItem to="/settings" icon={<AppIcon name="workspaceSettings" size={21} />} label="工作台设置" />
         </nav>
@@ -334,11 +337,30 @@ function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
   if (error) {
     return <div className="status-pill danger">接口异常</div>;
   }
-  return <div className="status-pill">{loading ? "同步中" : "在线"}</div>;
+  return (
+    <div className={loading ? "status-pill loading" : "status-pill online"}>
+      {loading ? "同步中" : "在线"}
+    </div>
+  );
 }
 
 function OverviewPage() {
   const { data, isLoading, error } = useDashboardState();
+  const jobsQuery = useQuery({
+    queryKey: ["overview-jobs"],
+    queryFn: () => fetchJobs({ limit: 500 }),
+    refetchInterval: 2_000
+  });
+  const servicesQuery = useQuery({
+    queryKey: ["overview-services"],
+    queryFn: () => fetchServices({ limit: 500 }),
+    refetchInterval: 5_000
+  });
+  const schedulerQuery = useQuery({
+    queryKey: ["overview-scheduler"],
+    queryFn: fetchSchedulerStatus,
+    refetchInterval: 2_000
+  });
   if (isLoading) {
     return <EmptyState title="正在加载看板状态" />;
   }
@@ -353,6 +375,13 @@ function OverviewPage() {
   ).length;
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
+  const jobs = jobsQuery.data?.jobs ?? [];
+  const services = servicesQuery.data?.services ?? [];
+  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
+  const runningJobs = jobs.filter((job) => job.status === "running").length;
+  const liveServices = services.filter((service) => service.status === "running").length;
+  const overviewSyncing =
+    jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   return (
     <section className="page-stack dashboard-home">
       <div className="overview-console">
@@ -375,7 +404,7 @@ function OverviewPage() {
           </div>
           <div className="overview-console-links">
             <Link to="/rank-board">
-              <AppIcon name="metrics" size={14} />
+              <AppIcon name="rankBoard" size={14} />
               排行榜
             </Link>
             <Link to="/runs">
@@ -395,6 +424,15 @@ function OverviewPage() {
         <OverviewDatum label="Notes" value={notedRuns} />
         <OverviewDatum label="Tasks" value={taskRows.length} />
       </div>
+      <OverviewTelemetryPanel
+        queuedJobs={queuedJobs}
+        runningJobs={runningJobs}
+        liveServices={liveServices}
+        totalJobs={jobs.length}
+        totalServices={services.length}
+        schedulerEnabled={Boolean(schedulerQuery.data?.enabled)}
+        syncing={overviewSyncing}
+      />
       <div className="overview-grid refined">
         <OverviewTimelinePanel rows={timelineRows} />
         <div className="overview-side-stack">
@@ -432,6 +470,64 @@ function OverviewDatum({ label, value }: { label: string; value: number }) {
     <div className="overview-datum">
       <span>{label}</span>
       <strong>{value.toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function OverviewTelemetryPanel({
+  queuedJobs,
+  runningJobs,
+  liveServices,
+  totalJobs,
+  totalServices,
+  schedulerEnabled,
+  syncing
+}: {
+  queuedJobs: number;
+  runningJobs: number;
+  liveServices: number;
+  totalJobs: number;
+  totalServices: number;
+  schedulerEnabled: boolean;
+  syncing: boolean;
+}) {
+  const cells = [
+    {
+      label: "Scheduler",
+      value: schedulerEnabled ? "AUTO" : "MANUAL",
+      tone: schedulerEnabled ? "live" : "idle"
+    },
+    {
+      label: "Queued jobs",
+      value: queuedJobs.toLocaleString(),
+      tone: queuedJobs > 0 ? "warm" : "idle"
+    },
+    {
+      label: "Running jobs",
+      value: runningJobs.toLocaleString(),
+      tone: runningJobs > 0 ? "live" : "idle"
+    },
+    {
+      label: "Services",
+      value: `${liveServices}/${totalServices}`,
+      tone: liveServices > 0 ? "live" : "idle"
+    },
+    { label: "Job records", value: totalJobs.toLocaleString(), tone: "idle" }
+  ] as const;
+  return (
+    <div className="overview-telemetry-panel">
+      <div className={syncing ? "telemetry-signal syncing" : "telemetry-signal"}>
+        <span />
+        <strong>{syncing ? "syncing" : "stable"}</strong>
+      </div>
+      <div className="overview-telemetry-grid">
+        {cells.map((cell) => (
+          <div className={`telemetry-cell ${cell.tone}`} key={cell.label}>
+            <span>{cell.label}</span>
+            <strong>{cell.value}</strong>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -537,21 +633,25 @@ function countBy<T>(items: T[], keyForItem: (item: T) => string) {
 }
 
 function runTimeline(runs: RunSummary[], bucketCount: number) {
-  const keys = Array.from(
-    new Set(
-      runs
-        .map((run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"))
-        .filter(Boolean)
-    )
-  )
-    .sort()
-    .slice(-bucketCount);
-  if (keys.length === 0) {
-    return [];
-  }
+  const endDate = latestRunDate(runs) ?? new Date();
+  const keys = Array.from({ length: bucketCount }, (_, index) => {
+    const date = new Date(endDate);
+    date.setUTCDate(endDate.getUTCDate() - (bucketCount - 1 - index));
+    return date.toISOString().slice(0, 10);
+  });
   const counts = countBy(runs, (run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"));
   const countMap = new Map(counts.map((row) => [row.key, row.count]));
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
+}
+
+function latestRunDate(runs: RunSummary[]) {
+  const timestamps = runs
+    .map((run) => (run.created_at ? Date.parse(run.created_at) : Number.NaN))
+    .filter(Number.isFinite);
+  if (timestamps.length === 0) {
+    return null;
+  }
+  return new Date(Math.max(...timestamps));
 }
 
 function BenchmarksPage() {

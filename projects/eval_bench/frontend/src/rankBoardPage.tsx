@@ -96,8 +96,12 @@ export function RankBoardPage() {
           </span>
         </div>
         {best ? (
-          <Link className="mini-link compare-ready" to="/runs/$runId" params={{ runId: best.run_id }}>
-            <AppIcon name="metrics" size={13} />
+          <Link
+            className="mini-link compare-ready"
+            to="/runs/$runId"
+            params={{ runId: best.run_id }}
+          >
+            <AppIcon name="rankBoard" size={13} />
             当前第一 {best.run_id}
           </Link>
         ) : null}
@@ -218,10 +222,22 @@ export function RankBoardPage() {
         actions={<span className="rank-formula-chip">主指标 {rankSortLabel(board.sort_by)}</span>}
       />
       <div className="rank-metric-strip">
-        <MetricCard icon={<AppIcon name="metrics" size={24} />} label="入榜" value={board.total} />
-        <MetricCard icon={<AppIcon name="metrics" size={24} />} label="已评估" value={board.evaluated_count} />
-        <MetricCard icon={<AppIcon name="benchmark" size={24} />} label="基准集" value={facetTotal(board, "benchmarks")} />
-        <MetricCard icon={<AppIcon name="runResults" size={24} />} label="Run 总数" value={runs.length} />
+        <MetricCard icon={<AppIcon name="rankEntry" size={24} />} label="入榜" value={board.total} />
+        <MetricCard
+          icon={<AppIcon name="evaluatedRun" size={24} />}
+          label="已评估"
+          value={board.evaluated_count}
+        />
+        <MetricCard
+          icon={<AppIcon name="benchmark" size={24} />}
+          label="基准集"
+          value={facetTotal(board, "benchmarks")}
+        />
+        <MetricCard
+          icon={<AppIcon name="runResults" size={24} />}
+          label="Run 总数"
+          value={runs.length}
+        />
       </div>
       <RankFacetRail board={board} />
       <div className="workspace-card fill">

@@ -135,7 +135,7 @@ export function ComparePage() {
           <strong>{filteredCount.toLocaleString()} 条 run</strong>
         </div>
         <Link className="mini-link compare-ready" to="/rank-board">
-          <AppIcon name="metrics" size={13} />
+          <AppIcon name="rankBoard" size={13} />
           排行榜
         </Link>
       </div>
@@ -745,7 +745,7 @@ function CompareContextPanel({
         </div>
       </div>
       <Link className="mini-link compare-ready compare-rank-link" to="/rank-board">
-        <AppIcon name="metrics" size={13} />
+        <AppIcon name="rankBoard" size={13} />
         打开独立排行榜
       </Link>
       <div className="compare-context-links">

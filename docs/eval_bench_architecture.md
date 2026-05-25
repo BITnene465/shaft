@@ -140,6 +140,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。
+- 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
+  不能重新展示 precision、recall、mIoU 等精细评测指标。
+- 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态
+  这类不同 UI 语义不能复用同一个通用 metrics icon。
 - 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含
   `benchmark_id`、`metric`、`weight` 和缺失指标处理规则；前端必须标明当前使用的是 weighted scheme。
   默认 Rank Board 始终保持 `f1_iou50` 主指标排序，不能把加权结果重新命名成默认分数。
