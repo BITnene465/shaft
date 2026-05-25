@@ -115,6 +115,8 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(item["help"] for item in payload["commands"])
     assert all(item["domain"] for item in payload["commands"])
     assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
+    assert all(isinstance(item["arguments"], list) for item in payload["commands"])
+    assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert commands_by_name["rank-board"]["domain"] == "rank"
     assert commands_by_name["rank-board"]["mutates_state"] is False
     assert commands_by_name["create-job"]["domain"] == "job"
@@ -125,6 +127,40 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True
     assert commands_by_name["list-agent-commands"]["domain"] == "meta"
+    assert commands_by_name["list-agent-commands"]["arguments"] == []
+
+    create_benchmark_args = {
+        item["dest"]: item for item in commands_by_name["create-benchmark"]["arguments"]
+    }
+    assert create_benchmark_args["benchmark_id"]["flags"] == ["--benchmark-id"]
+    assert create_benchmark_args["benchmark_id"]["required"] is True
+    assert create_benchmark_args["task"]["action"] == "append"
+    assert create_benchmark_args["task"]["repeatable"] is True
+    assert create_benchmark_args["task"]["choices"] == ["detection", "keypoint"]
+    assert create_benchmark_args["overwrite"]["type"] == "bool"
+    assert create_benchmark_args["overwrite"]["action"] == "store_true"
+
+    preflight_args = {item["dest"]: item for item in commands_by_name["preflight-job"]["arguments"]}
+    assert preflight_args["payload_json"]["required"] is False
+    assert preflight_args["payload_file"]["required"] is False
+    assert {
+        tuple(group["arguments"]): group["required"]
+        for group in commands_by_name["preflight-job"]["mutually_exclusive_groups"]
+    } == {("payload_json", "payload_file"): True}
+
+    rank_args = {item["dest"]: item for item in commands_by_name["rank-board"]["arguments"]}
+    assert rank_args["sort_by"]["default"] == "f1_iou50"
+    assert "weighted_score" in rank_args["sort_by"]["choices"]
+    assert rank_args["min_score"]["type"] == "float"
+    assert {
+        tuple(group["arguments"]): group["required"]
+        for group in commands_by_name["rank-board"]["mutually_exclusive_groups"]
+    } == {("rank_scheme_json", "rank_scheme_file"): False}
+
+    import_args = {item["dest"]: item for item in commands_by_name["import-predictions"]["arguments"]}
+    assert import_args["target_labels"]["action"] == "append"
+    assert import_args["target_labels"]["repeatable"] is True
+    assert import_args["skip_evaluate"]["action"] == "store_true"
 
 
 def _write_sample_store(tmp_path: Path) -> None:

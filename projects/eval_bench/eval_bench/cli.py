@@ -687,13 +687,17 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
 
 def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     del args
-    command_help = _parser_command_help(_build_parser())
+    parser = _build_parser()
+    command_help = _parser_command_help(parser)
+    command_arguments = _parser_command_arguments(parser)
     commands = [
         {
             "name": name,
             "domain": AGENT_COMMAND_METADATA[name]["domain"],
             "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
             "help": command_help.get(name, ""),
+            "arguments": command_arguments[name]["arguments"],
+            "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
         }
         for name in sorted(AGENT_STABLE_COMMANDS)
     ]
@@ -1477,6 +1481,104 @@ def _database_job_kind(resolved_kind: str) -> str:
 def _parser_command_help(parser: argparse.ArgumentParser) -> dict[str, str]:
     subparsers_action = next(action for action in parser._actions if action.dest == "command")
     return {action.dest: action.help or "" for action in subparsers_action._choices_actions}
+
+
+def _parser_command_arguments(parser: argparse.ArgumentParser) -> dict[str, dict[str, object]]:
+    subparsers_action = next(action for action in parser._actions if action.dest == "command")
+    return {
+        command: {
+            "arguments": [
+                _argument_schema(action)
+                for action in subparser._actions
+                if _is_agent_arg(action)
+            ],
+            "mutually_exclusive_groups": _mutually_exclusive_group_schema(subparser),
+        }
+        for command, subparser in subparsers_action.choices.items()
+    }
+
+
+def _argument_schema(action: argparse.Action) -> dict[str, object]:
+    flags = list(action.option_strings)
+    positional = not flags
+    return {
+        "dest": action.dest,
+        "flags": flags,
+        "positional": positional,
+        "required": bool(getattr(action, "required", False)) or _positional_is_required(action),
+        "default": _json_safe_arg_value(action.default),
+        "choices": _json_safe_arg_value(
+            list(action.choices) if action.choices is not None else None
+        ),
+        "nargs": action.nargs,
+        "type": _argument_type_name(action),
+        "action": _argument_action_name(action),
+        "repeatable": isinstance(action, argparse._AppendAction),
+        "help": "" if action.help in (None, argparse.SUPPRESS) else str(action.help),
+        "metavar": _json_safe_arg_value(action.metavar),
+    }
+
+
+def _mutually_exclusive_group_schema(parser: argparse.ArgumentParser) -> list[dict[str, object]]:
+    groups: list[dict[str, object]] = []
+    for group in parser._mutually_exclusive_groups:
+        actions = [action for action in group._group_actions if _is_agent_arg(action)]
+        if not actions:
+            continue
+        groups.append(
+            {
+                "required": bool(group.required),
+                "arguments": [action.dest for action in actions],
+                "flags": [list(action.option_strings) for action in actions],
+            }
+        )
+    return groups
+
+
+def _is_agent_arg(action: argparse.Action) -> bool:
+    return not isinstance(action, argparse._HelpAction) and action.dest != argparse.SUPPRESS
+
+
+def _positional_is_required(action: argparse.Action) -> bool:
+    if action.option_strings:
+        return False
+    return action.nargs not in ("?", "*")
+
+
+def _argument_type_name(action: argparse.Action) -> str:
+    if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+        return "bool"
+    if action.type is None:
+        return "str"
+    return getattr(action.type, "__name__", str(action.type))
+
+
+def _argument_action_name(action: argparse.Action) -> str:
+    if isinstance(action, argparse._StoreTrueAction):
+        return "store_true"
+    if isinstance(action, argparse._StoreFalseAction):
+        return "store_false"
+    if isinstance(action, argparse._AppendAction):
+        return "append"
+    if isinstance(action, argparse._StoreAction):
+        return "store"
+    return action.__class__.__name__.removeprefix("_").removesuffix("Action").lower()
+
+
+def _json_safe_arg_value(value: object) -> object:
+    if value is argparse.SUPPRESS:
+        return None
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, tuple):
+        return [_json_safe_arg_value(item) for item in value]
+    if isinstance(value, list):
+        return [_json_safe_arg_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe_arg_value(item) for key, item in value.items()}
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:

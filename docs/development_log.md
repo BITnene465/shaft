@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent CLI 发现面缺少参数 schema
+
+### 现象
+
+`list-agent-commands` 已能列出稳定命令、domain 和副作用标记，但 agent 仍只能从自然语言 help 推断参数。
+例如 `preflight-job` 的 `--payload-json/--payload-file` 是必选互斥组，`rank-board` 的 weighted scheme
+参数是可选互斥组，`import-predictions --target-label` 可重复；这些结构化参数形态没有机器可读出口。
+
+### 根因
+
+稳定命令 metadata 只覆盖命令级语义，没有复用 argparse parser 中已经存在的参数真源。agent 操作面仍要靠
+help 文案猜 required、default、choices、repeatable 和 mutually exclusive group。这是 CLI agent contract
+缺口，不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 agent 发现和调用 Eval Bench 稳定 CLI 的可靠性。
+- 不改变任何命令参数、store 写入、dashboard API、job/service 生命周期或指标计算。
+
+### 修复方式
+
+- `list-agent-commands` 从当前 argparse parser 自动导出每个稳定命令的 `arguments` 和
+  `mutually_exclusive_groups`。
+- 每个 argument 暴露 `dest`、`flags`、`required`、`default`、`choices`、`type`、`action`、
+  `repeatable`、`nargs`、`help` 和 `metavar`。
+- CLI 合约测试锁住关键命令参数：`create-benchmark` 的 repeatable task、`preflight-job` 的必选互斥 payload、
+  `rank-board` 的默认 F1 和 weighted scheme 互斥组、`import-predictions` 的 repeatable target label。
+- README、架构文档和脚本文档同步 agent 参数 schema 约定。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers_for_agent_contract projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands`
+- `uv run python scripts/eval_bench.py list-agent-commands`
+
+### 后续防线
+
+- 新增稳定 agent 命令不允许只提供自然语言 help；参数必须来自 argparse 真源并由 `list-agent-commands` 暴露。
+- 新增必选互斥组、choices 或 repeatable 参数时，应在 CLI 合约测试中补一个代表性断言。
+
 ## 2026-05-25: Eval Bench keypoint label 子任务可绕过 UI 创建
 
 ### 现象
