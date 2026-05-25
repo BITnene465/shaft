@@ -34,7 +34,15 @@ import {
   jobProgress,
   progressPhaseText
 } from "./statusModel";
-import { ActionButton, Badge, CommandButton, IconActionButton, PanelTitle, WorkspaceDialog } from "./ui";
+import {
+  ActionButton,
+  Badge,
+  CommandButton,
+  DangerConfirmDialog,
+  IconActionButton,
+  PanelTitle,
+  WorkspaceDialog
+} from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function JobsPage() {
@@ -109,6 +117,7 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [deleteJobTarget, setDeleteJobTarget] = useState<JobSummary | null>(null);
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
@@ -169,7 +178,9 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   });
   const deleteMutation = useMutation({
     mutationFn: deleteJob,
-    onSuccess: () => {
+    onSuccess: (_result, jobId) => {
+      setDeleteJobTarget(null);
+      setSelectedJobId((current) => (current === jobId ? "" : current));
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     }
   });
@@ -279,9 +290,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                         title="删除任务记录"
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (confirm(`删除任务记录 ${job.job_id}？`)) {
-                            deleteMutation.mutate(job.job_id);
-                          }
+                          setDeleteJobTarget(job);
                         }}
                       />
                     </div>
@@ -293,6 +302,20 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       {selectedJob ? <JobDetailPanel job={selectedJob} logs={jobLogsQuery.data ?? null} /> : null}
+      <DangerConfirmDialog
+        open={Boolean(deleteJobTarget)}
+        title="删除任务记录"
+        subject={deleteJobTarget?.job_id ?? ""}
+        description="任务记录会移入回收站，队列页、运行日志入口和任务详情面板会同步移除。"
+        confirmLabel="删除记录"
+        pending={deleteMutation.isPending}
+        onCancel={() => setDeleteJobTarget(null)}
+        onConfirm={() => {
+          if (deleteJobTarget) {
+            deleteMutation.mutate(deleteJobTarget.job_id);
+          }
+        }}
+      />
     </div>
   );
 }

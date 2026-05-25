@@ -5868,10 +5868,10 @@ tbody tr:hover td {
 .advanced-filter-bar {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(170px, 0.28fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(240px, max-content) minmax(0, 1fr);
   gap: 8px;
   align-items: stretch;
-  min-height: 58px;
+  min-height: 46px;
   padding: 8px;
   background:
     linear-gradient(90deg, rgb(15 23 42 / 3%), transparent 45%),
@@ -5886,10 +5886,17 @@ tbody tr:hover td {
   min-width: 0;
   align-items: center;
   gap: 8px;
-  padding: 8px;
+  padding: 0 12px;
   color: #174d65;
   background: #f2f8fb;
   border: 1px solid #d7e6ee;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.advanced-filter-head:hover {
+  background: #e8f4f9;
 }
 
 .advanced-filter-head div {
@@ -5916,10 +5923,13 @@ tbody tr:hover td {
 
 .advanced-filter-controls {
   display: grid;
+  grid-column: 1 / -1;
   grid-template-columns: minmax(240px, 1fr) repeat(auto-fit, minmax(132px, 0.35fr));
   gap: 8px;
   min-width: 0;
   align-items: stretch;
+  padding-top: 8px;
+  border-top: 1px solid #dfe9f1;
 }
 
 .advanced-filter-controls .filter-select.compact {
@@ -5935,7 +5945,7 @@ tbody tr:hover td {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  min-width: max-content;
+  min-width: 0;
 }
 
 .overview-console {
@@ -6249,7 +6259,7 @@ tbody tr:hover td {
 
 .overview-run-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(var(--overview-run-columns, 2), minmax(0, 1fr));
   grid-auto-rows: minmax(58px, 1fr);
   min-height: 0;
   gap: 6px;
@@ -6259,7 +6269,7 @@ tbody tr:hover td {
 
 .overview-run-list a {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   min-height: 58px;
@@ -6268,6 +6278,20 @@ tbody tr:hover td {
   text-decoration: none;
   background: #fbfdff;
   border: 1px solid #dfe7ee;
+}
+
+.overview-run-list a > em {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #0d5d7c;
+  background: #eaf6fa;
+  border: 1px solid #c8e0eb;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 820;
+  font-variant-numeric: tabular-nums;
 }
 
 .overview-run-list a:hover {
@@ -6281,7 +6305,7 @@ tbody tr:hover td {
 }
 
 .overview-run-list strong,
-.overview-run-list em {
+.overview-run-list small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6292,10 +6316,9 @@ tbody tr:hover td {
   font-size: 12px;
 }
 
-.overview-run-list em {
+.overview-run-list small {
   color: #667789;
   font-size: 11px;
-  font-style: normal;
 }
 
 .overview-recent-panel {

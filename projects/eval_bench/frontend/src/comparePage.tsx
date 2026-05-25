@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Eye, Trophy } from "lucide-react";
+import { Eye } from "lucide-react";
 
 import type {
   ComparisonLabelDelta,
@@ -25,6 +25,7 @@ import {
   runIdExists,
   unique
 } from "./formatters";
+import { AppIcon } from "./iconLibrary";
 import { Badge, DataTable, EmptyState } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
@@ -134,7 +135,7 @@ export function ComparePage() {
           <strong>{filteredCount.toLocaleString()} 条 run</strong>
         </div>
         <Link className="mini-link compare-ready" to="/rank-board">
-          <Trophy size={13} />
+          <AppIcon name="metrics" size={13} />
           排行榜
         </Link>
       </div>
@@ -743,14 +744,8 @@ function CompareContextPanel({
           <em>report</em>
         </div>
       </div>
-      <div className="compare-context-copy">
-        <strong>排行榜已经独立</strong>
-        <span>
-          Compare 页只保留成对报告、历史对比和样本差异。全局排名、facet 和综合分排序统一进入 Rank Board。
-        </span>
-      </div>
       <Link className="mini-link compare-ready compare-rank-link" to="/rank-board">
-        <Trophy size={13} />
+        <AppIcon name="metrics" size={13} />
         打开独立排行榜
       </Link>
       <div className="compare-context-links">

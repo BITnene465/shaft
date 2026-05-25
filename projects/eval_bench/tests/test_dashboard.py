@@ -313,12 +313,15 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
 
     assert board["total"] == 2
     assert board["evaluated_count"] == 2
-    assert board["sort_by"] == "score"
+    assert board["primary_metric"] == "f1_iou50"
+    assert board["primary_metric_label"] == "F1@.50"
+    assert board["sort_by"] == "f1_iou50"
     assert board["sort_order"] == "desc"
-    assert board["score_formula"] == "0.45 * P@.50 + 0.45 * R@.50 + 0.10 * mIoU"
+    assert board["score_formula"] == "F1@.50"
     assert [entry["run_id"] for entry in board["entries"]] == ["run_a", "run_b"]
     assert board["entries"][0]["rank"] == 1
-    assert board["entries"][0]["score"] == pytest.approx(0.835)
+    assert board["entries"][0]["f1_iou50"] == pytest.approx(0.8470588235)
+    assert board["entries"][0]["score"] == pytest.approx(0.8470588235)
     assert board["entries"][0]["score"] > board["entries"][1]["score"]
     assert board["entries"][0]["note"] == "layout idea"
     assert board["entries"][0]["target_labels"] == ["icon"]

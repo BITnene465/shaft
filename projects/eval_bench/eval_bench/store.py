@@ -18,14 +18,8 @@ from .schema import utc_now_iso
 
 
 MAX_RUN_NOTE_LENGTH = 20_000
-RANK_SCORE_TERMS: tuple[tuple[str, str, float], ...] = (
-    ("precision_iou50", "P@.50", 0.45),
-    ("recall_iou50", "R@.50", 0.45),
-    ("mean_iou", "mIoU", 0.10),
-)
-RANK_SCORE_FORMULA = " + ".join(
-    f"{weight:.2f} * {label}" for _, label, weight in RANK_SCORE_TERMS
-)
+DEFAULT_RANK_SORT_BY = "f1_iou50"
+RANK_PRIMARY_METRIC_LABEL = "F1@.50"
 
 
 def _read_json_or_none(path: Path) -> dict[str, Any] | None:
@@ -126,6 +120,7 @@ class RunNote:
 @dataclass(frozen=True)
 class RankBoardEntry:
     rank: int
+    f1_iou50: float | None
     run_id: str
     score: float | None
     status: str
@@ -150,6 +145,8 @@ class RankBoard:
     total: int
     evaluated_count: int
     filters: dict[str, str]
+    primary_metric: str
+    primary_metric_label: str
     sort_by: str
     sort_order: str
     score_formula: str
@@ -455,7 +452,7 @@ class EvalBenchStore:
         prompt_id: str | None = None,
         metric_profile: str | None = None,
         min_score: float | None = None,
-        sort_by: str = "score",
+        sort_by: str = DEFAULT_RANK_SORT_BY,
         sort_order: str = "desc",
         query: str | None = None,
     ) -> RankBoard:
@@ -491,14 +488,20 @@ class EvalBenchStore:
                 continue
             if query_text and not _rank_query_matches(run, query_text):
                 continue
-            score = _rank_score(run)
-            if min_score is not None and (score is None or score < float(min_score)):
+            f1_iou50 = _rank_f1_iou50(run)
+            min_score_value = _rank_run_metric_value(run, resolved_sort_by)
+            if not isinstance(min_score_value, (int, float)):
+                min_score_value = f1_iou50
+            if min_score is not None and (
+                min_score_value is None or min_score_value < float(min_score)
+            ):
                 continue
             entries.append(
                 RankBoardEntry(
                     rank=0,
+                    f1_iou50=f1_iou50,
                     run_id=run.run_id,
-                    score=score,
+                    score=f1_iou50,
                     status=run.status,
                     benchmark_id=run.benchmark_id,
                     task=run.spec_task,
@@ -515,7 +518,7 @@ class EvalBenchStore:
                 )
             )
         facets = _rank_facets(entries)
-        evaluated_count = sum(1 for entry in entries if entry.score is not None)
+        evaluated_count = sum(1 for entry in entries if entry.f1_iou50 is not None)
         ranked = _sort_rank_entries(
             entries,
             sort_by=resolved_sort_by,
@@ -533,9 +536,11 @@ class EvalBenchStore:
             total=len(ranked),
             evaluated_count=evaluated_count,
             filters=filters,
+            primary_metric=DEFAULT_RANK_SORT_BY,
+            primary_metric_label=RANK_PRIMARY_METRIC_LABEL,
             sort_by=resolved_sort_by,
             sort_order=resolved_sort_order,
-            score_formula=RANK_SCORE_FORMULA,
+            score_formula=RANK_PRIMARY_METRIC_LABEL,
             facets=facets,
             entries=ranked[start : start + page_limit],
         )
@@ -1173,21 +1178,23 @@ def _run_sample_matches(
     return True
 
 
-def _rank_score(run: RunSummary) -> float | None:
-    values = {
-        "precision_iou50": run.precision_iou50,
-        "recall_iou50": run.recall_iou50,
-        "mean_iou": run.mean_iou,
-    }
-    if all(values[key] is None for key, _, _ in RANK_SCORE_TERMS):
+def _rank_f1_iou50(run: RunSummary) -> float | None:
+    precision = run.precision_iou50
+    recall = run.recall_iou50
+    if precision is None or recall is None:
         return None
-    return sum((values[key] or 0.0) * weight for key, _, weight in RANK_SCORE_TERMS)
+    denominator = precision + recall
+    if denominator <= 0:
+        return 0.0
+    return (2 * precision * recall) / denominator
 
 
 def _normalize_rank_sort_by(value: str) -> str:
-    normalized = str(value or "score").strip()
+    normalized = str(value or DEFAULT_RANK_SORT_BY).strip()
+    if normalized == "score":
+        return DEFAULT_RANK_SORT_BY
     allowed = {
-        "score",
+        "f1_iou50",
         "precision_iou50",
         "recall_iou50",
         "mean_iou",
@@ -1195,7 +1202,7 @@ def _normalize_rank_sort_by(value: str) -> str:
         "created_at",
         "run_id",
     }
-    return normalized if normalized in allowed else "score"
+    return normalized if normalized in allowed else DEFAULT_RANK_SORT_BY
 
 
 def _sort_rank_entries(
@@ -1215,8 +1222,8 @@ def _sort_rank_entries(
 
 
 def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str | None:
-    if sort_by == "score":
-        return entry.score
+    if sort_by == "f1_iou50":
+        return entry.f1_iou50
     if sort_by == "precision_iou50":
         return entry.precision_iou50
     if sort_by == "recall_iou50":
@@ -1229,7 +1236,25 @@ def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str |
         return entry.created_at or None
     if sort_by == "run_id":
         return entry.run_id or None
-    return entry.score
+    return entry.f1_iou50
+
+
+def _rank_run_metric_value(run: RunSummary, sort_by: str) -> float | int | str | None:
+    if sort_by == "f1_iou50":
+        return _rank_f1_iou50(run)
+    if sort_by == "precision_iou50":
+        return run.precision_iou50
+    if sort_by == "recall_iou50":
+        return run.recall_iou50
+    if sort_by == "mean_iou":
+        return run.mean_iou
+    if sort_by == "prediction_count":
+        return run.prediction_count
+    if sort_by == "created_at":
+        return run.created_at or None
+    if sort_by == "run_id":
+        return run.run_id or None
+    return _rank_f1_iou50(run)
 
 
 def _rank_facets(entries: list[RankBoardEntry]) -> dict[str, list[dict[str, Any]]]:

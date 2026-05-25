@@ -12,7 +12,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - React pages、workspace layout、dialog、table、viewer panel。
    - 只负责展示和用户操作编排，不推断 eval 语义。
    - 前端全局命令必须走 command/action registry，不能直接写死快捷键。
-   - 页面级筛选优先复用 `AdvancedFilterBar`，避免每页维护一套 search/filter 布局。
+  - 页面级筛选优先复用 `AdvancedFilterBar`；默认只露出 Filter 入口，展开后再显示检索表单，
+    避免把多组 select 直接堆在主工作区。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
    - 标准按钮统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`；业务页只保留样本行、
@@ -97,14 +98,15 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 benchmark/run 列表过滤、分页和 query 语义；CLI 与 `/api/benchmarks`、`/api/runs`
     必须复用同一份 store page 方法；Benchmarks/Runs 页面只能提交查询条件，不能复制高级检索语义。
   - 维护 run note 的读写、列表摘要和长度校验；dashboard/API/CLI 不直接改 `note.json`。
-  - 维护 rank board 的过滤、facet 计数、综合分公式、排序和分页输出；Compare 页不能再作为排行榜真源。
+  - 维护 rank board 的过滤、facet 计数、F1 默认主指标、可切换排序指标和分页输出；
+    Compare 页不能再作为排行榜真源。`score` 仅作为兼容字段镜像 F1，不再代表默认加权排名。
 - `projects/eval_bench/eval_bench/comparison.py`
   - 维护 pairwise comparison 报告生成、历史摘要和 task/label/query 过滤；API/CLI/前端不各自复制
     comparison 历史检索语义。
 - `projects/eval_bench/frontend/src/statusModel.ts`
   - 维护前端状态文案和操作启用条件。
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
-  - 维护 viewer 外观、交互和快捷键配置。
+  - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
   - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件真源。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
@@ -131,6 +133,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。
+- 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含
+  `benchmark_id`、`metric`、`weight` 和缺失指标处理规则；前端必须标明当前使用的是 weighted scheme。
+  默认 Rank Board 始终保持 `f1_iou50` 主指标排序，不能把加权结果重新命名成默认分数。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
   HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused

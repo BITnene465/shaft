@@ -6,7 +6,7 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useId } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 
 import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
@@ -263,6 +263,61 @@ export function WorkspaceDialog({
         <div className="workspace-dialog-body">{children}</div>
       </section>
     </div>
+  );
+}
+
+export function DangerConfirmDialog({
+  open,
+  title,
+  subject,
+  description,
+  confirmLabel = "确认删除",
+  pending,
+  onCancel,
+  onConfirm
+}: {
+  open: boolean;
+  title: string;
+  subject: string;
+  description: string;
+  confirmLabel?: string;
+  pending?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <WorkspaceDialog
+      open={open}
+      title={title}
+      meta="危险操作确认"
+      onClose={pending ? () => {} : onCancel}
+    >
+      <div className="danger-confirm-panel">
+        <div className="danger-confirm-copy">
+          <div className="danger-confirm-mark">
+            <AlertTriangle size={22} />
+          </div>
+          <div>
+            <span>目标对象</span>
+            <strong title={subject}>{subject}</strong>
+            <p>{description}</p>
+          </div>
+        </div>
+        <div className="danger-confirm-actions">
+          <ActionButton variant="secondary" disabled={pending} onClick={onCancel}>
+            取消
+          </ActionButton>
+          <ActionButton
+            variant="primary"
+            className="danger-action-button"
+            disabled={pending}
+            onClick={onConfirm}
+          >
+            {pending ? "处理中" : confirmLabel}
+          </ActionButton>
+        </div>
+      </div>
+    </WorkspaceDialog>
   );
 }
 

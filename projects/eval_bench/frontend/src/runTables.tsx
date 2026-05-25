@@ -10,7 +10,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
-import { Badge, DataTable, IconActionButton } from "./ui";
+import { Badge, DangerConfirmDialog, DataTable, IconActionButton } from "./ui";
 
 export function BenchmarkTable({
   benchmarks,
@@ -85,6 +85,7 @@ export function RunTable({
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [deleteRunTarget, setDeleteRunTarget] = useState<RunSummary | null>(null);
   const refreshRunViews = () => {
     void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
     void queryClient.invalidateQueries({ queryKey: ["runs"] });
@@ -97,6 +98,7 @@ export function RunTable({
     mutationFn: deleteRun,
     onSuccess: () => {
       setSelectedRunIds([]);
+      setDeleteRunTarget(null);
       refreshRunViews();
     }
   });
@@ -225,11 +227,7 @@ export function RunTable({
               <IconActionButton
                 icon={<Trash2 size={14} />}
                 danger
-                onClick={() => {
-                  if (confirm(`将 run ${row.original.run_id} 移入回收站？`)) {
-                    deleteMutation.mutate(row.original.run_id);
-                  }
-                }}
+                onClick={() => setDeleteRunTarget(row.original)}
                 disabled={!canDeleteRun(row.original) || deleteMutation.isPending}
                 title="删除 run"
               />
@@ -337,6 +335,20 @@ export function RunTable({
         data={filteredRuns}
         emptyText="还没有评测记录。"
         compact={compact}
+      />
+      <DangerConfirmDialog
+        open={Boolean(deleteRunTarget)}
+        title="删除 run"
+        subject={deleteRunTarget?.run_id ?? ""}
+        description="Run 目录会移入回收站，相关报告、预测快照和备注会从结果库列表移除。"
+        confirmLabel="移入回收站"
+        pending={deleteMutation.isPending}
+        onCancel={() => setDeleteRunTarget(null)}
+        onConfirm={() => {
+          if (deleteRunTarget) {
+            deleteMutation.mutate(deleteRunTarget.run_id);
+          }
+        }}
       />
     </div>
   );

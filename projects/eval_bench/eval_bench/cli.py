@@ -229,7 +229,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rank_board.add_argument(
         "--sort-by",
         choices=(
-            "score",
+            "f1_iou50",
             "precision_iou50",
             "recall_iou50",
             "mean_iou",
@@ -237,7 +237,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "created_at",
             "run_id",
         ),
-        default="score",
+        default="f1_iou50",
     )
     rank_board.add_argument("--sort-order", choices=("asc", "desc"), default="desc")
     rank_board.add_argument("--query", default=None)

@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -28,7 +28,6 @@ import {
   PanelLeftOpen,
   Save,
   Search,
-  Trophy,
   X
 } from "lucide-react";
 
@@ -68,6 +67,7 @@ import {
   settingControlValue,
   settingValueFromControl,
   useSidebarPreference,
+  useViewerLayerPreferences,
   useWorkspaceShortcuts,
   useWorkspaceSettings
 } from "./workspaceSettings";
@@ -217,7 +217,7 @@ function Shell() {
           <NavItem to="/services" icon={<AppIcon name="service" size={21} />} label="模型服务" />
           <NavItem to="/jobs" icon={<AppIcon name="evalJob" size={21} />} label="评测中心" />
           <NavItem to="/runs" icon={<AppIcon name="runResults" size={21} />} label="结果库" />
-          <NavItem to="/rank-board" icon={<Trophy size={20} />} label="排行榜" />
+          <NavItem to="/rank-board" icon={<AppIcon name="metrics" size={21} />} label="排行榜" />
           <NavItem to="/compare" icon={<AppIcon name="compareAnalysis" size={21} />} label="对比分析" />
           <NavItem to="/settings" icon={<AppIcon name="workspaceSettings" size={21} />} label="工作台设置" />
         </nav>
@@ -234,7 +234,7 @@ function Shell() {
           </div>
           <div className="topbar-actions">
             <div className="user-profile-chip" title="当前版本使用浏览器本地 profile 保存偏好">
-              <span>用户</span>
+              <span>Profile</span>
               <strong>local</strong>
             </div>
             <StatusPill loading={stateQuery.isFetching} error={stateQuery.isError} />
@@ -360,7 +360,6 @@ function OverviewPage() {
           <div className="overview-title-block">
             <div className="eyebrow">Eval Bench Control</div>
             <h2>总览</h2>
-            <p>只保留系统运行态、数据规模和近期写入节奏；精细指标进入排行榜与对比页。</p>
           </div>
           <div className="overview-stat-row">
             <OverviewStat label="Bench" value={data.benchmark_count} />
@@ -376,7 +375,7 @@ function OverviewPage() {
           </div>
           <div className="overview-console-links">
             <Link to="/rank-board">
-              <Trophy size={14} />
+              <AppIcon name="metrics" size={14} />
               排行榜
             </Link>
             <Link to="/runs">
@@ -403,8 +402,8 @@ function OverviewPage() {
           <OverviewBarPanel title="任务类型" meta="detection / keypoint" rows={taskRows} />
         </div>
         <div className="workspace-card overview-recent-panel">
-          <PanelTitle title="最近 run" meta={`最新 ${Math.min(5, data.runs.length)} 条`} />
-          <OverviewRunList runs={data.runs.slice(0, 5)} />
+          <PanelTitle title="最近 run" meta={`最新 ${Math.min(4, data.runs.length)} 条`} />
+          <OverviewRunList runs={data.runs.slice(0, 4)} />
         </div>
       </div>
     </section>
@@ -506,13 +505,18 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   if (runs.length === 0) {
     return <div className="empty-inline">暂无 run。</div>;
   }
+  const columnCount = runs.length <= 2 ? runs.length : Math.min(4, runs.length);
+  const listStyle = {
+    "--overview-run-columns": String(columnCount)
+  } as React.CSSProperties;
   return (
-    <div className="overview-run-list">
-      {runs.map((run) => (
+    <div className="overview-run-list" style={listStyle}>
+      {runs.map((run, index) => (
         <Link key={run.run_id} to="/runs/$runId" params={{ runId: run.run_id }}>
+          <em>{String(index + 1).padStart(2, "0")}</em>
           <span>
             <strong>{run.run_id}</strong>
-            <em>{run.model_id || "-"}</em>
+            <small>{run.model_id || "-"}</small>
           </span>
           <Badge value={run.status} domain="run" />
         </Link>
@@ -1756,18 +1760,8 @@ function SampleList({
             <span title={sample.image}>{basename(sample.image)}</span>
           </span>
           <span className="sample-row-meta">
-            {sample.diagnostics ? (
-              <>
-                TP {sample.diagnostics.matched_count.toLocaleString()} / FP{" "}
-                {sample.diagnostics.false_positive_count.toLocaleString()} / FN{" "}
-                {sample.diagnostics.false_negative_count.toLocaleString()}
-              </>
-            ) : (
-              <>
-                真值 {sample.gt_instance_count.toLocaleString()} / 预测{" "}
-                {sample.pred_instance_count.toLocaleString()}
-              </>
-            )}
+            真实 {sample.gt_instance_count.toLocaleString()} / 预测{" "}
+            {sample.pred_instance_count.toLocaleString()}
           </span>
           <span className={sample.has_prediction ? "sample-status ok" : "sample-status missing"}>
             {sample.has_prediction ? "已预测" : "缺预测"}
@@ -1829,12 +1823,20 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     () => unique([...detail.gt_instances, ...detail.pred_instances].map((instance) => instance.label)),
     [detail.gt_instances, detail.pred_instances]
   );
-  const [activeLabels, setActiveLabels] = useState<string[]>(labels);
-  const [showGt, setShowGt] = useState(true);
-  const [showPred, setShowPred] = useState(true);
-  const [showBoxes, setShowBoxes] = useState(true);
-  const [showLines, setShowLines] = useState(true);
-  const [showKeypoints, setShowKeypoints] = useState(true);
+  const {
+    activeLabels,
+    setActiveLabels,
+    showGt,
+    setShowGt,
+    showPred,
+    setShowPred,
+    showBoxes,
+    setShowBoxes,
+    showLines,
+    setShowLines,
+    showKeypoints,
+    setShowKeypoints
+  } = useViewerLayerPreferences(labels);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [lockedObjectId, setLockedObjectId] = useState<string | null>(null);
@@ -1870,10 +1872,9 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
   const { actionForEvent } = useWorkspaceShortcuts();
 
   useEffect(() => {
-    setActiveLabels(labels);
     setLockedObjectId(null);
     setHoveredObjectId(null);
-  }, [detail.sample.index, labels.join("|")]);
+  }, [detail.sample.index]);
 
   function toggleLabel(label: string) {
     setActiveLabels((current) => {

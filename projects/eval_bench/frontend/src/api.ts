@@ -88,6 +88,7 @@ export type RunNote = {
 
 export type RankBoardEntry = {
   rank: number;
+  f1_iou50: number | null;
   run_id: string;
   score: number | null;
   status: string;
@@ -111,6 +112,8 @@ export type RankBoard = {
   total: number;
   evaluated_count: number;
   filters: Record<string, string>;
+  primary_metric: string;
+  primary_metric_label: string;
   sort_by: string;
   sort_order: string;
   score_formula: string;

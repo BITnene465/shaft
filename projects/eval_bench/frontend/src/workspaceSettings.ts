@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 export const DEFAULT_OVERLAY_COLORS = {
@@ -145,7 +145,13 @@ const STORAGE_KEYS = {
   labelColors: "eval_bench_label_colors",
   interaction: "eval_bench_interaction_settings",
   shortcuts: "eval_bench_shortcuts",
-  sidebarCollapsed: "eval_bench_sidebar_collapsed"
+  sidebarCollapsed: "eval_bench_sidebar_collapsed",
+  viewerActiveLabels: "evalBench.viewer.layers.activeLabels",
+  viewerShowGt: "evalBench.viewer.layers.showGt",
+  viewerShowPred: "evalBench.viewer.layers.showPred",
+  viewerShowBoxes: "evalBench.viewer.layers.showBoxes",
+  viewerShowLines: "evalBench.viewer.layers.showLines",
+  viewerShowKeypoints: "evalBench.viewer.layers.showKeypoints"
 };
 
 const OVERLAY_STYLE_CONTROL_MAP = Object.fromEntries(
@@ -270,6 +276,86 @@ export function useSidebarPreference() {
   }, [sidebarCollapsed]);
 
   return { sidebarCollapsed, setSidebarCollapsed };
+}
+
+export function useViewerLayerPreferences(labels: string[]) {
+  const labelsKey = labels.join("|");
+  const previousLabelsRef = useRef(labels);
+  const [activeLabels, setActiveLabels] = useState<string[]>(() =>
+    loadActiveLabelPreference(labels)
+  );
+  const [showGt, setShowGt] = useState(() => loadBooleanPreference(STORAGE_KEYS.viewerShowGt, true));
+  const [showPred, setShowPred] = useState(() =>
+    loadBooleanPreference(STORAGE_KEYS.viewerShowPred, true)
+  );
+  const [showBoxes, setShowBoxes] = useState(() =>
+    loadBooleanPreference(STORAGE_KEYS.viewerShowBoxes, true)
+  );
+  const [showLines, setShowLines] = useState(() =>
+    loadBooleanPreference(STORAGE_KEYS.viewerShowLines, true)
+  );
+  const [showKeypoints, setShowKeypoints] = useState(() =>
+    loadBooleanPreference(STORAGE_KEYS.viewerShowKeypoints, true)
+  );
+
+  useEffect(() => {
+    const previousLabels = previousLabelsRef.current;
+    setActiveLabels((current) => {
+      const labelSet = new Set(labels);
+      const previousLabelSet = new Set(previousLabels);
+      const preserved = current.filter((label) => labelSet.has(label));
+      const hadEveryPreviousLabel =
+        previousLabels.length > 0 && previousLabels.every((label) => current.includes(label));
+      const additions = hadEveryPreviousLabel
+        ? labels.filter((label) => !previousLabelSet.has(label))
+        : [];
+      const nextLabels = uniqueValues([...preserved, ...additions]);
+      if (nextLabels.length === 0 && current.length > 0 && labels.length > 0) {
+        return labels;
+      }
+      return nextLabels;
+    });
+    previousLabelsRef.current = labels;
+  }, [labelsKey, labels]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerActiveLabels, JSON.stringify(activeLabels));
+  }, [activeLabels]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerShowGt, showGt ? "1" : "0");
+  }, [showGt]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerShowPred, showPred ? "1" : "0");
+  }, [showPred]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerShowBoxes, showBoxes ? "1" : "0");
+  }, [showBoxes]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerShowLines, showLines ? "1" : "0");
+  }, [showLines]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.viewerShowKeypoints, showKeypoints ? "1" : "0");
+  }, [showKeypoints]);
+
+  return {
+    activeLabels,
+    setActiveLabels,
+    showGt,
+    setShowGt,
+    showPred,
+    setShowPred,
+    showBoxes,
+    setShowBoxes,
+    showLines,
+    setShowLines,
+    showKeypoints,
+    setShowKeypoints
+  };
 }
 
 export function useWorkspaceShortcuts() {
@@ -427,6 +513,38 @@ function loadShortcutBindings(): ShortcutBindings {
 
 function loadSidebarCollapsed() {
   return localStorage.getItem(STORAGE_KEYS.sidebarCollapsed) === "1";
+}
+
+function loadBooleanPreference(key: string, fallback: boolean) {
+  const value = localStorage.getItem(key);
+  if (value === "1") {
+    return true;
+  }
+  if (value === "0") {
+    return false;
+  }
+  return fallback;
+}
+
+function loadActiveLabelPreference(labels: string[]) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.viewerActiveLabels);
+    if (!raw) {
+      return labels;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+      return labels;
+    }
+    if (parsed.length === 0) {
+      return [];
+    }
+    const labelSet = new Set(labels);
+    const preserved = parsed.filter((label) => labelSet.has(label));
+    return preserved.length > 0 ? uniqueValues(preserved) : labels;
+  } catch {
+    return labels;
+  }
 }
 
 function normalizeOverlayStyle(value: Partial<OverlayStyle>): OverlayStyle {

@@ -699,7 +699,7 @@ def create_app(
         prompt_id: str | None = None,
         metric_profile: str | None = None,
         min_score: float | None = None,
-        sort_by: str = "score",
+        sort_by: str = "f1_iou50",
         sort_order: str = "desc",
         query: str | None = None,
     ):

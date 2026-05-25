@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Trophy } from "lucide-react";
 
 import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
@@ -13,7 +12,7 @@ import { AppIcon } from "./iconLibrary";
 import { Badge, DataTable, EmptyState, MetricCard } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
-  score: "综合分",
+  f1_iou50: "F1@.50",
   precision_iou50: "P@.50",
   recall_iou50: "R@.50",
   mean_iou: "mIoU",
@@ -34,7 +33,7 @@ export function RankBoardPage() {
   const [promptFilter, setPromptFilter] = useState("all");
   const [metricProfileFilter, setMetricProfileFilter] = useState("all");
   const [minScoreFilter, setMinScoreFilter] = useState("");
-  const [sortBy, setSortBy] = useState("score");
+  const [sortBy, setSortBy] = useState("f1_iou50");
   const [sortOrder, setSortOrder] = useState("desc");
   const boardQuery = useQuery({
     queryKey: [
@@ -77,7 +76,7 @@ export function RankBoardPage() {
   const metricProfiles = unique(runs.map((run) => run.metric_profile).filter(Boolean));
   const board = boardQuery.data;
   const entries = board?.entries ?? [];
-  const best = entries.find((entry) => entry.score !== null) ?? null;
+  const best = entries.find((entry) => rankF1Score(entry) !== null) ?? null;
 
   if (dashboardQuery.isLoading || boardQuery.isLoading) {
     return <EmptyState title="正在加载排行榜" />;
@@ -98,7 +97,7 @@ export function RankBoardPage() {
         </div>
         {best ? (
           <Link className="mini-link compare-ready" to="/runs/$runId" params={{ runId: best.run_id }}>
-            <Trophy size={13} />
+            <AppIcon name="metrics" size={13} />
             当前第一 {best.run_id}
           </Link>
         ) : null}
@@ -195,7 +194,7 @@ export function RankBoardPage() {
             label: "排序",
             value: sortBy,
             values: [
-              "score",
+              "f1_iou50",
               "precision_iou50",
               "recall_iou50",
               "mean_iou",
@@ -216,10 +215,10 @@ export function RankBoardPage() {
             onChange: setSortOrder
           }
         ]}
-        actions={<span className="rank-formula-chip">{board.score_formula}</span>}
+        actions={<span className="rank-formula-chip">主指标 {rankSortLabel(board.sort_by)}</span>}
       />
       <div className="rank-metric-strip">
-        <MetricCard icon={<Trophy size={24} />} label="入榜" value={board.total} />
+        <MetricCard icon={<AppIcon name="metrics" size={24} />} label="入榜" value={board.total} />
         <MetricCard icon={<AppIcon name="metrics" size={24} />} label="已评估" value={board.evaluated_count} />
         <MetricCard icon={<AppIcon name="benchmark" size={24} />} label="基准集" value={facetTotal(board, "benchmarks")} />
         <MetricCard icon={<AppIcon name="runResults" size={24} />} label="Run 总数" value={runs.length} />
@@ -287,7 +286,7 @@ function RankBoardTable({ entries }: { entries: RankBoardEntry[] }) {
         </Link>
       )
     },
-    { header: "综合分", cell: ({ row }) => formatMetric(row.original.score) },
+    { header: "F1@.50", cell: ({ row }) => formatMetric(rankF1Score(row.original)) },
     { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
     { header: "任务", accessorKey: "task" },
     { header: "标签", cell: ({ row }) => row.original.target_labels.join(", ") || "-" },
@@ -307,4 +306,8 @@ function RankBoardTable({ entries }: { entries: RankBoardEntry[] }) {
     }
   ];
   return <DataTable columns={columns} data={entries} emptyText="没有符合高级检索条件的 run。" />;
+}
+
+function rankF1Score(entry: RankBoardEntry) {
+  return entry.f1_iou50 ?? entry.score ?? null;
 }

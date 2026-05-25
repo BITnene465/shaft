@@ -39,6 +39,7 @@ import {
   Badge,
   CommandButton,
   ConfigItem,
+  DangerConfirmDialog,
   EmptyState,
   IconActionButton,
   WorkspaceDialog
@@ -308,6 +309,7 @@ function ServiceGrid({ services }: { services: ServiceSummary[] }) {
 function ServiceCard({ service }: { service: ServiceSummary }) {
   const queryClient = useQueryClient();
   const [showLog, setShowLog] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const startMutation = useMutation({
     mutationFn: () => startService(service.service_id),
     onSuccess: () => {
@@ -329,6 +331,7 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
   const deleteMutation = useMutation({
     mutationFn: () => deleteService(service.service_id),
     onSuccess: () => {
+      setDeleteConfirmOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["services"] });
     }
   });
@@ -401,14 +404,20 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
           danger
           disabled={!canDeleteService(service) || deleteMutation.isPending}
           title="删除服务记录"
-          onClick={() => {
-            if (confirm(`删除服务 ${service.service_id}？`)) {
-              deleteMutation.mutate();
-            }
-          }}
+          onClick={() => setDeleteConfirmOpen(true)}
         />
       </div>
       {showLog ? <ServiceLogPanel query={logQuery} /> : null}
+      <DangerConfirmDialog
+        open={deleteConfirmOpen}
+        title="删除服务记录"
+        subject={service.service_id}
+        description="服务登记会移入回收站，健康检查、启动命令和 runtime 日志入口会从模型服务页移除。"
+        confirmLabel="删除服务"
+        pending={deleteMutation.isPending}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => deleteMutation.mutate()}
+      />
     </div>
   );
 }
