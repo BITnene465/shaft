@@ -10,6 +10,7 @@ import {
   fetchRunSamples,
   fetchRuns,
   importPredictions,
+  isApiError,
   updateRunNote
 } from "./api";
 import { useDashboardState } from "./dashboardState";
@@ -641,7 +642,7 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
     },
     onError: (error) => {
-      if (error.message.includes("409")) {
+      if (isApiError(error) && error.status === 409) {
         void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
       }
     }

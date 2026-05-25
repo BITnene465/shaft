@@ -34,7 +34,8 @@ Run note 已经有 Dashboard 编辑、API 覆盖写、CLI 覆盖写和 agent app
 - CLI `set-run-note` 新增 `--expected-updated-at`，agent 可先 `get-run-note` 再做 guarded 覆盖；`append-run-note`
   仍作为增量记录入口。
 - Run Inspector 保存备注时带上当前 `run.note_updated_at`，避免旧页面静默覆盖新备注。
-- Run Inspector 遇到 409 冲突时主动刷新 `dashboard-state`，把最新 note 拉回页面，不把旧草稿继续当作当前真源。
+- 前端 API client 新增带 `status` 的 `ApiError`；Run Inspector 遇到 409 冲突时用结构化状态判断并主动刷新
+  `dashboard-state`，把最新 note 拉回页面，不把旧草稿继续当作当前真源。
 - README、架构文档、Dashboard 测试、CLI 测试和 UI contract 同步该并发边界。
 
 ### 回归测试
@@ -46,7 +47,7 @@ Run note 已经有 Dashboard 编辑、API 覆盖写、CLI 覆盖写和 agent app
 ### 后续防线
 
 - 覆盖式 run artifact 写入必须考虑 expected version；agent 增量写入优先提供 append/patch 语义，避免读改写覆盖。
-- 前端保存失败遇到 409 时必须展示 API 错误并刷新 state，不能吞掉冲突。
+- 前端保存失败遇到 409 时必须基于 `ApiError.status` 刷新 state，不能靠错误文案字符串判断，也不能吞掉冲突。
 
 ## 2026-05-25: Eval Bench 高级检索展开后仍挤压主工作区
 

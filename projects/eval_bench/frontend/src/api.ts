@@ -492,6 +492,37 @@ export type JobPreflightResult = {
   runtime_command?: string[] | null;
 };
 
+export class ApiError extends Error {
+  status: number;
+  statusText: string;
+  detail: string;
+  requestId: string | null;
+
+  constructor({
+    status,
+    statusText,
+    detail,
+    requestId
+  }: {
+    status: number;
+    statusText: string;
+    detail: string;
+    requestId: string | null;
+  }) {
+    const message = `${status} ${statusText}${detail}${requestId ? ` (request ${requestId})` : ""}`;
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.detail = detail;
+    this.requestId = requestId;
+  }
+}
+
+export function isApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError;
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -506,11 +537,14 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
       detail = "";
     }
     const requestId = response.headers.get("x-eval-bench-request-id");
-    const message = `${response.status} ${response.statusText}${detail}${
-      requestId ? ` (request ${requestId})` : ""
-    }`;
-    notifyApiError(message);
-    throw new Error(message);
+    const error = new ApiError({
+      status: response.status,
+      statusText: response.statusText,
+      detail,
+      requestId
+    });
+    notifyApiError(error.message);
+    throw error;
   }
   return (await response.json()) as T;
 }

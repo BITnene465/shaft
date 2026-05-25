@@ -16,9 +16,17 @@ for (const filePath of sourceFiles) {
 
 const jobsPage = await readSource("src/jobsPage.tsx");
 const uiSource = await readSource("src/ui.tsx");
+const apiSource = await readSource("src/api.ts");
 const filterControls = await readSource("src/filterControls.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
+assert(
+  apiSource.includes("export class ApiError extends Error") &&
+    apiSource.includes("export function isApiError(") &&
+    apiSource.includes("this.status = status") &&
+    apiSource.includes("throw error;"),
+  "frontend API failures must expose typed ApiError status for structured recovery",
+);
 assert(
   samplePagerSource.includes("export function PagerControl(") &&
     samplePagerSource.includes("export function clampListPageOffset(") &&
@@ -295,10 +303,11 @@ assert(
 assert(
   runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
     runsPage.includes("function insertNoteTemplate(") &&
-    runsPage.includes('error.message.includes("409")') &&
+    runsPage.includes("isApiError(error) && error.status === 409") &&
     (runsPage.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
     runsPage.includes('className="run-note-template-bar"') &&
     runsPage.includes("<ActionButton") &&
+    !runsPage.includes('error.message.includes("409")') &&
     !runsPage.includes("setNoteDraft(noteDraft +"),
   "run note editor must expose structured templates and refresh dashboard state after 409 conflicts",
 );
