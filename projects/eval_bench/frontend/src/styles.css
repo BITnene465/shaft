@@ -791,6 +791,29 @@ h2 {
   box-shadow: 0 0 0 3px rgba(29, 93, 122, 0.12);
 }
 
+.run-note-template-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: auto hidden;
+  scrollbar-width: thin;
+}
+
+.run-note-template-bar > span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: #5b7081;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.run-note-template-bar .mini-button {
+  flex: 0 0 auto;
+}
+
 .run-note-actions {
   display: flex;
   align-items: center;

@@ -492,6 +492,12 @@ class EvalBenchStore:
         atomic_write_json(artifacts.note_path, updated.to_dict())
         return updated
 
+    def append_run_note(self, run_id: str, note: str, *, heading: str | None = None) -> RunNote:
+        current = self.run_note(run_id).note.rstrip()
+        addition = _normalize_run_note_append(note, heading=heading)
+        next_note = f"{current}\n\n{addition}" if current else addition
+        return self.update_run_note(run_id, next_note)
+
     def archive_run(self, run_id: str) -> dict[str, Any]:
         payload = self._run_manifest(run_id)
         manifest_path = self.layout.runs_dir / run_id / "run.json"
@@ -1627,6 +1633,18 @@ def _prediction_instances(payload: dict[str, Any] | None) -> list[dict[str, Any]
             }
         )
     return normalized
+
+
+def _normalize_run_note_append(note: str, *, heading: str | None) -> str:
+    if not isinstance(note, str):
+        raise ValueError("note must be a string.")
+    body = note.strip()
+    if not body:
+        raise ValueError("note append content must be non-empty.")
+    title = str(heading).strip() if heading is not None else f"append {utc_now_iso()}"
+    if not title:
+        return body
+    return f"## {title}\n{body}"
 
 
 def _preview_instance_score(instances: list[dict[str, Any]]) -> int:

@@ -446,7 +446,14 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 .venv/bin/python scripts/eval_bench.py set-run-note \
   --run-id imported_test_predictions \
   --note "reproduce: ckpt epoch_3; idea: prompt v2"
+.venv/bin/python scripts/eval_bench.py append-run-note \
+  --run-id imported_test_predictions \
+  --heading "follow-up" \
+  --note "next: inspect icon false positives"
 ```
+
+`set-run-note` 会覆盖整份 note，适合人工整理后的最终版本；`append-run-note` 会追加带 heading
+的结构化段落，适合 agent 或批处理任务持续补充复现线索，不需要先读写 `note.json`。
 
 Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 artifact 目录：
 
@@ -667,7 +674,8 @@ Dashboard 的 Runs 页也提供同一能力：展开 `Import prediction snapshot
 留空时不由前端补默认值，后端按 prompt/task 的同一套 `label_policy.py` 解析；显式填写时作为
 detection 的 label 子任务范围。后端会创建标准 run、复制 prediction snapshot、默认立即评估，
 之后直接进入 Run Inspector 看逐图 GT / Prediction 对比。Run Inspector 顶部的记录配置面板可以编辑
-同一份 run note；Runs 表格会把 note 摘要纳入搜索。
+同一份 run note；编辑器提供复现、idea、异常和 next 模板插入，便于把复现线索和排障判断写成可持续维护的结构化记录。
+Runs 表格会把 note 摘要纳入搜索。
 
 Dashboard 的 Benchmarks 页也可以创建 benchmark copy：打开 `创建副本` 弹层，
 填写 raw_data 根目录、split manifest、任务类型和 layer 后提交。这个操作与

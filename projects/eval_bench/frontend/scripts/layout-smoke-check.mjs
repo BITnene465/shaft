@@ -124,6 +124,9 @@ try {
       if (route.requireRunInspectorCounts) {
         await assertRunInspectorCountStrip(page, `${viewport.name}:${route.name}`);
       }
+      if (route.requireRunNoteTemplates) {
+        await assertRunNoteTemplates(page, `${viewport.name}:${route.name}`);
+      }
       if (route.requireInspectorFilters) {
         await assertInspectorFilteredEmptyState(page, `${viewport.name}:${route.name}`, route.name);
       }
@@ -238,6 +241,7 @@ async function discoverInspectorRoutes(rootUrl) {
           ".viewer-panel"
         ],
         requireInspectorFilters: true,
+        requireRunNoteTemplates: true,
         requireRunInspectorCounts: true,
         requireRunsChunk: true
       });
@@ -799,6 +803,28 @@ async function assertRunInspectorCountStrip(page, scope) {
   if (/\b(TP|FP|FN)\b|IoU|平均/.test(state.text)) {
     throw new Error(`${scope}: run inspector count strip exposes fine metrics: ${state.text}`);
   }
+}
+
+async function assertRunNoteTemplates(page, scope) {
+  await page.locator(".run-config-panel summary").first().click();
+  const state = await page.evaluate(() => {
+    const bar = document.querySelector(".run-note-template-bar");
+    const buttons = Array.from(bar?.querySelectorAll("button") ?? []);
+    return {
+      hasBar: Boolean(bar),
+      buttonCount: buttons.length,
+      labels: buttons.map((button) => button.textContent?.trim() ?? "")
+    };
+  });
+  if (!state.hasBar || state.buttonCount < 4) {
+    throw new Error(`${scope}: run note template bar is missing templates ${JSON.stringify(state)}`);
+  }
+  for (const label of ["复现", "Idea", "异常", "Next"]) {
+    if (!state.labels.includes(label)) {
+      throw new Error(`${scope}: run note template ${label} is missing ${JSON.stringify(state)}`);
+    }
+  }
+  await page.locator(".run-config-panel summary").first().click();
 }
 
 async function assertInspectorCanvasPane(page, scope) {

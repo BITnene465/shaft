@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { FileText, Save } from "lucide-react";
+import { FileText, Save, Sparkles } from "lucide-react";
 
 import type { BenchmarkSummary, RunSampleSummary, RunSummary } from "./api";
 import {
@@ -49,6 +49,28 @@ import { ResizableSplit } from "./workspaceLayout";
 import { useWorkspaceShortcuts } from "./workspaceSettings";
 
 const RUN_PAGE_SIZE = 80;
+const RUN_NOTE_TEMPLATES = [
+  {
+    id: "reproduce",
+    label: "复现",
+    body: "## reproduce\n- checkpoint:\n- command:\n- data split:\n- seed:\n"
+  },
+  {
+    id: "idea",
+    label: "Idea",
+    body: "## idea\n- origin:\n- hypothesis:\n- expected signal:\n"
+  },
+  {
+    id: "diagnosis",
+    label: "异常",
+    body: "## diagnosis\n- symptom:\n- suspected cause:\n- evidence:\n- next check:\n"
+  },
+  {
+    id: "next",
+    label: "Next",
+    body: "## next\n- action:\n- owner:\n- blocking:\n"
+  }
+];
 
 export function RunsPage() {
   const dashboardQuery = useDashboardState();
@@ -625,6 +647,14 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
     setNoteDraft(run.note || "");
   }, [run.run_id, run.note]);
 
+  function insertNoteTemplate(template: (typeof RUN_NOTE_TEMPLATES)[number]) {
+    setNoteDraft((current) => {
+      const normalized = current.trimEnd();
+      const separator = normalized ? "\n\n" : "";
+      return `${normalized}${separator}${template.body}`.slice(0, noteMaxLength);
+    });
+  }
+
   return (
     <details className="run-config-panel">
       <summary>
@@ -649,6 +679,23 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
           placeholder="记录 checkpoint、prompt 改动、复现实验入口、异常判断和下一步 idea。"
           maxLength={noteMaxLength}
         />
+        <div className="run-note-template-bar" aria-label="Run note 模板">
+          <span>
+            <Sparkles size={13} />
+            模板
+          </span>
+          {RUN_NOTE_TEMPLATES.map((template) => (
+            <ActionButton
+              key={template.id}
+              compact
+              variant="mini"
+              onClick={() => insertNoteTemplate(template)}
+              disabled={noteDraft.length + template.body.length > noteMaxLength}
+            >
+              {template.label}
+            </ActionButton>
+          ))}
+        </div>
         <div className="run-note-actions">
           <span>
             {noteDraft.length.toLocaleString()} / {noteMaxLength.toLocaleString()}

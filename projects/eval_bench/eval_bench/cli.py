@@ -43,6 +43,7 @@ AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "rank-board": {"domain": "rank", "mutates_state": False},
     "get-run-note": {"domain": "note", "mutates_state": False},
     "set-run-note": {"domain": "note", "mutates_state": True},
+    "append-run-note": {"domain": "note", "mutates_state": True},
     "archive-run": {"domain": "run", "mutates_state": True},
     "delete-run": {"domain": "run", "mutates_state": True},
     "import-predictions": {"domain": "run", "mutates_state": True},
@@ -416,6 +417,21 @@ def _build_parser() -> argparse.ArgumentParser:
     note_source = set_run_note.add_mutually_exclusive_group(required=True)
     note_source.add_argument("--note", default=None)
     note_source.add_argument("--note-file", default=None)
+
+    append_run_note = subparsers.add_parser(
+        "append-run-note",
+        help="Append a structured entry to the editable note for a run without overwriting it.",
+    )
+    append_run_note.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    append_run_note.add_argument("--run-id", required=True)
+    append_run_note.add_argument(
+        "--heading",
+        default=None,
+        help="Optional markdown heading for this appended entry; defaults to an append timestamp.",
+    )
+    append_note_source = append_run_note.add_mutually_exclusive_group(required=True)
+    append_note_source.add_argument("--note", default=None)
+    append_note_source.add_argument("--note-file", default=None)
 
     archive_run = subparsers.add_parser("archive-run", help="Mark a run as archived.")
     archive_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -1185,6 +1201,22 @@ def _cmd_set_run_note(args: argparse.Namespace) -> None:
     print(json.dumps(note.to_dict(), ensure_ascii=False))
 
 
+def _cmd_append_run_note(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
+    note_text = (
+        Path(str(args.note_file)).read_text(encoding="utf-8")
+        if args.note_file is not None
+        else str(args.note)
+    )
+    note = EvalBenchStore(args.output_root).append_run_note(
+        str(args.run_id),
+        note_text,
+        heading=args.heading,
+    )
+    print(json.dumps(note.to_dict(), ensure_ascii=False))
+
+
 def _cmd_archive_run(args: argparse.Namespace) -> None:
     from .store import EvalBenchStore
 
@@ -1658,6 +1690,7 @@ def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
         "rank-board": _cmd_rank_board,
         "get-run-note": _cmd_get_run_note,
         "set-run-note": _cmd_set_run_note,
+        "append-run-note": _cmd_append_run_note,
         "archive-run": _cmd_archive_run,
         "delete-run": _cmd_delete_run,
         "register-service": _cmd_register_service,

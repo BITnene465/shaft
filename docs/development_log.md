@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Agent 追加 run note 只能覆盖整份备注
+
+### 现象
+
+Eval Bench 已有 `get-run-note` 和 `set-run-note`，Dashboard 也能编辑同一份 run note。
+但 agent 如果只想追加一条复现线索、idea 来源或排障记录，只能先读出整份 note、在外部拼接、再用
+`set-run-note` 覆盖。这个流程容易覆盖人类刚写入的内容，也鼓励 agent 直接改 `note.json`。
+前端编辑器也只有自由文本框，缺少面向复现记录的结构化模板入口。
+
+### 根因
+
+run note 真源已经收敛到 store，但 store/CLI 只暴露了覆盖写，没有暴露 append 语义。
+UI 也只实现了文本编辑，没有把常见的复现、idea、异常和 next 记录模式固化为组件。
+
+### 影响范围
+
+- 影响 agent 持续记录实验线索的安全性和可维护性。
+- 影响人类在 Run Inspector 中快速写出结构化 note。
+- 不影响 eval metric、rank-board 排序、prediction snapshot 或 run manifest。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- 在 store 中新增 `append_run_note()`，复用同一份 `note.json` 真源和长度校验。
+- 新增 agent-safe CLI `append-run-note`，支持 `--note` / `--note-file` 和可选 `--heading`，
+  追加带 heading 的 markdown 段落而不是覆盖整份 note。
+- Run Inspector 的 note 编辑器新增复现、Idea、异常、Next 模板插入按钮，统一使用 `ActionButton`。
+- UI contract 和 layout smoke 覆盖模板入口，CLI 测试覆盖 append 后再读取的完整 note。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- agent 追加实验线索优先用 `append-run-note`；只有人工整理最终版本时才用 `set-run-note` 覆盖。
+- 新增 note 字段或 UI 模板时必须继续经过 store/API/CLI 真源，不直接读写 artifact 文件。
+
 ## 2026-05-25: Eval Bench Rank Board 主指标控制藏在高级检索里
 
 ### 现象

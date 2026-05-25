@@ -42,6 +42,7 @@ from eval_bench.cli import (
     _cmd_scheduler_status,
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
+    _cmd_append_run_note,
     _cmd_show_benchmark,
     _cmd_show_benchmark_sample,
     _cmd_show_comparison,
@@ -153,6 +154,9 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["stop-service"]["destructive"] is True
     assert commands_by_name["delete-run"]["destructive"] is True
     assert commands_by_name["set-run-note"]["destructive"] is False
+    assert commands_by_name["append-run-note"]["domain"] == "note"
+    assert commands_by_name["append-run-note"]["mutates_state"] is True
+    assert commands_by_name["append-run-note"]["destructive"] is False
     assert commands_by_name["service-health"]["mutates_state"] is True
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True
@@ -496,6 +500,32 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     assert get_payload["note"] == set_payload["note"]
     assert get_payload["path"].endswith("runs/run1/note.json")
     assert get_payload["max_length"] == 20_000
+
+    append_args = _build_parser().parse_args(
+        [
+            "append-run-note",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--heading",
+            "follow-up",
+            "--note",
+            "next: inspect false positives",
+        ]
+    )
+    _cmd_append_run_note(append_args)
+    append_payload = json.loads(capsys.readouterr().out)
+
+    assert append_payload["note"].startswith("repro: ckpt epoch_3\nidea: prompt v2\n\n")
+    assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
+
+    get_args = _build_parser().parse_args(
+        ["get-run-note", "--output-root", str(tmp_path), "--run-id", "run1"]
+    )
+    _cmd_get_run_note(get_args)
+    get_payload = json.loads(capsys.readouterr().out)
+    assert get_payload["note"] == append_payload["note"]
 
 
 def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) -> None:

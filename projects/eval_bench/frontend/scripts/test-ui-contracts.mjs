@@ -255,6 +255,14 @@ assert(
     !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
 );
+assert(
+  runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
+    runsPage.includes("function insertNoteTemplate(") &&
+    runsPage.includes('className="run-note-template-bar"') &&
+    runsPage.includes("<ActionButton") &&
+    !runsPage.includes("setNoteDraft(noteDraft +"),
+  "run note editor must expose structured template insertion without ad hoc text concatenation",
+);
 const runTables = await readSource("src/runTables.tsx");
 assert(
   runTables.includes("footer?: ReactNode") &&
