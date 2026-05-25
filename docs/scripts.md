@@ -270,7 +270,12 @@ EVAL_BENCH_URL=http://127.0.0.1:8765 npm run test:dialogs
 EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id> npm run test:viewer-performance
 EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 ```
+
+`test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
+高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高密度约束：顶栏 status 必须是独立
+圆角 capsule，写入节奏必须是 12 桶微型条，Overview 至少保留 4 个 mini chart，最近 run 行不能被面板高度拉伸。
 
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`

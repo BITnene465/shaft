@@ -566,7 +566,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 核心页面、窄屏布局和弹窗滚动边界也有独立 smoke；它会遍历 overview、rank-board、runs、benchmarks、
 jobs、services 和 settings，在 desktop / compact / narrow 三种 viewport 下确认没有全局滚动溢出、
 page stack 不被 content 裁切、表格和高级检索面板需要滚动时由自己的容器滚动，并确认 rank-board
-和 compare 加载独立 chunk：
+和 compare 加载独立 chunk。Overview 还会额外检查顶栏 status 是独立圆角 capsule、没有外层容器，
+写入节奏保持 12 桶微型条、mini chart 至少 4 个、最近 run 行不被剩余高度拉伸：
 
 ```bash
 cd projects/eval_bench/frontend

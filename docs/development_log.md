@@ -2402,3 +2402,37 @@ Rank Board 加权排行完成后，focused pytest 一度卡在 CLI/dashboard imp
 - Agent-safe CLI/API 入口不得在模块顶层导入 dashboard、worker、evaluator 或模型运行时重依赖。
 - 总览只承载高密度运行态可视化；低频条目必须内容自适应，不能按剩余高度拉伸。
 - 顶栏状态样式只由 status pill 承载，通用 badge/chip 规则不能覆盖其圆角和动效。
+
+## 2026-05-25: Eval Bench Overview 视觉约束固化到 layout smoke
+
+### 现象
+
+总览页和顶栏状态完成视觉收口后，关键约束仍主要依赖一次性 Playwright 断言和人工截图复查。
+后续修改 `styles.css` 或 `design.css` 时，仍可能把 `在线` 状态重新覆盖成硬角，或让最近 run / 写入节奏重新拉伸成低密度大块。
+
+### 根因
+
+`test:layout` 已覆盖全局滚动、弹窗边界、高级检索和独立 chunk，但没有把 Overview 的高密度信息架构
+和顶栏 status capsule 作为正式验收项。测试只等待 `.overview-rhythm-strip` / `.overview-mini-chart`
+存在，不能证明它们没有退回旧的大块 timeline 语义。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Overview 密度回归防线和顶栏状态视觉稳定性。
+- 不影响后端 API、CLI、rank board 排序或 evaluator 语义。
+
+### 修复方式
+
+- `layout-smoke-check.mjs` 新增 `assertTopbarStatus()`，所有页面都检查 `.topbar-actions` 没有外层容器样式，
+  `.topbar .status-pill` 保持圆角 capsule 和隐藏溢出。
+- `layout-smoke-check.mjs` 新增 `assertOverviewDensity()`，Overview 额外检查 12 个 rhythm bar、至少 4 个
+  mini chart、最近 run 行不超过 72px、旧 timeline markup 不再出现、写入节奏条保持紧凑。
+- README 和 `docs/scripts.md` 补充 `test:layout` 的 Overview / 顶栏验收范围。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- Overview 或顶栏样式变更必须继续跑 `test:layout`；如果有新的高密度控制台模块，也应把关键密度约束放入该 smoke。

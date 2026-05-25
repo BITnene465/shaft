@@ -82,10 +82,14 @@ try {
         await page.locator(selector).first().waitFor({ timeout: 10_000 });
       }
       await assertShellLayout(page, `${viewport.name}:${route.name}`);
+      await assertTopbarStatus(page, `${viewport.name}:${route.name}`);
       await assertPageStack(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
       await assertForbiddenSelectors(page, `${viewport.name}:${route.name}`, route.forbiddenSelectors ?? []);
+      if (route.name === "overview") {
+        await assertOverviewDensity(page, `${viewport.name}:${route.name}`);
+      }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
@@ -219,6 +223,106 @@ async function assertPageStack(page, scope) {
   }
   if (state.scrollWidth > state.clientWidth + 2 && !allowsScroll(state.overflowX)) {
     throw new Error(`${scope}: page stack needs horizontal scroll but overflow-x=${state.overflowX}`);
+  }
+}
+
+async function assertTopbarStatus(page, scope) {
+  const state = await page.evaluate(() => {
+    const actions = document.querySelector(".topbar-actions");
+    const status = document.querySelector(".topbar .status-pill");
+    const actionStyle = actions ? getComputedStyle(actions) : null;
+    const statusStyle = status ? getComputedStyle(status) : null;
+    return {
+      action: actionStyle
+        ? {
+            padding: actionStyle.padding,
+            backgroundColor: actionStyle.backgroundColor,
+            borderTopWidth: actionStyle.borderTopWidth,
+            boxShadow: actionStyle.boxShadow
+          }
+        : null,
+      status: statusStyle
+        ? {
+            borderRadius: statusStyle.borderRadius,
+            minHeight: statusStyle.minHeight,
+            overflow: statusStyle.overflow
+          }
+        : null
+    };
+  });
+  if (!state.action) {
+    throw new Error(`${scope}: topbar actions are missing`);
+  }
+  if (
+    state.action.padding !== "0px" ||
+    state.action.borderTopWidth !== "0px" ||
+    state.action.boxShadow !== "none" ||
+    state.action.backgroundColor !== "rgba(0, 0, 0, 0)"
+  ) {
+    throw new Error(
+      `${scope}: topbar actions still look like an outer rounded container ${JSON.stringify(
+        state.action
+      )}`
+    );
+  }
+  if (!state.status) {
+    throw new Error(`${scope}: status pill is missing`);
+  }
+  if (!state.status.borderRadius.includes("999") || state.status.overflow !== "hidden") {
+    throw new Error(`${scope}: status pill is not a rounded capsule ${JSON.stringify(state.status)}`);
+  }
+}
+
+async function assertOverviewDensity(page, scope) {
+  const state = await page.evaluate(() => {
+    const recentRows = Array.from(document.querySelectorAll(".overview-run-list a")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return Math.round(rect.height);
+    });
+    const chartRects = Array.from(document.querySelectorAll(".overview-mini-chart")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { width: Math.round(rect.width), height: Math.round(rect.height) };
+    });
+    const rhythm = document.querySelector(".overview-rhythm-strip");
+    const rhythmStyle = rhythm ? getComputedStyle(rhythm) : null;
+    return {
+      rhythmBars: document.querySelectorAll(".overview-rhythm-bars span").length,
+      miniCharts: chartRects.length,
+      chartRects,
+      recentRows,
+      oldTimelinePanels: document.querySelectorAll(
+        ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
+      ).length,
+      rhythmHeight: rhythm ? Math.round(rhythm.getBoundingClientRect().height) : 0,
+      rhythmOverflowX: rhythmStyle?.overflowX ?? "",
+      rhythmOverflowY: rhythmStyle?.overflowY ?? ""
+    };
+  });
+  if (state.rhythmBars !== 12) {
+    throw new Error(`${scope}: overview rhythm should use 12 compact bars, got ${state.rhythmBars}`);
+  }
+  if (state.miniCharts < 4) {
+    throw new Error(`${scope}: overview should expose at least four mini charts, got ${state.miniCharts}`);
+  }
+  if (state.oldTimelinePanels > 0) {
+    throw new Error(`${scope}: old oversized overview timeline markup is still present`);
+  }
+  if (state.recentRows.some((height) => height > 72)) {
+    throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
+  }
+  if (state.rhythmHeight > 90 || state.rhythmOverflowX === "visible" || state.rhythmOverflowY === "visible") {
+    throw new Error(
+      `${scope}: rhythm strip is not compact ${JSON.stringify({
+        height: state.rhythmHeight,
+        overflowX: state.rhythmOverflowX,
+        overflowY: state.rhythmOverflowY
+      })}`
+    );
+  }
+  for (const [index, rect] of state.chartRects.entries()) {
+    if (rect.width <= 0 || rect.height <= 0) {
+      throw new Error(`${scope}: mini chart ${index} is not visible ${JSON.stringify(rect)}`);
+    }
   }
 }
 
