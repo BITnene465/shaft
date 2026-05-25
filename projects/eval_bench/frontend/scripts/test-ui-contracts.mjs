@@ -70,6 +70,12 @@ assert(
     !jobsPage.includes('className={selectedSet.has(label) ? "query-chip active" : "query-chip"}'),
   "label subtask chips must use OptionChipButton instead of raw query-chip buttons",
 );
+assert(
+  jobsPage.includes('if (task !== "detection")') &&
+    jobsPage.includes("return null;") &&
+    jobsPage.includes("<LabelSubtaskPanel"),
+  "label subtask panel must stay detection-only; keypoint jobs must not expose label subset UI",
+);
 
 const settingsControls = await readSource("src/settingsControls.tsx");
 assert(

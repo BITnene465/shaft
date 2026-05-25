@@ -3683,3 +3683,39 @@ CLI 没有暴露这些真源。
 
 - 新增 agent 可操作对象时，必须同时补 list 和 show 的稳定 CLI；不允许让 agent 从 SQLite、前端 state
   或 list payload 中临时拼对象详情。
+
+## 2026-05-25: Eval Bench label 子任务边界增加 keypoint 防线
+
+### 现象
+
+Detection 的 label 子任务已经贯通后端 policy、preflight、UI manifest 和 agent CLI；Jobs 页也只在
+`task=detection` 时渲染 label 子任务面板。但这个 detection-only 边界缺少直接测试，后续改 UI 或
+agent payload 时可能把 keypoint 误暴露为可任意选择 label 子集的任务。
+
+### 根因
+
+现有测试重点覆盖 detection 显式 label、拼写校验、prompt metadata 和 evaluator 过滤；keypoint 默认
+arrow scope 有测试，但没有把 `label_subtasks_supported=false` 和 UI 面板 detection-only 作为合约。
+
+### 影响范围
+
+- 影响 Eval Bench label 子任务语义：detection 可选 label 子集，keypoint 只保留 arrow 关键点评估范围。
+- 不改变 evaluator、worker、preflight、prompt template 或 run manifest 格式。
+
+### 修复方式
+
+- `test_cli.py` 补充 keypoint 的 `resolve-target-labels` 断言，确认返回 arrow 且
+  `label_subtasks_supported=false`。
+- `test:ui-contracts` 增加静态防线，要求 Jobs 页的 `LabelSubtaskPanel` 保持 `task !== "detection"`
+  时返回 `null`。
+- README 和 `docs/eval_bench_architecture.md` 明确 keypoint 不暴露 label 子任务 UI。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py::test_cli_resolves_target_labels_for_agent_label_subtasks`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增任务类型或 label scope 策略时，必须同时更新 agent resolution payload 和 Jobs 页 UI 合约；
+  不能只靠 prompt id 或页面默认值推断是否允许 label 子任务。

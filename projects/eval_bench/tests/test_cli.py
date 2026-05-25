@@ -850,6 +850,26 @@ def test_cli_resolves_target_labels_for_agent_label_subtasks(
     assert payload["label_subtasks_supported"] is True
     assert payload["valid"] is True
 
+    keypoint_args = _build_parser().parse_args(
+        [
+            "resolve-target-labels",
+            "--output-root",
+            str(tmp_path),
+            "--benchmark-id",
+            "bench1",
+            "--task",
+            "keypoint",
+            "--prompt-id",
+            "keypoint_arrow.latest",
+        ]
+    )
+    _cmd_resolve_target_labels(keypoint_args)
+    keypoint_payload = json.loads(capsys.readouterr().out)
+    assert keypoint_payload["task"] == "keypoint"
+    assert keypoint_payload["target_labels"] == ["arrow"]
+    assert keypoint_payload["label_subtasks_supported"] is False
+    assert keypoint_payload["valid"] is True
+
     bad_args = _build_parser().parse_args(
         [
             "resolve-target-labels",
