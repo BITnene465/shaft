@@ -630,6 +630,8 @@ label、model、prompt、metric 和 note 全文查询语义；Runs、Compare、B
 Rank Board 页面使用后端 `offset/limit` 分页请求，不再只取固定前 200 条，翻页时保留当前筛选、排序和 weighted scheme；
 显式 weighted scheme 可通过 CLI/API 或前端折叠面板传入，会返回 `weighted_score`、`rank_scheme` 和每条
 entry 的 `score_components`，便于 agent 解释最终分。
+Rank Board 的 facet rail 不是静态摘要：Labels、Models、Prompts 和 Metrics facet 都是可点击检索 chip，
+点击会同步更新同一份高级检索状态，再次点击当前 facet 会回到 `all`，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。
 Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent CLI 统一消费，不要求前端扫描
 benchmark 文件。
 Job lifecycle 不能复用目录页首屏窗口：`EvalBenchDatabase.matching_jobs()` 是 scheduler、dashboard fallback worker
@@ -695,7 +697,8 @@ page stack 不被 content 裁切、表格和高级检索面板需要滚动时由
 Run/Job/Service 活动矩阵保持 3 条 12 桶泳道，Overview 不能回流旧 mini chart wall 或 chart matrix；页面必须保留 hero next action、四段管线、readiness switchboard、一个 focus panel 和最近 run 紧凑摘要组成的 command deck，
 并保留报告覆盖、待评估、队列压力和在线服务四个可点击信号，不再回退到 Run/Ops/Volume 面板组；
 不出现 precision/recall/IoU 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板，
-关键入口必须有 hover/transition 反馈。Runs 页必须暴露 `.run-list-pager` 并通过 `/api/runs?offset&limit` 分页，
+关键入口必须有 hover/transition 反馈。Rank Board facet rail 必须使用可点击 `.rank-facet-button`，不能退回静态计数 chip。
+Runs 页必须暴露 `.run-list-pager` 并通过 `/api/runs?offset&limit` 分页，
 Compare 页必须暴露 `.compare-run-pager` 并通过 `/api/runs?offset&limit` 分页候选 run，
 翻页时不能清空 URL 或上一页选中的 baseline/candidate；Benchmarks 页必须暴露 `.benchmark-list-pager` 并通过 `/api/benchmarks?offset&limit` 分页，
 Jobs 页必须暴露 `.job-list-pager` 并通过 `/api/jobs?offset&limit` 分页，

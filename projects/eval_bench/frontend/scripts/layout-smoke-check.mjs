@@ -125,6 +125,7 @@ try {
       }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
+        await assertRankFacetRail(page, `${viewport.name}:${route.name}`);
         await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireBenchmarksChunk) {
@@ -968,6 +969,33 @@ async function assertRankBoardChunkLoaded(page, scope) {
   if (loaded.length === 0) {
     throw new Error(`${scope}: rank-board route did not load the independent rankBoardPage chunk`);
   }
+}
+
+async function assertRankFacetRail(page, scope) {
+  const state = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll(".rank-facet-button"));
+    const groups = Array.from(document.querySelectorAll(".rank-facet-group")).map((group) => ({
+      title: group.querySelector(":scope > span")?.textContent?.trim() ?? "",
+      buttonCount: group.querySelectorAll(".rank-facet-button").length
+    }));
+    return {
+      groups,
+      buttonCount: buttons.length,
+      staticCountNodes: document.querySelectorAll(".rank-facet-group em strong").length
+    };
+  });
+  if (state.groups.length !== 4) {
+    throw new Error(`${scope}: rank facet rail should expose four groups ${JSON.stringify(state)}`);
+  }
+  if (state.buttonCount === 0) {
+    return;
+  }
+  if (state.staticCountNodes > 0) {
+    throw new Error(`${scope}: rank facet rail regressed to static count chips ${JSON.stringify(state)}`);
+  }
+  await page.locator(".rank-facet-button").first().click();
+  await page.locator(".rank-facet-button.active").first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
 }
 
 async function assertRankSchemePanel(page, scope) {

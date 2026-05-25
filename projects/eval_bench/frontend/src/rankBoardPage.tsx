@@ -10,7 +10,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import { formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { ActionButton, Badge, DataTable, EmptyState, MetricCard } from "./ui";
+import { ActionButton, Badge, DataTable, EmptyState, MetricCard, OptionChipButton } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
   f1_iou50: "F1@.50",
@@ -308,7 +308,21 @@ export function RankBoardPage() {
           value={runs.length}
         />
       </div>
-      <RankFacetRail board={board} />
+      <RankFacetRail
+        board={board}
+        filters={{
+          label: labelFilter,
+          model: modelFilter,
+          prompt: promptFilter,
+          metricProfile: metricProfileFilter
+        }}
+        onFilterChange={{
+          label: setLabelFilter,
+          model: setModelFilter,
+          prompt: setPromptFilter,
+          metricProfile: setMetricProfileFilter
+        }}
+      />
       <div className="workspace-card fill">
         <PagerControl
           className="rank-board-pager"
@@ -341,33 +355,85 @@ function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
   return board.facets[key]?.length ?? 0;
 }
 
-function RankFacetRail({ board }: { board: Pick<RankBoard, "facets"> }) {
+function RankFacetRail({
+  board,
+  filters,
+  onFilterChange
+}: {
+  board: Pick<RankBoard, "facets">;
+  filters: {
+    label: string;
+    model: string;
+    prompt: string;
+    metricProfile: string;
+  };
+  onFilterChange: {
+    label: (value: string) => void;
+    model: (value: string) => void;
+    prompt: (value: string) => void;
+    metricProfile: (value: string) => void;
+  };
+}) {
   return (
     <div className="rank-facet-rail">
-      <RankFacetGroup title="Labels" items={board.facets.labels ?? []} />
-      <RankFacetGroup title="Models" items={board.facets.models ?? []} />
-      <RankFacetGroup title="Prompts" items={board.facets.prompts ?? []} />
-      <RankFacetGroup title="Metrics" items={board.facets.metric_profiles ?? []} />
+      <RankFacetGroup
+        title="Labels"
+        items={board.facets.labels ?? []}
+        activeValue={filters.label}
+        onSelect={onFilterChange.label}
+      />
+      <RankFacetGroup
+        title="Models"
+        items={board.facets.models ?? []}
+        activeValue={filters.model}
+        onSelect={onFilterChange.model}
+      />
+      <RankFacetGroup
+        title="Prompts"
+        items={board.facets.prompts ?? []}
+        activeValue={filters.prompt}
+        onSelect={onFilterChange.prompt}
+      />
+      <RankFacetGroup
+        title="Metrics"
+        items={board.facets.metric_profiles ?? []}
+        activeValue={filters.metricProfile}
+        onSelect={onFilterChange.metricProfile}
+      />
     </div>
   );
 }
 
 function RankFacetGroup({
   title,
-  items
+  items,
+  activeValue,
+  onSelect
 }: {
   title: string;
   items: Array<{ value: string; count: number }>;
+  activeValue: string;
+  onSelect: (value: string) => void;
 }) {
   return (
     <section className="rank-facet-group">
       <span>{title}</span>
       <div>
-        {items.slice(0, 5).map((item) => (
-          <em key={item.value}>
-            {item.value} <strong>{item.count.toLocaleString()}</strong>
-          </em>
-        ))}
+        {items.slice(0, 5).map((item) => {
+          const active = activeValue === item.value;
+          return (
+            <OptionChipButton
+              className="rank-facet-button"
+              active={active}
+              key={item.value}
+              title={`${title}: ${item.value}`}
+              onClick={() => onSelect(active ? "all" : item.value)}
+            >
+              <span>{item.value}</span>
+              <strong>{item.count.toLocaleString()}</strong>
+            </OptionChipButton>
+          );
+        })}
         {items.length === 0 ? <em>无</em> : null}
       </div>
     </section>

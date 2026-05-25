@@ -167,6 +167,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   prediction import、worker 和 evaluator 都必须拒绝 keypoint 上非 `arrow` 的显式 `target_labels`。
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。
+  前端 facet rail 必须直接驱动同一份高级检索状态，不能维护一套只展示 facet 计数的静态 UI。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
   `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、

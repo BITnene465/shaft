@@ -305,6 +305,14 @@ assert(
     !rankBoardPage.includes("limit: 200"),
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
+assert(
+  rankBoardPage.includes("OptionChipButton") &&
+    rankBoardPage.includes('className="rank-facet-button"') &&
+    rankBoardPage.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
+    rankBoardPage.includes("onFilterChange.label") &&
+    rankBoardPage.includes("onFilterChange.metricProfile"),
+  "rank board facet rail must be clickable filter chips instead of static counts",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),

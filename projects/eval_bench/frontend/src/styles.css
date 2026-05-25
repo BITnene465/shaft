@@ -1288,7 +1288,8 @@ h2 {
   scrollbar-width: thin;
 }
 
-.rank-facet-group em {
+.rank-facet-group em,
+.rank-facet-button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1303,6 +1304,31 @@ h2 {
   white-space: nowrap;
   background: #f8fafc;
   border: 1px solid #dbe3ec;
+}
+
+.rank-facet-button {
+  min-height: 28px;
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+.rank-facet-button:hover,
+.rank-facet-button.active {
+  color: #0b3d54;
+  background: #e9f7fb;
+  border-color: #9fd0df;
+  box-shadow: 0 8px 18px rgb(23 77 101 / 10%);
+}
+
+.rank-facet-button.active {
+  box-shadow:
+    inset 0 0 0 1px rgb(13 142 181 / 20%),
+    0 8px 18px rgb(23 77 101 / 10%);
+}
+
+.rank-facet-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rank-facet-group strong {

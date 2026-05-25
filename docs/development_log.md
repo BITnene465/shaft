@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board facet rail 只是静态计数
+
+### 现象
+
+Rank Board 已经独立成核心页面，并且有高级检索条，但页面下方 facet rail 只展示 Labels、Models、
+Prompts 和 Metrics 的前几个计数。用户看到 facet 后仍要回到折叠检索表单手动选择同一条件，不符合
+“论文检索式”排行榜工作台的交互预期。
+
+### 根因
+
+facet rail 最初作为 rank-board 的轻量摘要加入，没有把它接回高级检索状态。`AdvancedFilterBar`
+是真正检索入口，facet rail 则变成第二套只读展示，造成 UI 语义重复。
+
+### 影响范围
+
+- 影响 Rank Board 的检索效率和核心页面设计完整性。
+- 不影响后端 `/api/rank-board`、CLI `rank-board`、排序、weighted scheme 或 run report 指标。
+- 这不是模型能力问题，也不是 eval/codec/metric 误判。
+
+### 修复方式
+
+- Rank Board facet rail 改用 `OptionChipButton` 渲染可点击 facet chip。
+- Labels、Models、Prompts 和 Metrics facet 点击后直接更新同一份高级检索状态；再次点击 active chip
+  回到 `all`。
+- UI contract 锁住 facet rail 必须使用可点击 chip，而不是静态 count。
+- layout smoke 在 Rank Board 路由点击 facet chip，确认 active 状态和 table 仍然可用。
+- README、架构文档和脚本文档同步 facet rail 的交互边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- Rank Board 新增 facet 时必须先接入同一份高级检索状态；不能新增只展示、不驱动查询的 facet 面板。
+
 ## 2026-05-25: Eval Bench 稳定 agent 命令面漏掉已有关键 CLI
 
 ### 现象
