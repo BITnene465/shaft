@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 窄屏 inspector split 把图片画布压缩到 2px
+
+### 现象
+
+Run/Benchmark inspector 在 desktop 下可用，但 compact / narrow / phone 宽度下，响应式规则把
+`viewer-canvas-layout` 从横向 split 堆成单列；真实浏览器量测发现 `.image-stage` 高度只剩 2px，
+对象检查器占满了可视化区域，用户看不到图片画布，表现为可视化面板“卡住”或无法完整显示。
+
+### 根因
+
+窄屏媒体查询统一把所有 `.resizable-split` 改成 `grid-template-columns: 1fr` 并隐藏 resizer，但
+inspector 外层仍是固定一屏工作区和 `overflow: hidden`。`viewer-canvas-layout` 堆叠后没有显式纵向轨道，
+CSS grid 在受限高度中把第一行画布压到最小，第二行对象检查器保留滚动高度。
+
+### 影响范围
+
+- 影响 Run Inspector 和 Benchmark Inspector 的 compact / narrow 视口可用性。
+- 不影响后端 sample API、viewer 几何投影、pan/zoom 状态、label 过滤或评测指标语义。
+- 这是前端 workspace layout 问题，不是模型能力或 eval/metric 误判。
+
+### 修复方式
+
+- 窄屏 `.visual-inspector-page` 改为局部滚动，避免外层 hidden 裁切堆叠后的检查器工作区。
+- 窄屏 inspector split 改为自适应高度，侧栏限制在可滚动的紧凑高度内。
+- 窄屏 viewer panel 和 `viewer-canvas-layout` 增加纵向轨道，保证 `.image-stage` 保留可操作高度，
+  对象检查器继续在自己的面板内滚动。
+- layout smoke 新增 inspector canvas pane 断言：有真实 inspector route 时，`.image-stage` 高度不能低于
+  可操作阈值；如果 inspector 页面或对象检查器内容超出容器，必须由对应容器滚动。
+- README 和架构文档同步窄屏 inspector 滚动边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 后续新增 resizable split 时，不能只改 columns；窄屏堆叠必须同时定义 rows、局部滚动容器和最低可操作高度。
+- 视觉检查器的主画布必须在所有 layout smoke viewport 中保持可见，不能被对象检查器、样本列表或配置面板压缩为 0 高度。
+
 ## 2026-05-25: Eval Bench label 子任务缺少入口级非法 keypoint 回归
 
 ### 现象

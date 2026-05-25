@@ -115,6 +115,7 @@ try {
       }
       if (route.requireInspectorFilters) {
         await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
+        await assertInspectorCanvasPane(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireRunInspectorCounts) {
         await assertRunInspectorCountStrip(page, `${viewport.name}:${route.name}`);
@@ -780,6 +781,59 @@ async function assertRunInspectorCountStrip(page, scope) {
   }
   if (/\b(TP|FP|FN)\b|IoU|平均/.test(state.text)) {
     throw new Error(`${scope}: run inspector count strip exposes fine metrics: ${state.text}`);
+  }
+}
+
+async function assertInspectorCanvasPane(page, scope) {
+  const state = await page.evaluate(() => {
+    const pageNode = document.querySelector(".visual-inspector-page");
+    const stage = document.querySelector(".viewer-panel .image-stage");
+    const sidePanel = document.querySelector(".viewer-panel .viewer-side-panel");
+    const pageStyle = pageNode ? getComputedStyle(pageNode) : null;
+    const sideStyle = sidePanel ? getComputedStyle(sidePanel) : null;
+    const stageRect = stage?.getBoundingClientRect();
+    return {
+      page: pageNode
+        ? {
+            scrollHeight: pageNode.scrollHeight,
+            clientHeight: pageNode.clientHeight,
+            overflowY: pageStyle?.overflowY ?? ""
+          }
+        : null,
+      stage: stageRect
+        ? {
+            width: Math.round(stageRect.width),
+            height: Math.round(stageRect.height)
+          }
+        : null,
+      side: sidePanel
+        ? {
+            scrollHeight: sidePanel.scrollHeight,
+            clientHeight: sidePanel.clientHeight,
+            overflowY: sideStyle?.overflowY ?? ""
+          }
+        : null
+    };
+  });
+  if (!state.stage) {
+    throw new Error(`${scope}: inspector image stage is missing`);
+  }
+  if (state.stage.height < 180) {
+    throw new Error(`${scope}: inspector image stage collapsed ${JSON.stringify(state.stage)}`);
+  }
+  if (
+    state.page &&
+    state.page.scrollHeight > state.page.clientHeight + 2 &&
+    !allowsScroll(state.page.overflowY)
+  ) {
+    throw new Error(`${scope}: inspector page clips stacked panes without scroll ${JSON.stringify(state.page)}`);
+  }
+  if (
+    state.side &&
+    state.side.scrollHeight > state.side.clientHeight + 2 &&
+    !allowsScroll(state.side.overflowY)
+  ) {
+    throw new Error(`${scope}: inspector side panel clips controls without scroll ${JSON.stringify(state.side)}`);
   }
 }
 

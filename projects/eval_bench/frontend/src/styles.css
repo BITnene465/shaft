@@ -7615,6 +7615,32 @@ tbody tr:hover td {
     display: none;
   }
 
+  .visual-inspector-page {
+    overflow: auto;
+  }
+
+  .visual-inspector-page .inspector-grid.resizable-split {
+    flex: 0 0 auto;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .visual-inspector-page .inspector-sidebar {
+    height: auto;
+    min-height: 260px;
+    max-height: 360px;
+  }
+
+  .visual-inspector-page .viewer-panel {
+    height: min(720px, 78vh);
+    min-height: 520px;
+  }
+
+  .visual-inspector-page .viewer-canvas-layout.resizable-split {
+    height: 100%;
+    grid-template-rows: minmax(300px, 1fr) minmax(190px, 0.65fr);
+  }
+
   .manifest-split {
     min-height: 0;
   }

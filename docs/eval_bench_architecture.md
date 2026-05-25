@@ -232,6 +232,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   手写 label 过滤。
 - 新增 inspector 样本过滤：过滤后 0 命中仍必须保留 `inspector-sidebar`、`AdvancedFilterBar` 和
   `viewer-panel`，只在样本列表/画布区域显示空结果；不能回退为全页 EmptyState 导致用户无法撤销过滤。
+- 新增 inspector / viewer 响应式布局：桌面优先保持工作区一屏内分栏；compact / narrow 视口下 split
+  堆叠时，`.visual-inspector-page` 必须允许局部滚动，`.image-stage` 必须保留可操作高度，对象检查器继续
+  在自己的面板内滚动；不能用外层 `overflow: hidden` 把画布压成不可见。
 - 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；TP、FP、FN、IoU、P/R
   等精细指标必须留在折叠式分 label 明细、对象诊断、排行榜或对比页中。
 
