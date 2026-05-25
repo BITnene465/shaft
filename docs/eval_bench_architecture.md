@@ -117,7 +117,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
   - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
-  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件、清空动作和默认值判定真源。
+  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索触发器、浮层表单、分组目录、清空动作和默认值判定真源。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
     弹窗表单和对比选择轨不各自复制 select/input 外壳。

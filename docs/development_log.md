@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 高级筛选仍占用页面主内容空间
+
+### 现象
+
+Runs、Compare、Rank Board、Jobs、Services、Benchmarks 和样本检查器已经复用 `AdvancedFilterBar`，
+但旧形态展开时仍在页面主内容区铺开大量 select/input。筛选条件越多，越容易挤压排行榜、结果表和样本列表，
+与“论文检索式高级检索”以及 Filter 按钮收敛的目标不一致。
+
+### 根因
+
+高级筛选的真源只收敛了控件和清空逻辑，没有把布局语义也收敛为“触发器 + 摘要 + 分组浮层”。
+业务页虽然不再各自堆 raw select，但共享组件本身仍保留占位式面板布局。
+
+### 影响范围
+
+- 影响 dashboard 前端的信息密度、滚动稳定性和筛选交互一致性。
+- 不影响后端分页、CLI/API 查询语义、rank-board 指标计算、run note 或 eval metric。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- `AdvancedFilterBar` 默认压缩为 Filter 触发器、当前条件摘要和统一清空动作。
+- 展开态改为浮层式高级检索表单，并按“检索式 / 范围目录 / 排序与阈值”自动分组。
+- 新增 Escape 和外部点击关闭行为，保留所有页面已有筛选状态和后端查询参数。
+- README、架构文档和静态 UI contract 同步新的筛选组件边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新页面新增筛选必须复用 `AdvancedFilterBar`，不能重新铺开一排业务私有 select/input。
+- `test:ui-contracts` 必须继续约束高级筛选的浮层、分组目录和统一清空动作，避免回退到占位式筛选面板。
+
 ## 2026-05-25: Eval Bench preflight 未展示最终 label scope 且 legacy prompt 匹配过宽
 
 ### 现象

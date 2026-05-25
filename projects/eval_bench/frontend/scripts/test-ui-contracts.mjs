@@ -28,10 +28,14 @@ assert(
   filterControls.includes('import { ActionButton, PanelToggleButton } from "./ui";') &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function defaultFilterValue(") &&
+    filterControls.includes("function groupAdvancedControls(") &&
+    filterControls.includes('aria-haspopup="dialog"') &&
+    filterControls.includes('className="advanced-filter-popover"') &&
+    filterControls.includes('className="advanced-filter-directory"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
     filterControls.includes("<PanelToggleButton") &&
     !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
-  "advanced filter reset action must be centralized in AdvancedFilterBar",
+  "advanced filter reset, popup layout, and grouping must be centralized in AdvancedFilterBar",
 );
 assert(
   uiSource.includes("export function PanelToggleButton("),

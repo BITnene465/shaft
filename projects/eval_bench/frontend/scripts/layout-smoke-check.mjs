@@ -720,14 +720,14 @@ async function assertAdvancedFilterClear(page, scope) {
   await filter.locator(".advanced-filter-clear").click();
   const state = await filter.evaluate((node) => {
     const input = node.querySelector(".advanced-filter-controls input");
-    const summary = node.querySelector(".advanced-filter-head span");
+    const summary = node.querySelector(".advanced-filter-head div span");
     return {
       inputValue: input instanceof HTMLInputElement ? input.value : "",
       summary: summary?.textContent?.trim() ?? "",
       clearVisible: Boolean(node.querySelector(".advanced-filter-clear"))
     };
   });
-  if (state.inputValue !== "" || state.clearVisible || state.summary !== "点击展开筛选") {
+  if (state.inputValue !== "" || state.clearVisible || state.summary !== "未设条件") {
     throw new Error(`${scope}: advanced filter clear did not reset filters ${JSON.stringify(state)}`);
   }
 }
