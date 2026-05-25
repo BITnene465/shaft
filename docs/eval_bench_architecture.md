@@ -118,6 +118,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     不各自复制 select/input 外壳。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
   - 维护总控工作台页面；作为独立路由模块承载高密度粗粒度图表、运行态遥测和最近 run 摘要。
+- `projects/eval_bench/frontend/src/benchmarksPage.tsx`
+  - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
+- `projects/eval_bench/frontend/src/samplePager.tsx`
+  - 维护 benchmark/run 检查器共享样本分页控件；分页按钮统一走基础 action 组件。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，避免继续把核心工作台堆进 `main.tsx`。
 - `projects/eval_bench/frontend/src/comparePage.tsx`

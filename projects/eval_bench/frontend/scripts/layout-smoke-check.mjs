@@ -42,7 +42,8 @@ const staticRoutes = [
   {
     name: "benchmarks",
     path: "/benchmarks",
-    selectors: [".advanced-filter-bar", ".table-shell"]
+    selectors: [".advanced-filter-bar", ".table-shell"],
+    requireBenchmarksChunk: true
   },
   {
     name: "jobs",
@@ -109,6 +110,9 @@ try {
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
         await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
+      }
+      if (route.requireBenchmarksChunk) {
+        await assertBenchmarksPageChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireCompareChunk) {
         await assertComparePageChunkLoaded(page, `${viewport.name}:${route.name}`);
@@ -693,6 +697,18 @@ async function assertComparePageChunkLoaded(page, scope) {
   );
   if (loaded.length === 0) {
     throw new Error(`${scope}: compare route did not load the independent comparePage chunk`);
+  }
+}
+
+async function assertBenchmarksPageChunkLoaded(page, scope) {
+  const loaded = await page.evaluate(() =>
+    performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => name.includes("benchmarksPage"))
+  );
+  if (loaded.length === 0) {
+    throw new Error(`${scope}: benchmarks route did not load the independent benchmarksPage chunk`);
   }
 }
 

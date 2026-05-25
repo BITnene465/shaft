@@ -91,9 +91,24 @@ assert(
   mainEntry.includes('import { OverviewPage } from "./overviewPage";'),
   "main.tsx must route to the extracted OverviewPage module",
 );
+const benchmarksPage = await readSource("src/benchmarksPage.tsx");
+assert(
+  benchmarksPage.includes("export function BenchmarksPage()") &&
+    benchmarksPage.includes("export function BenchmarkDetailPage()"),
+  "benchmarks page module must export list and detail pages",
+);
+assert(
+  mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")') &&
+    mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")'),
+  "main.tsx must lazy-route to the extracted benchmarks page module",
+);
 assert(
   !mainEntryHasOverviewImplementation(mainEntry),
   "main.tsx should only route to OverviewPage, not implement the overview workbench",
+);
+assert(
+  !mainEntryHasBenchmarksImplementation(mainEntry),
+  "main.tsx should only route to BenchmarksPage, not implement benchmark workbenches",
 );
 assert(
   !mainEntryHasSettingsImplementation(mainEntry),
@@ -148,5 +163,14 @@ function mainEntryHasOverviewImplementation(source) {
     /function\s+OverviewPage\s*\(/.test(source) ||
     source.includes("overview-console") ||
     source.includes("overview-chart-matrix")
+  );
+}
+
+function mainEntryHasBenchmarksImplementation(source) {
+  return (
+    /function\s+BenchmarksPage\s*\(/.test(source) ||
+    /function\s+BenchmarkDetailPage\s*\(/.test(source) ||
+    source.includes("benchmark-form") ||
+    source.includes("eval_bench_benchmark_sidebar_width")
   );
 }

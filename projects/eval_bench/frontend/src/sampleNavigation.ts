@@ -1,3 +1,5 @@
+export const SAMPLE_PAGE_SIZE = 80;
+
 export function sampleIndexFromLocation() {
   if (typeof window === "undefined") {
     return 0;

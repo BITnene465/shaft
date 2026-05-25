@@ -29,17 +29,11 @@ import {
 } from "lucide-react";
 
 import {
-  BenchmarkSampleDetail,
-  BenchmarkSampleSummary,
   BenchmarkSummary,
   ComparisonSampleDetail,
   RunSampleDetail,
   RunSampleSummary,
   RunSummary,
-  createBenchmark,
-  fetchBenchmarks,
-  fetchBenchmarkSampleDetail,
-  fetchBenchmarkSamples,
   fetchComparisonSample,
   fetchRuns,
   fetchRunSampleDetail,
@@ -77,14 +71,16 @@ import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { JobsPage } from "./jobsPage";
 import { OverviewPage } from "./overviewPage";
-import { BenchmarkTable, RunTable } from "./runTables";
+import { RunTable } from "./runTables";
 import { ServicesPage } from "./servicesPage";
 import { SettingsPage } from "./settingsPage";
 import {
+  SAMPLE_PAGE_SIZE,
   sampleIndexFromLocation,
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
+import { SamplePager } from "./samplePager";
 import { displayImageUrl, preloadSampleImages } from "./viewerGeometry";
 import { CanvasStage } from "./viewerCanvas";
 import {
@@ -129,7 +125,6 @@ const queryClient = new QueryClient({
     }
   }
 });
-const SAMPLE_PAGE_SIZE = 80;
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -318,521 +313,6 @@ function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
   return (
     <div className={loading ? "status-pill loading" : "status-pill online"}>
       {loading ? "同步中" : "在线"}
-    </div>
-  );
-}
-
-function BenchmarksPage() {
-  const [createOpen, setCreateOpen] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [taskFilter, setTaskFilter] = useState("all");
-  const [layerFilter, setLayerFilter] = useState("all");
-  const [splitFilter, setSplitFilter] = useState("all");
-  const benchmarkFilters = useMemo(
-    () => ({
-      offset: 0,
-      limit: 200,
-      task: taskFilter !== "all" ? taskFilter : undefined,
-      layer: layerFilter !== "all" ? layerFilter : undefined,
-      split: splitFilter !== "all" ? splitFilter : undefined,
-      query: searchText.trim() || undefined
-    }),
-    [layerFilter, searchText, splitFilter, taskFilter]
-  );
-  const benchmarksQuery = useQuery({
-    queryKey: ["benchmarks", benchmarkFilters],
-    queryFn: () => fetchBenchmarks(benchmarkFilters)
-  });
-  const benchmarkFacetsQuery = useQuery({
-    queryKey: ["benchmarks", "facets"],
-    queryFn: () => fetchBenchmarks({ limit: 500 })
-  });
-  const benchmarks = benchmarksQuery.data?.benchmarks ?? [];
-  const benchmarkFacets = benchmarkFacetsQuery.data?.benchmarks ?? benchmarks;
-  const tasks = unique(benchmarkFacets.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
-  const layers = unique(benchmarkFacets.flatMap((benchmark) => benchmark.layers).filter(Boolean));
-  const splits = unique(benchmarkFacets.map((benchmark) => benchmark.split).filter(Boolean));
-  if (benchmarksQuery.isLoading) {
-    return <EmptyState title="正在加载基准集" />;
-  }
-  if (benchmarksQuery.error || !benchmarksQuery.data) {
-    return <EmptyState title="基准集加载失败" tone="danger" />;
-  }
-  return (
-    <section className="page-stack density-page">
-      <div className="page-command-row">
-        <div>
-          <h2>基准集目录</h2>
-          <span>{(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个不可变副本</span>
-        </div>
-        <CommandButton
-          icon={<AppIcon name="createBenchmark" size={17} />}
-          onClick={() => setCreateOpen(true)}
-        >
-          创建副本
-        </CommandButton>
-      </div>
-      <AdvancedFilterBar
-        title="基准集高级检索"
-        meta={`${benchmarks.length.toLocaleString()} / ${(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个 benchmark`}
-        controls={[
-          {
-            type: "search",
-            id: "benchmark-query",
-            label: "全文检索",
-            value: searchText,
-            onChange: setSearchText,
-            placeholder: "搜索 benchmark、manifest、root、来源"
-          },
-          {
-            type: "select",
-            id: "benchmark-task",
-            label: "任务",
-            value: taskFilter,
-            values: ["all", ...tasks],
-            labels: { all: "全部" },
-            onChange: setTaskFilter
-          },
-          {
-            type: "select",
-            id: "benchmark-layer",
-            label: "标注层",
-            value: layerFilter,
-            values: ["all", ...layers],
-            labels: { all: "全部" },
-            onChange: setLayerFilter
-          },
-          {
-            type: "select",
-            id: "benchmark-split",
-            label: "Split",
-            value: splitFilter,
-            values: ["all", ...splits],
-            labels: { all: "全部" },
-            onChange: setSplitFilter
-          }
-        ]}
-      />
-      <div className="workspace-card fill">
-        <BenchmarkTable benchmarks={benchmarks} />
-      </div>
-      <WorkspaceDialog
-        open={createOpen}
-        title="创建 benchmark 副本"
-        meta="从 raw_data split 复制不可变 test/val 集"
-        onClose={() => setCreateOpen(false)}
-      >
-        <BenchmarkCreatePanel bare />
-      </WorkspaceDialog>
-    </section>
-  );
-}
-
-function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
-  const queryClient = useQueryClient();
-  const [benchmarkId, setBenchmarkId] = useState("");
-  const [sourceRoot, setSourceRoot] = useState("data/raw_data");
-  const [sourceManifest, setSourceManifest] = useState("data/raw_data/splits/layout_val.txt");
-  const [split, setSplit] = useState("val");
-  const [tasks, setTasks] = useState<string[]>(["detection", "keypoint"]);
-  const [layers, setLayers] = useState("layout,arrow");
-  const [overwrite, setOverwrite] = useState(false);
-  const mutation = useMutation({
-    mutationFn: createBenchmark,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
-      void queryClient.invalidateQueries({ queryKey: ["benchmarks"] });
-    }
-  });
-
-  function toggleTask(task: string) {
-    setTasks((current) => {
-      if (current.includes(task)) {
-        return current.filter((item) => item !== task);
-      }
-      return [...current, task];
-    });
-  }
-
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    mutation.mutate({
-      benchmark_id: benchmarkId.trim(),
-      source_root: sourceRoot.trim(),
-      source_manifest: sourceManifest.trim(),
-      split: split.trim() || "val",
-      tasks,
-      layers: layers
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      overwrite
-    });
-  }
-
-  const content = (
-      <form className="job-form benchmark-form" onSubmit={submit}>
-        <label>
-        <span>基准集 ID</span>
-          <input
-            value={benchmarkId}
-            onChange={(event) => setBenchmarkId(event.target.value)}
-            placeholder="multitask_val_v1"
-            required
-          />
-        </label>
-        <label className="wide-field">
-          <span>数据根目录</span>
-          <input
-            value={sourceRoot}
-            onChange={(event) => setSourceRoot(event.target.value)}
-            required
-          />
-        </label>
-        <label className="wide-field">
-          <span>Split 文件</span>
-          <input
-            value={sourceManifest}
-            onChange={(event) => setSourceManifest(event.target.value)}
-            required
-          />
-        </label>
-        <label>
-          <span>Split 名称</span>
-          <input value={split} onChange={(event) => setSplit(event.target.value)} required />
-        </label>
-        <label>
-          <span>标注层</span>
-          <input value={layers} onChange={(event) => setLayers(event.target.value)} />
-        </label>
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={tasks.includes("detection")}
-            onChange={() => toggleTask("detection")}
-          />
-          <span>检测</span>
-        </label>
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={tasks.includes("keypoint")}
-            onChange={() => toggleTask("keypoint")}
-          />
-          <span>关键点</span>
-        </label>
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={overwrite}
-            onChange={(event) => setOverwrite(event.target.checked)}
-          />
-          <span>覆盖已有副本</span>
-        </label>
-        <ActionButton
-          className="form-submit-button"
-          type="submit"
-          variant="primary"
-          icon={<AppIcon name="submitCreate" size={16} />}
-          disabled={mutation.isPending || tasks.length === 0}
-        >
-          创建
-        </ActionButton>
-        {mutation.data ? (
-          <div className="form-result full-field">
-            已创建 {mutation.data.benchmark_id}，包含 {mutation.data.sample_count.toLocaleString()} 个样本。{" "}
-            <Link
-              to="/benchmarks/$benchmarkId"
-              params={{ benchmarkId: mutation.data.benchmark_id }}
-            >
-              打开
-            </Link>
-          </div>
-        ) : null}
-        {mutation.error ? (
-          <div className="form-result error full-field">{mutation.error.message}</div>
-        ) : null}
-      </form>
-  );
-  return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
-}
-
-function BenchmarkDetailPage() {
-  const { benchmarkId } = useParams({ from: "/benchmarks/$benchmarkId" });
-  const queryClient = useQueryClient();
-  const [selectedIndex, setSelectedIndex] = useState(() => sampleIndexFromLocation());
-  const [pageOffset, setPageOffset] = useState(() => samplePageOffsetFromLocation(SAMPLE_PAGE_SIZE));
-  const [labelFilter, setLabelFilter] = useState("all");
-  const samplesQuery = useQuery({
-    queryKey: ["benchmark-samples", benchmarkId, pageOffset, labelFilter],
-    queryFn: () =>
-      fetchBenchmarkSamples(benchmarkId, {
-        offset: pageOffset,
-        limit: SAMPLE_PAGE_SIZE,
-        label: labelFilter
-      })
-  });
-  const page = samplesQuery.data;
-  const samples = page?.samples ?? [];
-  const labels = page?.labels ?? [];
-  const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
-  const activeIndex = activeSample?.index ?? selectedIndex;
-  const { actionForEvent } = useWorkspaceShortcuts();
-  const detailQuery = useQuery({
-    queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex],
-    queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex),
-    enabled: Boolean(activeSample),
-    placeholderData: (previousData) =>
-      previousData?.benchmark_id === benchmarkId ? previousData : undefined,
-    staleTime: 30_000
-  });
-
-  function selectSample(index: number) {
-    setSelectedIndex(index);
-    updateSampleIndexInLocation(index);
-  }
-
-  function changeLabelFilter(value: string) {
-    setLabelFilter(value);
-    setPageOffset(0);
-  }
-
-  function moveSample(delta: number) {
-    if (samples.length === 0) {
-      return;
-    }
-    const position = samples.findIndex((sample) => sample.index === activeIndex);
-    const next = samples[position + delta];
-    if (next) {
-      selectSample(next.index);
-      return;
-    }
-    const nextOffset = pageOffset + delta * SAMPLE_PAGE_SIZE;
-    if (nextOffset >= 0 && page && nextOffset < page.total) {
-      setPageOffset(nextOffset);
-    }
-  }
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (isTextInputTarget(event.target)) {
-        return;
-      }
-      const actionId = actionForEvent(event);
-      if (actionId === "sample.previous") {
-        event.preventDefault();
-        moveSample(-1);
-      }
-      if (actionId === "sample.next") {
-        event.preventDefault();
-        moveSample(1);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actionForEvent, activeIndex, page?.total, pageOffset, samples]);
-
-  useEffect(() => {
-    if (activeSample && activeSample.index !== selectedIndex) {
-      selectSample(activeSample.index);
-    }
-  }, [activeSample, selectedIndex]);
-
-  useEffect(() => {
-    return preloadSampleImages(samples, activeIndex);
-  }, [activeIndex, samples]);
-
-  useEffect(() => {
-    if (samples.length === 0) {
-      return;
-    }
-    const position = Math.max(0, samples.findIndex((sample) => sample.index === activeIndex));
-    const preload = samples.slice(Math.max(0, position - 1), position + 2);
-    preload.forEach((sample) => {
-      void queryClient.prefetchQuery({
-        queryKey: ["benchmark-sample-detail", benchmarkId, sample.index],
-        queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, sample.index),
-        staleTime: 30_000
-      });
-    });
-  }, [activeIndex, benchmarkId, queryClient, samples]);
-
-  if (samplesQuery.isLoading) {
-    return <EmptyState title="正在加载样本" />;
-  }
-  if (samplesQuery.error) {
-    return <EmptyState title="样本加载失败" tone="danger" />;
-  }
-
-  return (
-    <section className="page-stack visual-inspector-page">
-      <SectionHeader
-        title="基准集检查"
-        subtitle={`${benchmarkId} 的真值样本浏览器。`}
-      />
-      {samples.length === 0 ? (
-        <EmptyState title="这个基准集没有样本。" />
-      ) : (
-        <ResizableSplit
-          className="inspector-grid"
-          storageKey="eval_bench_benchmark_sidebar_width"
-          defaultSize={224}
-          minSize={148}
-          maxSize={520}
-          first={
-            <div className="inspector-sidebar">
-            <BenchmarkSampleFilters
-              labelFilter={labelFilter}
-              labels={labels}
-              onLabelFilterChange={changeLabelFilter}
-            />
-            <BenchmarkSampleList
-              samples={samples}
-              selectedIndex={activeIndex}
-              onSelect={selectSample}
-            />
-            {page ? (
-              <SamplePager
-                offset={page.offset}
-                limit={page.limit}
-                total={page.total}
-                onPageChange={setPageOffset}
-              />
-            ) : null}
-            </div>
-          }
-          second={
-            <div className="viewer-panel">
-            {samples.length === 0 ? (
-              <div className="empty-panel">没有符合过滤条件的样本。</div>
-            ) : detailQuery.error ? (
-              <div className="empty-panel">样本详情加载失败</div>
-            ) : detailQuery.isLoading || !detailQuery.data ? (
-              <div className="empty-panel">正在加载样本详情</div>
-            ) : (
-              <>
-                {detailQuery.isFetching ? <div className="viewer-fetch-chip">正在刷新样本详情</div> : null}
-                <BenchmarkSampleViewer detail={detailQuery.data} />
-              </>
-            )}
-            </div>
-          }
-        />
-      )}
-    </section>
-  );
-}
-
-function BenchmarkSampleFilters({
-  labelFilter,
-  labels,
-  onLabelFilterChange
-}: {
-  labelFilter: string;
-  labels: string[];
-  onLabelFilterChange: (value: string) => void;
-}) {
-  return (
-    <AdvancedFilterBar
-      title="样本检索"
-      meta={`${labels.length.toLocaleString()} labels`}
-      controls={[
-        {
-          type: "select",
-          id: "label",
-          label: "标签",
-          value: labelFilter,
-          values: ["all", ...labels],
-          labels: { all: "全部" },
-          onChange: onLabelFilterChange
-        }
-      ]}
-    />
-  );
-}
-
-function BenchmarkSampleList({
-  samples,
-  selectedIndex,
-  onSelect
-}: {
-  samples: BenchmarkSampleSummary[];
-  selectedIndex: number;
-  onSelect: (index: number) => void;
-}) {
-  return (
-    <div className="sample-list">
-      {samples.map((sample) => (
-        <button
-          key={sample.index}
-          className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}
-          type="button"
-          onClick={() => onSelect(sample.index)}
-        >
-          <span className="sample-row-main">
-            <strong>{sample.index + 1}</strong>
-            <span title={sample.image}>{basename(sample.image)}</span>
-          </span>
-          <span className="sample-row-meta">
-            真值 {sample.instance_count.toLocaleString()} / 标签 {sample.labels.join(", ") || "-"}
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
-  const width = detail.sample.image_width ?? 1000;
-  const height = detail.sample.image_height ?? 1000;
-  const labels = useMemo(() => unique(detail.gt_instances.map((instance) => instance.label)), [detail.gt_instances]);
-  const {
-    overlayColors,
-    overlayStyle,
-    labelColors,
-    interactionSettings,
-    overlayVars
-  } = useWorkspaceSettings(labels);
-
-  return (
-    <div className="viewer-stack" style={overlayVars}>
-      <div className="viewer-toolbar">
-        <div>
-          <h2>{basename(detail.sample.image)}</h2>
-          <p>{detail.sample.image}</p>
-        </div>
-        <div className="legend-row">
-          <span className="legend-item gt">真值</span>
-        </div>
-      </div>
-      <div className="diagnostic-strip">
-        <span>实例 {detail.sample.instance_count.toLocaleString()}</span>
-        <span>标签 {detail.sample.labels.join(", ") || "-"}</span>
-      </div>
-      <CanvasStage
-        width={width}
-        height={height}
-        imageUrl={displayImageUrl(detail.sample)}
-        imageAlt={detail.sample.image}
-        imageTileUrlTemplate={detail.sample.image_tile_url_template}
-        imageTileSize={detail.sample.image_tile_size}
-        gtInstances={detail.gt_instances}
-        predInstances={[]}
-        diagnostics={null}
-        visibleLabels={new Set(labels)}
-        showGt={true}
-        showPred={false}
-        showBoxes={true}
-        showLines={true}
-        showKeypoints={true}
-        overlayColors={overlayColors}
-        overlayStyle={overlayStyle}
-        labelColors={labelColors}
-        interactionSettings={interactionSettings}
-      />
-      <div className="instance-summary">
-        <InstanceStats title="真值实例" instances={detail.gt_instances} />
-      </div>
     </div>
   );
 }
@@ -1554,46 +1034,6 @@ function SampleList({
   );
 }
 
-function SamplePager({
-  offset,
-  limit,
-  total,
-  onPageChange
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPageChange: (offset: number) => void;
-}) {
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(total, offset + limit);
-  const previousOffset = Math.max(0, offset - limit);
-  const nextOffset = offset + limit;
-  return (
-    <div className="sample-pager">
-      <span>
-        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
-      </span>
-      <div>
-        <ActionButton
-          variant="mini"
-          onClick={() => onPageChange(previousOffset)}
-          disabled={offset <= 0}
-        >
-          上一页
-        </ActionButton>
-        <ActionButton
-          variant="mini"
-          onClick={() => onPageChange(nextOffset)}
-          disabled={nextOffset >= total}
-        >
-          下一页
-        </ActionButton>
-      </div>
-    </div>
-  );
-}
-
 function SampleViewer({ detail }: { detail: RunSampleDetail }) {
   return <InteractiveSampleViewer detail={detail} />;
 }
@@ -1902,12 +1342,12 @@ const indexRoute = createRoute({
 const benchmarksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/benchmarks",
-  component: BenchmarksPage
+  component: lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")
 });
 const benchmarkDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/benchmarks/$benchmarkId",
-  component: BenchmarkDetailPage
+  component: lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")
 });
 const jobsRoute = createRoute({
   getParentRoute: () => rootRoute,

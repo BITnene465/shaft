@@ -2772,3 +2772,42 @@ Settings 页在早期为了快速迭代直接落在 `main.tsx`，后续虽然陆
 
 - 首页新增图表、遥测和最近 run 设计时只改 `overviewPage.tsx` 与样式层，不回流到 `main.tsx`。
 - 页面级工作台继续按模块拆分；`main.tsx` 保持 shell、route 和轻量 orchestration。
+
+## 2026-05-25: Eval Bench 基准集页面从 main.tsx 拆出
+
+### 现象
+
+`main.tsx` 仍承载基准集目录、创建副本弹窗、基准集真值检查器、样本列表和分页组件。这些逻辑已经属于
+独立工作台页面，并且会持续迭代高级筛选、检查器滚动和样本导航；继续留在入口文件会让 route shell 与
+业务页面互相缠绕。
+
+### 根因
+
+基准集页面早期为了接通 benchmark copy 和真值浏览器直接写入 `main.tsx`，后续只抽出了表格、viewer
+和分栏基础组件，没有把页面容器和检查器编排拆出。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 前端模块边界、代码分块和样本检查器可维护性。
+- 不改变 benchmark API、样本筛选语义、viewer 渲染语义或后端 benchmark copy 结构。
+
+### 修复方式
+
+- 新增 `benchmarksPage.tsx`，承载基准集目录、创建副本弹窗、基准集真值检查器和相关 helper。
+- `/benchmarks` 与 `/benchmarks/$benchmarkId` 改为 lazy route，加载独立 `benchmarksPage` chunk。
+- 新增 `samplePager.tsx`，将 benchmark/run 检查器共享分页按钮收敛到一个组件。
+- `test:ui-contracts` 增加防线：`main.tsx` 不能再实现 Benchmarks 页面或 benchmark 检查器。
+- layout smoke 增加 chunk 检查：`/benchmarks` 必须加载独立 `benchmarksPage` chunk。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 补充模块边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/benchmarks npm run render-check`
+
+### 后续防线
+
+- 基准集列表、创建副本、真值检查器和相关筛选只在 `benchmarksPage.tsx` 中演进，不回流到 `main.tsx`。
+- 检查器分页继续复用 `samplePager.tsx`，避免 benchmark/run 两套分页按钮和滚动行为分叉。
