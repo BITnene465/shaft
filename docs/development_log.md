@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Jobs 应用 Prompt 后 benchmark 未按 task 重选
+
+### 现象
+
+Jobs 页从 detection manifest 切换到 keypoint prompt 时，manifest 的 `eval.task` 会被更新为
+`keypoint`，但原来的 `benchmark_id` 只要仍存在于 benchmark 列表中就会被保留。若该 benchmark
+只支持 detection，用户会得到一个 task / benchmark 不匹配的 job draft，需要依赖后端 preflight
+再报错。
+
+### 根因
+
+前端 `applyBenchmarkDefault()` 只检查当前 benchmark id 是否存在，没有检查该 benchmark 的
+`tasks` 是否包含当前 manifest task。`applySelectedPrompt()` 应用 prompt 后也没有重新跑一次
+task-aware benchmark default，导致 prompt 改 task 后 benchmark 不随之纠正。
+
+### 影响范围
+
+- 影响 Jobs 页 manifest-first 创建任务时 detection / keypoint prompt 切换的默认 benchmark 选择。
+- 不影响后端 `label_policy.py`、preflight 的非法 label 拒绝、worker 或 evaluator 语义。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- `applyBenchmarkDefault()` 改为 task-aware：当前 benchmark 不存在或不支持当前 task 时，选择第一个支持该 task 的 benchmark。
+- Jobs 页应用 prompt 后重新调用 `applyBenchmarkDefault()`，让 prompt task、target labels 和 benchmark default 同步收敛。
+- manifest tools 回归测试覆盖“当前 benchmark 存在但 task 不匹配”的重选场景。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:manifest-tools`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 任何会修改 manifest task 的前端操作，都必须同步检查 benchmark task 兼容性，不能只检查 benchmark id 是否存在。
+
 ## 2026-05-25: Eval Bench Overview compact 视口核心面板塌缩
 
 ### 现象

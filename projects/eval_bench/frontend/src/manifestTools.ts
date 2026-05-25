@@ -14,7 +14,10 @@ export function applyBenchmarkDefault(
     return cloned;
   }
   const currentBenchmarkId = cloned.eval.benchmark_id;
-  if (typeof currentBenchmarkId !== "string" || !benchmarkIds.includes(currentBenchmarkId)) {
+  const currentBenchmark = benchmarks.find(
+    (benchmark) => benchmark.benchmark_id === currentBenchmarkId
+  );
+  if (!currentBenchmark || !benchmarkSupportsTask(currentBenchmark, cloned.eval.task)) {
     cloned.eval.benchmark_id = defaultBenchmarkForTask(cloned.eval.task, benchmarks).benchmark_id;
   }
   return cloned;
@@ -181,10 +184,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function defaultBenchmarkForTask(task: unknown, benchmarks: BenchmarkSummary[]): BenchmarkSummary {
   if (typeof task === "string" && task.trim()) {
-    const matched = benchmarks.find((benchmark) => benchmark.tasks.includes(task.trim()));
+    const matched = benchmarks.find((benchmark) => benchmarkSupportsTask(benchmark, task));
     if (matched) {
       return matched;
     }
   }
   return benchmarks[0];
+}
+
+function benchmarkSupportsTask(benchmark: BenchmarkSummary, task: unknown) {
+  if (typeof task !== "string" || !task.trim()) {
+    return true;
+  }
+  return benchmark.tasks.includes(task.trim());
 }

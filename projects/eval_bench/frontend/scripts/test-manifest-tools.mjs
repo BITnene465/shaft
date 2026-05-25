@@ -57,6 +57,7 @@ const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
     {
       benchmark_id: "banana_bench",
       tasks: ["detection"],
+      labels: ["arrow"],
       layers: [],
       split: "val",
       sample_count: 400,
@@ -68,6 +69,7 @@ const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
     {
       benchmark_id: "banana_point_arrow_bench",
       tasks: ["keypoint"],
+      labels: ["arrow"],
       layers: [],
       split: "val",
       sample_count: 1966,
@@ -79,6 +81,37 @@ const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
   ]
 );
 assert.equal(benchmarkDefaultManifest.eval.benchmark_id, "banana_point_arrow_bench");
+
+const taskMismatchBenchmarkManifest = tools.applyBenchmarkDefault(
+  { kind: "eval_job", eval: { task: "keypoint", benchmark_id: "banana_bench" } },
+  [
+    {
+      benchmark_id: "banana_bench",
+      tasks: ["detection"],
+      labels: ["arrow"],
+      layers: [],
+      split: "val",
+      sample_count: 400,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null
+    },
+    {
+      benchmark_id: "banana_point_arrow_bench",
+      tasks: ["keypoint"],
+      labels: ["arrow"],
+      layers: [],
+      split: "val",
+      sample_count: 1966,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null
+    }
+  ]
+);
+assert.equal(taskMismatchBenchmarkManifest.eval.benchmark_id, "banana_point_arrow_bench");
 
 const customPromptWithoutLabels = {
   ...arrowPrompt,

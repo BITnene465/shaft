@@ -159,7 +159,8 @@ Jobs 页可以选择 job template 和 prompt template。默认 `eval_job` 是箭
 `layout_eval_job` 模板，关键点评估保留为 `keypoint_eval_job` 模板。Prompt template 应用时会把
 system prompt、user prompt、parser、metric profile、generation、data 和 `target_labels` 写回
 manifest；如果 prompt 没声明目标 label，会清空旧 manifest 上残留的 `target_labels`，避免从 layout
-切到 arrow 后仍沿用旧 label 集合。用户也可以直接编辑 manifest 中的 prompt 字段，并把当前 manifest
+切到 arrow 后仍沿用旧 label 集合；如果 prompt 改变 task，前端会重新按 task 选择兼容 benchmark，
+避免 keypoint prompt 继续保留 detection-only benchmark。用户也可以直接编辑 manifest 中的 prompt 字段，并把当前 manifest
 的 prompt 保存为新的模板。后端 preflight 会用同一份 prompt registry 解析模板；job 入队时保存
 resolved manifest，worker 后续执行不依赖前端临时状态。
 

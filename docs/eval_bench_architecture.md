@@ -162,6 +162,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 detection label 子任务 UI：必须通过 manifest `target_labels` 修改显式 spec，候选 label 来自
   benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
   必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。
+  前端应用 prompt template 后必须重新按 manifest task 选择兼容 benchmark；不能只因为旧 benchmark id
+  仍存在就保留一个 task 不匹配的 job draft。
   Keypoint 不暴露 label 子任务 UI；`resolve-target-labels` 必须返回 `label_subtasks_supported=false`，
   只保留默认 arrow 关键点评估范围。`label_policy.py` 是这条边界的后端真源，preflight、init-run、
   prediction import、worker 和 evaluator 都必须拒绝 keypoint 上非 `arrow` 的显式 `target_labels`。

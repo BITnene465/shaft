@@ -533,7 +533,9 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     }
     const manifest = parseManifest() ?? applyBenchmarkDefault(selectedTemplate?.manifest ?? {}, benchmarks);
     setPromptId(promptTemplate.prompt_id);
-    setManifestText(formatManifest(applyPromptTemplateToManifest(manifest, promptTemplate)));
+    setManifestText(
+      formatManifest(applyBenchmarkDefault(applyPromptTemplateToManifest(manifest, promptTemplate), benchmarks))
+    );
     setParseError(null);
     preflightMutation.reset();
   }
