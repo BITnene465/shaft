@@ -8,6 +8,7 @@ import pytest
 
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
+    AGENT_SAFE_COMMANDS,
     _build_parser,
     _command_handlers,
     _cmd_archive_run,
@@ -21,6 +22,7 @@ from eval_bench.cli import (
     _cmd_get_run_note,
     _cmd_init_run,
     _cmd_import_predictions,
+    _cmd_list_agent_commands,
     _cmd_job_logs,
     _cmd_list_benchmarks,
     _cmd_list_benchmark_samples,
@@ -68,49 +70,23 @@ def _parser_command_names() -> set[str]:
 def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
     command_names = _parser_command_names()
     handler_names = set(_command_handlers())
-    agent_safe_commands = {
-        "dashboard-state",
-        "scheduler-status",
-        "backend-logs",
-        "preflight-job",
-        "create-job",
-        "list-job-templates",
-        "show-job-template",
-        "list-prompt-templates",
-        "show-prompt-template",
-        "resolve-target-labels",
-        "list-jobs",
-        "show-job",
-        "cancel-job",
-        "delete-job",
-        "job-logs",
-        "list-benchmarks",
-        "show-benchmark",
-        "list-runs",
-        "show-run",
-        "show-run-report",
-        "list-run-samples",
-        "show-run-sample",
-        "list-benchmark-samples",
-        "show-benchmark-sample",
-        "rank-board",
-        "get-run-note",
-        "set-run-note",
-        "archive-run",
-        "delete-run",
-        "list-services",
-        "show-service",
-        "service-command",
-        "service-health",
-        "service-logs",
-        "delete-service",
-        "list-comparisons",
-        "show-comparison",
-        "show-comparison-sample",
-    }
 
     assert command_names == handler_names
-    assert agent_safe_commands <= command_names
+    assert AGENT_SAFE_COMMANDS <= command_names
+
+
+def test_cli_lists_agent_safe_commands(capsys) -> None:
+    args = _build_parser().parse_args(["list-agent-commands"])
+    _cmd_list_agent_commands(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    command_names = [item["name"] for item in payload["commands"]]
+    assert payload["total"] == len(AGENT_SAFE_COMMANDS)
+    assert command_names == sorted(AGENT_SAFE_COMMANDS)
+    assert "rank-board" in command_names
+    assert "show-comparison-sample" in command_names
+    assert "serve-dashboard" not in command_names
+    assert all(item["help"] for item in payload["commands"])
 
 
 def _write_sample_store(tmp_path: Path) -> None:

@@ -9,6 +9,51 @@ from pathlib import Path
 from .artifacts import DEFAULT_STORE_ROOT
 
 
+AGENT_SAFE_COMMANDS = frozenset(
+    {
+        "list-agent-commands",
+        "dashboard-state",
+        "scheduler-status",
+        "backend-logs",
+        "preflight-job",
+        "create-job",
+        "list-job-templates",
+        "show-job-template",
+        "list-prompt-templates",
+        "show-prompt-template",
+        "resolve-target-labels",
+        "list-jobs",
+        "show-job",
+        "cancel-job",
+        "delete-job",
+        "job-logs",
+        "list-benchmarks",
+        "show-benchmark",
+        "list-runs",
+        "show-run",
+        "show-run-report",
+        "list-run-samples",
+        "show-run-sample",
+        "list-benchmark-samples",
+        "show-benchmark-sample",
+        "rank-board",
+        "get-run-note",
+        "set-run-note",
+        "archive-run",
+        "delete-run",
+        "list-services",
+        "show-service",
+        "service-command",
+        "service-health",
+        "service-logs",
+        "delete-service",
+        "list-comparisons",
+        "show-comparison",
+        "show-comparison-sample",
+    }
+)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Shaft Eval Bench utilities.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -85,6 +130,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print the same coarse dashboard state used by /api/state.",
     )
     dashboard_state.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+
+    subparsers.add_parser(
+        "list-agent-commands",
+        help="List stable agent-safe CLI commands.",
+    )
 
     scheduler_status = subparsers.add_parser(
         "scheduler-status",
@@ -624,6 +674,24 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
     from .store import EvalBenchStore
 
     print(json.dumps(EvalBenchStore(args.output_root).state().to_dict(), ensure_ascii=False))
+
+
+def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
+    del args
+    command_help = _parser_command_help(_build_parser())
+    commands = [
+        {"name": name, "help": command_help.get(name, "")}
+        for name in sorted(AGENT_SAFE_COMMANDS)
+    ]
+    print(
+        json.dumps(
+            {
+                "total": len(commands),
+                "commands": commands,
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_scheduler_status(args: argparse.Namespace) -> None:
@@ -1389,6 +1457,11 @@ def _database_job_kind(resolved_kind: str) -> str:
     raise ValueError(f"unsupported job kind: {resolved_kind}")
 
 
+def _parser_command_help(parser: argparse.ArgumentParser) -> dict[str, str]:
+    subparsers_action = next(action for action in parser._actions if action.dest == "command")
+    return {action.dest: action.help or "" for action in subparsers_action._choices_actions}
+
+
 def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
     return {
         "create-benchmark": _cmd_create_benchmark,
@@ -1397,6 +1470,7 @@ def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
         "write-demo-prediction": _cmd_write_demo_prediction,
         "serve-dashboard": _cmd_serve_dashboard,
         "dashboard-state": _cmd_dashboard_state,
+        "list-agent-commands": _cmd_list_agent_commands,
         "scheduler-status": _cmd_scheduler_status,
         "backend-logs": _cmd_backend_logs,
         "preflight-job": _cmd_preflight_job,

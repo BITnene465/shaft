@@ -30,18 +30,21 @@ CLI 子命令的真源不够集中：`_build_parser()` 维护命令名，`main()
 ### 修复方式
 
 - 将 `main()` 分发收敛到 `_command_handlers()` 映射。
+- 新增 `AGENT_SAFE_COMMANDS` 作为稳定 agent 命令集合真源，并通过 `list-agent-commands` 输出给 agent。
 - 新增 CLI 合约测试：parser 暴露的命令集合必须等于 handler 映射集合。
-- 同一测试锁住 agent-safe 命令集合，避免 dashboard-state、rank-board、run note、sample detail、comparison、
+- 同一测试锁住 `AGENT_SAFE_COMMANDS`，避免 dashboard-state、rank-board、run note、sample detail、comparison、
   service/job 生命周期等稳定入口被误删。
 
 ### 回归测试
 
 - `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run python scripts/eval_bench.py list-agent-commands`
 - `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests/test_cli.py`
 
 ### 后续防线
 
 - 新增 CLI 子命令时必须同时更新 parser 和 `_command_handlers()`；测试失败即表示真实入口不可执行。
+- 新增稳定 agent 命令时必须同步更新 `AGENT_SAFE_COMMANDS`，使 `list-agent-commands` 成为 agent 可发现入口。
 - agent-facing 命令不要只加内部 `_cmd_*` 单测，还要保证 parser/handler 合约覆盖到命令名。
 
 ## 2026-05-25: Eval Bench 总览页低价值面板回流
