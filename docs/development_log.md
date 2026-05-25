@@ -48,6 +48,45 @@
 - 首页新增内容必须能直接强化“当前判断、下一步动作、评测流向、最近产物”之一；不能新增独立低价值面板。
 - Overview 契约必须同时约束源码结构、运行时高度和 hover/transition，不只检查 selector 存在。
 
+## 2026-05-25: Eval Bench detection label 子任务仍能自由输入 label
+
+### 现象
+
+后端已经通过 `label_policy.py`、preflight、worker、import 和 evaluator 收敛了 detection label subset 与
+keypoint arrow-only 语义，文档也要求导入 prediction run 不暴露自由文本 label 输入。但共享
+`DetectionLabelSubtaskPanel` 仍保留“自定义 label”输入，导致 Jobs 页和 Runs 导入弹层都能绕过候选 chip
+拼写任意 label。
+
+### 根因
+
+前期为了兼容 benchmark 没有 label index 的情况，在共享面板里留下了自由文本添加入口。后续 label policy
+和 preflight 已经成为真源，但 UI 没有同步收口，形成了与文档和稳定性目标不一致的第二入口。
+
+### 影响范围
+
+- 影响 Dashboard detection label 子任务创建和 prediction import 的输入稳定性。
+- 不改变 eval、codec、metric 或后端 label policy 语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 移除 `DetectionLabelSubtaskPanel` 的自由文本输入和添加表单，只保留候选 chip、全部候选和默认策略。
+- 候选仍来自 benchmark summary、prompt metadata 和当前 manifest，未知 label 必须通过 manifest/payload
+  显式编辑并交给 preflight 或 import 校验。
+- 删除对应 dead CSS，UI contract 增加防线，禁止 label 子任务面板回流自由文本 label 入口。
+- README、架构文档和脚本文档同步该 UI 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run test:manifest-tools`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增 label 子任务 UI 时只能复用受控候选 chip，不要在页面层新增自由文本 label 输入。
+- 如果 benchmark 缺少 label index，需要先补 benchmark metadata 或让用户显式编辑 manifest，再由后端 preflight 校验。
+
 ## 2026-05-25: Eval Bench Rank Board 缺少与榜首的差距解释
 
 ### 现象

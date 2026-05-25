@@ -67,12 +67,9 @@ assert(
   "label subtask default-policy action must use ActionButton",
 );
 assert(
-  labelSubtaskControls.includes('<ActionButton variant="mini" type="submit">'),
-  "label subtask custom-label submit must use ActionButton",
-);
-assert(
-  !labelSubtaskControls.includes('<button type="submit">添加</button>'),
-  "label subtask submit regressed to a raw button",
+  !labelSubtaskControls.includes('type="submit"') &&
+    !labelSubtaskControls.includes('<button type="submit">添加</button>'),
+  "label subtask panel must not expose a custom-label submit path",
 );
 assert(
   jobsPage.includes("import { CompactSelectControl } from \"./controlPrimitives\";"),
@@ -102,8 +99,10 @@ assert(
   labelSubtaskControls.includes("OptionChipButton") &&
     labelSubtaskControls.includes("DetectionLabelSubtaskPanel") &&
     labelSubtaskControls.includes('if (task !== "detection")') &&
-    labelSubtaskControls.includes("return null;"),
-  "label subtask chips must import OptionChipButton",
+    labelSubtaskControls.includes("return null;") &&
+    !labelSubtaskControls.includes("label-subtask-add") &&
+    !labelSubtaskControls.includes("自定义 label"),
+  "label subtask chips must use controlled candidates and must not expose free-text label entry",
 );
 assert(
   labelSubtaskControls.includes("<OptionChipButton") &&

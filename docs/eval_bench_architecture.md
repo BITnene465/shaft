@@ -135,8 +135,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/runsPage.tsx`
   - 维护结果库、导入预测弹窗、带结构化模板插入的 run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
 - `projects/eval_bench/frontend/src/labelSubtaskControls.tsx`
-  - 维护 detection label 子任务 chip、默认策略、全部候选和自定义 label 追加控件；Jobs 和 Runs
-    import prediction 只能复用该组件，keypoint 不暴露 label 子任务 UI。
+  - 维护 detection label 子任务 chip、默认策略和全部候选选择；Jobs 和 Runs import prediction
+    只能复用该组件，不暴露自由文本 label 追加路径，keypoint 不暴露 label 子任务 UI。
 - `projects/eval_bench/frontend/src/sampleViewer.tsx`
   - 维护 Run Inspector 与成对样本对比共享的 GT / Prediction 叠图、对象检查器和 viewer 偏好状态。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
@@ -169,7 +169,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 `resolve-target-labels`，
   不能直接扫描 benchmark artifact 或 prompt registry。
 - 新增 detection label 子任务 UI：必须通过 manifest 或 import payload 的 `target_labels` 修改显式 spec，
-  候选 label 来自 benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
+  候选 label 来自 benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label，也不能
+  在共享面板里暴露自由文本 label 添加入口。`preflight-job`
   必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。
   前端应用 prompt template 后必须重新按 manifest task 选择兼容 benchmark；不能只因为旧 benchmark id
   仍存在就保留一个 task 不匹配的 job draft。

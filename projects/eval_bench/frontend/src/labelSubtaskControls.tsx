@@ -1,6 +1,3 @@
-import { useState } from "react";
-import type { FormEvent } from "react";
-
 import { unique } from "./formatters";
 import { ActionButton, OptionChipButton } from "./ui";
 
@@ -19,7 +16,6 @@ export function DetectionLabelSubtaskPanel({
   onChange: (labels: string[]) => void;
   className?: string;
 }) {
-  const [draftLabel, setDraftLabel] = useState("");
   if (task !== "detection") {
     return null;
   }
@@ -31,16 +27,6 @@ export function DetectionLabelSubtaskPanel({
       return;
     }
     onChange(unique([...selectedLabels, label]));
-  }
-
-  function addDraftLabel(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = draftLabel.trim();
-    if (!value) {
-      return;
-    }
-    onChange(unique([...selectedLabels, value]));
-    setDraftLabel("");
   }
 
   return (
@@ -71,16 +57,6 @@ export function DetectionLabelSubtaskPanel({
         ))}
         {labelOptions.length === 0 ? <span className="label-subtask-empty">暂无 label 索引</span> : null}
       </div>
-      <form className="label-subtask-add" onSubmit={addDraftLabel}>
-        <input
-          value={draftLabel}
-          onChange={(event) => setDraftLabel(event.target.value)}
-          placeholder="自定义 label"
-        />
-        <ActionButton variant="mini" type="submit">
-          添加
-        </ActionButton>
-      </form>
     </div>
   );
 }

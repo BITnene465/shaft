@@ -796,7 +796,7 @@ tbody tr:hover td {
 
 .label-subtask-panel {
   display: grid;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.4fr) minmax(170px, 0.8fr);
+  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.4fr);
   gap: 8px;
   align-items: center;
   padding: 8px;
@@ -843,8 +843,7 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-.label-subtask-head .mini-button,
-.label-subtask-add .mini-button {
+.label-subtask-head .mini-button {
   min-height: 28px;
   padding: 0 10px;
   font-size: 11px;
@@ -861,23 +860,6 @@ tbody tr:hover td {
 
 .label-subtask-chips .query-chip {
   flex: 0 0 auto;
-}
-
-.label-subtask-add {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-}
-
-.label-subtask-add input {
-  min-width: 0;
-  height: 28px;
-  padding: 0 9px;
-  background: #fff;
-  border: 1px solid var(--bench-line);
-  border-radius: 2px;
-  color: #172536;
-  font-size: 12px;
 }
 
 .sample-list,
