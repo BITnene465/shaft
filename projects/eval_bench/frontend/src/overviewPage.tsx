@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Activity, BarChart3 } from "lucide-react";
 
-import type { RunSummary } from "./api";
+import type { RunSummary, SchedulerStatus } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
@@ -32,10 +32,23 @@ export function OverviewPage() {
   if (error || !data) {
     return <EmptyState title="看板状态加载失败" tone="danger" />;
   }
+  const jobs = jobsQuery.data?.jobs ?? [];
+  const services = servicesQuery.data?.services ?? [];
+  const schedulerStatus = schedulerQuery.data;
+  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
+  const runningJobs = jobs.filter((job) => job.status === "running").length;
+  const liveServices = services.filter((service) => service.status === "running").length;
+  const activeRuns = data.runs.filter((run) =>
+    ["created", "queued", "running"].includes(run.status)
+  ).length;
+  const overviewSyncing =
+    jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
   const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
   const promptRows = countBy(data.runs, (run) => run.prompt_id || "unknown");
+  const parserRows = countBy(data.runs, (run) => run.parser || "unknown");
+  const viewRows = countBy(data.runs, (run) => run.visualization_profile || "default");
   const benchmarkTaskRows = countMany(data.benchmarks, (benchmark) => benchmark.tasks);
   const benchmarkLabelRows = countMany(data.benchmarks, (benchmark) => benchmark.labels);
   const benchmarkLayerRows = countMany(data.benchmarks, (benchmark) => benchmark.layers);
@@ -48,10 +61,20 @@ export function OverviewPage() {
     run.target_labels.length > 0 ? run.target_labels : ["unscoped"]
   );
   const freshnessRows = runFreshnessRows(data.runs);
+  const predictionRows = countBy(data.runs, (run) => predictionScaleBucket(run.prediction_count));
+  const noteRows = runNoteRows(data.runs);
+  const jobStatusRows = countBy(jobs, (job) => job.status || "unknown");
+  const jobKindRows = countBy(jobs, (job) => job.kind || "unknown");
+  const serviceStatusRows = countBy(services, (service) => service.status || "unknown");
+  const serviceKindRows = countBy(services, (service) => service.kind || "unknown");
+  const liveSignalRows = [
+    { key: "queued jobs", count: queuedJobs },
+    { key: "running jobs", count: runningJobs },
+    { key: "live services", count: liveServices },
+    { key: "active runs", count: activeRuns }
+  ];
+  const schedulerRows = schedulerResourceRows(schedulerStatus);
   const timelineRows = runTimeline(data.runs, 12);
-  const activeRuns = data.runs.filter((run) =>
-    ["created", "queued", "running"].includes(run.status)
-  ).length;
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
   const overviewCharts = [
@@ -60,21 +83,24 @@ export function OverviewPage() {
     { title: "Run 任务", meta: "spec_task", rows: taskRows },
     { title: "模型分布", meta: "model_id", rows: modelRows },
     { title: "Prompt 分布", meta: "prompt_id", rows: promptRows },
+    { title: "Parser", meta: "decode path", rows: parserRows },
+    { title: "Viewer profile", meta: "visual mode", rows: viewRows },
     { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows },
     { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows },
     { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows },
     { title: "数据层", meta: "benchmark layers", rows: benchmarkLayerRows },
     { title: "Split 分布", meta: "dataset split", rows: splitRows },
     { title: "Label scope", meta: "run labels", rows: targetLabelRows },
-    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows }
+    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows },
+    { title: "预测规模", meta: "prediction files", rows: predictionRows },
+    { title: "备注覆盖", meta: "run notes", rows: noteRows },
+    { title: "Job 状态", meta: "queue state", rows: jobStatusRows },
+    { title: "Job 类型", meta: "job kind", rows: jobKindRows },
+    { title: "Service 状态", meta: "runtime state", rows: serviceStatusRows },
+    { title: "Service 类型", meta: "runtime kind", rows: serviceKindRows },
+    { title: "实时信号", meta: "live counters", rows: liveSignalRows },
+    { title: "Scheduler", meta: "resource slots", rows: schedulerRows }
   ];
-  const jobs = jobsQuery.data?.jobs ?? [];
-  const services = servicesQuery.data?.services ?? [];
-  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
-  const runningJobs = jobs.filter((job) => job.status === "running").length;
-  const liveServices = services.filter((service) => service.status === "running").length;
-  const overviewSyncing =
-    jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   return (
     <section className="page-stack dashboard-home">
       <div className="overview-console">
@@ -111,22 +137,24 @@ export function OverviewPage() {
           </div>
         </div>
       </div>
-      <div className="overview-ops-strip">
-        <OverviewDatum label="GT samples" value={data.total_benchmark_samples} />
-        <OverviewDatum label="Predictions" value={data.prediction_count} />
-        <OverviewDatum label="Notes" value={notedRuns} />
-        <OverviewDatum label="Tasks" value={taskRows.length} />
+      <div className="overview-signal-deck">
+        <div className="overview-ops-strip">
+          <OverviewDatum label="GT samples" value={data.total_benchmark_samples} />
+          <OverviewDatum label="Predictions" value={data.prediction_count} />
+          <OverviewDatum label="Notes" value={notedRuns} />
+          <OverviewDatum label="Tasks" value={taskRows.length} />
+        </div>
+        <OverviewWriteRhythm rows={timelineRows} />
+        <OverviewTelemetryPanel
+          queuedJobs={queuedJobs}
+          runningJobs={runningJobs}
+          liveServices={liveServices}
+          totalJobs={jobs.length}
+          totalServices={services.length}
+          schedulerEnabled={Boolean(schedulerStatus?.enabled)}
+          syncing={overviewSyncing}
+        />
       </div>
-      <OverviewWriteRhythm rows={timelineRows} />
-      <OverviewTelemetryPanel
-        queuedJobs={queuedJobs}
-        runningJobs={runningJobs}
-        liveServices={liveServices}
-        totalJobs={jobs.length}
-        totalServices={services.length}
-        schedulerEnabled={Boolean(schedulerQuery.data?.enabled)}
-        syncing={overviewSyncing}
-      />
       <div className="overview-grid refined">
         <div className="overview-chart-matrix">
           {overviewCharts.map((chart) => (
@@ -265,7 +293,10 @@ function OverviewMiniChartPanel({
                   <i
                     style={
                       {
-                        width: `${Math.max(4, (row.count / maxCount) * 100)}%`,
+                        width:
+                          row.count > 0
+                            ? `${Math.max(4, (row.count / maxCount) * 100)}%`
+                            : "0%",
                         "--overview-bar-fill": overviewChartColor(index)
                       } as React.CSSProperties
                     }
@@ -347,11 +378,8 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   if (runs.length === 0) {
     return <div className="empty-inline">暂无 run。</div>;
   }
-  const listStyle = {
-    "--overview-run-columns": "1"
-  } as React.CSSProperties;
   return (
-    <div className="overview-run-list" style={listStyle}>
+    <div className="overview-run-list">
       {runs.map((run, index) => (
         <Link key={run.run_id} to="/runs/$runId" params={{ runId: run.run_id }}>
           <em>{String(index + 1).padStart(2, "0")}</em>
@@ -421,6 +449,43 @@ function sampleScaleBucket(sampleCount: number) {
     return "1k-9.9k";
   }
   return "10k+";
+}
+
+function predictionScaleBucket(predictionCount: number) {
+  if (predictionCount <= 0) {
+    return "0";
+  }
+  if (predictionCount < 10) {
+    return "1-9";
+  }
+  if (predictionCount < 100) {
+    return "10-99";
+  }
+  if (predictionCount < 1_000) {
+    return "100-999";
+  }
+  return "1k+";
+}
+
+function runNoteRows(runs: RunSummary[]) {
+  return [
+    { key: "有备注", count: runs.filter((run) => run.note.trim()).length },
+    { key: "无备注", count: runs.filter((run) => !run.note.trim()).length }
+  ];
+}
+
+function schedulerResourceRows(status: SchedulerStatus | undefined) {
+  if (!status) {
+    return [{ key: "unknown", count: 1 }];
+  }
+  const liveJobs = status.live_running_count ?? status.live_running_jobs?.length ?? 0;
+  return [
+    { key: status.enabled ? "auto" : "manual", count: 1 },
+    { key: "live jobs", count: liveJobs },
+    { key: "workers", count: status.active_worker_threads?.length ?? 0 },
+    { key: "cuda", count: status.reserved_cuda_devices?.length ?? 0 },
+    { key: "ports", count: status.reserved_runtime_ports?.length ?? 0 }
+  ];
 }
 
 function runFreshnessRows(runs: RunSummary[]) {

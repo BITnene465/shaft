@@ -2890,3 +2890,42 @@ Run Inspector 最初和成对样本对比共享同一个 `SampleViewer`，为了
 
 - Compare 总览继续在 `comparePage.tsx` 中演进；成对样本详情只在 `comparisonSamplePage.tsx` 中演进。
 - Run Inspector 与 Compare sample 继续共用 `sampleViewer.tsx`，避免叠图、对象检查器和偏好状态分叉。
+
+## 2026-05-25: Eval Bench Overview signal deck 与 20+ 图表矩阵
+
+### 现象
+
+总览页已经有 12 个粗粒度 mini chart，但 ops 指标、写入节奏和实时遥测仍各占一行；用户继续要求总览拥有更多
+可视化图表，并且进一步压缩信息密度。
+
+### 根因
+
+Overview 的上一轮设计虽然把最近 run 改成窄事件轨，但顶部运行态信号仍沿用多条独立 block。主矩阵也只覆盖
+run / benchmark 的静态汇总，job、service、scheduler、备注覆盖和预测规模没有以图表形式进入总控视角。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 首页的信息架构、总览密度和实时控制台可读性。
+- 不改变后端 API、run note 存储、rank-board 主指标或 eval metric 语义。
+- 总览仍不展示 precision / recall / IoU 等细粒度模型能力指标。
+
+### 修复方式
+
+- 将 ops、12 桶写入节奏和 scheduler/job/service telemetry 合并为一条 `overview-signal-deck`。
+- 总览主矩阵扩展到 20+ 个粗粒度 mini chart，新增 parser、viewer profile、预测规模、备注覆盖、job 状态、job 类型、service 状态、service 类型、实时信号和 scheduler 资源图表。
+- 进一步压缩 chart card、ring、bar row 和 grid row 高度，避免少量数据时空白拉伸。
+- compact 视口下如果图表矩阵需要更多垂直空间，由 `.overview-chart-matrix` 自己滚动，避免外层 `hidden` 裁切图表。
+- 最近 run 从右侧整列改为底部横向事件条，释放主图表矩阵宽度，避免小数据量时出现大块空白侧栏。
+- `layout-smoke-check.mjs` 将 Overview mini chart 下限提高到 20，并检查 signal deck 本身不能退化成大块低密度 block；同时检查图表矩阵需要滚动时不能 hidden 裁切。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- Overview 新增运行态内容必须优先进入 signal deck 或 mini chart 矩阵，不再新增整行低密度 block。
+- 细粒度模型能力指标继续留在 Rank Board、Run Inspector 和 Compare，不进入总览。

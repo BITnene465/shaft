@@ -16,6 +16,7 @@ const staticRoutes = [
     selectors: [
       ".dashboard-home",
       ".overview-console",
+      ".overview-signal-deck",
       ".overview-rhythm-strip",
       ".overview-grid.refined",
       ".overview-chart-matrix",
@@ -393,7 +394,11 @@ async function assertOverviewDensity(page, scope) {
       Math.round(node.getBoundingClientRect().height)
     );
     const rhythm = document.querySelector(".overview-rhythm-strip");
+    const signalDeck = document.querySelector(".overview-signal-deck");
+    const chartMatrix = document.querySelector(".overview-chart-matrix");
     const rhythmStyle = rhythm ? getComputedStyle(rhythm) : null;
+    const signalDeckStyle = signalDeck ? getComputedStyle(signalDeck) : null;
+    const chartMatrixStyle = chartMatrix ? getComputedStyle(chartMatrix) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
       rhythmBars: document.querySelectorAll(".overview-rhythm-bars span").length,
@@ -406,15 +411,21 @@ async function assertOverviewDensity(page, scope) {
       ).length,
       bodyText,
       rhythmHeight: rhythm ? Math.round(rhythm.getBoundingClientRect().height) : 0,
+      signalDeckHeight: signalDeck ? Math.round(signalDeck.getBoundingClientRect().height) : 0,
+      chartMatrixScrollHeight: chartMatrix?.scrollHeight ?? 0,
+      chartMatrixClientHeight: chartMatrix?.clientHeight ?? 0,
       rhythmOverflowX: rhythmStyle?.overflowX ?? "",
-      rhythmOverflowY: rhythmStyle?.overflowY ?? ""
+      rhythmOverflowY: rhythmStyle?.overflowY ?? "",
+      signalDeckOverflowX: signalDeckStyle?.overflowX ?? "",
+      signalDeckOverflowY: signalDeckStyle?.overflowY ?? "",
+      chartMatrixOverflowY: chartMatrixStyle?.overflowY ?? ""
     };
   });
   if (state.rhythmBars !== 12) {
     throw new Error(`${scope}: overview rhythm should use 12 compact bars, got ${state.rhythmBars}`);
   }
-  if (state.miniCharts < 12) {
-    throw new Error(`${scope}: overview should expose at least twelve mini charts, got ${state.miniCharts}`);
+  if (state.miniCharts < 20) {
+    throw new Error(`${scope}: overview should expose at least twenty mini charts, got ${state.miniCharts}`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
@@ -434,6 +445,31 @@ async function assertOverviewDensity(page, scope) {
         height: state.rhythmHeight,
         overflowX: state.rhythmOverflowX,
         overflowY: state.rhythmOverflowY
+      })}`
+    );
+  }
+  if (
+    state.signalDeckHeight > 140 ||
+    state.signalDeckOverflowX === "visible" ||
+    state.signalDeckOverflowY === "visible"
+  ) {
+    throw new Error(
+      `${scope}: overview signal deck is not compact ${JSON.stringify({
+        height: state.signalDeckHeight,
+        overflowX: state.signalDeckOverflowX,
+        overflowY: state.signalDeckOverflowY
+      })}`
+    );
+  }
+  if (
+    state.chartMatrixScrollHeight > state.chartMatrixClientHeight + 2 &&
+    !allowsScroll(state.chartMatrixOverflowY)
+  ) {
+    throw new Error(
+      `${scope}: overview chart matrix clips charts without scroll ${JSON.stringify({
+        scrollHeight: state.chartMatrixScrollHeight,
+        clientHeight: state.chartMatrixClientHeight,
+        overflowY: state.chartMatrixOverflowY
       })}`
     );
   }

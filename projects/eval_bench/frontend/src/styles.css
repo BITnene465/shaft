@@ -6285,6 +6285,20 @@ tbody tr:hover td {
   min-height: 44px;
 }
 
+.overview-signal-deck {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(176px, 0.2fr) minmax(300px, 0.34fr) minmax(0, 1fr);
+  gap: 8px;
+  min-height: 66px;
+  overflow: hidden;
+}
+
+.overview-signal-deck .overview-ops-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 66px;
+}
+
 .overview-datum {
   min-width: 0;
   padding: 7px 12px;
@@ -6295,11 +6309,24 @@ tbody tr:hover td {
   border-right: 0;
 }
 
+.overview-signal-deck .overview-datum {
+  padding: 6px 9px;
+}
+
+.overview-signal-deck .overview-datum:nth-child(1),
+.overview-signal-deck .overview-datum:nth-child(2) {
+  border-bottom: 1px solid #e2e8ef;
+}
+
+.overview-signal-deck .overview-datum:nth-child(2) {
+  border-right: 0;
+}
+
 .overview-datum strong {
   display: block;
   margin-top: 4px;
   color: #172332;
-  font-size: 17px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -6311,6 +6338,10 @@ tbody tr:hover td {
   gap: 8px;
   min-height: 52px;
   min-width: 0;
+}
+
+.overview-signal-deck .overview-telemetry-panel {
+  min-height: 66px;
 }
 
 .telemetry-signal,
@@ -6428,8 +6459,8 @@ tbody tr:hover td {
 .overview-grid.refined {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(248px, 0.24fr);
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 8px;
   min-height: 0;
   overflow: hidden;
@@ -6439,20 +6470,30 @@ tbody tr:hover td {
   display: grid;
   grid-column: 1;
   grid-row: 1;
-  grid-template-columns: repeat(auto-fit, minmax(154px, 1fr));
-  grid-auto-rows: minmax(84px, 112px);
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-auto-rows: minmax(74px, 98px);
   align-content: start;
   min-height: 0;
-  gap: 8px;
-  overflow: hidden;
+  gap: 6px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.overview-chart-matrix::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.overview-chart-matrix::-webkit-scrollbar-thumb {
+  background: #b8c7d5;
 }
 
 .overview-chart-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 4px;
+  gap: 2px;
   min-height: 0;
-  padding: 5px;
+  padding: 4px;
   overflow: hidden;
   border-radius: 6px;
 }
@@ -6462,8 +6503,8 @@ tbody tr:hover td {
 }
 
 .overview-chart-card .panel-title {
-  min-height: 24px;
-  padding: 0 4px;
+  min-height: 21px;
+  padding: 0 3px;
   border-bottom: 0;
 }
 
@@ -6484,8 +6525,8 @@ tbody tr:hover td {
 
 .overview-mini-chart {
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 6px;
   min-height: 0;
   align-items: center;
 }
@@ -6494,8 +6535,8 @@ tbody tr:hover td {
   position: relative;
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   color: #173244;
   background: var(--overview-ring);
   border: 1px solid #d7e4ec;
@@ -6505,7 +6546,7 @@ tbody tr:hover td {
 
 .overview-chart-ring::after {
   position: absolute;
-  inset: 14px;
+  inset: 12px;
   content: "";
   background:
     linear-gradient(180deg, #ffffff 0%, #f4f8fb 100%);
@@ -6532,25 +6573,25 @@ tbody tr:hover td {
   align-self: start;
   margin-top: 3px;
   color: #172332;
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .overview-bar-list {
   display: grid;
   align-content: start;
-  gap: 5px;
+  gap: 4px;
   min-height: 0;
   overflow: hidden;
 }
 
 .overview-bar-row {
   display: grid;
-  grid-template-columns: minmax(42px, 0.7fr) minmax(0, 1fr) 28px;
-  gap: 5px;
+  grid-template-columns: minmax(38px, 0.72fr) minmax(0, 1fr) 24px;
+  gap: 4px;
   align-items: center;
   color: #46596a;
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .overview-bar-row > span {
@@ -6596,6 +6637,10 @@ tbody tr:hover td {
   border-radius: 2px;
 }
 
+.overview-signal-deck .overview-rhythm-strip {
+  min-height: 66px;
+}
+
 .overview-rhythm-copy,
 .overview-rhythm-meta {
   display: grid;
@@ -6629,7 +6674,7 @@ tbody tr:hover td {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: end;
   gap: 5px;
-  height: 32px;
+  height: 34px;
   min-width: 0;
 }
 
@@ -6675,22 +6720,23 @@ tbody tr:hover td {
 
 .overview-run-list {
   display: grid;
-  grid-template-columns: repeat(var(--overview-run-columns, 2), minmax(0, 1fr));
-  grid-auto-rows: minmax(42px, auto);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-auto-rows: minmax(36px, auto);
   align-content: start;
   min-height: 0;
-  gap: 5px;
-  padding: 6px;
+  max-height: 82px;
+  gap: 4px;
+  padding: 5px;
   overflow: auto;
 }
 
 .overview-run-list a {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
-  gap: 7px;
+  gap: 6px;
   align-items: center;
-  min-height: 42px;
-  padding: 5px;
+  min-height: 36px;
+  padding: 4px 5px;
   color: inherit;
   text-decoration: none;
   background: #fbfdff;
@@ -6701,8 +6747,8 @@ tbody tr:hover td {
 .overview-run-list a > em {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   color: #0d5d7c;
   background: #eaf6fa;
   border: 1px solid #c8e0eb;
@@ -6742,15 +6788,15 @@ tbody tr:hover td {
 
 .overview-recent-panel {
   display: grid;
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: 1;
+  grid-row: 2;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border-radius: 6px;
 }
 
 .overview-recent-panel .panel-title {
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 8px;
 }
 
@@ -6771,6 +6817,28 @@ tbody tr:hover td {
 
   .overview-ops-strip {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .overview-signal-deck {
+    grid-template-columns: minmax(252px, 0.34fr) minmax(236px, 0.32fr) minmax(0, 1fr);
+  }
+
+  .overview-signal-deck .overview-ops-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-height: 66px;
+  }
+
+  .overview-signal-deck .overview-datum {
+    padding: 6px 7px;
+    border-bottom: 0;
+  }
+
+  .overview-signal-deck .overview-datum:nth-child(2) {
+    border-right: 1px solid #e2e8ef;
+  }
+
+  .overview-signal-deck .overview-telemetry-panel {
+    min-height: 66px;
   }
 
   .overview-telemetry-grid {
@@ -6810,6 +6878,38 @@ tbody tr:hover td {
   }
 }
 
+@media (max-width: 900px) {
+  .overview-signal-deck {
+    grid-template-columns: minmax(214px, 0.42fr) minmax(0, 1fr);
+  }
+
+  .overview-signal-deck .overview-ops-strip {
+    grid-column: 1 / -1;
+    min-height: 40px;
+  }
+
+  .overview-signal-deck .overview-datum {
+    padding: 5px 8px;
+  }
+
+  .overview-signal-deck .overview-rhythm-strip,
+  .overview-signal-deck .overview-telemetry-panel {
+    min-height: 58px;
+  }
+
+  .overview-signal-deck .overview-telemetry-panel {
+    grid-template-columns: minmax(82px, 0.28fr) minmax(0, 1fr);
+  }
+
+  .overview-telemetry-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .telemetry-cell {
+    padding: 7px 8px 7px 10px;
+  }
+}
+
 @media (max-width: 760px) {
   .advanced-filter-controls {
     grid-template-columns: 1fr;
@@ -6839,6 +6939,7 @@ tbody tr:hover td {
 
   .overview-console,
   .overview-console-main,
+  .overview-signal-deck,
   .overview-rhythm-strip,
   .overview-telemetry-panel,
   .overview-grid.refined {
