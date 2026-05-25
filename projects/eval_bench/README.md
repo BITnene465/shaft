@@ -457,16 +457,20 @@ Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 a
 Agent 检索基础对象走稳定 CLI/API，不需要读取前端 state 或手扫 store 目录。CLI 的
 `list-benchmarks` / `show-benchmark` / `list-runs` 与 API 的 `GET /api/benchmarks` /
 `GET /api/runs` 共享 task、label、model、prompt、metric 和全文查询语义；job、service 和
-comparison 列表同样由后端分页过滤，单个 service 详情用 `show-service` 读取。Job template
-和 prompt template 也有 CLI 入口，agent 创建 job 前可以先发现模板、筛选任务类型，并按需维护
-prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、evaluator
-和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
+comparison 列表同样由后端分页过滤，单个 job / service 详情用 `show-job` / `show-service`
+读取。Job template 和 prompt template 也有 CLI 入口，agent 创建 job 前可以先发现模板、读取单个模板、
+筛选任务类型，并按需维护 prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、
+evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
 
 ```bash
 .venv/bin/python scripts/eval_bench.py list-job-templates --query keypoint
+.venv/bin/python scripts/eval_bench.py show-job-template \
+  --template-id keypoint_eval_job
 .venv/bin/python scripts/eval_bench.py list-prompt-templates \
   --task detection \
   --query arrow
+.venv/bin/python scripts/eval_bench.py show-prompt-template \
+  --prompt-id grounding_arrow.latest
 .venv/bin/python scripts/eval_bench.py upsert-prompt-template \
   --payload-file /path/to/prompt_template.json
 .venv/bin/python scripts/eval_bench.py delete-prompt-template \
@@ -500,6 +504,8 @@ prompt template registry。CLI 模块本身保持轻量 import；dashboard、wor
   --kind eval \
   --status queued \
   --query qwen3vl
+.venv/bin/python scripts/eval_bench.py show-job \
+  --job-id eval_20260513_103418_ebb7f052
 .venv/bin/python scripts/eval_bench.py list-services \
   --kind local_vllm \
   --status running \

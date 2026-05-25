@@ -41,6 +41,9 @@ from eval_bench.cli import (
     _cmd_show_benchmark_sample,
     _cmd_show_comparison,
     _cmd_show_comparison_sample,
+    _cmd_show_job,
+    _cmd_show_job_template,
+    _cmd_show_prompt_template,
     _cmd_show_run,
     _cmd_show_run_report,
     _cmd_show_run_sample,
@@ -954,6 +957,14 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     assert "keypoint_eval_job" in job_templates["templates"]
     assert job_templates["templates"]["keypoint_eval_job"]["manifest"]["eval"]["task"] == "keypoint"
 
+    show_job_template_args = _build_parser().parse_args(
+        ["show-job-template", "--template-id", "keypoint_eval_job"]
+    )
+    _cmd_show_job_template(show_job_template_args)
+    job_template = json.loads(capsys.readouterr().out)
+    assert job_template["template_id"] == "keypoint_eval_job"
+    assert job_template["template"]["manifest"]["eval"]["metric_profile"] == "keypoint_endpoint_v1"
+
     list_args = _build_parser().parse_args(
         ["list-prompt-templates", "--output-root", str(tmp_path), "--task", "detection"]
     )
@@ -962,6 +973,20 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     assert prompt_templates["total"] >= 1
     assert "grounding_arrow.latest" in prompt_templates["by_id"]
     assert prompt_templates["by_id"]["grounding_arrow.latest"]["task"] == "detection"
+
+    show_prompt_args = _build_parser().parse_args(
+        [
+            "show-prompt-template",
+            "--output-root",
+            str(tmp_path),
+            "--prompt-id",
+            "grounding_arrow.latest",
+        ]
+    )
+    _cmd_show_prompt_template(show_prompt_args)
+    prompt_template = json.loads(capsys.readouterr().out)
+    assert prompt_template["template"]["prompt_id"] == "grounding_arrow.latest"
+    assert prompt_template["template"]["metadata"]["target_labels"] == ["arrow"]
 
     custom_payload = {
         "prompt_id": "custom.arrow.v1",
@@ -1207,6 +1232,15 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     assert jobs["total"] == 1
     assert jobs["filters"]["kind"] == "eval"
     assert jobs["jobs"][0]["job_id"] == job["job_id"]
+
+    show_job_args = _build_parser().parse_args(
+        ["show-job", "--output-root", str(tmp_path), "--job-id", job["job_id"]]
+    )
+    _cmd_show_job(show_job_args)
+    job_detail = json.loads(capsys.readouterr().out)
+    assert job_detail["job"]["job_id"] == job["job_id"]
+    assert job_detail["job"]["payload"]["target_labels"] == ["arrow"]
+    assert job_detail["job"]["payload"]["manifest"]["kind"] == "eval_job"
 
 
 def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> None:

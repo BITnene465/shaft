@@ -111,6 +111,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     list_job_templates.add_argument("--query", default=None)
 
+    show_job_template = subparsers.add_parser(
+        "show-job-template",
+        help="Print one manifest-first job template for humans and agents.",
+    )
+    show_job_template.add_argument("--template-id", required=True)
+
     list_prompt_templates = subparsers.add_parser(
         "list-prompt-templates",
         help="List prompt templates from the registry for humans and agents.",
@@ -120,6 +126,13 @@ def _build_parser() -> argparse.ArgumentParser:
     list_prompt_templates.add_argument("--query", default=None)
     list_prompt_templates.add_argument("--offset", type=int, default=0)
     list_prompt_templates.add_argument("--limit", type=int, default=100)
+
+    show_prompt_template = subparsers.add_parser(
+        "show-prompt-template",
+        help="Print one prompt template from the registry for humans and agents.",
+    )
+    show_prompt_template.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_prompt_template.add_argument("--prompt-id", required=True)
 
     resolve_target_labels = subparsers.add_parser(
         "resolve-target-labels",
@@ -170,6 +183,10 @@ def _build_parser() -> argparse.ArgumentParser:
     list_jobs.add_argument("--kind", default=None)
     list_jobs.add_argument("--status", default=None)
     list_jobs.add_argument("--query", default=None)
+
+    show_job = subparsers.add_parser("show-job", help="Print one persistent Eval Bench job.")
+    show_job.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_job.add_argument("--job-id", required=True)
 
     cancel_job = subparsers.add_parser(
         "cancel-job",
@@ -694,6 +711,17 @@ def _cmd_list_job_templates(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_show_job_template(args: argparse.Namespace) -> None:
+    from .job_spec import job_templates
+
+    template_id = str(args.template_id)
+    templates = job_templates()
+    template = templates.get(template_id)
+    if template is None:
+        raise FileNotFoundError(f"job template does not exist: {template_id}")
+    print(json.dumps({"template_id": template_id, "template": template}, ensure_ascii=False))
+
+
 def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
     from .database import EvalBenchDatabase
 
@@ -722,6 +750,15 @@ def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
     )
     payload["by_id"] = {record["prompt_id"]: record for record in payload["templates"]}  # type: ignore[index]
     print(json.dumps(payload, ensure_ascii=False))
+
+
+def _cmd_show_prompt_template(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
+    record = EvalBenchDatabase(args.output_root).get_prompt_template(str(args.prompt_id))
+    if record is None:
+        raise FileNotFoundError(f"prompt template does not exist: {args.prompt_id}")
+    print(json.dumps({"template": record.to_dict()}, ensure_ascii=False))
 
 
 def _cmd_resolve_target_labels(args: argparse.Namespace) -> None:
@@ -795,6 +832,15 @@ def _cmd_list_jobs(args: argparse.Namespace) -> None:
         query=args.query,
     )
     print(json.dumps(page.to_dict(), ensure_ascii=False))
+
+
+def _cmd_show_job(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+
+    record = EvalBenchDatabase(args.output_root).get_job(str(args.job_id))
+    if record is None:
+        raise FileNotFoundError(f"job does not exist: {args.job_id}")
+    print(json.dumps({"job": record.to_dict()}, ensure_ascii=False))
 
 
 def _cmd_cancel_job(args: argparse.Namespace) -> None:
@@ -1366,8 +1412,12 @@ def main() -> None:
         _cmd_preflight_job(args)
     elif args.command == "list-job-templates":
         _cmd_list_job_templates(args)
+    elif args.command == "show-job-template":
+        _cmd_show_job_template(args)
     elif args.command == "list-prompt-templates":
         _cmd_list_prompt_templates(args)
+    elif args.command == "show-prompt-template":
+        _cmd_show_prompt_template(args)
     elif args.command == "resolve-target-labels":
         _cmd_resolve_target_labels(args)
     elif args.command == "upsert-prompt-template":
@@ -1376,6 +1426,8 @@ def main() -> None:
         _cmd_delete_prompt_template(args)
     elif args.command == "list-jobs":
         _cmd_list_jobs(args)
+    elif args.command == "show-job":
+        _cmd_show_job(args)
     elif args.command == "cancel-job":
         _cmd_cancel_job(args)
     elif args.command == "delete-job":

@@ -3647,3 +3647,39 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
+
+## 2026-05-25: Eval Bench agent show CLI 覆盖 job 与模板对象
+
+### 现象
+
+Agent 已经可以列表查询 job templates、prompt templates 和 jobs，也可以创建 job、维护 prompt template；
+但读取单个 job template、prompt template 或 job 详情时仍缺少稳定 CLI。自动编排或排障时容易退回到
+直接读 SQLite、复用 list 输出中的局部字段，或者扫描 dashboard/store 状态。
+
+### 根因
+
+前几轮优先补齐了 create/list/preflight/lifecycle 和 benchmark/service 的单对象读取，模板对象和 job
+record 没有同步形成 list + show 闭环。虽然数据库层已有 `get_job()` 和 `get_prompt_template()`，
+CLI 没有暴露这些真源。
+
+### 影响范围
+
+- 影响 Eval Bench agent 操作面：job template、prompt template 和 job record 详情读取不够稳定。
+- 不改变 job 状态机、prompt template registry schema、preflight 语义、dashboard API 或评估运行链路。
+
+### 修复方式
+
+- CLI 增加 `show-job-template`，从 `job_spec.job_templates()` 读取单个 manifest-first 模板。
+- CLI 增加 `show-prompt-template`，复用 `EvalBenchDatabase.get_prompt_template()`。
+- CLI 增加 `show-job`，复用 `EvalBenchDatabase.get_job()`。
+- README、`docs/eval_bench_architecture.md` 和 `docs/scripts.md` 同步记录 agent list/show 边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py -k 'templates_for_agents or manifest_first_job'`
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+
+### 后续防线
+
+- 新增 agent 可操作对象时，必须同时补 list 和 show 的稳定 CLI；不允许让 agent 从 SQLite、前端 state
+  或 list payload 中临时拼对象详情。

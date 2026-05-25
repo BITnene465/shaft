@@ -161,10 +161,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
-  `list-job-templates`、`list-prompt-templates`、`list-benchmarks`、`show-benchmark`、
-  `list-runs`、`list-jobs`、`list-services`、`show-service`、`list-comparisons`、
-  `show-comparison`、`show-comparison-sample`，不要让 agent 读取前端状态、SQLite 或扫描
-  artifact 目录。
+  `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
+  `list-benchmarks`、`show-benchmark`、`list-runs`、`list-jobs`、`show-job`、`list-services`、
+  `show-service`、`list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
+  读取前端状态、SQLite 或扫描 artifact 目录。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
