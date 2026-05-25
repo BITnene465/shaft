@@ -9,6 +9,12 @@ from pathlib import Path
 from .artifacts import DEFAULT_STORE_ROOT
 
 
+DETECTION_TARGET_LABEL_HELP = (
+    "Detection label subtask scope; repeat for multiple labels. "
+    "Keypoint runs are fixed to arrow and reject non-arrow labels."
+)
+
+
 AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "list-agent-commands": {"domain": "meta", "mutates_state": False},
     "show-agent-command": {"domain": "meta", "mutates_state": False},
@@ -113,7 +119,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target_labels",
         action="append",
         default=None,
-        help="Limit detection/keypoint evaluation to this label; repeat for multiple labels.",
+        help=DETECTION_TARGET_LABEL_HELP,
     )
     init_run.add_argument("--backend", default="vllm_openai")
     init_run.add_argument("--endpoint", default=None)
@@ -228,7 +234,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target_labels",
         action="append",
         default=None,
-        help="Explicit target label; repeat for multiple labels.",
+        help=DETECTION_TARGET_LABEL_HELP,
     )
 
     upsert_prompt_template = subparsers.add_parser(
@@ -547,7 +553,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="target_labels",
         action="append",
         default=None,
-        help="Limit imported-run evaluation to this label; repeat for multiple labels.",
+        help=DETECTION_TARGET_LABEL_HELP,
     )
     import_predictions.add_argument("--strict", action="store_true")
     import_predictions.add_argument("--overwrite", action="store_true")

@@ -193,6 +193,8 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert init_run_args["benchmark_id"]["required"] is True
     assert init_run_args["target_labels"]["action"] == "append"
     assert init_run_args["target_labels"]["repeatable"] is True
+    assert "Detection label subtask scope" in init_run_args["target_labels"]["help"]
+    assert "Keypoint runs are fixed to arrow" in init_run_args["target_labels"]["help"]
     assert init_run_args["max_tokens"]["type"] == "int"
     assert init_run_args["batch_size"]["default"] == 1
 
@@ -228,7 +230,15 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     import_args = {item["dest"]: item for item in commands_by_name["import-predictions"]["arguments"]}
     assert import_args["target_labels"]["action"] == "append"
     assert import_args["target_labels"]["repeatable"] is True
+    assert "Detection label subtask scope" in import_args["target_labels"]["help"]
+    assert "Keypoint runs are fixed to arrow" in import_args["target_labels"]["help"]
     assert import_args["skip_evaluate"]["action"] == "store_true"
+
+    resolve_args = {
+        item["dest"]: item for item in commands_by_name["resolve-target-labels"]["arguments"]
+    }
+    assert "Detection label subtask scope" in resolve_args["target_labels"]["help"]
+    assert "Keypoint runs are fixed to arrow" in resolve_args["target_labels"]["help"]
 
 
 def test_cli_shows_single_agent_command_contract(capsys) -> None:

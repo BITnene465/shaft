@@ -407,7 +407,9 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 `grounding_layout.latest` 或显式传 `--target-label icon --target-label image --target-label shape`；
 否则 evaluator 无法知道本轮 detection 是否应排除 arrow。
 
-`init-run` 也支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
+`init-run`、`import-predictions` 和 `resolve-target-labels` 的 `--target-label` 都只表示 detection
+label 子任务范围；keypoint run 固定评价 `arrow`，传入非 `arrow` label 会被同一套 label policy 拒绝。
+`init-run` 支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
 后端会按同一份 `label_policy.py` 从 prompt id / task 推导默认范围：
 
 ```bash

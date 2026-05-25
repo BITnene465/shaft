@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench target-label CLI 文案误导 keypoint 子任务语义
+
+### 现象
+
+`label_policy.py` 已经明确 keypoint 任务固定评价 `arrow`，并会拒绝非 `arrow` 的显式 `target_labels`；
+但 `init-run --target-label` 的 help 仍写成 “Limit detection/keypoint evaluation”，agent command contract
+也会暴露这段文案，容易让 agent 误以为 keypoint 可以像 detection 一样选择任意 label 子集。
+
+### 根因
+
+label 子任务能力先在解析与验证层收口，CLI 参数说明没有同步从“通用 target label”改为“detection label subtask scope”。
+agent 契约直接从 argparse action 抽取 help，因此 CLI help 的模糊描述会进入稳定 agent 命令面。
+
+### 影响范围
+
+- 影响 `init-run`、`import-predictions` 和 `resolve-target-labels` 的 agent-facing 参数契约。
+- 不改变 evaluator、codec、metric、rank-board 或数据语义；这是 CLI/agent contract 文案偏差，不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 新增共享 `DETECTION_TARGET_LABEL_HELP`，统一三个 `--target-label` 参数说明。
+- 文案明确 `--target-label` 代表 detection label 子任务范围，keypoint run 固定 `arrow` 且会拒绝非 `arrow` label。
+- CLI contract 测试锁住这段 help，避免后续重新把 keypoint 描述成任意 label 子任务。
+- README 同步 agent/CLI 使用说明。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers_for_agent_contract projects/eval_bench/tests/test_cli.py::test_cli_resolves_target_labels_for_agent_label_subtasks`
+
+### 后续防线
+
+- 面向 agent 的 CLI 参数 help 必须和后端 policy 保持同一语义；新增或修改 agent 稳定命令时要同时检查 argparse help 和 policy 测试。
+
 ## 2026-05-25: Eval Bench 对比样本页 compact 视口横向裁切
 
 ### 现象
