@@ -1,7 +1,18 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Activity, ArrowRight, BarChart3, Gauge } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  Gauge,
+  Layers3,
+  PlayCircle,
+  Radio,
+  Server,
+  Trophy
+} from "lucide-react";
 
 import type { JobSummary, RunSummary, ServiceSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
@@ -9,19 +20,36 @@ import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
 import { Badge, EmptyState, PanelTitle } from "./ui";
 
+type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks";
+type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
 type OverviewActivityLane = {
   label: string;
   tone: "run" | "job" | "service";
-  rows: OverviewTrackRow[];
+  rows: OverviewCountRow[];
   total: number;
 };
-type OverviewTrackRow = { key: string; count: number };
+type OverviewCountRow = { key: string; count: number };
 type OverviewTrack = {
   label: string;
   value: number;
   total: number;
   meta: string;
-  tone: "idle" | "live" | "warm" | "good";
+  tone: OverviewTone;
+};
+type OverviewPipelineStage = {
+  label: string;
+  value: number;
+  total: number;
+  meta: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+};
+type OverviewAction = {
+  label: string;
+  detail: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+  icon: React.ReactNode;
 };
 
 export function OverviewPage() {
@@ -71,6 +99,51 @@ export function OverviewPage() {
   const coveragePercent = percent(evaluatedRuns, totalRuns);
   const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
+  const activeQueue = queuedJobs + runningJobs;
+  const schedulerEnabled = Boolean(schedulerStatus?.enabled);
+  const nextAction = overviewNextAction({
+    failedJobs,
+    waitingEvaluation,
+    activeQueue,
+    liveServices,
+    serviceCount: services.length,
+    evaluatedRuns
+  });
+
+  const pipelineStages: OverviewPipelineStage[] = [
+    {
+      label: "Benchmarks",
+      value: data.benchmark_count,
+      total: Math.max(data.benchmark_count, 1),
+      meta: `${data.total_benchmark_samples.toLocaleString()} samples`,
+      to: "/benchmarks" as OverviewRoute,
+      tone: data.benchmark_count > 0 ? "good" : "warm"
+    },
+    {
+      label: "Predictions",
+      value: data.prediction_count,
+      total: volumeTotal,
+      meta: `${runsWithPredictions.toLocaleString()} runs with pred`,
+      to: "/runs",
+      tone: data.prediction_count > 0 ? "live" : "idle"
+    },
+    {
+      label: "Evaluated",
+      value: evaluatedRuns,
+      total: totalRuns,
+      meta: `${coveragePercent}% complete`,
+      to: "/runs",
+      tone: waitingEvaluation > 0 ? "warm" : "good"
+    },
+    {
+      label: "Rank Ready",
+      value: evaluatedRuns,
+      total: totalRuns,
+      meta: evaluatedRuns > 0 ? "rank board available" : "need report",
+      to: "/rank-board",
+      tone: evaluatedRuns > 0 ? "good" : "idle"
+    }
+  ];
 
   const runTracks: OverviewTrack[] = [
     {
@@ -107,7 +180,7 @@ export function OverviewPage() {
       label: "Running jobs",
       value: runningJobs,
       total: totalJobs,
-      meta: Boolean(schedulerStatus?.enabled) ? "auto" : "manual",
+      meta: schedulerEnabled ? "auto scheduler" : "manual",
       tone: runningJobs > 0 ? "live" : "idle"
     },
     {
@@ -138,7 +211,7 @@ export function OverviewPage() {
       value: failedJobs,
       total: totalJobs,
       meta: failedJobs > 0 ? "needs check" : "clear",
-      tone: failedJobs > 0 ? "warm" : "idle"
+      tone: failedJobs > 0 ? "danger" : "idle"
     }
   ];
 
@@ -152,9 +225,21 @@ export function OverviewPage() {
           </div>
           <div className="overview-stat-row">
             <OverviewStat label="Coverage" value={`${coveragePercent}%`} />
-            <OverviewStat label="Pending" value={waitingEvaluation} tone={waitingEvaluation > 0 ? "live" : "idle"} />
-            <OverviewStat label="Queue" value={queuedJobs + runningJobs} tone={queuedJobs + runningJobs > 0 ? "live" : "idle"} />
-            <OverviewStat label="Services" value={`${liveServices}/${services.length}`} tone={liveServices > 0 ? "live" : "idle"} />
+            <OverviewStat
+              label="Pending"
+              value={waitingEvaluation}
+              tone={waitingEvaluation > 0 ? "live" : "idle"}
+            />
+            <OverviewStat
+              label="Queue"
+              value={activeQueue}
+              tone={activeQueue > 0 ? "live" : "idle"}
+            />
+            <OverviewStat
+              label="Services"
+              value={`${liveServices}/${services.length}`}
+              tone={liveServices > 0 ? "live" : "idle"}
+            />
           </div>
         </div>
         <div className="overview-console-side">
@@ -181,18 +266,12 @@ export function OverviewPage() {
 
       <div className="overview-command-deck">
         <section className="workspace-card overview-focus-panel">
-          <PanelTitle title="评测推进" meta="coverage / backlog / volume" />
-          <div className="overview-primary-meter">
-            <div>
-              <span>evaluated</span>
-              <strong>{evaluatedRuns.toLocaleString()} / {data.run_count.toLocaleString()}</strong>
-            </div>
-            <div className="overview-meter-rail" aria-hidden="true">
-              <i style={{ width: `${coveragePercent}%` }} />
-            </div>
-            <Badge value={waitingEvaluation > 0 ? "pending" : "clear"} domain="job" />
+          <div className="overview-focus-head">
+            <PanelTitle title="任务控制台" meta="pipeline / pressure / action" />
+            <OverviewNextAction action={nextAction} />
           </div>
-          <div className="overview-track-stack">
+          <OverviewPipeline stages={pipelineStages} />
+          <div className="overview-operational-grid">
             <OverviewTrackGroup icon={<Gauge size={15} />} title="Run" tracks={runTracks} />
             <OverviewTrackGroup icon={<Activity size={15} />} title="Ops" tracks={opsTracks} />
             <OverviewTrackGroup icon={<BarChart3 size={15} />} title="Volume" tracks={volumeTracks} />
@@ -200,7 +279,15 @@ export function OverviewPage() {
           <OverviewActivityMatrix lanes={activityLanes} />
         </section>
 
-        <OverviewRecentRunsPanel runs={data.runs.slice(0, 6)} />
+        <aside className="overview-side-stack">
+          <OverviewActionPanel
+            schedulerEnabled={schedulerEnabled}
+            liveServices={liveServices}
+            serviceCount={services.length}
+            activeQueue={activeQueue}
+          />
+          <OverviewRecentRunsPanel runs={data.runs.slice(0, 6)} />
+        </aside>
       </div>
     </section>
   );
@@ -220,6 +307,91 @@ function OverviewStat({
       <span>{label}</span>
       <strong>{typeof value === "number" ? value.toLocaleString() : value}</strong>
     </div>
+  );
+}
+
+function OverviewNextAction({ action }: { action: OverviewAction }) {
+  return (
+    <Link className={`overview-next-action ${action.tone}`} to={action.to}>
+      <span>{action.icon}</span>
+      <div>
+        <strong>{action.label}</strong>
+        <em>{action.detail}</em>
+      </div>
+      <ArrowRight size={16} />
+    </Link>
+  );
+}
+
+function OverviewPipeline({ stages }: { stages: OverviewPipelineStage[] }) {
+  return (
+    <div className="overview-pipeline" aria-label="Eval Bench 数据管线">
+      {stages.map((stage, index) => (
+        <Link className={`overview-pipeline-stage ${stage.tone}`} to={stage.to} key={stage.label}>
+          <div className="overview-pipeline-node">
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{stage.label}</strong>
+          </div>
+          <div className="overview-pipeline-value">
+            <strong>{stage.value.toLocaleString()}</strong>
+            <em>{stage.meta}</em>
+          </div>
+          <div className="overview-pipeline-rail" aria-hidden="true">
+            <i style={{ width: `${trackPercent(stage.value, stage.total)}%` }} />
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function OverviewActionPanel({
+  schedulerEnabled,
+  liveServices,
+  serviceCount,
+  activeQueue
+}: {
+  schedulerEnabled: boolean;
+  liveServices: number;
+  serviceCount: number;
+  activeQueue: number;
+}) {
+  const actions = [
+    {
+      label: "Rank Board",
+      detail: "查看当前可入榜结果",
+      to: "/rank-board" as OverviewRoute,
+      icon: <Trophy size={15} />
+    },
+    {
+      label: "Create Job",
+      detail: activeQueue > 0 ? `${activeQueue} active jobs` : "队列空闲",
+      to: "/jobs" as OverviewRoute,
+      icon: <PlayCircle size={15} />
+    },
+    {
+      label: "Services",
+      detail: serviceCount > 0 ? `${liveServices}/${serviceCount} running` : "未登记服务",
+      to: "/services" as OverviewRoute,
+      icon: <Server size={15} />
+    }
+  ];
+  return (
+    <section className="workspace-card overview-action-panel">
+      <PanelTitle title="行动入口" meta={schedulerEnabled ? "scheduler auto" : "scheduler manual"} />
+      <div className="overview-action-list">
+        {actions.map((action) => (
+          <Link className="overview-action-link" to={action.to} key={action.label}>
+            <span>{action.icon}</span>
+            <div>
+              <strong>{action.label}</strong>
+              <em>{action.detail}</em>
+            </div>
+            <ArrowRight size={14} />
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -247,7 +419,7 @@ function OverviewTrackGroup({
               <em>{track.meta}</em>
             </div>
             <div className="overview-track-rail" aria-hidden="true">
-              <i style={{ width: `${trackWidth(track)}%` }} />
+              <i style={{ width: `${trackPercent(track.value, track.total)}%` }} />
             </div>
           </div>
         ))}
@@ -268,7 +440,7 @@ function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
     <div className="overview-activity-matrix">
       <div className="overview-activity-header">
         <span>
-          <BarChart3 size={14} />
+          <Radio size={14} />
           活动节奏
         </span>
         <strong>{total.toLocaleString()} events / {bucketCount}d</strong>
@@ -313,7 +485,10 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
           <em>{String(index + 1).padStart(2, "0")}</em>
           <span>
             <strong>{run.run_id}</strong>
-            <small>{run.model_id || "-"}</small>
+            <small>
+              {run.model_id || "-"} · {run.prediction_count.toLocaleString()} pred /{" "}
+              {run.report_count.toLocaleString()} report
+            </small>
           </span>
           <Badge value={run.status} domain="run" />
         </Link>
@@ -331,6 +506,66 @@ function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
   );
 }
 
+function overviewNextAction({
+  failedJobs,
+  waitingEvaluation,
+  activeQueue,
+  liveServices,
+  serviceCount,
+  evaluatedRuns
+}: {
+  failedJobs: number;
+  waitingEvaluation: number;
+  activeQueue: number;
+  liveServices: number;
+  serviceCount: number;
+  evaluatedRuns: number;
+}): OverviewAction {
+  if (failedJobs > 0) {
+    return {
+      label: "检查失败任务",
+      detail: `${failedJobs.toLocaleString()} failed job records`,
+      to: "/jobs",
+      tone: "danger",
+      icon: <AlertTriangle size={16} />
+    };
+  }
+  if (waitingEvaluation > 0) {
+    return {
+      label: "处理待评估 run",
+      detail: `${waitingEvaluation.toLocaleString()} runs have predictions`,
+      to: "/runs",
+      tone: "warm",
+      icon: <Gauge size={16} />
+    };
+  }
+  if (activeQueue > 0) {
+    return {
+      label: "查看运行队列",
+      detail: `${activeQueue.toLocaleString()} queued or running`,
+      to: "/jobs",
+      tone: "live",
+      icon: <Activity size={16} />
+    };
+  }
+  if (serviceCount > 0 && liveServices === 0) {
+    return {
+      label: "启动模型服务",
+      detail: "registered services are idle",
+      to: "/services",
+      tone: "warm",
+      icon: <Server size={16} />
+    };
+  }
+  return {
+    label: evaluatedRuns > 0 ? "查看排行榜" : "创建评测任务",
+    detail: evaluatedRuns > 0 ? "reports are ready for ranking" : "no evaluated run yet",
+    to: evaluatedRuns > 0 ? "/rank-board" : "/jobs",
+    tone: evaluatedRuns > 0 ? "good" : "idle",
+    icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <Layers3 size={16} />
+  };
+}
+
 function percent(value: number, total: number) {
   if (total <= 0) {
     return 0;
@@ -338,11 +573,11 @@ function percent(value: number, total: number) {
   return Math.round((value / total) * 100);
 }
 
-function trackWidth(track: OverviewTrack) {
-  if (track.total <= 0 || track.value <= 0) {
+function trackPercent(value: number, total: number) {
+  if (total <= 0 || value <= 0) {
     return 0;
   }
-  return Math.max(5, Math.min(100, (track.value / track.total) * 100));
+  return Math.max(5, Math.min(100, (value / total) * 100));
 }
 
 function overviewActivityLanes(

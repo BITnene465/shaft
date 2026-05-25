@@ -9,6 +9,53 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 首页缺少可行动的下一步判断
+
+### 现象
+
+总览页已经删掉低价值 mini chart wall，但仍更像静态状态摘要。用户进入首页后不能立刻判断当前最该做什么：
+是处理失败任务、评估已有预测、查看运行队列、启动服务，还是进入排行榜复盘。同时整体系统的 hover、
+状态反馈和动效偏弱，显得像表格拼装而不是实时评测控制台。
+
+### 根因
+
+上一版总览只把面板数量压缩到 focus panel + recent run，没有建立“下一步动作”和“评测管线阶段”的信息结构。
+布局测试也只检查 track rail 和活动矩阵是否存在，没有锁住可行动入口、管线阶段和交互动效。这是前端信息架构
+和交互反馈问题，不涉及模型能力，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 首页的第一屏判断效率、可读性和系统交互质感。
+- 不影响后端 store、rank board、evaluator、job/service 生命周期、comparison 或任何指标计算。
+
+### 修复方式
+
+- 首页改为控制台模型：顶部保留 Coverage、Pending、Queue、Services；主区域增加 `OverviewNextAction`，
+  根据失败任务、待评估 run、活跃队列、服务状态和已评估 run 自动指向下一步页面。
+- 增加四段 `OverviewPipeline`：Benchmarks、Predictions、Evaluated、Rank Ready，用 progress rail
+  表示从数据到入榜的粗粒度进度。
+- 保留 Run/Ops/Volume 三组运营压力 rail 和 Run/Job/Service 三泳道 12 日期桶活动矩阵；右侧改为行动入口
+  加最近 run 紧凑摘要。
+- 样式层补充首页入场、扫描光、卡片 hover、行动入口 hover、activity cell hover 等轻量动效，并把通用
+  workspace/card/filter/service/settings 面板加入统一 hover 反馈。
+- UI 合约和 layout smoke 改为检查 pipeline、next action、action panel、operational grid、3x12 活动矩阵、
+  动效 transition，以及旧低价值面板不能回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- 首页新增模块必须能回答“当前是否可用、卡在哪里、下一步去哪”，否则放到 Runs、Inspector、Services、
+  Rank Board 或 Compare。
+- 总览测试继续禁止 precision / recall / IoU 细指标和低频排障面板回流；新增交互模块必须有 layout smoke
+  或 UI contract 防线。
+- 动效只服务状态反馈和可点击性，不用大面积装饰动画替代信息结构。
+
 ## 2026-05-25: Eval Bench agent CLI 缺少副作用元信息
 
 ### 现象

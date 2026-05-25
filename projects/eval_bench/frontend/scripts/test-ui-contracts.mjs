@@ -134,9 +134,14 @@ assert(
 assert(
   overviewPage.includes("overview-command-deck") &&
     overviewPage.includes("overview-focus-panel") &&
+    overviewPage.includes("OverviewNextAction") &&
+    overviewPage.includes("OverviewPipeline") &&
+    overviewPage.includes("OverviewActionPanel") &&
     overviewPage.includes("OverviewTrackGroup") &&
     overviewPage.includes("OverviewActivityMatrix") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
+    overviewPage.includes("overview-operational-grid") &&
+    overviewPage.includes("overview-side-stack") &&
     !overviewPage.includes("OverviewMiniChartPanel") &&
     !overviewPage.includes("overviewCharts") &&
     !overviewPage.includes("overview-chart-matrix") &&

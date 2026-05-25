@@ -18,6 +18,11 @@ const staticRoutes = [
       ".overview-console",
       ".overview-command-deck",
       ".overview-focus-panel",
+      ".overview-next-action",
+      ".overview-pipeline",
+      ".overview-operational-grid",
+      ".overview-action-panel",
+      ".overview-side-stack",
       ".overview-activity-matrix",
       ".overview-track-group",
       ".overview-recent-card"
@@ -467,19 +472,24 @@ async function assertOverviewDensity(page, scope) {
     });
     const commandDeck = document.querySelector(".overview-command-deck");
     const focusPanel = document.querySelector(".overview-focus-panel");
-    const trackStack = document.querySelector(".overview-track-stack");
+    const operationalGrid = document.querySelector(".overview-operational-grid");
+    const nextAction = document.querySelector(".overview-next-action");
     const trackRails = Array.from(document.querySelectorAll(".overview-track-rail i")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
-    const panelHeights = Array.from(document.querySelectorAll(".overview-focus-panel, .overview-recent-card")).map((node) =>
-      Math.round(node.getBoundingClientRect().height)
-    );
+    const panelHeights = Array.from(
+      document.querySelectorAll(".overview-focus-panel, .overview-action-panel, .overview-recent-card")
+    ).map((node) => Math.round(node.getBoundingClientRect().height));
     const activityMatrix = document.querySelector(".overview-activity-matrix");
     const activityMatrixStyle = activityMatrix ? getComputedStyle(activityMatrix) : null;
     const commandDeckStyle = commandDeck ? getComputedStyle(commandDeck) : null;
-    const trackStackStyle = trackStack ? getComputedStyle(trackStack) : null;
+    const operationalGridStyle = operationalGrid ? getComputedStyle(operationalGrid) : null;
+    const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
+      pipelineStages: document.querySelectorAll(".overview-pipeline-stage").length,
+      actionLinks: document.querySelectorAll(".overview-action-link").length,
+      nextActions: document.querySelectorAll(".overview-next-action").length,
       activityLanes: document.querySelectorAll(".overview-activity-lane").length,
       activityCells: document.querySelectorAll(".overview-activity-cells i").length,
       trackGroups,
@@ -501,7 +511,8 @@ async function assertOverviewDensity(page, scope) {
       commandDeckScrollHeight: commandDeck?.scrollHeight ?? 0,
       commandDeckClientHeight: commandDeck?.clientHeight ?? 0,
       commandDeckDisplay: commandDeckStyle?.display ?? "",
-      trackStackDisplay: trackStackStyle?.display ?? "",
+      operationalGridDisplay: operationalGridStyle?.display ?? "",
+      nextActionTransition: nextActionStyle?.transitionDuration ?? "",
       activityMatrixOverflowX: activityMatrixStyle?.overflowX ?? "",
       activityMatrixOverflowY: activityMatrixStyle?.overflowY ?? "",
       commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
@@ -523,11 +534,20 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.commandDeckDisplay !== "flex" || state.trackStackDisplay !== "flex") {
+  if (state.commandDeckDisplay !== "grid" || state.operationalGridDisplay !== "grid") {
     throw new Error(
-      `${scope}: overview should use a two-column command deck with flex composition ${JSON.stringify({
+      `${scope}: overview should use a command grid with compact operational tracks ${JSON.stringify({
         commandDeckDisplay: state.commandDeckDisplay,
-        trackStackDisplay: state.trackStackDisplay
+        operationalGridDisplay: state.operationalGridDisplay
+      })}`
+    );
+  }
+  if (state.pipelineStages !== 4 || state.nextActions !== 1 || state.actionLinks < 3) {
+    throw new Error(
+      `${scope}: overview should expose pipeline stages, one next action, and action links ${JSON.stringify({
+        pipelineStages: state.pipelineStages,
+        nextActions: state.nextActions,
+        actionLinks: state.actionLinks
       })}`
     );
   }
@@ -538,6 +558,9 @@ async function assertOverviewDensity(page, scope) {
         recentCards: state.recentCards
       })}`
     );
+  }
+  if (!state.nextActionTransition || state.nextActionTransition === "0s") {
+    throw new Error(`${scope}: overview next action is missing interaction transition`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
