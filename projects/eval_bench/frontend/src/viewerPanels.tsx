@@ -1,7 +1,7 @@
 import type { EvalInstance } from "./api";
 import { CompactSelectControl, ToggleButton } from "./controlPrimitives";
 import { formatMetric } from "./formatters";
-import { OptionChipButton } from "./ui";
+import { OptionChipButton, SelectableCardButton } from "./ui";
 import {
   countInstancesByLabel,
   formatBbox,
@@ -270,10 +270,10 @@ export function ObjectList({
       ) : (
         <div className="object-list-scroll">
           {objects.map((object) => (
-            <button
+            <SelectableCardButton
               key={object.id}
-              className={object.id === activeObjectId ? "object-row active" : "object-row"}
-              type="button"
+              active={object.id === activeObjectId}
+              className="object-row"
               onPointerEnter={() => onHover(object.id)}
               onPointerLeave={() => onHover(null)}
               onClick={() => onLock(object.id)}
@@ -290,7 +290,7 @@ export function ObjectList({
                 {objectStatusLabel(object.status)}
               </span>
               <span className="object-match">{objectMetricText(object, formatMetric)}</span>
-            </button>
+            </SelectableCardButton>
           ))}
         </div>
       )}

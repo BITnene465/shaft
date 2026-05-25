@@ -104,6 +104,11 @@ assert(
   "settings search clear action must use IconActionButton",
 );
 assert(
+  settingsPage.includes("SelectableCardButton") &&
+    !/<button[\s\S]{0,220}settings-section-button/.test(settingsPage),
+  "settings section navigation must use SelectableCardButton instead of raw section buttons",
+);
+assert(
   !settingsPage.includes('className="compact-select dense"'),
   "settings page must not create ad hoc compact select shells",
 );
@@ -133,6 +138,12 @@ const mainEntry = await readSource("src/main.tsx");
 assert(
   mainEntry.includes('import { OverviewPage } from "./overviewPage";'),
   "main.tsx must route to the extracted OverviewPage module",
+);
+assert(
+  mainEntry.includes('className="sidebar-toggle"') &&
+    mainEntry.includes("<IconActionButton") &&
+    !/<button[\s\S]{0,180}className="sidebar-toggle"/.test(mainEntry),
+  "sidebar collapse control must use IconActionButton instead of a raw button",
 );
 const benchmarksPage = await readSource("src/benchmarksPage.tsx");
 assert(
@@ -214,8 +225,13 @@ assert(
   "viewer layer preset select must use CompactSelectControl",
 );
 assert(
-  viewerPanels.includes('import { OptionChipButton } from "./ui";'),
+  viewerPanels.includes("OptionChipButton"),
   "viewer label chips must import OptionChipButton",
+);
+assert(
+  viewerPanels.includes("SelectableCardButton") &&
+    !/<button[\s\S]{0,220}object-row/.test(viewerPanels),
+  "viewer object rows must use SelectableCardButton instead of raw object-row buttons",
 );
 assert(
   viewerPanels.includes("<CompactSelectControl") &&
@@ -226,6 +242,13 @@ assert(
   viewerPanels.includes("<OptionChipButton") &&
     !/<button[\s\S]{0,240}label-select/.test(viewerPanels),
   "viewer label chips must use OptionChipButton instead of raw label-select buttons",
+);
+const viewerCanvas = await readSource("src/viewerCanvas.tsx");
+assert(
+  viewerCanvas.includes('import { ActionButton } from "./ui";') &&
+    viewerCanvas.includes('className="canvas-reset-button"') &&
+    !/<button[\s\S]{0,120}resetViewport/.test(viewerCanvas),
+  "viewer canvas reset control must use ActionButton instead of a raw button",
 );
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunsPage")') &&

@@ -97,15 +97,13 @@ function Shell() {
             <div className="brand-title">Shaft Eval Bench</div>
             <div className="brand-subtitle">视觉结构评测中心</div>
           </div>
-          <button
+          <IconActionButton
             className="sidebar-toggle"
-            type="button"
             title={sidebarCollapsed ? "展开导航栏" : "收起导航栏"}
-            aria-label={sidebarCollapsed ? "展开导航栏" : "收起导航栏"}
+            dense={false}
+            icon={sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             onClick={() => setSidebarCollapsed((value) => !value)}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
+          />
         </div>
         <nav className="nav-list">
           <NavItem to="/" icon={<AppIcon name="overview" size={21} />} label="总览" />

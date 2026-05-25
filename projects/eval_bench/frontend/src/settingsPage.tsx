@@ -26,7 +26,7 @@ import {
 } from "./workspaceSettings";
 import { displayImageUrl } from "./viewerGeometry";
 import { CanvasStage } from "./viewerCanvas";
-import { ActionButton, EmptyState, IconActionButton } from "./ui";
+import { ActionButton, EmptyState, IconActionButton, SelectableCardButton } from "./ui";
 
 const SETTINGS_PREVIEW_IMAGE_URL = "/static/settings_preview.svg";
 const SETTINGS_PREVIEW_LABELS = ["arrow", "icon"];
@@ -148,14 +148,10 @@ export function SettingsPage() {
             </div>
             <nav className="settings-section-nav" aria-label="工作台设置分组">
               {settingsSections.map((section) => (
-                <button
+                <SelectableCardButton
                   key={section.id}
-                  className={
-                    !query && activeSettingsPanel === section.id
-                      ? "settings-section-button active"
-                      : "settings-section-button"
-                  }
-                  type="button"
+                  active={!query && activeSettingsPanel === section.id}
+                  className="settings-section-button"
                   onClick={() => {
                     setActiveSettingsPanel(section.id);
                     setSettingsQuery("");
@@ -163,7 +159,7 @@ export function SettingsPage() {
                 >
                   <span>{section.label}</span>
                   <small>{section.meta}</small>
-                </button>
+                </SelectableCardButton>
               ))}
             </nav>
           </div>

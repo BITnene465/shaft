@@ -200,10 +200,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
   一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。
-- 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
-  HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。样本行必须通过
+- 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有画布
+  HUD 这类低层交互允许保留专用样式。样本行必须通过
   `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
-  `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片必须通过
+  `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过
   `SelectableCardButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
   的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell

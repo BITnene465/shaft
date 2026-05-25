@@ -25,6 +25,7 @@ import type {
   OverlayColors,
   OverlayStyle
 } from "./workspaceSettings";
+import { ActionButton } from "./ui";
 
 const TILE_LOAD_IDLE_DELAY_MS = 700;
 const TILE_ZOOM_THRESHOLD = 2.1;
@@ -507,9 +508,9 @@ export function CanvasStage({
       <div className="canvas-hud">
         <span ref={zoomLabelRef}>100%</span>
         {viewportDirty ? (
-          <button type="button" onClick={resetViewport}>
+          <ActionButton variant="mini" className="canvas-reset-button" onClick={resetViewport}>
             复位
-          </button>
+          </ActionButton>
         ) : null}
       </div>
     </div>

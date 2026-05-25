@@ -3611,3 +3611,39 @@ Agent 已能分页列出 benchmark、run、service 和 comparison，也能读取
 
 - 新增 dashboard 可操作对象时，必须同时检查列表 CLI 和单对象详情 CLI；agent 不应直接读取前端状态、
   SQLite 或 artifact 目录来补齐对象详情。
+
+## 2026-05-25: Eval Bench 业务页按钮原语继续收口
+
+### 现象
+
+Dashboard 已经把主要动作按钮、样本行、label chip、Compare label delta card 和弹窗提交按钮收敛到公共
+组件，但侧栏折叠、Settings 分组切换、Viewer 画布复位和 object row 仍在业务页直接写 raw `<button>`。
+这些控件虽然功能正确，但 active、aria、dense/icon 语义继续散落在页面里，后续容易回退成各页独立样式。
+
+### 根因
+
+前几轮组件化优先处理高频表格、弹窗和筛选控件，没有把 shell 控件、settings 局部分组和 viewer object row
+纳入同一套 button primitive 合约。静态测试也只覆盖了一部分已收敛控件。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 前端组件边界和按钮风格一致性。
+- 不改变 API、评估语义、viewer 几何计算、快捷键 registry、run note 或 rank board 数据流。
+
+### 修复方式
+
+- 侧栏折叠按钮改用 `IconActionButton`。
+- Settings 分组切换和 viewer object row 改用 `SelectableCardButton`，统一 active/aria 语义。
+- Viewer 画布复位按钮改用 `ActionButton`，保留 HUD 内部紧凑显示。
+- `test:ui-contracts` 增加防线，禁止这些控件回退为业务页 raw button。
+- README、`docs/eval_bench_architecture.md` 和 `docs/scripts.md` 同步更新按钮原语边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
+  pointer/hud 控件外，不在页面里直接拼 raw button class。
