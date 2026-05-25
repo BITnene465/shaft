@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench label 子任务缺少入口级非法 keypoint 回归
+
+### 现象
+
+Detection label 子任务已经有统一 policy、前端 detection-only 面板、preflight、init-run、worker、import 和
+evaluator 适配，但 keypoint 非 `arrow` label 子任务的拒绝主要依赖语义 helper 单测和 CLI/preflight 用例。
+如果后续有人改动 evaluator 或 prediction import 的调用方式，存在把非法 keypoint label 子任务绕过 UI 写入
+评测链路的回归风险。
+
+### 根因
+
+`label_policy.py` 已经是真源，但入口级测试没有覆盖所有关键写入/评测入口。语义 helper 通过并不等于每个可被
+agent 或脚本直接调用的入口都被锁住。
+
+### 影响范围
+
+- 影响评测标准一致性和 agent 直接操作 Eval Bench 的安全边界。
+- 不代表模型能力问题；这是 eval label policy 防线覆盖不足，属于 eval/metric/data 语义边界风险。
+- 不影响 detection label 子集计算、rank-board 排序、样本过滤或已有 report 读取。
+
+### 修复方式
+
+- 在 evaluator 回归中新增 `evaluate_run` 直接拒绝 keypoint 非 `arrow` `target_labels` 的用例。
+- 在 prediction import 回归中新增导入入口拒绝 keypoint 非 `arrow` `target_labels` 的用例。
+- README 明确 label 子任务的入口级回归覆盖 evaluator 与 prediction import，避免约束只停留在 UI 或单个
+  helper。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_evaluator.py projects/eval_bench/tests/test_prediction_import.py -k 'target_labels or keypoint'`
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_eval_semantics.py projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_prediction_import.py -k 'target_labels or keypoint'`
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py -k 'target_labels or keypoint or resolve_target_labels or preflight'`
+- `cd projects/eval_bench/frontend && npm run test:manifest-tools && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增或重命名 label 子任务入口时，必须同时覆盖 policy helper、CLI/preflight、worker/import/evaluator
+  至少一个直接入口级测试。
+- Keypoint 仍只允许 `arrow`；如果未来支持其它 keypoint label，必须先修改 `KEYPOINT_TARGET_LABELS`、文档、
+  UI 暴露规则和所有入口级测试。
+
 ## 2026-05-25: Eval Bench Compare 候选 run 仍固定首屏 200 条
 
 ### 现象

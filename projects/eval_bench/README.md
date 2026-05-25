@@ -168,7 +168,8 @@ prompt template 的 `metadata.target_labels` 和 manifest 现有 `target_labels`
 Keypoint job 不暴露 label 子任务选择，默认只评价 `arrow` 关键点；agent 查询 `resolve-target-labels`
 时会返回 `label_subtasks_supported=false`，避免把 keypoint 误当成可任意 label 子集的 detection 子任务。
 后端也会在 preflight、init-run、prediction import、worker 和 evaluator 入口拒绝 keypoint 上非 `arrow`
-的显式 `target_labels`，防止绕过 UI 直接创建非法子任务。
+的显式 `target_labels`，防止绕过 UI 直接创建非法子任务；入口级回归测试覆盖 evaluator 与 prediction
+import，避免只在前端或单个语义 helper 里保留约束。
 
 每个 prompt template 同时声明 `target_labels`，这是评测语义的一部分，不是纯展示字段。多任务
 benchmark 里可能同时有 layout 和 arrow 标注，但一次 run 只应该评价当前 prompt 要求模型输出的

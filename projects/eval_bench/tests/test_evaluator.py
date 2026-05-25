@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from eval_bench.artifacts import RunArtifacts
 from eval_bench.comparison import compare_report_payloads, compare_runs
 from eval_bench.evaluator import evaluate_run
@@ -149,6 +151,16 @@ def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:
     sample_detail = store.run_sample_detail("run_detection", sample_index=0)
     assert [item["label"] for item in sample_detail.gt_instances] == ["icon"]
     assert [item["label"] for item in sample_detail.pred_instances] == ["icon"]
+
+
+def test_evaluate_run_rejects_keypoint_label_subtasks(tmp_path: Path) -> None:
+    artifacts = _write_run(tmp_path, task="keypoint")
+    run_payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
+    run_payload["spec"]["target_labels"] = ["icon"]
+    artifacts.manifest_path.write_text(json.dumps(run_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="keypoint target_labels only support arrow"):
+        evaluate_run(store_root=tmp_path, run_id="run_keypoint")
 
 
 def test_evaluate_run_infers_layout_target_labels_from_prompt_id(tmp_path: Path) -> None:

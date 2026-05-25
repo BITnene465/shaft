@@ -172,6 +172,23 @@ def test_import_predictions_explicit_target_labels_override_prompt_policy(tmp_pa
     assert "icon" not in report["samples"][0]["labels"]
 
 
+def test_import_predictions_rejects_keypoint_label_subtasks(tmp_path: Path) -> None:
+    _write_benchmark(tmp_path)
+    prediction_root = tmp_path / "external_predictions"
+    prediction_root.mkdir()
+
+    with pytest.raises(ValueError, match="keypoint target_labels only support arrow"):
+        import_predictions_for_benchmark(
+            store_root=tmp_path,
+            run_id="bad_keypoint_import",
+            benchmark_id="bench1",
+            prediction_root=prediction_root,
+            task="keypoint",
+            model_id="external-model",
+            target_labels=["icon"],
+        )
+
+
 def test_import_predictions_supports_flat_basename_lookup(tmp_path: Path) -> None:
     _write_benchmark(tmp_path)
     prediction_root = tmp_path / "external_predictions"
