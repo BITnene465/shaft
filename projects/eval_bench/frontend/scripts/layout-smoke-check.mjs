@@ -56,7 +56,7 @@ const staticRoutes = [
   {
     name: "jobs",
     path: "/jobs",
-    selectors: [".queue-stack", ".advanced-filter-bar"]
+    selectors: [".queue-stack", ".advanced-filter-bar", ".job-list-pager"]
   },
   {
     name: "services",

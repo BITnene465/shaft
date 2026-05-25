@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Jobs 高级检索仍固定首屏 200 条
+
+### 现象
+
+Runs、Benchmarks、Services 和 Rank Board 已经接入后端分页，但 Jobs 队列仍固定请求
+`/api/jobs?limit=200`。当历史 job、失败重试和 preannotate/eval 任务记录超过 200 时，评测中心只能浏览首屏窗口；
+状态、类型和全文高级检索虽然走后端过滤，但筛选后不能继续完整翻页。
+
+### 根因
+
+Job database、API 和 CLI 已经有 `job_page(offset, limit, kind, status, query)`，但前端队列页沿用了早期
+“主页面先拉 200 条”的目录模式。结果列表分页契约已经在 Runs、Benchmarks、Services 和 Rank Board 中补齐，
+Jobs 没有同步收敛。
+
+### 影响范围
+
+- 影响 Jobs 页大量任务记录下的完整浏览、筛选后翻页、删除后 offset 恢复和滚动稳定性。
+- 不影响 job lifecycle、scheduler、runtime log、service registry 或 eval metric 语义。
+
+### 修复方式
+
+- Jobs 队列新增 `JOB_PAGE_SIZE=80`、`pageOffset` 和 `JobListPager`。
+- 主队列请求 `/api/jobs` 时传入 offset/limit；筛选条件变化回到第一页，数据减少时 clamp 到最后有效页。
+- compact 模式继续只取 12 条摘要，不改变总览或嵌入式轻量列表行为。
+- layout smoke 要求 `/jobs` 存在 `.job-list-pager`。
+- UI contract 锁住 Jobs 页不能回退到固定 `limit: 200`。
+- README 和架构文档同步 Runs / Benchmarks / Jobs / Services / Rank Board 结果列表必须后端分页。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增目录型页面时，不要用固定首屏 slice 代替分页；高级检索、分页和 total 必须来自同一个后端查询。
+- 页面筛选变化必须重置 offset，删除或数据减少后必须 clamp，避免“目录有数据但当前页空白”。
+
 ## 2026-05-25: Eval Bench Services 高级检索仍固定首屏 200 条
 
 ### 现象

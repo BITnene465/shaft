@@ -53,6 +53,15 @@ assert(
   "manifest toolbar selects must use CompactSelectControl",
 );
 assert(
+  jobsPage.includes("const JOB_PAGE_SIZE = 80;") &&
+    jobsPage.includes("function JobListPager(") &&
+    jobsPage.includes("offset: compact ? 0 : pageOffset") &&
+    jobsPage.includes("limit: compact ? 12 : JOB_PAGE_SIZE") &&
+    !jobsPage.includes("limit: compact ? 12 : 200") &&
+    !jobsPage.includes("limit: 200"),
+  "jobs queue page must use paged API requests instead of a fixed 200-job slice",
+);
+assert(
   (jobsPage.match(/<CompactSelectControl/g) ?? []).length >= 2,
   "manifest toolbar must render template and prompt through CompactSelectControl",
 );

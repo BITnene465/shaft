@@ -51,6 +51,8 @@ import {
 } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
+const JOB_PAGE_SIZE = 80;
+
 export function JobsPage() {
   const { data } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
@@ -127,14 +129,16 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
+  const [pageOffset, setPageOffset] = useState(0);
   const jobFilters = useMemo(
     () => ({
+      offset: compact ? 0 : pageOffset,
+      limit: compact ? 12 : JOB_PAGE_SIZE,
       status: !compact && statusFilter !== "all" ? statusFilter : undefined,
       kind: !compact && kindFilter !== "all" ? kindFilter : undefined,
-      query: !compact && searchText.trim() ? searchText.trim() : undefined,
-      limit: compact ? 12 : 200
+      query: !compact && searchText.trim() ? searchText.trim() : undefined
     }),
-    [compact, kindFilter, searchText, statusFilter]
+    [compact, kindFilter, pageOffset, searchText, statusFilter]
   );
   const { data, isLoading, error } = useQuery({
     queryKey: ["jobs", jobFilters],
@@ -165,6 +169,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   ]);
   const kinds = unique(["eval", "preannotate", ...jobsForSummary.map((job) => job.kind).filter(Boolean)]);
   const filteredJobs = data?.jobs ?? [];
+  const totalJobs = data?.total ?? filteredJobs.length;
   const selectedRuntimeLogPath =
     selectedJob && typeof selectedJob.metadata.runtime_log_path === "string"
       ? selectedJob.metadata.runtime_log_path
@@ -190,6 +195,25 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     }
   });
+  useEffect(() => {
+    if (!compact) {
+      setPageOffset(0);
+    }
+  }, [compact, searchText, statusFilter, kindFilter]);
+  useEffect(() => {
+    if (compact) {
+      return;
+    }
+    const nextOffset = clampJobPageOffset(pageOffset, totalJobs);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [compact, pageOffset, totalJobs]);
+  useEffect(() => {
+    if (selectedJobId && data && !data.jobs.some((job) => job.job_id === selectedJobId)) {
+      setSelectedJobId("");
+    }
+  }, [data, selectedJobId]);
   if (isLoading) {
     return <div className="empty-panel">正在加载队列状态</div>;
   }
@@ -205,7 +229,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       {!compact ? (
         <AdvancedFilterBar
           title="任务高级检索"
-          meta={`${filteredJobs.length.toLocaleString()} / ${(data.total ?? data.jobs.length).toLocaleString()} 条 job`}
+          meta={`${filteredJobs.length.toLocaleString()} / ${totalJobs.toLocaleString()} 条 job`}
           controls={[
             {
               type: "search",
@@ -236,7 +260,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           ]}
         />
       ) : null}
-      {data.jobs.length === 0 ? (
+      {totalJobs === 0 ? (
         <div className="empty-panel">当前没有任务。</div>
       ) : filteredJobs.length === 0 ? (
         <div className="empty-panel">没有符合高级检索条件的任务。</div>
@@ -307,6 +331,14 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           </table>
         </div>
       )}
+      {!compact ? (
+        <JobListPager
+          offset={data.offset ?? pageOffset}
+          limit={data.limit ?? JOB_PAGE_SIZE}
+          total={totalJobs}
+          onPageChange={setPageOffset}
+        />
+      ) : null}
       {selectedJob ? <JobDetailPanel job={selectedJob} logs={jobLogsQuery.data ?? null} /> : null}
       <DangerConfirmDialog
         open={Boolean(deleteJobTarget)}
@@ -322,6 +354,53 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           }
         }}
       />
+    </div>
+  );
+}
+
+function clampJobPageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / JOB_PAGE_SIZE) * JOB_PAGE_SIZE;
+}
+
+function JobListPager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager job-list-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
     </div>
   );
 }
