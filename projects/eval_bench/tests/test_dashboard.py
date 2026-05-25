@@ -326,10 +326,26 @@ def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
     assert state_run["note_updated_at"] == payload["updated_at"]
     assert state_run["note_max_length"] == 20_000
 
+    appended = client.post(
+        "/api/runs/run1/note/append",
+        json={"heading": "follow-up", "note": "next: inspect false positives"},
+    )
+    assert appended.status_code == 200
+    append_payload = appended.json()
+    assert append_payload["note"].startswith("reproduce with ckpt=epoch_3 and prompt v2\n\n")
+    assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
+    state_run = client.get("/api/state").json()["runs"][0]
+    assert state_run["note"] == append_payload["note"]
+    assert state_run["note_updated_at"] == append_payload["updated_at"]
+
     bad = client.patch("/api/runs/run1/note", json={"note": ["not", "text"]})
     assert bad.status_code == 400
+    bad_append = client.post("/api/runs/run1/note/append", json={"note": "x", "heading": ["bad"]})
+    assert bad_append.status_code == 400
     missing = client.patch("/api/runs/missing/note", json={"note": "x"})
     assert missing.status_code == 404
+    missing_append = client.post("/api/runs/missing/note/append", json={"note": "x"})
+    assert missing_append.status_code == 404
 
 
 def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:

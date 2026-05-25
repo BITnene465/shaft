@@ -804,6 +804,14 @@ export function updateRunNote(runId: string, note: string): Promise<RunNote> {
   });
 }
 
+export function appendRunNote(runId: string, note: string, heading?: string): Promise<RunNote> {
+  return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note/append`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note, heading })
+  });
+}
+
 export function importPredictions(
   payload: ImportPredictionPayload
 ): Promise<ImportPredictionResult> {

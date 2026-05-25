@@ -735,6 +735,29 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse(updated.to_dict())
 
+    @app.post("/api/runs/{run_id}/note/append")
+    async def append_run_note(run_id: str, request: Request):
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="run note append payload must be a JSON object")
+        note = payload.get("note")
+        if not isinstance(note, str):
+            raise HTTPException(status_code=400, detail="note must be a string")
+        heading = payload.get("heading")
+        if heading is not None and not isinstance(heading, str):
+            raise HTTPException(status_code=400, detail="heading must be a string")
+        try:
+            updated = request.app.state.eval_bench_store.append_run_note(
+                run_id,
+                note,
+                heading=heading,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(updated.to_dict())
+
     @app.post("/api/runs/import-predictions")
     async def import_predictions(request: Request):
         payload = await request.json()

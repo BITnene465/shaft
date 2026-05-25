@@ -454,6 +454,8 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 
 `set-run-note` 会覆盖整份 note，适合人工整理后的最终版本；`append-run-note` 会追加带 heading
 的结构化段落，适合 agent 或批处理任务持续补充复现线索，不需要先读写 `note.json`。
+Dashboard API 提供同一语义：`GET /api/runs/{run_id}/note` 读取，`PATCH /api/runs/{run_id}/note`
+覆盖，`POST /api/runs/{run_id}/note/append` 追加 `{ "heading": "...", "note": "..." }`。
 
 Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 artifact 目录：
 

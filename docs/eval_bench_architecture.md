@@ -105,7 +105,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     必须复用同一份 store page 方法；Benchmarks/Runs 页面只能提交查询条件，不能复制高级检索语义。
   - 维护 benchmark summary 的 `labels` 输出；manifest 缺少 labels 时可通过 sample scan fallback 补齐。
     任务创建 UI 和 agent CLI 只能消费这个 store 字段，不能自行扫描 benchmark artifact。
-  - 维护 run note 的读、覆盖写、追加写、列表摘要和长度校验；dashboard/API/CLI 不直接改 `note.json`。
+  - 维护 run note 的读、覆盖写、追加写、列表摘要和长度校验；dashboard/API/CLI 复用 store，
+    不直接改 `note.json`。
   - 维护 rank board 的过滤、facet 计数、F1 默认主指标、非加权主指标切换、列表排序维度和分页输出；
     Compare 页不能再作为排行榜真源。`score` 在非加权模式下镜像当前主指标，显式 weighted scheme
     下才代表加权分。
