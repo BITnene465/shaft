@@ -2675,6 +2675,14 @@ tbody tr:hover td {
   padding: 6px;
 }
 
+.sample-list.empty {
+  justify-content: center;
+  padding: 14px;
+  color: #6b7c8d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .sample-row {
   display: flex;
   width: 100%;

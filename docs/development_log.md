@@ -3252,3 +3252,42 @@ label/select 外壳。
 
 - 页面级高级检索继续走 `filterControls.tsx`；普通弹窗表单和选择轨 select 必须走
   `FormSelectControl`，紧凑 toolbar select 必须走 `CompactSelectControl`。
+
+## 2026-05-25: Eval Bench 检查器过滤空结果不能卸载工作区
+
+### 现象
+
+Benchmark Inspector 和 Run Inspector 的样本过滤如果返回 0 条样本，页面外层直接渲染全页
+`EmptyState`。这样高级检索按钮、样本列表和主画布都被卸载，用户无法在原检查器工作区里撤销过滤，
+表现为过滤后“卡住”。
+
+### 根因
+
+检查器把 `samples.length === 0` 同时当成“基准集/run 没有样本”和“当前过滤没有命中”。引入
+AdvancedFilterBar 后，过滤空结果是正常工作流，不能继续用全页空状态处理。
+
+### 影响范围
+
+- 影响 Benchmark Inspector 的 label 过滤和 Run Inspector 的 error/label 过滤。
+- 不改变后端分页 API、样本详情 API、过滤参数语义或 viewer 叠图渲染。
+
+### 修复方式
+
+- Benchmark / Run 检查器只在无活动过滤且 `page.total === 0` 时使用全页 EmptyState。
+- 有活动过滤时保留 `ResizableSplit`、`inspector-sidebar`、`AdvancedFilterBar` 和 `viewer-panel`，
+  只在样本列表和主画布区域显示“没有符合过滤条件的样本”。
+- 分页 offset 超过新 total 时通过 `sampleNavigation.ts` 的共享 helper 自动夹回最后一页，避免过滤或数据变化后停在不可达页。
+- `layout-smoke-check.mjs` 增加过滤空结果模拟：拦截 benchmark/run samples API 返回 0 命中，
+  验证过滤入口、样本列表和主画布空状态仍留在同一个 inspector split 内。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 同步记录检查器过滤空结果边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `git diff --check`
+
+### 后续防线
+
+- 新增检查器过滤条件时，过滤空结果必须保留原工作区和撤销入口；不能用全页 EmptyState 替代局部空结果。

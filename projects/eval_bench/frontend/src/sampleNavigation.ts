@@ -14,6 +14,13 @@ export function samplePageOffsetFromLocation(pageSize: number) {
   return Math.floor(index / pageSize) * pageSize;
 }
 
+export function clampSamplePageOffset(offset: number, total: number, pageSize: number) {
+  if (total <= 0 || offset < total) {
+    return offset;
+  }
+  return Math.floor((total - 1) / pageSize) * pageSize;
+}
+
 export function updateSampleIndexInLocation(index: number) {
   if (typeof window === "undefined") {
     return;

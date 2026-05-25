@@ -29,6 +29,7 @@ import { AppIcon } from "./iconLibrary";
 import { RunTable } from "./runTables";
 import {
   SAMPLE_PAGE_SIZE,
+  clampSamplePageOffset,
   sampleIndexFromLocation,
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
@@ -412,6 +413,7 @@ export function RunDetailPage() {
   const labels = page?.labels ?? [];
   const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
   const activeIndex = activeSample?.index ?? selectedIndex;
+  const hasActiveSampleFilter = errorFilter !== "all" || labelFilter !== "all";
   const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["run-sample-detail", runId, activeIndex],
@@ -478,6 +480,16 @@ export function RunDetailPage() {
   }, [activeSample, selectedIndex]);
 
   useEffect(() => {
+    if (!page) {
+      return;
+    }
+    const nextOffset = clampSamplePageOffset(pageOffset, page.total, SAMPLE_PAGE_SIZE);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [page?.total, pageOffset]);
+
+  useEffect(() => {
     return preloadSampleImages(samples, activeIndex);
   }, [activeIndex, samples]);
 
@@ -506,7 +518,7 @@ export function RunDetailPage() {
   return (
     <section className="page-stack visual-inspector-page run-inspector-page">
       {runSummary ? <RunConfigPanel run={runSummary} /> : null}
-      {samples.length === 0 ? (
+      {page?.total === 0 && !hasActiveSampleFilter ? (
         <EmptyState title="这条评测记录没有基准集样本。" />
       ) : (
         <ResizableSplit
@@ -524,7 +536,12 @@ export function RunDetailPage() {
                 onErrorFilterChange={changeErrorFilter}
                 onLabelFilterChange={changeLabelFilter}
               />
-              <SampleList samples={samples} selectedIndex={activeIndex} onSelect={selectSample} />
+              <SampleList
+                samples={samples}
+                selectedIndex={activeIndex}
+                onSelect={selectSample}
+                emptyText="没有符合过滤条件的样本。"
+              />
               {page ? (
                 <SamplePager
                   offset={page.offset}
@@ -728,12 +745,17 @@ function SampleFilters({
 function SampleList({
   samples,
   selectedIndex,
-  onSelect
+  onSelect,
+  emptyText
 }: {
   samples: RunSampleSummary[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  emptyText: string;
 }) {
+  if (samples.length === 0) {
+    return <div className="sample-list empty">{emptyText}</div>;
+  }
   return (
     <div className="sample-list">
       {samples.map((sample) => (

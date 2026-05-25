@@ -110,6 +110,9 @@ try {
       if (route.requireRunInspectorCounts) {
         await assertRunInspectorCountStrip(page, `${viewport.name}:${route.name}`);
       }
+      if (route.requireInspectorFilters) {
+        await assertInspectorFilteredEmptyState(page, `${viewport.name}:${route.name}`, route.name);
+      }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
         await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
@@ -633,6 +636,79 @@ async function assertRunInspectorCountStrip(page, scope) {
   }
   if (/\b(TP|FP|FN)\b|IoU|平均/.test(state.text)) {
     throw new Error(`${scope}: run inspector count strip exposes fine metrics: ${state.text}`);
+  }
+}
+
+async function assertInspectorFilteredEmptyState(page, scope, routeName) {
+  const pattern =
+    routeName === "benchmark-inspector"
+      ? "**/api/benchmarks/*/samples?**"
+      : routeName === "run-inspector"
+        ? "**/api/runs/*/samples?**"
+        : "";
+  if (!pattern) {
+    return;
+  }
+  const filterHead = page.locator(".inspector-sidebar .advanced-filter-head").first();
+  await filterHead.click();
+  const select = page.locator(".inspector-sidebar .advanced-filter-controls select").first();
+  await select.waitFor({ timeout: 5_000 });
+  const optionValues = await select.locator("option").evaluateAll((options) =>
+    options
+      .map((option) => option.value)
+      .filter((value) => value && value !== "all")
+  );
+  if (optionValues.length === 0) {
+    await filterHead.click();
+    return;
+  }
+  const handler = async (networkRoute) => {
+    const url = new URL(networkRoute.request().url());
+    if (!url.searchParams.has("label") && !url.searchParams.has("error_filter")) {
+      await networkRoute.continue();
+      return;
+    }
+    await networkRoute.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        offset: 0,
+        limit: 80,
+        total: 0,
+        labels: ["layout-smoke-empty"],
+        samples: []
+      })
+    });
+  };
+  await page.route(pattern, handler);
+  try {
+    await select.selectOption(optionValues[0]);
+    await page
+      .locator(".viewer-panel .empty-panel", { hasText: "没有符合过滤条件的样本" })
+      .waitFor({ timeout: 10_000 });
+    const state = await page.evaluate(() => {
+      const sidebar = document.querySelector(".inspector-sidebar");
+      const filter = sidebar?.querySelector(".advanced-filter-bar");
+      const sampleList = sidebar?.querySelector(".sample-list.empty");
+      const viewerEmpty = document.querySelector(".viewer-panel .empty-panel");
+      return {
+        hasSidebar: Boolean(sidebar),
+        hasFilter: Boolean(filter),
+        sampleListText: sampleList?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        viewerText: viewerEmpty?.textContent?.replace(/\s+/g, " ").trim() ?? ""
+      };
+    });
+    if (!state.hasSidebar || !state.hasFilter) {
+      throw new Error(`${scope}: filtered-empty state removed inspector controls`);
+    }
+    if (
+      !state.sampleListText.includes("没有符合过滤条件") ||
+      !state.viewerText.includes("没有符合过滤条件")
+    ) {
+      throw new Error(`${scope}: filtered-empty state is not recoverable ${JSON.stringify(state)}`);
+    }
+  } finally {
+    await page.unroute(pattern, handler);
   }
 }
 

@@ -16,6 +16,7 @@ import { AppIcon } from "./iconLibrary";
 import { BenchmarkTable } from "./runTables";
 import {
   SAMPLE_PAGE_SIZE,
+  clampSamplePageOffset,
   sampleIndexFromLocation,
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
@@ -282,6 +283,7 @@ export function BenchmarkDetailPage() {
   const labels = page?.labels ?? [];
   const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
   const activeIndex = activeSample?.index ?? selectedIndex;
+  const hasActiveSampleFilter = labelFilter !== "all";
   const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex],
@@ -344,6 +346,16 @@ export function BenchmarkDetailPage() {
   }, [activeSample, selectedIndex]);
 
   useEffect(() => {
+    if (!page) {
+      return;
+    }
+    const nextOffset = clampSamplePageOffset(pageOffset, page.total, SAMPLE_PAGE_SIZE);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [page?.total, pageOffset]);
+
+  useEffect(() => {
     return preloadSampleImages(samples, activeIndex);
   }, [activeIndex, samples]);
 
@@ -372,7 +384,7 @@ export function BenchmarkDetailPage() {
   return (
     <section className="page-stack visual-inspector-page">
       <SectionHeader title="基准集检查" subtitle={`${benchmarkId} 的真值样本浏览器。`} />
-      {samples.length === 0 ? (
+      {page?.total === 0 && !hasActiveSampleFilter ? (
         <EmptyState title="这个基准集没有样本。" />
       ) : (
         <ResizableSplit
@@ -392,6 +404,7 @@ export function BenchmarkDetailPage() {
                 samples={samples}
                 selectedIndex={activeIndex}
                 onSelect={selectSample}
+                emptyText="没有符合过滤条件的样本。"
               />
               {page ? (
                 <SamplePager
@@ -456,12 +469,17 @@ function BenchmarkSampleFilters({
 function BenchmarkSampleList({
   samples,
   selectedIndex,
-  onSelect
+  onSelect,
+  emptyText
 }: {
   samples: BenchmarkSampleSummary[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  emptyText: string;
 }) {
+  if (samples.length === 0) {
+    return <div className="sample-list empty">{emptyText}</div>;
+  }
   return (
     <div className="sample-list">
       {samples.map((sample) => (
