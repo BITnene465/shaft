@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent 命令发现缺少稳定调用形态
+
+### 现象
+
+`list-agent-commands` 已经能列出稳定命令、domain、是否修改状态、参数 schema 和互斥组，但没有输出每条命令的
+稳定调用形态。agent 仍需要把 `scripts/eval_bench.py`、命令名和 usage 自己拼起来，容易重新退回从
+自然语言 help 或当前进程名推断 argv 的模式。
+
+### 根因
+
+上一轮 agent CLI contract 重点锁住了 parser/handler/metadata 一致性和参数结构，但没有把“如何直接调用”
+也纳入 machine-readable contract。`argparse.format_usage()` 本身还会携带当前进程名，在 pytest、stdin
+或脚本运行时表现不同，不能直接作为稳定 agent 输出。
+
+### 影响范围
+
+- 影响 agent 发现命令后的可执行性和稳定性。
+- 不影响 dashboard API、rank-board 排序、run note 写入、job lifecycle 或 store 文件格式。
+
+### 修复方式
+
+- `list-agent-commands` 顶层增加 `recommended_runner=[".venv/bin/python","scripts/eval_bench.py"]`。
+- 每个稳定命令增加 `argv_prefix=["scripts/eval_bench.py", command]`。
+- 每个稳定命令增加归一化单行 `usage`，固定以 `usage: eval_bench.py <command>` 开头，避免泄漏 pytest/stdin
+  等当前进程名。
+- `test_cli_lists_agent_stable_commands` 增加 recommended runner、argv prefix、stable usage 和 rank scheme
+  usage 覆盖。
+- README 和架构文档同步 agent CLI discovery contract。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py -q`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py list-agent-commands`
+
+### 后续防线
+
+- 新增 agent 命令时，不能只暴露 parser/help；必须能从 `list-agent-commands` 得到可执行 argv 形态、参数结构和副作用标记。
+- 不要直接把原始 argparse usage 暴露给 agent；先归一化，避免进程名随测试或调用方式漂移。
+
 ## 2026-05-25: Eval Bench Overview 右侧行动入口信息密度不足
 
 ### 现象

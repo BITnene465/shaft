@@ -690,12 +690,15 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     parser = _build_parser()
     command_help = _parser_command_help(parser)
     command_arguments = _parser_command_arguments(parser)
+    command_usage = _parser_command_usage(parser)
     commands = [
         {
             "name": name,
             "domain": AGENT_COMMAND_METADATA[name]["domain"],
             "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
             "help": command_help.get(name, ""),
+            "usage": command_usage.get(name, ""),
+            "argv_prefix": ["scripts/eval_bench.py", name],
             "arguments": command_arguments[name]["arguments"],
             "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
         }
@@ -708,6 +711,7 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
                 "mutating_count": sum(1 for command in commands if command["mutates_state"]),
                 "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
                 "domains": sorted({str(command["domain"]) for command in commands}),
+                "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
                 "commands": commands,
             },
             ensure_ascii=False,
@@ -1481,6 +1485,26 @@ def _database_job_kind(resolved_kind: str) -> str:
 def _parser_command_help(parser: argparse.ArgumentParser) -> dict[str, str]:
     subparsers_action = next(action for action in parser._actions if action.dest == "command")
     return {action.dest: action.help or "" for action in subparsers_action._choices_actions}
+
+
+def _parser_command_usage(parser: argparse.ArgumentParser) -> dict[str, str]:
+    subparsers_action = next(action for action in parser._actions if action.dest == "command")
+    return {
+        command: _stable_command_usage(command, subparser.format_usage())
+        for command, subparser in subparsers_action.choices.items()
+    }
+
+
+def _stable_command_usage(command: str, usage: str) -> str:
+    normalized = " ".join(usage.strip().split())
+    marker = f" {command} "
+    index = normalized.find(marker)
+    if index >= 0:
+        return f"usage: eval_bench.py {normalized[index + 1:]}"
+    suffix = f" {command}"
+    if normalized.endswith(suffix):
+        return f"usage: eval_bench.py {command}"
+    return f"usage: eval_bench.py {command}"
 
 
 def _parser_command_arguments(parser: argparse.ArgumentParser) -> dict[str, dict[str, object]]:

@@ -468,7 +468,9 @@ evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 
 `list-agent-commands` 会输出当前稳定 agent 命令面；真实分发集中在 `eval_bench.cli._command_handlers()`。
 每条命令还会带 `domain`、`mutates_state`、`arguments` 和 `mutually_exclusive_groups`，便于 agent 区分
 只读查询、artifact 写入和 service/job 生命周期操作，并直接读取参数名、flag、类型、默认值、choices、
-是否 repeatable 和互斥组要求；`mutates_state` 只是副作用标记，不是权限控制。新增 agent 命令必须同时进入
+是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
+`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。`mutates_state`
+只是副作用标记，不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合
 一致，避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用或仍要从自然语言 help 猜参数。
 

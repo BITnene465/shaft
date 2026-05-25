@@ -170,7 +170,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `show-service`、`list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
   读取前端状态、SQLite 或扫描 artifact 目录。CLI parser 暴露的每个子命令必须登记到 `_command_handlers()`，
   agent 稳定命令必须登记到 `AGENT_COMMAND_METADATA` 并可由 `list-agent-commands` 发现；metadata 需要声明
-  `domain` 和 `mutates_state`，参数 schema 从 argparse parser 自动导出为 `arguments` 和
+  `domain` 和 `mutates_state`，命令发现输出还必须包含顶层 `recommended_runner`、每条命令的
+  `argv_prefix`、稳定单行 `usage`，参数 schema 从 argparse parser 自动导出为 `arguments` 和
   `mutually_exclusive_groups`，`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
   `test_cli_parser_commands_have_handlers_for_agent_contract` 锁住，避免新增命令只加 parser 或只加 handler，
   或者缺少 agent 判断副作用和参数形态所需的元信息。

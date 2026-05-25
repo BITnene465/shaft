@@ -101,6 +101,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert set(payload["domains"]) == {
         item["domain"] for item in AGENT_COMMAND_METADATA.values()
     }
+    assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
     assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
     assert "register-service" in command_names
@@ -113,12 +114,20 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert "serve-dashboard" not in command_names
     assert "write-demo-prediction" not in command_names
     assert all(item["help"] for item in payload["commands"])
+    assert all(item["usage"].startswith("usage: eval_bench.py ") for item in payload["commands"])
+    assert all(
+        item["argv_prefix"] == ["scripts/eval_bench.py", item["name"]]
+        for item in payload["commands"]
+    )
     assert all(item["domain"] for item in payload["commands"])
     assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert commands_by_name["rank-board"]["domain"] == "rank"
     assert commands_by_name["rank-board"]["mutates_state"] is False
+    assert "rank-board" in commands_by_name["rank-board"]["usage"]
+    assert "pytest" not in commands_by_name["rank-board"]["usage"]
+    assert "rank-scheme-json" in commands_by_name["rank-board"]["usage"]
     assert commands_by_name["create-job"]["domain"] == "job"
     assert commands_by_name["create-job"]["mutates_state"] is True
     assert commands_by_name["start-service"]["domain"] == "service"
