@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 高级检索展开后仍挤压主工作区
+
+### 现象
+
+`AdvancedFilterBar` 已经把多组 select 收进 Filter 入口，但展开后的检索表单仍在文档流里占高度。
+Runs、Jobs、Rank Board 和检查器侧栏在展开高级检索后，主表格或样本区域会被向下挤，用户还需要再滚动才能回到核心内容。
+生效条件只能统一清空，不能像论文检索条件那样直接删除某一个条件。
+
+### 根因
+
+共享高级检索组件只完成了“折叠入口”和“统一清空”的第一层收敛，没有把展开态做成真正的工作区浮层。
+条件摘要也只是静态 chip，单条件清除逻辑没有收敛到同一个默认值判定函数。
+
+### 影响范围
+
+- 影响所有复用 `AdvancedFilterBar` 的目录页、排行榜和 inspector 样本过滤交互。
+- 不改变 eval、codec、metric、data 或查询 API 语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- `AdvancedFilterBar` 的展开表单改为相对当前 filter 条的绝对定位浮层，设置最大高度和内部滚动，避免撑高主工作区。
+- 生效条件 token 改为可点击的 `ActionButton`，点击后只清除对应条件，并复用同一个 `defaultFilterValue` / `resetAdvancedFilter` 真源。
+- Inspector 侧栏保留静态展开流和局部滚动，避免窄侧栏浮层遮挡样本列表。
+- README、架构文档、脚本文档和 layout smoke 同步新的 token 清除与浮层滚动边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增页面级 filter 必须复用 `AdvancedFilterBar`，不能把高级检索表单直接插进页面主流导致核心内容位移。
+- 新增 filter 默认值或条件类型时，必须同时接入单条件 token 清除和统一清空逻辑。
+
 ## 2026-05-25: Eval Bench 首页 command desk 仍缺少主判断链路
 
 ### 现象

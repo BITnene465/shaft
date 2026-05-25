@@ -745,10 +745,25 @@ async function assertAdvancedFilters(page, scope) {
 
 async function assertAdvancedFilterClear(page, scope) {
   const filter = page.locator(".advanced-filter-bar").first();
-  const searchInput = filter.locator(".advanced-filter-controls input").first();
-  await filter.locator(".advanced-filter-head").click();
-  await searchInput.waitFor({ timeout: 5_000 });
-  await searchInput.fill("layout-smoke-filter-reset");
+  const searchInput = await openAdvancedFilter(filter);
+  await searchInput.fill("layout-smoke-token-reset");
+  await filter.locator(".advanced-filter-token").first().waitFor({ timeout: 5_000 });
+  await filter.locator(".advanced-filter-token").first().click();
+  const tokenState = await filter.evaluate((node) => {
+    const input = node.querySelector(".advanced-filter-controls input");
+    const summary = node.querySelector(".advanced-filter-head div span");
+    return {
+      inputValue: input instanceof HTMLInputElement ? input.value : "",
+      summary: summary?.textContent?.trim() ?? "",
+      tokenVisible: Boolean(node.querySelector(".advanced-filter-token"))
+    };
+  });
+  if (tokenState.inputValue !== "" || tokenState.tokenVisible || tokenState.summary !== "未设条件") {
+    throw new Error(`${scope}: advanced filter token clear did not reset filter ${JSON.stringify(tokenState)}`);
+  }
+  await page.waitForTimeout(120);
+  const resetSearchInput = await openAdvancedFilter(filter);
+  await resetSearchInput.fill("layout-smoke-filter-reset");
   await filter.locator(".advanced-filter-clear").waitFor({ timeout: 5_000 });
   await filter.locator(".advanced-filter-clear").click();
   const state = await filter.evaluate((node) => {
@@ -763,6 +778,20 @@ async function assertAdvancedFilterClear(page, scope) {
   if (state.inputValue !== "" || state.clearVisible || state.summary !== "未设条件") {
     throw new Error(`${scope}: advanced filter clear did not reset filters ${JSON.stringify(state)}`);
   }
+}
+
+async function openAdvancedFilter(filter) {
+  const input = filter.locator(".advanced-filter-controls input").first();
+  if (await input.isVisible().catch(() => false)) {
+    return input;
+  }
+  const head = filter.locator(".advanced-filter-head");
+  await head.click();
+  if (!(await input.isVisible().catch(() => false))) {
+    await head.click();
+  }
+  await input.waitFor({ timeout: 5_000 });
+  return input;
 }
 
 async function assertInspectorFilters(page, scope) {

@@ -82,11 +82,7 @@ export function AdvancedFilterBar({
   }).length;
   const activeFilters = controls
     .filter((control) => control.value.trim() !== defaultFilterValue(control))
-    .map((control) => ({
-      id: control.id,
-      label: control.label,
-      value: displayFilterValue(control)
-    }));
+    .map((control) => ({ control, value: displayFilterValue(control) }));
   const controlGroups = useMemo(() => groupAdvancedControls(controls), [controls]);
   const summary = activeCount > 0 ? `${activeCount} 个条件生效` : "未设条件";
   useEffect(() => {
@@ -112,11 +108,7 @@ export function AdvancedFilterBar({
   }, [open]);
   function resetAdvancedFilters() {
     for (const control of controls) {
-      if (control.type === "select") {
-        control.onChange(defaultFilterValue(control));
-      } else {
-        control.onChange("");
-      }
+      resetAdvancedFilter(control);
     }
   }
   return (
@@ -144,9 +136,17 @@ export function AdvancedFilterBar({
         <div className="advanced-filter-summary" aria-live="polite">
           {activeFilters.length > 0 ? (
             activeFilters.slice(0, 4).map((filter) => (
-              <span className="advanced-filter-token" key={filter.id} title={`${filter.label}: ${filter.value}`}>
-                {filter.label}: {filter.value}
-              </span>
+              <ActionButton
+                variant="mini"
+                className="advanced-filter-token"
+                key={filter.control.id}
+                title={`清除 ${filter.control.label}: ${filter.value}`}
+                aria-label={`清除 ${filter.control.label}: ${filter.value}`}
+                icon={<X size={11} />}
+                onClick={() => resetAdvancedFilter(filter.control)}
+              >
+                <span>{filter.control.label}: {filter.value}</span>
+              </ActionButton>
             ))
           ) : (
             <span className="advanced-filter-hint">{meta}</span>
@@ -209,6 +209,10 @@ function defaultFilterValue(control: AdvancedFilterControl) {
     return control.values.includes("all") ? "all" : control.values[0] ?? "";
   }
   return "";
+}
+
+function resetAdvancedFilter(control: AdvancedFilterControl) {
+  control.onChange(defaultFilterValue(control));
 }
 
 function displayFilterValue(control: AdvancedFilterControl) {

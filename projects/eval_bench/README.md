@@ -636,7 +636,7 @@ benchmark/model 与 prediction/report 数量。行动入口必须以 readiness s
 `created_at` 倒序截取，不依赖 API 返回顺序。不再维护分栏 masonry 图表墙，也不要求固定数量的 mini chart。
 Notes、任务类型、模型分布、benchmark task、label footprint、样本/label 权重、Job 日历和 scheduler 资源不进入总览，
 留在 Runs、Inspector、Rank Board 或 Services 的细节视图里。compact 视口下由 Overview 页面栈承担滚动，核心面板不能被 hidden 裁切。首页和标准 workspace 元素保留轻量入场、hover、状态 pulse 与 rail 动效，这些动效只用于强调状态、可点击入口和实时感，不改变数据语义。高级检索 UI 已组件化为
-`AdvancedFilterBar`，默认只保留一个 Filter 触发器、当前条件摘要和统一清空动作，展开后才显示带“检索式 / 范围目录 / 排序与阈值”分组的浮层表单；
+`AdvancedFilterBar`，默认只保留一个 Filter 触发器、当前条件 token 和统一清空动作；每个 token 可直接点击清除单个条件，展开后才显示带“检索式 / 范围目录 / 排序与阈值”分组的浮层表单，浮层不再撑高主工作区；
 Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；
 Benchmark Inspector 和 Run Inspector 的样本级 label/error 筛选也复用同一个折叠式高级检索条，避免侧栏堆叠多个 select；
 当任意条件生效时，`AdvancedFilterBar` 会显示统一的“清空”动作；search/number 默认清空，带 `all`
