@@ -95,6 +95,9 @@ try {
       if (route.requireInspectorFilters) {
         await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
       }
+      if (route.requireRunInspectorCounts) {
+        await assertRunInspectorCountStrip(page, `${viewport.name}:${route.name}`);
+      }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
@@ -187,7 +190,8 @@ async function discoverInspectorRoutes(rootUrl) {
           ".sample-list",
           ".viewer-panel"
         ],
-        requireInspectorFilters: true
+        requireInspectorFilters: true,
+        requireRunInspectorCounts: true
       });
     }
     return routes;
@@ -480,6 +484,26 @@ async function assertInspectorFilters(page, scope) {
   }
   if (state.buttonRect.height > 44) {
     throw new Error(`${scope}: inspector collapsed filter head is too tall ${formatRect(state.buttonRect)}`);
+  }
+}
+
+async function assertRunInspectorCountStrip(page, scope) {
+  const state = await page.evaluate(() => {
+    const strip = document.querySelector(".viewer-side-panel .diagnostic-strip");
+    return {
+      text: strip?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      chipCount: strip?.querySelectorAll(":scope > span").length ?? 0,
+      compact: strip?.classList.contains("compact-counts") ?? false
+    };
+  });
+  if (!state.compact || state.chipCount !== 2) {
+    throw new Error(`${scope}: run inspector count strip should expose exactly two compact chips`);
+  }
+  if (!state.text.includes("真实") || !state.text.includes("预测")) {
+    throw new Error(`${scope}: run inspector count strip is missing GT/pred counts: ${state.text}`);
+  }
+  if (/\b(TP|FP|FN)\b|IoU|平均/.test(state.text)) {
+    throw new Error(`${scope}: run inspector count strip exposes fine metrics: ${state.text}`);
   }
 }
 

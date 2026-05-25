@@ -162,6 +162,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   测试证明四条调用链一致。
 - 新增 run sample 展示范围规则：只改 `sample_scope.py`，不能在 dashboard route、viewer 或 store 中各自
   手写 label 过滤。
+- 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；TP、FP、FN、IoU、P/R
+  等精细指标必须留在折叠式分 label 明细、对象诊断、排行榜或对比页中。
 
 ## Tests Required By Layer
 

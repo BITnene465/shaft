@@ -186,14 +186,18 @@ export function handleViewerShortcutAction(
 }
 
 export function VisibleMetricStrip({ metrics }: { metrics: VisibleMetrics }) {
+  const items = [
+    { label: "真实", value: metrics.gtCount },
+    { label: "预测", value: metrics.predCount }
+  ];
   return (
-    <div className="diagnostic-strip">
-      <span>真值 {metrics.gtCount.toLocaleString()}</span>
-      <span>预测 {metrics.predCount.toLocaleString()}</span>
-      <span>TP {metrics.matchedCount.toLocaleString()}</span>
-      <span>FP {metrics.falsePositiveCount.toLocaleString()}</span>
-      <span>FN {metrics.falseNegativeCount.toLocaleString()}</span>
-      <span>平均 IoU {formatMetric(metrics.meanIou)}</span>
+    <div className="diagnostic-strip compact-counts" aria-label="可见对象数量">
+      {items.map((item) => (
+        <span key={item.label}>
+          <em>{item.label}</em>
+          <strong>{item.value.toLocaleString()}</strong>
+        </span>
+      ))}
     </div>
   );
 }

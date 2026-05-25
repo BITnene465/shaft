@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 可视化检查器主统计条精细指标外露
+
+### 现象
+
+Run inspector 的样本卡片已经只显示 `真实 N / 预测 N`，但右侧 viewer 顶部的可见统计条仍直接展示
+TP、FP、FN 和平均 IoU。用户在快速翻样本时会被精细评测指标干扰，主视图信息密度和“标注工具式检查”
+定位不一致。
+
+### 根因
+
+`VisibleMetricStrip` 复用了 `viewerMetrics.ts` 的完整可见指标结果，并把所有字段都放在常显区域；
+分 label 明细已经有折叠区承载 TP/FP/FN/P/R/IoU，但外层统计条没有按展示层级收敛。这是前端展示层级问题，
+不是模型能力问题，也不是 eval / codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Run inspector、工作台设置预览和成对样本 viewer 中复用的外层统计条。
+- 不影响 `metrics.json`、comparison report、Rank Board 排序或对象级诊断数据。
+
+### 修复方式
+
+- `VisibleMetricStrip` 改为只渲染 `真实` 与 `预测` 两个紧凑计数块。
+- TP、FP、FN、P/R、IoU 继续保留在折叠的分 label 明细和对象诊断里，避免丢失排障能力。
+- layout smoke 增加 run inspector 断言：外层统计条必须只有两个 compact chip，不能出现 TP/FP/FN/IoU。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 可视化检查器主视图只放粗粒度状态；精细 metric 进入可折叠明细、排行榜或对比页。
+- 新增 viewer 常显区域时必须先判断信息是否服务快速检查，而不是把 report 字段直接平铺出来。
+
 ## 2026-05-21: Eval Bench ephemeral vLLM TP 启动端口冲突
 
 ### 现象
