@@ -10,6 +10,23 @@ export type BenchmarkSummary = {
   source_manifest_path: string | null;
 };
 
+export type BenchmarkListFilters = {
+  offset?: number;
+  limit?: number;
+  task?: string;
+  layer?: string;
+  split?: string;
+  query?: string;
+};
+
+export type BenchmarkListResponse = {
+  benchmarks: BenchmarkSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  filters?: Record<string, string>;
+};
+
 export type RunSummary = {
   run_id: string;
   status: string;
@@ -601,6 +618,19 @@ export function fetchServices(filters: ServiceListFilters = {}): Promise<Service
   });
   const query = params.toString();
   return fetchJson<ServiceListResponse>(`/api/services${query ? `?${query}` : ""}`);
+}
+
+export function fetchBenchmarks(
+  filters: BenchmarkListFilters = {}
+): Promise<BenchmarkListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return fetchJson<BenchmarkListResponse>(`/api/benchmarks${query ? `?${query}` : ""}`);
 }
 
 export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkSummary> {

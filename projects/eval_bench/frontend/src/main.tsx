@@ -38,12 +38,12 @@ import {
   BenchmarkSampleSummary,
   BenchmarkSummary,
   ComparisonSampleDetail,
-  DashboardState,
   EvalInstance,
   RunSampleDetail,
   RunSampleSummary,
   RunSummary,
   createBenchmark,
+  fetchBenchmarks,
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
   fetchComparisonSample,
@@ -88,7 +88,7 @@ import {
 import { useDashboardState } from "./dashboardState";
 import { AdvancedFilterBar, FilterSelect } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
-import { JobQueuePanel, JobsPage } from "./jobsPage";
+import { JobsPage } from "./jobsPage";
 import { BenchmarkTable, RunTable } from "./runTables";
 import { ServicesPage } from "./servicesPage";
 import {
@@ -120,7 +120,6 @@ import {
   DataTable,
   EmptyState,
   IconActionButton,
-  MetricCard,
   PanelTitle,
   SectionHeader,
   WorkspaceDialog
@@ -348,69 +347,93 @@ function OverviewPage() {
   }
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
-  const timelineRows = runTimeline(data.runs, 9);
+  const timelineRows = runTimeline(data.runs, 12);
   const activeRuns = data.runs.filter((run) =>
     ["created", "queued", "running"].includes(run.status)
   ).length;
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
+  const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
   return (
     <section className="page-stack dashboard-home">
-      <div className="overview-command-grid">
-        <div className="overview-hero-panel">
-          <div className="overview-hero-copy">
-            <div className="eyebrow">Mission Control</div>
-            <h2>Eval Bench 总控工作台</h2>
-            <p>聚合 benchmark、run、queue 和复现备注状态，保留粗粒度运营信号。</p>
+      <div className="overview-console">
+        <div className="overview-console-main">
+          <div className="overview-title-block">
+            <div className="eyebrow">Eval Bench Control</div>
+            <h2>总览</h2>
+            <p>只保留系统运行态、数据规模和近期写入节奏；精细指标进入排行榜与对比页。</p>
           </div>
-          <div className="overview-signal-rail">
-            <span>Active {activeRuns.toLocaleString()}</span>
-            <span>Notes {notedRuns.toLocaleString()}</span>
-            <span>Store online</span>
+          <div className="overview-stat-row">
+            <OverviewStat label="Benchmarks" value={data.benchmark_count} />
+            <OverviewStat label="Runs" value={data.run_count} />
+            <OverviewStat label="Evaluated" value={evaluatedRuns} />
+            <OverviewStat label="Active" value={activeRuns} tone={activeRuns > 0 ? "live" : "idle"} />
           </div>
         </div>
-        <div className="overview-quick-panel">
-          <PanelTitle title="快速入口" meta="agent / human" />
-          <div className="overview-command-links">
-            <Link className="mini-link compare-ready" to="/rank-board">
-              <Trophy size={13} />
-              打开排行榜
+        <div className="overview-console-side">
+          <div className="overview-store-line">
+            <span>Store</span>
+            <strong title={data.store_root}>{data.store_root}</strong>
+          </div>
+          <div className="overview-console-links">
+            <Link to="/rank-board">
+              <Trophy size={14} />
+              排行榜
             </Link>
-            <Link className="mini-link" to="/jobs">
-              <Activity size={13} />
-              任务中心
-            </Link>
-            <Link className="mini-link" to="/runs">
-              <AppIcon name="runResults" size={13} />
+            <Link to="/runs">
+              <AppIcon name="runResults" size={14} />
               结果库
             </Link>
+            <Link to="/jobs">
+              <Activity size={14} />
+              任务
+            </Link>
           </div>
-          <ConfigItem label="Store" value={data.store_root} />
         </div>
       </div>
-      <div className="summary-grid overview-signal-grid">
-        <MetricCard icon={<AppIcon name="benchmark" size={26} />} label="基准集" value={data.benchmark_count} />
-        <MetricCard icon={<AppIcon name="samples" size={26} />} label="GT 样本" value={data.total_benchmark_samples} />
-        <MetricCard icon={<Activity size={25} />} label="活跃任务" value={activeRuns} />
-        <MetricCard icon={<FileText size={24} />} label="备注覆盖" value={notedRuns} />
+      <div className="overview-ops-strip">
+        <OverviewDatum label="GT samples" value={data.total_benchmark_samples} />
+        <OverviewDatum label="Predictions" value={data.prediction_count} />
+        <OverviewDatum label="Notes" value={notedRuns} />
+        <OverviewDatum label="Tasks" value={taskRows.length} />
       </div>
-      <div className="home-grid overview-grid">
-        <OverviewBarPanel title="Run 状态分布" meta="粗粒度生命周期" rows={statusRows} />
-        <OverviewBarPanel title="任务类型分布" meta="detection / keypoint" rows={taskRows} />
+      <div className="overview-grid refined">
         <OverviewTimelinePanel rows={timelineRows} />
-        <div className="workspace-card">
-          <PanelTitle title="最近活动" meta={`最新 ${Math.min(6, data.runs.length)} 条 run`} />
-          <OverviewRunList runs={data.runs.slice(0, 6)} />
+        <div className="overview-side-stack">
+          <OverviewBarPanel title="Run 生命周期" meta="状态分布" rows={statusRows} />
+          <OverviewBarPanel title="任务类型" meta="detection / keypoint" rows={taskRows} />
         </div>
-        <div className="workspace-card">
-          <PanelTitle title="任务队列" meta="持久化 job" />
-          <JobQueuePanel compact />
-        </div>
-        <div className="workspace-card">
-          <PanelTitle title="基准集" meta="GT 样本库" />
-          <BenchmarkTable benchmarks={data.benchmarks.slice(0, 6)} compact />
+        <div className="workspace-card overview-recent-panel">
+          <PanelTitle title="最近 run" meta={`最新 ${Math.min(5, data.runs.length)} 条`} />
+          <OverviewRunList runs={data.runs.slice(0, 5)} />
         </div>
       </div>
     </section>
+  );
+}
+
+function OverviewStat({
+  label,
+  value,
+  tone = "idle"
+}: {
+  label: string;
+  value: number;
+  tone?: "idle" | "live";
+}) {
+  return (
+    <div className={tone === "live" ? "overview-stat live" : "overview-stat"}>
+      <span>{label}</span>
+      <strong>{value.toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function OverviewDatum({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="overview-datum">
+      <span>{label}</span>
+      <strong>{value.toLocaleString()}</strong>
+    </div>
   );
 }
 
@@ -425,7 +448,7 @@ function OverviewBarPanel({
 }) {
   const maxCount = Math.max(1, ...rows.map((row) => row.count));
   return (
-    <div className="workspace-card overview-chart-card">
+    <div className="workspace-card overview-chart-card compact">
       <PanelTitle title={title} meta={meta} />
       <div className="overview-bar-list">
         {rows.length === 0 ? (
@@ -454,8 +477,8 @@ function OverviewTimelinePanel({ rows }: { rows: Array<{ key: string; count: num
     return `${x},${y}`;
   });
   return (
-    <div className="workspace-card overview-chart-card span-2">
-      <PanelTitle title="Run 写入节奏" meta="最近 9 个日期桶" />
+    <div className="workspace-card overview-chart-card overview-timeline-panel">
+      <PanelTitle title="Run 写入节奏" meta="最近 12 个日期桶" />
       <div className="overview-sparkline">
         <BarChart3 size={18} />
         <svg viewBox="0 0 100 100" role="img" aria-label="run timeline">
@@ -527,37 +550,40 @@ function runTimeline(runs: RunSummary[], bucketCount: number) {
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
 }
 
-function SummaryGrid({ state }: { state: DashboardState }) {
-  return (
-    <div className="summary-grid">
-      <MetricCard icon={<AppIcon name="benchmark" size={26} />} label="基准集" value={state.benchmark_count} />
-      <MetricCard icon={<AppIcon name="samples" size={26} />} label="样本数" value={state.total_benchmark_samples} />
-      <MetricCard icon={<AppIcon name="runResults" size={26} />} label="评测记录" value={state.run_count} />
-      <MetricCard icon={<AppIcon name="predictions" size={26} />} label="预测实例" value={state.prediction_count} />
-    </div>
-  );
-}
-
 function BenchmarksPage() {
-  const { data, isLoading, error } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [taskFilter, setTaskFilter] = useState("all");
   const [layerFilter, setLayerFilter] = useState("all");
   const [splitFilter, setSplitFilter] = useState("all");
-  const benchmarks = data?.benchmarks ?? [];
-  const filteredBenchmarks = benchmarks
-    .filter((benchmark) => taskFilter === "all" || benchmark.tasks.includes(taskFilter))
-    .filter((benchmark) => layerFilter === "all" || benchmark.layers.includes(layerFilter))
-    .filter((benchmark) => splitFilter === "all" || benchmark.split === splitFilter)
-    .filter((benchmark) => benchmarkMatchesQuery(benchmark, searchText));
-  const tasks = unique(benchmarks.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
-  const layers = unique(benchmarks.flatMap((benchmark) => benchmark.layers).filter(Boolean));
-  const splits = unique(benchmarks.map((benchmark) => benchmark.split).filter(Boolean));
-  if (isLoading) {
+  const benchmarkFilters = useMemo(
+    () => ({
+      offset: 0,
+      limit: 200,
+      task: taskFilter !== "all" ? taskFilter : undefined,
+      layer: layerFilter !== "all" ? layerFilter : undefined,
+      split: splitFilter !== "all" ? splitFilter : undefined,
+      query: searchText.trim() || undefined
+    }),
+    [layerFilter, searchText, splitFilter, taskFilter]
+  );
+  const benchmarksQuery = useQuery({
+    queryKey: ["benchmarks", benchmarkFilters],
+    queryFn: () => fetchBenchmarks(benchmarkFilters)
+  });
+  const benchmarkFacetsQuery = useQuery({
+    queryKey: ["benchmarks", "facets"],
+    queryFn: () => fetchBenchmarks({ limit: 500 })
+  });
+  const benchmarks = benchmarksQuery.data?.benchmarks ?? [];
+  const benchmarkFacets = benchmarkFacetsQuery.data?.benchmarks ?? benchmarks;
+  const tasks = unique(benchmarkFacets.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
+  const layers = unique(benchmarkFacets.flatMap((benchmark) => benchmark.layers).filter(Boolean));
+  const splits = unique(benchmarkFacets.map((benchmark) => benchmark.split).filter(Boolean));
+  if (benchmarksQuery.isLoading) {
     return <EmptyState title="正在加载基准集" />;
   }
-  if (error || !data) {
+  if (benchmarksQuery.error || !benchmarksQuery.data) {
     return <EmptyState title="基准集加载失败" tone="danger" />;
   }
   return (
@@ -565,7 +591,7 @@ function BenchmarksPage() {
       <div className="page-command-row">
         <div>
           <h2>基准集目录</h2>
-          <span>{data.benchmarks.length.toLocaleString()} 个不可变副本</span>
+          <span>{(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个不可变副本</span>
         </div>
         <CommandButton
           icon={<AppIcon name="createBenchmark" size={17} />}
@@ -576,7 +602,7 @@ function BenchmarksPage() {
       </div>
       <AdvancedFilterBar
         title="基准集高级检索"
-        meta={`${filteredBenchmarks.length.toLocaleString()} / ${benchmarks.length.toLocaleString()} 个 benchmark`}
+        meta={`${benchmarks.length.toLocaleString()} / ${(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个 benchmark`}
         controls={[
           {
             type: "search",
@@ -616,7 +642,7 @@ function BenchmarksPage() {
         ]}
       />
       <div className="workspace-card fill">
-        <BenchmarkTable benchmarks={filteredBenchmarks} />
+        <BenchmarkTable benchmarks={benchmarks} />
       </div>
       <WorkspaceDialog
         open={createOpen}
@@ -643,6 +669,7 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
     mutationFn: createBenchmark,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+      void queryClient.invalidateQueries({ queryKey: ["benchmarks"] });
     }
   });
 
@@ -756,22 +783,6 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
       </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
-}
-
-function benchmarkMatchesQuery(benchmark: BenchmarkSummary, query: string) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return true;
-  }
-  return [
-    benchmark.benchmark_id,
-    benchmark.split,
-    benchmark.root,
-    benchmark.manifest_path,
-    benchmark.source_manifest_path ?? "",
-    benchmark.tasks.join(" "),
-    benchmark.layers.join(" ")
-  ].some((value) => value.toLowerCase().includes(normalized));
 }
 
 function BenchmarkDetailPage() {

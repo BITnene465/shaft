@@ -355,6 +355,8 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
             "detection",
             "--layer",
             "layout",
+            "--split",
+            "val",
             "--query",
             "bench1",
         ]
@@ -363,6 +365,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     benchmarks = json.loads(capsys.readouterr().out)
     assert benchmarks["total"] == 1
     assert benchmarks["filters"]["task"] == "detection"
+    assert benchmarks["filters"]["split"] == "val"
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "bench1"
 
     run_args = _build_parser().parse_args(

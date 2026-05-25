@@ -137,6 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_benchmarks.add_argument("--limit", type=int, default=100)
     list_benchmarks.add_argument("--task", choices=("detection", "keypoint"), default=None)
     list_benchmarks.add_argument("--layer", default=None)
+    list_benchmarks.add_argument("--split", default=None)
     list_benchmarks.add_argument("--query", default=None)
 
     list_runs = subparsers.add_parser(
@@ -452,6 +453,7 @@ def _cmd_list_benchmarks(args: argparse.Namespace) -> None:
         limit=args.limit,
         task=args.task,
         layer=args.layer,
+        split=args.split,
         query=args.query,
     )
     print(json.dumps(page.to_dict(), ensure_ascii=False))

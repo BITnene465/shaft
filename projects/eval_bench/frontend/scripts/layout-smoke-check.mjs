@@ -12,7 +12,7 @@ const routes = [
   {
     name: "overview",
     path: "/",
-    selectors: [".dashboard-home", ".overview-command-grid", ".overview-grid"]
+    selectors: [".dashboard-home", ".overview-console", ".overview-grid.refined"]
   },
   {
     name: "rank-board",

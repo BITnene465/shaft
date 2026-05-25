@@ -105,11 +105,12 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert benchmarks["total"] == 1
     filtered_benchmarks = client.get(
         "/api/benchmarks",
-        params={"task": "detection", "layer": "layout", "query": "multitask"},
+        params={"task": "detection", "layer": "layout", "split": "val", "query": "multitask"},
     ).json()
     assert filtered_benchmarks["filters"] == {
         "task": "detection",
         "layer": "layout",
+        "split": "val",
         "query": "multitask",
     }
     assert filtered_benchmarks["total"] == 1

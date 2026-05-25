@@ -5937,98 +5937,194 @@ tbody tr:hover td {
   min-width: max-content;
 }
 
-.overview-command-grid {
+.overview-console {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.34fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.34fr);
   gap: 12px;
 }
 
-.overview-hero-panel,
-.overview-quick-panel {
+.overview-console-main,
+.overview-console-side,
+.overview-ops-strip,
+.overview-chart-card,
+.overview-recent-panel {
   min-width: 0;
   background: #ffffff;
   border: 1px solid #dbe3ec;
   border-radius: 2px;
-  box-shadow: 0 12px 30px rgb(15 23 42 / 5%);
 }
 
-.overview-hero-panel {
+.overview-console-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.72fr);
+  gap: 20px;
   align-items: end;
-  min-height: 142px;
-  padding: 18px;
+  min-height: 150px;
+  padding: 20px;
   color: #dce8ef;
   background:
-    linear-gradient(135deg, rgb(7 13 20 / 92%), rgb(18 34 51 / 96%)),
-    repeating-linear-gradient(90deg, rgb(94 211 243 / 10%) 0 1px, transparent 1px 28px);
+    linear-gradient(135deg, rgb(7 13 20 / 94%), rgb(18 34 51 / 96%)),
+    linear-gradient(90deg, rgb(80 192 220 / 10%) 1px, transparent 1px);
+  background-size: auto, 32px 100%;
   border-color: #1f3548;
 }
 
-.overview-hero-copy h2 {
+.overview-title-block h2 {
   color: #f8fbfd;
-  font-size: 26px;
+  font-size: 30px;
+  line-height: 1;
 }
 
-.overview-hero-copy p {
-  max-width: 680px;
-  margin-top: 8px;
-  color: #9fb2c6;
+.overview-title-block p {
+  max-width: 720px;
+  margin-top: 10px;
+  color: #a8bac9;
   font-size: 13px;
   line-height: 1.55;
 }
 
-.overview-signal-rail {
+.overview-stat-row {
   display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  min-width: 160px;
 }
 
-.overview-signal-rail span {
-  padding: 8px 10px;
-  color: #cfeaf4;
+.overview-stat {
+  min-width: 0;
+  padding: 10px;
   background: rgb(255 255 255 / 7%);
   border: 1px solid rgb(125 211 252 / 18%);
-  font-size: 12px;
+}
+
+.overview-stat.live {
+  border-color: rgb(35 163 111 / 58%);
+  box-shadow: inset 0 0 0 1px rgb(35 163 111 / 18%);
+}
+
+.overview-stat span,
+.overview-datum span,
+.overview-store-line span {
+  display: block;
+  color: #6a7b8e;
+  font-size: 10px;
   font-weight: 780;
-  text-align: right;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
-.overview-quick-panel {
+.overview-stat span {
+  color: #9fb2c6;
+}
+
+.overview-stat strong {
+  display: block;
+  margin-top: 8px;
+  color: #f8fbfd;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.overview-console-side {
   display: grid;
-  gap: 10px;
-  align-content: start;
-  padding: 12px;
+  gap: 12px;
+  align-content: space-between;
+  padding: 14px;
 }
 
-.overview-command-links {
-  display: flex;
-  flex-wrap: wrap;
+.overview-store-line strong {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: #172332;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-console-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
-.overview-signal-grid {
+.overview-console-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px;
+  color: #1c4259;
+  text-decoration: none;
+  background: #f5f9fb;
+  border: 1px solid #d5e3ec;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.overview-console-links a:hover {
+  color: #ffffff;
+  background: #235a78;
+  border-color: #235a78;
+}
+
+.overview-ops-strip {
+  display: grid;
   flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
 }
 
-.overview-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: minmax(230px, auto);
-  overflow: visible;
+.overview-datum {
+  min-width: 0;
+  padding: 12px 14px;
+  border-right: 1px solid #e2e8ef;
 }
 
-.overview-grid .span-2 {
-  grid-column: span 2;
+.overview-datum:last-child {
+  border-right: 0;
+}
+
+.overview-datum strong {
+  display: block;
+  margin-top: 6px;
+  color: #172332;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.overview-grid.refined {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.58fr) minmax(300px, 0.72fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overview-side-stack {
+  display: grid;
+  min-height: 0;
+  gap: 12px;
 }
 
 .overview-chart-card {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
-  min-height: 230px;
+  min-height: 0;
   padding: 12px;
+}
+
+.overview-timeline-panel {
+  grid-template-rows: auto minmax(220px, 1fr) auto;
+}
+
+.overview-chart-card.compact {
+  min-height: 0;
 }
 
 .overview-bar-list {
@@ -6075,7 +6171,7 @@ tbody tr:hover td {
 
 .overview-sparkline {
   position: relative;
-  min-height: 132px;
+  min-height: 220px;
   color: #1d5d7a;
   background:
     linear-gradient(rgb(15 23 42 / 5%) 1px, transparent 1px),
@@ -6093,7 +6189,7 @@ tbody tr:hover td {
 .overview-sparkline svg[role="img"] {
   width: 100%;
   height: 100%;
-  min-height: 132px;
+  min-height: 220px;
   padding: 12px;
 }
 
@@ -6132,8 +6228,10 @@ tbody tr:hover td {
 
 .overview-run-list {
   display: grid;
+  min-height: 0;
   gap: 7px;
   padding: 12px;
+  overflow: auto;
 }
 
 .overview-run-list a {
@@ -6185,7 +6283,9 @@ tbody tr:hover td {
 
 @media (max-width: 1180px) {
   .advanced-filter-bar,
-  .overview-command-grid {
+  .overview-console,
+  .overview-console-main,
+  .overview-grid.refined {
     grid-template-columns: 1fr;
   }
 
@@ -6193,12 +6293,8 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .overview-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .overview-grid .span-2 {
-    grid-column: span 1;
+  .overview-ops-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .compare-workspace.resizable-split,
@@ -6239,12 +6335,12 @@ tbody tr:hover td {
 
   .rank-metric-strip,
   .rank-facet-rail,
-  .overview-command-grid,
-  .overview-grid {
+  .overview-console,
+  .overview-console-main,
+  .overview-stat-row,
+  .overview-console-links,
+  .overview-ops-strip,
+  .overview-grid.refined {
     grid-template-columns: 1fr;
-  }
-
-  .overview-grid .span-2 {
-    grid-column: span 1;
   }
 }

@@ -342,11 +342,13 @@ class EvalBenchStore:
         limit: int = 100,
         task: str | None = None,
         layer: str | None = None,
+        split: str | None = None,
         query: str | None = None,
     ) -> BenchmarkListPage:
         filters = {
             "task": _normalize_filter_value(task) or "",
             "layer": _normalize_filter_value(layer) or "",
+            "split": _normalize_filter_value(split) or "",
             "query": (query or "").strip(),
         }
         query_text = filters["query"].lower()
@@ -357,6 +359,7 @@ class EvalBenchStore:
                 benchmark,
                 task=filters["task"],
                 layer=filters["layer"],
+                split=filters["split"],
                 query=query_text,
             )
         ]
@@ -1066,11 +1069,14 @@ def _benchmark_matches_filters(
     *,
     task: str,
     layer: str,
+    split: str,
     query: str,
 ) -> bool:
     if task and task not in benchmark.tasks:
         return False
     if layer and layer not in benchmark.layers:
+        return False
+    if split and split != benchmark.split:
         return False
     if query and not _query_matches_fields(
         query,

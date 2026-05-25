@@ -462,6 +462,7 @@ def create_app(
         limit: int = 100,
         task: str | None = None,
         layer: str | None = None,
+        split: str | None = None,
         query: str | None = None,
     ):
         page = request.app.state.eval_bench_store.benchmark_page(
@@ -469,6 +470,7 @@ def create_app(
             limit=_clamped_int(limit, minimum=1, maximum=500),
             task=task,
             layer=layer,
+            split=split,
             query=query,
         )
         return JSONResponse(page.to_dict())
