@@ -13,7 +13,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - 只负责展示和用户操作编排，不推断 eval 语义。
    - 前端全局命令必须走 command/action registry，不能直接写死快捷键。
    - 页面级筛选优先复用 `AdvancedFilterBar`；默认只露出 Filter 入口，展开后再显示检索表单，
-    避免把多组 select 直接堆在主工作区。
+    避免把多组 select 直接堆在主工作区；清空筛选、默认值判定和生效条件计数也只在
+    `AdvancedFilterBar` 中维护。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop 行为和 dialog body 滚动语义不能在业务页复制。
    - 标准按钮统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`；业务页只保留样本行、
@@ -112,14 +113,14 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
   - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
-  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件真源。
+  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件、清空动作和默认值判定真源。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
     弹窗表单和对比选择轨不各自复制 select/input 外壳。
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载高密度粗粒度图表、运行态遥测和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载 56+ 高密度粗粒度 mini chart、运行态遥测和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
@@ -176,9 +177,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 signal deck、微型柱状、环形占比、栅格热区、堆叠条和矩阵化小图表表达，
+- 新增总览视觉模块：优先用 signal deck、微型柱状、环形占比、栅格热区、堆叠条、sparkline 和 mosaic 小图表表达，
   不再把低频信息做成大块空白 card；signal deck 的时间维度优先压缩成 Run/Job/Service 三泳道活动矩阵。
-  主矩阵至少保持 40 个粗粒度 mini chart，并同时保留多种微图表形态。
+  主矩阵至少保持 56 个粗粒度 mini chart，并同时保留多种微图表形态。
   compact 视口需要滚动时只能由矩阵自身滚动，最近 run 必须嵌入矩阵成为紧凑事件 tile，
   不允许按剩余高度拉伸成独立大块面板。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill

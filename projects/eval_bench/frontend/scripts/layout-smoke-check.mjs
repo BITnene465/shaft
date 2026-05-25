@@ -100,6 +100,9 @@ try {
       await assertPageStack(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
+      if (route.name === "runs" || route.name === "rank-board") {
+        await assertAdvancedFilterClear(page, `${viewport.name}:${route.name}`);
+      }
       await assertForbiddenSelectors(page, `${viewport.name}:${route.name}`, route.forbiddenSelectors ?? []);
       if (route.name === "overview") {
         await assertOverviewDensity(page, `${viewport.name}:${route.name}`);
@@ -396,7 +399,9 @@ async function assertOverviewDensity(page, scope) {
     });
     const chartKinds = new Set(
       Array.from(document.querySelectorAll(".overview-mini-chart")).flatMap((node) =>
-        ["ring", "rails", "cells", "meter"].filter((kind) => node.classList.contains(kind))
+        ["ring", "rails", "cells", "meter", "spark", "mosaic"].filter((kind) =>
+          node.classList.contains(kind)
+        )
       )
     );
     const chartCardHeights = Array.from(document.querySelectorAll(".overview-chart-card")).map((node) =>
@@ -444,10 +449,12 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.miniCharts < 40) {
-    throw new Error(`${scope}: overview should expose at least forty mini charts, got ${state.miniCharts}`);
+  if (state.miniCharts < 56) {
+    throw new Error(
+      `${scope}: overview should expose at least fifty-six mini charts, got ${state.miniCharts}`
+    );
   }
-  if (state.chartKinds.length < 4) {
+  if (state.chartKinds.length < 6) {
     throw new Error(`${scope}: overview chart wall lost mixed chart forms ${state.chartKinds.join(",")}`);
   }
   if (state.recentCardsInMatrix !== 1 || state.legacyRecentPanels > 0) {
@@ -572,6 +579,28 @@ async function assertAdvancedFilters(page, scope) {
     if (filter.scrollHeight > filter.clientHeight + 2 && !allowsScroll(filter.overflowY)) {
       throw new Error(`${scope}: advanced filter ${filter.index} clips vertically`);
     }
+  }
+}
+
+async function assertAdvancedFilterClear(page, scope) {
+  const filter = page.locator(".advanced-filter-bar").first();
+  const searchInput = filter.locator(".advanced-filter-controls input").first();
+  await filter.locator(".advanced-filter-head").click();
+  await searchInput.waitFor({ timeout: 5_000 });
+  await searchInput.fill("layout-smoke-filter-reset");
+  await filter.locator(".advanced-filter-clear").waitFor({ timeout: 5_000 });
+  await filter.locator(".advanced-filter-clear").click();
+  const state = await filter.evaluate((node) => {
+    const input = node.querySelector(".advanced-filter-controls input");
+    const summary = node.querySelector(".advanced-filter-head span");
+    return {
+      inputValue: input instanceof HTMLInputElement ? input.value : "",
+      summary: summary?.textContent?.trim() ?? "",
+      clearVisible: Boolean(node.querySelector(".advanced-filter-clear"))
+    };
+  });
+  if (state.inputValue !== "" || state.clearVisible || state.summary !== "点击展开筛选") {
+    throw new Error(`${scope}: advanced filter clear did not reset filters ${JSON.stringify(state)}`);
   }
 }
 

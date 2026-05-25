@@ -275,11 +275,13 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高密度约束：顶栏 status 必须是独立
-圆角 capsule，ops / Run-Job-Service 活动矩阵 / 实时遥测必须压缩在 signal deck，活动矩阵必须是 3 条 12 桶泳道，Overview 至少保留 40 个 mini chart，
-并同时包含环形、柱状、栅格和堆叠条等多种微图表形态；Overview 不能出现 precision/recall/IoU 这类细指标文案；
+圆角 capsule，ops / Run-Job-Service 活动矩阵 / 实时遥测必须压缩在 signal deck，活动矩阵必须是 3 条 12 桶泳道，Overview 至少保留 56 个 mini chart，
+并同时包含环形、柱状、栅格、堆叠条、sparkline 和 mosaic 等多种微图表形态；Overview 不能出现 precision/recall/IoU 这类细指标文案；
 图表矩阵需要滚动时不能被 hidden 裁切，最近 run 必须嵌入图表矩阵，不能回退成独立大块面板。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
 inspector split 内，不能卸载成全页 EmptyState。
+Runs / Rank Board 会实际输入检索词并点击 `AdvancedFilterBar` 的清空动作，确认 search/number/select
+按默认值恢复，且排序 select 不会被误算成生效过滤条件。
 
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`
@@ -289,7 +291,8 @@ inspector split 内，不能卸载成全页 EmptyState。
   `IconActionButton`，样本列表行使用 `SelectableRowButton`，query/label chip 使用
   `OptionChipButton`；紧凑 select、表单 select、number、color 和 toggle 控件位于
   `controlPrimitives.tsx`。
-  `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接。
+  `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接，并固定
+  高级检索清空动作必须在 `AdvancedFilterBar` 内统一实现。
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data

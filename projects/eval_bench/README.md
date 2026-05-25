@@ -536,11 +536,13 @@ weighted 面板内，排行榜表格继续显示上一份可用结果。
 
 Dashboard 总览页是总控工作台，不展示 recall 这类精细评测指标；它聚合 run 生命周期、评测覆盖、
 任务类型、模型分布、Prompt 分布、parser、viewer profile、benchmark task、label footprint、样本规模、
-数据层、split、label scope、run 新鲜度、预测规模、备注覆盖、job、service 和 scheduler 粗粒度状态。
+数据层、split、label scope、run 新鲜度、时间节奏、artifact 覆盖、样本权重、配置快照、job、service 和 scheduler 粗粒度状态。
 总览视觉模块按高密度控制台处理：ops、Run/Job/Service 三泳道 12 日期桶活动矩阵和实时遥测压缩在同一条 signal deck，
-主区域压缩为 40+ 个环形占比、柱状、栅格和堆叠条 mini chart；compact 视口下由图表矩阵自身滚动，不能被外层 hidden 裁切。最近 run 只作为底部横向事件条，不再用大块低信息密度 card 拉伸页面。高级检索 UI 已组件化为
+主区域压缩为 56+ 个环形占比、柱状、栅格、堆叠条、sparkline 和 mosaic mini chart；compact 视口下由图表矩阵自身滚动，不能被外层 hidden 裁切。最近 run 只作为图表矩阵里的横向事件 tile，不再用大块低信息密度 card 拉伸页面。高级检索 UI 已组件化为
 `AdvancedFilterBar`，默认收敛为一个 Filter 按钮，展开后才显示检索表单；Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；
 Benchmark Inspector 和 Run Inspector 的样本级 label/error 筛选也复用同一个折叠式高级检索条，避免侧栏堆叠多个 select；
+当任意条件生效时，`AdvancedFilterBar` 会显示统一的“清空”动作；search/number 默认清空，带 `all`
+选项的 select 回到 `all`，排序这类没有 `all` 的 select 回到第一个默认值，避免默认排序被误算成过滤条件。
 排行榜入口、入榜状态和已评估状态使用独立 `AppIcon` 语义 key，避免用同一个 metrics 图标表达不同含义。
 Runs 页和 Compare 页的 run 高级检索直接请求 `GET /api/runs`，和 CLI `list-runs` 共享 task、benchmark、status、
 label、model、prompt、metric 和 note 全文查询语义；Benchmarks 页直接请求 `GET /api/benchmarks`，
@@ -605,9 +607,9 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 jobs、services 和 settings，在 desktop / compact / narrow 三种 viewport 下确认没有全局滚动溢出、
 page stack 不被 content 裁切、表格和高级检索面板需要滚动时由自己的容器滚动，并确认 rank-board
 和 compare 加载独立 chunk。Overview 还会额外检查顶栏 status 是独立圆角 capsule、没有外层容器，
-写入节奏保持 12 桶微型条、mini chart 至少 12 个、不出现 precision/recall/IoU 这类细指标文案，
-最近 run 行不被剩余高度拉伸。Benchmark / Run 检查器还会模拟样本过滤后 0 命中的状态，确认侧栏、
-高级检索按钮和空结果提示仍在原工作区内可见，不能退化成全页 EmptyState：
+Run/Job/Service 活动矩阵保持 3 条 12 桶泳道，mini chart 至少 56 个且覆盖 6 种微图表形态，不出现 precision/recall/IoU 这类细指标文案，
+最近 run tile 不被剩余高度拉伸。Benchmark / Run 检查器还会模拟样本过滤后 0 命中的状态，确认侧栏、
+高级检索按钮和空结果提示仍在原工作区内可见，不能退化成全页 EmptyState；Runs / Rank Board 会实际输入筛选再点击清空，确认默认排序不被误算成生效条件：
 
 ```bash
 cd projects/eval_bench/frontend

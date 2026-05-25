@@ -16,6 +16,14 @@ for (const filePath of sourceFiles) {
 
 const jobsPage = await readSource("src/jobsPage.tsx");
 const uiSource = await readSource("src/ui.tsx");
+const filterControls = await readSource("src/filterControls.tsx");
+assert(
+  filterControls.includes('import { ActionButton } from "./ui";') &&
+    filterControls.includes("function resetAdvancedFilters()") &&
+    filterControls.includes("function defaultFilterValue(") &&
+    filterControls.includes('className="advanced-filter-clear"'),
+  "advanced filter reset action must be centralized in AdvancedFilterBar",
+);
 assert(
   uiSource.includes("export function SelectableRowButton("),
   "sample row selection must be centralized in SelectableRowButton",
@@ -111,6 +119,15 @@ const overviewPage = await readSource("src/overviewPage.tsx");
 assert(
   overviewPage.includes("export function OverviewPage()"),
   "overview page module must export OverviewPage",
+);
+assert(
+  (overviewPage.match(/\{\s*title:/g) ?? []).length >= 56 &&
+    overviewPage.includes(
+      'type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";',
+    ) &&
+    overviewPage.includes("function OverviewSparkChart(") &&
+    overviewPage.includes("function OverviewMosaicChart("),
+  "overview must stay a dense mixed-form chart wall",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

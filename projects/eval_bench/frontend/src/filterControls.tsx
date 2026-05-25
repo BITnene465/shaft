@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
+
+import { ActionButton } from "./ui";
 
 export function FilterSelect({
   label,
@@ -74,10 +76,19 @@ export function AdvancedFilterBar({
 }) {
   const [open, setOpen] = useState(false);
   const activeCount = controls.filter((control) => {
-    const value = control.value.trim();
-    return value !== "" && value !== "all";
+    return control.value.trim() !== defaultFilterValue(control);
   }).length;
   const summary = activeCount > 0 ? `${activeCount} 个条件生效` : "点击展开筛选";
+  const hasActions = Boolean(actions) || activeCount > 0;
+  function resetAdvancedFilters() {
+    for (const control of controls) {
+      if (control.type === "select") {
+        control.onChange(defaultFilterValue(control));
+      } else {
+        control.onChange("");
+      }
+    }
+  }
   return (
     <section
       className={open ? "advanced-filter-bar open" : "advanced-filter-bar"}
@@ -95,7 +106,21 @@ export function AdvancedFilterBar({
           <span>{summary}</span>
         </div>
       </button>
-      {actions ? <div className="advanced-filter-actions">{actions}</div> : null}
+      {hasActions ? (
+        <div className="advanced-filter-actions">
+          {actions}
+          {activeCount > 0 ? (
+            <ActionButton
+              variant="mini"
+              className="advanced-filter-clear"
+              icon={<RotateCcw size={13} />}
+              onClick={resetAdvancedFilters}
+            >
+              清空
+            </ActionButton>
+          ) : null}
+        </div>
+      ) : null}
       {open ? (
         <div className="advanced-filter-controls">
           {controls.map((control) => {
@@ -145,4 +170,11 @@ export function AdvancedFilterBar({
       ) : null}
     </section>
   );
+}
+
+function defaultFilterValue(control: AdvancedFilterControl) {
+  if (control.type === "select") {
+    return control.values.includes("all") ? "all" : control.values[0] ?? "";
+  }
+  return "";
 }

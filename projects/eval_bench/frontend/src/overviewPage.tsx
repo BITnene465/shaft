@@ -3,13 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Activity, BarChart3 } from "lucide-react";
 
-import type { JobSummary, RunSummary, SchedulerStatus, ServiceSummary } from "./api";
+import type {
+  BenchmarkSummary,
+  JobSummary,
+  RunSummary,
+  SchedulerStatus,
+  ServiceSummary
+} from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
 import { Badge, EmptyState, PanelTitle } from "./ui";
 
-type OverviewChartKind = "ring" | "rails" | "cells" | "meter";
+type OverviewChartKind = "ring" | "rails" | "cells" | "meter" | "spark" | "mosaic";
 type OverviewChartRow = { key: string; count: number };
 type OverviewActivityLane = {
   label: string;
@@ -124,6 +130,56 @@ export function OverviewPage() {
     services,
     (service) => service.updated_at ?? service.created_at
   );
+  const jobTimelineRows = itemTimeline(jobs, 12, (job) => job.created_at);
+  const serviceTimelineRows = itemTimeline(
+    services,
+    12,
+    (service) => service.updated_at ?? service.created_at
+  );
+  const runHourRows = timestampHourBandRows(data.runs, (run) => run.created_at);
+  const jobHourRows = timestampHourBandRows(jobs, (job) => job.created_at);
+  const runWeekdayRows = timestampWeekdayRows(data.runs, (run) => run.created_at);
+  const runTaskSpanRows = countBy(data.runs, (run) => spanBucket(run.tasks.length));
+  const runLabelSpanRows = countBy(data.runs, (run) => spanBucket(run.target_labels.length));
+  const benchmarkTaskSpanRows = countBy(data.benchmarks, (benchmark) =>
+    spanBucket(benchmark.tasks.length)
+  );
+  const benchmarkLabelSpanRows = countBy(data.benchmarks, (benchmark) =>
+    spanBucket(benchmark.labels.length)
+  );
+  const sampleTaskWeightRows = sumMany(
+    data.benchmarks,
+    (benchmark) => benchmark.tasks,
+    (benchmark) => benchmark.sample_count
+  );
+  const sampleLabelWeightRows = sumMany(
+    data.benchmarks,
+    (benchmark) => benchmark.labels,
+    (benchmark) => benchmark.sample_count
+  );
+  const sampleLayerWeightRows = sumMany(
+    data.benchmarks,
+    (benchmark) => benchmark.layers,
+    (benchmark) => benchmark.sample_count
+  );
+  const sampleSplitWeightRows = sumBy(
+    data.benchmarks,
+    (benchmark) => benchmark.split || "unknown",
+    (benchmark) => benchmark.sample_count
+  );
+  const predictionStatusRows = sumBy(
+    data.runs,
+    (run) => run.status || "unknown",
+    (run) => run.prediction_count
+  );
+  const reportStatusWeightRows = sumBy(
+    data.runs,
+    (run) => run.status || "unknown",
+    (run) => run.report_count
+  );
+  const artifactRows = runArtifactCoverageRows(data.runs);
+  const configSnapshotRows = runConfigSnapshotRows(data.runs);
+  const benchmarkManifestRows = benchmarkManifestRowsFor(data.benchmarks);
   const liveSignalRows = [
     { key: "queued jobs", count: queuedJobs },
     { key: "running jobs", count: runningJobs },
@@ -168,11 +224,29 @@ export function OverviewPage() {
     { title: "Split 分布", meta: "dataset split", rows: splitRows, kind: "meter" },
     { title: "Label scope", meta: "run labels", rows: targetLabelRows, kind: "cells" },
     { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows, kind: "meter" },
-    { title: "写入热度", meta: "12 day buckets", rows: timelineRows, kind: "rails" },
+    { title: "Run 日历", meta: "12d write", rows: timelineRows, kind: "spark" },
+    { title: "Job 日历", meta: "12d queue", rows: jobTimelineRows, kind: "spark" },
+    { title: "Service 日历", meta: "12d runtime", rows: serviceTimelineRows, kind: "spark" },
+    { title: "Run 小时", meta: "utc bands", rows: runHourRows, kind: "mosaic" },
+    { title: "Job 小时", meta: "utc bands", rows: jobHourRows, kind: "mosaic" },
+    { title: "Run 周期", meta: "weekday", rows: runWeekdayRows, kind: "mosaic" },
     { title: "预测规模", meta: "prediction files", rows: predictionRows, kind: "ring" },
+    { title: "预测/状态", meta: "artifact weight", rows: predictionStatusRows, kind: "spark" },
     { title: "Report 规模", meta: "report files", rows: reportScaleRows, kind: "meter" },
+    { title: "Report/状态", meta: "artifact weight", rows: reportStatusWeightRows, kind: "spark" },
+    { title: "Artifact 覆盖", meta: "run files", rows: artifactRows, kind: "mosaic" },
+    { title: "配置快照", meta: "run config", rows: configSnapshotRows, kind: "mosaic" },
     { title: "备注覆盖", meta: "run notes", rows: noteRows, kind: "meter" },
     { title: "备注新鲜度", meta: "note updated", rows: noteFreshnessRows, kind: "rails" },
+    { title: "Run task span", meta: "task count", rows: runTaskSpanRows, kind: "meter" },
+    { title: "Run label span", meta: "label count", rows: runLabelSpanRows, kind: "meter" },
+    { title: "Bench task span", meta: "task count", rows: benchmarkTaskSpanRows, kind: "meter" },
+    { title: "Bench label span", meta: "label count", rows: benchmarkLabelSpanRows, kind: "meter" },
+    { title: "样本/任务", meta: "sample weight", rows: sampleTaskWeightRows, kind: "mosaic" },
+    { title: "样本/label", meta: "sample weight", rows: sampleLabelWeightRows, kind: "mosaic" },
+    { title: "样本/层", meta: "sample weight", rows: sampleLayerWeightRows, kind: "mosaic" },
+    { title: "样本/split", meta: "sample weight", rows: sampleSplitWeightRows, kind: "spark" },
+    { title: "Manifest 覆盖", meta: "benchmark files", rows: benchmarkManifestRows, kind: "mosaic" },
     { title: "Job 状态", meta: "queue state", rows: jobStatusRows, kind: "ring" },
     { title: "Job 类型", meta: "job kind", rows: jobKindRows, kind: "cells" },
     { title: "Job 阶段", meta: "progress phase", rows: jobPhaseRows, kind: "rails" },
@@ -354,8 +428,7 @@ function OverviewMiniChartPanel({
 }) {
   const maxCount = Math.max(1, ...rows.map((row) => row.count));
   const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const positiveRows = rows.filter((row) => row.count > 0);
-  const topRows = (positiveRows.length > 0 ? positiveRows : rows).slice(0, 3);
+  const visibleRows = overviewVisibleRows(kind, rows);
   const ringStyle = {
     "--overview-ring": overviewConicGradient(rows)
   } as React.CSSProperties;
@@ -364,14 +437,18 @@ function OverviewMiniChartPanel({
       <PanelTitle title={title} meta={meta} />
       <div className={`overview-mini-chart ${kind}`}>
         {kind === "rails" ? (
-          <OverviewRailsChart rows={topRows} maxCount={maxCount} />
+          <OverviewRailsChart rows={visibleRows} maxCount={maxCount} />
         ) : kind === "cells" ? (
-          <OverviewCellsChart rows={topRows} maxCount={maxCount} />
+          <OverviewCellsChart rows={visibleRows} maxCount={maxCount} />
         ) : kind === "meter" ? (
-          <OverviewMeterChart rows={topRows} total={total} maxCount={maxCount} />
+          <OverviewMeterChart rows={visibleRows} total={total} maxCount={maxCount} />
+        ) : kind === "spark" ? (
+          <OverviewSparkChart rows={visibleRows} total={total} maxCount={maxCount} />
+        ) : kind === "mosaic" ? (
+          <OverviewMosaicChart rows={visibleRows} maxCount={maxCount} />
         ) : (
           <OverviewRingChart
-            rows={topRows}
+            rows={visibleRows}
             total={total}
             maxCount={maxCount}
             ringStyle={ringStyle}
@@ -381,6 +458,14 @@ function OverviewMiniChartPanel({
       </div>
     </div>
   );
+}
+
+function overviewVisibleRows(kind: OverviewChartKind, rows: OverviewChartRow[]) {
+  if (kind === "spark" || kind === "mosaic") {
+    return rows.slice(0, 12);
+  }
+  const positiveRows = rows.filter((row) => row.count > 0);
+  return (positiveRows.length > 0 ? positiveRows : rows).slice(0, 3);
 }
 
 function OverviewRingChart({
@@ -477,6 +562,68 @@ function OverviewMeterChart({
         )}
       </div>
       <OverviewBarList rows={rows} maxCount={maxCount} />
+    </div>
+  );
+}
+
+function OverviewSparkChart({
+  rows,
+  total,
+  maxCount
+}: {
+  rows: OverviewChartRow[];
+  total: number;
+  maxCount: number;
+}) {
+  const displayRows = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
+  const peak = Math.max(0, ...displayRows.map((row) => row.count));
+  return (
+    <div className="overview-spark-chart">
+      <div className="overview-spark-bars" aria-hidden="true">
+        {displayRows.map((row, index) => (
+          <span key={`${row.key}-${index}`} title={`${row.key}: ${row.count.toLocaleString()}`}>
+            <i
+              style={
+                {
+                  "--overview-spark-height":
+                    row.count > 0 ? `${Math.max(12, (row.count / maxCount) * 100)}%` : "5%",
+                  "--overview-bar-fill": overviewChartColor(index)
+                } as React.CSSProperties
+              }
+            />
+          </span>
+        ))}
+      </div>
+      <div className="overview-spark-caption">
+        <span>sum</span>
+        <strong>{total.toLocaleString()}</strong>
+        <span>peak</span>
+        <strong>{peak.toLocaleString()}</strong>
+      </div>
+    </div>
+  );
+}
+
+function OverviewMosaicChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
+  const displayRows = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
+  const cells = Array.from({ length: 12 }, (_, index) => displayRows[index] ?? null);
+  return (
+    <div className="overview-mosaic-chart">
+      <div className="overview-mosaic-grid" aria-hidden="true">
+        {cells.map((row, index) => (
+          <span
+            key={row ? `${row.key}-${index}` : `empty-${index}`}
+            title={row ? `${row.key}: ${row.count.toLocaleString()}` : "empty"}
+            style={
+              {
+                opacity: row && row.count > 0 ? Math.max(0.28, row.count / maxCount) : 0.12,
+                background: row ? overviewChartColor(index) : "#dce7ef"
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+      <OverviewBarList rows={displayRows.slice(0, 2)} maxCount={maxCount} />
     </div>
   );
 }
@@ -645,6 +792,40 @@ function countMany<T>(items: T[], keysForItem: (item: T) => string[]) {
   );
 }
 
+function sumBy<T>(
+  items: T[],
+  keyForItem: (item: T) => string,
+  valueForItem: (item: T) => number
+) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keyForItem(item).trim() || "unknown";
+    const value = valueForItem(item);
+    counts.set(key, (counts.get(key) ?? 0) + (Number.isFinite(value) ? Math.max(0, value) : 0));
+  }
+  return Array.from(counts.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function sumMany<T>(
+  items: T[],
+  keysForItem: (item: T) => string[],
+  valueForItem: (item: T) => number
+) {
+  return sumBy(
+    items.flatMap((item) => {
+      const keys = keysForItem(item)
+        .map((key) => key.trim())
+        .filter(Boolean);
+      const value = valueForItem(item);
+      return (keys.length > 0 ? keys : ["unknown"]).map((key) => ({ key, value }));
+    }),
+    (item) => item.key,
+    (item) => item.value
+  );
+}
+
 function runCoverageRows(runs: RunSummary[]) {
   const rows = [
     {
@@ -713,6 +894,51 @@ function runNoteRows(runs: RunSummary[]) {
     { key: "有备注", count: runs.filter((run) => run.note.trim()).length },
     { key: "无备注", count: runs.filter((run) => !run.note.trim()).length }
   ];
+}
+
+function runArtifactCoverageRows(runs: RunSummary[]) {
+  return [
+    { key: "manifest", count: runs.filter((run) => Boolean(run.manifest_path)).length },
+    { key: "predictions", count: runs.filter((run) => run.prediction_count > 0).length },
+    { key: "reports", count: runs.filter((run) => run.report_count > 0).length },
+    { key: "notes", count: runs.filter((run) => run.note.trim()).length }
+  ];
+}
+
+function runConfigSnapshotRows(runs: RunSummary[]) {
+  return [
+    { key: "prompt path", count: runs.filter((run) => Boolean(run.prompt_path)).length },
+    { key: "prompt hash", count: runs.filter((run) => Boolean(run.prompt_hash)).length },
+    { key: "model path", count: runs.filter((run) => Boolean(run.model_path.trim())).length },
+    {
+      key: "inference",
+      count: runs.filter((run) => Object.keys(run.inference).length > 0).length
+    }
+  ];
+}
+
+function benchmarkManifestRowsFor(benchmarks: BenchmarkSummary[]) {
+  return [
+    { key: "manifest", count: benchmarks.filter((benchmark) => Boolean(benchmark.manifest_path)).length },
+    {
+      key: "source manifest",
+      count: benchmarks.filter((benchmark) => Boolean(benchmark.source_manifest_path)).length
+    },
+    { key: "root", count: benchmarks.filter((benchmark) => Boolean(benchmark.root)).length }
+  ];
+}
+
+function spanBucket(count: number) {
+  if (count <= 0) {
+    return "0";
+  }
+  if (count === 1) {
+    return "1";
+  }
+  if (count <= 3) {
+    return "2-3";
+  }
+  return "4+";
 }
 
 function timestampFreshnessRows<T>(items: T[], timestampForItem: (item: T) => string | null | undefined) {
@@ -958,6 +1184,16 @@ function overviewActivityLanes(
   ];
 }
 
+function itemTimeline<T>(
+  items: T[],
+  bucketCount: number,
+  timestampForItem: (item: T) => string | null | undefined
+) {
+  const endDate = latestItemDate(items, timestampForItem) ?? new Date();
+  const keys = overviewTimelineKeys(endDate, bucketCount);
+  return timelineRowsForItems(items, keys, timestampForItem);
+}
+
 function timelineRowsForItems<T>(
   items: T[],
   keys: string[],
@@ -969,6 +1205,45 @@ function timelineRowsForItems<T>(
   });
   const countMap = new Map(counts.map((row) => [row.key, row.count]));
   return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
+}
+
+function timestampHourBandRows<T>(
+  items: T[],
+  timestampForItem: (item: T) => string | null | undefined
+) {
+  const rows = [
+    { key: "00-05", count: 0 },
+    { key: "06-11", count: 0 },
+    { key: "12-17", count: 0 },
+    { key: "18-23", count: 0 }
+  ];
+  for (const item of items) {
+    const timestamp = timestampForItem(item);
+    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    const hour = new Date(parsed).getUTCHours();
+    rows[Math.floor(hour / 6)].count += 1;
+  }
+  return rows;
+}
+
+function timestampWeekdayRows<T>(
+  items: T[],
+  timestampForItem: (item: T) => string | null | undefined
+) {
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const rows = labels.map((key) => ({ key, count: 0 }));
+  for (const item of items) {
+    const timestamp = timestampForItem(item);
+    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    rows[new Date(parsed).getUTCDay()].count += 1;
+  }
+  return rows;
 }
 
 function overviewTimelineKeys(endDate: Date, bucketCount: number) {
@@ -1022,16 +1297,22 @@ function runFreshnessRows(runs: RunSummary[]) {
 }
 
 function runTimeline(runs: RunSummary[], bucketCount: number) {
-  const endDate = latestRunDate(runs) ?? new Date();
-  const keys = overviewTimelineKeys(endDate, bucketCount);
-  const counts = countBy(runs, (run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"));
-  const countMap = new Map(counts.map((row) => [row.key, row.count]));
-  return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
+  return itemTimeline(runs, bucketCount, (run) => run.created_at);
 }
 
 function latestRunDate(runs: RunSummary[]) {
-  const timestamps = runs
-    .map((run) => (run.created_at ? Date.parse(run.created_at) : Number.NaN))
+  return latestItemDate(runs, (run) => run.created_at);
+}
+
+function latestItemDate<T>(
+  items: T[],
+  timestampForItem: (item: T) => string | null | undefined
+) {
+  const timestamps = items
+    .map((item) => {
+      const timestamp = timestampForItem(item);
+      return timestamp ? Date.parse(timestamp) : Number.NaN;
+    })
     .filter(Number.isFinite);
   if (timestamps.length === 0) {
     return null;
