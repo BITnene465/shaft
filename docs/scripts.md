@@ -276,10 +276,10 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立
-圆角 capsule，Overview 必须保留 hero next action、四段管线、行动入口、一个 focus panel 和最近 run 紧凑摘要，
-活动矩阵必须是 3 条 12 桶泳道，旧 mini chart wall 和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
+圆角 capsule，Overview 必须保留 hero next action、四段管线、阻塞优先级、行动入口、一个 operations surface 和最近 run 紧凑摘要，
+旧活动矩阵、mini chart wall 和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
-command deck 需要滚动时不能被 hidden 裁切，focus、行动入口和最近 run 面板必须保持可读高度，不能在
+command desk 需要滚动时不能被 hidden 裁切，operations、行动入口和最近 run 面板必须保持可读高度，不能在
 compact / narrow 视口塌缩成 30-40px 外壳；最近 run 只能是可点击紧凑摘要，关键入口必须保留 hover/transition 反馈。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
 inspector split 内，不能卸载成全页 EmptyState。
@@ -313,7 +313,8 @@ UI contract 还会锁住 Rank Board 表格第一分数列必须使用 active pri
   `preflight_warnings`，方便 agent 后续通过 `list-jobs` / `dashboard-state` 排查风险。
 - `list-agent-commands` 是 agent 稳定命令面的发现入口；run 初始化、prediction 文档校验和手动推进队列
   分别通过 `init-run`、`validate-prediction` 和 `process-next-job` 暴露，新增 agent 命令必须同步
-  `AGENT_COMMAND_METADATA`、handler 映射和 CLI contract 测试。
+  `AGENT_COMMAND_METADATA`、handler 映射和 CLI contract 测试。删除、归档、取消、停止这类危险生命周期命令
+  还必须进入 `AGENT_DESTRUCTIVE_COMMANDS`，让 `list-agent-commands` 输出 `destructive=true`。
 - job lifecycle 的 running 资源检查和 queued FIFO scan 必须使用 `EvalBenchDatabase.matching_jobs()` 的完整匹配集合；
   `list-jobs` / `/api/jobs` 的 `offset/limit` 分页只服务目录浏览，不能作为调度窗口。
 - Dashboard 主页面不再使用嵌套 tab 承载低频表单；新建评测、创建 benchmark、导入 prediction snapshot 和登记 service 都通过临时弹层打开，主页面只保留队列、目录、结果和服务状态。

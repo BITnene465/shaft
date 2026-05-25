@@ -9,6 +9,78 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Overview 活动矩阵和面板墙降低首页价值
+
+### 现象
+
+总览页经过多轮压缩后仍保留 Run/Job/Service 活动矩阵、多个卡片版本样式和 6 条最近 run 摘要。
+这些模块占用首屏高度，却不能直接回答当前是否可用、卡在哪里、下一步去哪；在 compact / narrow 视口下还容易把核心面板压成不可读外壳。
+
+### 根因
+
+Overview CSS 和布局契约沿用早期“多图表总览”的思路，把写入节奏和状态分布当成首页核心价值。
+实际运营场景更需要优先级判断和可跳转入口；旧 layout smoke 还要求活动矩阵存在，导致低价值模块被测试固化。
+
+### 影响范围
+
+- 影响 dashboard 总览页的信息密度、首屏可读性和鼠标交互反馈。
+- 不影响后端 state/job/service/scheduler API、Rank Board、run report 或评测指标。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- 总览改成 command desk：顶部 hero 展示当前系统态，右侧 dock 展示同步态和当前优先动作。
+- 左侧 operations surface 保留四个可行动信号、四段管线和新增阻塞优先级条；删除旧活动矩阵。
+- 右侧只保留 readiness switchboard 和最近 4 条 run 紧凑摘要。
+- 增强首页与标准 workspace 元素的 hover、pulse、rail transition 和入场动画，动效只表达可点击性和实时状态。
+- layout smoke 改为检查阻塞优先级、operations surface、可读高度和旧活动矩阵不回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/tmp/eval-overview.png npm run render-check`
+
+### 后续防线
+
+- Overview 新增模块必须服务“当前是否可用、卡在哪里、下一步去哪”，不能把低频诊断、活动日历或细粒度 metric 放回首页。
+- compact / narrow 视口下必须由 Overview 页面栈承担滚动，核心面板不能再次被 flex shrink 压成 30-40px 外壳。
+
+## 2026-05-25: Eval Bench agent 命令缺少危险写入标记
+
+### 现象
+
+`list-agent-commands` 已经输出 `domain`、`mutates_state` 和参数 schema，但 agent 只能知道某个命令会写状态，
+不能区分普通写入和删除、归档、取消、停止这类危险生命周期操作。比如 `create-job`、`set-run-note`
+和 `delete-run` 都只是 `mutates_state=true`，agent 仍需要从命令名猜风险。
+
+### 根因
+
+早期 agent metadata 只覆盖只读/写入二元分类，满足了“不要 hack CLI”的基础发现面，但没有把危险副作用建模为
+一等元数据。生命周期命令扩展后，单一 `mutates_state` 已经不够表达操作风险。
+
+### 影响范围
+
+- 影响 agent 对 run/job/service/prompt 生命周期命令的风险判断。
+- 不影响命令执行逻辑、API、dashboard 或 artifact 格式。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- 新增 `AGENT_DESTRUCTIVE_COMMANDS`，标记 `archive-run`、`cancel-job`、`delete-job`、
+  `delete-prompt-template`、`delete-run`、`delete-service` 和 `stop-service`。
+- `list-agent-commands` 每条命令输出 `destructive`，顶层输出 `destructive_count`。
+- CLI contract 测试确认 destructive 集合属于稳定命令面，且 destructive 命令必须同时是 mutating。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers_for_agent_contract projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands`
+
+### 后续防线
+
+- 新增会删除、归档、取消、停止或清理资源的 agent 命令时，必须同时进入 `AGENT_DESTRUCTIVE_COMMANDS`；
+  普通写入只设置 `mutates_state`，不要让 agent 从自然语言 help 里推断风险等级。
+
 ## 2026-05-25: Eval Bench AdvancedFilterBar 折叠头仍使用 raw button
 
 ### 现象

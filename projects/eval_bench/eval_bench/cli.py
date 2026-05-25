@@ -63,6 +63,17 @@ AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "show-comparison-sample": {"domain": "comparison", "mutates_state": False},
 }
 AGENT_STABLE_COMMANDS = frozenset(AGENT_COMMAND_METADATA)
+AGENT_DESTRUCTIVE_COMMANDS = frozenset(
+    {
+        "archive-run",
+        "cancel-job",
+        "delete-job",
+        "delete-prompt-template",
+        "delete-run",
+        "delete-service",
+        "stop-service",
+    }
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -699,6 +710,7 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
             "name": name,
             "domain": AGENT_COMMAND_METADATA[name]["domain"],
             "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
+            "destructive": name in AGENT_DESTRUCTIVE_COMMANDS,
             "help": command_help.get(name, ""),
             "usage": command_usage.get(name, ""),
             "argv_prefix": ["scripts/eval_bench.py", name],
@@ -713,6 +725,7 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
                 "total": len(commands),
                 "mutating_count": sum(1 for command in commands if command["mutates_state"]),
                 "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
+                "destructive_count": sum(1 for command in commands if command["destructive"]),
                 "domains": sorted({str(command["domain"]) for command in commands}),
                 "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
                 "commands": commands,

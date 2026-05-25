@@ -9,6 +9,7 @@ import pytest
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
     AGENT_COMMAND_METADATA,
+    AGENT_DESTRUCTIVE_COMMANDS,
     AGENT_STABLE_COMMANDS,
     _build_parser,
     _command_handlers,
@@ -75,12 +76,17 @@ def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
     assert command_names == handler_names
     assert AGENT_STABLE_COMMANDS <= command_names
     assert set(AGENT_COMMAND_METADATA) == AGENT_STABLE_COMMANDS
+    assert AGENT_DESTRUCTIVE_COMMANDS <= AGENT_STABLE_COMMANDS
     assert all(
         isinstance(item["domain"], str) and item["domain"]
         for item in AGENT_COMMAND_METADATA.values()
     )
     assert all(
         isinstance(item["mutates_state"], bool) for item in AGENT_COMMAND_METADATA.values()
+    )
+    assert all(
+        bool(AGENT_COMMAND_METADATA[name]["mutates_state"])
+        for name in AGENT_DESTRUCTIVE_COMMANDS
     )
 
 
@@ -98,6 +104,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert payload["read_only_count"] == sum(
         1 for item in AGENT_COMMAND_METADATA.values() if not item["mutates_state"]
     )
+    assert payload["destructive_count"] == len(AGENT_DESTRUCTIVE_COMMANDS)
     assert set(payload["domains"]) == {
         item["domain"] for item in AGENT_COMMAND_METADATA.values()
     }
@@ -124,6 +131,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     )
     assert all(item["domain"] for item in payload["commands"])
     assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
+    assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert commands_by_name["rank-board"]["domain"] == "rank"
@@ -141,6 +149,10 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["process-next-job"]["mutates_state"] is True
     assert commands_by_name["start-service"]["domain"] == "service"
     assert commands_by_name["start-service"]["mutates_state"] is True
+    assert commands_by_name["start-service"]["destructive"] is False
+    assert commands_by_name["stop-service"]["destructive"] is True
+    assert commands_by_name["delete-run"]["destructive"] is True
+    assert commands_by_name["set-run-note"]["destructive"] is False
     assert commands_by_name["service-health"]["mutates_state"] is True
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True

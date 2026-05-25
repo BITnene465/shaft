@@ -10,12 +10,11 @@ import {
   Gauge,
   Layers3,
   PlayCircle,
-  Radio,
   Server,
   Trophy
 } from "lucide-react";
 
-import type { JobSummary, RunSummary, ServiceSummary } from "./api";
+import type { RunSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
@@ -23,13 +22,6 @@ import { Badge, EmptyState, PanelTitle } from "./ui";
 
 type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks";
 type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
-type OverviewActivityLane = {
-  label: string;
-  tone: "run" | "job" | "service";
-  rows: OverviewCountRow[];
-  total: number;
-};
-type OverviewCountRow = { key: string; count: number };
 type OverviewPipelineStage = {
   label: string;
   value: number;
@@ -58,6 +50,14 @@ type OverviewReadinessItem = OverviewAction & {
   state: string;
   value: number;
   total: number;
+};
+type OverviewBottleneck = {
+  label: string;
+  value: string;
+  detail: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+  progress: number;
 };
 
 export function OverviewPage() {
@@ -102,7 +102,6 @@ export function OverviewPage() {
   const totalJobs = Math.max(jobs.length, 1);
   const totalServices = Math.max(services.length, 1);
   const coveragePercent = percent(evaluatedRuns, totalRuns);
-  const activityLanes = overviewActivityLanes(data.runs, jobs, services, 12);
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
   const activeQueue = queuedJobs + runningJobs;
   const schedulerEnabled = Boolean(schedulerStatus?.enabled);
@@ -218,25 +217,29 @@ export function OverviewPage() {
     totalRuns,
     schedulerEnabled
   });
-  const recentRuns = overviewRecentRuns(data.runs, 6);
+  const bottlenecks = overviewBottlenecks({
+    failedJobs,
+    waitingEvaluation,
+    activeQueue,
+    liveServices,
+    serviceCount: services.length,
+    evaluatedRuns,
+    totalRuns,
+    totalJobs,
+    totalServices
+  });
+  const recentRuns = overviewRecentRuns(data.runs, 4);
 
   return (
     <section className="page-stack dashboard-home">
-      <div className="overview-console overview-command-center">
+      <div className="overview-command-center overview-command-center-redesign">
         <div className="overview-console-main overview-hero-stage">
           <div className="overview-title-block">
             <div className="eyebrow">Eval Bench Control</div>
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
           </div>
-          <OverviewNextAction action={nextAction} />
-        </div>
-        <div className="overview-console-side overview-pulse-dock">
-          <div className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
-            <span />
-            <strong>{overviewSyncing ? "同步中" : "已同步"}</strong>
-          </div>
-          <div className="overview-stat-row">
+          <div className="overview-hero-metrics">
             <OverviewStat label="调度" value={schedulerEnabled ? "Auto" : "Manual"} />
             <OverviewStat
               label="失败"
@@ -254,6 +257,13 @@ export function OverviewPage() {
               tone={liveServices > 0 ? "live" : "idle"}
             />
           </div>
+        </div>
+        <div className="overview-pulse-dock overview-control-dock">
+          <div className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
+            <span />
+            <strong>{overviewSyncing ? "同步中" : "已同步"}</strong>
+          </div>
+          <OverviewNextAction action={nextAction} />
           <div className="overview-console-links">
             <Link to="/rank-board">
               <AppIcon name="rankBoard" size={14} />
@@ -271,10 +281,10 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <div className="overview-command-deck">
-        <section className="workspace-card overview-focus-panel">
+      <div className="overview-workbench">
+        <section className="overview-ops-surface">
           <div className="overview-focus-head">
-            <PanelTitle title="评测闭环" meta="sample / prediction / report / rank" />
+            <PanelTitle title="闭环进度" meta="sample / prediction / report / rank" />
             <div className="overview-focus-summary">
               <strong>{coveragePercent}%</strong>
               <span>报告覆盖</span>
@@ -282,10 +292,10 @@ export function OverviewPage() {
           </div>
           <OverviewSignalStrip signals={signalItems} />
           <OverviewPipeline stages={pipelineStages} />
-          <OverviewActivityMatrix lanes={activityLanes} />
+          <OverviewBottleneckPanel items={bottlenecks} />
         </section>
 
-        <aside className="overview-side-stack">
+        <aside className="overview-right-rail">
           <OverviewReadinessPanel schedulerEnabled={schedulerEnabled} items={readinessItems} />
           <OverviewRecentRunsPanel runs={recentRuns} />
         </aside>
@@ -411,47 +421,21 @@ function OverviewReadinessPanel({
   );
 }
 
-function OverviewActivityMatrix({ lanes }: { lanes: OverviewActivityLane[] }) {
-  const maxCount = Math.max(
-    1,
-    ...lanes.flatMap((lane) => lane.rows.map((row) => row.count))
-  );
-  const total = lanes.reduce((sum, lane) => sum + lane.total, 0);
-  const bucketCount = lanes[0]?.rows.length ?? 0;
-  const latest = lanes[0]?.rows.at(-1);
+function OverviewBottleneckPanel({ items }: { items: OverviewBottleneck[] }) {
   return (
-    <div className="overview-activity-matrix">
-      <div className="overview-activity-header">
-        <span>
-          <Radio size={14} />
-          近期活动
-        </span>
-        <strong>{total.toLocaleString()} events / {bucketCount}d</strong>
-      </div>
-      <div className="overview-activity-lanes" aria-label="最近日期桶的 run job service 活动">
-        {lanes.map((lane) => (
-          <div className={`overview-activity-lane ${lane.tone}`} key={lane.label}>
-            <span>{lane.label}</span>
-            <div className="overview-activity-cells">
-              {lane.rows.map((row) => (
-                <i
-                  key={row.key}
-                  style={
-                    {
-                      opacity: row.count > 0 ? Math.max(0.32, row.count / maxCount) : 0.12
-                    } as React.CSSProperties
-                  }
-                  title={`${lane.label} ${row.key}: ${row.count.toLocaleString()}`}
-                />
-              ))}
-            </div>
-            <strong>{lane.total.toLocaleString()}</strong>
-          </div>
+    <div className="overview-bottleneck-panel" aria-label="当前阻塞优先级">
+      <PanelTitle title="阻塞优先级" meta="按需要处理的程度排序" />
+      <div className="overview-bottleneck-list">
+        {items.map((item) => (
+          <Link className={`overview-bottleneck-row ${item.tone}`} to={item.to} key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <em>{item.detail}</em>
+            <i aria-hidden="true">
+              <b style={{ width: `${item.progress}%` }} />
+            </i>
+          </Link>
         ))}
-      </div>
-      <div className="overview-activity-footer">
-        <span>{latest?.key ?? "-"}</span>
-        <ArrowRight size={13} />
       </div>
     </div>
   );
@@ -657,6 +641,85 @@ function overviewReadinessItems({
   ];
 }
 
+function overviewBottlenecks({
+  failedJobs,
+  waitingEvaluation,
+  activeQueue,
+  liveServices,
+  serviceCount,
+  evaluatedRuns,
+  totalRuns,
+  totalJobs,
+  totalServices
+}: {
+  failedJobs: number;
+  waitingEvaluation: number;
+  activeQueue: number;
+  liveServices: number;
+  serviceCount: number;
+  evaluatedRuns: number;
+  totalRuns: number;
+  totalJobs: number;
+  totalServices: number;
+}): OverviewBottleneck[] {
+  const items: OverviewBottleneck[] = [
+    {
+      label: "失败任务",
+      value: failedJobs.toLocaleString(),
+      detail: failedJobs > 0 ? "先处理失败队列" : "没有失败任务",
+      to: "/jobs",
+      tone: failedJobs > 0 ? "danger" : "good",
+      progress: trackPercent(failedJobs, totalJobs)
+    },
+    {
+      label: "待评估 run",
+      value: waitingEvaluation.toLocaleString(),
+      detail: waitingEvaluation > 0 ? "已有预测但缺报告" : "没有待补报告",
+      to: "/runs",
+      tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
+      progress: trackPercent(waitingEvaluation, totalRuns)
+    },
+    {
+      label: "队列压力",
+      value: activeQueue.toLocaleString(),
+      detail: activeQueue > 0 ? "排队或运行中的任务" : "队列空闲",
+      to: "/jobs",
+      tone: activeQueue > 0 ? "live" : "good",
+      progress: trackPercent(activeQueue, totalJobs)
+    },
+    {
+      label: "服务在线",
+      value: `${liveServices}/${serviceCount}`,
+      detail:
+        serviceCount === 0
+          ? "还未登记服务"
+          : liveServices > 0
+            ? "可以承接评测"
+            : "评测前需启动服务",
+      to: "/services",
+      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle",
+      progress: trackPercent(liveServices, totalServices)
+    }
+  ];
+  return items.sort((left, right) => toneWeight(right.tone) - toneWeight(left.tone));
+}
+
+function toneWeight(tone: OverviewTone) {
+  if (tone === "danger") {
+    return 5;
+  }
+  if (tone === "warm") {
+    return 4;
+  }
+  if (tone === "live") {
+    return 3;
+  }
+  if (tone === "idle") {
+    return 2;
+  }
+  return 1;
+}
+
 function overviewRecentRuns(runs: RunSummary[], limit: number) {
   return [...runs]
     .sort((left, right) => {
@@ -682,90 +745,4 @@ function trackPercent(value: number, total: number) {
     return 0;
   }
   return Math.max(5, Math.min(100, (value / total) * 100));
-}
-
-function overviewActivityLanes(
-  runs: RunSummary[],
-  jobs: JobSummary[],
-  services: ServiceSummary[],
-  bucketCount: number
-): OverviewActivityLane[] {
-  const keys = overviewTimelineKeys(
-    latestActivityDate(runs, jobs, services) ?? new Date(),
-    bucketCount
-  );
-  return [
-    {
-      label: "Runs",
-      tone: "run",
-      rows: timelineRowsForItems(runs, keys, (run) => run.created_at),
-      total: runs.length
-    },
-    {
-      label: "Jobs",
-      tone: "job",
-      rows: timelineRowsForItems(jobs, keys, (job) => job.created_at),
-      total: jobs.length
-    },
-    {
-      label: "Svc",
-      tone: "service",
-      rows: timelineRowsForItems(
-        services,
-        keys,
-        (service) => service.updated_at ?? service.created_at
-      ),
-      total: services.length
-    }
-  ];
-}
-
-function timelineRowsForItems<T>(
-  items: T[],
-  keys: string[],
-  timestampForItem: (item: T) => string | null | undefined
-) {
-  const counts = countBy(items, (item) => {
-    const timestamp = timestampForItem(item);
-    return timestamp ? timestamp.slice(0, 10) : "unknown";
-  });
-  const countMap = new Map(counts.map((row) => [row.key, row.count]));
-  return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
-}
-
-function countBy<T>(items: T[], keyForItem: (item: T) => string) {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const key = keyForItem(item).trim() || "unknown";
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([key, count]) => ({ key, count }))
-    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
-}
-
-function overviewTimelineKeys(endDate: Date, bucketCount: number) {
-  return Array.from({ length: bucketCount }, (_, index) => {
-    const date = new Date(endDate);
-    date.setUTCDate(endDate.getUTCDate() - (bucketCount - 1 - index));
-    return date.toISOString().slice(0, 10);
-  });
-}
-
-function latestActivityDate(
-  runs: RunSummary[],
-  jobs: JobSummary[],
-  services: ServiceSummary[]
-) {
-  const timestamps = [
-    ...runs.map((run) => run.created_at),
-    ...jobs.map((job) => job.created_at),
-    ...services.map((service) => service.updated_at ?? service.created_at)
-  ]
-    .map((timestamp) => (timestamp ? Date.parse(timestamp) : Number.NaN))
-    .filter(Number.isFinite);
-  if (timestamps.length === 0) {
-    return null;
-  }
-  return new Date(Math.max(...timestamps));
 }

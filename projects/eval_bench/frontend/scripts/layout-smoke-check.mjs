@@ -15,17 +15,17 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-console",
-      ".overview-command-deck",
-      ".overview-focus-panel",
+      ".overview-command-center-redesign",
+      ".overview-workbench",
+      ".overview-ops-surface",
       ".overview-next-action",
       ".overview-pipeline",
       ".overview-operational-grid",
       ".overview-signal-strip",
       ".overview-signal-card",
       ".overview-action-panel",
-      ".overview-side-stack",
-      ".overview-activity-matrix",
+      ".overview-right-rail",
+      ".overview-bottleneck-panel",
       ".overview-recent-card"
     ]
   },
@@ -473,22 +473,22 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const commandDeck = document.querySelector(".overview-command-deck");
-    const focusPanel = document.querySelector(".overview-focus-panel");
+    const commandDeck = document.querySelector(".overview-workbench");
+    const focusPanel = document.querySelector(".overview-ops-surface");
     const actionPanel = document.querySelector(".overview-action-panel");
     const recentCard = document.querySelector(".overview-recent-card");
     const operationalGrid = document.querySelector(".overview-operational-grid");
+    const bottleneckPanel = document.querySelector(".overview-bottleneck-panel");
     const nextAction = document.querySelector(".overview-next-action");
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
     const panelHeights = Array.from(
-      document.querySelectorAll(".overview-focus-panel, .overview-action-panel, .overview-recent-card")
+      document.querySelectorAll(".overview-ops-surface, .overview-action-panel, .overview-recent-card")
     ).map((node) => Math.round(node.getBoundingClientRect().height));
-    const activityMatrix = document.querySelector(".overview-activity-matrix");
-    const activityMatrixStyle = activityMatrix ? getComputedStyle(activityMatrix) : null;
     const commandDeckStyle = commandDeck ? getComputedStyle(commandDeck) : null;
     const operationalGridStyle = operationalGrid ? getComputedStyle(operationalGrid) : null;
+    const bottleneckPanelStyle = bottleneckPanel ? getComputedStyle(bottleneckPanel) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
@@ -499,16 +499,17 @@ async function assertOverviewDensity(page, scope) {
         (node) => node.textContent?.trim() ?? ""
       ),
       nextActions: document.querySelectorAll(".overview-next-action").length,
-      activityLanes: document.querySelectorAll(".overview-activity-lane").length,
-      activityCells: document.querySelectorAll(".overview-activity-cells i").length,
+      bottleneckRows: document.querySelectorAll(".overview-bottleneck-row").length,
+      bottleneckMeters: document.querySelectorAll(".overview-bottleneck-row > i > b").length,
       signalCards,
       signalRails,
       panelHeights,
       recentRows,
-      recentCards: document.querySelectorAll(".overview-command-deck .overview-recent-card").length,
-      focusPanels: document.querySelectorAll(".overview-command-deck .overview-focus-panel").length,
+      recentCards: document.querySelectorAll(".overview-workbench .overview-recent-card").length,
+      focusPanels: document.querySelectorAll(".overview-workbench .overview-ops-surface").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
+      legacyActivityMatrix: document.querySelectorAll(".overview-activity-matrix").length,
       oldTimelinePanels: document.querySelectorAll(
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
@@ -516,25 +517,24 @@ async function assertOverviewDensity(page, scope) {
       focusPanelHeight: focusPanel ? Math.round(focusPanel.getBoundingClientRect().height) : 0,
       actionPanelHeight: actionPanel ? Math.round(actionPanel.getBoundingClientRect().height) : 0,
       recentCardHeight: recentCard ? Math.round(recentCard.getBoundingClientRect().height) : 0,
-      activityMatrixHeight: activityMatrix
-        ? Math.round(activityMatrix.getBoundingClientRect().height)
-        : 0,
       commandDeckHeight: commandDeck ? Math.round(commandDeck.getBoundingClientRect().height) : 0,
       commandDeckScrollHeight: commandDeck?.scrollHeight ?? 0,
       commandDeckClientHeight: commandDeck?.clientHeight ?? 0,
       commandDeckDisplay: commandDeckStyle?.display ?? "",
       operationalGridDisplay: operationalGridStyle?.display ?? "",
+      bottleneckPanelDisplay: bottleneckPanelStyle?.display ?? "",
       nextActionTransition: nextActionStyle?.transitionDuration ?? "",
-      activityMatrixOverflowX: activityMatrixStyle?.overflowX ?? "",
-      activityMatrixOverflowY: activityMatrixStyle?.overflowY ?? "",
       commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
     };
   });
-  if (state.activityLanes !== 3 || state.activityCells !== 36) {
+  if (state.legacyActivityMatrix !== 0) {
+    throw new Error(`${scope}: overview should not render the old activity matrix`);
+  }
+  if (state.bottleneckRows !== 4 || state.bottleneckMeters !== 4) {
     throw new Error(
-      `${scope}: overview activity matrix should use three 12-cell lanes ${JSON.stringify({
-        lanes: state.activityLanes,
-        cells: state.activityCells
+      `${scope}: overview should expose four bottleneck rows ${JSON.stringify({
+        rows: state.bottleneckRows,
+        meters: state.bottleneckMeters
       })}`
     );
   }
@@ -546,11 +546,16 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.commandDeckDisplay !== "flex" || state.operationalGridDisplay !== "flex") {
+  if (
+    state.commandDeckDisplay !== "flex" ||
+    state.operationalGridDisplay !== "flex" ||
+    state.bottleneckPanelDisplay !== "flex"
+  ) {
     throw new Error(
       `${scope}: overview should use a two-column command surface with compact signals ${JSON.stringify({
         commandDeckDisplay: state.commandDeckDisplay,
-        operationalGridDisplay: state.operationalGridDisplay
+        operationalGridDisplay: state.operationalGridDisplay,
+        bottleneckPanelDisplay: state.bottleneckPanelDisplay
       })}`
     );
   }
@@ -573,7 +578,7 @@ async function assertOverviewDensity(page, scope) {
   }
   if (state.focusPanels !== 1 || state.recentCards !== 1) {
     throw new Error(
-      `${scope}: overview should keep one focus panel and one recent run panel ${JSON.stringify({
+      `${scope}: overview should keep one operations surface and one recent run panel ${JSON.stringify({
         focusPanels: state.focusPanels,
         recentCards: state.recentCards
       })}`
@@ -622,21 +627,13 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.activityMatrixOverflowX === "visible" || state.activityMatrixOverflowY === "visible") {
-    throw new Error(
-      `${scope}: activity matrix is not compact ${JSON.stringify({
-        height: state.activityMatrixHeight,
-        overflowX: state.activityMatrixOverflowX,
-        overflowY: state.activityMatrixOverflowY
-      })}`
-    );
-  }
   if (
     state.commandDeckScrollHeight > state.commandDeckClientHeight + 2 &&
+    state.commandDeckOverflowY !== "visible" &&
     !allowsScroll(state.commandDeckOverflowY)
   ) {
     throw new Error(
-      `${scope}: overview command deck clips content without scroll ${JSON.stringify({
+      `${scope}: overview command desk clips content without scroll ${JSON.stringify({
         scrollHeight: state.commandDeckScrollHeight,
         clientHeight: state.commandDeckClientHeight,
         overflowY: state.commandDeckOverflowY
