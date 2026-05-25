@@ -184,6 +184,12 @@ assert(
     (comparePage.match(/<FormSelectControl/g) ?? []).length >= 1,
   "compare run rail selects must use FormSelectControl",
 );
+assert(
+  comparePage.includes("SelectableCardButton") &&
+    (comparePage.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
+    !/<button[\s\S]{0,240}label-delta-card/.test(comparePage),
+  "compare label delta cards must use SelectableCardButton instead of raw buttons",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),

@@ -3502,3 +3502,40 @@ prompt registry 能给出 prompt metadata，但缺少一个 agent-safe 的聚合
 
 - 新增 label scope 来源时，必须先扩展 `label_policy.py` 的 resolution payload，再暴露到 CLI/API/UI。
 - Agent 不应直接扫描 benchmark artifact、SQLite prompt table 或前端 manifest state 来推断 label 子任务。
+
+## 2026-05-25: Eval Bench Compare label delta card 按钮原语收敛
+
+### 现象
+
+Compare 页的 label delta 卡片仍直接在业务页写 raw `<button className="label-delta-card ...">`，
+并自己拼 active class。此前已经收敛了样本行、query chip、viewer label chip 和标准动作按钮，
+但 Compare 的可选卡片没有进入公共按钮原语，后续容易继续出现 aria/active 语义双轨。
+
+### 根因
+
+`ui.tsx` 已有 `SelectableRowButton` 和 `OptionChipButton`，但它们分别服务行选择和紧凑 chip；
+Compare label delta 是卡片式选项，早期没有对应共享组件，所以业务页保留了局部 raw button。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard Compare 页的 label delta 选择卡片。
+- 不改变 comparison API、label delta 计算、筛选语义、样本跳转或布局结构。
+
+### 修复方式
+
+- `ui.tsx` 新增 `SelectableCardButton`，统一维护 card option 的 active class 和 `aria-pressed`。
+- `comparePage.tsx` 的 `ComparisonLabelDeltaStrip` 改用 `SelectableCardButton`，保留原有
+  `label-delta-card` 视觉 class。
+- `test-ui-contracts.mjs` 增加静态防线，禁止 Compare label delta 卡片回退为 raw button。
+- README 和 `docs/eval_bench_architecture.md` 同步记录可选卡片按钮原语。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `git diff --check`
+
+### 后续防线
+
+- 新增卡片式选项按钮时优先复用 `SelectableCardButton`；只有画布 HUD、对象行或快捷键捕获这类专用输入控件允许保留局部 raw button。

@@ -136,6 +136,27 @@ export function OptionChipButton({
   );
 }
 
+export function SelectableCardButton({
+  active,
+  className,
+  children,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  active?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      aria-pressed={active ?? props["aria-pressed"]}
+      className={joinClassNames("selectable-card-button", active && "active", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function MetricCard({
   icon,
   label,

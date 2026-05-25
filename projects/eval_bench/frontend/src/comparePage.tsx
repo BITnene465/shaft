@@ -27,7 +27,7 @@ import {
   unique
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
-import { Badge, DataTable, EmptyState } from "./ui";
+import { Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function ComparePage() {
@@ -517,26 +517,22 @@ function ComparisonLabelDeltaStrip({
   }
   return (
     <div className="comparison-label-strip">
-      <button
-        className={activeLabel === "all" ? "label-delta-card active" : "label-delta-card"}
-        type="button"
+      <SelectableCardButton
+        active={activeLabel === "all"}
+        className="label-delta-card"
         onClick={() => onChange("all")}
       >
         <span>全部标签</span>
         <strong>All</strong>
         <em>查看全量变化样本</em>
-      </button>
+      </SelectableCardButton>
       {visible.map((item) => {
         const tone =
           item.delta_score > 0 ? "positive" : item.delta_score < 0 ? "negative" : "neutral";
         return (
-          <button
-            className={
-              activeLabel === item.label
-                ? `label-delta-card ${tone} active`
-                : `label-delta-card ${tone}`
-            }
-            type="button"
+          <SelectableCardButton
+            active={activeLabel === item.label}
+            className={`label-delta-card ${tone}`}
             onClick={() => onChange(item.label)}
             key={item.label}
           >
@@ -551,7 +547,7 @@ function ComparisonLabelDeltaStrip({
               {formatSignedInteger(item.delta.false_positive_count)} · FN{" "}
               {formatSignedInteger(item.delta.false_negative_count)}
             </em>
-          </button>
+          </SelectableCardButton>
         );
       })}
     </div>
