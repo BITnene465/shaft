@@ -279,7 +279,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 圆角 capsule，Overview 必须保留 hero next action、四段管线、行动入口、一个 focus panel 和最近 run 紧凑摘要，
 活动矩阵必须是 3 条 12 桶泳道，旧 mini chart wall 和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
-command deck 需要滚动时不能被 hidden 裁切，最近 run 只能是可点击紧凑摘要，关键入口必须保留 hover/transition 反馈。
+command deck 需要滚动时不能被 hidden 裁切，focus、行动入口和最近 run 面板必须保持可读高度，不能在
+compact / narrow 视口塌缩成 30-40px 外壳；最近 run 只能是可点击紧凑摘要，关键入口必须保留 hover/transition 反馈。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
 inspector split 内，不能卸载成全页 EmptyState。
 Runs / Rank Board 会实际输入检索词并点击 `AdvancedFilterBar` 的清空动作，确认 search/number/select

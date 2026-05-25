@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Overview compact 视口核心面板塌缩
+
+### 现象
+
+Overview 首页在 desktop 下还能看到总控信息，但在 compact / narrow 视口下，
+`overview-focus-panel` 被压缩到 35-40px 高，评测闭环、四个信号卡、pipeline 和活动矩阵都进入不可见区域。
+用户看到的是一组被压扁的 block，无法作为总控工作台使用。
+
+### 根因
+
+Overview 经过多轮改版后，CSS 中保留了 v1/v2/v3 多套空间规则。`max-width: 1180px`
+媒体查询把 command deck 改成 column 并让它参与 flex 剩余空间分配，后续规则又没有明确覆盖
+`flex` 和 overflow 语义，导致核心面板在固定高度 `content` 容器中被压缩。layout smoke 只检查元素存在和高度大于 0，
+没有检查核心面板是否达到可读高度。
+
+### 影响范围
+
+- 影响 Overview 首页在 compact / narrow 视口下的可读性和操作价值。
+- 不影响后端 state/job/service/scheduler API、Rank Board、run report 或评测指标。
+- 这不是模型能力问题，也不是 eval/codec/metric/data 误判。
+
+### 修复方式
+
+- 增加 Overview v4 空间规则：desktop 使用两列 command surface；compact 下 hero 与核心面板完整展开，
+  readiness 和最近 run 横向平分；narrow 下按单列堆叠，由 `.dashboard-home` 承担滚动。
+- 明确 command deck 使用 `flex: 0 0 auto` 和 `overflow: visible`，避免核心模块被内部滚动容器裁切。
+- 顶部 pulse dock 改成调度、失败、运行、在线四个运行态信号，减少和报告覆盖信号的重复。
+- 修正“待评估为 0 但仍显示已有预测”的误导性文案，在线服务文案改为服务登记状态。
+- layout smoke 新增 Overview 面板可读高度断言，防止 focus/action/recent 面板再次塌缩。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- Playwright 截图检查 desktop / compact / narrow 三种视口，确认核心面板高度不再塌缩。
+
+### 后续防线
+
+- Overview 布局变更不能只检查 selector 存在；必须检查核心控制面板的可读高度、滚动归属和 compact/narrow
+  下的空间算法。后续应继续清理旧 Overview CSS 规则，避免多套版本规则叠加。
+
 ## 2026-05-25: Eval Bench Rank Board facet rail 漏接任务与状态筛选
 
 ### 现象

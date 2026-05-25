@@ -171,7 +171,10 @@ export function OverviewPage() {
     {
       label: "待评估",
       value: waitingEvaluation.toLocaleString(),
-      detail: `${runsWithPredictions.toLocaleString()} 个 run 已有预测`,
+      detail:
+        waitingEvaluation > 0
+          ? `${runsWithPredictions.toLocaleString()} 个 run 已有预测`
+          : "没有积压的预测产物",
       to: "/runs",
       tone: waitingEvaluation > 0 ? "warm" : "idle",
       icon: <Gauge size={16} />,
@@ -192,7 +195,12 @@ export function OverviewPage() {
     {
       label: "在线服务",
       value: `${liveServices}/${services.length}`,
-      detail: schedulerEnabled ? "自动调度" : "手动推进",
+      detail:
+        services.length > 0
+          ? `${services.length.toLocaleString()} 个服务已登记`
+          : schedulerEnabled
+            ? "自动调度等待服务"
+            : "手动推进等待服务",
       to: "/services",
       tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle",
       icon: <Server size={16} />,
@@ -229,19 +237,19 @@ export function OverviewPage() {
             <strong>{overviewSyncing ? "同步中" : "已同步"}</strong>
           </div>
           <div className="overview-stat-row">
-            <OverviewStat label="覆盖" value={`${coveragePercent}%`} />
+            <OverviewStat label="调度" value={schedulerEnabled ? "Auto" : "Manual"} />
             <OverviewStat
-              label="待处理"
-              value={waitingEvaluation}
-              tone={waitingEvaluation > 0 ? "live" : "idle"}
+              label="失败"
+              value={failedJobs}
+              tone={failedJobs > 0 ? "live" : "idle"}
             />
             <OverviewStat
-              label="队列"
-              value={activeQueue}
-              tone={activeQueue > 0 ? "live" : "idle"}
+              label="运行"
+              value={runningJobs}
+              tone={runningJobs > 0 ? "live" : "idle"}
             />
             <OverviewStat
-              label="服务"
+              label="在线"
               value={`${liveServices}/${services.length}`}
               tone={liveServices > 0 ? "live" : "idle"}
             />

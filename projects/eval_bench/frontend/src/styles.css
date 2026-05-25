@@ -7967,3 +7967,189 @@ tbody tr:hover td {
     grid-template-columns: 32px minmax(0, 1fr) 16px;
   }
 }
+
+/* Overview v4: readable control surface with explicit responsive space rules. */
+.dashboard-home {
+  gap: 14px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.overview-command-center {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.overview-hero-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 150px;
+}
+
+.overview-pulse-dock {
+  flex: 0 0 320px;
+  min-width: 0;
+}
+
+.overview-pulse-dock .overview-stat-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.overview-command-deck {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 14px;
+  align-items: flex-start;
+  overflow: visible;
+}
+
+.overview-focus-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+}
+
+.overview-side-stack {
+  display: flex;
+  flex: 0 0 372px;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.overview-action-panel,
+.overview-recent-card {
+  min-width: 0;
+}
+
+.overview-operational-grid,
+.overview-signal-strip {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+}
+
+.overview-signal-card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.overview-pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.overview-activity-matrix {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.overview-run-list {
+  max-height: 300px;
+}
+
+@media (max-width: 1180px) {
+  .overview-command-center {
+    flex-direction: column;
+  }
+
+  .overview-hero-stage,
+  .overview-pulse-dock,
+  .overview-focus-panel,
+  .overview-side-stack {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .overview-pulse-dock {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr) minmax(220px, 0.3fr);
+    align-items: stretch;
+  }
+
+  .overview-command-deck {
+    flex: 0 0 auto;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .overview-focus-panel {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .overview-side-stack {
+    flex-direction: row;
+  }
+
+  .overview-action-panel,
+  .overview-recent-card {
+    flex: 1 1 0;
+  }
+
+  .overview-recent-card {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .overview-pulse-dock {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-signal-strip {
+    flex-wrap: wrap;
+  }
+
+  .overview-signal-card {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .overview-pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-side-stack {
+    flex-direction: column;
+  }
+
+  .overview-action-panel,
+  .overview-recent-card {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .overview-command-center,
+  .overview-command-deck,
+  .overview-hero-stage,
+  .overview-activity-matrix {
+    flex-direction: column;
+  }
+
+  .overview-hero-stage {
+    align-items: stretch;
+  }
+
+  .overview-hero-stage .overview-next-action,
+  .overview-next-action {
+    flex: 0 0 auto;
+  }
+
+  .overview-signal-strip {
+    flex-direction: column;
+  }
+
+  .overview-signal-card {
+    flex-basis: auto;
+  }
+
+  .overview-pipeline {
+    grid-template-columns: 1fr;
+  }
+}

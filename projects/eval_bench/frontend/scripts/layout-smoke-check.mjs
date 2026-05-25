@@ -475,6 +475,8 @@ async function assertOverviewDensity(page, scope) {
     });
     const commandDeck = document.querySelector(".overview-command-deck");
     const focusPanel = document.querySelector(".overview-focus-panel");
+    const actionPanel = document.querySelector(".overview-action-panel");
+    const recentCard = document.querySelector(".overview-recent-card");
     const operationalGrid = document.querySelector(".overview-operational-grid");
     const nextAction = document.querySelector(".overview-next-action");
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
@@ -511,6 +513,9 @@ async function assertOverviewDensity(page, scope) {
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
       bodyText,
+      focusPanelHeight: focusPanel ? Math.round(focusPanel.getBoundingClientRect().height) : 0,
+      actionPanelHeight: actionPanel ? Math.round(actionPanel.getBoundingClientRect().height) : 0,
+      recentCardHeight: recentCard ? Math.round(recentCard.getBoundingClientRect().height) : 0,
       activityMatrixHeight: activityMatrix
         ? Math.round(activityMatrix.getBoundingClientRect().height)
         : 0,
@@ -571,6 +576,15 @@ async function assertOverviewDensity(page, scope) {
       `${scope}: overview should keep one focus panel and one recent run panel ${JSON.stringify({
         focusPanels: state.focusPanels,
         recentCards: state.recentCards
+      })}`
+    );
+  }
+  if (state.focusPanelHeight < 240 || state.actionPanelHeight < 120 || state.recentCardHeight < 120) {
+    throw new Error(
+      `${scope}: overview control panels collapsed ${JSON.stringify({
+        focusPanelHeight: state.focusPanelHeight,
+        actionPanelHeight: state.actionPanelHeight,
+        recentCardHeight: state.recentCardHeight
       })}`
     );
   }

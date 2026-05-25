@@ -700,7 +700,8 @@ page stack 不被 content 裁切、表格和高级检索面板需要滚动时由
 Run/Job/Service 活动矩阵保持 3 条 12 桶泳道，Overview 不能回流旧 mini chart wall 或 chart matrix；页面必须保留 hero next action、四段管线、readiness switchboard、一个 focus panel 和最近 run 紧凑摘要组成的 command deck，
 并保留报告覆盖、待评估、队列压力和在线服务四个可点击信号，不再回退到 Run/Ops/Volume 面板组；
 不出现 precision/recall/IoU 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板，
-关键入口必须有 hover/transition 反馈。Rank Board facet rail 必须完整暴露 Tasks、Benchmarks、Status、
+关键入口必须有 hover/transition 反馈；compact / narrow 视口下 Overview focus、readiness 和 recent
+面板必须保持可读高度，不能只保留 30-40px 的折叠外壳。Rank Board facet rail 必须完整暴露 Tasks、Benchmarks、Status、
 Labels、Models、Prompts 和 Metrics 七类可点击 `.rank-facet-button`，不能退回静态计数 chip。
 Runs 页必须暴露 `.run-list-pager` 并通过 `/api/runs?offset&limit` 分页，
 Compare 页必须暴露 `.compare-run-pager` 并通过 `/api/runs?offset&limit` 分页候选 run，

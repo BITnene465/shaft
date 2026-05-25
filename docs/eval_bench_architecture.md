@@ -209,10 +209,12 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   readiness switchboard 和最近 run 紧凑摘要组成的 command deck。顶部 hero 只能承载当前优先动作、
   同步态和少量运行态数值，不能回流二级诊断。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
-  必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。
+  必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把
+  focus、readiness 或 recent 核心面板压缩成不可读的折叠外壳。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
-  compact 视口需要滚动时由 command deck 自身滚动，最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。
+  compact / narrow 视口需要滚动时由 Overview 页面栈承担，command deck 不应把核心面板裁成独立折叠容器；
+  最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。
 - 新增 dashboard 交互动效：hover、pulse、rail transition 和入场动画只用于状态反馈、可点击性和实时感；
   不允许用大面积装饰动画替代信息结构，也不能让动效改变数据语义或造成滚动/布局抖动。
 - 新增 dashboard 通用交互反馈：优先扩展共享按钮、卡片、表格行、chip、导航和状态胶囊的 hover/focus/active
