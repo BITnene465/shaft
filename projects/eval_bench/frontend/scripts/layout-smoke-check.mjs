@@ -71,7 +71,7 @@ const staticRoutes = [
   {
     name: "compare",
     path: "/compare",
-    selectors: [".compare-page", ".compare-workspace", ".compare-context-pane"],
+    selectors: [".compare-page", ".compare-workspace", ".compare-context-pane", ".compare-run-pager"],
     forbiddenSelectors: [".compare-leaderboard-pane"],
     requireCompareChunk: true
   }

@@ -2018,6 +2018,20 @@ h2 {
   font-weight: 740;
 }
 
+.compare-run-pager {
+  min-height: 38px;
+  padding: 6px 0 2px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #e3e9ef;
+}
+
+.compare-run-pager > span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .service-form {
   grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
 }

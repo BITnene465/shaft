@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Compare 候选 run 仍固定首屏 200 条
+
+### 现象
+
+Runs、Benchmarks、Jobs、Services 和 Rank Board 已经接入后端分页，但 Compare 页的候选 run 选择仍固定请求
+`/api/runs?offset=0&limit=200`。当可对比 run 超过 200 时，对比工作区只能从首屏窗口里选择 baseline/candidate；
+高级检索虽然复用 `/api/runs`，但筛选后不能继续完整翻页。
+
+### 根因
+
+Compare 页早期把 run 候选选择和对比报告加载绑定在同一个首屏列表里。后续 Runs 页已经补齐分页契约，但 Compare
+没有同步收敛；同时 baseline/candidate 有 URL 状态，不能简单用“当前页是否包含已选 run”来判断选择是否有效。
+
+### 影响范围
+
+- 影响 Compare 页大量 run 下的完整候选浏览、筛选后翻页和复现实验对比选择。
+- 不影响 comparison 计算、rank-board、run note、样本详情或 eval metric 语义。
+
+### 修复方式
+
+- Compare 页新增 `COMPARE_RUN_PAGE_SIZE=80`、`pageOffset` 和 `CompareRunPager`。
+- 候选 run 请求 `/api/runs` 时传入 offset/limit；筛选条件变化回到第一页，数据减少时 clamp 到最后有效页。
+- baseline/candidate 的有效值继续以已选 run id 为准；如果已选 run 不在当前页，下拉保留“已选择”占位项，
+  并显示“当前页未加载该 run”，避免翻页误清空 URL 或上一页选择。
+- layout smoke 要求 `/compare` 存在 `.compare-run-pager`。
+- UI contract 锁住 Compare 页不能回退到固定 `limit: 200`。
+- README 和架构文档同步 Compare 候选 run 必须后端分页，且翻页不能清空已选 run id。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 任何候选选择器如果背后是可增长目录，必须使用后端分页；不能把 select 的 options 规模当成固定小集合。
+- 有 URL 或跨页选中状态的页面，分页只能改变候选窗口，不能把“当前页缺失”误判成“选择无效”。
+
 ## 2026-05-25: Eval Bench Jobs 高级检索仍固定首屏 200 条
 
 ### 现象

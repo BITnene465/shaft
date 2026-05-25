@@ -27,8 +27,10 @@ import {
   unique
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
-import { Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
+import { ActionButton, Badge, DataTable, EmptyState, SelectableCardButton } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
+
+const COMPARE_RUN_PAGE_SIZE = 80;
 
 export function ComparePage() {
   const [searchText, setSearchText] = useState("");
@@ -38,6 +40,7 @@ export function ComparePage() {
   const [labelFilter, setLabelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
+  const [pageOffset, setPageOffset] = useState(0);
   const [baselineRunId, setBaselineRunId] = useState(
     () => new URLSearchParams(window.location.search).get("baseline") ?? ""
   );
@@ -55,8 +58,8 @@ export function ComparePage() {
   );
   const runFilters = useMemo(
     () => ({
-      offset: 0,
-      limit: 200,
+      offset: pageOffset,
+      limit: COMPARE_RUN_PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
       task: taskFilter !== "all" ? taskFilter : undefined,
       benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
@@ -69,6 +72,7 @@ export function ComparePage() {
       benchmarkFilter,
       labelFilter,
       modelFilter,
+      pageOffset,
       promptFilter,
       searchText,
       statusFilter,
@@ -97,16 +101,16 @@ export function ComparePage() {
   const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
   const comparableRuns = runs.filter((run) => run.report_path);
   const filteredCount = runsQuery.data?.total ?? runs.length;
+  const runPageOffset = runsQuery.data?.offset ?? pageOffset;
+  const runPageLimit = runsQuery.data?.limit ?? COMPARE_RUN_PAGE_SIZE;
   const fallbackCandidate = comparableRuns[0]?.run_id ?? "";
   const fallbackBaseline =
     comparableRuns.find((run) => run.run_id !== fallbackCandidate)?.run_id ?? "";
-  const effectiveBaseline = runIdExists(comparableRuns, baselineRunId)
-    ? baselineRunId
-    : fallbackBaseline;
+  const effectiveBaseline = baselineRunId || fallbackBaseline;
   const candidateFallback =
     comparableRuns.find((run) => run.run_id !== effectiveBaseline)?.run_id ?? "";
   const effectiveCandidate =
-    runIdExists(comparableRuns, candidateRunId) && candidateRunId !== effectiveBaseline
+    candidateRunId && candidateRunId !== effectiveBaseline
       ? candidateRunId
       : candidateFallback;
   const comparisonQuery = useQuery({
@@ -120,6 +124,15 @@ export function ComparePage() {
       void comparisonListQuery.refetch();
     }
   }, [comparisonListQuery.refetch, comparisonQuery.data?.comparison_id]);
+  useEffect(() => {
+    setPageOffset(0);
+  }, [searchText, statusFilter, taskFilter, benchmarkFilter, labelFilter, modelFilter, promptFilter]);
+  useEffect(() => {
+    const nextOffset = clampCompareRunPageOffset(pageOffset, filteredCount);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [filteredCount, pageOffset]);
 
   if (runsQuery.isLoading) {
     return <EmptyState title="正在加载对比状态" />;
@@ -220,15 +233,23 @@ export function ComparePage() {
               title="基线"
               value={effectiveBaseline}
               runs={comparableRuns}
-              disabled={comparableRuns.length < 2}
+              disabled={filteredCount < 2 && !effectiveBaseline}
               onChange={setBaselineRunId}
             />
             <RunSelectRail
               title="候选"
               value={effectiveCandidate}
               runs={comparableRuns}
-              disabled={comparableRuns.length < 2}
+              disabled={filteredCount < 2 && !effectiveCandidate}
               onChange={setCandidateRunId}
+            />
+            <CompareRunPager
+              offset={runPageOffset}
+              limit={runPageLimit}
+              total={filteredCount}
+              visibleCount={runs.length}
+              comparableCount={comparableRuns.length}
+              onPageChange={setPageOffset}
             />
             <ComparisonHistoryPanel
               comparisons={comparisonListQuery.data?.comparisons ?? []}
@@ -246,7 +267,7 @@ export function ComparePage() {
             maxSize={620}
             first={
               <main className="compare-report-pane">
-                {comparableRuns.length < 2 ? (
+                {!effectiveBaseline || !effectiveCandidate ? (
                   <div className="empty-panel">至少需要两个已完成评测的 run 才能对比。</div>
                 ) : effectiveBaseline === effectiveCandidate ? (
                   <div className="empty-panel">请选择两个不同的 run。</div>
@@ -277,6 +298,13 @@ export function ComparePage() {
   );
 }
 
+function clampCompareRunPageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / COMPARE_RUN_PAGE_SIZE) * COMPARE_RUN_PAGE_SIZE;
+}
+
 function RunSelectRail({
   title,
   value,
@@ -293,10 +321,15 @@ function RunSelectRail({
   const selected = disabled ? undefined : runs.find((run) => run.run_id === value);
   const runOptions = disabled
     ? [{ value: "", label: "需要两个报告", disabled: true }]
-    : runs.map((run) => ({
-        value: run.run_id,
-        label: formatRunOption(run)
-      }));
+    : [
+        ...(value && !runIdExists(runs, value)
+          ? [{ value, label: `${value} · 已选择` }]
+          : []),
+        ...runs.map((run) => ({
+          value: run.run_id,
+          label: formatRunOption(run)
+        }))
+      ];
   return (
     <div className="compare-run-select">
       <FormSelectControl
@@ -316,7 +349,61 @@ function RunSelectRail({
             <em>P {formatMetric(selected.precision_iou50)}</em>
           </div>
         </div>
+      ) : value && !disabled ? (
+        <div className="compare-run-card">
+          <strong title={value}>{value}</strong>
+          <span>已选择；当前页未加载该 run</span>
+          <div>
+            <em>翻页不会清空当前对比</em>
+          </div>
+        </div>
       ) : null}
+    </div>
+  );
+}
+
+function CompareRunPager({
+  offset,
+  limit,
+  total,
+  visibleCount,
+  comparableCount,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  visibleCount: number;
+  comparableCount: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager compare-run-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+        {" · "}
+        {visibleCount.toLocaleString()} visible / {comparableCount.toLocaleString()} reports
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
     </div>
   );
 }

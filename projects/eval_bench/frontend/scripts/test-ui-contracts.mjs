@@ -258,6 +258,15 @@ assert(
 const comparePage = await readSource("src/comparePage.tsx");
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
+  comparePage.includes("const COMPARE_RUN_PAGE_SIZE = 80;") &&
+    comparePage.includes("function CompareRunPager(") &&
+    comparePage.includes("offset: pageOffset") &&
+    comparePage.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
+    comparePage.includes("已选择；当前页未加载该 run") &&
+    !comparePage.includes("limit: 200"),
+  "compare run rail must use paged API requests while preserving selected run ids",
+);
+assert(
   comparePage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
     (comparePage.match(/<FormSelectControl/g) ?? []).length >= 1,
   "compare run rail selects must use FormSelectControl",
