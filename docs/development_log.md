@@ -3132,3 +3132,41 @@ target label scope 的真源在 `label_policy.py`，但 preflight 没有把 reso
 
 - Overview 新增实时信号优先进入活动矩阵、telemetry cell 或 mini chart，不新增大块说明面板。
 - 如果后续需要分钟级实时状态，应新增专门的轻量 API 聚合，不要在前端扫描原始 artifact 文件。
+
+## 2026-05-25: Eval Bench Viewer 控件原语收敛
+
+### 现象
+
+Viewer 控制面板的图层预设仍直接手写 `compact-select` 外壳，标签筛选 chip 也直接写 raw button 和
+`label-select active` class 拼接。这个面板是 Run Inspector、Benchmark Inspector、Compare 和 Settings
+预览共享的核心交互，后续容易再次出现按钮、select 和 chip 风格漂移。
+
+### 根因
+
+前面已经收敛了弹窗、标准动作按钮、样本行和部分 query chip，但 viewer panel 比较早抽出，保留了局部控件
+实现。`test:ui-contracts` 也只覆盖了 sample viewer 工具 chip，没有覆盖 viewer panel 内的图层预设和
+label chip。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 的 viewer 控制面板组件边界和 UI 一致性。
+- 不改变 viewer 图层状态、label 过滤语义、样本翻页或后端 API。
+
+### 修复方式
+
+- Viewer 图层预设改用 `CompactSelectControl`。
+- Viewer label chip 改用 `OptionChipButton`，保留 `label-select` 专用视觉 class。
+- `test-ui-contracts.mjs` 增加静态防线，防止 viewer panel 回退到手写 compact select 或 raw label-select button。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 同步记录控件原语边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `git diff --check`
+
+### 后续防线
+
+- 新增 viewer 控件先判断是否可复用 `controlPrimitives.tsx` 或 `ui.tsx`；只有 object row、canvas HUD
+  这类有独立复杂交互语义的控件保留专用实现。

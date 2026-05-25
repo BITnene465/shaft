@@ -140,6 +140,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton` 和
     `IconActionButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
     使用 `OptionChipButton`；业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
+- `projects/eval_bench/frontend/src/controlPrimitives.tsx`
+  - 维护紧凑 select、数值输入、颜色输入和开关等基础控制原语；viewer 图层预设、settings 控件和
+    manifest toolbar 不直接手写同类 select 外壳。
 
 ## Extension Rules
 

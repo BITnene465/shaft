@@ -145,6 +145,25 @@ assert(
   sampleViewer.includes("OptionChipButton") && !sampleViewer.includes('className="query-chip"'),
   "sample viewer utility chips must use OptionChipButton",
 );
+const viewerPanels = await readSource("src/viewerPanels.tsx");
+assert(
+  viewerPanels.includes('import { CompactSelectControl, ToggleButton } from "./controlPrimitives";'),
+  "viewer layer preset select must use CompactSelectControl",
+);
+assert(
+  viewerPanels.includes('import { OptionChipButton } from "./ui";'),
+  "viewer label chips must import OptionChipButton",
+);
+assert(
+  viewerPanels.includes("<CompactSelectControl") &&
+    !viewerPanels.includes('<label className="compact-select">'),
+  "viewer controls must not hand-roll compact select markup",
+);
+assert(
+  viewerPanels.includes("<OptionChipButton") &&
+    !/<button[\s\S]{0,240}label-select/.test(viewerPanels),
+  "viewer label chips must use OptionChipButton instead of raw label-select buttons",
+);
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunsPage")') &&
     mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunDetailPage")'),

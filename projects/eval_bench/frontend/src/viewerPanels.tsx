@@ -1,6 +1,7 @@
 import type { EvalInstance } from "./api";
-import { ToggleButton } from "./controlPrimitives";
+import { CompactSelectControl, ToggleButton } from "./controlPrimitives";
 import { formatMetric } from "./formatters";
+import { OptionChipButton } from "./ui";
 import {
   countInstancesByLabel,
   formatBbox,
@@ -105,17 +106,19 @@ export function ViewerControlPanel({
 
   return (
     <div className="viewer-controls">
-      <label className="compact-select">
-        <span>视图</span>
-        <select value={layerPresetValue()} onChange={(event) => applyLayerPreset(event.target.value)}>
-          <option value="all">真值 + 预测 / 全部几何</option>
-          <option value="gt">仅真值</option>
-          <option value="pred">仅预测</option>
-          <option value="boxes">只看框</option>
-          <option value="lines">只看线</option>
-          <option value="custom">自定义</option>
-        </select>
-      </label>
+      <CompactSelectControl
+        label="视图"
+        value={layerPresetValue()}
+        options={[
+          { value: "all", label: "真值 + 预测 / 全部几何" },
+          { value: "gt", label: "仅真值" },
+          { value: "pred", label: "仅预测" },
+          { value: "boxes", label: "只看框" },
+          { value: "lines", label: "只看线" },
+          { value: "custom", label: "自定义" }
+        ]}
+        onChange={applyLayerPreset}
+      />
       <div className="layer-toggle-strip" aria-label="图层开关">
         <ToggleButton label="真值" active={showGt} onChange={onShowGtChange} />
         <ToggleButton label="预测" active={showPred} onChange={onShowPredChange} />
@@ -131,14 +134,14 @@ export function ViewerControlPanel({
           {labels.map((label) => {
             const active = activeLabels.includes(label);
             return (
-              <button
+              <OptionChipButton
                 key={label}
-                className={active ? "label-select active" : "label-select"}
-                type="button"
+                active={active}
+                className="label-select"
                 onClick={() => onToggleLabel(label)}
               >
                 {label}
-              </button>
+              </OptionChipButton>
             );
           })}
         </div>
