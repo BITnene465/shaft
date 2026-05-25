@@ -21,10 +21,11 @@ const staticRoutes = [
       ".overview-next-action",
       ".overview-pipeline",
       ".overview-operational-grid",
+      ".overview-signal-strip",
+      ".overview-signal-card",
       ".overview-action-panel",
       ".overview-side-stack",
       ".overview-activity-matrix",
-      ".overview-track-group",
       ".overview-recent-card"
     ]
   },
@@ -466,7 +467,7 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return Math.round(rect.height);
     });
-    const trackGroups = Array.from(document.querySelectorAll(".overview-track-group")).map((node) => {
+    const signalCards = Array.from(document.querySelectorAll(".overview-signal-card")).map((node) => {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
@@ -474,7 +475,7 @@ async function assertOverviewDensity(page, scope) {
     const focusPanel = document.querySelector(".overview-focus-panel");
     const operationalGrid = document.querySelector(".overview-operational-grid");
     const nextAction = document.querySelector(".overview-next-action");
-    const trackRails = Array.from(document.querySelectorAll(".overview-track-rail i")).map((node) =>
+    const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
     const panelHeights = Array.from(
@@ -496,8 +497,8 @@ async function assertOverviewDensity(page, scope) {
       nextActions: document.querySelectorAll(".overview-next-action").length,
       activityLanes: document.querySelectorAll(".overview-activity-lane").length,
       activityCells: document.querySelectorAll(".overview-activity-cells i").length,
-      trackGroups,
-      trackRails,
+      signalCards,
+      signalRails,
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-command-deck .overview-recent-card").length,
@@ -538,9 +539,9 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.commandDeckDisplay !== "grid" || state.operationalGridDisplay !== "grid") {
+  if (state.commandDeckDisplay !== "flex" || state.operationalGridDisplay !== "flex") {
     throw new Error(
-      `${scope}: overview should use a command grid with compact operational tracks ${JSON.stringify({
+      `${scope}: overview should use a two-column command surface with compact signals ${JSON.stringify({
         commandDeckDisplay: state.commandDeckDisplay,
         operationalGridDisplay: state.operationalGridDisplay
       })}`
@@ -594,14 +595,14 @@ async function assertOverviewDensity(page, scope) {
     throw new Error(`${scope}: overview panels are not visible ${state.panelHeights.join(",")}`);
   }
   if (
-    state.trackGroups.length !== 3 ||
-    state.trackRails.length !== 9 ||
-    !state.trackRails.some((width) => width > 0)
+    state.signalCards.length !== 4 ||
+    state.signalRails.length !== 4 ||
+    !state.signalRails.some((width) => width > 0)
   ) {
     throw new Error(
-      `${scope}: overview track visualization is missing ${JSON.stringify({
-        groups: state.trackGroups.length,
-        rails: state.trackRails
+      `${scope}: overview signal visualization is missing ${JSON.stringify({
+        cards: state.signalCards.length,
+        rails: state.signalRails
       })}`
     );
   }
@@ -626,12 +627,12 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  for (const [index, rect] of state.trackGroups.entries()) {
+  for (const [index, rect] of state.signalCards.entries()) {
     if (rect.width <= 0 || rect.height <= 0) {
-      throw new Error(`${scope}: track group ${index} is not visible ${JSON.stringify(rect)}`);
+      throw new Error(`${scope}: signal card ${index} is not visible ${JSON.stringify(rect)}`);
     }
-    if (!scope.startsWith("narrow") && rect.width < 170) {
-      throw new Error(`${scope}: track group ${index} is too compressed ${JSON.stringify(rect)}`);
+    if (!scope.startsWith("narrow") && rect.width < 150) {
+      throw new Error(`${scope}: signal card ${index} is too compressed ${JSON.stringify(rect)}`);
     }
   }
 }

@@ -193,8 +193,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能用固定 `limit=200` 的首屏 slice 代替完整结果浏览。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 next action、pipeline progress rail、track rail 和活动矩阵服务“当前是否可用、
-  卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall；总览主体保持一个 focus panel、
+- 新增总览视觉模块：优先用 next action、四个可行动信号、pipeline progress rail 和活动矩阵服务“当前是否可用、
+  卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall 或 Run/Ops/Volume 面板组；总览主体保持一个 focus panel、
   readiness switchboard 和最近 run 紧凑摘要组成的 command deck。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
   必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。

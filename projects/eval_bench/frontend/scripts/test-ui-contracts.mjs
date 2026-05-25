@@ -146,11 +146,13 @@ assert(
     overviewPage.includes("overviewReadinessItems") &&
     overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("overviewRecentRuns(data.runs") &&
-    overviewPage.includes("OverviewTrackGroup") &&
+    overviewPage.includes("OverviewSignalStrip") &&
+    overviewPage.includes("overview-signal-strip") &&
     overviewPage.includes("OverviewActivityMatrix") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-operational-grid") &&
     overviewPage.includes("overview-side-stack") &&
+    !overviewPage.includes("OverviewTrackGroup") &&
     !overviewPage.includes("OverviewMiniChartPanel") &&
     !overviewPage.includes("overviewCharts") &&
     !overviewPage.includes("overview-chart-matrix") &&

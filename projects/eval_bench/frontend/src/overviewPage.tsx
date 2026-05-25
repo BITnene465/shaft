@@ -5,7 +5,8 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  BarChart3,
+  CheckCircle2,
+  Clock3,
   Gauge,
   Layers3,
   PlayCircle,
@@ -29,13 +30,6 @@ type OverviewActivityLane = {
   total: number;
 };
 type OverviewCountRow = { key: string; count: number };
-type OverviewTrack = {
-  label: string;
-  value: number;
-  total: number;
-  meta: string;
-  tone: OverviewTone;
-};
 type OverviewPipelineStage = {
   label: string;
   value: number;
@@ -43,6 +37,15 @@ type OverviewPipelineStage = {
   meta: string;
   to: OverviewRoute;
   tone: OverviewTone;
+};
+type OverviewSignal = {
+  label: string;
+  value: string;
+  detail: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+  icon: React.ReactNode;
+  progress: number;
 };
 type OverviewAction = {
   label: string;
@@ -88,9 +91,6 @@ export function OverviewPage() {
   const runsWithPredictions = data.runs.filter((run) => run.prediction_count > 0).length;
   const waitingEvaluation = data.runs.filter(
     (run) => !run.report_path && run.prediction_count > 0
-  ).length;
-  const activeRuns = data.runs.filter((run) =>
-    ["created", "queued", "running"].includes(run.status)
   ).length;
   const queuedJobs = jobs.filter((job) => job.status === "queued").length;
   const runningJobs = jobs.filter((job) => job.status === "running").length;
@@ -158,73 +158,45 @@ export function OverviewPage() {
     }
   ];
 
-  const runTracks: OverviewTrack[] = [
+  const signalItems: OverviewSignal[] = [
     {
-      label: "已评估",
-      value: evaluatedRuns,
-      total: totalRuns,
-      meta: `${coveragePercent}%`,
-      tone: "good"
+      label: "报告覆盖",
+      value: `${coveragePercent}%`,
+      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
+      to: "/runs",
+      tone: evaluatedRuns > 0 ? "good" : "idle",
+      icon: <CheckCircle2 size={16} />,
+      progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "有预测待评估",
-      value: waitingEvaluation,
-      total: totalRuns,
-      meta: `${runsWithPredictions.toLocaleString()} with pred`,
-      tone: waitingEvaluation > 0 ? "warm" : "idle"
+      label: "待评估",
+      value: waitingEvaluation.toLocaleString(),
+      detail: `${runsWithPredictions.toLocaleString()} runs have predictions`,
+      to: "/runs",
+      tone: waitingEvaluation > 0 ? "warm" : "idle",
+      icon: <Gauge size={16} />,
+      progress: trackPercent(waitingEvaluation, totalRuns)
     },
     {
-      label: "活跃 run",
-      value: activeRuns,
-      total: totalRuns,
-      meta: activeRuns > 0 ? "live" : "idle",
-      tone: activeRuns > 0 ? "live" : "idle"
-    }
-  ];
-  const opsTracks: OverviewTrack[] = [
-    {
-      label: "Queued jobs",
-      value: queuedJobs,
-      total: totalJobs,
-      meta: `${jobs.length.toLocaleString()} jobs`,
-      tone: queuedJobs > 0 ? "warm" : "idle"
+      label: "队列压力",
+      value: activeQueue.toLocaleString(),
+      detail:
+        failedJobs > 0
+          ? `${failedJobs.toLocaleString()} failed jobs`
+          : `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
+      to: "/jobs",
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
+      icon: activeQueue > 0 ? <Activity size={16} /> : <Clock3 size={16} />,
+      progress: trackPercent(activeQueue + failedJobs, totalJobs)
     },
     {
-      label: "Running jobs",
-      value: runningJobs,
-      total: totalJobs,
-      meta: schedulerEnabled ? "auto scheduler" : "manual",
-      tone: runningJobs > 0 ? "live" : "idle"
-    },
-    {
-      label: "Live services",
-      value: liveServices,
-      total: totalServices,
-      meta: `${liveServices}/${services.length}`,
-      tone: liveServices > 0 ? "live" : "idle"
-    }
-  ];
-  const volumeTracks: OverviewTrack[] = [
-    {
-      label: "GT samples",
-      value: data.total_benchmark_samples,
-      total: volumeTotal,
-      meta: `${data.benchmark_count.toLocaleString()} bench`,
-      tone: "good"
-    },
-    {
-      label: "Predictions",
-      value: data.prediction_count,
-      total: volumeTotal,
-      meta: `${data.run_count.toLocaleString()} runs`,
-      tone: data.prediction_count > 0 ? "live" : "idle"
-    },
-    {
-      label: "Failed jobs",
-      value: failedJobs,
-      total: totalJobs,
-      meta: failedJobs > 0 ? "needs check" : "clear",
-      tone: failedJobs > 0 ? "danger" : "idle"
+      label: "在线服务",
+      value: `${liveServices}/${services.length}`,
+      detail: schedulerEnabled ? "scheduler auto" : "manual mode",
+      to: "/services",
+      tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle",
+      icon: <Server size={16} />,
+      progress: trackPercent(liveServices, totalServices)
     }
   ];
   const readinessItems = overviewReadinessItems({
@@ -293,15 +265,11 @@ export function OverviewPage() {
       <div className="overview-command-deck">
         <section className="workspace-card overview-focus-panel">
           <div className="overview-focus-head">
-            <PanelTitle title="任务控制台" meta="pipeline / pressure / action" />
+            <PanelTitle title="当前决策" meta="action / signal / flow" />
             <OverviewNextAction action={nextAction} />
           </div>
+          <OverviewSignalStrip signals={signalItems} />
           <OverviewPipeline stages={pipelineStages} />
-          <div className="overview-operational-grid">
-            <OverviewTrackGroup icon={<Gauge size={15} />} title="Run" tracks={runTracks} />
-            <OverviewTrackGroup icon={<Activity size={15} />} title="Ops" tracks={opsTracks} />
-            <OverviewTrackGroup icon={<BarChart3 size={15} />} title="Volume" tracks={volumeTracks} />
-          </div>
           <OverviewActivityMatrix lanes={activityLanes} />
         </section>
 
@@ -311,6 +279,26 @@ export function OverviewPage() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function OverviewSignalStrip({ signals }: { signals: OverviewSignal[] }) {
+  return (
+    <div className="overview-signal-strip overview-operational-grid">
+      {signals.map((signal) => (
+        <Link className={`overview-signal-card ${signal.tone}`} to={signal.to} key={signal.label}>
+          <span>{signal.icon}</span>
+          <div>
+            <strong>{signal.value}</strong>
+            <em>{signal.label}</em>
+          </div>
+          <small>{signal.detail}</small>
+          <i aria-hidden="true">
+            <b style={{ width: `${signal.progress}%` }} />
+          </i>
+        </Link>
+      ))}
+    </div>
   );
 }
 
@@ -392,39 +380,6 @@ function OverviewReadinessPanel({
         ))}
       </div>
     </section>
-  );
-}
-
-function OverviewTrackGroup({
-  icon,
-  title,
-  tracks
-}: {
-  icon: React.ReactNode;
-  title: string;
-  tracks: OverviewTrack[];
-}) {
-  return (
-    <div className="overview-track-group">
-      <div className="overview-track-heading">
-        {icon}
-        <strong>{title}</strong>
-      </div>
-      <div className="overview-track-list">
-        {tracks.map((track) => (
-          <div className={`overview-track ${track.tone}`} key={track.label}>
-            <div>
-              <span>{track.label}</span>
-              <strong>{track.value.toLocaleString()}</strong>
-              <em>{track.meta}</em>
-            </div>
-            <div className="overview-track-rail" aria-hidden="true">
-              <i style={{ width: `${trackPercent(track.value, track.total)}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 

@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 总览 command deck 仍像低价值面板组
+
+### 现象
+
+总览页已经删除 mini chart wall，但左侧 focus panel 仍保留 Run/Ops/Volume 三组 track rail。用户进入首页后看到的
+仍是状态面板集合，而不是可以立刻判断“当前该做什么”的控制台；页面虽然压缩了密度，但信息价值没有明显提升。
+
+### 根因
+
+上一轮只把低价值图表墙收敛成 command deck，没有继续筛掉对行动没有直接帮助的中间面板。Run/Ops/Volume 分组
+仍在重复 Runs、Jobs、Services 页的目录信息，且布局上继续强化“面板墙”观感。
+
+### 影响范围
+
+- 影响 Dashboard 首页第一屏判断效率、视觉层级和交互质感。
+- 不影响 eval metric、rank-board 计算、store 数据结构或 CLI 语义。
+
+### 修复方式
+
+- 总览左侧改为“当前决策”控制面：next action、报告覆盖、待评估、队列压力、在线服务四个可点击信号、
+  四段评测管线和 Run/Job/Service 活动矩阵。
+- 删除 `OverviewTrackGroup` 和 Run/Ops/Volume track 面板组，不再把总览当目录字段摘要。
+- 总览布局改成两列 command surface，信号条最多四项，右侧只保留 readiness switchboard 和最近 run。
+- 增强 overview 关键入口、按钮、状态 capsule 的 hover、active、focus、pulse 和 rail transition。
+- README、架构文档、layout smoke 和 UI contract 同步新的总览准入边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 总览新增模块必须先回答是否能驱动下一步操作；不能把目录维度、低频排障字段或二级诊断面板搬回首页。
+- 首页视觉最多保留四个一眼可读的关键信号；更多维度应进入对应工作区或高级筛选。
+- 动效只用于强调可点击性、实时状态和状态转移，不得用装饰动画掩盖信息结构问题。
+
 ## 2026-05-25: Eval Bench Benchmarks 高级检索仍固定首屏 200 条
 
 ### 现象
