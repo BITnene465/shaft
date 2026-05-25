@@ -2154,3 +2154,49 @@ Rank Board 早期为了快速排序把 precision、recall 和 mIoU 组合成 `sc
 - Rank Board 不能重新引入默认加权综合分；如果需要 bench/metric 加权方案，必须作为显式方案配置和独立展示，不得覆盖默认 F1 主指标。
 - 页面级 filter 入口默认折叠；新增页面不能把多组 select 平铺到主工作区。
 - 可视化检查器的持久偏好和样本级临时交互状态必须分离，翻页不能重置用户已选择的显示偏好。
+
+## 2026-05-25: Eval Bench detection label 子任务创建入口收口
+
+### 现象
+
+Detection 的 label 子任务已经能在后端通过 `target_labels`、prompt metadata 和 `label_policy.py` 表达，
+但新建评测任务面板主要依赖用户直接编辑 JSON manifest。前端拿不到 benchmark summary 的 label 索引，
+导致人类创建 label 子任务时没有稳定候选，agent CLI 也无法通过 `list-benchmarks` 直接看到 benchmark
+可用 label。
+
+### 根因
+
+Benchmark manifest 写入了 `labels`，但 `BenchmarkSummary` 没有把这组 label 暴露为列表真源。任务创建 UI
+只能从 prompt template 或用户手写 manifest 推断 target labels，形成“后端语义可用、创建入口不够显式”的断层。
+
+### 影响范围
+
+- 影响 Eval Bench Jobs 页新建 detection 子任务的可用性。
+- 影响 agent 通过 `list-benchmarks` 枚举 benchmark 可用 label 的稳定性。
+- 不影响已创建 run 的评估语义，也不影响 metric report、sample scope 或 Shaft 训练主链。
+
+### 修复方式
+
+- `BenchmarkSummary` 增加 `labels` 字段；manifest 缺少 labels 时，store 通过 sample scan fallback 补齐。
+- 前端 `BenchmarkSummary` 类型同步增加 `labels`。
+- Jobs 页新建评测面板增加 Detection 子任务 chips，从 benchmark labels、prompt template target labels 和当前
+  manifest target labels 合并候选；点击 chip 会直接更新 manifest 的 `eval.target_labels`。
+- `全部候选` 会显式写入当前候选集合；`默认策略` 会删除 manifest 中的 `target_labels` 字段，让后端继续按统一
+  label policy 解析默认范围。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_api_exposes_store_state projects/eval_bench/tests/test_dashboard.py::test_dashboard_creates_benchmark_copy_from_raw_data`
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters`
+- `curl -fsS http://127.0.0.1:8766/api/state` 和 `/api/benchmarks?limit=1` 确认 benchmark summary 返回
+  `labels=["arrow","icon","image","shape"]`。
+- Playwright smoke：打开 Jobs 新建评测弹窗，点击 `icon` chip 后 manifest 出现 `target_labels=["arrow","icon"]`，
+  点击 `全部候选` 后写入全部候选 label，点击 `默认策略` 后 manifest 删除 `target_labels`。
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+
+### 后续防线
+
+- 新增子任务入口时，候选项必须来自 store/API/CLI 的正式字段，不能让前端扫描 artifact 文件。
+- 留空 target labels 的语义继续归 `label_policy.py`，前端只负责显式写入用户选择的 `target_labels`。

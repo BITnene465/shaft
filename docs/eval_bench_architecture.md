@@ -97,6 +97,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/store.py`
   - 维护 benchmark/run 列表过滤、分页和 query 语义；CLI 与 `/api/benchmarks`、`/api/runs`
     必须复用同一份 store page 方法；Benchmarks/Runs 页面只能提交查询条件，不能复制高级检索语义。
+  - 维护 benchmark summary 的 `labels` 输出；manifest 缺少 labels 时可通过 sample scan fallback 补齐。
+    任务创建 UI 和 agent CLI 只能消费这个 store 字段，不能自行扫描 benchmark artifact。
   - 维护 run note 的读写、列表摘要和长度校验；dashboard/API/CLI 不直接改 `note.json`。
   - 维护 rank board 的过滤、facet 计数、F1 默认主指标、可切换排序指标和分页输出；
     Compare 页不能再作为排行榜真源。`score` 仅作为兼容字段镜像 F1，不再代表默认加权排名。
@@ -124,6 +126,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 target label scope：先加 prompt metadata 或显式 spec 字段，不允许通过 UI 默认值悄悄覆盖。
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
   layout/arrow 的默认 label policy。
+- 新增 detection label 子任务 UI：必须通过 manifest `target_labels` 修改显式 spec，候选 label 来自
+  benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
 - 新增 rank board 字段、facet 或排序规则：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格和测试。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用

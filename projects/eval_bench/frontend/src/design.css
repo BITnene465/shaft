@@ -676,6 +676,98 @@ tbody tr:hover td {
   min-width: 112px;
 }
 
+.label-subtask-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.4fr) minmax(170px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background:
+    linear-gradient(135deg, rgb(12 38 58 / 4%), transparent 46%),
+    rgb(255 255 255 / 92%);
+  border: 1px solid var(--bench-line);
+  box-shadow: var(--bench-shadow-tight);
+}
+
+.label-subtask-head {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label-subtask-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.label-subtask-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.label-subtask-head strong {
+  color: #172536;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.label-subtask-head span,
+.label-subtask-empty {
+  min-width: 0;
+  overflow: hidden;
+  color: #617286;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-subtask-head button,
+.label-subtask-add button {
+  height: 28px;
+  padding: 0 10px;
+  color: #143042;
+  background: #eef5f8;
+  border: 1px solid #cfdce7;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.label-subtask-chips {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.label-subtask-chips .query-chip {
+  flex: 0 0 auto;
+}
+
+.label-subtask-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.label-subtask-add input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  background: #fff;
+  border: 1px solid var(--bench-line);
+  border-radius: 2px;
+  color: #172536;
+  font-size: 12px;
+}
+
 .sample-list,
 .viewer-panel {
   border-color: var(--bench-line);
@@ -1258,6 +1350,10 @@ tbody td {
   .manifest-toolbar .primary-button,
   .manifest-toolbar .secondary-button {
     flex: 1 1 100%;
+  }
+
+  .label-subtask-panel {
+    grid-template-columns: 1fr;
   }
 
   .settings-number-grid {

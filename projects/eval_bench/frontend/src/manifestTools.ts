@@ -98,8 +98,56 @@ export function targetLabelsFromPrompt(prompt?: Partial<PromptTemplate>) {
   return isStringArray(labels) ? labels : [];
 }
 
+export function manifestEvalTask(manifest: Record<string, unknown> | null) {
+  const section = manifest ? manifestPromptSection(manifest) : null;
+  return promptStringValue(section?.task) ?? "";
+}
+
+export function manifestBenchmarkId(manifest: Record<string, unknown> | null) {
+  const section = manifest ? manifestPromptSection(manifest) : null;
+  return promptStringValue(section?.benchmark_id) ?? "";
+}
+
+export function manifestTargetLabels(manifest: Record<string, unknown> | null) {
+  const section = manifest ? manifestPromptSection(manifest) : null;
+  return isStringArray(section?.target_labels) ? section.target_labels : [];
+}
+
+export function updateManifestTargetLabels(
+  manifest: Record<string, unknown>,
+  labels: string[]
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(manifest)) as Record<string, unknown>;
+  const section = manifestPromptSection(cloned);
+  if (!section) {
+    cloned.eval = {};
+    return updateManifestTargetLabels(cloned, labels);
+  }
+  const normalizedLabels = uniqueLabels(labels);
+  if (normalizedLabels.length > 0) {
+    section.target_labels = normalizedLabels;
+  } else {
+    delete section.target_labels;
+  }
+  return cloned;
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function uniqueLabels(labels: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  labels.forEach((label) => {
+    const value = label.trim();
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    result.push(value);
+  });
+  return result;
 }
 
 function manifestPromptSection(manifest: Record<string, unknown>): Record<string, unknown> | null {

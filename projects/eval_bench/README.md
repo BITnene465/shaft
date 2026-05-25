@@ -153,6 +153,11 @@ manifest；如果 prompt 没声明目标 label，会清空旧 manifest 上残留
 的 prompt 保存为新的模板。后端 preflight 会用同一份 prompt registry 解析模板；job 入队时保存
 resolved manifest，worker 后续执行不依赖前端临时状态。
 
+Detection job 在新建任务面板里提供 label 子任务选择：面板从当前 benchmark summary 的 `labels`、
+prompt template 的 `metadata.target_labels` 和 manifest 现有 `target_labels` 合并出候选 chip；
+点击 chip 会同步更新 manifest 中的 `eval.target_labels`。`全部候选` 会把当前候选显式写入
+`target_labels`；`默认策略` 会删除该字段，让后端继续按 prompt/task 的统一 label policy 解析默认范围。
+
 每个 prompt template 同时声明 `target_labels`，这是评测语义的一部分，不是纯展示字段。多任务
 benchmark 里可能同时有 layout 和 arrow 标注，但一次 run 只应该评价当前 prompt 要求模型输出的
 label 集合：
@@ -480,6 +485,8 @@ Runs 页和 Compare 页的 run 高级检索直接请求 `GET /api/runs`，和 CL
 label、model、prompt、metric 和 note 全文查询语义；Benchmarks 页直接请求 `GET /api/benchmarks`，
 和 CLI `list-benchmarks` 共享 task、layer、split 和全文查询语义；Rank Board 前端和 CLI/API 默认用
 `f1_iou50` 作为主指标排序，用户可以把主指标切到 precision、recall、mIoU、预测数、创建时间或 run id。
+Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent CLI 统一消费，不要求前端扫描
+benchmark 文件。
 后续页面新增 filter 应优先复用。弹窗统一走 `WorkspaceDialog`，关闭按钮、Escape、backdrop 点击和内部滚动都由
 该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`，业务页只为
 样本行、画布 HUD、label chip 等专用交互保留独立 button 样式。

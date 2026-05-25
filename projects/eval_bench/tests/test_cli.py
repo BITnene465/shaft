@@ -465,6 +465,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
         {
             "benchmark_id": "bench1",
             "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
             "layers": ["layout"],
             "split": "val",
             "sample_count": 2,
@@ -563,6 +564,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert benchmarks["filters"]["task"] == "detection"
     assert benchmarks["filters"]["split"] == "val"
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "bench1"
+    assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]
 
     run_args = _build_parser().parse_args(
         [

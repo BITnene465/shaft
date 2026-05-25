@@ -41,6 +41,7 @@ def _line_count(path: Path) -> int:
 class BenchmarkSummary:
     benchmark_id: str
     tasks: list[str]
+    labels: list[str]
     layers: list[str]
     split: str
     sample_count: int
@@ -255,6 +256,10 @@ class EvalBenchStore:
                 BenchmarkSummary(
                     benchmark_id=str(payload.get("benchmark_id") or manifest_path.parent.name),
                     tasks=[str(item) for item in payload.get("tasks") or []],
+                    labels=self._benchmark_summary_labels(
+                        str(payload.get("benchmark_id") or manifest_path.parent.name),
+                        payload,
+                    ),
                     layers=[str(item) for item in payload.get("layers") or []],
                     split=str(payload.get("split") or ""),
                     sample_count=sample_count,
@@ -265,6 +270,19 @@ class EvalBenchStore:
                 )
             )
         return sorted(items, key=lambda item: item.benchmark_id)
+
+    def _benchmark_summary_labels(self, benchmark_id: str, payload: dict[str, Any]) -> list[str]:
+        labels = _labels_from_summary(payload)
+        if labels:
+            return labels
+        try:
+            return self._benchmark_label_options(
+                benchmark_id,
+                payload,
+                self._benchmark_sample_json_paths(payload),
+            )
+        except (FileNotFoundError, OSError):
+            return []
 
     def runs(self) -> list[RunSummary]:
         items: list[RunSummary] = []

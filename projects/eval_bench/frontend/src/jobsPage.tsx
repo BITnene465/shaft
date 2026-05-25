@@ -25,8 +25,12 @@ import {
   applyBenchmarkDefault,
   applyPromptTemplateToManifest,
   formatManifest,
+  manifestBenchmarkId,
+  manifestEvalTask,
+  manifestTargetLabels,
   promptTemplateFromManifest,
-  targetLabelsFromPrompt
+  targetLabelsFromPrompt,
+  updateManifestTargetLabels
 } from "./manifestTools";
 import {
   canCancelJob,
@@ -451,6 +455,16 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
   const selectedTemplate = templates[templateId] ?? templates[templateIds[0] ?? ""];
   const selectedPrompt =
     promptTemplates.find((template) => template.prompt_id === promptId) ?? promptTemplates[0];
+  const manifestDraft = useMemo(() => parseManifestDraft(manifestText), [manifestText]);
+  const manifestTaskValue = manifestEvalTask(manifestDraft);
+  const manifestBenchmarkValue = manifestBenchmarkId(manifestDraft);
+  const selectedBenchmark = benchmarks.find((benchmark) => benchmark.benchmark_id === manifestBenchmarkValue);
+  const selectedTargetLabels = manifestTargetLabels(manifestDraft);
+  const labelOptions = unique([
+    ...(selectedBenchmark?.labels ?? []),
+    ...targetLabelsFromPrompt(selectedPrompt),
+    ...selectedTargetLabels
+  ]);
 
   useEffect(() => {
     if (!manifestText && selectedTemplate?.manifest) {
@@ -518,6 +532,16 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
       return;
     }
     preflightMutation.mutate({ manifest });
+  }
+
+  function updateTargetLabels(nextLabels: string[]) {
+    const manifest = parseManifest();
+    if (!manifest) {
+      return;
+    }
+    setManifestText(formatManifest(updateManifestTargetLabels(manifest, nextLabels)));
+    setParseError(null);
+    preflightMutation.reset();
   }
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -596,6 +620,13 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
             {mutation.isPending ? "加入中" : "加入队列"}
           </ActionButton>
         </div>
+        <LabelSubtaskPanel
+          task={manifestTaskValue}
+          benchmarkId={manifestBenchmarkValue}
+          labelOptions={labelOptions}
+          selectedLabels={selectedTargetLabels}
+          onChange={updateTargetLabels}
+        />
         <ResizableSplit
           className="manifest-split"
           storageKey="eval_bench_manifest_result_width"
@@ -647,6 +678,95 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
             </div>
           }
         />
+      </form>
+    </div>
+  );
+}
+
+function parseManifestDraft(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function LabelSubtaskPanel({
+  task,
+  benchmarkId,
+  labelOptions,
+  selectedLabels,
+  onChange
+}: {
+  task: string;
+  benchmarkId: string;
+  labelOptions: string[];
+  selectedLabels: string[];
+  onChange: (labels: string[]) => void;
+}) {
+  const [draftLabel, setDraftLabel] = useState("");
+  if (task !== "detection") {
+    return null;
+  }
+  const selectedSet = new Set(selectedLabels);
+
+  function toggleLabel(label: string) {
+    if (selectedSet.has(label)) {
+      onChange(selectedLabels.filter((item) => item !== label));
+      return;
+    }
+    onChange(unique([...selectedLabels, label]));
+  }
+
+  function addDraftLabel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = draftLabel.trim();
+    if (!value) {
+      return;
+    }
+    onChange(unique([...selectedLabels, value]));
+    setDraftLabel("");
+  }
+
+  return (
+    <div className="label-subtask-panel">
+      <div className="label-subtask-head">
+        <div>
+          <strong>Detection 子任务</strong>
+          <span>{benchmarkId || "未选择 benchmark"}</span>
+        </div>
+        <div className="label-subtask-actions">
+          <button type="button" onClick={() => onChange(labelOptions)}>
+            全部候选
+          </button>
+          <button type="button" onClick={() => onChange([])}>
+            默认策略
+          </button>
+        </div>
+      </div>
+      <div className="label-subtask-chips">
+        {labelOptions.map((label) => (
+          <button
+            key={label}
+            type="button"
+            className={selectedSet.has(label) ? "query-chip active" : "query-chip"}
+            onClick={() => toggleLabel(label)}
+          >
+            {label}
+          </button>
+        ))}
+        {labelOptions.length === 0 ? <span className="label-subtask-empty">暂无 label 索引</span> : null}
+      </div>
+      <form className="label-subtask-add" onSubmit={addDraftLabel}>
+        <input
+          value={draftLabel}
+          onChange={(event) => setDraftLabel(event.target.value)}
+          placeholder="自定义 label"
+        />
+        <button type="submit">添加</button>
       </form>
     </div>
   );

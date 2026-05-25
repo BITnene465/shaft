@@ -1,6 +1,7 @@
 export type BenchmarkSummary = {
   benchmark_id: string;
   tasks: string[];
+  labels: string[];
   layers: string[];
   split: string;
   sample_count: number;

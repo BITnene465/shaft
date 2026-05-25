@@ -52,6 +52,7 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
             "benchmark_id": "multitask_val_v1",
             "tasks": ["detection", "keypoint"],
             "layers": ["layout", "arrow"],
+            "labels": ["arrow", "icon"],
             "split": "val",
             "sample_count": 2,
             "root": str(tmp_path / "benchmarks" / "multitask_val_v1" / "data"),
@@ -98,10 +99,12 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert state["run_count"] == 1
     assert state["prediction_count"] == 1
     assert state["benchmarks"][0]["layers"] == ["layout", "arrow"]
+    assert state["benchmarks"][0]["labels"] == ["arrow", "icon"]
     assert state["runs"][0]["model_id"] == "model-a"
 
     benchmarks = client.get("/api/benchmarks").json()
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
+    assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]
     assert benchmarks["total"] == 1
     filtered_benchmarks = client.get(
         "/api/benchmarks",
