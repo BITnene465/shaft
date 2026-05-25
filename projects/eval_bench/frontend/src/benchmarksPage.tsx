@@ -36,22 +36,25 @@ import { InstanceStats } from "./viewerPanels";
 import { ResizableSplit } from "./workspaceLayout";
 import { useWorkspaceSettings, useWorkspaceShortcuts } from "./workspaceSettings";
 
+const BENCHMARK_PAGE_SIZE = 80;
+
 export function BenchmarksPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [taskFilter, setTaskFilter] = useState("all");
   const [layerFilter, setLayerFilter] = useState("all");
   const [splitFilter, setSplitFilter] = useState("all");
+  const [pageOffset, setPageOffset] = useState(0);
   const benchmarkFilters = useMemo(
     () => ({
-      offset: 0,
-      limit: 200,
+      offset: pageOffset,
+      limit: BENCHMARK_PAGE_SIZE,
       task: taskFilter !== "all" ? taskFilter : undefined,
       layer: layerFilter !== "all" ? layerFilter : undefined,
       split: splitFilter !== "all" ? splitFilter : undefined,
       query: searchText.trim() || undefined
     }),
-    [layerFilter, searchText, splitFilter, taskFilter]
+    [layerFilter, pageOffset, searchText, splitFilter, taskFilter]
   );
   const benchmarksQuery = useQuery({
     queryKey: ["benchmarks", benchmarkFilters],
@@ -66,6 +69,16 @@ export function BenchmarksPage() {
   const tasks = unique(benchmarkFacets.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
   const layers = unique(benchmarkFacets.flatMap((benchmark) => benchmark.layers).filter(Boolean));
   const splits = unique(benchmarkFacets.map((benchmark) => benchmark.split).filter(Boolean));
+  const totalBenchmarks = benchmarksQuery.data?.total ?? benchmarks.length;
+  useEffect(() => {
+    setPageOffset(0);
+  }, [searchText, taskFilter, layerFilter, splitFilter]);
+  useEffect(() => {
+    const nextOffset = clampBenchmarkPageOffset(pageOffset, totalBenchmarks);
+    if (nextOffset !== pageOffset) {
+      setPageOffset(nextOffset);
+    }
+  }, [pageOffset, totalBenchmarks]);
   if (benchmarksQuery.isLoading) {
     return <EmptyState title="正在加载基准集" />;
   }
@@ -77,7 +90,7 @@ export function BenchmarksPage() {
       <div className="page-command-row">
         <div>
           <h2>基准集目录</h2>
-          <span>{(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个不可变副本</span>
+          <span>{totalBenchmarks.toLocaleString()} 个不可变副本</span>
         </div>
         <CommandButton
           icon={<AppIcon name="createBenchmark" size={17} />}
@@ -88,7 +101,7 @@ export function BenchmarksPage() {
       </div>
       <AdvancedFilterBar
         title="基准集高级检索"
-        meta={`${benchmarks.length.toLocaleString()} / ${(benchmarksQuery.data.total ?? benchmarks.length).toLocaleString()} 个 benchmark`}
+        meta={`${benchmarks.length.toLocaleString()} / ${totalBenchmarks.toLocaleString()} 个 benchmark`}
         controls={[
           {
             type: "search",
@@ -129,6 +142,12 @@ export function BenchmarksPage() {
       />
       <div className="workspace-card fill">
         <BenchmarkTable benchmarks={benchmarks} />
+        <BenchmarkListPager
+          offset={benchmarksQuery.data.offset ?? pageOffset}
+          limit={benchmarksQuery.data.limit ?? BENCHMARK_PAGE_SIZE}
+          total={totalBenchmarks}
+          onPageChange={setPageOffset}
+        />
       </div>
       <WorkspaceDialog
         open={createOpen}
@@ -139,6 +158,53 @@ export function BenchmarksPage() {
         <BenchmarkCreatePanel bare />
       </WorkspaceDialog>
     </section>
+  );
+}
+
+function clampBenchmarkPageOffset(offset: number, total: number) {
+  if (total <= 0 || offset < total) {
+    return Math.max(0, offset);
+  }
+  return Math.floor((total - 1) / BENCHMARK_PAGE_SIZE) * BENCHMARK_PAGE_SIZE;
+}
+
+function BenchmarkListPager({
+  offset,
+  limit,
+  total,
+  onPageChange
+}: {
+  offset: number;
+  limit: number;
+  total: number;
+  onPageChange: (offset: number) => void;
+}) {
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(total, offset + limit);
+  const previousOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return (
+    <div className="rank-board-pager benchmark-list-pager">
+      <span>
+        {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
+      </span>
+      <div>
+        <ActionButton
+          variant="mini"
+          disabled={offset <= 0}
+          onClick={() => onPageChange(previousOffset)}
+        >
+          上一页
+        </ActionButton>
+        <ActionButton
+          variant="mini"
+          disabled={nextOffset >= total}
+          onClick={() => onPageChange(nextOffset)}
+        >
+          下一页
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 

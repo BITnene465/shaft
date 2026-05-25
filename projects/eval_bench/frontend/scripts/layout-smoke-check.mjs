@@ -49,7 +49,7 @@ const staticRoutes = [
   {
     name: "benchmarks",
     path: "/benchmarks",
-    selectors: [".advanced-filter-bar", ".table-shell"],
+    selectors: [".advanced-filter-bar", ".table-shell", ".benchmark-list-pager"],
     requireBenchmarksChunk: true
   },
   {

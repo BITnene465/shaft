@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Benchmarks 高级检索仍固定首屏 200 条
+
+### 现象
+
+Runs 和 Rank Board 已经接入后端分页，但 Benchmarks 页仍固定请求 `/api/benchmarks?offset=0&limit=200`。
+当 benchmark 副本数量超过 200 时，基准集目录只能浏览首屏窗口；task/layer/split/query 高级检索虽然走后端，
+但列表没有完整翻页能力。
+
+### 根因
+
+Benchmark store 和 CLI 已经有 `offset/limit`，但前端目录页沿用了早期“先拉 200 条”的简化模式。分页契约
+先在 Rank Board 和 Runs 中补齐，Benchmarks 没有同步收敛。
+
+### 影响范围
+
+- 影响 Benchmark 目录在大量副本下的完整浏览、筛选后的可恢复翻页和滚动稳定性。
+- 不影响 benchmark manifest、sample inspector、rank-board、run note 或 eval 语义。
+
+### 修复方式
+
+- Benchmarks 页新增 `BENCHMARK_PAGE_SIZE=80`、`pageOffset` 和 `BenchmarkListPager`。
+- 请求 `/api/benchmarks` 时传入 offset/limit；筛选条件变化回到第一页，数据减少时 clamp 到最后有效页。
+- layout smoke 要求 `/benchmarks` 存在 `.benchmark-list-pager`。
+- UI contract 锁住 Benchmarks 页不能回退到固定 `limit: 200`。
+- README 和架构文档同步 Runs / Benchmarks / Rank Board 结果列表必须后端分页。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- 新增目录型页面时，不要用固定首屏 slice 代替分页；高级检索、分页和 total 必须来自同一个后端查询。
+- 页面筛选变化必须重置 offset，删除或数据减少后必须 clamp，避免“目录有数据但当前页空白”。
+
 ## 2026-05-25: Eval Bench Runs 高级检索仍固定首屏 200 条
 
 ### 现象

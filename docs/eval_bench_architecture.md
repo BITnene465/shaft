@@ -189,7 +189,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 viewer 功能：先确定是 rendering capability 还是 command action；不能把功能混入 page 组件。
 - 新增页面筛选：先复用 `AdvancedFilterBar`，后端已有稳定查询参数时再接 API；不要在页面内临时拼一套独立 search bar。Runs、Compare 和 Rank Board 的 run 过滤维度应优先保持一致。Benchmark Inspector / Run Inspector
   的样本级 label、error 筛选也使用同一个折叠式筛选组件，避免侧栏堆叠 select。
-  Runs 和 Rank Board 这类结果列表必须走后端分页，筛选变化重置 offset，数据减少时 clamp 到最后有效页；
+  Runs、Benchmarks 和 Rank Board 这类结果列表必须走后端分页，筛选变化重置 offset，数据减少时 clamp 到最后有效页；
   不能用固定 `limit=200` 的首屏 slice 代替完整结果浏览。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。

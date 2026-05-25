@@ -177,6 +177,14 @@ assert(
   "benchmarks page module must export list and detail pages",
 );
 assert(
+  benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
+    benchmarksPage.includes("function BenchmarkListPager(") &&
+    benchmarksPage.includes("offset: pageOffset") &&
+    benchmarksPage.includes("limit: BENCHMARK_PAGE_SIZE") &&
+    !benchmarksPage.includes("limit: 200"),
+  "benchmarks page must use paged API requests instead of a fixed 200-row slice",
+);
+assert(
   benchmarksPage.includes("SelectableRowButton") &&
     !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "benchmark sample list rows must use SelectableRowButton",
