@@ -58,7 +58,7 @@ export function CompactSelectControl({
 }: {
   label: string;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: ReadonlyArray<{ value: string; label: string }>;
   disabled?: boolean;
   dense?: boolean;
   onChange: (value: string) => void;

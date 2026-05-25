@@ -31,7 +31,7 @@ import {
   X
 } from "lucide-react";
 
-import { NumberSettingControl } from "./controlPrimitives";
+import { CompactSelectControl, NumberSettingControl } from "./controlPrimitives";
 import {
   BenchmarkSampleDetail,
   BenchmarkSampleSummary,
@@ -2389,9 +2389,12 @@ function SettingsPage() {
                 onChange={(event) => setSettingsQuery(event.target.value)}
               />
               {settingsQuery ? (
-                <button type="button" onClick={() => setSettingsQuery("")} title="清空搜索">
-                  <X size={13} />
-                </button>
+                <IconActionButton
+                  className="settings-search-clear"
+                  icon={<X size={13} />}
+                  title="清空搜索"
+                  onClick={() => setSettingsQuery("")}
+                />
               ) : null}
             </div>
             <nav className="settings-section-nav" aria-label="工作台设置分组">
@@ -2489,24 +2492,22 @@ function SettingsPage() {
                       onChange={(value) => updateOverlayStyle(control.key, value)}
                     />
                   ))}
-                  <label className="compact-select dense">
-                    <span>预测线型</span>
-                    <select
-                      value={overlayStyle.predLineStyle}
-                      onChange={(event) => updateOverlayStyle("predLineStyle", event.target.value)}
-                    >
-                      {PRED_LINE_STYLE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <CompactSelectControl
+                    dense
+                    label="预测线型"
+                    value={overlayStyle.predLineStyle}
+                    onChange={(value) => updateOverlayStyle("predLineStyle", value)}
+                    options={PRED_LINE_STYLE_OPTIONS}
+                  />
                 </div>
-                <button className="settings-inline-action" type="button" onClick={resetOverlayStyle}>
-                  <AppIcon name="resetSettings" size={16} />
+                <ActionButton
+                  variant="secondary"
+                  className="settings-inline-action"
+                  icon={<AppIcon name="resetSettings" size={16} />}
+                  onClick={resetOverlayStyle}
+                >
                   重置样式
-                </button>
+                </ActionButton>
               </SettingsPreferenceRow>
             </SettingsEditorSection>
           ) : null}
@@ -2547,17 +2548,26 @@ function SettingsPage() {
                             </label>
                           ))}
                         </div>
-                        <button type="button" onClick={() => removeLabelColor(label)}>
+                        <ActionButton
+                          variant="mini"
+                          compact
+                          className="settings-label-clear-action"
+                          onClick={() => removeLabelColor(label)}
+                        >
                           清除
-                        </button>
+                        </ActionButton>
                       </div>
                     ))
                   )}
                 </div>
-                <button className="settings-inline-action" type="button" onClick={resetLabelColors}>
-                  <AppIcon name="clearRules" size={16} />
+                <ActionButton
+                  variant="secondary"
+                  className="settings-inline-action"
+                  icon={<AppIcon name="clearRules" size={16} />}
+                  onClick={resetLabelColors}
+                >
                   清空 label 颜色
-                </button>
+                </ActionButton>
               </SettingsPreferenceRow>
             </SettingsEditorSection>
           ) : null}
@@ -2584,10 +2594,14 @@ function SettingsPage() {
                     />
                   ))}
                 </div>
-                <button className="settings-inline-action" type="button" onClick={resetInteractionSettings}>
-                  <AppIcon name="resetSettings" size={16} />
+                <ActionButton
+                  variant="secondary"
+                  className="settings-inline-action"
+                  icon={<AppIcon name="resetSettings" size={16} />}
+                  onClick={resetInteractionSettings}
+                >
                   重置交互
-                </button>
+                </ActionButton>
               </SettingsPreferenceRow>
             </SettingsEditorSection>
           ) : null}

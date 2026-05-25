@@ -5850,7 +5850,7 @@ tbody tr:hover td {
   font-weight: 760;
 }
 
-.settings-label-row button {
+.settings-label-clear-action {
   min-height: 24px;
   color: #617286;
   background: transparent;
@@ -5859,7 +5859,7 @@ tbody tr:hover td {
   font-size: 11px;
 }
 
-.settings-label-row button:hover {
+.settings-label-clear-action:hover {
   color: #9d2632;
 }
 
