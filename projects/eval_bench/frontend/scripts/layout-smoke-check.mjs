@@ -23,7 +23,13 @@ const staticRoutes = [
   {
     name: "rank-board",
     path: "/rank-board",
-    selectors: [".rank-board-page", ".advanced-filter-bar", ".rank-facet-rail", ".table-shell"],
+    selectors: [
+      ".rank-board-page",
+      ".advanced-filter-bar",
+      ".rank-scheme-panel",
+      ".rank-facet-rail",
+      ".table-shell"
+    ],
     requireRankChunk: true
   },
   {
@@ -100,6 +106,7 @@ try {
       }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
+        await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireCompareChunk) {
         await assertComparePageChunkLoaded(page, `${viewport.name}:${route.name}`);
@@ -564,6 +571,67 @@ async function assertRankBoardChunkLoaded(page, scope) {
   );
   if (loaded.length === 0) {
     throw new Error(`${scope}: rank-board route did not load the independent rankBoardPage chunk`);
+  }
+}
+
+async function assertRankSchemePanel(page, scope) {
+  const state = await page.evaluate(() => {
+    const panel = document.querySelector(".rank-scheme-panel");
+    const textarea = panel?.querySelector("textarea");
+    const summary = panel?.querySelector("summary");
+    return {
+      hasPanel: Boolean(panel),
+      open: panel?.hasAttribute("open") ?? false,
+      hasTextarea: Boolean(textarea),
+      summaryHeight: summary ? Math.round(summary.getBoundingClientRect().height) : 0
+    };
+  });
+  if (!state.hasPanel || !state.hasTextarea) {
+    throw new Error(`${scope}: rank scheme panel is missing`);
+  }
+  if (state.open) {
+    throw new Error(`${scope}: rank scheme panel should be collapsed by default`);
+  }
+  if (state.summaryHeight > 54) {
+    throw new Error(`${scope}: rank scheme summary is too tall ${state.summaryHeight}`);
+  }
+  const benchmarkId = await page.evaluate(async () => {
+    const response = await fetch("/api/state");
+    if (!response.ok) {
+      return "";
+    }
+    const state = await response.json();
+    const run = Array.isArray(state.runs)
+      ? state.runs.find((item) => item.benchmark_id && item.report_path)
+      : null;
+    return run?.benchmark_id ?? "";
+  });
+  if (!benchmarkId) {
+    return;
+  }
+  const scheme = JSON.stringify(
+    {
+      name: "layout_smoke_weighted",
+      terms: [
+        { benchmark_id: benchmarkId, metric: "f1_iou50", weight: 0.7, missing: "drop" },
+        { benchmark_id: benchmarkId, metric: "mean_iou", weight: 0.3, missing: "zero" }
+      ]
+    },
+    null,
+    2
+  );
+  await page.locator(".rank-scheme-panel summary").click();
+  await page.locator(".rank-scheme-panel textarea").fill(scheme);
+  await page.locator(".rank-scheme-body .control-check input").check();
+  await page.locator(".rank-formula-chip.weighted").waitFor({ timeout: 10_000 });
+  const weightedState = await page.evaluate(() => ({
+    chipText: document.querySelector(".rank-formula-chip")?.textContent?.trim() ?? "",
+    weightedHeaders: Array.from(document.querySelectorAll(".table-shell th")).filter((node) =>
+      /Weighted|Components/.test(node.textContent ?? "")
+    ).length
+  }));
+  if (!weightedState.chipText.includes("Weighted") || weightedState.weightedHeaders < 2) {
+    throw new Error(`${scope}: weighted rank scheme did not apply ${JSON.stringify(weightedState)}`);
   }
 }
 

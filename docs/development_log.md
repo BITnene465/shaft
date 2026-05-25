@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board 加权方案只在 CLI/API 可用
+
+### 现象
+
+Rank Board 后端 `/api/rank-board` 和 CLI `rank-board` 已经支持显式 `rank_scheme`，但前端独立排行榜页面
+只能切换单一主指标，不能在页面内输入 weighted scheme，也不能查看每条 entry 的 score components。
+这会让人类在核心排行榜工作台里仍要退回 CLI/API 才能复查显式加权排行。
+
+### 根因
+
+加权排行的真源已经放在 store/API/CLI，但前端只接了默认排序参数，没有把 `rank_scheme` 作为显式高级能力接入。
+如果直接在前端计算加权分，又会形成第二套排行语义。这是展示/入口缺口，不是模型能力问题，也不是 eval /
+codec / metric 误判。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 的 Rank Board 页面。
+- 不影响后端 `rank_board` 计算、CLI `rank-board`、metric report 或 comparison report。
+
+### 修复方式
+
+- Rank Board 增加折叠式 `Weighted rank scheme` 面板，接受与 CLI/API 相同的 JSON。
+- 前端只做基础 JSON 和字段校验，实际 weighted score、score formula、rank scheme 和 score components
+  仍由 `/api/rank-board` 返回。
+- 加权模式下表格额外展示 `Weighted` 和 `Components` 列；默认模式仍保持 `f1_iou50` 主指标。
+- Layout smoke 在真实 dashboard 上展开该面板、填入有效 scheme、启用加权排行，并断言 weighted chip
+  和 weighted/components 表头出现。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+
+### 后续防线
+
+- Rank Board 的默认主指标仍是 F1；任何综合分都必须由显式 `rank_scheme` 触发。
+- 前端不能复制 weighted score 计算，只能把方案传给 API 并展示 API 返回的 `score_components`。
+
 ## 2026-05-25: Eval Bench 标准动作按钮在业务页回流为原生 button
 
 ### 现象

@@ -543,6 +543,7 @@ export function fetchRankBoard(options: {
   sortBy?: string;
   sortOrder?: string;
   query?: string;
+  rankScheme?: string;
 }): Promise<RankBoard> {
   const params = new URLSearchParams({
     offset: String(options.offset),
@@ -580,6 +581,9 @@ export function fetchRankBoard(options: {
   }
   if (options.query?.trim()) {
     params.set("query", options.query.trim());
+  }
+  if (options.rankScheme?.trim()) {
+    params.set("rank_scheme", options.rankScheme.trim());
   }
   return fetchJson<RankBoard>(`/api/rank-board?${params.toString()}`);
 }

@@ -9,7 +9,7 @@ import { useDashboardState } from "./dashboardState";
 import { AdvancedFilterBar } from "./filterControls";
 import { formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
-import { Badge, DataTable, EmptyState, MetricCard } from "./ui";
+import { ActionButton, Badge, DataTable, EmptyState, MetricCard } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
   f1_iou50: "F1@.50",
@@ -18,7 +18,8 @@ const RANK_SORT_LABELS: Record<string, string> = {
   mean_iou: "mIoU",
   prediction_count: "预测数",
   created_at: "创建时间",
-  run_id: "Run ID"
+  run_id: "Run ID",
+  weighted_score: "Weighted"
 };
 
 export function RankBoardPage() {
@@ -35,6 +36,10 @@ export function RankBoardPage() {
   const [minScoreFilter, setMinScoreFilter] = useState("");
   const [sortBy, setSortBy] = useState("f1_iou50");
   const [sortOrder, setSortOrder] = useState("desc");
+  const [rankSchemeEnabled, setRankSchemeEnabled] = useState(false);
+  const [rankSchemeDraft, setRankSchemeDraft] = useState(defaultRankSchemeDraft());
+  const rankSchemeError = rankSchemeEnabled ? validateRankSchemeDraft(rankSchemeDraft) : null;
+  const rankSchemeParam = rankSchemeEnabled && !rankSchemeError ? rankSchemeDraft : undefined;
   const boardQuery = useQuery({
     queryKey: [
       "rank-board",
@@ -48,7 +53,8 @@ export function RankBoardPage() {
       metricProfileFilter,
       minScoreFilter,
       sortBy,
-      sortOrder
+      sortOrder,
+      rankSchemeParam
     ],
     queryFn: () =>
       fetchRankBoard({
@@ -64,7 +70,8 @@ export function RankBoardPage() {
         metricProfile: metricProfileFilter,
         minScore: minScoreFilter,
         sortBy,
-        sortOrder
+        sortOrder,
+        rankScheme: rankSchemeParam
       })
   });
   const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
@@ -76,7 +83,7 @@ export function RankBoardPage() {
   const metricProfiles = unique(runs.map((run) => run.metric_profile).filter(Boolean));
   const board = boardQuery.data;
   const entries = board?.entries ?? [];
-  const best = entries.find((entry) => rankF1Score(entry) !== null) ?? null;
+  const best = entries[0] ?? null;
 
   if (dashboardQuery.isLoading || boardQuery.isLoading) {
     return <EmptyState title="正在加载排行榜" />;
@@ -91,7 +98,8 @@ export function RankBoardPage() {
         <div>
           <h2>独立排行榜</h2>
           <span>
-            {board.total.toLocaleString()} 条 run，按 {rankSortLabel(board.sort_by)}{" "}
+            {board.total.toLocaleString()} 条 run，按{" "}
+            {board.primary_metric_label || rankSortLabel(board.sort_by)}{" "}
             {board.sort_order === "asc" ? "升序" : "降序"}
           </span>
         </div>
@@ -219,7 +227,22 @@ export function RankBoardPage() {
             onChange: setSortOrder
           }
         ]}
-        actions={<span className="rank-formula-chip">主指标 {rankSortLabel(board.sort_by)}</span>}
+        actions={
+          <span className={board.rank_scheme ? "rank-formula-chip weighted" : "rank-formula-chip"}>
+            {board.rank_scheme
+              ? `Weighted ${board.primary_metric_label}`
+              : `主指标 ${rankSortLabel(board.sort_by)}`}
+          </span>
+        }
+      />
+      <RankSchemePanel
+        enabled={rankSchemeEnabled}
+        draft={rankSchemeDraft}
+        error={rankSchemeError}
+        board={board}
+        benchmarks={benchmarks}
+        onEnabledChange={setRankSchemeEnabled}
+        onDraftChange={setRankSchemeDraft}
       />
       <div className="rank-metric-strip">
         <MetricCard icon={<AppIcon name="rankEntry" size={24} />} label="入榜" value={board.total} />
@@ -241,7 +264,7 @@ export function RankBoardPage() {
       </div>
       <RankFacetRail board={board} />
       <div className="workspace-card fill">
-        <RankBoardTable entries={entries} />
+        <RankBoardTable entries={entries} weighted={Boolean(board.rank_scheme)} />
       </div>
     </section>
   );
@@ -288,7 +311,7 @@ function RankFacetGroup({
   );
 }
 
-function RankBoardTable({ entries }: { entries: RankBoardEntry[] }) {
+function RankBoardTable({ entries, weighted }: { entries: RankBoardEntry[]; weighted: boolean }) {
   const columns: ColumnDef<RankBoardEntry>[] = [
     {
       header: "Rank",
@@ -301,7 +324,21 @@ function RankBoardTable({ entries }: { entries: RankBoardEntry[] }) {
           {row.original.run_id}
         </Link>
       )
-    },
+    }
+  ];
+  if (weighted) {
+    columns.push(
+      {
+        header: "Weighted",
+        cell: ({ row }) => formatMetric(row.original.score)
+      },
+      {
+        header: "Components",
+        cell: ({ row }) => <RankScoreComponents components={row.original.score_components} />
+      }
+    );
+  }
+  columns.push(
     { header: "F1@.50", cell: ({ row }) => formatMetric(rankF1Score(row.original)) },
     { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
     { header: "任务", accessorKey: "task" },
@@ -320,10 +357,141 @@ function RankBoardTable({ entries }: { entries: RankBoardEntry[] }) {
         </span>
       )
     }
-  ];
+  );
   return <DataTable columns={columns} data={entries} emptyText="没有符合高级检索条件的 run。" />;
+}
+
+function RankSchemePanel({
+  enabled,
+  draft,
+  error,
+  board,
+  benchmarks,
+  onEnabledChange,
+  onDraftChange
+}: {
+  enabled: boolean;
+  draft: string;
+  error: string | null;
+  board: RankBoard;
+  benchmarks: string[];
+  onEnabledChange: (value: boolean) => void;
+  onDraftChange: (value: string) => void;
+}) {
+  const applied = Boolean(board.rank_scheme);
+  return (
+    <details className="rank-scheme-panel">
+      <summary>
+        <div>
+          <span>Weighted rank scheme</span>
+          <strong>{applied ? board.primary_metric_label : "显式加权方案"}</strong>
+        </div>
+        <em>{applied ? "已应用" : enabled ? "待验证" : "默认 F1"}</em>
+      </summary>
+      <div className="rank-scheme-body">
+        <label className={enabled ? "control-check active" : "control-check"}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => onEnabledChange(event.target.checked)}
+          />
+          启用加权排行
+        </label>
+        <textarea
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          spellCheck={false}
+          aria-label="Weighted rank scheme JSON"
+        />
+        <div className="rank-scheme-footer">
+          <span className={error ? "rank-scheme-status error" : "rank-scheme-status"}>
+            {error ?? (applied ? board.score_formula : "默认按 F1@.50 排序，不使用综合分。")}
+          </span>
+          <ActionButton
+            variant="mini"
+            onClick={() => onDraftChange(defaultRankSchemeDraft(benchmarks))}
+          >
+            载入示例
+          </ActionButton>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function RankScoreComponents({ components }: { components: Array<Record<string, unknown>> }) {
+  if (components.length === 0) {
+    return <span className="rank-components empty">-</span>;
+  }
+  return (
+    <span className="rank-components">
+      {components.slice(0, 3).map((component, index) => (
+        <em key={`${component.benchmark_id ?? "bench"}-${component.metric ?? "metric"}-${index}`}>
+          {String(component.benchmark_id ?? "-")}.{String(component.metric ?? "-")}{" "}
+          <strong>{formatMetric(numericValue(component.value))}</strong>
+        </em>
+      ))}
+    </span>
+  );
 }
 
 function rankF1Score(entry: RankBoardEntry) {
   return entry.f1_iou50 ?? entry.score ?? null;
+}
+
+function defaultRankSchemeDraft(benchmarks: string[] = []) {
+  const benchmarkId = benchmarks[0] ?? "multitask_val_v1";
+  return JSON.stringify(
+    {
+      name: "weighted_quality",
+      terms: [
+        { benchmark_id: benchmarkId, metric: "f1_iou50", weight: 0.7, missing: "drop" },
+        { benchmark_id: benchmarkId, metric: "mean_iou", weight: 0.3, missing: "zero" }
+      ]
+    },
+    null,
+    2
+  );
+}
+
+function validateRankSchemeDraft(value: string) {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(value);
+  } catch {
+    return "rank_scheme 必须是 JSON object";
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "rank_scheme 必须是 JSON object";
+  }
+  const terms = (payload as { terms?: unknown; weights?: unknown }).terms
+    ?? (payload as { weights?: unknown }).weights;
+  if (!Array.isArray(terms) || terms.length === 0) {
+    return "terms 必须是非空数组";
+  }
+  for (const [index, term] of terms.entries()) {
+    if (!term || typeof term !== "object" || Array.isArray(term)) {
+      return `terms[${index}] 必须是 object`;
+    }
+    const item = term as Record<string, unknown>;
+    if (typeof item.benchmark_id !== "string" || item.benchmark_id.trim() === "") {
+      return `terms[${index}].benchmark_id 必填`;
+    }
+    if (typeof item.metric !== "string" || item.metric.trim() === "") {
+      return `terms[${index}].metric 必填`;
+    }
+    const weight = Number(item.weight);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      return `terms[${index}].weight 必须为正数`;
+    }
+    const missing = typeof item.missing === "string" ? item.missing : "drop";
+    if (!["drop", "skip", "zero"].includes(missing)) {
+      return `terms[${index}].missing 必须是 drop/skip/zero`;
+    }
+  }
+  return null;
+}
+
+function numericValue(value: unknown) {
+  return typeof value === "number" ? value : null;
 }
