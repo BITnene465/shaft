@@ -83,6 +83,7 @@ column width:
 - Default fields span 4 of 12 grid columns.
 - Long path or URL fields use `.wide-field` and span 6 of 12 columns.
 - Result and error messages use `.full-field` and span the full row.
+- Dialog and inline form selects use `FormSelectControl`; compact toolbar selects use `CompactSelectControl`.
 - Submit buttons use `ActionButton variant="primary"` directly; do not add page-private
   submit button classes.
 - At narrow widths every field spans the full row.

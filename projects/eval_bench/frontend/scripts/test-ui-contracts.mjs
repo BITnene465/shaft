@@ -74,6 +74,13 @@ assert(
   ),
   "shortcut reset-all action must use ActionButton",
 );
+assertNoRawSelectElement(settingsControls, "settingsControls.tsx");
+assert(
+  settingsControls.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+    settingsControls.includes('className="inline-select-control"') &&
+    settingsControls.includes("hideLabel"),
+  "settings inline label color role select must use FormSelectControl",
+);
 
 const settingsPage = await readSource("src/settingsPage.tsx");
 assert(
@@ -139,8 +146,27 @@ assert(
   "run sample list rows must use SelectableRowButton",
 );
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
+assertNoRawSelectElement(runsPage, "runsPage.tsx");
+assert(
+  runsPage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+    (runsPage.match(/<FormSelectControl/g) ?? []).length >= 2,
+  "runs import dialog selects must use FormSelectControl",
+);
 const servicesPage = await readSource("src/servicesPage.tsx");
 assertNoLegacyFormSubmitClass(servicesPage, "servicesPage.tsx");
+assertNoRawSelectElement(servicesPage, "servicesPage.tsx");
+assert(
+  servicesPage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+    (servicesPage.match(/<FormSelectControl/g) ?? []).length >= 1,
+  "service registration dialog selects must use FormSelectControl",
+);
+const comparePage = await readSource("src/comparePage.tsx");
+assertNoRawSelectElement(comparePage, "comparePage.tsx");
+assert(
+  comparePage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+    (comparePage.match(/<FormSelectControl/g) ?? []).length >= 1,
+  "compare run rail selects must use FormSelectControl",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),
@@ -253,6 +279,13 @@ function assertNoLegacyFormSubmitClass(source, relativePath) {
   assert(
     !source.includes("form-submit-button"),
     `${relativePath}: form submit actions must use ActionButton without legacy form-submit-button class`,
+  );
+}
+
+function assertNoRawSelectElement(source, relativePath) {
+  assert(
+    !/<select\b/.test(source),
+    `${relativePath}: local selects must use controlPrimitives instead of raw <select>`,
   );
 }
 

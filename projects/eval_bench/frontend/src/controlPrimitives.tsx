@@ -48,6 +48,54 @@ export function ColorControl({
   );
 }
 
+export type SelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
+export function FormSelectControl({
+  label,
+  value,
+  options,
+  disabled = false,
+  required = false,
+  className,
+  hideLabel = false,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: ReadonlyArray<SelectOption>;
+  disabled?: boolean;
+  required?: boolean;
+  className?: string;
+  hideLabel?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const labelClassName = [className, hideLabel ? "select-control-label-hidden" : ""]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <label className={labelClassName || undefined}>
+      <span>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        required={required}
+        title={label}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value} disabled={option.disabled}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function CompactSelectControl({
   label,
   value,

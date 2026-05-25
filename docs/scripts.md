@@ -285,7 +285,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 - dashboard 前端模块边界：`main.tsx` 只做路由和页面装配；dashboard state query 在 `dashboardState.ts`；业务状态在 `statusModel.ts`；浏览器设置和快捷键 action registry 在 `workspaceSettings.ts`；workspace split layout 在 `workspaceLayout.tsx`；总控工作台页面在 `overviewPage.tsx`；基准集页面和基准集真值检查器在 `benchmarksPage.tsx`；结果库、导入预测和 run 检查器在 `runsPage.tsx`；评测中心和 job queue 在 `jobsPage.tsx`；benchmark/run 表格在 `runTables.tsx`；复用过滤控件在 `filterControls.tsx`；共享样本分页在 `samplePager.tsx`；Run/Compare 共享样本叠图在 `sampleViewer.tsx`；成对样本对比详情在 `comparisonSamplePage.tsx`；基础输入控件在 `controlPrimitives.tsx`；viewer 渲染在 `viewerCanvas.tsx`；viewer 控制/对象面板在 `viewerPanels.tsx`；viewer 纯几何计算在 `viewerGeometry.ts`；metric 中间层在 `viewerMetrics.ts`；设置页页面在 `settingsPage.tsx`；设置页分组控件在 `settingsControls.tsx`；服务页在 `servicesPage.tsx`；manifest/prompt 转换在 `manifestTools.ts`；样本导航在 `sampleNavigation.ts`；业务 PNG 图标映射在 `iconLibrary.tsx`；backend/job log tail 共享逻辑在 `log_utils.py`
 - dashboard 共享交互原语位于 `ui.tsx`：标准命令使用 `ActionButton` / `CommandButton` /
   `IconActionButton`，样本列表行使用 `SelectableRowButton`，query/label chip 使用
-  `OptionChipButton`；紧凑 select / number / color / toggle 控件位于 `controlPrimitives.tsx`。
+  `OptionChipButton`；紧凑 select、表单 select、number、color 和 toggle 控件位于
+  `controlPrimitives.tsx`。
   `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接。
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI

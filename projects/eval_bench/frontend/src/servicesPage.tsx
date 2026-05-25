@@ -19,6 +19,7 @@ import {
   startService,
   stopService
 } from "./api";
+import { FormSelectControl } from "./controlPrimitives";
 import {
   canDeleteService,
   canStartService,
@@ -187,107 +188,109 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
   }
 
   const content = (
-      <form className="job-form service-form" onSubmit={submit}>
-        <label>
-          <span>类型</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="local_vllm">本地 vLLM</option>
-            <option value="external_vllm">外部 vLLM</option>
-          </select>
-        </label>
-        <label>
-          <span>服务 ID</span>
-          <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
-        </label>
-        <label className="wide-field">
-          <span>模型路径</span>
-          <input
-            value={modelPath}
-            onChange={(event) => setModelPath(event.target.value)}
-            placeholder="outputs/qwen3vl-sft/run/best"
-          />
-        </label>
-        <label>
-          <span>服务模型名</span>
-          <input
-            value={servedModelName}
-            onChange={(event) => setServedModelName(event.target.value)}
-            placeholder="qwen3vl-best"
-          />
-        </label>
-        <label className="wide-field">
-          <span>端点</span>
-          <input
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="http://127.0.0.1:8000"
-          />
-        </label>
-        <label>
-          <span>CUDA</span>
-          <input
-            value={cudaVisibleDevices}
-            onChange={(event) => setCudaVisibleDevices(event.target.value)}
-            placeholder="0"
-          />
-        </label>
-        <label>
-          <span>TP 大小</span>
-          <input
-            type="number"
-            min={1}
-            value={tensorParallelSize}
-            onChange={(event) => setTensorParallelSize(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>端口</span>
-          <input
-            type="number"
-            min={1}
-            value={port}
-            onChange={(event) => setPort(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>最大上下文</span>
-          <input
-            type="number"
-            min={1}
-            value={maxModelLen}
-            onChange={(event) => setMaxModelLen(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>显存占比</span>
-          <input
-            type="number"
-            min={0}
-            max={1}
-            step={0.01}
-            value={gpuMemoryUtilization}
-            onChange={(event) => setGpuMemoryUtilization(Number(event.target.value))}
-          />
-        </label>
-        <label>
-          <span>最大并发序列</span>
-          <input
-            type="number"
-            min={1}
-            value={maxNumSeqs}
-            onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
-          />
-        </label>
-        <ActionButton
-          variant="primary"
-          type="submit"
-          icon={<AppIcon name="saveService" size={16} />}
-          disabled={mutation.isPending}
-        >
-          {mutation.isPending ? "保存中" : "保存服务"}
-        </ActionButton>
-        {mutation.isError ? <div className="form-error full-field">服务保存失败。</div> : null}
-      </form>
+    <form className="job-form service-form" onSubmit={submit}>
+      <FormSelectControl
+        label="类型"
+        value={kind}
+        options={[
+          { value: "local_vllm", label: "本地 vLLM" },
+          { value: "external_vllm", label: "外部 vLLM" }
+        ]}
+        onChange={setKind}
+      />
+      <label>
+        <span>服务 ID</span>
+        <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
+      </label>
+      <label className="wide-field">
+        <span>模型路径</span>
+        <input
+          value={modelPath}
+          onChange={(event) => setModelPath(event.target.value)}
+          placeholder="outputs/qwen3vl-sft/run/best"
+        />
+      </label>
+      <label>
+        <span>服务模型名</span>
+        <input
+          value={servedModelName}
+          onChange={(event) => setServedModelName(event.target.value)}
+          placeholder="qwen3vl-best"
+        />
+      </label>
+      <label className="wide-field">
+        <span>端点</span>
+        <input
+          value={endpoint}
+          onChange={(event) => setEndpoint(event.target.value)}
+          placeholder="http://127.0.0.1:8000"
+        />
+      </label>
+      <label>
+        <span>CUDA</span>
+        <input
+          value={cudaVisibleDevices}
+          onChange={(event) => setCudaVisibleDevices(event.target.value)}
+          placeholder="0"
+        />
+      </label>
+      <label>
+        <span>TP 大小</span>
+        <input
+          type="number"
+          min={1}
+          value={tensorParallelSize}
+          onChange={(event) => setTensorParallelSize(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>端口</span>
+        <input
+          type="number"
+          min={1}
+          value={port}
+          onChange={(event) => setPort(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>最大上下文</span>
+        <input
+          type="number"
+          min={1}
+          value={maxModelLen}
+          onChange={(event) => setMaxModelLen(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>显存占比</span>
+        <input
+          type="number"
+          min={0}
+          max={1}
+          step={0.01}
+          value={gpuMemoryUtilization}
+          onChange={(event) => setGpuMemoryUtilization(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>最大并发序列</span>
+        <input
+          type="number"
+          min={1}
+          value={maxNumSeqs}
+          onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
+        />
+      </label>
+      <ActionButton
+        variant="primary"
+        type="submit"
+        icon={<AppIcon name="saveService" size={16} />}
+        disabled={mutation.isPending}
+      >
+        {mutation.isPending ? "保存中" : "保存服务"}
+      </ActionButton>
+      {mutation.isError ? <div className="form-error full-field">服务保存失败。</div> : null}
+    </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
 }

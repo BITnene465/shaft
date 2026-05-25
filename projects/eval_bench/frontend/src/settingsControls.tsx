@@ -11,6 +11,7 @@ import type {
   ShortcutActionId,
   ShortcutBindings
 } from "./workspaceSettings";
+import { FormSelectControl } from "./controlPrimitives";
 import { ActionButton } from "./ui";
 
 export function SettingsEditorSection({
@@ -93,17 +94,17 @@ export function LabelColorQuickAdd({
         value={draftColor}
         onChange={(event) => setDraftColor(event.target.value)}
       />
-      <select
-        aria-label="新增 label 颜色角色"
+      <FormSelectControl
+        label="新增 label 颜色角色"
         value={draftRole}
-        onChange={(event) => setDraftRole(event.target.value as InstanceColorRole)}
-      >
-        {INSTANCE_COLOR_ROLES.map((role) => (
-          <option key={role.key} value={role.key}>
-            {role.label}
-          </option>
-        ))}
-      </select>
+        options={INSTANCE_COLOR_ROLES.map((role) => ({
+          value: role.key,
+          label: role.label
+        }))}
+        className="inline-select-control"
+        hideLabel
+        onChange={(value) => setDraftRole(value as InstanceColorRole)}
+      />
       <ActionButton variant="secondary" className="dense" onClick={addLabelColor}>
         添加
       </ActionButton>

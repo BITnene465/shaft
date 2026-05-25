@@ -12,6 +12,7 @@ import type {
   RunSummary
 } from "./api";
 import { fetchComparison, fetchComparisons, fetchRuns } from "./api";
+import { FormSelectControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
@@ -289,20 +290,22 @@ function RunSelectRail({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
-  const selected = runs.find((run) => run.run_id === value);
+  const selected = disabled ? undefined : runs.find((run) => run.run_id === value);
+  const runOptions = disabled
+    ? [{ value: "", label: "需要两个报告", disabled: true }]
+    : runs.map((run) => ({
+        value: run.run_id,
+        label: formatRunOption(run)
+      }));
   return (
     <div className="compare-run-select">
-      <label>
-        <span>{title}</span>
-        <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-          {disabled ? <option value="">需要两个报告</option> : null}
-          {runs.map((run) => (
-            <option key={run.run_id} value={run.run_id}>
-              {formatRunOption(run)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FormSelectControl
+        label={title}
+        value={disabled ? "" : value}
+        options={runOptions}
+        disabled={disabled}
+        onChange={onChange}
+      />
       {selected ? (
         <div className="compare-run-card">
           <strong title={selected.run_id}>{selected.run_id}</strong>

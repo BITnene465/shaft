@@ -13,6 +13,7 @@ import {
   updateRunNote
 } from "./api";
 import { useDashboardState } from "./dashboardState";
+import { FormSelectControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
@@ -254,6 +255,13 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
     });
   }
 
+  const benchmarkSelectOptions =
+    benchmarks.length === 0
+      ? [{ value: "", label: "暂无基准集" }]
+      : benchmarks.map((benchmark) => ({
+          value: benchmark.benchmark_id,
+          label: benchmark.benchmark_id
+        }));
   const content = (
     <form className="job-form import-form" onSubmit={submit}>
       <label>
@@ -265,21 +273,13 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
           required
         />
       </label>
-      <label>
-        <span>基准集</span>
-        <select
-          value={effectiveBenchmarkId}
-          onChange={(event) => setBenchmarkId(event.target.value)}
-          required
-        >
-          {benchmarks.length === 0 ? <option value="">暂无基准集</option> : null}
-          {benchmarks.map((benchmark) => (
-            <option key={benchmark.benchmark_id} value={benchmark.benchmark_id}>
-              {benchmark.benchmark_id}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FormSelectControl
+        label="基准集"
+        value={effectiveBenchmarkId}
+        options={benchmarkSelectOptions}
+        required
+        onChange={setBenchmarkId}
+      />
       <label className="wide-field">
         <span>预测目录</span>
         <input
@@ -289,13 +289,15 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
           required
         />
       </label>
-      <label>
-        <span>任务</span>
-        <select value={task} onChange={(event) => setTask(event.target.value)}>
-          <option value="detection">检测</option>
-          <option value="keypoint">关键点</option>
-        </select>
-      </label>
+      <FormSelectControl
+        label="任务"
+        value={task}
+        options={[
+          { value: "detection", label: "检测" },
+          { value: "keypoint", label: "关键点" }
+        ]}
+        onChange={setTask}
+      />
       <label>
         <span>模型 ID</span>
         <input

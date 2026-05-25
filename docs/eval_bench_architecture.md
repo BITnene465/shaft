@@ -114,8 +114,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/filterControls.tsx`
   - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索控件真源。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
-  - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer 和 settings
-    不各自复制 select/input 外壳。
+  - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
+    弹窗表单和对比选择轨不各自复制 select/input 外壳。
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
@@ -142,8 +142,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     使用 `OptionChipButton`；表单提交也直接使用 `ActionButton` 变体，不保留页面私有 submit button class；
     业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
-  - 维护紧凑 select、数值输入、颜色输入和开关等基础控制原语；viewer 图层预设、settings 控件和
-    manifest toolbar 不直接手写同类 select 外壳。
+  - 维护紧凑 select、表单 select、数值输入、颜色输入和开关等基础控制原语；viewer 图层预设、
+    settings 控件、manifest toolbar、Runs/Services 弹窗和 Compare 选择轨不直接手写同类 select 外壳。
 
 ## Extension Rules
 
@@ -194,9 +194,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton` 或 `IconActionButton`；只有样本行、画布
   HUD、label chip 等具有独立交互语义的控件才允许保留专用 button 样式。样本行必须通过
   `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
-  `OptionChipButton` 维护 active / aria-pressed 语义，避免业务页重复拼 className。
+  `OptionChipButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
+  的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell
-  和已收敛标准动作、row/chip 原语回流。
+  和已收敛标准动作、row/chip/select 原语回流。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused
   测试证明四条调用链一致。
 - 新增 run sample 展示范围规则：只改 `sample_scope.py`，不能在 dashboard route、viewer 或 store 中各自
