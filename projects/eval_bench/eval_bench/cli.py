@@ -411,6 +411,15 @@ def _build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--baseline-run-id", required=True)
     compare.add_argument("--candidate-run-id", required=True)
 
+    show_comparison = subparsers.add_parser(
+        "show-comparison",
+        help="Print one saved comparison report without reading artifacts directly.",
+    )
+    show_comparison.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_comparison.add_argument("--comparison-id", default=None)
+    show_comparison.add_argument("--baseline-run-id", default=None)
+    show_comparison.add_argument("--candidate-run-id", default=None)
+
     list_comparisons = subparsers.add_parser(
         "list-comparisons", help="List saved comparison reports with agent-safe filters."
     )
@@ -422,6 +431,15 @@ def _build_parser() -> argparse.ArgumentParser:
     list_comparisons.add_argument("--candidate-run-id", default=None)
     list_comparisons.add_argument("--label", default=None)
     list_comparisons.add_argument("--query", default=None)
+
+    show_comparison_sample = subparsers.add_parser(
+        "show-comparison-sample",
+        help="Print one paired comparison sample through the store API.",
+    )
+    show_comparison_sample.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_comparison_sample.add_argument("--baseline-run-id", required=True)
+    show_comparison_sample.add_argument("--candidate-run-id", required=True)
+    show_comparison_sample.add_argument("--sample-index", type=int, required=True)
 
     perf = subparsers.add_parser("perf-smoke", help="Measure common Eval Bench store paths.")
     perf.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -1080,6 +1098,18 @@ def _cmd_compare_runs(args: argparse.Namespace) -> None:
     print(path)
 
 
+def _cmd_show_comparison(args: argparse.Namespace) -> None:
+    from .comparison import load_comparison_report
+
+    payload = load_comparison_report(
+        store_root=args.output_root,
+        comparison_id=args.comparison_id,
+        baseline_run_id=args.baseline_run_id,
+        candidate_run_id=args.candidate_run_id,
+    )
+    print(json.dumps(payload, ensure_ascii=False))
+
+
 def _cmd_list_comparisons(args: argparse.Namespace) -> None:
     from .comparison import filter_comparison_reports, list_comparison_reports
 
@@ -1110,6 +1140,18 @@ def _cmd_list_comparisons(args: argparse.Namespace) -> None:
             ensure_ascii=False,
         )
     )
+
+
+def _cmd_show_comparison_sample(args: argparse.Namespace) -> None:
+    from .comparison import comparison_sample_detail_payload
+
+    payload = comparison_sample_detail_payload(
+        store_root=args.output_root,
+        baseline_run_id=str(args.baseline_run_id),
+        candidate_run_id=str(args.candidate_run_id),
+        sample_index=int(args.sample_index),
+    )
+    print(json.dumps(payload, ensure_ascii=False))
 
 
 def _cmd_perf_smoke(args: argparse.Namespace) -> None:
@@ -1303,8 +1345,12 @@ def main() -> None:
         _cmd_import_predictions(args)
     elif args.command == "compare-runs":
         _cmd_compare_runs(args)
+    elif args.command == "show-comparison":
+        _cmd_show_comparison(args)
     elif args.command == "list-comparisons":
         _cmd_list_comparisons(args)
+    elif args.command == "show-comparison-sample":
+        _cmd_show_comparison_sample(args)
     elif args.command == "perf-smoke":
         _cmd_perf_smoke(args)
     else:  # pragma: no cover

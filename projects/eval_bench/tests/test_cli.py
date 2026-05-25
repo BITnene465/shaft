@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -36,6 +37,8 @@ from eval_bench.cli import (
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
     _cmd_show_benchmark_sample,
+    _cmd_show_comparison,
+    _cmd_show_comparison_sample,
     _cmd_show_run,
     _cmd_show_run_report,
     _cmd_show_run_sample,
@@ -765,6 +768,86 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
     assert comparisons["comparisons"][0]["metric_profile"] == "detection_iou_v1"
+
+
+def test_cli_shows_saved_comparison_and_sample_detail_for_agents(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _write_sample_store(tmp_path)
+    source_run = tmp_path / "runs" / "run_arrow"
+    for run_id in ("run_base", "run_a"):
+        target = tmp_path / "runs" / run_id
+        shutil.copytree(source_run, target)
+        run_manifest = json.loads((target / "run.json").read_text(encoding="utf-8"))
+        run_manifest["run_id"] = run_id
+        _write_json(target / "run.json", run_manifest)
+    _write_json(
+        tmp_path / "exports" / "comparisons" / "run_base__vs__run_a.json",
+        {
+            "comparison_id": "run_base__vs__run_a",
+            "baseline_run_id": "run_base",
+            "candidate_run_id": "run_a",
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["arrow"],
+            "sample_count": 2,
+            "created_at": "2026-05-09T00:30:00Z",
+            "delta": {"recall_iou50": 0.0},
+            "summary": {"improved_samples": 0, "regressed_samples": 0},
+        },
+    )
+
+    show_args = _build_parser().parse_args(
+        [
+            "show-comparison",
+            "--output-root",
+            str(tmp_path),
+            "--baseline-run-id",
+            "run_base",
+            "--candidate-run-id",
+            "run_a",
+        ]
+    )
+    _cmd_show_comparison(show_args)
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["comparison_id"] == "run_base__vs__run_a"
+    assert comparison["target_labels"] == ["arrow"]
+
+    by_id_args = _build_parser().parse_args(
+        [
+            "show-comparison",
+            "--output-root",
+            str(tmp_path),
+            "--comparison-id",
+            "run_base__vs__run_a",
+        ]
+    )
+    _cmd_show_comparison(by_id_args)
+    comparison_by_id = json.loads(capsys.readouterr().out)
+    assert comparison_by_id["baseline_run_id"] == "run_base"
+
+    sample_args = _build_parser().parse_args(
+        [
+            "show-comparison-sample",
+            "--output-root",
+            str(tmp_path),
+            "--baseline-run-id",
+            "run_base",
+            "--candidate-run-id",
+            "run_a",
+            "--sample-index",
+            "0",
+        ]
+    )
+    _cmd_show_comparison_sample(sample_args)
+    sample = json.loads(capsys.readouterr().out)
+    assert sample["baseline_run_id"] == "run_base"
+    assert sample["candidate_run_id"] == "run_a"
+    assert sample["sample_index"] == 0
+    assert sample["baseline"]["sample"]["index"] == 0
+    assert sample["candidate"]["sample"]["index"] == 0
+    assert [item["label"] for item in sample["baseline"]["gt_instances"]] == ["arrow"]
 
 
 def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys) -> None:

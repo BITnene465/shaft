@@ -20,7 +20,12 @@ import uvicorn
 
 from .artifacts import DEFAULT_STORE_ROOT, atomic_write_json
 from .benchmark import create_benchmark_from_raw_data
-from .comparison import compare_runs, filter_comparison_reports, list_comparison_reports
+from .comparison import (
+    compare_runs,
+    filter_comparison_reports,
+    list_comparison_reports,
+    run_sample_detail_payload,
+)
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
 from .job_spec import (
@@ -44,18 +49,11 @@ IMAGE_TILE_QUALITY = 86
 
 
 def _run_sample_detail_payload(run_id: str, detail: Any) -> dict[str, Any]:
-    return {
-        "run_id": run_id,
-        "sample": {
-            **detail.sample.__dict__,
-            **_sample_image_urls("runs", run_id, detail.sample.index),
-        },
-        "gt_instances": detail.gt_instances,
-        "pred_instances": detail.pred_instances,
-        "raw_payload": detail.raw_payload,
-        "prediction_payload": detail.prediction_payload,
-        "diagnostics": detail.diagnostics,
-    }
+    return run_sample_detail_payload(
+        run_id,
+        detail,
+        sample_extra=_sample_image_urls("runs", run_id, detail.sample.index),
+    )
 
 
 def _sample_image_urls(scope: str, owner_id: str, sample_index: int) -> dict[str, Any]:

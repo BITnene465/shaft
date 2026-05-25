@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ def compare_runs(
     layout = StoreLayout(store_root)
     baseline = _load_report(layout, baseline_run_id)
     candidate = _load_report(layout, candidate_run_id)
-    comparison_id = f"{_safe_name(baseline_run_id)}__vs__{_safe_name(candidate_run_id)}"
+    comparison_id = comparison_id_for_runs(baseline_run_id, candidate_run_id)
     report = compare_report_payloads(
         baseline_run_id=baseline_run_id,
         candidate_run_id=candidate_run_id,
@@ -28,6 +29,74 @@ def compare_runs(
     output_path = layout.exports_dir / "comparisons" / f"{comparison_id}.json"
     atomic_write_json(output_path, report)
     return output_path
+
+
+def comparison_id_for_runs(baseline_run_id: str, candidate_run_id: str) -> str:
+    return f"{_safe_name(baseline_run_id)}__vs__{_safe_name(candidate_run_id)}"
+
+
+def load_comparison_report(
+    *,
+    store_root: str | Path = DEFAULT_STORE_ROOT,
+    comparison_id: str | None = None,
+    baseline_run_id: str | None = None,
+    candidate_run_id: str | None = None,
+) -> dict[str, Any]:
+    layout = StoreLayout(store_root)
+    resolved_id = _resolve_comparison_id(
+        comparison_id=comparison_id,
+        baseline_run_id=baseline_run_id,
+        candidate_run_id=candidate_run_id,
+    )
+    path = layout.exports_dir / "comparisons" / f"{_safe_name(resolved_id)}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"comparison report does not exist: {path}")
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        raise ValueError(f"comparison report must be a JSON object: {path}")
+    payload.setdefault("comparison_id", path.stem)
+    payload.setdefault("path", str(path))
+    return payload
+
+
+def comparison_sample_detail_payload(
+    *,
+    store_root: str | Path = DEFAULT_STORE_ROOT,
+    baseline_run_id: str,
+    candidate_run_id: str,
+    sample_index: int,
+) -> dict[str, Any]:
+    from .store import EvalBenchStore
+
+    store = EvalBenchStore(store_root)
+    baseline = store.run_sample_detail(baseline_run_id, sample_index=sample_index)
+    candidate = store.run_sample_detail(candidate_run_id, sample_index=sample_index)
+    return {
+        "baseline_run_id": baseline_run_id,
+        "candidate_run_id": candidate_run_id,
+        "sample_index": sample_index,
+        "baseline": run_sample_detail_payload(baseline_run_id, baseline),
+        "candidate": run_sample_detail_payload(candidate_run_id, candidate),
+    }
+
+
+def run_sample_detail_payload(
+    run_id: str,
+    detail: Any,
+    sample_extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    sample = asdict(detail.sample)
+    if sample_extra:
+        sample.update(sample_extra)
+    return {
+        "run_id": run_id,
+        "sample": sample,
+        "gt_instances": detail.gt_instances,
+        "pred_instances": detail.pred_instances,
+        "raw_payload": detail.raw_payload,
+        "prediction_payload": detail.prediction_payload,
+        "diagnostics": detail.diagnostics,
+    }
 
 
 def list_comparison_reports(
@@ -91,6 +160,24 @@ def filter_comparison_reports(
             continue
         items.append(report)
     return items
+
+
+def _resolve_comparison_id(
+    *,
+    comparison_id: str | None,
+    baseline_run_id: str | None,
+    candidate_run_id: str | None,
+) -> str:
+    value = _filter_value(comparison_id)
+    baseline = _filter_value(baseline_run_id)
+    candidate = _filter_value(candidate_run_id)
+    if value and (baseline or candidate):
+        raise ValueError("use either comparison_id or baseline/candidate run ids, not both.")
+    if value:
+        return value
+    if baseline and candidate:
+        return comparison_id_for_runs(baseline, candidate)
+    raise ValueError("comparison_id or both baseline_run_id and candidate_run_id are required.")
 
 
 def compare_report_payloads(

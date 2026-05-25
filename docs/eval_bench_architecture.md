@@ -106,8 +106,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 rank board 的过滤、facet 计数、F1 默认主指标、可切换排序指标和分页输出；
     Compare 页不能再作为排行榜真源。`score` 仅作为兼容字段镜像 F1，不再代表默认加权排名。
 - `projects/eval_bench/eval_bench/comparison.py`
-  - 维护 pairwise comparison 报告生成、历史摘要和 task/label/query 过滤；API/CLI/前端不各自复制
-    comparison 历史检索语义。
+  - 维护 pairwise comparison 报告生成、已保存 report 读取、成对样本详情 payload、历史摘要和
+    task/label/query 过滤；API/CLI/前端不各自复制 comparison 历史检索或样本 payload 语义。
 - `projects/eval_bench/frontend/src/statusModel.ts`
   - 维护前端状态文案和操作启用条件。
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
@@ -160,7 +160,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 rank board 字段、facet 或排序规则：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格和测试。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`list-prompt-templates`、`list-benchmarks`、`list-runs`、`list-jobs`、
-  `list-services`、`list-comparisons`，不要让 agent 读取前端状态或扫描 artifact 目录。
+  `list-services`、`list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent 读取前端状态或扫描 artifact 目录。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
