@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench preflight 未展示最终 label scope 且 legacy prompt 匹配过宽
+
+### 现象
+
+agent 使用 `preflight-job` 时，`resolved_payload` 不一定展示运行时最终会使用的 `target_labels`。
+例如 keypoint job 缺省 target labels 时，worker 会按任务补成 `arrow`，但 preflight 输出可能还是空。
+同时 legacy prompt ID 规则用任意 `layout` / `arrow` 子串推断 label scope，导致自定义 `custom.layout`
+也被误判成 layout prompt，并在 preflight 中触发不存在的 `image/shape` label 错误。
+
+### 根因
+
+`job_spec.resolve_job_payload()` 只做 manifest/runtime 字段归一化，没有复用运行时 `label_policy`。
+而 `label_policy` 的 legacy prompt 兼容规则过宽，把普通自定义 prompt ID 当成内置 prompt 家族。
+
+### 影响范围
+
+- 影响 agent 通过 `preflight-job` 判断 detection label 子任务和 keypoint arrow-only 作用域。
+- 影响自定义 prompt ID 中包含 `layout`、`arrow` 等普通词时的 label scope 推断。
+- 不影响模型能力；这是 eval/job preflight 与 label policy 的语义一致性问题。
+
+### 修复方式
+
+- `resolve_job_payload()` 在返回 `resolved_payload` 前应用同一套 `resolve_target_label_policy()`，
+  补齐 `target_labels` 和 `target_labels_source`。
+- keypoint 缺省 target labels 会在 preflight 阶段显示 `arrow`，来源为 `task_default` 或内置 prompt 的
+  `legacy_prompt_id`。
+- legacy prompt ID 收窄到内置命名族：`grounding_layout.*`、`grounding_arrow.*`、`keypoint_arrow.*`
+  和历史 `arrow_keypoint.*`，不再匹配任意 `custom.layout`。
+- README 和架构文档同步 agent preflight 与 legacy prompt ID 边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_job_spec.py projects/eval_bench/tests/test_eval_semantics.py projects/eval_bench/tests/test_cli.py`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py projects/eval_bench/tests/test_worker.py projects/eval_bench/tests/test_prediction_import.py projects/eval_bench/tests/test_evaluator.py`
+
+### 后续防线
+
+- 新增 prompt ID 兼容规则时必须限定在已知内置命名族；自定义 prompt 的 label scope 只能来自 metadata 或显式 run spec。
+- agent-facing preflight 输出必须和 worker/import/evaluator 最终语义一致，不能把运行时默认值藏到入队后。
+
 ## 2026-05-25: Eval Bench Overview 静态 UI 契约仍锁旧结构
 
 ### 现象

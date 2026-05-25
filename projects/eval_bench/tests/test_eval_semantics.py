@@ -32,6 +32,13 @@ def test_target_label_policy_records_legacy_prompt_id_source() -> None:
     assert policy.source == "legacy_prompt_id"
 
 
+def test_target_label_policy_does_not_infer_custom_layout_prompt_ids() -> None:
+    policy = resolve_target_label_policy(prompt_id="custom.layout", task="detection")
+
+    assert policy.labels == []
+    assert policy.source == "unscoped"
+
+
 def test_eval_semantics_preserves_resolved_target_label_source() -> None:
     semantics = resolve_eval_semantics(
         {

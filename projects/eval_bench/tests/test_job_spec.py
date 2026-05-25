@@ -52,6 +52,30 @@ def test_layout_eval_job_template_remains_available() -> None:
     assert resolved.payload["target_labels"] == ["icon", "image", "shape"]
 
 
+def test_eval_job_payload_resolves_runtime_target_label_policy() -> None:
+    keypoint_manifest = job_templates()["keypoint_eval_job"]["manifest"]
+    keypoint_manifest["eval"].pop("target_labels")
+    keypoint_resolved = resolve_job_payload({"manifest": keypoint_manifest})
+
+    assert keypoint_resolved.payload["task"] == "keypoint"
+    assert keypoint_resolved.payload["target_labels"] == ["arrow"]
+    assert keypoint_resolved.payload["target_labels_source"] == "legacy_prompt_id"
+
+    keypoint_manifest["eval"]["prompt_id"] = "custom_eval"
+    keypoint_custom_resolved = resolve_job_payload({"manifest": keypoint_manifest})
+    assert keypoint_custom_resolved.payload["target_labels"] == ["arrow"]
+    assert keypoint_custom_resolved.payload["target_labels_source"] == "task_default"
+
+    layout_manifest = job_templates()["eval_job"]["manifest"]
+    layout_manifest["eval"]["prompt_id"] = "grounding_layout.latest"
+    layout_manifest["eval"].pop("target_labels")
+    layout_resolved = resolve_job_payload({"manifest": layout_manifest})
+
+    assert layout_resolved.payload["task"] == "detection"
+    assert layout_resolved.payload["target_labels"] == ["icon", "image", "shape"]
+    assert layout_resolved.payload["target_labels_source"] == "legacy_prompt_id"
+
+
 def test_eval_job_manifest_preserves_unknown_runtime_args_as_cli_extra_args() -> None:
     manifest = job_templates()["eval_job"]["manifest"]
     manifest = {

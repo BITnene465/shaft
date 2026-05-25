@@ -8,7 +8,13 @@ import socket
 from typing import Any, Mapping
 
 from .artifacts import BenchmarkArtifacts, DEFAULT_STORE_ROOT
-from .label_policy import normalize_target_labels, target_label_task_errors
+from .label_policy import (
+    TARGET_LABEL_SOURCES,
+    TargetLabelPolicy,
+    normalize_target_labels,
+    resolve_target_label_policy,
+    target_label_task_errors,
+)
 from .services import build_vllm_command_from_config
 
 
@@ -377,7 +383,9 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         "max_pixels": _first_value(data.get("max_pixels"), data.get("max-pixels"), original.get("max_pixels")),
         "batch_size": _first_value(data.get("batch_size"), data.get("batch-size"), original.get("batch_size"), 1),
     }
-    return {key: value for key, value in payload.items() if value not in (None, "")}
+    return _apply_target_label_policy(
+        {key: value for key, value in payload.items() if value not in (None, "")}
+    )
 
 
 def _resolve_preannotate_payload(original: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
@@ -675,6 +683,21 @@ def _set_target_labels_default(target: dict[str, Any], labels: list[str]) -> Non
         return
     target["target_labels"] = labels
     target["target_labels_source"] = "prompt_metadata"
+
+
+def _apply_target_label_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    policy = resolve_target_label_policy(
+        explicit=payload.get("target_labels"),
+        prompt_id=str(payload.get("prompt_id") or ""),
+        task=str(payload.get("task") or ""),
+    )
+    source = str(payload.get("target_labels_source") or "").strip()
+    if policy.source == "explicit" and source in TARGET_LABEL_SOURCES:
+        policy = TargetLabelPolicy(labels=policy.labels, source=source)
+    if policy.labels:
+        payload["target_labels"] = policy.labels
+    payload["target_labels_source"] = policy.source
+    return payload
 
 
 def _merge_defaults(defaults: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:

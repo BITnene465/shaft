@@ -87,7 +87,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - `keypoint_endpoint_v1` 使用 ordered endpoint distance matcher，不再用 bbox IoU 决定 TP/FP/FN。
 - `projects/eval_bench/eval_bench/label_policy.py`
   - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`legacy_prompt_id`、
-    `task_default` 或 `unscoped` 来源。
+    `task_default` 或 `unscoped` 来源；`legacy_prompt_id` 只能匹配内置 prompt 命名族
+    `grounding_layout.*`、`grounding_arrow.*`、`keypoint_arrow.*` 和历史 `arrow_keypoint.*`。
 - `projects/eval_bench/eval_bench/job_lifecycle.py`
   - 维护 job terminal/active/cancelled-resource lease 语义。
 - `projects/eval_bench/eval_bench/database.py`

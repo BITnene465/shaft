@@ -50,9 +50,13 @@ def resolve_target_label_policy(
     if labels:
         return TargetLabelPolicy(labels=labels, source="prompt_metadata")
     lower_prompt_id = (prompt_id or "").lower()
-    if "layout" in lower_prompt_id:
+    if "grounding_layout" in lower_prompt_id:
         return TargetLabelPolicy(labels=list(LAYOUT_TARGET_LABELS), source="legacy_prompt_id")
-    if "keypoint" in lower_prompt_id or "arrow" in lower_prompt_id:
+    if (
+        "keypoint_arrow" in lower_prompt_id
+        or "arrow_keypoint" in lower_prompt_id
+        or "grounding_arrow" in lower_prompt_id
+    ):
         return TargetLabelPolicy(labels=list(ARROW_TARGET_LABELS), source="legacy_prompt_id")
     if task == "keypoint":
         return TargetLabelPolicy(labels=list(ARROW_TARGET_LABELS), source="task_default")

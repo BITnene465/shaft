@@ -186,6 +186,10 @@ Evaluator 会在匹配前按 `target_labels` 同时过滤 GT 和 prediction，re
 也会记录这组 label 以及 `target_labels_source`。`target_labels` 的优先级是：run spec 显式声明、
 prompt metadata、legacy prompt ID 兼容推断、task default、unscoped；这套来源会写入 run spec
 metadata 并在 report 中保留，避免 prompt/template 推导出的 label 范围被误记为人工显式声明。
+legacy prompt ID 只匹配内置命名族，例如 `grounding_layout.*`、`grounding_arrow.*`、
+`keypoint_arrow.*` 和历史 `arrow_keypoint.*`；自定义 prompt ID 即使包含 `layout` 这类普通词，
+也不会被自动推断为 layout label 子任务，除非 prompt metadata 或 run spec 显式声明 `target_labels`。
+`preflight-job` 的 `resolved_payload` 会应用同一套 label policy，让 agent 在入队前看到最终评估范围。
 这样 layout prompt 在包含 arrow GT 的 benchmark 上评测时，不会把未要求输出的 arrow 误算成漏检；
 如果要做全任务评测，应显式使用包含所有目标 label 的 prompt/template，而不是只改
 `task=detection`。外部 prediction snapshot 导入时也必须保留这组目标标签，不能只靠
