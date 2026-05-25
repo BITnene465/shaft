@@ -3574,3 +3574,40 @@ Compare label delta 是卡片式选项，早期没有对应共享组件，所以
 
 - Overview 新增面板必须先回答是否帮助调度、覆盖和近期写入判断；低频复现线索和排障细节默认进入 Runs / Inspector / Rank Board。
 - UI smoke 不再奖励更多图表数量，防线应限制上限并检查可读性、分栏上限和滚动边界。
+
+## 2026-05-25: Eval Bench agent 单对象详情 CLI 补齐
+
+### 现象
+
+Agent 已能分页列出 benchmark、run、service 和 comparison，也能读取 run、sample 和 comparison
+详情；但 benchmark summary 与 model service 详情缺少对应单对象 CLI。排障或自动编排时，agent
+仍可能退回到扫描 benchmark artifact、读取 SQLite 或依赖 dashboard 前端 state。
+
+### 根因
+
+前几轮优先补齐列表、run/report/sample/comparison 和 lifecycle 命令，单对象读取能力没有按对象类型
+完整对齐。`EvalBenchStore` 和 `EvalBenchServiceManager` 也缺少公开的单对象读方法，导致 CLI 没有
+稳定复用点。
+
+### 影响范围
+
+- 影响 Eval Bench agent 操作面：benchmark summary 和 service 详情读取不够稳定。
+- 不改变 dashboard API、store artifact 格式、service registry 表结构、run 评估或排行语义。
+
+### 修复方式
+
+- `EvalBenchStore` 增加 `benchmark(benchmark_id)`，作为 benchmark summary 单对象读取真源。
+- `EvalBenchServiceManager` 增加 `service(service_id)`，复用现有 registry 与 runtime refresh 逻辑。
+- CLI 增加 `show-benchmark` 和 `show-service`，输出 agent 可消费 JSON。
+- README、`docs/eval_bench_architecture.md` 和 `docs/scripts.md` 同步记录 agent 读取边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench uv run pytest -q projects/eval_bench/tests/test_cli.py -k 'agent_filters or services_with_agent_filters'`
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+- `git diff --check`
+
+### 后续防线
+
+- 新增 dashboard 可操作对象时，必须同时检查列表 CLI 和单对象详情 CLI；agent 不应直接读取前端状态、
+  SQLite 或 artifact 目录来补齐对象详情。

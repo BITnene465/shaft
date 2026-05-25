@@ -58,6 +58,9 @@ class EvalBenchServiceManager:
             query=query,
         ).services
 
+    def service(self, service_id: str) -> ServiceRecord:
+        return self._refresh_if_needed(self._require_service(service_id))
+
     def register_service(self, payload: dict[str, Any]) -> ServiceRecord:
         kind = str(payload.get("kind") or "local_vllm")
         service_id = _optional_string(payload, "service_id")

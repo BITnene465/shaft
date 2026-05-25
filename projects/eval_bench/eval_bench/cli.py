@@ -198,6 +198,12 @@ def _build_parser() -> argparse.ArgumentParser:
     list_benchmarks.add_argument("--split", default=None)
     list_benchmarks.add_argument("--query", default=None)
 
+    show_benchmark = subparsers.add_parser(
+        "show-benchmark", help="Print one benchmark summary for agents."
+    )
+    show_benchmark.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_benchmark.add_argument("--benchmark-id", required=True)
+
     list_runs = subparsers.add_parser(
         "list-runs", help="List run manifests with agent-safe filters."
     )
@@ -354,6 +360,10 @@ def _build_parser() -> argparse.ArgumentParser:
     list_services.add_argument("--kind", choices=("local_vllm", "external_vllm"), default=None)
     list_services.add_argument("--status", default=None)
     list_services.add_argument("--query", default=None)
+
+    show_service = subparsers.add_parser("show-service", help="Print one model service.")
+    show_service.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    show_service.add_argument("--service-id", required=True)
 
     service_command = subparsers.add_parser("service-command", help="Print vLLM launch command.")
     service_command.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -839,6 +849,13 @@ def _cmd_list_benchmarks(args: argparse.Namespace) -> None:
     print(json.dumps(page.to_dict(), ensure_ascii=False))
 
 
+def _cmd_show_benchmark(args: argparse.Namespace) -> None:
+    from .store import EvalBenchStore
+
+    benchmark = EvalBenchStore(args.output_root).benchmark(str(args.benchmark_id))
+    print(json.dumps({"benchmark": asdict(benchmark)}, ensure_ascii=False))
+
+
 def _cmd_list_runs(args: argparse.Namespace) -> None:
     from .store import EvalBenchStore
 
@@ -1062,6 +1079,13 @@ def _cmd_list_services(args: argparse.Namespace) -> None:
         query=args.query,
     )
     print(json.dumps(page.to_dict(), ensure_ascii=False))
+
+
+def _cmd_show_service(args: argparse.Namespace) -> None:
+    from .services import EvalBenchServiceManager
+
+    record = EvalBenchServiceManager(args.output_root).service(str(args.service_id))
+    print(json.dumps({"service": record.to_dict()}, ensure_ascii=False))
 
 
 def _cmd_service_command(args: argparse.Namespace) -> None:
@@ -1360,6 +1384,8 @@ def main() -> None:
         _cmd_job_logs(args)
     elif args.command == "list-benchmarks":
         _cmd_list_benchmarks(args)
+    elif args.command == "show-benchmark":
+        _cmd_show_benchmark(args)
     elif args.command == "list-runs":
         _cmd_list_runs(args)
     elif args.command == "show-run":
@@ -1388,6 +1414,8 @@ def main() -> None:
         _cmd_register_service(args)
     elif args.command == "list-services":
         _cmd_list_services(args)
+    elif args.command == "show-service":
+        _cmd_show_service(args)
     elif args.command == "service-command":
         _cmd_service_command(args)
     elif args.command == "start-service":

@@ -37,12 +37,14 @@ from eval_bench.cli import (
     _cmd_scheduler_status,
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
+    _cmd_show_benchmark,
     _cmd_show_benchmark_sample,
     _cmd_show_comparison,
     _cmd_show_comparison_sample,
     _cmd_show_run,
     _cmd_show_run_report,
     _cmd_show_run_sample,
+    _cmd_show_service,
     _cmd_upsert_prompt_template,
 )
 
@@ -739,6 +741,16 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "bench1"
     assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]
 
+    benchmark_detail_args = _build_parser().parse_args(
+        ["show-benchmark", "--output-root", str(tmp_path), "--benchmark-id", "bench1"]
+    )
+    _cmd_show_benchmark(benchmark_detail_args)
+    benchmark_detail = json.loads(capsys.readouterr().out)
+    assert benchmark_detail["benchmark"]["benchmark_id"] == "bench1"
+    assert benchmark_detail["benchmark"]["tasks"] == ["detection"]
+    assert benchmark_detail["benchmark"]["labels"] == ["arrow", "icon"]
+    assert benchmark_detail["benchmark"]["sample_count"] == 2
+
     run_args = _build_parser().parse_args(
         [
             "list-runs",
@@ -1361,3 +1373,18 @@ def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
     assert payload["total"] == 1
     assert payload["filters"]["kind"] == "external_vllm"
     assert payload["services"][0]["service_id"] == "external-qwen3vl"
+
+    show_args = _build_parser().parse_args(
+        [
+            "show-service",
+            "--output-root",
+            str(tmp_path),
+            "--service-id",
+            "external-qwen3vl",
+        ]
+    )
+    _cmd_show_service(show_args)
+    detail = json.loads(capsys.readouterr().out)
+    assert detail["service"]["service_id"] == "external-qwen3vl"
+    assert detail["service"]["kind"] == "external_vllm"
+    assert detail["service"]["config"]["endpoint"] == "http://127.0.0.1:8000/v1"

@@ -300,6 +300,12 @@ class EvalBenchStore:
             )
         return sorted(items, key=lambda item: item.benchmark_id)
 
+    def benchmark(self, benchmark_id: str) -> BenchmarkSummary:
+        for item in self.benchmarks():
+            if item.benchmark_id == str(benchmark_id):
+                return item
+        raise FileNotFoundError(f"benchmark does not exist: {benchmark_id}")
+
     def _benchmark_summary_labels(self, benchmark_id: str, payload: dict[str, Any]) -> list[str]:
         labels = _labels_from_summary(payload)
         if labels:
