@@ -83,6 +83,12 @@ assert(
   "shortcut reset action must use ActionButton",
 );
 assert(
+  settingsControls.includes('<ActionButton') &&
+    settingsControls.includes('className="shortcut-capture"') &&
+    !/<button\b/.test(settingsControls),
+  "settings controls must not use raw buttons for shortcut capture or reset actions",
+);
+assert(
   settingsControls.includes(
     '<ActionButton variant="secondary" className="settings-inline-action" onClick={onResetAll}>',
   ),

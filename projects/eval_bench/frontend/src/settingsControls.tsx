@@ -148,9 +148,9 @@ export function ShortcutSettingsPanel({
                 <strong>{action.label}</strong>
                 <code>{action.id}</code>
               </div>
-              <button
+              <ActionButton
+                variant="mini"
                 className="shortcut-capture"
-                type="button"
                 onKeyDown={(event) => {
                   event.preventDefault();
                   const binding = shortcutEventBinding(event.nativeEvent);
@@ -160,7 +160,7 @@ export function ShortcutSettingsPanel({
                 }}
               >
                 {binding || "未设置"}
-              </button>
+              </ActionButton>
               <ActionButton variant="mini" onClick={() => onReset(action.id)}>
                 重置
               </ActionButton>

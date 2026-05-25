@@ -610,7 +610,8 @@ benchmark 文件。
 画布 HUD 这类低层交互保留专用样式；viewer 图层预设使用 `CompactSelectControl`，
 label chip 使用 `OptionChipButton`；Compare label delta 和 viewer object row 这类可选卡片使用 `SelectableCardButton`；
 弹窗表单和对比选择轨的 select 使用 `FormSelectControl`；
-弹窗表单提交直接使用 `ActionButton`，不保留页面私有 submit class。
+弹窗表单提交和 Settings 快捷键捕获控件都直接使用 `ActionButton`，可以保留 `shortcut-capture`
+这类专用外观 class，但不保留页面私有 raw button。
 `test:ui-contracts` 会阻止原生 confirm/alert/prompt、
 业务页自建 dialog shell、旧 `sample-filters` 和已收敛标准动作回流。
 

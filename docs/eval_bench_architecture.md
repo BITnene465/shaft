@@ -141,7 +141,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/ui.tsx`
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton` 和
     `IconActionButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
-    使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交也直接使用 `ActionButton` 变体，不保留页面私有 submit button class；
+    使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
+    也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
     业务页不直接实现弹窗外壳、标准按钮层级或重复的 row/chip button 形态。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护紧凑 select、表单 select、数值输入、颜色输入和开关等基础控制原语；viewer 图层预设、
@@ -215,6 +216,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过
   `SelectableCardButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
   的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
+  Settings 快捷键捕获可以保留 `shortcut-capture` 专用样式和局部 `onKeyDown` 语义，但底层按钮仍必须通过
+  `ActionButton`。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell
   和已收敛标准动作、row/chip/select 原语回流。
 - 新增 sample 路径规则：只改 `sample_paths.py`，并用 store/worker/evaluator/import 的 focused

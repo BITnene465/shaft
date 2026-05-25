@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench settings 快捷键捕获仍使用 raw button
+
+### 现象
+
+大部分页面标准动作已经收敛到 `ActionButton` / `CommandButton` / `IconActionButton`，但 settings 的快捷键捕获
+控件仍在业务组件里直接写 `<button className="shortcut-capture">`。这不是阻塞式弹窗或表单提交问题，
+但它绕过了统一按钮原语，后续 hover、disabled、键盘可访问性和视觉风格容易再次漂移。
+
+### 根因
+
+UI contract 只锁住了 shortcut reset/reset-all 使用 `ActionButton`，没有把 capture control 的按钮原语也纳入
+契约。快捷键捕获虽然有专用样式和 `onKeyDown` 语义，但仍应该复用基础按钮组件。
+
+### 影响范围
+
+- 影响 Settings 页面快捷键映射控件的组件化一致性。
+- 不影响 workspace settings schema、快捷键解析逻辑、viewer 行为或后端 Eval Bench 语义。
+
+### 修复方式
+
+- 将 shortcut capture 从 raw `<button>` 改为 `ActionButton variant="mini"`，保留 `shortcut-capture`
+  class 和原有 `onKeyDown` 捕获逻辑。
+- UI contract 增加静态防线：`settingsControls.tsx` 不能再出现 raw `<button>`，shortcut capture/reset/reset-all
+  都必须通过 `ActionButton`。
+- README 和架构文档补充快捷键捕获这类设置页交互也要复用按钮原语。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 设置页新增可点击控件时，除非是 `ui.tsx` 或 `controlPrimitives.tsx` 内部原语实现，否则不要直接写 raw button。
+- 专用交互可以保留专用 class，但底层按钮语义仍优先复用 `ActionButton` / `IconActionButton`。
+
 ## 2026-05-25: Eval Bench agent CLI 发现面缺少参数 schema
 
 ### 现象
