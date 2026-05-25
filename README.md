@@ -73,7 +73,9 @@ python scripts/eval_bench.py --help
 python scripts/eval_bench.py serve-dashboard --host 127.0.0.1 --port 8765
 ```
 
-Dashboard 当前提供 benchmark、job queue、run/report 列表和交互式 run inspector；
+Dashboard 当前提供高密度总览、benchmark、job queue、run/report 列表和交互式 run inspector；
+总览页把 store 规模、写入节奏、scheduler/job/service 运行态、run/benchmark 分布和最近 run 压缩成混合微图表矩阵，
+只保留粗粒度控制台信号，不展示细粒度评测指标。
 inspector 直接读取 benchmark GT 与 prediction snapshot，在原图上叠加 GT / Prediction
 实例，支持 label 过滤、图层显隐、对象 hover/click 高亮、滚轮缩放和拖拽平移，主视图按图像工作台设计，低频配置和明细默认折叠，便于检查
 漏检、误检和解析问题。Compare 页支持排行榜、run 成对 delta、top 改善/退化

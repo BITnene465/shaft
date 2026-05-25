@@ -20,7 +20,8 @@ const staticRoutes = [
       ".overview-rhythm-strip",
       ".overview-grid.refined",
       ".overview-chart-matrix",
-      ".overview-mini-chart"
+      ".overview-mini-chart",
+      ".overview-recent-card"
     ]
   },
   {
@@ -390,6 +391,11 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
+    const chartKinds = new Set(
+      Array.from(document.querySelectorAll(".overview-mini-chart")).flatMap((node) =>
+        ["ring", "rails", "cells", "meter"].filter((kind) => node.classList.contains(kind))
+      )
+    );
     const chartCardHeights = Array.from(document.querySelectorAll(".overview-chart-card")).map((node) =>
       Math.round(node.getBoundingClientRect().height)
     );
@@ -403,9 +409,12 @@ async function assertOverviewDensity(page, scope) {
     return {
       rhythmBars: document.querySelectorAll(".overview-rhythm-bars span").length,
       miniCharts: chartRects.length,
+      chartKinds: Array.from(chartKinds),
       chartRects,
       chartCardHeights,
       recentRows,
+      recentCardsInMatrix: document.querySelectorAll(".overview-chart-matrix .overview-recent-card").length,
+      legacyRecentPanels: document.querySelectorAll(".overview-recent-panel").length,
       oldTimelinePanels: document.querySelectorAll(
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
@@ -424,8 +433,19 @@ async function assertOverviewDensity(page, scope) {
   if (state.rhythmBars !== 12) {
     throw new Error(`${scope}: overview rhythm should use 12 compact bars, got ${state.rhythmBars}`);
   }
-  if (state.miniCharts < 20) {
-    throw new Error(`${scope}: overview should expose at least twenty mini charts, got ${state.miniCharts}`);
+  if (state.miniCharts < 40) {
+    throw new Error(`${scope}: overview should expose at least forty mini charts, got ${state.miniCharts}`);
+  }
+  if (state.chartKinds.length < 4) {
+    throw new Error(`${scope}: overview chart wall lost mixed chart forms ${state.chartKinds.join(",")}`);
+  }
+  if (state.recentCardsInMatrix !== 1 || state.legacyRecentPanels > 0) {
+    throw new Error(
+      `${scope}: recent runs should be embedded in the chart matrix ${JSON.stringify({
+        recentCardsInMatrix: state.recentCardsInMatrix,
+        legacyRecentPanels: state.legacyRecentPanels
+      })}`
+    );
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);

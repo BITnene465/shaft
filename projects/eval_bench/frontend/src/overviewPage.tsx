@@ -9,6 +9,15 @@ import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
 import { Badge, EmptyState, PanelTitle } from "./ui";
 
+type OverviewChartKind = "ring" | "rails" | "cells" | "meter";
+type OverviewChartRow = { key: string; count: number };
+type OverviewChartSpec = {
+  title: string;
+  meta: string;
+  rows: OverviewChartRow[];
+  kind?: OverviewChartKind;
+};
+
 export function OverviewPage() {
   const { data, isLoading, error } = useDashboardState();
   const jobsQuery = useQuery({
@@ -45,14 +54,49 @@ export function OverviewPage() {
     jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const statusRows = countBy(data.runs, (run) => run.status || "unknown");
   const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
+  const runTaskRows = countMany(data.runs, (run) => run.tasks);
+  const runBenchmarkRows = countBy(data.runs, (run) => run.benchmark_id || "unknown");
   const modelRows = countBy(data.runs, (run) => run.model_id || "unknown");
   const promptRows = countBy(data.runs, (run) => run.prompt_id || "unknown");
   const parserRows = countBy(data.runs, (run) => run.parser || "unknown");
   const viewRows = countBy(data.runs, (run) => run.visualization_profile || "default");
+  const metricProfileRows = countBy(data.runs, (run) => run.metric_profile || "default");
+  const modelSourceRows = runModelSourceRows(data.runs);
+  const promptHashRows = promptHashCoverageRows(data.runs);
+  const reportScaleRows = countBy(data.runs, (run) => reportScaleBucket(run.report_count));
+  const noteFreshnessRows = timestampFreshnessRows(data.runs, (run) => run.note_updated_at);
+  const inferenceBackendRows = countBy(data.runs, (run) =>
+    inferenceString(run.inference, "backend")
+  );
+  const servedModelRows = countBy(data.runs, (run) =>
+    inferenceString(run.inference, "served_model_name")
+  );
+  const tensorParallelRows = countBy(data.runs, (run) =>
+    sizeBucket(inferenceNumber(run.inference, "tensor_parallel_size"))
+  );
+  const batchSizeRows = countBy(data.runs, (run) =>
+    sizeBucket(inferenceNumber(run.inference, "batch_size"))
+  );
+  const maxSeqRows = countBy(data.runs, (run) =>
+    sizeBucket(inferenceNumber(run.inference, "max_num_seqs"))
+  );
+  const maxTokenRows = countBy(data.runs, (run) =>
+    tokenBudgetBucket(inferenceNumber(run.inference, "max_tokens"))
+  );
+  const pixelBudgetRows = countBy(data.runs, (run) =>
+    pixelBudgetBucket(inferenceNumber(run.inference, "max_pixels"))
+  );
+  const temperatureRows = countBy(data.runs, (run) =>
+    rateBucket(inferenceNumber(run.inference, "temperature"))
+  );
+  const topPRows = countBy(data.runs, (run) => rateBucket(inferenceNumber(run.inference, "top_p")));
+  const cudaRows = countBy(data.runs, (run) => cudaDeviceBucket(run.inference));
   const benchmarkTaskRows = countMany(data.benchmarks, (benchmark) => benchmark.tasks);
   const benchmarkLabelRows = countMany(data.benchmarks, (benchmark) => benchmark.labels);
   const benchmarkLayerRows = countMany(data.benchmarks, (benchmark) => benchmark.layers);
   const splitRows = countBy(data.benchmarks, (benchmark) => benchmark.split || "unknown");
+  const benchmarkFreshnessRows = timestampFreshnessRows(data.benchmarks, (benchmark) => benchmark.created_at);
+  const benchmarkSourceRows = benchmarkSourceCoverageRows(data.benchmarks);
   const coverageRows = runCoverageRows(data.runs);
   const sampleScaleRows = countBy(data.benchmarks, (benchmark) =>
     sampleScaleBucket(benchmark.sample_count)
@@ -65,8 +109,15 @@ export function OverviewPage() {
   const noteRows = runNoteRows(data.runs);
   const jobStatusRows = countBy(jobs, (job) => job.status || "unknown");
   const jobKindRows = countBy(jobs, (job) => job.kind || "unknown");
+  const jobPhaseRows = countBy(jobs, (job) => metadataString(job.metadata, "progress_phase"));
+  const jobHealthRows = runtimeHealthRows(jobs);
   const serviceStatusRows = countBy(services, (service) => service.status || "unknown");
   const serviceKindRows = countBy(services, (service) => service.kind || "unknown");
+  const serviceHealthRows = runtimeHealthRows(services);
+  const serviceFreshnessRows = timestampFreshnessRows(
+    services,
+    (service) => service.updated_at ?? service.created_at
+  );
   const liveSignalRows = [
     { key: "queued jobs", count: queuedJobs },
     { key: "running jobs", count: runningJobs },
@@ -74,32 +125,58 @@ export function OverviewPage() {
     { key: "active runs", count: activeRuns }
   ];
   const schedulerRows = schedulerResourceRows(schedulerStatus);
+  const schedulerLoopRows = schedulerLoopStateRows(schedulerStatus);
   const timelineRows = runTimeline(data.runs, 12);
   const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
-  const overviewCharts = [
-    { title: "Run 生命周期", meta: "status", rows: statusRows },
-    { title: "评测覆盖", meta: "report state", rows: coverageRows },
-    { title: "Run 任务", meta: "spec_task", rows: taskRows },
-    { title: "模型分布", meta: "model_id", rows: modelRows },
-    { title: "Prompt 分布", meta: "prompt_id", rows: promptRows },
-    { title: "Parser", meta: "decode path", rows: parserRows },
-    { title: "Viewer profile", meta: "visual mode", rows: viewRows },
-    { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows },
-    { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows },
-    { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows },
-    { title: "数据层", meta: "benchmark layers", rows: benchmarkLayerRows },
-    { title: "Split 分布", meta: "dataset split", rows: splitRows },
-    { title: "Label scope", meta: "run labels", rows: targetLabelRows },
-    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows },
-    { title: "预测规模", meta: "prediction files", rows: predictionRows },
-    { title: "备注覆盖", meta: "run notes", rows: noteRows },
-    { title: "Job 状态", meta: "queue state", rows: jobStatusRows },
-    { title: "Job 类型", meta: "job kind", rows: jobKindRows },
-    { title: "Service 状态", meta: "runtime state", rows: serviceStatusRows },
-    { title: "Service 类型", meta: "runtime kind", rows: serviceKindRows },
-    { title: "实时信号", meta: "live counters", rows: liveSignalRows },
-    { title: "Scheduler", meta: "resource slots", rows: schedulerRows }
+  const overviewCharts: OverviewChartSpec[] = [
+    { title: "Run 生命周期", meta: "status", rows: statusRows, kind: "ring" },
+    { title: "评测覆盖", meta: "report state", rows: coverageRows, kind: "meter" },
+    { title: "Run 任务", meta: "spec_task", rows: taskRows, kind: "rails" },
+    { title: "Run task set", meta: "tasks", rows: runTaskRows, kind: "cells" },
+    { title: "Run benchmark", meta: "benchmark_id", rows: runBenchmarkRows, kind: "cells" },
+    { title: "模型分布", meta: "model_id", rows: modelRows, kind: "cells" },
+    { title: "模型来源", meta: "model_path", rows: modelSourceRows, kind: "meter" },
+    { title: "推理 backend", meta: "inference", rows: inferenceBackendRows, kind: "ring" },
+    { title: "served model", meta: "runtime name", rows: servedModelRows, kind: "cells" },
+    { title: "TP size", meta: "tensor parallel", rows: tensorParallelRows, kind: "meter" },
+    { title: "CUDA slots", meta: "visible devices", rows: cudaRows, kind: "meter" },
+    { title: "batch size", meta: "inference", rows: batchSizeRows, kind: "meter" },
+    { title: "max seqs", meta: "scheduler input", rows: maxSeqRows, kind: "meter" },
+    { title: "max tokens", meta: "generation", rows: maxTokenRows, kind: "rails" },
+    { title: "pixel budget", meta: "vision input", rows: pixelBudgetRows, kind: "rails" },
+    { title: "temperature", meta: "sampling", rows: temperatureRows, kind: "meter" },
+    { title: "top_p", meta: "sampling", rows: topPRows, kind: "meter" },
+    { title: "Prompt 分布", meta: "prompt_id", rows: promptRows, kind: "cells" },
+    { title: "Prompt hash", meta: "snapshot", rows: promptHashRows, kind: "meter" },
+    { title: "Parser", meta: "decode path", rows: parserRows, kind: "rails" },
+    { title: "Metric profile", meta: "eval profile", rows: metricProfileRows, kind: "ring" },
+    { title: "Viewer profile", meta: "visual mode", rows: viewRows, kind: "cells" },
+    { title: "Benchmark 任务", meta: "task set", rows: benchmarkTaskRows, kind: "rails" },
+    { title: "Benchmark 新鲜度", meta: "created_at", rows: benchmarkFreshnessRows, kind: "meter" },
+    { title: "Benchmark 来源", meta: "source", rows: benchmarkSourceRows, kind: "meter" },
+    { title: "Label footprint", meta: "benchmark labels", rows: benchmarkLabelRows, kind: "cells" },
+    { title: "样本规模", meta: "sample buckets", rows: sampleScaleRows, kind: "ring" },
+    { title: "数据层", meta: "benchmark layers", rows: benchmarkLayerRows, kind: "rails" },
+    { title: "Split 分布", meta: "dataset split", rows: splitRows, kind: "meter" },
+    { title: "Label scope", meta: "run labels", rows: targetLabelRows, kind: "cells" },
+    { title: "Run 新鲜度", meta: "created_at", rows: freshnessRows, kind: "meter" },
+    { title: "写入热度", meta: "12 day buckets", rows: timelineRows, kind: "rails" },
+    { title: "预测规模", meta: "prediction files", rows: predictionRows, kind: "ring" },
+    { title: "Report 规模", meta: "report files", rows: reportScaleRows, kind: "meter" },
+    { title: "备注覆盖", meta: "run notes", rows: noteRows, kind: "meter" },
+    { title: "备注新鲜度", meta: "note updated", rows: noteFreshnessRows, kind: "rails" },
+    { title: "Job 状态", meta: "queue state", rows: jobStatusRows, kind: "ring" },
+    { title: "Job 类型", meta: "job kind", rows: jobKindRows, kind: "cells" },
+    { title: "Job 阶段", meta: "progress phase", rows: jobPhaseRows, kind: "rails" },
+    { title: "Job health", meta: "errors", rows: jobHealthRows, kind: "meter" },
+    { title: "Service 状态", meta: "runtime state", rows: serviceStatusRows, kind: "ring" },
+    { title: "Service 类型", meta: "runtime kind", rows: serviceKindRows, kind: "cells" },
+    { title: "Service health", meta: "errors", rows: serviceHealthRows, kind: "meter" },
+    { title: "Service 新鲜度", meta: "updated_at", rows: serviceFreshnessRows, kind: "rails" },
+    { title: "实时信号", meta: "live counters", rows: liveSignalRows, kind: "rails" },
+    { title: "Scheduler 资源", meta: "resource slots", rows: schedulerRows, kind: "cells" },
+    { title: "Scheduler loop", meta: "control loop", rows: schedulerLoopRows, kind: "meter" }
   ];
   return (
     <section className="page-stack dashboard-home">
@@ -163,12 +240,10 @@ export function OverviewPage() {
               title={chart.title}
               meta={chart.meta}
               rows={chart.rows}
+              kind={chart.kind}
             />
           ))}
-        </div>
-        <div className="workspace-card overview-recent-panel">
-          <PanelTitle title="最近 run" meta={`最新 ${Math.min(6, data.runs.length)} 条`} />
-          <OverviewRunList runs={data.runs.slice(0, 6)} />
+          <OverviewRecentRunsPanel runs={data.runs.slice(0, 4)} />
         </div>
       </div>
     </section>
@@ -262,57 +337,181 @@ function OverviewTelemetryPanel({
 function OverviewMiniChartPanel({
   title,
   meta,
-  rows
+  rows,
+  kind = "ring"
 }: {
   title: string;
   meta: string;
-  rows: Array<{ key: string; count: number }>;
+  rows: OverviewChartRow[];
+  kind?: OverviewChartKind;
 }) {
   const maxCount = Math.max(1, ...rows.map((row) => row.count));
   const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const topRows = rows.slice(0, 4);
+  const positiveRows = rows.filter((row) => row.count > 0);
+  const topRows = (positiveRows.length > 0 ? positiveRows : rows).slice(0, 3);
   const ringStyle = {
     "--overview-ring": overviewConicGradient(rows)
   } as React.CSSProperties;
   return (
-    <div className="workspace-card overview-chart-card compact">
+    <div className={`workspace-card overview-chart-card compact ${kind}`}>
       <PanelTitle title={title} meta={meta} />
-      <div className="overview-mini-chart">
-        <div className="overview-chart-ring" style={ringStyle}>
-          <span>{rows.length.toLocaleString()}</span>
-          <strong>{total.toLocaleString()}</strong>
-        </div>
-        <div className="overview-bar-list">
-          {topRows.length === 0 ? (
-            <div className="empty-inline">暂无数据</div>
-          ) : (
-            topRows.map((row, index) => (
-              <div className="overview-bar-row" key={row.key}>
-                <span>{row.key}</span>
-                <div>
-                  <i
-                    style={
-                      {
-                        width:
-                          row.count > 0
-                            ? `${Math.max(4, (row.count / maxCount) * 100)}%`
-                            : "0%",
-                        "--overview-bar-fill": overviewChartColor(index)
-                      } as React.CSSProperties
-                    }
-                  />
-                </div>
-                <strong>{row.count.toLocaleString()}</strong>
-              </div>
-            ))
-          )}
-        </div>
+      <div className={`overview-mini-chart ${kind}`}>
+        {kind === "rails" ? (
+          <OverviewRailsChart rows={topRows} maxCount={maxCount} />
+        ) : kind === "cells" ? (
+          <OverviewCellsChart rows={topRows} maxCount={maxCount} />
+        ) : kind === "meter" ? (
+          <OverviewMeterChart rows={topRows} total={total} maxCount={maxCount} />
+        ) : (
+          <OverviewRingChart
+            rows={topRows}
+            total={total}
+            maxCount={maxCount}
+            ringStyle={ringStyle}
+            groupCount={rows.length}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function overviewConicGradient(rows: Array<{ key: string; count: number }>) {
+function OverviewRingChart({
+  rows,
+  total,
+  maxCount,
+  ringStyle,
+  groupCount
+}: {
+  rows: OverviewChartRow[];
+  total: number;
+  maxCount: number;
+  ringStyle: React.CSSProperties;
+  groupCount: number;
+}) {
+  return (
+    <>
+      <div className="overview-chart-ring" style={ringStyle}>
+        <span>{groupCount.toLocaleString()}</span>
+        <strong>{total.toLocaleString()}</strong>
+      </div>
+      <OverviewBarList rows={rows} maxCount={maxCount} />
+    </>
+  );
+}
+
+function OverviewRailsChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
+  return (
+    <>
+      <div className="overview-rail-plot" aria-hidden="true">
+        {railRows(rows).map((row, index) => (
+          <span
+            key={`${row.key}-${index}`}
+            style={
+              {
+                "--overview-rail-height":
+                  row.count > 0 ? `${Math.max(12, (row.count / maxCount) * 100)}%` : "6%",
+                "--overview-bar-fill": overviewChartColor(index)
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+      <OverviewBarList rows={rows} maxCount={maxCount} />
+    </>
+  );
+}
+
+function OverviewCellsChart({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
+  return (
+    <>
+      <div className="overview-cell-grid" aria-hidden="true">
+        {cellRows(rows).map((row, index) => (
+          <span
+            key={`${row.key}-${index}`}
+            style={
+              {
+                opacity: row.count > 0 ? Math.max(0.34, row.count / maxCount) : 0.16,
+                background: overviewChartColor(index)
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+      <OverviewBarList rows={rows} maxCount={maxCount} />
+    </>
+  );
+}
+
+function OverviewMeterChart({
+  rows,
+  total,
+  maxCount
+}: {
+  rows: OverviewChartRow[];
+  total: number;
+  maxCount: number;
+}) {
+  return (
+    <div className="overview-meter-chart">
+      <div className="overview-stack-meter" aria-hidden="true">
+        {rows.length === 0 || total <= 0 ? (
+          <i style={{ width: "100%", background: "#d8e4ec" }} />
+        ) : (
+          rows.map((row, index) => (
+            <i
+              key={row.key}
+              style={{
+                width: `${Math.max(6, (row.count / total) * 100)}%`,
+                background: overviewChartColor(index)
+              }}
+            />
+          ))
+        )}
+      </div>
+      <OverviewBarList rows={rows} maxCount={maxCount} />
+    </div>
+  );
+}
+
+function OverviewBarList({ rows, maxCount }: { rows: OverviewChartRow[]; maxCount: number }) {
+  return (
+    <div className="overview-bar-list">
+      {rows.length === 0 ? (
+        <div className="empty-inline">暂无数据</div>
+      ) : (
+        rows.map((row, index) => (
+          <div className="overview-bar-row" key={row.key}>
+            <span>{row.key}</span>
+            <div>
+              <i
+                style={
+                  {
+                    width:
+                      row.count > 0 ? `${Math.max(4, (row.count / maxCount) * 100)}%` : "0%",
+                    "--overview-bar-fill": overviewChartColor(index)
+                  } as React.CSSProperties
+                }
+              />
+            </div>
+            <strong>{row.count.toLocaleString()}</strong>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function railRows(rows: OverviewChartRow[]) {
+  return rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
+}
+
+function cellRows(rows: OverviewChartRow[]) {
+  const fallback = rows.length > 0 ? rows : [{ key: "empty", count: 0 }];
+  return Array.from({ length: 6 }, (_, index) => fallback[index % fallback.length]);
+}
+
+function overviewConicGradient(rows: OverviewChartRow[]) {
   const total = rows.reduce((sum, row) => sum + row.count, 0);
   if (total <= 0) {
     return "conic-gradient(#d8e4ec 0deg 360deg)";
@@ -394,6 +593,15 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   );
 }
 
+function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
+  return (
+    <div className="workspace-card overview-chart-card overview-recent-card">
+      <PanelTitle title="最近 run" meta={`latest ${runs.length}`} />
+      <OverviewRunList runs={runs} />
+    </div>
+  );
+}
+
 function countBy<T>(items: T[], keyForItem: (item: T) => string) {
   const counts = new Map<string, number>();
   for (const item of items) {
@@ -467,10 +675,204 @@ function predictionScaleBucket(predictionCount: number) {
   return "1k+";
 }
 
+function reportScaleBucket(reportCount: number) {
+  if (reportCount <= 0) {
+    return "0";
+  }
+  if (reportCount < 10) {
+    return "1-9";
+  }
+  if (reportCount < 100) {
+    return "10-99";
+  }
+  return "100+";
+}
+
 function runNoteRows(runs: RunSummary[]) {
   return [
     { key: "有备注", count: runs.filter((run) => run.note.trim()).length },
     { key: "无备注", count: runs.filter((run) => !run.note.trim()).length }
+  ];
+}
+
+function timestampFreshnessRows<T>(items: T[], timestampForItem: (item: T) => string | null | undefined) {
+  const timestamps = items
+    .map((item) => {
+      const timestamp = timestampForItem(item);
+      return timestamp ? Date.parse(timestamp) : Number.NaN;
+    })
+    .filter(Number.isFinite);
+  const anchor = timestamps.length > 0 ? new Date(Math.max(...timestamps)) : new Date();
+  return countBy(items, (item) => {
+    const timestamp = timestampForItem(item);
+    const parsed = timestamp ? Date.parse(timestamp) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      return "unknown";
+    }
+    const days = Math.max(0, Math.floor((anchor.getTime() - parsed) / (24 * 60 * 60 * 1_000)));
+    if (days === 0) {
+      return "latest day";
+    }
+    if (days <= 3) {
+      return "1-3d";
+    }
+    if (days <= 7) {
+      return "4-7d";
+    }
+    return "older";
+  });
+}
+
+function promptHashCoverageRows(runs: RunSummary[]) {
+  return [
+    { key: "snapshotted", count: runs.filter((run) => Boolean(run.prompt_hash)).length },
+    { key: "missing", count: runs.filter((run) => !run.prompt_hash).length }
+  ];
+}
+
+function runModelSourceRows(runs: RunSummary[]) {
+  return countBy(runs, (run) => {
+    const path = run.model_path.trim();
+    if (!path) {
+      return "missing";
+    }
+    if (path.startsWith("/") || path.startsWith(".")) {
+      return "local";
+    }
+    if (/^[\w.-]+\/[\w.-]+/.test(path)) {
+      return "hub";
+    }
+    return "custom";
+  });
+}
+
+function benchmarkSourceCoverageRows(
+  benchmarks: Array<{ source_manifest_path: string | null }>
+) {
+  return [
+    {
+      key: "source manifest",
+      count: benchmarks.filter((benchmark) => Boolean(benchmark.source_manifest_path)).length
+    },
+    {
+      key: "direct",
+      count: benchmarks.filter((benchmark) => !benchmark.source_manifest_path).length
+    }
+  ];
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : "unknown";
+}
+
+function inferenceString(inference: Record<string, unknown>, key: string) {
+  const value = inference[key];
+  if (value === null || value === undefined || value === "") {
+    return "unset";
+  }
+  return String(value);
+}
+
+function inferenceNumber(inference: Record<string, unknown>, key: string) {
+  const value = inference[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function sizeBucket(value: number | null) {
+  if (value === null) {
+    return "unset";
+  }
+  if (value <= 0) {
+    return "0";
+  }
+  if (value === 1) {
+    return "1";
+  }
+  if (value === 2) {
+    return "2";
+  }
+  if (value <= 4) {
+    return "3-4";
+  }
+  return "5+";
+}
+
+function tokenBudgetBucket(value: number | null) {
+  if (value === null) {
+    return "unset";
+  }
+  if (value < 1_024) {
+    return "<1k";
+  }
+  if (value < 4_096) {
+    return "1k-4k";
+  }
+  if (value === 4_096) {
+    return "4k";
+  }
+  return ">4k";
+}
+
+function pixelBudgetBucket(value: number | null) {
+  if (value === null) {
+    return "unset";
+  }
+  if (value < 1_000_000) {
+    return "<1MP";
+  }
+  if (value < 4_000_000) {
+    return "1-4MP";
+  }
+  return "4MP+";
+}
+
+function rateBucket(value: number | null) {
+  if (value === null) {
+    return "unset";
+  }
+  if (value <= 0) {
+    return "0";
+  }
+  if (value < 0.5) {
+    return "0-0.5";
+  }
+  if (value < 1) {
+    return "0.5-1";
+  }
+  return "1";
+}
+
+function cudaDeviceBucket(inference: Record<string, unknown>) {
+  const value = inference.cuda_visible_devices;
+  if (typeof value !== "string" || !value.trim()) {
+    return "unset";
+  }
+  const count = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+  return `${count} cuda`;
+}
+
+function runtimeHealthRows(items: Array<{ status: string; error: string | null }>) {
+  return [
+    { key: "error", count: items.filter((item) => Boolean(item.error)).length },
+    {
+      key: "failed",
+      count: items.filter((item) => !item.error && item.status === "failed").length
+    },
+    {
+      key: "clean",
+      count: items.filter((item) => !item.error && item.status !== "failed").length
+    }
   ];
 }
 
@@ -485,6 +887,18 @@ function schedulerResourceRows(status: SchedulerStatus | undefined) {
     { key: "workers", count: status.active_worker_threads?.length ?? 0 },
     { key: "cuda", count: status.reserved_cuda_devices?.length ?? 0 },
     { key: "ports", count: status.reserved_runtime_ports?.length ?? 0 }
+  ];
+}
+
+function schedulerLoopStateRows(status: SchedulerStatus | undefined) {
+  if (!status) {
+    return [{ key: "unknown", count: 1 }];
+  }
+  return [
+    { key: status.enabled ? "enabled" : "disabled", count: 1 },
+    { key: status.loop_alive ? "loop alive" : "loop idle", count: 1 },
+    { key: "capacity", count: status.max_concurrent_jobs ?? 0 },
+    { key: "interval", count: Math.round(status.interval_s ?? 0) }
   ];
 }
 
