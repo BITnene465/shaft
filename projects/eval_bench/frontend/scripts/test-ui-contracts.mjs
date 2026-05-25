@@ -204,17 +204,17 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v7") &&
-    overviewPage.includes("overview-home-shell") &&
+  overviewPage.includes("overview-home-v8") &&
+    overviewPage.includes("overview-command-center") &&
     overviewPage.includes("overview-priority-stage") &&
     overviewPage.includes("overview-command-rail") &&
     overviewPage.includes("overview-workbench") &&
     overviewPage.includes("overview-ops-surface") &&
-    overviewPage.includes("OverviewHeroMap") &&
-    overviewPage.includes("overview-orbit-map") &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewPipeline") &&
-    overviewPage.includes("OverviewReadinessPanel") &&
+    overviewPage.includes("overview-decision-strip") &&
+    overviewPage.includes("overview-impact-strip") &&
+    overviewPage.includes("OverviewReadinessList") &&
     overviewPage.includes("overviewReadinessItems") &&
     overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("overviewRecentRuns(data.runs") &&
@@ -223,9 +223,15 @@ assert(
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-operational-grid") &&
-    overviewPage.includes("overview-right-rail") &&
+    overviewPage.includes("overview-action-list") &&
     !overviewPage.includes("overview-home-v6") &&
+    !overviewPage.includes("overview-home-v7") &&
     !overviewPage.includes("overview-command-center-redesign") &&
+    !overviewPage.includes("OverviewHeroMap") &&
+    !overviewPage.includes("overview-orbit-map") &&
+    !overviewPage.includes("OverviewReadinessPanel") &&
+    !overviewPage.includes("overview-right-rail") &&
+    !overviewPage.includes("overview-action-panel") &&
     !overviewPage.includes("overview-hero-route") &&
     !overviewPage.includes("OverviewSignalStrip") &&
     !overviewPage.includes("overview-signal-strip") &&
@@ -247,7 +253,7 @@ assert(
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 assert(
-  styleSource.includes("Overview v7: action-first home cockpit") &&
+  styleSource.includes("Overview v8: decision-first command surface") &&
     styleSource.includes("@keyframes overview-flow-sweep") &&
     styleSource.includes("@keyframes overview-live-breathe") &&
     styleSource.includes("@keyframes overview-card-float") &&

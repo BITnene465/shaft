@@ -15,8 +15,8 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v7",
-      ".overview-home-shell",
+      ".overview-home-v8",
+      ".overview-command-center",
       ".overview-priority-stage",
       ".overview-command-rail",
       ".overview-workbench",
@@ -26,8 +26,7 @@ const staticRoutes = [
       ".overview-operational-grid",
       ".overview-signal-stack",
       ".overview-signal-card",
-      ".overview-action-panel",
-      ".overview-right-rail",
+      ".overview-action-list",
       ".overview-recent-card"
     ]
   },
@@ -485,11 +484,11 @@ async function assertOverviewDensity(page, scope) {
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
     const commandDeck = document.querySelector(".overview-workbench");
-    const homeShell = document.querySelector(".overview-home-shell");
+    const commandCenter = document.querySelector(".overview-command-center");
     const priorityStage = document.querySelector(".overview-priority-stage");
     const commandRail = document.querySelector(".overview-command-rail");
     const focusPanel = document.querySelector(".overview-ops-surface");
-    const actionPanel = document.querySelector(".overview-action-panel");
+    const actionList = document.querySelector(".overview-action-list");
     const recentCard = document.querySelector(".overview-recent-card");
     const operationalGrid = document.querySelector(".overview-operational-grid");
     const nextAction = document.querySelector(".overview-next-action");
@@ -498,13 +497,14 @@ async function assertOverviewDensity(page, scope) {
     );
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-priority-stage, .overview-command-rail, .overview-ops-surface, .overview-action-panel, .overview-recent-card"
+        ".overview-priority-stage, .overview-command-rail, .overview-ops-surface, .overview-action-list, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
-    const homeShellStyle = homeShell ? getComputedStyle(homeShell) : null;
+    const commandCenterStyle = commandCenter ? getComputedStyle(commandCenter) : null;
     const priorityStageStyle = priorityStage ? getComputedStyle(priorityStage) : null;
     const commandRailStyle = commandRail ? getComputedStyle(commandRail) : null;
     const commandDeckStyle = commandDeck ? getComputedStyle(commandDeck) : null;
+    const actionListStyle = actionList ? getComputedStyle(actionList) : null;
     const operationalGridStyle = operationalGrid ? getComputedStyle(operationalGrid) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
@@ -522,8 +522,8 @@ async function assertOverviewDensity(page, scope) {
       recentRows,
       recentCards: document.querySelectorAll(".overview-workbench .overview-recent-card").length,
       focusPanels: document.querySelectorAll(".overview-workbench .overview-ops-surface").length,
-      priorityStages: document.querySelectorAll(".overview-home-shell .overview-priority-stage").length,
-      commandRails: document.querySelectorAll(".overview-home-shell .overview-command-rail").length,
+      priorityStages: document.querySelectorAll(".overview-command-center .overview-priority-stage").length,
+      commandRails: document.querySelectorAll(".overview-command-center .overview-command-rail").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
       legacyActivityMatrix: document.querySelectorAll(".overview-activity-matrix").length,
@@ -532,17 +532,18 @@ async function assertOverviewDensity(page, scope) {
       ).length,
       bodyText,
       focusPanelHeight: focusPanel ? Math.round(focusPanel.getBoundingClientRect().height) : 0,
-      actionPanelHeight: actionPanel ? Math.round(actionPanel.getBoundingClientRect().height) : 0,
+      actionListHeight: actionList ? Math.round(actionList.getBoundingClientRect().height) : 0,
       recentCardHeight: recentCard ? Math.round(recentCard.getBoundingClientRect().height) : 0,
       priorityStageHeight: priorityStage ? Math.round(priorityStage.getBoundingClientRect().height) : 0,
       commandRailHeight: commandRail ? Math.round(commandRail.getBoundingClientRect().height) : 0,
       commandDeckHeight: commandDeck ? Math.round(commandDeck.getBoundingClientRect().height) : 0,
       commandDeckScrollHeight: commandDeck?.scrollHeight ?? 0,
       commandDeckClientHeight: commandDeck?.clientHeight ?? 0,
-      homeShellDisplay: homeShellStyle?.display ?? "",
+      commandCenterDisplay: commandCenterStyle?.display ?? "",
       priorityStageDisplay: priorityStageStyle?.display ?? "",
       commandRailDisplay: commandRailStyle?.display ?? "",
       commandDeckDisplay: commandDeckStyle?.display ?? "",
+      actionListDisplay: actionListStyle?.display ?? "",
       operationalGridDisplay: operationalGridStyle?.display ?? "",
       nextActionTransition: nextActionStyle?.transitionDuration ?? "",
       commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
@@ -560,18 +561,20 @@ async function assertOverviewDensity(page, scope) {
     );
   }
   if (
-    state.homeShellDisplay !== "flex" ||
+    state.commandCenterDisplay !== "flex" ||
     state.priorityStageDisplay !== "flex" ||
     state.commandRailDisplay !== "flex" ||
     state.commandDeckDisplay !== "flex" ||
+    !["grid", "flex"].includes(state.actionListDisplay) ||
     state.operationalGridDisplay !== "flex"
   ) {
     throw new Error(
       `${scope}: overview should use a two-column cockpit with compact signals ${JSON.stringify({
-        homeShellDisplay: state.homeShellDisplay,
+        commandCenterDisplay: state.commandCenterDisplay,
         priorityStageDisplay: state.priorityStageDisplay,
         commandRailDisplay: state.commandRailDisplay,
         commandDeckDisplay: state.commandDeckDisplay,
+        actionListDisplay: state.actionListDisplay,
         operationalGridDisplay: state.operationalGridDisplay
       })}`
     );
@@ -613,7 +616,7 @@ async function assertOverviewDensity(page, scope) {
     state.priorityStageHeight < 180 ||
     state.commandRailHeight < 120 ||
     state.focusPanelHeight < 180 ||
-    state.actionPanelHeight < 120 ||
+    state.actionListHeight < 120 ||
     state.recentCardHeight < 120
   ) {
     throw new Error(
@@ -621,7 +624,7 @@ async function assertOverviewDensity(page, scope) {
         priorityStageHeight: state.priorityStageHeight,
         commandRailHeight: state.commandRailHeight,
         focusPanelHeight: state.focusPanelHeight,
-        actionPanelHeight: state.actionPanelHeight,
+        actionListHeight: state.actionListHeight,
         recentCardHeight: state.recentCardHeight
       })}`
     );

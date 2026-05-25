@@ -220,9 +220,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 priority stage、hero next action、四个可行动信号和 pipeline progress rail 服务“当前是否可用、
-  卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持一个 operations surface、
-  readiness switchboard 和最近 run 紧凑摘要组成的 home cockpit。顶部 priority stage 只能承载当前系统态、
-  同步状态、benchmark -> run -> report 路线图和当前优先动作，不能回流二级诊断。右侧 command rail 固定展示覆盖、
+  卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持
+  v8 decision surface：顶部两列只放 priority stage 和 command rail，底部只放一个 operations surface 与最近 run 紧凑摘要。
+  顶部 priority stage 只能承载当前系统态、同步状态、关键规模、benchmark -> run -> report -> rank board 流线和当前优先动作，
+  不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。右侧 command rail 固定展示覆盖、
   待评、队列和服务四个可点击入口；不再单独常驻阻塞优先级面板，卡点应体现在当前主动作和可点击状态入口中。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
   必须按 `created_at` 倒序截取，且只展示 benchmark/model 与 prediction/report 数量，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把

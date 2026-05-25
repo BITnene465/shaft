@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 首页 v7 仍像低价值面板堆叠
+
+### 现象
+
+总览页已经从旧图表墙收敛成 home cockpit，但 v7 仍把 orbit 装饰、流程面板、行动入口和最近 run 分成多块陈列。
+用户视角下首屏没有形成“现在该做什么”的强主线，页面虽然压缩了信息密度，但仍像状态卡堆叠，缺少可感知的交互层级。
+
+### 根因
+
+上一轮只约束了“哪些低价值面板不能回流”，没有继续约束首页只能服务三个决策问题：当前是否可用、管线卡在哪里、
+下一步去哪。`OverviewHeroMap` 只表达装饰性的四节点关系，和下方真实 pipeline 重复；readiness panel 又套在
+右侧 rail 中，导致空间层级被组件容器而不是操作价值决定。
+
+### 影响范围
+
+- 影响 Dashboard 总览页的信息价值、空间分配和 hover/动效反馈。
+- 不改变 eval、codec、metric、rank-board、job、service 或数据语义；这不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v8` decision surface：顶部两列只保留 priority stage 和 command rail，底部只保留
+  operations surface 与最近 run 摘要。
+- 删除 `OverviewHeroMap` / orbit 装饰，把四段 benchmark -> prediction -> report -> rank board 流线直接放进
+  priority stage，避免重复展示流程。
+- readiness switchboard 直接成为 operations surface 的主体，不再额外套 `overview-action-panel` 和右侧 rail。
+- 增加 `overview-decision-strip`、`overview-impact-strip`、pipeline stage hover、signal hover、action hover 和同步 pill
+  动效，让交互感来自可点击入口和实时状态，而不是装饰动画。
+- README、架构文档、脚本文档、UI contract 和 layout smoke 同步 v8 结构边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 新增模块必须先证明服务“当前是否可用 / 管线卡在哪里 / 下一步去哪”之一；不能新增只占空间的诊断面板或装饰关系图。
+- 首页动效只能绑定在同步状态、可点击入口、进度轨和 hover 反馈上，不能改变数据语义或造成布局抖动。
+
 ## 2026-05-25: Eval Bench 表格图标导航链接仍手写 icon-button
 
 ### 现象

@@ -212,8 +212,8 @@ export function OverviewPage() {
   const recentRuns = overviewRecentRuns(data.runs, 2);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v7">
-      <div className="overview-home-shell">
+    <section className="page-stack dashboard-home overview-home-v8">
+      <div className="overview-command-center">
         <section className={`overview-priority-stage ${nextAction.tone}`}>
           <div className="overview-priority-copy">
             <div className="overview-kicker-row">
@@ -225,9 +225,25 @@ export function OverviewPage() {
             </div>
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
-            <OverviewNextAction action={nextAction} />
+            <div className="overview-decision-strip">
+              <OverviewNextAction action={nextAction} />
+              <div className="overview-impact-strip" aria-label="首页关键规模">
+                <span>
+                  <b>{data.total_benchmark_samples.toLocaleString()}</b>
+                  samples
+                </span>
+                <span>
+                  <b>{runsWithPredictions.toLocaleString()}</b>
+                  ready runs
+                </span>
+                <span>
+                  <b>{activeQueue.toLocaleString()}</b>
+                  active jobs
+                </span>
+              </div>
+            </div>
           </div>
-          <OverviewHeroMap stages={pipelineStages} />
+          <OverviewPipeline stages={pipelineStages} />
         </section>
 
         <aside className="overview-command-rail" aria-label="首页核心状态">
@@ -253,38 +269,17 @@ export function OverviewPage() {
         <section className="overview-ops-surface">
           <div className="overview-section-head">
             <div>
-              <span>Evaluation Flow</span>
-              <h3>评测流向</h3>
+              <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
+              <h3>行动入口</h3>
             </div>
             <strong>{coveragePercent}% complete</strong>
           </div>
-          <OverviewPipeline stages={pipelineStages} />
+          <OverviewReadinessList items={readinessItems} />
         </section>
 
-        <aside className="overview-right-rail">
-          <OverviewReadinessPanel schedulerEnabled={schedulerEnabled} items={readinessItems} />
-          <OverviewRecentRunsPanel runs={recentRuns} />
-        </aside>
+        <OverviewRecentRunsPanel runs={recentRuns} />
       </div>
     </section>
-  );
-}
-
-function OverviewHeroMap({ stages }: { stages: OverviewPipelineStage[] }) {
-  return (
-    <div className="overview-orbit-map" aria-hidden="true">
-      <div className="overview-orbit-track" />
-      {stages.map((stage, index) => (
-        <span
-          className={`overview-orbit-node ${stage.tone}`}
-          key={stage.label}
-          style={{ animationDelay: `${index * 140}ms` }}
-        >
-          <i />
-          <b>{String(index + 1).padStart(2, "0")}</b>
-        </span>
-      ))}
-    </div>
   );
 }
 
@@ -359,37 +354,23 @@ function OverviewPipeline({ stages }: { stages: OverviewPipelineStage[] }) {
   );
 }
 
-function OverviewReadinessPanel({
-  schedulerEnabled,
-  items
-}: {
-  schedulerEnabled: boolean;
-  items: OverviewReadinessItem[];
-}) {
+function OverviewReadinessList({ items }: { items: OverviewReadinessItem[] }) {
   return (
-    <section className="workspace-card overview-action-panel">
-      <div className="overview-section-head compact">
-        <div>
-          <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
-          <h3>行动入口</h3>
-        </div>
-      </div>
-      <div className="overview-action-list">
-        {items.map((item) => (
-          <Link className={`overview-action-link ${item.tone}`} to={item.to} key={item.label}>
-            <span>{item.icon}</span>
-            <div>
-              <strong>{item.label}</strong>
-              <em>{item.detail}</em>
-              <div className="overview-action-meter" aria-hidden="true">
-                <i style={{ width: `${trackPercent(item.value, item.total)}%` }} />
-              </div>
+    <div className="overview-action-list">
+      {items.map((item) => (
+        <Link className={`overview-action-link ${item.tone}`} to={item.to} key={item.label}>
+          <span>{item.icon}</span>
+          <div>
+            <strong>{item.label}</strong>
+            <em>{item.detail}</em>
+            <div className="overview-action-meter" aria-hidden="true">
+              <i style={{ width: `${trackPercent(item.value, item.total)}%` }} />
             </div>
-            <b>{item.state}</b>
-          </Link>
-        ))}
-      </div>
-    </section>
+          </div>
+          <b>{item.state}</b>
+        </Link>
+      ))}
+    </div>
   );
 }
 
