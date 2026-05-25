@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Agent 命令只能全量发现不能单条查询
+
+### 现象
+
+Agent 可以通过 `list-agent-commands` 获取完整稳定命令面，但如果只想执行某个命令，例如 `rank-board`
+或 `append-run-note`，仍需要拉取全量列表后自行过滤。随着 CLI 命令数量增加，这会增加上下文噪声，
+也让 agent 更容易从自然语言 help 或旧缓存里拼 argv。
+
+### 根因
+
+前期只实现了“全量枚举稳定命令”的发现入口，没有把单条命令契约抽成可复用 helper 和 CLI 子命令。
+`list-agent-commands` 内部直接拼装契约，导致没有一个可被单命令查询复用的真源。
+
+### 影响范围
+
+- 影响 agent 在低上下文预算下查询单个命令参数、互斥组和副作用标记。
+- 不影响 Dashboard 前端、eval/codec/metric/data 语义或已有 CLI 命令执行结果。
+- 这不是模型能力问题，也不是评估误判；属于 agent CLI 契约可发现性问题。
+
+### 修复方式
+
+- 新增稳定 CLI：`show-agent-command --name <command>`，输出单条命令的 `domain`、`mutates_state`、
+  `destructive`、`usage`、`argv_prefix`、`arguments` 和 `mutually_exclusive_groups`。
+- 将 agent 命令契约生成收敛到 `_agent_command_contracts()` / `_agent_command_contract()`，
+  `list-agent-commands` 和 `show-agent-command` 复用同一套 argparse-derived schema。
+- 将 `show-agent-command` 登记进 `AGENT_COMMAND_METADATA` 和 `_command_handlers()`。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增稳定 agent 命令后，必须同时能被 `list-agent-commands` 枚举，并能被 `show-agent-command --name`
+  单条查询；不要让 agent 从自然语言 help 或前端状态猜参数。
+
 ## 2026-05-25: Eval Bench 弹窗只统一了外壳但没有统一焦点和滚动语义
 
 ### 现象

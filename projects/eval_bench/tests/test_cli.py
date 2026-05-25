@@ -45,6 +45,7 @@ from eval_bench.cli import (
     _cmd_append_run_note,
     _cmd_show_benchmark,
     _cmd_show_benchmark_sample,
+    _cmd_show_agent_command,
     _cmd_show_comparison,
     _cmd_show_comparison_sample,
     _cmd_show_job,
@@ -112,6 +113,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
     assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
+    assert "show-agent-command" in command_names
     assert "init-run" in command_names
     assert "validate-prediction" in command_names
     assert "process-next-job" in command_names
@@ -162,6 +164,13 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["compare-runs"]["mutates_state"] is True
     assert commands_by_name["list-agent-commands"]["domain"] == "meta"
     assert commands_by_name["list-agent-commands"]["arguments"] == []
+    assert commands_by_name["show-agent-command"]["domain"] == "meta"
+    assert commands_by_name["show-agent-command"]["mutates_state"] is False
+    show_agent_args = {
+        item["dest"]: item for item in commands_by_name["show-agent-command"]["arguments"]
+    }
+    assert show_agent_args["name"]["required"] is True
+    assert "rank-board" in show_agent_args["name"]["choices"]
 
     create_benchmark_args = {
         item["dest"]: item for item in commands_by_name["create-benchmark"]["arguments"]
@@ -215,6 +224,28 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert import_args["target_labels"]["action"] == "append"
     assert import_args["target_labels"]["repeatable"] is True
     assert import_args["skip_evaluate"]["action"] == "store_true"
+
+
+def test_cli_shows_single_agent_command_contract(capsys) -> None:
+    args = _build_parser().parse_args(["show-agent-command", "--name", "rank-board"])
+    _cmd_show_agent_command(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
+    command = payload["command"]
+    assert command["name"] == "rank-board"
+    assert command["domain"] == "rank"
+    assert command["mutates_state"] is False
+    assert command["destructive"] is False
+    assert command["argv_prefix"] == ["scripts/eval_bench.py", "rank-board"]
+    assert "rank-board" in command["usage"]
+    args_by_dest = {item["dest"]: item for item in command["arguments"]}
+    assert args_by_dest["sort_by"]["default"] == "f1_iou50"
+    assert "weighted_score" in args_by_dest["sort_by"]["choices"]
+    assert {
+        tuple(group["arguments"]): group["required"]
+        for group in command["mutually_exclusive_groups"]
+    } == {("rank_scheme_json", "rank_scheme_file"): False}
 
 
 def _write_sample_store(tmp_path: Path) -> None:

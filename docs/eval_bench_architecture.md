@@ -185,11 +185,11 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
   `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、
-  `list-jobs`、`show-job`、`process-next-job`、`list-services`、`show-service`、
+  `show-agent-command`、`list-jobs`、`show-job`、`process-next-job`、`list-services`、`show-service`、
   `list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
   读取前端状态、SQLite 或扫描 artifact 目录。CLI parser 暴露的每个子命令必须登记到 `_command_handlers()`，
   agent 稳定命令必须登记到 `AGENT_COMMAND_METADATA` 并可由 `list-agent-commands` 发现；metadata 需要声明
-  `domain` 和 `mutates_state`，删除、归档、取消、停止这类危险生命周期命令还必须进入
+  `domain` 和 `mutates_state`，并能通过 `show-agent-command --name <command>` 读取单条命令契约；删除、归档、取消、停止这类危险生命周期命令还必须进入
   `AGENT_DESTRUCTIVE_COMMANDS` 并在命令发现输出中标记 `destructive`；命令发现输出还必须包含顶层 `recommended_runner`、每条命令的
   `argv_prefix`、稳定单行 `usage`，参数 schema 从 argparse parser 自动导出为 `arguments` 和
   `mutually_exclusive_groups`，`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由

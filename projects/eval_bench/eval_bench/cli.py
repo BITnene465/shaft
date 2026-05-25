@@ -11,6 +11,7 @@ from .artifacts import DEFAULT_STORE_ROOT
 
 AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "list-agent-commands": {"domain": "meta", "mutates_state": False},
+    "show-agent-command": {"domain": "meta", "mutates_state": False},
     "create-benchmark": {"domain": "benchmark", "mutates_state": True},
     "init-run": {"domain": "run", "mutates_state": True},
     "validate-prediction": {"domain": "prediction", "mutates_state": False},
@@ -158,6 +159,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "list-agent-commands",
         help="List stable agent CLI commands.",
     )
+
+    show_agent_command = subparsers.add_parser(
+        "show-agent-command",
+        help="Print one stable agent CLI command contract.",
+    )
+    show_agent_command.add_argument("--name", choices=sorted(AGENT_STABLE_COMMANDS), required=True)
 
     scheduler_status = subparsers.add_parser(
         "scheduler-status",
@@ -717,24 +724,7 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
 
 def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     del args
-    parser = _build_parser()
-    command_help = _parser_command_help(parser)
-    command_arguments = _parser_command_arguments(parser)
-    command_usage = _parser_command_usage(parser)
-    commands = [
-        {
-            "name": name,
-            "domain": AGENT_COMMAND_METADATA[name]["domain"],
-            "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
-            "destructive": name in AGENT_DESTRUCTIVE_COMMANDS,
-            "help": command_help.get(name, ""),
-            "usage": command_usage.get(name, ""),
-            "argv_prefix": ["scripts/eval_bench.py", name],
-            "arguments": command_arguments[name]["arguments"],
-            "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
-        }
-        for name in sorted(AGENT_STABLE_COMMANDS)
-    ]
+    commands = _agent_command_contracts()
     print(
         json.dumps(
             {
@@ -745,6 +735,18 @@ def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
                 "domains": sorted({str(command["domain"]) for command in commands}),
                 "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
                 "commands": commands,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def _cmd_show_agent_command(args: argparse.Namespace) -> None:
+    print(
+        json.dumps(
+            {
+                "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
+                "command": _agent_command_contract(str(args.name)),
             },
             ensure_ascii=False,
         )
@@ -1570,6 +1572,54 @@ def _parser_command_arguments(parser: argparse.ArgumentParser) -> dict[str, dict
     }
 
 
+def _agent_command_contracts() -> list[dict[str, object]]:
+    parser = _build_parser()
+    command_help = _parser_command_help(parser)
+    command_arguments = _parser_command_arguments(parser)
+    command_usage = _parser_command_usage(parser)
+    return [
+        _agent_command_contract_from_maps(
+            name,
+            command_help=command_help,
+            command_arguments=command_arguments,
+            command_usage=command_usage,
+        )
+        for name in sorted(AGENT_STABLE_COMMANDS)
+    ]
+
+
+def _agent_command_contract(name: str) -> dict[str, object]:
+    parser = _build_parser()
+    return _agent_command_contract_from_maps(
+        name,
+        command_help=_parser_command_help(parser),
+        command_arguments=_parser_command_arguments(parser),
+        command_usage=_parser_command_usage(parser),
+    )
+
+
+def _agent_command_contract_from_maps(
+    name: str,
+    *,
+    command_help: dict[str, str],
+    command_arguments: dict[str, dict[str, object]],
+    command_usage: dict[str, str],
+) -> dict[str, object]:
+    if name not in AGENT_STABLE_COMMANDS:
+        raise ValueError(f"unknown stable agent command: {name}")
+    return {
+        "name": name,
+        "domain": AGENT_COMMAND_METADATA[name]["domain"],
+        "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
+        "destructive": name in AGENT_DESTRUCTIVE_COMMANDS,
+        "help": command_help.get(name, ""),
+        "usage": command_usage.get(name, ""),
+        "argv_prefix": ["scripts/eval_bench.py", name],
+        "arguments": command_arguments[name]["arguments"],
+        "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
+    }
+
+
 def _argument_schema(action: argparse.Action) -> dict[str, object]:
     flags = list(action.option_strings)
     positional = not flags
@@ -1662,6 +1712,7 @@ def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
         "serve-dashboard": _cmd_serve_dashboard,
         "dashboard-state": _cmd_dashboard_state,
         "list-agent-commands": _cmd_list_agent_commands,
+        "show-agent-command": _cmd_show_agent_command,
         "scheduler-status": _cmd_scheduler_status,
         "backend-logs": _cmd_backend_logs,
         "preflight-job": _cmd_preflight_job,
