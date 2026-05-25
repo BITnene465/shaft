@@ -294,6 +294,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 - Dashboard 启动时会启动 Eval Bench orchestrator，自动扫描 queued eval job；它会根据 live running job 数、`cuda_visible_devices`、ephemeral runtime 端口和 `tensor_parallel_size` 判断资源是否足够，资源不冲突的 job 可并发启动。已请求取消但 worker/runtime 仍存活的 job 仍由 `job_lifecycle.py` 视为资源占用。默认并发上限为 2，可通过 `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS` 调整；扫描间隔可通过 `EVAL_BENCH_SCHEDULER_INTERVAL_S` 调整
 - 当前 worker 支持 manifest-driven `eval_job`：claim queued job 后解析 manifest，按 `runtime.mode` 启动一次性 vLLM runtime 或连接已有 service，再写入 `runs/<run_id>/run.json`
 - job 创建支持模板 + 自由 JSON manifest。默认 `eval_job` 模板是箭头检测，layout 检测保留为 `layout_eval_job`，箭头关键点评估保留为 `keypoint_eval_job`。Dashboard 的 Jobs 页提供 `Validate` preflight，会检查 benchmark/model/task/prompt/target labels，展示 vLLM 启动命令，并把未知 `runtime.args` 保留为 CLI flags
+- CLI 和 Dashboard 的 `create-job` / `/api/jobs` 必须复用同一套 preflight；非阻塞 warning 会写入 job metadata 的
+  `preflight_warnings`，方便 agent 后续通过 `list-jobs` / `dashboard-state` 排查风险。
 - Dashboard 主页面不再使用嵌套 tab 承载低频表单；新建评测、创建 benchmark、导入 prediction snapshot 和登记 service 都通过临时弹层打开，主页面只保留队列、目录、结果和服务状态。
 - Dashboard 业务图标库位于 `projects/eval_bench/frontend/public/icons/eval-bench/`，由 image_gen 母版裁剪得到；运行时统一通过 `iconLibrary.tsx` 使用，通用工具动作仍保留矢量图标。
 - prompt template registry 的 repo 内置项会随代码启动刷新；用户从 dashboard 保存过的自定义 prompt 不会被内置 seed 覆盖。应用 prompt 时会同步写入或清空 `target_labels`，避免从 layout prompt 切换到 arrow prompt 后仍沿用 `icon/image/shape`

@@ -240,6 +240,48 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert client.get("/api/state").json()["run_count"] == 2
 
 
+def test_dashboard_create_job_persists_preflight_warnings(tmp_path: Path) -> None:
+    model_path = tmp_path / "models" / "model-a" / "best"
+    model_path.mkdir(parents=True)
+    _write_json(
+        tmp_path / "benchmarks" / "bench_no_labels" / "benchmark.json",
+        {
+            "benchmark_id": "bench_no_labels",
+            "tasks": ["detection"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench_no_labels" / "data"),
+            "manifest_path": str(
+                tmp_path / "benchmarks" / "bench_no_labels" / "splits" / "val.txt"
+            ),
+        },
+    )
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    warning_job = client.post(
+        "/api/jobs",
+        json={
+            "kind": "eval",
+            "model_id": "model-a",
+            "model_path": str(model_path),
+            "benchmark_id": "bench_no_labels",
+            "task": "detection",
+            "prompt_id": "grounding_layout.latest",
+            "target_labels": ["icon"],
+            "max_tokens": 4096,
+        },
+    )
+
+    assert warning_job.status_code == 201
+    payload = warning_job.json()
+    assert payload["payload"]["target_labels"] == ["icon"]
+    assert any(
+        "target_labels could not be preflight-validated" in item
+        for item in payload["metadata"]["preflight_warnings"]
+    )
+
+
 def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "runs" / "run1" / "run.json",

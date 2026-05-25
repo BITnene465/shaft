@@ -181,6 +181,13 @@ def preflight_job_payload(
     }
 
 
+def preflight_job_metadata(preflight: Mapping[str, Any]) -> dict[str, Any]:
+    warnings = preflight.get("warnings")
+    if not isinstance(warnings, list) or not warnings:
+        return {}
+    return {"preflight_warnings": [str(item) for item in warnings]}
+
+
 def _manifest_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     manifest = payload.get("manifest")
     if isinstance(manifest, dict):

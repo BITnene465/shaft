@@ -1093,6 +1093,69 @@ def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> N
     )
 
 
+def test_cli_create_job_persists_preflight_warnings(tmp_path: Path, capsys) -> None:
+    model_path = tmp_path / "models" / "model-a"
+    _write_json(model_path / "config.json", {"num_attention_heads": 4})
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    payload_path = tmp_path / "job.json"
+    _write_json(
+        payload_path,
+        {
+            "manifest": {
+                "kind": "eval_job",
+                "runtime": {
+                    "mode": "ephemeral",
+                    "engine": "vllm_openai",
+                    "env": {"CUDA_VISIBLE_DEVICES": "0"},
+                    "args": {
+                        "model": str(model_path),
+                        "served-model-name": "model-a",
+                        "host": "127.0.0.1",
+                        "tensor-parallel-size": 1,
+                        "trust-remote-code": True,
+                    },
+                },
+                "eval": {
+                    "model_id": "model-a",
+                    "benchmark_id": "bench1",
+                    "task": "detection",
+                    "prompt_id": "grounding_arrow.latest",
+                    "target_labels": ["arrow"],
+                },
+            }
+        },
+    )
+
+    create_args = _build_parser().parse_args(
+        [
+            "create-job",
+            "--output-root",
+            str(tmp_path),
+            "--payload-file",
+            str(payload_path),
+        ]
+    )
+    _cmd_create_job(create_args)
+    job = json.loads(capsys.readouterr().out)
+
+    assert job["status"] == "queued"
+    assert job["payload"]["target_labels"] == ["arrow"]
+    assert any(
+        "target_labels could not be preflight-validated" in item
+        for item in job["metadata"]["preflight_warnings"]
+    )
+
+
 def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
     register_args = _build_parser().parse_args(
         [

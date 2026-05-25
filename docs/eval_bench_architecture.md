@@ -162,7 +162,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用
-  `preflight-job` 校验，再用 `create-job` 入队，不能直接写 SQLite job record。
+  `preflight-job` 校验，再用 `create-job` 入队，不能直接写 SQLite job record。`create-job` 和
+  `/api/jobs` 必须持久化非阻塞 `preflight_warnings`，避免 agent 只能从一次性 stdout 中看到风险提示。
 - 新增 agent 生命周期入口：CLI 必须优先复用 `EvalBenchStore`、`EvalBenchDatabase`、`EvalBenchServiceManager`
   和 `log_utils.py`；不能让 agent 直接改 run manifest、SQLite、service 目录或 runtime log 路径。
 - 新增 job 状态：先更新 `job_lifecycle.py`，再更新 database、orchestrator、dashboard、status model 和测试。

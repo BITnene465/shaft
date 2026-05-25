@@ -3073,9 +3073,11 @@ target label scope 的真源在 `label_policy.py`，但 preflight 没有把 reso
 
 - `preflight_job_payload()` 在 benchmark manifest 可读时校验 task 是否属于 benchmark tasks。
 - `preflight_job_payload()` 在 benchmark label index 非空时拒绝未知 `target_labels`，并在 label index 缺失时给出 warning。
+- CLI `create-job` 和 Dashboard `/api/jobs` 复用 preflight 后，将非阻塞 warning 写入 job metadata 的
+  `preflight_warnings`，避免 agent 只在一次性 preflight 输出里看到风险。
 - `manifestTools.ts` 应用 prompt template 时把 prompt metadata label 标记为 `target_labels_source=prompt_metadata`；
   用户手动修改 label 时标记为 `explicit`，清空 label 时同时清除 source，让后端重新走默认 policy。
-- CLI、Dashboard API 和 manifest tools 均补充 focused 测试。
+- CLI、Dashboard API 和 manifest tools 均补充 focused 测试，覆盖 unknown label 拒绝和 warning 持久化。
 
 ### 回归测试
 

@@ -23,7 +23,12 @@ from .benchmark import create_benchmark_from_raw_data
 from .comparison import compare_runs, filter_comparison_reports, list_comparison_reports
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
-from .job_spec import job_templates, preflight_job_payload, resolve_job_payload
+from .job_spec import (
+    job_templates,
+    preflight_job_metadata,
+    preflight_job_payload,
+    resolve_job_payload,
+)
 from .job_lifecycle import job_holds_scheduler_resources
 from .log_utils import job_runtime_log_path, tail_text_lines
 from .orchestrator import EvalBenchOrchestrator
@@ -1245,6 +1250,7 @@ def create_app(
                 **dict(preflight.get("resolved_payload") or {}),
                 "manifest": preflight.get("resolved_manifest"),
             },
+            metadata=preflight_job_metadata(preflight),
         )
         return JSONResponse(record.to_dict(), status_code=201)
 

@@ -593,7 +593,7 @@ def _cmd_backend_logs(args: argparse.Namespace) -> None:
 
 def _cmd_create_job(args: argparse.Namespace) -> None:
     from .database import EvalBenchDatabase
-    from .job_spec import preflight_job_payload
+    from .job_spec import preflight_job_metadata, preflight_job_payload
 
     database = EvalBenchDatabase(args.output_root)
     preflight = preflight_job_payload(
@@ -609,6 +609,7 @@ def _cmd_create_job(args: argparse.Namespace) -> None:
             **dict(preflight.get("resolved_payload") or {}),
             "manifest": preflight.get("resolved_manifest"),
         },
+        metadata=preflight_job_metadata(preflight),
     )
     print(json.dumps(job.to_dict(), ensure_ascii=False))
 
