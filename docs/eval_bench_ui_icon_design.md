@@ -83,7 +83,8 @@ column width:
 - Default fields span 4 of 12 grid columns.
 - Long path or URL fields use `.wide-field` and span 6 of 12 columns.
 - Result and error messages use `.full-field` and span the full row.
-- Submit buttons use `.form-submit-button` and keep a stable minimum width.
+- Submit buttons use `ActionButton variant="primary"` directly; do not add page-private
+  submit button classes.
 - At narrow widths every field spans the full row.
 - Large structured inputs such as JSON manifests should use the dedicated manifest split layout,
   not a normal input grid.

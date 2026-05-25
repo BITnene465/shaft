@@ -615,11 +615,6 @@ tbody tr:hover td {
   border-color: rgb(255 255 255 / 34%);
 }
 
-.form-submit-button {
-  min-width: 132px;
-  min-height: 36px;
-}
-
 .action-panel {
   overflow: hidden;
   background: #ffffff;

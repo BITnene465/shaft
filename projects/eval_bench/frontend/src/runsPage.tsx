@@ -354,7 +354,6 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         <span>导入后计算指标</span>
       </label>
       <ActionButton
-        className="form-submit-button"
         type="submit"
         variant="primary"
         icon={<AppIcon name="importPrediction" size={16} />}

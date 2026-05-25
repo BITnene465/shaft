@@ -239,7 +239,6 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         <span>覆盖已有副本</span>
       </label>
       <ActionButton
-        className="form-submit-button"
         type="submit"
         variant="primary"
         icon={<AppIcon name="submitCreate" size={16} />}

@@ -3170,3 +3170,39 @@ label chip。
 
 - 新增 viewer 控件先判断是否可复用 `controlPrimitives.tsx` 或 `ui.tsx`；只有 object row、canvas HUD
   这类有独立复杂交互语义的控件保留专用实现。
+
+## 2026-05-25: Eval Bench 表单提交按钮双轨收口
+
+### 现象
+
+Benchmark 创建、prediction 导入和 service 登记弹窗的提交动作已经使用 `ActionButton`，但仍额外挂着
+`form-submit-button` 页面私有 class。该 class 当前没有独立样式价值，却会让后续开发者误以为表单提交
+需要另一套按钮样式入口。
+
+### 根因
+
+早期弹窗表单先用页面局部 class 接入视觉，后续把按钮迁移到 `ActionButton` 时没有删除旧 class，
+`test:ui-contracts` 也没有覆盖弹窗表单 submit 的回流风险。
+
+### 影响范围
+
+- 影响 Dashboard 的 Benchmark、Runs import、Services 三个弹窗表单。
+- 不改变 API、表单字段、提交 mutation 或弹窗滚动行为。
+
+### 修复方式
+
+- 删除业务页里 `ActionButton` 上的 `form-submit-button` 附加 class。
+- 删除 `design.css` 中已无调用点的 `.form-submit-button` 样式，并更新图标设计文档中的按钮规则。
+- `test-ui-contracts.mjs` 增加 `assertNoLegacyFormSubmitClass()`，覆盖 Jobs、Benchmarks、Runs 和 Services。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 同步记录 submit 也属于标准 `ActionButton` 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run test:layout`
+- `git diff --check`
+
+### 后续防线
+
+- 新增弹窗表单提交动作直接使用 `ActionButton variant="primary"`，不要再引入页面私有 submit class。

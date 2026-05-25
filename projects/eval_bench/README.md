@@ -554,7 +554,8 @@ benchmark 文件。
 `filter-select compact`。弹窗统一走 `WorkspaceDialog`，关闭按钮、Escape、backdrop 点击和内部滚动都由
 该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton` 或 `IconActionButton`，业务页只为
 画布 HUD 和 object row 这类专用交互保留独立 button 样式；viewer 图层预设使用 `CompactSelectControl`，
-label chip 使用 `OptionChipButton`。`test:ui-contracts` 会阻止原生 confirm/alert/prompt、
+label chip 使用 `OptionChipButton`；弹窗表单提交直接使用 `ActionButton`，不保留页面私有 submit class。
+`test:ui-contracts` 会阻止原生 confirm/alert/prompt、
 业务页自建 dialog shell、旧 `sample-filters` 和已收敛标准动作回流。
 
 Dashboard 的 Runs 页也提供同一能力：展开 `Import prediction snapshot`，填写

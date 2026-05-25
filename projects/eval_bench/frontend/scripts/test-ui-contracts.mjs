@@ -52,6 +52,7 @@ assert(
   !jobsPage.includes('className="filter-select compact"'),
   "jobs page must not create ad hoc compact filter selects outside filterControls",
 );
+assertNoLegacyFormSubmitClass(jobsPage, "jobsPage.tsx");
 assert(
   jobsPage.includes('OptionChipButton,'),
   "label subtask chips must import OptionChipButton",
@@ -120,6 +121,7 @@ assert(
     !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "benchmark sample list rows must use SelectableRowButton",
 );
+assertNoLegacyFormSubmitClass(benchmarksPage, "benchmarksPage.tsx");
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")') &&
     mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")'),
@@ -136,6 +138,9 @@ assert(
     !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
 );
+assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
+const servicesPage = await readSource("src/servicesPage.tsx");
+assertNoLegacyFormSubmitClass(servicesPage, "servicesPage.tsx");
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),
@@ -242,6 +247,13 @@ function assertNoBusinessDialogShell(source, relativePath) {
 
 function assertNoLegacySampleFilters(source, relativePath) {
   assert(!source.includes("sample-filters"), `${relativePath}: legacy sample-filters are not allowed`);
+}
+
+function assertNoLegacyFormSubmitClass(source, relativePath) {
+  assert(
+    !source.includes("form-submit-button"),
+    `${relativePath}: form submit actions must use ActionButton without legacy form-submit-button class`,
+  );
 }
 
 function mainEntryHasSettingsImplementation(source) {

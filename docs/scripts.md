@@ -286,7 +286,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 - dashboard 共享交互原语位于 `ui.tsx`：标准命令使用 `ActionButton` / `CommandButton` /
   `IconActionButton`，样本列表行使用 `SelectableRowButton`，query/label chip 使用
   `OptionChipButton`；紧凑 select / number / color / toggle 控件位于 `controlPrimitives.tsx`。
-  `test:ui-contracts` 会阻止已收敛的 row/chip/select 控件回流到业务页 raw class 拼接。
+  `test:ui-contracts` 会阻止已收敛的 row/chip/select/submit 控件回流到业务页 raw class 拼接。
 - 依赖由仓库根目录 `pyproject.toml` 的 `eval-bench` extra 统一管理
 - `scripts/eval_bench.py` 只负责把子项目加入 `sys.path` 并调用 CLI
 - Eval Bench 自己管理 benchmark 数据；run 不直接读取训练 raw_data

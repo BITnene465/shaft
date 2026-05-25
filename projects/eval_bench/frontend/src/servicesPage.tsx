@@ -280,7 +280,6 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
         </label>
         <ActionButton
           variant="primary"
-          className="form-submit-button"
           type="submit"
           icon={<AppIcon name="saveService" size={16} />}
           disabled={mutation.isPending}
