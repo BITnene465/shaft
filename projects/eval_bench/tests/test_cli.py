@@ -245,6 +245,27 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         ]
         == benchmark_samples_output_schema["properties"]["samples"]["item_shape"]
     )
+    jobs_output_schema = commands_by_name["list-jobs"]["output_schema"]
+    assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "jobs"]
+    assert jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"] == "object"
+    assert jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"] == "object"
+    assert commands_by_name["show-job"]["output_schema"]["properties"]["job"]["item_shape"] == (
+        jobs_output_schema["properties"]["jobs"]["item_shape"]
+    )
+    services_output_schema = commands_by_name["list-services"]["output_schema"]
+    assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
+    assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
+    assert (
+        commands_by_name["show-service"]["output_schema"]["properties"]["service"]["item_shape"]
+        == services_output_schema["properties"]["services"]["item_shape"]
+    )
+    comparisons_output_schema = commands_by_name["list-comparisons"]["output_schema"]
+    assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
+    assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["delta"] == "object"
+    assert commands_by_name["show-comparison"]["output_schema"]["properties"]["summary"] == "object"
+    comparison_sample_output_schema = commands_by_name["show-comparison-sample"]["output_schema"]
+    assert comparison_sample_output_schema["properties"]["baseline"]["item_shape"]["pred_instances"] == "list[object]"
+    assert comparison_sample_output_schema["properties"]["candidate"]["item_shape"]["diagnostics"] == "object|null"
     assert commands_by_name["service-health"]["mutates_state"] is True
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True
@@ -381,6 +402,29 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     sample_command = json.loads(capsys.readouterr().out)["command"]
     assert sample_command["output_schema"]["properties"]["sample"]["item_shape"]["labels"] == "list[str]"
     assert sample_command["output_schema"]["properties"]["prediction_payload"]["type"] == "object|null"
+
+    job_args = _build_parser().parse_args(["show-agent-command", "--name", "list-jobs"])
+    _cmd_show_agent_command(job_args)
+    job_command = json.loads(capsys.readouterr().out)["command"]
+    assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["job_id"] == "str"
+    assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["error"] == "str|null"
+
+    service_args = _build_parser().parse_args(["show-agent-command", "--name", "show-service"])
+    _cmd_show_agent_command(service_args)
+    service_command = json.loads(capsys.readouterr().out)["command"]
+    assert service_command["output_schema"]["properties"]["service"]["item_shape"]["service_id"] == "str"
+    assert service_command["output_schema"]["properties"]["service"]["item_shape"]["runtime"] == "object"
+
+    comparison_args = _build_parser().parse_args(["show-agent-command", "--name", "show-comparison-sample"])
+    _cmd_show_agent_command(comparison_args)
+    comparison_command = json.loads(capsys.readouterr().out)["command"]
+    assert comparison_command["output_schema"]["properties"]["baseline"]["item_shape"]["run_id"] == "str"
+    assert (
+        comparison_command["output_schema"]["properties"]["candidate"]["item_shape"][
+            "prediction_payload"
+        ]
+        == "object|null"
+    )
 
 
 def _write_sample_store(tmp_path: Path) -> None:

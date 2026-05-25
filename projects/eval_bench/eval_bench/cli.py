@@ -137,6 +137,50 @@ BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
     "instance_count": "int",
     "labels": "list[str]",
 }
+JOB_RECORD_OUTPUT_SHAPE = {
+    "job_id": "str",
+    "kind": "str",
+    "status": "str",
+    "payload": "object",
+    "created_at": "str",
+    "updated_at": "str",
+    "error": "str|null",
+    "metadata": "object",
+}
+SERVICE_RECORD_OUTPUT_SHAPE = {
+    "service_id": "str",
+    "kind": "str",
+    "status": "str",
+    "config": "object",
+    "created_at": "str",
+    "updated_at": "str",
+    "error": "str|null",
+    "runtime": "object",
+    "metadata": "object",
+}
+COMPARISON_SUMMARY_OUTPUT_SHAPE = {
+    "comparison_id": "str",
+    "baseline_run_id": "str",
+    "candidate_run_id": "str",
+    "task": "str",
+    "metric_profile": "str",
+    "target_labels": "list[str]",
+    "target_labels_source": "str|null",
+    "sample_count": "int",
+    "created_at": "str|null",
+    "path": "str",
+    "delta": "object",
+    "summary": "object",
+}
+COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "sample": "object",
+    "gt_instances": "list[object]",
+    "pred_instances": "list[object]",
+    "raw_payload": "object",
+    "prediction_payload": "object|null",
+    "diagnostics": "object|null",
+}
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["run_id", "note", "updated_at", "path", "max_length"],
@@ -303,6 +347,73 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "sample": {"type": "object", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
             "gt_instances": {"type": "list[object]"},
             "raw_payload": {"type": "object"},
+        },
+    },
+    "list-jobs": {
+        "type": "object",
+        "required": ["offset", "limit", "total", "filters", "jobs"],
+        "properties": {"jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE}},
+    },
+    "show-job": {
+        "type": "object",
+        "required": ["job"],
+        "properties": {"job": {"type": "object", "item_shape": JOB_RECORD_OUTPUT_SHAPE}},
+    },
+    "list-services": {
+        "type": "object",
+        "required": ["offset", "limit", "total", "filters", "services"],
+        "properties": {
+            "services": {"type": "array", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
+        },
+    },
+    "show-service": {
+        "type": "object",
+        "required": ["service"],
+        "properties": {"service": {"type": "object", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE}},
+    },
+    "list-comparisons": {
+        "type": "object",
+        "required": ["offset", "limit", "total", "filters", "comparisons"],
+        "properties": {
+            "comparisons": {"type": "array", "item_shape": COMPARISON_SUMMARY_OUTPUT_SHAPE},
+        },
+    },
+    "show-comparison": {
+        "type": "object",
+        "required": [
+            "comparison_id",
+            "baseline_run_id",
+            "candidate_run_id",
+            "task",
+            "metric_profile",
+            "target_labels",
+            "sample_count",
+            "delta",
+            "summary",
+        ],
+        "properties": COMPARISON_SUMMARY_OUTPUT_SHAPE,
+    },
+    "show-comparison-sample": {
+        "type": "object",
+        "required": [
+            "baseline_run_id",
+            "candidate_run_id",
+            "sample_index",
+            "baseline",
+            "candidate",
+        ],
+        "properties": {
+            "baseline_run_id": {"type": "str"},
+            "candidate_run_id": {"type": "str"},
+            "sample_index": {"type": "int"},
+            "baseline": {
+                "type": "object",
+                "item_shape": COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE,
+            },
+            "candidate": {
+                "type": "object",
+                "item_shape": COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE,
+            },
         },
     },
     "get-run-note": RUN_NOTE_OUTPUT_SCHEMA,

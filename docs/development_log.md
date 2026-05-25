@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent 契约未描述 job/service/comparison 输出
+
+### 现象
+
+agent 已经可以通过 `list-jobs`、`show-job`、`list-services`、`show-service`、
+`list-comparisons`、`show-comparison` 和 `show-comparison-sample` 覆盖 Dashboard 的运行态与对比排障路径，
+但这些命令缺少 `output_schema`。agent 仍需要从样例或内部 dataclass 推断 job payload、service runtime、
+comparison delta/summary 和成对样本详情字段。
+
+### 根因
+
+前几轮 output schema 先覆盖了 Rank Board、run note、label policy 和 run/sample inspection。
+job/service/comparison 虽然也是稳定 agent 命令面的一部分，但没有同步纳入 schema 真源。
+
+### 影响范围
+
+- 影响 agent 做 job 队列排障、service 状态判断、comparison 历史检索和成对样本分析。
+- 不改变 job lifecycle、service registry、comparison report、sample scope、eval metric 或 rank-board 语义；这是 agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- 新增 JobRecord、ServiceRecord、Comparison summary 和 Comparison sample detail 输出 shape。
+- `list-jobs` / `show-job` 暴露 job record schema，包含 payload、metadata 和 error 字段。
+- `list-services` / `show-service` 暴露 service record schema，包含 config、runtime、metadata 和 error 字段。
+- `list-comparisons` / `show-comparison` / `show-comparison-sample` 暴露 comparison summary、delta、summary 和 baseline/candidate sample detail schema。
+- README、架构文档和 CLI contract 测试同步这些 agent-safe 输出边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- Dashboard 常用只读路径进入稳定 agent 命令面时，必须同步考虑 `output_schema`，避免 agent 为了解析结果读取数据库或 store 内部实现。
+
 ## 2026-05-25: Eval Bench agent 契约未描述 run/sample inspection 输出
 
 ### 现象

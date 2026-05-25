@@ -503,7 +503,9 @@ evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 
 `resolve-target-labels` 明确返回 detection/keypoint label policy、candidate labels、valid/errors/warnings；
 `get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length；
 `list-runs` / `show-run` / `list-run-samples` / `show-run-sample` 以及 benchmark sample 命令明确返回
-run summary、sample summary、GT/prediction payload 与 diagnostics 字段。
+run summary、sample summary、GT/prediction payload 与 diagnostics 字段；`list-jobs` / `show-job`、
+`list-services` / `show-service` 和 comparison 查询命令明确返回 job/service/comparison 的 record、payload、
+runtime、delta 与成对样本详情字段。
 agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
