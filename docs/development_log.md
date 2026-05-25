@@ -34,12 +34,14 @@ Run note 已经有 Dashboard 编辑、API 覆盖写、CLI 覆盖写和 agent app
 - CLI `set-run-note` 新增 `--expected-updated-at`，agent 可先 `get-run-note` 再做 guarded 覆盖；`append-run-note`
   仍作为增量记录入口。
 - Run Inspector 保存备注时带上当前 `run.note_updated_at`，避免旧页面静默覆盖新备注。
-- README、架构文档、Dashboard 测试和 CLI 测试同步该并发边界。
+- Run Inspector 遇到 409 冲突时主动刷新 `dashboard-state`，把最新 note 拉回页面，不把旧草稿继续当作当前真源。
+- README、架构文档、Dashboard 测试、CLI 测试和 UI contract 同步该并发边界。
 
 ### 回归测试
 
 - `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_updates_editable_run_note projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers_for_agent_contract projects/eval_bench/tests/test_cli.py::test_cli_gets_and_sets_run_note`
 - `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
 
 ### 后续防线
 

@@ -639,6 +639,11 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
     mutationFn: (note: string) => updateRunNote(run.run_id, note, run.note_updated_at),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+    },
+    onError: (error) => {
+      if (error.message.includes("409")) {
+        void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+      }
     }
   });
   const promptSource = stringValue(run.prompt_metadata.source) || (run.prompt_path ? "file" : "inline");

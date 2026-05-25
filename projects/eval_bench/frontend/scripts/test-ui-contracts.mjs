@@ -295,10 +295,12 @@ assert(
 assert(
   runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
     runsPage.includes("function insertNoteTemplate(") &&
+    runsPage.includes('error.message.includes("409")') &&
+    (runsPage.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
     runsPage.includes('className="run-note-template-bar"') &&
     runsPage.includes("<ActionButton") &&
     !runsPage.includes("setNoteDraft(noteDraft +"),
-  "run note editor must expose structured template insertion without ad hoc text concatenation",
+  "run note editor must expose structured templates and refresh dashboard state after 409 conflicts",
 );
 const runTables = await readSource("src/runTables.tsx");
 assert(
