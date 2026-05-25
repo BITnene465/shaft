@@ -64,6 +64,11 @@ assert(
   "router inline links must share InlineNavLink",
 );
 assert(
+  uiSource.includes("export function InlineAnchor(") &&
+    uiSource.includes('className={joinClassNames("mini-link", className)}'),
+  "href inline links must share InlineAnchor",
+);
+assert(
   uiSource.includes("export function SelectableRowButton("),
   "sample row selection must be centralized in SelectableRowButton",
 );
@@ -336,6 +341,7 @@ assert(
 const rankBoardMiniLinkSource = await readSource("src/rankBoardPage.tsx");
 const jobsMiniLinkSource = await readSource("src/jobsPage.tsx");
 const compareMiniLinkSource = await readSource("src/comparePage.tsx");
+const comparisonSampleMiniLinkSource = await readSource("src/comparisonSamplePage.tsx");
 assert(
   runTables.includes("InlineNavLink") &&
     rankBoardMiniLinkSource.includes("InlineNavLink") &&
@@ -346,6 +352,13 @@ assert(
     !/<Link[^>]+className="mini-link/.test(jobsMiniLinkSource) &&
     !/<Link[^>]+className="mini-link/.test(compareMiniLinkSource),
   "router mini links must use InlineNavLink instead of ad hoc mini-link classes",
+);
+assert(
+  compareMiniLinkSource.includes("InlineAnchor") &&
+    comparisonSampleMiniLinkSource.includes("InlineAnchor") &&
+    !/<a[^>]+className="mini-link/.test(compareMiniLinkSource) &&
+    !/<a[^>]+className="mini-link/.test(comparisonSampleMiniLinkSource),
+  "href mini links must use InlineAnchor instead of ad hoc mini-link anchors",
 );
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
 assertNoRawSelectElement(runsPage, "runsPage.tsx");

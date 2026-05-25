@@ -151,7 +151,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护工作台设置页面；`main.tsx` 只负责路由到该页面，不承载设置页预览、分组或本地偏好编排。
 - `projects/eval_bench/frontend/src/ui.tsx`
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton`、
-    `IconActionButton`、`IconNavLink`、`InlineNavLink` 和 `PanelToggleButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
+    `IconActionButton`、`IconNavLink`、`InlineNavLink`、`InlineAnchor` 和 `PanelToggleButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
     使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
     也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
     业务页不直接实现弹窗外壳、标准按钮层级、图标/文本导航链接或重复的 row/chip button 形态。

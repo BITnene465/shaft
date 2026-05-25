@@ -6,7 +6,7 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { createElement, useEffect, useId, useRef } from "react";
-import type { ButtonHTMLAttributes, ElementType, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ElementType, ReactNode } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import { statusClassName, statusInfo } from "./statusModel";
@@ -149,6 +149,22 @@ export function InlineNavLink({
       {icon}
       {children}
     </>,
+  );
+}
+
+export function InlineAnchor({
+  icon,
+  children,
+  className,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+  icon?: ReactNode;
+}) {
+  return (
+    <a {...props} className={joinClassNames("mini-link", className)}>
+      {icon}
+      {children}
+    </a>
   );
 }
 

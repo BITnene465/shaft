@@ -28,7 +28,7 @@ import {
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { Badge, DataTable, EmptyState, InlineNavLink, SelectableCardButton } from "./ui";
+import { Badge, DataTable, EmptyState, InlineAnchor, InlineNavLink, SelectableCardButton } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 const COMPARE_RUN_PAGE_SIZE = 80;
@@ -471,30 +471,30 @@ function ComparisonQuickActions({
   return (
     <div className="comparison-quick-actions">
       {firstRegression ? (
-        <a
-          className="mini-link compare-alert"
+        <InlineAnchor
+          className="compare-alert"
+          icon={<Eye size={13} />}
           href={comparisonSampleHref(
             baselineRunId,
             candidateRunId,
             firstRegression.candidate_index ?? firstRegression.sample_index ?? 0
           )}
         >
-          <Eye size={13} />
           看首个退化样本
-        </a>
+        </InlineAnchor>
       ) : null}
       {firstImprovement ? (
-        <a
-          className="mini-link compare-ready"
+        <InlineAnchor
+          className="compare-ready"
+          icon={<Eye size={13} />}
           href={comparisonSampleHref(
             baselineRunId,
             candidateRunId,
             firstImprovement.candidate_index ?? firstImprovement.sample_index ?? 0
           )}
         >
-          <Eye size={13} />
           看首个提升样本
-        </a>
+        </InlineAnchor>
       ) : null}
     </div>
   );

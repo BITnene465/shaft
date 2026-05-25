@@ -6,7 +6,7 @@ import type { ComparisonSampleDetail, RunSampleDetail } from "./api";
 import { fetchComparisonSample } from "./api";
 import { runSampleHref } from "./formatters";
 import { SampleViewer } from "./sampleViewer";
-import { EmptyState } from "./ui";
+import { EmptyState, InlineAnchor } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function ComparisonSamplePage() {
@@ -91,10 +91,9 @@ function ComparisonRunPanel({
           <div className="eyebrow">{title}</div>
           <h2>{runId}</h2>
         </div>
-        <a className="mini-link" href={runSampleHref(runId, detail.sample.index)}>
-          <Eye size={13} />
+        <InlineAnchor icon={<Eye size={13} />} href={runSampleHref(runId, detail.sample.index)}>
           打开 run
-        </a>
+        </InlineAnchor>
       </div>
       <SampleViewer detail={detail} />
     </div>
