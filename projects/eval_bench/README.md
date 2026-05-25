@@ -499,8 +499,10 @@ evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 
 并直接读取参数名、flag、类型、默认值、choices、
 是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
 `usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。关键只读命令还会带
-`output_schema`，例如 `rank-board` 明确返回分页、filters、facets、主指标和 entry 字段，agent 不需要
-读取内部 store 或猜测 JSON shape。`mutates_state`
+`output_schema`，例如 `rank-board` 明确返回分页、filters、facets、主指标和 entry 字段；
+`resolve-target-labels` 明确返回 detection/keypoint label policy、candidate labels、valid/errors/warnings；
+`get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length。
+agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
 `AGENT_DESTRUCTIVE_COMMANDS`；`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合

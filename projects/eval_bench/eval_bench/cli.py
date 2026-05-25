@@ -83,6 +83,34 @@ AGENT_DESTRUCTIVE_COMMANDS = frozenset(
     }
 )
 AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
+    "resolve-target-labels": {
+        "type": "object",
+        "required": [
+            "task",
+            "benchmark_id",
+            "prompt_id",
+            "target_labels",
+            "target_labels_source",
+            "candidate_labels",
+            "benchmark_labels",
+            "prompt_target_labels",
+            "explicit_target_labels",
+            "label_subtasks_supported",
+            "valid",
+            "errors",
+            "warnings",
+        ],
+        "properties": {
+            "label_subtasks_supported": {
+                "type": "bool",
+                "description": "true only for detection; keypoint is fixed to arrow.",
+            },
+            "target_labels": {"type": "list[str]"},
+            "candidate_labels": {"type": "list[str]"},
+            "errors": {"type": "list[str]"},
+            "warnings": {"type": "list[str]"},
+        },
+    },
     "rank-board": {
         "type": "object",
         "required": [
@@ -135,7 +163,40 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
                 },
             },
         },
-    }
+    },
+    "get-run-note": {
+        "type": "object",
+        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "properties": {
+            "run_id": {"type": "str"},
+            "note": {"type": "str"},
+            "updated_at": {"type": "str|null"},
+            "path": {"type": "str"},
+            "max_length": {"type": "int"},
+        },
+    },
+    "set-run-note": {
+        "type": "object",
+        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "properties": {
+            "run_id": {"type": "str"},
+            "note": {"type": "str"},
+            "updated_at": {"type": "str|null"},
+            "path": {"type": "str"},
+            "max_length": {"type": "int"},
+        },
+    },
+    "append-run-note": {
+        "type": "object",
+        "required": ["run_id", "note", "updated_at", "path", "max_length"],
+        "properties": {
+            "run_id": {"type": "str"},
+            "note": {"type": "str"},
+            "updated_at": {"type": "str|null"},
+            "path": {"type": "str"},
+            "max_length": {"type": "int"},
+        },
+    },
 }
 
 

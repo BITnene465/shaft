@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench agent 契约未描述 run note 与 label policy 输出
+
+### 现象
+
+`show-agent-command` 已经能告诉 agent 如何调用 `resolve-target-labels`、`get-run-note`、
+`set-run-note` 和 `append-run-note`，但这些命令的返回 JSON 没有进入 `output_schema`。
+agent 在创建 detection label 子任务前或编辑 run note 时，仍需要通过样例输出或内部实现猜测
+`label_subtasks_supported`、`valid/errors/warnings`、`updated_at` 和 `max_length` 等字段。
+
+### 根因
+
+上一轮只为核心 `rank-board` 补了输出结构，agent contract 的 schema 真源没有覆盖同样高频的
+run note 与 label policy 命令。
+
+### 影响范围
+
+- 影响 agent 读取 label 子任务策略、做 keypoint/detection 分支判断、以及用乐观并发字段安全更新 run note。
+- 不改变 label policy、run note 存储、eval、metric、rank-board 或 API 输出语义；这是 CLI/agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- `AGENT_COMMAND_OUTPUT_SCHEMAS` 增加 `resolve-target-labels` 输出结构，声明 target labels、candidate labels、
+  benchmark/prompt/explicit labels、`label_subtasks_supported`、`valid`、`errors` 和 `warnings`。
+- `get-run-note`、`set-run-note` 和 `append-run-note` 共享 RunNote 输出结构，声明 `run_id`、`note`、
+  `updated_at`、`path` 和 `max_length`。
+- CLI contract 测试锁住这些命令在 `list-agent-commands` 和 `show-agent-command` 中暴露的 schema。
+- README 和架构文档同步 agent output schema 边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增 agent 高频命令时，先判断调用方是否需要稳定消费 JSON 字段；如果需要，必须同步补
+  `output_schema` 和 contract 测试。
+
 ## 2026-05-25: Eval Bench rank-board agent 契约缺少输出结构
 
 ### 现象

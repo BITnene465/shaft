@@ -187,6 +187,34 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["append-run-note"]["domain"] == "note"
     assert commands_by_name["append-run-note"]["mutates_state"] is True
     assert commands_by_name["append-run-note"]["destructive"] is False
+    note_output_schema = commands_by_name["get-run-note"]["output_schema"]
+    assert note_output_schema["required"] == [
+        "run_id",
+        "note",
+        "updated_at",
+        "path",
+        "max_length",
+    ]
+    assert commands_by_name["set-run-note"]["output_schema"] == note_output_schema
+    assert commands_by_name["append-run-note"]["output_schema"] == note_output_schema
+    resolve_output_schema = commands_by_name["resolve-target-labels"]["output_schema"]
+    assert resolve_output_schema["required"] == [
+        "task",
+        "benchmark_id",
+        "prompt_id",
+        "target_labels",
+        "target_labels_source",
+        "candidate_labels",
+        "benchmark_labels",
+        "prompt_target_labels",
+        "explicit_target_labels",
+        "label_subtasks_supported",
+        "valid",
+        "errors",
+        "warnings",
+    ]
+    assert "detection" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
+    assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     assert commands_by_name["service-health"]["mutates_state"] is True
     assert commands_by_name["compare-runs"]["domain"] == "comparison"
     assert commands_by_name["compare-runs"]["mutates_state"] is True
@@ -293,6 +321,21 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
         tuple(group["arguments"]): group["required"]
         for group in command["mutually_exclusive_groups"]
     } == {("rank_scheme_json", "rank_scheme_file"): False}
+
+    label_args = _build_parser().parse_args(["show-agent-command", "--name", "resolve-target-labels"])
+    _cmd_show_agent_command(label_args)
+    label_command = json.loads(capsys.readouterr().out)["command"]
+    assert label_command["output_schema"]["properties"]["target_labels"]["type"] == "list[str]"
+    assert (
+        label_command["output_schema"]["properties"]["label_subtasks_supported"]["description"]
+        == "true only for detection; keypoint is fixed to arrow."
+    )
+
+    note_args = _build_parser().parse_args(["show-agent-command", "--name", "get-run-note"])
+    _cmd_show_agent_command(note_args)
+    note_command = json.loads(capsys.readouterr().out)["command"]
+    assert note_command["output_schema"]["properties"]["updated_at"]["type"] == "str|null"
+    assert note_command["output_schema"]["properties"]["max_length"]["type"] == "int"
 
 
 def _write_sample_store(tmp_path: Path) -> None:
