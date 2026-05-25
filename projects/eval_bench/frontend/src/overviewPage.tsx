@@ -228,17 +228,25 @@ export function OverviewPage() {
     totalJobs,
     totalServices
   });
-  const recentRuns = overviewRecentRuns(data.runs, 4);
+  const recentRuns = overviewRecentRuns(data.runs, 5);
 
   return (
-    <section className="page-stack dashboard-home">
+    <section className="page-stack dashboard-home overview-home-v6">
       <div className="overview-command-center overview-command-center-redesign">
         <div className="overview-console-main overview-hero-stage">
           <div className="overview-title-block">
             <div className="eyebrow">Eval Bench Control</div>
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
+            <div className="overview-hero-route">
+              <span>{data.benchmark_count.toLocaleString()} benchmark</span>
+              <i />
+              <span>{data.run_count.toLocaleString()} run</span>
+              <i />
+              <span>{evaluatedRuns.toLocaleString()} report</span>
+            </div>
           </div>
+          <OverviewHeroMap stages={pipelineStages} />
           <div className="overview-hero-metrics">
             <OverviewStat label="调度" value={schedulerEnabled ? "Auto" : "Manual"} />
             <OverviewStat
@@ -284,15 +292,17 @@ export function OverviewPage() {
       <div className="overview-workbench">
         <section className="overview-ops-surface">
           <div className="overview-focus-head">
-            <PanelTitle title="闭环进度" meta="sample / prediction / report / rank" />
+            <PanelTitle title="评测闭环" meta="当前最该看的运营信号" />
             <div className="overview-focus-summary">
               <strong>{coveragePercent}%</strong>
               <span>报告覆盖</span>
             </div>
           </div>
           <OverviewSignalStrip signals={signalItems} />
-          <OverviewPipeline stages={pipelineStages} />
-          <OverviewBottleneckPanel items={bottlenecks} />
+          <div className="overview-flow-and-bottleneck">
+            <OverviewPipeline stages={pipelineStages} />
+            <OverviewBottleneckPanel items={bottlenecks} />
+          </div>
         </section>
 
         <aside className="overview-right-rail">
@@ -301,6 +311,24 @@ export function OverviewPage() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function OverviewHeroMap({ stages }: { stages: OverviewPipelineStage[] }) {
+  return (
+    <div className="overview-orbit-map" aria-hidden="true">
+      <div className="overview-orbit-track" />
+      {stages.map((stage, index) => (
+        <span
+          className={`overview-orbit-node ${stage.tone}`}
+          key={stage.label}
+          style={{ animationDelay: `${index * 130}ms` }}
+        >
+          <i />
+          <b>{String(index + 1).padStart(2, "0")}</b>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -453,9 +481,12 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
           <span>
             <strong>{run.run_id}</strong>
             <small>
-              {run.model_id || "-"} · {run.prediction_count.toLocaleString()} pred /{" "}
-              {run.report_count.toLocaleString()} report
+              {run.benchmark_id || "-"} · {run.model_id || "-"}
             </small>
+          </span>
+          <span className="overview-run-counts" aria-label="run 产物规模">
+            <b>{run.prediction_count.toLocaleString()} pred</b>
+            <b>{run.report_count.toLocaleString()} report</b>
           </span>
           <Badge value={run.status} domain="run" />
         </Link>

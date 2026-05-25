@@ -9,6 +9,86 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 首页仍缺少可行动价值和整体交互感
+
+### 现象
+
+总览页已经收敛到 command desk，但首屏仍像多个状态模块的组合：hero、四个信号、pipeline、
+阻塞优先级、行动入口和最近 run 之间缺少明确的主判断链路。用户进入首页后仍觉得没有价值，
+同时 dashboard 级 hover、入场和在线状态动效不够统一。
+
+### 根因
+
+上一版只把低价值面板删掉，没有把首页重新设计成“下一步决策优先”的界面。pipeline 和阻塞信息虽然存在，
+但视觉上仍像两个面板；最近 run 仍偏状态列表；通用动效散落在局部组件，没有形成系统级交互反馈。
+
+### 影响范围
+
+- 影响 Eval Bench Dashboard 首页第一屏判断效率和视觉层级。
+- 影响全局按钮、导航、卡片、状态胶囊和表格的交互一致性。
+- 不改变 eval、codec、metric、data 或 store 语义；这不是模型能力问题，也不是指标误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v6`：顶部 hero 增加 benchmark -> run -> report 路线提示和技术路线图，
+  让当前系统态、数量和下一步动作在同一屏建立主线。
+- operations surface 改为“可行动信号 + pipeline / bottleneck flow”结构，管线和卡点放在同一个 flow surface，
+  不再像互不相关的面板墙。
+- 最近 run 改为紧凑产物摘要，只展示 benchmark/model 与 prediction/report 数量，减少无价值状态噪声。
+- `design.css` 增加共享入场、hover、图标抬升和 live pulse 动效，覆盖标准 workspace 元素。
+- UI contract 锁住 `overview-home-v6`、`OverviewHeroMap`、`overview-flow-and-bottleneck` 和共享动效关键帧。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_v6.png npm run render-check`
+
+### 后续防线
+
+- 首页新增内容必须能直接回答“下一步去哪”或“当前卡在哪里”；不能把低频诊断或字段摘要搬回总览。
+- 动效只服务可点击性、实时状态和局部层级反馈，不能制造布局抖动或替代信息结构。
+
+## 2026-05-25: Eval Bench 导入预测仍使用自由文本 label 子任务输入
+
+### 现象
+
+新建 eval job 已经有 detection label 子任务 chip，keypoint 不暴露任意 label 子集。
+但 Runs 页的导入 prediction run 仍使用“目标标签”自由文本输入。人类容易手输拼错 label，
+keypoint 路径也会看到和 detection 子任务类似的输入，前端体验与后端 label policy 不一致。
+
+### 根因
+
+label 子任务面板最初实现为 Jobs 页局部组件，没有抽成共享控制原语。导入 prediction 弹窗为了快速可用，
+保留了字符串解析 `parseTargetLabels()`，把 label 子任务 UI 和 import payload 语义分开维护。
+
+### 影响范围
+
+- 影响 prediction import 的 detection label 子任务选择体验。
+- 影响 keypoint import 的 UI 语义清晰度，但后端仍会拒绝非法 keypoint label。
+- 不影响 evaluator、worker、rank-board 或已有 run note。
+- 这不是模型能力问题；属于 eval UI 与 label policy 的语义一致性问题。
+
+### 修复方式
+
+- 新增共享 `DetectionLabelSubtaskPanel`，集中维护候选 chip、全部候选、默认策略和自定义 label。
+- Jobs 页和 Runs 导入 prediction 弹窗共同复用该组件。
+- Runs 导入 prediction 不再解析自由文本目标标签，直接提交 `target_labels: string[]`。
+- task 切到 keypoint 时自动清空并隐藏 label 子任务；切换 benchmark 时按 benchmark label index 收敛已选 label。
+- UI contract 覆盖共享组件和 Runs import 对自由文本 target label 输入的禁止回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_prediction_import.py projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增 label 子任务入口必须复用 `DetectionLabelSubtaskPanel` 或同层共享组件，不在业务页手写自由文本 label 输入。
+- keypoint UI 不展示任意 label 子任务入口；后端继续在所有入口拒绝非 `arrow` 显式 label。
+
 ## 2026-05-25: Eval Bench Agent 追加 run note 只能覆盖整份备注
 
 ### 现象

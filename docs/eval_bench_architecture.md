@@ -125,7 +125,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测管线、运行压力、阻塞优先级、readiness switchboard 和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载下一步动作、hero 路线图、评测管线、运行压力、阻塞优先级、readiness switchboard 和最近 run 摘要。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
@@ -133,6 +133,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 只能传 className/meta，不各自复制上一页/下一页逻辑。
 - `projects/eval_bench/frontend/src/runsPage.tsx`
   - 维护结果库、导入预测弹窗、带结构化模板插入的 run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
+- `projects/eval_bench/frontend/src/labelSubtaskControls.tsx`
+  - 维护 detection label 子任务 chip、默认策略、全部候选和自定义 label 追加控件；Jobs 和 Runs
+    import prediction 只能复用该组件，keypoint 不暴露 label 子任务 UI。
 - `projects/eval_bench/frontend/src/sampleViewer.tsx`
   - 维护 Run Inspector 与成对样本对比共享的 GT / Prediction 叠图、对象检查器和 viewer 偏好状态。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
@@ -162,8 +165,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
   layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 `resolve-target-labels`，
   不能直接扫描 benchmark artifact 或 prompt registry。
-- 新增 detection label 子任务 UI：必须通过 manifest `target_labels` 修改显式 spec，候选 label 来自
-  benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
+- 新增 detection label 子任务 UI：必须通过 manifest 或 import payload 的 `target_labels` 修改显式 spec，
+  候选 label 来自 benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
   必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。
   前端应用 prompt template 后必须重新按 manifest task 选择兼容 benchmark；不能只因为旧 benchmark id
   仍存在就保留一个 task 不匹配的 job draft。
@@ -213,9 +216,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增总览视觉模块：优先用 hero next action、四个可行动信号、pipeline progress rail 和阻塞优先级条服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持一个 operations surface、
   readiness switchboard 和最近 run 紧凑摘要组成的 command desk。顶部 hero 只能承载当前系统态、
-  少量运行态数值和当前优先动作，不能回流二级诊断。readiness switchboard 固定聚合
+  少量运行态数值、benchmark -> run -> report 路线提示和当前优先动作，不能回流二级诊断。pipeline 与阻塞优先级必须合并在同一个 flow surface，
+  让用户同时看到进度和卡点，不能拆回多个状态面板。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
-  必须按 `created_at` 倒序截取，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把
+  必须按 `created_at` 倒序截取，且只展示 benchmark/model 与 prediction/report 数量，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把
   focus、readiness 或 recent 核心面板压缩成不可读的折叠外壳。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。

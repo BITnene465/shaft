@@ -40,13 +40,13 @@ import {
   progressPhaseText
 } from "./statusModel";
 import { PagerControl, clampListPageOffset } from "./samplePager";
+import { DetectionLabelSubtaskPanel } from "./labelSubtaskControls";
 import {
   ActionButton,
   Badge,
   CommandButton,
   DangerConfirmDialog,
   IconActionButton,
-  OptionChipButton,
   PanelTitle,
   WorkspaceDialog
 } from "./ui";
@@ -582,7 +582,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     preflightMutation.reset();
   }
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const manifest = parseManifest();
     if (!manifest) {
@@ -653,7 +653,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
             {mutation.isPending ? "加入中" : "加入队列"}
           </ActionButton>
         </div>
-        <LabelSubtaskPanel
+        <DetectionLabelSubtaskPanel
           task={manifestTaskValue}
           benchmarkId={manifestBenchmarkValue}
           labelOptions={labelOptions}
@@ -725,85 +725,6 @@ function parseManifestDraft(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function LabelSubtaskPanel({
-  task,
-  benchmarkId,
-  labelOptions,
-  selectedLabels,
-  onChange
-}: {
-  task: string;
-  benchmarkId: string;
-  labelOptions: string[];
-  selectedLabels: string[];
-  onChange: (labels: string[]) => void;
-}) {
-  const [draftLabel, setDraftLabel] = useState("");
-  if (task !== "detection") {
-    return null;
-  }
-  const selectedSet = new Set(selectedLabels);
-
-  function toggleLabel(label: string) {
-    if (selectedSet.has(label)) {
-      onChange(selectedLabels.filter((item) => item !== label));
-      return;
-    }
-    onChange(unique([...selectedLabels, label]));
-  }
-
-  function addDraftLabel(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = draftLabel.trim();
-    if (!value) {
-      return;
-    }
-    onChange(unique([...selectedLabels, value]));
-    setDraftLabel("");
-  }
-
-  return (
-    <div className="label-subtask-panel">
-      <div className="label-subtask-head">
-        <div>
-          <strong>Detection 子任务</strong>
-          <span>{benchmarkId || "未选择 benchmark"}</span>
-        </div>
-        <div className="label-subtask-actions">
-          <ActionButton variant="mini" onClick={() => onChange(labelOptions)}>
-            全部候选
-          </ActionButton>
-          <ActionButton variant="mini" onClick={() => onChange([])}>
-            默认策略
-          </ActionButton>
-        </div>
-      </div>
-      <div className="label-subtask-chips">
-        {labelOptions.map((label) => (
-          <OptionChipButton
-            key={label}
-            active={selectedSet.has(label)}
-            onClick={() => toggleLabel(label)}
-          >
-            {label}
-          </OptionChipButton>
-        ))}
-        {labelOptions.length === 0 ? <span className="label-subtask-empty">暂无 label 索引</span> : null}
-      </div>
-      <form className="label-subtask-add" onSubmit={addDraftLabel}>
-        <input
-          value={draftLabel}
-          onChange={(event) => setDraftLabel(event.target.value)}
-          placeholder="自定义 label"
-        />
-        <ActionButton variant="mini" type="submit">
-          添加
-        </ActionButton>
-      </form>
-    </div>
-  );
 }
 
 function PreflightPanel({ result }: { result: { ok: boolean; errors: string[]; warnings: string[]; runtime_command?: string[] | null } }) {

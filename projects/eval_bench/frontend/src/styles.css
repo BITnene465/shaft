@@ -9129,3 +9129,469 @@ tbody tr:hover {
     width: 100%;
   }
 }
+
+/* Overview v6: decision-first command surface with visible motion feedback. */
+.overview-home-v6 {
+  gap: 18px;
+  background:
+    linear-gradient(135deg, rgb(232 239 243 / 64%) 0%, rgb(247 250 251 / 86%) 42%, rgb(224 235 241 / 68%) 100%),
+    repeating-linear-gradient(90deg, rgb(20 52 72 / 4%) 0 1px, transparent 1px 44px);
+}
+
+.overview-home-v6 .overview-command-center-redesign {
+  gap: 18px;
+}
+
+.overview-home-v6 .overview-hero-stage {
+  position: relative;
+  min-height: 176px;
+  overflow: hidden;
+  background:
+    linear-gradient(118deg, #07131f 0%, #12384a 54%, #0d1d29 100%),
+    repeating-linear-gradient(90deg, rgb(121 213 235 / 16%) 0 1px, transparent 1px 36px);
+  border-color: rgb(94 211 243 / 34%);
+}
+
+.overview-home-v6 .overview-hero-stage::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background:
+    linear-gradient(100deg, transparent 0 18%, rgb(94 211 243 / 12%) 32%, transparent 46%),
+    linear-gradient(180deg, rgb(255 255 255 / 8%) 0 1px, transparent 1px 100%);
+  background-size: 280px 100%, 100% 28px;
+  opacity: 0.48;
+  animation: overview-scanline 7s linear infinite;
+  pointer-events: none;
+}
+
+.overview-home-v6 .overview-hero-stage::after {
+  display: none;
+}
+
+.overview-home-v6 .overview-title-block {
+  position: relative;
+  z-index: 1;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.overview-home-v6 .overview-title-block h2 {
+  max-width: 520px;
+  margin-top: 10px;
+  font-size: clamp(32px, 4vw, 54px);
+  letter-spacing: 0;
+}
+
+.overview-home-v6 .overview-title-block p {
+  max-width: 560px;
+}
+
+.overview-hero-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.overview-hero-route span {
+  color: #d9eef4;
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.overview-hero-route i {
+  display: block;
+  width: 42px;
+  height: 1px;
+  background: linear-gradient(90deg, rgb(94 211 243 / 20%), rgb(94 211 243 / 76%));
+}
+
+.overview-orbit-map {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 154px;
+  min-height: 112px;
+  align-self: center;
+  border: 1px solid rgb(182 232 246 / 20%);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 9%), rgb(255 255 255 / 3%)),
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 9%) 0 1px, transparent 1px 18px);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+
+.overview-orbit-track {
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgb(94 211 243 / 24%);
+  border-radius: 10px;
+}
+
+.overview-orbit-track::before,
+.overview-orbit-track::after {
+  position: absolute;
+  content: "";
+  background: rgb(94 211 243 / 26%);
+}
+
+.overview-orbit-track::before {
+  inset: 50% 12px auto;
+  height: 1px;
+}
+
+.overview-orbit-track::after {
+  inset: 12px auto 12px 50%;
+  width: 1px;
+}
+
+.overview-orbit-node {
+  position: absolute;
+  display: flex;
+  width: 40px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  color: #e8f8fb;
+  border: 1px solid rgb(188 234 246 / 34%);
+  border-radius: 8px;
+  background: rgb(8 18 28 / 70%);
+  box-shadow: 0 10px 22px rgb(3 11 18 / 24%);
+  animation: overview-node-breathe 2.8s ease-in-out infinite;
+}
+
+.overview-orbit-node:nth-of-type(1) {
+  top: 12px;
+  left: 13px;
+}
+
+.overview-orbit-node:nth-of-type(2) {
+  top: 12px;
+  right: 13px;
+}
+
+.overview-orbit-node:nth-of-type(3) {
+  right: 13px;
+  bottom: 12px;
+}
+
+.overview-orbit-node:nth-of-type(4) {
+  bottom: 12px;
+  left: 13px;
+}
+
+.overview-orbit-node i {
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  background: #5ed3f3;
+  border-radius: 2px;
+  box-shadow: 0 0 12px rgb(94 211 243 / 72%);
+}
+
+.overview-orbit-node.good i {
+  background: #23a36f;
+  box-shadow: 0 0 12px rgb(35 163 111 / 72%);
+}
+
+.overview-orbit-node.warm i {
+  background: #d68722;
+  box-shadow: 0 0 12px rgb(214 135 34 / 72%);
+}
+
+.overview-orbit-node.danger i {
+  background: #d04f66;
+  box-shadow: 0 0 12px rgb(208 79 102 / 72%);
+}
+
+.overview-orbit-node b {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.overview-home-v6 .overview-hero-metrics {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 286px;
+  min-width: 270px;
+}
+
+.overview-home-v6 .overview-hero-metrics .overview-stat {
+  min-height: 66px;
+  border-radius: 12px;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.overview-home-v6 .overview-hero-metrics .overview-stat:hover {
+  transform: translateY(-4px);
+  border-color: rgb(121 213 235 / 42%);
+  background: rgb(255 255 255 / 13%);
+  box-shadow: 0 16px 28px rgb(0 0 0 / 16%);
+}
+
+.overview-home-v6 .overview-control-dock {
+  flex-basis: 318px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f1f7fa 100%),
+    repeating-linear-gradient(135deg, rgb(29 93 122 / 5%) 0 1px, transparent 1px 18px);
+}
+
+.overview-home-v6 .overview-workbench {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.overview-home-v6 .overview-ops-surface {
+  flex: 1 1 min(720px, 100%);
+  gap: 16px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f5fafc 100%),
+    repeating-linear-gradient(90deg, rgb(29 93 122 / 4%) 0 1px, transparent 1px 38px);
+}
+
+.overview-home-v6 .overview-right-rail {
+  flex: 0 0 360px;
+}
+
+.overview-home-v6 .overview-right-rail > .overview-action-panel {
+  flex: 1 1 auto;
+  min-height: 360px;
+}
+
+.overview-home-v6 .overview-right-rail > .overview-recent-card {
+  flex: 0 0 238px;
+}
+
+.overview-home-v6 .overview-signal-strip {
+  display: flex;
+  gap: 12px;
+}
+
+.overview-home-v6 .overview-signal-card {
+  min-height: 96px;
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f5f9fb 100%);
+}
+
+.overview-home-v6 .overview-signal-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 18px 34px rgb(24 54 75 / 13%);
+}
+
+.overview-flow-and-bottleneck {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.overview-home-v6 .overview-pipeline {
+  position: relative;
+  flex: 1.16 1 0;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overview-home-v6 .overview-pipeline::before {
+  position: absolute;
+  top: 50%;
+  right: 22px;
+  left: 22px;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, #23a36f, #5ed3f3, #1d5d7a);
+  transform: translateY(-50%);
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.overview-home-v6 .overview-pipeline-stage {
+  position: relative;
+  min-height: 134px;
+  justify-content: space-between;
+  border-radius: 13px;
+}
+
+.overview-home-v6 .overview-pipeline-stage:hover {
+  transform: translateY(-5px);
+}
+
+.overview-home-v6 .overview-bottleneck-panel {
+  flex: 0.84 1 0;
+  min-width: 300px;
+}
+
+.overview-home-v6 .overview-bottleneck-list {
+  flex-flow: row wrap;
+}
+
+.overview-home-v6 .overview-bottleneck-row {
+  flex: 1 1 calc(50% - 5px);
+  min-height: 86px;
+}
+
+.overview-home-v6 .overview-bottleneck-row:hover {
+  transform: translateX(4px);
+}
+
+.overview-home-v6 .overview-action-link {
+  min-height: 72px;
+}
+
+.overview-run-list .overview-run-counts {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 4px;
+  align-items: flex-end;
+  margin-left: auto;
+  color: #5d7180;
+  font-size: 10px;
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.overview-run-list .overview-run-counts b {
+  padding: 2px 5px;
+  background: #eef6fa;
+  border: 1px solid #d9e9f0;
+  border-radius: 999px;
+  font-weight: 860;
+  line-height: 1;
+}
+
+.overview-home-v6 .overview-run-list a {
+  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  min-height: 54px;
+  padding: 6px 8px;
+}
+
+.overview-home-v6 .overview-run-list a:hover {
+  transform: translateX(4px);
+  border-color: #9fcfdf;
+  box-shadow: 0 13px 24px rgb(24 54 75 / 10%);
+}
+
+@keyframes overview-scanline {
+  from {
+    background-position: -280px 0, 0 0;
+  }
+
+  to {
+    background-position: 280px 0, 0 0;
+  }
+}
+
+@keyframes overview-node-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@media (max-width: 1180px) {
+  .overview-home-v6 .overview-hero-stage,
+  .overview-home-v6 .overview-control-dock {
+    flex: 0 0 auto;
+  }
+
+  .overview-home-v6 .overview-flow-and-bottleneck {
+    flex-direction: column;
+  }
+
+  .overview-home-v6 .overview-bottleneck-panel {
+    min-width: 0;
+  }
+
+  .overview-home-v6 .overview-bottleneck-list {
+    flex-direction: row;
+  }
+}
+
+@media (max-width: 900px) {
+  .overview-home-v6 .overview-hero-stage {
+    flex-direction: row;
+    min-height: 152px;
+    padding: 16px;
+  }
+
+  .overview-home-v6 .overview-orbit-map {
+    display: none;
+  }
+
+  .overview-home-v6 .overview-title-block h2 {
+    max-width: 420px;
+    font-size: 31px;
+  }
+
+  .overview-home-v6 .overview-title-block p {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .overview-home-v6 .overview-hero-route {
+    margin-top: 12px;
+  }
+
+  .overview-home-v6 .overview-hero-metrics {
+    flex: 0 0 220px;
+    min-width: 200px;
+  }
+
+  .overview-home-v6 .overview-hero-metrics .overview-stat {
+    min-height: 54px;
+  }
+
+  .overview-home-v6 .overview-control-dock {
+    flex-direction: row;
+    padding: 12px;
+  }
+
+  .overview-home-v6 .overview-control-dock .overview-next-action {
+    min-height: 62px;
+  }
+
+  .overview-home-v6 .overview-signal-strip,
+  .overview-home-v6 .overview-pipeline,
+  .overview-home-v6 .overview-bottleneck-list {
+    flex-wrap: wrap;
+  }
+
+  .overview-home-v6 .overview-pipeline::before {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .overview-home-v6 .overview-hero-stage,
+  .overview-home-v6 .overview-control-dock {
+    flex-direction: column;
+  }
+
+  .overview-home-v6 .overview-signal-strip,
+  .overview-home-v6 .overview-pipeline,
+  .overview-home-v6 .overview-bottleneck-list {
+    flex-direction: column;
+  }
+
+  .overview-run-list .overview-run-counts {
+    display: none;
+  }
+}

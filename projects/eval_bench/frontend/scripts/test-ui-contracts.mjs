@@ -17,6 +17,7 @@ for (const filePath of sourceFiles) {
 const jobsPage = await readSource("src/jobsPage.tsx");
 const uiSource = await readSource("src/ui.tsx");
 const filterControls = await readSource("src/filterControls.tsx");
+const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
 assert(
   samplePagerSource.includes("export function PagerControl(") &&
@@ -50,19 +51,19 @@ assert(
   "query chip selection must be centralized in OptionChipButton",
 );
 assert(
-  jobsPage.includes('<ActionButton variant="mini" onClick={() => onChange(labelOptions)}>'),
+  labelSubtaskControls.includes('<ActionButton variant="mini" onClick={() => onChange(labelOptions)}>'),
   "label subtask select-all action must use ActionButton",
 );
 assert(
-  jobsPage.includes('<ActionButton variant="mini" onClick={() => onChange([])}>'),
+  labelSubtaskControls.includes('<ActionButton variant="mini" onClick={() => onChange([])}>'),
   "label subtask default-policy action must use ActionButton",
 );
 assert(
-  jobsPage.includes('<ActionButton variant="mini" type="submit">'),
+  labelSubtaskControls.includes('<ActionButton variant="mini" type="submit">'),
   "label subtask custom-label submit must use ActionButton",
 );
 assert(
-  !jobsPage.includes('<button type="submit">添加</button>'),
+  !labelSubtaskControls.includes('<button type="submit">添加</button>'),
   "label subtask submit regressed to a raw button",
 );
 assert(
@@ -90,18 +91,20 @@ assert(
 );
 assertNoLegacyFormSubmitClass(jobsPage, "jobsPage.tsx");
 assert(
-  jobsPage.includes('OptionChipButton,'),
+  labelSubtaskControls.includes("OptionChipButton") &&
+    labelSubtaskControls.includes("DetectionLabelSubtaskPanel") &&
+    labelSubtaskControls.includes('if (task !== "detection")') &&
+    labelSubtaskControls.includes("return null;"),
   "label subtask chips must import OptionChipButton",
 );
 assert(
-  jobsPage.includes("<OptionChipButton") &&
-    !jobsPage.includes('className={selectedSet.has(label) ? "query-chip active" : "query-chip"}'),
+  labelSubtaskControls.includes("<OptionChipButton") &&
+    !labelSubtaskControls.includes('className={selectedSet.has(label) ? "query-chip active" : "query-chip"}'),
   "label subtask chips must use OptionChipButton instead of raw query-chip buttons",
 );
 assert(
-  jobsPage.includes('if (task !== "detection")') &&
-    jobsPage.includes("return null;") &&
-    jobsPage.includes("<LabelSubtaskPanel"),
+  jobsPage.includes("DetectionLabelSubtaskPanel") &&
+    jobsPage.includes("<DetectionLabelSubtaskPanel"),
   "label subtask panel must stay detection-only; keypoint jobs must not expose label subset UI",
 );
 
@@ -161,14 +164,20 @@ assert(
   "settings label clear action must use ActionButton",
 );
 const overviewPage = await readSource("src/overviewPage.tsx");
+const styleSource = await readSource("src/styles.css");
+const designSource = await readSource("src/design.css");
 assert(
   overviewPage.includes("export function OverviewPage()"),
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-command-center-redesign") &&
+  overviewPage.includes("overview-home-v6") &&
+    overviewPage.includes("overview-command-center-redesign") &&
     overviewPage.includes("overview-workbench") &&
     overviewPage.includes("overview-ops-surface") &&
+    overviewPage.includes("OverviewHeroMap") &&
+    overviewPage.includes("overview-orbit-map") &&
+    overviewPage.includes("overview-hero-route") &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewPipeline") &&
     overviewPage.includes("OverviewReadinessPanel") &&
@@ -179,7 +188,9 @@ assert(
     overviewPage.includes("overview-signal-strip") &&
     overviewPage.includes("OverviewBottleneckPanel") &&
     overviewPage.includes("overview-bottleneck-panel") &&
+    overviewPage.includes("overview-flow-and-bottleneck") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
+    overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-operational-grid") &&
     overviewPage.includes("overview-right-rail") &&
     !overviewPage.includes("overview-command-deck") &&
@@ -195,6 +206,15 @@ assert(
       overviewPage,
     ),
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
+);
+assert(
+  styleSource.includes("Overview v6: decision-first command surface") &&
+    styleSource.includes("@keyframes overview-scanline") &&
+    styleSource.includes("@keyframes overview-node-breathe") &&
+    designSource.includes("@keyframes eval-bench-surface-in") &&
+    designSource.includes("@keyframes eval-bench-live-pulse") &&
+    designSource.includes(".nav-item:hover .app-icon"),
+  "overview and shared controls must keep tactile hover and motion feedback",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
@@ -276,6 +296,13 @@ assert(
   runsPage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
     (runsPage.match(/<FormSelectControl/g) ?? []).length >= 2,
   "runs import dialog selects must use FormSelectControl",
+);
+assert(
+  runsPage.includes("DetectionLabelSubtaskPanel") &&
+    runsPage.includes("const [targetLabels, setTargetLabels] = useState<string[]>([])") &&
+    runsPage.includes("target_labels: targetLabels") &&
+    !runsPage.includes("function parseTargetLabels("),
+  "runs import dialog must use the shared detection label subtask panel instead of a free-text target label field",
 );
 const servicesPage = await readSource("src/servicesPage.tsx");
 assert(

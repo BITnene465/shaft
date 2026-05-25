@@ -164,11 +164,12 @@ manifest；如果 prompt 没声明目标 label，会清空旧 manifest 上残留
 的 prompt 保存为新的模板。后端 preflight 会用同一份 prompt registry 解析模板；job 入队时保存
 resolved manifest，worker 后续执行不依赖前端临时状态。
 
-Detection job 在新建任务面板里提供 label 子任务选择：面板从当前 benchmark summary 的 `labels`、
+Detection job 和导入 prediction run 都提供同一套 label 子任务选择：面板从当前 benchmark summary 的 `labels`、
 prompt template 的 `metadata.target_labels` 和 manifest 现有 `target_labels` 合并出候选 chip；
 点击 chip 会同步更新 manifest 中的 `eval.target_labels`。`全部候选` 会把当前候选显式写入
 `target_labels`；`默认策略` 会删除该字段，让后端继续按 prompt/task 的统一 label policy 解析默认范围。
-Keypoint job 不暴露 label 子任务选择，默认只评价 `arrow` 关键点；agent 查询 `resolve-target-labels`
+导入 prediction run 时，面板只使用当前 benchmark 的 label index 和显式选择，不再暴露自由文本目标标签输入。
+Keypoint job 和 keypoint prediction import 不暴露 label 子任务选择，默认只评价 `arrow` 关键点；agent 查询 `resolve-target-labels`
 时会返回 `label_subtasks_supported=false`，避免把 keypoint 误当成可任意 label 子集的 detection 子任务。
 后端也会在 preflight、init-run、prediction import、worker 和 evaluator 入口拒绝 keypoint 上非 `arrow`
 的显式 `target_labels`，防止绕过 UI 直接创建非法子任务；入口级回归测试覆盖 evaluator 与 prediction
@@ -624,9 +625,10 @@ weighted 面板内，排行榜表格继续显示上一份可用结果。
 
 Dashboard 总览页是总控工作台，不展示 recall 这类精细评测指标，也不把状态分布拆成一墙低价值面板。
 首页只回答三件事：当前是否可用、评测管线卡在哪里、下一步应该去哪个页面。总览视觉模块按两列 command desk
-处理：顶部 hero 只展示当前系统态和少量运行数值，右侧 dock 承载同步态和当前优先动作；左侧 operations surface
-用四个可行动信号、基准样本 / 预测产物 / 评估报告 / 排行就绪管线和阻塞优先级条承载核心判断；右侧只保留行动入口和最近 run
-的可点击紧凑摘要。行动入口必须以 readiness switchboard 形态展示 service、queue、evaluation 和 rank board
+处理：顶部 hero 只展示当前系统态、少量运行数值和 benchmark -> run -> report 路线提示，右侧 dock 承载同步态和当前优先动作；
+左侧 operations surface 用四个可行动信号、基准样本 / 预测产物 / 评估报告 / 排行就绪管线和阻塞优先级条承载核心判断；
+管线与阻塞优先级必须组成同一个 flow surface，不能再拆成多个互不关联的面板。右侧只保留行动入口和最近 run
+的可点击紧凑摘要，最近 run 只展示 benchmark/model 与 prediction/report 数量。行动入口必须以 readiness switchboard 形态展示 service、queue、evaluation 和 rank board
 四个状态入口，每个入口给出状态、数量占比和目标页面，不能退化成普通链接列表；最近 run 按 `created_at`
 倒序截取，不依赖 API 返回顺序。不再维护分栏 masonry 图表墙，也不要求固定数量的 mini chart。
 Notes、任务类型、模型分布、benchmark task、label footprint、样本/label 权重、Job 日历和 scheduler 资源不进入总览，
@@ -765,7 +767,8 @@ npm run test:layout
 `test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
 绕过标准 action button；Settings、Runs、Services 和 Compare 的局部 select、搜索清空、重置和 label
 清除动作也在这个边界内。Overview 的静态契约也由这里锁住：源码必须使用 command desk 的
-`overview-workbench`、`overview-ops-surface` 和 `overview-bottleneck-panel`，不能重新引用旧
+`overview-home-v6`、`OverviewHeroMap`、`overview-workbench`、`overview-ops-surface`、`overview-flow-and-bottleneck`
+和 `overview-bottleneck-panel`，并保留共享 hover / pulse 动效，不能重新引用旧
 `overview-command-deck`、`overview-focus-panel`、`overview-side-stack` 或活动矩阵组件。
 
 `test:workspace-settings` 会检查 viewer/settings 共享配置 schema，确保数值配置项、UI number input 范围、

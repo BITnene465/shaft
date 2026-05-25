@@ -1529,6 +1529,103 @@ tbody td {
   transform: translateX(68%);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .page-stack > * {
+    animation: eval-bench-surface-in 220ms ease both;
+  }
+
+  .page-stack > *:nth-child(2) {
+    animation-delay: 45ms;
+  }
+
+  .page-stack > *:nth-child(3) {
+    animation-delay: 90ms;
+  }
+
+  .workspace-card,
+  .table-shell,
+  .action-panel,
+  .service-card,
+  .instance-card,
+  .viewer-panel,
+  .settings-control-card,
+  .settings-workflow-card,
+  .compare-context-pane,
+  .compare-run-rail,
+  .compare-report-pane {
+    transform-origin: 50% 42%;
+  }
+
+  .workspace-card:hover,
+  .table-shell:hover,
+  .action-panel:hover,
+  .service-card:hover,
+  .instance-card:hover,
+  .viewer-panel:hover,
+  .settings-control-card:hover,
+  .settings-workflow-card:hover,
+  .compare-context-pane:hover,
+  .compare-run-rail:hover,
+  .compare-report-pane:hover {
+    transition-duration: 180ms;
+  }
+
+  .nav-item .app-icon,
+  .icon-button svg,
+  .primary-button svg,
+  .secondary-button svg,
+  .mini-button svg,
+  .query-chip svg,
+  .selectable-card-button svg,
+  .panel-toggle-button svg {
+    transition:
+      transform 160ms ease,
+      filter 160ms ease;
+  }
+
+  .nav-item:hover .app-icon,
+  .icon-button:hover svg,
+  .primary-button:hover svg,
+  .secondary-button:hover svg,
+  .mini-button:hover svg,
+  .query-chip:hover svg,
+  .selectable-card-button:hover svg,
+  .panel-toggle-button:hover svg {
+    transform: translateY(-1px);
+    filter: drop-shadow(0 5px 9px rgb(13 142 181 / 20%));
+  }
+
+  .badge.live,
+  .status-pill.online,
+  .status-pill.loading,
+  .status-dot.live {
+    animation: eval-bench-live-pulse 2.2s ease-in-out infinite;
+  }
+}
+
+@keyframes eval-bench-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes eval-bench-live-pulse {
+  0%,
+  100% {
+    filter: saturate(1);
+  }
+
+  50% {
+    filter: saturate(1.22) brightness(1.03);
+  }
+}
+
 @media (max-width: 1180px) {
   .panel-title span,
   .viewer-toolbar h2 {

@@ -26,6 +26,7 @@ import {
   unique
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
+import { DetectionLabelSubtaskPanel } from "./labelSubtaskControls";
 import { RunTable } from "./runTables";
 import {
   SAMPLE_PAGE_SIZE,
@@ -276,7 +277,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
   const [modelId, setModelId] = useState("");
   const [modelPath, setModelPath] = useState("imported");
   const [promptId, setPromptId] = useState("imported");
-  const [targetLabels, setTargetLabels] = useState("");
+  const [targetLabels, setTargetLabels] = useState<string[]>([]);
   const [specId, setSpecId] = useState("");
   const [strict, setStrict] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -291,6 +292,17 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
     }
   });
   const effectiveBenchmarkId = benchmarkId || benchmarks[0]?.benchmark_id || "";
+  const selectedBenchmark = benchmarks.find((benchmark) => benchmark.benchmark_id === effectiveBenchmarkId);
+  const labelOptions = selectedBenchmark?.labels ?? [];
+  useEffect(() => {
+    if (task !== "detection") {
+      setTargetLabels([]);
+      return;
+    }
+    if (labelOptions.length > 0) {
+      setTargetLabels((current) => current.filter((label) => labelOptions.includes(label)));
+    }
+  }, [task, effectiveBenchmarkId, labelOptions.join("\u0000")]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -303,7 +315,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
       model_path: modelPath.trim() || "imported",
       prompt_id: promptId.trim() || "imported",
       spec_id: specId.trim() || undefined,
-      target_labels: parseTargetLabels(targetLabels),
+      target_labels: targetLabels,
       strict,
       overwrite,
       evaluate
@@ -370,14 +382,14 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         <span>Prompt</span>
         <input value={promptId} onChange={(event) => setPromptId(event.target.value)} />
       </label>
-      <label>
-        <span>目标标签</span>
-        <input
-          value={targetLabels}
-          onChange={(event) => setTargetLabels(event.target.value)}
-          placeholder="arrow 或 icon,image,shape"
-        />
-      </label>
+      <DetectionLabelSubtaskPanel
+        className="full-field"
+        task={task}
+        benchmarkId={effectiveBenchmarkId}
+        labelOptions={labelOptions}
+        selectedLabels={targetLabels}
+        onChange={setTargetLabels}
+      />
       <label>
         <span>规格</span>
         <input
@@ -433,14 +445,6 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
     </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
-}
-
-function parseTargetLabels(value: string) {
-  return value
-    .replace(/,/g, " ")
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 export function RunDetailPage() {
