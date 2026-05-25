@@ -167,6 +167,10 @@ class RunArtifacts:
     def logs_dir(self) -> Path:
         return self.run_dir / "logs"
 
+    @property
+    def note_path(self) -> Path:
+        return self.run_dir / "note.json"
+
     def ensure(self) -> None:
         self.store.ensure()
         for path in (

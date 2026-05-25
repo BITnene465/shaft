@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, StoreLayout
+from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, StoreLayout, atomic_write_json
 from .sample_paths import sample_image_string
 from .sample_scope import (
     filter_instances_by_labels,
@@ -13,6 +13,18 @@ from .sample_scope import (
     run_target_label_set,
     run_target_labels,
     scope_sample_diagnostics,
+)
+from .schema import utc_now_iso
+
+
+MAX_RUN_NOTE_LENGTH = 20_000
+RANK_SCORE_TERMS: tuple[tuple[str, str, float], ...] = (
+    ("precision_iou50", "P@.50", 0.45),
+    ("recall_iou50", "R@.50", 0.45),
+    ("mean_iou", "mIoU", 0.10),
+)
+RANK_SCORE_FORMULA = " + ".join(
+    f"{weight:.2f} * {label}" for _, label, weight in RANK_SCORE_TERMS
 )
 
 
@@ -45,12 +57,25 @@ class BenchmarkSummary:
 
 
 @dataclass(frozen=True)
+class BenchmarkListPage:
+    offset: int
+    limit: int
+    total: int
+    filters: dict[str, str]
+    benchmarks: list[BenchmarkSummary]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RunSummary:
     run_id: str
     status: str
     benchmark_id: str
     tasks: list[str]
     spec_task: str
+    target_labels: list[str]
     model_id: str
     model_path: str
     prompt_id: str
@@ -66,9 +91,73 @@ class RunSummary:
     report_count: int
     manifest_path: str
     report_path: str | None = None
+    note: str = ""
+    note_updated_at: str | None = None
+    note_max_length: int = MAX_RUN_NOTE_LENGTH
     precision_iou50: float | None = None
     recall_iou50: float | None = None
     mean_iou: float | None = None
+
+
+@dataclass(frozen=True)
+class RunListPage:
+    offset: int
+    limit: int
+    total: int
+    filters: dict[str, str]
+    runs: list[RunSummary]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RunNote:
+    run_id: str
+    note: str
+    updated_at: str | None
+    path: str
+    max_length: int = MAX_RUN_NOTE_LENGTH
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RankBoardEntry:
+    rank: int
+    run_id: str
+    score: float | None
+    status: str
+    benchmark_id: str
+    task: str
+    target_labels: list[str]
+    model_id: str
+    prompt_id: str
+    metric_profile: str
+    prediction_count: int
+    precision_iou50: float | None
+    recall_iou50: float | None
+    mean_iou: float | None
+    created_at: str | None
+    note: str
+
+
+@dataclass(frozen=True)
+class RankBoard:
+    offset: int
+    limit: int
+    total: int
+    evaluated_count: int
+    filters: dict[str, str]
+    sort_by: str
+    sort_order: str
+    score_formula: str
+    facets: dict[str, list[dict[str, Any]]]
+    entries: list[RankBoardEntry]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -199,9 +288,18 @@ class EvalBenchStore:
             prediction_count = _optional_int(report_payload, "prediction_file_count")
             if prediction_count is None:
                 prediction_count = len(list((run_dir / "predictions").rglob("*.json")))
+            run_id = str(payload.get("run_id") or run_dir.name)
+            note = self._run_note_for_payload(run_id, payload)
+            prompt_metadata = dict(prompt.get("metadata") or {})
+            target_labels = _string_list(
+                spec.get("target_labels")
+                or (report_payload or {}).get("target_labels")
+                or prompt_metadata.get("target_labels")
+                or []
+            )
             items.append(
                 RunSummary(
-                    run_id=str(payload.get("run_id") or run_dir.name),
+                    run_id=run_id,
                     status=str(payload.get("status") or "unknown"),
                     benchmark_id=str(
                         benchmark.get("benchmark_id")
@@ -211,12 +309,13 @@ class EvalBenchStore:
                     ),
                     tasks=[str(item) for item in benchmark.get("tasks") or []],
                     spec_task=str(spec.get("task") or ""),
+                    target_labels=target_labels,
                     model_id=str(model.get("model_id") or ""),
                     model_path=str(model.get("path") or ""),
                     prompt_id=str(prompt.get("prompt_id") or ""),
                     prompt_path=prompt.get("path"),
                     prompt_hash=prompt.get("text_hash"),
-                    prompt_metadata=dict(prompt.get("metadata") or {}),
+                    prompt_metadata=prompt_metadata,
                     parser=str(spec.get("parser") or ""),
                     metric_profile=str(spec.get("metric_profile") or ""),
                     visualization_profile=str(spec.get("visualization_profile") or ""),
@@ -226,12 +325,217 @@ class EvalBenchStore:
                     report_count=report_count,
                     manifest_path=str(manifest_path),
                     report_path=str(report_path) if report_path.exists() else None,
+                    note=note.note,
+                    note_updated_at=note.updated_at,
+                    note_max_length=MAX_RUN_NOTE_LENGTH,
                     precision_iou50=_optional_float(report_payload, "precision_iou50"),
                     recall_iou50=_optional_float(report_payload, "recall_iou50"),
                     mean_iou=_optional_float(report_payload, "mean_iou"),
                 )
             )
         return sorted(items, key=lambda item: item.created_at or "", reverse=True)
+
+    def benchmark_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        layer: str | None = None,
+        query: str | None = None,
+    ) -> BenchmarkListPage:
+        filters = {
+            "task": _normalize_filter_value(task) or "",
+            "layer": _normalize_filter_value(layer) or "",
+            "query": (query or "").strip(),
+        }
+        query_text = filters["query"].lower()
+        items = [
+            benchmark
+            for benchmark in self.benchmarks()
+            if _benchmark_matches_filters(
+                benchmark,
+                task=filters["task"],
+                layer=filters["layer"],
+                query=query_text,
+            )
+        ]
+        start, page_limit = _page_bounds(offset=offset, limit=limit)
+        return BenchmarkListPage(
+            offset=start,
+            limit=page_limit,
+            total=len(items),
+            filters=filters,
+            benchmarks=items[start : start + page_limit],
+        )
+
+    def run_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        benchmark_id: str | None = None,
+        status: str | None = None,
+        label: str | None = None,
+        model_id: str | None = None,
+        prompt_id: str | None = None,
+        metric_profile: str | None = None,
+        query: str | None = None,
+    ) -> RunListPage:
+        filters = {
+            "task": _normalize_filter_value(task) or "",
+            "benchmark_id": _normalize_filter_value(benchmark_id) or "",
+            "status": _normalize_filter_value(status) or "",
+            "label": _normalize_filter_value(label) or "",
+            "model_id": _normalize_filter_value(model_id) or "",
+            "prompt_id": _normalize_filter_value(prompt_id) or "",
+            "metric_profile": _normalize_filter_value(metric_profile) or "",
+            "query": (query or "").strip(),
+        }
+        query_text = filters["query"].lower()
+        items = [
+            run
+            for run in self.runs()
+            if _run_matches_filters(
+                run,
+                task=filters["task"],
+                benchmark_id=filters["benchmark_id"],
+                status=filters["status"],
+                label=filters["label"],
+                model_id=filters["model_id"],
+                prompt_id=filters["prompt_id"],
+                metric_profile=filters["metric_profile"],
+                query=query_text,
+            )
+        ]
+        start, page_limit = _page_bounds(offset=offset, limit=limit)
+        return RunListPage(
+            offset=start,
+            limit=page_limit,
+            total=len(items),
+            filters=filters,
+            runs=items[start : start + page_limit],
+        )
+
+    def run_note(self, run_id: str) -> RunNote:
+        payload = self._run_manifest(run_id)
+        return self._run_note_for_payload(run_id, payload)
+
+    def update_run_note(self, run_id: str, note: str) -> RunNote:
+        self._run_manifest(run_id)
+        if not isinstance(note, str):
+            raise ValueError("note must be a string.")
+        if len(note) > MAX_RUN_NOTE_LENGTH:
+            raise ValueError(f"note must be at most {MAX_RUN_NOTE_LENGTH} characters.")
+        artifacts = RunArtifacts(self.layout.root, run_id)
+        artifacts.ensure()
+        updated = RunNote(
+            run_id=run_id,
+            note=note,
+            updated_at=utc_now_iso(),
+            path=str(artifacts.note_path),
+        )
+        atomic_write_json(artifacts.note_path, updated.to_dict())
+        return updated
+
+    def rank_board(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        benchmark_id: str | None = None,
+        status: str | None = None,
+        label: str | None = None,
+        model_id: str | None = None,
+        prompt_id: str | None = None,
+        metric_profile: str | None = None,
+        min_score: float | None = None,
+        sort_by: str = "score",
+        sort_order: str = "desc",
+        query: str | None = None,
+    ) -> RankBoard:
+        resolved_sort_by = _normalize_rank_sort_by(sort_by)
+        resolved_sort_order = "asc" if str(sort_order).lower() == "asc" else "desc"
+        filters = {
+            "task": _normalize_filter_value(task) or "",
+            "benchmark_id": _normalize_filter_value(benchmark_id) or "",
+            "status": _normalize_filter_value(status) or "",
+            "label": _normalize_filter_value(label) or "",
+            "model_id": _normalize_filter_value(model_id) or "",
+            "prompt_id": _normalize_filter_value(prompt_id) or "",
+            "metric_profile": _normalize_filter_value(metric_profile) or "",
+            "min_score": "" if min_score is None else str(float(min_score)),
+            "query": (query or "").strip(),
+        }
+        query_text = filters["query"].lower()
+        entries: list[RankBoardEntry] = []
+        for run in self.runs():
+            if filters["task"] and run.spec_task != filters["task"]:
+                continue
+            if filters["benchmark_id"] and run.benchmark_id != filters["benchmark_id"]:
+                continue
+            if filters["status"] and run.status != filters["status"]:
+                continue
+            if filters["label"] and filters["label"] not in run.target_labels:
+                continue
+            if filters["model_id"] and run.model_id != filters["model_id"]:
+                continue
+            if filters["prompt_id"] and run.prompt_id != filters["prompt_id"]:
+                continue
+            if filters["metric_profile"] and run.metric_profile != filters["metric_profile"]:
+                continue
+            if query_text and not _rank_query_matches(run, query_text):
+                continue
+            score = _rank_score(run)
+            if min_score is not None and (score is None or score < float(min_score)):
+                continue
+            entries.append(
+                RankBoardEntry(
+                    rank=0,
+                    run_id=run.run_id,
+                    score=score,
+                    status=run.status,
+                    benchmark_id=run.benchmark_id,
+                    task=run.spec_task,
+                    target_labels=run.target_labels,
+                    model_id=run.model_id,
+                    prompt_id=run.prompt_id,
+                    metric_profile=run.metric_profile,
+                    prediction_count=run.prediction_count,
+                    precision_iou50=run.precision_iou50,
+                    recall_iou50=run.recall_iou50,
+                    mean_iou=run.mean_iou,
+                    created_at=run.created_at,
+                    note=run.note,
+                )
+            )
+        facets = _rank_facets(entries)
+        evaluated_count = sum(1 for entry in entries if entry.score is not None)
+        ranked = _sort_rank_entries(
+            entries,
+            sort_by=resolved_sort_by,
+            sort_order=resolved_sort_order,
+        )
+        ranked = [
+            RankBoardEntry(**{**asdict(entry), "rank": index})
+            for index, entry in enumerate(ranked, start=1)
+        ]
+        start = max(0, int(offset))
+        page_limit = max(1, int(limit))
+        return RankBoard(
+            offset=start,
+            limit=page_limit,
+            total=len(ranked),
+            evaluated_count=evaluated_count,
+            filters=filters,
+            sort_by=resolved_sort_by,
+            sort_order=resolved_sort_order,
+            score_formula=RANK_SCORE_FORMULA,
+            facets=facets,
+            entries=ranked[start : start + page_limit],
+        )
 
     def state(self) -> DashboardState:
         benchmarks = self.benchmarks()
@@ -479,6 +783,28 @@ class EvalBenchStore:
             )
         return payload
 
+    def _run_note_for_payload(self, run_id: str, run_payload: dict[str, Any]) -> RunNote:
+        note_path = RunArtifacts(self.layout.root, run_id).note_path
+        payload = _read_json_or_none(note_path)
+        if payload is not None:
+            return RunNote(
+                run_id=run_id,
+                note=str(payload.get("note") or ""),
+                updated_at=payload.get("updated_at"),
+                path=str(note_path),
+            )
+        metadata = run_payload.get("metadata")
+        if isinstance(metadata, dict):
+            legacy_note = metadata.get("note")
+            if isinstance(legacy_note, str):
+                return RunNote(
+                    run_id=run_id,
+                    note=legacy_note,
+                    updated_at=metadata.get("note_updated_at"),
+                    path=str(note_path),
+                )
+        return RunNote(run_id=run_id, note="", updated_at=None, path=str(note_path))
+
     def _run_sample_json_paths(self, run_payload: dict[str, Any]) -> list[Path]:
         benchmark = run_payload.get("benchmark") or {}
         root = _benchmark_root(run_payload)
@@ -716,6 +1042,12 @@ def _labels_from_summary(payload: dict[str, Any] | None) -> list[str]:
     return sorted(values)
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
 def _normalize_filter_value(value: str | None) -> str | None:
     if value is None:
         return None
@@ -723,6 +1055,90 @@ def _normalize_filter_value(value: str | None) -> str | None:
     if not normalized or normalized == "all":
         return None
     return normalized
+
+
+def _page_bounds(*, offset: int, limit: int) -> tuple[int, int]:
+    return max(0, int(offset)), max(1, int(limit))
+
+
+def _benchmark_matches_filters(
+    benchmark: BenchmarkSummary,
+    *,
+    task: str,
+    layer: str,
+    query: str,
+) -> bool:
+    if task and task not in benchmark.tasks:
+        return False
+    if layer and layer not in benchmark.layers:
+        return False
+    if query and not _query_matches_fields(
+        query,
+        [
+            benchmark.benchmark_id,
+            benchmark.split,
+            benchmark.root,
+            benchmark.manifest_path,
+            benchmark.source_manifest_path,
+            " ".join(benchmark.tasks),
+            " ".join(benchmark.layers),
+        ],
+    ):
+        return False
+    return True
+
+
+def _run_matches_filters(
+    run: RunSummary,
+    *,
+    task: str,
+    benchmark_id: str,
+    status: str,
+    label: str,
+    model_id: str,
+    prompt_id: str,
+    metric_profile: str,
+    query: str,
+) -> bool:
+    if task and run.spec_task != task:
+        return False
+    if benchmark_id and run.benchmark_id != benchmark_id:
+        return False
+    if status and run.status != status:
+        return False
+    if label and label not in run.target_labels:
+        return False
+    if model_id and run.model_id != model_id:
+        return False
+    if prompt_id and run.prompt_id != prompt_id:
+        return False
+    if metric_profile and run.metric_profile != metric_profile:
+        return False
+    if query and not _run_query_matches(run, query):
+        return False
+    return True
+
+
+def _query_matches_fields(query: str, fields: list[object]) -> bool:
+    return any(query in str(field or "").lower() for field in fields)
+
+
+def _run_query_matches(run: RunSummary, query: str) -> bool:
+    return _query_matches_fields(
+        query,
+        [
+            run.run_id,
+            run.status,
+            run.benchmark_id,
+            run.spec_task,
+            run.model_id,
+            run.model_path,
+            run.prompt_id,
+            run.metric_profile,
+            run.note,
+            " ".join(run.target_labels),
+        ],
+    )
 
 
 def _run_sample_matches(
@@ -749,6 +1165,102 @@ def _run_sample_matches(
     if error_filter == "clean":
         return sample.has_prediction and false_negative_count == 0 and false_positive_count == 0
     return True
+
+
+def _rank_score(run: RunSummary) -> float | None:
+    values = {
+        "precision_iou50": run.precision_iou50,
+        "recall_iou50": run.recall_iou50,
+        "mean_iou": run.mean_iou,
+    }
+    if all(values[key] is None for key, _, _ in RANK_SCORE_TERMS):
+        return None
+    return sum((values[key] or 0.0) * weight for key, _, weight in RANK_SCORE_TERMS)
+
+
+def _normalize_rank_sort_by(value: str) -> str:
+    normalized = str(value or "score").strip()
+    allowed = {
+        "score",
+        "precision_iou50",
+        "recall_iou50",
+        "mean_iou",
+        "prediction_count",
+        "created_at",
+        "run_id",
+    }
+    return normalized if normalized in allowed else "score"
+
+
+def _sort_rank_entries(
+    entries: list[RankBoardEntry],
+    *,
+    sort_by: str,
+    sort_order: str,
+) -> list[RankBoardEntry]:
+    valued = [entry for entry in entries if _rank_sort_value(entry, sort_by) is not None]
+    missing = [entry for entry in entries if _rank_sort_value(entry, sort_by) is None]
+    valued.sort(
+        key=lambda entry: _rank_sort_value(entry, sort_by),  # type: ignore[arg-type]
+        reverse=sort_order == "desc",
+    )
+    missing.sort(key=lambda entry: entry.run_id)
+    return valued + missing
+
+
+def _rank_sort_value(entry: RankBoardEntry, sort_by: str) -> float | int | str | None:
+    if sort_by == "score":
+        return entry.score
+    if sort_by == "precision_iou50":
+        return entry.precision_iou50
+    if sort_by == "recall_iou50":
+        return entry.recall_iou50
+    if sort_by == "mean_iou":
+        return entry.mean_iou
+    if sort_by == "prediction_count":
+        return entry.prediction_count
+    if sort_by == "created_at":
+        return entry.created_at or None
+    if sort_by == "run_id":
+        return entry.run_id or None
+    return entry.score
+
+
+def _rank_facets(entries: list[RankBoardEntry]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "tasks": _rank_facet(entries, lambda entry: [entry.task or "unknown"]),
+        "benchmarks": _rank_facet(entries, lambda entry: [entry.benchmark_id or "unknown"]),
+        "statuses": _rank_facet(entries, lambda entry: [entry.status or "unknown"]),
+        "labels": _rank_facet(
+            entries,
+            lambda entry: entry.target_labels if entry.target_labels else ["unscoped"],
+        ),
+        "models": _rank_facet(entries, lambda entry: [entry.model_id or "unknown"]),
+        "prompts": _rank_facet(entries, lambda entry: [entry.prompt_id or "unknown"]),
+        "metric_profiles": _rank_facet(
+            entries,
+            lambda entry: [entry.metric_profile or "unknown"],
+        ),
+    }
+
+
+def _rank_facet(
+    entries: list[RankBoardEntry],
+    values: Callable[[RankBoardEntry], list[str]],
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        for value in values(entry):
+            key = str(value or "unknown")
+            counts[key] = counts.get(key, 0) + 1
+    return [
+        {"value": value, "count": count}
+        for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _rank_query_matches(run: RunSummary, query: str) -> bool:
+    return _run_query_matches(run, query)
 
 
 def _benchmark_root(run_payload: dict[str, Any]) -> Path:

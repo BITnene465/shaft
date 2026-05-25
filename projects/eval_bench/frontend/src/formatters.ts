@@ -56,13 +56,6 @@ export function isTextInputTarget(target: EventTarget | null) {
   return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
 }
 
-export function scoreRun(run: RunSummary) {
-  const precision = run.precision_iou50 ?? 0;
-  const recall = run.recall_iou50 ?? 0;
-  const meanIou = run.mean_iou ?? 0;
-  return precision * 0.45 + recall * 0.45 + meanIou * 0.1;
-}
-
 export function formatRunOption(run: RunSummary) {
   return `${run.run_id} / ${run.model_id} / R ${formatMetric(run.recall_iou50)}`;
 }

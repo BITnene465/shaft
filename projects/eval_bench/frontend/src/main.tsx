@@ -15,15 +15,20 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   useLocation,
   useParams
 } from "@tanstack/react-router";
-import type { ColumnDef } from "@tanstack/react-table";
 import {
+  Activity,
+  BarChart3,
   Eye,
+  FileText,
   PanelLeftClose,
   PanelLeftOpen,
+  Save,
   Search,
+  Trophy,
   X
 } from "lucide-react";
 
@@ -32,11 +37,7 @@ import {
   BenchmarkSampleDetail,
   BenchmarkSampleSummary,
   BenchmarkSummary,
-  ComparisonLabelDelta,
-  ComparisonReport,
-  ComparisonSample,
   ComparisonSampleDetail,
-  ComparisonSummary,
   DashboardState,
   EvalInstance,
   RunSampleDetail,
@@ -45,13 +46,12 @@ import {
   createBenchmark,
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
-  fetchComparison,
   fetchComparisonSample,
-  fetchComparisons,
   fetchRunSampleDetail,
   fetchRunSamples,
   fetchSettingsPreviewSample,
-  importPredictions
+  importPredictions,
+  updateRunNote
 } from "./api";
 import {
   buildObjectRows,
@@ -73,24 +73,19 @@ import {
 import {
   basename,
   comparisonSampleHref,
-  formatCompactSignedMetric,
   formatDate,
   formatMetric,
-  formatRunOption,
-  formatSignedInteger,
   formatSignedMetric,
   inferenceValue,
   isTextInputTarget,
   pixelBudgetValue,
-  runIdExists,
   runSampleHref,
   samplingValue,
-  scoreRun,
   stringValue,
   unique
 } from "./formatters";
 import { useDashboardState } from "./dashboardState";
-import { FilterSelect } from "./filterControls";
+import { AdvancedFilterBar, FilterSelect } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { JobQueuePanel, JobsPage } from "./jobsPage";
 import { BenchmarkTable, RunTable } from "./runTables";
@@ -117,10 +112,14 @@ import {
   handleViewerShortcutAction
 } from "./viewerPanels";
 import {
+  ActionButton,
   Badge,
+  CommandButton,
   ConfigItem,
   DataTable,
   EmptyState,
+  IconActionButton,
+  MetricCard,
   PanelTitle,
   SectionHeader,
   WorkspaceDialog
@@ -175,9 +174,9 @@ class AppErrorBoundary extends React.Component<
           <div className="fatal-panel-inner">
             <strong>看板渲染失败</strong>
             <span>{this.state.error}</span>
-            <button type="button" onClick={() => window.location.reload()}>
+            <ActionButton variant="secondary" onClick={() => window.location.reload()}>
               重新加载
-            </button>
+            </ActionButton>
           </div>
         </div>
       );
@@ -218,6 +217,7 @@ function Shell() {
           <NavItem to="/services" icon={<AppIcon name="service" size={21} />} label="模型服务" />
           <NavItem to="/jobs" icon={<AppIcon name="evalJob" size={21} />} label="评测中心" />
           <NavItem to="/runs" icon={<AppIcon name="runResults" size={21} />} label="结果库" />
+          <NavItem to="/rank-board" icon={<Trophy size={20} />} label="排行榜" />
           <NavItem to="/compare" icon={<AppIcon name="compareAnalysis" size={21} />} label="对比分析" />
           <NavItem to="/settings" icon={<AppIcon name="workspaceSettings" size={21} />} label="工作台设置" />
         </nav>
@@ -277,14 +277,11 @@ function ToastHub() {
         <div className={`toast-message ${item.tone}`} key={item.id}>
           <strong>操作失败</strong>
           <span>{item.message}</span>
-          <button
-            className="icon-button dense"
-            type="button"
+          <IconActionButton
+            icon={<X size={13} />}
             title="关闭提醒"
             onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))}
-          >
-            <X size={13} />
-          </button>
+          />
         </div>
       ))}
     </div>
@@ -303,6 +300,9 @@ function getShellTitle(pathname: string) {
   }
   if (pathname.startsWith("/runs")) {
     return { kicker: "可复查的评测结果", title: "结果库" };
+  }
+  if (pathname.startsWith("/rank-board")) {
+    return { kicker: "模型排名工作台", title: "排行榜" };
   }
   if (pathname.startsWith("/compare")) {
     return { kicker: "双模型对比", title: "对比分析" };
@@ -345,16 +345,60 @@ function OverviewPage() {
   if (error || !data) {
     return <EmptyState title="看板状态加载失败" tone="danger" />;
   }
+  const statusRows = countBy(data.runs, (run) => run.status || "unknown");
+  const taskRows = countBy(data.runs, (run) => run.spec_task || "unknown");
+  const timelineRows = runTimeline(data.runs, 9);
+  const activeRuns = data.runs.filter((run) =>
+    ["created", "queued", "running"].includes(run.status)
+  ).length;
+  const notedRuns = data.runs.filter((run) => run.note.trim()).length;
   return (
     <section className="page-stack dashboard-home">
-      <SummaryGrid state={data} />
-      <div className="home-grid">
-        <div className="workspace-card span-2">
-          <PanelTitle
-            title="最近评测记录"
-            meta={`共 ${data.runs.length.toLocaleString()} 条`}
-          />
-          <RunTable runs={data.runs.slice(0, 8)} compact />
+      <div className="overview-command-grid">
+        <div className="overview-hero-panel">
+          <div className="overview-hero-copy">
+            <div className="eyebrow">Mission Control</div>
+            <h2>Eval Bench 总控工作台</h2>
+            <p>聚合 benchmark、run、queue 和复现备注状态，保留粗粒度运营信号。</p>
+          </div>
+          <div className="overview-signal-rail">
+            <span>Active {activeRuns.toLocaleString()}</span>
+            <span>Notes {notedRuns.toLocaleString()}</span>
+            <span>Store online</span>
+          </div>
+        </div>
+        <div className="overview-quick-panel">
+          <PanelTitle title="快速入口" meta="agent / human" />
+          <div className="overview-command-links">
+            <Link className="mini-link compare-ready" to="/rank-board">
+              <Trophy size={13} />
+              打开排行榜
+            </Link>
+            <Link className="mini-link" to="/jobs">
+              <Activity size={13} />
+              任务中心
+            </Link>
+            <Link className="mini-link" to="/runs">
+              <AppIcon name="runResults" size={13} />
+              结果库
+            </Link>
+          </div>
+          <ConfigItem label="Store" value={data.store_root} />
+        </div>
+      </div>
+      <div className="summary-grid overview-signal-grid">
+        <MetricCard icon={<AppIcon name="benchmark" size={26} />} label="基准集" value={data.benchmark_count} />
+        <MetricCard icon={<AppIcon name="samples" size={26} />} label="GT 样本" value={data.total_benchmark_samples} />
+        <MetricCard icon={<Activity size={25} />} label="活跃任务" value={activeRuns} />
+        <MetricCard icon={<FileText size={24} />} label="备注覆盖" value={notedRuns} />
+      </div>
+      <div className="home-grid overview-grid">
+        <OverviewBarPanel title="Run 状态分布" meta="粗粒度生命周期" rows={statusRows} />
+        <OverviewBarPanel title="任务类型分布" meta="detection / keypoint" rows={taskRows} />
+        <OverviewTimelinePanel rows={timelineRows} />
+        <div className="workspace-card">
+          <PanelTitle title="最近活动" meta={`最新 ${Math.min(6, data.runs.length)} 条 run`} />
+          <OverviewRunList runs={data.runs.slice(0, 6)} />
         </div>
         <div className="workspace-card">
           <PanelTitle title="任务队列" meta="持久化 job" />
@@ -362,11 +406,124 @@ function OverviewPage() {
         </div>
         <div className="workspace-card">
           <PanelTitle title="基准集" meta="GT 样本库" />
-          <BenchmarkTable benchmarks={data.benchmarks.slice(0, 8)} compact />
+          <BenchmarkTable benchmarks={data.benchmarks.slice(0, 6)} compact />
         </div>
       </div>
     </section>
   );
+}
+
+function OverviewBarPanel({
+  title,
+  meta,
+  rows
+}: {
+  title: string;
+  meta: string;
+  rows: Array<{ key: string; count: number }>;
+}) {
+  const maxCount = Math.max(1, ...rows.map((row) => row.count));
+  return (
+    <div className="workspace-card overview-chart-card">
+      <PanelTitle title={title} meta={meta} />
+      <div className="overview-bar-list">
+        {rows.length === 0 ? (
+          <div className="empty-inline">暂无数据</div>
+        ) : (
+          rows.map((row) => (
+            <div className="overview-bar-row" key={row.key}>
+              <span>{row.key}</span>
+              <div>
+                <i style={{ width: `${Math.max(4, (row.count / maxCount) * 100)}%` }} />
+              </div>
+              <strong>{row.count.toLocaleString()}</strong>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTimelinePanel({ rows }: { rows: Array<{ key: string; count: number }> }) {
+  const maxCount = Math.max(1, ...rows.map((row) => row.count));
+  const points = rows.map((row, index) => {
+    const x = rows.length <= 1 ? 50 : (index / (rows.length - 1)) * 100;
+    const y = 92 - (row.count / maxCount) * 78;
+    return `${x},${y}`;
+  });
+  return (
+    <div className="workspace-card overview-chart-card span-2">
+      <PanelTitle title="Run 写入节奏" meta="最近 9 个日期桶" />
+      <div className="overview-sparkline">
+        <BarChart3 size={18} />
+        <svg viewBox="0 0 100 100" role="img" aria-label="run timeline">
+          <polyline points={points.join(" ")} />
+          {rows.map((row, index) => {
+            const x = rows.length <= 1 ? 50 : (index / (rows.length - 1)) * 100;
+            const y = 92 - (row.count / maxCount) * 78;
+            return <circle key={row.key} cx={x} cy={y} r="2.4" />;
+          })}
+        </svg>
+      </div>
+      <div className="overview-timeline-labels">
+        {rows.map((row) => (
+          <span key={row.key}>
+            {row.key}
+            <strong>{row.count}</strong>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OverviewRunList({ runs }: { runs: RunSummary[] }) {
+  if (runs.length === 0) {
+    return <div className="empty-inline">暂无 run。</div>;
+  }
+  return (
+    <div className="overview-run-list">
+      {runs.map((run) => (
+        <Link key={run.run_id} to="/runs/$runId" params={{ runId: run.run_id }}>
+          <span>
+            <strong>{run.run_id}</strong>
+            <em>{run.model_id || "-"}</em>
+          </span>
+          <Badge value={run.status} domain="run" />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function countBy<T>(items: T[], keyForItem: (item: T) => string) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keyForItem(item).trim() || "unknown";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function runTimeline(runs: RunSummary[], bucketCount: number) {
+  const keys = Array.from(
+    new Set(
+      runs
+        .map((run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"))
+        .filter(Boolean)
+    )
+  )
+    .sort()
+    .slice(-bucketCount);
+  if (keys.length === 0) {
+    return [];
+  }
+  const counts = countBy(runs, (run) => (run.created_at ? run.created_at.slice(0, 10) : "unknown"));
+  const countMap = new Map(counts.map((row) => [row.key, row.count]));
+  return keys.map((key) => ({ key, count: countMap.get(key) ?? 0 }));
 }
 
 function SummaryGrid({ state }: { state: DashboardState }) {
@@ -380,29 +537,22 @@ function SummaryGrid({ state }: { state: DashboardState }) {
   );
 }
 
-function MetricCard({
-  icon,
-  label,
-  value
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="metric-card">
-      <div className="metric-icon">{icon}</div>
-      <div>
-        <div className="metric-label">{label}</div>
-        <div className="metric-value">{value.toLocaleString()}</div>
-      </div>
-    </div>
-  );
-}
-
 function BenchmarksPage() {
   const { data, isLoading, error } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [taskFilter, setTaskFilter] = useState("all");
+  const [layerFilter, setLayerFilter] = useState("all");
+  const [splitFilter, setSplitFilter] = useState("all");
+  const benchmarks = data?.benchmarks ?? [];
+  const filteredBenchmarks = benchmarks
+    .filter((benchmark) => taskFilter === "all" || benchmark.tasks.includes(taskFilter))
+    .filter((benchmark) => layerFilter === "all" || benchmark.layers.includes(layerFilter))
+    .filter((benchmark) => splitFilter === "all" || benchmark.split === splitFilter)
+    .filter((benchmark) => benchmarkMatchesQuery(benchmark, searchText));
+  const tasks = unique(benchmarks.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
+  const layers = unique(benchmarks.flatMap((benchmark) => benchmark.layers).filter(Boolean));
+  const splits = unique(benchmarks.map((benchmark) => benchmark.split).filter(Boolean));
   if (isLoading) {
     return <EmptyState title="正在加载基准集" />;
   }
@@ -416,13 +566,56 @@ function BenchmarksPage() {
           <h2>基准集目录</h2>
           <span>{data.benchmarks.length.toLocaleString()} 个不可变副本</span>
         </div>
-        <button className="primary-button command-button" type="button" onClick={() => setCreateOpen(true)}>
-          <AppIcon name="createBenchmark" size={17} />
-          <span>创建副本</span>
-        </button>
+        <CommandButton
+          icon={<AppIcon name="createBenchmark" size={17} />}
+          onClick={() => setCreateOpen(true)}
+        >
+          创建副本
+        </CommandButton>
       </div>
+      <AdvancedFilterBar
+        title="基准集高级检索"
+        meta={`${filteredBenchmarks.length.toLocaleString()} / ${benchmarks.length.toLocaleString()} 个 benchmark`}
+        controls={[
+          {
+            type: "search",
+            id: "benchmark-query",
+            label: "全文检索",
+            value: searchText,
+            onChange: setSearchText,
+            placeholder: "搜索 benchmark、manifest、root、来源"
+          },
+          {
+            type: "select",
+            id: "benchmark-task",
+            label: "任务",
+            value: taskFilter,
+            values: ["all", ...tasks],
+            labels: { all: "全部" },
+            onChange: setTaskFilter
+          },
+          {
+            type: "select",
+            id: "benchmark-layer",
+            label: "标注层",
+            value: layerFilter,
+            values: ["all", ...layers],
+            labels: { all: "全部" },
+            onChange: setLayerFilter
+          },
+          {
+            type: "select",
+            id: "benchmark-split",
+            label: "Split",
+            value: splitFilter,
+            values: ["all", ...splits],
+            labels: { all: "全部" },
+            onChange: setSplitFilter
+          }
+        ]}
+      />
       <div className="workspace-card fill">
-        <BenchmarkTable benchmarks={data.benchmarks} />
+        <BenchmarkTable benchmarks={filteredBenchmarks} />
       </div>
       <WorkspaceDialog
         open={createOpen}
@@ -536,10 +729,15 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
           />
           <span>覆盖已有副本</span>
         </label>
-        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending || tasks.length === 0}>
-          <AppIcon name="submitCreate" size={16} />
+        <ActionButton
+          className="form-submit-button"
+          type="submit"
+          variant="primary"
+          icon={<AppIcon name="submitCreate" size={16} />}
+          disabled={mutation.isPending || tasks.length === 0}
+        >
           创建
-        </button>
+        </ActionButton>
         {mutation.data ? (
           <div className="form-result full-field">
             已创建 {mutation.data.benchmark_id}，包含 {mutation.data.sample_count.toLocaleString()} 个样本。{" "}
@@ -557,6 +755,22 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
       </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
+}
+
+function benchmarkMatchesQuery(benchmark: BenchmarkSummary, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return [
+    benchmark.benchmark_id,
+    benchmark.split,
+    benchmark.root,
+    benchmark.manifest_path,
+    benchmark.source_manifest_path ?? "",
+    benchmark.tasks.join(" "),
+    benchmark.layers.join(" ")
+  ].some((value) => value.toLowerCase().includes(normalized));
 }
 
 function BenchmarkDetailPage() {
@@ -849,10 +1063,13 @@ function RunsPage() {
           <h2>评测记录库</h2>
           <span>{data.runs.length.toLocaleString()} 条 run snapshot</span>
         </div>
-        <button className="secondary-button command-button" type="button" onClick={() => setImportOpen(true)}>
-          <AppIcon name="importPrediction" size={17} />
-          <span>导入预测</span>
-        </button>
+        <CommandButton
+          variant="secondary"
+          icon={<AppIcon name="importPrediction" size={17} />}
+          onClick={() => setImportOpen(true)}
+        >
+          导入预测
+        </CommandButton>
       </div>
       <div className="workspace-card fill">
         <RunTable runs={data.runs} />
@@ -878,7 +1095,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
   const [modelId, setModelId] = useState("");
   const [modelPath, setModelPath] = useState("imported");
   const [promptId, setPromptId] = useState("imported");
-  const [targetLabels, setTargetLabels] = useState("icon,image,shape");
+  const [targetLabels, setTargetLabels] = useState("");
   const [specId, setSpecId] = useState("");
   const [strict, setStrict] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -946,16 +1163,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         </label>
         <label>
           <span>任务</span>
-          <select
-            value={task}
-            onChange={(event) => {
-              const nextTask = event.target.value;
-              setTask(nextTask);
-              if (nextTask === "keypoint" && targetLabels.trim() === "icon,image,shape") {
-                setTargetLabels("arrow");
-              }
-            }}
-          >
+          <select value={task} onChange={(event) => setTask(event.target.value)}>
             <option value="detection">检测</option>
             <option value="keypoint">关键点</option>
           </select>
@@ -975,24 +1183,14 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         </label>
         <label>
           <span>Prompt</span>
-          <input
-            value={promptId}
-            onChange={(event) => {
-              const nextPromptId = event.target.value;
-              setPromptId(nextPromptId);
-              const inferredLabels = targetLabelsForPrompt(nextPromptId);
-              if (inferredLabels) {
-                setTargetLabels(inferredLabels);
-              }
-            }}
-          />
+          <input value={promptId} onChange={(event) => setPromptId(event.target.value)} />
         </label>
         <label>
           <span>目标标签</span>
           <input
             value={targetLabels}
             onChange={(event) => setTargetLabels(event.target.value)}
-            placeholder="icon,image,shape"
+            placeholder="arrow 或 icon,image,shape"
           />
         </label>
         <label>
@@ -1027,10 +1225,15 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
           />
           <span>导入后计算指标</span>
         </label>
-        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending || benchmarks.length === 0}>
-          <AppIcon name="importPrediction" size={16} />
+        <ActionButton
+          className="form-submit-button"
+          type="submit"
+          variant="primary"
+          icon={<AppIcon name="importPrediction" size={16} />}
+          disabled={mutation.isPending || benchmarks.length === 0}
+        >
           导入
-        </button>
+        </ActionButton>
         {mutation.data ? (
           <div className="form-result full-field">
             已导入 {mutation.data.imported_predictions.toLocaleString()} 条预测，缺失{" "}
@@ -1054,17 +1257,6 @@ function parseTargetLabels(value: string) {
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function targetLabelsForPrompt(promptId: string) {
-  const normalized = promptId.toLowerCase();
-  if (normalized.includes("layout")) {
-    return "icon,image,shape";
-  }
-  if (normalized.includes("arrow") || normalized.includes("keypoint")) {
-    return "arrow";
-  }
-  return null;
 }
 
 function RunDetailPage() {
@@ -1241,9 +1433,24 @@ function RunDetailPage() {
 }
 
 function RunConfigPanel({ run }: { run: RunSummary }) {
+  const queryClient = useQueryClient();
+  const [noteDraft, setNoteDraft] = useState(run.note || "");
+  const noteMutation = useMutation({
+    mutationFn: (note: string) => updateRunNote(run.run_id, note),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+    }
+  });
   const promptSource = stringValue(run.prompt_metadata.source) || (run.prompt_path ? "file" : "inline");
   const systemPrompt = stringValue(run.prompt_metadata.system_prompt);
   const userPrompt = stringValue(run.prompt_metadata.user_prompt);
+  const noteDirty = noteDraft !== (run.note || "");
+  const noteMaxLength = run.note_max_length;
+
+  useEffect(() => {
+    setNoteDraft(run.note || "");
+  }, [run.run_id, run.note]);
+
   return (
     <details className="run-config-panel">
       <summary>
@@ -1252,6 +1459,39 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
           {run.model_id} / {run.prompt_id || "-"} / {inferenceValue(run.inference, "backend")}
         </strong>
       </summary>
+      <div className="run-note-editor">
+        <div className="run-note-editor-head">
+          <FileText size={16} />
+          <div>
+            <strong>Run note</strong>
+            <span>
+              {run.note_updated_at ? `更新于 ${formatDate(run.note_updated_at)}` : "记录复现线索、idea 来源和排障细节"}
+            </span>
+          </div>
+        </div>
+        <textarea
+          value={noteDraft}
+          onChange={(event) => setNoteDraft(event.target.value)}
+          placeholder="记录 checkpoint、prompt 改动、复现实验入口、异常判断和下一步 idea。"
+          maxLength={noteMaxLength}
+        />
+        <div className="run-note-actions">
+          <span>
+            {noteDraft.length.toLocaleString()} / {noteMaxLength.toLocaleString()}
+          </span>
+          {noteMutation.error ? <strong>{noteMutation.error.message}</strong> : null}
+          {noteMutation.data ? <em>已保存</em> : null}
+          <ActionButton
+            compact
+            variant="primary"
+            icon={<Save size={14} />}
+            disabled={!noteDirty || noteMutation.isPending}
+            onClick={() => noteMutation.mutate(noteDraft)}
+          >
+            保存备注
+          </ActionButton>
+        </div>
+      </div>
       <div className="run-config-grid">
         <ConfigBlock title="模型">
           <ConfigItem label="ID" value={run.model_id} />
@@ -1418,22 +1658,20 @@ function SamplePager({
         {start.toLocaleString()}-{end.toLocaleString()} / {total.toLocaleString()}
       </span>
       <div>
-        <button
-          className="mini-button"
-          type="button"
+        <ActionButton
+          variant="mini"
           onClick={() => onPageChange(previousOffset)}
           disabled={offset <= 0}
         >
           上一页
-        </button>
-        <button
-          className="mini-button"
-          type="button"
+        </ActionButton>
+        <ActionButton
+          variant="mini"
           onClick={() => onPageChange(nextOffset)}
           disabled={nextOffset >= total}
         >
           下一页
-        </button>
+        </ActionButton>
       </div>
     </div>
   );
@@ -1967,553 +2205,6 @@ function SettingsPage() {
   );
 }
 
-function ComparePage() {
-  const { data, isLoading, error } = useDashboardState();
-  const comparisonListQuery = useQuery({
-    queryKey: ["comparisons"],
-    queryFn: fetchComparisons
-  });
-  const [taskFilter, setTaskFilter] = useState("all");
-  const [benchmarkFilter, setBenchmarkFilter] = useState("all");
-  const [baselineRunId, setBaselineRunId] = useState(
-    () => new URLSearchParams(window.location.search).get("baseline") ?? ""
-  );
-  const [candidateRunId, setCandidateRunId] = useState(
-    () => new URLSearchParams(window.location.search).get("candidate") ?? ""
-  );
-  const runs = data?.runs ?? [];
-  const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
-  const filteredRuns = runs
-    .filter((run) => taskFilter === "all" || run.spec_task === taskFilter)
-    .filter((run) => benchmarkFilter === "all" || run.benchmark_id === benchmarkFilter)
-    .sort((left, right) => scoreRun(right) - scoreRun(left));
-  const comparableRuns = filteredRuns.filter((run) => run.report_path);
-  const fallbackCandidate = comparableRuns[0]?.run_id ?? "";
-  const fallbackBaseline =
-    comparableRuns.find((run) => run.run_id !== fallbackCandidate)?.run_id ?? "";
-  const effectiveBaseline = runIdExists(comparableRuns, baselineRunId)
-    ? baselineRunId
-    : fallbackBaseline;
-  const candidateFallback =
-    comparableRuns.find((run) => run.run_id !== effectiveBaseline)?.run_id ?? "";
-  const effectiveCandidate =
-    runIdExists(comparableRuns, candidateRunId) && candidateRunId !== effectiveBaseline
-      ? candidateRunId
-      : candidateFallback;
-  const comparisonQuery = useQuery({
-    queryKey: ["comparison", effectiveBaseline, effectiveCandidate],
-    queryFn: () => fetchComparison(effectiveBaseline, effectiveCandidate),
-    enabled: Boolean(effectiveBaseline && effectiveCandidate && effectiveBaseline !== effectiveCandidate)
-  });
-
-  useEffect(() => {
-    if (comparisonQuery.data?.comparison_id) {
-      void comparisonListQuery.refetch();
-    }
-  }, [comparisonListQuery.refetch, comparisonQuery.data?.comparison_id]);
-
-  if (isLoading) {
-    return <EmptyState title="正在加载对比状态" />;
-  }
-  if (error || !data) {
-    return <EmptyState title="对比状态加载失败" tone="danger" />;
-  }
-
-  return (
-    <section className="page-stack compare-page">
-      <div className="compare-topbar">
-        <div className="compare-title">
-          <span>对比工作区</span>
-          <strong>{filteredRuns.length.toLocaleString()} 条 run</strong>
-        </div>
-        <div className="compare-chip-strip">
-          <FilterSelect
-            label="任务"
-            value={taskFilter}
-            values={["all", ...tasks]}
-            labels={{ all: "全部" }}
-            onChange={setTaskFilter}
-            compact
-          />
-          <FilterSelect
-            label="基准集"
-            value={benchmarkFilter}
-            values={["all", ...benchmarks]}
-            labels={{ all: "全部" }}
-            onChange={setBenchmarkFilter}
-            compact
-          />
-        </div>
-      </div>
-      <ResizableSplit
-        className="compare-workspace"
-        storageKey="eval_bench_compare_rail_width"
-        defaultSize={292}
-        minSize={180}
-        maxSize={680}
-        first={
-          <aside className="compare-run-rail">
-            <RunSelectRail
-              title="基线"
-              value={effectiveBaseline}
-              runs={comparableRuns}
-              disabled={comparableRuns.length < 2}
-              onChange={setBaselineRunId}
-            />
-            <RunSelectRail
-              title="候选"
-              value={effectiveCandidate}
-              runs={comparableRuns}
-              disabled={comparableRuns.length < 2}
-              onChange={setCandidateRunId}
-            />
-            <ComparisonHistoryPanel comparisons={comparisonListQuery.data?.comparisons ?? []} />
-          </aside>
-        }
-        second={
-          <ResizableSplit
-            className="compare-main-split"
-            storageKey="eval_bench_compare_leaderboard_width"
-            fixedPane="second"
-            defaultSize={372}
-            minSize={260}
-            maxSize={780}
-            first={
-              <main className="compare-report-pane">
-                {comparableRuns.length < 2 ? (
-                  <div className="empty-panel">至少需要两个已完成评测的 run 才能对比。</div>
-                ) : effectiveBaseline === effectiveCandidate ? (
-                  <div className="empty-panel">请选择两个不同的 run。</div>
-                ) : comparisonQuery.isLoading ? (
-                  <div className="empty-panel">正在加载对比报告</div>
-                ) : comparisonQuery.isError || !comparisonQuery.data ? (
-                  <div className="empty-panel danger-text">对比报告加载失败。</div>
-                ) : (
-                  <ComparisonPanel report={comparisonQuery.data} />
-                )}
-              </main>
-            }
-            second={
-              <aside className="compare-leaderboard-pane">
-                <div className="comparison-sample-title">排行榜</div>
-                <LeaderboardTable runs={filteredRuns} />
-              </aside>
-            }
-          />
-        }
-      />
-    </section>
-  );
-}
-
-function RunSelectRail({
-  title,
-  value,
-  runs,
-  disabled,
-  onChange
-}: {
-  title: string;
-  value: string;
-  runs: RunSummary[];
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const selected = runs.find((run) => run.run_id === value);
-  return (
-    <div className="compare-run-select">
-      <label>
-        <span>{title}</span>
-        <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-          {disabled ? <option value="">需要两个报告</option> : null}
-          {runs.map((run) => (
-            <option key={run.run_id} value={run.run_id}>
-              {formatRunOption(run)}
-            </option>
-          ))}
-        </select>
-      </label>
-      {selected ? (
-        <div className="compare-run-card">
-          <strong title={selected.run_id}>{selected.run_id}</strong>
-          <span>{selected.model_id}</span>
-          <div>
-            <Badge value={selected.status} domain="run" />
-            <em>R {formatMetric(selected.recall_iou50)}</em>
-            <em>P {formatMetric(selected.precision_iou50)}</em>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ComparisonPanel({ report }: { report: ComparisonReport }) {
-  const [activeLabel, setActiveLabel] = useState("all");
-  const labelDeltas = report.labels ?? [];
-  const labelValues = labelDeltas.map((item) => item.label);
-  useEffect(() => {
-    if (activeLabel !== "all" && !labelValues.includes(activeLabel)) {
-      setActiveLabel("all");
-    }
-  }, [activeLabel, labelValues.join("|")]);
-  const filteredImprovements = useMemo(
-    () => filterComparisonSamplesByLabel(report.top_improvements, activeLabel),
-    [activeLabel, report.top_improvements]
-  );
-  const filteredRegressions = useMemo(
-    () => filterComparisonSamplesByLabel(report.top_regressions, activeLabel),
-    [activeLabel, report.top_regressions]
-  );
-  const firstImprovement = firstComparableSample(filteredImprovements);
-  const firstRegression = firstComparableSample(filteredRegressions);
-  const showsEndpointMetric =
-    report.metric_profile === "keypoint_endpoint_v1" ||
-    report.delta.keypoint_pair_count !== 0 ||
-    report.delta.mean_keypoint_distance !== 0;
-  return (
-    <div className="comparison-panel">
-      <div className="comparison-title-row">
-        <div>
-          <div className="eyebrow">双模型对比报告</div>
-          <h2>
-            {report.baseline_run_id} vs {report.candidate_run_id}
-          </h2>
-        </div>
-        <div className="compare-title-meta">
-          <div className="sample-count-chip">{report.sample_count.toLocaleString()} 个样本</div>
-          {report.target_labels?.length ? (
-            <div className="sample-count-chip subtle">{report.target_labels.join(" / ")}</div>
-          ) : null}
-        </div>
-      </div>
-      {report.warnings?.length ? (
-        <div className="comparison-warning-strip">
-          {report.warnings.map((warning) => (
-            <span key={warning}>{warning}</span>
-          ))}
-        </div>
-      ) : null}
-      <div className="comparison-delta-grid">
-        <DeltaCard label="P@.50" value={report.delta.precision_iou50} />
-        <DeltaCard label="R@.50" value={report.delta.recall_iou50} />
-        <DeltaCard label="平均 IoU" value={report.delta.mean_iou} />
-        {showsEndpointMetric ? (
-          <DeltaCard label="端点距离" value={report.delta.mean_keypoint_distance} inverted />
-        ) : null}
-        <DeltaCard label="匹配数" value={report.delta.matched_count} integer />
-        {showsEndpointMetric ? (
-          <DeltaCard label="端点对" value={report.delta.keypoint_pair_count} integer />
-        ) : null}
-        <DeltaCard label="误检" value={report.delta.false_positive_count} integer inverted />
-        <DeltaCard label="漏检" value={report.delta.false_negative_count} integer inverted />
-      </div>
-      <div className="comparison-summary-row">
-        <SummaryPill label="提升" value={report.summary.improved_samples} tone="positive" />
-        <SummaryPill label="退化" value={report.summary.regressed_samples} tone="negative" />
-        <SummaryPill label="变化" value={report.summary.changed_samples} />
-        <SummaryPill label="不变" value={report.summary.unchanged_samples} />
-      </div>
-      <ComparisonQuickActions
-        baselineRunId={report.baseline_run_id}
-        candidateRunId={report.candidate_run_id}
-        firstImprovement={firstImprovement}
-        firstRegression={firstRegression}
-      />
-      <ComparisonLabelDeltaStrip
-        labels={labelDeltas}
-        activeLabel={activeLabel}
-        onChange={setActiveLabel}
-      />
-      <div className="comparison-columns">
-        <ComparisonSampleTable
-          title="提升最多"
-          samples={filteredImprovements}
-          baselineRunId={report.baseline_run_id}
-          candidateRunId={report.candidate_run_id}
-          tone="positive"
-        />
-        <ComparisonSampleTable
-          title="退化最多"
-          samples={filteredRegressions}
-          baselineRunId={report.baseline_run_id}
-          candidateRunId={report.candidate_run_id}
-          tone="negative"
-        />
-      </div>
-    </div>
-  );
-}
-
-function ComparisonQuickActions({
-  baselineRunId,
-  candidateRunId,
-  firstImprovement,
-  firstRegression
-}: {
-  baselineRunId: string;
-  candidateRunId: string;
-  firstImprovement: ComparisonSample | null;
-  firstRegression: ComparisonSample | null;
-}) {
-  return (
-    <div className="comparison-quick-actions">
-      {firstRegression ? (
-        <a
-          className="mini-link compare-alert"
-          href={comparisonSampleHref(
-            baselineRunId,
-            candidateRunId,
-            firstRegression.candidate_index ?? firstRegression.sample_index ?? 0
-          )}
-        >
-          <Eye size={13} />
-          看首个退化样本
-        </a>
-      ) : null}
-      {firstImprovement ? (
-        <a
-          className="mini-link compare-ready"
-          href={comparisonSampleHref(
-            baselineRunId,
-            candidateRunId,
-            firstImprovement.candidate_index ?? firstImprovement.sample_index ?? 0
-          )}
-        >
-          <Eye size={13} />
-          看首个提升样本
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
-function DeltaCard({
-  label,
-  value,
-  integer,
-  inverted
-}: {
-  label: string;
-  value: number;
-  integer?: boolean;
-  inverted?: boolean;
-}) {
-  const positive = value > 0;
-  const negative = value < 0;
-  const good = inverted ? negative : positive;
-  const bad = inverted ? positive : negative;
-  const className = good ? "delta-card positive" : bad ? "delta-card negative" : "delta-card";
-  return (
-    <div className={className}>
-      <span>{label}</span>
-      <strong>{integer ? formatSignedInteger(value) : formatSignedMetric(value)}</strong>
-    </div>
-  );
-}
-
-function SummaryPill({
-  label,
-  value,
-  tone
-}: {
-  label: string;
-  value: number;
-  tone?: "positive" | "negative";
-}) {
-  return (
-    <div className={tone ? `summary-pill ${tone}` : "summary-pill"}>
-      <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
-    </div>
-  );
-}
-
-function ComparisonLabelDeltaStrip({
-  labels,
-  activeLabel,
-  onChange
-}: {
-  labels: ComparisonLabelDelta[];
-  activeLabel: string;
-  onChange: (label: string) => void;
-}) {
-  const visible = labels.slice(0, 8);
-  if (visible.length === 0) {
-    return null;
-  }
-  return (
-    <div className="comparison-label-strip">
-      <button
-        className={activeLabel === "all" ? "label-delta-card active" : "label-delta-card"}
-        type="button"
-        onClick={() => onChange("all")}
-      >
-        <span>全部标签</span>
-        <strong>All</strong>
-        <em>查看全量变化样本</em>
-      </button>
-      {visible.map((item) => {
-        const tone =
-          item.delta_score > 0 ? "positive" : item.delta_score < 0 ? "negative" : "neutral";
-        return (
-          <button
-            className={
-              activeLabel === item.label
-                ? `label-delta-card ${tone} active`
-                : `label-delta-card ${tone}`
-            }
-            type="button"
-            onClick={() => onChange(item.label)}
-            key={item.label}
-          >
-            <span>{item.label}</span>
-            <strong>
-              {item.delta.keypoint_pair_count !== 0 || item.delta.mean_keypoint_distance !== 0
-                ? `D ${formatSignedMetric(item.delta.mean_keypoint_distance)}`
-                : `R ${formatSignedMetric(item.delta.recall_iou50)}`}
-            </strong>
-            <em>
-              TP {formatSignedInteger(item.delta.matched_count)} · FP{" "}
-              {formatSignedInteger(item.delta.false_positive_count)} · FN{" "}
-              {formatSignedInteger(item.delta.false_negative_count)}
-            </em>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function filterComparisonSamplesByLabel(samples: ComparisonSample[], label: string) {
-  if (label === "all") {
-    return samples;
-  }
-  return samples.filter((sample) => Boolean(sample.labels?.[label]));
-}
-
-function firstComparableSample(samples: ComparisonSample[]) {
-  return (
-    samples.find((sample) => sample.candidate_index !== null || sample.sample_index !== null) ?? null
-  );
-}
-
-function ComparisonSampleTable({
-  title,
-  samples,
-  baselineRunId,
-  candidateRunId,
-  tone
-}: {
-  title: string;
-  samples: ComparisonSample[];
-  baselineRunId: string;
-  candidateRunId: string;
-  tone: "positive" | "negative";
-}) {
-  return (
-    <div className={`comparison-sample-block ${tone}`}>
-      <div className="comparison-sample-title">{title}</div>
-      {samples.length === 0 ? (
-        <div className="comparison-sample-empty">没有变化样本。</div>
-      ) : (
-        <div className="comparison-sample-list">
-          {samples.map((sample) => {
-            const index = sample.candidate_index ?? sample.sample_index;
-            const name = basename(sample.image ?? sample.key);
-            const sampleLabels = Object.keys(sample.labels ?? {}).slice(0, 4);
-            const content = (
-              <>
-                <span className="comparison-sample-row-head">
-                  <strong title={sample.image ?? sample.key}>{name}</strong>
-                  <em>{index === null ? "未对齐" : `#${index + 1}`}</em>
-                  <span>{sample.status}</span>
-                </span>
-                {sampleLabels.length > 0 ? (
-                  <span className="comparison-sample-labels">
-                    {sampleLabels.map((label) => (
-                      <em key={label}>{label}</em>
-                    ))}
-                  </span>
-                ) : null}
-                <span className="comparison-sample-metrics">
-                  <MetricDelta label="Score" value={sample.delta_score} />
-                  <MetricDelta label="TP" value={sample.delta.matched_count} integer />
-                  <MetricDelta
-                    label="FP"
-                    value={sample.delta.false_positive_count}
-                    integer
-                    inverted
-                  />
-                  <MetricDelta
-                    label="FN"
-                    value={sample.delta.false_negative_count}
-                    integer
-                    inverted
-                  />
-                  <MetricDelta label="IoU" value={sample.delta.mean_iou} />
-                  {sample.delta.keypoint_pair_count !== 0 ||
-                  sample.delta.mean_keypoint_distance !== 0 ? (
-                    <>
-                      <MetricDelta
-                        label="D"
-                        value={sample.delta.mean_keypoint_distance}
-                        inverted
-                      />
-                      <MetricDelta label="Pts" value={sample.delta.keypoint_pair_count} integer />
-                    </>
-                  ) : null}
-                </span>
-              </>
-            );
-            if (index === null) {
-              return (
-                <div className="comparison-sample-row disabled" key={sample.key}>
-                  {content}
-                </div>
-              );
-            }
-            return (
-              <a
-                className="comparison-sample-row"
-                href={comparisonSampleHref(baselineRunId, candidateRunId, index)}
-                key={sample.key}
-              >
-                {content}
-                <Eye size={14} />
-              </a>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MetricDelta({
-  label,
-  value,
-  integer,
-  inverted
-}: {
-  label: string;
-  value: number;
-  integer?: boolean;
-  inverted?: boolean;
-}) {
-  const positive = value > 0;
-  const negative = value < 0;
-  const good = inverted ? negative : positive;
-  const bad = inverted ? positive : negative;
-  const className = good ? "metric-delta positive" : bad ? "metric-delta negative" : "metric-delta";
-  return (
-    <span className={className}>
-      <em>{label}</em>
-      <strong>{integer ? formatSignedInteger(value) : formatCompactSignedMetric(value)}</strong>
-    </span>
-  );
-}
 
 function ComparisonSamplePage() {
   const { baselineRunId, candidateRunId, sampleIndex } = useParams({
@@ -2607,59 +2298,6 @@ function ComparisonRunPanel({
   );
 }
 
-function ComparisonHistoryPanel({ comparisons }: { comparisons: ComparisonSummary[] }) {
-  if (comparisons.length === 0) {
-    return null;
-  }
-  const columns: ColumnDef<ComparisonSummary>[] = [
-    { header: "对比记录", accessorKey: "comparison_id" },
-    { header: "任务", accessorKey: "task" },
-    { header: "样本数", cell: ({ row }) => row.original.sample_count.toLocaleString() },
-    { header: "Delta R", cell: ({ row }) => formatSignedMetric(row.original.delta.recall_iou50) },
-    { header: "提升", cell: ({ row }) => row.original.summary.improved_samples.toLocaleString() },
-    { header: "退化", cell: ({ row }) => row.original.summary.regressed_samples.toLocaleString() },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) }
-  ];
-  return (
-    <div className="history-block">
-      <div className="comparison-sample-title">历史对比</div>
-      <DataTable
-        columns={columns}
-        data={comparisons.slice(0, 8)}
-        emptyText="暂无历史对比。"
-        compact
-      />
-    </div>
-  );
-}
-
-function LeaderboardTable({ runs }: { runs: RunSummary[] }) {
-  const columns: ColumnDef<RunSummary>[] = [
-    {
-      header: "排名",
-      cell: ({ row }) => row.index + 1
-    },
-    {
-      header: "记录",
-      cell: ({ row }) => (
-        <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
-          {row.original.run_id}
-        </Link>
-      )
-    },
-    { header: "模型", accessorKey: "model_id" },
-    { header: "任务", accessorKey: "spec_task" },
-    { header: "基准集", accessorKey: "benchmark_id" },
-    { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },
-    { header: "R@.50", cell: ({ row }) => formatMetric(row.original.recall_iou50) },
-    { header: "平均 IoU", cell: ({ row }) => formatMetric(row.original.mean_iou) },
-    {
-      header: "预测数",
-      cell: ({ row }) => row.original.prediction_count.toLocaleString()
-    }
-  ];
-  return <DataTable columns={columns} data={runs} emptyText="没有符合过滤条件的 run。" />;
-}
 
 const rootRoute = createRootRoute({ component: Shell });
 const indexRoute = createRoute({
@@ -2697,10 +2335,15 @@ const runDetailRoute = createRoute({
   path: "/runs/$runId",
   component: RunDetailPage
 });
+const rankBoardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/rank-board",
+  component: lazyRouteComponent(() => import("./rankBoardPage"), "RankBoardPage")
+});
 const compareRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/compare",
-  component: ComparePage
+  component: lazyRouteComponent(() => import("./comparePage"), "ComparePage")
 });
 const comparisonSampleRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -2721,6 +2364,7 @@ const routeTree = rootRoute.addChildren([
   jobsRoute,
   runsRoute,
   runDetailRoute,
+  rankBoardRoute,
   compareRoute,
   comparisonSampleRoute,
   settingsRoute

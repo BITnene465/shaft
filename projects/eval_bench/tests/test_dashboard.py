@@ -100,8 +100,36 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert state["benchmarks"][0]["layers"] == ["layout", "arrow"]
     assert state["runs"][0]["model_id"] == "model-a"
 
-    assert client.get("/api/benchmarks").json()["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
-    assert client.get("/api/runs").json()["runs"][0]["run_id"] == "run1"
+    benchmarks = client.get("/api/benchmarks").json()
+    assert benchmarks["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
+    assert benchmarks["total"] == 1
+    filtered_benchmarks = client.get(
+        "/api/benchmarks",
+        params={"task": "detection", "layer": "layout", "query": "multitask"},
+    ).json()
+    assert filtered_benchmarks["filters"] == {
+        "task": "detection",
+        "layer": "layout",
+        "query": "multitask",
+    }
+    assert filtered_benchmarks["total"] == 1
+
+    runs = client.get("/api/runs").json()
+    assert runs["runs"][0]["run_id"] == "run1"
+    assert runs["total"] == 1
+    filtered_runs = client.get(
+        "/api/runs",
+        params={
+            "task": "detection",
+            "benchmark_id": "multitask_val_v1",
+            "status": "succeeded",
+            "model_id": "model-a",
+            "query": "model-a",
+        },
+    ).json()
+    assert filtered_runs["filters"]["model_id"] == "model-a"
+    assert filtered_runs["total"] == 1
+    assert filtered_runs["runs"][0]["run_id"] == "run1"
     assert client.get("/api/jobs").json()["jobs"] == []
     templates = client.get("/api/job-templates").json()["templates"]
     assert "eval_job" in templates
@@ -160,7 +188,20 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert created_payload["status"] == "queued"
     assert created_payload["payload"]["model_id"] == "model-a"
     assert created_payload["payload"]["prompt_text"] == "Detect icons."
-    assert client.get("/api/jobs").json()["jobs"][0]["job_id"] == created_payload["job_id"]
+    jobs = client.get("/api/jobs").json()
+    assert jobs["jobs"][0]["job_id"] == created_payload["job_id"]
+    assert jobs["total"] == 1
+    filtered_jobs = client.get(
+        "/api/jobs",
+        params={"kind": "eval", "status": "queued", "query": "custom.layout"},
+    ).json()
+    assert filtered_jobs["filters"] == {
+        "kind": "eval",
+        "status": "queued",
+        "query": "custom.layout",
+    }
+    assert filtered_jobs["total"] == 1
+    assert filtered_jobs["jobs"][0]["job_id"] == created_payload["job_id"]
 
     processed = client.post("/api/jobs/process-next")
     assert processed.status_code == 200
@@ -173,6 +214,139 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert completed_job["metadata"]["progress_phase"] == "succeeded"
     assert (tmp_path / "runs" / created_payload["job_id"] / "run.json").exists()
     assert client.get("/api/state").json()["run_count"] == 2
+
+
+def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "run_id": "run1",
+            "status": "succeeded",
+            "created_at": "2026-05-09T00:10:00Z",
+            "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+            "benchmark": {
+                "benchmark_id": "bench1",
+                "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+                "split": "val",
+                "tasks": ["detection"],
+            },
+            "spec": {"task": "detection"},
+        },
+    )
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    empty_note = client.get("/api/runs/run1/note")
+    assert empty_note.status_code == 200
+    assert empty_note.json()["note"] == ""
+    assert empty_note.json()["max_length"] == 20_000
+    assert client.get("/api/state").json()["runs"][0]["note"] == ""
+
+    updated = client.patch(
+        "/api/runs/run1/note",
+        json={"note": "reproduce with ckpt=epoch_3 and prompt v2"},
+    )
+
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload["run_id"] == "run1"
+    assert payload["note"] == "reproduce with ckpt=epoch_3 and prompt v2"
+    assert payload["updated_at"].endswith("Z")
+    note_path = tmp_path / "runs" / "run1" / "note.json"
+    assert note_path.exists()
+    assert json.loads(note_path.read_text(encoding="utf-8"))["note"] == payload["note"]
+    state_run = client.get("/api/state").json()["runs"][0]
+    assert state_run["note"] == payload["note"]
+    assert state_run["note_updated_at"] == payload["updated_at"]
+    assert state_run["note_max_length"] == 20_000
+
+    bad = client.patch("/api/runs/run1/note", json={"note": ["not", "text"]})
+    assert bad.status_code == 400
+    missing = client.patch("/api/runs/missing/note", json={"note": "x"})
+    assert missing.status_code == 404
+
+
+def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
+    for run_id, label, precision, recall, note in (
+        ("run_a", "icon", 0.9, 0.8, "layout idea"),
+        ("run_b", "arrow", 0.4, 0.5, "arrow baseline"),
+    ):
+        _write_json(
+            tmp_path / "runs" / run_id / "run.json",
+            {
+                "run_id": run_id,
+                "status": "succeeded",
+                "created_at": f"2026-05-09T00:1{0 if run_id == 'run_a' else 1}:00Z",
+                "model": {"model_id": f"model-{run_id[-1]}", "path": "outputs/model/best"},
+                "benchmark": {
+                    "benchmark_id": "bench1",
+                    "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+                    "split": "val",
+                    "tasks": ["detection"],
+                },
+                "spec": {
+                    "task": "detection",
+                    "metric_profile": "detection_iou_v1",
+                    "prompt": {"prompt_id": "grounding_layout.latest"},
+                    "target_labels": [label],
+                },
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "reports" / "summary.json",
+            {
+                "precision_iou50": precision,
+                "recall_iou50": recall,
+                "mean_iou": 0.7,
+                "prediction_file_count": 2,
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "note.json",
+            {"run_id": run_id, "note": note, "updated_at": "2026-05-09T01:00:00Z"},
+        )
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    board = client.get("/api/rank-board").json()
+
+    assert board["total"] == 2
+    assert board["evaluated_count"] == 2
+    assert board["sort_by"] == "score"
+    assert board["sort_order"] == "desc"
+    assert board["score_formula"] == "0.45 * P@.50 + 0.45 * R@.50 + 0.10 * mIoU"
+    assert [entry["run_id"] for entry in board["entries"]] == ["run_a", "run_b"]
+    assert board["entries"][0]["rank"] == 1
+    assert board["entries"][0]["score"] == pytest.approx(0.835)
+    assert board["entries"][0]["score"] > board["entries"][1]["score"]
+    assert board["entries"][0]["note"] == "layout idea"
+    assert board["entries"][0]["target_labels"] == ["icon"]
+    assert board["facets"]["labels"][0] == {"value": "arrow", "count": 1}
+    assert board["facets"]["metric_profiles"][0] == {
+        "value": "detection_iou_v1",
+        "count": 2,
+    }
+
+    arrow_board = client.get("/api/rank-board", params={"label": "arrow"}).json()
+    assert arrow_board["total"] == 1
+    assert arrow_board["entries"][0]["run_id"] == "run_b"
+
+    high_score_board = client.get("/api/rank-board", params={"min_score": 0.8}).json()
+    assert high_score_board["total"] == 1
+    assert high_score_board["filters"]["min_score"] == "0.8"
+    assert high_score_board["entries"][0]["run_id"] == "run_a"
+
+    searched = client.get("/api/rank-board", params={"query": "layout idea"}).json()
+    assert searched["total"] == 1
+    assert searched["entries"][0]["run_id"] == "run_a"
+
+    recall_ascending = client.get(
+        "/api/rank-board",
+        params={"sort_by": "recall_iou50", "sort_order": "asc", "metric_profile": "detection_iou_v1"},
+    ).json()
+    assert recall_ascending["sort_by"] == "recall_iou50"
+    assert recall_ascending["sort_order"] == "asc"
+    assert [entry["run_id"] for entry in recall_ascending["entries"]] == ["run_b", "run_a"]
 
 
 def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
@@ -438,8 +612,21 @@ def test_dashboard_exposes_service_registry(tmp_path: Path) -> None:
     assert payload["service_id"] == "local-vllm-0"
     assert payload["config"]["model_path"] == "outputs/model/best"
 
-    services = client.get("/api/services").json()["services"]
+    services_payload = client.get("/api/services").json()
+    services = services_payload["services"]
+    assert services_payload["total"] == 1
     assert services[0]["service_id"] == "local-vllm-0"
+    filtered = client.get(
+        "/api/services",
+        params={"kind": "local_vllm", "status": "registered", "query": "qwen3vl"},
+    ).json()
+    assert filtered["filters"] == {
+        "kind": "local_vllm",
+        "status": "registered",
+        "query": "qwen3vl",
+    }
+    assert filtered["total"] == 1
+    assert filtered["services"][0]["service_id"] == "local-vllm-0"
 
     command = client.get("/api/services/local-vllm-0/command").json()["command"]
     assert command[1:4] == ["-m", "vllm.entrypoints.openai.api_server", "--model"]
@@ -656,6 +843,7 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
             "task": "detection",
             "model_id": "model-a",
             "prompt_id": "grounding_layout.latest",
+            "target_labels": ["icon"],
         },
     )
 
@@ -665,9 +853,12 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
     assert payload["imported_predictions"] == 1
     assert payload["missing_prediction_count"] == 0
     assert payload["report_path"].endswith("metrics.json")
-    assert client.get("/api/state").json()["runs"][0]["run_id"] == "imported_run"
+    state_run = client.get("/api/state").json()["runs"][0]
+    assert state_run["run_id"] == "imported_run"
+    assert state_run["target_labels"] == ["icon"]
     detail = client.get("/api/runs/imported_run/samples/0").json()
     assert detail["diagnostics"]["matched_count"] == 1
+    assert detail["sample"]["labels"] == ["icon"]
     assert detail["pred_instances"][0]["score"] == 0.9
 
     conflict = client.post(
@@ -857,6 +1048,9 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
             {
                 "run_id": run_id,
                 "task": "detection",
+                "metric_profile": "detection_iou_v1",
+                "target_labels": ["icon"],
+                "target_labels_source": "explicit",
                 "precision_iou50": recall,
                 "recall_iou50": recall,
                 "mean_iou": recall,
@@ -901,6 +1095,20 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
     listed = client.get("/api/comparisons").json()
     assert listed["comparisons"][0]["baseline_run_id"] == "baseline"
     assert listed["comparisons"][0]["candidate_run_id"] == "candidate"
+    assert listed["total"] == 1
+
+    filtered = client.get(
+        "/api/comparisons",
+        params={"task": "detection", "label": "icon", "query": "candidate"},
+    ).json()
+    assert filtered["filters"] == {"task": "detection", "label": "icon", "query": "candidate"}
+    assert filtered["total"] == 1
+    assert filtered["comparisons"][0]["metric_profile"] == "detection_iou_v1"
+    assert filtered["comparisons"][0]["target_labels"] == ["icon"]
+
+    filtered_empty = client.get("/api/comparisons", params={"label": "arrow"}).json()
+    assert filtered_empty["total"] == 0
+    assert filtered_empty["comparisons"] == []
 
     sample_detail = client.get(
         "/api/comparisons/sample",

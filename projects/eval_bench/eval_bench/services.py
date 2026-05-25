@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 from typing import Any
 
 from .artifacts import DEFAULT_STORE_ROOT, StoreLayout
-from .database import EvalBenchDatabase, ServiceRecord
+from .database import EvalBenchDatabase, ServiceListPage, ServiceRecord
 from .schema import utc_now_iso
 
 
@@ -22,9 +22,41 @@ class EvalBenchServiceManager:
         self.layout = StoreLayout(root)
         self.database = EvalBenchDatabase(root)
 
-    def list_services(self) -> list[ServiceRecord]:
-        records = self.database.list_services()
-        return [self._refresh_if_needed(record) for record in records]
+    def service_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> ServiceListPage:
+        for record in self.database.list_services(limit=1000):
+            self._refresh_if_needed(record)
+        return self.database.service_page(
+            offset=offset,
+            limit=limit,
+            kind=kind,
+            status=status,
+            query=query,
+        )
+
+    def list_services(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> list[ServiceRecord]:
+        return self.service_page(
+            offset=offset,
+            limit=limit,
+            kind=kind,
+            status=status,
+            query=query,
+        ).services
 
     def register_service(self, payload: dict[str, Any]) -> ServiceRecord:
         kind = str(payload.get("kind") or "local_vllm")

@@ -224,6 +224,7 @@ def _legacy_payload_to_manifest(payload: dict[str, Any]) -> dict[str, Any]:
             "parser": payload.get("parser"),
             "metric_profile": payload.get("metric_profile"),
             "visualization_profile": payload.get("visualization_profile"),
+            "target_labels": payload.get("target_labels"),
             "generation": {
                 "max_tokens": payload.get("max_tokens"),
                 "temperature": payload.get("temperature"),

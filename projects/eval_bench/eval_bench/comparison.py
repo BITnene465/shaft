@@ -49,6 +49,9 @@ def list_comparison_reports(
                 "baseline_run_id": str(payload.get("baseline_run_id") or ""),
                 "candidate_run_id": str(payload.get("candidate_run_id") or ""),
                 "task": str(payload.get("task") or ""),
+                "metric_profile": str(payload.get("metric_profile") or ""),
+                "target_labels": _target_labels(payload),
+                "target_labels_source": payload.get("target_labels_source"),
                 "sample_count": int(payload.get("sample_count") or 0),
                 "created_at": payload.get("created_at"),
                 "path": str(path),
@@ -57,6 +60,37 @@ def list_comparison_reports(
             }
         )
     return sorted(items, key=lambda item: str(item.get("created_at") or ""), reverse=True)
+
+
+def filter_comparison_reports(
+    reports: list[dict[str, Any]],
+    *,
+    task: str | None = None,
+    baseline_run_id: str | None = None,
+    candidate_run_id: str | None = None,
+    label: str | None = None,
+    query: str | None = None,
+) -> list[dict[str, Any]]:
+    task_filter = _filter_value(task)
+    baseline_filter = _filter_value(baseline_run_id)
+    candidate_filter = _filter_value(candidate_run_id)
+    label_filter = _filter_value(label)
+    query_filter = _filter_value(query).lower()
+    items: list[dict[str, Any]] = []
+    for report in reports:
+        target_labels = _target_labels(report)
+        if task_filter and str(report.get("task") or "") != task_filter:
+            continue
+        if baseline_filter and str(report.get("baseline_run_id") or "") != baseline_filter:
+            continue
+        if candidate_filter and str(report.get("candidate_run_id") or "") != candidate_filter:
+            continue
+        if label_filter and label_filter not in target_labels:
+            continue
+        if query_filter and not _comparison_query_matches(report, target_labels, query_filter):
+            continue
+        items.append(report)
+    return items
 
 
 def compare_report_payloads(
@@ -345,6 +379,26 @@ def _target_labels(report: dict[str, Any]) -> list[str]:
     if not isinstance(labels, list):
         return []
     return [str(item) for item in labels if str(item).strip()]
+
+
+def _filter_value(value: str | None) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _comparison_query_matches(
+    report: dict[str, Any],
+    target_labels: list[str],
+    query: str,
+) -> bool:
+    fields = [
+        report.get("comparison_id"),
+        report.get("baseline_run_id"),
+        report.get("candidate_run_id"),
+        report.get("task"),
+        report.get("metric_profile"),
+        " ".join(target_labels),
+    ]
+    return any(query in str(field or "").lower() for field in fields)
 
 
 def _comparison_warnings(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:

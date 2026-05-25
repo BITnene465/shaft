@@ -40,6 +40,18 @@ class JobRecord:
 
 
 @dataclass(frozen=True)
+class JobListPage:
+    offset: int
+    limit: int
+    total: int
+    filters: dict[str, str]
+    jobs: list[JobRecord]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class ServiceRecord:
     service_id: str
     kind: str
@@ -50,6 +62,18 @@ class ServiceRecord:
     error: str | None = None
     runtime: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ServiceListPage:
+    offset: int
+    limit: int
+    total: int
+    filters: dict[str, str]
+    services: list[ServiceRecord]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -369,9 +393,21 @@ class EvalBenchDatabase:
             raise KeyError(f"unknown job_id after update: {job_id}")
         return updated
 
-    def list_jobs(self, *, limit: int = 100) -> list[JobRecord]:
-        if limit <= 0:
-            raise ValueError("limit must be > 0.")
+    def job_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> JobListPage:
+        start, page_limit = _page_bounds(offset=offset, limit=limit)
+        filters = {
+            "kind": _filter_value(kind),
+            "status": _filter_value(status),
+            "query": (query or "").strip(),
+        }
         with self.engine.begin() as connection:
             rows = connection.execute(
                 text(
@@ -380,12 +416,43 @@ class EvalBenchDatabase:
                            metadata_json
                     FROM jobs
                     ORDER BY created_at DESC, job_id DESC
-                    LIMIT :limit
                     """
-                ),
-                {"limit": int(limit)},
+                )
             ).mappings()
-            return [self._row_to_job(row) for row in rows]
+            jobs = [
+                job
+                for job in (self._row_to_job(row) for row in rows)
+                if _job_matches_filters(
+                    job,
+                    kind=filters["kind"],
+                    status=filters["status"],
+                    query=filters["query"].lower(),
+                )
+            ]
+        return JobListPage(
+            offset=start,
+            limit=page_limit,
+            total=len(jobs),
+            filters=filters,
+            jobs=jobs[start : start + page_limit],
+        )
+
+    def list_jobs(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> list[JobRecord]:
+        return self.job_page(
+            offset=offset,
+            limit=limit,
+            kind=kind,
+            status=status,
+            query=query,
+        ).jobs
 
     def cancel_job(self, job_id: str) -> JobRecord:
         current = self.get_job(job_id)
@@ -513,9 +580,21 @@ class EvalBenchDatabase:
             ).mappings().first()
             return self._row_to_service(row) if row is not None else None
 
-    def list_services(self, *, limit: int = 100) -> list[ServiceRecord]:
-        if limit <= 0:
-            raise ValueError("limit must be > 0.")
+    def service_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> ServiceListPage:
+        start, page_limit = _page_bounds(offset=offset, limit=limit)
+        filters = {
+            "kind": _filter_value(kind),
+            "status": _filter_value(status),
+            "query": (query or "").strip(),
+        }
         with self.engine.begin() as connection:
             rows = connection.execute(
                 text(
@@ -524,12 +603,43 @@ class EvalBenchDatabase:
                            updated_at, error, metadata_json
                     FROM model_services
                     ORDER BY updated_at DESC, service_id DESC
-                    LIMIT :limit
                     """
-                ),
-                {"limit": int(limit)},
+                )
             ).mappings()
-            return [self._row_to_service(row) for row in rows]
+            services = [
+                service
+                for service in (self._row_to_service(row) for row in rows)
+                if _service_matches_filters(
+                    service,
+                    kind=filters["kind"],
+                    status=filters["status"],
+                    query=filters["query"].lower(),
+                )
+            ]
+        return ServiceListPage(
+            offset=start,
+            limit=page_limit,
+            total=len(services),
+            filters=filters,
+            services=services[start : start + page_limit],
+        )
+
+    def list_services(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> list[ServiceRecord]:
+        return self.service_page(
+            offset=offset,
+            limit=limit,
+            kind=kind,
+            status=status,
+            query=query,
+        ).services
 
     def update_service_runtime(
         self,
@@ -836,6 +946,78 @@ def _is_repo_prompt_metadata(value: Any) -> bool:
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _page_bounds(*, offset: int, limit: int) -> tuple[int, int]:
+    return max(0, int(offset)), max(1, int(limit))
+
+
+def _filter_value(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = str(value).strip()
+    return "" if normalized == "all" else normalized
+
+
+def _job_matches_filters(
+    job: JobRecord,
+    *,
+    kind: str,
+    status: str,
+    query: str,
+) -> bool:
+    if kind and job.kind != kind:
+        return False
+    if status and job.status != status:
+        return False
+    if query and not _job_query_matches(job, query):
+        return False
+    return True
+
+
+def _job_query_matches(job: JobRecord, query: str) -> bool:
+    fields = [
+        job.job_id,
+        job.kind,
+        job.status,
+        job.error,
+        job.created_at,
+        job.updated_at,
+        json.dumps(job.payload, ensure_ascii=False, sort_keys=True),
+        json.dumps(job.metadata, ensure_ascii=False, sort_keys=True),
+    ]
+    return any(query in str(field or "").lower() for field in fields)
+
+
+def _service_matches_filters(
+    service: ServiceRecord,
+    *,
+    kind: str,
+    status: str,
+    query: str,
+) -> bool:
+    if kind and service.kind != kind:
+        return False
+    if status and service.status != status:
+        return False
+    if query and not _service_query_matches(service, query):
+        return False
+    return True
+
+
+def _service_query_matches(service: ServiceRecord, query: str) -> bool:
+    fields = [
+        service.service_id,
+        service.kind,
+        service.status,
+        service.error,
+        service.created_at,
+        service.updated_at,
+        json.dumps(service.config, ensure_ascii=False, sort_keys=True),
+        json.dumps(service.runtime, ensure_ascii=False, sort_keys=True),
+        json.dumps(service.metadata, ensure_ascii=False, sort_keys=True),
+    ]
+    return any(query in str(field or "").lower() for field in fields)
 
 
 def _configure_sqlite_connection(dbapi_connection: Any, _connection_record: Any) -> None:

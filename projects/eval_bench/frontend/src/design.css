@@ -243,7 +243,7 @@ h1 {
 .viewer-panel,
 .compare-run-rail,
 .compare-report-pane,
-.compare-leaderboard-pane,
+.compare-context-pane,
 .settings-preview-card,
 .settings-control-card,
 .settings-workflow-card {
@@ -914,6 +914,7 @@ tbody td {
 
 .page-command-row {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   min-height: 36px;

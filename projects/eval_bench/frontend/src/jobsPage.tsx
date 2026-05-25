@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -18,7 +18,8 @@ import {
   upsertPromptTemplate
 } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { basename, formatDate, formatMetric, jobTarget, stringValue } from "./formatters";
+import { basename, formatDate, formatMetric, jobTarget, stringValue, unique } from "./formatters";
+import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import {
   applyBenchmarkDefault,
@@ -33,7 +34,7 @@ import {
   jobProgress,
   progressPhaseText
 } from "./statusModel";
-import { Badge, PanelTitle, WorkspaceDialog } from "./ui";
+import { ActionButton, Badge, CommandButton, IconActionButton, PanelTitle, WorkspaceDialog } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 export function JobsPage() {
@@ -47,10 +48,9 @@ export function JobsPage() {
           <h2>评测中心</h2>
           <span>队列、runtime log 和最近结果</span>
         </div>
-        <button className="primary-button command-button" type="button" onClick={() => setCreateOpen(true)}>
-          <AppIcon name="createEval" size={17} />
-          <span>新建评测</span>
-        </button>
+        <CommandButton icon={<AppIcon name="createEval" size={17} />} onClick={() => setCreateOpen(true)}>
+          新建评测
+        </CommandButton>
       </div>
       <div className="job-activity-grid">
         <div className="workspace-card fill">
@@ -109,18 +109,47 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const [selectedJobId, setSelectedJobId] = useState<string>("");
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("all");
+  const jobFilters = useMemo(
+    () => ({
+      status: !compact && statusFilter !== "all" ? statusFilter : undefined,
+      kind: !compact && kindFilter !== "all" ? kindFilter : undefined,
+      query: !compact && searchText.trim() ? searchText.trim() : undefined,
+      limit: compact ? 12 : 200
+    }),
+    [compact, kindFilter, searchText, statusFilter]
+  );
   const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: fetchJobs,
+    queryKey: ["jobs", jobFilters],
+    queryFn: () => fetchJobs(jobFilters),
     refetchInterval: 2_000
+  });
+  const allJobsQuery = useQuery({
+    queryKey: ["jobs", "facets"],
+    queryFn: () => fetchJobs({ limit: 500 }),
+    refetchInterval: 2_000,
+    enabled: !compact
   });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],
     queryFn: fetchSchedulerStatus,
     refetchInterval: 2_000
   });
-  const runningJobs = data?.jobs.filter((job) => job.status === "running") ?? [];
+  const jobsForSummary = allJobsQuery.data?.jobs ?? data?.jobs ?? [];
+  const runningJobs = jobsForSummary.filter((job) => job.status === "running");
   const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
+  const statuses = unique([
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    ...jobsForSummary.map((job) => job.status).filter(Boolean)
+  ]);
+  const kinds = unique(["eval", "preannotate", ...jobsForSummary.map((job) => job.kind).filter(Boolean)]);
+  const filteredJobs = data?.jobs ?? [];
   const selectedRuntimeLogPath =
     selectedJob && typeof selectedJob.metadata.runtime_log_path === "string"
       ? selectedJob.metadata.runtime_log_path
@@ -153,11 +182,47 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   return (
     <div className={compact ? "queue-stack compact" : "queue-stack"}>
       <SchedulerStrip
-        jobs={data.jobs}
+        jobs={jobsForSummary}
         scheduler={schedulerQuery.data ?? { enabled: false }}
       />
+      {!compact ? (
+        <AdvancedFilterBar
+          title="任务高级检索"
+          meta={`${filteredJobs.length.toLocaleString()} / ${(data.total ?? data.jobs.length).toLocaleString()} 条 job`}
+          controls={[
+            {
+              type: "search",
+              id: "job-query",
+              label: "全文检索",
+              value: searchText,
+              onChange: setSearchText,
+              placeholder: "搜索 job、模型、benchmark、错误、日志"
+            },
+            {
+              type: "select",
+              id: "job-status",
+              label: "状态",
+              value: statusFilter,
+              values: ["all", ...statuses],
+              labels: { all: "全部" },
+              onChange: setStatusFilter
+            },
+            {
+              type: "select",
+              id: "job-kind",
+              label: "类型",
+              value: kindFilter,
+              values: ["all", ...kinds],
+              labels: { all: "全部" },
+              onChange: setKindFilter
+            }
+          ]}
+        />
+      ) : null}
       {data.jobs.length === 0 ? (
         <div className="empty-panel">当前没有任务。</div>
+      ) : filteredJobs.length === 0 ? (
+        <div className="empty-panel">没有符合高级检索条件的任务。</div>
       ) : (
         <div className={compact ? "table-shell compact" : "table-shell"}>
           <table>
@@ -172,7 +237,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {data.jobs.map((job) => (
+              {filteredJobs.map((job) => (
                 <tr
                   key={job.job_id}
                   className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}
@@ -198,21 +263,18 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                   <td>{formatDate(job.created_at)}</td>
                   <td>
                     <div className="row-actions">
-                      <button
-                        className="icon-button dense"
-                        type="button"
+                      <IconActionButton
+                        icon={<X size={14} />}
                         disabled={!canCancelJob(job) || cancelMutation.isPending}
                         title={job.status === "running" ? "终止运行中评测" : "取消排队任务"}
                         onClick={(event) => {
                           event.stopPropagation();
                           cancelMutation.mutate(job.job_id);
                         }}
-                      >
-                        <X size={14} />
-                      </button>
-                      <button
-                        className="icon-button dense danger"
-                        type="button"
+                      />
+                      <IconActionButton
+                        icon={<Trash2 size={14} />}
+                        danger
                         disabled={!canDeleteJob(job) || deleteMutation.isPending}
                         title="删除任务记录"
                         onClick={(event) => {
@@ -221,9 +283,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                             deleteMutation.mutate(job.job_id);
                           }
                         }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -481,32 +541,37 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
               ))}
             </select>
           </label>
-          <button className="secondary-button" type="button" onClick={() => loadTemplate()}>
-            <AppIcon name="restoreTemplate" size={16} />
+          <ActionButton
+            variant="secondary"
+            icon={<AppIcon name="restoreTemplate" size={16} />}
+            onClick={() => loadTemplate()}
+          >
             恢复模板
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            icon={<AppIcon name="applyPrompt" size={16} />}
             onClick={() => applySelectedPrompt()}
             disabled={!selectedPrompt}
           >
-            <AppIcon name="applyPrompt" size={16} />
             应用 Prompt
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            icon={<AppIcon name="preflightValidate" size={16} />}
             onClick={validateManifest}
             disabled={preflightMutation.isPending}
           >
-            <AppIcon name="preflightValidate" size={16} />
             {preflightMutation.isPending ? "检查中" : "预检查"}
-          </button>
-          <button className="primary-button" type="submit" disabled={mutation.isPending}>
-            <AppIcon name="enqueueJob" size={16} />
+          </ActionButton>
+          <ActionButton
+            variant="primary"
+            type="submit"
+            icon={<AppIcon name="enqueueJob" size={16} />}
+            disabled={mutation.isPending}
+          >
             {mutation.isPending ? "加入中" : "加入队列"}
-          </button>
+          </ActionButton>
         </div>
         <ResizableSplit
           className="manifest-split"
@@ -622,15 +687,15 @@ function PromptTemplatePanel({
         <strong>User</strong>
         <p>{prompt.user_prompt || "-"}</p>
       </div>
-      <button
-        className="secondary-button dense"
-        type="button"
+      <ActionButton
+        variant="secondary"
+        compact
+        icon={<AppIcon name="applyPrompt" size={16} />}
         onClick={onSaveFromManifest}
         disabled={saving}
       >
-        <AppIcon name="applyPrompt" size={16} />
         {saving ? "保存中" : "将当前 Manifest 的 Prompt 保存为模板"}
-      </button>
+      </ActionButton>
       {saveError ? <div className="form-error">Prompt 模板保存失败。</div> : null}
     </details>
   );

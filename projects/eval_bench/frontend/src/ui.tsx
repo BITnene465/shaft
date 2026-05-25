@@ -5,10 +5,114 @@ import {
 } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useId } from "react";
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { X } from "lucide-react";
 
 import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
+
+type ButtonVariant = "primary" | "secondary" | "mini";
+
+function joinClassNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
+
+export function ActionButton({
+  variant = "secondary",
+  icon,
+  compact,
+  className,
+  children,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  icon?: ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      className={joinClassNames(
+        `${variant}-button`,
+        compact && "compact",
+        className,
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+export function CommandButton({
+  variant = "primary",
+  icon,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "secondary";
+  icon?: ReactNode;
+}) {
+  return (
+    <ActionButton {...props} variant={variant} className="command-button" icon={icon}>
+      <span>{children}</span>
+    </ActionButton>
+  );
+}
+
+export function IconActionButton({
+  icon,
+  title,
+  dense = true,
+  danger,
+  className,
+  type = "button",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  icon: ReactNode;
+  title: string;
+  dense?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      title={title}
+      aria-label={props["aria-label"] ?? title}
+      className={joinClassNames(
+        "icon-button",
+        dense && "dense",
+        danger && "danger",
+        className,
+      )}
+    >
+      {icon}
+    </button>
+  );
+}
+
+export function MetricCard({
+  icon,
+  label,
+  value
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="metric-card">
+      <div className="metric-icon">{icon}</div>
+      <div>
+        <div className="metric-label">{label}</div>
+        <div className="metric-value">{value.toLocaleString()}</div>
+      </div>
+    </div>
+  );
+}
 
 export function DataTable<T>({
   columns,
@@ -154,9 +258,7 @@ export function WorkspaceDialog({
             <strong id={titleId}>{title}</strong>
             {meta ? <span>{meta}</span> : null}
           </div>
-          <button className="icon-button dense" type="button" onClick={onClose} title="关闭">
-            <span aria-hidden="true">x</span>
-          </button>
+          <IconActionButton icon={<X size={14} />} title="关闭" onClick={onClose} />
         </header>
         <div className="workspace-dialog-body">{children}</div>
       </section>

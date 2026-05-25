@@ -16,6 +16,7 @@ export type RunSummary = {
   benchmark_id: string;
   tasks: string[];
   spec_task: string;
+  target_labels: string[];
   model_id: string;
   model_path: string;
   prompt_id: string;
@@ -31,9 +32,52 @@ export type RunSummary = {
   report_count: number;
   manifest_path: string;
   report_path: string | null;
+  note: string;
+  note_updated_at: string | null;
+  note_max_length: number;
   precision_iou50: number | null;
   recall_iou50: number | null;
   mean_iou: number | null;
+};
+
+export type RunNote = {
+  run_id: string;
+  note: string;
+  updated_at: string | null;
+  path: string;
+  max_length: number;
+};
+
+export type RankBoardEntry = {
+  rank: number;
+  run_id: string;
+  score: number | null;
+  status: string;
+  benchmark_id: string;
+  task: string;
+  target_labels: string[];
+  model_id: string;
+  prompt_id: string;
+  metric_profile: string;
+  prediction_count: number;
+  precision_iou50: number | null;
+  recall_iou50: number | null;
+  mean_iou: number | null;
+  created_at: string | null;
+  note: string;
+};
+
+export type RankBoard = {
+  offset: number;
+  limit: number;
+  total: number;
+  evaluated_count: number;
+  filters: Record<string, string>;
+  sort_by: string;
+  sort_order: string;
+  score_formula: string;
+  facets: Record<string, Array<{ value: string; count: number }>>;
+  entries: RankBoardEntry[];
 };
 
 export type JobSummary = {
@@ -47,6 +91,22 @@ export type JobSummary = {
   metadata: Record<string, unknown>;
 };
 
+export type JobListFilters = {
+  offset?: number;
+  limit?: number;
+  kind?: string;
+  status?: string;
+  query?: string;
+};
+
+export type JobListResponse = {
+  jobs: JobSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  filters?: Record<string, string>;
+};
+
 export type ServiceSummary = {
   service_id: string;
   kind: string;
@@ -57,6 +117,22 @@ export type ServiceSummary = {
   updated_at: string | null;
   error: string | null;
   metadata: Record<string, unknown>;
+};
+
+export type ServiceListFilters = {
+  offset?: number;
+  limit?: number;
+  kind?: string;
+  status?: string;
+  query?: string;
+};
+
+export type ServiceListResponse = {
+  services: ServiceSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  filters?: Record<string, string>;
 };
 
 export type ServiceLog = {
@@ -229,11 +305,22 @@ export type ComparisonSummary = {
   baseline_run_id: string;
   candidate_run_id: string;
   task: string;
+  metric_profile?: string;
+  target_labels?: string[];
+  target_labels_source?: string | null;
   sample_count: number;
   created_at: string | null;
   path: string;
   delta: ComparisonReport["delta"];
   summary: ComparisonReport["summary"];
+};
+
+export type ComparisonListFilters = {
+  task?: string;
+  label?: string;
+  query?: string;
+  offset?: number;
+  limit?: number;
 };
 
 export type ComparisonSampleDetail = {
@@ -398,8 +485,70 @@ export function fetchState(): Promise<DashboardState> {
   return fetchJson<DashboardState>("/api/state");
 }
 
-export function fetchJobs(): Promise<{ jobs: JobSummary[] }> {
-  return fetchJson<{ jobs: JobSummary[] }>("/api/jobs");
+export function fetchRankBoard(options: {
+  offset: number;
+  limit: number;
+  task?: string;
+  benchmarkId?: string;
+  status?: string;
+  label?: string;
+  modelId?: string;
+  promptId?: string;
+  metricProfile?: string;
+  minScore?: string;
+  sortBy?: string;
+  sortOrder?: string;
+  query?: string;
+}): Promise<RankBoard> {
+  const params = new URLSearchParams({
+    offset: String(options.offset),
+    limit: String(options.limit)
+  });
+  if (options.task && options.task !== "all") {
+    params.set("task", options.task);
+  }
+  if (options.benchmarkId && options.benchmarkId !== "all") {
+    params.set("benchmark_id", options.benchmarkId);
+  }
+  if (options.status && options.status !== "all") {
+    params.set("status", options.status);
+  }
+  if (options.label && options.label !== "all") {
+    params.set("label", options.label);
+  }
+  if (options.modelId && options.modelId !== "all") {
+    params.set("model_id", options.modelId);
+  }
+  if (options.promptId && options.promptId !== "all") {
+    params.set("prompt_id", options.promptId);
+  }
+  if (options.metricProfile && options.metricProfile !== "all") {
+    params.set("metric_profile", options.metricProfile);
+  }
+  if (options.minScore?.trim()) {
+    params.set("min_score", options.minScore.trim());
+  }
+  if (options.sortBy) {
+    params.set("sort_by", options.sortBy);
+  }
+  if (options.sortOrder) {
+    params.set("sort_order", options.sortOrder);
+  }
+  if (options.query?.trim()) {
+    params.set("query", options.query.trim());
+  }
+  return fetchJson<RankBoard>(`/api/rank-board?${params.toString()}`);
+}
+
+export function fetchJobs(filters: JobListFilters = {}): Promise<JobListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return fetchJson<JobListResponse>(`/api/jobs${query ? `?${query}` : ""}`);
 }
 
 export function fetchSchedulerStatus(): Promise<SchedulerStatus> {
@@ -422,8 +571,15 @@ export function upsertPromptTemplate(payload: Partial<PromptTemplate>): Promise<
   });
 }
 
-export function fetchServices(): Promise<{ services: ServiceSummary[] }> {
-  return fetchJson<{ services: ServiceSummary[] }>("/api/services");
+export function fetchServices(filters: ServiceListFilters = {}): Promise<ServiceListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return fetchJson<ServiceListResponse>(`/api/services${query ? `?${query}` : ""}`);
 }
 
 export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkSummary> {
@@ -539,6 +695,18 @@ export function deleteRun(runId: string): Promise<DeleteResult & { run_id: strin
   });
 }
 
+export function fetchRunNote(runId: string): Promise<RunNote> {
+  return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`);
+}
+
+export function updateRunNote(runId: string, note: string): Promise<RunNote> {
+  return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note })
+  });
+}
+
 export function importPredictions(
   payload: ImportPredictionPayload
 ): Promise<ImportPredictionResult> {
@@ -608,8 +776,29 @@ export function fetchComparison(
   return fetchJson<ComparisonReport>(`/api/comparisons?${params.toString()}`);
 }
 
-export function fetchComparisons(): Promise<{ comparisons: ComparisonSummary[] }> {
-  return fetchJson<{ comparisons: ComparisonSummary[] }>("/api/comparisons");
+export function fetchComparisons(
+  filters: ComparisonListFilters = {}
+): Promise<{
+  comparisons: ComparisonSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  filters?: Record<string, string>;
+}> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return fetchJson<{
+    comparisons: ComparisonSummary[];
+    total?: number;
+    offset?: number;
+    limit?: number;
+    filters?: Record<string, string>;
+  }>(`/api/comparisons${query ? `?${query}` : ""}`);
 }
 
 export function fetchComparisonSample(

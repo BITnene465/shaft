@@ -20,7 +20,7 @@ import uvicorn
 
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json, read_json
 from .benchmark import create_benchmark_from_raw_data
-from .comparison import compare_runs, list_comparison_reports
+from .comparison import compare_runs, filter_comparison_reports, list_comparison_reports
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
 from .job_spec import job_templates, preflight_job_payload, resolve_job_payload
@@ -131,6 +131,10 @@ def _frontend_not_built_html() -> str:
 
 def _clamped_int(value: int, *, minimum: int, maximum: int) -> int:
     return min(maximum, max(minimum, int(value)))
+
+
+def _filter_value(value: str | None) -> str:
+    return str(value).strip() if value is not None else ""
 
 
 def _cache_key(image_path: Path, *parts: object) -> str:
@@ -452,10 +456,22 @@ def create_app(
         )
 
     @app.get("/api/benchmarks")
-    async def benchmarks(request: Request):
-        return JSONResponse(
-            {"benchmarks": [item.__dict__ for item in request.app.state.eval_bench_store.benchmarks()]}
+    async def benchmarks(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        layer: str | None = None,
+        query: str | None = None,
+    ):
+        page = request.app.state.eval_bench_store.benchmark_page(
+            offset=max(0, offset),
+            limit=_clamped_int(limit, minimum=1, maximum=500),
+            task=task,
+            layer=layer,
+            query=query,
         )
+        return JSONResponse(page.to_dict())
 
     @app.post("/api/benchmarks")
     async def create_benchmark(request: Request):
@@ -641,8 +657,90 @@ def create_app(
         )
 
     @app.get("/api/runs")
-    async def runs(request: Request):
-        return JSONResponse({"runs": [item.__dict__ for item in request.app.state.eval_bench_store.runs()]})
+    async def runs(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        benchmark_id: str | None = None,
+        status: str | None = None,
+        label: str | None = None,
+        model_id: str | None = None,
+        prompt_id: str | None = None,
+        metric_profile: str | None = None,
+        query: str | None = None,
+    ):
+        page = request.app.state.eval_bench_store.run_page(
+            offset=max(0, offset),
+            limit=_clamped_int(limit, minimum=1, maximum=500),
+            task=task,
+            benchmark_id=benchmark_id,
+            status=status,
+            label=label,
+            model_id=model_id,
+            prompt_id=prompt_id,
+            metric_profile=metric_profile,
+            query=query,
+        )
+        return JSONResponse(page.to_dict())
+
+    @app.get("/api/rank-board")
+    async def rank_board(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        task: str | None = None,
+        benchmark_id: str | None = None,
+        status: str | None = None,
+        label: str | None = None,
+        model_id: str | None = None,
+        prompt_id: str | None = None,
+        metric_profile: str | None = None,
+        min_score: float | None = None,
+        sort_by: str = "score",
+        sort_order: str = "desc",
+        query: str | None = None,
+    ):
+        board = request.app.state.eval_bench_store.rank_board(
+            offset=max(0, offset),
+            limit=min(max(1, limit), 500),
+            task=task,
+            benchmark_id=benchmark_id,
+            status=status,
+            label=label,
+            model_id=model_id,
+            prompt_id=prompt_id,
+            metric_profile=metric_profile,
+            min_score=min_score,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            query=query,
+        )
+        return JSONResponse(board.to_dict())
+
+    @app.get("/api/runs/{run_id}/note")
+    async def run_note(run_id: str, request: Request):
+        try:
+            note = request.app.state.eval_bench_store.run_note(run_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse(note.to_dict())
+
+    @app.patch("/api/runs/{run_id}/note")
+    async def update_run_note(run_id: str, request: Request):
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="run note payload must be a JSON object")
+        note = payload.get("note")
+        if not isinstance(note, str):
+            raise HTTPException(status_code=400, detail="note must be a string")
+        try:
+            updated = request.app.state.eval_bench_store.update_run_note(run_id, note)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(updated.to_dict())
 
     @app.post("/api/runs/import-predictions")
     async def import_predictions(request: Request):
@@ -857,9 +955,22 @@ def create_app(
         )
 
     @app.get("/api/jobs")
-    async def jobs(request: Request):
-        records = request.app.state.eval_bench_database.list_jobs()
-        return JSONResponse({"jobs": [record.to_dict() for record in records]})
+    async def jobs(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ):
+        page = request.app.state.eval_bench_database.job_page(
+            offset=max(0, offset),
+            limit=_clamped_int(limit, minimum=1, maximum=500),
+            kind=kind,
+            status=status,
+            query=query,
+        )
+        return JSONResponse(page.to_dict())
 
     @app.get("/api/jobs/{job_id}/logs")
     async def job_logs(job_id: str, request: Request, max_lines: int = 200):
@@ -970,9 +1081,22 @@ def create_app(
         )
 
     @app.get("/api/services")
-    async def services(request: Request):
-        records = request.app.state.eval_bench_services.list_services()
-        return JSONResponse({"services": [record.to_dict() for record in records]})
+    async def services(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        kind: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+    ):
+        page = request.app.state.eval_bench_services.service_page(
+            offset=max(0, offset),
+            limit=_clamped_int(limit, minimum=1, maximum=500),
+            kind=kind,
+            status=status,
+            query=query,
+        )
+        return JSONResponse(page.to_dict())
 
     @app.post("/api/services")
     async def create_service(request: Request):
@@ -1048,13 +1172,35 @@ def create_app(
         request: Request,
         baseline_run_id: str | None = None,
         candidate_run_id: str | None = None,
+        task: str | None = None,
+        label: str | None = None,
+        query: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ):
         if baseline_run_id is None and candidate_run_id is None:
+            filters = {
+                "task": _filter_value(task),
+                "label": _filter_value(label),
+                "query": (query or "").strip(),
+            }
+            reports = filter_comparison_reports(
+                list_comparison_reports(
+                    store_root=request.app.state.eval_bench_store.layout.root,
+                ),
+                task=filters["task"],
+                label=filters["label"],
+                query=filters["query"],
+            )
+            start = max(0, int(offset))
+            page_limit = _clamped_int(limit, minimum=1, maximum=500)
             return JSONResponse(
                 {
-                    "comparisons": list_comparison_reports(
-                        store_root=request.app.state.eval_bench_store.layout.root,
-                    )
+                    "comparisons": reports[start : start + page_limit],
+                    "total": len(reports),
+                    "offset": start,
+                    "limit": page_limit,
+                    "filters": filters,
                 }
             )
         if baseline_run_id is None or candidate_run_id is None:

@@ -2,14 +2,14 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Archive, Eye, GitCompare, RotateCw, Search, Trash2 } from "lucide-react";
+import { Archive, Eye, FileText, GitCompare, RotateCw, Trash2 } from "lucide-react";
 
 import type { BenchmarkSummary, RunSummary } from "./api";
 import { archiveRun, deleteRun, evaluateRun } from "./api";
-import { FilterSelect } from "./filterControls";
+import { AdvancedFilterBar } from "./filterControls";
 import { formatDate, formatMetric, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
-import { Badge, DataTable } from "./ui";
+import { Badge, DataTable, IconActionButton } from "./ui";
 
 export function BenchmarkTable({
   benchmarks,
@@ -68,6 +68,9 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
   const [statusFilter, setStatusFilter] = useState("all");
   const [taskFilter, setTaskFilter] = useState("all");
   const [benchmarkFilter, setBenchmarkFilter] = useState("all");
+  const [labelFilter, setLabelFilter] = useState("all");
+  const [modelFilter, setModelFilter] = useState("all");
+  const [promptFilter, setPromptFilter] = useState("all");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const evaluateMutation = useMutation({
     mutationFn: evaluateRun,
@@ -91,12 +94,18 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
   const statuses = unique(runs.map((run) => run.status).filter(Boolean));
   const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
   const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
+  const labels = unique(runs.flatMap((run) => run.target_labels).filter(Boolean));
+  const models = unique(runs.map((run) => run.model_id).filter(Boolean));
+  const prompts = unique(runs.map((run) => run.prompt_id).filter(Boolean));
   const filteredRuns = compact
     ? runs
     : runs
         .filter((run) => statusFilter === "all" || run.status === statusFilter)
         .filter((run) => taskFilter === "all" || run.spec_task === taskFilter)
         .filter((run) => benchmarkFilter === "all" || run.benchmark_id === benchmarkFilter)
+        .filter((run) => labelFilter === "all" || run.target_labels.includes(labelFilter))
+        .filter((run) => modelFilter === "all" || run.model_id === modelFilter)
+        .filter((run) => promptFilter === "all" || run.prompt_id === promptFilter)
         .filter((run) => {
           const query = searchText.trim().toLowerCase();
           if (!query) {
@@ -107,7 +116,10 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
             run.model_id,
             run.benchmark_id,
             run.spec_task,
-            run.prompt_id
+            run.prompt_id,
+            run.target_labels.join(" "),
+            run.metric_profile,
+            run.note
           ].some((value) => String(value).toLowerCase().includes(query));
         });
   const comparableSelection = selectedRunIds.slice(0, 2);
@@ -147,6 +159,23 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
     { header: "任务", accessorKey: "spec_task" },
     { header: "基准集", accessorKey: "benchmark_id" },
     { header: "模型", accessorKey: "model_id" },
+    ...(compact
+      ? []
+      : [
+          {
+            header: "备注",
+            id: "note",
+            cell: ({ row }) => (
+              <span
+                className={row.original.note ? "run-note-preview" : "run-note-preview empty"}
+                title={row.original.note || "未记录备注"}
+              >
+                <FileText size={13} />
+                {row.original.note || "未记录"}
+              </span>
+            )
+          } satisfies ColumnDef<RunSummary>
+        ]),
     {
       header: "预测数",
       accessorKey: "prediction_count",
@@ -169,29 +198,23 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
           >
             <Eye size={13} />
           </Link>
-          <button
-            className="icon-button dense"
-            type="button"
+          <IconActionButton
+            icon={<RotateCw size={13} />}
             onClick={() => evaluateMutation.mutate(row.original.run_id)}
             disabled={!canEvaluateRun(row.original) || evaluateMutation.isPending}
             title="计算预测指标"
-          >
-            <RotateCw size={13} />
-          </button>
+          />
           {!compact ? (
             <>
-              <button
-                className="icon-button dense"
-                type="button"
+              <IconActionButton
+                icon={<Archive size={14} />}
                 onClick={() => archiveMutation.mutate(row.original.run_id)}
                 disabled={!canArchiveRun(row.original) || archiveMutation.isPending}
                 title="归档 run"
-              >
-                <Archive size={14} />
-              </button>
-              <button
-                className="icon-button dense danger"
-                type="button"
+              />
+              <IconActionButton
+                icon={<Trash2 size={14} />}
+                danger
                 onClick={() => {
                   if (confirm(`将 run ${row.original.run_id} 移入回收站？`)) {
                     deleteMutation.mutate(row.original.run_id);
@@ -199,9 +222,7 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
                 }}
                 disabled={!canDeleteRun(row.original) || deleteMutation.isPending}
                 title="删除 run"
-              >
-                <Trash2 size={14} />
-              </button>
+              />
             </>
           ) : null}
         </div>
@@ -219,49 +240,85 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
   return (
     <div className={compact ? "run-table-stack compact" : "run-table-stack"}>
       {!compact ? (
-        <div className="run-query-bar">
-          <label className="search-box">
-            <Search size={15} />
-            <input
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="搜索 run、模型、基准集"
-            />
-          </label>
-          <FilterSelect
-            label="状态"
-            value={statusFilter}
-            values={["all", ...statuses]}
-            labels={{ all: "全部" }}
-            onChange={setStatusFilter}
-            compact
-          />
-          <FilterSelect
-            label="任务"
-            value={taskFilter}
-            values={["all", ...tasks]}
-            labels={{ all: "全部" }}
-            onChange={setTaskFilter}
-            compact
-          />
-          <FilterSelect
-            label="基准集"
-            value={benchmarkFilter}
-            values={["all", ...benchmarks]}
-            labels={{ all: "全部" }}
-            onChange={setBenchmarkFilter}
-            compact
-          />
-          <a
-            className={
-              comparableSelection.length === 2 ? "mini-link compare-ready" : "mini-link disabled"
+        <AdvancedFilterBar
+          title="结果高级检索"
+          meta={`${filteredRuns.length.toLocaleString()} / ${runs.length.toLocaleString()} 条 run`}
+          controls={[
+            {
+              type: "search",
+              id: "query",
+              label: "全文检索",
+              value: searchText,
+              onChange: setSearchText,
+              placeholder: "搜索 run、模型、基准集、备注"
+            },
+            {
+              type: "select",
+              id: "status",
+              label: "状态",
+              value: statusFilter,
+              values: ["all", ...statuses],
+              labels: { all: "全部" },
+              onChange: setStatusFilter
+            },
+            {
+              type: "select",
+              id: "task",
+              label: "任务",
+              value: taskFilter,
+              values: ["all", ...tasks],
+              labels: { all: "全部" },
+              onChange: setTaskFilter
+            },
+            {
+              type: "select",
+              id: "benchmark",
+              label: "基准集",
+              value: benchmarkFilter,
+              values: ["all", ...benchmarks],
+              labels: { all: "全部" },
+              onChange: setBenchmarkFilter
+            },
+            {
+              type: "select",
+              id: "label",
+              label: "标签",
+              value: labelFilter,
+              values: ["all", ...labels],
+              labels: { all: "全部" },
+              onChange: setLabelFilter
+            },
+            {
+              type: "select",
+              id: "model",
+              label: "模型",
+              value: modelFilter,
+              values: ["all", ...models],
+              labels: { all: "全部" },
+              onChange: setModelFilter
+            },
+            {
+              type: "select",
+              id: "prompt",
+              label: "Prompt",
+              value: promptFilter,
+              values: ["all", ...prompts],
+              labels: { all: "全部" },
+              onChange: setPromptFilter
             }
-            href={compareHref}
-          >
-            <GitCompare size={13} />
-            对比 {comparableSelection.length}/2
-          </a>
-        </div>
+          ]}
+          actions={
+            <a
+              className={
+                comparableSelection.length === 2 ? "mini-link compare-ready" : "mini-link disabled"
+              }
+              href={compareHref}
+            >
+              <GitCompare size={13} />
+              对比 {comparableSelection.length}/2
+            </a>
+          }
+        />
       ) : null}
       <DataTable
         columns={columns}
@@ -272,4 +329,3 @@ export function RunTable({ runs, compact = false }: { runs: RunSummary[]; compac
     </div>
   );
 }
-

@@ -14,6 +14,7 @@
     "test:settings-preview": "node scripts/settings-preview-check.mjs",
     "test:dialogs": "node scripts/dialog-smoke-check.mjs",
     "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
+    "test:layout": "node scripts/layout-smoke-check.mjs",
     "render-check": "node scripts/render-check.mjs"
   },
   "dependencies": {

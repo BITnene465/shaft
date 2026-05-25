@@ -11,6 +11,7 @@ import type {
   ShortcutActionId,
   ShortcutBindings
 } from "./workspaceSettings";
+import { ActionButton } from "./ui";
 
 export function SettingsEditorSection({
   title,
@@ -103,9 +104,9 @@ export function LabelColorQuickAdd({
           </option>
         ))}
       </select>
-      <button className="secondary-button dense" type="button" onClick={addLabelColor}>
+      <ActionButton variant="secondary" className="dense" onClick={addLabelColor}>
         添加
-      </button>
+      </ActionButton>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   useMutation,
@@ -29,19 +29,58 @@ import {
   runtimeValue,
   serviceConfigValue,
   serviceEndpointValue,
-  serviceHealth
+  serviceHealth,
+  unique
 } from "./formatters";
+import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import {
+  ActionButton,
   Badge,
+  CommandButton,
   ConfigItem,
   EmptyState,
+  IconActionButton,
   WorkspaceDialog
 } from "./ui";
 
 export function ServicesPage() {
-  const servicesQuery = useQuery({ queryKey: ["services"], queryFn: fetchServices });
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("all");
+  const serviceFilters = useMemo(
+    () => ({
+      status: statusFilter !== "all" ? statusFilter : undefined,
+      kind: kindFilter !== "all" ? kindFilter : undefined,
+      query: searchText.trim() || undefined,
+      limit: 200
+    }),
+    [kindFilter, searchText, statusFilter]
+  );
+  const servicesQuery = useQuery({
+    queryKey: ["services", serviceFilters],
+    queryFn: () => fetchServices(serviceFilters)
+  });
+  const serviceFacetsQuery = useQuery({
+    queryKey: ["services", "facets"],
+    queryFn: () => fetchServices({ limit: 500 })
+  });
+  const services = servicesQuery.data?.services ?? [];
+  const serviceFacets = serviceFacetsQuery.data?.services ?? services;
+  const statuses = unique([
+    "registered",
+    "starting",
+    "running",
+    "stopped",
+    "failed",
+    ...serviceFacets.map((service) => service.status).filter(Boolean)
+  ]);
+  const kinds = unique([
+    "local_vllm",
+    "external_vllm",
+    ...serviceFacets.map((service) => service.kind).filter(Boolean)
+  ]);
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -49,17 +88,53 @@ export function ServicesPage() {
           <h2>模型服务</h2>
           <span>长期 endpoint、健康检查和 runtime 日志</span>
         </div>
-        <button className="primary-button command-button" type="button" onClick={() => setRegisterOpen(true)}>
-          <AppIcon name="registerService" size={17} />
-          <span>登记服务</span>
-        </button>
+        <CommandButton
+          icon={<AppIcon name="registerService" size={17} />}
+          onClick={() => setRegisterOpen(true)}
+        >
+          登记服务
+        </CommandButton>
       </div>
       {servicesQuery.isLoading ? (
         <EmptyState title="正在加载服务" />
       ) : servicesQuery.error || !servicesQuery.data ? (
         <EmptyState title="服务加载失败" tone="danger" />
       ) : (
-        <ServiceGrid services={servicesQuery.data.services} />
+        <>
+          <AdvancedFilterBar
+            title="服务高级检索"
+            meta={`${services.length.toLocaleString()} / ${(servicesQuery.data.total ?? services.length).toLocaleString()} 个服务`}
+            controls={[
+              {
+                type: "search",
+                id: "service-query",
+                label: "全文检索",
+                value: searchText,
+                onChange: setSearchText,
+                placeholder: "搜索服务、模型、endpoint、CUDA、健康状态"
+              },
+              {
+                type: "select",
+                id: "service-status",
+                label: "状态",
+                value: statusFilter,
+                values: ["all", ...statuses],
+                labels: { all: "全部" },
+                onChange: setStatusFilter
+              },
+              {
+                type: "select",
+                id: "service-kind",
+                label: "类型",
+                value: kindFilter,
+                values: ["all", ...kinds],
+                labels: { all: "全部" },
+                onChange: setKindFilter
+              }
+            ]}
+          />
+          <ServiceGrid services={services} />
+        </>
       )}
       <WorkspaceDialog
         open={registerOpen}
@@ -202,10 +277,15 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
             onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
           />
         </label>
-        <button className="primary-button form-submit-button" type="submit" disabled={mutation.isPending}>
-          <AppIcon name="saveService" size={16} />
+        <ActionButton
+          variant="primary"
+          className="form-submit-button"
+          type="submit"
+          icon={<AppIcon name="saveService" size={16} />}
+          disabled={mutation.isPending}
+        >
           {mutation.isPending ? "保存中" : "保存服务"}
-        </button>
+        </ActionButton>
         {mutation.isError ? <div className="form-error full-field">服务保存失败。</div> : null}
       </form>
   );
@@ -214,7 +294,7 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
 
 function ServiceGrid({ services }: { services: ServiceSummary[] }) {
   if (services.length === 0) {
-    return <EmptyState title="还没有登记模型服务。" />;
+    return <EmptyState title="没有符合高级检索条件的模型服务。" />;
   }
   return (
     <div className="service-grid">
@@ -292,36 +372,33 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
       {command ? <pre className="service-command">{command}</pre> : null}
       {service.error ? <div className="form-error">{service.error}</div> : null}
       <div className="row-actions">
-        <button
-          className="secondary-button"
-          type="button"
+        <ActionButton
+          variant="secondary"
           disabled={!canStartService(service) || startMutation.isPending}
           onClick={() => startMutation.mutate()}
         >
           {startMutation.isPending ? "启动中" : "启动"}
-        </button>
-        <button
-          className="mini-button"
-          type="button"
+        </ActionButton>
+        <ActionButton
+          variant="mini"
           disabled={healthMutation.isPending}
           onClick={() => healthMutation.mutate()}
         >
           {healthMutation.isPending ? "探测中" : "探测"}
-        </button>
-        <button
-          className="mini-button"
-          type="button"
+        </ActionButton>
+        <ActionButton
+          variant="mini"
           disabled={!canStopService(service) || stopMutation.isPending}
           onClick={() => stopMutation.mutate()}
         >
           {stopMutation.isPending ? "停止中" : "停止"}
-        </button>
-        <button className="mini-button" type="button" onClick={() => setShowLog((value) => !value)}>
+        </ActionButton>
+        <ActionButton variant="mini" onClick={() => setShowLog((value) => !value)}>
           {showLog ? "隐藏日志" : "日志"}
-        </button>
-        <button
-          className="icon-button dense danger"
-          type="button"
+        </ActionButton>
+        <IconActionButton
+          icon={<Trash2 size={14} />}
+          danger
           disabled={!canDeleteService(service) || deleteMutation.isPending}
           title="删除服务记录"
           onClick={() => {
@@ -329,9 +406,7 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
               deleteMutation.mutate();
             }
           }}
-        >
-          <Trash2 size={14} />
-        </button>
+        />
       </div>
       {showLog ? <ServiceLogPanel query={logQuery} /> : null}
     </div>

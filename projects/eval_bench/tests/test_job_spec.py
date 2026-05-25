@@ -114,6 +114,23 @@ def test_eval_job_manifest_resolves_prompt_template_defaults() -> None:
     assert resolved.payload["target_labels"] == ["icon"]
 
 
+def test_legacy_eval_payload_preserves_target_labels_in_resolved_manifest() -> None:
+    resolved = resolve_job_payload(
+        {
+            "backend": "dry_run",
+            "model_id": "model-a",
+            "model_path": "outputs/model-a/best",
+            "benchmark_id": "bench1",
+            "task": "detection",
+            "prompt_id": "grounding_layout.latest",
+            "target_labels": ["icon", "image"],
+        }
+    )
+
+    assert resolved.manifest["eval"]["target_labels"] == ["icon", "image"]
+    assert resolved.payload["target_labels"] == ["icon", "image"]
+
+
 def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:
     model_path = tmp_path / "outputs" / "model" / "best"
     model_path.mkdir(parents=True)
