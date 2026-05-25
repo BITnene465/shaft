@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board 长 facet 值不可达
+
+### 现象
+
+Rank Board facet rail 已经接入 Tasks、Benchmarks、Status、Labels、Models、Prompts 和 Metrics 七类
+后端 facet，但每组前端只渲染 `items.slice(0, 5)`。当 label、model、prompt 或 metric profile
+超过 5 个时，长尾 facet 值不会出现在核心排行榜页面，用户只能回到高级检索浮层里找对应选项。
+
+### 根因
+
+上一轮为了控制 facet rail 首屏密度，把每组 facet 固定裁剪到 5 项，但没有给长组提供展开入口。
+这让“完整暴露后端 facet”的契约只在小数据集上成立，数据规模上来后会变成部分可点击。
+
+### 影响范围
+
+- 影响 Rank Board 核心页面的 facet 发现性和快速筛选能力。
+- 不改变后端 facet 计算、rank score、metric、eval 或 data 语义；这是前端交互覆盖不足，不是评估标准误判。
+
+### 修复方式
+
+- `RankFacetGroup` 增加本地展开状态：默认显示前 5 个高频值，长组显示 `rank-facet-toggle` 展开/收起 chip。
+- 展开后渲染完整 facet 列表，所有长尾值仍复用同一份高级检索状态和 `.rank-facet-button` 选择逻辑。
+- 样式层补充 toggle hover/active 反馈，保持排行榜核心页的紧凑密度和可点击性。
+- README、架构文档、脚本文档和 UI contract 同步长 facet 不可丢失的边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Rank Board 后续新增 facet 维度时必须同时考虑小屏密度和长尾可达性；不能用固定 slice 代替可展开交互。
+
 ## 2026-05-25: Eval Bench 主页仍缺少可行动价值和交互反馈
 
 ### 现象

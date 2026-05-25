@@ -456,6 +456,9 @@ assert(
 assert(
   rankBoardPage.includes("OptionChipButton") &&
     rankBoardPage.includes('className="rank-facet-button"') &&
+    rankBoardPage.includes('className="rank-facet-toggle"') &&
+    rankBoardPage.includes("const visibleItems = expanded ? items : items.slice(0, 5)") &&
+    rankBoardPage.includes("items.length > 5") &&
     rankBoardPage.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
     rankBoardPage.includes("onFilterChange.task") &&
     rankBoardPage.includes("onFilterChange.benchmark") &&

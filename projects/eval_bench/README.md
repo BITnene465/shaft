@@ -668,7 +668,8 @@ Rank Board 表格的第一分数列必须跟随后端
 leader gap，而不是只给出孤立分数。
 Rank Board 的 facet rail 不是静态摘要：Tasks、Benchmarks、Status、Labels、Models、Prompts 和
 Metrics facet 都是可点击检索 chip，点击会同步更新同一份高级检索状态，再次点击当前 facet 会回到
-`all`，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。
+`all`；每组默认显示前 5 个高频值，长 facet 组必须提供展开/收起 chip，保证长尾 label、model、prompt
+和 metric profile 仍然可见、可点击，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。
 Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent CLI 统一消费，不要求前端扫描
 benchmark 文件。
 Job lifecycle 不能复用目录页首屏窗口：`EvalBenchDatabase.matching_jobs()` 是 scheduler、dashboard fallback worker
@@ -741,6 +742,7 @@ Overview 不能回流旧活动矩阵、mini chart wall 或 chart matrix；页面
 关键入口必须有 hover/transition 反馈；compact / narrow 视口下 Overview focus、readiness 和 recent
 面板必须保持可读高度，不能只保留 30-40px 的折叠外壳。Rank Board facet rail 必须完整暴露 Tasks、Benchmarks、Status、
 Labels、Models、Prompts 和 Metrics 七类可点击 `.rank-facet-button`，不能退回静态计数 chip。
+长 facet 组必须暴露 `.rank-facet-toggle` 展开/收起入口，不能只渲染前 5 个值而让长尾筛选不可达。
 Runs 页必须暴露 `.run-list-pager` 并通过 `/api/runs?offset&limit` 分页，
 Compare 页必须暴露 `.compare-run-pager` 并通过 `/api/runs?offset&limit` 分页候选 run，
 翻页时不能清空 URL 或上一页选中的 baseline/candidate；Benchmarks 页必须暴露 `.benchmark-list-pager` 并通过 `/api/benchmarks?offset&limit` 分页，

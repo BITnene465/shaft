@@ -1634,6 +1634,37 @@ h2 {
     0 8px 18px rgb(23 77 101 / 10%);
 }
 
+.rank-facet-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 8px;
+  color: #506273;
+  background: #ffffff;
+  border: 1px dashed #bfcfdc;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 820;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.rank-facet-toggle:hover,
+.rank-facet-toggle.active {
+  color: #0b3d54;
+  background: #f0fbfd;
+  border-color: #8dc9dc;
+  box-shadow: 0 8px 18px rgb(23 77 101 / 10%);
+  transform: translateY(-1px);
+}
+
 .rank-facet-button span {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -577,11 +577,14 @@ function RankFacetGroup({
   activeValue: string;
   onSelect: (value: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, 5);
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
   return (
-    <section className="rank-facet-group">
+    <section className={expanded ? "rank-facet-group expanded" : "rank-facet-group"}>
       <span>{title}</span>
       <div>
-        {items.slice(0, 5).map((item) => {
+        {visibleItems.map((item) => {
           const active = activeValue === item.value;
           return (
             <OptionChipButton
@@ -596,6 +599,16 @@ function RankFacetGroup({
             </OptionChipButton>
           );
         })}
+        {items.length > 5 ? (
+          <OptionChipButton
+            className="rank-facet-toggle"
+            active={expanded}
+            title={expanded ? `${title}: 收起 facet` : `${title}: 展开全部 facet`}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? "收起" : `展开全部 +${hiddenCount}`}
+          </OptionChipButton>
+        ) : null}
         {items.length === 0 ? <em>无</em> : null}
       </div>
     </section>
