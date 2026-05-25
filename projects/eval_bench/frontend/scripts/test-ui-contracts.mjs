@@ -313,6 +313,13 @@ assert(
     rankBoardPage.includes("onFilterChange.metricProfile"),
   "rank board facet rail must be clickable filter chips instead of static counts",
 );
+assert(
+  rankBoardPage.includes("primaryMetricLabel") &&
+    rankBoardPage.includes('primaryMetric !== "f1_iou50"') &&
+    rankBoardPage.includes('className="rank-primary-score"') &&
+    !rankBoardPage.includes('header: "Weighted"'),
+  "rank board table must render the active primary metric as the first score column",
+);
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
   sampleViewer.includes("export function SampleViewer("),

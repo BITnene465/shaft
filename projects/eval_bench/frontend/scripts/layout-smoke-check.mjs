@@ -1050,11 +1050,17 @@ async function assertRankSchemePanel(page, scope) {
   await page.locator(".rank-formula-chip.weighted").waitFor({ timeout: 10_000 });
   const weightedState = await page.evaluate(() => ({
     chipText: document.querySelector(".rank-formula-chip")?.textContent?.trim() ?? "",
-    weightedHeaders: Array.from(document.querySelectorAll(".table-shell th")).filter((node) =>
-      /Weighted|Components/.test(node.textContent ?? "")
-    ).length
+    headers: Array.from(document.querySelectorAll(".table-shell th")).map(
+      (node) => node.textContent?.trim() ?? ""
+    ),
+    primaryScores: document.querySelectorAll(".rank-primary-score").length
   }));
-  if (!weightedState.chipText.includes("Weighted") || weightedState.weightedHeaders < 2) {
+  if (
+    !weightedState.chipText.includes("Weighted") ||
+    !weightedState.headers.includes("layout_smoke_weighted") ||
+    !weightedState.headers.includes("Components") ||
+    weightedState.primaryScores < 1
+  ) {
     throw new Error(`${scope}: weighted rank scheme did not apply ${JSON.stringify(weightedState)}`);
   }
   const invalidScheme = JSON.stringify(

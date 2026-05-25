@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench Rank Board 主指标切换后表格仍固定显示 F1
+
+### 现象
+
+Rank Board 后端已经支持 `sort_by=f1_iou50|precision_iou50|recall_iou50|mean_iou` 和 weighted scheme，
+并且返回 `primary_metric_label` 与每条 entry 的当前 `score`。但前端表格的第一分数字段仍固定是
+`F1@.50`；用户切换主指标后，排序依据已经改变，表格视觉上却仍像按 F1 排名。
+
+### 根因
+
+前端最初把 F1 作为默认主指标写死在表格列里，后续补主指标切换和 weighted scheme 时只更新了 API、
+排序和顶部 formula chip，没有把表格第一分数列绑定到后端的 `primary_metric_label` / `score` 真源。
+
+### 影响范围
+
+- 影响 Rank Board 核心页面对当前排名依据的可解释性。
+- 不影响后端排序、CLI `rank-board`、weighted score 计算或 report 指标。
+- 这不是模型能力问题，也不是 eval/codec/metric 误判。
+
+### 修复方式
+
+- Rank Board 表格第一分数列改为动态主指标列，列名来自 `primary_metric_label`，值来自 entry `score`。
+- 当主指标不是 F1 时，额外保留 `F1@.50` 作为诊断列；默认 F1 模式不重复显示两列。
+- Weighted scheme 模式复用同一主指标列，并继续展示 score components。
+- UI contract 锁住 `rank-primary-score` 和动态主指标列，禁止回退到固定 `Weighted` / 固定 F1 主列。
+- README、架构文档和脚本文档同步 Rank Board 主指标展示契约。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- Rank Board 新增排序字段或主指标时，必须确保 API 的 `score`、`primary_metric_label` 和表格第一分数列
+  同步变化；固定指标列只能作为诊断列存在。
+
 ## 2026-05-25: Eval Bench Rank Board facet rail 只是静态计数
 
 ### 现象

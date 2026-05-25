@@ -1344,6 +1344,20 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.rank-primary-score {
+  display: inline-flex;
+  min-width: 64px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 8px;
+  color: #0b3d54;
+  background: #e9f7fb;
+  border: 1px solid #bfe1eb;
+  border-radius: 999px;
+  font-weight: 860;
+  font-variant-numeric: tabular-nums;
+}
+
 .filter-select {
   display: flex;
   min-width: 0;

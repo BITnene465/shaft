@@ -629,7 +629,9 @@ label、model、prompt、metric 和 note 全文查询语义；Runs、Compare、B
 `f1_iou50` 作为主指标排序，用户可以把主指标切到 precision、recall、mIoU 或预测数，也可以按创建时间或 run id 排列列表；
 Rank Board 页面使用后端 `offset/limit` 分页请求，不再只取固定前 200 条，翻页时保留当前筛选、排序和 weighted scheme；
 显式 weighted scheme 可通过 CLI/API 或前端折叠面板传入，会返回 `weighted_score`、`rank_scheme` 和每条
-entry 的 `score_components`，便于 agent 解释最终分。
+entry 的 `score_components`，便于 agent 解释最终分。Rank Board 表格的第一分数列必须跟随后端
+`primary_metric_label` 和 entry `score` 动态变化：默认显示 F1@.50，切到 mIoU、P/R 或 weighted scheme
+时直接显示当前主指标，不把固定 F1 列伪装成当前排名依据。
 Rank Board 的 facet rail 不是静态摘要：Labels、Models、Prompts 和 Metrics facet 都是可点击检索 chip，
 点击会同步更新同一份高级检索状态，再次点击当前 facet 会回到 `all`，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。
 Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent CLI 统一消费，不要求前端扫描

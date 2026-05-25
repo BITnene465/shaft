@@ -331,7 +331,12 @@ export function RankBoardPage() {
           total={board.total}
           onPageChange={setPageOffset}
         />
-        <RankBoardTable entries={entries} weighted={Boolean(board.rank_scheme)} />
+        <RankBoardTable
+          entries={entries}
+          primaryMetric={board.primary_metric}
+          primaryMetricLabel={board.primary_metric_label}
+          weighted={Boolean(board.rank_scheme)}
+        />
       </div>
     </section>
   );
@@ -440,7 +445,17 @@ function RankFacetGroup({
   );
 }
 
-function RankBoardTable({ entries, weighted }: { entries: RankBoardEntry[]; weighted: boolean }) {
+function RankBoardTable({
+  entries,
+  primaryMetric,
+  primaryMetricLabel,
+  weighted
+}: {
+  entries: RankBoardEntry[];
+  primaryMetric: string;
+  primaryMetricLabel: string;
+  weighted: boolean;
+}) {
   const columns: ColumnDef<RankBoardEntry>[] = [
     {
       header: "Rank",
@@ -453,22 +468,24 @@ function RankBoardTable({ entries, weighted }: { entries: RankBoardEntry[]; weig
           {row.original.run_id}
         </Link>
       )
+    },
+    {
+      header: primaryMetricLabel,
+      cell: ({ row }) => <span className="rank-primary-score">{formatMetric(row.original.score)}</span>
     }
   ];
   if (weighted) {
     columns.push(
-      {
-        header: "Weighted",
-        cell: ({ row }) => formatMetric(row.original.score)
-      },
       {
         header: "Components",
         cell: ({ row }) => <RankScoreComponents components={row.original.score_components} />
       }
     );
   }
+  if (primaryMetric !== "f1_iou50") {
+    columns.push({ header: "F1@.50", cell: ({ row }) => formatMetric(rankF1Score(row.original)) });
+  }
   columns.push(
-    { header: "F1@.50", cell: ({ row }) => formatMetric(rankF1Score(row.original)) },
     { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
     { header: "任务", accessorKey: "task" },
     { header: "标签", cell: ({ row }) => row.original.target_labels.join(", ") || "-" },
