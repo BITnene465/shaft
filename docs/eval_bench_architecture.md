@@ -153,7 +153,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 metric：先加 `metric_profiles.py` registry，再在 `metrics/` 中实现 profile matcher 和聚合。
 - 新增 target label scope：先加 prompt metadata 或显式 spec 字段，不允许通过 UI 默认值悄悄覆盖。
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
-  layout/arrow 的默认 label policy。
+  layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 `resolve-target-labels`，
+  不能直接扫描 benchmark artifact 或 prompt registry。
 - 新增 detection label 子任务 UI：必须通过 manifest `target_labels` 修改显式 spec，候选 label 来自
   benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label。`preflight-job`
   必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。

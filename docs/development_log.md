@@ -3460,3 +3460,45 @@ Recall 排序后，页面标题和 chip 仍显示“按 F1”，agent 读取 JSO
 - Rank Board 新增可排序指标时，必须同时补齐 `primary_metric`、`primary_metric_label`、entry `score`
   和前端标签展示测试。
 - `created_at`、`run_id` 这类列表排序维度不能伪装成评测主指标。
+
+## 2026-05-25: Eval Bench target label scope 增加 agent 查询入口
+
+### 现象
+
+Detection label 子任务已经在 job manifest、preflight、evaluator、run sample scope 和前端 chip 里落地，
+但 agent 在创建 job 或导入 prediction 前，仍需要自己组合 `list-benchmarks`、`list-prompt-templates`
+和 `label_policy.py` 规则，才能知道最终会评哪些 `target_labels`、候选 label 是什么、是否拼错。
+
+### 根因
+
+后端有 `label_policy.py` 作为默认 label scope 真源，store 也能给出 benchmark label summary，
+prompt registry 能给出 prompt metadata，但缺少一个 agent-safe 的聚合查询 CLI。label 子任务的解释链路
+对 UI 是清楚的，对 agent 仍不够一等。
+
+### 影响范围
+
+- 影响 Eval Bench agent 操作面：创建 detection label 子任务前的校验和发现能力。
+- 不改变 evaluator 匹配算法、job preflight 失败条件、run manifest 格式、Dashboard 前端交互或已有 report。
+
+### 修复方式
+
+- `label_policy.py` 新增 `target_label_resolution_payload()`，统一返回最终 target labels、来源、candidate labels、
+  benchmark/prompt/explicit 三类输入、valid/errors/warnings 和 label 子任务支持状态。
+- CLI 新增 `resolve-target-labels`，从 `EvalBenchStore.benchmarks()` 和 prompt template registry 读取输入，
+  再复用 `label_policy.py` 生成 agent 可消费 JSON。
+- `test_cli.py` 覆盖 prompt metadata 默认范围和未知 label 拼写错误。
+- README、`docs/scripts.md` 和 `docs/eval_bench_architecture.md` 同步记录 agent 查询边界。
+
+### 回归测试
+
+- `uv run python -m compileall projects/eval_bench/eval_bench projects/eval_bench/tests`
+- `uv run pytest -q projects/eval_bench/tests/test_cli.py`
+- `uv run pytest -q projects/eval_bench/tests/test_job_spec.py`
+- `uv run pytest -q projects/eval_bench/tests/test_evaluator.py`
+- `uv run pytest -q projects/eval_bench/tests/test_prediction_import.py`
+- `git diff --check`
+
+### 后续防线
+
+- 新增 label scope 来源时，必须先扩展 `label_policy.py` 的 resolution payload，再暴露到 CLI/API/UI。
+- Agent 不应直接扫描 benchmark artifact、SQLite prompt table 或前端 manifest state 来推断 label 子任务。

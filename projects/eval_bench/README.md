@@ -359,6 +359,9 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 .venv/bin/python scripts/eval_bench.py process-next-job
 .venv/bin/python scripts/eval_bench.py evaluate-run --run-id <run_id>
+.venv/bin/python scripts/eval_bench.py resolve-target-labels \
+  --benchmark-id multitask_test_v1 \
+  --prompt-id grounding_arrow.latest
 .venv/bin/python scripts/eval_bench.py list-runs --task detection --label arrow --limit 20
 .venv/bin/python scripts/eval_bench.py rank-board --task detection --label arrow --limit 50
 .venv/bin/python scripts/eval_bench.py set-run-note --run-id <run_id> --note-file notes/run.md
@@ -407,6 +410,22 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
   --prompt-id grounding_layout.latest \
   --target-label icon
 ```
+
+Agent 在创建 job 或导入 prediction 之前，可以先用 `resolve-target-labels` 查询同一份 label policy：
+
+```bash
+.venv/bin/python scripts/eval_bench.py resolve-target-labels \
+  --benchmark-id multitask_test_v1 \
+  --prompt-id grounding_arrow.latest
+.venv/bin/python scripts/eval_bench.py resolve-target-labels \
+  --benchmark-id multitask_test_v1 \
+  --task detection \
+  --target-label arrow
+```
+
+返回会包含 `target_labels`、`target_labels_source`、`candidate_labels`、benchmark/prompt/explicit
+三类 label 来源，以及拼错 label 时的 `valid=false` 和 errors；agent 不需要直接读取 benchmark
+artifact、prompt registry 或前端 manifest 状态。
 
 Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 

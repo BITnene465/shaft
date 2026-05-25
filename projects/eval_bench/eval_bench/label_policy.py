@@ -71,3 +71,67 @@ def resolve_target_labels(
         task=task,
         prompt_metadata=prompt_metadata,
     ).labels
+
+
+def target_label_resolution_payload(
+    *,
+    task: str | None = None,
+    prompt_id: str | None = None,
+    explicit: Any = None,
+    prompt_metadata: Mapping[str, Any] | None = None,
+    benchmark_id: str | None = None,
+    benchmark_labels: Any = None,
+) -> dict[str, Any]:
+    prompt_labels = normalize_target_labels((prompt_metadata or {}).get("target_labels"))
+    explicit_labels = normalize_target_labels(explicit)
+    available_labels = normalize_target_labels(benchmark_labels)
+    policy = resolve_target_label_policy(
+        explicit=explicit_labels,
+        prompt_id=prompt_id,
+        task=task,
+        prompt_metadata=prompt_metadata,
+    )
+    candidate_labels = _unique_labels(
+        [
+            *available_labels,
+            *prompt_labels,
+            *explicit_labels,
+            *policy.labels,
+        ]
+    )
+    errors: list[str] = []
+    warnings: list[str] = []
+    if available_labels and policy.labels:
+        missing = [label for label in policy.labels if label not in set(available_labels)]
+        if missing:
+            errors.append(
+                "target_labels not found in benchmark label index: "
+                f"{', '.join(missing)}. Available labels: {', '.join(available_labels)}"
+            )
+    elif not available_labels and policy.labels and benchmark_id:
+        warnings.append(
+            f"benchmark {benchmark_id} has no label index; target_labels could not be validated."
+        )
+    return {
+        "task": task or "",
+        "benchmark_id": benchmark_id or "",
+        "prompt_id": prompt_id or "",
+        "target_labels": policy.labels,
+        "target_labels_source": policy.source,
+        "candidate_labels": candidate_labels,
+        "benchmark_labels": available_labels,
+        "prompt_target_labels": prompt_labels,
+        "explicit_target_labels": explicit_labels,
+        "label_subtasks_supported": task == "detection",
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def _unique_labels(labels: list[str]) -> list[str]:
+    values: list[str] = []
+    for label in labels:
+        if label and label not in values:
+            values.append(label)
+    return values

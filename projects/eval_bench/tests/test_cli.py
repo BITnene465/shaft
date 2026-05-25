@@ -33,6 +33,7 @@ from eval_bench.cli import (
     _cmd_preflight_job,
     _cmd_rank_board,
     _cmd_register_service,
+    _cmd_resolve_target_labels,
     _cmd_scheduler_status,
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
@@ -785,6 +786,72 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
     assert comparisons["comparisons"][0]["metric_profile"] == "detection_iou_v1"
+
+
+def test_cli_resolves_target_labels_for_agent_label_subtasks(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    EvalBenchDatabase(tmp_path).upsert_prompt_template(
+        {
+            "prompt_id": "grounding_arrow.latest",
+            "label": "Arrow grounding",
+            "task": "detection",
+            "system_prompt": "You inspect diagrams.",
+            "user_prompt": "Find arrows.",
+            "metadata": {"target_labels": ["arrow"]},
+        }
+    )
+
+    args = _build_parser().parse_args(
+        [
+            "resolve-target-labels",
+            "--output-root",
+            str(tmp_path),
+            "--benchmark-id",
+            "bench1",
+            "--prompt-id",
+            "grounding_arrow.latest",
+        ]
+    )
+    _cmd_resolve_target_labels(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["task"] == "detection"
+    assert payload["target_labels"] == ["arrow"]
+    assert payload["target_labels_source"] == "prompt_metadata"
+    assert payload["candidate_labels"] == ["arrow", "icon"]
+    assert payload["label_subtasks_supported"] is True
+    assert payload["valid"] is True
+
+    bad_args = _build_parser().parse_args(
+        [
+            "resolve-target-labels",
+            "--output-root",
+            str(tmp_path),
+            "--benchmark-id",
+            "bench1",
+            "--task",
+            "detection",
+            "--target-label",
+            "arrwo",
+        ]
+    )
+    _cmd_resolve_target_labels(bad_args)
+    bad_payload = json.loads(capsys.readouterr().out)
+    assert bad_payload["valid"] is False
+    assert any("arrwo" in item for item in bad_payload["errors"])
 
 
 def test_cli_shows_saved_comparison_and_sample_detail_for_agents(

@@ -121,6 +121,22 @@ def _build_parser() -> argparse.ArgumentParser:
     list_prompt_templates.add_argument("--offset", type=int, default=0)
     list_prompt_templates.add_argument("--limit", type=int, default=100)
 
+    resolve_target_labels = subparsers.add_parser(
+        "resolve-target-labels",
+        help="Resolve target-label scope and candidate labels for a benchmark/prompt/task.",
+    )
+    resolve_target_labels.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+    resolve_target_labels.add_argument("--benchmark-id", default=None)
+    resolve_target_labels.add_argument("--task", choices=("detection", "keypoint"), default=None)
+    resolve_target_labels.add_argument("--prompt-id", default=None)
+    resolve_target_labels.add_argument(
+        "--target-label",
+        dest="target_labels",
+        action="append",
+        default=None,
+        help="Explicit target label; repeat for multiple labels.",
+    )
+
     upsert_prompt_template = subparsers.add_parser(
         "upsert-prompt-template",
         help="Create or update a prompt template from JSON.",
@@ -695,6 +711,51 @@ def _cmd_list_prompt_templates(args: argparse.Namespace) -> None:
         filters=filters,
     )
     payload["by_id"] = {record["prompt_id"]: record for record in payload["templates"]}  # type: ignore[index]
+    print(json.dumps(payload, ensure_ascii=False))
+
+
+def _cmd_resolve_target_labels(args: argparse.Namespace) -> None:
+    from .database import EvalBenchDatabase
+    from .label_policy import target_label_resolution_payload
+    from .store import EvalBenchStore
+
+    database = EvalBenchDatabase(args.output_root)
+    prompt_metadata: dict[str, object] = {}
+    warnings: list[str] = []
+    task = args.task
+    if args.prompt_id:
+        record = database.get_prompt_template(str(args.prompt_id))
+        if record is None:
+            warnings.append(f"prompt template does not exist: {args.prompt_id}")
+        else:
+            prompt_metadata = dict(record.metadata)
+            task = task or record.task
+    benchmark_labels: list[str] = []
+    if args.benchmark_id:
+        benchmark = next(
+            (
+                item
+                for item in EvalBenchStore(args.output_root).benchmarks()
+                if item.benchmark_id == str(args.benchmark_id)
+            ),
+            None,
+        )
+        if benchmark is None:
+            raise FileNotFoundError(f"benchmark does not exist: {args.benchmark_id}")
+        benchmark_labels = benchmark.labels
+        if task and benchmark.tasks and task not in benchmark.tasks:
+            warnings.append(
+                f"task={task} is not advertised by benchmark {args.benchmark_id}: {benchmark.tasks}"
+            )
+    payload = target_label_resolution_payload(
+        task=task,
+        prompt_id=args.prompt_id,
+        explicit=args.target_labels,
+        prompt_metadata=prompt_metadata,
+        benchmark_id=args.benchmark_id,
+        benchmark_labels=benchmark_labels,
+    )
+    payload["warnings"] = [*payload["warnings"], *warnings]
     print(json.dumps(payload, ensure_ascii=False))
 
 
@@ -1283,6 +1344,8 @@ def main() -> None:
         _cmd_list_job_templates(args)
     elif args.command == "list-prompt-templates":
         _cmd_list_prompt_templates(args)
+    elif args.command == "resolve-target-labels":
+        _cmd_resolve_target_labels(args)
     elif args.command == "upsert-prompt-template":
         _cmd_upsert_prompt_template(args)
     elif args.command == "delete-prompt-template":
