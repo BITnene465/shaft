@@ -9,6 +9,12 @@ const cases = [
   { path: "/services", button: "登记服务", form: ".service-form" }
 ];
 
+const dangerCases = [
+  { path: "/runs", buttonTitle: "删除 run", confirmLabel: "移入回收站" },
+  { path: "/jobs", buttonTitle: "删除任务记录", confirmLabel: "删除记录" },
+  { path: "/services", buttonTitle: "删除服务记录", confirmLabel: "删除服务" }
+];
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
 const errors = [];
@@ -34,6 +40,25 @@ for (const item of cases) {
   await page.keyboard.press("Escape");
   await page.locator(".workspace-dialog").waitFor({ state: "hidden", timeout: 5_000 });
   await assertBodyScrollRestored(page, `dialog:${item.path}`);
+}
+
+for (const item of dangerCases) {
+  await page.goto(`${baseUrl}${item.path}`, { waitUntil: "networkidle" });
+  await page.locator(".content").first().waitFor({ timeout: 10_000 });
+  const trigger = page.locator(`button[title="${item.buttonTitle}"]:not([disabled])`).first();
+  if ((await trigger.count()) === 0) {
+    continue;
+  }
+  await trigger.click();
+  await page.locator(".workspace-dialog").first().waitFor({ timeout: 5_000 });
+  await page
+    .locator(".workspace-dialog")
+    .getByRole("button", { name: item.confirmLabel, exact: true })
+    .waitFor({ timeout: 5_000 });
+  await assertDialogInteraction(page, `danger-dialog:${item.path}`);
+  await page.keyboard.press("Escape");
+  await page.locator(".workspace-dialog").waitFor({ state: "hidden", timeout: 5_000 });
+  await assertBodyScrollRestored(page, `danger-dialog:${item.path}`);
 }
 
 await browser.close();

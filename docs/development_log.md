@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 删除确认弹层缺少运行时 smoke
+
+### 现象
+
+`test:dialogs` 只覆盖 Jobs / Benchmarks / Runs / Services 的新建、导入和登记弹窗，未覆盖
+`DangerConfirmDialog`。删除 run、删除 job 和删除 service 这类危险操作虽然复用 `WorkspaceDialog`，
+但没有运行时检查 focus trap、body scroll lock、ARIA 描述和 Escape 关闭行为。
+
+### 根因
+
+前几轮组件化重点放在静态 contract 和普通工作区弹窗，确认弹层因为不应真正执行删除，被排除在 smoke
+之外。结果按钮/弹层模板化目标在危险确认路径上缺少浏览器级防线。这是前端交互测试覆盖缺口，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响删除确认弹层的可访问性、焦点边界和页面滚动锁回归防线。
+- 不影响实际 run/job/service 删除 API、store、rank-board、run note、label subtask 或 evaluator 语义。
+
+### 修复方式
+
+- `dialog-smoke-check.mjs` 增加 danger dialog cases，按页面查找可用删除按钮。
+- 只打开确认弹层并校验确认按钮、focus trap、body scroll lock、ARIA 与 Escape 关闭，不触发确认删除。
+- 没有可删除记录时跳过该 case，避免 smoke 修改测试环境数据。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:dialogs`
+
+### 后续防线
+
+- 新增危险确认弹层时，必须加入 `dangerCases`，并保持 smoke 只验证弹层行为，不执行破坏性操作。
+
 ## 2026-05-26: Eval Bench comparison 历史高级检索固定首屏 50 条
 
 ### 现象
