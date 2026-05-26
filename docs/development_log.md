@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Viewer 可见计数仍携带未展示精细指标
+
+### 现象
+
+Run Inspector 的可见数量条已经只展示“真实 / 预测”两个 chip，layout smoke 也禁止 TP/FP/FN、
+IoU 和 P/R 回到侧栏常显区域。但 `VisibleMetrics` 类型仍返回 `matchedCount`、`falsePositiveCount`、
+`falseNegativeCount` 和 `meanIou`，`test-viewer-metrics` 还在验证这些字段。
+
+### 根因
+
+上一轮只收敛了 UI 展示，没有把前端中间层状态一起收敛。未展示的精细字段继续存在于 count-strip
+输入对象里，后续改 UI 时很容易把 FP/FN 或 IoU 再次接回主视图。这是前端状态边界问题，不是模型能力问题，
+也不是 eval / codec / metric / data 误判；对象诊断和 report 中的精细指标仍然保留。
+
+### 影响范围
+
+- 影响 Run Inspector / Benchmark Inspector 主视图低噪声统计边界。
+- 不影响后端 diagnostics、metric report、Rank Board、Compare 或对象级诊断渲染。
+
+### 修复方式
+
+- `VisibleMetrics` 收敛为 `gtCount` / `predCount` 两个字段。
+- `visibleSampleMetrics()` 不再读取 diagnostics 或计算 matched/FP/FN/meanIoU。
+- `test-viewer-metrics` 改为锁住 count-only shape。
+- `test-ui-contracts` 增加静态防线，禁止 `viewerMetrics.ts` 重新引入 visible count 细指标字段。
+- README 和架构文档同步 viewer metric 中间层边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 可视化检查器主视图数量条只允许消费 count-only state；精细指标必须留在 report、Rank Board、Compare 或对象诊断。
+- 如果新增任务类型需要新的诊断字段，先扩展对象诊断或 report schema，不把聚合指标塞回 `VisibleMetrics`。
+
 ## 2026-05-26: Eval Bench target label 参数缺少 agent 结构化语义
 
 ### 现象

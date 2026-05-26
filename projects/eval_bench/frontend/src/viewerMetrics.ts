@@ -18,10 +18,6 @@ export type ObjectRow = {
 export type VisibleMetrics = {
   gtCount: number;
   predCount: number;
-  matchedCount: number;
-  falsePositiveCount: number;
-  falseNegativeCount: number;
-  meanIou: number;
 };
 
 type Diagnostics = RunSampleDetail["diagnostics"];
@@ -112,42 +108,14 @@ export function predObjectStatus(index: number, diagnostics: Diagnostics): Objec
 }
 
 export function visibleSampleMetrics(
-  detail: Pick<RunSampleDetail, "gt_instances" | "pred_instances" | "diagnostics">,
+  detail: Pick<RunSampleDetail, "gt_instances" | "pred_instances">,
   labels: Set<string>
 ): VisibleMetrics {
   const gtCount = detail.gt_instances.filter((instance) => labels.has(instance.label)).length;
   const predCount = detail.pred_instances.filter((instance) => labels.has(instance.label)).length;
-  const diagnostics = detail.diagnostics;
-  if (!diagnostics) {
-    return {
-      gtCount,
-      predCount,
-      matchedCount: 0,
-      falsePositiveCount: 0,
-      falseNegativeCount: 0,
-      meanIou: 0
-    };
-  }
-  let matchedCount = 0;
-  let falsePositiveCount = 0;
-  let falseNegativeCount = 0;
-  let weightedIou = 0;
-  for (const [label, metrics] of Object.entries(diagnostics.labels)) {
-    if (!labels.has(label)) {
-      continue;
-    }
-    matchedCount += metrics.matched_count;
-    falsePositiveCount += metrics.false_positive_count;
-    falseNegativeCount += metrics.false_negative_count;
-    weightedIou += metrics.mean_iou * metrics.matched_count;
-  }
   return {
     gtCount,
-    predCount,
-    matchedCount,
-    falsePositiveCount,
-    falseNegativeCount,
-    meanIou: matchedCount > 0 ? weightedIou / matchedCount : 0
+    predCount
   };
 }
 

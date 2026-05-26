@@ -302,7 +302,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增目录分页页面：只允许复用 `PagerControl` 和 `clampListPageOffset`；页面可以定义 page size、
   API filter 和业务 className，但不能复制 pager range、上一页/下一页禁用和 offset clamp 逻辑。
 - 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；viewer side panel
-  不常驻渲染 per-label TP、FP、FN、IoU、P/R 指标表。精细指标必须留在 metric report、对象诊断、
+  不常驻渲染 per-label TP、FP、FN、IoU、P/R 指标表，`VisibleMetrics` 类型本身也只能包含
+  `gtCount` / `predCount`，不能保留未展示的精细计数字段。精细指标必须留在 metric report、对象诊断、
   排行榜或对比页中。
 
 ## Tests Required By Layer

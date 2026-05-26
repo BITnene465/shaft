@@ -615,6 +615,7 @@ assert(
   "sample viewer utility chips must use OptionChipButton",
 );
 const viewerPanels = await readSource("src/viewerPanels.tsx");
+const viewerMetrics = await readSource("src/viewerMetrics.ts");
 assert(
   viewerPanels.includes('import { CompactSelectControl, ToggleButton } from "./controlPrimitives";'),
   "viewer layer preset select must use CompactSelectControl",
@@ -638,6 +639,13 @@ assert(
     !viewerPanels.includes("P@.50") &&
     !viewerPanels.includes("R@.50"),
   "viewer must not expose a resident per-label metric table in the sample inspector",
+);
+assert(
+  !viewerMetrics.includes("matchedCount") &&
+    !viewerMetrics.includes("falsePositiveCount") &&
+    !viewerMetrics.includes("falseNegativeCount") &&
+    !viewerMetrics.includes("meanIou"),
+  "viewer visible metrics must stay count-only so fine metrics cannot leak back into the side strip",
 );
 assert(
   viewerPanels.includes("SelectableCardButton") &&

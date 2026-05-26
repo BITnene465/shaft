@@ -71,10 +71,7 @@ assert.deepEqual(metrics.countInstancesByLabel(detail.gt_instances), { arrow: 1,
 const summary = metrics.visibleSampleMetrics(detail, labels);
 assert.equal(summary.gtCount, 3);
 assert.equal(summary.predCount, 2);
-assert.equal(summary.matchedCount, 1);
-assert.equal(summary.falsePositiveCount, 1);
-assert.equal(summary.falseNegativeCount, 2);
-assert.equal(summary.meanIou, 0.86);
+assert.deepEqual(Object.keys(summary).sort(), ["gtCount", "predCount"]);
 
 const objectRows = metrics.buildObjectRows({
   gtInstances: detail.gt_instances,
