@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 
 export function NumberSettingControl({
   label,
@@ -63,7 +63,7 @@ type TextInputControlProps = Omit<
   label: string;
   value: string;
   className?: string;
-  type?: "text" | "search" | "url" | "password";
+  type?: "text" | "search" | "url" | "password" | "number";
   onChange: (value: string) => void;
 };
 
@@ -85,6 +85,42 @@ export function TextInputControl({
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
+  );
+}
+
+type SearchInputControlProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "onChange" | "value" | "type"
+> & {
+  label: string;
+  value: string;
+  className?: string;
+  icon?: ReactNode;
+  action?: ReactNode;
+  onChange: (value: string) => void;
+};
+
+export function SearchInputControl({
+  label,
+  value,
+  className,
+  icon,
+  action,
+  onChange,
+  ...props
+}: SearchInputControlProps) {
+  return (
+    <div className={className}>
+      {icon}
+      <input
+        {...props}
+        type="search"
+        aria-label={props["aria-label"] ?? label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {action}
+    </div>
   );
 }
 

@@ -561,8 +561,8 @@ Run note 编辑器中暴露。note 真源和后端语义没有问题，这是 Da
 
 ### 根因
 
-`controlPrimitives.tsx` 已经收敛了 select、number setting、color 和 toggle，但缺少弹窗表单用的 text input、
-number input、textarea 和 checkbox primitives。页面为了完成业务流直接维护输入壳，这是 Presentation Layer
+`controlPrimitives.tsx` 已经收敛了 select、number setting、color 和 toggle，但缺少高级检索和设置页共用的
+search input，也缺少弹窗表单用的 text input、number input、textarea 和 checkbox primitives。页面为了完成业务流直接维护输入壳，这是 Presentation Layer
 组件边界缺口，不是 eval / codec / metric / data 语义问题。
 
 ### 影响范围
@@ -572,9 +572,10 @@ number input、textarea 和 checkbox primitives。页面为了完成业务流直
 
 ### 修复方式
 
-- `controlPrimitives.tsx` 新增 `TextInputControl`、`NumberInputControl`、`TextareaControl`、
+- `controlPrimitives.tsx` 新增 `SearchInputControl`、`TextInputControl`、`NumberInputControl`、`TextareaControl`、
   `StandaloneTextareaControl` 和
   `CheckboxFieldControl`。
+- Advanced Filter 的 search / number 输入和 Settings 页搜索框切换到共享 search/text primitives。
 - Benchmarks 创建副本弹窗、Runs 导入 prediction 弹窗和 Services 注册服务弹窗切换到共享 text / number /
   checkbox primitives。
 - Run note 主编辑器 / 追加入口、Jobs manifest 编辑器和 Rank Board weighted scheme JSON 编辑器切换到共享
@@ -591,7 +592,7 @@ number input、textarea 和 checkbox primitives。页面为了完成业务流直
 
 ### 后续防线
 
-- 新增弹窗表单字段时，先扩展 `controlPrimitives.tsx`，再在业务页组合；不要让页面直接复制输入壳。
+- 新增高级检索输入、设置页搜索或弹窗表单字段时，先扩展 `controlPrimitives.tsx`，再在业务页组合；不要让页面直接复制输入壳。
 - 如果某个字段需要特殊视觉，只在共享 primitive 上提供可组合 class，而不是绕过表单组件边界。
 
 ## 2026-05-26: Eval Bench rank-board agent 契约没有说明 sort_by 语义分层

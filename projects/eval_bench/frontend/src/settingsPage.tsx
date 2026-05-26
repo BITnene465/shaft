@@ -4,7 +4,7 @@ import { Search, X } from "lucide-react";
 
 import type { EvalInstance } from "./api";
 import { fetchSettingsPreviewSample } from "./api";
-import { CompactSelectControl, NumberSettingControl } from "./controlPrimitives";
+import { CompactSelectControl, NumberSettingControl, SearchInputControl } from "./controlPrimitives";
 import { unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import {
@@ -130,14 +130,14 @@ export function SettingsPage() {
             <p>以最小控制面板管理视觉偏好，把主空间留给样本检查。</p>
           </div>
           <div className="settings-command-center">
-            <div className="settings-search-box">
-              <Search size={15} />
-              <input
-                value={settingsQuery}
-                placeholder="搜索设置"
-                onChange={(event) => setSettingsQuery(event.target.value)}
-              />
-              {settingsQuery ? (
+            <SearchInputControl
+              className="settings-search-box"
+              icon={<Search size={15} />}
+              label="搜索设置"
+              value={settingsQuery}
+              placeholder="搜索设置"
+              onChange={setSettingsQuery}
+              action={settingsQuery ? (
                 <IconActionButton
                   className="settings-search-clear"
                   icon={<X size={13} />}
@@ -145,7 +145,7 @@ export function SettingsPage() {
                   onClick={() => setSettingsQuery("")}
                 />
               ) : null}
-            </div>
+            />
             <nav className="settings-section-nav" aria-label="工作台设置分组">
               {settingsSections.map((section) => (
                 <SelectableCardButton

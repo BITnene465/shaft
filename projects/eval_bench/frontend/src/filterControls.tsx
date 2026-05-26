@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 
-import { FilterSelectControl } from "./controlPrimitives";
+import { FilterSelectControl, SearchInputControl, TextInputControl } from "./controlPrimitives";
 import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
 
 const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
@@ -289,32 +289,31 @@ function displayFilterValue(control: AdvancedFilterControl) {
 function renderAdvancedControl(control: AdvancedFilterControl) {
   if (control.type === "search") {
     return (
-      <label className="search-box advanced-search-box" key={control.id}>
-        <Search size={15} />
-        <input
-          value={control.value}
-          onChange={(event) => control.onChange(event.target.value)}
-          placeholder={control.placeholder}
-          aria-label={control.label}
-        />
-      </label>
+      <SearchInputControl
+        className="search-box advanced-search-box"
+        icon={<Search size={15} />}
+        key={control.id}
+        label={control.label}
+        value={control.value}
+        onChange={control.onChange}
+        placeholder={control.placeholder}
+      />
     );
   }
   if (control.type === "number") {
     return (
-      <label className="filter-select compact advanced-number-box" key={control.id}>
-        <span>{control.label}</span>
-        <input
-          type="number"
-          min={control.min}
-          max={control.max}
-          step={control.step}
-          value={control.value}
-          onChange={(event) => control.onChange(event.target.value)}
-          placeholder={control.placeholder}
-          aria-label={control.label}
-        />
-      </label>
+      <TextInputControl
+        className="filter-select compact advanced-number-box"
+        key={control.id}
+        label={control.label}
+        type="number"
+        min={control.min}
+        max={control.max}
+        step={control.step}
+        value={control.value}
+        onChange={control.onChange}
+        placeholder={control.placeholder}
+      />
     );
   }
   return (

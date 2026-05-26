@@ -40,11 +40,17 @@ assert(
   "paged list controls must share PagerControl and clampListPageOffset",
 );
 assert(
-  filterControls.includes('import { FilterSelectControl } from "./controlPrimitives";') &&
+  filterControls.includes("FilterSelectControl") &&
+    filterControls.includes("SearchInputControl") &&
+    filterControls.includes("TextInputControl") &&
     filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
     filterControls.includes("<FilterSelectControl") &&
+    filterControls.includes("<SearchInputControl") &&
+    filterControls.includes("<TextInputControl") &&
+    !/<input\b/.test(filterControls) &&
     !/<select\b/.test(filterControls) &&
     controlPrimitives.includes("export function FilterSelectControl(") &&
+    controlPrimitives.includes("export function SearchInputControl(") &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function resetAdvancedFilter(") &&
     filterControls.includes("function openAdvancedFilter()") &&
@@ -71,6 +77,7 @@ assert(
 );
 assert(
   controlPrimitives.includes("export function TextInputControl(") &&
+    controlPrimitives.includes("export function SearchInputControl(") &&
     controlPrimitives.includes("export function NumberInputControl(") &&
     controlPrimitives.includes("export function TextareaControl(") &&
     controlPrimitives.includes("export function StandaloneTextareaControl(") &&
@@ -231,7 +238,9 @@ assert(
 
 const settingsPage = await readSource("src/settingsPage.tsx");
 assert(
-  settingsPage.includes('import { CompactSelectControl, NumberSettingControl } from "./controlPrimitives";'),
+  settingsPage.includes("CompactSelectControl") &&
+    settingsPage.includes("NumberSettingControl") &&
+    settingsPage.includes("SearchInputControl"),
   "settings page selects must use CompactSelectControl",
 );
 assert(
@@ -239,8 +248,11 @@ assert(
   "settings prediction line style select must use CompactSelectControl",
 );
 assert(
-  settingsPage.includes('className="settings-search-clear"'),
-  "settings search clear action must use IconActionButton",
+  settingsPage.includes("<SearchInputControl") &&
+    settingsPage.includes('className="settings-search-box"') &&
+    settingsPage.includes('className="settings-search-clear"') &&
+    !/<input[\s\S]{0,160}settingsQuery/.test(settingsPage),
+  "settings search must use SearchInputControl and IconActionButton",
 );
 assert(
   settingsPage.includes("SelectableCardButton") &&
