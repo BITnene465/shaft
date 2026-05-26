@@ -134,6 +134,7 @@ try {
       }
       if (route.requireRunInspectorCounts) {
         await assertRunInspectorCountStrip(page, `${viewport.name}:${route.name}`);
+        await assertRunViewerLayerPreferencesPersist(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireRunNoteTemplates) {
         await assertRunNoteTemplates(page, `${viewport.name}:${route.name}`);
@@ -1136,6 +1137,100 @@ async function assertRunInspectorCountStrip(page, scope) {
       `${scope}: run inspector side panel exposes fine metric table headers ${state.tableHeaders.join(", ")}`
     );
   }
+}
+
+async function assertRunViewerLayerPreferencesPersist(page, scope) {
+  const pagerState = await page.evaluate(() => {
+    const pager = document.querySelector(".run-inspector-page .sample-pager");
+    const nextButton = Array.from(pager?.querySelectorAll("button") ?? []).find((button) =>
+      (button.textContent ?? "").includes("下一页")
+    );
+    return {
+      hasPager: Boolean(pager),
+      pagerText: pager?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      nextDisabled: nextButton instanceof HTMLButtonElement ? nextButton.disabled : true
+    };
+  });
+  if (!pagerState.hasPager || pagerState.nextDisabled) {
+    return;
+  }
+  const predictionToggle = page
+    .locator(".run-inspector-page .layer-toggle-strip .control-check")
+    .filter({ hasText: "预测" })
+    .first();
+  await predictionToggle.waitFor({ timeout: 5_000 });
+  if ((await viewerPredictionLayerState(page)).predictionToggleActive) {
+    await predictionToggle.click();
+  }
+  await page.waitForFunction(() => {
+    const label = Array.from(
+      document.querySelectorAll(".run-inspector-page .layer-toggle-strip .control-check")
+    ).find((node) => (node.textContent ?? "").includes("预测"));
+    return Boolean(label) && !label.classList.contains("active");
+  });
+
+  const previousPagerText = pagerState.pagerText;
+  await page.locator(".run-inspector-page .sample-pager button", { hasText: "下一页" }).click();
+  await page.waitForFunction((oldText) => {
+    const text =
+      document
+        .querySelector(".run-inspector-page .sample-pager")
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim() ?? "";
+    return text !== oldText;
+  }, previousPagerText);
+  await page
+    .locator(".run-inspector-page .viewer-canvas-layout .image-stage")
+    .first()
+    .waitFor({
+      timeout: 10_000
+    });
+  const afterNext = await viewerPredictionLayerState(page);
+  if (afterNext.predictionToggleActive || afterNext.predictionOverlayCount !== 0) {
+    throw new Error(
+      `${scope}: prediction layer preference reset after sample pager next ${JSON.stringify(afterNext)}`
+    );
+  }
+
+  await page.locator(".run-inspector-page .sample-pager button", { hasText: "上一页" }).click();
+  await page.waitForFunction((oldText) => {
+    const text =
+      document
+        .querySelector(".run-inspector-page .sample-pager")
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim() ?? "";
+    return text !== oldText;
+  }, afterNext.pagerText);
+  const afterPrevious = await viewerPredictionLayerState(page);
+  if (afterPrevious.predictionToggleActive || afterPrevious.predictionOverlayCount !== 0) {
+    throw new Error(
+      `${scope}: prediction layer preference reset after sample pager previous ${JSON.stringify(
+        afterPrevious
+      )}`
+    );
+  }
+  if (!(await viewerPredictionLayerState(page)).predictionToggleActive) {
+    await predictionToggle.click();
+  }
+}
+
+async function viewerPredictionLayerState(page) {
+  return page.evaluate(() => {
+    const predictionToggle = Array.from(
+      document.querySelectorAll(".run-inspector-page .layer-toggle-strip .control-check")
+    ).find((node) => (node.textContent ?? "").includes("预测"));
+    return {
+      pagerText:
+        document
+          .querySelector(".run-inspector-page .sample-pager")
+          ?.textContent?.replace(/\s+/g, " ")
+          .trim() ?? "",
+      predictionToggleActive: predictionToggle?.classList.contains("active") ?? false,
+      predictionOverlayCount: document.querySelectorAll(
+        ".run-inspector-page .overlay-instance.pred"
+      ).length
+    };
+  });
 }
 
 async function assertRunNoteTemplates(page, scope) {

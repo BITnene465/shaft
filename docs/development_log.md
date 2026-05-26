@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench viewer 图层偏好缺少分页回归防线
+
+### 现象
+
+Run Inspector 已经把 label / 图层显示偏好写入 `workspaceSettings.ts` 管理，但 layout smoke 主要检查
+检查器是否可见、样本列表是否滚动、数量条是否只显示“真实/预测”。它没有真实操作样本分页来证明
+“关闭预测图层后点击下一页/上一页不会恢复默认”。
+
+### 根因
+
+之前修复了偏好状态和 hover/lock 临时状态混在一起的问题，但回归测试只覆盖静态布局和快捷键操作，
+没有把样本页切换纳入真实浏览器验收。这是前端状态防线缺口，不是模型能力问题，也不是
+eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Run Inspector 的可视化复盘体验，尤其是跨样本连续检查时的图层显隐偏好。
+- 不改变后端 API、样本分页语义、report、rank-board、label policy 或 evaluator。
+
+### 修复方式
+
+- `layout-smoke-check.mjs` 在 run inspector 路由中实际关闭预测图层。
+- smoke 点击 `.sample-pager` 下一页和上一页，分别断言预测 toggle 仍为关闭，且预测 overlay 数量为 0。
+- README 的 dashboard smoke 说明同步记录该防线，明确持久偏好归 `workspaceSettings.ts`，样本切换只清理临时 hover/lock。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增 viewer 偏好或样本分页行为时，必须同时覆盖“偏好跨样本保持”和“样本临时交互随样本清理”两个维度。
+- 不要把可复用的复盘偏好重新放回 `SampleViewer` 局部状态。
+
 ## 2026-05-26: Eval Bench import-predictions 未校验 benchmark label index
 
 ### 现象

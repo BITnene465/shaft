@@ -5,9 +5,12 @@ import { chromium } from "@playwright/test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const shortcutSurfaceFiles = [
-  "main.tsx",
+  "benchmarksPage.tsx",
+  "runsPage.tsx",
+  "sampleViewer.tsx",
   "viewerCanvas.tsx",
   "viewerPanels.tsx",
+  "settingsPage.tsx",
   "settingsControls.tsx"
 ];
 const shortcutSurfaceSource = (

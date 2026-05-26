@@ -833,7 +833,9 @@ Services 页必须暴露 `.service-list-pager` 并通过 `/api/services?offset&l
 Rank Board 必须暴露独立 pager。Benchmark / Run 检查器还会模拟样本过滤后 0 命中的状态，确认侧栏、
 高级检索按钮和空结果提示仍在原工作区内可见，不能退化成全页 EmptyState；检查器还会在窄屏 split
 堆叠时检查 `.image-stage` 不能塌缩，若侧栏、画布和对象检查器无法同时塞进一屏，必须由
-`.visual-inspector-page` 自己滚动，而不是外层 hidden 裁切。Runs / Rank Board 会实际输入筛选再点击清空，确认默认排序不被误算成生效条件：
+`.visual-inspector-page` 自己滚动，而不是外层 hidden 裁切。Run 检查器还会实际关闭预测图层、
+点击样本分页的下一页和上一页，确认图层偏好不会在样本页切换时恢复默认；这类持久偏好只允许由
+`workspaceSettings.ts` 管理，样本切换只能清理 hover/lock 这类临时交互。Runs / Rank Board 会实际输入筛选再点击清空，确认默认排序不被误算成生效条件：
 
 ```bash
 cd projects/eval_bench/frontend
