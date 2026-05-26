@@ -257,15 +257,16 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   Run/Ops/Volume 面板组；总览主体保持 v17 decision-first command desk：顶部只放一个 ops board，
   下方只放评测闭环 runway 与最近 run 产物流。
   ops board 左侧只能承载当前系统态、同步状态、运行信号和当前最佳 run 摘要，右侧 rank console
-  固定展示 F1 dial、当前最佳、报告闭环、待处理和运行压力四个可点击入口；不能回流二级诊断，也不能使用只表达装饰关系的
-  orbit 图。
+  固定展示 F1 dial、当前最佳、报告闭环、待处理和运行压力四个可点击入口；rank console 可以展示
+  Realtime Trace，但只能聚合报告覆盖、队列负载、服务容量、预测积压和 scheduler 资源占用这些粗粒度运行信号。
+  不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。
   首页主舞台不能用“可以看排行”“查看排行榜”这类大号口号替代数据；已有报告时必须显示报告数量、F1 状态、
   coverage 或具体 run 产物信号。
   不再单独常驻阻塞优先级面板或纯路由入口面板，卡点应体现在当前主动作和可点击状态入口中。最近 run
   必须按 `created_at` 倒序截取，并以压缩 run stream 展示 benchmark/model、prediction/report
   产物信号、创建时间和状态胶囊，不能依赖 API 返回顺序，也不能回退为普通细指标列表。compact / narrow 视口允许页面滚动，但不能把
   hero、decision tile 或 recent 核心面板压缩成不可读的折叠外壳。
-  v17 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
+  v17 可以使用 pointer position CSS 变量、hover、focus、pulse、telemetry rail 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
   不得引入独立于 store/job/service/scheduler 真源的前端私有业务语义。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。

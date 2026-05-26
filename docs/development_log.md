@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Overview 缺少高信号实时轨迹
+
+### 现象
+
+总览 v17 已经收敛为 decision-first command desk，但右侧 rank console 只包含 F1 dial 和四个决策 tile。
+首页能回答“当前最佳、报告闭环、待处理、运行压力”，但对队列负载、服务容量、预测积压和 scheduler
+资源占用缺少一条集中、可扫读的实时轨迹。直接加回旧 mini chart wall 又会把首页退回低价值面板墙。
+
+### 根因
+
+前期为了删除无价值模块，contract 明确禁止旧活动矩阵、mini chart wall 和 chart matrix 回流，但没有提供一个
+受控的粗粒度运行轨迹落点。结果总览的实时感主要靠 hover / pulse 和状态卡，缺少对 store/job/service/scheduler
+真源的压缩可视化。这是 Dashboard 总控信息架构缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Overview 首屏对运行态吞吐、队列压力和资源占用的判断效率。
+- 不改变后端状态 API、评估指标、rank-board 主指标、label policy、run note 或 agent CLI 语义。
+
+### 修复方式
+
+- 在 `overview-rank-console` 内新增 `OverviewTelemetryTrace`，只展示报告覆盖、队列负载、服务容量、
+  预测积压和 scheduler workers/devices/ports/loop 等粗粒度信号。
+- 使用 rail / chip / hover 动效表达实时感，不引入新业务真源，也不展示 precision/recall/IoU 等精细指标。
+- 修复 compact 视口下 ops board 被 flex shrink 压缩导致 telemetry 被 hidden 裁切的问题。
+- layout smoke 增加 telemetry selector、rail 数量和裁切检查；UI contract 锁住 telemetry trace 结构。
+- README、`docs/scripts.md` 和架构文档同步 Overview Realtime Trace 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_telemetry.png npm run render-check`
+
+### 后续防线
+
+- Overview 新增可视化必须服务粗粒度运行判断，不能新增独立图表墙或二级诊断面板。
+- compact / narrow 视口下，如果总览需要页面栈滚动，必须由 `.overview-home-v17` 承担滚动，不能让
+  `overview-ops-board` 的 hidden overflow 裁掉核心信号。
+
 ## 2026-05-26: Eval Bench mutating agent 命令缺少参数语义
 
 ### 现象

@@ -15,7 +15,7 @@ import {
   Trophy
 } from "lucide-react";
 
-import type { RunSummary } from "./api";
+import type { RunSummary, SchedulerStatus } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { formatMetric, runF1Score } from "./formatters";
@@ -23,7 +23,14 @@ import { AppIcon } from "./iconLibrary";
 import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";
 import { Badge, EmptyState } from "./ui";
 
-type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks" | "/compare";
+type OverviewRoute =
+  | "/"
+  | "/rank-board"
+  | "/runs"
+  | "/jobs"
+  | "/services"
+  | "/benchmarks"
+  | "/compare";
 type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
 type OverviewAction = {
   label: string;
@@ -45,6 +52,13 @@ type OverviewFlowStage = {
   tone: OverviewTone;
   progress: number;
   icon: React.ReactNode;
+};
+type OverviewTelemetryItem = {
+  label: string;
+  value: string;
+  detail: string;
+  level: number;
+  tone: OverviewTone;
 };
 type BestRun = { run: RunSummary; f1: number };
 
@@ -152,6 +166,39 @@ export function OverviewPage() {
       progress: trackPercent(activeQueue + failedJobs + liveServices, totalJobs + totalServices)
     }
   ];
+  const telemetryItems: OverviewTelemetryItem[] = [
+    {
+      label: "报告覆盖",
+      value: `${coveragePercent}%`,
+      detail: `${evaluatedRuns.toLocaleString()} reports / ${data.run_count.toLocaleString()} runs`,
+      level: coveragePercent,
+      tone: evaluatedRuns > 0 ? "good" : "idle"
+    },
+    {
+      label: "队列负载",
+      value: activeQueue.toLocaleString(),
+      detail: `${runningJobs.toLocaleString()} running / ${queuedJobs.toLocaleString()} queued`,
+      level: trackPercent(
+        activeQueue,
+        Math.max(jobs.length, schedulerStatus?.max_concurrent_jobs ?? 1)
+      ),
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle"
+    },
+    {
+      label: "服务容量",
+      value: `${liveServices}/${services.length}`,
+      detail: services.length > 0 ? "registered model services" : "no service registered",
+      level: trackPercent(liveServices, totalServices),
+      tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle"
+    },
+    {
+      label: "预测积压",
+      value: waitingEvaluation.toLocaleString(),
+      detail: `${data.prediction_count.toLocaleString()} prediction artifacts`,
+      level: trackPercent(waitingEvaluation, Math.max(runsWithPredictions, 1)),
+      tone: waitingEvaluation > 0 ? "warm" : "good"
+    }
+  ];
   const flowStages: OverviewFlowStage[] = [
     {
       label: "基准样本",
@@ -224,6 +271,7 @@ export function OverviewPage() {
         <aside className="overview-rank-console" aria-label="主指标与系统态">
           <OverviewScoreDial bestRun={bestRun} coveragePercent={coveragePercent} />
           <OverviewDecisionMetrics metrics={decisionMetrics} />
+          <OverviewTelemetryTrace items={telemetryItems} schedulerStatus={schedulerStatus} />
         </aside>
       </section>
 
@@ -276,6 +324,70 @@ function OverviewDecisionMetrics({ metrics }: { metrics: OverviewSignal[] }) {
         </Link>
       ))}
     </div>
+  );
+}
+
+function OverviewTelemetryTrace({
+  items,
+  schedulerStatus
+}: {
+  items: OverviewTelemetryItem[];
+  schedulerStatus?: SchedulerStatus;
+}) {
+  const resourceItems = [
+    {
+      label: "workers",
+      value: String(schedulerStatus?.active_worker_threads?.length ?? 0)
+    },
+    {
+      label: "devices",
+      value: String(schedulerStatus?.reserved_cuda_devices?.length ?? 0)
+    },
+    {
+      label: "ports",
+      value: String(schedulerStatus?.reserved_runtime_ports?.length ?? 0)
+    },
+    {
+      label: "loop",
+      value: schedulerStatus?.loop_alive ? "live" : schedulerStatus?.enabled ? "idle" : "off"
+    }
+  ];
+  return (
+    <section className="overview-telemetry-trace" aria-label="实时吞吐与资源轨迹">
+      <div className="overview-telemetry-head">
+        <span>Realtime Trace</span>
+        <strong>{schedulerStatus?.max_concurrent_jobs ?? 0} slots</strong>
+      </div>
+      <div className="overview-telemetry-bars">
+        {items.map((item, index) => (
+          <span
+            className={`overview-telemetry-bar ${item.tone}`}
+            key={item.label}
+            style={
+              {
+                "--telemetry-level": `${item.level}%`,
+                "--telemetry-delay": `${index * 45}ms`
+              } as React.CSSProperties
+            }
+          >
+            <b>{item.label}</b>
+            <em>{item.value}</em>
+            <small>{item.detail}</small>
+            <i aria-hidden="true">
+              <b />
+            </i>
+          </span>
+        ))}
+      </div>
+      <div className="overview-resource-chips" aria-label="scheduler resources">
+        {resourceItems.map((item) => (
+          <span key={item.label}>
+            <b>{item.value}</b>
+            <em>{item.label}</em>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -335,7 +447,9 @@ function OverviewScoreDial({
       </span>
       <div>
         <strong>{bestRun ? bestRun.run.run_id : "等待评估报告"}</strong>
-        <small>{bestRun ? `${bestRun.run.model_id} · ${bestRun.run.benchmark_id}` : "等待 F1 报告"}</small>
+        <small>
+          {bestRun ? `${bestRun.run.model_id} · ${bestRun.run.benchmark_id}` : "等待 F1 报告"}
+        </small>
         <i aria-hidden="true">
           <b />
         </i>

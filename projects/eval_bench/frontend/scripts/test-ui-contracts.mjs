@@ -312,6 +312,10 @@ assert(
     overviewPage.includes("overview-decision-metrics") &&
     overviewPage.includes("overview-decision-metric") &&
     overviewPage.includes("overview-decision-icon") &&
+    overviewPage.includes("OverviewTelemetryTrace") &&
+    overviewPage.includes("overview-telemetry-trace") &&
+    overviewPage.includes("overview-telemetry-bar") &&
+    overviewPage.includes("overview-resource-chips") &&
     overviewPage.includes("OverviewStateStrip") &&
     overviewPage.includes("overview-state-strip") &&
     !overviewPage.includes("overviewHeroTitle") &&
@@ -411,6 +415,9 @@ assert(
     styleSource.includes(".overview-home-v17 .overview-ops-board") &&
     styleSource.includes(".overview-home-v17 .overview-decision-metric:hover") &&
     styleSource.includes(".overview-home-v17 .overview-decision-icon") &&
+    styleSource.includes(".overview-home-v17 .overview-telemetry-trace") &&
+    styleSource.includes(".overview-home-v17 .overview-telemetry-bar:hover") &&
+    styleSource.includes(".overview-home-v17 .overview-resource-chips") &&
     styleSource.includes("@keyframes overview-v17-scan") &&
     styleSource.includes("@keyframes overview-v17-live") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&

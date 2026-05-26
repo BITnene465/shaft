@@ -29,6 +29,9 @@ const staticRoutes = [
       ".overview-flow-node",
       ".overview-score-dial",
       ".overview-ops-signal",
+      ".overview-telemetry-trace",
+      ".overview-telemetry-bar",
+      ".overview-resource-chips",
       ".overview-recent-card"
     ]
   },
@@ -504,8 +507,12 @@ async function assertOverviewDensity(page, scope) {
     const opsSignal = document.querySelector(".overview-ops-signal");
     const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
+    const telemetryTrace = document.querySelector(".overview-telemetry-trace");
     const decisionMetricRails = Array.from(
       document.querySelectorAll(".overview-decision-metric > i > b")
+    ).map((node) => Math.round(node.getBoundingClientRect().width));
+    const telemetryRails = Array.from(
+      document.querySelectorAll(".overview-telemetry-bar i b")
     ).map((node) => Math.round(node.getBoundingClientRect().width));
     const panelHeights = Array.from(
       document.querySelectorAll(
@@ -521,6 +528,7 @@ async function assertOverviewDensity(page, scope) {
     const opsSignalStyle = opsSignal ? getComputedStyle(opsSignal) : null;
     const decisionMetricStyle = decisionMetric ? getComputedStyle(decisionMetric) : null;
     const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
+    const telemetryStyle = telemetryTrace ? getComputedStyle(telemetryTrace) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
       commandShellDisplay: commandShellStyle?.display ?? "",
@@ -532,6 +540,10 @@ async function assertOverviewDensity(page, scope) {
       decisionMetricRails,
       decisionTiles,
       decisionIcons: document.querySelectorAll(".overview-decision-icon").length,
+      telemetryTraces: document.querySelectorAll(".overview-telemetry-trace").length,
+      telemetryBars: document.querySelectorAll(".overview-telemetry-bar").length,
+      telemetryRails,
+      resourceChips: document.querySelectorAll(".overview-resource-chips span").length,
       stateStripItems: document.querySelectorAll(".overview-state-strip span").length,
       stateStripText,
       runArtifactRails: document.querySelectorAll(".overview-run-artifacts i b").length,
@@ -561,7 +573,10 @@ async function assertOverviewDensity(page, scope) {
       workflowRowDisplay: workflowRowStyle?.display ?? "",
       opsSignalTransition: opsSignalStyle?.transitionDuration ?? "",
       decisionMetricTransition: decisionMetricStyle?.transitionDuration ?? "",
-      scoreDialTransition: scoreDialStyle?.transitionDuration ?? ""
+      scoreDialTransition: scoreDialStyle?.transitionDuration ?? "",
+      telemetryDisplay: telemetryStyle?.display ?? "",
+      opsBoardRect: commandShell?.getBoundingClientRect() ?? null,
+      telemetryRect: telemetryTrace?.getBoundingClientRect() ?? null
     };
   });
   if (state.legacyActivityMatrix !== 0) {
@@ -600,16 +615,22 @@ async function assertOverviewDensity(page, scope) {
     state.runFocusCards !== 1 ||
     state.opsSignals !== 1 ||
     state.decisionMetrics !== 4 ||
-    state.decisionIcons !== 4
+    state.decisionIcons !== 4 ||
+    state.telemetryTraces !== 1 ||
+    state.telemetryBars !== 4 ||
+    state.resourceChips !== 4
   ) {
     throw new Error(
-      `${scope}: overview should expose score focus, flow nodes, one next action, and decision tiles ${JSON.stringify({
+      `${scope}: overview should expose score focus, flow nodes, one next action, telemetry, and decision tiles ${JSON.stringify({
         flowNodes: state.flowNodes,
         scoreDials: state.scoreDials,
         runFocusCards: state.runFocusCards,
         opsSignals: state.opsSignals,
         decisionMetrics: state.decisionMetrics,
-        decisionIcons: state.decisionIcons
+        decisionIcons: state.decisionIcons,
+        telemetryTraces: state.telemetryTraces,
+        telemetryBars: state.telemetryBars,
+        resourceChips: state.resourceChips
       })}`
     );
   }
@@ -656,6 +677,30 @@ async function assertOverviewDensity(page, scope) {
   }
   if (state.decisionMetricRails.length !== 4 || state.decisionMetricRails.some((width) => width < 0)) {
     throw new Error(`${scope}: overview decision metrics should expose progress rails`);
+  }
+  if (
+    state.telemetryDisplay !== "flex" ||
+    state.telemetryRails.length !== 4 ||
+    !state.telemetryRails.some((width) => width > 0)
+  ) {
+    throw new Error(
+      `${scope}: overview telemetry trace is missing live resource rails ${JSON.stringify({
+        telemetryDisplay: state.telemetryDisplay,
+        telemetryRails: state.telemetryRails
+      })}`
+    );
+  }
+  if (
+    state.opsBoardRect &&
+    state.telemetryRect &&
+    state.telemetryRect.bottom > state.opsBoardRect.bottom - 8
+  ) {
+    throw new Error(
+      `${scope}: overview telemetry trace is visually clipped ${JSON.stringify({
+        opsBoard: formatRect(state.opsBoardRect),
+        telemetry: formatRect(state.telemetryRect)
+      })}`
+    );
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
