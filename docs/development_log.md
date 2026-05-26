@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Runs 对比入口仍手写 mini-link anchor
+
+### 现象
+
+Run Table 的行级图标入口已经改用 `IconNavLink`，普通 router mini link 和 href mini link 也已有
+`InlineNavLink` / `InlineAnchor`。但 Runs 表格高级检索区的“对比 0/2、1/2、2/2”入口仍直接写
+`<a>`，并在业务页拼 `mini-link compare-ready` / `mini-link disabled`。
+
+### 根因
+
+前几轮收敛了 Compare 页面和表格行图标入口，但遗漏了 Run Table footer action 里的动态 href 入口。
+这是前端组件化边界遗漏，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Runs 表格 compare action 的链接外壳一致性和后续复用。
+- 不影响 comparison 生成、rank board、run note、过滤或评估指标语义。
+
+### 修复方式
+
+- Runs 表格 compare action 改用 `InlineAnchor`，只传业务状态 class `compare-ready` / `disabled`。
+- UI contract 增加防线，禁止 run table 回退到 raw `mini-link` anchor 或本地拼完整 `mini-link compare-ready`。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增动态 href mini link 时使用 `InlineAnchor`；业务页只传状态 class，不重复拼 `mini-link` 基础 class。
+
 ## 2026-05-26: Eval Bench Compare 样本跳转行仍是本地 anchor
 
 ### 现象

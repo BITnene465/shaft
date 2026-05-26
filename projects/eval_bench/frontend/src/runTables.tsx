@@ -11,7 +11,15 @@ import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, runF1Score, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
-import { Badge, DangerConfirmDialog, DataTable, IconActionButton, IconNavLink, InlineNavLink } from "./ui";
+import {
+  Badge,
+  DangerConfirmDialog,
+  DataTable,
+  IconActionButton,
+  IconNavLink,
+  InlineAnchor,
+  InlineNavLink
+} from "./ui";
 
 export function BenchmarkTable({
   benchmarks,
@@ -322,15 +330,15 @@ export function RunTable({
             ]
           }
           actions={
-            <a
+            <InlineAnchor
               className={
-                comparableSelection.length === 2 ? "mini-link compare-ready" : "mini-link disabled"
+                comparableSelection.length === 2 ? "compare-ready" : "disabled"
               }
               href={compareHref}
             >
               <GitCompare size={13} />
               对比 {comparableSelection.length}/2
-            </a>
+            </InlineAnchor>
           }
         />
       ) : null}

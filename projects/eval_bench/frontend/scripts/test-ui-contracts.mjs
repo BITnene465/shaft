@@ -514,8 +514,11 @@ assert(
 assert(
   compareMiniLinkSource.includes("InlineAnchor") &&
     comparisonSampleMiniLinkSource.includes("InlineAnchor") &&
+    runTables.includes("InlineAnchor") &&
     !/<a[^>]+className="mini-link/.test(compareMiniLinkSource) &&
-    !/<a[^>]+className="mini-link/.test(comparisonSampleMiniLinkSource),
+    !/<a[^>]+className="mini-link/.test(comparisonSampleMiniLinkSource) &&
+    !/<a[^>]+className=\{[^}]*mini-link/.test(runTables) &&
+    !runTables.includes('"mini-link compare-ready"'),
   "href mini links must use InlineAnchor instead of ad hoc mini-link anchors",
 );
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
