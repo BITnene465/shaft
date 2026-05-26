@@ -708,7 +708,7 @@ async function assertOverviewDensity(page, scope) {
   }
   if (
     state.stateStripItems !== 4 ||
-    /可以看排行|可以进入排行|查看排行榜|等待报告进入排行|主指标 F1 可排行|从样本到排行|rankable|F1 ready|先处理阻塞|补齐评估闭环|队列正在推进/.test(
+    /只保留系统运行态、数据规模和近期写入节奏|精细指标进入排行榜与对比页|首页只保留|可以看排行|可以进入排行|查看排行榜|等待报告进入排行|主指标 F1 可排行|从样本到排行|rankable|F1 ready|先处理阻塞|补齐评估闭环|队列正在推进/.test(
       state.bodyText
     )
   ) {

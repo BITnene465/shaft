@@ -48,6 +48,43 @@ eval / codec / metric / data 误判。
 - 测试可以维护 JSON payload shape，但运行时代码不应把测试 schema 暴露成用户协议。
 - Weighted rank 只由显式 `rank_scheme` 触发，默认排行永远保持 F1 主指标。
 
+## 2026-05-26: Eval Bench 总览运行态文案残留实现说明
+
+### 现象
+
+总览页 v17 已经移除了“可以看排行”“查看排行榜”等入口式大字文案，但当已有评估报告时，
+主舞台姿态行仍显示“首页只保留闭环覆盖和最佳 F1 状态”。这类文案是在解释页面设计取舍，
+不是运行态事实，仍会让首页看起来像说明 block。
+
+### 根因
+
+前几轮 contract 只覆盖了最明显的排行入口 slogan，没有把“只保留...”这类实现说明纳入
+源码级和真实页面文本回归守卫。
+
+### 影响范围
+
+- 影响 Dashboard 总览页文案质感和用户对首页价值的判断。
+- 不影响 dashboard API、store schema、Rank Board 默认 F1、weighted scheme、report、comparison 或 evaluator 语义。
+- 这不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 修复方式
+
+- 将总览已有报告姿态行改为事实型运行态文案：报告数量、当前最佳与覆盖状态刷新。
+- `test-ui-contracts` 增加全 `src` 扫描，禁止“首页只保留”“只保留系统运行态...”和
+  “精细指标进入排行榜与对比页”等 UI 说明式文案回流。
+- `layout-smoke-check` 在真实浏览器文本中同步禁止这些文案，避免源码 contract 与渲染结果脱节。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 总览页可以展示运行事实、状态、数量和可行动入口，但不能展示解释设计策略的说明句。
+- 用户明确指出的 UI 文案问题需要同时进入源码 contract 和真实页面 smoke，不能只靠人工记忆。
+
 ## 2026-05-26: Eval Bench 高级检索仍复用旧筛选壳 class
 
 ### 现象

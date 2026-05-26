@@ -5,10 +5,24 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const srcRoot = path.join(root, "src");
 const sourceFiles = await collectSourceFiles(srcRoot);
+const forbiddenUiCopy = [
+  "只保留系统运行态、数据规模和近期写入节奏",
+  "精细指标进入排行榜与对比页",
+  "首页只保留",
+  "可以看排行",
+  "可以进入排行",
+  "查看排行榜",
+  "等待报告进入排行",
+  "主指标 F1 可排行",
+  "从样本到排行",
+  "rankable",
+  "F1 ready"
+];
 
 for (const filePath of sourceFiles) {
   const source = await readFile(filePath, "utf8");
   const relativePath = path.relative(root, filePath);
+  assertNoForbiddenUiCopy(source, relativePath, forbiddenUiCopy);
   assertNoBlockingBrowserDialogs(source, relativePath);
   assertNoBusinessDialogShell(source, relativePath);
   assertNoLegacySampleFilters(source, relativePath);
@@ -338,14 +352,6 @@ assert(
     overviewPage.includes("OverviewStateStrip") &&
     overviewPage.includes("overview-state-strip") &&
     !overviewPage.includes("overviewHeroTitle") &&
-    !overviewPage.includes("可以看排行") &&
-    !overviewPage.includes("可以进入排行") &&
-    !overviewPage.includes("查看排行榜") &&
-    !overviewPage.includes("等待报告进入排行") &&
-    !overviewPage.includes("主指标 F1 可排行") &&
-    !overviewPage.includes("从样本到排行") &&
-    !overviewPage.includes("rankable") &&
-    !overviewPage.includes("F1 ready") &&
     overviewPage.includes("OverviewScoreDial") &&
     overviewPage.includes("overview-score-dial") &&
     overviewPage.includes("OverviewRunFocus") &&
@@ -490,7 +496,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must expose the active v16 surface and block deprecated design tracks",
+  "overview stylesheet must expose the active v17 surface and block deprecated design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
@@ -952,6 +958,12 @@ function assertNoBusinessDialogShell(source, relativePath) {
 
 function assertNoLegacySampleFilters(source, relativePath) {
   assert(!source.includes("sample-filters"), `${relativePath}: legacy sample-filters are not allowed`);
+}
+
+function assertNoForbiddenUiCopy(source, relativePath, forbiddenItems) {
+  for (const item of forbiddenItems) {
+    assert(!source.includes(item), `${relativePath}: forbidden UI copy '${item}' is not allowed`);
+  }
 }
 
 function assertNoLegacyFormSubmitClass(source, relativePath) {

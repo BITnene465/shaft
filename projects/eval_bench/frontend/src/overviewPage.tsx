@@ -710,7 +710,7 @@ function overviewPostureLine({
     return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
   if (evaluatedRuns > 0) {
-    return `${evaluatedRuns.toLocaleString()} 份报告已生成，首页只保留闭环覆盖和最佳 F1 状态。`;
+    return `${evaluatedRuns.toLocaleString()} 份报告已生成，当前最佳与覆盖状态正在刷新。`;
   }
   if (serviceCount > 0 && liveServices === 0) {
     return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
