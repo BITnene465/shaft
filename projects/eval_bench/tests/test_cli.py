@@ -449,8 +449,13 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "value": "str",
         "count": "int",
     }
-    assert jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"] == "object"
-    assert jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"] == "object"
+    job_payload_schema = jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"]
+    job_metadata_schema = jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"]
+    assert job_payload_schema["properties"]["benchmark_id"] == "str"
+    assert job_payload_schema["properties"]["target_labels"] == "list[str]"
+    assert job_payload_schema["properties"]["runtime_mode"] == "str"
+    assert job_metadata_schema["properties"]["preflight_warnings"] == "list[str]"
+    assert job_metadata_schema["properties"]["progress_done"] == "int|null"
     assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
         jobs_output_schema["properties"]["jobs"]["item_shape"]
     )
@@ -497,7 +502,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]["target_labels"] == "list[str]"
     assert preflight_schema["properties"]["resolved_payload"]["properties"]["runtime_mode"] == "str"
     assert preflight_schema["properties"]["resolved_payload"]["properties"]["target_labels"] == "list[str]"
-    assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == "object"
+    assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == job_payload_schema
     assert CLI_JSON_OUTPUT_SCHEMAS["cancel-job"]["properties"]["status"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["deleted"]["type"] == "bool"
     assert CLI_JSON_OUTPUT_SCHEMAS["process-next-job"]["properties"]["job"][

@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench job record payload/metadata 不能只是粗 object
+
+### 现象
+
+`create-job`、`list-jobs`、`show-job` 和 `process-next-job` 已经是 agent 操作队列的稳定 CLI，
+但 schema 仍把 job record 的 `payload` 和 `metadata` 标成泛型 object。Agent 能知道 job 存在，
+却不知道 `benchmark_id`、`target_labels`、`runtime_mode`、`preflight_warnings` 或 progress 字段是否稳定。
+
+### 根因
+
+前几轮先补齐了 job lifecycle、preflight 和列表分页，但没有把 database record 中已经稳定使用的
+payload/metadata 字段提升到 CLI schema。队列状态和 manifest 解析真源在后端，schema 却仍停留在
+“任意 JSON blob”的表达层级。这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec /
+metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 job 队列、preflight warning 和 worker progress 的稳定解析。
+- 不改变 SQLite schema、job 状态机、worker 执行、Dashboard UI、Rank Board 或 evaluator 语义。
+
+### 修复方式
+
+- CLI schema 增加 `JOB_PAYLOAD_OUTPUT_SCHEMA`，声明 job kind、runtime、backend、run/model/benchmark、
+  prompt、metric、target labels、service/runtime 参数和采样配置等常用字段。
+- CLI schema 增加 `JOB_METADATA_OUTPUT_SCHEMA`，声明 `preflight_warnings`、progress 字段、
+  `run_manifest_path`、`resolved_manifest` 和 `cancel_requested`。
+- `JOB_RECORD_OUTPUT_SHAPE` 复用上述 schema，覆盖 create/list/show/process/delete job 输出。
+- CLI schema 测试锁定 payload 和 metadata 的核心字段。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_preflights_and_creates_manifest_first_job projects/eval_bench/tests/test_cli.py::test_cli_create_job_persists_preflight_warnings`
+
+### 后续防线
+
+- 新增 job metadata 或 agent 依赖的 payload 字段时，必须同步 CLI schema；不能让 agent 读取 SQLite 或
+  dashboard state 来推断 job 内部结构。
+
 ## 2026-05-26: Eval Bench preflight-job 失败路径必须保持稳定 shape
 
 ### 现象
