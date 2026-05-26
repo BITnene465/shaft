@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 总览 v10 仍依赖 v9 样式真源
+
+### 现象
+
+总览页已经升级到 `overview-home-v10`，但 React 根节点仍同时挂载 `overview-home-v9`，
+`styles.css` 中 active overview 基础层也仍以 `.overview-home-v9` 命名，v10 只是在文件末尾做覆盖。
+layout smoke 甚至继续要求 `.overview-home-v9` selector 存在。后续开发容易继续叠加覆盖层，
+也会让“当前总览真源到底是 v9 还是 v10”变得不清楚。
+
+### 根因
+
+上一轮为了快速修复首页可读性，在 v9 样式层上追加了 v10 override，没有同步完成命名收口和测试边界迁移。
+这是前端样式真源漂移问题，不是后端状态或评估语义问题。
+
+### 影响范围
+
+- 影响 Overview 后续迭代的可维护性、样式定位和 contract 测试准确性。
+- 不改变 eval、codec、metric、data、job lifecycle、rank-board 或 dashboard API 语义；这是前端结构收口问题，不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- React 根节点只保留 `overview-home-v10`。
+- `styles.css` active overview 基础层统一迁移到 `.overview-home-v10`，并移除未挂载的 `.overview-console-links` 样式。
+- `layout-smoke-check` 不再要求 `.overview-home-v9`，只检查 v10 cockpit 的 stage map、health strip、pipeline、signals 和 readiness。
+- `test-ui-contracts` 明确禁止 Overview 源码和样式回流 `overview-home-v9`。
+- 共享 focus-visible 规则从旧 console links 更新为 v10 的 stage map 与 health strip。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 后续升级版本时必须同步迁移 React class、CSS selector、UI contract 和 layout smoke；
+  不能用“新版本 class + 旧版本样式层 + override”的双轨方式长期维护。
+
 ## 2026-05-25: Eval Bench 总览页过度压缩且组件价值不清
 
 ### 现象

@@ -231,6 +231,7 @@ assert(
     !overviewPage.includes("overview-home-v6") &&
     !overviewPage.includes("overview-home-v7") &&
     !overviewPage.includes("overview-home-v8") &&
+    !overviewPage.includes("overview-home-v9") &&
     !overviewPage.includes("overview-command-center-redesign") &&
     !overviewPage.includes("OverviewHeroMap") &&
     !overviewPage.includes("overview-orbit-map") &&
@@ -274,6 +275,7 @@ assert(
     "overview-home-v6",
     "overview-home-v7",
     "overview-home-v8",
+    "overview-home-v9",
     "overview-command-deck",
     "overview-command-center-redesign",
     "overview-focus-panel",

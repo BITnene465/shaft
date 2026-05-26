@@ -213,7 +213,7 @@ export function OverviewPage() {
   const recentRuns = overviewRecentRuns(data.runs, 3);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v9 overview-home-v10">
+    <section className="page-stack dashboard-home overview-home-v10">
       <div className="overview-command-center">
         <section className={`overview-priority-stage ${nextAction.tone}`}>
           <div className="overview-priority-copy">

@@ -15,7 +15,6 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v9",
       ".overview-home-v10",
       ".overview-command-center",
       ".overview-priority-stage",
