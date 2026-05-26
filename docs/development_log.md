@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 旧 filter-bar 样式残留
+
+### 现象
+
+业务页面已经统一迁到 `AdvancedFilterBar`，但 `styles.css` 里仍残留旧 `.filter-bar` 及其响应式规则。
+这套样式没有 TSX 引用，却保留了“主工作区直接堆 select”的旧设计入口，后续新增页面时容易被误用。
+
+### 根因
+
+高级检索组件化时只迁移了业务页和交互 contract，没有同步删除旧 CSS。结果页面实现层已经收敛，
+样式层仍保留了一条过时路径。这是前端组件边界和死样式清理问题，不是模型能力问题，也不是
+eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响后续页面新增 filter 时的设计一致性和可维护性。
+- 不改变后端 filter 语义、Dashboard API、CLI、rank-board、run note、label subtask 或评测指标。
+
+### 修复方式
+
+- 删除 `styles.css` 中旧 `.filter-bar` 基础样式、共享 gap 入口和响应式规则。
+- `test-ui-contracts.mjs` 增加静态检查，禁止 `.filter-bar` CSS 回流，页面筛选必须继续走
+  `AdvancedFilterBar`。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增页面级筛选时，先复用 `AdvancedFilterBar`；不要恢复页面私有 filter shell。
+- 删除组件旧入口时要同步清理 CSS，否则 contract 只能约束 TSX，不能防止样式层回流。
+
 ## 2026-05-26: Eval Bench append run note 缺少版本保护
 
 ### 现象

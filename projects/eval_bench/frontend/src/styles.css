@@ -2351,39 +2351,6 @@ h2 {
   height: 4px;
 }
 
-.filter-bar {
-  display: flex;
-  gap: 10px;
-  align-items: end;
-  padding: 14px;
-  background: #ffffff;
-  border: 1px solid #dbe3ec;
-  border-radius: 3px;
-}
-
-.filter-bar label {
-  display: flex;
-  min-width: 180px;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.filter-bar span {
-  color: #607080;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.filter-bar select {
-  min-height: 36px;
-  padding: 0 10px;
-  color: #17202b;
-  background: #f8fafc;
-  border: 1px solid #cfd9e4;
-  border-radius: 2px;
-}
-
 .comparison-card {
   overflow: hidden;
   background: #ffffff;
@@ -4530,15 +4497,6 @@ tbody tr:hover td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .filter-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .filter-bar label {
-    min-width: 0;
-  }
-
   .comparison-controls,
   .comparison-columns,
   .comparison-sample-detail {
@@ -5005,7 +4963,6 @@ tbody tr:hover td {
 }
 
 .run-query-bar,
-.filter-bar,
 .compare-chip-strip,
 .queue-actions,
 .row-actions {

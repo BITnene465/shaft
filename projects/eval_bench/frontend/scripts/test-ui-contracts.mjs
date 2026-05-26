@@ -27,6 +27,7 @@ const filterControls = await readSource("src/filterControls.tsx");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
+const styleSource = await readSource("src/styles.css");
 assert(
   apiSource.includes("export class ApiError extends Error") &&
     apiSource.includes("export function isApiError(") &&
@@ -75,6 +76,10 @@ assert(
     filterControls.includes("<PanelToggleButton") &&
     !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
   "advanced filter reset, token clear, popup layout, and grouping must be centralized in AdvancedFilterBar",
+);
+assert(
+  !styleSource.includes(".filter-bar"),
+  "legacy filter-bar CSS must not return; page filters must use AdvancedFilterBar",
 );
 assert(
   controlPrimitives.includes("export function TextInputControl(") &&
@@ -291,7 +296,6 @@ assert(
   "settings label clear action must use ActionButton",
 );
 const overviewPage = await readSource("src/overviewPage.tsx");
-const styleSource = await readSource("src/styles.css");
 const designSource = await readSource("src/design.css");
 const formattersSource = await readSource("src/formatters.ts");
 assert(
