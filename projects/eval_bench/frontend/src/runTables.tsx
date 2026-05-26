@@ -9,7 +9,7 @@ import type { BenchmarkSummary, RunSummary } from "./api";
 import { archiveRun, deleteRun, evaluateRun } from "./api";
 import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
-import { formatDate, formatMetric, unique } from "./formatters";
+import { formatDate, formatMetric, runF1Score, unique } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
 import { Badge, DangerConfirmDialog, DataTable, IconActionButton, IconNavLink, InlineNavLink } from "./ui";
 
@@ -195,6 +195,7 @@ export function RunTable({
       accessorKey: "prediction_count",
       cell: ({ row }) => row.original.prediction_count.toLocaleString()
     },
+    { header: "F1@.50", cell: ({ row }) => formatMetric(runF1Score(row.original)) },
     { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },
     { header: "R@.50", cell: ({ row }) => formatMetric(row.original.recall_iou50) },
     { header: "报告数", accessorKey: "report_count" },

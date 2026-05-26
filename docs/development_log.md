@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench run 列表仍把 recall 放在主指标位置
+
+### 现象
+
+Rank Board 默认主指标已经收敛为 `F1@.50`，但 Compare 的 run 选项文案仍显示 `R ...`，结果库表格也直接从
+预测数跳到 `P@.50 / R@.50`。用户在非排行榜页面选择 run 时，界面仍会暗示 recall 是默认排序或默认判断指标。
+
+### 根因
+
+Rank Board 有自己的 F1 语义，但 `formatRunOption()` 和 `RunTable` 仍沿用早期 P/R 展示顺序，没有共享前端 F1
+计算 helper。这是前端展示语义漂移，不是模型能力问题，也不是 eval / codec / metric / data 误判；后端
+rank-board 的默认排序语义没有改变。
+
+### 影响范围
+
+- 影响 Compare run 选择轨、结果库 run 表格和用户对默认主指标的理解。
+- 不影响 Rank Board 后端排序、weighted scheme、report 产物或 comparison 计算。
+
+### 修复方式
+
+- 在 `formatters.ts` 新增 `f1Score()` 和 `runF1Score()`，作为前端直接 metric 展示的 F1 计算真源。
+- `formatRunOption()` 改为显示 `F1 ...`，避免 run 选择轨把 recall 放在主指标位置。
+- `RunTable` 增加 `F1@.50` 列，并继续保留 P/R 作为次级诊断列。
+- `RankBoardPage` 的 F1 fallback 复用共享 `f1Score()`，避免重复实现 F1 公式。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:formatters`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- `test-formatters.mjs` 锁住 F1 计算、空值处理和 run 选项文案。
+- `test-ui-contracts.mjs` 要求 run table 与 run option foreground F1，避免后续又退回 recall-first 文案。
+- 精细 P/R/mIoU 仍属于 Rank Board、Compare 和 report 诊断；默认直接主指标文案使用 F1。
+
 ## 2026-05-26: Eval Bench 首页 v11 仍像静态面板拼盘
 
 ### 现象

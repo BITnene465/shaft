@@ -14,6 +14,21 @@ export function formatMetric(value: number | null) {
   return value.toFixed(3);
 }
 
+export function f1Score(precision: number | null, recall: number | null) {
+  if (precision === null || recall === null) {
+    return null;
+  }
+  const denominator = precision + recall;
+  if (denominator <= 0) {
+    return null;
+  }
+  return (2 * precision * recall) / denominator;
+}
+
+export function runF1Score(run: Pick<RunSummary, "precision_iou50" | "recall_iou50">) {
+  return f1Score(run.precision_iou50, run.recall_iou50);
+}
+
 export function formatSignedMetric(value: number) {
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(3)}`;
@@ -57,7 +72,7 @@ export function isTextInputTarget(target: EventTarget | null) {
 }
 
 export function formatRunOption(run: RunSummary) {
-  return `${run.run_id} / ${run.model_id} / R ${formatMetric(run.recall_iou50)}`;
+  return `${run.run_id} / ${run.model_id} / F1 ${formatMetric(runF1Score(run))}`;
 }
 
 export function runIdExists(runs: RunSummary[], runId: string) {

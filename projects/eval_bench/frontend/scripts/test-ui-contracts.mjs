@@ -223,6 +223,7 @@ assert(
 const overviewPage = await readSource("src/overviewPage.tsx");
 const styleSource = await readSource("src/styles.css");
 const designSource = await readSource("src/design.css");
+const formattersSource = await readSource("src/formatters.ts");
 assert(
   overviewPage.includes("export function OverviewPage()"),
   "overview page module must export OverviewPage",
@@ -411,6 +412,15 @@ assert(
   "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
 );
 const runTables = await readSource("src/runTables.tsx");
+assert(
+  formattersSource.includes("export function f1Score(") &&
+    formattersSource.includes("export function runF1Score(") &&
+    formattersSource.includes("/ F1 ${formatMetric(runF1Score(run))}") &&
+    runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
+    runTables.includes('header: "F1@.50"') &&
+    runTables.includes("formatMetric(runF1Score(row.original))"),
+  "run option labels and run tables must foreground F1 as the default direct metric",
+);
 assert(
   runTables.includes("footer?: ReactNode") &&
     runTables.includes("{footer}") &&

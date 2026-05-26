@@ -7,7 +7,7 @@ import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AdvancedFilterBar } from "./filterControls";
-import { formatMetric, unique } from "./formatters";
+import { f1Score, formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
@@ -775,7 +775,7 @@ function RankScoreComponents({ components }: { components: Array<Record<string, 
 }
 
 function rankF1Score(entry: RankBoardEntry) {
-  return entry.f1_iou50 ?? entry.score ?? null;
+  return entry.f1_iou50 ?? f1Score(entry.precision_iou50, entry.recall_iou50) ?? entry.score ?? null;
 }
 
 function rankDeltaClassName(value: number | null | undefined) {
