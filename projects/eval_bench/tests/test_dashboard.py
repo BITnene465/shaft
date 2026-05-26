@@ -1507,3 +1507,18 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
 
     bad_request = client.get("/api/comparisons", params={"baseline_run_id": "baseline"})
     assert bad_request.status_code == 400
+
+    second_report = client.get(
+        "/api/comparisons",
+        params={"baseline_run_id": "candidate", "candidate_run_id": "baseline"},
+    )
+    assert second_report.status_code == 200
+    all_history = client.get("/api/comparisons", params={"list": "1", "limit": 2}).json()
+    paged_history = client.get(
+        "/api/comparisons",
+        params={"list": "1", "offset": 1, "limit": 1},
+    ).json()
+    assert all_history["total"] == 2
+    assert paged_history["offset"] == 1
+    assert paged_history["limit"] == 1
+    assert paged_history["comparisons"] == all_history["comparisons"][1:2]

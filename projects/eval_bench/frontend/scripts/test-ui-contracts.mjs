@@ -733,10 +733,16 @@ assert(
     apiSource.includes('params.set("candidate_run_id", filters.candidateRunId.trim());') &&
     comparePage.includes("historyBaselineFilter") &&
     comparePage.includes("historyCandidateFilter") &&
+    comparePage.includes("const COMPARISON_HISTORY_PAGE_SIZE = 50;") &&
+    comparePage.includes("const [historyOffset, setHistoryOffset] = useState(0);") &&
+    comparePage.includes("offset: historyOffset") &&
+    comparePage.includes("limit: COMPARISON_HISTORY_PAGE_SIZE") &&
+    comparePage.includes('className="rank-board-pager compare-history-pager"') &&
+    comparePage.includes("onPageChange={setHistoryOffset}") &&
     comparePage.includes('id: "compare-history-baseline"') &&
     comparePage.includes('id: "compare-history-candidate"') &&
     comparePage.includes("active={hasComparisonHistoryFilters}"),
-  "compare history advanced search must expose baseline/candidate filters through the list API",
+  "compare history advanced search must expose baseline/candidate filters and pagination through the list API",
 );
 assert(
   comparePage.includes('import { FormSelectControl } from "./controlPrimitives";') &&

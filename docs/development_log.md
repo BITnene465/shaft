@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench comparison 历史高级检索固定首屏 50 条
+
+### 现象
+
+Compare 页候选 run 列表已经走 `/api/runs?offset&limit` 分页，但已保存 comparison 历史仍固定
+请求 `limit=50` 且没有翻页控件。当历史 comparison 超过 50 条时，人类只能看到首屏，agent 虽然
+可以通过 CLI/API 继续分页，但 Dashboard 工作台无法完整浏览同一份目录。
+
+### 根因
+
+上一轮只把 baseline / candidate pair 过滤补齐到 HTTP list mode 和高级检索表单，没有把已有的
+`offset` / `limit` 能力接回前端历史面板。Compare 页因此出现“候选 run 可完整分页，历史 comparison
+只能首屏切片”的双轨列表语义。这是 Dashboard 高级检索分页契约缺口，不是模型能力问题，也不是
+eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Compare 页大量 saved comparison 下的历史浏览、复现实验定位和高级检索结果翻页。
+- 不影响 comparison report 生成、成对样本详情、Rank Board、run note 或 evaluator metric。
+
+### 修复方式
+
+- Compare 页新增 `COMPARISON_HISTORY_PAGE_SIZE` 和独立 `historyOffset`，过滤条件变化时自动回到第一页。
+- `fetchComparisons()` 继续使用 `/api/comparisons?list=1`，前端传入 history offset/limit。
+- `ComparisonHistoryPanel` 复用共享 `PagerControl`，历史为空但过滤生效时仍保留空状态和分页边界。
+- UI contract 锁住 comparison 历史必须使用 list API pagination，避免退回固定 `limit=50`。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_pairwise_comparison`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- Dashboard 的目录型历史面板不能只消费 API 首屏；如果后端 payload 有 `total/offset/limit`，前端必须提供相应分页控制。
+- Compare 页新增 history filter 时，要确认过滤状态、offset reset 和 pager 都使用同一份 query state。
+
 ## 2026-05-26: Eval Bench comparison 历史检索缺少 pair 过滤
 
 ### 现象

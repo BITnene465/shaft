@@ -346,7 +346,7 @@ eval_bench_store/
 - 用于登记、查看、启动、停止、健康探测、删除和日志 tail 的 service registry；也支持只登记外部 vLLM endpoint
 - 每个 run 的可编辑 note，Dashboard、API 和 CLI 都可以读写，便于人工和脚本共享复现上下文
 - 独立 Rank Board：后端 `/api/rank-board` 和 CLI `rank-board` 提供同一份排序结果，支持 task、benchmark、status、label、model、prompt、metric、min score、全文 query、facet 计数和多种排序
-- Comparison 历史列表：后端 `/api/comparisons?list=1`、CLI `list-comparisons` 和前端历史面板共享 task、label、baseline run、candidate run、query 过滤语义
+- Comparison 历史列表：后端 `/api/comparisons?list=1`、CLI `list-comparisons` 和前端历史面板共享 task、label、baseline run、candidate run、query 过滤语义，并通过 offset/limit 分页浏览
 - 将模型文本归一化为 prediction document 的 parser 工具，并在写入 snapshot 前按 same-label high-IoU 去重
 - 从持久化 prediction snapshot 生成报告的 `evaluate-run`
 - React dashboard 外壳：中文工程控制台、总控工作台、benchmark 创建、benchmark sample 浏览、run、持久化 queue 状态、manifest-driven job 创建、job preflight、外部 prediction snapshot 导入、run 评估、run prompt/推理配置查看、样本级 GT/prediction 检查、独立排行榜，以及对比分析；总览和 Jobs 最近结果只显示粗粒度运营 / 产物信号，Runs / Rank Board 使用统一高级检索条，主要检查和对比工作区支持可过滤检索
@@ -981,7 +981,7 @@ Metric 展示分三层：
 
 `compare-runs` stdout 是结构化 JSON，包含 `comparison_id`、左右 run id 和 `report_path`。
 
-Comparison report 会写入 `eval_bench_store/exports/comparisons/`。它只比较已经持久化的 metric report，不重新跑推理。Dashboard 的 Compare 页通过 `/api/comparisons` 读取同一份 report，展示 P/R/IoU、endpoint distance、TP/FP/FN 和 endpoint pair delta；已保存 comparison 历史通过 `/api/comparisons?list=1` 查询，并支持 task、label、baseline run、candidate run 和全文 query。样本和标签排行使用 metric profile 保留的主指标语义，因此 `keypoint_endpoint_v1` 中 endpoint distance 下降会被视为改善。Compare 页同时列出已保存 comparison，并提供 top 改善/退化样本到并排样本对比 viewer 的跳转。Rank Board 负责全局排名、facet 和主指标排序，默认主指标是 F1@.50。Compare 工作区和成对样本对比的左右 run 面板都使用可拖拽分栏，适合在不同屏幕宽度下长期排障。
+Comparison report 会写入 `eval_bench_store/exports/comparisons/`。它只比较已经持久化的 metric report，不重新跑推理。Dashboard 的 Compare 页通过 `/api/comparisons` 读取同一份 report，展示 P/R/IoU、endpoint distance、TP/FP/FN 和 endpoint pair delta；已保存 comparison 历史通过 `/api/comparisons?list=1` 查询，并支持 task、label、baseline run、candidate run、全文 query 和 offset/limit 分页。样本和标签排行使用 metric profile 保留的主指标语义，因此 `keypoint_endpoint_v1` 中 endpoint distance 下降会被视为改善。Compare 页同时列出已保存 comparison，并提供 top 改善/退化样本到并排样本对比 viewer 的跳转。Rank Board 负责全局排名、facet 和主指标排序，默认主指标是 F1@.50。Compare 工作区和成对样本对比的左右 run 面板都使用可拖拽分栏，适合在不同屏幕宽度下长期排障。
 读取已保存 comparison 用 `show-comparison`；读取成对样本详情用 `show-comparison-sample`，两者都走
 store/comparison API，不需要直接读取 `exports/comparisons` 或 run artifact 文件。
 

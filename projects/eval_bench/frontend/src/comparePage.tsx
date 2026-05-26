@@ -42,6 +42,7 @@ import {
 import { ResizableSplit } from "./workspaceLayout";
 
 const COMPARE_RUN_PAGE_SIZE = 80;
+const COMPARISON_HISTORY_PAGE_SIZE = 50;
 
 export function ComparePage() {
   const [searchText, setSearchText] = useState("");
@@ -54,6 +55,7 @@ export function ComparePage() {
   const [historyBaselineFilter, setHistoryBaselineFilter] = useState("");
   const [historyCandidateFilter, setHistoryCandidateFilter] = useState("");
   const [pageOffset, setPageOffset] = useState(0);
+  const [historyOffset, setHistoryOffset] = useState(0);
   const [baselineRunId, setBaselineRunId] = useState(
     () => new URLSearchParams(window.location.search).get("baseline") ?? ""
   );
@@ -67,9 +69,10 @@ export function ComparePage() {
       candidateRunId: historyCandidateFilter.trim() || undefined,
       label: labelFilter === "all" ? undefined : labelFilter,
       query: searchText.trim() || undefined,
-      limit: 50
+      offset: historyOffset,
+      limit: COMPARISON_HISTORY_PAGE_SIZE
     }),
-    [historyBaselineFilter, historyCandidateFilter, labelFilter, searchText, taskFilter]
+    [historyBaselineFilter, historyCandidateFilter, historyOffset, labelFilter, searchText, taskFilter]
   );
   const hasComparisonHistoryFilters = Boolean(
     searchText.trim() ||
@@ -125,6 +128,9 @@ export function ComparePage() {
   const filteredCount = runsQuery.data?.total ?? runs.length;
   const runPageOffset = runsQuery.data?.offset ?? pageOffset;
   const runPageLimit = runsQuery.data?.limit ?? COMPARE_RUN_PAGE_SIZE;
+  const comparisonHistoryTotal = comparisonListQuery.data?.total ?? 0;
+  const comparisonHistoryOffset = comparisonListQuery.data?.offset ?? historyOffset;
+  const comparisonHistoryLimit = comparisonListQuery.data?.limit ?? COMPARISON_HISTORY_PAGE_SIZE;
   const fallbackCandidate = comparableRuns[0]?.run_id ?? "";
   const fallbackBaseline =
     comparableRuns.find((run) => run.run_id !== fallbackCandidate)?.run_id ?? "";
@@ -150,11 +156,24 @@ export function ComparePage() {
     setPageOffset(0);
   }, [searchText, statusFilter, taskFilter, benchmarkFilter, labelFilter, modelFilter, promptFilter]);
   useEffect(() => {
+    setHistoryOffset(0);
+  }, [searchText, taskFilter, labelFilter, historyBaselineFilter, historyCandidateFilter]);
+  useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, filteredCount, COMPARE_RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
   }, [filteredCount, pageOffset]);
+  useEffect(() => {
+    const nextOffset = clampListPageOffset(
+      historyOffset,
+      comparisonHistoryTotal,
+      COMPARISON_HISTORY_PAGE_SIZE
+    );
+    if (nextOffset !== historyOffset) {
+      setHistoryOffset(nextOffset);
+    }
+  }, [comparisonHistoryTotal, historyOffset]);
 
   if (runsQuery.isLoading) {
     return <EmptyState title="正在加载对比状态" />;
@@ -295,8 +314,11 @@ export function ComparePage() {
             />
             <ComparisonHistoryPanel
               comparisons={comparisonListQuery.data?.comparisons ?? []}
-              total={comparisonListQuery.data?.total}
+              total={comparisonHistoryTotal}
+              offset={comparisonHistoryOffset}
+              limit={comparisonHistoryLimit}
               active={hasComparisonHistoryFilters}
+              onPageChange={setHistoryOffset}
             />
           </aside>
         }
@@ -763,11 +785,17 @@ function MetricDelta({
 function ComparisonHistoryPanel({
   comparisons,
   total,
-  active = false
+  offset,
+  limit,
+  active = false,
+  onPageChange
 }: {
   comparisons: ComparisonSummary[];
   total?: number;
+  offset: number;
+  limit: number;
   active?: boolean;
+  onPageChange: (offset: number) => void;
 }) {
   if (comparisons.length === 0 && !active) {
     return null;
@@ -793,6 +821,14 @@ function ComparisonHistoryPanel({
         data={comparisons}
         emptyText="暂无历史对比。"
         compact
+      />
+      <PagerControl
+        className="rank-board-pager compare-history-pager"
+        offset={offset}
+        limit={limit}
+        total={total ?? comparisons.length}
+        meta={<>{comparisons.length.toLocaleString()} visible</>}
+        onPageChange={onPageChange}
       />
     </div>
   );
