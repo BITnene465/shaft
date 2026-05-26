@@ -552,6 +552,7 @@ assert(
     !readmeSource.includes("overview-telemetry-trace`、`overview-loop-panel") &&
     !scriptsDocSource.includes("overview-evidence-row`、`overview-ops-signal") &&
     !scriptsDocSource.includes("overview-telemetry-trace`、`overview-loop-panel") &&
+    !scriptsDocSource.includes("rank console、loop 和最近 run 面板") &&
     readmeSource.includes("overview-command-shell`、`overview-evidence-row`、`overview-loop-panel`") &&
     scriptsDocSource.includes("`overview-evidence-row`、`overview-loop-panel`、`overview-signal-stack`"),
   "README and scripts docs must document overview evidence/loop panels as deprecated, not active v17 contract",

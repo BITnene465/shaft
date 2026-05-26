@@ -8207,6 +8207,37 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench layout smoke 文档移除 Overview loop 旧称
+
+### 现象
+
+`docs/scripts.md` 的 `test:layout` 描述仍要求 “ops board、rank console、loop 和最近 run 面板”
+保持可读高度。但 Overview v17 已经不再保留 `overview-loop-panel`，当前实现和测试使用的是闭环 runway /
+`overview-flow-spine`。
+
+### 根因
+
+上一轮只修正了 active/deprecated class 列表，漏掉同一段文档里的自然语言旧称，导致 “loop 面板”
+仍像是当前布局的一部分。
+
+### 影响范围
+
+- 影响 Overview 布局规范和 layout smoke 的人工解读。
+- 不改变前端 DOM、API、指标或 Playwright 检查逻辑。
+
+### 修复方式
+
+- `docs/scripts.md` 将 “loop” 改为 “闭环 runway”。
+- `test:ui-contracts` 增加文档防线，阻止脚本文档再次把 rank console 与 loop 面板并列为当前结构。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 删除或替换一个 UI 结构时，除了 class contract，也要搜索相邻自然语言描述，避免旧组件名以说明文字形式残留。
+
 ## 2026-05-26: Eval Bench Overview v17 文档契约移除旧 evidence/loop 面板
 
 ### 现象
