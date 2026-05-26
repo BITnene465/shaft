@@ -178,6 +178,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   Keypoint 不暴露 label 子任务 UI；`resolve-target-labels` 必须返回 `label_subtasks_supported=false`，
   只保留默认 arrow 关键点评估范围。`label_policy.py` 是这条边界的后端真源，preflight、init-run、
   prediction import、worker 和 evaluator 都必须拒绝 keypoint 上非 `arrow` 的显式 `target_labels`。
+  前端 manifest 工具在 prompt 应用、target label 更新和 Job 页 task 切换时必须清理 keypoint / non-detection 的
+  `target_labels` 与 `target_labels_source`，避免子任务 UI 隐藏后 raw manifest 继续携带 detection label 子集。
 - 新增 run annotation 字段：优先落在 run 目录的独立 artifact，再由 store 暴露读写接口；不要把可编辑备注写回不可变 run manifest。
   覆盖类写入必须支持 expected `updated_at` 保护；agent 增量线索优先使用 append 入口。
 - 新增 rank board 字段、facet、排序规则或分页状态：先更新 store/API/CLI 的 `rank-board` 输出，再同步前端表格、分页控件和测试；前端不能退回固定首屏 slice。

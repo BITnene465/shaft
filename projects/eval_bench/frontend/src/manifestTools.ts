@@ -63,7 +63,7 @@ export function applyPromptTemplateToManifest(
     label: prompt.label,
     task: prompt.task
   };
-  return cloned;
+  return normalizeManifestTargetLabelsForTask(cloned);
 }
 
 export function promptTemplateFromManifest(
@@ -118,6 +118,27 @@ export function manifestTargetLabels(manifest: Record<string, unknown> | null) {
   return isStringArray(section?.target_labels) ? section.target_labels : [];
 }
 
+export function manifestHasTargetLabelScope(manifest: Record<string, unknown> | null) {
+  const section = manifest ? manifestPromptSection(manifest) : null;
+  return Boolean(section && ("target_labels" in section || "target_labels_source" in section));
+}
+
+export function normalizeManifestTargetLabelsForTask(
+  manifest: Record<string, unknown>
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(manifest)) as Record<string, unknown>;
+  const section = manifestPromptSection(cloned);
+  if (!section) {
+    cloned.eval = {};
+    return normalizeManifestTargetLabelsForTask(cloned);
+  }
+  if (manifestTask(section) !== "detection") {
+    delete section.target_labels;
+    delete section.target_labels_source;
+  }
+  return cloned;
+}
+
 export function updateManifestTargetLabels(
   manifest: Record<string, unknown>,
   labels: string[]
@@ -127,6 +148,11 @@ export function updateManifestTargetLabels(
   if (!section) {
     cloned.eval = {};
     return updateManifestTargetLabels(cloned, labels);
+  }
+  if (manifestTask(section) !== "detection") {
+    delete section.target_labels;
+    delete section.target_labels_source;
+    return cloned;
   }
   const normalizedLabels = uniqueLabels(labels);
   if (normalizedLabels.length > 0) {
@@ -165,6 +191,10 @@ function manifestPromptSection(manifest: Record<string, unknown>): Record<string
     return manifest.preannotate;
   }
   return null;
+}
+
+function manifestTask(section: Record<string, unknown>) {
+  return promptStringValue(section.task) ?? "detection";
 }
 
 function mergeRecordDefaults(current: unknown, defaults: Record<string, unknown>) {

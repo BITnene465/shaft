@@ -157,10 +157,11 @@ Prompt 不再只靠用户手写 `prompt_id`。Dashboard 启动时会把 `configs
 
 Jobs 页可以选择 job template 和 prompt template。默认 `eval_job` 是箭头检测任务；layout 检测保留为
 `layout_eval_job` 模板，关键点评估保留为 `keypoint_eval_job` 模板。Prompt template 应用时会把
-system prompt、user prompt、parser、metric profile、generation、data 和 `target_labels` 写回
-manifest；如果 prompt 没声明目标 label，会清空旧 manifest 上残留的 `target_labels`，避免从 layout
-切到 arrow 后仍沿用旧 label 集合；如果 prompt 改变 task，前端会重新按 task 选择兼容 benchmark，
-避免 keypoint prompt 继续保留 detection-only benchmark。用户也可以直接编辑 manifest 中的 prompt 字段，并把当前 manifest
+system prompt、user prompt、parser、metric profile、generation 和 data 写回 manifest；detection prompt
+会同步写入 `target_labels`，如果 prompt 没声明目标 label，会清空旧 manifest 上残留的 `target_labels`，
+避免从 layout 切到 arrow 后仍沿用旧 label 集合；keypoint prompt 或手动切到非 detection task 时会清空
+manifest 中显式 `target_labels` / `target_labels_source`，让后端 keypoint 默认策略固定解析为 `arrow`。
+如果 prompt 改变 task，前端会重新按 task 选择兼容 benchmark，避免 keypoint prompt 继续保留 detection-only benchmark。用户也可以直接编辑 manifest 中的 prompt 字段，并把当前 manifest
 的 prompt 保存为新的模板。后端 preflight 会用同一份 prompt registry 解析模板；job 入队时保存
 resolved manifest，worker 后续执行不依赖前端临时状态。
 
@@ -172,6 +173,8 @@ prompt template 的 `metadata.target_labels` 和 manifest 现有 `target_labels`
 benchmark label index 外的 label，只能在 manifest/payload 中显式编辑并交给 preflight 或 import 校验。
 Keypoint job 和 keypoint prediction import 不暴露 label 子任务选择，默认只评价 `arrow` 关键点；agent 查询 `resolve-target-labels`
 时会返回 `label_subtasks_supported=false`，避免把 keypoint 误当成可任意 label 子集的 detection 子任务。
+前端 manifest 工具会在 keypoint prompt 应用和 task 切换时删除隐藏残留的 `target_labels`，避免 UI 已隐藏子任务选择但
+raw manifest 仍携带 detection label 子集。
 后端也会在 preflight、init-run、prediction import、worker 和 evaluator 入口拒绝 keypoint 上非 `arrow`
 的显式 `target_labels`，防止绕过 UI 直接创建非法子任务；入口级回归测试覆盖 evaluator 与 prediction
 import，避免只在前端或单个语义 helper 里保留约束。

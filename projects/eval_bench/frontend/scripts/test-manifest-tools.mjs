@@ -122,6 +122,38 @@ const customManifest = tools.applyPromptTemplateToManifest(layoutManifest, custo
 assert.equal("target_labels" in customManifest.eval, false);
 assert.equal("target_labels_source" in customManifest.eval, false);
 
+const keypointPrompt = {
+  ...arrowPrompt,
+  prompt_id: "keypoint_arrow.latest",
+  label: "Arrow Keypoints",
+  task: "keypoint",
+  parser: "raw_data_keypoint_v1",
+  metric_profile: "keypoint_endpoint_v1",
+  metadata: { target_labels: ["arrow"] }
+};
+const keypointManifest = tools.applyPromptTemplateToManifest(layoutManifest, keypointPrompt);
+assert.equal(keypointManifest.eval.task, "keypoint");
+assert.equal("target_labels" in keypointManifest.eval, false);
+assert.equal("target_labels_source" in keypointManifest.eval, false);
+
+const staleKeypointManifest = tools.normalizeManifestTargetLabelsForTask({
+  kind: "eval_job",
+  eval: {
+    task: "keypoint",
+    target_labels: ["icon"],
+    target_labels_source: "explicit"
+  }
+});
+assert.equal("target_labels" in staleKeypointManifest.eval, false);
+assert.equal("target_labels_source" in staleKeypointManifest.eval, false);
+
+const nonDetectionUpdateManifest = tools.updateManifestTargetLabels(
+  { kind: "eval_job", eval: { task: "keypoint" } },
+  ["icon"]
+);
+assert.equal("target_labels" in nonDetectionUpdateManifest.eval, false);
+assert.equal("target_labels_source" in nonDetectionUpdateManifest.eval, false);
+
 const explicitLabelManifest = tools.updateManifestTargetLabels(layoutManifest, ["icon"]);
 assert.deepEqual(explicitLabelManifest.eval.target_labels, ["icon"]);
 assert.equal(explicitLabelManifest.eval.target_labels_source, "explicit");

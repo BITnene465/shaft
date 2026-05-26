@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench keypoint manifest 可隐藏残留 detection target_labels
+
+### 现象
+
+Jobs 页在 manifest task 切到 `keypoint` 后会隐藏 detection label 子任务面板，但 raw manifest 仍可能保留之前
+detection prompt 写入的 `eval.target_labels` / `target_labels_source`。用户看不到 label 子任务 UI，
+但 preflight 或入队时仍会遇到隐藏字段影响语义。
+
+### 根因
+
+label 子任务 UI 的显隐由 task 控制，但 manifest 的语义清理只发生在显式点击 chip 或应用无 label 的 prompt 时。
+缺少一个 task-level normalization 真源，导致“UI 已经不是 detection”与“manifest 仍携带 detection 子任务字段”分叉。
+
+### 影响范围
+
+- 影响 Dashboard Jobs 页应用 keypoint prompt、手动编辑 task 和后续 preflight / create job 的可预期性。
+- 后端 label policy 仍会拒绝非法 keypoint label，因此这不是模型能力问题，也不是 eval/codec/metric 误判；这是前端 manifest 状态一致性问题。
+
+### 修复方式
+
+- `manifestTools.ts` 新增 `normalizeManifestTargetLabelsForTask()` 和 `manifestHasTargetLabelScope()`。
+- 应用 prompt template 后统一按 task 归一化；keypoint / non-detection 不再把 prompt metadata 的 `target_labels` 写成显式 manifest 字段。
+- `updateManifestTargetLabels()` 在 non-detection task 上只清理字段，不再写入显式 label 子任务。
+- Jobs 页监听 manifest task：如果切到 non-detection 且 manifest 仍有 target label scope，立即清理并重置 preflight 状态。
+- README、架构文档和脚本文档同步该边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:manifest-tools`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- label 子任务字段只属于 detection 的显式子任务语义；keypoint 默认 arrow 由后端 `label_policy.py` 解析，不应在前端 manifest 中用隐藏 `target_labels` 表示。
+- 新增 task 或 prompt 应用逻辑时，必须同时检查 UI 显隐、manifest normalization、preflight 和 agent `resolve-target-labels` 是否仍共享同一语义。
+
 ## 2026-05-26: Eval Bench 总览 v10 仍像静态面板而非交互工作台
 
 ### 现象

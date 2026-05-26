@@ -28,7 +28,9 @@ import {
   formatManifest,
   manifestBenchmarkId,
   manifestEvalTask,
+  manifestHasTargetLabelScope,
   manifestTargetLabels,
+  normalizeManifestTargetLabelsForTask,
   promptTemplateFromManifest,
   targetLabelsFromPrompt,
   updateManifestTargetLabels
@@ -514,6 +516,19 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
       setPromptId(promptIds[0]);
     }
   }, [promptId, promptIds.join("|")]);
+
+  useEffect(() => {
+    if (
+      !manifestDraft ||
+      manifestTaskValue === "detection" ||
+      !manifestHasTargetLabelScope(manifestDraft)
+    ) {
+      return;
+    }
+    setManifestText(formatManifest(normalizeManifestTargetLabelsForTask(manifestDraft)));
+    setParseError(null);
+    preflightMutation.reset();
+  }, [manifestText, manifestDraft, manifestTaskValue, preflightMutation]);
 
   function loadTemplate(nextTemplateId = templateId) {
     const template = templates[nextTemplateId];
