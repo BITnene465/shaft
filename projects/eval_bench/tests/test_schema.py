@@ -12,7 +12,11 @@ from eval_bench.artifacts import (
     StoreLayout,
     load_prediction,
 )
-from eval_bench.benchmark import create_benchmark_from_raw_data
+from eval_bench.benchmark import (
+    BenchmarkSliceSpec,
+    create_benchmark_from_raw_data,
+    create_benchmark_suite_from_raw_data,
+)
 from eval_bench.schema import (
     BenchmarkRef,
     EvalRunManifest,
@@ -157,6 +161,69 @@ def test_create_benchmark_copies_raw_data_validation_subset(tmp_path: Path) -> N
     assert benchmark_payload["tasks"] == ["detection", "keypoint"]
     assert benchmark_payload["layers"] == ["layout"]
     assert benchmark_payload["labels"] == ["icon"]
+
+
+def test_create_benchmark_suite_writes_named_splits(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw_data"
+    (raw_root / "part1" / "images").mkdir(parents=True)
+    (raw_root / "part1" / "json").mkdir(parents=True)
+    for stem, label in (("a", "arrow"), ("b", "shape")):
+        (raw_root / "part1" / "images" / f"{stem}.png").write_bytes(b"fake-image")
+        (raw_root / "part1" / "json" / f"{stem}.json").write_text(
+            json.dumps(
+                {
+                    "schema": "shaft.raw_data.v1",
+                    "image_path": f"part1/images/{stem}.png",
+                    "instances": [{"label": label, "bbox": [1, 2, 3, 4]}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    manifest = create_benchmark_suite_from_raw_data(
+        store_root=tmp_path / "store",
+        benchmark_id="banana_val",
+        source_root=raw_root,
+        split="suite",
+        default_slice="grounding_arrow",
+        flatten=True,
+        slices=[
+            BenchmarkSliceSpec(
+                split="grounding_arrow",
+                tasks=["detection"],
+                entries=["part1/json/a.json"],
+                layers=["arrow"],
+                target_labels=["arrow"],
+            ),
+            BenchmarkSliceSpec(
+                split="grounding_shape",
+                tasks=["detection"],
+                entries=["part1/json/b.json"],
+                layers=["layout"],
+                target_labels=["shape"],
+            ),
+        ],
+    )
+
+    artifacts = BenchmarkArtifacts(tmp_path / "store", "banana_val")
+    payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
+    assert manifest.sample_count == 2
+    assert payload["split"] == "suite"
+    assert payload["sample_counts"] == {"grounding_arrow": 1, "grounding_shape": 1}
+    assert sorted(payload["split_manifests"]) == ["grounding_arrow", "grounding_shape"]
+    assert artifacts.split_path("grounding_arrow").read_text(encoding="utf-8") == (
+        "json/part1__a.json\n"
+    )
+    assert artifacts.split_path("grounding_shape").read_text(encoding="utf-8") == (
+        "json/part1__b.json\n"
+    )
+    assert (artifacts.data_dir / "json" / "part1__a.json").exists()
+    assert (artifacts.data_dir / "images" / "part1__a.png").exists()
+    flattened_payload = json.loads(
+        (artifacts.data_dir / "json" / "part1__a.json").read_text(encoding="utf-8")
+    )
+    assert flattened_payload["image_path"] == "images/part1__a.png"
+    assert flattened_payload["extra"]["source_json"] == "part1/json/a.json"
 
 
 def test_inference_params_validate_service_launcher_fields() -> None:

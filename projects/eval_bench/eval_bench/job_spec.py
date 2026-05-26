@@ -8,6 +8,7 @@ import socket
 from typing import Any, Mapping
 
 from .artifacts import BenchmarkArtifacts, DEFAULT_STORE_ROOT
+from .benchmark import resolve_benchmark_split_name, resolve_benchmark_split_path
 from .label_policy import (
     TARGET_LABEL_SOURCES,
     TargetLabelPolicy,
@@ -96,6 +97,7 @@ def _eval_job_manifest(
         "eval": {
             "model_id": "",
             "benchmark_id": "",
+            "benchmark_split": "",
             "task": task,
             "prompt_id": prompt_id,
             "parser": parser,
@@ -239,6 +241,7 @@ def _legacy_payload_to_manifest(payload: dict[str, Any]) -> dict[str, Any]:
             "model_id": payload.get("model_id"),
             "model_path": payload.get("model_path"),
             "benchmark_id": payload.get("benchmark_id"),
+            "benchmark_split": payload.get("benchmark_split") or payload.get("split"),
             "task": payload.get("task"),
             "prompt_id": payload.get("prompt_id"),
             "prompt_path": payload.get("prompt_path"),
@@ -364,6 +367,12 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         "model_id": model_id,
         "model_path": model_path,
         "benchmark_id": _first_string(eval_config.get("benchmark_id"), original.get("benchmark_id")),
+        "benchmark_split": _first_string(
+            eval_config.get("benchmark_split"),
+            eval_config.get("split"),
+            original.get("benchmark_split"),
+            original.get("split"),
+        ),
         "task": _first_string(eval_config.get("task"), original.get("task")),
         "prompt_id": _first_string(eval_config.get("prompt_id"), original.get("prompt_id")),
         "prompt_path": _first_string(eval_config.get("prompt_path"), original.get("prompt_path")),
@@ -467,6 +476,13 @@ def _check_eval_payload(
     if task and task not in {"detection", "keypoint"}:
         errors.append(f"unsupported task: {task}")
     if benchmark_payload is not None:
+        _check_eval_split_against_benchmark(
+            payload,
+            benchmark_id=benchmark_id or "",
+            benchmark_payload=benchmark_payload,
+            errors=errors,
+            warnings=warnings,
+        )
         _check_eval_task_against_benchmark(
             task=task,
             benchmark_id=benchmark_id or "",
@@ -518,6 +534,30 @@ def _check_eval_task_against_benchmark(
         errors.append(
             f"job task={task!r} is not available in benchmark {benchmark_id}: {benchmark_tasks}"
         )
+
+
+def _check_eval_split_against_benchmark(
+    payload: dict[str, Any],
+    *,
+    benchmark_id: str,
+    benchmark_payload: dict[str, Any],
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    try:
+        split = resolve_benchmark_split_name(
+            benchmark_payload,
+            split=_first_string(payload.get("benchmark_split"), payload.get("split")),
+            task=str(payload.get("task") or ""),
+            prompt_id=str(payload.get("prompt_id") or ""),
+            target_labels=_label_list(payload.get("target_labels")),
+        )
+        split_path = resolve_benchmark_split_path(benchmark_payload, split=split)
+    except (FileNotFoundError, ValueError) as exc:
+        errors.append(f"benchmark split is invalid for {benchmark_id}: {exc}")
+        return
+    if not split_path.exists():
+        warnings.append(f"benchmark split manifest does not exist for {benchmark_id}: {split_path}")
 
 
 def _check_target_labels_against_benchmark(

@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .artifacts import DEFAULT_STORE_ROOT, BenchmarkArtifacts, RunArtifacts, atomic_write_json
 from .adapters.vllm_openai import OpenAICompatibleVLLMAdapter
+from .benchmark import resolve_benchmark_split_name, resolve_benchmark_split_path
 from .database import EvalBenchDatabase, JobRecord
 from .evaluator import evaluate_run
 from .job_spec import resolve_job_payload
@@ -338,6 +339,7 @@ class EvalBenchWorker:
         task = _require_task(payload)
         benchmark_payload = _load_benchmark_payload(self.root, benchmark_id)
         benchmark_tasks = [str(item) for item in benchmark_payload.get("tasks") or []]
+        benchmark_split = _benchmark_split_from_payload(payload, benchmark_payload)
         if task not in benchmark_tasks:
             raise ValueError(
                 f"job task={task!r} is not available in benchmark {benchmark_id}: {benchmark_tasks}"
@@ -390,12 +392,9 @@ class EvalBenchWorker:
             benchmark=BenchmarkRef(
                 benchmark_id=benchmark_id,
                 root=str(benchmark_payload.get("root") or benchmark_artifacts.data_dir),
-                split=str(benchmark_payload.get("split") or "val"),
+                split=benchmark_split,
                 tasks=[item for item in benchmark_tasks if item in {"detection", "keypoint"}],
-                manifest_path=str(
-                    benchmark_payload.get("manifest_path")
-                    or benchmark_artifacts.split_path(str(benchmark_payload.get("split") or "val"))
-                ),
+                manifest_path=str(resolve_benchmark_split_path(benchmark_payload, split=benchmark_split)),
             ),
             spec=EvalSpec(
                 spec_id=str(payload.get("spec_id") or f"{task}.default"),
@@ -424,7 +423,7 @@ class EvalBenchWorker:
         artifacts = RunArtifacts(self.root, run_id)
         manifest_payload = _load_json(artifacts.manifest_path)
         benchmark = dict(manifest_payload.get("benchmark") or {})
-        split_path = Path(str(benchmark.get("manifest_path") or ""))
+        split_path = resolve_benchmark_split_path(benchmark, split=benchmark.get("split"))
         benchmark_root = Path(str(benchmark.get("root") or ""))
         if not split_path.exists():
             raise FileNotFoundError(f"benchmark split manifest does not exist: {split_path}")
@@ -475,7 +474,7 @@ class EvalBenchWorker:
         spec = dict(manifest_payload.get("spec") or {})
         inference = dict(spec.get("inference") or {})
         benchmark = dict(manifest_payload.get("benchmark") or {})
-        split_path = Path(str(benchmark.get("manifest_path") or ""))
+        split_path = resolve_benchmark_split_path(benchmark, split=benchmark.get("split"))
         benchmark_root = Path(str(benchmark.get("root") or ""))
         if not split_path.exists():
             raise FileNotFoundError(f"benchmark split manifest does not exist: {split_path}")
@@ -844,6 +843,16 @@ def _optional_string(payload: dict[str, Any], key: str) -> str | None:
     if not isinstance(value, str):
         raise ValueError(f"job payload {key!r} must be a string when set.")
     return value.strip() or None
+
+
+def _benchmark_split_from_payload(payload: dict[str, Any], benchmark_payload: dict[str, Any]) -> str:
+    return resolve_benchmark_split_name(
+        benchmark_payload,
+        split=_optional_string(payload, "benchmark_split") or _optional_string(payload, "split"),
+        task=str(payload.get("task") or ""),
+        prompt_id=str(payload.get("prompt_id") or ""),
+        target_labels=_label_list(payload.get("target_labels")),
+    )
 
 
 def _optional_int(payload: dict[str, Any], key: str) -> int | None:

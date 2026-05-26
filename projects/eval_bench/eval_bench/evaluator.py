@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import DEFAULT_STORE_ROOT, RunArtifacts, atomic_write_json
+from .benchmark import resolve_benchmark_split_path
 from .eval_semantics import resolve_eval_semantics
 from .metrics import LabelMetric, MetricSample, evaluate_metric_samples
 from .sample_paths import prediction_json_path, sample_image_path
@@ -73,7 +74,7 @@ def evaluate_manifest(
     target_labels = semantics.target_labels
     target_label_set = set(target_labels)
     benchmark_root = Path(str(benchmark.get("root") or ""))
-    split_path = Path(str(benchmark.get("manifest_path") or ""))
+    split_path = resolve_benchmark_split_path(benchmark, split=benchmark.get("split"))
     if not split_path.exists():
         raise FileNotFoundError(f"benchmark split manifest does not exist: {split_path}")
     if not benchmark_root.exists():

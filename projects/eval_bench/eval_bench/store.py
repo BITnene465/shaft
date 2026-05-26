@@ -89,6 +89,8 @@ class BenchmarkSummary:
     manifest_path: str
     created_at: str | None = None
     source_manifest_path: str | None = None
+    split_manifests: dict[str, str] = field(default_factory=dict)
+    sample_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -297,6 +299,8 @@ class EvalBenchStore:
             if payload is None:
                 continue
             split_path = Path(str(payload.get("manifest_path") or ""))
+            split_manifests = _string_mapping(payload.get("split_manifests"))
+            sample_counts = _int_mapping(payload.get("sample_counts"))
             sample_count = int(payload.get("sample_count") or 0)
             if sample_count <= 0 and split_path.exists():
                 sample_count = _line_count(split_path)
@@ -315,6 +319,8 @@ class EvalBenchStore:
                     manifest_path=str(payload.get("manifest_path") or ""),
                     created_at=payload.get("created_at"),
                     source_manifest_path=payload.get("source_manifest_path"),
+                    split_manifests=split_manifests,
+                    sample_counts=sample_counts,
                 )
             )
         return sorted(items, key=lambda item: item.benchmark_id)
@@ -858,8 +864,14 @@ class EvalBenchStore:
         *,
         offset: int = 0,
         limit: int = 100,
+        split: str | None = None,
     ) -> list[BenchmarkSampleSummary]:
-        return self.benchmark_sample_page(benchmark_id, offset=offset, limit=limit).samples
+        return self.benchmark_sample_page(
+            benchmark_id,
+            offset=offset,
+            limit=limit,
+            split=split,
+        ).samples
 
     def benchmark_sample_page(
         self,
@@ -868,8 +880,9 @@ class EvalBenchStore:
         offset: int = 0,
         limit: int = 100,
         label: str | None = None,
+        split: str | None = None,
     ) -> BenchmarkSamplePage:
-        payload = self._benchmark_manifest(benchmark_id)
+        payload = _benchmark_payload_for_split(self._benchmark_manifest(benchmark_id), split=split)
         sample_paths = self._benchmark_sample_json_paths(payload)
         labels = self._benchmark_label_options(benchmark_id, payload, sample_paths)
         start = max(0, offset)
@@ -879,6 +892,8 @@ class EvalBenchStore:
             "benchmark_id": benchmark_id,
             "label": normalized_label or "",
         }
+        if split:
+            filters["split"] = str(payload.get("split") or "")
         if normalized_label is None:
             stop = min(len(sample_paths), start + page_limit)
             samples = [
@@ -920,8 +935,9 @@ class EvalBenchStore:
         benchmark_id: str,
         *,
         sample_index: int,
+        split: str | None = None,
     ) -> BenchmarkSampleDetail:
-        payload = self._benchmark_manifest(benchmark_id)
+        payload = _benchmark_payload_for_split(self._benchmark_manifest(benchmark_id), split=split)
         sample_paths = self._benchmark_sample_json_paths(payload)
         if sample_index < 0 or sample_index >= len(sample_paths):
             raise IndexError(f"sample_index={sample_index} is outside benchmark sample range.")
@@ -967,8 +983,14 @@ class EvalBenchStore:
             raise FileNotFoundError("no benchmark sample with drawable instances was found.")
         return best[1], best[2]
 
-    def benchmark_sample_image_path(self, benchmark_id: str, *, sample_index: int) -> Path:
-        payload = self._benchmark_manifest(benchmark_id)
+    def benchmark_sample_image_path(
+        self,
+        benchmark_id: str,
+        *,
+        sample_index: int,
+        split: str | None = None,
+    ) -> Path:
+        payload = _benchmark_payload_for_split(self._benchmark_manifest(benchmark_id), split=split)
         sample_paths = self._benchmark_sample_json_paths(payload)
         if sample_index < 0 or sample_index >= len(sample_paths):
             raise IndexError(f"sample_index={sample_index} is outside benchmark sample range.")
@@ -1014,9 +1036,11 @@ class EvalBenchStore:
         return RunNote(run_id=run_id, note="", updated_at=None, path=str(note_path))
 
     def _run_sample_json_paths(self, run_payload: dict[str, Any]) -> list[Path]:
+        from .benchmark import resolve_benchmark_split_path
+
         benchmark = run_payload.get("benchmark") or {}
         root = _benchmark_root(run_payload)
-        manifest_path = Path(str(benchmark.get("manifest_path") or ""))
+        manifest_path = resolve_benchmark_split_path(benchmark, split=benchmark.get("split"))
         cache_key = f"{root}::{manifest_path}"
         if cache_key in self._run_sample_paths_cache:
             return self._run_sample_paths_cache[cache_key]
@@ -1031,8 +1055,13 @@ class EvalBenchStore:
         return paths
 
     def _benchmark_sample_json_paths(self, benchmark_payload: dict[str, Any]) -> list[Path]:
+        from .benchmark import resolve_benchmark_split_path
+
         root = Path(str(benchmark_payload.get("root") or ""))
-        manifest_path = Path(str(benchmark_payload.get("manifest_path") or ""))
+        manifest_path = resolve_benchmark_split_path(
+            benchmark_payload,
+            split=benchmark_payload.get("split"),
+        )
         cache_key = f"{root}::{manifest_path}"
         if cache_key in self._benchmark_sample_paths_cache:
             return self._benchmark_sample_paths_cache[cache_key]
@@ -1224,6 +1253,33 @@ def _optional_int(payload: dict[str, Any] | None, key: str) -> int | None:
         return None
 
 
+def _string_mapping(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    output: dict[str, str] = {}
+    for key, item in value.items():
+        split = str(key).strip()
+        path = str(item).strip()
+        if split and path:
+            output[split] = path
+    return output
+
+
+def _int_mapping(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    output: dict[str, int] = {}
+    for key, item in value.items():
+        split = str(key).strip()
+        if not split:
+            continue
+        try:
+            output[split] = int(item)
+        except (TypeError, ValueError):
+            continue
+    return output
+
+
 def _labels_from_report(payload: dict[str, Any] | None) -> list[str]:
     if payload is None:
         return []
@@ -1248,6 +1304,19 @@ def _labels_from_summary(payload: dict[str, Any] | None) -> list[str]:
         return []
     values = {str(item).strip() for item in labels if str(item).strip()}
     return sorted(values)
+
+
+def _benchmark_payload_for_split(
+    payload: dict[str, Any],
+    *,
+    split: str | None,
+) -> dict[str, Any]:
+    normalized = str(split or "").strip()
+    if not normalized:
+        return payload
+    cloned = dict(payload)
+    cloned["split"] = normalized
+    return cloned
 
 
 def _string_list(value: Any) -> list[str]:

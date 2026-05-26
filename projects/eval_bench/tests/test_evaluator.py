@@ -103,6 +103,74 @@ def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:
     assert sample_detail.sample.diagnostics["matched_count"] == 1
 
 
+def test_evaluate_run_uses_named_benchmark_split(tmp_path: Path) -> None:
+    bench_dir = tmp_path / "benchmarks" / "bench1"
+    (bench_dir / "splits").mkdir(parents=True)
+    (bench_dir / "splits" / "grounding_arrow.txt").write_text(
+        "part1/json/arrow.json\n",
+        encoding="utf-8",
+    )
+    (bench_dir / "splits" / "grounding_shape.txt").write_text(
+        "part1/json/shape.json\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        bench_dir / "data" / "part1" / "json" / "arrow.json",
+        {
+            "image_path": "part1/images/arrow.png",
+            "instances": [{"label": "arrow", "bbox": [0, 0, 100, 100]}],
+        },
+    )
+    _write_json(
+        bench_dir / "data" / "part1" / "json" / "shape.json",
+        {
+            "image_path": "part1/images/shape.png",
+            "instances": [{"label": "shape", "bbox": [0, 0, 100, 100]}],
+        },
+    )
+    artifacts = RunArtifacts(tmp_path, "run_named_split")
+    artifacts.write_manifest(
+        EvalRunManifest(
+            run_id="run_named_split",
+            model=ModelRef(model_id="model-a", path="outputs/model-a/best"),
+            benchmark=BenchmarkRef(
+                benchmark_id="bench1",
+                root=str(bench_dir / "data"),
+                split="grounding_shape",
+                tasks=["detection"],
+                manifest_path=str(bench_dir / "splits" / "grounding_arrow.txt"),
+            ),
+            spec=EvalSpec(
+                spec_id="detection.default",
+                task="detection",
+                prompt=PromptRef(prompt_id="grounding_shape.latest"),
+                target_labels=["shape"],
+            ),
+        )
+    )
+    run_payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
+    run_payload["benchmark"]["split_manifests"] = {
+        "grounding_arrow": str(bench_dir / "splits" / "grounding_arrow.txt"),
+        "grounding_shape": str(bench_dir / "splits" / "grounding_shape.txt"),
+    }
+    artifacts.manifest_path.write_text(json.dumps(run_payload), encoding="utf-8")
+    artifacts.write_prediction(
+        PredictionDocument(
+            image="part1/images/shape.png",
+            instances=[PredictionInstance(label="shape", bbox=[0, 0, 100, 100])],
+            metadata={"producer": "test"},
+        ),
+        task="detection",
+    )
+
+    report_path = evaluate_run(store_root=tmp_path, run_id="run_named_split")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report["sample_count"] == 1
+    assert report["samples"][0]["json_path"] == "part1/json/shape.json"
+    assert report["matched_count"] == 1
+
+
 def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:
     artifacts = _write_run(tmp_path, task="detection")
     run_payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))

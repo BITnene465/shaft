@@ -72,6 +72,8 @@ BENCHMARK_SUMMARY_OUTPUT_SHAPE = {
     "manifest_path": "str",
     "created_at": "str|null",
     "source_manifest_path": "str|null",
+    "split_manifests": "dict[str,str]",
+    "sample_counts": "dict[str,int]",
 }
 BENCHMARK_MANIFEST_OUTPUT_SHAPE = {
     "benchmark_id": "str",
@@ -82,6 +84,8 @@ BENCHMARK_MANIFEST_OUTPUT_SHAPE = {
     "sample_count": "int",
     "source_raw_root": "str",
     "source_manifest_path": "str",
+    "split_manifests": "dict[str,str]",
+    "sample_counts": "dict[str,int]",
     "layers": "list[str]",
     "labels": "list[str]",
     "created_at": "str",
@@ -1714,6 +1718,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_benchmark_samples.add_argument("--offset", type=int, default=0)
     list_benchmark_samples.add_argument("--limit", type=int, default=80)
     list_benchmark_samples.add_argument("--label", default=None)
+    list_benchmark_samples.add_argument("--split", default=None)
 
     show_benchmark_sample = subparsers.add_parser(
         "show-benchmark-sample",
@@ -1722,6 +1727,7 @@ def _build_parser() -> argparse.ArgumentParser:
     show_benchmark_sample.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     show_benchmark_sample.add_argument("--benchmark-id", required=True)
     show_benchmark_sample.add_argument("--sample-index", type=int, required=True)
+    show_benchmark_sample.add_argument("--split", default=None)
 
     rank_board = subparsers.add_parser("rank-board", help="Print the run ranking board.")
     rank_board.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -1884,6 +1890,7 @@ def _build_parser() -> argparse.ArgumentParser:
     import_predictions.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     import_predictions.add_argument("--run-id", required=True)
     import_predictions.add_argument("--benchmark-id", required=True)
+    import_predictions.add_argument("--split", default=None)
     import_predictions.add_argument("--prediction-root", required=True)
     import_predictions.add_argument("--task", choices=("detection", "keypoint"), required=True)
     import_predictions.add_argument("--model-id", required=True)
@@ -2557,6 +2564,7 @@ def _cmd_list_run_samples(args: argparse.Namespace) -> None:
                 "limit": page.limit,
                 "total": page.total,
                 "filters": page.filters,
+                "split": page.filters.get("split"),
                 "labels": page.labels,
                 "samples": [asdict(sample) for sample in page.samples],
             },
@@ -2596,6 +2604,7 @@ def _cmd_list_benchmark_samples(args: argparse.Namespace) -> None:
         offset=max(0, int(args.offset)),
         limit=max(1, int(args.limit)),
         label=args.label,
+        split=args.split,
     )
     print(
         json.dumps(
@@ -2619,11 +2628,13 @@ def _cmd_show_benchmark_sample(args: argparse.Namespace) -> None:
     detail = EvalBenchStore(args.output_root).benchmark_sample_detail(
         str(args.benchmark_id),
         sample_index=int(args.sample_index),
+        split=args.split,
     )
     print(
         json.dumps(
             {
                 "benchmark_id": str(args.benchmark_id),
+                "split": args.split,
                 "sample": asdict(detail.sample),
                 "gt_instances": detail.gt_instances,
                 "raw_payload": detail.raw_payload,
@@ -2849,6 +2860,7 @@ def _cmd_import_predictions(args: argparse.Namespace) -> None:
         model_path=str(args.model_path),
         prompt_id=str(args.prompt_id),
         spec_id=args.spec_id,
+        split=args.split,
         target_labels=args.target_labels,
         prompt_metadata=_prompt_metadata_for_cli(args.output_root, str(args.prompt_id)),
         strict=bool(args.strict),

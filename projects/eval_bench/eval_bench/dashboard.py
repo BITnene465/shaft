@@ -59,12 +59,20 @@ def _run_sample_detail_payload(run_id: str, detail: Any) -> dict[str, Any]:
     )
 
 
-def _sample_image_urls(scope: str, owner_id: str, sample_index: int) -> dict[str, Any]:
+def _sample_image_urls(
+    scope: str,
+    owner_id: str,
+    sample_index: int,
+    *,
+    split: str | None = None,
+) -> dict[str, Any]:
     image_url = f"/api/{scope}/{owner_id}/samples/{sample_index}/image"
+    query = f"?split={split}" if split else ""
+    preview_sep = "&" if split else "?"
     return {
-        "image_url": image_url,
-        "image_preview_url": f"{image_url}/preview?max_side={IMAGE_PREVIEW_MAX_SIDE}",
-        "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}",
+        "image_url": f"{image_url}{query}",
+        "image_preview_url": f"{image_url}/preview{query}{preview_sep}max_side={IMAGE_PREVIEW_MAX_SIDE}",
+        "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}{query}",
         "image_tile_size": IMAGE_TILE_SIZE,
     }
 
@@ -552,6 +560,7 @@ def create_app(
         offset: int = 0,
         limit: int = 80,
         label: str | None = None,
+        split: str | None = None,
     ):
         try:
             page = request.app.state.eval_bench_store.benchmark_sample_page(
@@ -559,6 +568,7 @@ def create_app(
                 offset=offset,
                 limit=min(max(1, limit), 500),
                 label=label,
+                split=split,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -573,7 +583,12 @@ def create_app(
                 "samples": [
                     {
                         **sample.__dict__,
-                        **_sample_image_urls("benchmarks", benchmark_id, sample.index),
+                        **_sample_image_urls(
+                            "benchmarks",
+                            benchmark_id,
+                            sample.index,
+                            split=page.filters.get("split"),
+                        ),
                     }
                     for sample in page.samples
                 ],
@@ -581,11 +596,17 @@ def create_app(
         )
 
     @app.get("/api/benchmarks/{benchmark_id}/samples/{sample_index}")
-    async def benchmark_sample_detail(benchmark_id: str, sample_index: int, request: Request):
+    async def benchmark_sample_detail(
+        benchmark_id: str,
+        sample_index: int,
+        request: Request,
+        split: str | None = None,
+    ):
         try:
             detail = request.app.state.eval_bench_store.benchmark_sample_detail(
                 benchmark_id,
                 sample_index=sample_index,
+                split=split,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -596,7 +617,12 @@ def create_app(
                 "benchmark_id": benchmark_id,
                 "sample": {
                     **detail.sample.__dict__,
-                    **_sample_image_urls("benchmarks", benchmark_id, detail.sample.index),
+                    **_sample_image_urls(
+                        "benchmarks",
+                        benchmark_id,
+                        detail.sample.index,
+                        split=split,
+                    ),
                 },
                 "gt_instances": detail.gt_instances,
                 "raw_payload": detail.raw_payload,
@@ -604,11 +630,17 @@ def create_app(
         )
 
     @app.get("/api/benchmarks/{benchmark_id}/samples/{sample_index}/image")
-    async def benchmark_sample_image(benchmark_id: str, sample_index: int, request: Request):
+    async def benchmark_sample_image(
+        benchmark_id: str,
+        sample_index: int,
+        request: Request,
+        split: str | None = None,
+    ):
         try:
             image_path = request.app.state.eval_bench_store.benchmark_sample_image_path(
                 benchmark_id,
                 sample_index=sample_index,
+                split=split,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -625,11 +657,13 @@ def create_app(
         request: Request,
         max_side: int = IMAGE_PREVIEW_MAX_SIDE,
         quality: int = IMAGE_PREVIEW_QUALITY,
+        split: str | None = None,
     ):
         try:
             image_path = request.app.state.eval_bench_store.benchmark_sample_image_path(
                 benchmark_id,
                 sample_index=sample_index,
+                split=split,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -652,11 +686,13 @@ def create_app(
         tile_x: int,
         tile_y: int,
         request: Request,
+        split: str | None = None,
     ):
         try:
             image_path = request.app.state.eval_bench_store.benchmark_sample_image_path(
                 benchmark_id,
                 sample_index=sample_index,
+                split=split,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -879,6 +915,7 @@ def create_app(
                 model_path=str(payload.get("model_path") or "imported"),
                 prompt_id=prompt_id,
                 spec_id=str(payload.get("spec_id") or "").strip() or None,
+                split=str(payload.get("split") or "").strip() or None,
                 target_labels=payload.get("target_labels"),
                 prompt_metadata=prompt_metadata,
                 strict=bool(payload.get("strict", False)),

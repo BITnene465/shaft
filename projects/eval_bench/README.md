@@ -289,10 +289,11 @@ eval_bench_store/
     <benchmark_id>/
       benchmark.json
       data/
-        part1/images/<sample>.png
-        part1/json/<sample>.json
+        images/<sample>.png
+        json/<sample>.json
       splits/
         val.txt
+        <named_slice>.txt
       previews/
   runs/
     <run_id>/
@@ -374,6 +375,13 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 也就是说，“test”在 Eval Bench 里对应 `benchmark`，预测结果对应 `runs/<run_id>/predictions/`。二者通过 run manifest 里的 benchmark 引用绑定，不通过文件名猜测或直接读取训练 raw data。
 
+一个 benchmark 可以是 suite。`benchmark.json` 仍保留顶层 `manifest_path` 兼容旧单 split 用法，同时可以声明
+`split_manifests` 和 `sample_counts` 来维护多个 named slice，例如 `grounding_arrow`、`grounding_layout`
+和 `point_arrow`。Run manifest 里的 `benchmark.split` 决定本次评测消费哪个 slice；job/import 未显式声明
+split 时，后端会按 task、prompt 和 target labels 推断内置 Banana slice。Eval Bench 自己维护的 benchmark
+copy 使用扁平目录：`data/json/<sample>.json` 和 `data/images/<sample>.<ext>`，不在 benchmark 内继续区分
+`part1` / `part2` 目录；原始 raw 路径只作为 JSON `extra.source_json` / `extra.source_image` 溯源字段保留。
+
 最小命令链：
 
 ```bash
@@ -386,6 +394,8 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
   --split test \
   --layer layout \
   --layer arrow
+
+.venv/bin/python scripts/tasks/create_banana_v2_4_eval_benchmark.py --overwrite
 
 .venv/bin/python scripts/eval_bench.py process-next-job
 .venv/bin/python scripts/eval_bench.py evaluate-run --run-id <run_id>
@@ -579,6 +589,10 @@ EVAL_BENCH_JSON_ERRORS=1 .venv/bin/python scripts/eval_bench.py show-run --run-i
 .venv/bin/python scripts/eval_bench.py list-benchmark-samples \
   --benchmark-id multitask_test_v1 \
   --label arrow
+.venv/bin/python scripts/eval_bench.py list-benchmark-samples \
+  --benchmark-id banana_v2_4_val \
+  --split grounding_layout \
+  --limit 20
 .venv/bin/python scripts/eval_bench.py show-benchmark-sample \
   --benchmark-id multitask_test_v1 \
   --sample-index 12

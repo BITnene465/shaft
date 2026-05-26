@@ -9,6 +9,8 @@ export type BenchmarkSummary = {
   manifest_path: string;
   created_at: string | null;
   source_manifest_path: string | null;
+  split_manifests?: Record<string, string>;
+  sample_counts?: Record<string, number>;
 };
 
 export type FacetBucket = Array<{ value: string; count: number }>;

@@ -12,6 +12,7 @@ from .artifacts import (
     atomic_write_json,
     read_json,
 )
+from .benchmark import resolve_benchmark_split_name, resolve_benchmark_split_path
 from .evaluator import evaluate_run
 from .label_policy import (
     resolve_target_label_policy,
@@ -62,6 +63,7 @@ def import_predictions_for_benchmark(
     model_path: str = "imported",
     prompt_id: str = "imported",
     spec_id: str | None = None,
+    split: str | None = None,
     target_labels: list[str] | str | None = None,
     prompt_metadata: dict[str, Any] | None = None,
     strict: bool = False,
@@ -79,11 +81,6 @@ def import_predictions_for_benchmark(
         shutil.rmtree(run_artifacts.run_dir)
 
     prediction_root_path = Path(prediction_root)
-    source_index = _PredictionSourceIndex(prediction_root_path)
-    split_path = Path(str(benchmark_manifest.get("manifest_path") or ""))
-    benchmark_root = Path(str(benchmark_manifest.get("root") or benchmark_artifacts.data_dir))
-    split_entries = _read_split(split_path)
-    tasks = [str(item) for item in benchmark_manifest.get("tasks") or [task]]
     prompt_metadata_payload = dict(prompt_metadata or {})
     prompt_metadata_payload.setdefault("source", "imported_prediction_snapshot")
     target_policy = resolve_target_label_policy(
@@ -92,6 +89,18 @@ def import_predictions_for_benchmark(
         task=task,
         prompt_metadata=prompt_metadata_payload,
     )
+    source_index = _PredictionSourceIndex(prediction_root_path)
+    benchmark_split = resolve_benchmark_split_name(
+        benchmark_manifest,
+        split=split,
+        task=task,
+        prompt_id=prompt_id,
+        target_labels=target_policy.labels,
+    )
+    split_path = resolve_benchmark_split_path(benchmark_manifest, split=benchmark_split)
+    benchmark_root = Path(str(benchmark_manifest.get("root") or benchmark_artifacts.data_dir))
+    split_entries = _read_split(split_path)
+    tasks = [str(item) for item in benchmark_manifest.get("tasks") or [task]]
     validate_target_labels_for_task(task=task, labels=target_policy.labels)
     validate_target_labels_for_benchmark(
         labels=target_policy.labels,
@@ -105,7 +114,7 @@ def import_predictions_for_benchmark(
         benchmark=BenchmarkRef(
             benchmark_id=benchmark_id,
             root=str(benchmark_root),
-            split=str(benchmark_manifest.get("split") or "test"),
+            split=benchmark_split,
             tasks=tasks,  # type: ignore[arg-type]
             manifest_path=str(split_path),
         ),

@@ -382,9 +382,9 @@ def test_worker_default_prompt_resolution_is_repo_rooted(tmp_path: Path, monkeyp
         task="detection",
     )
 
-    assert "Return only valid JSON" in system_prompt
-    assert "Detect every top-level layout element" in user_prompt
-    assert prompt_id == "banana.grounding_layout.sft.v1"
+    assert "Return only valid compact JSON" in system_prompt
+    assert "Detect all visible top-level layout elements" in user_prompt
+    assert prompt_id == "shaft.grounding_layout.v1"
 
 
 def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:

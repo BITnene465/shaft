@@ -113,6 +113,8 @@ class BenchmarkManifest:
     created_at: str = field(default_factory=utc_now_iso)
     source_raw_root: str | None = None
     source_manifest_path: str | None = None
+    split_manifests: dict[str, str] = field(default_factory=dict)
+    sample_counts: dict[str, int] = field(default_factory=dict)
     layers: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -125,6 +127,13 @@ class BenchmarkManifest:
         _validate_tasks(self.tasks, field_name="tasks")
         if self.sample_count < 0:
             raise ValueError("sample_count must be >= 0.")
+        for split, path in self.split_manifests.items():
+            _require_non_empty_string(split, field_name="split_manifests keys")
+            _require_non_empty_string(path, field_name=f"split_manifests[{split!r}]")
+        for split, count in self.sample_counts.items():
+            _require_non_empty_string(split, field_name="sample_counts keys")
+            if int(count) < 0:
+                raise ValueError(f"sample_counts[{split!r}] must be >= 0.")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()

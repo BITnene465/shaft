@@ -96,6 +96,14 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     `grounding_layout.*`、`grounding_arrow.*`、`grounding_shape.*`、
     `grounding_icon_image.*`、`grounding_shape_arrow.*`、`point_arrow.*` 和历史
     `keypoint_arrow.*` / `arrow_keypoint.*`。
+- `projects/eval_bench/eval_bench/benchmark.py`
+  - 维护 benchmark copy、benchmark suite、named split resolver 和 Banana slice 推断规则。
+    一个 Eval Bench 自维护 benchmark 可以通过 `split_manifests` / `sample_counts` 暴露多个
+    named slice；worker、evaluator、prediction import、store 和 dashboard 只能调用 resolver
+    选择 split manifest，不能各自读取顶层 `manifest_path` 或按 part 目录猜测。
+  - Eval Bench 自维护 benchmark copy 使用扁平 `data/json` 与 `data/images` 目录；`part1` /
+    `part2` 只允许作为 JSON `extra.source_json` / `extra.source_image` 溯源信息存在，不能作为
+    benchmark 内部的任务或切分维度。
 - `projects/eval_bench/eval_bench/job_lifecycle.py`
   - 维护 job terminal/active/cancelled-resource lease 语义。
 - `projects/eval_bench/eval_bench/database.py`
