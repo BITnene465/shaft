@@ -13,6 +13,7 @@ from .label_policy import (
     TargetLabelPolicy,
     normalize_target_labels,
     resolve_target_label_policy,
+    target_label_benchmark_messages,
     target_label_task_errors,
 )
 from .services import build_vllm_command_from_config
@@ -526,19 +527,13 @@ def _check_target_labels_against_benchmark(
         target_label_task_errors(task=str(payload.get("task") or ""), labels=target_labels)
     )
     benchmark_labels = _label_list(benchmark_payload.get("labels"))
-    if not benchmark_labels:
-        warnings.append(
-            f"benchmark {benchmark_id} has no label index; "
-            "target_labels could not be preflight-validated."
-        )
-        return
-    available = set(benchmark_labels)
-    missing = [label for label in target_labels if label not in available]
-    if missing:
-        errors.append(
-            "target_labels not found in benchmark label index: "
-            f"{', '.join(missing)}. Available labels: {', '.join(benchmark_labels)}"
-        )
+    benchmark_errors, benchmark_warnings = target_label_benchmark_messages(
+        labels=target_labels,
+        benchmark_labels=benchmark_labels,
+        benchmark_id=benchmark_id,
+    )
+    errors.extend(benchmark_errors)
+    warnings.extend(benchmark_warnings)
 
 
 def _check_tensor_parallel_compatibility(

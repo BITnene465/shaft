@@ -248,7 +248,8 @@ sequenceDiagram
 - `eval_semantics.py` 是 evaluator、prediction import 和 comparison 的评估语义入口；`label_policy.py`
   负责 target label scope 及来源，`metric_profiles.py` 负责 metric profile registry，
   `job_lifecycle.py` 负责 job 状态和调度资源占用规则。新增任务、指标、label scope 或 job
-  状态必须先更新这些中间层，再接 UI/API/worker。
+  状态必须先更新这些中间层，再接 UI/API/worker。Job preflight 和 `import-predictions`
+  都必须复用 `label_policy.py` 校验 target labels 是否存在于 benchmark label index。
 - `src/shaft/infer`、`src/shaft/codec`、`src/shaft/metrics` 继续作为推理、解析、指标能力真源。
 - Eval Bench 负责把一次推理运行落成 raw-data-like prediction snapshot，并记录 `model_id`、模型路径、prompt ID/path/hash、prompt 文本快照、推理参数、job manifest、runtime/service 参数、创建时间、耗时、parser 信息等溯源元数据；这些字段是 run manifest 的一等快照，并在 dashboard 的 Run Inspector 中展示。
 - `runs/<run_id>/note.json` 是可编辑 run note 真源；人类 UI 和 agent CLI/API 的覆盖写、追加写都必须复用 store

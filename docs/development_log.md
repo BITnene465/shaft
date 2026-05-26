@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench import-predictions 未校验 benchmark label index
+
+### 现象
+
+`preflight-job` 已经会在 benchmark manifest 提供 `labels` 索引时拒绝拼错的
+`target_labels`，但 `import-predictions --target-label arrwo` 仍可能创建 run。后续 evaluator 会按
+不存在的 label scope 过滤 GT 和 prediction，得到空评估范围或误导性的指标。
+
+### 根因
+
+target label scope 的真源在 `label_policy.py`，但 benchmark label index 交叉校验只写在 job preflight
+局部逻辑里；prediction import 只复用了 keypoint arrow-only 任务级校验，没有复用 benchmark label
+校验。这是 eval / data scope 语义误判防线缺失，不是模型能力问题。
+
+### 影响范围
+
+- 影响 CLI `import-predictions` 和 Dashboard Runs 页导入外部 prediction snapshot 的 detection label 子任务。
+- 只在 benchmark manifest 提供 `labels` 索引时新增硬失败；缺少 label index 的旧 benchmark 仍保持兼容。
+- 不改变 evaluator 匹配算法、job queue、rank-board 排序或 run report schema。
+
+### 修复方式
+
+- `label_policy.py` 新增共享 benchmark label 校验 helper，统一输出未知 label 错误和缺少 label index warning。
+- job preflight 改用共享 helper，继续保留原有错误消息。
+- `import-predictions` 在写 run manifest 前校验 resolved target labels 是否存在于 benchmark label index。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_prediction_import.py::test_import_predictions_rejects_unknown_target_labels projects/eval_bench/tests/test_cli.py::test_cli_import_predictions_rejects_unknown_target_label projects/eval_bench/tests/test_cli.py::test_cli_preflight_rejects_unknown_target_label`
+
+### 后续防线
+
+- 新增 target label 校验入口时，必须先扩展 `label_policy.py`，再由 CLI、Dashboard、worker、import 和 evaluator
+  复用，不能在单个入口私有化错误消息或 label index 规则。
+
 ## 2026-05-26: Eval Bench CLI 失败路径缺少机器可读错误
 
 ### 现象

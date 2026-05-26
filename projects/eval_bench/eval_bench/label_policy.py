@@ -81,6 +81,49 @@ def validate_target_labels_for_task(*, task: str | None, labels: list[str]) -> N
         raise ValueError(errors[0])
 
 
+def target_label_benchmark_messages(
+    *,
+    labels: Any,
+    benchmark_labels: Any,
+    benchmark_id: str | None = None,
+    missing_index_action: str = "preflight-validated",
+) -> tuple[list[str], list[str]]:
+    target_labels = normalize_target_labels(labels)
+    if not target_labels:
+        return [], []
+    available_labels = normalize_target_labels(benchmark_labels)
+    if not available_labels:
+        if not benchmark_id:
+            return [], []
+        return [], [
+            f"benchmark {benchmark_id} has no label index; "
+            f"target_labels could not be {missing_index_action}."
+        ]
+    available = set(available_labels)
+    missing = [label for label in target_labels if label not in available]
+    if not missing:
+        return [], []
+    return [
+        "target_labels not found in benchmark label index: "
+        f"{', '.join(missing)}. Available labels: {', '.join(available_labels)}"
+    ], []
+
+
+def validate_target_labels_for_benchmark(
+    *,
+    labels: Any,
+    benchmark_labels: Any,
+    benchmark_id: str | None = None,
+) -> None:
+    errors, _warnings = target_label_benchmark_messages(
+        labels=labels,
+        benchmark_labels=benchmark_labels,
+        benchmark_id=benchmark_id,
+    )
+    if errors:
+        raise ValueError(errors[0])
+
+
 def resolve_target_labels(
     *,
     explicit: Any = None,
@@ -125,17 +168,14 @@ def target_label_resolution_payload(
     errors: list[str] = []
     warnings: list[str] = []
     errors.extend(target_label_task_errors(task=task, labels=policy.labels))
-    if available_labels and policy.labels:
-        missing = [label for label in policy.labels if label not in set(available_labels)]
-        if missing:
-            errors.append(
-                "target_labels not found in benchmark label index: "
-                f"{', '.join(missing)}. Available labels: {', '.join(available_labels)}"
-            )
-    elif not available_labels and policy.labels and benchmark_id:
-        warnings.append(
-            f"benchmark {benchmark_id} has no label index; target_labels could not be validated."
-        )
+    benchmark_errors, benchmark_warnings = target_label_benchmark_messages(
+        labels=policy.labels,
+        benchmark_labels=available_labels,
+        benchmark_id=benchmark_id,
+        missing_index_action="validated",
+    )
+    errors.extend(benchmark_errors)
+    warnings.extend(benchmark_warnings)
     return {
         "task": task or "",
         "benchmark_id": benchmark_id or "",

@@ -13,7 +13,11 @@ from .artifacts import (
     read_json,
 )
 from .evaluator import evaluate_run
-from .label_policy import resolve_target_label_policy, validate_target_labels_for_task
+from .label_policy import (
+    resolve_target_label_policy,
+    validate_target_labels_for_benchmark,
+    validate_target_labels_for_task,
+)
 from .sample_paths import sample_image_path
 from .schema import (
     BenchmarkRef,
@@ -85,6 +89,11 @@ def import_predictions_for_benchmark(
         task=task,
     )
     validate_target_labels_for_task(task=task, labels=target_policy.labels)
+    validate_target_labels_for_benchmark(
+        labels=target_policy.labels,
+        benchmark_labels=benchmark_manifest.get("labels"),
+        benchmark_id=benchmark_id,
+    )
 
     manifest = EvalRunManifest(
         run_id=run_id,

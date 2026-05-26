@@ -1537,6 +1537,53 @@ def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, caps
     assert [item["label"] for item in report["labels"]] == ["arrow"]
 
 
+def test_cli_import_predictions_rejects_unknown_target_label(tmp_path: Path) -> None:
+    split_path = tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"
+    data_root = tmp_path / "benchmarks" / "bench1" / "data"
+    split_path.parent.mkdir(parents=True)
+    split_path.write_text("part1/json/a.json\n", encoding="utf-8")
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(data_root),
+            "manifest_path": str(split_path),
+        },
+    )
+    prediction_root = tmp_path / "predictions"
+    prediction_root.mkdir()
+    args = _build_parser().parse_args(
+        [
+            "import-predictions",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "bad_import",
+            "--benchmark-id",
+            "bench1",
+            "--prediction-root",
+            str(prediction_root),
+            "--task",
+            "detection",
+            "--model-id",
+            "external-model",
+            "--target-label",
+            "arrwo",
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="target_labels not found in benchmark label index: arrwo",
+    ):
+        _cmd_import_predictions(args)
+    assert not (tmp_path / "runs" / "bad_import").exists()
+
+
 def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     for run_id, label, precision in (
         ("run_a", "icon", 0.9),

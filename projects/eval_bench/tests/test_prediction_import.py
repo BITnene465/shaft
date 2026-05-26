@@ -189,6 +189,31 @@ def test_import_predictions_rejects_keypoint_label_subtasks(tmp_path: Path) -> N
         )
 
 
+def test_import_predictions_rejects_unknown_target_labels(tmp_path: Path) -> None:
+    _write_benchmark(tmp_path)
+    manifest_path = tmp_path / "benchmarks" / "bench1" / "benchmark.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["labels"] = ["arrow", "icon"]
+    _write_json(manifest_path, manifest)
+    prediction_root = tmp_path / "external_predictions"
+    prediction_root.mkdir()
+
+    with pytest.raises(
+        ValueError,
+        match="target_labels not found in benchmark label index: arrwo",
+    ):
+        import_predictions_for_benchmark(
+            store_root=tmp_path,
+            run_id="bad_label_import",
+            benchmark_id="bench1",
+            prediction_root=prediction_root,
+            task="detection",
+            model_id="external-model",
+            target_labels=["arrwo"],
+        )
+    assert not (tmp_path / "runs" / "bad_label_import").exists()
+
+
 def test_import_predictions_supports_flat_basename_lookup(tmp_path: Path) -> None:
     _write_benchmark(tmp_path)
     prediction_root = tmp_path / "external_predictions"
