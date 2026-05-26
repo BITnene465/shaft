@@ -238,10 +238,10 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v15") &&
-    overviewPage.includes("overview-command-deck") &&
-    overviewPage.includes("overview-decision-panel") &&
-    overviewPage.includes("overview-pulse-panel") &&
+  overviewPage.includes("overview-home-v16") &&
+    overviewPage.includes("overview-mission-board") &&
+    overviewPage.includes("overview-score-cluster") &&
+    overviewPage.includes("overview-workflow-row") &&
     overviewPage.includes("overview-loop-panel") &&
     overviewPage.includes("OverviewDecisionMetrics") &&
     overviewPage.includes("overview-decision-metrics") &&
@@ -285,6 +285,9 @@ assert(
     !overviewPage.includes("overview-home-v11") &&
     !overviewPage.includes("overview-home-v12") &&
     !overviewPage.includes("overview-home-v14") &&
+    !overviewPage.includes("overview-home-v15") &&
+    !overviewPage.includes("overview-pulse-panel") &&
+    !overviewPage.includes("overview-operating-row") &&
     !overviewPage.includes("OverviewRouteList") &&
     !overviewPage.includes("overviewRouteActions") &&
     !overviewPage.includes("overview-route-panel") &&
@@ -329,12 +332,12 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v15: four-module operations cockpit") &&
-    styleSource.includes(".overview-home-v15 .overview-decision-metric:hover") &&
-    styleSource.includes("@keyframes overview-v15-sweep") &&
-    styleSource.includes("@keyframes overview-v15-live") &&
-    styleSource.includes("@keyframes overview-v15-float") &&
-    styleSource.includes("@keyframes overview-v15-radar") &&
+  styleSource.includes("Overview v16: value-first command deck") &&
+    styleSource.includes(".overview-home-v16 .overview-mission-board") &&
+    styleSource.includes(".overview-home-v16 .overview-decision-metric:hover") &&
+    styleSource.includes("@keyframes overview-v16-scan") &&
+    styleSource.includes("@keyframes overview-v16-live") &&
+    styleSource.includes("@keyframes overview-v16-float") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
@@ -355,7 +358,11 @@ assert(
     "overview-home-v12",
     "overview-home-v13",
     "overview-home-v14",
+    "overview-home-v15",
     "overview-command-shell",
+    "overview-command-deck",
+    "overview-pulse-panel",
+    "overview-operating-row",
     "overview-now-panel",
     "overview-live-panel",
     "overview-proof-strip",
@@ -374,7 +381,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must expose the active v15 surface and block deprecated design tracks",
+  "overview stylesheet must expose the active v16 surface and block deprecated design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

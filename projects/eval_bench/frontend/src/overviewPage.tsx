@@ -230,18 +230,18 @@ export function OverviewPage() {
       progress: trackPercent(evaluatedRuns, totalRuns)
     }
   ];
-  const recentRuns = recentRunsByCreatedAt(data.runs, 5);
+  const recentRuns = recentRunsByCreatedAt(data.runs, 4);
 
   return (
     <section
-      className="page-stack dashboard-home overview-home-v15"
+      className="page-stack dashboard-home overview-home-v16"
       onPointerMove={updateOverviewPointer}
     >
-      <div className="overview-command-deck">
-        <section className={`overview-decision-panel ${nextAction.tone}`}>
+      <section className={`overview-mission-board ${nextAction.tone}`}>
+        <div className="overview-mission-copy">
           <div className="overview-command-kicker">
             <span className="overview-live-dot" />
-            <span>Eval Bench Live Ops</span>
+            <span>Eval Bench Command</span>
             <i className={syncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
               {syncing ? "同步中" : "已同步"}
             </i>
@@ -250,32 +250,24 @@ export function OverviewPage() {
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
           </div>
-          <OverviewDecisionMetrics metrics={decisionMetrics} />
           <div className="overview-decision-bottom">
             <OverviewNextAction action={nextAction} />
             <OverviewRunFocus bestRun={bestRun} />
           </div>
-        </section>
-
-        <aside className="overview-pulse-panel" aria-label="系统脉搏">
-          <div className="overview-section-head">
-            <div>
-              <span>System Pulse</span>
-              <h3>{activeQueue > 0 ? "队列推进中" : failedJobs > 0 ? "任务阻塞" : "闭环待命"}</h3>
-            </div>
-            <strong>{syncing ? "sync" : "steady"}</strong>
-          </div>
+        </div>
+        <aside className="overview-score-cluster" aria-label="主指标与系统态">
           <OverviewScoreDial bestRun={bestRun} coveragePercent={coveragePercent} />
+          <OverviewDecisionMetrics metrics={decisionMetrics} />
           <OverviewSignalStack signals={signalItems} />
         </aside>
-      </div>
+      </section>
 
-      <div className="overview-operating-row">
+      <div className="overview-workflow-row">
         <section className="overview-loop-panel" aria-label="评测闭环">
           <div className="overview-section-head compact">
             <div>
-              <span>Evaluation Loop</span>
-              <h3>样本到排行</h3>
+              <span>Evaluation Runway</span>
+              <h3>闭环推进</h3>
             </div>
             <strong>{evaluatedRuns > 0 ? "rankable" : "warming"}</strong>
           </div>
@@ -592,6 +584,15 @@ function overviewNextAction({
       icon: <Activity size={16} />
     };
   }
+  if (evaluatedRuns > 0) {
+    return {
+      label: "查看排行榜",
+      detail: "报告已可排名",
+      to: "/rank-board",
+      tone: "good",
+      icon: <Trophy size={16} />
+    };
+  }
   if (serviceCount > 0 && liveServices === 0) {
     return {
       label: "启动模型服务",
@@ -602,11 +603,11 @@ function overviewNextAction({
     };
   }
   return {
-    label: evaluatedRuns > 0 ? "查看排行榜" : "创建评测任务",
-    detail: evaluatedRuns > 0 ? "报告已可排名" : "还没有可用报告",
-    to: evaluatedRuns > 0 ? "/rank-board" : "/jobs",
-    tone: evaluatedRuns > 0 ? "good" : "idle",
-    icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <PlayCircle size={16} />
+    label: "创建评测任务",
+    detail: "还没有可用报告",
+    to: "/jobs",
+    tone: "idle",
+    icon: <PlayCircle size={16} />
   };
 }
 
@@ -634,11 +635,11 @@ function overviewPostureLine({
   if (activeQueue > 0) {
     return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
-  if (serviceCount > 0 && liveServices === 0) {
-    return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
-  }
   if (evaluatedRuns > 0) {
     return `${evaluatedRuns.toLocaleString()} 个 run 已有报告，可以进入排行或对比。`;
+  }
+  if (serviceCount > 0 && liveServices === 0) {
+    return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
   }
   return "还没有评估报告，创建任务后首页会跟踪从样本到排行的闭环。";
 }

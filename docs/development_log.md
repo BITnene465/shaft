@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Overview v15 仍把首页拆成低价值模块墙
+
+### 现象
+
+用户继续反馈总览页“没有任何价值”，希望重新设计主页并增强整个系统的互动感。v15 虽然减少了旧面板墙，
+但仍把主判断、pulse panel、闭环和最近 run 拆成四个独立模块；在已有评估报告时，决策优先级还会把
+“服务空闲”提到主标题，遮住“可以看排行”这个更有价值的判断。
+
+### 根因
+
+v15 的信息架构仍以模块完整性为中心，而不是以首屏决策为中心。服务状态被当成全局主动作，但它只影响
+新任务运行，不应该覆盖已经存在的评估报告和排行榜入口。这是 Dashboard 信息架构与交互优先级问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Overview 首屏价值密度、下一步动作判断和 hover/动效感知。
+- 不影响 dashboard API、store、rank-board 默认 F1、weighted scheme、report、comparison 或 evaluator 语义。
+
+### 修复方式
+
+- Overview 升级为 `overview-home-v16` value-first command deck：顶部收敛为一个 mission board，
+  左侧显示同步状态、下一步动作和最佳 run，右侧 score cluster 合并 F1 dial、报告覆盖、待评估、队列和模型服务。
+- 下方只保留评测闭环 runway 与最近 run 产物流，移除独立 `overview-pulse-panel` 和旧 `overview-command-deck`。
+- 调整主动作优先级：失败、待评估和运行队列优先；已有评估报告时主动作直接进入排行榜；
+  只有没有可用报告时才提示模型服务。
+- 增加 pointer 十字扫描、状态呼吸、hover 位移、progress rail 和入场动画，但所有动效只服务点击反馈与实时状态。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_v16.png npm run render-check`
+
+### 后续防线
+
+- Overview 只能新增强化“下一步动作、F1 主指标、闭环卡点、最近产物”的内容。
+- 已有报告时不能让服务空闲状态覆盖排行榜入口；服务状态只作为运行新任务前的 signal。
+- 首页不要重新拆出独立 pulse/status 模块墙；状态信号应并入 mission board 或闭环流。
+
 ## 2026-05-26: Eval Bench Runs 对比入口仍手写 mini-link anchor
 
 ### 现象

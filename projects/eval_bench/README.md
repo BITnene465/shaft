@@ -666,11 +666,11 @@ facets，以及 entries 中的 `rank/run_id/score/score_delta/status/benchmark/t
 agent 看到 `created_at` / `run_id` 时应理解为只改变列表顺序，默认主指标仍保持 `f1_iou50`。
 
 Dashboard 总览页是总控工作台，不展示 recall 这类精细评测指标，也不把状态分布拆成一墙低价值面板。
-首页只回答三件事：当前状态是否可行动、F1 主指标与闭环覆盖是否成立、最近产物是否在推进。总览视觉模块采用 v14 two-column operations desk：
-顶部保持两列，左侧主判断区承载同步状态、下一步动作和当前最佳 run 摘要，右侧 pulse panel
-只放主指标 F1 dial、报告覆盖、待评估、任务队列和模型服务四个可点击信号。下方只保留评测闭环 spine 与最近 run 产物流，
-不再维护 readiness switchboard、proof/triage 堆叠、低频诊断面板、分栏 masonry 图表墙、固定数量 mini chart 或纯导航入口面板。
-v14 根节点通过 pointer position CSS 变量驱动主舞台光照，主动作、状态卡、F1 dial、闭环节点和最近 run
+首页只回答三件事：当前状态是否可行动、F1 主指标与闭环覆盖是否成立、最近产物是否在推进。总览视觉模块采用 v16 value-first command deck：
+顶部只保留一个 mission board，左侧承载同步状态、下一步动作和当前最佳 run 摘要，右侧 score cluster
+合并主指标 F1 dial、报告覆盖、待评估、任务队列和模型服务四个可点击信号。下方只保留评测闭环 runway 与最近 run 产物流，
+不再维护独立 pulse panel、readiness switchboard、proof/triage 堆叠、低频诊断面板、分栏 masonry 图表墙、固定数量 mini chart 或纯导航入口面板。
+v16 根节点通过 pointer position CSS 变量驱动 mission board 十字扫描，主动作、状态卡、F1 dial、闭环节点和最近 run
 都必须有 hover / focus / transition 反馈；动效只增强可点击性、实时同步感和状态扫描，不引入前端私有业务语义。
 最近 run 使用压缩 run stream，只展示 benchmark/model、prediction/report 产物信号、创建时间和状态，不展示 P/R/IoU 细指标。
 最近 run 按 `created_at` 倒序截取，不依赖 API 返回顺序。
@@ -775,7 +775,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 jobs、services 和 settings，在 desktop / compact / narrow 三种 viewport 下确认没有全局滚动溢出、
 page stack 不被 content 裁切、表格和高级检索面板需要滚动时由自己的容器滚动，并确认 rank-board
 和 compare 加载独立 chunk。Overview 还会额外检查顶栏 status 是独立圆角 capsule、没有外层容器，
-Overview 不能回流旧活动矩阵、mini chart wall 或 chart matrix；页面必须保留 v14 operations desk：主判断区、下一步动作、F1 dial、最佳 run focus、四段闭环 spine、pulse panel 和最近 run 产物流，
+Overview 不能回流旧活动矩阵、mini chart wall 或 chart matrix；页面必须保留 v16 command deck：mission board、下一步动作、F1 dial、最佳 run focus、闭环 runway、score cluster 和最近 run 产物流，
 并保留报告覆盖、待评估、任务队列和模型服务四个可点击信号，不再回退到 Run/Ops/Volume 面板组、proof/triage 堆叠或纯路由入口面板；
 不出现 precision/recall/IoU 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板，
 最近 run 必须使用产物完成度 rail 与状态胶囊表达，不退回只堆 run id 的普通结果列表；关键入口必须有 hover/transition 反馈；compact / narrow 视口下 Overview hero、signal 和 recent
@@ -822,11 +822,12 @@ npm run test:layout
 判断“能不能取消、删除、启动、停止、评估”。
 `test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
 绕过标准 action button；Settings、Runs、Services 和 Compare 的局部 select、搜索清空、重置和 label
-清除动作也在这个边界内。Overview 的静态契约也由这里锁住：源码必须使用 v14 operations desk 的
-`overview-home-v14`、`overview-command-deck`、`overview-decision-panel`、`overview-pulse-panel`、
+清除动作也在这个边界内。Overview 的静态契约也由这里锁住：源码必须使用 v16 command deck 的
+`overview-home-v16`、`overview-mission-board`、`overview-score-cluster`、`overview-workflow-row`、
 `overview-score-dial`、`overview-run-focus`、`overview-loop-panel`、`overview-flow-spine` 和 `overview-recent-card`，
 并保留共享 hover / pulse 动效，不能重新引用旧
 `overview-home-v6`、`overview-home-v7`、`overview-home-v10`、`overview-home-v12`、`overview-home-v13`、
+`overview-home-v14`、`overview-home-v15`、`overview-command-deck`、`overview-pulse-panel`、
 `overview-command-shell`、`overview-proof-strip`、`overview-triage-rail`、`overview-focus-panel`、`overview-side-stack`、
 阻塞优先级面板、orbit 装饰或活动矩阵组件。
 

@@ -15,16 +15,16 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v15",
-      ".overview-command-deck",
-      ".overview-decision-panel",
+      ".overview-home-v16",
+      ".overview-mission-board",
+      ".overview-score-cluster",
+      ".overview-workflow-row",
       ".overview-decision-metrics",
       ".overview-decision-metric",
       ".overview-run-focus",
       ".overview-loop-panel",
       ".overview-flow-spine",
       ".overview-flow-node",
-      ".overview-pulse-panel",
       ".overview-score-dial",
       ".overview-next-action",
       ".overview-signal-stack",
@@ -491,11 +491,12 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const commandShell = document.querySelector(".overview-command-deck");
-    const nowPanel = document.querySelector(".overview-decision-panel");
-    const livePanel = document.querySelector(".overview-pulse-panel");
+    const commandShell = document.querySelector(".overview-mission-board");
+    const nowPanel = document.querySelector(".overview-mission-board");
+    const livePanel = document.querySelector(".overview-score-cluster");
     const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
+    const workflowRow = document.querySelector(".overview-workflow-row");
     const nextAction = document.querySelector(".overview-next-action");
     const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
@@ -507,7 +508,7 @@ async function assertOverviewDensity(page, scope) {
     );
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-decision-panel, .overview-pulse-panel, .overview-loop-panel, .overview-recent-card"
+        ".overview-mission-board, .overview-loop-panel, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
     const commandShellStyle = commandShell ? getComputedStyle(commandShell) : null;
@@ -515,6 +516,7 @@ async function assertOverviewDensity(page, scope) {
     const livePanelStyle = livePanel ? getComputedStyle(livePanel) : null;
     const loopPanelStyle = loopPanel ? getComputedStyle(loopPanel) : null;
     const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
+    const workflowRowStyle = workflowRow ? getComputedStyle(workflowRow) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
     const decisionMetricStyle = decisionMetric ? getComputedStyle(decisionMetric) : null;
     const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
@@ -534,9 +536,10 @@ async function assertOverviewDensity(page, scope) {
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-recent-card").length,
-      nowPanels: document.querySelectorAll(".overview-decision-panel").length,
-      livePanels: document.querySelectorAll(".overview-pulse-panel").length,
+      nowPanels: document.querySelectorAll(".overview-mission-board").length,
+      livePanels: document.querySelectorAll(".overview-score-cluster").length,
       loopPanels: document.querySelectorAll(".overview-loop-panel").length,
+      workflowRows: document.querySelectorAll(".overview-workflow-row").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
       legacyActivityMatrix: document.querySelectorAll(".overview-activity-matrix").length,
@@ -552,6 +555,7 @@ async function assertOverviewDensity(page, scope) {
       livePanelDisplay: livePanelStyle?.display ?? "",
       loopPanelDisplay: loopPanelStyle?.display ?? "",
       recentCardDisplay: recentCardStyle?.display ?? "",
+      workflowRowDisplay: workflowRowStyle?.display ?? "",
       nextActionTransition: nextActionStyle?.transitionDuration ?? "",
       decisionMetricTransition: decisionMetricStyle?.transitionDuration ?? "",
       scoreDialTransition: scoreDialStyle?.transitionDuration ?? ""
@@ -573,7 +577,8 @@ async function assertOverviewDensity(page, scope) {
     state.nowPanelDisplay !== "flex" ||
     state.livePanelDisplay !== "flex" ||
     state.loopPanelDisplay !== "block" ||
-    state.recentCardDisplay !== "block"
+    state.recentCardDisplay !== "block" ||
+    state.workflowRowDisplay !== "flex"
   ) {
     throw new Error(
       `${scope}: overview should use a value-first operations desk ${JSON.stringify({
@@ -581,7 +586,8 @@ async function assertOverviewDensity(page, scope) {
         nowPanelDisplay: state.nowPanelDisplay,
         livePanelDisplay: state.livePanelDisplay,
         loopPanelDisplay: state.loopPanelDisplay,
-        recentCardDisplay: state.recentCardDisplay
+        recentCardDisplay: state.recentCardDisplay,
+        workflowRowDisplay: state.workflowRowDisplay
       })}`
     );
   }
@@ -604,13 +610,20 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (state.nowPanels !== 1 || state.livePanels !== 1 || state.loopPanels !== 1 || state.recentCards !== 1) {
+  if (
+    state.nowPanels !== 1 ||
+    state.livePanels !== 1 ||
+    state.loopPanels !== 1 ||
+    state.recentCards !== 1 ||
+    state.workflowRows !== 1
+  ) {
     throw new Error(
-      `${scope}: overview should keep one now panel, live panel, loop panel, and recent panel ${JSON.stringify({
+      `${scope}: overview should keep one mission board, score cluster, loop panel, workflow row, and recent panel ${JSON.stringify({
         nowPanels: state.nowPanels,
         livePanels: state.livePanels,
         loopPanels: state.loopPanels,
-        recentCards: state.recentCards
+        recentCards: state.recentCards,
+        workflowRows: state.workflowRows
       })}`
     );
   }
