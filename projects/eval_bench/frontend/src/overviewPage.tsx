@@ -27,6 +27,7 @@ type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/b
 type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
 type OverviewAction = {
   label: string;
+  value: string;
   detail: string;
   to: OverviewRoute;
   tone: OverviewTone;
@@ -216,7 +217,7 @@ export function OverviewPage() {
             <p>{postureLine}</p>
           </div>
           <div className="overview-decision-bottom">
-            <OverviewNextAction action={nextAction} />
+            <OverviewOpsSignal action={nextAction} />
             <OverviewRunFocus bestRun={bestRun} />
           </div>
         </div>
@@ -334,7 +335,7 @@ function OverviewScoreDial({
       </span>
       <div>
         <strong>{bestRun ? bestRun.run.run_id : "等待评估报告"}</strong>
-        <small>{bestRun ? `${bestRun.run.model_id} · ${bestRun.run.benchmark_id}` : "报告生成后进入排行"}</small>
+        <small>{bestRun ? `${bestRun.run.model_id} · ${bestRun.run.benchmark_id}` : "等待 F1 报告"}</small>
         <i aria-hidden="true">
           <b />
         </i>
@@ -344,13 +345,14 @@ function OverviewScoreDial({
   );
 }
 
-function OverviewNextAction({ action }: { action: OverviewAction }) {
+function OverviewOpsSignal({ action }: { action: OverviewAction }) {
   return (
-    <Link className={`overview-next-action ${action.tone}`} to={action.to}>
+    <Link className={`overview-ops-signal ${action.tone}`} to={action.to}>
       <span>{action.icon}</span>
       <div>
-        <strong>{action.label}</strong>
-        <em>{action.detail}</em>
+        <em>{action.label}</em>
+        <strong>{action.value}</strong>
+        <small>{action.detail}</small>
       </div>
       <ArrowRight size={16} />
     </Link>
@@ -365,7 +367,7 @@ function OverviewRunFocus({ bestRun }: { bestRun: BestRun | null }) {
           <AppIcon name="runResults" size={18} />
         </span>
         <div>
-          <strong>暂无可排行 run</strong>
+          <strong>暂无评估报告</strong>
           <em>导入预测并完成评估后显示主指标。</em>
         </div>
       </Link>
@@ -511,7 +513,8 @@ function overviewNextAction({
 }): OverviewAction {
   if (failedJobs > 0) {
     return {
-      label: "检查失败任务",
+      label: "失败任务",
+      value: failedJobs.toLocaleString(),
       detail: `${failedJobs.toLocaleString()} 个任务需要处理`,
       to: "/jobs",
       tone: "danger",
@@ -520,7 +523,8 @@ function overviewNextAction({
   }
   if (waitingEvaluation > 0) {
     return {
-      label: "补评估报告",
+      label: "待评估 run",
+      value: waitingEvaluation.toLocaleString(),
       detail: `${waitingEvaluation.toLocaleString()} 个 run 已有预测`,
       to: "/runs",
       tone: "warm",
@@ -529,7 +533,8 @@ function overviewNextAction({
   }
   if (activeQueue > 0) {
     return {
-      label: "查看运行队列",
+      label: "运行队列",
+      value: activeQueue.toLocaleString(),
       detail: `${activeQueue.toLocaleString()} 个任务在推进`,
       to: "/jobs",
       tone: "live",
@@ -538,8 +543,9 @@ function overviewNextAction({
   }
   if (evaluatedRuns > 0) {
     return {
-      label: "查看排行榜",
-      detail: "报告已可排名",
+      label: "评估报告",
+      value: evaluatedRuns.toLocaleString(),
+      detail: "F1 主指标已生成",
       to: "/rank-board",
       tone: "good",
       icon: <Trophy size={16} />
@@ -547,7 +553,8 @@ function overviewNextAction({
   }
   if (serviceCount > 0 && liveServices === 0) {
     return {
-      label: "启动模型服务",
+      label: "模型服务",
+      value: `${liveServices}/${serviceCount}`,
       detail: "已登记服务当前空闲",
       to: "/services",
       tone: "warm",
@@ -555,7 +562,8 @@ function overviewNextAction({
     };
   }
   return {
-    label: "创建评测任务",
+    label: "评测任务",
+    value: "0",
     detail: "还没有可用报告",
     to: "/jobs",
     tone: "idle",

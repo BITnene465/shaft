@@ -28,7 +28,7 @@ const staticRoutes = [
       ".overview-flow-spine",
       ".overview-flow-node",
       ".overview-score-dial",
-      ".overview-next-action",
+      ".overview-ops-signal",
       ".overview-recent-card"
     ]
   },
@@ -499,7 +499,7 @@ async function assertOverviewDensity(page, scope) {
     const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
     const workflowRow = document.querySelector(".overview-evidence-row");
-    const nextAction = document.querySelector(".overview-next-action");
+    const opsSignal = document.querySelector(".overview-ops-signal");
     const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
     const decisionMetricRails = Array.from(
@@ -516,7 +516,7 @@ async function assertOverviewDensity(page, scope) {
     const loopPanelStyle = loopPanel ? getComputedStyle(loopPanel) : null;
     const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
     const workflowRowStyle = workflowRow ? getComputedStyle(workflowRow) : null;
-    const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
+    const opsSignalStyle = opsSignal ? getComputedStyle(opsSignal) : null;
     const decisionMetricStyle = decisionMetric ? getComputedStyle(decisionMetric) : null;
     const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
@@ -525,7 +525,7 @@ async function assertOverviewDensity(page, scope) {
       flowNodes: document.querySelectorAll(".overview-flow-node").length,
       scoreDials: document.querySelectorAll(".overview-score-dial").length,
       runFocusCards: document.querySelectorAll(".overview-run-focus").length,
-      nextActions: document.querySelectorAll(".overview-next-action").length,
+      opsSignals: document.querySelectorAll(".overview-ops-signal").length,
       decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
       decisionMetricRails,
       decisionTiles,
@@ -557,7 +557,7 @@ async function assertOverviewDensity(page, scope) {
       loopPanelDisplay: loopPanelStyle?.display ?? "",
       recentCardDisplay: recentCardStyle?.display ?? "",
       workflowRowDisplay: workflowRowStyle?.display ?? "",
-      nextActionTransition: nextActionStyle?.transitionDuration ?? "",
+      opsSignalTransition: opsSignalStyle?.transitionDuration ?? "",
       decisionMetricTransition: decisionMetricStyle?.transitionDuration ?? "",
       scoreDialTransition: scoreDialStyle?.transitionDuration ?? ""
     };
@@ -596,7 +596,7 @@ async function assertOverviewDensity(page, scope) {
     state.flowNodes !== 4 ||
     state.scoreDials !== 1 ||
     state.runFocusCards !== 1 ||
-    state.nextActions !== 1 ||
+    state.opsSignals !== 1 ||
     state.decisionMetrics !== 4 ||
     state.decisionIcons !== 4
   ) {
@@ -605,7 +605,7 @@ async function assertOverviewDensity(page, scope) {
         flowNodes: state.flowNodes,
         scoreDials: state.scoreDials,
         runFocusCards: state.runFocusCards,
-        nextActions: state.nextActions,
+        opsSignals: state.opsSignals,
         decisionMetrics: state.decisionMetrics,
         decisionIcons: state.decisionIcons
       })}`
@@ -643,8 +643,8 @@ async function assertOverviewDensity(page, scope) {
       })}`
     );
   }
-  if (!state.nextActionTransition || state.nextActionTransition === "0s") {
-    throw new Error(`${scope}: overview next action is missing interaction transition`);
+  if (!state.opsSignalTransition || state.opsSignalTransition === "0s") {
+    throw new Error(`${scope}: overview ops signal is missing interaction transition`);
   }
   if (!state.decisionMetricTransition || state.decisionMetricTransition === "0s") {
     throw new Error(`${scope}: overview decision metrics are missing interaction transition`);
@@ -660,7 +660,7 @@ async function assertOverviewDensity(page, scope) {
   }
   if (
     state.stateStripItems !== 4 ||
-    /可以看排行|可以进入排行|先处理阻塞|补齐评估闭环|队列正在推进/.test(state.bodyText)
+    /可以看排行|可以进入排行|查看排行榜|先处理阻塞|补齐评估闭环|队列正在推进/.test(state.bodyText)
   ) {
     throw new Error(
       `${scope}: overview should use numeric state strip instead of slogan hero ${JSON.stringify({

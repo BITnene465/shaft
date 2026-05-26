@@ -313,13 +313,15 @@ assert(
     !overviewPage.includes("overviewHeroTitle") &&
     !overviewPage.includes("可以看排行") &&
     !overviewPage.includes("可以进入排行") &&
+    !overviewPage.includes("查看排行榜") &&
     overviewPage.includes("OverviewScoreDial") &&
     overviewPage.includes("overview-score-dial") &&
     overviewPage.includes("OverviewRunFocus") &&
     overviewPage.includes("overview-run-focus") &&
     overviewPage.includes("bestF1Run") &&
     overviewPage.includes('import { formatMetric, runF1Score } from "./formatters";') &&
-    overviewPage.includes("OverviewNextAction") &&
+    overviewPage.includes("OverviewOpsSignal") &&
+    overviewPage.includes("overview-ops-signal") &&
     overviewPage.includes("OverviewFlowSpine") &&
     overviewPage.includes("overview-flow-spine") &&
     overviewPage.includes("overview-flow-node") &&

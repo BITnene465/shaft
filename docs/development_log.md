@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Overview 仍把入口动作当成首页主价值
+
+### 现象
+
+总览 v17 已经删除“可以看排行”这类 hero slogan，但已有评估报告时主舞台仍用大按钮展示
+“查看排行榜”。用户看到的是一块醒目的入口动作文案，而不是报告数量、F1 状态或最近产物证据。
+
+### 根因
+
+`OverviewNextAction` 把“下一步去哪”直接渲染成首页主视觉，导致导航动作压过了总控页应该回答的
+状态判断。已有报告时，进入 Rank Board 只是一个可点击结果，不应该作为五个大字的核心价值。
+这是前端信息架构问题，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Eval Bench Overview 首屏可读性、价值密度和用户对当前系统态的判断。
+- 不影响 dashboard API、store schema、rank-board 默认 F1、weighted scheme、report、comparison 或 evaluator 语义。
+
+### 修复方式
+
+- `OverviewNextAction` 收敛为 `OverviewOpsSignal`，主视觉显示数值或状态，不再显示“查看排行榜”这类大号动作文案。
+- 已有报告时主信号改为报告数量和 “F1 主指标已生成”，空态 run focus 改为“暂无评估报告”。
+- UI contract 和 layout smoke 增加 “查看排行榜” 回归禁用，避免首页主舞台再次退回入口 slogan。
+- README、架构文档和脚本文档同步将 Overview 约束从“下一步动作”改为“运行信号”。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 首页主舞台只能放数据、状态、覆盖率、产物完成度和可点击工作区入口；不能把“能去某页”写成大号主文案。
+- 新增 Overview 文案前必须确认它表达当前系统态或产物证据，而不是纯导航提示。
+
 ## 2026-05-26: Eval Bench 高级检索 select 外壳仍留在 filter 编排层
 
 ### 现象

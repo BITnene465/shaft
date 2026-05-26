@@ -7307,7 +7307,7 @@ tbody tr:hover td {
   align-items: stretch;
 }
 
-.overview-home-v17 .overview-next-action,
+.overview-home-v17 .overview-ops-signal,
 .overview-home-v17 .overview-run-focus,
 .overview-home-v17 .overview-decision-metric,
 .overview-home-v17 .overview-score-dial,
@@ -7317,7 +7317,7 @@ tbody tr:hover td {
   text-decoration: none;
 }
 
-.overview-home-v17 .overview-next-action,
+.overview-home-v17 .overview-ops-signal,
 .overview-home-v17 .overview-run-focus {
   display: flex;
   min-width: 0;
@@ -7334,7 +7334,7 @@ tbody tr:hover td {
     color 180ms ease;
 }
 
-.overview-home-v17 .overview-next-action {
+.overview-home-v17 .overview-ops-signal {
   flex: 0 1 350px;
   color: #092333;
   background: linear-gradient(180deg, #fbffff 0%, #eefbfa 100%);
@@ -7354,7 +7354,7 @@ tbody tr:hover td {
   background: rgb(255 255 255 / 8%);
 }
 
-.overview-home-v17 .overview-next-action > span,
+.overview-home-v17 .overview-ops-signal > span,
 .overview-home-v17 .overview-run-focus > span,
 .overview-home-v17 .overview-flow-node > span {
   display: inline-flex;
@@ -7366,7 +7366,7 @@ tbody tr:hover td {
   border-radius: 14px;
 }
 
-.overview-home-v17 .overview-next-action > span {
+.overview-home-v17 .overview-ops-signal > span {
   color: #ffffff;
   background: linear-gradient(135deg, #078aa9, #22a66c);
   box-shadow: 0 12px 25px rgb(11 138 170 / 24%);
@@ -7378,7 +7378,7 @@ tbody tr:hover td {
   border: 1px solid rgb(255 255 255 / 16%);
 }
 
-.overview-home-v17 .overview-next-action div,
+.overview-home-v17 .overview-ops-signal div,
 .overview-home-v17 .overview-run-focus div,
 .overview-home-v17 .overview-score-dial div,
 .overview-home-v17 .overview-flow-node div,
@@ -7389,7 +7389,7 @@ tbody tr:hover td {
   flex-direction: column;
 }
 
-.overview-home-v17 .overview-next-action strong,
+.overview-home-v17 .overview-ops-signal strong,
 .overview-home-v17 .overview-run-focus strong,
 .overview-home-v17 .overview-score-dial strong,
 .overview-home-v17 .overview-flow-node strong,
@@ -7399,13 +7399,14 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-.overview-home-v17 .overview-next-action strong {
+.overview-home-v17 .overview-ops-signal strong {
   color: #0e2c3c;
-  font-size: 15px;
-  font-weight: 920;
+  font-size: 30px;
+  font-weight: 940;
+  line-height: 0.95;
 }
 
-.overview-home-v17 .overview-next-action em,
+.overview-home-v17 .overview-ops-signal em,
 .overview-home-v17 .overview-run-focus em {
   overflow: hidden;
   font-size: 12px;
@@ -7415,21 +7416,30 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-.overview-home-v17 .overview-next-action em {
+.overview-home-v17 .overview-ops-signal em {
   color: #54717b;
+}
+
+.overview-home-v17 .overview-ops-signal small {
+  overflow: hidden;
+  color: #54717b;
+  font-size: 11px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .overview-home-v17 .overview-run-focus em {
   color: #b8d2d7;
 }
 
-.overview-home-v17 .overview-next-action > svg,
+.overview-home-v17 .overview-ops-signal > svg,
 .overview-home-v17 .overview-score-dial > svg {
   flex: 0 0 auto;
   transition: transform 180ms ease;
 }
 
-.overview-home-v17 .overview-next-action:hover,
+.overview-home-v17 .overview-ops-signal:hover,
 .overview-home-v17 .overview-run-focus:hover,
 .overview-home-v17 .overview-score-dial:hover,
 .overview-home-v17 .overview-flow-node:hover,
@@ -7440,7 +7450,7 @@ tbody tr:hover td {
   box-shadow: 0 24px 52px rgb(24 54 75 / 16%);
 }
 
-.overview-home-v17 .overview-next-action:hover {
+.overview-home-v17 .overview-ops-signal:hover {
   box-shadow: 0 30px 62px rgb(0 0 0 / 24%);
 }
 
@@ -7569,7 +7579,7 @@ tbody tr:hover td {
 }
 
 .overview-home-v17 .overview-score-dial:hover > svg,
-.overview-home-v17 .overview-next-action:hover > svg {
+.overview-home-v17 .overview-ops-signal:hover > svg {
   transform: translateX(4px);
 }
 
@@ -7963,7 +7973,7 @@ tbody tr:hover td {
 .overview-home-v17 .overview-score-dial:focus-visible,
 .overview-home-v17 .overview-decision-metric:focus-visible,
 .overview-home-v17 .overview-flow-node:focus-visible,
-.overview-home-v17 .overview-next-action:focus-visible,
+.overview-home-v17 .overview-ops-signal:focus-visible,
 .overview-home-v17 .overview-run-focus:focus-visible,
 .overview-home-v17 .overview-run-list a:focus-visible {
   outline: 2px solid rgb(13 142 181 / 72%);
@@ -8050,7 +8060,7 @@ tbody tr:hover td {
     align-items: stretch;
   }
 
-  .overview-home-v17 .overview-next-action,
+  .overview-home-v17 .overview-ops-signal,
   .overview-home-v17 .overview-run-focus {
     flex: 0 0 auto;
   }

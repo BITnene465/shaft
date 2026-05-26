@@ -639,7 +639,7 @@ tbody tr:hover {
 .nav-item:focus-visible,
 .overview-stage-map a:focus-visible,
 .overview-health-strip span:focus-visible,
-.overview-next-action:focus-visible,
+.overview-ops-signal:focus-visible,
 .overview-signal-card:focus-visible,
 .overview-action-link:focus-visible,
 .overview-pipeline-stage:focus-visible,
