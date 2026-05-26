@@ -119,6 +119,438 @@ AGENT_DESTRUCTIVE_COMMANDS = frozenset(
         "stop-service",
     }
 )
+AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
+    "create-benchmark": [
+        {
+            "method": "POST",
+            "path": "/api/benchmarks",
+            "query_params": [],
+            "body": "benchmark creation JSON",
+            "description": "Create one benchmark from a raw-data split.",
+        }
+    ],
+    "list-agent-commands": [
+        {
+            "method": "GET",
+            "path": "/api/agent/commands",
+            "query_params": [],
+            "body": None,
+            "description": "List the stable agent command contract over HTTP.",
+        }
+    ],
+    "show-agent-command": [
+        {
+            "method": "GET",
+            "path": "/api/agent/commands/{name}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one stable agent command contract over HTTP.",
+        }
+    ],
+    "dashboard-state": [
+        {
+            "method": "GET",
+            "path": "/api/state",
+            "query_params": [],
+            "body": None,
+            "description": "Read the dashboard state snapshot.",
+        }
+    ],
+    "scheduler-status": [
+        {
+            "method": "GET",
+            "path": "/api/scheduler/status",
+            "query_params": [],
+            "body": None,
+            "description": "Read scheduler and resource status.",
+        }
+    ],
+    "backend-logs": [
+        {
+            "method": "GET",
+            "path": "/api/logs/backend",
+            "query_params": ["max_lines"],
+            "body": None,
+            "description": "Read backend log tail.",
+        }
+    ],
+    "resolve-target-labels": [
+        {
+            "method": "GET",
+            "path": "/api/target-labels",
+            "query_params": ["benchmark_id", "task", "prompt_id", "target_label"],
+            "body": None,
+            "description": "Resolve target-label policy and candidate labels.",
+        }
+    ],
+    "list-benchmarks": [
+        {
+            "method": "GET",
+            "path": "/api/benchmarks",
+            "query_params": ["offset", "limit", "task", "layer", "split", "query"],
+            "body": None,
+            "description": "List benchmarks with server-side filters.",
+        }
+    ],
+    "list-benchmark-samples": [
+        {
+            "method": "GET",
+            "path": "/api/benchmarks/{benchmark_id}/samples",
+            "query_params": ["offset", "limit", "label"],
+            "body": None,
+            "description": "List benchmark samples with target label filters.",
+        }
+    ],
+    "show-benchmark-sample": [
+        {
+            "method": "GET",
+            "path": "/api/benchmarks/{benchmark_id}/samples/{sample_index}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one benchmark sample detail.",
+        }
+    ],
+    "list-runs": [
+        {
+            "method": "GET",
+            "path": "/api/runs",
+            "query_params": [
+                "offset",
+                "limit",
+                "task",
+                "benchmark_id",
+                "status",
+                "label",
+                "model_id",
+                "prompt_id",
+                "metric_profile",
+                "query",
+            ],
+            "body": None,
+            "description": "List runs with server-side filters.",
+        }
+    ],
+    "rank-board": [
+        {
+            "method": "GET",
+            "path": "/api/rank-board",
+            "query_params": [
+                "offset",
+                "limit",
+                "task",
+                "benchmark_id",
+                "status",
+                "label",
+                "model_id",
+                "prompt_id",
+                "metric_profile",
+                "min_score",
+                "sort_by",
+                "sort_order",
+                "query",
+                "rank_scheme",
+            ],
+            "body": None,
+            "description": "Read the independent rank board.",
+        }
+    ],
+    "show-run-report": [
+        {
+            "method": "GET",
+            "path": "/api/runs/{run_id}/report",
+            "query_params": ["summary"],
+            "body": None,
+            "description": "Read one run report payload.",
+        }
+    ],
+    "list-run-samples": [
+        {
+            "method": "GET",
+            "path": "/api/runs/{run_id}/samples",
+            "query_params": ["offset", "limit", "label", "error_filter"],
+            "body": None,
+            "description": "List run samples scoped by the run target labels.",
+        }
+    ],
+    "show-run-sample": [
+        {
+            "method": "GET",
+            "path": "/api/runs/{run_id}/samples/{sample_index}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one run sample detail.",
+        }
+    ],
+    "get-run-note": [
+        {
+            "method": "GET",
+            "path": "/api/runs/{run_id}/note",
+            "query_params": [],
+            "body": None,
+            "description": "Read one editable run note.",
+        }
+    ],
+    "set-run-note": [
+        {
+            "method": "PATCH",
+            "path": "/api/runs/{run_id}/note",
+            "query_params": [],
+            "body": {"note": "str", "expected_updated_at": "str|null"},
+            "description": "Replace one editable run note with optional optimistic concurrency.",
+        }
+    ],
+    "append-run-note": [
+        {
+            "method": "POST",
+            "path": "/api/runs/{run_id}/note/append",
+            "query_params": [],
+            "body": {"note": "str", "heading": "str|null", "expected_updated_at": "str|null"},
+            "description": "Append to one editable run note with optional optimistic concurrency.",
+        }
+    ],
+    "archive-run": [
+        {
+            "method": "POST",
+            "path": "/api/runs/{run_id}/archive",
+            "query_params": [],
+            "body": None,
+            "description": "Archive one run without deleting its artifacts.",
+        }
+    ],
+    "delete-run": [
+        {
+            "method": "DELETE",
+            "path": "/api/runs/{run_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Move one run artifact directory to trash.",
+        }
+    ],
+    "import-predictions": [
+        {
+            "method": "POST",
+            "path": "/api/runs/import-predictions",
+            "query_params": [],
+            "body": "prediction import JSON",
+            "description": "Import an external prediction snapshot as an Eval Bench run.",
+        }
+    ],
+    "evaluate-run": [
+        {
+            "method": "POST",
+            "path": "/api/runs/{run_id}/evaluate",
+            "query_params": [],
+            "body": None,
+            "description": "Rebuild one run metric report from existing predictions.",
+        }
+    ],
+    "list-jobs": [
+        {
+            "method": "GET",
+            "path": "/api/jobs",
+            "query_params": ["offset", "limit", "kind", "status", "query"],
+            "body": None,
+            "description": "List jobs with server-side filters.",
+        }
+    ],
+    "preflight-job": [
+        {
+            "method": "POST",
+            "path": "/api/jobs/preflight",
+            "query_params": [],
+            "body": "manifest-first job payload JSON",
+            "description": "Validate one job payload without mutating state.",
+        }
+    ],
+    "create-job": [
+        {
+            "method": "POST",
+            "path": "/api/jobs",
+            "query_params": [],
+            "body": "manifest-first job payload JSON",
+            "description": "Create one persistent job after preflight.",
+        }
+    ],
+    "job-logs": [
+        {
+            "method": "GET",
+            "path": "/api/jobs/{job_id}/logs",
+            "query_params": ["max_lines"],
+            "body": None,
+            "description": "Read job runtime log tail.",
+        }
+    ],
+    "list-job-templates": [
+        {
+            "method": "GET",
+            "path": "/api/job-templates",
+            "query_params": [],
+            "body": None,
+            "description": "List manifest-first job templates.",
+        }
+    ],
+    "list-prompt-templates": [
+        {
+            "method": "GET",
+            "path": "/api/prompt-templates",
+            "query_params": ["task"],
+            "body": None,
+            "description": "List prompt templates.",
+        }
+    ],
+    "upsert-prompt-template": [
+        {
+            "method": "POST",
+            "path": "/api/prompt-templates",
+            "query_params": [],
+            "body": "prompt template JSON",
+            "description": "Create or update a prompt template.",
+        }
+    ],
+    "delete-prompt-template": [
+        {
+            "method": "DELETE",
+            "path": "/api/prompt-templates/{prompt_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Delete one prompt template.",
+        }
+    ],
+    "cancel-job": [
+        {
+            "method": "POST",
+            "path": "/api/jobs/{job_id}/cancel",
+            "query_params": [],
+            "body": None,
+            "description": "Cancel a queued or running job.",
+        }
+    ],
+    "delete-job": [
+        {
+            "method": "DELETE",
+            "path": "/api/jobs/{job_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Delete one terminal or demo job record.",
+        }
+    ],
+    "process-next-job": [
+        {
+            "method": "POST",
+            "path": "/api/jobs/process-next",
+            "query_params": ["kind"],
+            "body": None,
+            "description": "Process the next queued job.",
+        }
+    ],
+    "list-services": [
+        {
+            "method": "GET",
+            "path": "/api/services",
+            "query_params": ["offset", "limit", "kind", "status", "query"],
+            "body": None,
+            "description": "List model services with server-side filters.",
+        }
+    ],
+    "register-service": [
+        {
+            "method": "POST",
+            "path": "/api/services",
+            "query_params": [],
+            "body": "service registration JSON",
+            "description": "Register one model service.",
+        }
+    ],
+    "service-command": [
+        {
+            "method": "GET",
+            "path": "/api/services/{service_id}/command",
+            "query_params": [],
+            "body": None,
+            "description": "Read the launch command for one service.",
+        }
+    ],
+    "start-service": [
+        {
+            "method": "POST",
+            "path": "/api/services/{service_id}/start",
+            "query_params": [],
+            "body": None,
+            "description": "Start one managed local service.",
+        }
+    ],
+    "service-health": [
+        {
+            "method": "POST",
+            "path": "/api/services/{service_id}/health",
+            "query_params": ["timeout_s"],
+            "body": None,
+            "description": "Probe one model service and update health metadata.",
+        }
+    ],
+    "service-logs": [
+        {
+            "method": "GET",
+            "path": "/api/services/{service_id}/logs",
+            "query_params": ["max_lines"],
+            "body": None,
+            "description": "Read service runtime log tail.",
+        }
+    ],
+    "stop-service": [
+        {
+            "method": "POST",
+            "path": "/api/services/{service_id}/stop",
+            "query_params": [],
+            "body": None,
+            "description": "Stop one managed local service.",
+        }
+    ],
+    "delete-service": [
+        {
+            "method": "DELETE",
+            "path": "/api/services/{service_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Delete one service record.",
+        }
+    ],
+    "compare-runs": [
+        {
+            "method": "GET",
+            "path": "/api/comparisons",
+            "query_params": ["baseline_run_id", "candidate_run_id"],
+            "body": None,
+            "description": "Create or read a saved comparison report for two runs.",
+        }
+    ],
+    "list-comparisons": [
+        {
+            "method": "GET",
+            "path": "/api/comparisons",
+            "query_params": [
+                "offset",
+                "limit",
+                "task",
+                "label",
+                "query",
+                "baseline_run_id",
+                "candidate_run_id",
+            ],
+            "body": None,
+            "description": "List saved comparison reports.",
+        }
+    ],
+    "show-comparison-sample": [
+        {
+            "method": "GET",
+            "path": "/api/comparisons/sample",
+            "query_params": ["baseline_run_id", "candidate_run_id", "sample_index"],
+            "body": None,
+            "description": "Read one paired comparison sample detail.",
+        }
+    ],
+}
 RUN_SUMMARY_OUTPUT_SHAPE = {
     "run_id": "str",
     "status": "str",
@@ -306,6 +738,7 @@ AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
     "help": "str",
     "usage": "str",
     "argv_prefix": "list[str]",
+    "api_routes": "list[object]",
     "domain": "str",
     "mutates_state": "bool",
     "destructive": "bool",
@@ -1885,33 +2318,11 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
 
 def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
     del args
-    commands = _agent_command_contracts()
-    print(
-        json.dumps(
-            {
-                "total": len(commands),
-                "mutating_count": sum(1 for command in commands if command["mutates_state"]),
-                "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
-                "destructive_count": sum(1 for command in commands if command["destructive"]),
-                "domains": sorted({str(command["domain"]) for command in commands}),
-                "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
-                "commands": commands,
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(agent_command_listing_payload(), ensure_ascii=False))
 
 
 def _cmd_show_agent_command(args: argparse.Namespace) -> None:
-    print(
-        json.dumps(
-            {
-                "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
-                "command": _agent_command_contract(str(args.name)),
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(agent_command_detail_payload(str(args.name)), ensure_ascii=False))
 
 
 def _cmd_scheduler_status(args: argparse.Namespace) -> None:
@@ -2740,7 +3151,27 @@ def _parser_command_arguments(parser: argparse.ArgumentParser) -> dict[str, dict
     }
 
 
-def _agent_command_contracts() -> list[dict[str, object]]:
+def agent_command_listing_payload() -> dict[str, object]:
+    commands = agent_command_contracts()
+    return {
+        "total": len(commands),
+        "mutating_count": sum(1 for command in commands if command["mutates_state"]),
+        "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
+        "destructive_count": sum(1 for command in commands if command["destructive"]),
+        "domains": sorted({str(command["domain"]) for command in commands}),
+        "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
+        "commands": commands,
+    }
+
+
+def agent_command_detail_payload(name: str) -> dict[str, object]:
+    return {
+        "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
+        "command": agent_command_contract(name),
+    }
+
+
+def agent_command_contracts() -> list[dict[str, object]]:
     parser = _build_parser()
     command_help = _parser_command_help(parser)
     command_arguments = _parser_command_arguments(parser)
@@ -2756,7 +3187,7 @@ def _agent_command_contracts() -> list[dict[str, object]]:
     ]
 
 
-def _agent_command_contract(name: str) -> dict[str, object]:
+def agent_command_contract(name: str) -> dict[str, object]:
     parser = _build_parser()
     return _agent_command_contract_from_maps(
         name,
@@ -2783,6 +3214,7 @@ def _agent_command_contract_from_maps(
         "help": command_help.get(name, ""),
         "usage": command_usage.get(name, ""),
         "argv_prefix": ["scripts/eval_bench.py", name],
+        "api_routes": AGENT_COMMAND_API_ROUTES.get(name, []),
         "arguments": command_arguments[name]["arguments"],
         "argument_semantics": AGENT_COMMAND_ARGUMENT_SEMANTICS.get(name, {}),
         "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],

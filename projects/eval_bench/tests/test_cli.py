@@ -215,6 +215,17 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         item["argv_prefix"] == ["scripts/eval_bench.py", item["name"]]
         for item in payload["commands"]
     )
+    assert all(isinstance(item["api_routes"], list) for item in payload["commands"])
+    assert all(
+        {"method", "path", "query_params", "body", "description"} <= set(route)
+        for item in payload["commands"]
+        for route in item["api_routes"]
+    )
+    assert all(
+        route["path"].startswith("/api/")
+        for item in payload["commands"]
+        for route in item["api_routes"]
+    )
     assert all(item["domain"] for item in payload["commands"])
     assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
     assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
@@ -247,6 +258,21 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         commands_by_name["scheduler-status"]["output_schema"]["properties"]["enabled"]
         == "bool"
     )
+    assert commands_by_name["list-agent-commands"]["api_routes"][0]["path"] == "/api/agent/commands"
+    assert commands_by_name["dashboard-state"]["api_routes"][0]["path"] == "/api/state"
+    assert commands_by_name["rank-board"]["api_routes"][0]["path"] == "/api/rank-board"
+    assert (
+        "rank_scheme" in commands_by_name["rank-board"]["api_routes"][0]["query_params"]
+    )
+    target_label_api = commands_by_name["resolve-target-labels"]["api_routes"][0]
+    assert target_label_api["method"] == "GET"
+    assert target_label_api["path"] == "/api/target-labels"
+    assert target_label_api["query_params"] == [
+        "benchmark_id",
+        "task",
+        "prompt_id",
+        "target_label",
+    ]
     assert commands_by_name["backend-logs"]["output_schema"]["properties"]["lines"] == "list[str]"
     assert commands_by_name["job-logs"]["output_schema"]["properties"]["job_id"] == "str"
     assert commands_by_name["service-logs"]["output_schema"]["properties"]["service_id"] == "str"
@@ -649,6 +675,8 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     assert command["mutates_state"] is False
     assert command["destructive"] is False
     assert command["argv_prefix"] == ["scripts/eval_bench.py", "rank-board"]
+    assert command["api_routes"][0]["path"] == "/api/rank-board"
+    assert command["api_routes"][0]["method"] == "GET"
     assert "rank-board" in command["usage"]
     assert command["argument_semantics"]["sort_by"]["primary_metrics"][0] == "f1_iou50"
     assert command["argument_semantics"]["sort_by"]["auxiliary_sorts"] == [
@@ -679,6 +707,8 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     assert label_semantics["task_scope"]["detection"]["label_subtasks_supported"] is True
     assert label_semantics["task_scope"]["keypoint"]["fixed_target_labels"] == ["arrow"]
     assert label_semantics["recommended_discovery_command"] == "resolve-target-labels"
+    assert label_command["api_routes"][0]["path"] == "/api/target-labels"
+    assert "target_label" in label_command["api_routes"][0]["query_params"]
     assert label_command["output_schema"]["properties"]["target_labels"]["type"] == "list[str]"
     assert (
         label_command["output_schema"]["properties"]["label_subtasks_supported"]["description"]

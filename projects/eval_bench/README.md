@@ -510,14 +510,18 @@ Python API。Job template 和 prompt template 也有 CLI 入口，agent 创建 j
 筛选任务类型，并按需维护 prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、
 evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
 `list-agent-commands` 会输出当前稳定 agent 命令面，`show-agent-command --name <command>` 用于读取单条命令契约；
-真实分发集中在 `eval_bench.cli._command_handlers()`。
+Dashboard 也暴露 `GET /api/agent/commands` 和 `GET /api/agent/commands/{name}`，返回同一份
+contract，方便 HTTP agent 不依赖 CLI 进程做能力发现。每条 contract 的 `api_routes` 会列出可用
+Dashboard API 等价入口、HTTP method、path、query 参数和 body 形态；没有 HTTP 等价入口时返回空列表。
+真实 CLI 分发集中在 `eval_bench.cli._command_handlers()`。
 CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceback；agent 可以把大型 JSON 输出安全接到
 `head`、`jq`、日志采集器或分页器，而不会把 `BrokenPipeError` 混进机器可读输出。
 每条命令还会带 `domain`、`mutates_state`、`destructive`、`arguments` 和
 `argument_semantics`、`mutually_exclusive_groups`，便于 agent 区分只读查询、普通写入和删除/取消/停止这类危险生命周期操作，
 并直接读取参数名、flag、类型、默认值、choices、
 是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
-`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。所有返回 `filters` 的稳定查询命令
+`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态；`api_routes` 则让 HTTP
+agent 可以直接组合 URL，不需要猜 Dashboard route。所有返回 `filters` 的稳定查询命令
 必须在 `argument_semantics.filters` 中说明 exact match、membership、全文 query 和分页语义；
 `list-runs`、`rank-board`、`list-benchmarks`、`list-jobs`、`list-services`、`list-comparisons`、
 job/prompt template 列表以及样本列表都不能让 agent 反向解析 help 文本来猜过滤含义。关键只读命令还会带

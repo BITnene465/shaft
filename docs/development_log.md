@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench agent contract 未暴露 HTTP 等价入口
+
+### 现象
+
+CLI `list-agent-commands` / `show-agent-command` 已经能自描述稳定命令的参数、互斥组、副作用、
+输出结构和危险生命周期标记，但不会告诉 agent 哪些命令有 Dashboard API 等价入口。新增
+`GET /api/target-labels` 后，HTTP agent 仍只能靠文档或猜 URL 才知道 `resolve-target-labels`
+可以走 HTTP。
+
+### 根因
+
+Agent contract 的真源只覆盖 CLI argv 组合，没有把 HTTP route 视为同一能力面的可发现属性。
+Dashboard API 也没有暴露与 CLI discovery 等价的 contract route。这是 agent 操作面自描述缺口，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 HTTP agent 对 rank-board、target label resolution、run note、jobs、runs、benchmarks、
+  services 和 comparisons 等 API 的稳定发现。
+- 不改变现有 CLI 命令、Dashboard API payload、评估指标、store artifact 或 frontend 交互语义。
+
+### 修复方式
+
+- 在 agent command contract 中新增 `api_routes`，记录 HTTP method、path、query 参数、body 形态和用途说明。
+- 新增 `agent_command_listing_payload` / `agent_command_detail_payload`，CLI 和 Dashboard API 复用同一份 contract payload。
+- Dashboard 新增 `GET /api/agent/commands` 与 `GET /api/agent/commands/{name}`，让 HTTP agent 能发现同一份稳定命令面。
+- CLI 和 Dashboard 测试覆盖 `resolve-target-labels`、`rank-board`、`dashboard-state` 的 API route contract。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_dashboard.py::test_dashboard_resolves_target_labels_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m compileall projects/eval_bench/eval_bench`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m ruff check projects/eval_bench/eval_bench/cli.py projects/eval_bench/eval_bench/dashboard.py projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py`
+
+### 后续防线
+
+- 新增 Dashboard API 等价入口时，必须把 route 挂到对应 agent command 的 `api_routes`，不能只写 README。
+- CLI 与 HTTP discovery 必须复用同一份 payload builder，避免两套 contract 漂移。
+
 ## 2026-05-26: Eval Bench target label discovery 缺少 HTTP agent 入口
 
 ### 现象

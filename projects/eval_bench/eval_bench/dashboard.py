@@ -20,6 +20,7 @@ import uvicorn
 
 from .artifacts import DEFAULT_STORE_ROOT, atomic_write_json
 from .benchmark import create_benchmark_from_raw_data
+from .cli import agent_command_detail_payload, agent_command_listing_payload
 from .comparison import (
     compare_runs,
     filter_comparison_reports,
@@ -441,6 +442,20 @@ def create_app(
                 "text": "".join(lines),
             }
         )
+
+    @app.get("/api/agent/commands")
+    async def agent_commands(request: Request):
+        del request
+        return JSONResponse(agent_command_listing_payload())
+
+    @app.get("/api/agent/commands/{name}")
+    async def agent_command(name: str, request: Request):
+        del request
+        try:
+            payload = agent_command_detail_payload(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse(payload)
 
     @app.get("/api/target-labels")
     async def target_labels(
@@ -880,12 +895,13 @@ def create_app(
         return JSONResponse(payload)
 
     @app.get("/api/runs/{run_id}/report")
-    async def run_report(run_id: str, request: Request):
+    async def run_report(run_id: str, request: Request, summary: bool = False):
+        report_name = "summary.json" if summary else "metrics.json"
         report_path = (
             request.app.state.eval_bench_store.layout.runs_dir
             / run_id
             / "reports"
-            / "metrics.json"
+            / report_name
         )
         if not report_path.exists():
             raise HTTPException(status_code=404, detail="run report does not exist")
