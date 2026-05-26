@@ -545,6 +545,14 @@ assert(
   "viewer label chips must import OptionChipButton",
 );
 assert(
+  viewerPanels.includes("DisclosurePanel") &&
+    viewerPanels.includes('className="control-popover"') &&
+    viewerPanels.includes('className="label-metric-card"') &&
+    !/<details\b/.test(viewerPanels) &&
+    !/<summary\b/.test(viewerPanels),
+  "viewer control popovers and label metrics must use DisclosurePanel instead of local details shells",
+);
+assert(
   viewerPanels.includes("SelectableCardButton") &&
     !/<button[\s\S]{0,220}object-row/.test(viewerPanels),
   "viewer object rows must use SelectableCardButton instead of raw object-row buttons",

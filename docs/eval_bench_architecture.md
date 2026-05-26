@@ -272,7 +272,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过
   `SelectableCardButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
   的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
-  业务页折叠面板必须通过 `DisclosurePanel` 维护 `<details>/<summary>` shell；viewer 画布内轻量 popover 可以保留专用样式。
+  业务页和 viewer 控制区折叠面板必须通过 `DisclosurePanel` 维护 `<details>/<summary>` shell。
   Settings 快捷键捕获可以保留 `shortcut-capture` 专用样式和局部 `onKeyDown` 语义，但底层按钮仍必须通过
   `ActionButton`。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell

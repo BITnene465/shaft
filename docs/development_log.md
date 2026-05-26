@@ -32,7 +32,8 @@ summary 结构或可访问性时，需要同时修改多个页面。
 - 在 `ui.tsx` 新增 `DisclosurePanel`，作为业务页 `<details>/<summary>` shell 真源。
 - `ActionPanel` 改为复用 `DisclosurePanel`。
 - Runs 的记录配置和 Prompt 快照、Jobs 的 prompt template、Rank Board 的 weighted scheme 迁移到 `DisclosurePanel`。
-- UI contract 增加静态防线，禁止这些业务页继续直接写本地 details/summary shell。
+- Viewer 的 label popover 和 label metric card 也迁移到 `DisclosurePanel`，避免检查器控制区保留第二套 details shell。
+- UI contract 增加静态防线，禁止这些业务页和 viewer 面板继续直接写本地 details/summary shell。
 - README、架构文档和脚本文档同步 DisclosurePanel 边界。
 
 ### 回归测试
@@ -43,7 +44,7 @@ summary 结构或可访问性时，需要同时修改多个页面。
 
 ### 后续防线
 
-- 新增业务页折叠内容面板时默认使用 `DisclosurePanel`；只有 viewer 画布内轻量 popover 这类低层交互可以保留专用 details 外观。
+- 新增业务页或 viewer 控制区折叠内容面板时默认使用 `DisclosurePanel`。
 - 如果需要新的 summary 布局，应扩展 `DisclosurePanel` 的 props，而不是在业务页复制 `<details>/<summary>`。
 
 ## 2026-05-26: Eval Bench keypoint manifest 可隐藏残留 detection target_labels

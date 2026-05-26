@@ -1,7 +1,7 @@
 import type { EvalInstance } from "./api";
 import { CompactSelectControl, ToggleButton } from "./controlPrimitives";
 import { formatMetric } from "./formatters";
-import { OptionChipButton, SelectableCardButton } from "./ui";
+import { DisclosurePanel, OptionChipButton, SelectableCardButton } from "./ui";
 import {
   countInstancesByLabel,
   formatBbox,
@@ -126,10 +126,14 @@ export function ViewerControlPanel({
         <ToggleButton label="线" active={showLines} onChange={onShowLinesChange} />
         <ToggleButton label="点" active={showKeypoints} onChange={onShowKeypointsChange} />
       </div>
-      <details className="control-popover">
-        <summary>
-          标签 <strong>{activeLabels.length}/{labels.length}</strong>
-        </summary>
+      <DisclosurePanel
+        className="control-popover"
+        summary={
+          <>
+            标签 <strong>{activeLabels.length}/{labels.length}</strong>
+          </>
+        }
+      >
         <div className="label-select-grid">
           {labels.map((label) => {
             const active = activeLabels.includes(label);
@@ -145,7 +149,7 @@ export function ViewerControlPanel({
             );
           })}
         </div>
-      </details>
+      </DisclosurePanel>
     </div>
   );
 }
@@ -207,8 +211,7 @@ export function VisibleMetricStrip({ metrics }: { metrics: VisibleMetrics }) {
 
 export function LabelMetricTable({ rows }: { rows: LabelMetricRow[] }) {
   return (
-    <details className="label-metric-card">
-      <summary>分标签指标</summary>
+    <DisclosurePanel className="label-metric-card" summary="分标签指标">
       {rows.length === 0 ? (
         <div className="muted-line">没有可见标签。</div>
       ) : (
@@ -245,7 +248,7 @@ export function LabelMetricTable({ rows }: { rows: LabelMetricRow[] }) {
           </table>
         </div>
       )}
-    </details>
+    </DisclosurePanel>
   );
 }
 
