@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench CLI 失败路径缺少机器可读错误
+
+### 现象
+
+Eval Bench 稳定 CLI 的成功路径已经统一输出 JSON，但运行时失败和 argparse 参数错误仍会走普通 Python/argparse
+stderr。Agent 如果调用 `show-run` 读取不存在的 run，或者传错必填参数，就只能解析 traceback、usage 文本或
+自然语言错误。
+
+### 根因
+
+前期只锁住了 stdout 成功 payload 和 `BrokenPipeError` 安静退出，没有定义失败 payload。CLI-first agent
+接口不能只稳定成功路径；错误路径也需要明确 schema 和 exit code 语义。这是 agent CLI 可靠性问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 CLI 失败的自动恢复、重试和错误分类。
+- 不改变默认人工 CLI 行为；只有 `--json-errors` 或 `EVAL_BENCH_JSON_ERRORS=1` 启用机器可读错误。
+- 不影响 Dashboard API、run artifact、metric report、rank-board 排序或 label policy。
+
+### 修复方式
+
+- 新增全局 `--json-errors` 和环境变量 `EVAL_BENCH_JSON_ERRORS=1`。
+- argparse 参数错误和运行时异常在 JSON 错误模式下写 stderr：
+  `ok=false`、`command`、`error_type`、`message`，并保持非零 exit code。
+- `list-agent-commands` 和 `show-agent-command` 返回顶层 `error_contract`，让 agent 能发现错误模式。
+- 测试覆盖 runtime error、argparse error、无 traceback 和 contract 中的错误约定。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_cli.py::test_cli_can_emit_json_errors_for_agents projects/eval_bench/tests/test_cli.py::test_cli_can_emit_json_parse_errors_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m ruff check projects/eval_bench/eval_bench/cli.py projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 新增稳定 CLI 命令时，成功 payload 和错误 payload 都要可由 agent 处理。
+- 不要让 agent 为了判断失败类型解析 Python traceback 或 argparse usage 文本。
+
 ## 2026-05-26: Eval Bench agent 操作面偏离 CLI-first
 
 ### 现象

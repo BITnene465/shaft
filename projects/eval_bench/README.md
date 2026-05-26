@@ -505,11 +505,20 @@ evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 
 真实 CLI 分发集中在 `eval_bench.cli._command_handlers()`。
 CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceback；agent 可以把大型 JSON 输出安全接到
 `head`、`jq`、日志采集器或分页器，而不会把 `BrokenPipeError` 混进机器可读输出。
+运行时或参数错误默认保留普通 CLI 行为；agent 需要机器可读失败时，在命令名前加 `--json-errors`
+或设置 `EVAL_BENCH_JSON_ERRORS=1`，stderr 会输出
+`{"ok": false, "command": "...", "error_type": "...", "message": "..."}`，并保留非零 exit code：
+
+```bash
+.venv/bin/python scripts/eval_bench.py --json-errors show-run --run-id missing_run
+EVAL_BENCH_JSON_ERRORS=1 .venv/bin/python scripts/eval_bench.py show-run --run-id missing_run
+```
+
 每条命令还会带 `domain`、`mutates_state`、`destructive`、`arguments` 和
 `argument_semantics`、`mutually_exclusive_groups`，便于 agent 区分只读查询、普通写入和删除/取消/停止这类危险生命周期操作，
 并直接读取参数名、flag、类型、默认值、choices、
 是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
-`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。所有返回 `filters` 的稳定查询命令
+`usage`，以及 `error_contract`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。所有返回 `filters` 的稳定查询命令
 必须在 `argument_semantics.filters` 中说明 exact match、membership、全文 query 和分页语义；
 `list-runs`、`rank-board`、`list-benchmarks`、`list-jobs`、`list-services`、`list-comparisons`、
 job/prompt template 列表以及样本列表都不能让 agent 反向解析 help 文本来猜过滤含义。关键只读命令还会带

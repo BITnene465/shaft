@@ -11,6 +11,7 @@ import sys
 from .artifacts import DEFAULT_STORE_ROOT
 
 
+JSON_ERROR_ENV = "EVAL_BENCH_JSON_ERRORS"
 DETECTION_TARGET_LABEL_HELP = (
     "Detection label subtask scope; repeat for multiple labels. "
     "Keypoint runs are fixed to arrow and reject non-arrow labels."
@@ -313,6 +314,17 @@ AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
     "argument_semantics": "object",
     "mutually_exclusive_groups": "list[object]",
     "output_schema": "object",
+}
+AGENT_ERROR_CONTRACT = {
+    "enable_with": ["--json-errors", f"{JSON_ERROR_ENV}=1"],
+    "stream": "stderr",
+    "exit_code": "nonzero",
+    "shape": {
+        "ok": "bool",
+        "command": "str|null",
+        "error_type": "str",
+        "message": "str",
+    },
 }
 PAGINATION_ARGUMENT_SEMANTICS = {
     "offset": (
@@ -660,19 +672,22 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "destructive_count",
             "domains",
             "recommended_runner",
+            "error_contract",
             "commands",
         ],
         "properties": {
             "domains": {"type": "list[str]"},
             "recommended_runner": {"type": "list[str]"},
+            "error_contract": {"type": "object"},
             "commands": {"type": "array", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
         },
     },
     "show-agent-command": {
         "type": "object",
-        "required": ["recommended_runner", "command"],
+        "required": ["recommended_runner", "error_contract", "command"],
         "properties": {
             "recommended_runner": {"type": "list[str]"},
+            "error_contract": {"type": "object"},
             "command": {"type": "object", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
         },
     },
@@ -1220,8 +1235,20 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Shaft Eval Bench utilities.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = EvalBenchArgumentParser(description="Shaft Eval Bench utilities.")
+    parser.add_argument(
+        "--json-errors",
+        action="store_true",
+        help=(
+            "Emit machine-readable error JSON to stderr for CLI agents. "
+            f"Equivalent to setting {JSON_ERROR_ENV}=1."
+        ),
+    )
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        parser_class=EvalBenchArgumentParser,
+    )
 
     benchmark = subparsers.add_parser(
         "create-benchmark", help="Copy a raw_data split into the Eval Bench store."
@@ -2727,6 +2754,7 @@ def agent_command_listing_payload() -> dict[str, object]:
         "destructive_count": sum(1 for command in commands if command["destructive"]),
         "domains": sorted({str(command["domain"]) for command in commands}),
         "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
+        "error_contract": AGENT_ERROR_CONTRACT,
         "commands": commands,
     }
 
@@ -2734,6 +2762,7 @@ def agent_command_listing_payload() -> dict[str, object]:
 def agent_command_detail_payload(name: str) -> dict[str, object]:
     return {
         "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
+        "error_contract": AGENT_ERROR_CONTRACT,
         "command": agent_command_contract(name),
     }
 
@@ -2827,6 +2856,18 @@ def _mutually_exclusive_group_schema(parser: argparse.ArgumentParser) -> list[di
 
 def _is_agent_arg(action: argparse.Action) -> bool:
     return not isinstance(action, argparse._HelpAction) and action.dest != argparse.SUPPRESS
+
+
+class EvalBenchArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        if _json_errors_enabled_from_context():
+            _write_json_error(
+                command=_command_from_argv(sys.argv[1:]),
+                error_type="ArgumentError",
+                message=message,
+            )
+            raise SystemExit(2)
+        super().error(message)
 
 
 def _positional_is_required(action: argparse.Action) -> bool:
@@ -2941,6 +2982,56 @@ def main() -> None:
         handler(args)
     except BrokenPipeError:
         _quiet_broken_stdout_pipe()
+    except Exception as exc:
+        if _json_errors_enabled(args):
+            _write_json_error(
+                command=str(getattr(args, "command", "")) or None,
+                error_type=type(exc).__name__,
+                message=str(exc),
+            )
+            raise SystemExit(1) from None
+        raise
+
+
+def _json_errors_enabled(args: argparse.Namespace | None = None) -> bool:
+    if args is not None and bool(getattr(args, "json_errors", False)):
+        return True
+    return os.environ.get(JSON_ERROR_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _json_errors_enabled_from_context() -> bool:
+    return "--json-errors" in sys.argv[1:] or _json_errors_enabled()
+
+
+def _command_from_argv(argv: list[str]) -> str | None:
+    skip_next = False
+    for item in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if item == "--json-errors":
+            continue
+        if item.startswith("-"):
+            if item in {"--output-root"}:
+                skip_next = True
+            continue
+        return item
+    return None
+
+
+def _write_json_error(*, command: str | None, error_type: str, message: str) -> None:
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "command": command,
+                "error_type": error_type,
+                "message": message,
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
 
 
 def _quiet_broken_stdout_pipe() -> None:

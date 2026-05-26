@@ -194,6 +194,12 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         item["domain"] for item in AGENT_COMMAND_METADATA.values()
     }
     assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
+    assert payload["error_contract"]["enable_with"] == [
+        "--json-errors",
+        "EVAL_BENCH_JSON_ERRORS=1",
+    ]
+    assert payload["error_contract"]["stream"] == "stderr"
+    assert payload["error_contract"]["shape"]["error_type"] == "str"
     assert command_names == sorted(AGENT_STABLE_COMMANDS)
     assert "rank-board" in command_names
     assert "show-agent-command" in command_names
@@ -640,6 +646,59 @@ def test_cli_suppresses_broken_pipe_traceback_for_agent_json() -> None:
     assert "Traceback" not in result.stderr
 
 
+def test_cli_can_emit_json_errors_for_agents(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/eval_bench.py",
+            "--json-errors",
+            "show-run",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "missing-run",
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
+    assert payload["ok"] is False
+    assert payload["command"] == "show-run"
+    assert payload["error_type"] == "FileNotFoundError"
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_can_emit_json_parse_errors_for_agents() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/eval_bench.py",
+            "--json-errors",
+            "show-run",
+            "--run-id",
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
+    assert payload == {
+        "ok": False,
+        "command": "show-run",
+        "error_type": "ArgumentError",
+        "message": "argument --run-id: expected one argument",
+    }
+
+
 def test_cli_shows_single_agent_command_contract(capsys) -> None:
     args = _build_parser().parse_args(["show-agent-command", "--name", "rank-board"])
     _cmd_show_agent_command(args)
@@ -647,6 +706,7 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     _assert_agent_output_payload("show-agent-command", payload)
 
     assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
+    assert payload["error_contract"]["exit_code"] == "nonzero"
     command = payload["command"]
     assert command["name"] == "rank-board"
     assert command["domain"] == "rank"
@@ -676,6 +736,11 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
         tuple(group["arguments"]): group["required"]
         for group in command["mutually_exclusive_groups"]
     } == {("rank_scheme_json", "rank_scheme_file"): False}
+
+    error_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run"])
+    _cmd_show_agent_command(error_args)
+    error_payload = json.loads(capsys.readouterr().out)
+    assert error_payload["error_contract"]["stream"] == "stderr"
 
     label_args = _build_parser().parse_args(["show-agent-command", "--name", "resolve-target-labels"])
     _cmd_show_agent_command(label_args)
