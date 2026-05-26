@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 首页 v13 仍像装饰化控制台
+
+### 现象
+
+用户继续反馈总览页“没有任何价值”。v13 虽然已经删除了纯路由面板，但仍以大 hero、proof strip、
+live signal 和 triage rail 的装饰化控制台为核心，首屏空间主要用于展示“看起来实时”的组件，
+而不是快速判断当前最应该处理的 run、F1 主指标是否成立、闭环是否卡住。
+
+### 根因
+
+上一版把低价值面板替换成了新的视觉组件，但没有进一步收敛到两列运维工作台。proof/triage 双轨
+让同一类状态重复出现，且样式真源继续以 v13 为中心，后续容易继续叠加覆盖层。这是前端信息架构和
+交互边界问题，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard Overview 第一屏判断效率、交互质感和样式维护边界。
+- 不影响 dashboard API、store、rank-board 默认 F1、weighted scheme、report 或 comparison 语义。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v14` two-column operations desk：顶部只保留主判断区和 pulse panel，
+  下方只保留评测闭环 spine 与最近 run 产物流。
+- 主判断区承载同步状态、下一步动作和当前最佳 run 摘要；pulse panel 承载 F1 dial、报告覆盖、
+  待评估、任务队列和模型服务四个可点击信号。
+- 移除 v13 proof strip / triage rail 运行时代码和样式真源，避免后续继续在旧轨道上叠覆盖。
+- 最近 run 继续使用产物完成度 rail、创建时间和状态胶囊，不展示 P/R/IoU 细指标。
+- layout smoke 和 UI contract 同步锁住 v14 class、交互动效和旧 v13 轨道禁用规则。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_v14.png npm run render-check`
+
+### 后续防线
+
+- Overview 新增模块必须强化“下一步动作、F1 主指标、闭环卡点、最近产物”之一；不能把低频排障或纯导航入口搬回首页。
+- 首页动效只能服务状态感、可点击性和实时同步感，不允许用装饰动画替代信息结构。
+- Overview 样式真源只能保留当前 active 轨道；旧版本 class 一旦退出运行时代码，应同步从 CSS 和 contract 中移除。
+
 ## 2026-05-26: Eval Bench Dashboard 只能覆盖保存 run note
 
 ### 现象

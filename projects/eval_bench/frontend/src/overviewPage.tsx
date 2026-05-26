@@ -5,7 +5,6 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  BarChart3,
   CheckCircle2,
   Clock3,
   Database,
@@ -47,7 +46,7 @@ type OverviewFlowStage = {
   progress: number;
   icon: React.ReactNode;
 };
-type OverviewProof = OverviewFlowStage;
+type BestRun = { run: RunSummary; f1: number };
 
 export function OverviewPage() {
   const { data, isLoading, error } = useDashboardState();
@@ -159,38 +158,6 @@ export function OverviewPage() {
       progress: trackPercent(liveServices, totalServices)
     }
   ];
-  const proofItems: OverviewProof[] = [
-    {
-      label: "主指标 F1",
-      value: bestRun ? formatMetric(bestRun.f1) : "-",
-      detail: bestRun ? bestRun.run.run_id : "等待评估报告",
-      to: "/rank-board",
-      tone: bestRun ? "good" : "idle",
-      icon: <AppIcon name="rankBoard" size={16} />,
-      progress: bestRun ? trackPercent(bestRun.f1, 1) : 0
-    },
-    {
-      label: "报告覆盖",
-      value: `${coveragePercent}%`,
-      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
-      to: "/runs",
-      tone: evaluatedRuns > 0 ? "good" : "idle",
-      icon: <FileCheck2 size={16} />,
-      progress: trackPercent(evaluatedRuns, totalRuns)
-    },
-    {
-      label: "待评估 backlog",
-      value: waitingEvaluation.toLocaleString(),
-      detail:
-        waitingEvaluation > 0
-          ? `${runsWithPredictions.toLocaleString()} runs 有预测`
-          : "闭环没有积压",
-      to: "/runs",
-      tone: waitingEvaluation > 0 ? "warm" : "good",
-      icon: <Gauge size={16} />,
-      progress: trackPercent(waitingEvaluation, totalRuns)
-    }
-  ];
   const flowStages: OverviewFlowStage[] = [
     {
       label: "基准样本",
@@ -222,71 +189,66 @@ export function OverviewPage() {
     {
       label: "排行榜",
       value: evaluatedRuns > 0 ? "ready" : "empty",
-      detail: evaluatedRuns > 0 ? "进入主指标排行" : "等待报告",
+      detail: evaluatedRuns > 0 ? "主指标 F1 可排行" : "等待报告",
       to: "/rank-board",
       tone: evaluatedRuns > 0 ? "good" : "idle",
       icon: <AppIcon name="rankBoard" size={17} />,
       progress: trackPercent(evaluatedRuns, totalRuns)
     }
   ];
-  const triageActions = overviewTriageActions({
-    nextAction,
-    activeQueue,
-    failedJobs,
-    waitingEvaluation,
-    evaluatedRuns,
-    liveServices,
-    serviceCount: services.length
-  });
-  const recentRuns = recentRunsByCreatedAt(data.runs, 4);
+  const recentRuns = recentRunsByCreatedAt(data.runs, 5);
 
   return (
     <section
-      className="page-stack dashboard-home overview-home-v13"
+      className="page-stack dashboard-home overview-home-v14"
       onPointerMove={updateOverviewPointer}
     >
-      <div className="overview-command-shell">
-        <section className={`overview-now-panel ${nextAction.tone}`}>
-          <div className="overview-hero-copy">
-            <div className="overview-kicker-row">
-              <span className="overview-live-dot" />
-              <span>Eval Bench Control</span>
-              <i className={syncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
-                {syncing ? "同步中" : "已同步"}
-              </i>
-            </div>
+      <div className="overview-command-deck">
+        <section className={`overview-decision-panel ${nextAction.tone}`}>
+          <div className="overview-command-kicker">
+            <span className="overview-live-dot" />
+            <span>Eval Bench Live Ops</span>
+            <i className={syncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
+              {syncing ? "同步中" : "已同步"}
+            </i>
+          </div>
+          <div className="overview-decision-copy">
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
-            <OverviewNextAction action={nextAction} />
           </div>
-          <OverviewProofStrip items={proofItems} />
+          <div className="overview-decision-bottom">
+            <OverviewNextAction action={nextAction} />
+            <OverviewRunFocus bestRun={bestRun} />
+          </div>
         </section>
 
-        <aside className="overview-live-panel" aria-label="运行信号">
+        <aside className="overview-pulse-panel" aria-label="系统脉搏">
           <div className="overview-section-head">
             <div>
-              <span>Live Signals</span>
-              <h3>{activeQueue > 0 ? "推进中" : failedJobs > 0 ? "有阻塞" : "可调度"}</h3>
+              <span>System Pulse</span>
+              <h3>{activeQueue > 0 ? "队列推进中" : failedJobs > 0 ? "任务阻塞" : "闭环待命"}</h3>
             </div>
             <strong>{syncing ? "sync" : "steady"}</strong>
           </div>
+          <OverviewScoreDial bestRun={bestRun} coveragePercent={coveragePercent} />
           <OverviewSignalStack signals={signalItems} />
-          <OverviewTriageRail actions={triageActions} />
         </aside>
       </div>
 
-      <section className="overview-loop-panel" aria-label="评测闭环">
-        <div className="overview-section-head compact">
-          <div>
-            <span>Evaluation Loop</span>
-            <h3>样本到排行的闭环</h3>
+      <div className="overview-operating-row">
+        <section className="overview-loop-panel" aria-label="评测闭环">
+          <div className="overview-section-head compact">
+            <div>
+              <span>Evaluation Loop</span>
+              <h3>样本到排行</h3>
+            </div>
+            <strong>{evaluatedRuns > 0 ? "rankable" : "warming"}</strong>
           </div>
-          <strong>{evaluatedRuns > 0 ? "rankable" : "warming"}</strong>
-        </div>
-        <OverviewFlowSpine stages={flowStages} />
-      </section>
+          <OverviewFlowSpine stages={flowStages} />
+        </section>
 
-      <OverviewRecentRunsPanel runs={recentRuns} />
+        <OverviewRecentRunsPanel runs={recentRuns} />
+      </div>
     </section>
   );
 }
@@ -302,11 +264,51 @@ function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
   event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
 }
 
+function OverviewScoreDial({
+  bestRun,
+  coveragePercent
+}: {
+  bestRun: BestRun | null;
+  coveragePercent: number;
+}) {
+  const scorePercent = bestRun ? Math.round(bestRun.f1 * 100) : 0;
+  return (
+    <Link
+      className="overview-score-dial"
+      to={bestRun ? "/rank-board" : "/runs"}
+      style={
+        {
+          "--overview-score": `${scorePercent}%`,
+          "--overview-coverage": `${coveragePercent}%`
+        } as React.CSSProperties
+      }
+    >
+      <span className="overview-score-ring">
+        <b>{bestRun ? formatMetric(bestRun.f1) : "-"}</b>
+        <em>F1</em>
+      </span>
+      <div>
+        <strong>{bestRun ? bestRun.run.run_id : "等待评估报告"}</strong>
+        <small>{bestRun ? `${bestRun.run.model_id} · ${bestRun.run.benchmark_id}` : "报告生成后进入排行"}</small>
+        <i aria-hidden="true">
+          <b />
+        </i>
+      </div>
+      <ArrowRight size={15} />
+    </Link>
+  );
+}
+
 function OverviewSignalStack({ signals }: { signals: OverviewSignal[] }) {
   return (
     <div className="overview-signal-stack">
       {signals.map((signal) => (
-        <Link className={`overview-signal-card ${signal.tone}`} to={signal.to} key={signal.label}>
+        <Link
+          className={`overview-signal-card ${signal.tone}`}
+          to={signal.to}
+          key={signal.label}
+          style={{ "--signal-progress": `${signal.progress}%` } as React.CSSProperties}
+        >
           <span>{signal.icon}</span>
           <div>
             <strong>{signal.value}</strong>
@@ -314,27 +316,7 @@ function OverviewSignalStack({ signals }: { signals: OverviewSignal[] }) {
             <small>{signal.detail}</small>
           </div>
           <i aria-hidden="true">
-            <b style={{ width: `${signal.progress}%` }} />
-          </i>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function OverviewProofStrip({ items }: { items: OverviewProof[] }) {
-  return (
-    <div className="overview-proof-strip">
-      {items.map((item) => (
-        <Link className={`overview-proof-card ${item.tone}`} to={item.to} key={item.label}>
-          <span>{item.icon}</span>
-          <div>
-            <em>{item.label}</em>
-            <strong>{item.value}</strong>
-            <small>{item.detail}</small>
-          </div>
-          <i aria-hidden="true">
-            <b style={{ width: `${item.progress}%` }} />
+            <b />
           </i>
         </Link>
       ))}
@@ -355,11 +337,63 @@ function OverviewNextAction({ action }: { action: OverviewAction }) {
   );
 }
 
+function OverviewRunFocus({ bestRun }: { bestRun: BestRun | null }) {
+  if (!bestRun) {
+    return (
+      <Link className="overview-run-focus empty" to="/runs">
+        <span>
+          <AppIcon name="runResults" size={18} />
+        </span>
+        <div>
+          <strong>暂无可排行 run</strong>
+          <em>导入预测并完成评估后显示主指标。</em>
+        </div>
+      </Link>
+    );
+  }
+  const run = bestRun.run;
+  return (
+    <Link className="overview-run-focus" to="/runs/$runId" params={{ runId: run.run_id }}>
+      <span>
+        <Trophy size={18} />
+      </span>
+      <div>
+        <strong>{run.run_id}</strong>
+        <em>{run.model_id || "-"} · {run.benchmark_id || "-"}</em>
+      </div>
+      <dl>
+        <div>
+          <dt>pred</dt>
+          <dd>{run.prediction_count.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>report</dt>
+          <dd>{run.report_count.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt>age</dt>
+          <dd>{runAgeLabel(run.created_at)}</dd>
+        </div>
+      </dl>
+    </Link>
+  );
+}
+
 function OverviewFlowSpine({ stages }: { stages: OverviewFlowStage[] }) {
   return (
     <nav className="overview-flow-spine" aria-label="评测闭环">
-      {stages.map((stage) => (
-        <Link className={`overview-flow-node ${stage.tone}`} to={stage.to} key={stage.label}>
+      {stages.map((stage, index) => (
+        <Link
+          className={`overview-flow-node ${stage.tone}`}
+          to={stage.to}
+          key={stage.label}
+          style={
+            {
+              "--stage-progress": `${stage.progress}%`,
+              "--stage-delay": `${index * 55}ms`
+            } as React.CSSProperties
+          }
+        >
           <span>{stage.icon}</span>
           <div>
             <strong>{stage.label}</strong>
@@ -367,28 +401,11 @@ function OverviewFlowSpine({ stages }: { stages: OverviewFlowStage[] }) {
             <small>{stage.detail}</small>
           </div>
           <i aria-hidden="true">
-            <b style={{ width: `${stage.progress}%` }} />
+            <b />
           </i>
         </Link>
       ))}
     </nav>
-  );
-}
-
-function OverviewTriageRail({ actions }: { actions: OverviewAction[] }) {
-  return (
-    <div className="overview-triage-rail" aria-label="当前处理队列">
-      {actions.map((action) => (
-        <Link className={`overview-triage-link ${action.tone}`} to={action.to} key={action.label}>
-          <span>{action.icon}</span>
-          <div>
-            <strong>{action.label}</strong>
-            <em>{action.detail}</em>
-          </div>
-          <ArrowRight size={15} />
-        </Link>
-      ))}
-    </div>
   );
 }
 
@@ -400,12 +417,19 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
     <div className="overview-run-list">
       {runs.map((run, index) => {
         const readiness = runArtifactReadiness(run);
+        const f1 = runF1Score(run);
         return (
           <Link
             className={readiness.tone}
             key={run.run_id}
             to="/runs/$runId"
             params={{ runId: run.run_id }}
+            style={
+              {
+                "--run-readiness": `${readiness.percent}%`,
+                "--run-delay": `${index * 45}ms`
+              } as React.CSSProperties
+            }
           >
             <em>{String(index + 1).padStart(2, "0")}</em>
             <span className="overview-run-main">
@@ -416,13 +440,13 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
             </span>
             <span className="overview-run-artifacts" aria-label="run 产物完成度">
               <i>
-                <b style={{ width: `${readiness.percent}%` }} />
+                <b />
               </i>
               <small>{readiness.label}</small>
             </span>
-            <span className="overview-run-counts" aria-label="run 产物规模">
+            <span className="overview-run-counts" aria-label="run 指标与产物规模">
+              <b>{f1 === null ? "F1 -" : `F1 ${formatMetric(f1)}`}</b>
               <b>{run.prediction_count.toLocaleString()} pred</b>
-              <b>{run.report_count > 0 ? `${run.report_count.toLocaleString()} report` : "待评"}</b>
             </span>
             <span className="overview-run-state">
               <small>{runAgeLabel(run.created_at)}</small>
@@ -562,72 +586,8 @@ function overviewPostureLine({
   return "还没有评估报告，创建任务后首页会跟踪从样本到排行的闭环。";
 }
 
-function overviewTriageActions({
-  nextAction,
-  activeQueue,
-  failedJobs,
-  waitingEvaluation,
-  evaluatedRuns,
-  liveServices,
-  serviceCount
-}: {
-  nextAction: OverviewAction;
-  activeQueue: number;
-  failedJobs: number;
-  waitingEvaluation: number;
-  evaluatedRuns: number;
-  liveServices: number;
-  serviceCount: number;
-}): OverviewAction[] {
-  const actions: OverviewAction[] = [
-    nextAction,
-    {
-      label: "评测中心",
-      detail:
-        failedJobs > 0
-          ? `${failedJobs.toLocaleString()} failed`
-          : `${activeQueue.toLocaleString()} active jobs`,
-      to: "/jobs",
-      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
-      icon: <PlayCircle size={16} />
-    },
-    {
-      label: "结果库",
-      detail:
-        waitingEvaluation > 0
-          ? `${waitingEvaluation.toLocaleString()} runs 待评估`
-          : `${evaluatedRuns.toLocaleString()} reports`,
-      to: "/runs",
-      tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
-      icon: <FileCheck2 size={16} />
-    },
-    {
-      label: evaluatedRuns > 0 ? "排行榜" : "模型服务",
-      detail:
-        evaluatedRuns > 0
-          ? "主指标排行与差距"
-          : `${liveServices}/${serviceCount} services online`,
-      to: evaluatedRuns > 0 ? "/rank-board" : "/services",
-      tone: evaluatedRuns > 0 ? "good" : liveServices > 0 ? "live" : "warm",
-      icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <Server size={16} />
-    },
-    {
-      label: "对比分析",
-      detail: evaluatedRuns > 1 ? "复查模型差异" : "等待更多报告",
-      to: "/compare",
-      tone: evaluatedRuns > 1 ? "good" : "idle",
-      icon: <BarChart3 size={16} />
-    }
-  ];
-  const deduped = new Map<string, OverviewAction>();
-  for (const action of actions) {
-    deduped.set(`${action.to}:${action.label}`, action);
-  }
-  return [...deduped.values()].slice(0, 4);
-}
-
 function bestF1Run(runs: RunSummary[]) {
-  return runs.reduce<{ run: RunSummary; f1: number } | null>((best, run) => {
+  return runs.reduce<BestRun | null>((best, run) => {
     const f1 = runF1Score(run);
     if (f1 === null) {
       return best;

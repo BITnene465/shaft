@@ -15,21 +15,19 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v13",
-      ".overview-command-shell",
-      ".overview-now-panel",
-      ".overview-proof-strip",
-      ".overview-proof-card",
+      ".overview-home-v14",
+      ".overview-command-deck",
+      ".overview-decision-panel",
+      ".overview-run-focus",
       ".overview-loop-panel",
       ".overview-flow-spine",
       ".overview-flow-node",
-      ".overview-live-panel",
+      ".overview-pulse-panel",
+      ".overview-score-dial",
       ".overview-next-action",
       ".overview-signal-stack",
       ".overview-signal-card",
-      ".overview-recent-card",
-      ".overview-triage-rail",
-      ".overview-triage-link"
+      ".overview-recent-card"
     ]
   },
   {
@@ -491,21 +489,19 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const commandShell = document.querySelector(".overview-command-shell");
-    const nowPanel = document.querySelector(".overview-now-panel");
-    const livePanel = document.querySelector(".overview-live-panel");
+    const commandShell = document.querySelector(".overview-command-deck");
+    const nowPanel = document.querySelector(".overview-decision-panel");
+    const livePanel = document.querySelector(".overview-pulse-panel");
     const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
     const nextAction = document.querySelector(".overview-next-action");
-    const proofRails = Array.from(document.querySelectorAll(".overview-proof-card > i > b")).map((node) =>
-      Math.round(node.getBoundingClientRect().width)
-    );
+    const scoreDial = document.querySelector(".overview-score-dial");
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-now-panel, .overview-live-panel, .overview-loop-panel, .overview-recent-card"
+        ".overview-decision-panel, .overview-pulse-panel, .overview-loop-panel, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
     const commandShellStyle = commandShell ? getComputedStyle(commandShell) : null;
@@ -514,13 +510,13 @@ async function assertOverviewDensity(page, scope) {
     const loopPanelStyle = loopPanel ? getComputedStyle(loopPanel) : null;
     const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
+    const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
       commandShellDisplay: commandShellStyle?.display ?? "",
       flowNodes: document.querySelectorAll(".overview-flow-node").length,
-      proofCards: document.querySelectorAll(".overview-proof-card").length,
-      proofRails,
-      triageLinks: document.querySelectorAll(".overview-triage-link").length,
+      scoreDials: document.querySelectorAll(".overview-score-dial").length,
+      runFocusCards: document.querySelectorAll(".overview-run-focus").length,
       nextActions: document.querySelectorAll(".overview-next-action").length,
       signalCards,
       signalRails,
@@ -529,8 +525,8 @@ async function assertOverviewDensity(page, scope) {
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-recent-card").length,
-      nowPanels: document.querySelectorAll(".overview-now-panel").length,
-      livePanels: document.querySelectorAll(".overview-live-panel").length,
+      nowPanels: document.querySelectorAll(".overview-decision-panel").length,
+      livePanels: document.querySelectorAll(".overview-pulse-panel").length,
       loopPanels: document.querySelectorAll(".overview-loop-panel").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
@@ -547,7 +543,8 @@ async function assertOverviewDensity(page, scope) {
       livePanelDisplay: livePanelStyle?.display ?? "",
       loopPanelDisplay: loopPanelStyle?.display ?? "",
       recentCardDisplay: recentCardStyle?.display ?? "",
-      nextActionTransition: nextActionStyle?.transitionDuration ?? ""
+      nextActionTransition: nextActionStyle?.transitionDuration ?? "",
+      scoreDialTransition: scoreDialStyle?.transitionDuration ?? ""
     };
   });
   if (state.legacyActivityMatrix !== 0) {
@@ -569,7 +566,7 @@ async function assertOverviewDensity(page, scope) {
     state.recentCardDisplay !== "block"
   ) {
     throw new Error(
-      `${scope}: overview should use a value-first command console ${JSON.stringify({
+      `${scope}: overview should use a value-first operations desk ${JSON.stringify({
         commandShellDisplay: state.commandShellDisplay,
         nowPanelDisplay: state.nowPanelDisplay,
         livePanelDisplay: state.livePanelDisplay,
@@ -580,19 +577,18 @@ async function assertOverviewDensity(page, scope) {
   }
   if (
     state.flowNodes !== 4 ||
-    state.proofCards !== 3 ||
+    state.scoreDials !== 1 ||
+    state.runFocusCards !== 1 ||
     state.nextActions !== 1 ||
-    state.triageLinks !== 4 ||
-    state.proofRails.length !== 3 ||
-    !state.proofRails.some((width) => width > 0)
+    state.signalCards.length !== 4
   ) {
     throw new Error(
-      `${scope}: overview should expose proof metrics, flow nodes, one next action, and triage links ${JSON.stringify({
+      `${scope}: overview should expose score focus, flow nodes, one next action, and pulse cards ${JSON.stringify({
         flowNodes: state.flowNodes,
-        proofCards: state.proofCards,
+        scoreDials: state.scoreDials,
+        runFocusCards: state.runFocusCards,
         nextActions: state.nextActions,
-        triageLinks: state.triageLinks,
-        proofRails: state.proofRails
+        signalCards: state.signalCards.length
       })}`
     );
   }
@@ -623,6 +619,9 @@ async function assertOverviewDensity(page, scope) {
   }
   if (!state.nextActionTransition || state.nextActionTransition === "0s") {
     throw new Error(`${scope}: overview next action is missing interaction transition`);
+  }
+  if (!state.scoreDialTransition || state.scoreDialTransition === "0s") {
+    throw new Error(`${scope}: overview score dial is missing interaction transition`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
