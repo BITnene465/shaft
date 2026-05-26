@@ -290,6 +290,7 @@ export type SamplePage<T> = {
   offset: number;
   limit: number;
   total: number;
+  filters: Record<string, string>;
   labels: string[];
   samples: T[];
 };

@@ -521,6 +521,7 @@ def create_app(
                 "offset": page.offset,
                 "limit": page.limit,
                 "total": page.total,
+                "filters": page.filters,
                 "labels": page.labels,
                 "samples": [
                     {
@@ -874,6 +875,7 @@ def create_app(
                 "offset": page.offset,
                 "limit": page.limit,
                 "total": page.total,
+                "filters": page.filters,
                 "labels": page.labels,
                 "samples": [
                     {

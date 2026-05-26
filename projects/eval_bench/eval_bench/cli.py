@@ -685,9 +685,10 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-run-samples": {
         "type": "object",
-        "required": ["run_id", "offset", "limit", "total", "labels", "samples"],
+        "required": ["run_id", "offset", "limit", "total", "filters", "labels", "samples"],
         "properties": {
             "run_id": {"type": "str"},
+            "filters": {"type": "object"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
         },
@@ -715,9 +716,18 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-benchmark-samples": {
         "type": "object",
-        "required": ["benchmark_id", "offset", "limit", "total", "labels", "samples"],
+        "required": [
+            "benchmark_id",
+            "offset",
+            "limit",
+            "total",
+            "filters",
+            "labels",
+            "samples",
+        ],
         "properties": {
             "benchmark_id": {"type": "str"},
+            "filters": {"type": "object"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
         },
@@ -2047,6 +2057,7 @@ def _cmd_list_run_samples(args: argparse.Namespace) -> None:
                 "offset": page.offset,
                 "limit": page.limit,
                 "total": page.total,
+                "filters": page.filters,
                 "labels": page.labels,
                 "samples": [asdict(sample) for sample in page.samples],
             },
@@ -2094,6 +2105,7 @@ def _cmd_list_benchmark_samples(args: argparse.Namespace) -> None:
                 "offset": page.offset,
                 "limit": page.limit,
                 "total": page.total,
+                "filters": page.filters,
                 "labels": page.labels,
                 "samples": [asdict(sample) for sample in page.samples],
             },

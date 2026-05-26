@@ -952,7 +952,16 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
     sample_page = client.get("/api/runs/run1/samples").json()
     assert sample_page["total"] == 1
     assert sample_page["labels"] == ["icon"]
-    assert client.get("/api/runs/run1/samples", params={"label": "icon"}).json()["total"] == 1
+    filtered_run_samples = client.get(
+        "/api/runs/run1/samples",
+        params={"label": "icon"},
+    ).json()
+    assert filtered_run_samples["total"] == 1
+    assert filtered_run_samples["filters"] == {
+        "run_id": "run1",
+        "label": "icon",
+        "error_filter": "all",
+    }
     assert client.get("/api/runs/run1/samples", params={"label": "arrow"}).json()["total"] == 0
     assert samples[0]["gt_instance_count"] == 1
     assert samples[0]["pred_instance_count"] == 1
@@ -1091,12 +1100,15 @@ def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> 
     sample_page = client.get("/api/benchmarks/multitask_val_v1/samples").json()
     assert sample_page["total"] == 1
     assert sample_page["labels"] == ["icon"]
-    assert (
-        client.get("/api/benchmarks/multitask_val_v1/samples", params={"label": "icon"}).json()[
-            "total"
-        ]
-        == 1
-    )
+    filtered_benchmark_samples = client.get(
+        "/api/benchmarks/multitask_val_v1/samples",
+        params={"label": "icon"},
+    ).json()
+    assert filtered_benchmark_samples["total"] == 1
+    assert filtered_benchmark_samples["filters"] == {
+        "benchmark_id": "multitask_val_v1",
+        "label": "icon",
+    }
     assert (
         client.get("/api/benchmarks/multitask_val_v1/samples", params={"label": "arrow"}).json()[
             "total"

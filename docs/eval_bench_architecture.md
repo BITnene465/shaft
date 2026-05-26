@@ -52,8 +52,10 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
      worker、evaluator、prediction import、store 不允许各自复制 `.png/.jpg` fallback 规则。
    - `sample_scope.py` 是 run sample 按 `target_labels` 裁剪 GT、prediction payload 和 diagnostics
      的单一真源。
-   - Benchmark sample 视图展示原始 benchmark 的全量 label；Run sample 视图必须按 run
+  - Benchmark sample 视图展示原始 benchmark 的全量 label；Run sample 视图必须按 run
      spec 的 `target_labels` 过滤 GT、prediction、label options 和实例计数。
+   - Run / benchmark sample 列表的 CLI 和 Dashboard API 必须回显 `filters`，让 agent 和前端能够
+     复现 label/error 筛选与分页状态。
 7. **Rendering and Asset Layer**
    - Image proxy、preview、tile、viewer geometry、overlay color/style。
    - 只消费 sample detail 和 workspace settings，不参与 metric 计算。
@@ -220,7 +222,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary/weighted 语义；run note 与 label policy 命令必须描述 note/concurrency 字段和
   detection/keypoint label 子任务字段，并在 `argument_semantics.target_labels` 中说明 repeatable detection label 子任务、
   空值 label policy、keypoint 固定 arrow 和推荐 discovery 命令；run/sample inspection 命令必须描述 summary、payload、diagnostics
-  和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
+  和 scoped label 字段，样本列表还必须回显 `filters`；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
   常用命令的真实 stdout 还要通过 CLI 测试按 `AGENT_COMMAND_OUTPUT_SCHEMAS` 校验，不能只验证 schema 字段存在。
   template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
   runtime command、warning/error 和 job record 字段，

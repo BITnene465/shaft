@@ -222,6 +222,7 @@ class RunSamplePage:
     offset: int
     limit: int
     total: int
+    filters: dict[str, str]
     labels: list[str]
     samples: list[RunSampleSummary]
 
@@ -242,6 +243,7 @@ class BenchmarkSamplePage:
     offset: int
     limit: int
     total: int
+    filters: dict[str, str]
     labels: list[str]
     samples: list[BenchmarkSampleSummary]
 
@@ -742,7 +744,14 @@ class EvalBenchStore:
         start = max(0, offset)
         page_limit = max(1, limit)
         normalized_label = _normalize_filter_value(label)
-        normalized_error = error_filter if error_filter in {"all", "fn", "fp", "missing", "clean"} else "all"
+        normalized_error = (
+            error_filter if error_filter in {"all", "fn", "fp", "missing", "clean"} else "all"
+        )
+        filters = {
+            "run_id": run_id,
+            "label": normalized_label or "",
+            "error_filter": normalized_error,
+        }
         if normalized_label is None and normalized_error == "all":
             stop = min(len(sample_paths), start + page_limit)
             samples = [
@@ -759,6 +768,7 @@ class EvalBenchStore:
                 offset=start,
                 limit=page_limit,
                 total=len(sample_paths),
+                filters=filters,
                 labels=labels,
                 samples=samples,
             )
@@ -777,6 +787,7 @@ class EvalBenchStore:
             offset=start,
             limit=page_limit,
             total=len(filtered),
+            filters=filters,
             labels=labels,
             samples=filtered[start : start + page_limit],
         )
@@ -846,6 +857,10 @@ class EvalBenchStore:
         start = max(0, offset)
         page_limit = max(1, limit)
         normalized_label = _normalize_filter_value(label)
+        filters = {
+            "benchmark_id": benchmark_id,
+            "label": normalized_label or "",
+        }
         if normalized_label is None:
             stop = min(len(sample_paths), start + page_limit)
             samples = [
@@ -860,6 +875,7 @@ class EvalBenchStore:
                 offset=start,
                 limit=page_limit,
                 total=len(sample_paths),
+                filters=filters,
                 labels=labels,
                 samples=samples,
             )
@@ -876,6 +892,7 @@ class EvalBenchStore:
             offset=start,
             limit=page_limit,
             total=len(filtered),
+            filters=filters,
             labels=labels,
             samples=filtered[start : start + page_limit],
         )

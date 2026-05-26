@@ -359,9 +359,11 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         "offset",
         "limit",
         "total",
+        "filters",
         "labels",
         "samples",
     ]
+    assert run_samples_output_schema["properties"]["filters"]["type"] == "object"
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["gt_instance_count"] == "int"
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["diagnostics"] == "object|null"
     assert (
@@ -369,6 +371,8 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         == run_samples_output_schema["properties"]["samples"]["item_shape"]
     )
     benchmark_samples_output_schema = commands_by_name["list-benchmark-samples"]["output_schema"]
+    assert "filters" in benchmark_samples_output_schema["required"]
+    assert benchmark_samples_output_schema["properties"]["filters"]["type"] == "object"
     assert benchmark_samples_output_schema["properties"]["samples"]["item_shape"]["instance_count"] == "int"
     assert (
         commands_by_name["show-benchmark-sample"]["output_schema"]["properties"]["sample"][
@@ -1963,6 +1967,11 @@ def test_cli_reads_run_reports_and_scoped_samples_for_agents(tmp_path: Path, cap
     )
     _cmd_list_run_samples(samples_args)
     samples = json.loads(capsys.readouterr().out)
+    assert samples["filters"] == {
+        "run_id": "run_arrow",
+        "label": "arrow",
+        "error_filter": "all",
+    }
     assert samples["labels"] == ["arrow"]
     assert samples["total"] == 1
     assert samples["samples"][0]["labels"] == ["arrow"]
@@ -2005,6 +2014,7 @@ def test_cli_reads_benchmark_samples_for_agents(tmp_path: Path, capsys) -> None:
     _cmd_list_benchmark_samples(samples_args)
     samples = json.loads(capsys.readouterr().out)
     assert samples["benchmark_id"] == "bench1"
+    assert samples["filters"] == {"benchmark_id": "bench1", "label": "arrow"}
     assert samples["labels"] == ["arrow", "icon"]
     assert samples["total"] == 1
     assert samples["samples"][0]["labels"] == ["arrow", "icon"]

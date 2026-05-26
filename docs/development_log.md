@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 样本列表没有回显 filter 状态
+
+### 现象
+
+`list-run-samples` 和 `list-benchmark-samples` 已经支持 label / error filter，也在 agent command
+contract 中声明了参数语义，但实际 CLI stdout 和 Dashboard API payload 只返回 offset、limit、total、
+labels 和 samples，没有回显当前 `filters`。
+
+### 根因
+
+样本列表最早作为 inspector 局部分页加入，返回结构只服务前端当前页面渲染；后来样本级过滤和 agent
+排障能力补上后，没有把 filter echo 收敛到 `RunSamplePage` / `BenchmarkSamplePage` 真源。这会让 agent
+翻页、复现实验或记录排障过程时缺少机器可读筛选状态。这是 CLI/API contract 缺口，不是模型能力问题，
+也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 和前端对 run sample / benchmark sample label、error_filter 与分页状态的复现。
+- 不改变样本筛选结果、target label scope、diagnostics、evaluator、rank-board 或 report 语义。
+
+### 修复方式
+
+- `RunSamplePage` 增加 `filters={run_id,label,error_filter}`；`BenchmarkSamplePage` 增加
+  `filters={benchmark_id,label}`。
+- CLI `list-run-samples` / `list-benchmark-samples` 和 Dashboard API 对应样本列表统一输出同一份 filters。
+- Agent output schema、前端 `SamplePage` 类型、CLI 测试和 Dashboard API 测试同步更新。
+- README、架构文档和脚本文档同步样本列表 filter echo 契约。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_reads_run_reports_and_scoped_samples_for_agents projects/eval_bench/tests/test_cli.py::test_cli_reads_benchmark_samples_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_run_sample_detail_and_image projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_benchmark_sample_detail_and_image`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增样本级筛选参数时，必须同步 sample page `filters`、agent output schema 和 Dashboard API 测试。
+- Inspector 局部能力升级为 agent 能力时，不能只补参数和 semantics，payload 也要能回显当前筛选状态。
+
 ## 2026-05-26: Eval Bench agent 高级检索契约缺少 filter 语义
 
 ### 现象
