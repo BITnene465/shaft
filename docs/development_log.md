@@ -127,6 +127,46 @@ eval / codec / metric / data 误判。
 - 用户反复指出的 UI 价值/空间策略问题需要至少进入一个轻量浏览器 smoke，而不只放在长耗时 layout smoke 中。
 - `render-check` 只放跨页面基础基线；复杂多路由、多 viewport、弹窗和分页仍归 `test:layout`。
 
+## 2026-05-26: Eval Bench init-run 未继承 prompt template 评估默认值
+
+### 现象
+
+job preflight 和 worker 会从 prompt template registry 继承 parser、metric profile、visualization profile、
+generation 和 data 默认值；但 CLI `init-run --prompt-id` 只读取了 prompt metadata 中的 `target_labels`。
+agent 直接初始化 run 时，manifest 可能仍落到 `shaft.codec.json_any`、`default` metric/profile 和 CLI
+硬编码采样默认值，和同一个 prompt 通过 job 路径创建出的 run 不一致。
+
+### 根因
+
+`init-run` 早期是轻量 run manifest 创建入口，prompt registry 接入时只补了 label 子任务语义，
+没有同步接入模板中的评估解析器、指标 profile 和运行输入默认值。argparse 也把采样参数设成硬默认，
+导致无法区分“用户未传”与“用户显式覆写”。
+
+### 影响范围
+
+- 影响 CLI/agent 直接使用 prompt template 初始化 run 的评估语义一致性。
+- 不影响已生成 report 的计算结果、Rank Board 默认 F1、weighted scheme、Dashboard UI 或 viewer。
+- 这是 eval / codec / metric / data 入口一致性问题，不是模型能力问题。
+
+### 修复方式
+
+- `init-run` 读取同一个 `PromptTemplateRecord`，将 `parser`、`metric_profile`、`visualization_profile`
+  写入 run manifest。
+- 将 prompt template 的 `generation` / `data` 作为 `InferenceParams` 默认值，支持 `max_tokens`、
+  `temperature`、`top_p`、`min_pixels`、`max_pixels` 和 `batch_size`。
+- 将对应 CLI 参数默认改为 `None`，确保显式传参优先于 prompt template 默认值。
+- README 和 `docs/scripts.md` 同步说明 `init-run --prompt-id` 的继承语义。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_init_run_cli_infers_target_labels_from_prompt_policy projects/eval_bench/tests/test_cli.py::test_init_run_cli_uses_custom_prompt_template_defaults projects/eval_bench/tests/test_cli.py::test_init_run_cli_generation_args_override_prompt_template_defaults projects/eval_bench/tests/test_cli.py::test_init_run_cli_rejects_unknown_target_label_when_benchmark_has_index`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- prompt template 中任何影响评估语义或输入预算的字段，都必须在 init-run、preflight 和 worker 入口同源解析。
+- CLI 参数需要保留“未传”和“显式覆写”的区别，避免硬默认值覆盖 registry 真源。
+
 ## 2026-05-26: Eval Bench init-run 未校验 benchmark label 索引
 
 ### 现象

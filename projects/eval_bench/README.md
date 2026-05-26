@@ -421,7 +421,9 @@ label 子任务范围；keypoint run 固定评价 `arrow`，传入非 `arrow` la
 `init-run` 支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
 后端会按同一份 `label_policy.py` 从 prompt template registry 的 `metadata.target_labels`、
 legacy prompt id 和 task 推导默认范围；推导出的 prompt metadata 也会写入 run manifest 的
-`spec.prompt.metadata`，便于后续 evaluator 复现同一语义：
+`spec.prompt.metadata`，便于后续 evaluator 复现同一语义。`init-run --prompt-id` 同时会继承
+prompt template 的 `parser`、`metric_profile`、`visualization_profile`、`generation` 和 `data`
+默认值；CLI 显式传入的采样、pixel budget 和 batch 参数仍优先：
 
 ```bash
 .venv/bin/python scripts/eval_bench.py init-run \

@@ -836,12 +836,12 @@ def _build_parser() -> argparse.ArgumentParser:
     init_run.add_argument("--max-model-len", type=int, default=None)
     init_run.add_argument("--gpu-memory-utilization", type=float, default=None)
     init_run.add_argument("--max-num-seqs", type=int, default=None)
-    init_run.add_argument("--max-tokens", type=int, default=4096)
-    init_run.add_argument("--temperature", type=float, default=0.0)
-    init_run.add_argument("--top-p", type=float, default=1.0)
+    init_run.add_argument("--max-tokens", type=int, default=None)
+    init_run.add_argument("--temperature", type=float, default=None)
+    init_run.add_argument("--top-p", type=float, default=None)
     init_run.add_argument("--min-pixels", type=int, default=None)
     init_run.add_argument("--max-pixels", type=int, default=None)
-    init_run.add_argument("--batch-size", type=int, default=1)
+    init_run.add_argument("--batch-size", type=int, default=None)
     init_run.add_argument("--submitter", default="local")
 
     validate = subparsers.add_parser("validate-prediction", help="Validate one prediction JSON.")
@@ -1324,7 +1324,10 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
 
     task = args.task
-    prompt_metadata = _prompt_metadata_for_init_run(args.output_root, args.prompt_id)
+    prompt_template = _prompt_template_for_init_run(args.output_root, args.prompt_id)
+    prompt_metadata = dict(prompt_template.metadata) if prompt_template is not None else {}
+    prompt_generation = dict(prompt_template.generation) if prompt_template is not None else {}
+    prompt_data = dict(prompt_template.data) if prompt_template is not None else {}
     target_policy = resolve_target_label_policy(
         explicit=args.target_labels,
         prompt_id=str(args.prompt_id),
@@ -1356,6 +1359,18 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
                 path=args.prompt_path,
                 metadata=prompt_metadata,
             ),
+            parser=_prompt_string_default(
+                prompt_template.parser if prompt_template is not None else None,
+                "shaft.codec.json_any",
+            ),
+            metric_profile=_prompt_string_default(
+                prompt_template.metric_profile if prompt_template is not None else None,
+                "default",
+            ),
+            visualization_profile=_prompt_string_default(
+                prompt_template.visualization_profile if prompt_template is not None else None,
+                "default",
+            ),
             target_labels=target_policy.labels,
             inference=InferenceParams(
                 backend=str(args.backend),
@@ -1368,12 +1383,40 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
                 max_model_len=args.max_model_len,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 max_num_seqs=args.max_num_seqs,
-                max_tokens=int(args.max_tokens),
-                temperature=float(args.temperature),
-                top_p=float(args.top_p),
-                min_pixels=args.min_pixels,
-                max_pixels=args.max_pixels,
-                batch_size=int(args.batch_size),
+                max_tokens=_prompt_int_default(
+                    args.max_tokens,
+                    prompt_generation,
+                    ("max_tokens", "max-tokens"),
+                    default=4096,
+                ),
+                temperature=_prompt_float_default(
+                    args.temperature,
+                    prompt_generation,
+                    ("temperature",),
+                    default=0.0,
+                ),
+                top_p=_prompt_float_default(
+                    args.top_p,
+                    prompt_generation,
+                    ("top_p", "top-p"),
+                    default=1.0,
+                ),
+                min_pixels=_prompt_optional_int_default(
+                    args.min_pixels,
+                    prompt_data,
+                    ("min_pixels", "min-pixels"),
+                ),
+                max_pixels=_prompt_optional_int_default(
+                    args.max_pixels,
+                    prompt_data,
+                    ("max_pixels", "max-pixels"),
+                ),
+                batch_size=_prompt_int_default(
+                    args.batch_size,
+                    prompt_data,
+                    ("batch_size", "batch-size"),
+                    default=1,
+                ),
             ),
             metadata={"target_labels_source": target_policy.source},
         ),
@@ -1397,13 +1440,69 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
 
 
-def _prompt_metadata_for_init_run(output_root: str, prompt_id: str) -> dict[str, object]:
+def _prompt_template_for_init_run(output_root: str, prompt_id: str):
     from .database import EvalBenchDatabase
 
-    record = EvalBenchDatabase(output_root).get_prompt_template(str(prompt_id))
-    if record is None:
-        return {}
-    return dict(record.metadata)
+    return EvalBenchDatabase(output_root).get_prompt_template(str(prompt_id))
+
+
+def _prompt_string_default(value: object, default: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
+
+
+def _prompt_int_default(
+    explicit: object,
+    defaults: dict[str, object],
+    keys: tuple[str, ...],
+    *,
+    default: int,
+) -> int:
+    value = _prompt_first_value(
+        explicit,
+        *[_prompt_mapping_value(defaults, key) for key in keys],
+        default,
+    )
+    return int(value)
+
+
+def _prompt_float_default(
+    explicit: object,
+    defaults: dict[str, object],
+    keys: tuple[str, ...],
+    *,
+    default: float,
+) -> float:
+    value = _prompt_first_value(
+        explicit,
+        *[_prompt_mapping_value(defaults, key) for key in keys],
+        default,
+    )
+    return float(value)
+
+
+def _prompt_optional_int_default(
+    explicit: object,
+    defaults: dict[str, object],
+    keys: tuple[str, ...],
+) -> int | None:
+    value = _prompt_first_value(
+        explicit,
+        *[_prompt_mapping_value(defaults, key) for key in keys],
+    )
+    return int(value) if value is not None else None
+
+
+def _prompt_first_value(*values: object) -> object | None:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _prompt_mapping_value(mapping: dict[str, object], key: str) -> object | None:
+    return mapping.get(key)
 
 
 def _benchmark_labels_for_init_run(output_root: str, benchmark_id: str) -> list[str]:

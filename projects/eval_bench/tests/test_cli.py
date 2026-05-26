@@ -751,9 +751,17 @@ def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) ->
     assert payload["spec"]["target_labels"] == ["icon", "image", "shape"]
     assert payload["spec"]["metadata"]["target_labels_source"] == "prompt_metadata"
     assert payload["spec"]["prompt"]["metadata"]["target_labels"] == ["icon", "image", "shape"]
+    assert payload["spec"]["parser"] == "raw_data_detection_v1"
+    assert payload["spec"]["metric_profile"] == "detection_iou_v1"
+    assert payload["spec"]["visualization_profile"] == "default"
+    assert payload["spec"]["inference"]["max_tokens"] == 4096
+    assert payload["spec"]["inference"]["temperature"] == 0.0
+    assert payload["spec"]["inference"]["top_p"] == 1.0
+    assert payload["spec"]["inference"]["max_pixels"] == 1048576
+    assert payload["spec"]["inference"]["batch_size"] == 1
 
 
-def test_init_run_cli_uses_custom_prompt_metadata_target_labels(tmp_path: Path) -> None:
+def test_init_run_cli_uses_custom_prompt_template_defaults(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "benchmarks" / "bench1" / "benchmark.json",
         {
@@ -773,6 +781,11 @@ def test_init_run_cli_uses_custom_prompt_metadata_target_labels(tmp_path: Path) 
             "task": "detection",
             "system_prompt": "Inspect the diagram.",
             "user_prompt": "Find custom arrows.",
+            "parser": "custom_parser_v2",
+            "metric_profile": "custom_metric_v2",
+            "visualization_profile": "custom_visual_v2",
+            "generation": {"max_tokens": 123, "temperature": 0.2, "top_p": 0.7},
+            "data": {"max_pixels": 654321, "batch_size": 3},
             "metadata": {"target_labels": ["custom_arrow"]},
         }
     )
@@ -810,6 +823,75 @@ def test_init_run_cli_uses_custom_prompt_metadata_target_labels(tmp_path: Path) 
     assert payload["spec"]["target_labels"] == ["custom_arrow"]
     assert payload["spec"]["metadata"]["target_labels_source"] == "prompt_metadata"
     assert payload["spec"]["prompt"]["metadata"]["target_labels"] == ["custom_arrow"]
+    assert payload["spec"]["parser"] == "custom_parser_v2"
+    assert payload["spec"]["metric_profile"] == "custom_metric_v2"
+    assert payload["spec"]["visualization_profile"] == "custom_visual_v2"
+    assert payload["spec"]["inference"]["max_tokens"] == 123
+    assert payload["spec"]["inference"]["temperature"] == 0.2
+    assert payload["spec"]["inference"]["top_p"] == 0.7
+    assert payload["spec"]["inference"]["max_pixels"] == 654321
+    assert payload["spec"]["inference"]["batch_size"] == 3
+
+
+def test_init_run_cli_generation_args_override_prompt_template_defaults(tmp_path: Path) -> None:
+    EvalBenchDatabase(tmp_path).upsert_prompt_template(
+        {
+            "prompt_id": "custom.diagram.arrow",
+            "label": "Custom diagram arrow",
+            "task": "detection",
+            "system_prompt": "Inspect the diagram.",
+            "user_prompt": "Find custom arrows.",
+            "generation": {"max_tokens": 123, "temperature": 0.2, "top_p": 0.7},
+            "data": {"max_pixels": 654321, "batch_size": 3},
+            "metadata": {"target_labels": ["custom_arrow"]},
+        }
+    )
+    args = _build_parser().parse_args(
+        [
+            "init-run",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "custom_prompt_run",
+            "--task",
+            "detection",
+            "--model-id",
+            "model-a",
+            "--model-path",
+            "outputs/model-a/best",
+            "--benchmark-id",
+            "bench1",
+            "--benchmark-root",
+            str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "--split",
+            "val",
+            "--spec-id",
+            "custom.prompt",
+            "--prompt-id",
+            "custom.diagram.arrow",
+            "--max-tokens",
+            "777",
+            "--temperature",
+            "0",
+            "--top-p",
+            "1",
+            "--max-pixels",
+            "42",
+            "--batch-size",
+            "2",
+        ]
+    )
+
+    _cmd_init_run(args)
+
+    payload = json.loads(
+        (tmp_path / "runs" / "custom_prompt_run" / "run.json").read_text(encoding="utf-8")
+    )
+    assert payload["spec"]["inference"]["max_tokens"] == 777
+    assert payload["spec"]["inference"]["temperature"] == 0.0
+    assert payload["spec"]["inference"]["top_p"] == 1.0
+    assert payload["spec"]["inference"]["max_pixels"] == 42
+    assert payload["spec"]["inference"]["batch_size"] == 2
 
 
 def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys) -> None:
