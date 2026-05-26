@@ -477,6 +477,7 @@ assert(
   "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
 );
 const runTables = await readSource("src/runTables.tsx");
+const comparePage = await readSource("src/comparePage.tsx");
 assert(
   runTables.includes('hash="run-note"') &&
     runTables.includes('className={row.original.note ? "run-note-preview" : "run-note-preview empty"}') &&
@@ -493,8 +494,11 @@ assert(
     formattersSource.includes("/ F1 ${formatMetric(runF1Score(run))}") &&
     runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
     runTables.includes('header: "F1@.50"') &&
-    runTables.includes("formatMetric(runF1Score(row.original))"),
-  "run option labels and run tables must foreground F1 as the default direct metric",
+    runTables.includes("formatMetric(runF1Score(row.original))") &&
+    comparePage.includes("runF1Score") &&
+    comparePage.includes('className="compare-run-primary-metric"') &&
+    comparePage.includes("F1 {formatMetric(runF1Score(selected))}"),
+  "run option labels, run tables, and compare run cards must foreground F1 as the default direct metric",
 );
 assert(
   runTables.includes("footer?: ReactNode") &&
@@ -570,7 +574,6 @@ assert(
     (servicesPage.match(/<FormSelectControl/g) ?? []).length >= 1,
   "service registration dialog selects must use FormSelectControl",
 );
-const comparePage = await readSource("src/comparePage.tsx");
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
   comparePage.includes("const COMPARE_RUN_PAGE_SIZE = 80;") &&

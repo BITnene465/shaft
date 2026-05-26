@@ -23,6 +23,7 @@ import {
   formatRunOption,
   formatSignedInteger,
   formatSignedMetric,
+  runF1Score,
   runIdExists,
   unique
 } from "./formatters";
@@ -352,8 +353,9 @@ function RunSelectRail({
           <span>{selected.model_id}</span>
           <div>
             <Badge value={selected.status} domain="run" />
-            <em>R {formatMetric(selected.recall_iou50)}</em>
+            <em className="compare-run-primary-metric">F1 {formatMetric(runF1Score(selected))}</em>
             <em>P {formatMetric(selected.precision_iou50)}</em>
+            <em>R {formatMetric(selected.recall_iou50)}</em>
           </div>
         </div>
       ) : value && !disabled ? (

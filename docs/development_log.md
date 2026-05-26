@@ -603,6 +603,7 @@ rank-board 的默认排序语义没有改变。
 - 在 `formatters.ts` 新增 `f1Score()` 和 `runF1Score()`，作为前端直接 metric 展示的 F1 计算真源。
 - `formatRunOption()` 改为显示 `F1 ...`，避免 run 选择轨把 recall 放在主指标位置。
 - `RunTable` 增加 `F1@.50` 列，并继续保留 P/R 作为次级诊断列。
+- Compare 选中 run 卡片增加 `F1 ...` 主指标胶囊，P/R 只保留为次级诊断值。
 - `RankBoardPage` 的 F1 fallback 复用共享 `f1Score()`，避免重复实现 F1 公式。
 
 ### 回归测试
@@ -614,7 +615,7 @@ rank-board 的默认排序语义没有改变。
 ### 后续防线
 
 - `test-formatters.mjs` 锁住 F1 计算、空值处理和 run 选项文案。
-- `test-ui-contracts.mjs` 要求 run table 与 run option foreground F1，避免后续又退回 recall-first 文案。
+- `test-ui-contracts.mjs` 要求 run table、run option 和 Compare run card foreground F1，避免后续又退回 recall-first 文案。
 - 精细 P/R/mIoU 仍属于 Rank Board、Compare 和 report 诊断；默认直接主指标文案使用 F1。
 
 ## 2026-05-26: Eval Bench 首页 v11 仍像静态面板拼盘

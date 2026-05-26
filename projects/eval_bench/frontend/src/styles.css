@@ -2621,6 +2621,14 @@ h2 {
   font-weight: 740;
 }
 
+.compare-run-card .compare-run-primary-metric {
+  color: #0b6b5e;
+  background: rgba(20, 184, 166, 0.12);
+  border: 1px solid rgba(20, 184, 166, 0.24);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
 .compare-run-pager {
   min-height: 38px;
   padding: 6px 0 2px;
