@@ -138,6 +138,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
     assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
+    assert all(isinstance(item["argument_semantics"], dict) for item in payload["commands"])
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
     assert set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS
@@ -158,6 +159,9 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
         "item_shape"
     ]["arguments"] == "list[object]"
+    assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
+        "item_shape"
+    ]["argument_semantics"] == "object"
     assert commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"] == "list[str]"
     assert commands_by_name["init-run"]["output_schema"]["type"] == "string"
     assert commands_by_name["validate-prediction"]["output_schema"]["properties"]["instances"] == "int"
@@ -406,6 +410,17 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     rank_args = {item["dest"]: item for item in commands_by_name["rank-board"]["arguments"]}
     assert rank_args["sort_by"]["default"] == "f1_iou50"
     assert "weighted_score" in rank_args["sort_by"]["choices"]
+    rank_sort_semantics = commands_by_name["rank-board"]["argument_semantics"]["sort_by"]
+    assert rank_sort_semantics["primary_metrics"] == [
+        "f1_iou50",
+        "precision_iou50",
+        "recall_iou50",
+        "mean_iou",
+        "prediction_count",
+    ]
+    assert rank_sort_semantics["auxiliary_sorts"] == ["created_at", "run_id"]
+    assert rank_sort_semantics["weighted_sort"] == "weighted_score"
+    assert rank_sort_semantics["auxiliary_sort_keeps_primary_metric"] == "f1_iou50"
     assert rank_args["min_score"]["type"] == "float"
     assert {
         tuple(group["arguments"]): group["required"]
@@ -439,6 +454,15 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     assert command["destructive"] is False
     assert command["argv_prefix"] == ["scripts/eval_bench.py", "rank-board"]
     assert "rank-board" in command["usage"]
+    assert command["argument_semantics"]["sort_by"]["primary_metrics"][0] == "f1_iou50"
+    assert command["argument_semantics"]["sort_by"]["auxiliary_sorts"] == [
+        "created_at",
+        "run_id",
+    ]
+    assert (
+        command["argument_semantics"]["sort_by"]["weighted_sort_requires"]
+        == ["--rank-scheme-json", "--rank-scheme-file"]
+    )
     assert command["output_schema"]["properties"]["facets"]["item_shape"] == {
         "value": "str",
         "count": "int",

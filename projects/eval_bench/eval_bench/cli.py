@@ -14,6 +14,17 @@ DETECTION_TARGET_LABEL_HELP = (
     "Keypoint runs are fixed to arrow and reject non-arrow labels."
 )
 
+RANK_PRIMARY_METRIC_SORTS = (
+    "f1_iou50",
+    "precision_iou50",
+    "recall_iou50",
+    "mean_iou",
+    "prediction_count",
+)
+RANK_AUXILIARY_SORTS = ("created_at", "run_id")
+RANK_WEIGHTED_SORT = "weighted_score"
+RANK_SORT_BY_CHOICES = (*RANK_PRIMARY_METRIC_SORTS, *RANK_AUXILIARY_SORTS, RANK_WEIGHTED_SORT)
+
 
 AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
     "list-agent-commands": {"domain": "meta", "mutates_state": False},
@@ -272,8 +283,21 @@ AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
     "mutates_state": "bool",
     "destructive": "bool",
     "arguments": "list[object]",
+    "argument_semantics": "object",
     "mutually_exclusive_groups": "list[object]",
     "output_schema": "object",
+}
+AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
+    "rank-board": {
+        "sort_by": {
+            "primary_metrics": list(RANK_PRIMARY_METRIC_SORTS),
+            "auxiliary_sorts": list(RANK_AUXILIARY_SORTS),
+            "weighted_sort": RANK_WEIGHTED_SORT,
+            "default_primary_metric": "f1_iou50",
+            "auxiliary_sort_keeps_primary_metric": "f1_iou50",
+            "weighted_sort_requires": ["--rank-scheme-json", "--rank-scheme-file"],
+        }
+    }
 }
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
@@ -1127,16 +1151,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rank_board.add_argument("--min-score", type=float, default=None)
     rank_board.add_argument(
         "--sort-by",
-        choices=(
-            "f1_iou50",
-            "precision_iou50",
-            "recall_iou50",
-            "mean_iou",
-            "prediction_count",
-            "created_at",
-            "run_id",
-            "weighted_score",
-        ),
+        choices=RANK_SORT_BY_CHOICES,
         default="f1_iou50",
     )
     rank_board.add_argument("--sort-order", choices=("asc", "desc"), default="desc")
@@ -2370,6 +2385,7 @@ def _agent_command_contract_from_maps(
         "usage": command_usage.get(name, ""),
         "argv_prefix": ["scripts/eval_bench.py", name],
         "arguments": command_arguments[name]["arguments"],
+        "argument_semantics": AGENT_COMMAND_ARGUMENT_SEMANTICS.get(name, {}),
         "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
         "output_schema": AGENT_COMMAND_OUTPUT_SCHEMAS.get(name, {}),
     }

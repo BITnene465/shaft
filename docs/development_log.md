@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench rank-board agent 契约没有说明 sort_by 语义分层
+
+### 现象
+
+Rank Board 前端已经把 F1/P/R/mIoU/预测数和 `created_at` / `run_id` 分成“主指标”和“辅助排序”，但
+`show-agent-command --name rank-board` 仍只暴露 `--sort-by` 的 choices 列表。agent 看到
+`created_at` 或 `run_id` 时，无法从契约里判断这些字段只是辅助排序，容易误当成 primary metric。
+
+### 根因
+
+agent contract 只从 argparse 自动导出了参数形态，没有为同一个参数下的多类语义提供结构化补充说明。后端
+rank-board 实际行为是正确的：`sort_by=created_at|run_id` 时输出 `primary_metric=f1_iou50`。这是 CLI/agent
+契约描述缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 调用 `rank-board` 时对 `sort_by` choices 的解释和自动决策。
+- 不影响 `/api/rank-board`、CLI `rank-board` 实际输出、前端 Rank Board、weighted scheme、score_delta 或 evaluator。
+
+### 修复方式
+
+- 新增 `RANK_PRIMARY_METRIC_SORTS`、`RANK_AUXILIARY_SORTS`、`RANK_WEIGHTED_SORT` 和 `RANK_SORT_BY_CHOICES`。
+- `rank-board --sort-by` parser 复用同一份 choices 常量，减少 CLI choices 与 agent 语义描述漂移。
+- agent command contract 新增 `argument_semantics` 字段；`rank-board` 在
+  `argument_semantics.sort_by` 中声明 primary metrics、auxiliary sorts、weighted sort、默认主指标和 weighted sort 所需参数。
+- CLI contract 测试锁住 `list-agent-commands` 与 `show-agent-command` 的 `argument_semantics` 输出。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py -q`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name rank-board`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py rank-board --sort-by created_at --sort-order desc --limit 2`
+
+### 后续防线
+
+- 新增 agent 参数时，如果 choices 同时包含不同业务语义，必须补 `argument_semantics`，不能只依赖 help 文案。
+- Rank Board 的 `sort_by` choices、前端主指标分组和 agent 语义分组必须继续共享同一套 primary/auxiliary/weighted 分类。
+
 ## 2026-05-26: Eval Bench Rank Board 把辅助排序混进主指标拨盘
 
 ### 现象
