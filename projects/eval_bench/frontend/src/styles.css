@@ -7118,7 +7118,6 @@ tbody tr:hover td {
 }
 
 .overview-home-v17 .overview-ops-board,
-.overview-home-v17 .overview-loop-panel,
 .overview-home-v17 .overview-recent-card {
   position: relative;
   overflow: hidden;
@@ -7134,7 +7133,6 @@ tbody tr:hover td {
     background 180ms ease;
 }
 
-.overview-home-v17 .overview-loop-panel:hover,
 .overview-home-v17 .overview-recent-card:hover {
   transform: translateY(-3px);
   border-color: rgb(54 157 180 / 62%);
@@ -7940,27 +7938,10 @@ tbody tr:hover td {
   transition: width 220ms ease;
 }
 
-.overview-home-v17 .overview-evidence-row {
-  display: flex;
-  flex: 0 0 auto;
-  min-width: 0;
-  min-height: 242px;
-  gap: 12px;
-  align-items: stretch;
-}
-
-.overview-home-v17 .overview-loop-panel,
 .overview-home-v17 .overview-recent-card {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 97%) 0%, rgb(247 251 250 / 97%) 100%),
     repeating-linear-gradient(90deg, rgb(20 82 102 / 4%) 0 1px, transparent 1px 36px);
-}
-
-.overview-home-v17 .overview-loop-panel {
-  display: block;
-  flex: 1.1 1 620px;
-  min-width: 0;
-  padding: 16px;
 }
 
 .overview-home-v17 .overview-recent-card {
@@ -8265,14 +8246,12 @@ tbody tr:hover td {
 }
 
 @media (max-width: 1240px) {
-  .overview-home-v17 .overview-ops-board,
-  .overview-home-v17 .overview-evidence-row {
+  .overview-home-v17 .overview-ops-board {
     flex-direction: column;
   }
 
   .overview-home-v17 .overview-rank-console,
   .overview-home-v17 .overview-decision-stage,
-  .overview-home-v17 .overview-loop-panel,
   .overview-home-v17 .overview-recent-card {
     flex: 0 0 auto;
     width: 100%;
@@ -8316,7 +8295,6 @@ tbody tr:hover td {
 
 @media (max-width: 720px) {
   .overview-home-v17 .overview-ops-board,
-  .overview-home-v17 .overview-loop-panel,
   .overview-home-v17 .overview-recent-card {
     padding: 14px;
   }

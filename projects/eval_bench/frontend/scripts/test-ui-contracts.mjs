@@ -476,6 +476,8 @@ assert(
     "overview-operating-row",
     "overview-now-panel",
     "overview-live-panel",
+    "overview-evidence-row",
+    "overview-loop-panel",
     "overview-proof-strip",
     "overview-proof-card",
     "overview-triage-rail",
