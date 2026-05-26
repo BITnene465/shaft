@@ -153,6 +153,7 @@ body {
 .nav-item {
   position: relative;
   min-height: 36px;
+  overflow: hidden;
   color: #a9b8c7;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -163,6 +164,24 @@ body {
     color 140ms ease,
     background 140ms ease,
     border-color 140ms ease;
+}
+
+.nav-item::after {
+  position: absolute;
+  inset: 0 auto 0 -30%;
+  width: 28%;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 14%), transparent);
+  opacity: 0;
+  transform: skewX(-18deg);
+  transition:
+    left 240ms ease,
+    opacity 140ms ease;
+}
+
+.nav-item:hover::after {
+  left: 106%;
+  opacity: 1;
 }
 
 .nav-item:hover {
@@ -233,6 +252,16 @@ body {
 .status-pill {
   min-height: 34px;
   border-radius: 999px;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.user-profile-chip:hover,
+.status-pill:hover {
+  transform: translateY(-2px);
 }
 
 .user-profile-chip {
@@ -243,6 +272,13 @@ body {
     linear-gradient(180deg, #ffffff 0%, #f3f9fc 100%);
   border-color: #d2e3ed;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 84%);
+}
+
+.user-profile-chip:hover {
+  border-color: #abd3e4;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 10px 24px rgb(13 92 123 / 10%);
 }
 
 .user-profile-chip span {
@@ -524,8 +560,18 @@ tbody td {
   border-bottom: 1px solid #edf3f7;
 }
 
+tbody tr {
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
 tbody tr:hover td {
   background: #f3f9fc;
+}
+
+tbody tr:hover {
+  transform: translateX(2px);
 }
 
 .badge,

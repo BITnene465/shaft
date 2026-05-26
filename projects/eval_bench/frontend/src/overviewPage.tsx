@@ -8,6 +8,8 @@ import {
   BarChart3,
   CheckCircle2,
   Clock3,
+  Database,
+  FileCheck2,
   Gauge,
   Layers3,
   PlayCircle,
@@ -19,27 +21,11 @@ import type { RunSummary } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
+import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";
 import { Badge, EmptyState } from "./ui";
 
-type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks";
+type OverviewRoute = "/" | "/rank-board" | "/runs" | "/jobs" | "/services" | "/benchmarks" | "/compare";
 type OverviewTone = "idle" | "live" | "warm" | "good" | "danger";
-type OverviewPipelineStage = {
-  label: string;
-  value: number;
-  total: number;
-  meta: string;
-  to: OverviewRoute;
-  tone: OverviewTone;
-};
-type OverviewSignal = {
-  label: string;
-  value: string;
-  detail: string;
-  to: OverviewRoute;
-  tone: OverviewTone;
-  icon: React.ReactNode;
-  progress: number;
-};
 type OverviewAction = {
   label: string;
   detail: string;
@@ -47,10 +33,18 @@ type OverviewAction = {
   tone: OverviewTone;
   icon: React.ReactNode;
 };
-type OverviewReadinessItem = OverviewAction & {
-  state: string;
-  value: number;
-  total: number;
+type OverviewSignal = OverviewAction & {
+  value: string;
+  progress: number;
+};
+type OverviewFlowStage = {
+  label: string;
+  value: string;
+  detail: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+  progress: number;
+  icon: React.ReactNode;
 };
 
 export function OverviewPage() {
@@ -89,23 +83,14 @@ export function OverviewPage() {
   const runningJobs = jobs.filter((job) => job.status === "running").length;
   const failedJobs = jobs.filter((job) => job.status === "failed").length;
   const liveServices = services.filter((service) => service.status === "running").length;
-  const overviewSyncing =
-    jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
+  const activeQueue = queuedJobs + runningJobs;
   const totalRuns = Math.max(data.run_count, 1);
   const totalJobs = Math.max(jobs.length, 1);
   const totalServices = Math.max(services.length, 1);
   const coveragePercent = percent(evaluatedRuns, totalRuns);
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
-  const activeQueue = queuedJobs + runningJobs;
   const schedulerEnabled = Boolean(schedulerStatus?.enabled);
-  const postureLine = overviewPostureLine({
-    failedJobs,
-    waitingEvaluation,
-    activeQueue,
-    liveServices,
-    serviceCount: services.length,
-    evaluatedRuns
-  });
+  const syncing = jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const nextAction = overviewNextAction({
     failedJobs,
     waitingEvaluation,
@@ -114,70 +99,42 @@ export function OverviewPage() {
     serviceCount: services.length,
     evaluatedRuns
   });
-
-  const pipelineStages: OverviewPipelineStage[] = [
-    {
-      label: "基准样本",
-      value: data.benchmark_count,
-      total: Math.max(data.benchmark_count, 1),
-      meta: `${data.total_benchmark_samples.toLocaleString()} samples`,
-      to: "/benchmarks",
-      tone: data.benchmark_count > 0 ? "good" : "warm"
-    },
-    {
-      label: "预测产物",
-      value: data.prediction_count,
-      total: volumeTotal,
-      meta: `${runsWithPredictions.toLocaleString()} runs ready`,
-      to: "/runs",
-      tone: data.prediction_count > 0 ? "live" : "idle"
-    },
-    {
-      label: "评估报告",
-      value: evaluatedRuns,
-      total: totalRuns,
-      meta: `${coveragePercent}% complete`,
-      to: "/runs",
-      tone: waitingEvaluation > 0 ? "warm" : "good"
-    },
-    {
-      label: "排行就绪",
-      value: evaluatedRuns,
-      total: totalRuns,
-      meta: evaluatedRuns > 0 ? "rank board ready" : "need report",
-      to: "/rank-board",
-      tone: evaluatedRuns > 0 ? "good" : "idle"
-    }
-  ];
-
+  const postureLine = overviewPostureLine({
+    failedJobs,
+    waitingEvaluation,
+    activeQueue,
+    liveServices,
+    serviceCount: services.length,
+    evaluatedRuns
+  });
   const signalItems: OverviewSignal[] = [
     {
-      label: "覆盖",
+      label: "报告覆盖",
       value: `${coveragePercent}%`,
-      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} reports`,
+      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
       to: "/runs",
       tone: evaluatedRuns > 0 ? "good" : "idle",
       icon: <CheckCircle2 size={16} />,
       progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "待评",
+      label: "待评估",
       value: waitingEvaluation.toLocaleString(),
       detail:
         waitingEvaluation > 0
-          ? `${runsWithPredictions.toLocaleString()} runs with predictions`
-          : "no report backlog",
+          ? `${runsWithPredictions.toLocaleString()} runs 有预测`
+          : "当前无待评估产物",
       to: "/runs",
       tone: waitingEvaluation > 0 ? "warm" : "idle",
       icon: <Gauge size={16} />,
       progress: trackPercent(waitingEvaluation, totalRuns)
     },
     {
-      label: "队列",
+      label: "任务队列",
       value: activeQueue.toLocaleString(),
       detail:
         failedJobs > 0
-          ? `${failedJobs.toLocaleString()} failed jobs`
+          ? `${failedJobs.toLocaleString()} failed`
           : `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
       to: "/jobs",
       tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
@@ -185,120 +142,115 @@ export function OverviewPage() {
       progress: trackPercent(activeQueue + failedJobs, totalJobs)
     },
     {
-      label: "服务",
+      label: "模型服务",
       value: `${liveServices}/${services.length}`,
       detail:
         services.length > 0
           ? `${services.length.toLocaleString()} services registered`
           : schedulerEnabled
-            ? "auto scheduler waiting"
-            : "manual mode",
+            ? "调度器等待服务"
+            : "手动模式",
       to: "/services",
       tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle",
       icon: <Server size={16} />,
       progress: trackPercent(liveServices, totalServices)
     }
   ];
-  const readinessItems = overviewReadinessItems({
+  const flowStages: OverviewFlowStage[] = [
+    {
+      label: "基准样本",
+      value: data.total_benchmark_samples.toLocaleString(),
+      detail: `${data.benchmark_count.toLocaleString()} benchmarks`,
+      to: "/benchmarks",
+      tone: data.benchmark_count > 0 ? "good" : "warm",
+      icon: <Database size={17} />,
+      progress: trackPercent(data.total_benchmark_samples, volumeTotal)
+    },
+    {
+      label: "预测产物",
+      value: data.prediction_count.toLocaleString(),
+      detail: `${runsWithPredictions.toLocaleString()} runs ready`,
+      to: "/runs",
+      tone: data.prediction_count > 0 ? "live" : "idle",
+      icon: <Layers3 size={17} />,
+      progress: trackPercent(data.prediction_count, volumeTotal)
+    },
+    {
+      label: "评估报告",
+      value: evaluatedRuns.toLocaleString(),
+      detail: `${coveragePercent}% complete`,
+      to: "/runs",
+      tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
+      icon: <FileCheck2 size={17} />,
+      progress: trackPercent(evaluatedRuns, totalRuns)
+    },
+    {
+      label: "排行榜",
+      value: evaluatedRuns > 0 ? "ready" : "empty",
+      detail: evaluatedRuns > 0 ? "进入主指标排行" : "等待报告",
+      to: "/rank-board",
+      tone: evaluatedRuns > 0 ? "good" : "idle",
+      icon: <AppIcon name="rankBoard" size={17} />,
+      progress: trackPercent(evaluatedRuns, totalRuns)
+    }
+  ];
+  const routeActions = overviewRouteActions({
+    nextAction,
+    activeQueue,
     failedJobs,
     waitingEvaluation,
-    queuedJobs,
-    runningJobs,
-    liveServices,
-    serviceCount: services.length,
     evaluatedRuns,
-    totalRuns,
-    schedulerEnabled
+    liveServices,
+    serviceCount: services.length
   });
-  const recentRuns = overviewRecentRuns(data.runs, 3);
+  const recentRuns = recentRunsByCreatedAt(data.runs, 5);
 
   return (
     <section
-      className="page-stack dashboard-home overview-home-v11"
+      className="page-stack dashboard-home overview-home-v12"
       onPointerMove={updateOverviewPointer}
     >
-      <div className="overview-command-center">
-        <section className={`overview-priority-stage ${nextAction.tone}`}>
-          <div className="overview-priority-copy">
+      <div className="overview-workband primary">
+        <section className={`overview-hero-board ${nextAction.tone}`}>
+          <div className="overview-hero-copy">
             <div className="overview-kicker-row">
               <span className="overview-live-dot" />
-              <span>Eval Bench Flight Deck</span>
-              <i className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
-                {overviewSyncing ? "同步中" : "已同步"}
+              <span>Eval Bench Control</span>
+              <i className={syncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
+                {syncing ? "同步中" : "已同步"}
               </i>
             </div>
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
-            <div className="overview-decision-strip">
-              <OverviewNextAction action={nextAction} />
-              <div className="overview-impact-strip" aria-label="首页关键规模">
-                <span>
-                  <b>{data.total_benchmark_samples.toLocaleString()}</b>
-                  samples
-                </span>
-                <span>
-                  <b>{runsWithPredictions.toLocaleString()}</b>
-                  ready runs
-                </span>
-                <span>
-                  <b>{activeQueue.toLocaleString()}</b>
-                  active jobs
-                </span>
-              </div>
-            </div>
+            <OverviewNextAction action={nextAction} />
           </div>
-          <div className="overview-stage-map" aria-label="总览操作入口">
-            <Link to="/jobs">
-              <PlayCircle size={18} />
-              <span>推进任务队列</span>
-              <ArrowRight size={15} />
-            </Link>
-            <Link to="/rank-board">
-              <AppIcon name="rankBoard" size={18} />
-              <span>检查排行差距</span>
-              <ArrowRight size={15} />
-            </Link>
-            <Link to="/compare">
-              <BarChart3 size={18} />
-              <span>打开成对分析</span>
-              <ArrowRight size={15} />
-            </Link>
-          </div>
+          <OverviewFlowSpine stages={flowStages} />
         </section>
 
-        <aside className="overview-command-rail" aria-label="首页核心状态">
-          <div className="overview-rail-head">
+        <aside className="overview-signal-board" aria-label="运行信号">
+          <div className="overview-section-head">
             <div>
               <span>Live Signals</span>
-              <strong>{activeQueue > 0 ? "推进中" : failedJobs > 0 ? "有阻塞" : "可调度"}</strong>
+              <h3>{activeQueue > 0 ? "推进中" : failedJobs > 0 ? "有阻塞" : "可调度"}</h3>
             </div>
-            <i>{overviewSyncing ? "sync" : "steady"}</i>
+            <strong>{syncing ? "sync" : "steady"}</strong>
           </div>
           <OverviewSignalStack signals={signalItems} />
-          <OverviewHealthStrip
-            activeQueue={activeQueue}
-            waitingEvaluation={waitingEvaluation}
-            liveServices={liveServices}
-            serviceCount={services.length}
-            failedJobs={failedJobs}
-          />
         </aside>
       </div>
 
-      <div className="overview-workbench">
-        <section className="overview-ops-surface">
-          <div className="overview-section-head">
-            <div>
-              <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
-              <h3>评测闭环</h3>
-            </div>
-            <strong>{coveragePercent}% complete</strong>
-          </div>
-          <OverviewPipeline stages={pipelineStages} />
-          <OverviewReadinessList items={readinessItems} />
-        </section>
-
+      <div className="overview-workband secondary">
         <OverviewRecentRunsPanel runs={recentRuns} />
+        <section className="overview-route-panel" aria-label="下一步工作区">
+          <div className="overview-section-head compact">
+            <div>
+              <span>Routes</span>
+              <h3>下一步工作区</h3>
+            </div>
+            <strong>{routeActions.length}</strong>
+          </div>
+          <OverviewRouteList actions={routeActions} />
+        </section>
       </div>
     </section>
   );
@@ -315,53 +267,9 @@ function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
   event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
 }
 
-function OverviewHealthStrip({
-  activeQueue,
-  waitingEvaluation,
-  liveServices,
-  serviceCount,
-  failedJobs
-}: {
-  activeQueue: number;
-  waitingEvaluation: number;
-  liveServices: number;
-  serviceCount: number;
-  failedJobs: number;
-}) {
-  const lanes = [
-    {
-      label: "队列",
-      value: activeQueue,
-      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle"
-    },
-    {
-      label: "待评",
-      value: waitingEvaluation,
-      tone: waitingEvaluation > 0 ? "warm" : "idle"
-    },
-    {
-      label: "在线",
-      value: liveServices,
-      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle"
-    }
-  ];
-  const maxValue = Math.max(1, ...lanes.map((lane) => lane.value));
-  return (
-    <div className="overview-health-strip" aria-label="运行态摘要">
-      {lanes.map((lane) => (
-        <span className={lane.tone} key={lane.label}>
-          <i style={{ height: `${trackPercent(lane.value, maxValue)}%` }} />
-          <b>{lane.value.toLocaleString()}</b>
-          <em>{lane.label}</em>
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function OverviewSignalStack({ signals }: { signals: OverviewSignal[] }) {
   return (
-    <div className="overview-signal-stack overview-operational-grid">
+    <div className="overview-signal-stack">
       {signals.map((signal) => (
         <Link className={`overview-signal-card ${signal.tone}`} to={signal.to} key={signal.label}>
           <span>{signal.icon}</span>
@@ -392,58 +300,37 @@ function OverviewNextAction({ action }: { action: OverviewAction }) {
   );
 }
 
-function overviewHeroTitle(action: OverviewAction) {
-  if (action.tone === "danger") {
-    return "先处理阻塞";
-  }
-  if (action.tone === "warm") {
-    return "有待推进项";
-  }
-  if (action.tone === "live") {
-    return "队列正在推进";
-  }
-  if (action.tone === "good") {
-    return "可进入排行";
-  }
-  return "等待首个评测";
-}
-
-function OverviewPipeline({ stages }: { stages: OverviewPipelineStage[] }) {
+function OverviewFlowSpine({ stages }: { stages: OverviewFlowStage[] }) {
   return (
-    <div className="overview-pipeline" aria-label="Eval Bench 数据管线">
-      {stages.map((stage, index) => (
-        <Link className={`overview-pipeline-stage ${stage.tone}`} to={stage.to} key={stage.label}>
-          <div className="overview-pipeline-node">
-            <span>{String(index + 1).padStart(2, "0")}</span>
+    <nav className="overview-flow-spine" aria-label="评测闭环">
+      {stages.map((stage) => (
+        <Link className={`overview-flow-node ${stage.tone}`} to={stage.to} key={stage.label}>
+          <span>{stage.icon}</span>
+          <div>
             <strong>{stage.label}</strong>
+            <em>{stage.value}</em>
+            <small>{stage.detail}</small>
           </div>
-          <div className="overview-pipeline-value">
-            <strong>{stage.value.toLocaleString()}</strong>
-            <em>{stage.meta}</em>
-          </div>
-          <div className="overview-pipeline-rail" aria-hidden="true">
-            <i style={{ width: `${trackPercent(stage.value, stage.total)}%` }} />
-          </div>
+          <i aria-hidden="true">
+            <b style={{ width: `${stage.progress}%` }} />
+          </i>
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }
 
-function OverviewReadinessList({ items }: { items: OverviewReadinessItem[] }) {
+function OverviewRouteList({ actions }: { actions: OverviewAction[] }) {
   return (
-    <div className="overview-action-list">
-      {items.map((item) => (
-        <Link className={`overview-action-link ${item.tone}`} to={item.to} key={item.label}>
-          <span>{item.icon}</span>
+    <div className="overview-route-list">
+      {actions.map((action) => (
+        <Link className={`overview-route-link ${action.tone}`} to={action.to} key={action.label}>
+          <span>{action.icon}</span>
           <div>
-            <strong>{item.label}</strong>
-            <em>{item.detail}</em>
-            <div className="overview-action-meter" aria-hidden="true">
-              <i style={{ width: `${trackPercent(item.value, item.total)}%` }} />
-            </div>
+            <strong>{action.label}</strong>
+            <em>{action.detail}</em>
           </div>
-          <b>{item.state}</b>
+          <ArrowRight size={15} />
         </Link>
       ))}
     </div>
@@ -457,10 +344,10 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   return (
     <div className="overview-run-list">
       {runs.map((run, index) => {
-        const readiness = overviewRunReadiness(run);
+        const readiness = runArtifactReadiness(run);
         return (
           <Link
-            className={run.report_path ? "complete" : run.prediction_count > 0 ? "ready" : "draft"}
+            className={readiness.tone}
             key={run.run_id}
             to="/runs/$runId"
             params={{ runId: run.run_id }}
@@ -481,10 +368,9 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
             <span className="overview-run-counts" aria-label="run 产物规模">
               <b>{run.prediction_count.toLocaleString()} pred</b>
               <b>{run.report_count > 0 ? `${run.report_count.toLocaleString()} report` : "待评"}</b>
-              {run.note.trim() ? <b>note</b> : null}
             </span>
             <span className="overview-run-state">
-              <small>{overviewRunAge(run.created_at)}</small>
+              <small>{runAgeLabel(run.created_at)}</small>
               <Badge value={run.status} domain="run" />
             </span>
           </Link>
@@ -496,7 +382,7 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
 
 function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
   return (
-    <section className="workspace-card overview-recent-card">
+    <section className="overview-recent-card">
       <div className="overview-section-head compact">
         <div>
           <span>Latest Runs</span>
@@ -507,6 +393,22 @@ function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
       <OverviewRunList runs={runs} />
     </section>
   );
+}
+
+function overviewHeroTitle(action: OverviewAction) {
+  if (action.tone === "danger") {
+    return "先处理阻塞";
+  }
+  if (action.tone === "warm") {
+    return "补齐评估闭环";
+  }
+  if (action.tone === "live") {
+    return "队列正在推进";
+  }
+  if (action.tone === "good") {
+    return "可以看排行";
+  }
+  return "创建首个评测";
 }
 
 function overviewNextAction({
@@ -535,7 +437,7 @@ function overviewNextAction({
   }
   if (waitingEvaluation > 0) {
     return {
-      label: "处理待评估 run",
+      label: "补评估报告",
       detail: `${waitingEvaluation.toLocaleString()} 个 run 已有预测`,
       to: "/runs",
       tone: "warm",
@@ -545,7 +447,7 @@ function overviewNextAction({
   if (activeQueue > 0) {
     return {
       label: "查看运行队列",
-      detail: `${activeQueue.toLocaleString()} 个任务在队列中`,
+      detail: `${activeQueue.toLocaleString()} 个任务在推进`,
       to: "/jobs",
       tone: "live",
       icon: <Activity size={16} />
@@ -565,7 +467,7 @@ function overviewNextAction({
     detail: evaluatedRuns > 0 ? "报告已可排名" : "还没有可用报告",
     to: evaluatedRuns > 0 ? "/rank-board" : "/jobs",
     tone: evaluatedRuns > 0 ? "good" : "idle",
-    icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <Layers3 size={16} />
+    icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <PlayCircle size={16} />
   };
 }
 
@@ -585,149 +487,85 @@ function overviewPostureLine({
   evaluatedRuns: number;
 }) {
   if (failedJobs > 0) {
-    return `${failedJobs.toLocaleString()} 个失败任务需要先处理。`;
+    return `${failedJobs.toLocaleString()} 个失败任务正在阻塞产物更新。`;
   }
   if (waitingEvaluation > 0) {
-    return `${waitingEvaluation.toLocaleString()} 个 run 已有预测，可以立即补评估报告。`;
+    return `${waitingEvaluation.toLocaleString()} 个 run 已有预测，下一步是生成评估报告。`;
   }
   if (activeQueue > 0) {
-    return `${activeQueue.toLocaleString()} 个任务正在排队或运行，先关注队列吞吐。`;
+    return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
   if (serviceCount > 0 && liveServices === 0) {
-    return "已登记模型服务处于空闲状态，下一次评测前先确认服务。";
+    return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
   }
   if (evaluatedRuns > 0) {
     return `${evaluatedRuns.toLocaleString()} 个 run 已有报告，可以进入排行或对比。`;
   }
-  return "还没有评估报告，创建任务后首页会跟踪闭环进度。";
+  return "还没有评估报告，创建任务后首页会跟踪从样本到排行的闭环。";
 }
 
-function overviewReadinessItems({
+function overviewRouteActions({
+  nextAction,
+  activeQueue,
   failedJobs,
   waitingEvaluation,
-  queuedJobs,
-  runningJobs,
-  liveServices,
-  serviceCount,
   evaluatedRuns,
-  totalRuns,
-  schedulerEnabled
+  liveServices,
+  serviceCount
 }: {
+  nextAction: OverviewAction;
+  activeQueue: number;
   failedJobs: number;
   waitingEvaluation: number;
-  queuedJobs: number;
-  runningJobs: number;
+  evaluatedRuns: number;
   liveServices: number;
   serviceCount: number;
-  evaluatedRuns: number;
-  totalRuns: number;
-  schedulerEnabled: boolean;
-}): OverviewReadinessItem[] {
-  const activeJobs = queuedJobs + runningJobs;
-  const jobTotal = Math.max(activeJobs + failedJobs, 1);
-  return [
+}): OverviewAction[] {
+  const actions: OverviewAction[] = [
+    nextAction,
     {
-      label: "模型服务",
-      detail:
-        serviceCount > 0
-          ? `${liveServices}/${serviceCount} 个服务在线`
-          : "还未登记服务",
-      to: "/services",
-      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle",
-      icon: <Server size={15} />,
-      state: liveServices > 0 ? "在线" : serviceCount > 0 ? "空闲" : "空",
-      value: liveServices,
-      total: Math.max(serviceCount, 1)
-    },
-    {
-      label: "任务队列",
+      label: "评测中心",
       detail:
         failedJobs > 0
-          ? `${failedJobs} 个失败任务`
-          : schedulerEnabled
-            ? "自动推进已开启"
-            : "需要手动推进",
+          ? `${failedJobs.toLocaleString()} failed`
+          : `${activeQueue.toLocaleString()} active jobs`,
       to: "/jobs",
-      tone: failedJobs > 0 ? "danger" : activeJobs > 0 ? "live" : "good",
-      icon: <PlayCircle size={15} />,
-      state: failedJobs > 0 ? "检查" : activeJobs > 0 ? "运行" : "清空",
-      value: activeJobs + failedJobs,
-      total: jobTotal
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
+      icon: <PlayCircle size={16} />
     },
     {
-      label: "评估报告",
-      detail: waitingEvaluation > 0 ? `${waitingEvaluation} 个 run 待评估` : `${evaluatedRuns} 个报告可用`,
+      label: "结果库",
+      detail:
+        waitingEvaluation > 0
+          ? `${waitingEvaluation.toLocaleString()} runs 待评估`
+          : `${evaluatedRuns.toLocaleString()} reports`,
       to: "/runs",
       tone: waitingEvaluation > 0 ? "warm" : evaluatedRuns > 0 ? "good" : "idle",
-      icon: <Gauge size={15} />,
-      state: waitingEvaluation > 0 ? "待评" : evaluatedRuns > 0 ? "完成" : "空",
-      value: evaluatedRuns,
-      total: totalRuns
+      icon: <FileCheck2 size={16} />
     },
     {
-      label: "排行榜",
-      detail: evaluatedRuns > 0 ? "可以查看全局排名" : "需要先生成报告",
-      to: "/rank-board",
-      tone: evaluatedRuns > 0 ? "good" : "idle",
-      icon: <Trophy size={15} />,
-      state: evaluatedRuns > 0 ? "就绪" : "未就绪",
-      value: evaluatedRuns,
-      total: totalRuns
+      label: evaluatedRuns > 0 ? "排行榜" : "模型服务",
+      detail:
+        evaluatedRuns > 0
+          ? "主指标排行与差距"
+          : `${liveServices}/${serviceCount} services online`,
+      to: evaluatedRuns > 0 ? "/rank-board" : "/services",
+      tone: evaluatedRuns > 0 ? "good" : liveServices > 0 ? "live" : "warm",
+      icon: evaluatedRuns > 0 ? <Trophy size={16} /> : <Server size={16} />
+    },
+    {
+      label: "对比分析",
+      detail: evaluatedRuns > 1 ? "复查模型差异" : "等待更多报告",
+      to: "/compare",
+      tone: evaluatedRuns > 1 ? "good" : "idle",
+      icon: <BarChart3 size={16} />
     }
   ];
-}
-
-function overviewRecentRuns(runs: RunSummary[], limit: number) {
-  return [...runs]
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.created_at ?? "");
-      const rightTime = Date.parse(right.created_at ?? "");
-      return (
-        (Number.isFinite(rightTime) ? rightTime : 0) -
-        (Number.isFinite(leftTime) ? leftTime : 0)
-      );
-    })
-    .slice(0, limit);
-}
-
-function overviewRunReadiness(run: RunSummary) {
-  const hasPredictions = run.prediction_count > 0;
-  const hasReport = Boolean(run.report_path || run.report_count > 0);
-  const hasNote = run.note.trim().length > 0;
-  const percent = Math.min(
-    100,
-    (hasPredictions ? 48 : 0) + (hasReport ? 40 : 0) + (hasNote ? 12 : 0)
-  );
-  if (hasReport) {
-    return { label: hasNote ? "report + note" : "report ready", percent: Math.max(percent, 88) };
+  const deduped = new Map<string, OverviewAction>();
+  for (const action of actions) {
+    deduped.set(`${action.to}:${action.label}`, action);
   }
-  if (hasPredictions) {
-    return { label: hasNote ? "pred + note" : "prediction ready", percent: Math.max(percent, 48) };
-  }
-  return { label: hasNote ? "note only" : "draft", percent: Math.max(percent, 8) };
-}
-
-function overviewRunAge(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-  const createdAt = Date.parse(value);
-  if (!Number.isFinite(createdAt)) {
-    return "-";
-  }
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
-  if (diffSeconds < 60) {
-    return "now";
-  }
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) {
-    return `${diffMinutes}m`;
-  }
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 48) {
-    return `${diffHours}h`;
-  }
-  return `${Math.floor(diffHours / 24)}d`;
+  return [...deduped.values()].slice(0, 4);
 }
 
 function percent(value: number, total: number) {

@@ -15,6 +15,7 @@ for (const filePath of sourceFiles) {
 }
 
 const jobsPage = await readSource("src/jobsPage.tsx");
+const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
 const apiSource = await readSource("src/api.ts");
 const filterControls = await readSource("src/filterControls.tsx");
@@ -154,8 +155,7 @@ assert(
   "jobs prompt template panel must use DisclosurePanel instead of a local details shell",
 );
 assert(
-  jobsPage.includes("recentJobRuns") &&
-    jobsPage.includes("recentRunReadiness") &&
+  jobsPage.includes('import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";') &&
     jobsPage.includes("recent-run-artifacts") &&
     !jobsPage.includes("recent-run-metrics") &&
     !jobsPage.includes("formatMetric") &&
@@ -228,41 +228,35 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v11") &&
-    overviewPage.includes("overview-command-center") &&
-    overviewPage.includes("overview-priority-stage") &&
-    overviewPage.includes("overview-command-rail") &&
-    overviewPage.includes("overview-rail-head") &&
-    overviewPage.includes("overview-workbench") &&
-    overviewPage.includes("overview-ops-surface") &&
+  overviewPage.includes("overview-home-v12") &&
+    overviewPage.includes("overview-workband primary") &&
+    overviewPage.includes("overview-workband secondary") &&
+    overviewPage.includes("overview-hero-board") &&
+    overviewPage.includes("overview-signal-board") &&
+    overviewPage.includes("overview-route-panel") &&
     overviewPage.includes("OverviewNextAction") &&
-    overviewPage.includes("OverviewPipeline") &&
-    overviewPage.includes("overview-decision-strip") &&
-    overviewPage.includes("overview-impact-strip") &&
-    overviewPage.includes("OverviewReadinessList") &&
-    overviewPage.includes("overviewReadinessItems") &&
+    overviewPage.includes("OverviewFlowSpine") &&
+    overviewPage.includes("overview-flow-spine") &&
+    overviewPage.includes("overview-flow-node") &&
+    overviewPage.includes("OverviewRouteList") &&
+    overviewPage.includes("overviewRouteActions") &&
     overviewPage.includes("overviewPostureLine") &&
-    overviewPage.includes("overviewRecentRuns(data.runs") &&
+    overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
     overviewPage.includes("OverviewSignalStack") &&
     overviewPage.includes("overview-signal-stack") &&
-    overviewPage.includes("OverviewHealthStrip") &&
-    overviewPage.includes("overview-health-strip") &&
-    overviewPage.includes("overview-stage-map") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-run-artifacts") &&
     overviewPage.includes("overview-run-state") &&
-    overviewPage.includes("overviewRunReadiness") &&
-    overviewPage.includes("overviewRunAge") &&
+    overviewPage.includes('import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";') &&
     !overviewPage.includes("formatMetric") &&
-    overviewPage.includes("overview-operational-grid") &&
-    overviewPage.includes("overview-action-list") &&
     overviewPage.includes("updateOverviewPointer") &&
     !overviewPage.includes("overview-home-v6") &&
     !overviewPage.includes("overview-home-v7") &&
     !overviewPage.includes("overview-home-v8") &&
     !overviewPage.includes("overview-home-v9") &&
     !overviewPage.includes("overview-home-v10") &&
+    !overviewPage.includes("overview-home-v11") &&
     !overviewPage.includes("overview-command-center-redesign") &&
     !overviewPage.includes("OverviewHeroMap") &&
     !overviewPage.includes("overview-orbit-map") &&
@@ -272,6 +266,10 @@ assert(
     !overviewPage.includes("overview-hero-route") &&
     !overviewPage.includes("OverviewSignalStrip") &&
     !overviewPage.includes("overview-signal-strip") &&
+    !overviewPage.includes("OverviewHealthStrip") &&
+    !overviewPage.includes("overview-health-strip") &&
+    !overviewPage.includes("OverviewReadinessList") &&
+    !overviewPage.includes("overviewReadinessItems") &&
     !overviewPage.includes("OverviewBottleneckPanel") &&
     !overviewPage.includes("overview-bottleneck-panel") &&
     !overviewPage.includes("overview-flow-and-bottleneck") &&
@@ -290,15 +288,29 @@ assert(
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 assert(
-  styleSource.includes("Overview v11: interactive flight deck") &&
-    styleSource.includes("@keyframes overview-flow-sweep") &&
-    styleSource.includes("@keyframes overview-live-breathe") &&
-    styleSource.includes("@keyframes overview-card-float") &&
-    styleSource.includes("@keyframes overview-radar-spin") &&
+  runArtifactSignals.includes("export function recentRunsByCreatedAt") &&
+    runArtifactSignals.includes("export function runArtifactReadiness") &&
+    runArtifactSignals.includes("export function runAgeLabel") &&
+    !overviewPage.includes("function overviewRecentRuns") &&
+    !overviewPage.includes("function overviewRunReadiness") &&
+    !overviewPage.includes("function overviewRunAge") &&
+    !jobsPage.includes("function recentJobRuns") &&
+    !jobsPage.includes("function recentRunReadiness"),
+  "recent run artifact sorting/readiness/age logic must have one shared source",
+);
+assert(
+  styleSource.includes("Overview v12: two-band control surface") &&
+    styleSource.includes("@keyframes overview-v12-sweep") &&
+    styleSource.includes("@keyframes overview-v12-live") &&
+    styleSource.includes("@keyframes overview-v12-float") &&
+    styleSource.includes("@keyframes overview-v12-radar") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
-    designSource.includes(".nav-item:hover .app-icon"),
+    designSource.includes(".nav-item:hover .app-icon") &&
+    designSource.includes(".nav-item:hover::after") &&
+    designSource.includes(".user-profile-chip:hover") &&
+    designSource.includes(".status-pill:hover"),
   "overview and shared controls must keep tactile hover and motion feedback",
 );
 assert(
@@ -308,6 +320,7 @@ assert(
     "overview-home-v8",
     "overview-home-v9",
     "overview-home-v10",
+    "overview-home-v11",
     "overview-command-deck",
     "overview-command-center-redesign",
     "overview-focus-panel",
@@ -317,7 +330,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must keep only the active v11 surface, not old design tracks",
+  "overview stylesheet must expose the active v12 surface and block deprecated design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

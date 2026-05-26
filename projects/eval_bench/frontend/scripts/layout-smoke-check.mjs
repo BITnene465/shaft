@@ -15,22 +15,18 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v11",
-      ".overview-command-center",
-      ".overview-priority-stage",
-      ".overview-command-rail",
-      ".overview-rail-head",
-      ".overview-stage-map",
-      ".overview-health-strip",
-      ".overview-workbench",
-      ".overview-ops-surface",
+      ".overview-home-v12",
+      ".overview-workband",
+      ".overview-hero-board",
+      ".overview-flow-spine",
+      ".overview-flow-node",
+      ".overview-signal-board",
       ".overview-next-action",
-      ".overview-pipeline",
-      ".overview-operational-grid",
       ".overview-signal-stack",
       ".overview-signal-card",
-      ".overview-action-list",
-      ".overview-recent-card"
+      ".overview-recent-card",
+      ".overview-route-panel",
+      ".overview-route-link"
     ]
   },
   {
@@ -492,53 +488,43 @@ async function assertOverviewDensity(page, scope) {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const commandDeck = document.querySelector(".overview-workbench");
-    const commandCenter = document.querySelector(".overview-command-center");
-    const priorityStage = document.querySelector(".overview-priority-stage");
-    const commandRail = document.querySelector(".overview-command-rail");
-    const focusPanel = document.querySelector(".overview-ops-surface");
-    const actionList = document.querySelector(".overview-action-list");
+    const workbands = Array.from(document.querySelectorAll(".overview-workband")).map((node) =>
+      getComputedStyle(node).display
+    );
+    const heroBoard = document.querySelector(".overview-hero-board");
+    const signalBoard = document.querySelector(".overview-signal-board");
+    const routePanel = document.querySelector(".overview-route-panel");
     const recentCard = document.querySelector(".overview-recent-card");
-    const operationalGrid = document.querySelector(".overview-operational-grid");
     const nextAction = document.querySelector(".overview-next-action");
-    const stageMap = document.querySelector(".overview-stage-map");
-    const healthStrip = document.querySelector(".overview-health-strip");
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-priority-stage, .overview-command-rail, .overview-ops-surface, .overview-action-list, .overview-recent-card"
+        ".overview-hero-board, .overview-signal-board, .overview-route-panel, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
-    const commandCenterStyle = commandCenter ? getComputedStyle(commandCenter) : null;
-    const priorityStageStyle = priorityStage ? getComputedStyle(priorityStage) : null;
-    const commandRailStyle = commandRail ? getComputedStyle(commandRail) : null;
-    const commandDeckStyle = commandDeck ? getComputedStyle(commandDeck) : null;
-    const actionListStyle = actionList ? getComputedStyle(actionList) : null;
-    const operationalGridStyle = operationalGrid ? getComputedStyle(operationalGrid) : null;
+    const heroBoardStyle = heroBoard ? getComputedStyle(heroBoard) : null;
+    const signalBoardStyle = signalBoard ? getComputedStyle(signalBoard) : null;
+    const routePanelStyle = routePanel ? getComputedStyle(routePanel) : null;
+    const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
-      pipelineStages: document.querySelectorAll(".overview-pipeline-stage").length,
-      actionLinks: document.querySelectorAll(".overview-action-link").length,
-      actionMeters: document.querySelectorAll(".overview-action-meter i").length,
-      actionStates: Array.from(document.querySelectorAll(".overview-action-link b")).map(
-        (node) => node.textContent?.trim() ?? ""
-      ),
+      workbands,
+      flowNodes: document.querySelectorAll(".overview-flow-node").length,
+      routeLinks: document.querySelectorAll(".overview-route-link").length,
       nextActions: document.querySelectorAll(".overview-next-action").length,
       signalCards,
       signalRails,
-      stageMapLinks: document.querySelectorAll(".overview-stage-map a").length,
-      healthLanes: document.querySelectorAll(".overview-health-strip span").length,
       runArtifactRails: document.querySelectorAll(".overview-run-artifacts i b").length,
       runStates: document.querySelectorAll(".overview-run-state .badge").length,
       panelHeights,
       recentRows,
-      recentCards: document.querySelectorAll(".overview-workbench .overview-recent-card").length,
-      focusPanels: document.querySelectorAll(".overview-workbench .overview-ops-surface").length,
-      priorityStages: document.querySelectorAll(".overview-command-center .overview-priority-stage").length,
-      commandRails: document.querySelectorAll(".overview-command-center .overview-command-rail").length,
+      recentCards: document.querySelectorAll(".overview-recent-card").length,
+      heroBoards: document.querySelectorAll(".overview-hero-board").length,
+      signalBoards: document.querySelectorAll(".overview-signal-board").length,
+      routePanels: document.querySelectorAll(".overview-route-panel").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
       legacyActivityMatrix: document.querySelectorAll(".overview-activity-matrix").length,
@@ -546,24 +532,15 @@ async function assertOverviewDensity(page, scope) {
         ".overview-timeline-panel, .overview-sparkline, .overview-timeline-labels"
       ).length,
       bodyText,
-      focusPanelHeight: focusPanel ? Math.round(focusPanel.getBoundingClientRect().height) : 0,
-      actionListHeight: actionList ? Math.round(actionList.getBoundingClientRect().height) : 0,
+      heroBoardHeight: heroBoard ? Math.round(heroBoard.getBoundingClientRect().height) : 0,
+      signalBoardHeight: signalBoard ? Math.round(signalBoard.getBoundingClientRect().height) : 0,
+      routePanelHeight: routePanel ? Math.round(routePanel.getBoundingClientRect().height) : 0,
       recentCardHeight: recentCard ? Math.round(recentCard.getBoundingClientRect().height) : 0,
-      priorityStageHeight: priorityStage ? Math.round(priorityStage.getBoundingClientRect().height) : 0,
-      commandRailHeight: commandRail ? Math.round(commandRail.getBoundingClientRect().height) : 0,
-      commandDeckHeight: commandDeck ? Math.round(commandDeck.getBoundingClientRect().height) : 0,
-      commandDeckScrollHeight: commandDeck?.scrollHeight ?? 0,
-      commandDeckClientHeight: commandDeck?.clientHeight ?? 0,
-      commandCenterDisplay: commandCenterStyle?.display ?? "",
-      priorityStageDisplay: priorityStageStyle?.display ?? "",
-      commandRailDisplay: commandRailStyle?.display ?? "",
-      commandDeckDisplay: commandDeckStyle?.display ?? "",
-      actionListDisplay: actionListStyle?.display ?? "",
-      operationalGridDisplay: operationalGridStyle?.display ?? "",
-      nextActionTransition: nextActionStyle?.transitionDuration ?? "",
-      stageMapDisplay: stageMap ? getComputedStyle(stageMap).display : "",
-      healthStripDisplay: healthStrip ? getComputedStyle(healthStrip).display : "",
-      commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
+      heroBoardDisplay: heroBoardStyle?.display ?? "",
+      signalBoardDisplay: signalBoardStyle?.display ?? "",
+      routePanelDisplay: routePanelStyle?.display ?? "",
+      recentCardDisplay: recentCardStyle?.display ?? "",
+      nextActionTransition: nextActionStyle?.transitionDuration ?? ""
     };
   });
   if (state.legacyActivityMatrix !== 0) {
@@ -578,82 +555,57 @@ async function assertOverviewDensity(page, scope) {
     );
   }
   if (
-    state.commandCenterDisplay !== "flex" ||
-    state.priorityStageDisplay !== "flex" ||
-    state.commandRailDisplay !== "flex" ||
-    state.commandDeckDisplay !== "flex" ||
-    !["grid", "flex"].includes(state.actionListDisplay) ||
-    state.operationalGridDisplay !== "flex"
+    state.workbands.length !== 2 ||
+    state.workbands.some((display) => display !== "flex") ||
+    state.heroBoardDisplay !== "flex" ||
+    state.signalBoardDisplay !== "flex" ||
+    state.routePanelDisplay !== "block" ||
+    state.recentCardDisplay !== "block"
   ) {
     throw new Error(
-      `${scope}: overview should use a two-column flight deck with compact signals ${JSON.stringify({
-        commandCenterDisplay: state.commandCenterDisplay,
-        priorityStageDisplay: state.priorityStageDisplay,
-        commandRailDisplay: state.commandRailDisplay,
-        commandDeckDisplay: state.commandDeckDisplay,
-        actionListDisplay: state.actionListDisplay,
-        operationalGridDisplay: state.operationalGridDisplay
+      `${scope}: overview should use a two-band control surface ${JSON.stringify({
+        workbands: state.workbands,
+        heroBoardDisplay: state.heroBoardDisplay,
+        signalBoardDisplay: state.signalBoardDisplay,
+        routePanelDisplay: state.routePanelDisplay,
+        recentCardDisplay: state.recentCardDisplay
       })}`
     );
   }
   if (
-    state.pipelineStages !== 4 ||
+    state.flowNodes !== 4 ||
     state.nextActions !== 1 ||
-    state.stageMapLinks !== 3 ||
-    state.healthLanes !== 3 ||
-    state.actionLinks !== 4 ||
-    state.actionMeters !== 4 ||
-    state.actionStates.some((value) => !value)
+    state.routeLinks !== 4
   ) {
     throw new Error(
-      `${scope}: overview should expose pipeline stages, one next action, and readiness links ${JSON.stringify({
-        pipelineStages: state.pipelineStages,
+      `${scope}: overview should expose flow nodes, one next action, and route links ${JSON.stringify({
+        flowNodes: state.flowNodes,
         nextActions: state.nextActions,
-        stageMapLinks: state.stageMapLinks,
-        healthLanes: state.healthLanes,
-        actionLinks: state.actionLinks,
-        actionMeters: state.actionMeters,
-        actionStates: state.actionStates
+        routeLinks: state.routeLinks
       })}`
     );
   }
-  if (state.stageMapDisplay !== "flex" || state.healthStripDisplay !== "flex") {
+  if (state.heroBoards !== 1 || state.signalBoards !== 1 || state.routePanels !== 1 || state.recentCards !== 1) {
     throw new Error(
-      `${scope}: overview v11 interactive stage map or health strip is missing ${JSON.stringify({
-        stageMapDisplay: state.stageMapDisplay,
-        healthStripDisplay: state.healthStripDisplay
-      })}`
-    );
-  }
-  if (state.focusPanels !== 1 || state.recentCards !== 1) {
-    throw new Error(
-      `${scope}: overview should keep one operations surface and one recent run panel ${JSON.stringify({
-        focusPanels: state.focusPanels,
+      `${scope}: overview should keep one hero, signal board, route panel, and recent panel ${JSON.stringify({
+        heroBoards: state.heroBoards,
+        signalBoards: state.signalBoards,
+        routePanels: state.routePanels,
         recentCards: state.recentCards
       })}`
     );
   }
-  if (state.priorityStages !== 1 || state.commandRails !== 1) {
-    throw new Error(
-      `${scope}: overview should keep one priority stage and one command rail ${JSON.stringify({
-        priorityStages: state.priorityStages,
-        commandRails: state.commandRails
-      })}`
-    );
-  }
   if (
-    state.priorityStageHeight < 180 ||
-    state.commandRailHeight < 120 ||
-    state.focusPanelHeight < 180 ||
-    state.actionListHeight < 120 ||
+    state.heroBoardHeight < 180 ||
+    state.signalBoardHeight < 120 ||
+    state.routePanelHeight < 120 ||
     state.recentCardHeight < 120
   ) {
     throw new Error(
       `${scope}: overview control panels collapsed ${JSON.stringify({
-        priorityStageHeight: state.priorityStageHeight,
-        commandRailHeight: state.commandRailHeight,
-        focusPanelHeight: state.focusPanelHeight,
-        actionListHeight: state.actionListHeight,
+        heroBoardHeight: state.heroBoardHeight,
+        signalBoardHeight: state.signalBoardHeight,
+        routePanelHeight: state.routePanelHeight,
         recentCardHeight: state.recentCardHeight
       })}`
     );
@@ -703,19 +655,6 @@ async function assertOverviewDensity(page, scope) {
       `${scope}: overview signal visualization is missing ${JSON.stringify({
         cards: state.signalCards.length,
         rails: state.signalRails
-      })}`
-    );
-  }
-  if (
-    state.commandDeckScrollHeight > state.commandDeckClientHeight + 2 &&
-    state.commandDeckOverflowY !== "visible" &&
-    !allowsScroll(state.commandDeckOverflowY)
-  ) {
-    throw new Error(
-      `${scope}: overview command desk clips content without scroll ${JSON.stringify({
-        scrollHeight: state.commandDeckScrollHeight,
-        clientHeight: state.commandDeckClientHeight,
-        overflowY: state.commandDeckOverflowY
       })}`
     );
   }

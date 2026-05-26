@@ -22,6 +22,7 @@ import { useDashboardState } from "./dashboardState";
 import { basename, formatDate, jobTarget, stringValue, unique } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
+import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";
 import {
   applyBenchmarkDefault,
   applyPromptTemplateToManifest,
@@ -61,7 +62,7 @@ const JOB_PAGE_SIZE = 80;
 export function JobsPage() {
   const { data } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
-  const recentRuns = recentJobRuns(data?.runs ?? [], 12);
+  const recentRuns = recentRunsByCreatedAt(data?.runs ?? [], 12);
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -103,7 +104,7 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
   return (
     <div className="recent-run-list">
       {runs.map((run) => {
-        const readiness = recentRunReadiness(run);
+        const readiness = runArtifactReadiness(run);
         return (
           <Link
             className={["recent-run-card", readiness.tone].join(" ")}
@@ -133,36 +134,6 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
       })}
     </div>
   );
-}
-
-function recentJobRuns(runs: RunSummary[], limit: number) {
-  return [...runs]
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.created_at ?? "");
-      const rightTime = Date.parse(right.created_at ?? "");
-      return (
-        (Number.isFinite(rightTime) ? rightTime : 0) -
-        (Number.isFinite(leftTime) ? leftTime : 0)
-      );
-    })
-    .slice(0, limit);
-}
-
-function recentRunReadiness(run: RunSummary) {
-  const hasPredictions = run.prediction_count > 0;
-  const hasReport = Boolean(run.report_path || run.report_count > 0);
-  const hasNote = run.note.trim().length > 0;
-  const percent = Math.min(
-    100,
-    (hasPredictions ? 48 : 0) + (hasReport ? 40 : 0) + (hasNote ? 12 : 0)
-  );
-  if (hasReport) {
-    return { percent: Math.max(percent, 88), tone: "complete" };
-  }
-  if (hasPredictions) {
-    return { percent: Math.max(percent, 48), tone: "ready" };
-  }
-  return { percent: Math.max(percent, 8), tone: "draft" };
 }
 
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {

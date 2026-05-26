@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 首页 v11 仍像静态面板拼盘
+
+### 现象
+
+总览页 v11 已经有主判断、运行信号、闭环流线和最近 run，但用户继续反馈首页“没有任何价值”。页面虽然删掉了大量低价值统计，
+仍保留 readiness switchboard、operations surface、运行态条形摘要等多个并列块，视觉上更像把状态组件重新排版，而不是一个能驱动下一步操作的首页。
+
+### 根因
+
+上一版主要把低价值面板移出总览，但没有进一步把首页信息结构收敛到两条工作带：主判断 / 运行信号，以及最近产物 / 下一步工作区。
+Overview 和 Jobs 最近 run 还各自维护过排序与产物完成度规则，说明 recent run 的产物流语义没有共享真源。这是前端信息架构和组件边界问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard Overview 的第一屏判断效率、空间层级、hover 反馈和最近产物展示边界。
+- 影响 Jobs 与 Overview 对最近 run 产物状态的规则一致性。
+- 不影响后端 store、rank board 排序、metrics report、comparison 或评估标准。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v12` two-band control surface：顶部只保留主判断区和运行信号区，底部只保留最近 run 产物流和下一步工作区入口。
+- 主判断区内嵌 benchmark -> prediction -> report -> rank 的闭环 spine，移除 readiness switchboard / operations surface 这类重复状态块。
+- 新增 `runArtifactSignals.ts`，集中维护最近 run 的 `created_at` 排序、prediction/report/note 产物完成度和 age label，Overview 与 Jobs 复用同一真源。
+- `design.css` 补充导航扫光、profile/status 胶囊 hover 和表格行 hover，统一系统交互感；动效只服务可点击性和实时状态感。
+- README、架构文档、脚本文档和 UI contract 同步 v12 首页边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:run-artifacts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- `test-ui-contracts.mjs` 要求 Overview 使用 v12 two-band surface，并禁止旧活动矩阵、chart wall、阻塞优先级面板和 readiness 轨道回流。
+- Overview 新增模块必须直接强化“当前判断、闭环卡点、下一步入口、最近产物”之一，否则放到 Runs、Rank Board、Compare、Services 或 Settings。
+- 最近 run 的排序、完成度和 age label 只能通过 `runArtifactSignals.ts` 修改，避免 Overview / Jobs 再次分叉。
+
 ## 2026-05-26: Eval Bench Jobs 最近结果仍展示精细指标
 
 ### 现象

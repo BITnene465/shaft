@@ -127,7 +127,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`
-  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测管线、核心运行态、readiness switchboard 和最近 run 摘要。
+  - 维护总控工作台页面；作为独立路由模块承载下一步动作、评测闭环 spine、核心运行态、下一步工作区入口和最近 run 产物流。
+- `projects/eval_bench/frontend/src/runArtifactSignals.ts`
+  - 维护最近 run 的 `created_at` 排序、prediction/report/note 产物完成度和 age label；Overview 与 Jobs 只能复用该模块，不各自复制 readiness 规则。
 - `projects/eval_bench/frontend/src/benchmarksPage.tsx`
   - 维护基准集目录、创建副本弹窗和基准集真值检查器；作为懒加载路由拆分，避免检查器逻辑回流 `main.tsx`。
 - `projects/eval_bench/frontend/src/samplePager.tsx`
@@ -235,18 +237,16 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能用固定 `limit=200` 的首屏 slice 代替完整结果浏览。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用 priority stage、hero next action、四个可行动信号和 pipeline progress rail 服务“当前是否可用、
+- 新增总览视觉模块：优先用主判断区、hero next action、四个可行动信号和评测闭环 spine 服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持
-  v11 flight deck surface：顶部两列只放 priority stage 和实时 command rail，底部两列只放 operations surface 与最近 run 紧凑 ticker。
-  顶部 priority stage 只能承载当前系统态、同步状态、关键规模、当前优先动作和三个高频操作入口，
-  不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。右侧 command rail 固定展示覆盖、
-  待评、队列和服务四个可点击入口，并以 2x2 信号板和运行态条形摘要表达实时状态；pipeline progress rail
-  放在 operations surface 中，表达 benchmark -> run -> report -> rank board 的闭环；不再单独常驻阻塞优先级面板，卡点应体现在当前主动作和可点击状态入口中。readiness switchboard 固定聚合
-  service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
-  必须按 `created_at` 倒序截取，并以压缩 run stream 展示 benchmark/model、prediction/report/note
+  v12 two-band surface：顶部两列只放主判断区和运行信号区，底部两列只放最近 run 产物流与下一步工作区入口。
+  主判断区只能承载当前系统态、同步状态、当前优先动作和 benchmark -> prediction -> report -> rank board 闭环，
+  不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。运行信号区固定展示报告覆盖、
+  待评估、任务队列和模型服务四个可点击入口；不再单独常驻阻塞优先级面板，卡点应体现在当前主动作和可点击状态入口中。最近 run
+  必须按 `created_at` 倒序截取，并以压缩 run stream 展示 benchmark/model、prediction/report
   产物信号、创建时间和状态胶囊，不能依赖 API 返回顺序，也不能回退为普通细指标列表。compact / narrow 视口允许页面滚动，但不能把
-  focus、readiness 或 recent 核心面板压缩成不可读的折叠外壳。
-  v11 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
+  hero、signal 或 recent 核心面板压缩成不可读的折叠外壳。
+  v12 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
   不得引入独立于 store/job/service/scheduler 真源的前端私有业务语义。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。

@@ -10,6 +10,7 @@
     "test:manifest-tools": "node scripts/test-manifest-tools.mjs",
     "test:status-model": "node scripts/test-status-model.mjs",
     "test:workspace-settings": "node scripts/test-workspace-settings.mjs",
+    "test:run-artifacts": "node scripts/test-run-artifact-signals.mjs",
     "test:ui-contracts": "node scripts/test-ui-contracts.mjs",
     "test:viewer-performance": "node scripts/viewer-performance-check.mjs",
     "test:settings-preview": "node scripts/settings-preview-check.mjs",
