@@ -1289,23 +1289,32 @@ def create_app(
         request: Request,
         baseline_run_id: str | None = None,
         candidate_run_id: str | None = None,
+        list_mode: bool = Query(False, alias="list"),
         task: str | None = None,
         label: str | None = None,
         query: str | None = None,
         offset: int = 0,
         limit: int = 100,
     ):
-        if baseline_run_id is None and candidate_run_id is None:
+        if list_mode or (baseline_run_id is None and candidate_run_id is None):
+            baseline_filter = _filter_value(baseline_run_id) if list_mode else ""
+            candidate_filter = _filter_value(candidate_run_id) if list_mode else ""
             filters = {
                 "task": _filter_value(task),
                 "label": _filter_value(label),
                 "query": (query or "").strip(),
             }
+            if baseline_filter:
+                filters["baseline_run_id"] = baseline_filter
+            if candidate_filter:
+                filters["candidate_run_id"] = candidate_filter
             reports = filter_comparison_reports(
                 list_comparison_reports(
                     store_root=request.app.state.eval_bench_store.layout.root,
                 ),
                 task=filters["task"],
+                baseline_run_id=baseline_filter,
+                candidate_run_id=candidate_filter,
                 label=filters["label"],
                 query=filters["query"],
             )

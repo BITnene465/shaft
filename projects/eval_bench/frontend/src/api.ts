@@ -364,6 +364,8 @@ export type ComparisonSummary = {
 
 export type ComparisonListFilters = {
   task?: string;
+  baselineRunId?: string;
+  candidateRunId?: string;
   label?: string;
   query?: string;
   offset?: number;
@@ -990,11 +992,28 @@ export function fetchComparisons(
   filters?: Record<string, string>;
 }> {
   const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
-      params.set(key, String(value));
-    }
-  });
+  params.set("list", "1");
+  if (filters.offset !== undefined) {
+    params.set("offset", String(filters.offset));
+  }
+  if (filters.limit !== undefined) {
+    params.set("limit", String(filters.limit));
+  }
+  if (filters.task && filters.task !== "all") {
+    params.set("task", filters.task);
+  }
+  if (filters.baselineRunId?.trim()) {
+    params.set("baseline_run_id", filters.baselineRunId.trim());
+  }
+  if (filters.candidateRunId?.trim()) {
+    params.set("candidate_run_id", filters.candidateRunId.trim());
+  }
+  if (filters.label && filters.label !== "all") {
+    params.set("label", filters.label);
+  }
+  if (filters.query?.trim()) {
+    params.set("query", filters.query.trim());
+  }
   const query = params.toString();
   return fetchJson<{
     comparisons: ComparisonSummary[];

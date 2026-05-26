@@ -49,6 +49,14 @@ export type AdvancedFilterControl =
       onChange: (value: string) => void;
     }
   | {
+      type: "text";
+      id: string;
+      label: string;
+      value: string;
+      placeholder?: string;
+      onChange: (value: string) => void;
+    }
+  | {
       type: "number";
       id: string;
       label: string;
@@ -310,6 +318,18 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
         min={control.min}
         max={control.max}
         step={control.step}
+        value={control.value}
+        onChange={control.onChange}
+        placeholder={control.placeholder}
+      />
+    );
+  }
+  if (control.type === "text") {
+    return (
+      <TextInputControl
+        className="advanced-filter-text-control"
+        key={control.id}
+        label={control.label}
         value={control.value}
         onChange={control.onChange}
         placeholder={control.placeholder}

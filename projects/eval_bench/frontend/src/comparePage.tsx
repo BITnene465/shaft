@@ -51,6 +51,8 @@ export function ComparePage() {
   const [labelFilter, setLabelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
+  const [historyBaselineFilter, setHistoryBaselineFilter] = useState("");
+  const [historyCandidateFilter, setHistoryCandidateFilter] = useState("");
   const [pageOffset, setPageOffset] = useState(0);
   const [baselineRunId, setBaselineRunId] = useState(
     () => new URLSearchParams(window.location.search).get("baseline") ?? ""
@@ -61,11 +63,20 @@ export function ComparePage() {
   const comparisonFilters = useMemo(
     () => ({
       task: taskFilter === "all" ? undefined : taskFilter,
+      baselineRunId: historyBaselineFilter.trim() || undefined,
+      candidateRunId: historyCandidateFilter.trim() || undefined,
       label: labelFilter === "all" ? undefined : labelFilter,
       query: searchText.trim() || undefined,
       limit: 50
     }),
-    [labelFilter, searchText, taskFilter]
+    [historyBaselineFilter, historyCandidateFilter, labelFilter, searchText, taskFilter]
+  );
+  const hasComparisonHistoryFilters = Boolean(
+    searchText.trim() ||
+      taskFilter !== "all" ||
+      labelFilter !== "all" ||
+      historyBaselineFilter.trim() ||
+      historyCandidateFilter.trim()
   );
   const runFilters = useMemo(
     () => ({
@@ -228,6 +239,22 @@ export function ComparePage() {
             values: ["all", ...prompts],
             labels: { all: "全部" },
             onChange: setPromptFilter
+          },
+          {
+            type: "text",
+            id: "compare-history-baseline",
+            label: "历史基线",
+            value: historyBaselineFilter,
+            onChange: setHistoryBaselineFilter,
+            placeholder: "baseline run id"
+          },
+          {
+            type: "text",
+            id: "compare-history-candidate",
+            label: "历史候选",
+            value: historyCandidateFilter,
+            onChange: setHistoryCandidateFilter,
+            placeholder: "candidate run id"
           }
         ]}
       />
@@ -269,6 +296,7 @@ export function ComparePage() {
             <ComparisonHistoryPanel
               comparisons={comparisonListQuery.data?.comparisons ?? []}
               total={comparisonListQuery.data?.total}
+              active={hasComparisonHistoryFilters}
             />
           </aside>
         }
@@ -734,12 +762,14 @@ function MetricDelta({
 }
 function ComparisonHistoryPanel({
   comparisons,
-  total
+  total,
+  active = false
 }: {
   comparisons: ComparisonSummary[];
   total?: number;
+  active?: boolean;
 }) {
-  if (comparisons.length === 0) {
+  if (comparisons.length === 0 && !active) {
     return null;
   }
   const columns: ColumnDef<ComparisonSummary>[] = [

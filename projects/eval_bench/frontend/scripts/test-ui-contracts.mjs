@@ -86,6 +86,7 @@ assert(
     filterControls.includes('className="advanced-filter-directory"') &&
     filterControls.includes('className="advanced-filter-search-control"') &&
     filterControls.includes('className="advanced-filter-number-control"') &&
+    filterControls.includes('className="advanced-filter-text-control"') &&
     filterControls.includes('className="advanced-filter-token"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
     filterControls.includes("onClick={() => resetAdvancedFilter(filter.control)}") &&
@@ -102,6 +103,7 @@ assert(
 assert(
   styleSource.includes(".advanced-filter-search-control") &&
     styleSource.includes(".advanced-filter-number-control") &&
+    styleSource.includes(".advanced-filter-text-control") &&
     !styleSource.includes(".advanced-search-box") &&
     !styleSource.includes(".advanced-number-box"),
   "advanced filter controls must use dedicated semantic classes instead of legacy search/filter shells",
@@ -722,6 +724,19 @@ assert(
     !comparePage.includes("function CompareRunPager(") &&
     !comparePage.includes("limit: 200"),
   "compare run rail must use paged API requests while preserving selected run ids",
+);
+assert(
+  apiSource.includes("baselineRunId?: string;") &&
+    apiSource.includes("candidateRunId?: string;") &&
+    apiSource.includes('params.set("list", "1");') &&
+    apiSource.includes('params.set("baseline_run_id", filters.baselineRunId.trim());') &&
+    apiSource.includes('params.set("candidate_run_id", filters.candidateRunId.trim());') &&
+    comparePage.includes("historyBaselineFilter") &&
+    comparePage.includes("historyCandidateFilter") &&
+    comparePage.includes('id: "compare-history-baseline"') &&
+    comparePage.includes('id: "compare-history-candidate"') &&
+    comparePage.includes("active={hasComparisonHistoryFilters}"),
+  "compare history advanced search must expose baseline/candidate filters through the list API",
 );
 assert(
   comparePage.includes('import { FormSelectControl } from "./controlPrimitives";') &&

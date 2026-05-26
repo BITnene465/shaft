@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench comparison 历史检索缺少 pair 过滤
+
+### 现象
+
+CLI `list-comparisons` 已经支持 `--baseline-run-id` 和 `--candidate-run-id`，但 Dashboard API 的
+comparison list 入口只暴露 task、label 和 query。Compare 页历史面板也只能按这些粗条件过滤，
+无法像 agent CLI 一样直接定位某一对 run 的历史 comparison。
+
+### 根因
+
+`GET /api/comparisons` 早期同时承担两个职责：不带 run id 时列出已保存 comparison，同时带
+`baseline_run_id` / `candidate_run_id` 时生成或读取一份成对 comparison。后续 CLI 增加 pair
+过滤后，HTTP list 入口没有显式 list mode 来消除语义冲突，前端历史检索也就没有接上 pair 条件。
+这是 API / UI / CLI 查询契约不一致，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Compare 页历史检索和 agent 通过 Dashboard API 做 comparison 目录查询。
+- 不影响 `compare-runs` 生成报告、`show-comparison` 读取详情、Rank Board 排序、run note 或评估指标。
+
+### 修复方式
+
+- Dashboard API 增加 `/api/comparisons?list=1` list mode；该模式下
+  `baseline_run_id` / `candidate_run_id` 作为过滤条件处理，原有成对 comparison 读取语义保持不变。
+- 前端 `fetchComparisons()` 固定使用 list mode，并显式映射 baseline / candidate filter 参数。
+- Compare 页高级检索增加“历史基线 / 历史候选”条件，历史为空但过滤生效时保留空状态面板。
+- `AdvancedFilterBar` 增加共享 text 控件类型，避免业务页为了 run id 条件重新手写输入壳。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_pairwise_comparison`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- Comparison list 查询新增过滤条件时，必须同步 CLI、Dashboard API、`fetchComparisons()` 和 Compare 页高级检索。
+- `GET /api/comparisons` 的成对报告读取语义不能再和 list 过滤混用；列表查询统一显式使用 `list=1`。
+
 ## 2026-05-26: Eval Bench 自动化入口偏向 MCP 式命令发现
 
 ### 现象

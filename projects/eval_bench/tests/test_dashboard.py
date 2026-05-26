@@ -1459,12 +1459,32 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
 
     filtered = client.get(
         "/api/comparisons",
-        params={"task": "detection", "label": "icon", "query": "candidate"},
+        params={
+            "list": "1",
+            "task": "detection",
+            "baseline_run_id": "baseline",
+            "candidate_run_id": "candidate",
+            "label": "icon",
+            "query": "candidate",
+        },
     ).json()
-    assert filtered["filters"] == {"task": "detection", "label": "icon", "query": "candidate"}
+    assert filtered["filters"] == {
+        "task": "detection",
+        "label": "icon",
+        "query": "candidate",
+        "baseline_run_id": "baseline",
+        "candidate_run_id": "candidate",
+    }
     assert filtered["total"] == 1
     assert filtered["comparisons"][0]["metric_profile"] == "detection_iou_v1"
     assert filtered["comparisons"][0]["target_labels"] == ["icon"]
+
+    filtered_wrong_pair = client.get(
+        "/api/comparisons",
+        params={"list": "1", "baseline_run_id": "other", "candidate_run_id": "candidate"},
+    ).json()
+    assert filtered_wrong_pair["total"] == 0
+    assert filtered_wrong_pair["filters"]["baseline_run_id"] == "other"
 
     filtered_empty = client.get("/api/comparisons", params={"label": "arrow"}).json()
     assert filtered_empty["total"] == 0
