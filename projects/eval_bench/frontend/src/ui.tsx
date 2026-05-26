@@ -175,6 +175,30 @@ export function InlineAnchor({
   );
 }
 
+export function NavigationCardAnchor({
+  children,
+  className,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return (
+    <a {...props} className={joinClassNames("navigation-card-anchor", className)}>
+      {children}
+    </a>
+  );
+}
+
+export function NavigationCardFrame({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div {...props} className={joinClassNames("navigation-card-frame", className)}>
+      {children}
+    </div>
+  );
+}
+
 export function PanelToggleButton({
   active,
   className,

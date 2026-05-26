@@ -28,7 +28,16 @@ import {
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { Badge, DataTable, EmptyState, InlineAnchor, InlineNavLink, SelectableCardButton } from "./ui";
+import {
+  Badge,
+  DataTable,
+  EmptyState,
+  InlineAnchor,
+  InlineNavLink,
+  NavigationCardAnchor,
+  NavigationCardFrame,
+  SelectableCardButton
+} from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 const COMPARE_RUN_PAGE_SIZE = 80;
@@ -676,20 +685,20 @@ function ComparisonSampleTable({
             );
             if (index === null) {
               return (
-                <div className="comparison-sample-row disabled" key={sample.key}>
+                <NavigationCardFrame className="comparison-sample-row disabled" key={sample.key}>
                   {content}
-                </div>
+                </NavigationCardFrame>
               );
             }
             return (
-              <a
+              <NavigationCardAnchor
                 className="comparison-sample-row"
                 href={comparisonSampleHref(baselineRunId, candidateRunId, index)}
                 key={sample.key}
               >
                 {content}
                 <Eye size={14} />
-              </a>
+              </NavigationCardAnchor>
             );
           })}
         </div>

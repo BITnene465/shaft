@@ -76,6 +76,11 @@ assert(
   "href inline links must share InlineAnchor",
 );
 assert(
+  uiSource.includes("export function NavigationCardAnchor(") &&
+    uiSource.includes("export function NavigationCardFrame("),
+  "card-style navigation rows must share NavigationCardAnchor/NavigationCardFrame",
+);
+assert(
   uiSource.includes("export function SelectableRowButton("),
   "sample row selection must be centralized in SelectableRowButton",
 );
@@ -568,6 +573,15 @@ assert(
     (comparePage.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
     !/<button[\s\S]{0,240}label-delta-card/.test(comparePage),
   "compare label delta cards must use SelectableCardButton instead of raw buttons",
+);
+assert(
+  comparePage.includes("NavigationCardAnchor") &&
+    comparePage.includes("NavigationCardFrame") &&
+    comparePage.includes('<NavigationCardAnchor\n                className="comparison-sample-row"') &&
+    comparePage.includes('<NavigationCardFrame className="comparison-sample-row disabled"') &&
+    !/<a[\s\S]{0,160}className="comparison-sample-row"/.test(comparePage) &&
+    !/<div[\s\S]{0,120}className="comparison-sample-row disabled"/.test(comparePage),
+  "compare sample navigation rows must use shared navigation card primitives",
 );
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 assert(

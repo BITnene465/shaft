@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Compare 样本跳转行仍是本地 anchor
+
+### 现象
+
+Compare 页的 label delta card 已经使用 `SelectableCardButton`，但 top 改善/退化样本列表仍在页面内直接写
+`<a className="comparison-sample-row">` 和不可跳转的 `<div className="comparison-sample-row disabled">`。
+这类卡片式导航行是对比分析里的高频入口，继续留在业务页会让 hover、disabled 外壳和导航语义分散。
+
+### 根因
+
+`ui.tsx` 之前只覆盖了 mini link、图标 link、按钮、chip、card button 和 table row，没有“卡片式导航行”
+这个中间形态。Compare 页只能本地拼 anchor/div 外壳。这是前端交互原语缺口，不是模型能力问题，
+也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Compare 页样本跳转列表的组件化边界、hover 反馈和 disabled 行外壳。
+- 不影响 comparison 计算、rank board、run note、样本详情路由或 eval metric 语义。
+
+### 修复方式
+
+- `ui.tsx` 新增 `NavigationCardAnchor` 和 `NavigationCardFrame`，统一卡片式导航与不可跳转同版式外壳。
+- Compare 样本列表改用共享导航卡片原语。
+- `comparison-sample-row` 增加 hover transition、轻微位移和左侧 active rail。
+- UI contract 增加防线，禁止 Compare 样本行回退到 raw anchor/div 外壳。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增卡片式导航入口时优先使用 `NavigationCardAnchor`；不可跳转但同版式占位使用 `NavigationCardFrame`。
+- 业务页不要直接维护 card link 的 raw anchor/div 外壳。
+
 ## 2026-05-26: Eval Bench Job Queue 仍手写表格选择行
 
 ### 现象
