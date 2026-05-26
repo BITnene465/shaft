@@ -8207,6 +8207,40 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench 列表 facet schema 明确化
+
+### 现象
+
+`list-benchmarks`、`list-runs`、`list-jobs` 和 `list-services` 已经返回完整后端 facets，Dashboard
+也不再从当前页或固定大页数推导筛选目录。但 CLI JSON schema 里仍只把 `facets` 标成泛型 object，
+agent 或脚本要么读取一次样例 payload 反推 keys，要么继续维护一份易漂移的本地假设。
+
+### 根因
+
+上一轮重点修复了 facet 数据真源和分页截断问题，schema 合约没有同步从“存在 facets”提升到“声明
+facet keys 与 bucket 形状”。这让 CLI 的机器可读稳定性弱于实际 payload。
+
+### 影响范围
+
+- 影响 Eval Bench agent / 脚本化检索的静态合约。
+- 不改变 Dashboard、API payload、数据库查询、评估指标或筛选语义。
+
+### 修复方式
+
+- CLI schema 增加 benchmark、run/rank、job 和 service 的 facet schema 常量。
+- `rank-board`、`list-runs`、`list-benchmarks`、`list-jobs`、`list-services` 复用明确的
+  `keys` 和 `{"value": "str", "count": "int"}` bucket 形状。
+- README 和 `docs/scripts.md` 补充 schema 约束，避免脚本从样例输出反推目录结构。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands`
+
+### 后续防线
+
+- 新增列表式 agent CLI 时，payload 若包含可枚举目录，schema 必须同步暴露稳定 keys 和 bucket 形状；
+  不能只用泛型 object 表示。
+
 ## 2026-05-25: Eval Bench agent show CLI 覆盖 job 与模板对象
 
 ### 现象

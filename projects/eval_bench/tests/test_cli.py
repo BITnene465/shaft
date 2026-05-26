@@ -253,6 +253,10 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "prompts",
         "metric_profiles",
     ]
+    assert rank_output_schema["properties"]["facets"]["item_shape"] == {
+        "value": "str",
+        "count": "int",
+    }
     benchmark_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-benchmarks"]
     assert benchmark_output_schema["required"] == [
         "offset",
@@ -262,7 +266,16 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "facets",
         "benchmarks",
     ]
-    assert benchmark_output_schema["properties"]["facets"]["type"] == "object"
+    assert benchmark_output_schema["properties"]["facets"]["keys"] == [
+        "tasks",
+        "layers",
+        "splits",
+        "labels",
+    ]
+    assert benchmark_output_schema["properties"]["facets"]["item_shape"] == {
+        "value": "str",
+        "count": "int",
+    }
     assert "score_delta" in rank_output_schema["properties"]["entries"]["item_shape"]
     note_output_schema = CLI_JSON_OUTPUT_SCHEMAS["get-run-note"]
     assert note_output_schema["required"] == [
@@ -294,7 +307,16 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     runs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-runs"]
     assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "runs"]
-    assert runs_output_schema["properties"]["facets"]["type"] == "object"
+    assert runs_output_schema["properties"]["facets"]["keys"] == [
+        "tasks",
+        "benchmarks",
+        "statuses",
+        "labels",
+        "models",
+        "prompts",
+        "metric_profiles",
+    ]
+    assert runs_output_schema["properties"]["facets"] == rank_output_schema["properties"]["facets"]
     assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["f1_iou50"] == "float|null"
@@ -330,7 +352,11 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     )
     jobs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-jobs"]
     assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "jobs"]
-    assert jobs_output_schema["properties"]["facets"]["type"] == "object"
+    assert jobs_output_schema["properties"]["facets"]["keys"] == ["kinds", "statuses"]
+    assert jobs_output_schema["properties"]["facets"]["item_shape"] == {
+        "value": "str",
+        "count": "int",
+    }
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"] == "object"
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"] == "object"
     assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
@@ -380,7 +406,11 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "facets",
         "services",
     ]
-    assert services_output_schema["properties"]["facets"]["type"] == "object"
+    assert services_output_schema["properties"]["facets"]["keys"] == ["kinds", "statuses"]
+    assert services_output_schema["properties"]["facets"]["item_shape"] == {
+        "value": "str",
+        "count": "int",
+    }
     assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
     assert (

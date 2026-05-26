@@ -232,6 +232,35 @@ RUN_NOTE_OUTPUT_SCHEMA = {
         "max_length": {"type": "int"},
     },
 }
+FACET_BUCKET_OUTPUT_SHAPE = {"value": "str", "count": "int"}
+BENCHMARK_FACET_OUTPUT_SCHEMA = {
+    "type": "object",
+    "keys": ["tasks", "layers", "splits", "labels"],
+    "item_shape": FACET_BUCKET_OUTPUT_SHAPE,
+}
+RUN_FACET_OUTPUT_SCHEMA = {
+    "type": "object",
+    "keys": [
+        "tasks",
+        "benchmarks",
+        "statuses",
+        "labels",
+        "models",
+        "prompts",
+        "metric_profiles",
+    ],
+    "item_shape": FACET_BUCKET_OUTPUT_SHAPE,
+}
+JOB_FACET_OUTPUT_SCHEMA = {
+    "type": "object",
+    "keys": ["kinds", "statuses"],
+    "item_shape": FACET_BUCKET_OUTPUT_SHAPE,
+}
+SERVICE_FACET_OUTPUT_SCHEMA = {
+    "type": "object",
+    "keys": ["kinds", "statuses"],
+    "item_shape": FACET_BUCKET_OUTPUT_SHAPE,
+}
 CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "dashboard-state": {
         "type": "object",
@@ -371,19 +400,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "entries",
         ],
         "properties": {
-            "facets": {
-                "type": "object",
-                "keys": [
-                    "tasks",
-                    "benchmarks",
-                    "statuses",
-                    "labels",
-                    "models",
-                    "prompts",
-                    "metric_profiles",
-                ],
-                "item_shape": {"value": "str", "count": "int"},
-            },
+            "facets": RUN_FACET_OUTPUT_SCHEMA,
             "entries": {
                 "type": "array",
                 "item_shape": {
@@ -410,7 +427,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "benchmarks"],
         "properties": {
-            "facets": {"type": "object"},
+            "facets": BENCHMARK_FACET_OUTPUT_SCHEMA,
             "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
     },
@@ -425,7 +442,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "runs"],
         "properties": {
-            "facets": {"type": "object"},
+            "facets": RUN_FACET_OUTPUT_SCHEMA,
             "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
     },
@@ -603,7 +620,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "jobs"],
         "properties": {
-            "facets": {"type": "object"},
+            "facets": JOB_FACET_OUTPUT_SCHEMA,
             "jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
         },
     },
@@ -621,7 +638,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "services"],
         "properties": {
-            "facets": {"type": "object"},
+            "facets": SERVICE_FACET_OUTPUT_SCHEMA,
             "services": {"type": "array", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
         },
     },
