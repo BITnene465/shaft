@@ -408,7 +408,12 @@ assert(
 );
 assert(
   runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
+    runsPage.includes("const RUN_NOTE_APPEND_HEADINGS = [") &&
     runsPage.includes("function insertNoteTemplate(") &&
+    runsPage.includes("appendRunNote(run.run_id, note, heading)") &&
+    runsPage.includes("const appendMutation = useMutation(") &&
+    runsPage.includes('className="run-note-append-panel"') &&
+    runsPage.includes('aria-label="追加 run note"') &&
     runsPage.includes("isApiError(error) && error.status === 409") &&
     (runsPage.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
     runsPage.includes('className="run-note-template-bar"') &&

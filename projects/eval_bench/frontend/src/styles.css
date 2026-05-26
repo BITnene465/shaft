@@ -814,6 +814,50 @@ h2 {
   flex: 0 0 auto;
 }
 
+.run-note-append-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 9px;
+  background: #ffffff;
+  border: 1px solid #dce6ee;
+  border-radius: 8px;
+}
+
+.run-note-append-panel > div {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.run-note-heading-select {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 170px);
+  gap: 8px;
+  align-items: center;
+}
+
+.run-note-heading-select span {
+  color: #5b7081;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.run-note-heading-select select {
+  min-height: 30px;
+  color: #1c2835;
+  background: #f8fbfd;
+  border: 1px solid #cfdce7;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.run-note-append-panel textarea {
+  min-height: 52px;
+  max-height: 120px;
+}
+
 .run-note-actions {
   display: flex;
   align-items: center;

@@ -907,13 +907,21 @@ async function assertRunNoteTemplates(page, scope) {
   const state = await page.evaluate(() => {
     const bar = document.querySelector(".run-note-template-bar");
     const buttons = Array.from(bar?.querySelectorAll("button") ?? []);
+    const appendPanel = document.querySelector(".run-note-append-panel");
+    const appendTextarea = appendPanel?.querySelector("textarea");
+    const appendAction = Array.from(appendPanel?.querySelectorAll("button") ?? []).find((button) =>
+      (button.textContent ?? "").includes("追加线索")
+    );
     return {
       hasBar: Boolean(bar),
+      hasAppendPanel: Boolean(appendPanel),
+      hasAppendTextarea: Boolean(appendTextarea),
+      hasAppendAction: Boolean(appendAction),
       buttonCount: buttons.length,
       labels: buttons.map((button) => button.textContent?.trim() ?? "")
     };
   });
-  if (!state.hasBar || state.buttonCount < 4) {
+  if (!state.hasBar || !state.hasAppendPanel || !state.hasAppendTextarea || !state.hasAppendAction || state.buttonCount < 4) {
     throw new Error(`${scope}: run note template bar is missing templates ${JSON.stringify(state)}`);
   }
   for (const label of ["复现", "Idea", "异常", "Next"]) {

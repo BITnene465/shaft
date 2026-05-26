@@ -138,7 +138,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 benchmark/run 检查器共享样本分页控件、目录分页 `PagerControl` 和通用 offset clamp；
     Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 只能传 className/meta，不各自复制上一页/下一页逻辑。
 - `projects/eval_bench/frontend/src/runsPage.tsx`
-  - 维护结果库、导入预测弹窗、带结构化模板插入的 run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
+  - 维护结果库、导入预测弹窗、带结构化模板插入和追加线索入口的 run note 编辑器、run 样本检查器；作为懒加载路由拆分。
 - `projects/eval_bench/frontend/src/jobsPage.tsx`
   - 维护评测中心、job 队列、高级检索、新建 job 弹窗和最近结果产物流；最近结果只展示
     benchmark/model、prediction/report/note 产物信号和状态，不常驻 P/R/IoU 细指标。

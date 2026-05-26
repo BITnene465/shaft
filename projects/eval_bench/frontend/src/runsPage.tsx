@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { FileText, Save, Sparkles } from "lucide-react";
+import { FileText, MessageSquarePlus, Save, Sparkles } from "lucide-react";
 
 import type { BenchmarkSummary, RunSampleSummary, RunSummary } from "./api";
 import {
+  appendRunNote,
   fetchRunSampleDetail,
   fetchRunSamples,
   fetchRuns,
@@ -73,6 +74,13 @@ const RUN_NOTE_TEMPLATES = [
     label: "Next",
     body: "## next\n- action:\n- owner:\n- blocking:\n"
   }
+];
+const RUN_NOTE_APPEND_HEADINGS = [
+  { value: "follow-up", label: "follow-up" },
+  { value: "reproduce", label: "reproduce" },
+  { value: "idea", label: "idea" },
+  { value: "diagnosis", label: "diagnosis" },
+  { value: "next", label: "next" }
 ];
 
 export function RunsPage() {
@@ -637,9 +645,16 @@ export function RunDetailPage() {
 function RunConfigPanel({ run }: { run: RunSummary }) {
   const queryClient = useQueryClient();
   const [noteDraft, setNoteDraft] = useState(run.note || "");
+  const [savedNote, setSavedNote] = useState(run.note || "");
+  const [noteVersion, setNoteVersion] = useState(run.note_updated_at);
+  const [appendHeading, setAppendHeading] = useState(RUN_NOTE_APPEND_HEADINGS[0].value);
+  const [appendDraft, setAppendDraft] = useState("");
   const noteMutation = useMutation({
-    mutationFn: (note: string) => updateRunNote(run.run_id, note, run.note_updated_at),
-    onSuccess: () => {
+    mutationFn: (note: string) => updateRunNote(run.run_id, note, noteVersion),
+    onSuccess: (note) => {
+      setNoteDraft(note.note);
+      setSavedNote(note.note);
+      setNoteVersion(note.updated_at);
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
     },
     onError: (error) => {
@@ -648,15 +663,30 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
       }
     }
   });
+  const appendMutation = useMutation({
+    mutationFn: ({ note, heading }: { note: string; heading: string }) =>
+      appendRunNote(run.run_id, note, heading),
+    onSuccess: (note) => {
+      setAppendDraft("");
+      setNoteDraft(note.note);
+      setSavedNote(note.note);
+      setNoteVersion(note.updated_at);
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+    }
+  });
   const promptSource = stringValue(run.prompt_metadata.source) || (run.prompt_path ? "file" : "inline");
   const systemPrompt = stringValue(run.prompt_metadata.system_prompt);
   const userPrompt = stringValue(run.prompt_metadata.user_prompt);
-  const noteDirty = noteDraft !== (run.note || "");
+  const noteDirty = noteDraft !== savedNote;
   const noteMaxLength = run.note_max_length;
 
   useEffect(() => {
-    setNoteDraft(run.note || "");
-  }, [run.run_id, run.note]);
+    const nextNote = run.note || "";
+    setNoteDraft(nextNote);
+    setSavedNote(nextNote);
+    setNoteVersion(run.note_updated_at);
+    setAppendDraft("");
+  }, [run.run_id, run.note, run.note_updated_at]);
 
   function insertNoteTemplate(template: (typeof RUN_NOTE_TEMPLATES)[number]) {
     setNoteDraft((current) => {
@@ -711,12 +741,41 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
             </ActionButton>
           ))}
         </div>
+        <div className="run-note-append-panel">
+          <div>
+            <FormSelectControl
+              className="run-note-heading-select"
+              label="追加标题"
+              value={appendHeading}
+              options={RUN_NOTE_APPEND_HEADINGS}
+              onChange={setAppendHeading}
+            />
+            <textarea
+              value={appendDraft}
+              onChange={(event) => setAppendDraft(event.target.value)}
+              placeholder="追加新的复现线索、观察或下一步检查，不覆盖已有 note。"
+              maxLength={noteMaxLength}
+              aria-label="追加 run note"
+            />
+          </div>
+          <ActionButton
+            compact
+            variant="secondary"
+            icon={<MessageSquarePlus size={14} />}
+            disabled={!appendDraft.trim() || appendMutation.isPending || noteMutation.isPending}
+            onClick={() => appendMutation.mutate({ note: appendDraft, heading: appendHeading })}
+          >
+            追加线索
+          </ActionButton>
+        </div>
         <div className="run-note-actions">
           <span>
             {noteDraft.length.toLocaleString()} / {noteMaxLength.toLocaleString()}
           </span>
           {noteMutation.error ? <strong>{noteMutation.error.message}</strong> : null}
+          {appendMutation.error ? <strong>{appendMutation.error.message}</strong> : null}
           {noteMutation.data ? <em>已保存</em> : null}
+          {appendMutation.data ? <em>已追加</em> : null}
           <ActionButton
             compact
             variant="primary"

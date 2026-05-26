@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Dashboard 只能覆盖保存 run note
+
+### 现象
+
+后端 API 和 CLI 已经支持 `append-run-note` / `/note/append`，适合 agent 或人工持续追加复现线索、idea
+来源和下一步检查。但 Dashboard 的 Run Inspector 记录配置面板只提供整篇 note 编辑和覆盖保存。用户在 UI
+里补充一条新观察时，需要手动编辑整篇 note，和 agent 的追加式工作流不一致。
+
+### 根因
+
+前端只接入了 `PATCH /api/runs/{run_id}/note`，虽然 `api.ts` 已有 `appendRunNote()`，但没有在标准
+Run note 编辑器中暴露。note 真源和后端语义没有问题，这是 Dashboard 能力覆盖不完整，不是模型能力问题，
+也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Run Inspector 中持续维护复现线索的效率和并发安全性。
+- 不影响 store 中的 `note.json` 真源、CLI `append-run-note`、API `/note/append` 或 run/rank/comparison 结果。
+
+### 修复方式
+
+- `RunConfigPanel` 接入 `appendRunNote()`，新增“追加线索”输入区和 heading select。
+- 覆盖保存和追加保存都维护 `savedNote` / `noteVersion`，成功后同步更新 draft、清空追加输入并刷新 dashboard state。
+- UI contract 要求 Run note 编辑器保留模板、append mutation、追加面板和 409 刷新逻辑。
+- layout smoke 打开 run config 面板后检查模板栏和追加线索入口同时存在。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增 note UI 能力必须复用 store/API/CLI 的 note 真源，不直接操作 artifact 文件。
+- Dashboard note 编辑器必须同时支持覆盖整理和追加线索两个工作流，避免人类 UI 与 agent CLI 语义分叉。
+
 ## 2026-05-26: Eval Bench rank-board agent 契约没有说明 sort_by 语义分层
 
 ### 现象

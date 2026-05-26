@@ -727,7 +727,8 @@ Dashboard 的 Runs 页也提供同一能力：展开 `Import prediction snapshot
 留空时不由前端补默认值，后端按 prompt/task 的同一套 `label_policy.py` 解析；显式填写时作为
 detection 的 label 子任务范围。后端会创建标准 run、复制 prediction snapshot、默认立即评估，
 之后直接进入 Run Inspector 看逐图 GT / Prediction 对比。Run Inspector 顶部的记录配置面板可以编辑
-同一份 run note；编辑器提供复现、idea、异常和 next 模板插入，便于把复现线索和排障判断写成可持续维护的结构化记录。
+同一份 run note；编辑器提供复现、idea、异常和 next 模板插入，也提供“追加线索”入口调用同一套
+`/note/append` 语义，便于把复现线索和排障判断写成可持续维护的结构化记录，而不是每次覆盖整篇 note。
 Runs 表格会把 note 摘要纳入搜索。
 
 Dashboard 的 Benchmarks 页也可以创建 benchmark copy：打开 `创建副本` 弹层，
