@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 稳定分页 CLI filters 不能只声明 object
+
+### 现象
+
+Rank Board、run/benchmark/job/service/comparison 列表、样本列表和模板列表的 stdout 都会回显 `filters`，
+但 CLI JSON schema 只声明 `filters` 是 object。Agent 能知道存在筛选回显，却不知道稳定字段有哪些，
+仍需要通过真实 payload 样例反推 task、label、query、rank_scheme 等筛选合同。
+
+### 根因
+
+前几轮先补齐了分页字段、facet keys 和 item shape，没有继续把 filters 从“存在一个 object”细化成
+各命令的稳定 key schema。分页和高级检索已经成为核心能力后，这种粗 schema 会让 agent 接口退化成半结构化。
+这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对分页列表、Rank Board 和样本列表筛选条件的可发现性和回显校验。
+- 不改变后端过滤语义、Dashboard 高级检索、Rank Board 默认 F1、weighted scheme、report 或 evaluator 语义。
+
+### 修复方式
+
+- CLI schema 增加 `_filter_output_schema()` 和各命令 filter schema 常量。
+- `rank-board`、`list-benchmarks`、`list-runs`、`list-run-samples`、`list-benchmark-samples`、
+  `list-job-templates`、`list-prompt-templates`、`list-jobs`、`list-services` 和 `list-comparisons`
+  显式声明各自 `filters.required` 和字段类型。
+- CLI schema 测试增加 `_assert_filter_schema()`，并对上述稳定分页命令逐一锁定 filter keys。
+- README 和 `docs/scripts.md` 同步记录分页 filters schema 合同。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_prints_filtered_rank_board projects/eval_bench/tests/test_cli.py::test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters projects/eval_bench/tests/test_cli.py::test_cli_lists_services_with_agent_filters`
+
+### 后续防线
+
+- 新增稳定分页 CLI 时，`filters` 不能只用泛型 object；必须和 payload 里的回显字段保持一一对应，
+  并由 CLI schema 测试锁定。
+
 ## 2026-05-26: Eval Bench RunTable 不应保留本地筛选 fallback
 
 ### 现象

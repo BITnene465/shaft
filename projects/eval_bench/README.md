@@ -666,6 +666,8 @@ Benchmarks 页直接请求 `GET /api/benchmarks`，
 和 CLI `list-services` 共享 kind、status、query、offset 和 limit 语义；Compare 的 run 选择下拉与选中卡片默认 foreground
 `F1@.50`，P/R 只作为次级诊断值；Rank Board 前端和 CLI/API 默认用
 `f1_iou50` 作为主指标排序，用户可以把主指标切到 precision、recall、mIoU 或预测数，也可以按创建时间或 run id 排列列表；
+稳定分页 CLI 的 JSON schema 必须显式声明各自 `filters` key：Rank Board 覆盖 task/benchmark/status/label/model/prompt/metric/min_score/query/rank_scheme，
+run/benchmark/job/service/comparison 列表、样本列表和模板列表也要声明对应筛选字段，agent 不需要从样例 payload 反推筛选合同；
 Rank Board 的主指标切换、升降序、Top contenders 和当前页 score spread 必须作为页面首层 `RankDecisionPanel` 展示，
 不能藏进高级检索浮层；其中 F1、precision、recall、mIoU 和预测数是主指标 chip，`created_at` / `run_id`
 只能放在“辅助排序”组，避免把时间和字符串排序误展示成主指标。高级检索只承载筛选条件和最低分门槛。

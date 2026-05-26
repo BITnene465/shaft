@@ -333,6 +333,52 @@ PAGED_LIST_OUTPUT_SHAPE = {
     "total": {"type": "int"},
     "filters": {"type": "object"},
 }
+
+
+def _filter_output_schema(keys: list[str]) -> dict[str, object]:
+    return {
+        "type": "object",
+        "required": keys,
+        "properties": {key: {"type": "str"} for key in keys},
+    }
+
+
+RANK_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
+    [
+        "task",
+        "benchmark_id",
+        "status",
+        "label",
+        "model_id",
+        "prompt_id",
+        "metric_profile",
+        "min_score",
+        "query",
+        "rank_scheme",
+    ]
+)
+BENCHMARK_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["task", "layer", "split", "query"])
+RUN_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
+    [
+        "task",
+        "benchmark_id",
+        "status",
+        "label",
+        "model_id",
+        "prompt_id",
+        "metric_profile",
+        "query",
+    ]
+)
+RUN_SAMPLE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["run_id", "label", "error_filter"])
+BENCHMARK_SAMPLE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["benchmark_id", "label"])
+JOB_TEMPLATE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["query"])
+PROMPT_TEMPLATE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["task", "query"])
+JOB_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["kind", "status", "query"])
+SERVICE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["kind", "status", "query"])
+COMPARISON_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
+    ["task", "baseline_run_id", "candidate_run_id", "label", "query"]
+)
 CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "dashboard-state": {
         "type": "object",
@@ -486,6 +532,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         ],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": RANK_FILTER_OUTPUT_SCHEMA,
             "evaluated_count": {"type": "int"},
             "primary_metric": {"type": "str"},
             "primary_metric_label": {"type": "str"},
@@ -521,6 +568,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "facets", "benchmarks"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": BENCHMARK_FILTER_OUTPUT_SCHEMA,
             "facets": BENCHMARK_FACET_OUTPUT_SCHEMA,
             "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
@@ -537,6 +585,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "facets", "runs"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": RUN_FILTER_OUTPUT_SCHEMA,
             "facets": RUN_FACET_OUTPUT_SCHEMA,
             "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
@@ -555,6 +604,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["run_id", "offset", "limit", "total", "filters", "labels", "samples"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": RUN_SAMPLE_FILTER_OUTPUT_SCHEMA,
             "run_id": {"type": "str"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
@@ -594,6 +644,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         ],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": BENCHMARK_SAMPLE_FILTER_OUTPUT_SCHEMA,
             "benchmark_id": {"type": "str"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
@@ -614,7 +665,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["templates", "total", "filters"],
         "properties": {
             "total": {"type": "int"},
-            "filters": {"type": "object"},
+            "filters": JOB_TEMPLATE_FILTER_OUTPUT_SCHEMA,
             "templates": {"type": "object", "item_shape": JOB_TEMPLATE_OUTPUT_SHAPE},
         },
     },
@@ -631,6 +682,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "templates", "by_id"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": PROMPT_TEMPLATE_FILTER_OUTPUT_SCHEMA,
             "templates": {"type": "array", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
             "by_id": {"type": "object", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
         },
@@ -719,6 +771,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "facets", "jobs"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": JOB_FILTER_OUTPUT_SCHEMA,
             "facets": JOB_FACET_OUTPUT_SCHEMA,
             "jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
         },
@@ -738,6 +791,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "facets", "services"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": SERVICE_FILTER_OUTPUT_SCHEMA,
             "facets": SERVICE_FACET_OUTPUT_SCHEMA,
             "services": {"type": "array", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
         },
@@ -866,6 +920,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["offset", "limit", "total", "filters", "comparisons"],
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
+            "filters": COMPARISON_FILTER_OUTPUT_SCHEMA,
             "comparisons": {"type": "array", "item_shape": COMPARISON_SUMMARY_OUTPUT_SHAPE},
         },
     },
