@@ -9,7 +9,6 @@ import { useDashboardState } from "./dashboardState";
 import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { f1Score, facetValues, formatMetric } from "./formatters";
-import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
   ActionButton,
@@ -18,7 +17,6 @@ import {
   DisclosurePanel,
   EmptyState,
   InlineNavLink,
-  MetricCard,
   OptionChipButton
 } from "./ui";
 
@@ -166,35 +164,18 @@ export function RankBoardPage() {
 
   return (
     <section className="page-stack density-page rank-board-page">
-      <div className="page-command-row">
-        <div>
-          <h2>独立排行榜</h2>
-          <span>
-            {board.total.toLocaleString()} 条 run，{rankBoardOrderLabel(board)}
-          </span>
-        </div>
-        {best ? (
-          <InlineNavLink
-            className="compare-ready"
-            icon={<AppIcon name="rankBoard" size={13} />}
-            to="/runs/$runId"
-            params={{ runId: best.run_id }}
-          >
-            {board.offset === 0 ? "当前第一" : "本页第一"} {best.run_id}
-          </InlineNavLink>
-        ) : null}
-      </div>
       <RankDecisionPanel
         board={board}
-        entries={entries}
+        best={best}
+        runCount={runs.length}
         sortBy={sortBy}
         sortOrder={sortOrder}
         onSortByChange={setSortBy}
         onSortOrderChange={setSortOrder}
       />
       <AdvancedFilterBar
-        title="排行榜高级检索"
-        meta="按论文检索式筛 run：任务、基准集、状态、label、模型、prompt、metric、分数门槛与备注全文"
+        title="筛选"
+        meta="任务、基准集、状态、标签、模型、Prompt、Metric 与最低分"
         controls={[
           {
             type: "search",
@@ -292,6 +273,21 @@ export function RankBoardPage() {
           </span>
         }
       />
+      <div className="workspace-card fill rank-board-table-card">
+        <PagerControl
+          className="rank-board-pager"
+          offset={board.offset}
+          limit={board.limit}
+          total={board.total}
+          onPageChange={setPageOffset}
+        />
+        <RankBoardTable
+          entries={entries}
+          primaryMetric={board.primary_metric}
+          primaryMetricLabel={board.primary_metric_label}
+          weighted={Boolean(board.rank_scheme)}
+        />
+      </div>
       <RankSchemePanel
         enabled={rankSchemeEnabled}
         draft={rankSchemeDraft}
@@ -302,24 +298,6 @@ export function RankBoardPage() {
         onEnabledChange={setRankSchemeEnabled}
         onDraftChange={setRankSchemeDraft}
       />
-      <div className="rank-metric-strip">
-        <MetricCard icon={<AppIcon name="rankEntry" size={24} />} label="入榜" value={board.total} />
-        <MetricCard
-          icon={<AppIcon name="evaluatedRun" size={24} />}
-          label="已评估"
-          value={board.evaluated_count}
-        />
-        <MetricCard
-          icon={<AppIcon name="benchmark" size={24} />}
-          label="基准集"
-          value={facetTotal(board, "benchmarks")}
-        />
-        <MetricCard
-          icon={<AppIcon name="runResults" size={24} />}
-          label="Run 总数"
-          value={runs.length}
-        />
-      </div>
       <RankFacetRail
         board={board}
         filters={{
@@ -341,50 +319,45 @@ export function RankBoardPage() {
           metricProfile: setMetricProfileFilter
         }}
       />
-      <div className="workspace-card fill">
-        <PagerControl
-          className="rank-board-pager"
-          offset={board.offset}
-          limit={board.limit}
-          total={board.total}
-          onPageChange={setPageOffset}
-        />
-        <RankBoardTable
-          entries={entries}
-          primaryMetric={board.primary_metric}
-          primaryMetricLabel={board.primary_metric_label}
-          weighted={Boolean(board.rank_scheme)}
-        />
-      </div>
     </section>
   );
 }
 
 function RankDecisionPanel({
   board,
-  entries,
+  best,
+  runCount,
   sortBy,
   sortOrder,
   onSortByChange,
   onSortOrderChange
 }: {
   board: RankBoard;
-  entries: RankBoardEntry[];
+  best: RankBoardEntry | null;
+  runCount: number;
   sortBy: string;
   sortOrder: string;
   onSortByChange: (value: string) => void;
   onSortOrderChange: (value: string) => void;
 }) {
-  const topEntries = entries.slice(0, 3);
   return (
-    <section className="rank-decision-panel">
-      <div className="rank-decision-hero">
-        <div className="rank-decision-eyebrow">
-          <AppIcon name="rankBoard" size={18} />
-          <span>Ranking basis</span>
-        </div>
-        <h3>{board.primary_metric_label}</h3>
-        <p>{rankBoardOrderLabel(board)}</p>
+    <section className="rank-decision-panel rank-leaderboard-toolbar">
+      <div className="rank-board-summary">
+        <strong>Leaderboard</strong>
+        <span>{board.total.toLocaleString()} runs</span>
+        <span>{board.evaluated_count.toLocaleString()} evaluated</span>
+        <span>{facetTotal(board, "benchmarks").toLocaleString()} benchmarks</span>
+        <span>{runCount.toLocaleString()} total</span>
+      </div>
+      <div className="rank-board-leading">
+        <span>{rankBoardOrderLabel(board)}</span>
+        {best ? (
+          <InlineNavLink to="/runs/$runId" params={{ runId: best.run_id }}>
+            #{best.rank} {best.run_id} · {formatMetric(best.score)}
+          </InlineNavLink>
+        ) : null}
+      </div>
+      <div className="rank-toolbar-controls">
         <div className="rank-sort-section">
           <span>主指标</span>
           <div className="rank-sort-dial" role="group" aria-label="排行榜主指标">
@@ -401,7 +374,7 @@ function RankDecisionPanel({
           </div>
         </div>
         <div className="rank-sort-section auxiliary">
-          <span>辅助排序</span>
+          <span>排序</span>
           <div className="rank-sort-dial" role="group" aria-label="排行榜辅助排序字段">
             {RANK_AUXILIARY_SORTS.map((metric) => (
               <OptionChipButton
@@ -430,61 +403,10 @@ function RankDecisionPanel({
           >
             升序
           </OptionChipButton>
-          <span>{board.score_formula}</span>
         </div>
       </div>
-      <div className="rank-top-panel">
-        <div className="rank-top-head">
-          <strong>Top contenders</strong>
-          <span>{board.offset === 0 ? "全局当前页" : `从 #${board.offset + 1} 开始`}</span>
-        </div>
-        <div className="rank-top-list">
-          {topEntries.length > 0 ? (
-            topEntries.map((entry) => (
-              <Link
-                className="rank-top-row"
-                key={entry.run_id}
-                to="/runs/$runId"
-                params={{ runId: entry.run_id }}
-              >
-                <span>#{entry.rank}</span>
-                <div>
-                  <strong>{entry.run_id}</strong>
-                  <em>
-                    {entry.model_id} · {formatScoreDelta(entry.score_delta)}
-                  </em>
-                </div>
-                <b>{formatMetric(entry.score)}</b>
-                <i style={{ width: `${rankScoreWidth(entry.score)}%` }} />
-              </Link>
-            ))
-          ) : (
-            <span className="rank-top-empty">暂无符合条件的 run</span>
-          )}
-        </div>
-      </div>
-      <RankScoreSpread entries={entries} />
+      <span className="rank-score-formula">{board.score_formula}</span>
     </section>
-  );
-}
-
-function RankScoreSpread({ entries }: { entries: RankBoardEntry[] }) {
-  const buckets = scoreBuckets(entries);
-  return (
-    <div className="rank-spread-panel">
-      <div className="rank-top-head">
-        <strong>Score spread</strong>
-        <span>{entries.length.toLocaleString()} on page</span>
-      </div>
-      <div className="rank-spread-bars" aria-label="当前页分数分布">
-        {buckets.map((bucket) => (
-          <span key={bucket.label} title={`${bucket.label}: ${bucket.count}`}>
-            <i style={{ height: `${bucket.height}%` }} />
-            <em>{bucket.label}</em>
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -504,32 +426,6 @@ function rankBoardOrderLabel(
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
   return board.facets[key]?.length ?? 0;
-}
-
-function rankScoreWidth(value: number | null) {
-  if (value === null || Number.isNaN(value)) {
-    return 8;
-  }
-  return Math.max(8, Math.min(100, value * 100));
-}
-
-function scoreBuckets(entries: RankBoardEntry[]) {
-  const labels = ["0-.2", ".2-.4", ".4-.6", ".6-.8", ".8-1"];
-  const counts = [0, 0, 0, 0, 0];
-  for (const entry of entries) {
-    const value = typeof entry.score === "number" ? entry.score : -1;
-    if (value < 0) {
-      continue;
-    }
-    const index = Math.min(4, Math.floor(value / 0.2));
-    counts[index] += 1;
-  }
-  const maxCount = Math.max(1, ...counts);
-  return labels.map((label, index) => ({
-    label,
-    count: counts[index],
-    height: Math.max(8, Math.round((counts[index] / maxCount) * 100))
-  }));
 }
 
 function RankFacetRail({
@@ -557,50 +453,64 @@ function RankFacetRail({
     metricProfile: (value: string) => void;
   };
 }) {
+  const groups = [
+    {
+      title: "Tasks",
+      items: board.facets.tasks ?? [],
+      activeValue: filters.task,
+      onSelect: onFilterChange.task
+    },
+    {
+      title: "Benchmarks",
+      items: board.facets.benchmarks ?? [],
+      activeValue: filters.benchmark,
+      onSelect: onFilterChange.benchmark
+    },
+    {
+      title: "Status",
+      items: board.facets.statuses ?? [],
+      activeValue: filters.status,
+      onSelect: onFilterChange.status
+    },
+    {
+      title: "Labels",
+      items: board.facets.labels ?? [],
+      activeValue: filters.label,
+      onSelect: onFilterChange.label
+    },
+    {
+      title: "Models",
+      items: board.facets.models ?? [],
+      activeValue: filters.model,
+      onSelect: onFilterChange.model
+    },
+    {
+      title: "Prompts",
+      items: board.facets.prompts ?? [],
+      activeValue: filters.prompt,
+      onSelect: onFilterChange.prompt
+    },
+    {
+      title: "Metrics",
+      items: board.facets.metric_profiles ?? [],
+      activeValue: filters.metricProfile,
+      onSelect: onFilterChange.metricProfile
+    }
+  ].filter((group) => group.items.length > 0);
+  if (groups.length === 0) {
+    return null;
+  }
   return (
     <div className="rank-facet-rail">
-      <RankFacetGroup
-        title="Tasks"
-        items={board.facets.tasks ?? []}
-        activeValue={filters.task}
-        onSelect={onFilterChange.task}
-      />
-      <RankFacetGroup
-        title="Benchmarks"
-        items={board.facets.benchmarks ?? []}
-        activeValue={filters.benchmark}
-        onSelect={onFilterChange.benchmark}
-      />
-      <RankFacetGroup
-        title="Status"
-        items={board.facets.statuses ?? []}
-        activeValue={filters.status}
-        onSelect={onFilterChange.status}
-      />
-      <RankFacetGroup
-        title="Labels"
-        items={board.facets.labels ?? []}
-        activeValue={filters.label}
-        onSelect={onFilterChange.label}
-      />
-      <RankFacetGroup
-        title="Models"
-        items={board.facets.models ?? []}
-        activeValue={filters.model}
-        onSelect={onFilterChange.model}
-      />
-      <RankFacetGroup
-        title="Prompts"
-        items={board.facets.prompts ?? []}
-        activeValue={filters.prompt}
-        onSelect={onFilterChange.prompt}
-      />
-      <RankFacetGroup
-        title="Metrics"
-        items={board.facets.metric_profiles ?? []}
-        activeValue={filters.metricProfile}
-        onSelect={onFilterChange.metricProfile}
-      />
+      {groups.map((group) => (
+        <RankFacetGroup
+          key={group.title}
+          title={group.title}
+          items={group.items}
+          activeValue={group.activeValue}
+          onSelect={group.onSelect}
+        />
+      ))}
     </div>
   );
 }

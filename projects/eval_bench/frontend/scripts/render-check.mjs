@@ -171,14 +171,22 @@ async function assertOverviewCommandDesk(page) {
     const root = document.querySelector(".dashboard-home");
     return {
       text: root?.textContent ?? "",
-      opsBoards: document.querySelectorAll(".overview-ops-board").length,
-      rankConsoles: document.querySelectorAll(".overview-rank-console").length,
-      scoreDials: document.querySelectorAll(".overview-score-dial").length,
-      telemetryTraces: document.querySelectorAll(".overview-telemetry-trace").length,
-      evidenceRows: document.querySelectorAll(".overview-evidence-row").length,
-      flowNodes: document.querySelectorAll(".overview-flow-node").length,
-      recentCards: document.querySelectorAll(".overview-recent-card").length,
-      decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
+      homeV18: document.querySelectorAll(".overview-home-v18").length,
+      cards: document.querySelectorAll(".overview-v18-card").length,
+      primaryCards: document.querySelectorAll(".overview-v18-primary").length,
+      queueCards: document.querySelectorAll(".overview-v18-queue").length,
+      recentCards: document.querySelectorAll(".overview-v18-recent").length,
+      resourceCards: document.querySelectorAll(".overview-v18-resources").length,
+      flowItems: document.querySelectorAll(".overview-v18-flow-item").length,
+      consoles: document.querySelectorAll(".overview-v18-console").length,
+      consoleTabs: document.querySelectorAll(".overview-v18-surface-tab").length,
+      signalMaps: document.querySelectorAll(".overview-v18-signal-map").length,
+      signalNodes: document.querySelectorAll(".overview-v18-signal-node").length,
+      signalInspectors: document.querySelectorAll(".overview-v18-signal-inspector").length,
+      runLists: document.querySelectorAll(".overview-v18-run-list").length,
+      legacyCommandDesk: document.querySelectorAll(
+        ".overview-ops-board, .overview-rank-console, .overview-score-dial, .overview-telemetry-trace, .overview-decision-metric"
+      ).length,
       oldCharts: document.querySelectorAll(".overview-mini-chart, .overview-chart-matrix").length,
       oldPanels: document.querySelectorAll(
         ".overview-proof-strip, .overview-triage-rail, .overview-signal-stack, .overview-activity-matrix"
@@ -191,22 +199,27 @@ async function assertOverviewCommandDesk(page) {
   if (fineMetricText.test(state.text)) {
     throw new Error("overview exposes fine-grained metric text");
   }
-  if (state.oldCharts > 0 || state.oldPanels > 0) {
+  if (state.oldCharts > 0 || state.oldPanels > 0 || state.legacyCommandDesk > 0) {
     throw new Error(
-      `overview rendered deprecated panels: oldCharts=${state.oldCharts}, oldPanels=${state.oldPanels}`
+      `overview rendered deprecated panels: oldCharts=${state.oldCharts}, oldPanels=${state.oldPanels}, legacyCommandDesk=${state.legacyCommandDesk}`
     );
   }
   if (
-    state.opsBoards !== 1 ||
-    state.rankConsoles !== 1 ||
-    state.scoreDials !== 1 ||
-    state.telemetryTraces !== 1 ||
-    state.evidenceRows !== 0 ||
-    state.flowNodes !== 4 ||
+    state.homeV18 !== 1 ||
+    state.cards !== 4 ||
+    state.primaryCards !== 1 ||
+    state.queueCards !== 1 ||
     state.recentCards !== 1 ||
-    state.decisionMetrics !== 4
+    state.resourceCards !== 1 ||
+    state.flowItems !== 3 ||
+    state.consoles !== 1 ||
+    state.consoleTabs !== 3 ||
+    state.signalMaps !== 1 ||
+    state.signalNodes !== 3 ||
+    state.signalInspectors !== 1 ||
+    state.runLists > 1
   ) {
-    throw new Error(`overview command desk structure regressed: ${JSON.stringify(state)}`);
+    throw new Error(`overview workspace structure regressed: ${JSON.stringify(state)}`);
   }
 }
 

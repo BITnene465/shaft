@@ -381,7 +381,7 @@ assert(
     overviewPage.includes('queryFn: () => fetchServices({ status: "running", limit: 1 })') &&
     overviewPage.includes("function jobPageTotal(") &&
     overviewPage.includes("function servicePageTotal(") &&
-    overviewPage.includes("const totalJobRecords = Math.max(") &&
+    overviewPage.includes("const totalJobs = Math.max(") &&
     overviewPage.includes("const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices)") &&
     !overviewPage.includes('fetchJobs({ limit: 500 })') &&
     !overviewPage.includes('fetchServices({ limit: 500 })') &&
@@ -393,39 +393,48 @@ assert(
   "overview job/service runtime counts must use filtered backend totals instead of first-page list estimates",
 );
 assert(
-  overviewPage.includes("overview-home-v17") &&
-    overviewPage.includes("overview-ops-board") &&
-    overviewPage.includes("overview-rank-console") &&
-    overviewPage.includes("OverviewDecisionMetrics") &&
-    overviewPage.includes("overview-decision-metrics") &&
-    overviewPage.includes("overview-decision-metric") &&
-    overviewPage.includes("overview-decision-icon") &&
-    overviewPage.includes("OverviewTelemetryTrace") &&
-    overviewPage.includes("overview-telemetry-trace") &&
-    overviewPage.includes("overview-telemetry-bar") &&
-    overviewPage.includes("overview-resource-chips") &&
-    overviewPage.includes("OverviewStateStrip") &&
-    overviewPage.includes("overview-state-strip") &&
+  overviewPage.includes("overview-home-v18") &&
+    overviewPage.includes("overview-v18-grid") &&
+    overviewPage.includes("OverviewPrimaryCard") &&
+    overviewPage.includes("overview-v18-primary") &&
+    overviewPage.includes("OverviewQueueCard") &&
+    overviewPage.includes("overview-v18-queue") &&
+    overviewPage.includes("OverviewResourceCard") &&
+    overviewPage.includes("overview-v18-resources") &&
+    overviewPage.includes("OverviewRecentRunsPanel") &&
+    overviewPage.includes("overview-v18-recent") &&
+    overviewPage.includes("OverviewFlowItem") &&
+    overviewPage.includes("overview-v18-flow-item") &&
+    overviewPage.includes("OverviewLens") &&
+    overviewPage.includes("overview-v18-console") &&
+    overviewPage.includes("overview-v18-surface-tab") &&
+    overviewPage.includes("overview-v18-surface-body") &&
+    overviewPage.includes("overview-v18-signal-map") &&
+    overviewPage.includes("overview-v18-signal-node") &&
+    overviewPage.includes("overview-v18-signal-inspector") &&
+    overviewPage.includes("overviewSignalNodes") &&
+    overviewPage.includes("OptionChipButton") &&
     !overviewPage.includes("overviewHeroTitle") &&
-    overviewPage.includes("OverviewScoreDial") &&
-    overviewPage.includes("overview-score-dial") &&
-    overviewPage.includes("OverviewRunFocus") &&
-    overviewPage.includes("overview-run-focus") &&
+    overviewPage.includes("overview-v18-score") &&
     overviewPage.includes("bestF1Run") &&
     overviewPage.includes('import { formatMetric, runF1Score } from "./formatters";') &&
-    overviewPage.includes("OverviewOpsSignal") &&
-    overviewPage.includes("overview-ops-signal") &&
-    overviewPage.includes("OverviewFlowSpine") &&
-    overviewPage.includes("overview-flow-spine") &&
-    overviewPage.includes("overview-flow-node") &&
-    overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
-    overviewPage.includes("OverviewRecentRunsPanel") &&
-    overviewPage.includes("overview-run-counts") &&
-    overviewPage.includes("overview-run-artifacts") &&
-    overviewPage.includes("overview-run-state") &&
+    overviewPage.includes("overview-v18-run-artifacts") &&
+    overviewPage.includes("overview-v18-run-score") &&
     overviewPage.includes('import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";') &&
-    overviewPage.includes("updateOverviewPointer") &&
+    !overviewPage.includes("updateOverviewPointer") &&
+    !overviewPage.includes("overview-home-v17") &&
+    !overviewPage.includes("overview-ops-board") &&
+    !overviewPage.includes("overview-rank-console") &&
+    !overviewPage.includes("overview-decision-metric") &&
+    !overviewPage.includes("overview-telemetry-trace") &&
+    !overviewPage.includes("overview-resource-chips") &&
+    !overviewPage.includes("overview-state-strip") &&
+    !overviewPage.includes("overview-score-dial") &&
+    !overviewPage.includes("overview-run-focus") &&
+    !overviewPage.includes("overview-ops-signal") &&
+    !overviewPage.includes("overview-flow-spine") &&
+    !overviewPage.includes("overview-flow-node") &&
     !overviewPage.includes("overview-home-v13") &&
     !overviewPage.includes("overview-command-shell") &&
     !overviewPage.includes("overview-now-panel") &&
@@ -496,15 +505,18 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v17: decision-first command desk") &&
-    styleSource.includes(".overview-home-v17 .overview-ops-board") &&
-    styleSource.includes(".overview-home-v17 .overview-decision-metric:hover") &&
-    styleSource.includes(".overview-home-v17 .overview-decision-icon") &&
-    styleSource.includes(".overview-home-v17 .overview-telemetry-trace") &&
-    styleSource.includes(".overview-home-v17 .overview-telemetry-bar:hover") &&
-    styleSource.includes(".overview-home-v17 .overview-resource-chips") &&
-    styleSource.includes("@keyframes overview-v17-scan") &&
-    styleSource.includes("@keyframes overview-v17-live") &&
+  styleSource.includes("Overview v18: compact operator workspace") &&
+    styleSource.includes(".overview-home-v18") &&
+    styleSource.includes(".overview-v18-grid") &&
+    styleSource.includes(".overview-v18-primary") &&
+    styleSource.includes(".overview-v18-recent") &&
+    styleSource.includes(".overview-v18-console") &&
+    styleSource.includes(".overview-v18-signal-map") &&
+    styleSource.includes(".overview-v18-signal-node.active") &&
+    styleSource.includes(".overview-v18-signal-inspector") &&
+    styleSource.includes(".overview-v18-card::before") &&
+    styleSource.includes(".overview-v18-flow-item:hover") &&
+    styleSource.includes(".overview-v18-icon-link:hover") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
@@ -512,10 +524,22 @@ assert(
     designSource.includes(".nav-item:hover::after") &&
     designSource.includes(".user-profile-chip:hover") &&
     designSource.includes(".status-pill:hover"),
-  "overview and shared controls must keep tactile hover and motion feedback",
+  "overview and shared controls must keep focused layout and tactile hover feedback",
 );
 assert(
   ![
+    "overview-home-v17",
+    "overview-ops-board",
+    "overview-rank-console",
+    "overview-decision-metric",
+    "overview-telemetry-trace",
+    "overview-resource-chips",
+    "overview-state-strip",
+    "overview-score-dial",
+    "overview-run-focus",
+    "overview-ops-signal",
+    "overview-flow-spine",
+    "overview-flow-node",
     "overview-home-v6",
     "overview-home-v7",
     "overview-home-v8",
@@ -553,7 +577,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must expose the active v17 surface and block deprecated design tracks",
+  "overview stylesheet must expose only the active v18 surface and block deprecated design tracks",
 );
 assert(
   !readmeSource.includes("overview-evidence-row`、\n`overview-ops-signal") &&
@@ -567,7 +591,7 @@ assert(
 );
 assert(
   !/recall|precision|mIoU|R@\.50|P@\.50/i.test(overviewPage) &&
-    !/overview-home-v17[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(styleSource),
+    !/overview-home-v18[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(styleSource),
   "overview command desk must avoid fine metric copy and five-plus column grids",
 );
 const mainEntry = await readSource("src/main.tsx");
@@ -875,7 +899,8 @@ assert(
 );
 assert(
   rankBoardPage.includes("function RankDecisionPanel(") &&
-    rankBoardPage.includes('className="rank-decision-panel"') &&
+    rankBoardPage.includes('className="rank-decision-panel rank-leaderboard-toolbar"') &&
+    rankBoardPage.includes('className="workspace-card fill rank-board-table-card"') &&
     rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
     rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
     rankBoardPage.includes("const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];") &&
@@ -885,11 +910,12 @@ assert(
     rankBoardPage.includes('aria-label="排行榜辅助排序字段"') &&
     rankBoardPage.includes('className="rank-sort-chip primary"') &&
     rankBoardPage.includes('className="rank-sort-chip auxiliary"') &&
-    rankBoardPage.includes('className="rank-top-panel"') &&
-    rankBoardPage.includes('className="rank-spread-panel"') &&
+    !rankBoardPage.includes('className="rank-top-panel"') &&
+    !rankBoardPage.includes('className="rank-spread-panel"') &&
+    !rankBoardPage.includes("rank-metric-strip") &&
     !rankBoardPage.includes('id: "rank-sort-by"') &&
     !rankBoardPage.includes('id: "rank-sort-order"'),
-  "rank board primary metric controls must live in the visible rank decision panel, not inside advanced filters",
+  "rank board primary metric controls must stay in a compact leaderboard toolbar above the table",
 );
 assert(
   rankBoardPage.includes("DisclosurePanel") &&

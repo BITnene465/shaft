@@ -15,22 +15,15 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v17",
-      ".overview-ops-board",
-      ".overview-rank-console",
-      ".overview-decision-metrics",
-      ".overview-decision-metric",
-      ".overview-decision-icon",
-      ".overview-state-strip",
-      ".overview-run-focus",
-      ".overview-flow-spine",
-      ".overview-flow-node",
-      ".overview-score-dial",
-      ".overview-ops-signal",
-      ".overview-telemetry-trace",
-      ".overview-telemetry-bar",
-      ".overview-resource-chips",
-      ".overview-recent-card"
+      ".overview-home-v18",
+      ".overview-v18-grid",
+      ".overview-v18-primary",
+      ".overview-v18-queue",
+      ".overview-v18-recent",
+      ".overview-v18-resources",
+      ".overview-v18-console",
+      ".overview-v18-signal-map",
+      ".overview-v18-flow-item"
     ]
   },
   {
@@ -39,13 +32,12 @@ const staticRoutes = [
     selectors: [
       ".rank-board-page",
       ".rank-decision-panel",
+      ".rank-leaderboard-toolbar",
+      ".rank-board-table-card",
       ".rank-sort-chip",
-      ".rank-top-panel",
-      ".rank-spread-panel",
       ".advanced-filter-bar",
       ".rank-scheme-panel",
-      ".rank-facet-rail",
-      ".table-shell"
+      ".rank-board-table-card"
     ],
     requireRankChunk: true
   },
@@ -484,6 +476,114 @@ async function assertTopbarStatus(page, scope) {
 }
 
 async function assertOverviewDensity(page, scope) {
+  const overviewState = await page.evaluate(() => {
+    const root = document.querySelector(".overview-home-v18");
+    const grid = document.querySelector(".overview-v18-grid");
+    const primary = document.querySelector(".overview-v18-primary");
+    const queue = document.querySelector(".overview-v18-queue");
+    const recent = document.querySelector(".overview-v18-recent");
+    const resources = document.querySelector(".overview-v18-resources");
+    const primaryRect = primary?.getBoundingClientRect();
+    const queueRect = queue?.getBoundingClientRect();
+    const recentRect = recent?.getBoundingClientRect();
+    const resourceRect = resources?.getBoundingClientRect();
+    const runRows = Array.from(document.querySelectorAll(".overview-v18-run-list a")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        height: Math.round(rect.height),
+        text: node.textContent ?? ""
+      };
+    });
+    return {
+      text: root?.textContent ?? "",
+      cardCount: document.querySelectorAll(".overview-v18-card").length,
+      flowItems: document.querySelectorAll(".overview-v18-flow-item").length,
+      consoleCount: document.querySelectorAll(".overview-v18-console").length,
+      consoleTabs: document.querySelectorAll(".overview-v18-surface-tab").length,
+      signalMaps: document.querySelectorAll(".overview-v18-signal-map").length,
+      signalNodes: document.querySelectorAll(".overview-v18-signal-node").length,
+      signalInspectors: document.querySelectorAll(".overview-v18-signal-inspector").length,
+      primaryCount: document.querySelectorAll(".overview-v18-primary").length,
+      queueCount: document.querySelectorAll(".overview-v18-queue").length,
+      recentCount: document.querySelectorAll(".overview-v18-recent").length,
+      resourceCount: document.querySelectorAll(".overview-v18-resources").length,
+      runRows,
+      runArtifactRails: document.querySelectorAll(".overview-v18-run-artifacts i b").length,
+      legacyPanels: document.querySelectorAll(
+        ".overview-ops-board, .overview-rank-console, .overview-decision-metric, .overview-telemetry-trace, .overview-resource-chips, .overview-state-strip, .overview-score-dial, .overview-run-focus, .overview-ops-signal, .overview-flow-node, .overview-mini-chart, .overview-chart-matrix, .overview-activity-matrix"
+      ).length,
+      gridColumns: grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : 0,
+      primary: primaryRect
+        ? { width: Math.round(primaryRect.width), height: Math.round(primaryRect.height) }
+        : null,
+      queue: queueRect
+        ? { width: Math.round(queueRect.width), height: Math.round(queueRect.height) }
+        : null,
+      recent: recentRect
+        ? { width: Math.round(recentRect.width), height: Math.round(recentRect.height) }
+        : null,
+      resources: resourceRect
+        ? { width: Math.round(resourceRect.width), height: Math.round(resourceRect.height) }
+        : null
+    };
+  });
+  if (
+    overviewState.cardCount !== 4 ||
+    overviewState.primaryCount !== 1 ||
+    overviewState.queueCount !== 1 ||
+    overviewState.recentCount !== 1 ||
+    overviewState.resourceCount !== 1 ||
+    overviewState.flowItems !== 3 ||
+    overviewState.consoleCount !== 1 ||
+    overviewState.consoleTabs !== 3 ||
+    overviewState.signalMaps !== 1 ||
+    overviewState.signalNodes !== 3 ||
+    overviewState.signalInspectors !== 1
+  ) {
+    throw new Error(`${scope}: overview v18 should keep four focused modules ${JSON.stringify(overviewState)}`);
+  }
+  if (overviewState.legacyPanels > 0) {
+    throw new Error(`${scope}: deprecated overview panels are still rendered`);
+  }
+  if (!scope.startsWith("narrow") && overviewState.gridColumns < 2) {
+    throw new Error(`${scope}: overview should use two or three columns on wide screens`);
+  }
+  if (
+    !overviewState.primary ||
+    !overviewState.queue ||
+    !overviewState.recent ||
+    !overviewState.resources ||
+    overviewState.primary.height < 170 ||
+    overviewState.recent.height < 120
+  ) {
+    throw new Error(`${scope}: overview panels collapsed ${JSON.stringify(overviewState)}`);
+  }
+  if (!scope.startsWith("narrow") && overviewState.primary.width <= overviewState.queue.width) {
+    throw new Error(`${scope}: primary overview module should occupy the larger column span`);
+  }
+  if (overviewState.runRows.some((row) => row.height > 76)) {
+    throw new Error(
+      `${scope}: recent run rows are stretched ${overviewState.runRows.map((row) => row.height).join(",")}`
+    );
+  }
+  if (overviewState.runRows.some((row) => /\b(P@|R@|precision|recall|iou|miou)\b/i.test(row.text))) {
+    throw new Error(`${scope}: recent run stream exposes fine metrics`);
+  }
+  if (overviewState.runRows.length > 0 && overviewState.runArtifactRails !== overviewState.runRows.length) {
+    throw new Error(`${scope}: recent run rows should expose artifact readiness rails`);
+  }
+  if (
+    /只保留系统运行态、数据规模和近期写入节奏|精细指标进入排行榜与对比页|首页只保留|可以看排行|可以进入排行|查看排行榜|等待报告进入排行|主指标 F1 可排行|从样本到排行|rankable|F1 ready|先处理阻塞|补齐评估闭环|队列正在推进/.test(
+      overviewState.text
+    )
+  ) {
+    throw new Error(`${scope}: overview should not use slogan-style implementation copy`);
+  }
+  if (/\b(precision|recall|iou|miou)\b/i.test(overviewState.text)) {
+    throw new Error(`${scope}: overview exposes fine-grained eval metric text`);
+  }
+  return;
+
   const state = await page.evaluate(() => {
     const recentRows = Array.from(document.querySelectorAll(".overview-run-list a")).map((node) => {
       const rect = node.getBoundingClientRect();
@@ -1520,13 +1620,18 @@ async function assertRankFacetRail(page, scope) {
     };
   });
   const expectedGroups = ["Tasks", "Benchmarks", "Status", "Labels", "Models", "Prompts", "Metrics"];
+  if (state.groups.length === 0) {
+    return;
+  }
   const actualGroups = state.groups.map((group) => group.title);
-  const missingGroups = expectedGroups.filter((title) => !actualGroups.includes(title));
-  if (missingGroups.length > 0 || state.groups.length < expectedGroups.length) {
+  const unknownGroups = actualGroups.filter((title) => !expectedGroups.includes(title));
+  const emptyGroups = state.groups.filter((group) => group.buttonCount === 0).map((group) => group.title);
+  if (unknownGroups.length > 0 || emptyGroups.length > 0) {
     throw new Error(
-      `${scope}: rank facet rail should expose all backend groups ${JSON.stringify({
+      `${scope}: rank facet rail should only render non-empty backend groups ${JSON.stringify({
         ...state,
-        missingGroups
+        unknownGroups,
+        emptyGroups
       })}`
     );
   }
@@ -1539,7 +1644,7 @@ async function assertRankFacetRail(page, scope) {
   await assertRankFacetExpansion(page, scope);
   await page.locator(".rank-facet-button").first().click();
   await page.locator(".rank-facet-button.active").first().waitFor({ timeout: 10_000 });
-  await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-board-table-card").first().waitFor({ timeout: 10_000 });
 }
 
 async function assertRankFacetExpansion(page, scope) {
@@ -1601,6 +1706,8 @@ async function assertRankFacetExpansion(page, scope) {
 async function assertRankDecisionPanel(page, scope) {
   const state = await page.evaluate(() => {
     const panel = document.querySelector(".rank-decision-panel");
+    const toolbar = document.querySelector(".rank-leaderboard-toolbar");
+    const tableCard = document.querySelector(".rank-board-table-card");
     const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip"));
     const primarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.primary"));
     const auxiliarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.auxiliary"));
@@ -1609,41 +1716,55 @@ async function assertRankDecisionPanel(page, scope) {
     );
     const orderChips = Array.from(document.querySelectorAll(".rank-order-chip"));
     const activeSortChips = sortChips.filter((chip) => chip.classList.contains("active"));
-    const topRows = document.querySelectorAll(".rank-top-row");
-    const spreadBars = document.querySelectorAll(".rank-spread-bars span");
+    const topPanel = document.querySelector(".rank-top-panel");
+    const spreadPanel = document.querySelector(".rank-spread-panel");
+    const metricStrip = document.querySelector(".rank-metric-strip");
     const advancedSortControls = Array.from(document.querySelectorAll(".advanced-filter-bar [id]"))
       .map((node) => node.id)
       .filter((id) => id.includes("rank-sort"));
+    const panelRect = panel?.getBoundingClientRect();
+    const tableRect = tableCard?.getBoundingClientRect();
     return {
       hasPanel: Boolean(panel),
+      hasToolbar: Boolean(toolbar),
+      hasTableCard: Boolean(tableCard),
       sortChipCount: sortChips.length,
       primarySortChipCount: primarySortChips.length,
       auxiliarySortChipCount: auxiliarySortChips.length,
       sortSections,
       orderChipCount: orderChips.length,
       activeSortChipCount: activeSortChips.length,
-      topRowCount: topRows.length,
-      spreadBarCount: spreadBars.length,
-      advancedSortControls
+      hasTopPanel: Boolean(topPanel),
+      hasSpreadPanel: Boolean(spreadPanel),
+      hasMetricStrip: Boolean(metricStrip),
+      advancedSortControls,
+      panelHeight: panelRect ? Math.round(panelRect.height) : 0,
+      tableStartsAfterPanel: Boolean(panelRect && tableRect && tableRect.top > panelRect.bottom)
     };
   });
   if (
     !state.hasPanel ||
+    !state.hasToolbar ||
+    !state.hasTableCard ||
     state.sortChipCount !== 7 ||
     state.primarySortChipCount !== 5 ||
     state.auxiliarySortChipCount !== 2 ||
     !state.sortSections.some((text) => text.includes("主指标")) ||
-    !state.sortSections.some((text) => text.includes("辅助排序")) ||
+    !state.sortSections.some((text) => text.includes("排序")) ||
     state.orderChipCount !== 2 ||
     state.activeSortChipCount !== 1 ||
-    state.spreadBarCount !== 5 ||
+    state.hasTopPanel ||
+    state.hasSpreadPanel ||
+    state.hasMetricStrip ||
+    state.panelHeight > 150 ||
+    !state.tableStartsAfterPanel ||
     state.advancedSortControls.length > 0
   ) {
     throw new Error(`${scope}: rank decision panel contract failed ${JSON.stringify(state)}`);
   }
   await page.locator(".rank-sort-chip", { hasText: "mIoU" }).first().click();
   await page.locator(".rank-sort-chip.active", { hasText: "mIoU" }).first().waitFor({ timeout: 10_000 });
-  await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-board-table-card").first().waitFor({ timeout: 10_000 });
 }
 
 async function assertRankSchemePanel(page, scope) {
@@ -1726,7 +1847,7 @@ async function assertRankSchemePanel(page, scope) {
   await page.locator(".rank-scheme-status.error").waitFor({ timeout: 10_000 });
   const invalidState = await page.evaluate(() => ({
     statusText: document.querySelector(".rank-scheme-status")?.textContent?.trim() ?? "",
-    hasTable: Boolean(document.querySelector(".table-shell")),
+    hasTable: Boolean(document.querySelector(".rank-board-table-card")),
     bodyText: document.body.textContent ?? ""
   }));
   if (!invalidState.statusText.includes("metric is not supported") || !invalidState.hasTable) {
