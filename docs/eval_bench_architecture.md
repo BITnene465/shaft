@@ -204,42 +204,28 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
   `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、
-  `show-agent-command`、`list-jobs`、`show-job`、`process-next-job`、`list-services`、`show-service`、
+  `list-jobs`、`show-job`、`process-next-job`、`list-services`、`show-service`、
   `list-comparisons`、`show-comparison`、`show-comparison-sample`，不要让 agent
   读取前端状态、SQLite 或扫描 artifact 目录。CLI parser 暴露的每个子命令必须登记到 `_command_handlers()`，
-  agent 稳定命令必须登记到 `AGENT_COMMAND_METADATA` 并可由 `list-agent-commands` 发现；metadata 需要声明
-  `domain` 和 `mutates_state`，并能通过 `show-agent-command --name <command>` 读取单条命令契约；删除、归档、取消、停止这类危险生命周期命令还必须进入
-  `AGENT_DESTRUCTIVE_COMMANDS` 并在命令发现输出中标记 `destructive`；命令发现输出还必须包含顶层 `recommended_runner`、每条命令的
-  `argv_prefix`、稳定单行 `usage` 和 `error_contract`。Agent contract 是 CLI-first，不暴露 Dashboard route catalog，
-  也不把 Dashboard API 做成 MCP 式能力发现层；Dashboard API 服务前端，agent 默认组合 CLI argv。
-  需要机器可读失败时，agent 使用 `--json-errors` 或 `EVAL_BENCH_JSON_ERRORS=1`，stderr 返回
-  `ok=false`、`command`、`error_type` 和 `message`，exit code 保持非零。
-  参数 schema 从 argparse parser 自动导出为 `arguments` 和
-  `mutually_exclusive_groups`；如果一个参数的 choices 同时包含不同语义类别，还必须通过
-  `argument_semantics` 给 agent 暴露结构化分类，例如 Rank Board 的 `sort_by` 需要区分 primary metrics、
-  auxiliary sorts 和 weighted sort，target label 参数需要区分 detection 可重复 label 子任务和
-  keypoint 固定 arrow 语义；所有 `mutates_state=true` 的稳定命令必须暴露非空
-  `argument_semantics`，说明 benchmark/prompt/job payload、run/job/service lifecycle、health probe、
-  evaluate report 和 comparison 参数的真实语义。`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
-  `test_cli_parser_commands_have_handlers_for_agent_contract` 锁住，避免新增命令只加 parser 或只加 handler，
-  或者缺少 agent 判断副作用和参数形态所需的元信息。
+  并按需进入 `CLI_JSON_OUTPUT_SCHEMAS` 和 `CLI_DESTRUCTIVE_COMMANDS`。Agent contract 是普通 CLI-first：
+  通过标准 `--help` 查看参数，通过 JSON stdout 消费结果，通过命令名前的 `--json-errors` 或
+  `EVAL_BENCH_JSON_ERRORS=1` 获取机器可读失败；stderr 返回 `ok=false`、`command`、`error_type` 和
+  `message`，exit code 保持非零。Eval Bench 不暴露 Dashboard route catalog，也不提供 MCP 式命令发现层；
+  Dashboard API 服务前端，agent 默认组合普通 CLI argv。`test_cli_parser_commands_have_handlers`、
+  `test_cli_help_is_the_public_discovery_surface` 和 `test_cli_json_output_schemas_cover_stable_commands`
+  锁住 parser/handler/schema/帮助面的同步关系，避免新增命令只加 parser、只加 handler、缺少 JSON 输出形状，
+  或回流自描述命令发现层。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
-- 新增或改动 agent 关键命令：`show-agent-command` / `list-agent-commands` 必须同步暴露可执行参数、
-  互斥组、副作用标记和非空 `output_schema`；稳定 agent 命令不能只暴露自然语言 help。Rank Board 这类核心只读命令必须描述分页、filters、
-  facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary/weighted 语义；run note 与 label policy 命令必须描述 note/concurrency 字段和
-  detection/keypoint label 子任务字段，并在 `argument_semantics.target_labels` 中说明 repeatable detection label 子任务、
-  空值 label policy、keypoint 固定 arrow 和推荐 discovery 命令；run/sample inspection 命令必须描述 summary、payload、diagnostics
-  和 scoped label 字段，样本列表还必须回显 `filters`；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
-  常用命令的真实 stdout 还要通过 CLI 测试按 `AGENT_COMMAND_OUTPUT_SCHEMAS` 校验，不能只验证 schema 字段存在。
-  template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
-  runtime command、warning/error 和 job record 字段，
-  dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare artifact 输出、
-  service lifecycle 和 agent contract 自描述命令也必须有返回结构，
-  避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
-  新增会写状态的 agent 命令时，除 `output_schema` 外还必须补齐非空 `argument_semantics`，并由 CLI
-  contract 测试验证，避免 agent 只能看到 flag 名而不知道 payload、删除、启动、停止或 report 重建的边界。
+- 新增或改动 agent 关键命令：不能只依赖自然语言 help。Rank Board 这类核心只读命令的 JSON schema
+  必须描述分页、filters、facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary/weighted
+  语义；run note 与 label policy 命令必须描述 note/concurrency 字段和 detection/keypoint label 子任务字段；
+  run/sample inspection 命令必须描述 summary、payload、diagnostics 和 scoped label 字段，样本列表还必须回显
+  `filters`；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段。
+  template、preflight、job creation、dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、
+  evaluate/compare artifact 输出和 service lifecycle 都必须有稳定返回结构，避免 agent 通过猜测 JSON 字段
+  或读取 store 内部结构完成任务。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用

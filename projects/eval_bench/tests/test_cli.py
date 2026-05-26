@@ -188,6 +188,13 @@ def test_cli_help_is_the_public_discovery_surface() -> None:
     assert "output_schema" not in top_help.stdout
     assert "contract" not in top_help.stdout.lower()
 
+    architecture_doc = (root / "docs" / "eval_bench_architecture.md").read_text()
+    assert "AGENT_COMMAND_METADATA" not in architecture_doc
+    assert "AGENT_STABLE_COMMANDS" not in architecture_doc
+    assert "AGENT_COMMAND_OUTPUT_SCHEMAS" not in architecture_doc
+    assert "show-agent-command" not in architecture_doc
+    assert "list-agent-commands" not in architecture_doc
+
     assert rank_help.returncode == 0
     assert "--sort-by" in rank_help.stdout
     assert "--rank-scheme-json" in rank_help.stdout

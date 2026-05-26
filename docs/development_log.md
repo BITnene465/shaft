@@ -8207,6 +8207,40 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench architecture doc 清理旧 agent command discovery 约束
+
+### 现象
+
+README、`docs/scripts.md` 和 CLI 测试已经明确 Eval Bench 自动化入口是普通 CLI 子命令，不再暴露
+`list-agent-commands` / `show-agent-command` 这类 MCP 式命令发现层。但
+`docs/eval_bench_architecture.md` 的扩展规则仍保留旧的 agent metadata、命令发现和自描述 contract
+要求，和当前实现方向冲突。
+
+### 根因
+
+移除命令发现层时优先改了 CLI、README、脚本文档和回归测试，架构文档中的旧扩展规则没有同步收敛。
+这会让后续开发误以为新增 agent 能力仍要回到自描述命令发现实现。
+
+### 影响范围
+
+- 影响 Eval Bench agent/CLI 的架构约束与后续开发判断。
+- 不改变现有 CLI 子命令、Dashboard API、评估逻辑或 JSON payload。
+
+### 修复方式
+
+- `docs/eval_bench_architecture.md` 改为以标准 `--help`、JSON stdout、`--json-errors`、
+  parser/handler/schema 测试作为 agent CLI contract。
+- 移除架构文档中旧的 `AGENT_COMMAND_METADATA`、自描述命令和 metadata-derived stable command 规则。
+- CLI 测试增加文档防线，避免架构文档重新引入旧命令发现层。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_help_is_the_public_discovery_surface`
+
+### 后续防线
+
+- 改动 agent 自动化边界时，README、`docs/scripts.md`、架构文档和 CLI 测试必须同步；不能只改实现或只改局部文档。
+
 ## 2026-05-26: Eval Bench 列表 facet schema 明确化
 
 ### 现象
