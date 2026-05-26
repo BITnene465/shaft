@@ -2052,46 +2052,17 @@ def _cmd_show_prompt_template(args: argparse.Namespace) -> None:
 
 def _cmd_resolve_target_labels(args: argparse.Namespace) -> None:
     from .database import EvalBenchDatabase
-    from .label_policy import target_label_resolution_payload
     from .store import EvalBenchStore
+    from .target_label_resolution import resolve_target_label_scope
 
-    database = EvalBenchDatabase(args.output_root)
-    prompt_metadata: dict[str, object] = {}
-    warnings: list[str] = []
-    task = args.task
-    if args.prompt_id:
-        record = database.get_prompt_template(str(args.prompt_id))
-        if record is None:
-            warnings.append(f"prompt template does not exist: {args.prompt_id}")
-        else:
-            prompt_metadata = dict(record.metadata)
-            task = task or record.task
-    benchmark_labels: list[str] = []
-    if args.benchmark_id:
-        benchmark = next(
-            (
-                item
-                for item in EvalBenchStore(args.output_root).benchmarks()
-                if item.benchmark_id == str(args.benchmark_id)
-            ),
-            None,
-        )
-        if benchmark is None:
-            raise FileNotFoundError(f"benchmark does not exist: {args.benchmark_id}")
-        benchmark_labels = benchmark.labels
-        if task and benchmark.tasks and task not in benchmark.tasks:
-            warnings.append(
-                f"task={task} is not advertised by benchmark {args.benchmark_id}: {benchmark.tasks}"
-            )
-    payload = target_label_resolution_payload(
-        task=task,
+    payload = resolve_target_label_scope(
+        database=EvalBenchDatabase(args.output_root),
+        store=EvalBenchStore(args.output_root),
+        benchmark_id=args.benchmark_id,
+        task=args.task,
         prompt_id=args.prompt_id,
         explicit=args.target_labels,
-        prompt_metadata=prompt_metadata,
-        benchmark_id=args.benchmark_id,
-        benchmark_labels=benchmark_labels,
     )
-    payload["warnings"] = [*payload["warnings"], *warnings]
     print(json.dumps(payload, ensure_ascii=False))
 
 

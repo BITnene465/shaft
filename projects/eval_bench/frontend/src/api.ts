@@ -484,6 +484,29 @@ export type PromptTemplatesResponse = {
   by_id: Record<string, PromptTemplate>;
 };
 
+export type TargetLabelResolution = {
+  task: string;
+  benchmark_id: string;
+  prompt_id: string;
+  target_labels: string[];
+  target_labels_source: string;
+  candidate_labels: string[];
+  benchmark_labels: string[];
+  prompt_target_labels: string[];
+  explicit_target_labels: string[];
+  label_subtasks_supported: boolean;
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+};
+
+export type TargetLabelResolutionParams = {
+  benchmarkId?: string;
+  task?: string;
+  promptId?: string;
+  targetLabels?: string[];
+};
+
 export type JobPreflightResult = {
   ok: boolean;
   errors: string[];
@@ -646,6 +669,29 @@ export function fetchJobTemplates(): Promise<JobTemplatesResponse> {
 
 export function fetchPromptTemplates(): Promise<PromptTemplatesResponse> {
   return fetchJson<PromptTemplatesResponse>("/api/prompt-templates");
+}
+
+export function fetchTargetLabelResolution(
+  options: TargetLabelResolutionParams = {}
+): Promise<TargetLabelResolution> {
+  const params = new URLSearchParams();
+  if (options.benchmarkId?.trim()) {
+    params.set("benchmark_id", options.benchmarkId.trim());
+  }
+  if (options.task?.trim()) {
+    params.set("task", options.task.trim());
+  }
+  if (options.promptId?.trim()) {
+    params.set("prompt_id", options.promptId.trim());
+  }
+  for (const label of options.targetLabels ?? []) {
+    const value = label.trim();
+    if (value) {
+      params.append("target_label", value);
+    }
+  }
+  const query = params.toString();
+  return fetchJson<TargetLabelResolution>(`/api/target-labels${query ? `?${query}` : ""}`);
 }
 
 export function upsertPromptTemplate(payload: Partial<PromptTemplate>): Promise<PromptTemplate> {

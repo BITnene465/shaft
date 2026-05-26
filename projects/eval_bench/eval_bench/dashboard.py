@@ -12,7 +12,7 @@ import threading
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,6 +41,7 @@ from .prediction_import import import_predictions_for_benchmark
 from .schema import utc_now_iso
 from .services import EvalBenchServiceManager
 from .store import EvalBenchStore, RunNoteConflictError
+from .target_label_resolution import resolve_target_label_scope
 
 IMAGE_PREVIEW_MAX_SIDE = 1800
 IMAGE_PREVIEW_QUALITY = 82
@@ -440,6 +441,29 @@ def create_app(
                 "text": "".join(lines),
             }
         )
+
+    @app.get("/api/target-labels")
+    async def target_labels(
+        request: Request,
+        benchmark_id: str | None = None,
+        task: str | None = None,
+        prompt_id: str | None = None,
+        target_label: list[str] | None = Query(default=None),
+    ):
+        try:
+            payload = resolve_target_label_scope(
+                database=request.app.state.eval_bench_database,
+                store=request.app.state.eval_bench_store,
+                benchmark_id=benchmark_id,
+                task=task,
+                prompt_id=prompt_id,
+                explicit=target_label,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(payload)
 
     @app.get("/api/benchmarks")
     async def benchmarks(

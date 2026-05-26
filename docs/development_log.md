@@ -9,6 +9,49 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench target label discovery 缺少 HTTP agent 入口
+
+### 现象
+
+Detection label 子任务和 keypoint 固定 arrow 策略已经有 `label_policy.py` 真源，CLI
+`resolve-target-labels` 也能返回最终 target labels、候选 label、来源和 errors/warnings。
+但 Dashboard API 没有等价的只读 discovery route。走 HTTP 的 agent 在创建 job 或导入 prediction
+前，仍需要绕到 CLI、前端 manifest 状态或 artifact 扫描才能确认 target label scope。
+
+### 根因
+
+前期优先补齐了 CLI agent contract 和 Dashboard preflight，遗漏了“同一份 agent-safe 查询能力也应可通过 API
+访问”的边界。CLI 内部还直接写了一段 prompt template 与 benchmark label index 的上下文拼装逻辑，
+不利于 API 复用。这是 agent 操作面缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 HTTP agent 在创建 job、导入 prediction 或选择 detection label 子任务前的稳定发现流程。
+- 不改变 evaluator、worker、preflight、rank-board、metric report 或 run artifact 格式。
+
+### 修复方式
+
+- 新增 `target_label_resolution.py`，作为 CLI/API 共享的上下文解析层，复用 benchmark summary、
+  prompt template metadata 和 `label_policy.py`。
+- 新增 `GET /api/target-labels`，支持 `benchmark_id`、`task`、`prompt_id` 和 repeatable
+  `target_label` query，返回与 CLI 一致的 target label resolution payload。
+- 前端 API client 增加 `TargetLabelResolution` 类型和 `fetchTargetLabelResolution` helper，作为 HTTP
+  agent 与后续 UI 复用的稳定接口。
+- Dashboard 测试覆盖 explicit detection label、prompt metadata 默认、非法 keypoint label 和缺失 benchmark。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py::test_dashboard_resolves_target_labels_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_dashboard.py::test_dashboard_resolves_target_labels_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_dashboard.py`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- Agent-safe discovery 能力不能只存在于 CLI；如果 Dashboard API 也会创建或修改同一类对象，必须提供同等只读探测 route。
+- CLI 和 API 不应各自拼装 prompt/benchmark 上下文；上下文解析必须先进入共享模块，再由不同入口调用。
+
 ## 2026-05-26: Eval Bench Overview 残留排行入口式微文案
 
 ### 现象

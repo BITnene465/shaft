@@ -240,6 +240,87 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert client.get("/api/state").json()["run_count"] == 2
 
 
+def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection", "keypoint"],
+            "layers": ["layout", "arrow"],
+            "labels": ["arrow", "icon", "image", "shape"],
+            "split": "val",
+            "sample_count": 4,
+            "root": str(tmp_path / "benchmarks" / "multitask_val_v1" / "data"),
+            "manifest_path": str(
+                tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+            ),
+            "created_at": "2026-05-26T00:00:00Z",
+        },
+    )
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    explicit = client.get(
+        "/api/target-labels",
+        params=[
+            ("benchmark_id", "multitask_val_v1"),
+            ("task", "detection"),
+            ("prompt_id", "grounding_arrow.latest"),
+            ("target_label", "arrow"),
+        ],
+    )
+    assert explicit.status_code == 200
+    explicit_payload = explicit.json()
+    assert explicit_payload["task"] == "detection"
+    assert explicit_payload["benchmark_id"] == "multitask_val_v1"
+    assert explicit_payload["target_labels"] == ["arrow"]
+    assert explicit_payload["target_labels_source"] == "explicit"
+    assert explicit_payload["explicit_target_labels"] == ["arrow"]
+    assert explicit_payload["label_subtasks_supported"] is True
+    assert explicit_payload["valid"] is True
+    assert explicit_payload["errors"] == []
+
+    prompt_default = client.get(
+        "/api/target-labels",
+        params={
+            "benchmark_id": "multitask_val_v1",
+            "prompt_id": "grounding_layout.latest",
+        },
+    )
+    assert prompt_default.status_code == 200
+    prompt_payload = prompt_default.json()
+    assert prompt_payload["task"] == "detection"
+    assert prompt_payload["target_labels"] == ["icon", "image", "shape"]
+    assert prompt_payload["target_labels_source"] == "prompt_metadata"
+    assert prompt_payload["prompt_target_labels"] == ["icon", "image", "shape"]
+    assert prompt_payload["candidate_labels"] == ["arrow", "icon", "image", "shape"]
+
+    invalid_keypoint = client.get(
+        "/api/target-labels",
+        params=[
+            ("benchmark_id", "multitask_val_v1"),
+            ("task", "keypoint"),
+            ("prompt_id", "keypoint_arrow.latest"),
+            ("target_label", "icon"),
+        ],
+    )
+    assert invalid_keypoint.status_code == 200
+    invalid_payload = invalid_keypoint.json()
+    assert invalid_payload["target_labels"] == ["icon"]
+    assert invalid_payload["label_subtasks_supported"] is False
+    assert invalid_payload["valid"] is False
+    assert any(
+        "keypoint target_labels only support arrow" in item
+        for item in invalid_payload["errors"]
+    )
+
+    missing_benchmark = client.get(
+        "/api/target-labels",
+        params={"benchmark_id": "missing", "task": "detection"},
+    )
+    assert missing_benchmark.status_code == 404
+
+
 def test_dashboard_create_job_persists_preflight_warnings(tmp_path: Path) -> None:
     model_path = tmp_path / "models" / "model-a" / "best"
     model_path.mkdir(parents=True)

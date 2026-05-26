@@ -177,15 +177,17 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 metric：先加 `metric_profiles.py` registry，再在 `metrics/` 中实现 profile matcher 和聚合。
 - 新增 target label scope：先加 prompt metadata 或显式 spec 字段，不允许通过 UI 默认值悄悄覆盖。
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
-  layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 `resolve-target-labels`，
-  不能直接扫描 benchmark artifact 或 prompt registry。
+  layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 CLI
+  `resolve-target-labels` 或 Dashboard `GET /api/target-labels`，不能直接扫描 benchmark
+  artifact、prompt registry 或前端 manifest。
 - 新增 detection label 子任务 UI：必须通过 manifest 或 import payload 的 `target_labels` 修改显式 spec，
   候选 label 来自 benchmark summary / prompt template / 当前 manifest，不能在页面层硬编码任务 label，也不能
   在共享面板里暴露自由文本 label 添加入口。`preflight-job`
   必须在 benchmark label index 存在时拒绝未知 `target_labels`，避免拼错 label 的 job 被 agent 或 UI 入队。
   前端应用 prompt template 后必须重新按 manifest task 选择兼容 benchmark；不能只因为旧 benchmark id
   仍存在就保留一个 task 不匹配的 job draft。
-  Keypoint 不暴露 label 子任务 UI；`resolve-target-labels` 必须返回 `label_subtasks_supported=false`，
+  Keypoint 不暴露 label 子任务 UI；`resolve-target-labels` 和 `GET /api/target-labels`
+  必须返回 `label_subtasks_supported=false`，
   只保留默认 arrow 关键点评估范围。`label_policy.py` 是这条边界的后端真源，preflight、init-run、
   prediction import、worker 和 evaluator 都必须拒绝 keypoint 上非 `arrow` 的显式 `target_labels`。
   前端 manifest 工具在 prompt 应用、target label 更新和 Job 页 task 切换时必须清理 keypoint / non-detection 的

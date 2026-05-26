@@ -299,6 +299,14 @@ const overviewPage = await readSource("src/overviewPage.tsx");
 const designSource = await readSource("src/design.css");
 const formattersSource = await readSource("src/formatters.ts");
 assert(
+  apiSource.includes("export type TargetLabelResolution =") &&
+    apiSource.includes("export type TargetLabelResolutionParams =") &&
+    apiSource.includes("export function fetchTargetLabelResolution(") &&
+    apiSource.includes('params.append("target_label", value)') &&
+    apiSource.includes('fetchJson<TargetLabelResolution>(`/api/target-labels'),
+  "api client must expose agent-safe target label resolution endpoint",
+);
+assert(
   overviewPage.includes("export function OverviewPage()"),
   "overview page module must export OverviewPage",
 );
