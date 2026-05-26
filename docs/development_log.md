@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 首页 pointer-field 互动缺少运行时验证
+
+### 现象
+
+Overview v17 已经通过 `updateOverviewPointer` 根据鼠标位置更新 `--overview-pointer-x/y`，驱动暗色
+主控板上的扫描准星效果。但现有 contract 只检查源码中存在该函数和 CSS 动效，layout smoke 没有在浏览器里
+触发 pointer move，也没有确认 CSS 变量真的更新。
+
+### 根因
+
+首页“高级感/互动感”的防线主要集中在静态 class、hover transition 和面板数量，忽略了 pointer-driven
+动效这类需要真实事件才能验证的交互。后续如果事件绑定丢失、CSS 变量名漂移或父级 currentTarget 改错，
+静态 contract 仍可能通过。这是前端交互验收缺口，不是模型能力问题，也不是 eval / codec / metric / data
+误判。
+
+### 影响范围
+
+- 影响 Overview 主控板的鼠标跟随反馈防线。
+- 不影响 Dashboard API、store、Rank Board、run note、label subtask 或评估指标。
+
+### 修复方式
+
+- `layout-smoke-check.mjs` 在 Overview 密度检查后向 `.overview-home-v17` 派发 pointer move。
+- 验证 `--overview-pointer-x` 和 `--overview-pointer-y` 从初始状态更新为百分比值。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增鼠标跟随、拖拽或状态驱动动效时，不能只加源码 contract；必须在 browser smoke 中验证关键运行时状态。
+
 ## 2026-05-26: Eval Bench 删除确认弹层缺少运行时 smoke
 
 ### 现象

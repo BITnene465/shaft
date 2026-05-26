@@ -753,6 +753,33 @@ async function assertOverviewDensity(page, scope) {
       throw new Error(`${scope}: decision tile ${index} is too compressed ${JSON.stringify(rect)}`);
     }
   }
+  await assertOverviewPointerField(page, scope);
+}
+
+async function assertOverviewPointerField(page, scope) {
+  const before = await page.locator(".overview-home-v17").evaluate((node) => ({
+    x: node.style.getPropertyValue("--overview-pointer-x"),
+    y: node.style.getPropertyValue("--overview-pointer-y")
+  }));
+  await page.locator(".overview-home-v17").evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    node.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: rect.left + rect.width * 0.23,
+        clientY: rect.top + rect.height * 0.67
+      })
+    );
+  });
+  const after = await page.locator(".overview-home-v17").evaluate((node) => ({
+    x: node.style.getPropertyValue("--overview-pointer-x"),
+    y: node.style.getPropertyValue("--overview-pointer-y")
+  }));
+  if (!after.x.endsWith("%") || !after.y.endsWith("%") || (after.x === before.x && after.y === before.y)) {
+    throw new Error(
+      `${scope}: overview pointer field did not update ${JSON.stringify({ before, after })}`
+    );
+  }
 }
 
 async function assertJobsRecentRuns(page, scope) {
