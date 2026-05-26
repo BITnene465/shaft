@@ -647,6 +647,8 @@ Notes、任务类型、模型分布、benchmark task、label footprint、样本/
 打开时焦点会进入浮层，Tab / Shift+Tab 只在当前检索表单内闭环，Escape 或收起按钮关闭后恢复到触发器，点击外部则只关闭浮层不抢走用户当前焦点；
 Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；Jobs 最近结果使用紧凑产物流，
 只展示 benchmark/model、prediction/report/note 产物信号和状态，不展示 P/R/IoU 细指标；
+Runs 页的 `RunTable` 只负责展示后端分页后的 run 数据和调用方传入的筛选控件，不在组件内部维护第二套
+本地筛选状态，也不从当前页 run 推导筛选目录；
 Benchmark Inspector 和 Run Inspector 的样本级 label/error 筛选也复用同一个折叠式高级检索条，避免侧栏堆叠多个 select；
 当任意条件生效时，`AdvancedFilterBar` 会显示统一的“清空”动作；search/number 默认清空，带 `all`
 选项的 select 回到 `all`，排序这类没有 `all` 的 select 回到第一个默认值，避免默认排序被误算成过滤条件。

@@ -10,7 +10,7 @@ import { archiveRun, deleteRun, evaluateRun } from "./api";
 import { StandaloneCheckboxControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
-import { formatDate, formatMetric, runF1Score, unique } from "./formatters";
+import { formatDate, formatMetric, runF1Score } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
 import {
   Badge,
@@ -88,13 +88,6 @@ export function RunTable({
   footer?: ReactNode;
 }) {
   const queryClient = useQueryClient();
-  const [searchText, setSearchText] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [taskFilter, setTaskFilter] = useState("all");
-  const [benchmarkFilter, setBenchmarkFilter] = useState("all");
-  const [labelFilter, setLabelFilter] = useState("all");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [promptFilter, setPromptFilter] = useState("all");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const [deleteRunTarget, setDeleteRunTarget] = useState<RunSummary | null>(null);
   const refreshRunViews = () => {
@@ -113,38 +106,7 @@ export function RunTable({
       refreshRunViews();
     }
   });
-  const usesExternalFilters = Boolean(filterControls);
-  const statuses = unique(runs.map((run) => run.status).filter(Boolean));
-  const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
-  const labels = unique(runs.flatMap((run) => run.target_labels).filter(Boolean));
-  const models = unique(runs.map((run) => run.model_id).filter(Boolean));
-  const prompts = unique(runs.map((run) => run.prompt_id).filter(Boolean));
-  const filteredRuns = compact || usesExternalFilters
-    ? runs
-    : runs
-        .filter((run) => statusFilter === "all" || run.status === statusFilter)
-        .filter((run) => taskFilter === "all" || run.spec_task === taskFilter)
-        .filter((run) => benchmarkFilter === "all" || run.benchmark_id === benchmarkFilter)
-        .filter((run) => labelFilter === "all" || run.target_labels.includes(labelFilter))
-        .filter((run) => modelFilter === "all" || run.model_id === modelFilter)
-        .filter((run) => promptFilter === "all" || run.prompt_id === promptFilter)
-        .filter((run) => {
-          const query = searchText.trim().toLowerCase();
-          if (!query) {
-            return true;
-          }
-          return [
-            run.run_id,
-            run.model_id,
-            run.benchmark_id,
-            run.spec_task,
-            run.prompt_id,
-            run.target_labels.join(" "),
-            run.metric_profile,
-            run.note
-          ].some((value) => String(value).toLowerCase().includes(query));
-        });
+  const filteredRuns = runs;
   const comparableSelection = selectedRunIds.slice(0, 2);
   const compareHref =
     comparableSelection.length === 2
@@ -259,76 +221,11 @@ export function RunTable({
   }
   return (
     <div className={compact ? "run-table-stack compact" : "run-table-stack"}>
-      {!compact ? (
+      {!compact && filterControls ? (
         <AdvancedFilterBar
           title={filterTitle}
-          meta={filterMeta ?? `${filteredRuns.length.toLocaleString()} / ${runs.length.toLocaleString()} 条 run`}
-          controls={
-            filterControls ?? [
-              {
-                type: "search",
-                id: "query",
-                label: "全文检索",
-                value: searchText,
-                onChange: setSearchText,
-                placeholder: "搜索 run、模型、基准集、备注"
-              },
-              {
-                type: "select",
-                id: "status",
-                label: "状态",
-                value: statusFilter,
-                values: ["all", ...statuses],
-                labels: { all: "全部" },
-                onChange: setStatusFilter
-              },
-              {
-                type: "select",
-                id: "task",
-                label: "任务",
-                value: taskFilter,
-                values: ["all", ...tasks],
-                labels: { all: "全部" },
-                onChange: setTaskFilter
-              },
-              {
-                type: "select",
-                id: "benchmark",
-                label: "基准集",
-                value: benchmarkFilter,
-                values: ["all", ...benchmarks],
-                labels: { all: "全部" },
-                onChange: setBenchmarkFilter
-              },
-              {
-                type: "select",
-                id: "label",
-                label: "标签",
-                value: labelFilter,
-                values: ["all", ...labels],
-                labels: { all: "全部" },
-                onChange: setLabelFilter
-              },
-              {
-                type: "select",
-                id: "model",
-                label: "模型",
-                value: modelFilter,
-                values: ["all", ...models],
-                labels: { all: "全部" },
-                onChange: setModelFilter
-              },
-              {
-                type: "select",
-                id: "prompt",
-                label: "Prompt",
-                value: promptFilter,
-                values: ["all", ...prompts],
-                labels: { all: "全部" },
-                onChange: setPromptFilter
-              }
-            ]
-          }
+          meta={filterMeta ?? `${filteredRuns.length.toLocaleString()} 条 run`}
+          controls={filterControls}
           actions={
             <InlineAnchor
               className={

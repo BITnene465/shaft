@@ -39,6 +39,7 @@ const benchmarksPage = await readSource("src/benchmarksPage.tsx");
 const comparePage = await readSource("src/comparePage.tsx");
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
+const runTables = await readSource("src/runTables.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
 const apiSource = await readSource("src/api.ts");
@@ -73,6 +74,8 @@ assert(
     ) &&
     rankBoardPage.includes('facetValues(board?.facets, "tasks"') &&
     !rankBoardPage.includes("const tasks = unique(runs") &&
+    !runTables.includes("const tasks = unique(runs") &&
+    !runTables.includes("filterControls ?? [") &&
     !runsPage.includes('fetchRuns({ limit: 500 })') &&
     !comparePage.includes('fetchRuns({ limit: 500 })') &&
     !benchmarksPage.includes('fetchBenchmarks({ limit: 500 })') &&
@@ -660,7 +663,6 @@ assert(
     !/<summary\b/.test(runsPage),
   "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
 );
-const runTables = await readSource("src/runTables.tsx");
 assert(
   runTables.includes("StandaloneCheckboxControl") &&
     runTables.includes('className="row-select-checkbox"') &&
@@ -681,7 +683,8 @@ assert(
   formattersSource.includes("export function f1Score(") &&
     formattersSource.includes("export function runF1Score(") &&
     formattersSource.includes("/ F1 ${formatMetric(runF1Score(run))}") &&
-    runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
+    runTables.includes('import { formatDate, formatMetric, runF1Score } from "./formatters";') &&
+    !runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
     runTables.includes('header: "F1@.50"') &&
     runTables.includes("formatMetric(runF1Score(row.original))") &&
     comparePage.includes("runF1Score") &&

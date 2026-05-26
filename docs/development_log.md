@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench RunTable 不应保留本地筛选 fallback
+
+### 现象
+
+Runs 页已经通过 `/api/runs` 获取后端分页、filters 和完整 facets，并把筛选控件传给 `RunTable`。
+但 `RunTable` 内部仍保留一套从当前页 `runs` 推导 status/task/benchmark/label/model/prompt 的本地筛选 fallback。
+虽然当前调用路径会传入外部 controls，这段 fallback 仍是可回流的第二套筛选真源。
+
+### 根因
+
+早期 Runs 表格先在组件内部实现本地筛选，后续迁移到后端分页和 `AdvancedFilterBar` 时只旁路了本地逻辑，
+没有删除旧 fallback。结果组件同时知道“如何展示 run”和“如何推导筛选目录”，职责边界漂移。
+这是前端状态真源分裂，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Runs 高级检索的长期稳定性：后续调用者可能不传 `filterControls`，导致筛选目录重新退回当前页推导。
+- 不改变 `/api/runs` 查询、CLI `list-runs`、run note、Rank Board、comparison 或 evaluator 语义。
+
+### 修复方式
+
+- 删除 `RunTable` 内部 search/status/task/benchmark/label/model/prompt 筛选状态和本地过滤链。
+- `RunTable` 只渲染调用方传入的 `filterControls`、后端分页后的 `runs` 和 footer pager。
+- `test-ui-contracts` 增加防线，禁止 `RunTable` 回流 `unique(runs...)` 和 `filterControls ?? [...]`。
+- README 和 `docs/scripts.md` 同步记录 RunTable 的展示边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增可复用表格组件时，筛选目录应来自页面级 API facets 或 registry 真源；表格组件不要自行推导
+  filter options，避免分页结果和可选目录再次分裂。
+
 ## 2026-05-26: Eval Bench Rank Board 高级检索目录不能从 dashboard runs 推导
 
 ### 现象
