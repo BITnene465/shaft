@@ -135,6 +135,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     Runs、Benchmarks、Jobs、Services、Compare 和 Rank Board 只能传 className/meta，不各自复制上一页/下一页逻辑。
 - `projects/eval_bench/frontend/src/runsPage.tsx`
   - 维护结果库、导入预测弹窗、带结构化模板插入的 run note 编辑器和 run 样本检查器；作为懒加载路由拆分。
+- `projects/eval_bench/frontend/src/jobsPage.tsx`
+  - 维护评测中心、job 队列、高级检索、新建 job 弹窗和最近结果产物流；最近结果只展示
+    benchmark/model、prediction/report/note 产物信号和状态，不常驻 P/R/IoU 细指标。
 - `projects/eval_bench/frontend/src/labelSubtaskControls.tsx`
   - 维护 detection label 子任务 chip、默认策略和全部候选选择；Jobs 和 Runs import prediction
     只能复用该组件，不暴露自由文本 label 追加路径，keypoint 不暴露 label 子任务 UI。

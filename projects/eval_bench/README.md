@@ -347,7 +347,7 @@ eval_bench_store/
 - Comparison 历史列表：后端 `/api/comparisons`、CLI `list-comparisons` 和前端历史面板共享 task、label、query 过滤语义
 - 将模型文本归一化为 prediction document 的 parser 工具，并在写入 snapshot 前按 same-label high-IoU 去重
 - 从持久化 prediction snapshot 生成报告的 `evaluate-run`
-- React dashboard 外壳：中文工程控制台、总控工作台、benchmark 创建、benchmark sample 浏览、run、持久化 queue 状态、manifest-driven job 创建、job preflight、外部 prediction snapshot 导入、run 评估、run prompt/推理配置查看、样本级 GT/prediction 检查、独立排行榜，以及对比分析；总览只显示粗粒度运营信号和实时状态图，Runs / Rank Board 使用统一高级检索条，主要检查和对比工作区支持可过滤检索
+- React dashboard 外壳：中文工程控制台、总控工作台、benchmark 创建、benchmark sample 浏览、run、持久化 queue 状态、manifest-driven job 创建、job preflight、外部 prediction snapshot 导入、run 评估、run prompt/推理配置查看、样本级 GT/prediction 检查、独立排行榜，以及对比分析；总览和 Jobs 最近结果只显示粗粒度运营 / 产物信号，Runs / Rank Board 使用统一高级检索条，主要检查和对比工作区支持可过滤检索
 - 两个 run 的对比报告：持久化整体 metric delta 和样本级改善/退化结果，供 dashboard 检查
 
 ## 预测结果如何和 test/GT 对比
@@ -672,7 +672,8 @@ v11 根节点通过 pointer position CSS 变量驱动主舞台光照，主动作
 Notes、任务类型、模型分布、benchmark task、label footprint、样本/label 权重、Job 日历和 scheduler 资源不进入总览，
 留在 Runs、Inspector、Rank Board 或 Services 的细节视图里。compact 视口下由 Overview 页面栈承担滚动，核心面板不能被 hidden 裁切。首页和标准 workspace 元素保留入场、hover、active、状态 pulse、条形摘要和 rail 动效，这些动效只用于强调状态、可点击入口和实时感，不改变数据语义。高级检索 UI 已组件化为
 `AdvancedFilterBar`，默认只保留一个 Filter 触发器、当前条件 token 和统一清空动作；每个 token 可直接点击清除单个条件，展开后才显示带“检索式 / 范围目录 / 排序与阈值”分组的浮层表单，浮层不再撑高主工作区；
-Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；
+Benchmarks、Jobs、Services、Runs、Compare 和 Rank Board 共享这套筛选布局；Jobs 最近结果使用紧凑产物流，
+只展示 benchmark/model、prediction/report/note 产物信号和状态，不展示 P/R/IoU 细指标；
 Benchmark Inspector 和 Run Inspector 的样本级 label/error 筛选也复用同一个折叠式高级检索条，避免侧栏堆叠多个 select；
 当任意条件生效时，`AdvancedFilterBar` 会显示统一的“清空”动作；search/number 默认清空，带 `all`
 选项的 select 回到 `all`，排序这类没有 `all` 的 select 回到第一个默认值，避免默认排序被误算成过滤条件。

@@ -153,6 +153,17 @@ assert(
     !/<summary\b/.test(jobsPage),
   "jobs prompt template panel must use DisclosurePanel instead of a local details shell",
 );
+assert(
+  jobsPage.includes("recentJobRuns") &&
+    jobsPage.includes("recentRunReadiness") &&
+    jobsPage.includes("recent-run-artifacts") &&
+    !jobsPage.includes("recent-run-metrics") &&
+    !jobsPage.includes("formatMetric") &&
+    !jobsPage.includes("precision_iou50") &&
+    !jobsPage.includes("recall_iou50") &&
+    !jobsPage.includes("mean_iou"),
+  "jobs recent results must stay a compact artifact stream, not a fine metric panel",
+);
 
 const settingsControls = await readSource("src/settingsControls.tsx");
 assert(

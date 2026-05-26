@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Jobs 最近结果仍展示精细指标
+
+### 现象
+
+总览页和 run inspector 已经把 P/R/IoU 等精细指标收敛到 Rank Board、Compare 和 report，但 Jobs 页右侧
+“最近结果”仍常驻显示 `P / R / IoU`。评测中心的主任务是调度、排障和打开结果，不应该把模型能力细指标
+直接堆在队列工作区里。
+
+### 根因
+
+`RecentRunList` 早期复用了结果摘要思路，直接调用 `formatMetric()` 渲染 run summary 的 precision、
+recall 和 mean IoU。随着 Rank Board 独立和 Overview 收口，这条展示路径没有同步更新，导致 Jobs 页
+保留了一条和排行榜 / 对比页重复的细指标入口。这是前端信息架构问题，不是模型能力问题，也不是
+eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard Jobs 页的最近结果卡片、工作区信息密度和细指标职责边界。
+- 不影响 run summary、metrics report、Rank Board、Compare、CLI 或后端评估结果。
+
+### 修复方式
+
+- Jobs 页 `RecentRunList` 改为按 `created_at` 倒序的产物流，展示 benchmark/model、prediction/report/note
+  产物信号和状态胶囊。
+- 移除 Jobs 页对 `formatMetric()`、`precision_iou50`、`recall_iou50` 和 `mean_iou` 的依赖。
+- 样式增加 artifact rail、ready/complete/draft tone、hover transition，保持工程工作区的可扫读状态感。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- `test-ui-contracts.mjs` 禁止 Jobs 最近结果重新引用 `formatMetric()` 或 P/R/IoU 字段。
+- `layout-smoke-check.mjs` 在真实浏览器里断言 Jobs 最近结果没有 `.recent-run-metrics`，每条卡片都有 artifact rail 和状态胶囊，且不出现 P/R/precision/recall/IoU 文案。
+
 ## 2026-05-26: Eval Bench 总览最近 run 仍像普通结果列表
 
 ### 现象

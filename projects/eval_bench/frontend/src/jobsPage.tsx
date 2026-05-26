@@ -19,7 +19,7 @@ import {
 } from "./api";
 import { CompactSelectControl } from "./controlPrimitives";
 import { useDashboardState } from "./dashboardState";
-import { basename, formatDate, formatMetric, jobTarget, stringValue, unique } from "./formatters";
+import { basename, formatDate, jobTarget, stringValue, unique } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import {
@@ -61,7 +61,7 @@ const JOB_PAGE_SIZE = 80;
 export function JobsPage() {
   const { data } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
-  const recentRuns = data?.runs.slice(0, 12) ?? [];
+  const recentRuns = recentJobRuns(data?.runs ?? [], 12);
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -102,29 +102,67 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
   }
   return (
     <div className="recent-run-list">
-      {runs.map((run) => (
-        <Link
-          className="recent-run-card"
-          key={run.run_id}
-          to="/runs/$runId"
-          params={{ runId: run.run_id }}
-        >
-          <span className="recent-run-head">
-            <strong title={run.run_id}>{run.run_id}</strong>
-            <Badge value={run.status} domain="run" />
-          </span>
-          <span className="recent-run-meta" title={run.model_id}>
-            {run.model_id || "unknown model"}
-          </span>
-          <span className="recent-run-metrics">
-            <em>P {formatMetric(run.precision_iou50)}</em>
-            <em>R {formatMetric(run.recall_iou50)}</em>
-            <em>IoU {formatMetric(run.mean_iou)}</em>
-          </span>
-        </Link>
-      ))}
+      {runs.map((run) => {
+        const readiness = recentRunReadiness(run);
+        return (
+          <Link
+            className={["recent-run-card", readiness.tone].join(" ")}
+            key={run.run_id}
+            to="/runs/$runId"
+            params={{ runId: run.run_id }}
+          >
+            <span className="recent-run-head">
+              <strong title={run.run_id}>{run.run_id}</strong>
+              <Badge value={run.status} domain="run" />
+            </span>
+            <span className="recent-run-meta" title={`${run.benchmark_id} / ${run.model_id}`}>
+              {run.benchmark_id || "-"} / {run.model_id || "unknown model"}
+            </span>
+            <span className="recent-run-artifacts" aria-label="run 产物状态">
+              <i>
+                <b style={{ width: `${readiness.percent}%` }} />
+              </i>
+              <span>
+                <em>{run.prediction_count.toLocaleString()} pred</em>
+                <em>{run.report_count > 0 ? `${run.report_count.toLocaleString()} report` : "待评"}</em>
+                {run.note.trim() ? <em>note</em> : null}
+              </span>
+            </span>
+          </Link>
+        );
+      })}
     </div>
   );
+}
+
+function recentJobRuns(runs: RunSummary[], limit: number) {
+  return [...runs]
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.created_at ?? "");
+      const rightTime = Date.parse(right.created_at ?? "");
+      return (
+        (Number.isFinite(rightTime) ? rightTime : 0) -
+        (Number.isFinite(leftTime) ? leftTime : 0)
+      );
+    })
+    .slice(0, limit);
+}
+
+function recentRunReadiness(run: RunSummary) {
+  const hasPredictions = run.prediction_count > 0;
+  const hasReport = Boolean(run.report_path || run.report_count > 0);
+  const hasNote = run.note.trim().length > 0;
+  const percent = Math.min(
+    100,
+    (hasPredictions ? 48 : 0) + (hasReport ? 40 : 0) + (hasNote ? 12 : 0)
+  );
+  if (hasReport) {
+    return { percent: Math.max(percent, 88), tone: "complete" };
+  }
+  if (hasPredictions) {
+    return { percent: Math.max(percent, 48), tone: "ready" };
+  }
+  return { percent: Math.max(percent, 8), tone: "draft" };
 }
 
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {

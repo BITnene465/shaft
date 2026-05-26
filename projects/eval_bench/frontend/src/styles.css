@@ -1906,19 +1906,37 @@ h2 {
 
 .recent-run-card {
   display: grid;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
   padding: 10px;
   color: #182838;
   text-decoration: none;
-  background: #f8fafc;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #d8e2eb;
-  border-radius: 2px;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgb(28 57 83 / 5%);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.recent-run-card.ready {
+  border-color: #ded6b7;
+  background: linear-gradient(135deg, #ffffff 0%, #fffaf0 100%);
+}
+
+.recent-run-card.complete {
+  border-color: #c8e3da;
+  background: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%);
 }
 
 .recent-run-card:hover {
-  background: #eef7fb;
+  transform: translateY(-3px);
+  background: #ffffff;
   border-color: #9ed0e4;
+  box-shadow: 0 14px 28px rgb(28 57 83 / 10%);
 }
 
 .recent-run-head {
@@ -1943,18 +1961,38 @@ h2 {
   font-weight: 680;
 }
 
-.recent-run-metrics {
+.recent-run-artifacts {
+  display: grid;
+  gap: 6px;
+}
+
+.recent-run-artifacts > i {
+  overflow: hidden;
+  height: 5px;
+  background: #e2ebef;
+  border-radius: 999px;
+}
+
+.recent-run-artifacts > i > b {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #078aa9, #22a66c, #e0a437);
+  border-radius: inherit;
+  transition: width 220ms ease;
+}
+
+.recent-run-artifacts > span {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
-.recent-run-metrics em {
+.recent-run-artifacts em {
   padding: 2px 6px;
   color: #274253;
   background: #ffffff;
   border: 1px solid #d7e2eb;
-  border-radius: 2px;
+  border-radius: 999px;
   font-size: 11px;
   font-style: normal;
   font-weight: 740;

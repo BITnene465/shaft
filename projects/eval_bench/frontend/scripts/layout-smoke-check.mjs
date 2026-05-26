@@ -121,6 +121,9 @@ try {
       if (route.name === "overview") {
         await assertOverviewDensity(page, `${viewport.name}:${route.name}`);
       }
+      if (route.name === "jobs") {
+        await assertJobsRecentRuns(page, `${viewport.name}:${route.name}`);
+      }
       if (route.requireInspectorFilters) {
         await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
         await assertInspectorCanvasPane(page, `${viewport.name}:${route.name}`);
@@ -722,6 +725,40 @@ async function assertOverviewDensity(page, scope) {
     }
     if (!scope.startsWith("narrow") && rect.width < 140) {
       throw new Error(`${scope}: signal card ${index} is too compressed ${JSON.stringify(rect)}`);
+    }
+  }
+}
+
+async function assertJobsRecentRuns(page, scope) {
+  const state = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll(".recent-run-card")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        height: Math.round(rect.height),
+        text: node.textContent ?? "",
+        artifactRails: node.querySelectorAll(".recent-run-artifacts i b").length,
+        statusBadges: node.querySelectorAll(".badge").length
+      };
+    });
+    return {
+      cards,
+      metricBlocks: document.querySelectorAll(".recent-run-metrics").length
+    };
+  });
+  if (state.metricBlocks !== 0) {
+    throw new Error(`${scope}: jobs recent results should not render fine metric blocks`);
+  }
+  for (const [index, card] of state.cards.entries()) {
+    if (card.height > 112) {
+      throw new Error(`${scope}: jobs recent result card ${index} is too tall ${card.height}`);
+    }
+    if (/\b(P@|R@|precision|recall|iou|miou)\b/i.test(card.text)) {
+      throw new Error(`${scope}: jobs recent result card ${index} exposes fine metrics`);
+    }
+    if (card.artifactRails !== 1 || card.statusBadges !== 1) {
+      throw new Error(
+        `${scope}: jobs recent result card ${index} is missing artifact rail or status badge ${JSON.stringify(card)}`
+      );
     }
   }
 }
