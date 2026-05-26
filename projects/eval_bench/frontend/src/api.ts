@@ -53,6 +53,7 @@ export type RunSummary = {
   note: string;
   note_updated_at: string | null;
   note_max_length: number;
+  f1_iou50: number | null;
   precision_iou50: number | null;
   recall_iou50: number | null;
   mean_iou: number | null;

@@ -93,6 +93,7 @@ def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:
     assert report["samples"][0]["false_positives"][0]["label"] == "icon"
     run_summary = EvalBenchStore(tmp_path).runs()[0]
     assert run_summary.report_path == str(report_path)
+    assert run_summary.f1_iou50 == pytest.approx(2 / 3)
     assert run_summary.precision_iou50 == 0.5
     assert run_summary.recall_iou50 == 1.0
     sample_detail = EvalBenchStore(tmp_path).run_sample_detail("run_detection", sample_index=0)

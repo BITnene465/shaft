@@ -20,12 +20,17 @@ export function f1Score(precision: number | null, recall: number | null) {
   }
   const denominator = precision + recall;
   if (denominator <= 0) {
-    return null;
+    return 0;
   }
   return (2 * precision * recall) / denominator;
 }
 
-export function runF1Score(run: Pick<RunSummary, "precision_iou50" | "recall_iou50">) {
+export function runF1Score(
+  run: Pick<RunSummary, "f1_iou50" | "precision_iou50" | "recall_iou50">
+) {
+  if (typeof run.f1_iou50 === "number") {
+    return run.f1_iou50;
+  }
   return f1Score(run.precision_iou50, run.recall_iou50);
 }
 

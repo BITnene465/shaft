@@ -126,7 +126,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
     弹窗表单和对比选择轨不各自复制 select/input 外壳。
 - `projects/eval_bench/frontend/src/formatters.ts`
-  - 维护前端展示格式、F1 计算、run 下拉选项文案和链接构造；Run Table、Compare 选择轨和 Rank Board 不能各自把 recall 或 precision 当成默认主指标展示。
+  - 维护前端展示格式、run 下拉选项文案和链接构造；`RunSummary.f1_iou50` 是 API/CLI 的默认主指标真源，前端 F1 计算只做旧 payload 兼容兜底；Run Table、Compare 选择轨和 Rank Board 不能各自把 recall 或 precision 当成默认主指标展示。
 - `projects/eval_bench/eval_bench/log_utils.py`
   - 维护 backend log、job runtime log tail 和 job log path 解析；Dashboard API 和 CLI 共用，不在两端各自拼路径。
 - `projects/eval_bench/frontend/src/overviewPage.tsx`

@@ -134,6 +134,7 @@ RUN_SUMMARY_OUTPUT_SHAPE = {
     "note": "str",
     "note_updated_at": "str|null",
     "note_max_length": "int",
+    "f1_iou50": "float|null",
     "precision_iou50": "float|null",
     "recall_iou50": "float|null",
     "mean_iou": "float|null",

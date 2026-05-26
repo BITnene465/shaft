@@ -129,6 +129,7 @@ class RunSummary:
     note: str = ""
     note_updated_at: str | None = None
     note_max_length: int = MAX_RUN_NOTE_LENGTH
+    f1_iou50: float | None = None
     precision_iou50: float | None = None
     recall_iou50: float | None = None
     mean_iou: float | None = None
@@ -361,6 +362,8 @@ class EvalBenchStore:
                 or prompt_metadata.get("target_labels")
                 or []
             )
+            precision_iou50 = _optional_float(report_payload, "precision_iou50")
+            recall_iou50 = _optional_float(report_payload, "recall_iou50")
             items.append(
                 RunSummary(
                     run_id=run_id,
@@ -392,8 +395,9 @@ class EvalBenchStore:
                     note=note.note,
                     note_updated_at=note.updated_at,
                     note_max_length=MAX_RUN_NOTE_LENGTH,
-                    precision_iou50=_optional_float(report_payload, "precision_iou50"),
-                    recall_iou50=_optional_float(report_payload, "recall_iou50"),
+                    f1_iou50=_f1_iou50(precision_iou50, recall_iou50),
+                    precision_iou50=precision_iou50,
+                    recall_iou50=recall_iou50,
                     mean_iou=_optional_float(report_payload, "mean_iou"),
                 )
             )
@@ -1340,8 +1344,12 @@ def _run_sample_matches(
 
 
 def _rank_f1_iou50(run: RunSummary) -> float | None:
-    precision = run.precision_iou50
-    recall = run.recall_iou50
+    if run.f1_iou50 is not None:
+        return run.f1_iou50
+    return _f1_iou50(run.precision_iou50, run.recall_iou50)
+
+
+def _f1_iou50(precision: float | None, recall: float | None) -> float | None:
     if precision is None or recall is None:
         return None
     denominator = precision + recall

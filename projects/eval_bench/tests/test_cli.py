@@ -334,6 +334,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "runs"]
     assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
+    assert runs_output_schema["properties"]["runs"]["item_shape"]["f1_iou50"] == "float|null"
     assert commands_by_name["show-run"]["output_schema"]["properties"]["run"]["item_shape"] == (
         runs_output_schema["properties"]["runs"]["item_shape"]
     )
@@ -1868,6 +1869,7 @@ def test_cli_reads_run_reports_and_scoped_samples_for_agents(tmp_path: Path, cap
     run_payload = json.loads(capsys.readouterr().out)
     assert run_payload["run"]["run_id"] == "run_arrow"
     assert run_payload["run"]["target_labels"] == ["arrow"]
+    assert run_payload["run"]["f1_iou50"] == 1.0
     assert run_payload["run"]["precision_iou50"] == 1.0
 
     report_args = _build_parser().parse_args(

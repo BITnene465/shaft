@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench run summary 缺少 F1 真源
+
+### 现象
+
+Rank Board、Overview 和 run 表格已经把 `F1@.50` 当成默认主指标，但 `RunSummary` / `list-runs` /
+`show-run` 仍只返回 precision、recall 和 mIoU。前端通过 `runF1Score()` 在多个入口临时计算 F1，
+agent 读取 run summary 时也必须自己推导默认主指标。
+
+### 根因
+
+前几轮先把 Rank Board entry 的 `f1_iou50` 收敛为后端字段，但没有把同一主指标提升到通用 run summary。
+这会让 Runs、Overview、Compare 选择轨和 agent CLI 保留多处派生逻辑，形成默认指标语义漂移风险。
+
+### 影响范围
+
+- 影响 run summary API/CLI 输出、前端结果表格/总览/选择文案和 agent 对默认主指标的消费。
+- 不改变 evaluator 原始 precision/recall/mIoU 计算、Rank Board 排序算法、weighted scheme 或 comparison report。
+
+### 修复方式
+
+- `RunSummary` 增加 `f1_iou50` 字段，由 store 基于 report 中的 precision/recall 统一计算。
+- `list-runs` / `show-run` 的 agent `output_schema` 增加 `f1_iou50`，CLI 测试验证真实输出。
+- 前端 `RunSummary` 类型增加 `f1_iou50`，`runF1Score()` 优先使用后端字段，只在旧 payload 缺字段时兜底计算。
+- README 和架构文档同步说明 run summary 的 F1 真源边界。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_independent_rank_board projects/eval_bench/tests/test_evaluator.py -q`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:formatters`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:run-artifacts`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增默认主指标展示入口时，优先消费 `RunSummary.f1_iou50` 或 Rank Board entry `score`，不要在页面里把 precision/recall/recalculated F1 当成新的真源。
+
 ## 2026-05-26: Eval Bench 高级检索浮层缺少焦点闭环
 
 ### 现象

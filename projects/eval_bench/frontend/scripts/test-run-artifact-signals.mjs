@@ -48,6 +48,7 @@ const baseRun = {
   note: "",
   note_updated_at: null,
   note_max_length: 20_000,
+  f1_iou50: null,
   precision_iou50: null,
   recall_iou50: null,
   mean_iou: null

@@ -509,7 +509,8 @@ evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 
 `resolve-target-labels` 明确返回 detection/keypoint label policy、candidate labels、valid/errors/warnings；
 `get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length；
 `list-runs` / `show-run` / `list-run-samples` / `show-run-sample` 以及 benchmark sample 命令明确返回
-run summary、sample summary、GT/prediction payload 与 diagnostics 字段；`list-jobs` / `show-job`、
+run summary、sample summary、GT/prediction payload 与 diagnostics 字段；run summary 直接包含后端计算的
+`f1_iou50`，让 Runs、Overview、Compare 和 agent 使用同一份默认主指标真源；`list-jobs` / `show-job`、
 `list-services` / `show-service` 和 comparison 查询命令明确返回 job/service/comparison 的 record、payload、
 runtime、delta 与成对样本详情字段；`list-job-templates` / `show-job-template`、
 `list-prompt-templates` / `show-prompt-template` / `upsert-prompt-template` /
