@@ -419,7 +419,9 @@ label 子任务范围；keypoint run 固定评价 `arrow`，传入非 `arrow` la
 如果 `eval_bench_store/benchmarks/<benchmark_id>/benchmark.json` 带有 `labels` 索引，`init-run`
 也会像 preflight 和 import 一样拒绝拼写错误或不存在的 target label，避免 agent 先创建出非法 run。
 `init-run` 支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
-后端会按同一份 `label_policy.py` 从 prompt id / task 推导默认范围：
+后端会按同一份 `label_policy.py` 从 prompt template registry 的 `metadata.target_labels`、
+legacy prompt id 和 task 推导默认范围；推导出的 prompt metadata 也会写入 run manifest 的
+`spec.prompt.metadata`，便于后续 evaluator 复现同一语义：
 
 ```bash
 .venv/bin/python scripts/eval_bench.py init-run \

@@ -749,7 +749,67 @@ def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) ->
 
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
     assert payload["spec"]["target_labels"] == ["icon", "image", "shape"]
-    assert payload["spec"]["metadata"]["target_labels_source"] == "legacy_prompt_id"
+    assert payload["spec"]["metadata"]["target_labels_source"] == "prompt_metadata"
+    assert payload["spec"]["prompt"]["metadata"]["target_labels"] == ["icon", "image", "shape"]
+
+
+def test_init_run_cli_uses_custom_prompt_metadata_target_labels(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "labels": ["custom_arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    EvalBenchDatabase(tmp_path).upsert_prompt_template(
+        {
+            "prompt_id": "custom.diagram.arrow",
+            "label": "Custom diagram arrow",
+            "task": "detection",
+            "system_prompt": "Inspect the diagram.",
+            "user_prompt": "Find custom arrows.",
+            "metadata": {"target_labels": ["custom_arrow"]},
+        }
+    )
+    args = _build_parser().parse_args(
+        [
+            "init-run",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "custom_prompt_run",
+            "--task",
+            "detection",
+            "--model-id",
+            "model-a",
+            "--model-path",
+            "outputs/model-a/best",
+            "--benchmark-id",
+            "bench1",
+            "--benchmark-root",
+            str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "--split",
+            "val",
+            "--spec-id",
+            "custom.prompt",
+            "--prompt-id",
+            "custom.diagram.arrow",
+        ]
+    )
+
+    _cmd_init_run(args)
+
+    payload = json.loads(
+        (tmp_path / "runs" / "custom_prompt_run" / "run.json").read_text(encoding="utf-8")
+    )
+    assert payload["spec"]["target_labels"] == ["custom_arrow"]
+    assert payload["spec"]["metadata"]["target_labels_source"] == "prompt_metadata"
+    assert payload["spec"]["prompt"]["metadata"]["target_labels"] == ["custom_arrow"]
 
 
 def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys) -> None:

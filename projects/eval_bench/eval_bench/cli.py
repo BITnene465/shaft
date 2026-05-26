@@ -1324,10 +1324,12 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
 
     task = args.task
+    prompt_metadata = _prompt_metadata_for_init_run(args.output_root, args.prompt_id)
     target_policy = resolve_target_label_policy(
         explicit=args.target_labels,
         prompt_id=str(args.prompt_id),
         task=task,
+        prompt_metadata=prompt_metadata,
     )
     validate_target_labels_for_task(task=task, labels=target_policy.labels)
     validate_target_labels_for_benchmark(
@@ -1349,7 +1351,11 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
         spec=EvalSpec(
             spec_id=str(args.spec_id),
             task=task,
-            prompt=PromptRef(prompt_id=str(args.prompt_id), path=args.prompt_path),
+            prompt=PromptRef(
+                prompt_id=str(args.prompt_id),
+                path=args.prompt_path,
+                metadata=prompt_metadata,
+            ),
             target_labels=target_policy.labels,
             inference=InferenceParams(
                 backend=str(args.backend),
@@ -1389,6 +1395,15 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
             ensure_ascii=False,
         )
     )
+
+
+def _prompt_metadata_for_init_run(output_root: str, prompt_id: str) -> dict[str, object]:
+    from .database import EvalBenchDatabase
+
+    record = EvalBenchDatabase(output_root).get_prompt_template(str(prompt_id))
+    if record is None:
+        return {}
+    return dict(record.metadata)
 
 
 def _benchmark_labels_for_init_run(output_root: str, benchmark_id: str) -> list[str]:
