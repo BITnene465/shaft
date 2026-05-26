@@ -67,7 +67,9 @@ def test_eval_semantics_rejects_keypoint_label_subtasks() -> None:
 
 
 def test_metric_profile_default_follows_task() -> None:
-    assert resolve_metric_profile("default", task="detection").profile_id == "detection_iou_v1"
+    detection = resolve_metric_profile("default", task="detection")
+    assert detection.profile_id == "detection_iou_v1"
+    assert detection.primary_score == "f1_iou50"
     keypoint = resolve_metric_profile("default", task="keypoint")
 
     assert keypoint.profile_id == "keypoint_endpoint_v1"

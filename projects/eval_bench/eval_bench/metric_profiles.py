@@ -19,7 +19,7 @@ METRIC_PROFILES: dict[str, MetricProfile] = {
         profile_id="detection_iou_v1",
         task="detection",
         matcher="bbox_iou",
-        primary_score="precision_recall_iou50",
+        primary_score="f1_iou50",
         description="Box detection profile using per-label greedy IoU matching.",
     ),
     "keypoint_endpoint_v1": MetricProfile(
