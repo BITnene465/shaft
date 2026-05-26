@@ -22,6 +22,7 @@ from eval_bench.cli import (
     _cmd_delete_job,
     _cmd_delete_run,
     _cmd_delete_service,
+    _cmd_evaluate_run,
     _cmd_get_run_note,
     _cmd_init_run,
     _cmd_import_predictions,
@@ -44,6 +45,7 @@ from eval_bench.cli import (
     _cmd_delete_prompt_template,
     _cmd_set_run_note,
     _cmd_append_run_note,
+    _cmd_compare_runs,
     _cmd_show_benchmark,
     _cmd_show_benchmark_sample,
     _cmd_show_agent_command,
@@ -163,7 +165,17 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         "item_shape"
     ]["argument_semantics"] == "object"
     assert commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"] == "list[str]"
-    assert commands_by_name["init-run"]["output_schema"]["type"] == "string"
+    init_output_schema = commands_by_name["init-run"]["output_schema"]
+    assert init_output_schema["required"] == [
+        "run_id",
+        "manifest_path",
+        "artifact_root",
+        "task",
+        "benchmark_id",
+        "target_labels",
+        "target_labels_source",
+    ]
+    assert init_output_schema["properties"]["target_labels"]["type"] == "list[str]"
     assert commands_by_name["validate-prediction"]["output_schema"]["properties"]["instances"] == "int"
     assert commands_by_name["rank-board"]["domain"] == "rank"
     assert commands_by_name["rank-board"]["mutates_state"] is False
@@ -333,14 +345,23 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     )
     assert commands_by_name["archive-run"]["output_schema"]["properties"]["manifest_path"] == "str"
     assert commands_by_name["delete-run"]["output_schema"]["properties"]["trash_path"] == "str|null"
-    assert commands_by_name["evaluate-run"]["output_schema"]["type"] == "string"
+    assert commands_by_name["evaluate-run"]["output_schema"]["required"] == [
+        "run_id",
+        "report_path",
+        "summary_path",
+    ]
     assert (
         commands_by_name["import-predictions"]["output_schema"]["properties"][
             "missing_prediction_count"
         ]
         == "int"
     )
-    assert commands_by_name["compare-runs"]["output_schema"]["type"] == "string"
+    assert commands_by_name["compare-runs"]["output_schema"]["required"] == [
+        "comparison_id",
+        "baseline_run_id",
+        "candidate_run_id",
+        "report_path",
+    ]
     assert commands_by_name["show-run-report"]["output_schema"]["type"] == "object"
     comparisons_output_schema = commands_by_name["list-comparisons"]["output_schema"]
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
@@ -742,7 +763,7 @@ def _write_sample_store(tmp_path: Path) -> None:
     )
 
 
-def test_init_run_cli_accepts_target_label_subset(tmp_path: Path) -> None:
+def test_init_run_cli_accepts_target_label_subset(tmp_path: Path, capsys) -> None:
     args = _build_parser().parse_args(
         [
             "init-run",
@@ -774,8 +795,18 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path) -> None:
     )
 
     _cmd_init_run(args)
+    output = json.loads(capsys.readouterr().out)
 
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
+    assert output == {
+        "run_id": "run1",
+        "manifest_path": str(tmp_path / "runs" / "run1" / "run.json"),
+        "artifact_root": str(tmp_path / "runs" / "run1"),
+        "task": "detection",
+        "benchmark_id": "bench1",
+        "target_labels": ["icon", "image"],
+        "target_labels_source": "explicit",
+    }
     assert payload["spec"]["target_labels"] == ["icon", "image"]
     assert payload["spec"]["metadata"]["target_labels_source"] == "explicit"
 
@@ -812,6 +843,52 @@ def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) ->
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
     assert payload["spec"]["target_labels"] == ["icon", "image", "shape"]
     assert payload["spec"]["metadata"]["target_labels_source"] == "legacy_prompt_id"
+
+
+def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys) -> None:
+    _write_sample_store(tmp_path)
+
+    eval_args = _build_parser().parse_args(
+        ["evaluate-run", "--output-root", str(tmp_path), "--run-id", "run_arrow"]
+    )
+    _cmd_evaluate_run(eval_args)
+    eval_payload = json.loads(capsys.readouterr().out)
+    assert eval_payload == {
+        "run_id": "run_arrow",
+        "report_path": str(tmp_path / "runs" / "run_arrow" / "reports" / "metrics.json"),
+        "summary_path": str(tmp_path / "runs" / "run_arrow" / "reports" / "summary.json"),
+    }
+    assert Path(eval_payload["report_path"]).exists()
+    assert Path(eval_payload["summary_path"]).exists()
+
+    source_run = tmp_path / "runs" / "run_arrow"
+    for run_id in ("run_base", "run_a"):
+        target = tmp_path / "runs" / run_id
+        shutil.copytree(source_run, target)
+        run_manifest = json.loads((target / "run.json").read_text(encoding="utf-8"))
+        run_manifest["run_id"] = run_id
+        _write_json(target / "run.json", run_manifest)
+
+    compare_args = _build_parser().parse_args(
+        [
+            "compare-runs",
+            "--output-root",
+            str(tmp_path),
+            "--baseline-run-id",
+            "run_base",
+            "--candidate-run-id",
+            "run_a",
+        ]
+    )
+    _cmd_compare_runs(compare_args)
+    compare_payload = json.loads(capsys.readouterr().out)
+    assert compare_payload == {
+        "comparison_id": "run_base__vs__run_a",
+        "baseline_run_id": "run_base",
+        "candidate_run_id": "run_a",
+        "report_path": str(tmp_path / "exports" / "comparisons" / "run_base__vs__run_a.json"),
+    }
+    assert Path(compare_payload["report_path"]).exists()
 
 
 def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:

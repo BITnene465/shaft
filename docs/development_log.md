@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench agent 稳定命令仍输出裸路径
+
+### 现象
+
+`init-run`、`evaluate-run` 和 `compare-runs` 已经登记为 agent 稳定命令，也在 `show-agent-command`
+里暴露了 `output_schema`。但实际 stdout 仍是裸路径字符串，例如 `runs/<run_id>/run.json` 或
+`exports/comparisons/...json`，不是可直接 `json.loads` 的结构化 payload。
+
+### 根因
+
+早期 CLI 为人类终端使用优化，写完 artifact 后直接打印路径。后续虽然补了 agent command contract，
+但没有把这些生命周期命令的真实 stdout 一起收敛到 JSON object。这是 CLI/agent contract 不一致，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 run 初始化、评估报告生成和 comparison 生成的自动化解析。
+- 不影响 artifact 写入路径、evaluator、comparison 计算、dashboard API 或 Rank Board 语义。
+
+### 修复方式
+
+- `init-run` stdout 改为 JSON object，包含 `run_id`、`manifest_path`、`artifact_root`、task、benchmark 和 target label 信息。
+- `evaluate-run` stdout 改为 JSON object，包含 `run_id`、`report_path` 和 `summary_path`。
+- `compare-runs` stdout 改为 JSON object，包含 `comparison_id`、左右 run id 和 `report_path`。
+- 同步更新 `AGENT_COMMAND_OUTPUT_SCHEMAS`、CLI 单测和 agent 文档。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py -q`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name init-run`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name evaluate-run`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name compare-runs`
+
+### 后续防线
+
+- 新增 agent 稳定命令时，stdout 必须是 JSON object 或 schema 明确声明的 JSON value，不能要求 agent 解析裸文本。
+- `output_schema` 的字段必须和真实命令输出同步测试，尤其是会写 artifact 的生命周期命令。
+
 ## 2026-05-26: Eval Bench Overview v15 仍把首页拆成低价值模块墙
 
 ### 现象

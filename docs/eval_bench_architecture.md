@@ -222,7 +222,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
   template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
   runtime command、warning/error 和 job record 字段，
-  dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare 路径输出、
+  dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare artifact 输出、
   service lifecycle 和 agent contract 自描述命令也必须有返回结构，
   避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费

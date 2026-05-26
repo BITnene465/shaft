@@ -388,6 +388,8 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 如果 run 已经有 prediction JSON，只要它们位于 `eval_bench_store/runs/<run_id>/predictions/`，且路径能通过 image path 映射到 benchmark sample，直接运行 `evaluate-run` 即可重新和 test/GT 对比，不需要重新推理。
 
+`evaluate-run` stdout 是结构化 JSON，包含 `run_id`、`report_path` 和 `summary_path`。
+
 如果预测结果还在外部目录，可以直接导入为一个 run 并立即评估：
 
 ```bash
@@ -512,9 +514,10 @@ run summary、sample summary、GT/prediction payload 与 diagnostics 字段；`l
 runtime、delta 与成对样本详情字段；`list-job-templates` / `show-job-template`、
 `list-prompt-templates` / `show-prompt-template` / `upsert-prompt-template` /
 `delete-prompt-template` 以及 `preflight-job` / `create-job` 明确返回 template manifest、
-prompt record、resolved payload、runtime command、warning/error 和 job record 字段。所有稳定 agent
-命令都必须有非空 `output_schema`，包括 dashboard/scheduler state、backend/job/service logs、
-benchmark/run 创建与删除、prediction import、evaluate/compare 路径输出、service lifecycle 和
+prompt record、resolved payload、runtime command、warning/error 和 job record 字段；`init-run`、
+`evaluate-run` 和 `compare-runs` 也返回 JSON object，包含写出的 manifest/report 路径和关键 id。
+所有稳定 agent 命令都必须有非空 `output_schema`，包括 dashboard/scheduler state、backend/job/service logs、
+benchmark/run 创建与删除、prediction import、evaluate/compare artifact 输出、service lifecycle 和
 `list-agent-commands` / `show-agent-command` 自身的 contract 结构。
 agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
@@ -1005,6 +1008,8 @@ Metric 展示分三层：
   --baseline-run-id <old_run_id> \
   --candidate-run-id <new_run_id>
 ```
+
+`compare-runs` stdout 是结构化 JSON，包含 `comparison_id`、左右 run id 和 `report_path`。
 
 Comparison report 会写入 `eval_bench_store/exports/comparisons/`。它只比较已经持久化的 metric report，不重新跑推理。Dashboard 的 Compare 页通过 `/api/comparisons` 读取同一份 report，展示 P/R/IoU、endpoint distance、TP/FP/FN 和 endpoint pair delta；样本和标签排行使用 metric profile 保留的主指标语义，因此 `keypoint_endpoint_v1` 中 endpoint distance 下降会被视为改善。Compare 页同时列出已保存 comparison，并提供 top 改善/退化样本到并排样本对比 viewer 的跳转。Rank Board 负责全局排名、facet 和主指标排序，默认主指标是 F1@.50。Compare 工作区和成对样本对比的左右 run 面板都使用可拖拽分栏，适合在不同屏幕宽度下长期排障。
 Agent 读取已保存 comparison 用 `show-comparison`；读取成对样本详情用 `show-comparison-sample`，两者都走

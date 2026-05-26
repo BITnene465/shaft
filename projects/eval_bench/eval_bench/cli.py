@@ -417,8 +417,25 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "properties": BENCHMARK_MANIFEST_OUTPUT_SHAPE,
     },
     "init-run": {
-        "type": "string",
-        "description": "Path to the written run manifest.",
+        "type": "object",
+        "required": [
+            "run_id",
+            "manifest_path",
+            "artifact_root",
+            "task",
+            "benchmark_id",
+            "target_labels",
+            "target_labels_source",
+        ],
+        "properties": {
+            "run_id": {"type": "str"},
+            "manifest_path": {"type": "str"},
+            "artifact_root": {"type": "str"},
+            "task": {"type": "str"},
+            "benchmark_id": {"type": "str"},
+            "target_labels": {"type": "list[str]"},
+            "target_labels_source": {"type": "str"},
+        },
     },
     "validate-prediction": {
         "type": "object",
@@ -798,8 +815,13 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "properties": RUN_DELETE_OUTPUT_SHAPE,
     },
     "evaluate-run": {
-        "type": "string",
-        "description": "Path to the written metrics report.",
+        "type": "object",
+        "required": ["run_id", "report_path", "summary_path"],
+        "properties": {
+            "run_id": {"type": "str"},
+            "report_path": {"type": "str"},
+            "summary_path": {"type": "str"},
+        },
     },
     "import-predictions": {
         "type": "object",
@@ -814,8 +836,14 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "properties": IMPORTED_PREDICTION_RUN_OUTPUT_SHAPE,
     },
     "compare-runs": {
-        "type": "string",
-        "description": "Path to the written comparison report.",
+        "type": "object",
+        "required": ["comparison_id", "baseline_run_id", "candidate_run_id", "report_path"],
+        "properties": {
+            "comparison_id": {"type": "str"},
+            "baseline_run_id": {"type": "str"},
+            "candidate_run_id": {"type": "str"},
+            "report_path": {"type": "str"},
+        },
     },
     "list-comparisons": {
         "type": "object",
@@ -1452,7 +1480,20 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
     artifacts = RunArtifacts(args.output_root, manifest.run_id)
     path = artifacts.write_manifest(manifest)
-    print(path)
+    print(
+        json.dumps(
+            {
+                "run_id": manifest.run_id,
+                "manifest_path": str(path),
+                "artifact_root": manifest.artifact_root,
+                "task": task,
+                "benchmark_id": manifest.benchmark.benchmark_id,
+                "target_labels": target_policy.labels,
+                "target_labels_source": target_policy.source,
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_validate_prediction(args: argparse.Namespace) -> None:
@@ -2134,7 +2175,16 @@ def _cmd_evaluate_run(args: argparse.Namespace) -> None:
         run_id=str(args.run_id),
         iou_threshold=float(args.iou_threshold),
     )
-    print(path)
+    print(
+        json.dumps(
+            {
+                "run_id": str(args.run_id),
+                "report_path": str(path),
+                "summary_path": str(path.parent / "summary.json"),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_import_predictions(args: argparse.Namespace) -> None:
@@ -2166,7 +2216,17 @@ def _cmd_compare_runs(args: argparse.Namespace) -> None:
         baseline_run_id=str(args.baseline_run_id),
         candidate_run_id=str(args.candidate_run_id),
     )
-    print(path)
+    print(
+        json.dumps(
+            {
+                "comparison_id": path.stem,
+                "baseline_run_id": str(args.baseline_run_id),
+                "candidate_run_id": str(args.candidate_run_id),
+                "report_path": str(path),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_show_comparison(args: argparse.Namespace) -> None:
