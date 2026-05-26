@@ -772,7 +772,7 @@ label 子任务 UI 的显隐由 task 控制，但 manifest 的语义清理只发
 
 `list-agent-commands` 和 `show-agent-command` 已经能告诉 agent 如何调用 53 个稳定命令，
 但仍有 25 个稳定命令没有 `output_schema`。缺口集中在 dashboard/scheduler state、backend/job/service logs、
-benchmark/run 创建删除、prediction import、evaluate/compare 路径输出、service lifecycle、
+benchmark/run 创建删除、prediction import、evaluate/compare artifact 输出、service lifecycle、
 `process-next-job` 以及 agent contract 自描述命令。agent 调用这些入口后仍需要从样例、源码或 store 结构推断返回字段。
 
 ### 根因
