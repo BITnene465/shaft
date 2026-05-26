@@ -9,6 +9,50 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench mutating agent 命令缺少参数语义
+
+### 现象
+
+`list-agent-commands` / `show-agent-command` 已经能列出所有稳定命令的 argparse 参数、
+副作用标记和输出结构，但多条 `mutates_state=true` 的命令仍返回空 `argument_semantics`。
+例如 `create-job`、`register-service`、`delete-run`、`evaluate-run` 和 `compare-runs` 只能让
+agent 看到 flag 名，不能稳定判断 payload 来源、service 参数、删除边界、report 重建或 comparison
+左右 run 的语义。
+
+### 根因
+
+前几轮 contract 收敛优先补了 rank-board、label subtask、run note 和查询 filters 的语义，
+但没有建立“所有写状态稳定命令都必须有非空 `argument_semantics`”的硬防线。结果新增或迁入
+agent 命令时，只要 output schema 完整，测试仍可能通过。这是 CLI/agent contract 描述缺口，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 自动创建 benchmark/job、维护 prompt template、处理 job 队列、管理 service、
+  归档/删除 run、重建 report 和创建 comparison 的参数决策。
+- 不改变评估指标计算、label policy、rank-board 主指标、Dashboard UI 或现有 store artifact 格式。
+
+### 修复方式
+
+- 为 benchmark/prompt/job payload、job/run lifecycle、service registration/health/lifecycle、
+  evaluate report 和 comparison 增加结构化 `argument_semantics`。
+- `test_cli_lists_agent_stable_commands` 增加通用断言：所有 `mutates_state=true` 的稳定命令必须有非空语义。
+- `show-agent-command` contract 测试抽样锁住 create-job、register-service、delete-run、process-next-job
+  和 compare-runs 的关键语义。
+- README、`docs/scripts.md` 和架构文档同步新增规则。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py list-agent-commands`
+
+### 后续防线
+
+- 新增 `mutates_state=true` 的 agent 稳定命令时，必须同时补 parser、handler、metadata、
+  output schema 和非空 `argument_semantics`。
+- 删除、停止、取消、归档类命令还要继续进入 `AGENT_DESTRUCTIVE_COMMANDS`，让 `destructive`
+  与具体 lifecycle 语义一起暴露给 agent。
+
 ## 2026-05-26: Eval Bench Rank Board 长 facet 展开缺少高度防线
 
 ### 现象

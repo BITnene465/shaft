@@ -212,7 +212,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `mutually_exclusive_groups`；如果一个参数的 choices 同时包含不同语义类别，还必须通过
   `argument_semantics` 给 agent 暴露结构化分类，例如 Rank Board 的 `sort_by` 需要区分 primary metrics、
   auxiliary sorts 和 weighted sort，target label 参数需要区分 detection 可重复 label 子任务和
-  keypoint 固定 arrow 语义。`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
+  keypoint 固定 arrow 语义；所有 `mutates_state=true` 的稳定命令必须暴露非空
+  `argument_semantics`，说明 benchmark/prompt/job payload、run/job/service lifecycle、health probe、
+  evaluate report 和 comparison 参数的真实语义。`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
   `test_cli_parser_commands_have_handlers_for_agent_contract` 锁住，避免新增命令只加 parser 或只加 handler，
   或者缺少 agent 判断副作用和参数形态所需的元信息。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
@@ -230,6 +232,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare artifact 输出、
   service lifecycle 和 agent contract 自描述命令也必须有返回结构，
   避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
+  新增会写状态的 agent 命令时，除 `output_schema` 外还必须补齐非空 `argument_semantics`，并由 CLI
+  contract 测试验证，避免 agent 只能看到 flag 名而不知道 payload、删除、启动、停止或 report 重建的边界。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
 - 新增 job 入队入口：CLI 和 API 必须共享 `preflight_job_payload` / prompt template 解析；agent 先用

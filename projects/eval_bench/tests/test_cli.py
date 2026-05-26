@@ -220,6 +220,9 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
     assert all(isinstance(item["argument_semantics"], dict) for item in payload["commands"])
+    assert all(
+        item["argument_semantics"] for item in payload["commands"] if item["mutates_state"]
+    )
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
     assert set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS
@@ -256,7 +259,27 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
         "item_shape"
     ]["argument_semantics"] == "object"
-    assert commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"] == "list[str]"
+    assert (
+        commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"]
+        == "list[str]"
+    )
+    assert (
+        commands_by_name["create-benchmark"]["argument_semantics"]["benchmark"]["source_manifest"]
+        == "source manifest JSON that enumerates images and annotations."
+    )
+    assert "manifest-first job payload JSON" in commands_by_name["create-job"][
+        "argument_semantics"
+    ]["payload"]["payload_json"]
+    assert "trash" in commands_by_name["delete-run"]["argument_semantics"]["lifecycle"]["effect"]
+    assert commands_by_name["process-next-job"]["argument_semantics"]["queue"]["kind"].endswith(
+        "default eval."
+    )
+    assert (
+        commands_by_name["compare-runs"]["argument_semantics"]["comparison"][
+            "candidate_run_id"
+        ]
+        == "required evaluated candidate run id."
+    )
     init_output_schema = commands_by_name["init-run"]["output_schema"]
     assert init_output_schema["required"] == [
         "run_id",
@@ -761,12 +784,32 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     _cmd_show_agent_command(create_job_args)
     create_job_command = json.loads(capsys.readouterr().out)["command"]
     assert create_job_command["output_schema"]["properties"]["job_id"] == "str"
+    assert "payload_file" in create_job_command["argument_semantics"]["payload"]
+    assert "eval_job" in create_job_command["argument_semantics"]["payload"]["kind"]
 
     service_args = _build_parser().parse_args(["show-agent-command", "--name", "show-service"])
     _cmd_show_agent_command(service_args)
     service_command = json.loads(capsys.readouterr().out)["command"]
     assert service_command["output_schema"]["properties"]["service"]["item_shape"]["service_id"] == "str"
     assert service_command["output_schema"]["properties"]["service"]["item_shape"]["runtime"] == "object"
+
+    register_service_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "register-service"]
+    )
+    _cmd_show_agent_command(register_service_args)
+    register_service_command = json.loads(capsys.readouterr().out)["command"]
+    assert register_service_command["argument_semantics"]["service"]["kind"].startswith(
+        "service backend kind"
+    )
+    assert "extra raw vLLM CLI argument" in register_service_command["argument_semantics"][
+        "service"
+    ]["extra_arg"]
+
+    delete_run_args = _build_parser().parse_args(["show-agent-command", "--name", "delete-run"])
+    _cmd_show_agent_command(delete_run_args)
+    delete_run_command = json.loads(capsys.readouterr().out)["command"]
+    assert delete_run_command["destructive"] is True
+    assert "trash" in delete_run_command["argument_semantics"]["lifecycle"]["effect"]
 
     comparison_args = _build_parser().parse_args(["show-agent-command", "--name", "show-comparison-sample"])
     _cmd_show_agent_command(comparison_args)

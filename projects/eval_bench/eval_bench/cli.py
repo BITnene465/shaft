@@ -368,7 +368,67 @@ RUN_NOTE_ARGUMENT_SEMANTICS = {
         "string or null-equivalent only when the note has never been written."
     ),
 }
+BENCHMARK_CREATE_ARGUMENT_SEMANTICS = {
+    "benchmark_id": "required stable benchmark id to create under the Eval Bench store.",
+    "task": "repeatable benchmark task declaration: detection and/or keypoint.",
+    "source_root": "raw_data split root copied into the benchmark store.",
+    "source_manifest": "source manifest JSON that enumerates images and annotations.",
+    "split": "benchmark split name written to the manifest, default val.",
+    "layer": "repeatable layer tag used for search and grouping.",
+    "overwrite": "replace an existing benchmark with the same id when true.",
+}
+PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS = {
+    "payload_json": "inline prompt-template JSON; mutually exclusive with --payload-file.",
+    "payload_file": "UTF-8 prompt-template JSON file; mutually exclusive with --payload-json.",
+    "prompt_id": "required exact prompt template id for deletion.",
+}
+JOB_PAYLOAD_ARGUMENT_SEMANTICS = {
+    "kind": (
+        "optional job kind override; omitted kind is resolved from the payload and defaults "
+        "to eval_job for create-job."
+    ),
+    "payload_json": (
+        "inline manifest-first job payload JSON; mutually exclusive with --payload-file."
+    ),
+    "payload_file": (
+        "UTF-8 manifest-first job payload JSON file; mutually exclusive with --payload-json."
+    ),
+}
+JOB_LIFECYCLE_ARGUMENT_SEMANTICS = {
+    "job_id": "required exact job id; use show-job before canceling or deleting.",
+    "kind": "job kind queue to process; default eval.",
+}
+RUN_LIFECYCLE_ARGUMENT_SEMANTICS = {
+    "run_id": "required exact run id; use show-run before mutating or deleting artifacts.",
+    "iou_threshold": "IoU threshold used to rebuild the run report, default 0.5.",
+}
+SERVICE_ARGUMENT_SEMANTICS = {
+    "service_id": (
+        "exact service id; optional on register-service where a stable id can be generated."
+    ),
+    "kind": (
+        "service backend kind: local_vllm starts a managed process, external_vllm "
+        "probes an endpoint."
+    ),
+    "model_path": "local model path for local_vllm service registration.",
+    "served_model_name": "OpenAI-compatible served model name advertised by the endpoint.",
+    "endpoint": "OpenAI-compatible base endpoint for external_vllm or health checks.",
+    "host": "local bind host for managed local_vllm services.",
+    "port": "local bind port; omitted port is allocated by the service manager.",
+    "cuda_visible_devices": "CUDA_VISIBLE_DEVICES value for managed local_vllm process launch.",
+    "tensor_parallel_size": "vLLM tensor parallel size for local_vllm.",
+    "max_model_len": "vLLM --max-model-len override for local_vllm.",
+    "gpu_memory_utilization": "vLLM --gpu-memory-utilization override for local_vllm.",
+    "max_num_seqs": "vLLM --max-num-seqs override for local_vllm.",
+    "extra_arg": "repeatable extra raw vLLM CLI argument appended to the launch command.",
+    "timeout_s": "health probe timeout in seconds.",
+}
+COMPARISON_ARGUMENT_SEMANTICS = {
+    "baseline_run_id": "required evaluated baseline run id.",
+    "candidate_run_id": "required evaluated candidate run id.",
+}
 AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
+    "create-benchmark": {"benchmark": BENCHMARK_CREATE_ARGUMENT_SEMANTICS},
     "init-run": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
     "import-predictions": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
     "get-run-note": {
@@ -391,6 +451,16 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
             "expected_updated_at": RUN_NOTE_ARGUMENT_SEMANTICS["expected_updated_at"],
         },
     },
+    "upsert-prompt-template": {
+        "payload": {
+            "payload_json": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["payload_json"],
+            "payload_file": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["payload_file"],
+        },
+    },
+    "delete-prompt-template": {
+        "prompt": {"prompt_id": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["prompt_id"]},
+    },
+    "create-job": {"payload": JOB_PAYLOAD_ARGUMENT_SEMANTICS},
     "list-job-templates": {"filters": TEMPLATE_QUERY_ARGUMENT_SEMANTICS},
     "list-prompt-templates": {
         "pagination": PAGINATION_ARGUMENT_SEMANTICS,
@@ -408,6 +478,24 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
                 "case-insensitive search over job id, kind, status, error, timestamps, "
                 "payload JSON and metadata JSON."
             ),
+        },
+    },
+    "cancel-job": {
+        "lifecycle": {
+            "job_id": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["job_id"],
+            "effect": "requests cancellation for queued or running jobs.",
+        },
+    },
+    "delete-job": {
+        "lifecycle": {
+            "job_id": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["job_id"],
+            "effect": "deletes terminal or demo job records from the persistent registry.",
+        },
+    },
+    "process-next-job": {
+        "queue": {
+            "kind": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["kind"],
+            "effect": "claims and executes the next queued job of that kind.",
         },
     },
     "list-benchmarks": {
@@ -444,6 +532,25 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
             "label": "ground-truth label membership filter.",
         },
     },
+    "archive-run": {
+        "lifecycle": {
+            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
+            "effect": "marks a run archived without deleting its artifacts.",
+        },
+    },
+    "delete-run": {
+        "lifecycle": {
+            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
+            "effect": "moves the run artifact directory to trash and removes it from active views.",
+        },
+    },
+    "evaluate-run": {
+        "report": {
+            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
+            "iou_threshold": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["iou_threshold"],
+            "effect": "rebuilds report.json and summary.json from prediction snapshots.",
+        },
+    },
     "rank-board": {
         "pagination": PAGINATION_ARGUMENT_SEMANTICS,
         "filters": RANK_FILTER_ARGUMENT_SEMANTICS,
@@ -471,6 +578,52 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
             ),
         },
     },
+    "register-service": {
+        "service": {
+            key: SERVICE_ARGUMENT_SEMANTICS[key]
+            for key in (
+                "service_id",
+                "kind",
+                "model_path",
+                "served_model_name",
+                "endpoint",
+                "host",
+                "port",
+                "cuda_visible_devices",
+                "tensor_parallel_size",
+                "max_model_len",
+                "gpu_memory_utilization",
+                "max_num_seqs",
+                "extra_arg",
+            )
+        },
+    },
+    "service-health": {
+        "service": {
+            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
+            "timeout_s": SERVICE_ARGUMENT_SEMANTICS["timeout_s"],
+            "effect": "probes the endpoint and updates runtime health status.",
+        },
+    },
+    "start-service": {
+        "service": {
+            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
+            "effect": "starts a managed local_vllm process for the registered service.",
+        },
+    },
+    "stop-service": {
+        "service": {
+            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
+            "effect": "stops a managed local_vllm process; external_vllm is not terminated.",
+        },
+    },
+    "delete-service": {
+        "service": {
+            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
+            "effect": "stops the managed process when needed and deletes the service record.",
+        },
+    },
+    "compare-runs": {"comparison": COMPARISON_ARGUMENT_SEMANTICS},
     "list-comparisons": {
         "pagination": PAGINATION_ARGUMENT_SEMANTICS,
         "filters": {

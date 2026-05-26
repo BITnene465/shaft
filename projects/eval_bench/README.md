@@ -528,6 +528,9 @@ prompt record、resolved payload、runtime command、warning/error 和 job recor
 所有稳定 agent 命令都必须有非空 `output_schema`，包括 dashboard/scheduler state、backend/job/service logs、
 benchmark/run 创建与删除、prediction import、evaluate/compare artifact 输出、service lifecycle 和
 `list-agent-commands` / `show-agent-command` 自身的 contract 结构。
+所有 `mutates_state=true` 的稳定命令还必须有非空 `argument_semantics`，用于说明 benchmark/prompt/job
+payload、run/job/service lifecycle、health probe、report rebuild 和 comparison 参数语义；agent
+不能只凭 flag 名决定是否创建、删除、启动、停止或重建 report。
 agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
