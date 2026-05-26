@@ -115,6 +115,19 @@ BENCHMARK_SUMMARY_OUTPUT_SHAPE = {
     "created_at": "str|null",
     "source_manifest_path": "str|null",
 }
+BENCHMARK_MANIFEST_OUTPUT_SHAPE = {
+    "benchmark_id": "str",
+    "tasks": "list[str]",
+    "root": "str",
+    "split": "str",
+    "manifest_path": "str",
+    "sample_count": "int",
+    "source_raw_root": "str",
+    "source_manifest_path": "str",
+    "layers": "list[str]",
+    "labels": "list[str]",
+    "created_at": "str",
+}
 RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
     "index": "int",
     "image": "str",
@@ -210,6 +223,58 @@ PREFLIGHT_JOB_OUTPUT_SHAPE = {
     "errors": "list[str]",
     "warnings": "list[str]",
 }
+IMPORTED_PREDICTION_RUN_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "run_manifest_path": "str",
+    "report_path": "str|null",
+    "imported_predictions": "int",
+    "missing_predictions": "list[str]",
+    "missing_prediction_count": "int",
+}
+LOG_OUTPUT_SHAPE = {
+    "log_path": "str|null",
+    "lines": "list[str]",
+    "text": "str",
+}
+RUN_ARCHIVE_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "status": "str",
+    "manifest_path": "str",
+}
+RUN_DELETE_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "deleted": "bool",
+    "trash_path": "str|null",
+}
+VALIDATE_PREDICTION_OUTPUT_SHAPE = {
+    "ok": "bool",
+    "image": "str",
+    "instances": "int",
+}
+SCHEDULER_STATUS_OUTPUT_SHAPE = {
+    "source": "str",
+    "enabled": "bool",
+    "loop_alive": "bool",
+    "max_concurrent_jobs": "int",
+    "interval_s": "float",
+    "live_running_jobs": "list[str]",
+    "live_running_count": "int",
+    "active_worker_threads": "list[str]",
+    "reserved_cuda_devices": "list[str]",
+    "reserved_runtime_ports": "list[int]",
+}
+AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
+    "name": "str",
+    "help": "str",
+    "usage": "str",
+    "argv_prefix": "list[str]",
+    "domain": "str",
+    "mutates_state": "bool",
+    "destructive": "bool",
+    "arguments": "list[object]",
+    "mutually_exclusive_groups": "list[object]",
+    "output_schema": "object",
+}
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["run_id", "note", "updated_at", "path", "max_length"],
@@ -222,6 +287,93 @@ RUN_NOTE_OUTPUT_SCHEMA = {
     },
 }
 AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
+    "list-agent-commands": {
+        "type": "object",
+        "required": [
+            "total",
+            "mutating_count",
+            "read_only_count",
+            "destructive_count",
+            "domains",
+            "recommended_runner",
+            "commands",
+        ],
+        "properties": {
+            "domains": {"type": "list[str]"},
+            "recommended_runner": {"type": "list[str]"},
+            "commands": {"type": "array", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
+        },
+    },
+    "show-agent-command": {
+        "type": "object",
+        "required": ["recommended_runner", "command"],
+        "properties": {
+            "recommended_runner": {"type": "list[str]"},
+            "command": {"type": "object", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
+        },
+    },
+    "dashboard-state": {
+        "type": "object",
+        "required": [
+            "store_root",
+            "benchmark_count",
+            "run_count",
+            "total_benchmark_samples",
+            "prediction_count",
+            "benchmarks",
+            "runs",
+        ],
+        "properties": {
+            "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
+            "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
+        },
+    },
+    "scheduler-status": {
+        "type": "object",
+        "required": ["source", "enabled"],
+        "properties": SCHEDULER_STATUS_OUTPUT_SHAPE,
+    },
+    "backend-logs": {
+        "type": "object",
+        "required": ["log_path", "lines", "text"],
+        "properties": LOG_OUTPUT_SHAPE,
+    },
+    "job-logs": {
+        "type": "object",
+        "required": ["job_id", "log_path", "lines", "text"],
+        "properties": {"job_id": "str", **LOG_OUTPUT_SHAPE},
+    },
+    "service-logs": {
+        "type": "object",
+        "required": ["service_id", "log_path", "lines", "text"],
+        "properties": {"service_id": "str", **LOG_OUTPUT_SHAPE},
+    },
+    "create-benchmark": {
+        "type": "object",
+        "required": [
+            "benchmark_id",
+            "tasks",
+            "root",
+            "split",
+            "manifest_path",
+            "sample_count",
+            "source_raw_root",
+            "source_manifest_path",
+            "layers",
+            "labels",
+            "created_at",
+        ],
+        "properties": BENCHMARK_MANIFEST_OUTPUT_SHAPE,
+    },
+    "init-run": {
+        "type": "string",
+        "description": "Path to the written run manifest.",
+    },
+    "validate-prediction": {
+        "type": "object",
+        "required": ["ok", "image", "instances"],
+        "properties": VALIDATE_PREDICTION_OUTPUT_SHAPE,
+    },
     "resolve-target-labels": {
         "type": "object",
         "required": [
@@ -328,6 +480,10 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["run"],
         "properties": {"run": {"type": "object", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE}},
+    },
+    "show-run-report": {
+        "type": "object",
+        "description": "Raw metrics.json or summary.json report payload for a run.",
     },
     "list-run-samples": {
         "type": "object",
@@ -458,6 +614,28 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         ],
         "properties": JOB_RECORD_OUTPUT_SHAPE,
     },
+    "cancel-job": {
+        "type": "object",
+        "required": [
+            "job_id",
+            "kind",
+            "status",
+            "payload",
+            "created_at",
+            "updated_at",
+            "error",
+            "metadata",
+        ],
+        "properties": JOB_RECORD_OUTPUT_SHAPE,
+    },
+    "delete-job": {
+        "type": "object",
+        "required": ["job", "deleted"],
+        "properties": {
+            "job": {"type": "object", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
+            "deleted": {"type": "bool"},
+        },
+    },
     "list-jobs": {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "jobs"],
@@ -467,6 +645,11 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["job"],
         "properties": {"job": {"type": "object", "item_shape": JOB_RECORD_OUTPUT_SHAPE}},
+    },
+    "process-next-job": {
+        "type": "object",
+        "required": ["job"],
+        "properties": {"job": {"type": "object|null", "item_shape": JOB_RECORD_OUTPUT_SHAPE}},
     },
     "list-services": {
         "type": "object",
@@ -479,6 +662,109 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["service"],
         "properties": {"service": {"type": "object", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE}},
+    },
+    "register-service": {
+        "type": "object",
+        "required": [
+            "service_id",
+            "kind",
+            "status",
+            "config",
+            "created_at",
+            "updated_at",
+            "error",
+            "runtime",
+            "metadata",
+        ],
+        "properties": SERVICE_RECORD_OUTPUT_SHAPE,
+    },
+    "service-command": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {"command": {"type": "list[str]"}},
+    },
+    "start-service": {
+        "type": "object",
+        "required": [
+            "service_id",
+            "kind",
+            "status",
+            "config",
+            "created_at",
+            "updated_at",
+            "error",
+            "runtime",
+            "metadata",
+        ],
+        "properties": SERVICE_RECORD_OUTPUT_SHAPE,
+    },
+    "service-health": {
+        "type": "object",
+        "required": [
+            "service_id",
+            "kind",
+            "status",
+            "config",
+            "created_at",
+            "updated_at",
+            "error",
+            "runtime",
+            "metadata",
+        ],
+        "properties": SERVICE_RECORD_OUTPUT_SHAPE,
+    },
+    "stop-service": {
+        "type": "object",
+        "required": [
+            "service_id",
+            "kind",
+            "status",
+            "config",
+            "created_at",
+            "updated_at",
+            "error",
+            "runtime",
+            "metadata",
+        ],
+        "properties": SERVICE_RECORD_OUTPUT_SHAPE,
+    },
+    "delete-service": {
+        "type": "object",
+        "required": ["service", "trash_path"],
+        "properties": {
+            "service": {"type": "object", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
+            "trash_path": {"type": "str|null"},
+        },
+    },
+    "archive-run": {
+        "type": "object",
+        "required": ["run_id", "status", "manifest_path"],
+        "properties": RUN_ARCHIVE_OUTPUT_SHAPE,
+    },
+    "delete-run": {
+        "type": "object",
+        "required": ["run_id", "deleted", "trash_path"],
+        "properties": RUN_DELETE_OUTPUT_SHAPE,
+    },
+    "evaluate-run": {
+        "type": "string",
+        "description": "Path to the written metrics report.",
+    },
+    "import-predictions": {
+        "type": "object",
+        "required": [
+            "run_id",
+            "run_manifest_path",
+            "report_path",
+            "imported_predictions",
+            "missing_predictions",
+            "missing_prediction_count",
+        ],
+        "properties": IMPORTED_PREDICTION_RUN_OUTPUT_SHAPE,
+    },
+    "compare-runs": {
+        "type": "string",
+        "description": "Path to the written comparison report.",
     },
     "list-comparisons": {
         "type": "object",

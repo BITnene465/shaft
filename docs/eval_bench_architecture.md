@@ -203,12 +203,14 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
 - 新增或改动 agent 关键命令：`show-agent-command` / `list-agent-commands` 必须同步暴露可执行参数、
-  互斥组、副作用标记和必要的 `output_schema`。Rank Board 这类核心只读命令必须描述分页、filters、
+  互斥组、副作用标记和非空 `output_schema`；稳定 agent 命令不能只暴露自然语言 help。Rank Board 这类核心只读命令必须描述分页、filters、
   facets、primary metric 和 entry 字段；run note 与 label policy 命令必须描述 note/concurrency 字段和
   detection/keypoint label 子任务字段；run/sample inspection 命令必须描述 summary、payload、diagnostics
   和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
   template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
   runtime command、warning/error 和 job record 字段，
+  dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare 路径输出、
+  service lifecycle 和 agent contract 自描述命令也必须有返回结构，
   避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。

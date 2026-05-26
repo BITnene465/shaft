@@ -9,6 +9,7 @@ import pytest
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
     AGENT_COMMAND_METADATA,
+    AGENT_COMMAND_OUTPUT_SCHEMAS,
     AGENT_DESTRUCTIVE_COMMANDS,
     AGENT_STABLE_COMMANDS,
     _build_parser,
@@ -139,6 +140,27 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(isinstance(item["arguments"], list) for item in payload["commands"])
     assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
     assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
+    assert set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS
+    assert all(item["output_schema"] for item in payload["commands"])
+    assert commands_by_name["dashboard-state"]["output_schema"]["properties"]["runs"]["item_shape"][
+        "target_labels"
+    ] == "list[str]"
+    assert (
+        commands_by_name["scheduler-status"]["output_schema"]["properties"]["enabled"]
+        == "bool"
+    )
+    assert commands_by_name["backend-logs"]["output_schema"]["properties"]["lines"] == "list[str]"
+    assert commands_by_name["job-logs"]["output_schema"]["properties"]["job_id"] == "str"
+    assert commands_by_name["service-logs"]["output_schema"]["properties"]["service_id"] == "str"
+    assert commands_by_name["list-agent-commands"]["output_schema"]["properties"]["commands"][
+        "item_shape"
+    ]["output_schema"] == "object"
+    assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
+        "item_shape"
+    ]["arguments"] == "list[object]"
+    assert commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"] == "list[str]"
+    assert commands_by_name["init-run"]["output_schema"]["type"] == "string"
+    assert commands_by_name["validate-prediction"]["output_schema"]["properties"]["instances"] == "int"
     assert commands_by_name["rank-board"]["domain"] == "rank"
     assert commands_by_name["rank-board"]["mutates_state"] is False
     assert "rank-board" in commands_by_name["rank-board"]["usage"]
@@ -282,6 +304,11 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     )
     assert commands_by_name["preflight-job"]["output_schema"]["properties"]["runtime_command"] == "list[str]"
     assert commands_by_name["create-job"]["output_schema"]["properties"]["payload"] == "object"
+    assert commands_by_name["cancel-job"]["output_schema"]["properties"]["status"] == "str"
+    assert commands_by_name["delete-job"]["output_schema"]["properties"]["deleted"]["type"] == "bool"
+    assert commands_by_name["process-next-job"]["output_schema"]["properties"]["job"][
+        "item_shape"
+    ]["job_id"] == "str"
     services_output_schema = commands_by_name["list-services"]["output_schema"]
     assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
@@ -289,6 +316,28 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         commands_by_name["show-service"]["output_schema"]["properties"]["service"]["item_shape"]
         == services_output_schema["properties"]["services"]["item_shape"]
     )
+    assert commands_by_name["register-service"]["output_schema"]["properties"]["runtime"] == "object"
+    assert commands_by_name["service-command"]["output_schema"]["properties"]["command"]["type"] == "list[str]"
+    assert commands_by_name["start-service"]["output_schema"]["properties"]["service_id"] == "str"
+    assert commands_by_name["service-health"]["output_schema"]["properties"]["error"] == "str|null"
+    assert commands_by_name["stop-service"]["output_schema"]["properties"]["status"] == "str"
+    assert (
+        commands_by_name["delete-service"]["output_schema"]["properties"]["service"][
+            "item_shape"
+        ]["service_id"]
+        == "str"
+    )
+    assert commands_by_name["archive-run"]["output_schema"]["properties"]["manifest_path"] == "str"
+    assert commands_by_name["delete-run"]["output_schema"]["properties"]["trash_path"] == "str|null"
+    assert commands_by_name["evaluate-run"]["output_schema"]["type"] == "string"
+    assert (
+        commands_by_name["import-predictions"]["output_schema"]["properties"][
+            "missing_prediction_count"
+        ]
+        == "int"
+    )
+    assert commands_by_name["compare-runs"]["output_schema"]["type"] == "string"
+    assert commands_by_name["show-run-report"]["output_schema"]["type"] == "object"
     comparisons_output_schema = commands_by_name["list-comparisons"]["output_schema"]
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["delta"] == "object"

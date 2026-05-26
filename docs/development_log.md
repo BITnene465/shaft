@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench agent 稳定命令仍有空输出契约
+
+### 现象
+
+`list-agent-commands` 和 `show-agent-command` 已经能告诉 agent 如何调用 53 个稳定命令，
+但仍有 25 个稳定命令没有 `output_schema`。缺口集中在 dashboard/scheduler state、backend/job/service logs、
+benchmark/run 创建删除、prediction import、evaluate/compare 路径输出、service lifecycle、
+`process-next-job` 以及 agent contract 自描述命令。agent 调用这些入口后仍需要从样例、源码或 store 结构推断返回字段。
+
+### 根因
+
+前几轮 schema 先覆盖了 rank、run note、label policy、run/sample inspection、template/preflight/job creation
+和 job/service/comparison 查询路径，但没有把“所有稳定 agent 命令必须有返回契约”作为集合级 invariant。
+
+### 影响范围
+
+- 影响 agent 自动排障、生命周期操作、日志读取、状态巡检和评测创建后的结果串联。
+- 不改变 dashboard/API/CLI 实际 JSON 输出、eval、codec、metric、data、job lifecycle 或 rank-board 语义；这是 agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- 为 dashboard-state、scheduler-status、backend/job/service logs 增加输出 schema。
+- 为 create-benchmark、init-run、validate-prediction、archive/delete run、evaluate-run、import-predictions 和 compare-runs 增加输出 schema。
+- 为 cancel/delete/process job、register/start/health/stop/delete service 和 service-command 增加输出 schema。
+- 为 `list-agent-commands` / `show-agent-command` 自身增加 command contract 输出结构。
+- CLI contract 测试新增 `set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS` 和非空 schema 断言，避免后续新增稳定命令时漏掉返回结构。
+- README 和架构文档同步 agent output schema 集合级防线。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 任何命令只要进入 `AGENT_COMMAND_METADATA`，就必须同步进入 `AGENT_COMMAND_OUTPUT_SCHEMAS`；
+  即使 stdout 是路径字符串，也要明确声明为 string schema，不能让 agent 依赖自然语言 help 或一次性样例。
+
 ## 2026-05-26: Eval Bench 总览 v10 仍依赖 v9 样式真源
 
 ### 现象

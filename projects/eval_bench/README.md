@@ -508,12 +508,15 @@ run summary、sample summary、GT/prediction payload 与 diagnostics 字段；`l
 runtime、delta 与成对样本详情字段；`list-job-templates` / `show-job-template`、
 `list-prompt-templates` / `show-prompt-template` / `upsert-prompt-template` /
 `delete-prompt-template` 以及 `preflight-job` / `create-job` 明确返回 template manifest、
-prompt record、resolved payload、runtime command、warning/error 和 job record 字段。
+prompt record、resolved payload、runtime command、warning/error 和 job record 字段。所有稳定 agent
+命令都必须有非空 `output_schema`，包括 dashboard/scheduler state、backend/job/service logs、
+benchmark/run 创建与删除、prediction import、evaluate/compare 路径输出、service lifecycle 和
+`list-agent-commands` / `show-agent-command` 自身的 contract 结构。
 agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
-`AGENT_DESTRUCTIVE_COMMANDS`；`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合
-一致，避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用或仍要从自然语言 help 猜参数。
+`AGENT_DESTRUCTIVE_COMMANDS`；`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合和
+`AGENT_COMMAND_OUTPUT_SCHEMAS` 一致，避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用或仍要从自然语言 help 猜参数和返回字段。
 
 ```bash
 .venv/bin/python scripts/eval_bench.py list-agent-commands
