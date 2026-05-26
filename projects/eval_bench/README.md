@@ -724,6 +724,7 @@ Rank Board 的 facet rail 不是静态摘要：Tasks、Benchmarks、Status、Lab
 Metrics facet 都是可点击检索 chip，点击会同步更新同一份高级检索状态，再次点击当前 facet 会回到
 `all`；每组默认显示前 5 个高频值，长 facet 组必须提供展开/收起 chip，保证长尾 label、model、prompt
 和 metric profile 仍然可见、可点击，避免排行榜核心页出现一套只展示不驱动查询的重复 UI。
+展开态必须在 facet 组内部换行并滚动，不能把 Rank Board 主表挤出视口。
 Benchmark summary 会暴露 `labels`，供任务创建、检索 facet 和 agent CLI 统一消费，不要求前端扫描
 benchmark 文件。
 Job lifecycle 不能复用目录页首屏窗口：`EvalBenchDatabase.matching_jobs()` 是 scheduler、dashboard fallback worker

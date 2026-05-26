@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Rank Board 长 facet 展开缺少高度防线
+
+### 现象
+
+Rank Board facet rail 已经暴露 Tasks、Benchmarks、Status、Labels、Models、Prompts 和 Metrics
+七类后端 facet，并支持“展开全部”。但展开态仍使用横向滚动行，没有明确高度上限和换行滚动规则。
+当模型、prompt 或 label facet 变长时，用户需要横向拖动，或者后续样式修改可能把 facet 直接撑高，
+挤压排行榜主表。
+
+### 根因
+
+前期 contract 只验证 facet 来源、点击过滤和是否从静态 count chip 退化，没有覆盖展开态的空间约束。
+这是 Rank Board 交互和滚动防线缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Rank Board 作为核心页面时的长尾筛选可用性和首屏稳定性。
+- 不改变后端 facet、filter、主指标、weighted scheme、run note、label subtask 或评测指标语义。
+
+### 修复方式
+
+- `.rank-facet-group.expanded > div` 改为换行布局，并限制为独立垂直滚动面板。
+- layout smoke 在存在 facet toggle 时会实际展开 facet，验证 chip 换行、展开高度受控、需要滚动时由内部容器滚动。
+- UI contract 锁住 expanded facet 的 bounded scroll pane CSS，避免回退到横向长条或撑高页面。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- Rank Board 新增 facet 维度时，必须继续接入同一 rail 和展开滚动规则。
+- 核心页面上的“展开全部”不能依赖页面整体滚动吸收空间增长；长列表必须有局部滚动边界。
+
 ## 2026-05-26: Eval Bench 旧 filter-bar 样式残留
 
 ### 现象

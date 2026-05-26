@@ -735,6 +735,13 @@ assert(
   "rank board facet rail must expose all backend facets as clickable filter chips",
 );
 assert(
+  styleSource.includes(".rank-facet-group.expanded > div") &&
+    styleSource.includes("max-height: 126px") &&
+    styleSource.includes("flex-wrap: wrap") &&
+    styleSource.includes("overflow: auto"),
+  "expanded rank board facets must wrap inside a bounded scroll pane instead of stretching the page",
+);
+assert(
   rankBoardPage.includes("primaryMetricLabel") &&
     rankBoardPage.includes('primaryMetric !== "f1_iou50"') &&
     rankBoardPage.includes('className="rank-primary-score"') &&

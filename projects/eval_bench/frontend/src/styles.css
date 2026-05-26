@@ -1733,6 +1733,14 @@ h2 {
   scrollbar-width: thin;
 }
 
+.rank-facet-group.expanded > div {
+  max-height: 126px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .rank-facet-group em,
 .rank-facet-button {
   display: inline-flex;

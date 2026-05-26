@@ -197,7 +197,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   F1 作为排名依据。
   前端 facet rail 必须以 API 返回的 Tasks、Benchmarks、Status、Labels、Models、Prompts 和 Metrics
   为真源，直接驱动同一份高级检索状态，不能维护一套只展示 facet 计数的静态 UI；长 facet 组默认可折叠，
-  但必须提供展开/收起入口，不能因为首屏密度只渲染前 5 项而丢掉长尾筛选值。
+  但必须提供展开/收起入口，不能因为首屏密度只渲染前 5 项而丢掉长尾筛选值；展开态必须在 facet
+  组内换行并局部滚动，不能把排行榜主表挤出视口。
 - 新增 agent 可操作对象：先提供稳定 CLI/API 查询入口；基础对象枚举应优先复用
   `list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
   `init-run`、`validate-prediction`、`list-benchmarks`、`show-benchmark`、`list-runs`、

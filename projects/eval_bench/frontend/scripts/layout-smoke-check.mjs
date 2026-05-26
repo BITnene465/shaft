@@ -1382,9 +1382,66 @@ async function assertRankFacetRail(page, scope) {
   if (state.staticCountNodes > 0) {
     throw new Error(`${scope}: rank facet rail regressed to static count chips ${JSON.stringify(state)}`);
   }
+  await assertRankFacetExpansion(page, scope);
   await page.locator(".rank-facet-button").first().click();
   await page.locator(".rank-facet-button.active").first().waitFor({ timeout: 10_000 });
   await page.locator(".rank-board-page .table-shell").first().waitFor({ timeout: 10_000 });
+}
+
+async function assertRankFacetExpansion(page, scope) {
+  const toggle = page.locator(".rank-facet-toggle").first();
+  if ((await toggle.count()) === 0) {
+    return;
+  }
+  await toggle.click();
+  const state = await page.evaluate(() => {
+    const group = document.querySelector(".rank-facet-group.expanded");
+    const chipPane = group?.querySelector(":scope > div");
+    const style = chipPane ? getComputedStyle(chipPane) : null;
+    const rect = group?.getBoundingClientRect();
+    const paneRect = chipPane?.getBoundingClientRect();
+    return {
+      expanded: Boolean(group),
+      rect,
+      paneRect,
+      flexWrap: style?.flexWrap ?? "",
+      overflowX: style?.overflowX ?? "",
+      overflowY: style?.overflowY ?? "",
+      scrollWidth: chipPane?.scrollWidth ?? 0,
+      clientWidth: chipPane?.clientWidth ?? 0,
+      scrollHeight: chipPane?.scrollHeight ?? 0,
+      clientHeight: chipPane?.clientHeight ?? 0
+    };
+  });
+  if (!state.expanded || !state.rect || !state.paneRect) {
+    throw new Error(`${scope}: rank facet toggle did not expand a facet group`);
+  }
+  if (state.flexWrap !== "wrap") {
+    throw new Error(`${scope}: expanded rank facet chips should wrap, got ${state.flexWrap}`);
+  }
+  if (state.rect.height > 182) {
+    throw new Error(
+      `${scope}: expanded rank facet group is too tall ${JSON.stringify({
+        rect: formatRect(state.rect),
+        pane: formatRect(state.paneRect)
+      })}`
+    );
+  }
+  if (state.scrollHeight > state.clientHeight + 2 && !allowsScroll(state.overflowY)) {
+    throw new Error(
+      `${scope}: expanded rank facet needs vertical scroll but overflow-y=${state.overflowY}`
+    );
+  }
+  if (state.scrollWidth > state.clientWidth + 2 && clipsOverflow(state.overflowX)) {
+    throw new Error(
+      `${scope}: expanded rank facet clips horizontal content ${JSON.stringify({
+        scrollWidth: state.scrollWidth,
+        clientWidth: state.clientWidth,
+        overflowX: state.overflowX
+      })}`
+    );
+  }
+  await toggle.click();
 }
 
 async function assertRankDecisionPanel(page, scope) {
