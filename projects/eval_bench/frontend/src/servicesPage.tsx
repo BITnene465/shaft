@@ -19,7 +19,7 @@ import {
   startService,
   stopService
 } from "./api";
-import { FormSelectControl } from "./controlPrimitives";
+import { FormSelectControl, NumberInputControl, TextInputControl } from "./controlPrimitives";
 import {
   canDeleteService,
   canStartService,
@@ -220,89 +220,60 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
         ]}
         onChange={setKind}
       />
-      <label>
-        <span>服务 ID</span>
-        <input value={serviceId} onChange={(event) => setServiceId(event.target.value)} />
-      </label>
-      <label className="wide-field">
-        <span>模型路径</span>
-        <input
-          value={modelPath}
-          onChange={(event) => setModelPath(event.target.value)}
-          placeholder="outputs/qwen3vl-sft/run/best"
-        />
-      </label>
-      <label>
-        <span>服务模型名</span>
-        <input
-          value={servedModelName}
-          onChange={(event) => setServedModelName(event.target.value)}
-          placeholder="qwen3vl-best"
-        />
-      </label>
-      <label className="wide-field">
-        <span>端点</span>
-        <input
-          value={endpoint}
-          onChange={(event) => setEndpoint(event.target.value)}
-          placeholder="http://127.0.0.1:8000"
-        />
-      </label>
-      <label>
-        <span>CUDA</span>
-        <input
-          value={cudaVisibleDevices}
-          onChange={(event) => setCudaVisibleDevices(event.target.value)}
-          placeholder="0"
-        />
-      </label>
-      <label>
-        <span>TP 大小</span>
-        <input
-          type="number"
-          min={1}
-          value={tensorParallelSize}
-          onChange={(event) => setTensorParallelSize(Number(event.target.value))}
-        />
-      </label>
-      <label>
-        <span>端口</span>
-        <input
-          type="number"
-          min={1}
-          value={port}
-          onChange={(event) => setPort(Number(event.target.value))}
-        />
-      </label>
-      <label>
-        <span>最大上下文</span>
-        <input
-          type="number"
-          min={1}
-          value={maxModelLen}
-          onChange={(event) => setMaxModelLen(Number(event.target.value))}
-        />
-      </label>
-      <label>
-        <span>显存占比</span>
-        <input
-          type="number"
-          min={0}
-          max={1}
-          step={0.01}
-          value={gpuMemoryUtilization}
-          onChange={(event) => setGpuMemoryUtilization(Number(event.target.value))}
-        />
-      </label>
-      <label>
-        <span>最大并发序列</span>
-        <input
-          type="number"
-          min={1}
-          value={maxNumSeqs}
-          onChange={(event) => setMaxNumSeqs(Number(event.target.value))}
-        />
-      </label>
+      <TextInputControl label="服务 ID" value={serviceId} onChange={setServiceId} />
+      <TextInputControl
+        className="wide-field"
+        label="模型路径"
+        value={modelPath}
+        onChange={setModelPath}
+        placeholder="outputs/qwen3vl-sft/run/best"
+      />
+      <TextInputControl
+        label="服务模型名"
+        value={servedModelName}
+        onChange={setServedModelName}
+        placeholder="qwen3vl-best"
+      />
+      <TextInputControl
+        className="wide-field"
+        label="端点"
+        value={endpoint}
+        onChange={setEndpoint}
+        placeholder="http://127.0.0.1:8000"
+      />
+      <TextInputControl
+        label="CUDA"
+        value={cudaVisibleDevices}
+        onChange={setCudaVisibleDevices}
+        placeholder="0"
+      />
+      <NumberInputControl
+        label="TP 大小"
+        min={1}
+        value={tensorParallelSize}
+        onChange={setTensorParallelSize}
+      />
+      <NumberInputControl label="端口" min={1} value={port} onChange={setPort} />
+      <NumberInputControl
+        label="最大上下文"
+        min={1}
+        value={maxModelLen}
+        onChange={setMaxModelLen}
+      />
+      <NumberInputControl
+        label="显存占比"
+        min={0}
+        max={1}
+        step={0.01}
+        value={gpuMemoryUtilization}
+        onChange={setGpuMemoryUtilization}
+      />
+      <NumberInputControl
+        label="最大并发序列"
+        min={1}
+        value={maxNumSeqs}
+        onChange={setMaxNumSeqs}
+      />
       <ActionButton
         variant="primary"
         type="submit"

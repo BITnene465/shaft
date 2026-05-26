@@ -12,6 +12,9 @@ for (const filePath of sourceFiles) {
   assertNoBlockingBrowserDialogs(source, relativePath);
   assertNoBusinessDialogShell(source, relativePath);
   assertNoLegacySampleFilters(source, relativePath);
+  assertNoRawButtonElement(source, relativePath);
+  assertNoRawSelectOutsidePrimitives(source, relativePath);
+  assertNoRawDisclosureElement(source, relativePath);
 }
 
 const jobsPage = await readSource("src/jobsPage.tsx");
@@ -64,6 +67,13 @@ assert(
     filterControls.includes("<PanelToggleButton") &&
     !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
   "advanced filter reset, token clear, popup layout, and grouping must be centralized in AdvancedFilterBar",
+);
+assert(
+  controlPrimitives.includes("export function TextInputControl(") &&
+    controlPrimitives.includes("export function NumberInputControl(") &&
+    controlPrimitives.includes("export function TextareaControl(") &&
+    controlPrimitives.includes("export function CheckboxFieldControl("),
+  "dialog and form fields must share text, number, textarea, and checkbox primitives",
 );
 assert(
   uiSource.includes("export function PanelToggleButton("),
@@ -427,6 +437,12 @@ assert(
   "benchmarks page module must export list and detail pages",
 );
 assert(
+  benchmarksPage.includes('import { CheckboxFieldControl, TextInputControl } from "./controlPrimitives";') &&
+    (benchmarksPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
+    (benchmarksPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3,
+  "benchmark creation dialog must use shared text and checkbox form controls",
+);
+assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
     benchmarksPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
     benchmarksPage.includes('className="rank-board-pager benchmark-list-pager"') &&
@@ -452,6 +468,13 @@ assert(
   runsPage.includes("export function RunsPage()") &&
     runsPage.includes("export function RunDetailPage()"),
   "runs page module must export list and detail pages",
+);
+assert(
+  runsPage.includes("CheckboxFieldControl") &&
+    runsPage.includes("TextInputControl") &&
+    (runsPage.match(/<TextInputControl/g) ?? []).length >= 6 &&
+    (runsPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3,
+  "run import dialog must use shared text and checkbox form controls",
 );
 assert(
   runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
@@ -561,7 +584,7 @@ assert(
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
 assertNoRawSelectElement(runsPage, "runsPage.tsx");
 assert(
-  runsPage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+  runsPage.includes("FormSelectControl") &&
     (runsPage.match(/<FormSelectControl/g) ?? []).length >= 2,
   "runs import dialog selects must use FormSelectControl",
 );
@@ -583,10 +606,17 @@ assert(
     !servicesPage.includes("limit: 200"),
   "services page must use paged API requests instead of a fixed 200-service slice",
 );
+assert(
+  servicesPage.includes("TextInputControl") &&
+    servicesPage.includes("NumberInputControl") &&
+    (servicesPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
+    (servicesPage.match(/<NumberInputControl/g) ?? []).length >= 5,
+  "service registration dialog must use shared text and number form controls",
+);
 assertNoLegacyFormSubmitClass(servicesPage, "servicesPage.tsx");
 assertNoRawSelectElement(servicesPage, "servicesPage.tsx");
 assert(
-  servicesPage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+  servicesPage.includes("FormSelectControl") &&
     (servicesPage.match(/<FormSelectControl/g) ?? []).length >= 1,
   "service registration dialog selects must use FormSelectControl",
 );
@@ -840,6 +870,27 @@ function assertNoRawSelectElement(source, relativePath) {
     !/<select\b/.test(source),
     `${relativePath}: local selects must use controlPrimitives instead of raw <select>`,
   );
+}
+
+function assertNoRawButtonElement(source, relativePath) {
+  if (relativePath === "src/ui.tsx") {
+    return;
+  }
+  assert(!/<button\b/.test(source), `${relativePath}: buttons must use shared UI primitives`);
+}
+
+function assertNoRawSelectOutsidePrimitives(source, relativePath) {
+  if (relativePath === "src/controlPrimitives.tsx") {
+    return;
+  }
+  assert(!/<select\b/.test(source), `${relativePath}: selects must use controlPrimitives`);
+}
+
+function assertNoRawDisclosureElement(source, relativePath) {
+  if (relativePath === "src/ui.tsx") {
+    return;
+  }
+  assert(!/<(?:details|summary)\b/.test(source), `${relativePath}: disclosures must use DisclosurePanel`);
 }
 
 function mainEntryHasSettingsImplementation(source) {

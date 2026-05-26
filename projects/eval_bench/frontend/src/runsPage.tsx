@@ -15,7 +15,7 @@ import {
   updateRunNote
 } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { FormSelectControl } from "./controlPrimitives";
+import { CheckboxFieldControl, FormSelectControl, TextInputControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
@@ -341,15 +341,13 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         }));
   const content = (
     <form className="job-form import-form" onSubmit={submit}>
-      <label>
-        <span>记录 ID</span>
-        <input
-          value={runId}
-          onChange={(event) => setRunId(event.target.value)}
-          placeholder="model-a_val_import"
-          required
-        />
-      </label>
+      <TextInputControl
+        label="记录 ID"
+        value={runId}
+        onChange={setRunId}
+        placeholder="model-a_val_import"
+        required
+      />
       <FormSelectControl
         label="基准集"
         value={effectiveBenchmarkId}
@@ -357,15 +355,14 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         required
         onChange={setBenchmarkId}
       />
-      <label className="wide-field">
-        <span>预测目录</span>
-        <input
-          value={predictionRoot}
-          onChange={(event) => setPredictionRoot(event.target.value)}
-          placeholder="/path/to/prediction_json_dir"
-          required
-        />
-      </label>
+      <TextInputControl
+        className="wide-field"
+        label="预测目录"
+        value={predictionRoot}
+        onChange={setPredictionRoot}
+        placeholder="/path/to/prediction_json_dir"
+        required
+      />
       <FormSelectControl
         label="任务"
         value={task}
@@ -375,23 +372,20 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         ]}
         onChange={setTask}
       />
-      <label>
-        <span>模型 ID</span>
-        <input
-          value={modelId}
-          onChange={(event) => setModelId(event.target.value)}
-          placeholder="qwen3vl-best"
-          required
-        />
-      </label>
-      <label className="wide-field">
-        <span>模型路径</span>
-        <input value={modelPath} onChange={(event) => setModelPath(event.target.value)} />
-      </label>
-      <label>
-        <span>Prompt</span>
-        <input value={promptId} onChange={(event) => setPromptId(event.target.value)} />
-      </label>
+      <TextInputControl
+        label="模型 ID"
+        value={modelId}
+        onChange={setModelId}
+        placeholder="qwen3vl-best"
+        required
+      />
+      <TextInputControl
+        className="wide-field"
+        label="模型路径"
+        value={modelPath}
+        onChange={setModelPath}
+      />
+      <TextInputControl label="Prompt" value={promptId} onChange={setPromptId} />
       <DetectionLabelSubtaskPanel
         className="full-field"
         task={task}
@@ -400,38 +394,10 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         selectedLabels={targetLabels}
         onChange={setTargetLabels}
       />
-      <label>
-        <span>规格</span>
-        <input
-          value={specId}
-          onChange={(event) => setSpecId(event.target.value)}
-          placeholder="optional"
-        />
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={strict}
-          onChange={(event) => setStrict(event.target.checked)}
-        />
-        <span>严格导入</span>
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={overwrite}
-          onChange={(event) => setOverwrite(event.target.checked)}
-        />
-        <span>覆盖已有 run</span>
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={evaluate}
-          onChange={(event) => setEvaluate(event.target.checked)}
-        />
-        <span>导入后计算指标</span>
-      </label>
+      <TextInputControl label="规格" value={specId} onChange={setSpecId} placeholder="optional" />
+      <CheckboxFieldControl label="严格导入" checked={strict} onChange={setStrict} />
+      <CheckboxFieldControl label="覆盖已有 run" checked={overwrite} onChange={setOverwrite} />
+      <CheckboxFieldControl label="导入后计算指标" checked={evaluate} onChange={setEvaluate} />
       <ActionButton
         type="submit"
         variant="primary"

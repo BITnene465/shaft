@@ -10,6 +10,7 @@ import {
   fetchBenchmarkSamples,
   fetchBenchmarks
 } from "./api";
+import { CheckboxFieldControl, TextInputControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { basename, isTextInputTarget, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
@@ -206,59 +207,40 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
 
   const content = (
     <form className="job-form benchmark-form" onSubmit={submit}>
-      <label>
-        <span>基准集 ID</span>
-        <input
-          value={benchmarkId}
-          onChange={(event) => setBenchmarkId(event.target.value)}
-          placeholder="multitask_val_v1"
-          required
-        />
-      </label>
-      <label className="wide-field">
-        <span>数据根目录</span>
-        <input value={sourceRoot} onChange={(event) => setSourceRoot(event.target.value)} required />
-      </label>
-      <label className="wide-field">
-        <span>Split 文件</span>
-        <input
-          value={sourceManifest}
-          onChange={(event) => setSourceManifest(event.target.value)}
-          required
-        />
-      </label>
-      <label>
-        <span>Split 名称</span>
-        <input value={split} onChange={(event) => setSplit(event.target.value)} required />
-      </label>
-      <label>
-        <span>标注层</span>
-        <input value={layers} onChange={(event) => setLayers(event.target.value)} />
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={tasks.includes("detection")}
-          onChange={() => toggleTask("detection")}
-        />
-        <span>检测</span>
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={tasks.includes("keypoint")}
-          onChange={() => toggleTask("keypoint")}
-        />
-        <span>关键点</span>
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={overwrite}
-          onChange={(event) => setOverwrite(event.target.checked)}
-        />
-        <span>覆盖已有副本</span>
-      </label>
+      <TextInputControl
+        label="基准集 ID"
+        value={benchmarkId}
+        onChange={setBenchmarkId}
+        placeholder="multitask_val_v1"
+        required
+      />
+      <TextInputControl
+        className="wide-field"
+        label="数据根目录"
+        value={sourceRoot}
+        onChange={setSourceRoot}
+        required
+      />
+      <TextInputControl
+        className="wide-field"
+        label="Split 文件"
+        value={sourceManifest}
+        onChange={setSourceManifest}
+        required
+      />
+      <TextInputControl label="Split 名称" value={split} onChange={setSplit} required />
+      <TextInputControl label="标注层" value={layers} onChange={setLayers} />
+      <CheckboxFieldControl
+        label="检测"
+        checked={tasks.includes("detection")}
+        onChange={() => toggleTask("detection")}
+      />
+      <CheckboxFieldControl
+        label="关键点"
+        checked={tasks.includes("keypoint")}
+        onChange={() => toggleTask("keypoint")}
+      />
+      <CheckboxFieldControl label="覆盖已有副本" checked={overwrite} onChange={setOverwrite} />
       <ActionButton
         type="submit"
         variant="primary"

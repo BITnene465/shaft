@@ -1,3 +1,5 @@
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+
 export function NumberSettingControl({
   label,
   value,
@@ -53,6 +55,112 @@ export type SelectOption = {
   label: string;
   disabled?: boolean;
 };
+
+type TextInputControlProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "onChange" | "value" | "type"
+> & {
+  label: string;
+  value: string;
+  className?: string;
+  type?: "text" | "search" | "url" | "password";
+  onChange: (value: string) => void;
+};
+
+export function TextInputControl({
+  label,
+  value,
+  className,
+  type = "text",
+  onChange,
+  ...props
+}: TextInputControlProps) {
+  return (
+    <label className={className}>
+      <span>{label}</span>
+      <input
+        {...props}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+type NumberInputControlProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "onChange" | "value" | "type"
+> & {
+  label: string;
+  value: number;
+  className?: string;
+  onChange: (value: number) => void;
+};
+
+export function NumberInputControl({
+  label,
+  value,
+  className,
+  onChange,
+  ...props
+}: NumberInputControlProps) {
+  return (
+    <label className={className}>
+      <span>{label}</span>
+      <input
+        {...props}
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+type TextareaControlProps = Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "onChange" | "value"
+> & {
+  label: string;
+  value: string;
+  className?: string;
+  onChange: (value: string) => void;
+};
+
+export function TextareaControl({
+  label,
+  value,
+  className,
+  onChange,
+  ...props
+}: TextareaControlProps) {
+  return (
+    <label className={className}>
+      <span>{label}</span>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} {...props} />
+    </label>
+  );
+}
+
+export function CheckboxFieldControl({
+  label,
+  checked,
+  className,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  className?: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className={className ? `checkbox-field ${className}` : "checkbox-field"}>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </label>
+  );
+}
 
 export function FormSelectControl({
   label,

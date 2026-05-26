@@ -551,6 +551,46 @@ Run note 编辑器中暴露。note 真源和后端语义没有问题，这是 Da
 - 新增 note UI 能力必须复用 store/API/CLI 的 note 真源，不直接操作 artifact 文件。
 - Dashboard note 编辑器必须同时支持覆盖整理和追加线索两个工作流，避免人类 UI 与 agent CLI 语义分叉。
 
+## 2026-05-26: Eval Bench 高频弹窗表单字段各自手写输入壳
+
+### 现象
+
+创建 benchmark、导入 prediction run 和注册 service 这些高频弹窗已经统一走 `WorkspaceDialog` 和
+`ActionButton`，但文本、数字和 checkbox 字段仍在各页面内手写 `<label><input /></label>`。后续调整字段
+间距、可访问性、视觉密度或极客风格时，需要逐页改，容易让弹窗重新长成多套表单风格。
+
+### 根因
+
+`controlPrimitives.tsx` 已经收敛了 select、number setting、color 和 toggle，但缺少弹窗表单用的 text input、
+number input、textarea 和 checkbox primitives。页面为了完成业务流直接维护输入壳，这是 Presentation Layer
+组件边界缺口，不是 eval / codec / metric / data 语义问题。
+
+### 影响范围
+
+- 影响 Dashboard 高频弹窗的一致性、可维护性和后续动效/布局统一治理。
+- 不改变 benchmark 创建、prediction import、service 注册 API payload，也不改变评估语义或存储格式。
+
+### 修复方式
+
+- `controlPrimitives.tsx` 新增 `TextInputControl`、`NumberInputControl`、`TextareaControl` 和
+  `CheckboxFieldControl`。
+- Benchmarks 创建副本弹窗、Runs 导入 prediction 弹窗和 Services 注册服务弹窗切换到共享 text / number /
+  checkbox primitives。
+- `test:ui-contracts` 锁住这些高频弹窗必须使用共享表单控件，避免继续新增页面私有输入壳。
+- `test:ui-contracts` 额外全局禁止业务页直接写 raw `<button>`、`<select>`、`<details>` 和 `<summary>`，
+  这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
+- README 同步记录弹窗字段组件化边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增弹窗表单字段时，先扩展 `controlPrimitives.tsx`，再在业务页组合；不要让页面直接复制输入壳。
+- 如果某个字段需要特殊视觉，只在共享 primitive 上提供可组合 class，而不是绕过表单组件边界。
+
 ## 2026-05-26: Eval Bench rank-board agent 契约没有说明 sort_by 语义分层
 
 ### 现象
