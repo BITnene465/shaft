@@ -210,11 +210,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   agent 稳定命令必须登记到 `AGENT_COMMAND_METADATA` 并可由 `list-agent-commands` 发现；metadata 需要声明
   `domain` 和 `mutates_state`，并能通过 `show-agent-command --name <command>` 读取单条命令契约；删除、归档、取消、停止这类危险生命周期命令还必须进入
   `AGENT_DESTRUCTIVE_COMMANDS` 并在命令发现输出中标记 `destructive`；命令发现输出还必须包含顶层 `recommended_runner`、每条命令的
-  `argv_prefix`、稳定单行 `usage` 和 `api_routes`。Dashboard 必须暴露
-  `GET /api/agent/commands` 与 `GET /api/agent/commands/{name}`，复用同一份 command contract；
-  这样 HTTP agent 可以发现 API 等价入口、method、path、query 参数和 body 形态，而不是猜 URL。
-  稳定 `show-*` CLI 应有对应单对象 HTTP detail route，例如 benchmark、run、job、job template、
-  prompt template、service 和 comparison 的 detail API；不能要求 HTTP agent 先拉列表再本地匹配 id。
+  `argv_prefix` 和稳定单行 `usage`。Agent contract 是 CLI-first，不暴露 Dashboard route catalog，
+  也不把 Dashboard API 做成 MCP 式能力发现层；Dashboard API 服务前端，agent 默认组合 CLI argv。
   参数 schema 从 argparse parser 自动导出为 `arguments` 和
   `mutually_exclusive_groups`；如果一个参数的 choices 同时包含不同语义类别，还必须通过
   `argument_semantics` 给 agent 暴露结构化分类，例如 Rank Board 的 `sort_by` 需要区分 primary metrics、

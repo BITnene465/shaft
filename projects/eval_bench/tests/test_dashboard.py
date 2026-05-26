@@ -283,22 +283,7 @@ def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
     client = TestClient(app)
 
-    commands = client.get("/api/agent/commands")
-    assert commands.status_code == 200
-    commands_payload = commands.json()
-    commands_by_name = {item["name"]: item for item in commands_payload["commands"]}
-    assert commands_by_name["resolve-target-labels"]["api_routes"][0]["path"] == "/api/target-labels"
-    assert commands_by_name["rank-board"]["api_routes"][0]["path"] == "/api/rank-board"
-    command = client.get("/api/agent/commands/resolve-target-labels")
-    assert command.status_code == 200
-    command_payload = command.json()["command"]
-    assert command_payload["api_routes"][0]["query_params"] == [
-        "benchmark_id",
-        "task",
-        "prompt_id",
-        "target_label",
-    ]
-    assert client.get("/api/agent/commands/not-a-command").status_code == 404
+    assert client.get("/api/agent/commands").status_code == 404
 
     explicit = client.get(
         "/api/target-labels",

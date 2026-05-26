@@ -447,13 +447,6 @@ API `GET /api/target-labels` 查询同一份 label policy：
   --target-label arrow
 ```
 
-HTTP agent 使用同一套 query 语义，显式 detection 子任务 label 通过 repeatable
-`target_label` 传入：
-
-```bash
-curl 'http://127.0.0.1:8766/api/target-labels?benchmark_id=multitask_test_v1&task=detection&prompt_id=grounding_arrow.latest&target_label=arrow'
-```
-
 返回会包含 `target_labels`、`target_labels_source`、`candidate_labels`、benchmark/prompt/explicit
 三类 label 来源，以及拼错 label 时的 `valid=false` 和 errors；agent 不需要直接读取 benchmark
 artifact、prompt registry 或前端 manifest 状态。
@@ -500,24 +493,15 @@ Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 a
 `EvalBenchDatabase`；`job-logs` / `backend-logs` 复用后端 `log_utils.py`。删除 run 和 service
 默认会通过 `StoreLayout.move_to_trash` 保留证据目录。
 
-Agent 检索基础对象走稳定 CLI/API，不需要读取前端 state 或手扫 store 目录。CLI 的
-`list-benchmarks` / `show-benchmark` / `list-runs` 与 API 的 `GET /api/benchmarks` /
-`GET /api/runs` 共享 task、label、model、prompt、metric 和全文查询语义；job、service 和
-comparison 列表同样由后端分页过滤，单个 job / service 详情用 `show-job` / `show-service`
-读取。Run 初始化、prediction 文档校验和手动推进下一个 queued job 也纳入稳定 agent 命令面，分别通过
+Agent 检索基础对象走稳定 CLI，不需要读取前端 state 或手扫 store 目录。CLI 的
+`list-benchmarks` / `show-benchmark` / `list-runs` 共享 task、label、model、prompt、metric
+和全文查询语义；job、service 和 comparison 列表同样通过 CLI 分页过滤，单个 job / service
+详情用 `show-job` / `show-service` 读取。Run 初始化、prediction 文档校验和手动推进下一个 queued job 也纳入稳定 agent 命令面，分别通过
 `init-run`、`validate-prediction` 和 `process-next-job` 暴露；agent 不需要猜测隐藏命令或直接调用内部
 Python API。Job template 和 prompt template 也有 CLI 入口，agent 创建 job 前可以先发现模板、读取单个模板、
 筛选任务类型，并按需维护 prompt template registry。CLI 模块本身保持轻量 import；dashboard、worker、
 evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
 `list-agent-commands` 会输出当前稳定 agent 命令面，`show-agent-command --name <command>` 用于读取单条命令契约；
-Dashboard 也暴露 `GET /api/agent/commands` 和 `GET /api/agent/commands/{name}`，返回同一份
-contract，方便 HTTP agent 不依赖 CLI 进程做能力发现。每条 contract 的 `api_routes` 会列出可用
-Dashboard API 等价入口、HTTP method、path、query 参数和 body 形态；没有 HTTP 等价入口时返回空列表。
-稳定 `show-*` 查询必须优先提供单对象 HTTP detail route；当前 benchmark、run、job、job template、
-prompt template、model service 和 saved comparison 分别对应 `/api/benchmarks/{benchmark_id}`、
-`/api/runs/{run_id}`、`/api/jobs/{job_id}`、`/api/job-templates/{template_id}`、
-`/api/prompt-templates/{prompt_id}`、`/api/services/{service_id}` 和 `/api/comparisons/{comparison_id}`，
-HTTP agent 不需要先拉分页列表再本地匹配 id。
 真实 CLI 分发集中在 `eval_bench.cli._command_handlers()`。
 CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceback；agent 可以把大型 JSON 输出安全接到
 `head`、`jq`、日志采集器或分页器，而不会把 `BrokenPipeError` 混进机器可读输出。
@@ -525,8 +509,7 @@ CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceb
 `argument_semantics`、`mutually_exclusive_groups`，便于 agent 区分只读查询、普通写入和删除/取消/停止这类危险生命周期操作，
 并直接读取参数名、flag、类型、默认值、choices、
 是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
-`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态；`api_routes` 则让 HTTP
-agent 可以直接组合 URL，不需要猜 Dashboard route。所有返回 `filters` 的稳定查询命令
+`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。所有返回 `filters` 的稳定查询命令
 必须在 `argument_semantics.filters` 中说明 exact match、membership、全文 query 和分页语义；
 `list-runs`、`rank-board`、`list-benchmarks`、`list-jobs`、`list-services`、`list-comparisons`、
 job/prompt template 列表以及样本列表都不能让 agent 反向解析 help 文本来猜过滤含义。关键只读命令还会带

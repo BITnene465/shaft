@@ -21,7 +21,6 @@ import uvicorn
 
 from .artifacts import DEFAULT_STORE_ROOT, atomic_write_json
 from .benchmark import create_benchmark_from_raw_data
-from .cli import agent_command_detail_payload, agent_command_listing_payload
 from .comparison import (
     compare_runs,
     filter_comparison_reports,
@@ -444,20 +443,6 @@ def create_app(
                 "text": "".join(lines),
             }
         )
-
-    @app.get("/api/agent/commands")
-    async def agent_commands(request: Request):
-        del request
-        return JSONResponse(agent_command_listing_payload())
-
-    @app.get("/api/agent/commands/{name}")
-    async def agent_command(name: str, request: Request):
-        del request
-        try:
-            payload = agent_command_detail_payload(name)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return JSONResponse(payload)
 
     @app.get("/api/target-labels")
     async def target_labels(

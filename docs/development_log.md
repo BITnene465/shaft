@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench agent 操作面偏离 CLI-first
+
+### 现象
+
+Agent 稳定命令已经通过 `scripts/eval_bench.py list-agent-commands` 和
+`show-agent-command --name <command>` 暴露 argv、参数、互斥组、副作用和输出 schema，但后续又把
+Dashboard HTTP route catalog 塞进 CLI contract，并额外暴露 `/api/agent/commands`。这会把“给 agent
+稳定 CLI”误导成“做一套 MCP 式远程能力发现层”。
+
+### 根因
+
+把 agent 可操作性理解成 HTTP API discovery，而不是 CLI-first 的脚本接口稳定性。Dashboard API 本来服务前端，
+不应该变成 agent 主入口；agent 需要的是可组合命令、稳定 JSON stdout、明确错误码和文档。这是接口边界问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 操作面的边界理解，容易让后续继续补 HTTP route catalog，而不是打磨 CLI。
+- 不影响已有 Dashboard 前端 API、run artifact、metric report、rank-board 排序或 label policy。
+
+### 修复方式
+
+- 从 CLI command contract 移除 `api_routes` 字段和内部 `AGENT_COMMAND_API_ROUTES` route catalog。
+- 删除 Dashboard 的 `/api/agent/commands` 与 `/api/agent/commands/{name}` 自描述入口。
+- 文档明确 agent contract 是 CLI-first：Dashboard API 服务前端，agent 默认组合
+  `.venv/bin/python scripts/eval_bench.py ...`。
+- 测试改为锁住 contract 不再输出 `api_routes`，并验证 Dashboard 不暴露 agent command discovery API。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_dashboard.py::test_dashboard_resolves_target_labels_for_agents`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m ruff check projects/eval_bench/eval_bench/cli.py projects/eval_bench/eval_bench/dashboard.py projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py`
+
+### 后续防线
+
+- 新增 agent 能力先补 CLI 子命令、JSON 输出 schema、argument semantics 和 focused CLI 测试。
+- 不再把 Dashboard API route catalog 放进 agent contract；需要前端 API 时只按前端职责设计。
+
 ## 2026-05-26: Eval Bench agent contract 未暴露 HTTP 等价入口
 
 ### 现象
