@@ -102,6 +102,20 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert state["benchmarks"][0]["labels"] == ["arrow", "icon"]
     assert state["runs"][0]["model_id"] == "model-a"
 
+    ops_summary = client.get("/api/ops-summary").json()
+    assert ops_summary["source"] == "ops_summary"
+    assert ops_summary["runs"]["total"] == 1
+    assert ops_summary["runs"]["waiting_evaluation"] == 1
+    assert ops_summary["jobs"] == {
+        "total": 0,
+        "queued": 0,
+        "running": 0,
+        "failed": 0,
+        "active": 0,
+    }
+    assert ops_summary["services"] == {"total": 0, "running": 0}
+    assert ops_summary["scheduler"]["enabled"] is False
+
     benchmarks = client.get("/api/benchmarks").json()
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
     assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]

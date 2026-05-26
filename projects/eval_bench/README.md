@@ -342,7 +342,7 @@ eval_bench_store/
 - JSON 读写与校验工具
 - 基于 SQLite 的持久化 job record
 - 基于 SQLite 的持久化 prompt template record，支持默认 prompt 种子、Dashboard 选择和从 manifest 保存自定义模板
-- 用于创建 benchmark、初始化 run manifest、枚举 benchmark/run/comparison、校验 prediction document、创建/查看 job、执行 job preflight、启动 dashboard、读取 backend log、查看 dashboard state/scheduler snapshot、归档/删除 run、取消/删除 job 和读取 job runtime log 的轻量 CLI/API；CLI 使用标准子命令、`--help`、JSON stdout 和可选 `--json-errors`，不提供 MCP 式命令发现层
+- 用于创建 benchmark、初始化 run manifest、枚举 benchmark/run/comparison、校验 prediction document、创建/查看 job、执行 job preflight、启动 dashboard、读取 backend log、查看 dashboard state/scheduler snapshot、查看 ops summary、归档/删除 run、取消/删除 job 和读取 job runtime log 的轻量 CLI/API；CLI 使用标准子命令、`--help`、JSON stdout 和可选 `--json-errors`，不提供 MCP 式命令发现层
 - 用于登记、查看、启动、停止、健康探测、删除和日志 tail 的 service registry；也支持只登记外部 vLLM endpoint
 - 每个 run 的可编辑 note，Dashboard、API 和 CLI 都可以读写，便于人工和脚本共享复现上下文
 - 独立 Rank Board：后端 `/api/rank-board` 和 CLI `rank-board` 提供同一份排序结果，支持 task、benchmark、status、label、model、prompt、metric、min score、全文 query、facet 计数和多种排序
@@ -378,6 +378,7 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 .venv/bin/python scripts/eval_bench.py process-next-job
 .venv/bin/python scripts/eval_bench.py evaluate-run --run-id <run_id>
+.venv/bin/python scripts/eval_bench.py ops-summary
 .venv/bin/python scripts/eval_bench.py resolve-target-labels \
   --benchmark-id multitask_test_v1 \
   --prompt-id grounding_arrow.latest
@@ -570,6 +571,16 @@ EVAL_BENCH_JSON_ERRORS=1 .venv/bin/python scripts/eval_bench.py show-run --run-i
   --benchmark-id multitask_test_v1 \
   --sample-index 12
 ```
+
+总控巡检不需要拼多个分页列表：
+
+```bash
+.venv/bin/python scripts/eval_bench.py ops-summary
+curl -fsS http://127.0.0.1:8766/api/ops-summary
+```
+
+`ops-summary` 输出 run 闭环、benchmark 规模、job 队列、service 容量和 scheduler snapshot，适合 agent
+在创建 job、推进队列或排障前快速判断当前系统态。
 
 Rank Board 已从 Compare 页拆出为独立工作台。Dashboard 入口是左侧“排行榜”，API 入口是
 `GET /api/rank-board`，CLI 入口是：

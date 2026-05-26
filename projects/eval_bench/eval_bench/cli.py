@@ -249,6 +249,19 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
     },
+    "ops-summary": {
+        "type": "object",
+        "required": ["source", "store_root", "runs", "benchmarks", "jobs", "services", "scheduler"],
+        "properties": {
+            "source": "str",
+            "store_root": "str",
+            "runs": "object",
+            "benchmarks": "object",
+            "jobs": "object",
+            "services": "object",
+            "scheduler": "object",
+        },
+    },
     "scheduler-status": {
         "type": "object",
         "required": ["source", "enabled"],
@@ -865,6 +878,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print the same coarse dashboard state used by /api/state.",
     )
     dashboard_state.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
+
+    ops_summary = subparsers.add_parser(
+        "ops-summary",
+        help="Print the same coarse ops totals used by /api/ops-summary.",
+    )
+    ops_summary.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
 
     scheduler_status = subparsers.add_parser(
         "scheduler-status",
@@ -1575,6 +1594,20 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
     from .store import EvalBenchStore
 
     print(json.dumps(EvalBenchStore(args.output_root).state().to_dict(), ensure_ascii=False))
+
+
+def _cmd_ops_summary(args: argparse.Namespace) -> None:
+    from .ops_summary import build_ops_summary
+    from .orchestrator import EvalBenchOrchestrator
+
+    scheduler_status = EvalBenchOrchestrator.from_env(args.output_root).status()
+    scheduler_status["source"] = "cli_snapshot"
+    print(
+        json.dumps(
+            build_ops_summary(args.output_root, scheduler_status=scheduler_status),
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_scheduler_status(args: argparse.Namespace) -> None:
@@ -2383,6 +2416,7 @@ def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
         "write-demo-prediction": _cmd_write_demo_prediction,
         "serve-dashboard": _cmd_serve_dashboard,
         "dashboard-state": _cmd_dashboard_state,
+        "ops-summary": _cmd_ops_summary,
         "scheduler-status": _cmd_scheduler_status,
         "backend-logs": _cmd_backend_logs,
         "preflight-job": _cmd_preflight_job,

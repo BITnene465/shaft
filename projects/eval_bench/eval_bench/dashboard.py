@@ -431,6 +431,19 @@ def create_app(
             return JSONResponse({"enabled": False})
         return JSONResponse(orchestrator.status())
 
+    @app.get("/api/ops-summary")
+    async def ops_summary(request: Request):
+        from .ops_summary import build_ops_summary
+
+        orchestrator = request.app.state.eval_bench_orchestrator
+        scheduler = {"enabled": False} if orchestrator is None else orchestrator.status()
+        return JSONResponse(
+            build_ops_summary(
+                request.app.state.eval_bench_store.layout.root,
+                scheduler_status=scheduler,
+            )
+        )
+
     @app.get("/api/logs/backend")
     async def backend_logs(request: Request, max_lines: int = 200):
         log_path = request.app.state.eval_bench_store.layout.logs_dir / "backend.log"

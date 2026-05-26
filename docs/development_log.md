@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 缺少 agent 级总控摘要入口
+
+### 现象
+
+Agent 可以分别调用 `dashboard-state`、`scheduler-status`、`list-jobs` 和 `list-services`，但缺少一个和
+Overview 总控页同语义的机器可读摘要入口。自动化脚本如果要判断 run 闭环、队列压力、服务容量和 scheduler
+状态，需要自己拼多个命令并重复实现状态汇总。
+
+### 根因
+
+首页总控信息已经进入前端和 Dashboard API，但 agent 操作面只暴露了分散对象列表，没有把粗粒度运行态
+抽成 CLI/API 共享真源。这会把“总控态如何计算”的语义泄漏给脚本，长期容易和 Dashboard 展示漂移。
+
+### 影响范围
+
+- 影响 agent 自动巡检、排障和调度前的状态判断。
+- 不影响 evaluator 指标、Rank Board 排序、run note、label 子任务或 job/service 状态机。
+
+### 修复方式
+
+- 新增 `ops_summary.py`，集中生成 runs / benchmarks / jobs / services / scheduler 的粗粒度总控摘要。
+- Dashboard 暴露 `GET /api/ops-summary`，CLI 暴露 `ops-summary`，二者复用同一 `build_ops_summary()`。
+- CLI schema、parser-handler 映射、CLI 测试和 Dashboard API 测试同步覆盖该入口。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_prints_agent_ops_summary projects/eval_bench/tests/test_dashboard.py::test_dashboard_api_exposes_store_state`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m compileall -q projects/eval_bench/eval_bench projects/eval_bench/tests/test_cli.py projects/eval_bench/tests/test_dashboard.py`
+
+### 后续防线
+
+- 新增 Dashboard 总控态时，优先判断是否应进入 `ops_summary.py`；agent 不应通过抓前端 state、
+  扫 SQLite 或重复拼接分页列表来判断系统运行态。
+
 ## 2026-05-26: Eval Bench Overview 运行态计数被分页窗口截断
 
 ### 现象
