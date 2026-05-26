@@ -11,7 +11,11 @@ import type {
   ShortcutActionId,
   ShortcutBindings
 } from "./workspaceSettings";
-import { FormSelectControl } from "./controlPrimitives";
+import {
+  FormSelectControl,
+  StandaloneColorControl,
+  StandaloneTextInputControl
+} from "./controlPrimitives";
 import { ActionButton } from "./ui";
 
 export function SettingsEditorSection({
@@ -77,10 +81,11 @@ export function LabelColorQuickAdd({
 
   return (
     <div className="label-color-add-row settings-label-add-row">
-      <input
+      <StandaloneTextInputControl
+        label="新增 label"
         value={draftLabel}
         placeholder="label，例如 arrow"
-        onChange={(event) => setDraftLabel(event.target.value)}
+        onChange={setDraftLabel}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
@@ -88,11 +93,10 @@ export function LabelColorQuickAdd({
           }
         }}
       />
-      <input
-        aria-label="新增 label 颜色"
-        type="color"
+      <StandaloneColorControl
+        label="新增 label 颜色"
         value={draftColor}
-        onChange={(event) => setDraftColor(event.target.value)}
+        onChange={setDraftColor}
       />
       <FormSelectControl
         label="新增 label 颜色角色"

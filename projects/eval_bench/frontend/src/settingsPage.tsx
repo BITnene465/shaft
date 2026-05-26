@@ -4,7 +4,12 @@ import { Search, X } from "lucide-react";
 
 import type { EvalInstance } from "./api";
 import { fetchSettingsPreviewSample } from "./api";
-import { CompactSelectControl, NumberSettingControl, SearchInputControl } from "./controlPrimitives";
+import {
+  CompactSelectControl,
+  InlineColorControl,
+  NumberSettingControl,
+  SearchInputControl
+} from "./controlPrimitives";
 import { unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import {
@@ -279,17 +284,13 @@ export function SettingsPage() {
                           <span>{label}</span>
                           <div className="settings-label-role-grid">
                             {INSTANCE_COLOR_ROLES.map((role) => (
-                              <label key={role.key}>
-                                <small>{role.label}</small>
-                                <input
-                                  aria-label={`${label} ${role.label} 颜色`}
-                                  type="color"
-                                  value={explicitLabelColor(labelColors, label, role.key) ?? overlayColors[role.key]}
-                                  onChange={(event) =>
-                                    updateLabelColor(label, role.key, event.target.value)
-                                  }
-                                />
-                              </label>
+                              <InlineColorControl
+                                key={role.key}
+                                label={`${label} ${role.label} 颜色`}
+                                caption={role.label}
+                                value={explicitLabelColor(labelColors, label, role.key) ?? overlayColors[role.key]}
+                                onChange={(value) => updateLabelColor(label, role.key, value)}
+                              />
                             ))}
                           </div>
                           <ActionButton

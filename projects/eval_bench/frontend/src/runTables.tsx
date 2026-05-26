@@ -7,6 +7,7 @@ import { Archive, Eye, FileText, GitCompare, RotateCw, Trash2 } from "lucide-rea
 
 import type { BenchmarkSummary, RunSummary } from "./api";
 import { archiveRun, deleteRun, evaluateRun } from "./api";
+import { StandaloneCheckboxControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import type { AdvancedFilterControl } from "./filterControls";
 import { formatDate, formatMetric, runF1Score, unique } from "./formatters";
@@ -159,10 +160,9 @@ export function RunTable({
             header: "",
             id: "select",
             cell: ({ row }) => (
-              <input
+              <StandaloneCheckboxControl
                 className="row-select-checkbox"
-                aria-label={`选择 ${row.original.run_id} 进行对比`}
-                type="checkbox"
+                label={`选择 ${row.original.run_id} 进行对比`}
                 checked={selectedRunIds.includes(row.original.run_id)}
                 onChange={() => toggleRunSelection(row.original.run_id)}
               />

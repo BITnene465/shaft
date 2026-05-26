@@ -833,8 +833,8 @@ npm run test:layout
 判断“能不能取消、删除、启动、停止、评估”。
 `test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
 绕过标准 action button；Benchmarks、Runs 和 Services 的高频弹窗输入字段、Settings、Runs、Services 和 Compare 的局部 select、搜索清空、重置和 label
-清除动作也在这个边界内。高级检索的 search / number / select 输入和 Settings 搜索框也由共享 primitives
-承载，避免 filter popover 与设置页维护两套搜索输入壳。同一检查还会全局阻止业务页直接写 raw `<button>`、`<select>`、`<textarea>`、
+清除动作也在这个边界内。高级检索的 search / number / select 输入、Settings 搜索框、label 色板和 Run 表格行选择也由共享 primitives
+承载，避免 filter popover、设置页和表格维护多套输入壳。同一检查还会全局阻止业务页直接写 raw `<button>`、`<input>`、`<select>`、`<textarea>`、
 `<details>` 和 `<summary>`；这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
 Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-first command desk 的
 `overview-home-v17`、`overview-ops-board`、`overview-rank-console`、`overview-evidence-row`、

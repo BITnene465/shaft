@@ -13,6 +13,7 @@ for (const filePath of sourceFiles) {
   assertNoBusinessDialogShell(source, relativePath);
   assertNoLegacySampleFilters(source, relativePath);
   assertNoRawButtonElement(source, relativePath);
+  assertNoRawInputOutsidePrimitives(source, relativePath);
   assertNoRawSelectOutsidePrimitives(source, relativePath);
   assertNoRawTextareaOutsidePrimitives(source, relativePath);
   assertNoRawDisclosureElement(source, relativePath);
@@ -81,8 +82,15 @@ assert(
     controlPrimitives.includes("export function NumberInputControl(") &&
     controlPrimitives.includes("export function TextareaControl(") &&
     controlPrimitives.includes("export function StandaloneTextareaControl(") &&
+    controlPrimitives.includes("export function StandaloneTextInputControl(") &&
     controlPrimitives.includes("export function CheckboxFieldControl("),
   "dialog and form fields must share text, number, textarea, and checkbox primitives",
+);
+assert(
+  controlPrimitives.includes("export function StandaloneCheckboxControl(") &&
+    controlPrimitives.includes("export function StandaloneColorControl(") &&
+    controlPrimitives.includes("export function InlineColorControl("),
+  "table selection and color controls must share standalone primitives",
 );
 assert(
   uiSource.includes("export function PanelToggleButton("),
@@ -223,6 +231,12 @@ assert(
   "settings controls must not use raw buttons for shortcut capture or reset actions",
 );
 assert(
+  settingsControls.includes("StandaloneTextInputControl") &&
+    settingsControls.includes("StandaloneColorControl") &&
+    !/<input\b/.test(settingsControls),
+  "settings label quick-add must use standalone text/color primitives",
+);
+assert(
   settingsControls.includes(
     '<ActionButton variant="secondary" className="settings-inline-action" onClick={onResetAll}>',
   ),
@@ -230,7 +244,7 @@ assert(
 );
 assertNoRawSelectElement(settingsControls, "settingsControls.tsx");
 assert(
-  settingsControls.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+  settingsControls.includes("FormSelectControl") &&
     settingsControls.includes('className="inline-select-control"') &&
     settingsControls.includes("hideLabel"),
   "settings inline label color role select must use FormSelectControl",
@@ -253,6 +267,11 @@ assert(
     settingsPage.includes('className="settings-search-clear"') &&
     !/<input[\s\S]{0,160}settingsQuery/.test(settingsPage),
   "settings search must use SearchInputControl and IconActionButton",
+);
+assert(
+  settingsPage.includes("InlineColorControl") &&
+    !/<input\b/.test(settingsPage),
+  "settings label color grid must use InlineColorControl instead of raw color inputs",
 );
 assert(
   settingsPage.includes("SelectableCardButton") &&
@@ -540,6 +559,12 @@ assert(
 );
 const runTables = await readSource("src/runTables.tsx");
 const comparePage = await readSource("src/comparePage.tsx");
+assert(
+  runTables.includes("StandaloneCheckboxControl") &&
+    runTables.includes('className="row-select-checkbox"') &&
+    !/<input\b/.test(runTables),
+  "run table row selection must use StandaloneCheckboxControl",
+);
 assert(
   runTables.includes('hash="run-note"') &&
     runTables.includes('className={row.original.note ? "run-note-preview" : "run-note-preview empty"}') &&
@@ -904,6 +929,13 @@ function assertNoRawButtonElement(source, relativePath) {
     return;
   }
   assert(!/<button\b/.test(source), `${relativePath}: buttons must use shared UI primitives`);
+}
+
+function assertNoRawInputOutsidePrimitives(source, relativePath) {
+  if (relativePath === "src/controlPrimitives.tsx") {
+    return;
+  }
+  assert(!/<input\b/.test(source), `${relativePath}: inputs must use controlPrimitives`);
 }
 
 function assertNoRawSelectOutsidePrimitives(source, relativePath) {

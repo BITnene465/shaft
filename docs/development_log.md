@@ -580,8 +580,10 @@ search input，也缺少弹窗表单用的 text input、number input、textarea 
   checkbox primitives。
 - Run note 主编辑器 / 追加入口、Jobs manifest 编辑器和 Rank Board weighted scheme JSON 编辑器切换到共享
   textarea primitives；Rank Board weighted 开关切换到共享 `ToggleButton`。
+- Run 表格行选择切换到 `StandaloneCheckboxControl`；Settings label quick-add 和 label 色板矩阵切换到
+  standalone text/color primitives。
 - `test:ui-contracts` 锁住这些高频弹窗和 textarea 面板必须使用共享表单控件，避免继续新增页面私有输入壳。
-- `test:ui-contracts` 额外全局禁止业务页直接写 raw `<button>`、`<select>`、`<textarea>`、`<details>` 和 `<summary>`，
+- `test:ui-contracts` 额外全局禁止业务页直接写 raw `<button>`、`<input>`、`<select>`、`<textarea>`、`<details>` 和 `<summary>`，
   这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
 - README 同步记录弹窗字段组件化边界。
 

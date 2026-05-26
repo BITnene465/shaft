@@ -88,6 +88,32 @@ export function TextInputControl({
   );
 }
 
+type StandaloneTextInputControlProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "onChange" | "value"
+> & {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+};
+
+export function StandaloneTextInputControl({
+  label,
+  value,
+  onChange,
+  ...props
+}: StandaloneTextInputControlProps) {
+  return (
+    <input
+      {...props}
+      aria-label={props["aria-label"] ?? label}
+      title={props.title ?? label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
 type SearchInputControlProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "onChange" | "value" | "type"
@@ -220,6 +246,67 @@ export function CheckboxFieldControl({
     <label className={className ? `checkbox-field ${className}` : "checkbox-field"}>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <span>{label}</span>
+    </label>
+  );
+}
+
+export function StandaloneCheckboxControl({
+  label,
+  checked,
+  className,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  className?: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <input
+      className={className}
+      aria-label={label}
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+  );
+}
+
+export function StandaloneColorControl({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      aria-label={label}
+      title={label}
+      type="color"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+export function InlineColorControl({
+  label,
+  caption,
+  value,
+  onChange
+}: {
+  label: string;
+  caption?: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <small>{caption ?? label}</small>
+      <StandaloneColorControl label={label} value={value} onChange={onChange} />
     </label>
   );
 }
