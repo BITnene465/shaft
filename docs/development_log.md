@@ -127,6 +127,43 @@ eval / codec / metric / data 误判。
 - 用户反复指出的 UI 价值/空间策略问题需要至少进入一个轻量浏览器 smoke，而不只放在长耗时 layout smoke 中。
 - `render-check` 只放跨页面基础基线；复杂多路由、多 viewport、弹窗和分页仍归 `test:layout`。
 
+## 2026-05-26: Eval Bench init-run 未校验 benchmark label 索引
+
+### 现象
+
+`import-predictions` 和 job preflight 已经会在 benchmark manifest 提供 `labels` 索引时拒绝拼错或不存在的
+`target_labels`，但 CLI `init-run --target-label` 只校验 task 规则。agent 可以先创建出
+`target_labels=["arrwo"]` 这类非法 run，后续 evaluate/import 才暴露问题。
+
+### 根因
+
+label 子任务校验已经沉淀在 `label_policy.py`，但 `init-run` 早期只作为快速 manifest 初始化入口，
+没有接入 benchmark label index 校验，导致同一条 label 语义在创建、导入和 preflight 入口不一致。
+
+### 影响范围
+
+- 影响 CLI/agent 直接初始化 detection label 子任务 run 的可靠性。
+- 不影响已经存在的 report 计算、Rank Board 默认 F1、weighted scheme、Dashboard API 或 viewer 展示。
+- 这是 eval / data 语义入口一致性问题，不是模型能力问题。
+
+### 修复方式
+
+- `init-run` 在写入 run manifest 前读取 `eval_bench_store/benchmarks/<benchmark_id>/benchmark.json`
+  的 `labels` 索引。
+- 如果索引存在，复用 `validate_target_labels_for_benchmark` 拒绝未知 target label；没有索引时保持兼容。
+- 新增 CLI 回归测试，确认拼写错误 label 会报错且不会留下 run artifact。
+- README 和 `docs/scripts.md` 同步说明 init/import/preflight 共享 benchmark label 校验语义。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_init_run_cli_accepts_target_label_subset projects/eval_bench/tests/test_cli.py::test_init_run_cli_rejects_unknown_target_label_when_benchmark_has_index projects/eval_bench/tests/test_cli.py::test_cli_resolves_target_labels_for_agent_label_subtasks`
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_prediction_import.py::test_import_predictions_rejects_unknown_target_labels projects/eval_bench/tests/test_dashboard.py::test_dashboard_resolves_target_labels_for_agents`
+
+### 后续防线
+
+- 新增任何入口如果会写入或解释 `target_labels`，必须复用 `label_policy.py`，不能只在 UI 或 import 路径校验。
+- agent-facing CLI 初始化命令必须尽早失败，不能把明显错误留到后续 evaluate 阶段。
+
 ## 2026-05-26: Eval Bench 高级检索仍复用旧筛选壳 class
 
 ### 现象

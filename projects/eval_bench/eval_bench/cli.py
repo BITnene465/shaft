@@ -1309,7 +1309,11 @@ def _cmd_create_benchmark(args: argparse.Namespace) -> None:
 
 def _cmd_init_run(args: argparse.Namespace) -> None:
     from .artifacts import RunArtifacts
-    from .label_policy import resolve_target_label_policy, validate_target_labels_for_task
+    from .label_policy import (
+        resolve_target_label_policy,
+        validate_target_labels_for_benchmark,
+        validate_target_labels_for_task,
+    )
     from .schema import (
         BenchmarkRef,
         EvalRunManifest,
@@ -1326,6 +1330,11 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
         task=task,
     )
     validate_target_labels_for_task(task=task, labels=target_policy.labels)
+    validate_target_labels_for_benchmark(
+        labels=target_policy.labels,
+        benchmark_labels=_benchmark_labels_for_init_run(args.output_root, args.benchmark_id),
+        benchmark_id=str(args.benchmark_id),
+    )
     manifest = EvalRunManifest(
         run_id=str(args.run_id),
         submitter=str(args.submitter),
@@ -1380,6 +1389,22 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
             ensure_ascii=False,
         )
     )
+
+
+def _benchmark_labels_for_init_run(output_root: str, benchmark_id: str) -> list[str]:
+    manifest_path = Path(output_root) / "benchmarks" / str(benchmark_id) / "benchmark.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"benchmark manifest must be valid JSON: {manifest_path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"benchmark manifest must be a JSON object: {manifest_path}")
+    labels = payload.get("labels")
+    if not isinstance(labels, list):
+        return []
+    return [str(label) for label in labels]
 
 
 def _cmd_validate_prediction(args: argparse.Namespace) -> None:

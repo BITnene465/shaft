@@ -667,6 +667,57 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path, capsys) -> Non
     assert payload["spec"]["metadata"]["target_labels_source"] == "explicit"
 
 
+def test_init_run_cli_rejects_unknown_target_label_when_benchmark_has_index(
+    tmp_path: Path,
+) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "labels": ["arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    args = _build_parser().parse_args(
+        [
+            "init-run",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "bad_run",
+            "--task",
+            "detection",
+            "--model-id",
+            "model-a",
+            "--model-path",
+            "outputs/model-a/best",
+            "--benchmark-id",
+            "bench1",
+            "--benchmark-root",
+            str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "--split",
+            "val",
+            "--spec-id",
+            "layout.typo",
+            "--prompt-id",
+            "grounding_layout.latest",
+            "--target-label",
+            "arrwo",
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="target_labels not found in benchmark label index: arrwo",
+    ):
+        _cmd_init_run(args)
+    assert not (tmp_path / "runs" / "bad_run").exists()
+
+
 def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) -> None:
     args = _build_parser().parse_args(
         [

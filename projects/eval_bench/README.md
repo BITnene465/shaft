@@ -416,6 +416,8 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 `init-run`、`import-predictions` 和 `resolve-target-labels` 的 `--target-label` 都只表示 detection
 label 子任务范围；keypoint run 固定评价 `arrow`，传入非 `arrow` label 会被同一套 label policy 拒绝。
+如果 `eval_bench_store/benchmarks/<benchmark_id>/benchmark.json` 带有 `labels` 索引，`init-run`
+也会像 preflight 和 import 一样拒绝拼写错误或不存在的 target label，避免 agent 先创建出非法 run。
 `init-run` 支持 `--target-label`，用于直接初始化 detection 的 label 子任务；如果不传，
 后端会按同一份 `label_policy.py` 从 prompt id / task 推导默认范围：
 
