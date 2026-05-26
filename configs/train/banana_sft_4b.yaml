@@ -1,6 +1,6 @@
 experiment:
-  name: banana-qwen3vl-4b-sft-v2.2
-  output_dir: outputs/qwen3vl-sft/4b/banana-v2.2
+  name: banana-v2.4-qwen3vl-sft-4b
+  output_dir: outputs/qwen3vl-sft/4b/banana-v2.4
   seed: 42
 
 model:
@@ -27,8 +27,14 @@ algorithm:
   params: {}
 
 data:
-  catalog_path: ../data/banana.yaml
-  catalog_names: [grounding_arrow, grounding_layout, point_arrow]
+  catalog_path: ../data/banana_v2_4.yaml
+  catalog_names:
+    - grounding_arrow
+    - grounding_layout
+    - grounding_shape
+    - grounding_icon_image
+    - grounding_shape_arrow
+    - point_arrow
   mix_strategy: interleave_under
   mix_refresh: epoch_refresh
   num_workers: 4
@@ -40,15 +46,15 @@ data:
   shuffle: true
 
 train:
-  epochs: 3
+  epochs: 2
   max_steps: -1
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 2
   gradient_checkpointing: true
   learning_rate: 0.00002
   param_group_lrs:
-    vision_tower: 0.000005
-    aligner: 0.000005
+    vision_tower: 0.00001
+    aligner: 0.00001
   no_decay_name_patterns:
     - embed_tokens.weight
   optimizer_name: adamw_torch
@@ -60,8 +66,8 @@ train:
   adam_beta1: 0.9
   adam_beta2: 0.999
   adam_epsilon: 1.0e-8
-  weight_decay: 0.01
-  warmup_ratio: 0.03
+  weight_decay: 0.03
+  warmup_ratio: 0.1
   lr_scheduler_type: cosine
   max_grad_norm: 1.0
   bf16: true
@@ -75,7 +81,7 @@ train:
   save_final_state: true
   ddp_find_unused_parameters: false
   report_to: ["wandb"]
-  init_from_checkpoint: outputs/qwen3vl-sft/4b/banana-v2.1/best
+  init_from_checkpoint:
   resume_from_checkpoint:
 
 eval:
@@ -120,6 +126,48 @@ eval:
       normalizer:
         type: identity
       weight: 2
+    grounding_shape:
+      prediction_codec: json_list
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_list
+      metrics:
+        - name: parse_success
+        - name: parse_partial_rate
+        - name: det_f1
+        - name: det_iou
+      primary_metric: det_f1
+      normalizer:
+        type: identity
+      weight: 1
+    grounding_icon_image:
+      prediction_codec: json_list
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_list
+      metrics:
+        - name: parse_success
+        - name: parse_partial_rate
+        - name: det_f1
+        - name: det_iou
+      primary_metric: det_f1
+      normalizer:
+        type: identity
+      weight: 1
+    grounding_shape_arrow:
+      prediction_codec: json_list
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_list
+      metrics:
+        - name: parse_success
+        - name: parse_partial_rate
+        - name: det_f1
+        - name: det_iou
+      primary_metric: det_f1
+      normalizer:
+        type: identity
+      weight: 1
     point_arrow:
       prediction_codec: json_object
       target_adapter: target_text

@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional fixed port. Omit to let the server choose an available port.",
     )
-    parser.add_argument("--base-config", default="configs/train/train_sft_4b.yaml")
+    parser.add_argument("--base-config", default="configs/train/banana_sft_4b.yaml")
     parser.add_argument(
         "--share",
         action="store_true",

@@ -30,14 +30,14 @@
 常用形式：
 
 ```bash
-python scripts/train.py sft --config configs/train/train_sft_4b.yaml
-python scripts/train.py rlhf --config configs/train/train_dpo_4b.yaml
+python scripts/train.py sft --config configs/train/banana_sft_4b.yaml
+python scripts/train.py rlhf --config configs/train/dpo_4b.yaml
 ```
 
 兼容写法：
 
 ```bash
-python scripts/train.py --config configs/train/train_sft_4b.yaml
+python scripts/train.py --config configs/train/banana_sft_4b.yaml
 ```
 
 说明：
@@ -122,7 +122,7 @@ python scripts/web.py --host 0.0.0.0 --port 7861
 指定默认训练配置：
 
 ```bash
-python scripts/web.py --base-config configs/train/train_sft_4b.yaml
+python scripts/web.py --base-config configs/train/banana_sft_4b.yaml
 ```
 
 说明：

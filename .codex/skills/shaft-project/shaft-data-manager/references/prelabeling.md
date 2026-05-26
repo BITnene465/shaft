@@ -26,21 +26,21 @@ human review. Prelabeling is a handoff workflow, not a raw-data update by itself
 
 ## Required Task Coverage
 
-For diagram prelabeling, run all task heads the user expects. Do not run arrow-only prelabeling
-when the target review task also needs layout elements.
+For diagram prelabeling, run the task heads the user expects. The maintained task families are
+unified `grounding` detection and optional `point_arrow`.
 
 Recommended stages:
 
-1. Layout grounding on the full image.
+1. Grounding/layout labels on the full image.
    - Use the prompt in `configs/prompts/grounding_layout.yaml`.
    - Keep labels `icon`, `image`, and `shape`.
    - If the model emits `shape_combination`, normalize the label to `icon` and preserve the
      original label in `extra`.
-2. Arrow grounding on the full image.
+2. Grounding/arrow labels on the full image.
    - Use the prompt in `configs/prompts/grounding_arrow.yaml`.
    - Normalize model-facing arrow detections to `label: "arrow"`.
-3. Arrow keypoint prediction on padded arrow crops when keypoints are needed.
-   - Use the prompt in `configs/prompts/keypoint_arrow.yaml`.
+3. Arrow point prediction on padded arrow crops when point annotations are needed.
+   - Use the prompt in `configs/prompts/point_arrow.yaml`.
    - Map crop-local keypoints back to original image coordinates.
    - Store them on the same arrow instance as `linestrip`; if keypoint prediction fails, keep the
      arrow bbox and record the stage error.

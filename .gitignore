@@ -26,6 +26,11 @@ old/
 /eval_bench_store/
 /temp/
 /runs/
+
+configs/data/*.yaml
+!configs/data/example.yaml
+configs/prompts/*.yaml
+!configs/prompts/example.yaml
 experimental/
 /scripts/acc_exp/
 /deployment/

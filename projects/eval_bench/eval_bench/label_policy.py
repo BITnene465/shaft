@@ -52,8 +52,15 @@ def resolve_target_label_policy(
     lower_prompt_id = (prompt_id or "").lower()
     if "grounding_layout" in lower_prompt_id:
         return TargetLabelPolicy(labels=list(LAYOUT_TARGET_LABELS), source="legacy_prompt_id")
+    if "grounding_icon_image" in lower_prompt_id:
+        return TargetLabelPolicy(labels=["icon", "image"], source="legacy_prompt_id")
+    if "grounding_shape_arrow" in lower_prompt_id:
+        return TargetLabelPolicy(labels=["shape", "arrow"], source="legacy_prompt_id")
+    if "grounding_shape" in lower_prompt_id:
+        return TargetLabelPolicy(labels=["shape"], source="legacy_prompt_id")
     if (
-        "keypoint_arrow" in lower_prompt_id
+        "point_arrow" in lower_prompt_id
+        or "keypoint_arrow" in lower_prompt_id
         or "arrow_keypoint" in lower_prompt_id
         or "grounding_arrow" in lower_prompt_id
     ):

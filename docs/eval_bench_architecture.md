@@ -93,7 +93,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/label_policy.py`
   - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`legacy_prompt_id`、
     `task_default` 或 `unscoped` 来源；`legacy_prompt_id` 只能匹配内置 prompt 命名族
-    `grounding_layout.*`、`grounding_arrow.*`、`keypoint_arrow.*` 和历史 `arrow_keypoint.*`。
+    `grounding_layout.*`、`grounding_arrow.*`、`grounding_shape.*`、
+    `grounding_icon_image.*`、`grounding_shape_arrow.*`、`point_arrow.*` 和历史
+    `keypoint_arrow.*` / `arrow_keypoint.*`。
 - `projects/eval_bench/eval_bench/job_lifecycle.py`
   - 维护 job terminal/active/cancelled-resource lease 语义。
 - `projects/eval_bench/eval_bench/database.py`

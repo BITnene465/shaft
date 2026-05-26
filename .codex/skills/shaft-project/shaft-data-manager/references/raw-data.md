@@ -23,8 +23,9 @@ coverage, and split summaries afterward.
     `annotation.layers=[]`, `annotation.status={}`, and `instances=[]`.
 - JSON `image_path` is always relative to the `raw_data` root, for example
   `part1/images/00001.png` or `part2/images/pic_1001.png`.
-- Split files stay task-named (`arrow_train.txt`, `layout_val.txt`, etc.). Each non-empty line is
-  a JSON path relative to `raw_data`, for example `part1/json/00001.json`, not a bare sample stem.
+- Split files stay task-named by model task, not raw layer. Current maintained task splits are
+  `grounding_train.txt`, `grounding_val.txt`, and `point_arrow_val.txt`. Each non-empty line is a
+  JSON path relative to `raw_data`, for example `part1/json/00001.json`, not a bare sample stem.
 - Keep annotations and images in predictable sibling directories inside each part. If an imported
   source uses another name such as `figure`, normalize it before treating the raw directory as
   maintained.
@@ -42,7 +43,7 @@ Raw JSON files should be maintained in a normalized schema, not in importer-nati
 
 - top-level fields: `schema`, `image_path`, `image_width`, `image_height`, `annotation`,
   `instances`, `extra`
-- `annotation.layers` records covered task layers in stable order: `layout`, then `arrow`
+- `annotation.layers` records covered raw annotation layers in stable order: `layout`, then `arrow`
 - `annotation.status` records per-layer workflow status: `preannotated`, `annotated`,
   `needs_revision`, or `completed`
 - layout instance: `label`, two-corner `bbox: [x1, y1, x2, y2]`, `extra`

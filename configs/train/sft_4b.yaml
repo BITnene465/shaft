@@ -1,5 +1,5 @@
 experiment:
-  name: qwen3vl-sft
+  name: qwen3vl-sft-4b
   output_dir: outputs/qwen3vl-sft/4b/default
   seed: 42
 

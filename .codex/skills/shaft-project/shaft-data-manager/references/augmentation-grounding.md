@@ -23,61 +23,92 @@ Never train on clipped partial GT boxes.
 ## Train Views
 
 - `full_image`
+- `full_image_blur`
 - `density_crop`
-- `sliding_window_crop`
 - controlled `hard_negative_crop`
-- light positive view augmentation only when it targets a clear task failure mode
+- local task-owned image copies for every row
 
-Do not use JPEG compression as a default grounding augmentation. It mostly simulates image
-degradation and has weak expected value for precise bbox localization compared with view
-construction, scale coverage, clean hard negatives, and dense-region crops.
+Validation remains full-image only. Do not apply crop, hard negative, JPEG, blur, or resize
+degradation to validation.
+
+## Maintained Grounding Subtasks
+
+Generate structured data independently for these detection subtasks:
+
+| dataset | target labels | required raw coverage |
+| --- | --- | --- |
+| `grounding_arrow` | `arrow` | `arrow` |
+| `grounding_layout` | `icon`, `image`, `shape` | `layout` |
+| `grounding_shape` | `shape` | `layout` |
+| `grounding_icon_image` | `icon`, `image` | `layout` |
+| `grounding_shape_arrow` | `shape`, `arrow` | `layout` and `arrow` |
+
+Use `data/raw_data/splits/grounding_train.txt` and `grounding_val.txt` as the split source.
+Filter by required raw coverage before deriving each subtask. For example, `part1` arrow-only
+samples are valid for `grounding_arrow`, but must not become layout, shape, icon/image, or
+shape/arrow negatives.
+
+## Maintained Generator
+
+Use `scripts/tasks/build_grounding_structured.py` for rebuilds instead of temporary scripts. Keep
+the command line in run notes or the generated README, but keep this skill focused on method:
+
+- derive each grounding subtask independently from the same image-level split source;
+- filter by required raw coverage before producing rows;
+- write task-local row images instead of referencing raw images;
+- keep train-only augmentation out of validation;
+- clean stale generated images so each image file is referenced by a structured row;
+- seed randomness by stable source identity so rebuilds are approximately reproducible when raw
+  data, split files, PIL behavior, and script code are unchanged.
 
 ## Density Crop Selection
 
-For `grounding_arrow` and `grounding_layout`, train augmentation should prefer high-density local
-regions instead of mechanically cropping every image:
+For each grounding subtask, train augmentation should prefer high-density local regions instead
+of mechanically cropping every image:
 
 - Keep the full-image row for every train sample.
-- Generate at most 2 positive crop rows per source image.
-- Candidate crops may come from sliding windows, instance-center windows, or other deterministic
-  window proposals.
+- Do not reference raw images directly from structured rows. Copy or render every row image under
+  the task dataset directory, for example `data/grounding_arrow/images/train/`.
+- For train, keep the clean full-image row and add one full-image blur row for each covered
+  source image. The combined JPEG/resize blur count should match the clean full-image count.
+- Keep positive crop volume controlled by task so local views do not dominate full-image rows.
+- Candidate crops should be random but density-biased, not fixed-size tiles. Sample crop width
+  and height from image-relative ranges so the view scale follows the source image size. Use a
+  wider crop-ratio range for large images and reject crops that are effectively full-image
+  duplicates.
+- Use image-relative crop size ranges keyed by source resolution rather than fixed-size tiles.
+- Candidate centers may be lightly randomized around target-instance centers or dense regions.
+- Bias crop centers around target instances or target clusters, then score by contained target
+  count.
 - Score candidates primarily by the number of fully contained task GT instances.
 - Reject a crop if any task GT partially intersects the crop boundary. Do not train on clipped
   partial GT.
 - Reject crops that are too close to the full image; a local crop should materially reduce the
   visible canvas, not duplicate the full-image row.
-- Require enough contained GT before accepting a crop. The threshold can be task-specific, but the
-  default should favor dense regions rather than sparse positives.
+- Require enough fully contained target GT before accepting a crop; tune this threshold by task
+  density instead of using one global value.
 - Deduplicate selected crops by high overlap and identical contained instance sets.
 - Validation remains full-image only.
 
-## Context Padding Jitter
+## Full-Image Blur Rows
 
-Use `context_padding_jitter` as the preferred lightweight positive augmentation when a new
-variant is needed. This is a zoom-out view: shrink the existing positive view, paste it onto a
-same-size clean canvas with random offset, and transform all `bbox` and arrow `linestrip`
-coordinates with the same scale and offset.
+Grounding may use light pixel degradation as additional train full-image rows. The clean
+full-image row must remain present.
 
-Recommended conservative defaults:
+- Apply only to train full-image blur rows.
+- Do not apply to density crops or hard negatives by default.
+- Do not apply to validation.
+- Use exactly one degradation per full-image blur row.
+- `jpeg_blur`: lightly round-trip through JPEG.
+- `resize_blur`: for high-resolution views only, downscale and resize back to the original view
+  size.
+- JPEG blur plus resize blur row counts should equal the clean full-image row count. Within blur
+  rows, sample resize blur only when the source view is high resolution; otherwise use JPEG blur.
+- Keep resize blur as a minority/high-resolution-specific degradation; non-high-resolution views
+  should fall back to JPEG-style blur.
 
-- Train only; never apply to validation.
-- Positive views only; never apply to hard negatives.
-- Use shrink-only scale, e.g. `0.75-0.95`; do not enlarge and crop.
-- Keep the output canvas size unchanged.
-- Use a clean background, normally white or an edge-sampled near-background color.
-- Reject the augmented sample if any transformed bbox or linestrip point becomes invalid.
-- Record the transform in `extra.augmentation`, for example:
-  `{"name": "context_padding_jitter", "scale": 0.86, "offset": [43, 71]}`.
-
-This complements density and sliding-window crops: those mostly create zoom-in views, while
-context padding jitter creates controlled zoom-out views without degrading image quality.
-
-## Sliding Window
-
-- Use multiple tile scales.
-- Keep only instances fully inside the tile.
-- Require a minimum instance count so sparse positives do not dominate.
-- Tiles with no full instance and no partial overlap may enter the hard-negative pool.
+Record the selected degradation in structured row `extra.pixel_augmentation`. Keep coordinates
+unchanged because the output view dimensions stay unchanged.
 
 ## Density Crop
 
@@ -89,8 +120,10 @@ context padding jitter creates controlled zoom-out views without degrading image
 ## Hard Negatives
 
 - Use only clean empty windows with no full GT and no partial overlap.
-- Keep empty ratio controlled; for layout grounding, 3%-5% is a good default.
+- Keep empty ratio controlled and small relative to positive/full rows.
 - Do not augment hard negatives with blur by default.
+- Hard negative candidates should use the same image-relative crop philosophy as positive crops,
+  then be sampled down after candidates are generated.
 
 ## Deduplication
 
@@ -101,3 +134,15 @@ letting repetitive views dominate training.
 
 For derived datasets, prefer a short README over long reports. Include split row counts, view
 type counts, empty-sample ratio, augmentation settings, and validation invariants.
+
+## Rebuild Validation Invariants
+
+After a grounding rebuild, check:
+
+- Every structured row image path exists.
+- No structured row image path points into `data/raw_data`.
+- Number of files in `images/train` equals `structured/train.jsonl` rows.
+- Number of files in `images/val` equals `structured/val.jsonl` rows.
+- Train `full_image` row count equals train `full_image_blur` row count.
+- Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
+- All bboxes are positive-area and inside the row image dimensions.

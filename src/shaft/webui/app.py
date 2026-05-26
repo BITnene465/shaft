@@ -16,7 +16,7 @@ from shaft.webui.services import ShaftRunStore, ShaftSFTTrainService, ShaftWebUI
 from shaft.webui.theme import static_dir, templates_dir
 
 
-DEFAULT_SFT_CONFIG = "configs/train/train_sft_4b.yaml"
+DEFAULT_SFT_CONFIG = "configs/train/banana_sft_4b.yaml"
 
 
 def _find_free_port(host: str) -> int:

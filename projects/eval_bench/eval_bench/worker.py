@@ -944,8 +944,14 @@ def _prompt_hash(*, system_prompt: str, user_prompt: str) -> str:
 
 def _default_prompt_path(*, prompt_id: str, task: TaskKind) -> Path:
     lower_id = prompt_id.lower()
-    if task == "keypoint" or "keypoint" in lower_id:
-        return REPO_ROOT / "configs/prompts/keypoint_arrow.yaml"
+    if task == "keypoint" or "point_arrow" in lower_id or "keypoint" in lower_id:
+        return REPO_ROOT / "configs/prompts/point_arrow.yaml"
+    if "shape_arrow" in lower_id:
+        return REPO_ROOT / "configs/prompts/grounding_shape_arrow.yaml"
+    if "icon_image" in lower_id:
+        return REPO_ROOT / "configs/prompts/grounding_icon_image.yaml"
+    if "shape" in lower_id:
+        return REPO_ROOT / "configs/prompts/grounding_shape.yaml"
     if "arrow" in lower_id:
         return REPO_ROOT / "configs/prompts/grounding_arrow.yaml"
     return REPO_ROOT / "configs/prompts/grounding_layout.yaml"

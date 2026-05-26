@@ -1,0 +1,17 @@
+metadata:
+  id: shaft.prompt.example.v1
+  name: example prompt config
+  task: grounding
+  subtask: grounding_example
+  target_labels: [example_label]
+
+prompt:
+  system_prompt: >
+    You are a visual annotation assistant. Return only valid compact JSON. Do not
+    include markdown, comments, explanations, or surrounding text.
+  user_prompt: |
+    Detect all visible example_label instances in the image.
+    Return a JSON array of objects with this schema:
+    {"label":"example_label","bbox_2d":[x1,y1,x2,y2]}
+    Use integer bbox_2d coordinates in the 0-999 normalized image coordinate space.
+    Return [] when no target object is visible.

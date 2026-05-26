@@ -46,10 +46,12 @@ FALLBACK_LAYOUT_GROUNDING_PROMPT = (
 )
 FALLBACK_ARROW_KEYPOINT_PROMPT = (
     "The image is a crop around one arrow.\n"
-    "Predict the ordered keypoints along the arrow linestrip.\n"
-    "Return a JSON object exactly like {\"keypoints_2d\":[[x1,y1],[x2,y2]]}.\n"
+    "Predict the full ordered keypoint path along the visible arrow linestrip.\n"
+    "Include every bend point needed to describe the arrow path, not only the two endpoints.\n"
+    "Return one JSON object with this schema: {\"keypoints_2d\":[[x1,y1],[x2,y2],...]}.\n"
     "Use integer keypoints_2d coordinates in the 0-999 normalized crop coordinate space.\n"
-    "Do not return bbox, labels, markdown, or any extra text."
+    "Order keypoints from the arrow tail to the arrow head.\n"
+    "Do not return bbox, labels, markdown, comments, or any extra text."
 )
 
 DEFAULT_ARROW_PROMPT_PATH = REPO_ROOT / "configs/prompts/grounding_arrow.yaml"
