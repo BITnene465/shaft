@@ -46,6 +46,14 @@ type OverviewFlowStage = {
   progress: number;
   icon: React.ReactNode;
 };
+type OverviewMetricCard = {
+  label: string;
+  value: string;
+  detail: string;
+  to: OverviewRoute;
+  tone: OverviewTone;
+  progress: number;
+};
 type BestRun = { run: RunSummary; f1: number };
 
 export function OverviewPage() {
@@ -158,6 +166,32 @@ export function OverviewPage() {
       progress: trackPercent(liveServices, totalServices)
     }
   ];
+  const decisionMetrics: OverviewMetricCard[] = [
+    {
+      label: "主指标",
+      value: bestRun ? formatMetric(bestRun.f1) : "-",
+      detail: bestRun ? bestRun.run.model_id || bestRun.run.run_id : "等待报告",
+      to: "/rank-board",
+      tone: bestRun ? "good" : "idle",
+      progress: bestRun ? trackPercent(bestRun.f1, 1) : 0
+    },
+    {
+      label: "报告覆盖",
+      value: `${coveragePercent}%`,
+      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
+      to: "/runs",
+      tone: evaluatedRuns > 0 ? "good" : "idle",
+      progress: trackPercent(evaluatedRuns, totalRuns)
+    },
+    {
+      label: failedJobs > 0 ? "失败任务" : "队列",
+      value: failedJobs > 0 ? failedJobs.toLocaleString() : activeQueue.toLocaleString(),
+      detail: `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
+      to: "/jobs",
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
+      progress: trackPercent(activeQueue + failedJobs, totalJobs)
+    }
+  ];
   const flowStages: OverviewFlowStage[] = [
     {
       label: "基准样本",
@@ -200,7 +234,7 @@ export function OverviewPage() {
 
   return (
     <section
-      className="page-stack dashboard-home overview-home-v14"
+      className="page-stack dashboard-home overview-home-v15"
       onPointerMove={updateOverviewPointer}
     >
       <div className="overview-command-deck">
@@ -216,6 +250,7 @@ export function OverviewPage() {
             <h2>{overviewHeroTitle(nextAction)}</h2>
             <p>{postureLine}</p>
           </div>
+          <OverviewDecisionMetrics metrics={decisionMetrics} />
           <div className="overview-decision-bottom">
             <OverviewNextAction action={nextAction} />
             <OverviewRunFocus bestRun={bestRun} />
@@ -262,6 +297,28 @@ function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
   const y = ((event.clientY - bounds.top) / bounds.height) * 100;
   event.currentTarget.style.setProperty("--overview-pointer-x", `${x.toFixed(2)}%`);
   event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
+}
+
+function OverviewDecisionMetrics({ metrics }: { metrics: OverviewMetricCard[] }) {
+  return (
+    <div className="overview-decision-metrics" aria-label="首页核心判断指标">
+      {metrics.map((metric) => (
+        <Link
+          className={`overview-decision-metric ${metric.tone}`}
+          key={metric.label}
+          to={metric.to}
+          style={{ "--metric-progress": `${metric.progress}%` } as React.CSSProperties}
+        >
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
+          <em>{metric.detail}</em>
+          <i aria-hidden="true">
+            <b />
+          </i>
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 function OverviewScoreDial({

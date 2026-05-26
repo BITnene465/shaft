@@ -74,14 +74,15 @@ python scripts/eval_bench.py serve-dashboard --host 127.0.0.1 --port 8765
 ```
 
 Dashboard 当前提供高密度总览、benchmark、job queue、run/report 列表和交互式 run inspector；
-总览页把 store 规模、写入节奏、scheduler/job/service 运行态、run/benchmark 分布和最近 run 压缩成混合微图表矩阵，
-只保留粗粒度控制台信号，不展示细粒度评测指标。
+总览页是四模块 cockpit，只保留下一步动作、F1/报告覆盖、评测闭环卡点和最近 run 产物流，
+不展示细粒度评测指标或低频排障面板。
 inspector 直接读取 benchmark GT 与 prediction snapshot，在原图上叠加 GT / Prediction
 实例，支持 label 过滤、图层显隐、对象 hover/click 高亮、滚轮缩放和拖拽平移，主视图按图像工作台设计，低频配置和明细默认折叠，便于检查
 漏检、误检和解析问题。Compare 页支持排行榜、run 成对 delta、top 改善/退化
 样本列表和并排样本对比，用于比较新旧权重或 prompt/推理参数变更。每个 run 会持久化
 模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget 和 vLLM 服务参数，
 并在 Run Inspector 顶部按需展开，便于复盘一次评测到底用了什么配置。
+Runs 表格中的备注摘要可直接跳转到对应 Run Inspector 的备注编辑面板。
 Benchmarks 页可以从 raw_data split 创建 benchmark copy。
 Run Inspector 和 Benchmark Inspector 都支持直接输入 sample 序号跳转。
 Runs 页也可以把外部预测 JSON 目录导入为标准 run，并立即和对应 benchmark/test GT

@@ -585,7 +585,7 @@ export function RunDetailPage() {
 
   return (
     <section className="page-stack visual-inspector-page run-inspector-page">
-      {runSummary ? <RunConfigPanel run={runSummary} /> : null}
+      {runSummary ? <RunConfigPanel run={runSummary} defaultOpen={shouldOpenRunNotePanel()} /> : null}
       {page?.total === 0 && !hasActiveSampleFilter ? (
         <EmptyState title="这条评测记录没有基准集样本。" />
       ) : (
@@ -642,8 +642,9 @@ export function RunDetailPage() {
   );
 }
 
-function RunConfigPanel({ run }: { run: RunSummary }) {
+function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; defaultOpen?: boolean }) {
   const queryClient = useQueryClient();
+  const [configOpen, setConfigOpen] = useState(defaultOpen);
   const [noteDraft, setNoteDraft] = useState(run.note || "");
   const [savedNote, setSavedNote] = useState(run.note || "");
   const [noteVersion, setNoteVersion] = useState(run.note_updated_at);
@@ -688,6 +689,10 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
     setAppendDraft("");
   }, [run.run_id, run.note, run.note_updated_at]);
 
+  useEffect(() => {
+    setConfigOpen(defaultOpen);
+  }, [defaultOpen, run.run_id]);
+
   function insertNoteTemplate(template: (typeof RUN_NOTE_TEMPLATES)[number]) {
     setNoteDraft((current) => {
       const normalized = current.trimEnd();
@@ -698,7 +703,10 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
 
   return (
     <DisclosurePanel
+      id="run-note"
       className="run-config-panel"
+      open={configOpen}
+      onToggle={(event) => setConfigOpen(event.currentTarget.open)}
       summary={
         <>
           <span>记录配置</span>
@@ -842,6 +850,13 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
       ) : null}
     </DisclosurePanel>
   );
+}
+
+function shouldOpenRunNotePanel() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.location.hash === "#run-note";
 }
 
 function ConfigBlock({ title, children }: { title: string; children: ReactNode }) {

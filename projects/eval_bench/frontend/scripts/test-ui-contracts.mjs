@@ -229,11 +229,14 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v14") &&
+  overviewPage.includes("overview-home-v15") &&
     overviewPage.includes("overview-command-deck") &&
     overviewPage.includes("overview-decision-panel") &&
     overviewPage.includes("overview-pulse-panel") &&
     overviewPage.includes("overview-loop-panel") &&
+    overviewPage.includes("OverviewDecisionMetrics") &&
+    overviewPage.includes("overview-decision-metrics") &&
+    overviewPage.includes("overview-decision-metric") &&
     overviewPage.includes("OverviewScoreDial") &&
     overviewPage.includes("overview-score-dial") &&
     overviewPage.includes("OverviewRunFocus") &&
@@ -272,6 +275,7 @@ assert(
     !overviewPage.includes("overview-home-v10") &&
     !overviewPage.includes("overview-home-v11") &&
     !overviewPage.includes("overview-home-v12") &&
+    !overviewPage.includes("overview-home-v14") &&
     !overviewPage.includes("OverviewRouteList") &&
     !overviewPage.includes("overviewRouteActions") &&
     !overviewPage.includes("overview-route-panel") &&
@@ -316,11 +320,12 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v14: two-column operations desk") &&
-    styleSource.includes("@keyframes overview-v14-sweep") &&
-    styleSource.includes("@keyframes overview-v14-live") &&
-    styleSource.includes("@keyframes overview-v14-float") &&
-    styleSource.includes("@keyframes overview-v14-radar") &&
+  styleSource.includes("Overview v15: four-module operations cockpit") &&
+    styleSource.includes(".overview-home-v15 .overview-decision-metric:hover") &&
+    styleSource.includes("@keyframes overview-v15-sweep") &&
+    styleSource.includes("@keyframes overview-v15-live") &&
+    styleSource.includes("@keyframes overview-v15-float") &&
+    styleSource.includes("@keyframes overview-v15-radar") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
@@ -340,6 +345,7 @@ assert(
     "overview-home-v11",
     "overview-home-v12",
     "overview-home-v13",
+    "overview-home-v14",
     "overview-command-shell",
     "overview-now-panel",
     "overview-live-panel",
@@ -359,7 +365,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must expose the active v14 surface and block deprecated design tracks",
+  "overview stylesheet must expose the active v15 surface and block deprecated design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
@@ -445,6 +451,16 @@ assert(
   "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
 );
 const runTables = await readSource("src/runTables.tsx");
+assert(
+  runTables.includes('hash="run-note"') &&
+    runTables.includes('className={row.original.note ? "run-note-preview" : "run-note-preview empty"}') &&
+    runsPage.includes("function shouldOpenRunNotePanel(") &&
+    runsPage.includes('id="run-note"') &&
+    runsPage.includes("open={configOpen}") &&
+    runsPage.includes("setConfigOpen(event.currentTarget.open)") &&
+    runsPage.includes("defaultOpen={shouldOpenRunNotePanel()}"),
+  "run note previews must deep-link to the editable run note panel",
+);
 assert(
   formattersSource.includes("export function f1Score(") &&
     formattersSource.includes("export function runF1Score(") &&

@@ -243,9 +243,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能用固定 `limit=200` 的首屏 slice 代替完整结果浏览。
 - 新增总览运行态信号：只能消费 store、job、service、scheduler 这些现有 API/CLI 真源；总览页保持粗粒度总控视角，
   不能重新展示 precision、recall、mIoU 等精细评测指标。
-- 新增总览视觉模块：优先用主判断区、hero next action、F1 dial、最佳 run focus、四个可行动信号和评测闭环 spine
+- 新增总览视觉模块：优先用主判断区、核心判断指标、hero next action、F1 dial、最佳 run focus、四个可行动信号和评测闭环 spine
   服务“当前是否可行动、F1 主指标是否成立、卡点在哪里”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或
-  Run/Ops/Volume 面板组；总览主体保持 v14 operations desk：顶部两列只放主判断区和 pulse panel，下方只放评测闭环 spine
+  Run/Ops/Volume 面板组；总览主体保持 v15 four-module cockpit：顶部两列只放主判断区和 pulse panel，下方只放评测闭环 spine
   与最近 run 产物流。
   主判断区只能承载当前系统态、同步状态、当前优先动作和当前最佳 run 摘要，不能回流二级诊断，也不能使用只表达装饰关系的
   orbit 图。pulse panel 固定展示 F1 dial、报告覆盖、待评估、任务队列和模型服务四个可点击入口；
@@ -253,12 +253,14 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   必须按 `created_at` 倒序截取，并以压缩 run stream 展示 benchmark/model、prediction/report
   产物信号、创建时间和状态胶囊，不能依赖 API 返回顺序，也不能回退为普通细指标列表。compact / narrow 视口允许页面滚动，但不能把
   hero、signal 或 recent 核心面板压缩成不可读的折叠外壳。
-  v14 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
+  v15 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
   不得引入独立于 store/job/service/scheduler 真源的前端私有业务语义。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
   compact / narrow 视口需要滚动时由 Overview 页面栈承担，command desk 不应把核心面板裁成独立折叠容器；
   最近 run 只保留可点击紧凑摘要，不承载二级诊断面板。
+- 新增 run note 入口：Runs 表格中的 note 摘要只能作为跳转到 Run Inspector 备注编辑面板的入口，
+  不能在列表页复制第二套 note 编辑状态；`runsPage.tsx` 的编辑器仍是 Dashboard note UI 真源。
 - 新增 dashboard 交互动效：hover、pulse、rail transition 和入场动画只用于状态反馈、可点击性和实时感；
   不允许用大面积装饰动画替代信息结构，也不能让动效改变数据语义或造成滚动/布局抖动。
 - 新增 dashboard 通用交互反馈：优先扩展共享按钮、卡片、表格行、chip、导航和状态胶囊的 hover/focus/active

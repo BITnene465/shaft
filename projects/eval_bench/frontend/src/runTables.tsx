@@ -180,13 +180,16 @@ export function RunTable({
             header: "备注",
             id: "note",
             cell: ({ row }) => (
-              <span
+              <Link
+                to="/runs/$runId"
+                params={{ runId: row.original.run_id }}
+                hash="run-note"
                 className={row.original.note ? "run-note-preview" : "run-note-preview empty"}
                 title={row.original.note || "未记录备注"}
               >
                 <FileText size={13} />
                 {row.original.note || "未记录"}
-              </span>
+              </Link>
             )
           } satisfies ColumnDef<RunSummary>
         ]),

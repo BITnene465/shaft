@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Overview v14 仍像低价值状态墙
+
+### 现象
+
+总览页已经从低价值面板墙收敛到 v14 operations desk，但主判断区仍以大标题为主，核心指标需要在多个
+卡片之间跳读；列表里的 run note 也只是静态摘要，不能直接进入可编辑备注面板。用户继续反馈首页没有价值、
+缺少互动感。
+
+### 根因
+
+v14 解决了“不要堆面板”的问题，但没有把首屏判断压到足够明确的四个高价值模块：下一步动作、F1/报告覆盖、
+评测闭环卡点、最近产物。run note 列表入口也没有复用已有编辑器深链。这是前端信息架构和交互入口问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard Overview 第一屏判断效率、hover/focus 反馈和 run note 入口效率。
+- 不影响 dashboard API、store、rank-board 默认 F1、weighted scheme、report 或 comparison 语义。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v15` four-module cockpit：主判断区新增三张核心判断指标卡，保留 pulse panel、
+  评测闭环 spine 和最近 run 产物流。
+- 降低无效 hero 占比，把报告覆盖、主指标 F1 和队列阻塞直接放进可点击进度 rail。
+- 扩展共享 hover/active 反馈到 nav、按钮、状态胶囊、badge 和 run note 摘要入口。
+- Runs 表格备注摘要改为 `#run-note` 深链，打开 Run Inspector 时自动展开同一套 note 编辑器。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 新增模块必须强化“下一步动作、F1 主指标、闭环卡点、最近产物”之一。
+- 首页交互动效只能服务可点击性、实时同步感和状态扫描；不能用装饰动画替代信息结构。
+- 列表页只能提供 run note 入口，不复制第二套 note 编辑状态。
+
 ## 2026-05-26: Eval Bench Viewer 可见计数仍携带未展示精细指标
 
 ### 现象

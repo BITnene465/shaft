@@ -15,9 +15,11 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v14",
+      ".overview-home-v15",
       ".overview-command-deck",
       ".overview-decision-panel",
+      ".overview-decision-metrics",
+      ".overview-decision-metric",
       ".overview-run-focus",
       ".overview-loop-panel",
       ".overview-flow-spine",
@@ -495,7 +497,11 @@ async function assertOverviewDensity(page, scope) {
     const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
     const nextAction = document.querySelector(".overview-next-action");
+    const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
+    const decisionMetricRails = Array.from(
+      document.querySelectorAll(".overview-decision-metric > i > b")
+    ).map((node) => Math.round(node.getBoundingClientRect().width));
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
@@ -510,6 +516,7 @@ async function assertOverviewDensity(page, scope) {
     const loopPanelStyle = loopPanel ? getComputedStyle(loopPanel) : null;
     const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
     const nextActionStyle = nextAction ? getComputedStyle(nextAction) : null;
+    const decisionMetricStyle = decisionMetric ? getComputedStyle(decisionMetric) : null;
     const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
     const bodyText = document.querySelector(".dashboard-home")?.textContent ?? "";
     return {
@@ -518,6 +525,8 @@ async function assertOverviewDensity(page, scope) {
       scoreDials: document.querySelectorAll(".overview-score-dial").length,
       runFocusCards: document.querySelectorAll(".overview-run-focus").length,
       nextActions: document.querySelectorAll(".overview-next-action").length,
+      decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
+      decisionMetricRails,
       signalCards,
       signalRails,
       runArtifactRails: document.querySelectorAll(".overview-run-artifacts i b").length,
@@ -544,6 +553,7 @@ async function assertOverviewDensity(page, scope) {
       loopPanelDisplay: loopPanelStyle?.display ?? "",
       recentCardDisplay: recentCardStyle?.display ?? "",
       nextActionTransition: nextActionStyle?.transitionDuration ?? "",
+      decisionMetricTransition: decisionMetricStyle?.transitionDuration ?? "",
       scoreDialTransition: scoreDialStyle?.transitionDuration ?? ""
     };
   });
@@ -580,6 +590,7 @@ async function assertOverviewDensity(page, scope) {
     state.scoreDials !== 1 ||
     state.runFocusCards !== 1 ||
     state.nextActions !== 1 ||
+    state.decisionMetrics !== 3 ||
     state.signalCards.length !== 4
   ) {
     throw new Error(
@@ -588,6 +599,7 @@ async function assertOverviewDensity(page, scope) {
         scoreDials: state.scoreDials,
         runFocusCards: state.runFocusCards,
         nextActions: state.nextActions,
+        decisionMetrics: state.decisionMetrics,
         signalCards: state.signalCards.length
       })}`
     );
@@ -620,8 +632,14 @@ async function assertOverviewDensity(page, scope) {
   if (!state.nextActionTransition || state.nextActionTransition === "0s") {
     throw new Error(`${scope}: overview next action is missing interaction transition`);
   }
+  if (!state.decisionMetricTransition || state.decisionMetricTransition === "0s") {
+    throw new Error(`${scope}: overview decision metrics are missing interaction transition`);
+  }
   if (!state.scoreDialTransition || state.scoreDialTransition === "0s") {
     throw new Error(`${scope}: overview score dial is missing interaction transition`);
+  }
+  if (state.decisionMetricRails.length !== 3 || state.decisionMetricRails.some((width) => width < 0)) {
+    throw new Error(`${scope}: overview decision metrics should expose progress rails`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
