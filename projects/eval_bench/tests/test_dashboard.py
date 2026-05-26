@@ -106,6 +106,10 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "multitask_val_v1"
     assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]
     assert benchmarks["total"] == 1
+    benchmark_detail = client.get("/api/benchmarks/multitask_val_v1")
+    assert benchmark_detail.status_code == 200
+    assert benchmark_detail.json()["benchmark"]["benchmark_id"] == "multitask_val_v1"
+    assert client.get("/api/benchmarks/not_found").status_code == 404
     filtered_benchmarks = client.get(
         "/api/benchmarks",
         params={"task": "detection", "layer": "layout", "split": "val", "query": "multitask"},
@@ -121,6 +125,10 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     runs = client.get("/api/runs").json()
     assert runs["runs"][0]["run_id"] == "run1"
     assert runs["total"] == 1
+    run_detail = client.get("/api/runs/run1")
+    assert run_detail.status_code == 200
+    assert run_detail.json()["run"]["run_id"] == "run1"
+    assert client.get("/api/runs/not_found").status_code == 404
     filtered_runs = client.get(
         "/api/runs",
         params={
@@ -138,8 +146,15 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     templates = client.get("/api/job-templates").json()["templates"]
     assert "eval_job" in templates
     assert "preannotate_job" not in templates
+    template_detail = client.get("/api/job-templates/eval_job")
+    assert template_detail.status_code == 200
+    assert template_detail.json()["template"]["manifest"]["kind"] == "eval_job"
+    assert client.get("/api/job-templates/not_found").status_code == 404
     prompt_templates = client.get("/api/prompt-templates").json()
     assert "grounding_layout.latest" in prompt_templates["by_id"]
+    prompt_template_detail = client.get("/api/prompt-templates/grounding_layout.latest")
+    assert prompt_template_detail.status_code == 200
+    assert prompt_template_detail.json()["template"]["prompt_id"] == "grounding_layout.latest"
     saved_prompt = client.post(
         "/api/prompt-templates",
         json={
@@ -156,6 +171,10 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     )
     assert saved_prompt.status_code == 201
     assert saved_prompt.json()["prompt_id"] == "custom.layout"
+    custom_prompt_detail = client.get("/api/prompt-templates/custom.layout")
+    assert custom_prompt_detail.status_code == 200
+    assert custom_prompt_detail.json()["template"]["prompt_id"] == "custom.layout"
+    assert client.get("/api/prompt-templates/not_found").status_code == 404
 
     model_path = tmp_path / "models" / "model-a" / "best"
     model_path.mkdir(parents=True)
@@ -215,6 +234,10 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     jobs = client.get("/api/jobs").json()
     assert jobs["jobs"][0]["job_id"] == created_payload["job_id"]
     assert jobs["total"] == 1
+    job_detail = client.get(f"/api/jobs/{created_payload['job_id']}")
+    assert job_detail.status_code == 200
+    assert job_detail.json()["job"]["job_id"] == created_payload["job_id"]
+    assert client.get("/api/jobs/not_found").status_code == 404
     filtered_jobs = client.get(
         "/api/jobs",
         params={"kind": "eval", "status": "queued", "query": "custom.layout"},
@@ -952,6 +975,11 @@ def test_dashboard_exposes_service_registry(tmp_path: Path) -> None:
     assert filtered["total"] == 1
     assert filtered["services"][0]["service_id"] == "local-vllm-0"
 
+    detail = client.get("/api/services/local-vllm-0")
+    assert detail.status_code == 200
+    assert detail.json()["service"]["service_id"] == "local-vllm-0"
+    assert client.get("/api/services/not_found").status_code == 404
+
     command = client.get("/api/services/local-vllm-0/command").json()["command"]
     assert command[1:4] == ["-m", "vllm.entrypoints.openai.api_server", "--model"]
     assert "outputs/model/best" in command
@@ -1432,6 +1460,10 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
     assert listed["comparisons"][0]["baseline_run_id"] == "baseline"
     assert listed["comparisons"][0]["candidate_run_id"] == "candidate"
     assert listed["total"] == 1
+    detail = client.get("/api/comparisons/baseline__vs__candidate")
+    assert detail.status_code == 200
+    assert detail.json()["comparison_id"] == "baseline__vs__candidate"
+    assert client.get("/api/comparisons/not_found").status_code == 404
 
     filtered = client.get(
         "/api/comparisons",

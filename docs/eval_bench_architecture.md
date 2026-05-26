@@ -213,6 +213,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `argv_prefix`、稳定单行 `usage` 和 `api_routes`。Dashboard 必须暴露
   `GET /api/agent/commands` 与 `GET /api/agent/commands/{name}`，复用同一份 command contract；
   这样 HTTP agent 可以发现 API 等价入口、method、path、query 参数和 body 形态，而不是猜 URL。
+  稳定 `show-*` CLI 应有对应单对象 HTTP detail route，例如 benchmark、run、job、job template、
+  prompt template、service 和 comparison 的 detail API；不能要求 HTTP agent 先拉列表再本地匹配 id。
   参数 schema 从 argparse parser 自动导出为 `arguments` 和
   `mutually_exclusive_groups`；如果一个参数的 choices 同时包含不同语义类别，还必须通过
   `argument_semantics` 给 agent 暴露结构化分类，例如 Rank Board 的 `sort_by` 需要区分 primary metrics、

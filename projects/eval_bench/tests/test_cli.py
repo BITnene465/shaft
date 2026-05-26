@@ -261,6 +261,23 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["list-agent-commands"]["api_routes"][0]["path"] == "/api/agent/commands"
     assert commands_by_name["dashboard-state"]["api_routes"][0]["path"] == "/api/state"
     assert commands_by_name["rank-board"]["api_routes"][0]["path"] == "/api/rank-board"
+    assert commands_by_name["show-benchmark"]["api_routes"][0]["path"] == (
+        "/api/benchmarks/{benchmark_id}"
+    )
+    assert commands_by_name["show-run"]["api_routes"][0]["path"] == "/api/runs/{run_id}"
+    assert commands_by_name["show-job"]["api_routes"][0]["path"] == "/api/jobs/{job_id}"
+    assert commands_by_name["show-job-template"]["api_routes"][0]["path"] == (
+        "/api/job-templates/{template_id}"
+    )
+    assert commands_by_name["show-prompt-template"]["api_routes"][0]["path"] == (
+        "/api/prompt-templates/{prompt_id}"
+    )
+    assert commands_by_name["show-service"]["api_routes"][0]["path"] == (
+        "/api/services/{service_id}"
+    )
+    assert commands_by_name["show-comparison"]["api_routes"][0]["path"] == (
+        "/api/comparisons/{comparison_id}"
+    )
     assert (
         "rank_scheme" in commands_by_name["rank-board"]["api_routes"][0]["query_params"]
     )
@@ -755,6 +772,18 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     )
     assert "manifest paths" in list_benchmarks_command["argument_semantics"]["filters"]["query"]
 
+    show_run_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run"])
+    _cmd_show_agent_command(show_run_args)
+    show_run_command = json.loads(capsys.readouterr().out)["command"]
+    assert show_run_command["api_routes"][0]["path"] == "/api/runs/{run_id}"
+
+    show_benchmark_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "show-benchmark"]
+    )
+    _cmd_show_agent_command(show_benchmark_args)
+    show_benchmark_command = json.loads(capsys.readouterr().out)["command"]
+    assert show_benchmark_command["api_routes"][0]["path"] == "/api/benchmarks/{benchmark_id}"
+
     sample_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run-sample"])
     _cmd_show_agent_command(sample_args)
     sample_command = json.loads(capsys.readouterr().out)["command"]
@@ -790,6 +819,7 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     )
     _cmd_show_agent_command(job_template_args)
     job_template_command = json.loads(capsys.readouterr().out)["command"]
+    assert job_template_command["api_routes"][0]["path"] == "/api/job-templates/{template_id}"
     assert (
         job_template_command["output_schema"]["properties"]["template"]["item_shape"]["manifest"]
         == "object"
@@ -820,6 +850,7 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     service_args = _build_parser().parse_args(["show-agent-command", "--name", "show-service"])
     _cmd_show_agent_command(service_args)
     service_command = json.loads(capsys.readouterr().out)["command"]
+    assert service_command["api_routes"][0]["path"] == "/api/services/{service_id}"
     assert service_command["output_schema"]["properties"]["service"]["item_shape"]["service_id"] == "str"
     assert service_command["output_schema"]["properties"]["service"]["item_shape"]["runtime"] == "object"
 
@@ -851,6 +882,13 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
         ]
         == "object|null"
     )
+
+    show_comparison_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "show-comparison"]
+    )
+    _cmd_show_agent_command(show_comparison_args)
+    show_comparison_command = json.loads(capsys.readouterr().out)["command"]
+    assert show_comparison_command["api_routes"][0]["path"] == "/api/comparisons/{comparison_id}"
 
 
 def _write_sample_store(tmp_path: Path) -> None:

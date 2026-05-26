@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 import hashlib
 import json
 import logging
@@ -25,6 +26,7 @@ from .comparison import (
     compare_runs,
     filter_comparison_reports,
     list_comparison_reports,
+    load_comparison_report,
     run_sample_detail_payload,
 )
 from .database import EvalBenchDatabase
@@ -500,6 +502,14 @@ def create_app(
         )
         return JSONResponse(page.to_dict())
 
+    @app.get("/api/benchmarks/{benchmark_id}")
+    async def benchmark_detail(benchmark_id: str, request: Request):
+        try:
+            benchmark = request.app.state.eval_bench_store.benchmark(benchmark_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse({"benchmark": asdict(benchmark)})
+
     @app.post("/api/benchmarks")
     async def create_benchmark(request: Request):
         payload = await request.json()
@@ -711,6 +721,20 @@ def create_app(
             query=query,
         )
         return JSONResponse(page.to_dict())
+
+    @app.get("/api/runs/{run_id}")
+    async def run_detail(run_id: str, request: Request):
+        run = next(
+            (
+                item
+                for item in request.app.state.eval_bench_store.runs()
+                if item.run_id == str(run_id)
+            ),
+            None,
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"run does not exist: {run_id}")
+        return JSONResponse({"run": asdict(run)})
 
     @app.get("/api/rank-board")
     async def rank_board(
@@ -1044,6 +1068,13 @@ def create_app(
         )
         return JSONResponse(page.to_dict())
 
+    @app.get("/api/jobs/{job_id}")
+    async def job_detail(job_id: str, request: Request):
+        record = request.app.state.eval_bench_database.get_job(job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"job does not exist: {job_id}")
+        return JSONResponse({"job": record.to_dict()})
+
     @app.get("/api/jobs/{job_id}/logs")
     async def job_logs(job_id: str, request: Request, max_lines: int = 200):
         record = request.app.state.eval_bench_database.get_job(job_id)
@@ -1066,7 +1097,16 @@ def create_app(
 
     @app.get("/api/job-templates")
     async def templates(request: Request):
+        del request
         return JSONResponse({"templates": job_templates()})
+
+    @app.get("/api/job-templates/{template_id}")
+    async def job_template_detail(template_id: str, request: Request):
+        del request
+        template = job_templates().get(template_id)
+        if template is None:
+            raise HTTPException(status_code=404, detail=f"job template does not exist: {template_id}")
+        return JSONResponse({"template": template})
 
     @app.get("/api/prompt-templates")
     async def prompt_templates(request: Request, task: str | None = None):
@@ -1077,6 +1117,16 @@ def create_app(
                 "by_id": {record.prompt_id: record.to_dict() for record in records},
             }
         )
+
+    @app.get("/api/prompt-templates/{prompt_id}")
+    async def prompt_template_detail(prompt_id: str, request: Request):
+        record = request.app.state.eval_bench_database.get_prompt_template(prompt_id)
+        if record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"prompt template does not exist: {prompt_id}",
+            )
+        return JSONResponse({"template": record.to_dict()})
 
     @app.post("/api/prompt-templates")
     async def upsert_prompt_template(request: Request):
@@ -1171,6 +1221,14 @@ def create_app(
             query=query,
         )
         return JSONResponse(page.to_dict())
+
+    @app.get("/api/services/{service_id}")
+    async def service_detail(service_id: str, request: Request):
+        try:
+            record = request.app.state.eval_bench_services.service(service_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse({"service": record.to_dict()})
 
     @app.post("/api/services")
     async def create_service(request: Request):
@@ -1321,6 +1379,19 @@ def create_app(
                 "candidate": _run_sample_detail_payload(candidate_run_id, candidate),
             }
         )
+
+    @app.get("/api/comparisons/{comparison_id}")
+    async def saved_comparison_detail(comparison_id: str, request: Request):
+        try:
+            payload = load_comparison_report(
+                store_root=request.app.state.eval_bench_store.layout.root,
+                comparison_id=comparison_id,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(payload)
 
     @app.post("/api/jobs")
     async def create_job(request: Request):

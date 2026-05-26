@@ -228,9 +228,9 @@ export function OverviewPage() {
       progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "主指标",
+      label: "报告评分",
       value: evaluatedRuns.toLocaleString(),
-      detail: evaluatedRuns > 0 ? "F1 报告已生成" : "等待报告",
+      detail: evaluatedRuns > 0 ? "F1 populated" : "no report yet",
       to: "/rank-board",
       tone: evaluatedRuns > 0 ? "good" : "idle",
       icon: <AppIcon name="rankBoard" size={17} />,
@@ -659,7 +659,7 @@ function overviewNextAction({
     return {
       label: "评估报告",
       value: evaluatedRuns.toLocaleString(),
-      detail: "F1 主指标已生成",
+      detail: "报告指标已写入",
       to: "/rank-board",
       tone: "good",
       icon: <Trophy size={16} />
@@ -710,7 +710,7 @@ function overviewPostureLine({
     return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
   if (evaluatedRuns > 0) {
-    return `${evaluatedRuns.toLocaleString()} 份报告已生成，可进入排序与对比工作区。`;
+    return `${evaluatedRuns.toLocaleString()} 份报告已生成，首页只保留闭环覆盖和最佳 F1 状态。`;
   }
   if (serviceCount > 0 && liveServices === 0) {
     return "模型服务已登记但当前空闲，发起任务前先确认运行时。";

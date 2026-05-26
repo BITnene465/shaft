@@ -192,6 +192,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             "description": "List benchmarks with server-side filters.",
         }
     ],
+    "show-benchmark": [
+        {
+            "method": "GET",
+            "path": "/api/benchmarks/{benchmark_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one benchmark summary.",
+        }
+    ],
     "list-benchmark-samples": [
         {
             "method": "GET",
@@ -228,6 +237,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             ],
             "body": None,
             "description": "List runs with server-side filters.",
+        }
+    ],
+    "show-run": [
+        {
+            "method": "GET",
+            "path": "/api/runs/{run_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one run summary.",
         }
     ],
     "rank-board": [
@@ -353,6 +371,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             "description": "List jobs with server-side filters.",
         }
     ],
+    "show-job": [
+        {
+            "method": "GET",
+            "path": "/api/jobs/{job_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one persistent Eval Bench job.",
+        }
+    ],
     "preflight-job": [
         {
             "method": "POST",
@@ -389,6 +416,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             "description": "List manifest-first job templates.",
         }
     ],
+    "show-job-template": [
+        {
+            "method": "GET",
+            "path": "/api/job-templates/{template_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one manifest-first job template.",
+        }
+    ],
     "list-prompt-templates": [
         {
             "method": "GET",
@@ -396,6 +432,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             "query_params": ["task"],
             "body": None,
             "description": "List prompt templates.",
+        }
+    ],
+    "show-prompt-template": [
+        {
+            "method": "GET",
+            "path": "/api/prompt-templates/{prompt_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one prompt template.",
         }
     ],
     "upsert-prompt-template": [
@@ -450,6 +495,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             "query_params": ["offset", "limit", "kind", "status", "query"],
             "body": None,
             "description": "List model services with server-side filters.",
+        }
+    ],
+    "show-service": [
+        {
+            "method": "GET",
+            "path": "/api/services/{service_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one model service.",
         }
     ],
     "register-service": [
@@ -539,6 +593,15 @@ AGENT_COMMAND_API_ROUTES: dict[str, list[dict[str, object]]] = {
             ],
             "body": None,
             "description": "List saved comparison reports.",
+        }
+    ],
+    "show-comparison": [
+        {
+            "method": "GET",
+            "path": "/api/comparisons/{comparison_id}",
+            "query_params": [],
+            "body": None,
+            "description": "Read one saved comparison report.",
         }
     ],
     "show-comparison-sample": [
