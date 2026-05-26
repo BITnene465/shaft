@@ -151,6 +151,14 @@ def _assert_schema_type(schema_type: str, value: object, path: str) -> None:
         assert isinstance(value, bool), f"{path}: expected bool"
 
 
+def _assert_paged_schema(schema: dict[str, object]) -> None:
+    properties = schema["properties"]
+    assert properties["offset"]["type"] == "int"
+    assert properties["limit"]["type"] == "int"
+    assert properties["total"]["type"] == "int"
+    assert properties["filters"]["type"] == "object"
+
+
 def test_cli_parser_commands_have_handlers() -> None:
     command_names = _parser_command_names()
     handler_names = set(_command_handlers())
@@ -251,6 +259,11 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "facets",
         "entries",
     ]
+    _assert_paged_schema(rank_output_schema)
+    assert rank_output_schema["properties"]["evaluated_count"]["type"] == "int"
+    assert rank_output_schema["properties"]["primary_metric"]["type"] == "str"
+    assert rank_output_schema["properties"]["primary_metric_label"]["type"] == "str"
+    assert rank_output_schema["properties"]["rank_scheme"]["type"] == "object|null"
     assert rank_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "benchmarks",
@@ -273,6 +286,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "facets",
         "benchmarks",
     ]
+    _assert_paged_schema(benchmark_output_schema)
     assert benchmark_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "layers",
@@ -314,6 +328,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     runs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-runs"]
     assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "runs"]
+    _assert_paged_schema(runs_output_schema)
     assert runs_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "benchmarks",
@@ -340,6 +355,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "labels",
         "samples",
     ]
+    _assert_paged_schema(run_samples_output_schema)
     assert run_samples_output_schema["properties"]["filters"]["type"] == "object"
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["gt_instance_count"] == "int"
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["diagnostics"] == "object|null"
@@ -349,6 +365,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     )
     benchmark_samples_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-benchmark-samples"]
     assert "filters" in benchmark_samples_output_schema["required"]
+    _assert_paged_schema(benchmark_samples_output_schema)
     assert benchmark_samples_output_schema["properties"]["filters"]["type"] == "object"
     assert benchmark_samples_output_schema["properties"]["samples"]["item_shape"]["instance_count"] == "int"
     assert (
@@ -359,6 +376,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     )
     jobs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-jobs"]
     assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "jobs"]
+    _assert_paged_schema(jobs_output_schema)
     assert jobs_output_schema["properties"]["facets"]["keys"] == ["kinds", "statuses"]
     assert jobs_output_schema["properties"]["facets"]["item_shape"] == {
         "value": "str",
@@ -375,6 +393,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         ]["manifest"]
         == "object"
     )
+    assert CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"]["properties"]["total"]["type"] == "int"
+    assert CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"]["properties"]["filters"]["type"] == "object"
     assert (
         CLI_JSON_OUTPUT_SCHEMAS["show-job-template"]["properties"]["template"][
             "item_shape"
@@ -382,6 +402,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         == "str"
     )
     prompt_templates_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-prompt-templates"]
+    _assert_paged_schema(prompt_templates_output_schema)
     assert prompt_templates_output_schema["properties"]["templates"]["item_shape"]["metadata"] == "object"
     assert prompt_templates_output_schema["properties"]["by_id"]["item_shape"]["prompt_id"] == "str"
     assert (
@@ -413,6 +434,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "facets",
         "services",
     ]
+    _assert_paged_schema(services_output_schema)
     assert services_output_schema["properties"]["facets"]["keys"] == ["kinds", "statuses"]
     assert services_output_schema["properties"]["facets"]["item_shape"] == {
         "value": "str",
@@ -456,6 +478,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]
     assert CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]["type"] == "object"
     comparisons_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-comparisons"]
+    _assert_paged_schema(comparisons_output_schema)
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["delta"] == "object"
     assert CLI_JSON_OUTPUT_SCHEMAS["show-comparison"]["properties"]["summary"] == "object"

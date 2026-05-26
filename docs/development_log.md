@@ -8207,6 +8207,42 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench paged CLI schema 补齐分页字段类型
+
+### 现象
+
+多个稳定 CLI 的 JSON schema 已经把 `offset`、`limit`、`total` 和 `filters` 写进 required，
+但 properties 里没有同步声明这些字段类型。`rank-board` 还缺少部分 top-level 主指标字段的类型说明。
+Agent 能确认字段存在，却仍要从样例 payload 猜分页合同和主指标字段形状。
+
+### 根因
+
+前几轮优先补齐了真实分页 payload、facet 目录和 item shape，schema 顶层分页字段没有抽成共享片段，
+导致 required 和 properties 的覆盖范围漂移。
+
+### 影响范围
+
+- 影响 agent / 脚本对 `rank-board`、列表命令、样本列表和 comparison 列表的静态 JSON 合约判断。
+- 不改变 CLI stdout 的实际字段、Dashboard API、前端筛选逻辑或评估指标。
+
+### 修复方式
+
+- CLI schema 增加 `PAGED_LIST_OUTPUT_SHAPE`，统一声明 `offset`、`limit`、`total` 和 `filters` 类型。
+- `rank-board`、`list-benchmarks`、`list-runs`、`list-run-samples`、`list-benchmark-samples`、
+  `list-prompt-templates`、`list-jobs`、`list-services` 和 `list-comparisons` 复用该 schema。
+- `rank-board` 补齐 `evaluated_count`、`primary_metric`、`primary_metric_label`、`rank_scheme`
+  等 top-level 字段类型。
+- README 和 `docs/scripts.md` 同步记录分页 schema 合约。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands`
+
+### 后续防线
+
+- 新增分页式 CLI 时，不能只在 required 里声明字段存在；分页字段、filters、facets 和 item shape
+  必须同时进入 properties，并由 CLI schema 测试锁住。
+
 ## 2026-05-26: Eval Bench layout smoke 文档移除 Overview loop 旧称
 
 ### 现象

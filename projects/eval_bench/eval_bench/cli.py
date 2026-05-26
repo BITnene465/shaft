@@ -261,6 +261,12 @@ SERVICE_FACET_OUTPUT_SCHEMA = {
     "keys": ["kinds", "statuses"],
     "item_shape": FACET_BUCKET_OUTPUT_SHAPE,
 }
+PAGED_LIST_OUTPUT_SHAPE = {
+    "offset": {"type": "int"},
+    "limit": {"type": "int"},
+    "total": {"type": "int"},
+    "filters": {"type": "object"},
+}
 CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "dashboard-state": {
         "type": "object",
@@ -400,6 +406,14 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "entries",
         ],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
+            "evaluated_count": {"type": "int"},
+            "primary_metric": {"type": "str"},
+            "primary_metric_label": {"type": "str"},
+            "sort_by": {"type": "str"},
+            "sort_order": {"type": "str"},
+            "score_formula": {"type": "str"},
+            "rank_scheme": {"type": "object|null"},
             "facets": RUN_FACET_OUTPUT_SCHEMA,
             "entries": {
                 "type": "array",
@@ -427,6 +441,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "benchmarks"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "facets": BENCHMARK_FACET_OUTPUT_SCHEMA,
             "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
@@ -442,6 +457,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "runs"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "facets": RUN_FACET_OUTPUT_SCHEMA,
             "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
@@ -459,8 +475,8 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["run_id", "offset", "limit", "total", "filters", "labels", "samples"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "run_id": {"type": "str"},
-            "filters": {"type": "object"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
         },
@@ -498,8 +514,8 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "samples",
         ],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "benchmark_id": {"type": "str"},
-            "filters": {"type": "object"},
             "labels": {"type": "list[str]"},
             "samples": {"type": "array", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
         },
@@ -518,6 +534,8 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["templates", "total", "filters"],
         "properties": {
+            "total": {"type": "int"},
+            "filters": {"type": "object"},
             "templates": {"type": "object", "item_shape": JOB_TEMPLATE_OUTPUT_SHAPE},
         },
     },
@@ -533,6 +551,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "templates", "by_id"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "templates": {"type": "array", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
             "by_id": {"type": "object", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
         },
@@ -620,6 +639,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "jobs"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "facets": JOB_FACET_OUTPUT_SCHEMA,
             "jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
         },
@@ -638,6 +658,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "facets", "services"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "facets": SERVICE_FACET_OUTPUT_SCHEMA,
             "services": {"type": "array", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
         },
@@ -765,6 +786,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": ["offset", "limit", "total", "filters", "comparisons"],
         "properties": {
+            **PAGED_LIST_OUTPUT_SHAPE,
             "comparisons": {"type": "array", "item_shape": COMPARISON_SUMMARY_OUTPUT_SHAPE},
         },
     },
