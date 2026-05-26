@@ -537,7 +537,8 @@ Run note 编辑器中暴露。note 真源和后端语义没有问题，这是 Da
 - `RunConfigPanel` 接入 `appendRunNote()`，新增“追加线索”输入区和 heading select。
 - 覆盖保存和追加保存都维护 `savedNote` / `noteVersion`，成功后同步更新 draft、清空追加输入并刷新 dashboard state。
 - UI contract 要求 Run note 编辑器保留模板、append mutation、追加面板和 409 刷新逻辑。
-- layout smoke 打开 run config 面板后检查模板栏和追加线索入口同时存在。
+- Run note 编辑器增加内部 `overflow-y: auto` 与稳定最大高度，追加 textarea 增加可用高度，避免长 note 把 Run Inspector 顶出可视区域。
+- layout smoke 打开 run config 面板后检查模板栏、追加线索入口、textarea 高度、追加按钮可见性和编辑器滚动边界。
 
 ### 回归测试
 

@@ -1029,17 +1029,48 @@ async function assertRunNoteTemplates(page, scope) {
     const appendAction = Array.from(appendPanel?.querySelectorAll("button") ?? []).find((button) =>
       (button.textContent ?? "").includes("追加线索")
     );
+    const editor = document.querySelector(".run-note-editor");
+    const editorTextarea = editor?.querySelector(":scope > textarea");
+    const actionRect = appendAction?.getBoundingClientRect();
+    const appendRect = appendPanel?.getBoundingClientRect();
+    const editorStyle = editor ? getComputedStyle(editor) : null;
     return {
       hasBar: Boolean(bar),
       hasAppendPanel: Boolean(appendPanel),
       hasAppendTextarea: Boolean(appendTextarea),
       hasAppendAction: Boolean(appendAction),
       buttonCount: buttons.length,
-      labels: buttons.map((button) => button.textContent?.trim() ?? "")
+      labels: buttons.map((button) => button.textContent?.trim() ?? ""),
+      editorHeight: editor ? Math.round(editor.getBoundingClientRect().height) : 0,
+      editorOverflowY: editorStyle?.overflowY ?? "",
+      editorTextareaHeight: editorTextarea
+        ? Math.round(editorTextarea.getBoundingClientRect().height)
+        : 0,
+      appendTextareaHeight: appendTextarea
+        ? Math.round(appendTextarea.getBoundingClientRect().height)
+        : 0,
+      appendActionVisible: Boolean(
+        actionRect &&
+          appendRect &&
+          actionRect.width > 0 &&
+          actionRect.height > 0 &&
+          actionRect.bottom <= appendRect.bottom + 2
+      )
     };
   });
   if (!state.hasBar || !state.hasAppendPanel || !state.hasAppendTextarea || !state.hasAppendAction || state.buttonCount < 4) {
     throw new Error(`${scope}: run note template bar is missing templates ${JSON.stringify(state)}`);
+  }
+  if (
+    state.editorHeight < 240 ||
+    state.editorTextareaHeight < 100 ||
+    state.appendTextareaHeight < 76 ||
+    !state.appendActionVisible
+  ) {
+    throw new Error(`${scope}: run note editor collapsed or clipped ${JSON.stringify(state)}`);
+  }
+  if (!allowsScroll(state.editorOverflowY)) {
+    throw new Error(`${scope}: run note editor must own overflow when content grows ${JSON.stringify(state)}`);
   }
   for (const label of ["复现", "Idea", "异常", "Next"]) {
     if (!state.labels.includes(label)) {

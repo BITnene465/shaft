@@ -764,6 +764,8 @@ h2 {
 .run-note-editor {
   display: grid;
   gap: 8px;
+  max-height: min(58vh, 560px);
+  overflow-y: auto;
   padding: 12px;
   background:
     linear-gradient(90deg, rgba(27, 94, 122, 0.06), transparent 52%),
@@ -800,7 +802,7 @@ h2 {
 
 .run-note-editor textarea {
   width: 100%;
-  min-height: 92px;
+  min-height: 104px;
   max-height: min(28vh, 260px);
   resize: vertical;
   padding: 10px;
@@ -880,7 +882,7 @@ h2 {
 }
 
 .run-note-append-panel textarea {
-  min-height: 52px;
+  min-height: 76px;
   max-height: 120px;
 }
 
