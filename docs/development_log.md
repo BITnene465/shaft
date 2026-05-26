@@ -9,6 +9,40 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Rank Board 高级检索目录不能从 dashboard runs 推导
+
+### 现象
+
+Rank Board 已经有后端 facet rail，`/api/rank-board` 也返回完整 facets；但主筛选弹层里的任务、benchmark、
+状态、label、模型、prompt 和 metric 下拉仍从 `dashboard-state.runs` 推导。当前 store 较小时不明显，
+但 run 数量增长或 dashboard-state 被裁剪后，排行榜高级检索目录会和实际可筛选全集不一致。
+
+### 根因
+
+上一轮只把右侧 facet rail 收敛到 `board.facets`，没有同步处理 `AdvancedFilterBar` 的 select option 真源。
+这是前端状态真源分裂，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Rank Board 的高级检索目录完整性和 agent/human 对可选筛选条件的判断。
+- 不改变后端 rank-board 查询、默认 F1 主指标、weighted scheme、分页、report 或 evaluator 语义。
+
+### 修复方式
+
+- Rank Board 主筛选弹层改用 `facetValues(board?.facets, ...)` 生成选项。
+- 保留 dashboard runs 作为加载期 fallback，但后端 facets 一旦返回即成为筛选目录真源。
+- `test-ui-contracts` 增加 Rank Board 防线，要求页面使用 `facetValues()`，并禁止回退到
+  `const tasks = unique(runs...)` 这类当前数据推导。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增或调整 Rank Board 筛选控件时，选项必须来自 `/api/rank-board` facets 或明确 registry 真源；
+  不允许从当前页 entries、dashboard runs 或固定大页数请求推导目录。
+
 ## 2026-05-26: Eval Bench ops-summary schema 不能只暴露粗 object
 
 ### 现象

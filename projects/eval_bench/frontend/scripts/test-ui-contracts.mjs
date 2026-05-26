@@ -37,6 +37,7 @@ const jobsPage = await readSource("src/jobsPage.tsx");
 const runsPage = await readSource("src/runsPage.tsx");
 const benchmarksPage = await readSource("src/benchmarksPage.tsx");
 const comparePage = await readSource("src/comparePage.tsx");
+const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
@@ -67,9 +68,11 @@ assert(
 assert(
   apiSource.includes("export type FacetBuckets = Record<string, FacetBucket>;") &&
     formattersSource.includes("export function facetValues(") &&
-    [runsPage, benchmarksPage, comparePage, servicesPage, jobsPage].every((source) =>
+    [runsPage, benchmarksPage, comparePage, rankBoardPage, servicesPage, jobsPage].every((source) =>
       source.includes("facetValues(")
     ) &&
+    rankBoardPage.includes('facetValues(board?.facets, "tasks"') &&
+    !rankBoardPage.includes("const tasks = unique(runs") &&
     !runsPage.includes('fetchRuns({ limit: 500 })') &&
     !comparePage.includes('fetchRuns({ limit: 500 })') &&
     !benchmarksPage.includes('fetchBenchmarks({ limit: 500 })') &&
@@ -817,7 +820,6 @@ assert(
     !/<div[\s\S]{0,120}className="comparison-sample-row disabled"/.test(comparePage),
   "compare sample navigation rows must use shared navigation card primitives",
 );
-const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 assert(
   rankBoardPage.includes("const RANK_PAGE_SIZE = 80;") &&
     rankBoardPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&

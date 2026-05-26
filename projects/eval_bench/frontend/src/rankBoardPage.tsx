@@ -8,7 +8,7 @@ import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
-import { f1Score, formatMetric, unique } from "./formatters";
+import { f1Score, facetValues, formatMetric } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
@@ -112,14 +112,22 @@ export function RankBoardPage() {
     },
     placeholderData: (previousData) => previousData
   });
-  const tasks = unique(runs.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runs.map((run) => run.benchmark_id).filter(Boolean));
-  const statuses = unique(runs.map((run) => run.status).filter(Boolean));
-  const labels = unique(runs.flatMap((run) => run.target_labels).filter(Boolean));
-  const models = unique(runs.map((run) => run.model_id).filter(Boolean));
-  const prompts = unique(runs.map((run) => run.prompt_id).filter(Boolean));
-  const metricProfiles = unique(runs.map((run) => run.metric_profile).filter(Boolean));
   const board = boardQuery.data;
+  const tasks = facetValues(board?.facets, "tasks", runs.map((run) => run.spec_task));
+  const benchmarks = facetValues(
+    board?.facets,
+    "benchmarks",
+    runs.map((run) => run.benchmark_id)
+  );
+  const statuses = facetValues(board?.facets, "statuses", runs.map((run) => run.status));
+  const labels = facetValues(board?.facets, "labels", runs.flatMap((run) => run.target_labels));
+  const models = facetValues(board?.facets, "models", runs.map((run) => run.model_id));
+  const prompts = facetValues(board?.facets, "prompts", runs.map((run) => run.prompt_id));
+  const metricProfiles = facetValues(
+    board?.facets,
+    "metric_profiles",
+    runs.map((run) => run.metric_profile)
+  );
   const entries = board?.entries ?? [];
   const best = entries[0] ?? null;
   useEffect(() => {

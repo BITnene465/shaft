@@ -667,6 +667,8 @@ Benchmarks 页直接请求 `GET /api/benchmarks`，
 Rank Board 的主指标切换、升降序、Top contenders 和当前页 score spread 必须作为页面首层 `RankDecisionPanel` 展示，
 不能藏进高级检索浮层；其中 F1、precision、recall、mIoU 和预测数是主指标 chip，`created_at` / `run_id`
 只能放在“辅助排序”组，避免把时间和字符串排序误展示成主指标。高级检索只承载筛选条件和最低分门槛。
+Rank Board 的高级检索下拉和 facet rail 都必须消费 `/api/rank-board` 返回的完整 `facets`，不能从当前页
+entries、dashboard runs 或固定大页数请求推导可选目录。
 Rank Board 页面使用后端 `offset/limit` 分页请求，不再只取固定前 200 条，翻页时保留当前筛选、排序和 weighted scheme；
 显式 weighted scheme 可通过 CLI/API 或前端折叠面板传入，会返回 `weighted_score`、`rank_scheme` 和每条
 entry 的 `score_components`，便于解释最终分。每条 entry 还返回 `score_delta`，表示该 run 的
