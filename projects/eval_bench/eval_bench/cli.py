@@ -221,6 +221,72 @@ SCHEDULER_STATUS_OUTPUT_SHAPE = {
     "reserved_cuda_devices": "list[str]",
     "reserved_runtime_ports": "list[int]",
 }
+OPS_BEST_RUN_OUTPUT_SHAPE = {
+    "run_id": "str",
+    "status": "str",
+    "benchmark_id": "str",
+    "task": "str",
+    "target_labels": "list[str]",
+    "model_id": "str",
+    "prompt_id": "str",
+    "metric_profile": "str",
+    "prediction_count": "int",
+    "report_count": "int",
+    "created_at": "str|null",
+    "note": "str",
+}
+OPS_RUNS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "total",
+        "evaluated",
+        "with_predictions",
+        "waiting_evaluation",
+        "best_f1_run",
+        "best_f1",
+    ],
+    "properties": {
+        "total": {"type": "int"},
+        "evaluated": {"type": "int"},
+        "with_predictions": {"type": "int"},
+        "waiting_evaluation": {"type": "int"},
+        "best_f1_run": {"type": "object|null", "properties": OPS_BEST_RUN_OUTPUT_SHAPE},
+        "best_f1": {"type": "float|null"},
+    },
+}
+OPS_BENCHMARKS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["total", "sample_count", "prediction_count"],
+    "properties": {
+        "total": {"type": "int"},
+        "sample_count": {"type": "int"},
+        "prediction_count": {"type": "int"},
+    },
+}
+OPS_JOBS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["total", "queued", "running", "failed", "active"],
+    "properties": {
+        "total": {"type": "int"},
+        "queued": {"type": "int"},
+        "running": {"type": "int"},
+        "failed": {"type": "int"},
+        "active": {"type": "int"},
+    },
+}
+OPS_SERVICES_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["total", "running"],
+    "properties": {
+        "total": {"type": "int"},
+        "running": {"type": "int"},
+    },
+}
+OPS_SCHEDULER_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["enabled"],
+    "properties": SCHEDULER_STATUS_OUTPUT_SHAPE,
+}
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["run_id", "note", "updated_at", "path", "max_length"],
@@ -295,11 +361,11 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "properties": {
             "source": "str",
             "store_root": "str",
-            "runs": "object",
-            "benchmarks": "object",
-            "jobs": "object",
-            "services": "object",
-            "scheduler": "object",
+            "runs": OPS_RUNS_OUTPUT_SCHEMA,
+            "benchmarks": OPS_BENCHMARKS_OUTPUT_SCHEMA,
+            "jobs": OPS_JOBS_OUTPUT_SCHEMA,
+            "services": OPS_SERVICES_OUTPUT_SCHEMA,
+            "scheduler": OPS_SCHEDULER_OUTPUT_SCHEMA,
         },
     },
     "scheduler-status": {

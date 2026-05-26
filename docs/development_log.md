@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench ops-summary schema 不能只暴露粗 object
+
+### 现象
+
+`ops-summary` / `/api/ops-summary` 已经成为 Overview 同语义的 agent 巡检入口，真实 payload 里包含
+run 闭环、benchmark 规模、job 队列、service 容量和 scheduler snapshot。但 CLI JSON schema 仍把
+`runs`、`benchmarks`、`jobs`、`services` 和 `scheduler` 声明为泛型 object，agent 只能从样例 stdout
+猜测字段结构。
+
+### 根因
+
+前几轮先补了 `ops_summary.py` 的运行时真源和 API/CLI 入口，schema 只保证顶层字段存在，没有把嵌套字段
+同步纳入稳定合同。这是 agent 操作契约不完整，不是模型能力问题，也不是 eval / codec / metric / data
+误判。
+
+### 影响范围
+
+- 影响 agent 在创建 job、推进队列或排障前读取系统总控态的稳定性。
+- 不改变 `ops-summary` 真实 payload、dashboard API、scheduler 状态机、job/service 数据库或评估语义。
+
+### 修复方式
+
+- CLI schema 增加 `OPS_RUNS_OUTPUT_SCHEMA`、`OPS_BENCHMARKS_OUTPUT_SCHEMA`、`OPS_JOBS_OUTPUT_SCHEMA`、
+  `OPS_SERVICES_OUTPUT_SCHEMA` 和 `OPS_SCHEDULER_OUTPUT_SCHEMA`。
+- `runs.best_f1_run` 显式声明 nullable object 形状，包含 run id、任务、label scope、模型、prompt、
+  metric profile、prediction/report 计数和 note。
+- README 和 `docs/scripts.md` 记录 ops-summary 的嵌套 schema 合同。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_prints_agent_ops_summary`
+
+### 后续防线
+
+- 新增 agent 巡检类 CLI 时，不能只把业务块标成 object；必须把稳定子字段同步写入 CLI schema，
+  并用真实 payload 测试校验 schema 能递归覆盖。
+
 ## 2026-05-26: Eval Bench 高级检索 facet 不能依赖分页样本
 
 ### 现象

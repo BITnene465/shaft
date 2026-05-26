@@ -247,8 +247,29 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "services",
         "scheduler",
     ]
-    assert ops_summary_schema["properties"]["jobs"] == "object"
-    assert ops_summary_schema["properties"]["services"] == "object"
+    assert ops_summary_schema["properties"]["runs"]["properties"]["waiting_evaluation"][
+        "type"
+    ] == "int"
+    assert ops_summary_schema["properties"]["runs"]["properties"]["best_f1"][
+        "type"
+    ] == "float|null"
+    assert ops_summary_schema["properties"]["runs"]["properties"]["best_f1_run"][
+        "type"
+    ] == "object|null"
+    assert ops_summary_schema["properties"]["runs"]["properties"]["best_f1_run"][
+        "properties"
+    ]["target_labels"] == "list[str]"
+    assert ops_summary_schema["properties"]["benchmarks"]["properties"]["sample_count"][
+        "type"
+    ] == "int"
+    assert ops_summary_schema["properties"]["jobs"]["properties"]["active"]["type"] == "int"
+    assert ops_summary_schema["properties"]["services"]["properties"]["running"]["type"] == "int"
+    assert ops_summary_schema["properties"]["scheduler"]["required"] == ["enabled"]
+    assert ops_summary_schema["properties"]["scheduler"]["properties"]["enabled"] == "bool"
+    assert (
+        ops_summary_schema["properties"]["scheduler"]["properties"]["active_worker_threads"]
+        == "list[str]"
+    )
     rank_output_schema = CLI_JSON_OUTPUT_SCHEMAS["rank-board"]
     assert rank_output_schema["required"] == [
         "offset",
@@ -1414,6 +1435,12 @@ def test_cli_prints_agent_ops_summary(tmp_path: Path, capsys) -> None:
     assert payload["runs"]["waiting_evaluation"] == 1
     assert payload["runs"]["best_f1"] == 0.75
     assert payload["runs"]["best_f1_run"]["run_id"] == "run-best"
+    assert payload["runs"]["best_f1_run"]["target_labels"] == ["arrow"]
+    assert payload["benchmarks"] == {
+        "total": 0,
+        "sample_count": 0,
+        "prediction_count": 4,
+    }
     assert payload["jobs"] == {
         "total": 3,
         "queued": 1,

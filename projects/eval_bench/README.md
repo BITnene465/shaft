@@ -581,7 +581,9 @@ curl -fsS http://127.0.0.1:8766/api/ops-summary
 ```
 
 `ops-summary` 输出 run 闭环、benchmark 规模、job 队列、service 容量和 scheduler snapshot，适合 agent
-在创建 job、推进队列或排障前快速判断当前系统态。
+在创建 job、推进队列或排障前快速判断当前系统态。CLI JSON schema 会显式声明 `runs.best_f1_run`、
+`benchmarks`、`jobs`、`services` 和 `scheduler` 的嵌套字段类型，agent 不需要从样例 payload
+反推巡检合同。
 
 Rank Board 已从 Compare 页拆出为独立工作台。Dashboard 入口是左侧“排行榜”，API 入口是
 `GET /api/rank-board`，CLI 入口是：
