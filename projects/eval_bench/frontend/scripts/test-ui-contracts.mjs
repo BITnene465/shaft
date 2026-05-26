@@ -229,18 +229,24 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v12") &&
-    overviewPage.includes("overview-workband primary") &&
-    overviewPage.includes("overview-workband secondary") &&
-    overviewPage.includes("overview-hero-board") &&
-    overviewPage.includes("overview-signal-board") &&
-    overviewPage.includes("overview-route-panel") &&
+  overviewPage.includes("overview-home-v13") &&
+    overviewPage.includes("overview-command-shell") &&
+    overviewPage.includes("overview-now-panel") &&
+    overviewPage.includes("overview-live-panel") &&
+    overviewPage.includes("overview-loop-panel") &&
+    overviewPage.includes("OverviewProofStrip") &&
+    overviewPage.includes("overview-proof-strip") &&
+    overviewPage.includes("overview-proof-card") &&
+    overviewPage.includes("bestF1Run") &&
+    overviewPage.includes('import { formatMetric, runF1Score } from "./formatters";') &&
     overviewPage.includes("OverviewNextAction") &&
     overviewPage.includes("OverviewFlowSpine") &&
     overviewPage.includes("overview-flow-spine") &&
     overviewPage.includes("overview-flow-node") &&
-    overviewPage.includes("OverviewRouteList") &&
-    overviewPage.includes("overviewRouteActions") &&
+    overviewPage.includes("OverviewTriageRail") &&
+    overviewPage.includes("overviewTriageActions") &&
+    overviewPage.includes("overview-triage-rail") &&
+    overviewPage.includes("overview-triage-link") &&
     overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
     overviewPage.includes("OverviewSignalStack") &&
@@ -250,7 +256,6 @@ assert(
     overviewPage.includes("overview-run-artifacts") &&
     overviewPage.includes("overview-run-state") &&
     overviewPage.includes('import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";') &&
-    !overviewPage.includes("formatMetric") &&
     overviewPage.includes("updateOverviewPointer") &&
     !overviewPage.includes("overview-home-v6") &&
     !overviewPage.includes("overview-home-v7") &&
@@ -258,6 +263,10 @@ assert(
     !overviewPage.includes("overview-home-v9") &&
     !overviewPage.includes("overview-home-v10") &&
     !overviewPage.includes("overview-home-v11") &&
+    !overviewPage.includes("overview-home-v12") &&
+    !overviewPage.includes("OverviewRouteList") &&
+    !overviewPage.includes("overviewRouteActions") &&
+    !overviewPage.includes("overview-route-panel") &&
     !overviewPage.includes("overview-command-center-redesign") &&
     !overviewPage.includes("OverviewHeroMap") &&
     !overviewPage.includes("overview-orbit-map") &&
@@ -300,11 +309,11 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v12: two-band control surface") &&
-    styleSource.includes("@keyframes overview-v12-sweep") &&
-    styleSource.includes("@keyframes overview-v12-live") &&
-    styleSource.includes("@keyframes overview-v12-float") &&
-    styleSource.includes("@keyframes overview-v12-radar") &&
+  styleSource.includes("Overview v13: value-first command console") &&
+    styleSource.includes("@keyframes overview-v13-sweep") &&
+    styleSource.includes("@keyframes overview-v13-live") &&
+    styleSource.includes("@keyframes overview-v13-float") &&
+    styleSource.includes("@keyframes overview-v13-radar") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
@@ -322,16 +331,21 @@ assert(
     "overview-home-v9",
     "overview-home-v10",
     "overview-home-v11",
+    "overview-home-v12",
     "overview-command-deck",
     "overview-command-center-redesign",
     "overview-focus-panel",
     "overview-side-stack",
     "overview-right-rail",
+    "overview-workband",
+    "overview-hero-board",
+    "overview-signal-board",
+    "overview-route-panel",
     "overview-activity-matrix",
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must expose the active v12 surface and block deprecated design tracks",
+  "overview stylesheet must expose the active v13 surface and block deprecated design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

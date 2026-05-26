@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 首页 v12 仍保留低价值导航面板
+
+### 现象
+
+总览页 v12 已经收敛到主判断、运行信号、闭环和最近 run，但用户继续反馈首页“没有任何价值”。具体表现是底部仍保留
+“下一步工作区”这类纯路由入口面板，首页没有直接展示 Rank Board 默认主指标 F1，也没有把报告覆盖和待评估积压提升成可证明的主判断依据。
+
+### 根因
+
+v12 的信息架构仍把“导航到哪里”当成一个常驻模块，而不是把首页做成 value-first control surface。这是前端信息架构问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判；Rank Board 默认 F1 主指标语义没有变化。
+
+### 影响范围
+
+- 影响 Dashboard Overview 第一屏价值判断、空间利用和用户对当前评测闭环状态的理解。
+- 不影响后端 store、rank-board 默认排序、weighted scheme、report 产物或 comparison 计算。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v13` command console：顶部只保留主判断区和 live panel，下方只保留评测闭环 spine 与最近 run 产物流。
+- 主判断区新增 F1 / 报告覆盖 / 待评估 backlog 三个 proof metric，F1 使用前端共享 `runF1Score()`，避免 homepage 自己维护另一套公式。
+- 删除纯路由入口面板，改为 live panel 内的 triage rail，用当前失败任务、待评估、队列和可排行状态表达下一步动作。
+- 首页 CSS 增加 v13 pointer light、proof card、triage rail、loop node、recent row 的 hover / focus / transition 动效，交互只服务状态扫描和可点击性。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- `test-ui-contracts.mjs` 要求 Overview 使用 `overview-home-v13`、proof strip、live panel、loop panel 和 triage rail，禁止源码回退 v12 route panel。
+- `layout-smoke-check.mjs` 在真实浏览器里检查 proof metric、triage link、loop node、signal rail 和 recent artifact rail 都可见。
+- 新增首页模块必须强化“当前状态、F1 主指标、闭环卡点、最近产物”之一；纯导航入口、低频诊断和细指标继续留在细节页。
+
 ## 2026-05-26: Eval Bench run 列表仍把 recall 放在主指标位置
 
 ### 现象
