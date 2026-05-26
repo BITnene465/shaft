@@ -9,6 +9,39 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 总览 UI 回归需要禁止低价值文案和过宽网格
+
+### 现象
+
+总览页经历多轮重做后，曾反复出现低价值提示文案、排行入口 slogan、写入节奏面板和过密多列网格。
+这些内容即使不影响 API，也会让首页重新退化成杂乱的展示页，而不是工程控制台。
+
+### 根因
+
+现有 layout smoke 能发现溢出和旧组件，但 UI contract 对具体禁用文案和 overview 多列网格缺少更直接的
+静态防线。设计问题不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard 首页的信息密度、工程控制台气质和后续 UI 改版稳定性。
+- 不改变后端 API、Rank Board、run note、label subtask、agent CLI 或 evaluator 语义。
+
+### 修复方式
+
+- `test-ui-contracts.mjs` 增加禁止文案，覆盖“Run 写入节奏 / 写入节奏”等已明确淘汰的总览表达。
+- 增加 overview contract，禁止在总览页源代码中出现 precision/recall/mIoU/R@.50/P@.50 这类精细指标文案。
+- 增加 overview v17 样式防线，禁止五列及以上 repeat grid 回到首页主布局。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 首页新增模块时必须先说明它提供的粗粒度运行态价值；精细指标继续放到 Rank Board、Runs 和 Compare。
+- 如果需要新图表，优先两列或三列复合布局，避免用五列以上 grid 堆信息块。
+
 ## 2026-05-26: Eval Bench run report schema 不能作为裸 object 暴露
 
 ### 现象

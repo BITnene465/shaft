@@ -15,6 +15,8 @@ const forbiddenUiCopy = [
   "等待报告进入排行",
   "主指标 F1 可排行",
   "从样本到排行",
+  "Run 写入节奏",
+  "写入节奏",
   "rankable",
   "F1 ready"
 ];
@@ -37,6 +39,7 @@ const jobsPage = await readSource("src/jobsPage.tsx");
 const runsPage = await readSource("src/runsPage.tsx");
 const benchmarksPage = await readSource("src/benchmarksPage.tsx");
 const comparePage = await readSource("src/comparePage.tsx");
+const overviewPage = await readSource("src/overviewPage.tsx");
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
 const runTables = await readSource("src/runTables.tsx");
@@ -350,7 +353,6 @@ assert(
   !/<button[^>]+removeLabelColor/.test(settingsPage),
   "settings label clear action must use ActionButton",
 );
-const overviewPage = await readSource("src/overviewPage.tsx");
 const designSource = await readSource("src/design.css");
 assert(
   apiSource.includes("export type TargetLabelResolution =") &&
@@ -562,6 +564,11 @@ assert(
     readmeSource.includes("overview-command-shell`、`overview-evidence-row`、`overview-loop-panel`") &&
     scriptsDocSource.includes("`overview-evidence-row`、`overview-loop-panel`、`overview-signal-stack`"),
   "README and scripts docs must document overview evidence/loop panels as deprecated, not active v17 contract",
+);
+assert(
+  !/recall|precision|mIoU|R@\.50|P@\.50/i.test(overviewPage) &&
+    !/overview-home-v17[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(styleSource),
+  "overview command desk must avoid fine metric copy and five-plus column grids",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
