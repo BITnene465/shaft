@@ -536,10 +536,10 @@ assert(
   "run sample list rows must use SelectableRowButton",
 );
 assert(
-  runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
+    runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
     runsPage.includes("const RUN_NOTE_APPEND_HEADINGS = [") &&
     runsPage.includes("function insertNoteTemplate(") &&
-    runsPage.includes("appendRunNote(run.run_id, note, heading)") &&
+    runsPage.includes("appendRunNote(run.run_id, note, heading, noteVersion)") &&
     runsPage.includes("const appendMutation = useMutation(") &&
     runsPage.includes('className="run-note-append-panel"') &&
     runsPage.includes('label="追加 run note"') &&

@@ -845,11 +845,23 @@ export function updateRunNote(
   });
 }
 
-export function appendRunNote(runId: string, note: string, heading?: string): Promise<RunNote> {
+export function appendRunNote(
+  runId: string,
+  note: string,
+  heading?: string,
+  expectedUpdatedAt?: string | null
+): Promise<RunNote> {
+  const payload: { note: string; heading?: string; expected_updated_at?: string | null } = {
+    note,
+    heading
+  };
+  if (expectedUpdatedAt !== undefined) {
+    payload.expected_updated_at = expectedUpdatedAt;
+  }
   return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note/append`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note, heading })
+    body: JSON.stringify(payload)
   });
 }
 

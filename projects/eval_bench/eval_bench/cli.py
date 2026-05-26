@@ -358,9 +358,39 @@ RANK_FILTER_ARGUMENT_SEMANTICS = {
         "response filter echo only; set it with --rank-scheme-json or --rank-scheme-file."
     ),
 }
+RUN_NOTE_ARGUMENT_SEMANTICS = {
+    "run_id": "required exact run id whose editable note is read or updated.",
+    "note": "inline note text; mutually exclusive with --note-file on write commands.",
+    "note_file": "UTF-8 file containing note text; mutually exclusive with --note.",
+    "heading": "optional markdown heading used by append-run-note before the appended entry.",
+    "expected_updated_at": (
+        "optional optimistic concurrency guard from get-run-note.updated_at; pass an empty "
+        "string or null-equivalent only when the note has never been written."
+    ),
+}
 AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
     "init-run": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
     "import-predictions": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
+    "get-run-note": {
+        "note": {"run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"]},
+    },
+    "set-run-note": {
+        "note": {
+            "run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"],
+            "note": RUN_NOTE_ARGUMENT_SEMANTICS["note"],
+            "note_file": RUN_NOTE_ARGUMENT_SEMANTICS["note_file"],
+            "expected_updated_at": RUN_NOTE_ARGUMENT_SEMANTICS["expected_updated_at"],
+        },
+    },
+    "append-run-note": {
+        "note": {
+            "run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"],
+            "note": RUN_NOTE_ARGUMENT_SEMANTICS["note"],
+            "note_file": RUN_NOTE_ARGUMENT_SEMANTICS["note_file"],
+            "heading": RUN_NOTE_ARGUMENT_SEMANTICS["heading"],
+            "expected_updated_at": RUN_NOTE_ARGUMENT_SEMANTICS["expected_updated_at"],
+        },
+    },
     "list-job-templates": {"filters": TEMPLATE_QUERY_ARGUMENT_SEMANTICS},
     "list-prompt-templates": {
         "pagination": PAGINATION_ARGUMENT_SEMANTICS,
@@ -1396,6 +1426,14 @@ def _build_parser() -> argparse.ArgumentParser:
     append_note_source = append_run_note.add_mutually_exclusive_group(required=True)
     append_note_source.add_argument("--note", default=None)
     append_note_source.add_argument("--note-file", default=None)
+    append_run_note.add_argument(
+        "--expected-updated-at",
+        default=None,
+        help=(
+            "Optional optimistic concurrency guard from get-run-note.updated_at; "
+            "use an empty string when the note has not been written yet."
+        ),
+    )
 
     archive_run = subparsers.add_parser("archive-run", help="Mark a run as archived.")
     archive_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -2190,11 +2228,19 @@ def _cmd_append_run_note(args: argparse.Namespace) -> None:
         if args.note_file is not None
         else str(args.note)
     )
-    note = EvalBenchStore(args.output_root).append_run_note(
-        str(args.run_id),
-        note_text,
-        heading=args.heading,
-    )
+    if args.expected_updated_at is not None:
+        note = EvalBenchStore(args.output_root).append_run_note(
+            str(args.run_id),
+            note_text,
+            heading=args.heading,
+            expected_updated_at=str(args.expected_updated_at),
+        )
+    else:
+        note = EvalBenchStore(args.output_root).append_run_note(
+            str(args.run_id),
+            note_text,
+            heading=args.heading,
+        )
     print(json.dumps(note.to_dict(), ensure_ascii=False))
 
 

@@ -459,6 +459,7 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
   --note "reproduce: ckpt epoch_3; idea: prompt v2"
 .venv/bin/python scripts/eval_bench.py append-run-note \
   --run-id imported_test_predictions \
+  --expected-updated-at "2026-05-25T12:00:00Z" \
   --heading "follow-up" \
   --note "next: inspect icon false positives"
 ```
@@ -466,10 +467,11 @@ Run note 的 agent 入口是稳定 CLI，不需要直接改 store 文件：
 `set-run-note` 会覆盖整份 note，适合人工整理后的最终版本；传入从 `get-run-note.updated_at`
 取得的 `--expected-updated-at` 后会启用乐观并发校验，避免覆盖其他人或 agent 刚写入的线索。
 `append-run-note` 会追加带 heading
-的结构化段落，适合 agent 或批处理任务持续补充复现线索，不需要先读写 `note.json`。
+的结构化段落，适合 agent 或批处理任务持续补充复现线索；也支持同一个 `--expected-updated-at`
+并发保护，不需要先读写 `note.json`。
 Dashboard API 提供同一语义：`GET /api/runs/{run_id}/note` 读取，`PATCH /api/runs/{run_id}/note`
 覆盖，可选 `{ "expected_updated_at": "..." }` 做并发保护；`POST /api/runs/{run_id}/note/append`
-追加 `{ "heading": "...", "note": "..." }`。
+追加 `{ "heading": "...", "note": "...", "expected_updated_at": "..." }`。
 
 Agent 的生命周期操作也走稳定 CLI，不需要手改 SQLite 或移动 artifact 目录：
 
@@ -512,7 +514,8 @@ CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceb
 job/prompt template 列表以及样本列表都不能让 agent 反向解析 help 文本来猜过滤含义。关键只读命令还会带
 `output_schema`，例如 `rank-board` 明确返回分页、filters、facets、主指标和 entry 字段；
 `resolve-target-labels` 明确返回 detection/keypoint label policy、candidate labels、valid/errors/warnings；
-`get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length；
+`get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length，
+并在 `argument_semantics.note` 中说明 run id、note/note-file、heading 和 optimistic concurrency 字段；
 `list-runs` / `show-run` / `list-run-samples` / `show-run-sample` 以及 benchmark sample 命令明确返回
 run summary、sample summary、filters、GT/prediction payload 与 diagnostics 字段；run summary 直接包含后端计算的
 `f1_iou50`，让 Runs、Overview、Compare 和 agent 使用同一份默认主指标真源；`list-jobs` / `show-job`、

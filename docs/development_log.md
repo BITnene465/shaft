@@ -9,6 +9,46 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench append run note 缺少版本保护
+
+### 现象
+
+`set-run-note`、Dashboard 备注覆盖保存和 `PATCH /api/runs/{run_id}/note` 已支持
+`expected_updated_at` 乐观并发保护，但 `append-run-note` 和 `/note/append` 仍会直接读取当前 note
+并追加写回。agent 在追加复现线索时，如果人类或另一个 agent 刚更新同一份 note，append 无法显式声明自己基于哪个
+版本，冲突只会被隐式合并或覆盖掉时序判断。
+
+### 根因
+
+早期 append 能力是为避免 agent 覆盖整份 note 而补的轻量入口，当时只把版本保护加到了覆盖保存路径。
+这导致同一个 run note 真源存在两类写入语义：覆盖保存有版本 guard，追加写入没有版本 guard。
+这是 run note 写入契约不一致，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响人类、agent 和批处理任务并发维护复现线索、idea 来源和排障记录的稳定性。
+- 不改变 run note 文件格式、rank-board、filter、label subtask、sample viewer 或评测指标语义。
+
+### 修复方式
+
+- `EvalBenchStore.append_run_note()` 新增 `expected_updated_at` 参数，并复用 `update_run_note()` 的
+  `RunNoteConflictError`。
+- Dashboard `POST /api/runs/{run_id}/note/append` 支持 `{ "expected_updated_at": ... }`，冲突返回 409。
+- CLI `append-run-note` 新增 `--expected-updated-at`，并在 agent command contract 的
+  `argument_semantics.note` 中声明 run id、note/note-file、heading 和版本字段。
+- Run Inspector 的“追加线索”使用当前 `note_updated_at` 调用 append，避免旧页面无保护追加。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract projects/eval_bench/tests/test_cli.py::test_cli_gets_and_sets_run_note projects/eval_bench/tests/test_dashboard.py::test_dashboard_updates_editable_run_note`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 所有写入同一可编辑真源的 CLI/API/UI 入口都必须有一致的并发语义；不能只给覆盖写加 guard。
+- 新增 agent 可变命令时，要同步检查 `argument_semantics` 是否足以让 agent 安全组合 argv。
+
 ## 2026-05-26: Eval Bench inspector 样本列表滚动缺少 layout smoke 防线
 
 ### 现象

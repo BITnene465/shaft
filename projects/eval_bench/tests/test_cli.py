@@ -483,6 +483,14 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         item["dest"]: item for item in commands_by_name["set-run-note"]["arguments"]
     }
     assert set_note_args["expected_updated_at"]["flags"] == ["--expected-updated-at"]
+    append_note_args = {
+        item["dest"]: item for item in commands_by_name["append-run-note"]["arguments"]
+    }
+    assert append_note_args["expected_updated_at"]["flags"] == ["--expected-updated-at"]
+    assert (
+        commands_by_name["append-run-note"]["argument_semantics"]["note"]["expected_updated_at"]
+        == commands_by_name["set-run-note"]["argument_semantics"]["note"]["expected_updated_at"]
+    )
 
     create_benchmark_args = {
         item["dest"]: item for item in commands_by_name["create-benchmark"]["arguments"]
@@ -659,6 +667,17 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     note_command = json.loads(capsys.readouterr().out)["command"]
     assert note_command["output_schema"]["properties"]["updated_at"]["type"] == "str|null"
     assert note_command["output_schema"]["properties"]["max_length"]["type"] == "int"
+    assert note_command["argument_semantics"]["note"]["run_id"].startswith("required exact run id")
+
+    append_note_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "append-run-note"]
+    )
+    _cmd_show_agent_command(append_note_args)
+    append_note_command = json.loads(capsys.readouterr().out)["command"]
+    assert "optimistic concurrency" in append_note_command["argument_semantics"]["note"][
+        "expected_updated_at"
+    ]
+    assert append_note_command["output_schema"] == note_command["output_schema"]
 
     list_runs_args = _build_parser().parse_args(["show-agent-command", "--name", "list-runs"])
     _cmd_show_agent_command(list_runs_args)
@@ -1126,6 +1145,44 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     assert append_payload["note"].startswith("repro: ckpt epoch_3\nidea: prompt v2\n\n")
     assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
 
+    stale_append_args = _build_parser().parse_args(
+        [
+            "append-run-note",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--heading",
+            "agent",
+            "--note",
+            "stale append",
+            "--expected-updated-at",
+            "2026-01-01T00:00:00Z",
+        ]
+    )
+    with pytest.raises(RunNoteConflictError):
+        _cmd_append_run_note(stale_append_args)
+
+    guarded_append_args = _build_parser().parse_args(
+        [
+            "append-run-note",
+            "--output-root",
+            str(tmp_path),
+            "--run-id",
+            "run1",
+            "--heading",
+            "agent",
+            "--note",
+            "guarded append",
+            "--expected-updated-at",
+            append_payload["updated_at"],
+        ]
+    )
+    _cmd_append_run_note(guarded_append_args)
+    guarded_append_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("append-run-note", guarded_append_payload)
+    assert "## agent\nguarded append" in guarded_append_payload["note"]
+
     guarded_file = tmp_path / "guarded.md"
     guarded_file.write_text("curated guarded note", encoding="utf-8")
     stale_set_args = _build_parser().parse_args(
@@ -1154,7 +1211,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
             "--note-file",
             str(guarded_file),
             "--expected-updated-at",
-            append_payload["updated_at"],
+            guarded_append_payload["updated_at"],
         ]
     )
     _cmd_set_run_note(guarded_set_args)

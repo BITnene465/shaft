@@ -637,13 +637,18 @@ function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; default
   });
   const appendMutation = useMutation({
     mutationFn: ({ note, heading }: { note: string; heading: string }) =>
-      appendRunNote(run.run_id, note, heading),
+      appendRunNote(run.run_id, note, heading, noteVersion),
     onSuccess: (note) => {
       setAppendDraft("");
       setNoteDraft(note.note);
       setSavedNote(note.note);
       setNoteVersion(note.updated_at);
       void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+    },
+    onError: (error) => {
+      if (isApiError(error) && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
+      }
     }
   });
   const promptSource = stringValue(run.prompt_metadata.source) || (run.prompt_path ? "file" : "inline");
