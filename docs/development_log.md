@@ -9,6 +9,48 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench viewer 标签偏好翻页后回到默认
+
+### 现象
+
+Run Inspector 的 GT / Prediction / 几何图层开关已经持久化，但标签可见性仍把“用户偏好”和
+“当前样本实际出现的 labels”混在同一个 `activeLabels` 状态里。翻到 label 集合不同的样本页时，
+hook 会按当前样本 labels 重新合并，用户明确选择的 label 子集可能被补回当前页全部标签，看起来像
+viewer prefer 状态翻页后 reset 到默认。
+
+### 根因
+
+`useViewerLayerPreferences()` 只维护当前样本可见标签，没有单独保存跨样本的 preferred labels。旧逻辑在
+labels 变化时试图自动补新 label，但无法区分“首次默认全选”和“用户已经明确选择过子集”。这是前端状态真源
+混合问题，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Run Inspector / sample viewer 的标签过滤偏好、翻页体验和可视化排障连续性。
+- 不影响后端 sample filtering、metric report、Rank Board、run note 或 label 子任务评估语义。
+
+### 修复方式
+
+- `workspaceSettings.ts` 将 `preferredLabels` 作为持久化真源，当前样本的 `activeLabels` 只由
+  `visibleViewerLabels(preferredLabels, labels)` 投影得到。
+- 新增 `reconcileViewerLabelPreference()` 和 `applyViewerVisibleLabelSelection()` 纯函数，隐藏于当前样本之外的
+  label 偏好不再被翻页覆盖。
+- 只有在尚未持久化任何 label 偏好时，viewer 才会按首次可见 labels 做默认全选；一旦用户偏好写入
+  localStorage，后续翻页不会自动补回默认全选。
+- `test-workspace-settings.mjs` 增加纯函数回归，覆盖隐藏 label 偏好跨样本保留、可见 label 更新不丢隐藏偏好、
+  以及旧 fallback 逻辑不能回流。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:workspace-settings`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Viewer 状态要区分“用户偏好真源”和“当前样本投影”；翻页、筛选和预取只能改变投影，不能覆写用户偏好。
+
 ## 2026-05-26: Eval Bench 缺少 agent 级总控摘要入口
 
 ### 现象

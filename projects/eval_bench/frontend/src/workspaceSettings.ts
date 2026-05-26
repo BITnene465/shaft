@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, Dispatch, SetStateAction } from "react";
 
 export const DEFAULT_OVERLAY_COLORS = {
   gt: "#23c483",
@@ -281,7 +281,8 @@ export function useSidebarPreference() {
 export function useViewerLayerPreferences(labels: string[]) {
   const labelsKey = labels.join("|");
   const previousLabelsRef = useRef(labels);
-  const [activeLabels, setActiveLabels] = useState<string[]>(() =>
+  const hasStoredLabelPreferenceRef = useRef(hasStoredActiveLabelPreference());
+  const [preferredLabels, setPreferredLabels] = useState<string[]>(() =>
     loadActiveLabelPreference(labels)
   );
   const [showGt, setShowGt] = useState(() => loadBooleanPreference(STORAGE_KEYS.viewerShowGt, true));
@@ -300,27 +301,31 @@ export function useViewerLayerPreferences(labels: string[]) {
 
   useEffect(() => {
     const previousLabels = previousLabelsRef.current;
-    setActiveLabels((current) => {
-      const labelSet = new Set(labels);
-      const previousLabelSet = new Set(previousLabels);
-      const preserved = current.filter((label) => labelSet.has(label));
-      const hadEveryPreviousLabel =
-        previousLabels.length > 0 && previousLabels.every((label) => current.includes(label));
-      const additions = hadEveryPreviousLabel
-        ? labels.filter((label) => !previousLabelSet.has(label))
-        : [];
-      const nextLabels = uniqueValues([...preserved, ...additions]);
-      if (nextLabels.length === 0 && current.length > 0 && labels.length > 0) {
-        return labels;
-      }
-      return nextLabels;
-    });
+    setPreferredLabels((current) =>
+      reconcileViewerLabelPreference({
+        current,
+        labels,
+        previousLabels,
+        hasStoredPreference: hasStoredLabelPreferenceRef.current
+      })
+    );
     previousLabelsRef.current = labels;
   }, [labelsKey, labels]);
 
+  const activeLabels = useMemo(() => {
+    return visibleViewerLabels(preferredLabels, labels);
+  }, [labelsKey, labels, preferredLabels]);
+
+  const setActiveLabels: Dispatch<SetStateAction<string[]>> = (value) => {
+    setPreferredLabels((current) => {
+      return applyViewerVisibleLabelSelection(current, labels, value);
+    });
+  };
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.viewerActiveLabels, JSON.stringify(activeLabels));
-  }, [activeLabels]);
+    localStorage.setItem(STORAGE_KEYS.viewerActiveLabels, JSON.stringify(preferredLabels));
+    hasStoredLabelPreferenceRef.current = true;
+  }, [preferredLabels]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.viewerShowGt, showGt ? "1" : "0");
@@ -356,6 +361,54 @@ export function useViewerLayerPreferences(labels: string[]) {
     showKeypoints,
     setShowKeypoints
   };
+}
+
+export function reconcileViewerLabelPreference({
+  current,
+  labels,
+  previousLabels,
+  hasStoredPreference
+}: {
+  current: string[];
+  labels: string[];
+  previousLabels: string[];
+  hasStoredPreference: boolean;
+}) {
+  if (
+    !hasStoredPreference &&
+    previousLabels.length === 0 &&
+    current.length === 0 &&
+    labels.length > 0
+  ) {
+    return labels;
+  }
+  const previousLabelSet = new Set(previousLabels);
+  const hadEveryPreviousLabel =
+    !hasStoredPreference &&
+    previousLabels.length > 0 &&
+    previousLabels.every((label) => current.includes(label));
+  const additions = hadEveryPreviousLabel
+    ? labels.filter((label) => !previousLabelSet.has(label))
+    : [];
+  return uniqueValues([...current, ...additions]);
+}
+
+export function visibleViewerLabels(preferredLabels: string[], labels: string[]) {
+  const labelSet = new Set(labels);
+  return preferredLabels.filter((label) => labelSet.has(label));
+}
+
+export function applyViewerVisibleLabelSelection(
+  currentPreference: string[],
+  labels: string[],
+  value: SetStateAction<string[]>
+) {
+  const labelSet = new Set(labels);
+  const currentVisible = currentPreference.filter((label) => labelSet.has(label));
+  const nextVisible = typeof value === "function" ? value(currentVisible) : value;
+  const hiddenPreference = currentPreference.filter((label) => !labelSet.has(label));
+  const scopedVisible = nextVisible.filter((label) => labelSet.has(label));
+  return uniqueValues([...hiddenPreference, ...scopedVisible]);
 }
 
 export function useWorkspaceShortcuts() {
@@ -536,15 +589,14 @@ function loadActiveLabelPreference(labels: string[]) {
     if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
       return labels;
     }
-    if (parsed.length === 0) {
-      return [];
-    }
-    const labelSet = new Set(labels);
-    const preserved = parsed.filter((label) => labelSet.has(label));
-    return preserved.length > 0 ? uniqueValues(preserved) : labels;
+    return uniqueValues(parsed);
   } catch {
     return labels;
   }
+}
+
+function hasStoredActiveLabelPreference() {
+  return localStorage.getItem(STORAGE_KEYS.viewerActiveLabels) !== null;
 }
 
 function normalizeOverlayStyle(value: Partial<OverlayStyle>): OverlayStyle {

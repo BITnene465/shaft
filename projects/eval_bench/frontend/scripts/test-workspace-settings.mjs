@@ -94,6 +94,45 @@ assert.equal(
   }),
   ""
 );
+assert.deepEqual(
+  settings.reconcileViewerLabelPreference({
+    current: [],
+    labels: ["arrow"],
+    previousLabels: [],
+    hasStoredPreference: false
+  }),
+  ["arrow"],
+  "viewer should default to visible labels only before the user stores a preference"
+);
+assert.deepEqual(
+  settings.reconcileViewerLabelPreference({
+    current: ["arrow"],
+    labels: ["icon"],
+    previousLabels: ["arrow"],
+    hasStoredPreference: true
+  }),
+  ["arrow"],
+  "viewer must preserve hidden label preference across sample/page changes"
+);
+assert.deepEqual(
+  settings.reconcileViewerLabelPreference({
+    current: ["arrow"],
+    labels: ["arrow", "icon"],
+    previousLabels: ["arrow"],
+    hasStoredPreference: false
+  }),
+  ["arrow", "icon"],
+  "viewer unstored all-label mode should pick up new labels without losing the previous preference"
+);
+assert.deepEqual(settings.visibleViewerLabels(["arrow"], ["icon"]), []);
+assert.deepEqual(
+  settings.applyViewerVisibleLabelSelection(["arrow"], ["icon"], (current) => [...current, "icon"]),
+  ["arrow", "icon"],
+  "viewer visible label changes must keep hidden label preferences"
+);
+assert.ok(source.includes("preferredLabels"));
+assert.ok(source.includes("hiddenPreference"));
+assert.ok(!source.includes("return preserved.length > 0 ? uniqueValues(preserved) : labels"));
 
 await rm(tmpDir, { recursive: true, force: true });
 console.log("workspace settings checks passed");
