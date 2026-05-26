@@ -16,10 +16,13 @@ const staticRoutes = [
     selectors: [
       ".dashboard-home",
       ".overview-home-v9",
+      ".overview-home-v10",
       ".overview-command-center",
       ".overview-priority-stage",
       ".overview-command-rail",
       ".overview-rail-head",
+      ".overview-stage-map",
+      ".overview-health-strip",
       ".overview-workbench",
       ".overview-ops-surface",
       ".overview-next-action",
@@ -493,6 +496,8 @@ async function assertOverviewDensity(page, scope) {
     const recentCard = document.querySelector(".overview-recent-card");
     const operationalGrid = document.querySelector(".overview-operational-grid");
     const nextAction = document.querySelector(".overview-next-action");
+    const stageMap = document.querySelector(".overview-stage-map");
+    const healthStrip = document.querySelector(".overview-health-strip");
     const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
       Math.round(node.getBoundingClientRect().width)
     );
@@ -519,6 +524,8 @@ async function assertOverviewDensity(page, scope) {
       nextActions: document.querySelectorAll(".overview-next-action").length,
       signalCards,
       signalRails,
+      stageMapLinks: document.querySelectorAll(".overview-stage-map a").length,
+      healthLanes: document.querySelectorAll(".overview-health-strip span").length,
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-workbench .overview-recent-card").length,
@@ -547,6 +554,8 @@ async function assertOverviewDensity(page, scope) {
       actionListDisplay: actionListStyle?.display ?? "",
       operationalGridDisplay: operationalGridStyle?.display ?? "",
       nextActionTransition: nextActionStyle?.transitionDuration ?? "",
+      stageMapDisplay: stageMap ? getComputedStyle(stageMap).display : "",
+      healthStripDisplay: healthStrip ? getComputedStyle(healthStrip).display : "",
       commandDeckOverflowY: commandDeckStyle?.overflowY ?? ""
     };
   });
@@ -583,6 +592,8 @@ async function assertOverviewDensity(page, scope) {
   if (
     state.pipelineStages !== 4 ||
     state.nextActions !== 1 ||
+    state.stageMapLinks !== 3 ||
+    state.healthLanes !== 3 ||
     state.actionLinks !== 4 ||
     state.actionMeters !== 4 ||
     state.actionStates.some((value) => !value)
@@ -591,9 +602,19 @@ async function assertOverviewDensity(page, scope) {
       `${scope}: overview should expose pipeline stages, one next action, and readiness links ${JSON.stringify({
         pipelineStages: state.pipelineStages,
         nextActions: state.nextActions,
+        stageMapLinks: state.stageMapLinks,
+        healthLanes: state.healthLanes,
         actionLinks: state.actionLinks,
         actionMeters: state.actionMeters,
         actionStates: state.actionStates
+      })}`
+    );
+  }
+  if (state.stageMapDisplay !== "flex" || state.healthStripDisplay !== "flex") {
+    throw new Error(
+      `${scope}: overview v10 interactive stage map or health strip is missing ${JSON.stringify({
+        stageMapDisplay: state.stageMapDisplay,
+        healthStripDisplay: state.healthStripDisplay
       })}`
     );
   }

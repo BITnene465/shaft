@@ -181,6 +181,35 @@ COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE = {
     "prediction_payload": "object|null",
     "diagnostics": "object|null",
 }
+JOB_TEMPLATE_OUTPUT_SHAPE = {
+    "label": "str",
+    "description": "str",
+    "manifest": "object",
+}
+PROMPT_TEMPLATE_OUTPUT_SHAPE = {
+    "prompt_id": "str",
+    "label": "str",
+    "task": "str",
+    "system_prompt": "str",
+    "user_prompt": "str",
+    "parser": "str|null",
+    "metric_profile": "str|null",
+    "visualization_profile": "str|null",
+    "generation": "object",
+    "data": "object",
+    "metadata": "object",
+    "created_at": "str",
+    "updated_at": "str",
+}
+PREFLIGHT_JOB_OUTPUT_SHAPE = {
+    "ok": "bool",
+    "kind": "str",
+    "resolved_manifest": "object|null",
+    "resolved_payload": "object|null",
+    "runtime_command": "list[str]",
+    "errors": "list[str]",
+    "warnings": "list[str]",
+}
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["run_id", "note", "updated_at", "path", "max_length"],
@@ -348,6 +377,86 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "gt_instances": {"type": "list[object]"},
             "raw_payload": {"type": "object"},
         },
+    },
+    "list-job-templates": {
+        "type": "object",
+        "required": ["templates", "total", "filters"],
+        "properties": {
+            "templates": {"type": "object", "item_shape": JOB_TEMPLATE_OUTPUT_SHAPE},
+        },
+    },
+    "show-job-template": {
+        "type": "object",
+        "required": ["template_id", "template"],
+        "properties": {
+            "template_id": {"type": "str"},
+            "template": {"type": "object", "item_shape": JOB_TEMPLATE_OUTPUT_SHAPE},
+        },
+    },
+    "list-prompt-templates": {
+        "type": "object",
+        "required": ["offset", "limit", "total", "filters", "templates", "by_id"],
+        "properties": {
+            "templates": {"type": "array", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
+            "by_id": {"type": "object", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
+        },
+    },
+    "show-prompt-template": {
+        "type": "object",
+        "required": ["template"],
+        "properties": {
+            "template": {"type": "object", "item_shape": PROMPT_TEMPLATE_OUTPUT_SHAPE},
+        },
+    },
+    "upsert-prompt-template": {
+        "type": "object",
+        "required": [
+            "prompt_id",
+            "label",
+            "task",
+            "system_prompt",
+            "user_prompt",
+            "parser",
+            "metric_profile",
+            "visualization_profile",
+            "generation",
+            "data",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ],
+        "properties": PROMPT_TEMPLATE_OUTPUT_SHAPE,
+    },
+    "delete-prompt-template": {
+        "type": "object",
+        "required": ["prompt_id", "deleted"],
+        "properties": {"prompt_id": {"type": "str"}, "deleted": {"type": "bool"}},
+    },
+    "preflight-job": {
+        "type": "object",
+        "required": [
+            "ok",
+            "kind",
+            "resolved_payload",
+            "resolved_manifest",
+            "errors",
+            "warnings",
+        ],
+        "properties": PREFLIGHT_JOB_OUTPUT_SHAPE,
+    },
+    "create-job": {
+        "type": "object",
+        "required": [
+            "job_id",
+            "kind",
+            "status",
+            "payload",
+            "created_at",
+            "updated_at",
+            "error",
+            "metadata",
+        ],
+        "properties": JOB_RECORD_OUTPUT_SHAPE,
     },
     "list-jobs": {
         "type": "object",

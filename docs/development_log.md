@@ -9,6 +9,82 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-25: Eval Bench 总览页过度压缩且组件价值不清
+
+### 现象
+
+总览页 v9 虽然去掉了低价值图表墙，但主舞台里同时塞入下一步动作、关键规模和四段管线，
+右侧信号与下方 readiness 又形成重复密集块。用户进入首页后仍觉得“看不了”和“没有价值”，
+无法清晰判断当前系统是否可用、卡点在哪里、下一步该去哪。
+
+### 根因
+
+上一版仍以组件摆放为中心，而不是以决策链分区。四段 pipeline 放在主舞台内挤压了当前判断和主动作；
+运行态缺少更直观的摘要，标准 workspace 元素的 hover / active 反馈也不够统一，导致页面既紧又静。
+
+### 影响范围
+
+- 影响 Dashboard 首页判断效率、空间层级和交互感。
+- 不改变 eval、codec、metric、data、job lifecycle 或 rank-board 排名语义；这是前端信息架构和交互反馈问题，不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v10` cockpit surface：顶部保持 priority stage + command rail 两列，底部保持 operations surface + recent runs 两列。
+- priority stage 只保留当前判断、同步态、下一步主动作、关键规模和三个高频操作入口。
+- pipeline progress rail 下移到 operations surface，与 readiness switchboard 共同表达 benchmark -> run -> report -> rank 的闭环。
+- command rail 保留四个可点击核心信号，并新增运行态条形摘要，避免再堆一组低价值面板。
+- 标准表格行、样本列表、status pill、profile chip 和总览入口补充 hover、active、sheen、bar transition 等反馈。
+- README、架构文档、UI contract 和 layout smoke 边界同步 v10 结构。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 总览新增模块必须服务“当前状态、卡点、下一步”三件事；不能为了显得丰富把低频诊断或二级排障信息搬回首页。
+- 首页动效只服务状态感、可点击性和实时感，不能引入独立于 backend state 的 UI 私有业务语义。
+
+## 2026-05-25: Eval Bench agent 契约未描述 template 与 job creation 输出
+
+### 现象
+
+agent 已经可以通过 job template、prompt template、`preflight-job` 和 `create-job` 发现模板、
+维护 prompt registry、校验入队 payload 并创建任务，但 `show-agent-command` 没有描述这些命令的返回结构。
+agent 仍需要从样例输出或内部实现推断 manifest、prompt record、resolved payload、runtime command、
+warning/error 和 job record 字段。
+
+### 根因
+
+前几轮 output schema 先覆盖了 rank、run note、label policy、run/sample inspection、
+job/service/comparison 查询路径，但遗漏了 job creation 前后的 setup 路径。
+
+### 影响范围
+
+- 影响 agent 自动创建评测任务、维护 prompt template 和在入队前解释 preflight 风险。
+- 不改变 job spec、database、job lifecycle、eval、metric 或 dashboard API 语义；这是 agent contract 描述缺口，不是评估标准误判。
+
+### 修复方式
+
+- 新增 job template、prompt template 和 preflight job 输出 shape。
+- `list-job-templates` / `show-job-template` 暴露 template manifest schema。
+- `list-prompt-templates` / `show-prompt-template` / `upsert-prompt-template` / `delete-prompt-template`
+  暴露 prompt record 与删除结果 schema。
+- `preflight-job` 暴露 resolved payload、resolved manifest、runtime command、errors 和 warnings schema。
+- `create-job` 复用 job record schema，避免 agent 创建后还要猜 job payload shape。
+- README、架构文档和 CLI contract 测试同步这些 agent-safe 输出边界。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py`
+
+### 后续防线
+
+- 任何会被 agent 稳定消费的创建、校验或模板管理命令都必须同步声明 `output_schema`，
+  不能只覆盖只读列表命令。
+
 ## 2026-05-25: Eval Bench agent 契约未描述 job/service/comparison 输出
 
 ### 现象

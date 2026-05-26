@@ -207,6 +207,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   facets、primary metric 和 entry 字段；run note 与 label policy 命令必须描述 note/concurrency 字段和
   detection/keypoint label 子任务字段；run/sample inspection 命令必须描述 summary、payload、diagnostics
   和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
+  template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
+  runtime command、warning/error 和 job record 字段，
   避免 agent 通过猜测 JSON 字段或读取 store 内部结构完成任务。
 - 新增 prompt template 管理能力：API 与 CLI 必须共用 `EvalBenchDatabase` 的 registry；前端只能消费
   同一 registry，不能在页面里维护独立 prompt template 列表。
@@ -228,10 +230,11 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 priority stage、hero next action、四个可行动信号和 pipeline progress rail 服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持
-  v9 mission-control surface：顶部两列只放 priority stage 和实时 command rail，底部只放一个 operations surface 与最近 run 紧凑 ticker。
-  顶部 priority stage 只能承载当前系统态、同步状态、关键规模、benchmark -> run -> report -> rank board 流线和当前优先动作，
+  v10 cockpit surface：顶部两列只放 priority stage 和实时 command rail，底部两列只放 operations surface 与最近 run 紧凑 ticker。
+  顶部 priority stage 只能承载当前系统态、同步状态、关键规模、当前优先动作和三个高频操作入口，
   不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。右侧 command rail 固定展示覆盖、
-  待评、队列和服务四个可点击入口，并以 2x2 信号板表达实时状态；不再单独常驻阻塞优先级面板，卡点应体现在当前主动作和可点击状态入口中。readiness switchboard 固定聚合
+  待评、队列和服务四个可点击入口，并以 2x2 信号板和运行态条形摘要表达实时状态；pipeline progress rail
+  放在 operations surface 中，表达 benchmark -> run -> report -> rank board 的闭环；不再单独常驻阻塞优先级面板，卡点应体现在当前主动作和可点击状态入口中。readiness switchboard 固定聚合
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
   必须按 `created_at` 倒序截取，且只展示 benchmark/model 与 prediction/report 数量，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把
   focus、readiness 或 recent 核心面板压缩成不可读的折叠外壳。

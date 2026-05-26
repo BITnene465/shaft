@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   Clock3,
   Gauge,
@@ -212,7 +213,7 @@ export function OverviewPage() {
   const recentRuns = overviewRecentRuns(data.runs, 3);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v9">
+    <section className="page-stack dashboard-home overview-home-v9 overview-home-v10">
       <div className="overview-command-center">
         <section className={`overview-priority-stage ${nextAction.tone}`}>
           <div className="overview-priority-copy">
@@ -243,7 +244,23 @@ export function OverviewPage() {
               </div>
             </div>
           </div>
-          <OverviewPipeline stages={pipelineStages} />
+          <div className="overview-stage-map" aria-label="总览操作入口">
+            <Link to="/jobs">
+              <PlayCircle size={18} />
+              <span>创建或推进任务</span>
+              <ArrowRight size={15} />
+            </Link>
+            <Link to="/rank-board">
+              <AppIcon name="rankBoard" size={18} />
+              <span>查看排名差距</span>
+              <ArrowRight size={15} />
+            </Link>
+            <Link to="/compare">
+              <BarChart3 size={18} />
+              <span>进入成对分析</span>
+              <ArrowRight size={15} />
+            </Link>
+          </div>
         </section>
 
         <aside className="overview-command-rail" aria-label="首页核心状态">
@@ -255,20 +272,13 @@ export function OverviewPage() {
             <i>{overviewSyncing ? "sync" : "steady"}</i>
           </div>
           <OverviewSignalStack signals={signalItems} />
-          <div className="overview-console-links">
-            <Link to="/rank-board">
-              <AppIcon name="rankBoard" size={14} />
-              排行榜
-            </Link>
-            <Link to="/runs">
-              <AppIcon name="runResults" size={14} />
-              结果库
-            </Link>
-            <Link to="/jobs">
-              <Activity size={14} />
-              任务
-            </Link>
-          </div>
+          <OverviewHealthStrip
+            activeQueue={activeQueue}
+            waitingEvaluation={waitingEvaluation}
+            liveServices={liveServices}
+            serviceCount={services.length}
+            failedJobs={failedJobs}
+          />
         </aside>
       </div>
 
@@ -277,16 +287,61 @@ export function OverviewPage() {
           <div className="overview-section-head">
             <div>
               <span>{schedulerEnabled ? "Auto Scheduler" : "Manual Mode"}</span>
-              <h3>下一步控制台</h3>
+              <h3>评测闭环</h3>
             </div>
             <strong>{coveragePercent}% complete</strong>
           </div>
+          <OverviewPipeline stages={pipelineStages} />
           <OverviewReadinessList items={readinessItems} />
         </section>
 
         <OverviewRecentRunsPanel runs={recentRuns} />
       </div>
     </section>
+  );
+}
+
+function OverviewHealthStrip({
+  activeQueue,
+  waitingEvaluation,
+  liveServices,
+  serviceCount,
+  failedJobs
+}: {
+  activeQueue: number;
+  waitingEvaluation: number;
+  liveServices: number;
+  serviceCount: number;
+  failedJobs: number;
+}) {
+  const lanes = [
+    {
+      label: "队列",
+      value: activeQueue,
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle"
+    },
+    {
+      label: "待评",
+      value: waitingEvaluation,
+      tone: waitingEvaluation > 0 ? "warm" : "idle"
+    },
+    {
+      label: "在线",
+      value: liveServices,
+      tone: liveServices > 0 ? "good" : serviceCount > 0 ? "warm" : "idle"
+    }
+  ];
+  const maxValue = Math.max(1, ...lanes.map((lane) => lane.value));
+  return (
+    <div className="overview-health-strip" aria-label="运行态摘要">
+      {lanes.map((lane) => (
+        <span className={lane.tone} key={lane.label}>
+          <i style={{ height: `${trackPercent(lane.value, maxValue)}%` }} />
+          <b>{lane.value.toLocaleString()}</b>
+          <em>{lane.label}</em>
+        </span>
+      ))}
+    </div>
   );
 }
 

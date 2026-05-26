@@ -7902,3 +7902,384 @@ tbody tr:hover td {
     scroll-behavior: auto !important;
   }
 }
+
+/* Overview v10: spacious two-column cockpit with fewer, higher-value modules. */
+.overview-home-v10 {
+  gap: 18px;
+  padding-right: 2px;
+  background:
+    radial-gradient(circle at 14% 10%, rgb(12 143 177 / 12%), transparent 28%),
+    radial-gradient(circle at 86% 18%, rgb(39 148 105 / 10%), transparent 24%),
+    linear-gradient(135deg, #f6faf9 0%, #eef5f4 55%, #f9f4eb 100%);
+}
+
+.overview-home-v10 .overview-command-center {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.overview-home-v10 .overview-priority-stage {
+  flex: 1 1 66%;
+  min-height: 318px;
+  gap: 28px;
+  padding: 28px;
+  border-radius: 18px;
+}
+
+.overview-home-v10 .overview-priority-copy {
+  flex: 1 1 520px;
+  min-width: 0;
+}
+
+.overview-home-v10 .overview-priority-copy h2 {
+  max-width: 720px;
+  margin-top: 32px;
+  font-size: 58px;
+  line-height: 0.98;
+}
+
+.overview-home-v10 .overview-priority-copy p {
+  max-width: 680px;
+  font-size: 15px;
+}
+
+.overview-home-v10 .overview-stage-map {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 292px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  min-width: 252px;
+}
+
+.overview-home-v10 .overview-stage-map a {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 13px;
+  color: #e9f8f8;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(188 234 246 / 24%);
+  border-radius: 14px;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.overview-home-v10 .overview-stage-map a > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 860;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-home-v10 .overview-stage-map a:hover {
+  transform: translateX(5px);
+  background: rgb(255 255 255 / 14%);
+  border-color: rgb(132 225 241 / 60%);
+  box-shadow: 0 18px 36px rgb(0 0 0 / 18%);
+}
+
+.overview-home-v10 .overview-stage-map a:hover > svg:last-child {
+  transform: translateX(3px);
+}
+
+.overview-home-v10 .overview-stage-map a > svg:last-child {
+  transition: transform 160ms ease;
+}
+
+.overview-home-v10 .overview-command-rail {
+  flex: 0 0 390px;
+  min-width: 350px;
+  padding: 17px;
+  border-radius: 18px;
+}
+
+.overview-home-v10 .overview-signal-stack {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 11px;
+}
+
+.overview-home-v10 .overview-signal-card {
+  flex: 1 1 calc(50% - 6px);
+  min-height: 118px;
+  border-radius: 15px;
+}
+
+.overview-home-v10 .overview-health-strip {
+  display: flex;
+  min-height: 88px;
+  gap: 10px;
+  padding: 12px;
+  background:
+    linear-gradient(135deg, #0d2232 0%, #123748 100%);
+  border: 1px solid rgb(26 112 139 / 38%);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%);
+}
+
+.overview-home-v10 .overview-health-strip span {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px 6px;
+  color: #dceff2;
+  background: rgb(255 255 255 / 7%);
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 12px;
+}
+
+.overview-home-v10 .overview-health-strip i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-height: 8%;
+  background: linear-gradient(180deg, rgb(98 217 220 / 52%), rgb(36 163 110 / 44%));
+  opacity: 0.78;
+  transition: height 220ms ease;
+}
+
+.overview-home-v10 .overview-health-strip .warm i {
+  background: linear-gradient(180deg, rgb(240 177 75 / 58%), rgb(194 122 17 / 48%));
+}
+
+.overview-home-v10 .overview-health-strip .danger i {
+  background: linear-gradient(180deg, rgb(245 112 124 / 62%), rgb(197 56 69 / 48%));
+}
+
+.overview-home-v10 .overview-health-strip b,
+.overview-home-v10 .overview-health-strip em {
+  position: relative;
+  z-index: 1;
+}
+
+.overview-home-v10 .overview-health-strip b {
+  margin-right: 4px;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 920;
+}
+
+.overview-home-v10 .overview-health-strip em {
+  color: #b9d2d8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 820;
+}
+
+.overview-home-v10 .overview-workbench {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.overview-home-v10 .overview-ops-surface {
+  flex: 1 1 66%;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+}
+
+.overview-home-v10 .overview-recent-card {
+  flex: 0 0 390px;
+  min-width: 350px;
+  padding: 18px;
+  border-radius: 18px;
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline {
+  display: flex;
+  min-width: 0;
+  min-height: 150px;
+  gap: 12px;
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline::before {
+  right: 36px;
+  left: 36px;
+  height: 3px;
+  background: linear-gradient(90deg, #0b8aaa, #24a36e, #c27a11);
+  opacity: 0.28;
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline-stage {
+  min-height: 148px;
+  padding: 14px;
+  color: #13202d;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f6fbfa 100%);
+  border-color: #d7e5e2;
+  box-shadow:
+    0 12px 26px rgb(24 54 75 / 7%),
+    inset 0 1px 0 rgb(255 255 255 / 84%);
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline-stage:hover {
+  transform: translateY(-5px);
+  background: #ffffff;
+  border-color: #9accca;
+  box-shadow:
+    0 20px 36px rgb(24 54 75 / 13%),
+    inset 0 1px 0 rgb(255 255 255 / 90%);
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline-node span {
+  color: #ffffff;
+  background: linear-gradient(135deg, #0b8aaa, #24a36e);
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline-node strong,
+.overview-home-v10 .overview-ops-surface .overview-pipeline-value strong {
+  color: #112c3f;
+}
+
+.overview-home-v10 .overview-ops-surface .overview-pipeline-value em {
+  color: #667d89;
+}
+
+.overview-home-v10 .overview-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.overview-home-v10 .overview-action-link {
+  flex: 1 1 calc(50% - 6px);
+  min-width: 260px;
+  min-height: 92px;
+  border-radius: 15px;
+}
+
+.overview-home-v10 .overview-run-list a {
+  min-height: 60px;
+  border-radius: 15px;
+}
+
+.overview-stage-map a:focus-visible,
+.overview-health-strip span:focus-visible {
+  outline: 2px solid rgb(13 142 181 / 72%);
+  outline-offset: 2px;
+}
+
+.selectable-row,
+.table-shell tbody tr,
+.sample-list a,
+.viewer-controls button,
+.workspace-tab-list button,
+.status-pill,
+.user-profile-chip {
+  transition:
+    transform 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease;
+}
+
+.table-shell tbody tr:hover,
+.selectable-row:hover,
+.sample-list a:hover {
+  transform: translateX(2px);
+}
+
+.status-pill.online {
+  position: relative;
+  overflow: hidden;
+}
+
+.status-pill.online::after,
+.status-pill.loading::after {
+  position: absolute;
+  inset: 1px;
+  content: "";
+  background: linear-gradient(110deg, transparent, rgb(255 255 255 / 48%), transparent);
+  border-radius: inherit;
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.status-pill.online:hover::after,
+.status-pill.loading::after {
+  opacity: 1;
+  animation: overview-status-sheen 1.35s ease-in-out infinite;
+}
+
+.user-profile-chip:hover,
+.status-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px rgb(24 54 75 / 10%);
+}
+
+@keyframes overview-status-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 1180px) {
+  .overview-home-v10 .overview-command-center,
+  .overview-home-v10 .overview-workbench {
+    flex-direction: column;
+  }
+
+  .overview-home-v10 .overview-command-rail,
+  .overview-home-v10 .overview-recent-card {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .overview-home-v10 .overview-priority-stage {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .overview-home-v10 .overview-stage-map {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .overview-home-v10 .overview-priority-copy h2 {
+    font-size: 40px;
+  }
+
+  .overview-home-v10 .overview-ops-surface .overview-pipeline {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .overview-home-v10 .overview-priority-copy h2 {
+    font-size: 32px;
+  }
+
+  .overview-home-v10 .overview-stage-map,
+  .overview-home-v10 .overview-ops-surface .overview-pipeline,
+  .overview-home-v10 .overview-action-list {
+    flex-direction: column;
+  }
+
+  .overview-home-v10 .overview-ops-surface .overview-pipeline::before {
+    display: none;
+  }
+}

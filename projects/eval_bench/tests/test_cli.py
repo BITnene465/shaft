@@ -252,6 +252,36 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert commands_by_name["show-job"]["output_schema"]["properties"]["job"]["item_shape"] == (
         jobs_output_schema["properties"]["jobs"]["item_shape"]
     )
+    assert (
+        commands_by_name["list-job-templates"]["output_schema"]["properties"]["templates"][
+            "item_shape"
+        ]["manifest"]
+        == "object"
+    )
+    assert (
+        commands_by_name["show-job-template"]["output_schema"]["properties"]["template"][
+            "item_shape"
+        ]["description"]
+        == "str"
+    )
+    prompt_templates_output_schema = commands_by_name["list-prompt-templates"]["output_schema"]
+    assert prompt_templates_output_schema["properties"]["templates"]["item_shape"]["metadata"] == "object"
+    assert prompt_templates_output_schema["properties"]["by_id"]["item_shape"]["prompt_id"] == "str"
+    assert (
+        commands_by_name["show-prompt-template"]["output_schema"]["properties"]["template"][
+            "item_shape"
+        ]
+        == prompt_templates_output_schema["properties"]["templates"]["item_shape"]
+    )
+    assert commands_by_name["upsert-prompt-template"]["output_schema"]["properties"]["prompt_id"] == "str"
+    assert (
+        commands_by_name["delete-prompt-template"]["output_schema"]["properties"]["deleted"][
+            "type"
+        ]
+        == "bool"
+    )
+    assert commands_by_name["preflight-job"]["output_schema"]["properties"]["runtime_command"] == "list[str]"
+    assert commands_by_name["create-job"]["output_schema"]["properties"]["payload"] == "object"
     services_output_schema = commands_by_name["list-services"]["output_schema"]
     assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
@@ -408,6 +438,36 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     job_command = json.loads(capsys.readouterr().out)["command"]
     assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["job_id"] == "str"
     assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["error"] == "str|null"
+
+    job_template_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "show-job-template"]
+    )
+    _cmd_show_agent_command(job_template_args)
+    job_template_command = json.loads(capsys.readouterr().out)["command"]
+    assert (
+        job_template_command["output_schema"]["properties"]["template"]["item_shape"]["manifest"]
+        == "object"
+    )
+
+    prompt_templates_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "list-prompt-templates"]
+    )
+    _cmd_show_agent_command(prompt_templates_args)
+    prompt_templates_command = json.loads(capsys.readouterr().out)["command"]
+    assert (
+        prompt_templates_command["output_schema"]["properties"]["by_id"]["item_shape"]["task"]
+        == "str"
+    )
+
+    preflight_args = _build_parser().parse_args(["show-agent-command", "--name", "preflight-job"])
+    _cmd_show_agent_command(preflight_args)
+    preflight_command = json.loads(capsys.readouterr().out)["command"]
+    assert preflight_command["output_schema"]["properties"]["runtime_command"] == "list[str]"
+
+    create_job_args = _build_parser().parse_args(["show-agent-command", "--name", "create-job"])
+    _cmd_show_agent_command(create_job_args)
+    create_job_command = json.loads(capsys.readouterr().out)["command"]
+    assert create_job_command["output_schema"]["properties"]["job_id"] == "str"
 
     service_args = _build_parser().parse_args(["show-agent-command", "--name", "show-service"])
     _cmd_show_agent_command(service_args)
