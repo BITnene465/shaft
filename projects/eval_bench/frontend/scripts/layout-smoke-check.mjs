@@ -113,6 +113,7 @@ try {
       await assertNoClippedPanels(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
+      await assertAdvancedFilterKeyboardFlow(page, `${viewport.name}:${route.name}`);
       if (route.name === "runs" || route.name === "rank-board") {
         await assertAdvancedFilterClear(page, `${viewport.name}:${route.name}`);
       }
@@ -837,6 +838,82 @@ async function assertAdvancedFilterClear(page, scope) {
   });
   if (state.inputValue !== "" || state.clearVisible || state.summary !== "未设条件") {
     throw new Error(`${scope}: advanced filter clear did not reset filters ${JSON.stringify(state)}`);
+  }
+}
+
+async function assertAdvancedFilterKeyboardFlow(page, scope) {
+  const filter = page.locator(".advanced-filter-bar").first();
+  if ((await filter.count()) === 0) {
+    return;
+  }
+  const head = filter.locator(".advanced-filter-head");
+  await head.focus();
+  await head.click();
+  const popover = filter.locator(".advanced-filter-popover").first();
+  await popover.waitFor({ timeout: 5_000 });
+  await page.waitForTimeout(50);
+  const openState = await filter.evaluate((node) => {
+    const popoverNode = node.querySelector(".advanced-filter-popover");
+    const controls = Array.from(
+      node.querySelectorAll(
+        ".advanced-filter-controls input:not([disabled]), .advanced-filter-controls select:not([disabled]), .advanced-filter-controls textarea:not([disabled]), .advanced-filter-controls button:not([disabled])"
+      )
+    );
+    const active = document.activeElement;
+    return {
+      open: Boolean(popoverNode),
+      focusInsidePopover: Boolean(popoverNode?.contains(active)),
+      focusInsideControls: controls.some((control) => control === active),
+      activeTag: active?.tagName ?? "",
+      activeClass: active instanceof HTMLElement ? active.className : ""
+    };
+  });
+  if (!openState.open || !openState.focusInsidePopover || !openState.focusInsideControls) {
+    throw new Error(`${scope}: advanced filter should focus first filter control ${JSON.stringify(openState)}`);
+  }
+
+  for (let index = 0; index < 20; index += 1) {
+    await page.keyboard.press("Tab");
+    const focusEscaped = await filter.evaluate((node) => {
+      const popoverNode = node.querySelector(".advanced-filter-popover");
+      return Boolean(popoverNode) && !popoverNode.contains(document.activeElement);
+    });
+    if (focusEscaped) {
+      throw new Error(`${scope}: advanced filter Tab focus escaped popover at step ${index + 1}`);
+    }
+  }
+
+  await page.keyboard.press("Escape");
+  await popover.waitFor({ state: "hidden", timeout: 5_000 });
+  await filter.locator(".advanced-filter-head").evaluate((node) =>
+    new Promise((resolve, reject) => {
+      let attempts = 0;
+      const tick = () => {
+        if (document.activeElement === node) {
+          resolve(true);
+          return;
+        }
+        attempts += 1;
+        if (attempts > 20) {
+          reject(new Error("advanced filter trigger focus was not restored"));
+          return;
+        }
+        window.setTimeout(tick, 25);
+      };
+      tick();
+    })
+  );
+  const closedState = await filter.evaluate((node) => {
+    const headNode = node.querySelector(".advanced-filter-head");
+    return {
+      popoverVisible: Boolean(node.querySelector(".advanced-filter-popover")),
+      focusReturned: document.activeElement === headNode
+    };
+  });
+  if (closedState.popoverVisible || !closedState.focusReturned) {
+    throw new Error(
+      `${scope}: advanced filter Escape should close and restore trigger focus ${JSON.stringify(closedState)}`
+    );
   }
 }
 

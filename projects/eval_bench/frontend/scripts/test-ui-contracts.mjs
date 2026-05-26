@@ -43,6 +43,8 @@ assert(
     filterControls.includes("function toggleAdvancedFilter()") &&
     filterControls.includes("function defaultFilterValue(") &&
     filterControls.includes("function groupAdvancedControls(") &&
+    filterControls.includes("const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [") &&
+    filterControls.includes(".advanced-filter-controls input:not([disabled])") &&
     filterControls.includes("const popoverRef = useRef<HTMLDivElement | null>(null);") &&
     filterControls.includes("const previouslyFocusedRef = useRef<HTMLElement | null>(null);") &&
     filterControls.includes("event.key !== \"Tab\"") &&

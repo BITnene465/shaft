@@ -779,6 +779,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 jobs、services 和 settings，在 desktop / compact / narrow 三种 viewport 下确认没有全局滚动溢出、
 page stack 不被 content 裁切、表格和高级检索面板需要滚动时由自己的容器滚动，并确认 rank-board
 和 compare 加载独立 chunk。Overview 还会额外检查顶栏 status 是独立圆角 capsule、没有外层容器，
+高级检索浮层会额外检查打开后焦点进入首个检索控件、Tab 不逃出浮层、Escape 关闭后回到触发器；
 Overview 不能回流旧活动矩阵、mini chart wall 或 chart matrix；页面必须保留 v16 command deck：mission board、下一步动作、F1 dial、最佳 run focus、闭环 runway、score cluster 和最近 run 产物流，
 并保留报告覆盖、待评估、任务队列和模型服务四个可点击信号，不再回退到 Run/Ops/Volume 面板组、proof/triage 堆叠或纯路由入口面板；
 不出现 precision/recall/IoU 这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板，

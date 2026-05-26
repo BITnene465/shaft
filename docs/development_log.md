@@ -33,12 +33,14 @@
 - 在浮层内部处理 Tab / Shift+Tab 闭环，Escape 和收起按钮关闭后恢复到触发器。
 - 外部点击只关闭浮层，不强行抢回焦点，避免打断用户点击页面其他控件。
 - `test:ui-contracts` 增加静态防线，要求高级检索继续维护焦点 ref、Tab 闭环和可聚焦浮层。
+- layout smoke 增加真实浏览器防线，确认打开后焦点进入首个检索控件、Tab 不逃出浮层、Escape 关闭后回到触发器。
 - README 和架构文档同步高级检索交互边界。
 
 ### 回归测试
 
 - `cd projects/eval_bench/frontend && npm run test:ui-contracts`
 - `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
 
 ### 后续防线
 

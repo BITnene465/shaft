@@ -4,6 +4,13 @@ import { RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
 
+const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
+  ".advanced-filter-controls input:not([disabled])",
+  ".advanced-filter-controls select:not([disabled])",
+  ".advanced-filter-controls textarea:not([disabled])",
+  ".advanced-filter-controls button:not([disabled])"
+].join(",");
+
 export function FilterSelect({
   label,
   value,
@@ -91,7 +98,9 @@ export function AdvancedFilterBar({
     if (!open) {
       return;
     }
-    const focusTarget = popoverRef.current?.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR);
+    const focusTarget =
+      popoverRef.current?.querySelector<HTMLElement>(ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR) ??
+      popoverRef.current?.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR);
     window.setTimeout(() => {
       (focusTarget ?? popoverRef.current)?.focus();
     }, 0);
