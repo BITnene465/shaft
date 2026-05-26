@@ -35,6 +35,7 @@ algorithm:
 data:
   mix_strategy: INTERLEAVE_OVER
   mix_refresh: EPOCH_REFRESH
+  max_length: 4096
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -63,6 +64,7 @@ model:
     assert cfg.algorithm.name == "sft"
     assert cfg.data.mix_strategy == "interleave_over"
     assert cfg.data.mix_refresh == "epoch_refresh"
+    assert cfg.data.max_length == 4096
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
     assert cfg.train.gradient_checkpointing is True
@@ -140,6 +142,21 @@ data:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(payload, encoding="utf-8")
     with pytest.raises(ValueError, match="Unsupported data.mix_refresh"):
+        load_config(config_path)
+
+
+def test_invalid_data_max_length_raises(tmp_path: Path) -> None:
+    payload = """
+data:
+  max_length: 0
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+    with pytest.raises(ValueError, match="data.max_length must be > 0"):
         load_config(config_path)
 
 

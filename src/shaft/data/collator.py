@@ -18,6 +18,7 @@ class _ShaftSequenceCollatorBase:
         tokenizer: Any,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        max_length: int | None = None,
         add_eos_token: bool = True,
         ignore_index: int = -100,
         padding_side: str = "right",
@@ -29,6 +30,7 @@ class _ShaftSequenceCollatorBase:
         self.tokenizer = tokenizer
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.max_length = int(max_length) if max_length is not None else None
         self.add_eos_token = bool(add_eos_token)
         self.ignore_index = int(ignore_index)
         self.padding_side = padding_side
@@ -97,6 +99,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         tokenizer: Any,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        max_length: int | None = None,
         add_eos_token: bool = True,
         ignore_index: int = -100,
         include_targets_in_inputs: bool = True,
@@ -110,6 +113,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             tokenizer=tokenizer,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
+            max_length=max_length,
             add_eos_token=add_eos_token,
             ignore_index=ignore_index,
             padding_side=padding_side,
@@ -145,6 +149,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=self.include_targets_in_inputs,
+                max_length=self.max_length,
             )
             for row_index, (item, plan) in enumerate(zip(batch, plans))
         ]
@@ -215,6 +220,7 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=True,
+                max_length=self.max_length,
             )
             for row_index, (item, plan) in enumerate(zip(batch, chosen_plans))
         ]
@@ -232,6 +238,7 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=True,
+                max_length=self.max_length,
             )
             for row_index, (item, plan) in enumerate(zip(batch, rejected_plans))
         ]

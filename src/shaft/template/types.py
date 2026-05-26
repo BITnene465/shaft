@@ -106,6 +106,7 @@ class Template(ABC):
         add_eos_token: bool,
         ignore_index: int,
         include_targets_in_inputs: bool,
+        max_length: int | None = None,
     ) -> ShaftTemplateSupervisedRow:
         raise NotImplementedError
 

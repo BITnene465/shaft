@@ -32,5 +32,6 @@ class DataConfig:
     persistent_workers: bool = True
     min_pixels: int | None = 200704
     max_pixels: int | None = 1048576
+    max_length: int | None = None
     add_eos_token: bool = True
     shuffle: bool = True

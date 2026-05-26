@@ -58,6 +58,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "GRPO currently requires data.mix_refresh='static' because TRL GRPO uses its own repeated "
             "train sampler for grouped generations."
         )
+    if config.data.max_length is not None:
+        config.data.max_length = int(config.data.max_length)
+        if config.data.max_length <= 0:
+            raise ValueError("data.max_length must be > 0 when set.")
     config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None

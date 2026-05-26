@@ -93,6 +93,34 @@ class ShaftChatTemplate(Template):
         )
         return list(tokenized["input_ids"][0])
 
+    @staticmethod
+    def _truncate_target_ids(
+        target_ids: list[int],
+        *,
+        prefix_length: int,
+        max_length: int | None,
+        eos_id: int | None,
+        add_eos_token: bool,
+    ) -> list[int]:
+        if max_length is None:
+            output = list(target_ids)
+            if add_eos_token and eos_id is not None and (not output or output[-1] != eos_id):
+                output.append(int(eos_id))
+            return output
+
+        budget = int(max_length) - int(prefix_length)
+        if budget <= 0:
+            return []
+        reserve_eos = bool(add_eos_token and eos_id is not None)
+        if reserve_eos:
+            if len(target_ids) <= budget and target_ids and target_ids[-1] == int(eos_id):
+                return list(target_ids)
+            target_budget = max(budget - 1, 0)
+            output = list(target_ids[:target_budget])
+            output.append(int(eos_id))
+            return output
+        return list(target_ids[:budget])
+
     def _compute_prefix_loss_scale(
         self,
         *,
@@ -157,6 +185,7 @@ class ShaftChatTemplate(Template):
         add_eos_token: bool,
         ignore_index: int,
         include_targets_in_inputs: bool,
+        max_length: int | None = None,
     ) -> ShaftTemplateSupervisedRow:
         eos_id = getattr(tokenizer, "eos_token_id", None)
         prefix_mask = prefix_batch["attention_mask"][row_index].bool()
@@ -165,8 +194,13 @@ class ShaftChatTemplate(Template):
         prefix_mm = mm_token_ids[row_index][prefix_mask] if mm_token_ids is not None else None
 
         target_ids = self._tokenize_target(tokenizer=tokenizer, target_text=plan.target_text)
-        if add_eos_token and eos_id is not None and (not target_ids or target_ids[-1] != eos_id):
-            target_ids.append(int(eos_id))
+        target_ids = self._truncate_target_ids(
+            target_ids,
+            prefix_length=int(prefix_ids.shape[0]),
+            max_length=max_length,
+            eos_id=eos_id,
+            add_eos_token=add_eos_token,
+        )
         target_tensor = torch.tensor(target_ids, dtype=torch.long)
 
         if include_targets_in_inputs:

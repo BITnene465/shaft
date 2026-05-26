@@ -142,6 +142,7 @@
 - `persistent_workers`
 - `min_pixels`
 - `max_pixels`
+- `max_length`
 - `add_eos_token`
 - `shuffle`
 
@@ -178,6 +179,10 @@
   - `epoch_refresh`
 - `static` 会在训练启动前构建一次 train sampler，整个 run 复用同一份混合索引。
 - `epoch_refresh` 会在每个 epoch 通过 train sampler 重建训练集 mixing 索引；验证集仍保持静态 concat。
+- `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
+  `max_length` / `cutoff_len`。SFT completion 会优先保留 prompt 和图像前缀，只从 assistant target
+  右侧截断，并在启用 `add_eos_token` 时为截断后的 target 补 EOS。该字段用于避免超长结构化答案把
+  DDP 单步拖入极慢路径；不改变原始 JSONL 数据，也不影响 raw 数据溯源。
 
 补充说明：
 

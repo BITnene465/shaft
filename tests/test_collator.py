@@ -183,6 +183,38 @@ def test_sft_collator_appends_eos_to_inputs_and_labels() -> None:
     assert int(out["labels"][0, -1].item()) == _FakeTokenizer.eos_token_id
 
 
+def test_sft_collator_truncates_target_tokens_to_max_length() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    collator = SFTCollator(
+        model_adapter=model_adapter,
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        max_length=4,
+    )
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    batch = [
+        {
+            "dataset_name": "a",
+            "sample_id": "a1",
+            "image_path": "/tmp/a.png",
+            "image": image,
+            "target_text": "one two three four five",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "Locate.",
+            "extra": {},
+        },
+    ]
+
+    out = collator(batch)
+
+    assert out["input_ids"].shape[1] == 4
+    assert int(out["input_ids"][0, -1].item()) == _FakeTokenizer.eos_token_id
+    assert int(out["labels"][0, -1].item()) == _FakeTokenizer.eos_token_id
+    assert int(torch.sum(out["labels"][0].ne(-100)).item()) == 3
+
+
 def test_sft_collator_default_supervises_previous_assistant_rounds() -> None:
     model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))

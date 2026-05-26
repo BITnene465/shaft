@@ -64,6 +64,7 @@ class ShaftRLHFPipeline:
             "tokenizer": artifacts.tokenizer,
             "min_pixels": self.config.data.min_pixels,
             "max_pixels": self.config.data.max_pixels,
+            "max_length": self.config.data.max_length,
             "add_eos_token": self.config.data.add_eos_token,
         }
         if algorithm_name == "dpo":
@@ -154,6 +155,7 @@ class ShaftRLHFPipeline:
                     tokenizer=artifacts.tokenizer,
                     min_pixels=config.data.min_pixels,
                     max_pixels=config.data.max_pixels,
+                    max_length=config.data.max_length,
                     add_eos_token=config.data.add_eos_token,
                     include_targets_in_inputs=False,
                     padding_side="left",

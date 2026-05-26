@@ -9,6 +9,48 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-27: 超长结构化 target 会把 DDP 单步拖入极慢路径
+
+### 现象
+
+Banana v2.4 SFT 训练在 `145/7320` 附近出现单步耗时异常。普通 step 约 4s，但该 step 的进度条显示
+`561.68s/step`，外观看起来像 `cuda3` 卡死。GPU 仍有高 util，训练进程没有 OOM 或 Python exception。
+
+### 根因
+
+训练样本 `part1__web_0255__full` 属于 `grounding_layout`，包含 288 个 layout instances，
+assistant target 约 13K 字符、7471 个 target tokens。当前 SFT collator 只限制 `max_pixels`，没有
+类似 Swift `max_length` 或 LLaMA-Factory `cutoff_len` 的 token 上限，导致超长 JSON target 完整进入
+full finetune。多卡 DDP 同步训练时，单个 rank 的极端长 batch 会让所有 rank 在同步点等待最慢 rank。
+
+这是训练运行时的长尾样本问题，不是模型能力问题，也不是 eval / codec / metric / data 标准误判。标注本身可以是正确的，
+但训练 runtime 仍需要对 token 长度做上限保护。
+
+### 影响范围
+
+- 影响 SFT/DPO 这类把 assistant target 放入训练输入的 collator。
+- 对 dense layout / shape / shape+arrow full-image 样本风险最高；point_arrow 基本不受影响。
+- 如果不设 token 上限，Swift、LLaMA-Factory 或 HF Trainer 在同类数据上也可能遇到相同 straggler step。
+
+### 修复方式
+
+- 新增 `data.max_length` 配置字段。
+- SFT/DPO supervised row 构建时按 token 上限截断 assistant target，优先保留 prompt 和图像前缀。
+- 启用 `add_eos_token` 时，截断后的 target 仍补 EOS，避免训练样本没有终止符。
+- Banana SFT 训练配置设置 `data.max_length: 4096`，避免超长 full-image JSON target 直接进入极慢路径。
+
+### 回归测试
+
+- `uv run pytest -q tests/test_collator.py::test_sft_collator_truncates_target_tokens_to_max_length`
+- `uv run pytest -q tests/test_config_loader.py::test_normalization tests/test_config_loader.py::test_invalid_data_max_length_raises`
+
+### 后续防线
+
+- 新增结构化训练数据时必须统计 target token / instance 长尾，而不只统计样本数。
+- 对 dense grounding 任务，训练集优先用 crop 或 token 截断控制 runtime；验证集可以保留原始长样本。
+- 如果后续发现截断 JSON 明显影响格式学习，再补充“按 instance 数拆分 target”的结构化增强方案，但 runtime
+  token 上限仍应保留。
+
 ## 2026-05-26: Eval Bench 总览 UI 回归需要禁止低价值文案和过宽网格
 
 ### 现象
