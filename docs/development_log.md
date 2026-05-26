@@ -9,6 +9,45 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 自动化入口偏向 MCP 式命令发现
+
+### 现象
+
+Eval Bench 为自动化调用补齐 CLI 后，又暴露了 `list-agent-commands` / `show-agent-command`，
+并在运行时代码中维护参数语义、互斥组、输出 schema 和错误 contract。这让本该是普通 CLI 的能力面
+变成了类似 MCP 的自描述工具协议。
+
+### 根因
+
+把“CLI 可脚本化”误解成“CLI 必须自带工具发现协议”。真实需求是稳定子命令、标准 `--help`、
+JSON stdout 和可选 JSON 错误；额外 contract 层会增加重复真源，也会让 parser/help、测试和文档
+继续围绕协议而不是实际命令演进。这是 CLI 边界问题，不是模型能力问题，也不是
+eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Eval Bench 自动化入口的设计边界和维护成本。
+- 不改变 run/job/service/comparison 的业务命令、Dashboard API、rank-board 默认 F1 语义或评估指标。
+
+### 修复方式
+
+- 从公开 parser 和 handler 中移除 `list-agent-commands` / `show-agent-command`。
+- 删除运行时 command contract 构造、参数语义表和输出 schema 发现 payload，只保留测试用的 CLI JSON
+  payload schema 防线。
+- CLI help 文案改回标准命令说明，文档改为要求通过 `--help` 查看参数，通过 `--json-errors` 获取机器可读错误。
+- `rank-board --sort-by weighted_score` 在没有显式 rank scheme 时直接报错，避免把 weighted sort
+  悄悄降级成默认 F1。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_parser_commands_have_handlers projects/eval_bench/tests/test_cli.py::test_cli_help_is_the_public_discovery_surface projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_prints_filtered_rank_board projects/eval_bench/tests/test_dashboard.py::test_dashboard_exposes_independent_rank_board`
+
+### 后续防线
+
+- 新增自动化能力时，先补普通子命令和 `--help`，不要再新增自描述命令发现层。
+- 测试可以维护 JSON payload shape，但运行时代码不应把测试 schema 暴露成用户协议。
+- Weighted rank 只由显式 `rank_scheme` 触发，默认排行永远保持 F1 主指标。
+
 ## 2026-05-26: Eval Bench viewer 图层偏好缺少分页回归防线
 
 ### 现象

@@ -1457,6 +1457,8 @@ def _normalize_rank_sort_by(value: str, *, weighted: bool = False) -> str:
     normalized = str(value or DEFAULT_RANK_SORT_BY).strip()
     if normalized == "score":
         return WEIGHTED_RANK_SORT_BY if weighted else DEFAULT_RANK_SORT_BY
+    if normalized == WEIGHTED_RANK_SORT_BY and not weighted:
+        raise ValueError("sort_by=weighted_score requires rank_scheme.")
     if weighted and normalized == DEFAULT_RANK_SORT_BY:
         return WEIGHTED_RANK_SORT_BY
     allowed = {

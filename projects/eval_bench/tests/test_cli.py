@@ -10,10 +10,9 @@ import pytest
 
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.cli import (
-    AGENT_COMMAND_METADATA,
-    AGENT_COMMAND_OUTPUT_SCHEMAS,
-    AGENT_DESTRUCTIVE_COMMANDS,
-    AGENT_STABLE_COMMANDS,
+    CLI_JSON_OUTPUT_SCHEMAS,
+    CLI_DESTRUCTIVE_COMMANDS,
+    CLI_JSON_COMMANDS,
     _build_parser,
     _command_handlers,
     _cmd_archive_run,
@@ -28,7 +27,6 @@ from eval_bench.cli import (
     _cmd_get_run_note,
     _cmd_init_run,
     _cmd_import_predictions,
-    _cmd_list_agent_commands,
     _cmd_job_logs,
     _cmd_list_benchmarks,
     _cmd_list_benchmark_samples,
@@ -50,7 +48,6 @@ from eval_bench.cli import (
     _cmd_compare_runs,
     _cmd_show_benchmark,
     _cmd_show_benchmark_sample,
-    _cmd_show_agent_command,
     _cmd_show_comparison,
     _cmd_show_comparison_sample,
     _cmd_show_job,
@@ -77,8 +74,8 @@ def _parser_command_names() -> set[str]:
     return set(subparsers_action.choices)
 
 
-def _assert_agent_output_payload(command_name: str, payload: object) -> None:
-    schema = AGENT_COMMAND_OUTPUT_SCHEMAS[command_name]
+def _assert_cli_json_payload(command_name: str, payload: object) -> None:
+    schema = CLI_JSON_OUTPUT_SCHEMAS[command_name]
     _assert_schema_node(schema, payload, command_name)
 
 
@@ -153,144 +150,60 @@ def _assert_schema_type(schema_type: str, value: object, path: str) -> None:
         assert isinstance(value, bool), f"{path}: expected bool"
 
 
-def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
+def test_cli_parser_commands_have_handlers() -> None:
     command_names = _parser_command_names()
     handler_names = set(_command_handlers())
 
     assert command_names == handler_names
-    assert AGENT_STABLE_COMMANDS <= command_names
-    assert set(AGENT_COMMAND_METADATA) == AGENT_STABLE_COMMANDS
-    assert AGENT_DESTRUCTIVE_COMMANDS <= AGENT_STABLE_COMMANDS
-    assert all(
-        isinstance(item["domain"], str) and item["domain"]
-        for item in AGENT_COMMAND_METADATA.values()
-    )
-    assert all(
-        isinstance(item["mutates_state"], bool) for item in AGENT_COMMAND_METADATA.values()
-    )
-    assert all(
-        bool(AGENT_COMMAND_METADATA[name]["mutates_state"])
-        for name in AGENT_DESTRUCTIVE_COMMANDS
-    )
+    assert CLI_JSON_COMMANDS <= command_names
+    assert CLI_DESTRUCTIVE_COMMANDS <= CLI_JSON_COMMANDS
+    assert set(CLI_JSON_OUTPUT_SCHEMAS) == CLI_JSON_COMMANDS
+    assert "list-agent-commands" not in command_names
+    assert "show-agent-command" not in command_names
 
 
-def test_cli_lists_agent_stable_commands(capsys) -> None:
-    args = _build_parser().parse_args(["list-agent-commands"])
-    _cmd_list_agent_commands(args)
-    payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("list-agent-commands", payload)
+def test_cli_help_is_the_public_discovery_surface() -> None:
+    root = Path(__file__).resolve().parents[3]
+    top_help = subprocess.run(
+        [sys.executable, "scripts/eval_bench.py", "--help"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    rank_help = subprocess.run(
+        [sys.executable, "scripts/eval_bench.py", "rank-board", "--help"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-    command_names = [item["name"] for item in payload["commands"]]
-    commands_by_name = {item["name"]: item for item in payload["commands"]}
-    assert payload["total"] == len(AGENT_STABLE_COMMANDS)
-    assert payload["mutating_count"] == sum(
-        1 for item in AGENT_COMMAND_METADATA.values() if item["mutates_state"]
-    )
-    assert payload["read_only_count"] == sum(
-        1 for item in AGENT_COMMAND_METADATA.values() if not item["mutates_state"]
-    )
-    assert payload["destructive_count"] == len(AGENT_DESTRUCTIVE_COMMANDS)
-    assert set(payload["domains"]) == {
-        item["domain"] for item in AGENT_COMMAND_METADATA.values()
-    }
-    assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
-    assert payload["error_contract"]["enable_with"] == [
-        "--json-errors",
-        "EVAL_BENCH_JSON_ERRORS=1",
-    ]
-    assert payload["error_contract"]["stream"] == "stderr"
-    assert payload["error_contract"]["shape"]["error_type"] == "str"
-    assert command_names == sorted(AGENT_STABLE_COMMANDS)
-    assert "rank-board" in command_names
-    assert "show-agent-command" in command_names
-    assert "init-run" in command_names
-    assert "validate-prediction" in command_names
-    assert "process-next-job" in command_names
-    assert "register-service" in command_names
-    assert "start-service" in command_names
-    assert "stop-service" in command_names
-    assert "compare-runs" in command_names
-    assert "import-predictions" in command_names
-    assert "upsert-prompt-template" in command_names
-    assert "show-comparison-sample" in command_names
-    assert "serve-dashboard" not in command_names
-    assert "write-demo-prediction" not in command_names
-    assert all(item["help"] for item in payload["commands"])
-    assert all(item["usage"].startswith("usage: eval_bench.py ") for item in payload["commands"])
-    assert all(
-        item["argv_prefix"] == ["scripts/eval_bench.py", item["name"]]
-        for item in payload["commands"]
-    )
-    assert all("api_routes" not in item for item in payload["commands"])
-    assert all(item["domain"] for item in payload["commands"])
-    assert all(isinstance(item["mutates_state"], bool) for item in payload["commands"])
-    assert all(isinstance(item["destructive"], bool) for item in payload["commands"])
-    assert all(isinstance(item["arguments"], list) for item in payload["commands"])
-    assert all(isinstance(item["argument_semantics"], dict) for item in payload["commands"])
-    assert all(
-        item["argument_semantics"] for item in payload["commands"] if item["mutates_state"]
-    )
-    assert all(isinstance(item["mutually_exclusive_groups"], list) for item in payload["commands"])
-    assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
-    assert set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS
-    assert all(item["output_schema"] for item in payload["commands"])
-    filter_commands = {
-        name
-        for name, schema in AGENT_COMMAND_OUTPUT_SCHEMAS.items()
-        if "filters" in schema.get("required", [])
-    }
-    assert all(
-        "filters" in commands_by_name[name]["argument_semantics"] for name in filter_commands
-    )
-    assert all(
-        "pagination" in commands_by_name[name]["argument_semantics"]
-        for name in filter_commands
-        if name != "list-job-templates"
-    )
-    assert commands_by_name["dashboard-state"]["output_schema"]["properties"]["runs"]["item_shape"][
-        "target_labels"
-    ] == "list[str]"
-    assert (
-        commands_by_name["scheduler-status"]["output_schema"]["properties"]["enabled"]
-        == "bool"
-    )
-    assert commands_by_name["backend-logs"]["output_schema"]["properties"]["lines"] == "list[str]"
-    assert commands_by_name["job-logs"]["output_schema"]["properties"]["job_id"] == "str"
-    assert commands_by_name["service-logs"]["output_schema"]["properties"]["service_id"] == "str"
-    assert commands_by_name["list-agent-commands"]["output_schema"]["properties"]["commands"][
-        "item_shape"
-    ]["output_schema"] == "object"
-    assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
-        "item_shape"
-    ]["arguments"] == "list[object]"
-    assert commands_by_name["show-agent-command"]["output_schema"]["properties"]["command"][
-        "item_shape"
-    ]["argument_semantics"] == "object"
-    assert "api_routes" not in commands_by_name["show-agent-command"]["output_schema"][
-        "properties"
-    ]["command"]["item_shape"]
-    assert (
-        commands_by_name["create-benchmark"]["output_schema"]["properties"]["labels"]
-        == "list[str]"
-    )
-    assert (
-        commands_by_name["create-benchmark"]["argument_semantics"]["benchmark"]["source_manifest"]
-        == "source manifest JSON that enumerates images and annotations."
-    )
-    assert "manifest-first job payload JSON" in commands_by_name["create-job"][
-        "argument_semantics"
-    ]["payload"]["payload_json"]
-    assert "trash" in commands_by_name["delete-run"]["argument_semantics"]["lifecycle"]["effect"]
-    assert commands_by_name["process-next-job"]["argument_semantics"]["queue"]["kind"].endswith(
-        "default eval."
-    )
-    assert (
-        commands_by_name["compare-runs"]["argument_semantics"]["comparison"][
-            "candidate_run_id"
-        ]
-        == "required evaluated candidate run id."
-    )
-    init_output_schema = commands_by_name["init-run"]["output_schema"]
+    assert top_help.returncode == 0
+    assert "rank-board" in top_help.stdout
+    assert "show-run" in top_help.stdout
+    assert "list-agent-commands" not in top_help.stdout
+    assert "show-agent-command" not in top_help.stdout
+    assert "output_schema" not in top_help.stdout
+    assert "contract" not in top_help.stdout.lower()
+
+    assert rank_help.returncode == 0
+    assert "--sort-by" in rank_help.stdout
+    assert "--rank-scheme-json" in rank_help.stdout
+    assert "--rank-scheme-file" in rank_help.stdout
+    assert "f1_iou50" in rank_help.stdout
+    assert "weighted_score" in rank_help.stdout
+    assert "contract" not in rank_help.stdout.lower()
+
+
+def test_cli_json_output_schemas_cover_stable_commands() -> None:
+    command_names = _parser_command_names()
+    assert set(CLI_JSON_OUTPUT_SCHEMAS) == CLI_JSON_COMMANDS
+    assert CLI_JSON_COMMANDS <= command_names
+    assert "list-agent-commands" not in CLI_JSON_OUTPUT_SCHEMAS
+    assert "show-agent-command" not in CLI_JSON_OUTPUT_SCHEMAS
+
+    init_output_schema = CLI_JSON_OUTPUT_SCHEMAS["init-run"]
     assert init_output_schema["required"] == [
         "run_id",
         "manifest_path",
@@ -301,13 +214,8 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         "target_labels_source",
     ]
     assert init_output_schema["properties"]["target_labels"]["type"] == "list[str]"
-    assert commands_by_name["validate-prediction"]["output_schema"]["properties"]["instances"] == "int"
-    assert commands_by_name["rank-board"]["domain"] == "rank"
-    assert commands_by_name["rank-board"]["mutates_state"] is False
-    assert "rank-board" in commands_by_name["rank-board"]["usage"]
-    assert "pytest" not in commands_by_name["rank-board"]["usage"]
-    assert "rank-scheme-json" in commands_by_name["rank-board"]["usage"]
-    rank_output_schema = commands_by_name["rank-board"]["output_schema"]
+    assert CLI_JSON_OUTPUT_SCHEMAS["validate-prediction"]["properties"]["instances"] == "int"
+    rank_output_schema = CLI_JSON_OUTPUT_SCHEMAS["rank-board"]
     assert rank_output_schema["required"] == [
         "offset",
         "limit",
@@ -333,24 +241,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         "metric_profiles",
     ]
     assert "score_delta" in rank_output_schema["properties"]["entries"]["item_shape"]
-    assert commands_by_name["create-job"]["domain"] == "job"
-    assert commands_by_name["create-job"]["mutates_state"] is True
-    assert commands_by_name["init-run"]["domain"] == "run"
-    assert commands_by_name["init-run"]["mutates_state"] is True
-    assert commands_by_name["validate-prediction"]["domain"] == "prediction"
-    assert commands_by_name["validate-prediction"]["mutates_state"] is False
-    assert commands_by_name["process-next-job"]["domain"] == "job"
-    assert commands_by_name["process-next-job"]["mutates_state"] is True
-    assert commands_by_name["start-service"]["domain"] == "service"
-    assert commands_by_name["start-service"]["mutates_state"] is True
-    assert commands_by_name["start-service"]["destructive"] is False
-    assert commands_by_name["stop-service"]["destructive"] is True
-    assert commands_by_name["delete-run"]["destructive"] is True
-    assert commands_by_name["set-run-note"]["destructive"] is False
-    assert commands_by_name["append-run-note"]["domain"] == "note"
-    assert commands_by_name["append-run-note"]["mutates_state"] is True
-    assert commands_by_name["append-run-note"]["destructive"] is False
-    note_output_schema = commands_by_name["get-run-note"]["output_schema"]
+    note_output_schema = CLI_JSON_OUTPUT_SCHEMAS["get-run-note"]
     assert note_output_schema["required"] == [
         "run_id",
         "note",
@@ -358,9 +249,9 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
         "path",
         "max_length",
     ]
-    assert commands_by_name["set-run-note"]["output_schema"] == note_output_schema
-    assert commands_by_name["append-run-note"]["output_schema"] == note_output_schema
-    resolve_output_schema = commands_by_name["resolve-target-labels"]["output_schema"]
+    assert CLI_JSON_OUTPUT_SCHEMAS["set-run-note"] == note_output_schema
+    assert CLI_JSON_OUTPUT_SCHEMAS["append-run-note"] == note_output_schema
+    resolve_output_schema = CLI_JSON_OUTPUT_SCHEMAS["resolve-target-labels"]
     assert resolve_output_schema["required"] == [
         "task",
         "benchmark_id",
@@ -378,15 +269,15 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     ]
     assert "detection" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
-    runs_output_schema = commands_by_name["list-runs"]["output_schema"]
+    runs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-runs"]
     assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "runs"]
     assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["f1_iou50"] == "float|null"
-    assert commands_by_name["show-run"]["output_schema"]["properties"]["run"]["item_shape"] == (
+    assert CLI_JSON_OUTPUT_SCHEMAS["show-run"]["properties"]["run"]["item_shape"] == (
         runs_output_schema["properties"]["runs"]["item_shape"]
     )
-    run_samples_output_schema = commands_by_name["list-run-samples"]["output_schema"]
+    run_samples_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-run-samples"]
     assert run_samples_output_schema["required"] == [
         "run_id",
         "offset",
@@ -400,240 +291,113 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["gt_instance_count"] == "int"
     assert run_samples_output_schema["properties"]["samples"]["item_shape"]["diagnostics"] == "object|null"
     assert (
-        commands_by_name["show-run-sample"]["output_schema"]["properties"]["sample"]["item_shape"]
+        CLI_JSON_OUTPUT_SCHEMAS["show-run-sample"]["properties"]["sample"]["item_shape"]
         == run_samples_output_schema["properties"]["samples"]["item_shape"]
     )
-    benchmark_samples_output_schema = commands_by_name["list-benchmark-samples"]["output_schema"]
+    benchmark_samples_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-benchmark-samples"]
     assert "filters" in benchmark_samples_output_schema["required"]
     assert benchmark_samples_output_schema["properties"]["filters"]["type"] == "object"
     assert benchmark_samples_output_schema["properties"]["samples"]["item_shape"]["instance_count"] == "int"
     assert (
-        commands_by_name["show-benchmark-sample"]["output_schema"]["properties"]["sample"][
+        CLI_JSON_OUTPUT_SCHEMAS["show-benchmark-sample"]["properties"]["sample"][
             "item_shape"
         ]
         == benchmark_samples_output_schema["properties"]["samples"]["item_shape"]
     )
-    jobs_output_schema = commands_by_name["list-jobs"]["output_schema"]
+    jobs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-jobs"]
     assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "jobs"]
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"] == "object"
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"] == "object"
-    assert commands_by_name["show-job"]["output_schema"]["properties"]["job"]["item_shape"] == (
+    assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
         jobs_output_schema["properties"]["jobs"]["item_shape"]
     )
     assert (
-        commands_by_name["list-job-templates"]["output_schema"]["properties"]["templates"][
+        CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"]["properties"]["templates"][
             "item_shape"
         ]["manifest"]
         == "object"
     )
     assert (
-        commands_by_name["show-job-template"]["output_schema"]["properties"]["template"][
+        CLI_JSON_OUTPUT_SCHEMAS["show-job-template"]["properties"]["template"][
             "item_shape"
         ]["description"]
         == "str"
     )
-    prompt_templates_output_schema = commands_by_name["list-prompt-templates"]["output_schema"]
+    prompt_templates_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-prompt-templates"]
     assert prompt_templates_output_schema["properties"]["templates"]["item_shape"]["metadata"] == "object"
     assert prompt_templates_output_schema["properties"]["by_id"]["item_shape"]["prompt_id"] == "str"
     assert (
-        commands_by_name["show-prompt-template"]["output_schema"]["properties"]["template"][
+        CLI_JSON_OUTPUT_SCHEMAS["show-prompt-template"]["properties"]["template"][
             "item_shape"
         ]
         == prompt_templates_output_schema["properties"]["templates"]["item_shape"]
     )
-    assert commands_by_name["upsert-prompt-template"]["output_schema"]["properties"]["prompt_id"] == "str"
+    assert CLI_JSON_OUTPUT_SCHEMAS["upsert-prompt-template"]["properties"]["prompt_id"] == "str"
     assert (
-        commands_by_name["delete-prompt-template"]["output_schema"]["properties"]["deleted"][
+        CLI_JSON_OUTPUT_SCHEMAS["delete-prompt-template"]["properties"]["deleted"][
             "type"
         ]
         == "bool"
     )
-    assert commands_by_name["preflight-job"]["output_schema"]["properties"]["runtime_command"] == "list[str]"
-    assert commands_by_name["create-job"]["output_schema"]["properties"]["payload"] == "object"
-    assert commands_by_name["cancel-job"]["output_schema"]["properties"]["status"] == "str"
-    assert commands_by_name["delete-job"]["output_schema"]["properties"]["deleted"]["type"] == "bool"
-    assert commands_by_name["process-next-job"]["output_schema"]["properties"]["job"][
+    assert CLI_JSON_OUTPUT_SCHEMAS["preflight-job"]["properties"]["runtime_command"] == "list[str]"
+    assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == "object"
+    assert CLI_JSON_OUTPUT_SCHEMAS["cancel-job"]["properties"]["status"] == "str"
+    assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["deleted"]["type"] == "bool"
+    assert CLI_JSON_OUTPUT_SCHEMAS["process-next-job"]["properties"]["job"][
         "item_shape"
     ]["job_id"] == "str"
-    services_output_schema = commands_by_name["list-services"]["output_schema"]
+    services_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-services"]
     assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
     assert (
-        commands_by_name["show-service"]["output_schema"]["properties"]["service"]["item_shape"]
+        CLI_JSON_OUTPUT_SCHEMAS["show-service"]["properties"]["service"]["item_shape"]
         == services_output_schema["properties"]["services"]["item_shape"]
     )
-    assert commands_by_name["register-service"]["output_schema"]["properties"]["runtime"] == "object"
-    assert commands_by_name["service-command"]["output_schema"]["properties"]["command"]["type"] == "list[str]"
-    assert commands_by_name["start-service"]["output_schema"]["properties"]["service_id"] == "str"
-    assert commands_by_name["service-health"]["output_schema"]["properties"]["error"] == "str|null"
-    assert commands_by_name["stop-service"]["output_schema"]["properties"]["status"] == "str"
+    assert CLI_JSON_OUTPUT_SCHEMAS["register-service"]["properties"]["runtime"] == "object"
+    assert CLI_JSON_OUTPUT_SCHEMAS["service-command"]["properties"]["command"]["type"] == "list[str]"
+    assert CLI_JSON_OUTPUT_SCHEMAS["start-service"]["properties"]["service_id"] == "str"
+    assert CLI_JSON_OUTPUT_SCHEMAS["service-health"]["properties"]["error"] == "str|null"
+    assert CLI_JSON_OUTPUT_SCHEMAS["stop-service"]["properties"]["status"] == "str"
     assert (
-        commands_by_name["delete-service"]["output_schema"]["properties"]["service"][
+        CLI_JSON_OUTPUT_SCHEMAS["delete-service"]["properties"]["service"][
             "item_shape"
         ]["service_id"]
         == "str"
     )
-    assert commands_by_name["archive-run"]["output_schema"]["properties"]["manifest_path"] == "str"
-    assert commands_by_name["delete-run"]["output_schema"]["properties"]["trash_path"] == "str|null"
-    assert commands_by_name["evaluate-run"]["output_schema"]["required"] == [
+    assert CLI_JSON_OUTPUT_SCHEMAS["archive-run"]["properties"]["manifest_path"] == "str"
+    assert CLI_JSON_OUTPUT_SCHEMAS["delete-run"]["properties"]["trash_path"] == "str|null"
+    assert CLI_JSON_OUTPUT_SCHEMAS["evaluate-run"]["required"] == [
         "run_id",
         "report_path",
         "summary_path",
     ]
     assert (
-        commands_by_name["import-predictions"]["output_schema"]["properties"][
+        CLI_JSON_OUTPUT_SCHEMAS["import-predictions"]["properties"][
             "missing_prediction_count"
         ]
         == "int"
     )
-    assert commands_by_name["compare-runs"]["output_schema"]["required"] == [
+    assert CLI_JSON_OUTPUT_SCHEMAS["compare-runs"]["required"] == [
         "comparison_id",
         "baseline_run_id",
         "candidate_run_id",
         "report_path",
     ]
-    assert commands_by_name["show-run-report"]["output_schema"]["type"] == "object"
-    comparisons_output_schema = commands_by_name["list-comparisons"]["output_schema"]
+    assert CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]["type"] == "object"
+    comparisons_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-comparisons"]
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["delta"] == "object"
-    assert commands_by_name["show-comparison"]["output_schema"]["properties"]["summary"] == "object"
-    comparison_sample_output_schema = commands_by_name["show-comparison-sample"]["output_schema"]
+    assert CLI_JSON_OUTPUT_SCHEMAS["show-comparison"]["properties"]["summary"] == "object"
+    comparison_sample_output_schema = CLI_JSON_OUTPUT_SCHEMAS["show-comparison-sample"]
     assert comparison_sample_output_schema["properties"]["baseline"]["item_shape"]["pred_instances"] == "list[object]"
     assert comparison_sample_output_schema["properties"]["candidate"]["item_shape"]["diagnostics"] == "object|null"
-    assert commands_by_name["service-health"]["mutates_state"] is True
-    assert commands_by_name["compare-runs"]["domain"] == "comparison"
-    assert commands_by_name["compare-runs"]["mutates_state"] is True
-    assert commands_by_name["list-agent-commands"]["domain"] == "meta"
-    assert commands_by_name["list-agent-commands"]["arguments"] == []
-    assert commands_by_name["show-agent-command"]["domain"] == "meta"
-    assert commands_by_name["show-agent-command"]["mutates_state"] is False
-    show_agent_args = {
-        item["dest"]: item for item in commands_by_name["show-agent-command"]["arguments"]
-    }
-    assert show_agent_args["name"]["required"] is True
-    assert "rank-board" in show_agent_args["name"]["choices"]
-    set_note_args = {
-        item["dest"]: item for item in commands_by_name["set-run-note"]["arguments"]
-    }
-    assert set_note_args["expected_updated_at"]["flags"] == ["--expected-updated-at"]
-    append_note_args = {
-        item["dest"]: item for item in commands_by_name["append-run-note"]["arguments"]
-    }
-    assert append_note_args["expected_updated_at"]["flags"] == ["--expected-updated-at"]
-    assert (
-        commands_by_name["append-run-note"]["argument_semantics"]["note"]["expected_updated_at"]
-        == commands_by_name["set-run-note"]["argument_semantics"]["note"]["expected_updated_at"]
-    )
-
-    create_benchmark_args = {
-        item["dest"]: item for item in commands_by_name["create-benchmark"]["arguments"]
-    }
-    assert create_benchmark_args["benchmark_id"]["flags"] == ["--benchmark-id"]
-    assert create_benchmark_args["benchmark_id"]["required"] is True
-    assert create_benchmark_args["task"]["action"] == "append"
-    assert create_benchmark_args["task"]["repeatable"] is True
-    assert create_benchmark_args["task"]["choices"] == ["detection", "keypoint"]
-    assert create_benchmark_args["overwrite"]["type"] == "bool"
-    assert create_benchmark_args["overwrite"]["action"] == "store_true"
-
-    init_run_args = {item["dest"]: item for item in commands_by_name["init-run"]["arguments"]}
-    assert init_run_args["task"]["choices"] == ["detection", "keypoint"]
-    assert init_run_args["benchmark_id"]["required"] is True
-    assert init_run_args["target_labels"]["action"] == "append"
-    assert init_run_args["target_labels"]["repeatable"] is True
-    assert "Detection label subtask scope" in init_run_args["target_labels"]["help"]
-    assert "Keypoint runs are fixed to arrow" in init_run_args["target_labels"]["help"]
-    target_label_semantics = commands_by_name["resolve-target-labels"]["argument_semantics"][
-        "target_labels"
-    ]
-    assert target_label_semantics["task_scope"]["detection"][
-        "label_subtasks_supported"
-    ] is True
-    assert target_label_semantics["task_scope"]["detection"]["repeatable"] is True
-    assert target_label_semantics["task_scope"]["detection"]["empty_uses_label_policy"] is True
-    assert (
-        target_label_semantics["task_scope"]["keypoint"]["fixed_target_labels"]
-        == ["arrow"]
-    )
-    assert target_label_semantics["task_scope"]["keypoint"]["rejects_non_arrow"] is True
-    assert (
-        target_label_semantics["source_priority"][0]
-        == "explicit_target_labels"
-    )
-    assert target_label_semantics["recommended_discovery_command"] == "resolve-target-labels"
-    for command_name in ["init-run", "import-predictions", "resolve-target-labels"]:
-        assert (
-            commands_by_name[command_name]["argument_semantics"]["target_labels"]
-            == target_label_semantics
-        )
-    assert init_run_args["max_tokens"]["type"] == "int"
-    assert init_run_args["batch_size"]["default"] == 1
-
-    validate_args = {
-        item["dest"]: item for item in commands_by_name["validate-prediction"]["arguments"]
-    }
-    assert validate_args["path"]["positional"] is True
-    assert validate_args["path"]["required"] is True
-    assert validate_args["task"]["choices"] == ["detection", "keypoint"]
-
-    process_args = {
-        item["dest"]: item for item in commands_by_name["process-next-job"]["arguments"]
-    }
-    assert process_args["kind"]["default"] == "eval"
-
-    preflight_args = {item["dest"]: item for item in commands_by_name["preflight-job"]["arguments"]}
-    assert preflight_args["payload_json"]["required"] is False
-    assert preflight_args["payload_file"]["required"] is False
-    assert {
-        tuple(group["arguments"]): group["required"]
-        for group in commands_by_name["preflight-job"]["mutually_exclusive_groups"]
-    } == {("payload_json", "payload_file"): True}
-
-    rank_args = {item["dest"]: item for item in commands_by_name["rank-board"]["arguments"]}
-    assert rank_args["sort_by"]["default"] == "f1_iou50"
-    assert "weighted_score" in rank_args["sort_by"]["choices"]
-    rank_sort_semantics = commands_by_name["rank-board"]["argument_semantics"]["sort_by"]
-    rank_filter_semantics = commands_by_name["rank-board"]["argument_semantics"]["filters"]
-    assert rank_filter_semantics["label"].startswith("target-label membership")
-    assert "weighted score" in rank_filter_semantics["min_score"]
-    assert commands_by_name["rank-board"]["argument_semantics"]["pagination"]["offset"].startswith(
-        "zero-based"
-    )
-    assert rank_sort_semantics["primary_metrics"] == [
-        "f1_iou50",
-        "precision_iou50",
-        "recall_iou50",
-        "mean_iou",
-        "prediction_count",
-    ]
-    assert rank_sort_semantics["auxiliary_sorts"] == ["created_at", "run_id"]
-    assert rank_sort_semantics["weighted_sort"] == "weighted_score"
-    assert rank_sort_semantics["auxiliary_sort_keeps_primary_metric"] == "f1_iou50"
-    assert rank_args["min_score"]["type"] == "float"
-    assert {
-        tuple(group["arguments"]): group["required"]
-        for group in commands_by_name["rank-board"]["mutually_exclusive_groups"]
-    } == {("rank_scheme_json", "rank_scheme_file"): False}
-
-    import_args = {item["dest"]: item for item in commands_by_name["import-predictions"]["arguments"]}
-    assert import_args["target_labels"]["action"] == "append"
-    assert import_args["target_labels"]["repeatable"] is True
-    assert "Detection label subtask scope" in import_args["target_labels"]["help"]
-    assert "Keypoint runs are fixed to arrow" in import_args["target_labels"]["help"]
-    assert import_args["skip_evaluate"]["action"] == "store_true"
-
-    resolve_args = {
-        item["dest"]: item for item in commands_by_name["resolve-target-labels"]["arguments"]
-    }
-    assert "Detection label subtask scope" in resolve_args["target_labels"]["help"]
-    assert "Keypoint runs are fixed to arrow" in resolve_args["target_labels"]["help"]
 
 
-def test_cli_suppresses_broken_pipe_traceback_for_agent_json() -> None:
+def test_cli_suppresses_broken_pipe_traceback_for_json_stdout() -> None:
     result = subprocess.run(
         (
-            f"{sys.executable} scripts/eval_bench.py list-agent-commands "
-            "| head -c 64 >/dev/null"
+            f"{sys.executable} scripts/eval_bench.py rank-board "
+            "| head -c 16 >/dev/null"
         ),
         cwd=Path(__file__).resolve().parents[3],
         shell=True,
@@ -646,7 +410,7 @@ def test_cli_suppresses_broken_pipe_traceback_for_agent_json() -> None:
     assert "Traceback" not in result.stderr
 
 
-def test_cli_can_emit_json_errors_for_agents(tmp_path: Path) -> None:
+def test_cli_can_emit_json_errors(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -673,7 +437,7 @@ def test_cli_can_emit_json_errors_for_agents(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr
 
 
-def test_cli_can_emit_json_parse_errors_for_agents() -> None:
+def test_cli_can_emit_json_parse_errors() -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -698,200 +462,6 @@ def test_cli_can_emit_json_parse_errors_for_agents() -> None:
         "message": "argument --run-id: expected one argument",
     }
 
-
-def test_cli_shows_single_agent_command_contract(capsys) -> None:
-    args = _build_parser().parse_args(["show-agent-command", "--name", "rank-board"])
-    _cmd_show_agent_command(args)
-    payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("show-agent-command", payload)
-
-    assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
-    assert payload["error_contract"]["exit_code"] == "nonzero"
-    command = payload["command"]
-    assert command["name"] == "rank-board"
-    assert command["domain"] == "rank"
-    assert command["mutates_state"] is False
-    assert command["destructive"] is False
-    assert command["argv_prefix"] == ["scripts/eval_bench.py", "rank-board"]
-    assert "api_routes" not in command
-    assert "rank-board" in command["usage"]
-    assert command["argument_semantics"]["sort_by"]["primary_metrics"][0] == "f1_iou50"
-    assert command["argument_semantics"]["sort_by"]["auxiliary_sorts"] == [
-        "created_at",
-        "run_id",
-    ]
-    assert (
-        command["argument_semantics"]["sort_by"]["weighted_sort_requires"]
-        == ["--rank-scheme-json", "--rank-scheme-file"]
-    )
-    assert command["output_schema"]["properties"]["facets"]["item_shape"] == {
-        "value": "str",
-        "count": "int",
-    }
-    assert command["output_schema"]["properties"]["entries"]["item_shape"]["score"] == "float|null"
-    args_by_dest = {item["dest"]: item for item in command["arguments"]}
-    assert args_by_dest["sort_by"]["default"] == "f1_iou50"
-    assert "weighted_score" in args_by_dest["sort_by"]["choices"]
-    assert {
-        tuple(group["arguments"]): group["required"]
-        for group in command["mutually_exclusive_groups"]
-    } == {("rank_scheme_json", "rank_scheme_file"): False}
-
-    error_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run"])
-    _cmd_show_agent_command(error_args)
-    error_payload = json.loads(capsys.readouterr().out)
-    assert error_payload["error_contract"]["stream"] == "stderr"
-
-    label_args = _build_parser().parse_args(["show-agent-command", "--name", "resolve-target-labels"])
-    _cmd_show_agent_command(label_args)
-    label_command = json.loads(capsys.readouterr().out)["command"]
-    label_semantics = label_command["argument_semantics"]["target_labels"]
-    assert label_semantics["task_scope"]["detection"]["label_subtasks_supported"] is True
-    assert label_semantics["task_scope"]["keypoint"]["fixed_target_labels"] == ["arrow"]
-    assert label_semantics["recommended_discovery_command"] == "resolve-target-labels"
-    assert "api_routes" not in label_command
-    assert label_command["output_schema"]["properties"]["target_labels"]["type"] == "list[str]"
-    assert (
-        label_command["output_schema"]["properties"]["label_subtasks_supported"]["description"]
-        == "true only for detection; keypoint is fixed to arrow."
-    )
-
-    note_args = _build_parser().parse_args(["show-agent-command", "--name", "get-run-note"])
-    _cmd_show_agent_command(note_args)
-    note_command = json.loads(capsys.readouterr().out)["command"]
-    assert note_command["output_schema"]["properties"]["updated_at"]["type"] == "str|null"
-    assert note_command["output_schema"]["properties"]["max_length"]["type"] == "int"
-    assert note_command["argument_semantics"]["note"]["run_id"].startswith("required exact run id")
-
-    append_note_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "append-run-note"]
-    )
-    _cmd_show_agent_command(append_note_args)
-    append_note_command = json.loads(capsys.readouterr().out)["command"]
-    assert "optimistic concurrency" in append_note_command["argument_semantics"]["note"][
-        "expected_updated_at"
-    ]
-    assert append_note_command["output_schema"] == note_command["output_schema"]
-
-    list_runs_args = _build_parser().parse_args(["show-agent-command", "--name", "list-runs"])
-    _cmd_show_agent_command(list_runs_args)
-    list_runs_command = json.loads(capsys.readouterr().out)["command"]
-    assert list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["run_id"] == "str"
-    list_runs_filters = list_runs_command["argument_semantics"]["filters"]
-    assert list_runs_filters["benchmark_id"] == "exact benchmark id filter."
-    assert "note" in list_runs_filters["query"]
-    assert (
-        list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["note_max_length"]
-        == "int"
-    )
-
-    list_benchmarks_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "list-benchmarks"]
-    )
-    _cmd_show_agent_command(list_benchmarks_args)
-    list_benchmarks_command = json.loads(capsys.readouterr().out)["command"]
-    assert (
-        list_benchmarks_command["argument_semantics"]["filters"]["layer"]
-        == "benchmark layer membership filter; matches benchmarks whose layers contain the value."
-    )
-    assert "manifest paths" in list_benchmarks_command["argument_semantics"]["filters"]["query"]
-
-    sample_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run-sample"])
-    _cmd_show_agent_command(sample_args)
-    sample_command = json.loads(capsys.readouterr().out)["command"]
-    assert sample_command["output_schema"]["properties"]["sample"]["item_shape"]["labels"] == "list[str]"
-    assert sample_command["output_schema"]["properties"]["prediction_payload"]["type"] == "object|null"
-
-    job_args = _build_parser().parse_args(["show-agent-command", "--name", "list-jobs"])
-    _cmd_show_agent_command(job_args)
-    job_command = json.loads(capsys.readouterr().out)["command"]
-    assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["job_id"] == "str"
-    assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["error"] == "str|null"
-    assert "payload JSON" in job_command["argument_semantics"]["filters"]["query"]
-
-    service_list_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "list-services"]
-    )
-    _cmd_show_agent_command(service_list_args)
-    service_list_command = json.loads(capsys.readouterr().out)["command"]
-    assert "runtime JSON" in service_list_command["argument_semantics"]["filters"]["query"]
-
-    comparison_list_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "list-comparisons"]
-    )
-    _cmd_show_agent_command(comparison_list_args)
-    comparison_list_command = json.loads(capsys.readouterr().out)["command"]
-    assert (
-        comparison_list_command["argument_semantics"]["filters"]["baseline_run_id"]
-        == "exact baseline run id filter."
-    )
-
-    job_template_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "show-job-template"]
-    )
-    _cmd_show_agent_command(job_template_args)
-    job_template_command = json.loads(capsys.readouterr().out)["command"]
-    assert (
-        job_template_command["output_schema"]["properties"]["template"]["item_shape"]["manifest"]
-        == "object"
-    )
-
-    prompt_templates_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "list-prompt-templates"]
-    )
-    _cmd_show_agent_command(prompt_templates_args)
-    prompt_templates_command = json.loads(capsys.readouterr().out)["command"]
-    assert (
-        prompt_templates_command["output_schema"]["properties"]["by_id"]["item_shape"]["task"]
-        == "str"
-    )
-
-    preflight_args = _build_parser().parse_args(["show-agent-command", "--name", "preflight-job"])
-    _cmd_show_agent_command(preflight_args)
-    preflight_command = json.loads(capsys.readouterr().out)["command"]
-    assert preflight_command["output_schema"]["properties"]["runtime_command"] == "list[str]"
-
-    create_job_args = _build_parser().parse_args(["show-agent-command", "--name", "create-job"])
-    _cmd_show_agent_command(create_job_args)
-    create_job_command = json.loads(capsys.readouterr().out)["command"]
-    assert create_job_command["output_schema"]["properties"]["job_id"] == "str"
-    assert "payload_file" in create_job_command["argument_semantics"]["payload"]
-    assert "eval_job" in create_job_command["argument_semantics"]["payload"]["kind"]
-
-    service_args = _build_parser().parse_args(["show-agent-command", "--name", "show-service"])
-    _cmd_show_agent_command(service_args)
-    service_command = json.loads(capsys.readouterr().out)["command"]
-    assert service_command["output_schema"]["properties"]["service"]["item_shape"]["service_id"] == "str"
-    assert service_command["output_schema"]["properties"]["service"]["item_shape"]["runtime"] == "object"
-
-    register_service_args = _build_parser().parse_args(
-        ["show-agent-command", "--name", "register-service"]
-    )
-    _cmd_show_agent_command(register_service_args)
-    register_service_command = json.loads(capsys.readouterr().out)["command"]
-    assert register_service_command["argument_semantics"]["service"]["kind"].startswith(
-        "service backend kind"
-    )
-    assert "extra raw vLLM CLI argument" in register_service_command["argument_semantics"][
-        "service"
-    ]["extra_arg"]
-
-    delete_run_args = _build_parser().parse_args(["show-agent-command", "--name", "delete-run"])
-    _cmd_show_agent_command(delete_run_args)
-    delete_run_command = json.loads(capsys.readouterr().out)["command"]
-    assert delete_run_command["destructive"] is True
-    assert "trash" in delete_run_command["argument_semantics"]["lifecycle"]["effect"]
-
-    comparison_args = _build_parser().parse_args(["show-agent-command", "--name", "show-comparison-sample"])
-    _cmd_show_agent_command(comparison_args)
-    comparison_command = json.loads(capsys.readouterr().out)["command"]
-    assert comparison_command["output_schema"]["properties"]["baseline"]["item_shape"]["run_id"] == "str"
-    assert (
-        comparison_command["output_schema"]["properties"]["candidate"]["item_shape"][
-            "prediction_payload"
-        ]
-        == "object|null"
-    )
 
 def _write_sample_store(tmp_path: Path) -> None:
     split_path = tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"
@@ -1081,7 +651,7 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path, capsys) -> Non
 
     _cmd_init_run(args)
     output = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("init-run", output)
+    _assert_cli_json_payload("init-run", output)
 
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
     assert output == {
@@ -1139,7 +709,7 @@ def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys)
     )
     _cmd_evaluate_run(eval_args)
     eval_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("evaluate-run", eval_payload)
+    _assert_cli_json_payload("evaluate-run", eval_payload)
     assert eval_payload == {
         "run_id": "run_arrow",
         "report_path": str(tmp_path / "runs" / "run_arrow" / "reports" / "metrics.json"),
@@ -1169,7 +739,7 @@ def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys)
     )
     _cmd_compare_runs(compare_args)
     compare_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("compare-runs", compare_payload)
+    _assert_cli_json_payload("compare-runs", compare_payload)
     assert compare_payload == {
         "comparison_id": "run_base__vs__run_a",
         "baseline_run_id": "run_base",
@@ -1223,7 +793,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_set_run_note(set_args)
     set_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("set-run-note", set_payload)
+    _assert_cli_json_payload("set-run-note", set_payload)
 
     assert set_payload["note"] == "repro: ckpt epoch_3\nidea: prompt v2"
     assert set_payload["max_length"] == 20_000
@@ -1233,7 +803,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_get_run_note(get_args)
     get_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("get-run-note", get_payload)
+    _assert_cli_json_payload("get-run-note", get_payload)
     assert get_payload["note"] == set_payload["note"]
     assert get_payload["path"].endswith("runs/run1/note.json")
     assert get_payload["max_length"] == 20_000
@@ -1253,7 +823,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_append_run_note(append_args)
     append_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("append-run-note", append_payload)
+    _assert_cli_json_payload("append-run-note", append_payload)
 
     assert append_payload["note"].startswith("repro: ckpt epoch_3\nidea: prompt v2\n\n")
     assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
@@ -1293,7 +863,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_append_run_note(guarded_append_args)
     guarded_append_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("append-run-note", guarded_append_payload)
+    _assert_cli_json_payload("append-run-note", guarded_append_payload)
     assert "## agent\nguarded append" in guarded_append_payload["note"]
 
     guarded_file = tmp_path / "guarded.md"
@@ -1329,7 +899,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_set_run_note(guarded_set_args)
     guarded_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("set-run-note", guarded_payload)
+    _assert_cli_json_payload("set-run-note", guarded_payload)
     assert guarded_payload["note"] == "curated guarded note"
 
     get_args = _build_parser().parse_args(
@@ -1360,7 +930,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     state_args = _build_parser().parse_args(["dashboard-state", "--output-root", str(tmp_path)])
     _cmd_dashboard_state(state_args)
     state_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("dashboard-state", state_payload)
+    _assert_cli_json_payload("dashboard-state", state_payload)
     assert state_payload["run_count"] == 1
 
     archive_args = _build_parser().parse_args(
@@ -1368,7 +938,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_archive_run(archive_args)
     archived = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("archive-run", archived)
+    _assert_cli_json_payload("archive-run", archived)
     assert archived["status"] == "archived"
     assert json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))[
         "status"
@@ -1382,7 +952,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_backend_logs(backend_log_args)
     backend_logs_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("backend-logs", backend_logs_payload)
+    _assert_cli_json_payload("backend-logs", backend_logs_payload)
     assert backend_logs_payload["lines"] == ["beta\n"]
 
     runtime_log = tmp_path / "runs" / "run1" / "logs" / "runtime.log"
@@ -1401,7 +971,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_job_logs(job_log_args)
     job_logs_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("job-logs", job_logs_payload)
+    _assert_cli_json_payload("job-logs", job_logs_payload)
     assert job_logs_payload["lines"] == ["step2\n", "step3\n"]
 
     cancel_args = _build_parser().parse_args(
@@ -1409,7 +979,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_cancel_job(cancel_args)
     cancelled_job = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("cancel-job", cancelled_job)
+    _assert_cli_json_payload("cancel-job", cancelled_job)
     assert cancelled_job["status"] == "cancelled"
 
     delete_job_args = _build_parser().parse_args(
@@ -1417,7 +987,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_delete_job(delete_job_args)
     deleted_job = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("delete-job", deleted_job)
+    _assert_cli_json_payload("delete-job", deleted_job)
     assert deleted_job["deleted"] is True
     assert database.get_job("job1") is None
 
@@ -1426,7 +996,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_scheduler_status(scheduler_args)
     scheduler_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("scheduler-status", scheduler_payload)
+    _assert_cli_json_payload("scheduler-status", scheduler_payload)
     assert scheduler_payload["source"] == "cli_snapshot"
     assert scheduler_payload["enabled"] is False
 
@@ -1445,7 +1015,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_register_service(register_service_args)
     registered_service = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("register-service", registered_service)
+    _assert_cli_json_payload("register-service", registered_service)
     assert registered_service["service_id"] == "svc1"
 
     delete_service_args = _build_parser().parse_args(
@@ -1453,7 +1023,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_delete_service(delete_service_args)
     deleted_service = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("delete-service", deleted_service)
+    _assert_cli_json_payload("delete-service", deleted_service)
     assert deleted_service["service"]["service_id"] == "svc1"
 
     delete_run_args = _build_parser().parse_args(
@@ -1461,7 +1031,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_delete_run(delete_run_args)
     deleted_run = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("delete-run", deleted_run)
+    _assert_cli_json_payload("delete-run", deleted_run)
     assert deleted_run["deleted"] is True
     assert not (tmp_path / "runs" / "run1").exists()
     assert Path(deleted_run["trash_path"]).exists()
@@ -1528,7 +1098,7 @@ def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, caps
 
     _cmd_import_predictions(args)
     payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("import-predictions", payload)
+    _assert_cli_json_payload("import-predictions", payload)
     report = json.loads(Path(payload["report_path"]).read_text(encoding="utf-8"))
 
     assert payload["run_id"] == "imported_arrow"
@@ -1664,7 +1234,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     )
     _cmd_rank_board(args)
     payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("rank-board", payload)
+    _assert_cli_json_payload("rank-board", payload)
 
     assert payload["total"] == 1
     assert payload["primary_metric"] == "weighted_score"
@@ -1692,7 +1262,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     )
     _cmd_rank_board(metric_args)
     metric_payload = json.loads(capsys.readouterr().out)
-    _assert_agent_output_payload("rank-board", metric_payload)
+    _assert_cli_json_payload("rank-board", metric_payload)
     assert metric_payload["primary_metric"] == "recall_iou50"
     assert metric_payload["primary_metric_label"] == "R@.50"
     assert metric_payload["score_formula"] == "R@.50"
@@ -1700,6 +1270,18 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert metric_payload["entries"][0]["score"] == pytest.approx(0.9)
     assert metric_payload["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert metric_payload["entries"][1]["score_delta"] < 0
+
+    weighted_sort_without_scheme = _build_parser().parse_args(
+        [
+            "rank-board",
+            "--output-root",
+            str(tmp_path),
+            "--sort-by",
+            "weighted_score",
+        ]
+    )
+    with pytest.raises(ValueError, match="requires rank_scheme"):
+        _cmd_rank_board(weighted_sort_without_scheme)
 
 
 def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(

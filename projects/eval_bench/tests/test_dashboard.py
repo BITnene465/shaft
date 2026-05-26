@@ -633,6 +633,13 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     bad_scheme = client.get("/api/rank-board", params={"rank_scheme": '{"terms": []}'})
     assert bad_scheme.status_code == 400
 
+    weighted_sort_without_scheme = client.get(
+        "/api/rank-board",
+        params={"sort_by": "weighted_score"},
+    )
+    assert weighted_sort_without_scheme.status_code == 400
+    assert "requires rank_scheme" in weighted_sort_without_scheme.json()["detail"]
+
 
 def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")

@@ -16,31 +16,6 @@ DETECTION_TARGET_LABEL_HELP = (
     "Detection label subtask scope; repeat for multiple labels. "
     "Keypoint runs are fixed to arrow and reject non-arrow labels."
 )
-TARGET_LABEL_ARGUMENT_SEMANTICS = {
-    "task_scope": {
-        "detection": {
-            "label_subtasks_supported": True,
-            "explicit_labels_arg": "--target-label",
-            "repeatable": True,
-            "empty_uses_label_policy": True,
-        },
-        "keypoint": {
-            "label_subtasks_supported": False,
-            "fixed_target_labels": ["arrow"],
-            "rejects_non_arrow": True,
-        },
-    },
-    "source_priority": [
-        "explicit_target_labels",
-        "prompt_metadata",
-        "legacy_prompt_id",
-        "task_default",
-        "unscoped",
-    ],
-    "recommended_discovery_command": "resolve-target-labels",
-    "applies_to": ["init-run", "import-predictions", "resolve-target-labels"],
-}
-
 RANK_PRIMARY_METRIC_SORTS = (
     "f1_iou50",
     "precision_iou50",
@@ -53,63 +28,7 @@ RANK_WEIGHTED_SORT = "weighted_score"
 RANK_SORT_BY_CHOICES = (*RANK_PRIMARY_METRIC_SORTS, *RANK_AUXILIARY_SORTS, RANK_WEIGHTED_SORT)
 
 
-AGENT_COMMAND_METADATA: dict[str, dict[str, object]] = {
-    "list-agent-commands": {"domain": "meta", "mutates_state": False},
-    "show-agent-command": {"domain": "meta", "mutates_state": False},
-    "create-benchmark": {"domain": "benchmark", "mutates_state": True},
-    "init-run": {"domain": "run", "mutates_state": True},
-    "validate-prediction": {"domain": "prediction", "mutates_state": False},
-    "dashboard-state": {"domain": "state", "mutates_state": False},
-    "scheduler-status": {"domain": "state", "mutates_state": False},
-    "backend-logs": {"domain": "logs", "mutates_state": False},
-    "preflight-job": {"domain": "job", "mutates_state": False},
-    "create-job": {"domain": "job", "mutates_state": True},
-    "list-job-templates": {"domain": "template", "mutates_state": False},
-    "show-job-template": {"domain": "template", "mutates_state": False},
-    "list-prompt-templates": {"domain": "prompt", "mutates_state": False},
-    "show-prompt-template": {"domain": "prompt", "mutates_state": False},
-    "resolve-target-labels": {"domain": "label", "mutates_state": False},
-    "upsert-prompt-template": {"domain": "prompt", "mutates_state": True},
-    "delete-prompt-template": {"domain": "prompt", "mutates_state": True},
-    "list-jobs": {"domain": "job", "mutates_state": False},
-    "show-job": {"domain": "job", "mutates_state": False},
-    "cancel-job": {"domain": "job", "mutates_state": True},
-    "delete-job": {"domain": "job", "mutates_state": True},
-    "job-logs": {"domain": "logs", "mutates_state": False},
-    "list-benchmarks": {"domain": "benchmark", "mutates_state": False},
-    "show-benchmark": {"domain": "benchmark", "mutates_state": False},
-    "list-runs": {"domain": "run", "mutates_state": False},
-    "show-run": {"domain": "run", "mutates_state": False},
-    "show-run-report": {"domain": "run", "mutates_state": False},
-    "list-run-samples": {"domain": "sample", "mutates_state": False},
-    "show-run-sample": {"domain": "sample", "mutates_state": False},
-    "list-benchmark-samples": {"domain": "sample", "mutates_state": False},
-    "show-benchmark-sample": {"domain": "sample", "mutates_state": False},
-    "rank-board": {"domain": "rank", "mutates_state": False},
-    "get-run-note": {"domain": "note", "mutates_state": False},
-    "set-run-note": {"domain": "note", "mutates_state": True},
-    "append-run-note": {"domain": "note", "mutates_state": True},
-    "archive-run": {"domain": "run", "mutates_state": True},
-    "delete-run": {"domain": "run", "mutates_state": True},
-    "import-predictions": {"domain": "run", "mutates_state": True},
-    "evaluate-run": {"domain": "run", "mutates_state": True},
-    "list-services": {"domain": "service", "mutates_state": False},
-    "show-service": {"domain": "service", "mutates_state": False},
-    "register-service": {"domain": "service", "mutates_state": True},
-    "service-command": {"domain": "service", "mutates_state": False},
-    "start-service": {"domain": "service", "mutates_state": True},
-    "service-health": {"domain": "service", "mutates_state": True},
-    "service-logs": {"domain": "logs", "mutates_state": False},
-    "stop-service": {"domain": "service", "mutates_state": True},
-    "delete-service": {"domain": "service", "mutates_state": True},
-    "process-next-job": {"domain": "job", "mutates_state": True},
-    "compare-runs": {"domain": "comparison", "mutates_state": True},
-    "list-comparisons": {"domain": "comparison", "mutates_state": False},
-    "show-comparison": {"domain": "comparison", "mutates_state": False},
-    "show-comparison-sample": {"domain": "comparison", "mutates_state": False},
-}
-AGENT_STABLE_COMMANDS = frozenset(AGENT_COMMAND_METADATA)
-AGENT_DESTRUCTIVE_COMMANDS = frozenset(
+CLI_DESTRUCTIVE_COMMANDS = frozenset(
     {
         "archive-run",
         "cancel-job",
@@ -302,355 +221,6 @@ SCHEDULER_STATUS_OUTPUT_SHAPE = {
     "reserved_cuda_devices": "list[str]",
     "reserved_runtime_ports": "list[int]",
 }
-AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
-    "name": "str",
-    "help": "str",
-    "usage": "str",
-    "argv_prefix": "list[str]",
-    "domain": "str",
-    "mutates_state": "bool",
-    "destructive": "bool",
-    "arguments": "list[object]",
-    "argument_semantics": "object",
-    "mutually_exclusive_groups": "list[object]",
-    "output_schema": "object",
-}
-AGENT_ERROR_CONTRACT = {
-    "enable_with": ["--json-errors", f"{JSON_ERROR_ENV}=1"],
-    "stream": "stderr",
-    "exit_code": "nonzero",
-    "shape": {
-        "ok": "bool",
-        "command": "str|null",
-        "error_type": "str",
-        "message": "str",
-    },
-}
-PAGINATION_ARGUMENT_SEMANTICS = {
-    "offset": (
-        "zero-based row offset; use response.total and response.limit to request the next page."
-    ),
-    "limit": (
-        "page size; list commands clamp it to at least 1 and API endpoints may cap very "
-        "large values."
-    ),
-}
-TASK_FILTER_ARGUMENT_SEMANTICS = (
-    "exact task filter; detection supports label subtasks, keypoint is fixed to arrow."
-)
-LABEL_FILTER_ARGUMENT_SEMANTICS = (
-    "target-label membership filter; matches entries whose target_labels contain the value."
-)
-TEMPLATE_QUERY_ARGUMENT_SEMANTICS = {
-    "query": (
-        "case-insensitive search over template id, label, description, task, parser, "
-        "metric profile, visualization profile, metadata and JSON payload."
-    ),
-}
-RUN_FILTER_ARGUMENT_SEMANTICS = {
-    "task": TASK_FILTER_ARGUMENT_SEMANTICS,
-    "benchmark_id": "exact benchmark id filter.",
-    "status": "exact run status filter.",
-    "label": LABEL_FILTER_ARGUMENT_SEMANTICS,
-    "model_id": "exact model id filter.",
-    "prompt_id": "exact prompt id filter.",
-    "metric_profile": "exact metric profile filter.",
-    "query": (
-        "case-insensitive search over run id, status, benchmark id, task, model id, "
-        "model path, prompt id, metric profile, note and target labels."
-    ),
-}
-RANK_FILTER_ARGUMENT_SEMANTICS = {
-    **RUN_FILTER_ARGUMENT_SEMANTICS,
-    "min_score": (
-        "minimum numeric score threshold applied to the selected rank score; weighted_score "
-        "uses the explicit weighted score."
-    ),
-    "rank_scheme": (
-        "response filter echo only; set it with --rank-scheme-json or --rank-scheme-file."
-    ),
-}
-RUN_NOTE_ARGUMENT_SEMANTICS = {
-    "run_id": "required exact run id whose editable note is read or updated.",
-    "note": "inline note text; mutually exclusive with --note-file on write commands.",
-    "note_file": "UTF-8 file containing note text; mutually exclusive with --note.",
-    "heading": "optional markdown heading used by append-run-note before the appended entry.",
-    "expected_updated_at": (
-        "optional optimistic concurrency guard from get-run-note.updated_at; pass an empty "
-        "string or null-equivalent only when the note has never been written."
-    ),
-}
-BENCHMARK_CREATE_ARGUMENT_SEMANTICS = {
-    "benchmark_id": "required stable benchmark id to create under the Eval Bench store.",
-    "task": "repeatable benchmark task declaration: detection and/or keypoint.",
-    "source_root": "raw_data split root copied into the benchmark store.",
-    "source_manifest": "source manifest JSON that enumerates images and annotations.",
-    "split": "benchmark split name written to the manifest, default val.",
-    "layer": "repeatable layer tag used for search and grouping.",
-    "overwrite": "replace an existing benchmark with the same id when true.",
-}
-PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS = {
-    "payload_json": "inline prompt-template JSON; mutually exclusive with --payload-file.",
-    "payload_file": "UTF-8 prompt-template JSON file; mutually exclusive with --payload-json.",
-    "prompt_id": "required exact prompt template id for deletion.",
-}
-JOB_PAYLOAD_ARGUMENT_SEMANTICS = {
-    "kind": (
-        "optional job kind override; omitted kind is resolved from the payload and defaults "
-        "to eval_job for create-job."
-    ),
-    "payload_json": (
-        "inline manifest-first job payload JSON; mutually exclusive with --payload-file."
-    ),
-    "payload_file": (
-        "UTF-8 manifest-first job payload JSON file; mutually exclusive with --payload-json."
-    ),
-}
-JOB_LIFECYCLE_ARGUMENT_SEMANTICS = {
-    "job_id": "required exact job id; use show-job before canceling or deleting.",
-    "kind": "job kind queue to process; default eval.",
-}
-RUN_LIFECYCLE_ARGUMENT_SEMANTICS = {
-    "run_id": "required exact run id; use show-run before mutating or deleting artifacts.",
-    "iou_threshold": "IoU threshold used to rebuild the run report, default 0.5.",
-}
-SERVICE_ARGUMENT_SEMANTICS = {
-    "service_id": (
-        "exact service id; optional on register-service where a stable id can be generated."
-    ),
-    "kind": (
-        "service backend kind: local_vllm starts a managed process, external_vllm "
-        "probes an endpoint."
-    ),
-    "model_path": "local model path for local_vllm service registration.",
-    "served_model_name": "OpenAI-compatible served model name advertised by the endpoint.",
-    "endpoint": "OpenAI-compatible base endpoint for external_vllm or health checks.",
-    "host": "local bind host for managed local_vllm services.",
-    "port": "local bind port; omitted port is allocated by the service manager.",
-    "cuda_visible_devices": "CUDA_VISIBLE_DEVICES value for managed local_vllm process launch.",
-    "tensor_parallel_size": "vLLM tensor parallel size for local_vllm.",
-    "max_model_len": "vLLM --max-model-len override for local_vllm.",
-    "gpu_memory_utilization": "vLLM --gpu-memory-utilization override for local_vllm.",
-    "max_num_seqs": "vLLM --max-num-seqs override for local_vllm.",
-    "extra_arg": "repeatable extra raw vLLM CLI argument appended to the launch command.",
-    "timeout_s": "health probe timeout in seconds.",
-}
-COMPARISON_ARGUMENT_SEMANTICS = {
-    "baseline_run_id": "required evaluated baseline run id.",
-    "candidate_run_id": "required evaluated candidate run id.",
-}
-AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
-    "create-benchmark": {"benchmark": BENCHMARK_CREATE_ARGUMENT_SEMANTICS},
-    "init-run": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
-    "import-predictions": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
-    "get-run-note": {
-        "note": {"run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"]},
-    },
-    "set-run-note": {
-        "note": {
-            "run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"],
-            "note": RUN_NOTE_ARGUMENT_SEMANTICS["note"],
-            "note_file": RUN_NOTE_ARGUMENT_SEMANTICS["note_file"],
-            "expected_updated_at": RUN_NOTE_ARGUMENT_SEMANTICS["expected_updated_at"],
-        },
-    },
-    "append-run-note": {
-        "note": {
-            "run_id": RUN_NOTE_ARGUMENT_SEMANTICS["run_id"],
-            "note": RUN_NOTE_ARGUMENT_SEMANTICS["note"],
-            "note_file": RUN_NOTE_ARGUMENT_SEMANTICS["note_file"],
-            "heading": RUN_NOTE_ARGUMENT_SEMANTICS["heading"],
-            "expected_updated_at": RUN_NOTE_ARGUMENT_SEMANTICS["expected_updated_at"],
-        },
-    },
-    "upsert-prompt-template": {
-        "payload": {
-            "payload_json": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["payload_json"],
-            "payload_file": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["payload_file"],
-        },
-    },
-    "delete-prompt-template": {
-        "prompt": {"prompt_id": PROMPT_TEMPLATE_WRITE_ARGUMENT_SEMANTICS["prompt_id"]},
-    },
-    "create-job": {"payload": JOB_PAYLOAD_ARGUMENT_SEMANTICS},
-    "list-job-templates": {"filters": TEMPLATE_QUERY_ARGUMENT_SEMANTICS},
-    "list-prompt-templates": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
-            **TEMPLATE_QUERY_ARGUMENT_SEMANTICS,
-        },
-    },
-    "list-jobs": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "kind": "exact job kind filter, for example eval.",
-            "status": "exact job status filter.",
-            "query": (
-                "case-insensitive search over job id, kind, status, error, timestamps, "
-                "payload JSON and metadata JSON."
-            ),
-        },
-    },
-    "cancel-job": {
-        "lifecycle": {
-            "job_id": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["job_id"],
-            "effect": "requests cancellation for queued or running jobs.",
-        },
-    },
-    "delete-job": {
-        "lifecycle": {
-            "job_id": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["job_id"],
-            "effect": "deletes terminal or demo job records from the persistent registry.",
-        },
-    },
-    "process-next-job": {
-        "queue": {
-            "kind": JOB_LIFECYCLE_ARGUMENT_SEMANTICS["kind"],
-            "effect": "claims and executes the next queued job of that kind.",
-        },
-    },
-    "list-benchmarks": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
-            "layer": (
-                "benchmark layer membership filter; matches benchmarks whose layers contain "
-                "the value."
-            ),
-            "split": "exact benchmark split filter.",
-            "query": (
-                "case-insensitive search over benchmark id, split, root, manifest paths, "
-                "tasks and layers."
-            ),
-        },
-    },
-    "list-runs": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": RUN_FILTER_ARGUMENT_SEMANTICS,
-    },
-    "list-run-samples": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "run_id": "required exact run id; samples are scoped by that run's target_labels.",
-            "label": "sample-label membership filter applied after run target-label scoping.",
-            "error_filter": "sample diagnostic filter: all, fn, fp, missing or clean.",
-        },
-    },
-    "list-benchmark-samples": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "benchmark_id": "required exact benchmark id.",
-            "label": "ground-truth label membership filter.",
-        },
-    },
-    "archive-run": {
-        "lifecycle": {
-            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
-            "effect": "marks a run archived without deleting its artifacts.",
-        },
-    },
-    "delete-run": {
-        "lifecycle": {
-            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
-            "effect": "moves the run artifact directory to trash and removes it from active views.",
-        },
-    },
-    "evaluate-run": {
-        "report": {
-            "run_id": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["run_id"],
-            "iou_threshold": RUN_LIFECYCLE_ARGUMENT_SEMANTICS["iou_threshold"],
-            "effect": "rebuilds report.json and summary.json from prediction snapshots.",
-        },
-    },
-    "rank-board": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": RANK_FILTER_ARGUMENT_SEMANTICS,
-        "sort_by": {
-            "primary_metrics": list(RANK_PRIMARY_METRIC_SORTS),
-            "auxiliary_sorts": list(RANK_AUXILIARY_SORTS),
-            "weighted_sort": RANK_WEIGHTED_SORT,
-            "default_primary_metric": "f1_iou50",
-            "auxiliary_sort_keeps_primary_metric": "f1_iou50",
-            "weighted_sort_requires": ["--rank-scheme-json", "--rank-scheme-file"],
-        },
-        "rank_scheme": {
-            "sources": ["--rank-scheme-json", "--rank-scheme-file"],
-            "default": "disabled; default rank-board keeps f1_iou50 as primary metric.",
-        },
-    },
-    "list-services": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "kind": "exact service kind filter: local_vllm or external_vllm.",
-            "status": "exact service status filter.",
-            "query": (
-                "case-insensitive search over service id, kind, status, error, timestamps, "
-                "config JSON, runtime JSON and metadata JSON."
-            ),
-        },
-    },
-    "register-service": {
-        "service": {
-            key: SERVICE_ARGUMENT_SEMANTICS[key]
-            for key in (
-                "service_id",
-                "kind",
-                "model_path",
-                "served_model_name",
-                "endpoint",
-                "host",
-                "port",
-                "cuda_visible_devices",
-                "tensor_parallel_size",
-                "max_model_len",
-                "gpu_memory_utilization",
-                "max_num_seqs",
-                "extra_arg",
-            )
-        },
-    },
-    "service-health": {
-        "service": {
-            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
-            "timeout_s": SERVICE_ARGUMENT_SEMANTICS["timeout_s"],
-            "effect": "probes the endpoint and updates runtime health status.",
-        },
-    },
-    "start-service": {
-        "service": {
-            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
-            "effect": "starts a managed local_vllm process for the registered service.",
-        },
-    },
-    "stop-service": {
-        "service": {
-            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
-            "effect": "stops a managed local_vllm process; external_vllm is not terminated.",
-        },
-    },
-    "delete-service": {
-        "service": {
-            "service_id": SERVICE_ARGUMENT_SEMANTICS["service_id"],
-            "effect": "stops the managed process when needed and deletes the service record.",
-        },
-    },
-    "compare-runs": {"comparison": COMPARISON_ARGUMENT_SEMANTICS},
-    "list-comparisons": {
-        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
-        "filters": {
-            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
-            "baseline_run_id": "exact baseline run id filter.",
-            "candidate_run_id": "exact candidate run id filter.",
-            "label": LABEL_FILTER_ARGUMENT_SEMANTICS,
-            "query": (
-                "case-insensitive search over comparison id, baseline run id, candidate run "
-                "id, task, metric profile and target labels."
-            ),
-        },
-    },
-    "resolve-target-labels": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
-}
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
     "required": ["run_id", "note", "updated_at", "path", "max_length"],
@@ -662,35 +232,7 @@ RUN_NOTE_OUTPUT_SCHEMA = {
         "max_length": {"type": "int"},
     },
 }
-AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
-    "list-agent-commands": {
-        "type": "object",
-        "required": [
-            "total",
-            "mutating_count",
-            "read_only_count",
-            "destructive_count",
-            "domains",
-            "recommended_runner",
-            "error_contract",
-            "commands",
-        ],
-        "properties": {
-            "domains": {"type": "list[str]"},
-            "recommended_runner": {"type": "list[str]"},
-            "error_contract": {"type": "object"},
-            "commands": {"type": "array", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
-        },
-    },
-    "show-agent-command": {
-        "type": "object",
-        "required": ["recommended_runner", "error_contract", "command"],
-        "properties": {
-            "recommended_runner": {"type": "list[str]"},
-            "error_contract": {"type": "object"},
-            "command": {"type": "object", "item_shape": AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE},
-        },
-    },
+CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "dashboard-state": {
         "type": "object",
         "required": [
@@ -1232,6 +774,7 @@ AGENT_COMMAND_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "set-run-note": RUN_NOTE_OUTPUT_SCHEMA,
     "append-run-note": RUN_NOTE_OUTPUT_SCHEMA,
 }
+CLI_JSON_COMMANDS = frozenset(CLI_JSON_OUTPUT_SCHEMAS)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1240,7 +783,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json-errors",
         action="store_true",
         help=(
-            "Emit machine-readable error JSON to stderr for CLI agents. "
+            "Emit machine-readable error JSON to stderr for scripted CLI calls. "
             f"Equivalent to setting {JSON_ERROR_ENV}=1."
         ),
     )
@@ -1323,20 +866,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     dashboard_state.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
 
-    subparsers.add_parser(
-        "list-agent-commands",
-        help="List stable agent CLI commands.",
-    )
-
-    show_agent_command = subparsers.add_parser(
-        "show-agent-command",
-        help="Print one stable agent CLI command contract.",
-    )
-    show_agent_command.add_argument("--name", choices=sorted(AGENT_STABLE_COMMANDS), required=True)
-
     scheduler_status = subparsers.add_parser(
         "scheduler-status",
-        help="Print an agent-safe scheduler/resource snapshot from the job registry.",
+        help="Print a scheduler/resource snapshot from the job registry.",
     )
     scheduler_status.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
 
@@ -1356,19 +888,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_job_templates = subparsers.add_parser(
         "list-job-templates",
-        help="List manifest-first job templates for humans and agents.",
+        help="List manifest-first job templates.",
     )
     list_job_templates.add_argument("--query", default=None)
 
     show_job_template = subparsers.add_parser(
         "show-job-template",
-        help="Print one manifest-first job template for humans and agents.",
+        help="Print one manifest-first job template.",
     )
     show_job_template.add_argument("--template-id", required=True)
 
     list_prompt_templates = subparsers.add_parser(
         "list-prompt-templates",
-        help="List prompt templates from the registry for humans and agents.",
+        help="List prompt templates from the registry.",
     )
     list_prompt_templates.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     list_prompt_templates.add_argument("--task", choices=("detection", "keypoint"), default=None)
@@ -1378,7 +910,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     show_prompt_template = subparsers.add_parser(
         "show-prompt-template",
-        help="Print one prompt template from the registry for humans and agents.",
+        help="Print one prompt template from the registry.",
     )
     show_prompt_template.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     show_prompt_template.add_argument("--prompt-id", required=True)
@@ -1454,7 +986,7 @@ def _build_parser() -> argparse.ArgumentParser:
     job_logs.add_argument("--max-lines", type=int, default=200)
 
     list_benchmarks = subparsers.add_parser(
-        "list-benchmarks", help="List benchmark manifests for humans and agents."
+        "list-benchmarks", help="List benchmark manifests."
     )
     list_benchmarks.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     list_benchmarks.add_argument("--offset", type=int, default=0)
@@ -1464,15 +996,11 @@ def _build_parser() -> argparse.ArgumentParser:
     list_benchmarks.add_argument("--split", default=None)
     list_benchmarks.add_argument("--query", default=None)
 
-    show_benchmark = subparsers.add_parser(
-        "show-benchmark", help="Print one benchmark summary for agents."
-    )
+    show_benchmark = subparsers.add_parser("show-benchmark", help="Print one benchmark summary.")
     show_benchmark.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     show_benchmark.add_argument("--benchmark-id", required=True)
 
-    list_runs = subparsers.add_parser(
-        "list-runs", help="List run manifests with agent-safe filters."
-    )
+    list_runs = subparsers.add_parser("list-runs", help="List run manifests with filters.")
     list_runs.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     list_runs.add_argument("--offset", type=int, default=0)
     list_runs.add_argument("--limit", type=int, default=100)
@@ -1485,7 +1013,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_runs.add_argument("--metric-profile", default=None)
     list_runs.add_argument("--query", default=None)
 
-    show_run = subparsers.add_parser("show-run", help="Print one run summary for agents.")
+    show_run = subparsers.add_parser("show-run", help="Print one run summary.")
     show_run.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     show_run.add_argument("--run-id", required=True)
 
@@ -1735,7 +1263,7 @@ def _build_parser() -> argparse.ArgumentParser:
     show_comparison.add_argument("--candidate-run-id", default=None)
 
     list_comparisons = subparsers.add_parser(
-        "list-comparisons", help="List saved comparison reports with agent-safe filters."
+        "list-comparisons", help="List saved comparison reports with filters."
     )
     list_comparisons.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
     list_comparisons.add_argument("--offset", type=int, default=0)
@@ -1908,15 +1436,6 @@ def _cmd_dashboard_state(args: argparse.Namespace) -> None:
     from .store import EvalBenchStore
 
     print(json.dumps(EvalBenchStore(args.output_root).state().to_dict(), ensure_ascii=False))
-
-
-def _cmd_list_agent_commands(args: argparse.Namespace) -> None:
-    del args
-    print(json.dumps(agent_command_listing_payload(), ensure_ascii=False))
-
-
-def _cmd_show_agent_command(args: argparse.Namespace) -> None:
-    print(json.dumps(agent_command_detail_payload(str(args.name)), ensure_ascii=False))
 
 
 def _cmd_scheduler_status(args: argparse.Namespace) -> None:
@@ -2705,159 +2224,6 @@ def _database_job_kind(resolved_kind: str) -> str:
     raise ValueError(f"unsupported job kind: {resolved_kind}")
 
 
-def _parser_command_help(parser: argparse.ArgumentParser) -> dict[str, str]:
-    subparsers_action = next(action for action in parser._actions if action.dest == "command")
-    return {action.dest: action.help or "" for action in subparsers_action._choices_actions}
-
-
-def _parser_command_usage(parser: argparse.ArgumentParser) -> dict[str, str]:
-    subparsers_action = next(action for action in parser._actions if action.dest == "command")
-    return {
-        command: _stable_command_usage(command, subparser.format_usage())
-        for command, subparser in subparsers_action.choices.items()
-    }
-
-
-def _stable_command_usage(command: str, usage: str) -> str:
-    normalized = " ".join(usage.strip().split())
-    marker = f" {command} "
-    index = normalized.find(marker)
-    if index >= 0:
-        return f"usage: eval_bench.py {normalized[index + 1:]}"
-    suffix = f" {command}"
-    if normalized.endswith(suffix):
-        return f"usage: eval_bench.py {command}"
-    return f"usage: eval_bench.py {command}"
-
-
-def _parser_command_arguments(parser: argparse.ArgumentParser) -> dict[str, dict[str, object]]:
-    subparsers_action = next(action for action in parser._actions if action.dest == "command")
-    return {
-        command: {
-            "arguments": [
-                _argument_schema(action)
-                for action in subparser._actions
-                if _is_agent_arg(action)
-            ],
-            "mutually_exclusive_groups": _mutually_exclusive_group_schema(subparser),
-        }
-        for command, subparser in subparsers_action.choices.items()
-    }
-
-
-def agent_command_listing_payload() -> dict[str, object]:
-    commands = agent_command_contracts()
-    return {
-        "total": len(commands),
-        "mutating_count": sum(1 for command in commands if command["mutates_state"]),
-        "read_only_count": sum(1 for command in commands if not command["mutates_state"]),
-        "destructive_count": sum(1 for command in commands if command["destructive"]),
-        "domains": sorted({str(command["domain"]) for command in commands}),
-        "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
-        "error_contract": AGENT_ERROR_CONTRACT,
-        "commands": commands,
-    }
-
-
-def agent_command_detail_payload(name: str) -> dict[str, object]:
-    return {
-        "recommended_runner": [".venv/bin/python", "scripts/eval_bench.py"],
-        "error_contract": AGENT_ERROR_CONTRACT,
-        "command": agent_command_contract(name),
-    }
-
-
-def agent_command_contracts() -> list[dict[str, object]]:
-    parser = _build_parser()
-    command_help = _parser_command_help(parser)
-    command_arguments = _parser_command_arguments(parser)
-    command_usage = _parser_command_usage(parser)
-    return [
-        _agent_command_contract_from_maps(
-            name,
-            command_help=command_help,
-            command_arguments=command_arguments,
-            command_usage=command_usage,
-        )
-        for name in sorted(AGENT_STABLE_COMMANDS)
-    ]
-
-
-def agent_command_contract(name: str) -> dict[str, object]:
-    parser = _build_parser()
-    return _agent_command_contract_from_maps(
-        name,
-        command_help=_parser_command_help(parser),
-        command_arguments=_parser_command_arguments(parser),
-        command_usage=_parser_command_usage(parser),
-    )
-
-
-def _agent_command_contract_from_maps(
-    name: str,
-    *,
-    command_help: dict[str, str],
-    command_arguments: dict[str, dict[str, object]],
-    command_usage: dict[str, str],
-) -> dict[str, object]:
-    if name not in AGENT_STABLE_COMMANDS:
-        raise ValueError(f"unknown stable agent command: {name}")
-    return {
-        "name": name,
-        "domain": AGENT_COMMAND_METADATA[name]["domain"],
-        "mutates_state": AGENT_COMMAND_METADATA[name]["mutates_state"],
-        "destructive": name in AGENT_DESTRUCTIVE_COMMANDS,
-        "help": command_help.get(name, ""),
-        "usage": command_usage.get(name, ""),
-        "argv_prefix": ["scripts/eval_bench.py", name],
-        "arguments": command_arguments[name]["arguments"],
-        "argument_semantics": AGENT_COMMAND_ARGUMENT_SEMANTICS.get(name, {}),
-        "mutually_exclusive_groups": command_arguments[name]["mutually_exclusive_groups"],
-        "output_schema": AGENT_COMMAND_OUTPUT_SCHEMAS.get(name, {}),
-    }
-
-
-def _argument_schema(action: argparse.Action) -> dict[str, object]:
-    flags = list(action.option_strings)
-    positional = not flags
-    return {
-        "dest": action.dest,
-        "flags": flags,
-        "positional": positional,
-        "required": bool(getattr(action, "required", False)) or _positional_is_required(action),
-        "default": _json_safe_arg_value(action.default),
-        "choices": _json_safe_arg_value(
-            list(action.choices) if action.choices is not None else None
-        ),
-        "nargs": action.nargs,
-        "type": _argument_type_name(action),
-        "action": _argument_action_name(action),
-        "repeatable": isinstance(action, argparse._AppendAction),
-        "help": "" if action.help in (None, argparse.SUPPRESS) else str(action.help),
-        "metavar": _json_safe_arg_value(action.metavar),
-    }
-
-
-def _mutually_exclusive_group_schema(parser: argparse.ArgumentParser) -> list[dict[str, object]]:
-    groups: list[dict[str, object]] = []
-    for group in parser._mutually_exclusive_groups:
-        actions = [action for action in group._group_actions if _is_agent_arg(action)]
-        if not actions:
-            continue
-        groups.append(
-            {
-                "required": bool(group.required),
-                "arguments": [action.dest for action in actions],
-                "flags": [list(action.option_strings) for action in actions],
-            }
-        )
-    return groups
-
-
-def _is_agent_arg(action: argparse.Action) -> bool:
-    return not isinstance(action, argparse._HelpAction) and action.dest != argparse.SUPPRESS
-
-
 class EvalBenchArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         if _json_errors_enabled_from_context():
@@ -2870,48 +2236,6 @@ class EvalBenchArgumentParser(argparse.ArgumentParser):
         super().error(message)
 
 
-def _positional_is_required(action: argparse.Action) -> bool:
-    if action.option_strings:
-        return False
-    return action.nargs not in ("?", "*")
-
-
-def _argument_type_name(action: argparse.Action) -> str:
-    if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
-        return "bool"
-    if action.type is None:
-        return "str"
-    return getattr(action.type, "__name__", str(action.type))
-
-
-def _argument_action_name(action: argparse.Action) -> str:
-    if isinstance(action, argparse._StoreTrueAction):
-        return "store_true"
-    if isinstance(action, argparse._StoreFalseAction):
-        return "store_false"
-    if isinstance(action, argparse._AppendAction):
-        return "append"
-    if isinstance(action, argparse._StoreAction):
-        return "store"
-    return action.__class__.__name__.removeprefix("_").removesuffix("Action").lower()
-
-
-def _json_safe_arg_value(value: object) -> object:
-    if value is argparse.SUPPRESS:
-        return None
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, tuple):
-        return [_json_safe_arg_value(item) for item in value]
-    if isinstance(value, list):
-        return [_json_safe_arg_value(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _json_safe_arg_value(item) for key, item in value.items()}
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
-
-
 def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
     return {
         "create-benchmark": _cmd_create_benchmark,
@@ -2920,8 +2244,6 @@ def _command_handlers() -> dict[str, Callable[[argparse.Namespace], None]]:
         "write-demo-prediction": _cmd_write_demo_prediction,
         "serve-dashboard": _cmd_serve_dashboard,
         "dashboard-state": _cmd_dashboard_state,
-        "list-agent-commands": _cmd_list_agent_commands,
-        "show-agent-command": _cmd_show_agent_command,
         "scheduler-status": _cmd_scheduler_status,
         "backend-logs": _cmd_backend_logs,
         "preflight-job": _cmd_preflight_job,
