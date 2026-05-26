@@ -290,7 +290,7 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
   if (control.type === "search") {
     return (
       <SearchInputControl
-        className="search-box advanced-search-box"
+        className="advanced-filter-search-control"
         icon={<Search size={15} />}
         key={control.id}
         label={control.label}
@@ -303,7 +303,7 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
   if (control.type === "number") {
     return (
       <TextInputControl
-        className="filter-select compact advanced-number-box"
+        className="advanced-filter-number-control"
         key={control.id}
         label={control.label}
         type="number"

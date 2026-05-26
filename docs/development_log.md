@@ -48,6 +48,41 @@ eval / codec / metric / data 误判。
 - 测试可以维护 JSON payload shape，但运行时代码不应把测试 schema 暴露成用户协议。
 - Weighted rank 只由显式 `rank_scheme` 触发，默认排行永远保持 F1 主指标。
 
+## 2026-05-26: Eval Bench 高级检索仍复用旧筛选壳 class
+
+### 现象
+
+业务页面已经通过 `AdvancedFilterBar` 收敛到一个 filter 按钮和弹出检索目录，但 `filterControls.tsx`
+内部的 search 和 number 控件仍直接挂着旧 `search-box`、`filter-select compact` 组合 class。
+这会让高级检索编排层继续依赖旧筛选条样式名，后续很容易把旧的横向筛选条视觉和空间策略带回来。
+
+### 根因
+
+组件迁移时只把原生 input/select 迁到了 `controlPrimitives.tsx`，没有把高级检索内部控件的语义 class
+一起收敛。样式真源因此仍混着旧筛选 shell 和新弹出检索 shell。这是前端组件边界问题，不是模型能力问题，
+也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Runs、Rank Board、Benchmarks、Jobs、Services 等复用 `AdvancedFilterBar` 的页面。
+- 不改变后端 filter 参数、分页语义、rank-board 排序或评估指标。
+
+### 修复方式
+
+- `AdvancedFilterBar` 的 search 和 number 控件改用 `advanced-filter-search-control` 与
+  `advanced-filter-number-control` 专属 class。
+- 样式改为高级检索专属选择器，不再依赖 `search-box` 或 `advanced-number-box`。
+- `test-ui-contracts` 增加防线，禁止高级检索回流到旧 search/filter shell class。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && npm run test:ui-contracts`
+
+### 后续防线
+
+- 新增高级检索控件时，编排层只能使用 `AdvancedFilterBar` 专属 class 和 `controlPrimitives.tsx` 输入 primitive。
+- 旧筛选条样式名只能留给兼容的低层控件，不能再作为高级检索布局语义。
+
 ## 2026-05-26: Eval Bench viewer 图层偏好缺少分页回归防线
 
 ### 现象

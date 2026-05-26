@@ -70,16 +70,27 @@ assert(
     filterControls.includes('className="advanced-filter-popover"') &&
     filterControls.includes("tabIndex={-1}") &&
     filterControls.includes('className="advanced-filter-directory"') &&
+    filterControls.includes('className="advanced-filter-search-control"') &&
+    filterControls.includes('className="advanced-filter-number-control"') &&
     filterControls.includes('className="advanced-filter-token"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
     filterControls.includes("onClick={() => resetAdvancedFilter(filter.control)}") &&
     filterControls.includes("<PanelToggleButton") &&
+    !filterControls.includes('className="search-box advanced-search-box"') &&
+    !filterControls.includes('className="filter-select compact advanced-number-box"') &&
     !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
   "advanced filter reset, token clear, popup layout, and grouping must be centralized in AdvancedFilterBar",
 );
 assert(
   !styleSource.includes(".filter-bar"),
   "legacy filter-bar CSS must not return; page filters must use AdvancedFilterBar",
+);
+assert(
+  styleSource.includes(".advanced-filter-search-control") &&
+    styleSource.includes(".advanced-filter-number-control") &&
+    !styleSource.includes(".advanced-search-box") &&
+    !styleSource.includes(".advanced-number-box"),
+  "advanced filter controls must use dedicated semantic classes instead of legacy search/filter shells",
 );
 assert(
   controlPrimitives.includes("export function TextInputControl(") &&
