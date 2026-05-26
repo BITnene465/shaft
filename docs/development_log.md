@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench agent 高级检索契约缺少 filter 语义
+
+### 现象
+
+`list-runs`、`list-benchmarks`、`list-jobs`、`list-services`、`list-comparisons` 和
+`rank-board` 的 JSON 输出已经带 `filters`，但 `show-agent-command --name <command>` 主要只暴露参数列表。
+agent 能看到有哪些 flag，却不能稳定判断某个 filter 是 exact match、label membership、全文 query，
+还是分页控制。
+
+### 根因
+
+前几轮优先补齐了命令面、输出 schema、rank-board sort_by 语义和 label policy 语义，但没有把
+高级检索参数本身也结构化进 `argument_semantics`。这会让 agent 退回解析 help 文本或猜 store 字段，
+违背“agent 通过 CLI/API 操作，不做 hack”的目标。这是 CLI/agent contract 描述缺口，不是模型能力问题，
+也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 Runs、Rank Board、Benchmarks、Jobs、Services、Comparison 和 template/sample 列表的自动筛选决策。
+- 不改变 dashboard/API/CLI 实际查询结果、rank-board 默认 F1、weighted scheme、run note、label subtask 或 evaluator 语义。
+
+### 修复方式
+
+- 新增共享 `PAGINATION_ARGUMENT_SEMANTICS`、run/rank/template filter 语义常量。
+- 为所有返回 `filters` 的稳定查询命令补齐 `argument_semantics.filters`；list/sample 命令补齐分页和必要 id/filter 说明。
+- `rank-board` 同时暴露 filters、pagination、rank_scheme 和既有 sort_by 分层语义。
+- CLI contract 测试要求返回 `filters` 的命令必须声明 filter 语义，避免新增查询命令只给 output schema 不说明参数行为。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_shows_single_agent_command_contract`
+
+### 后续防线
+
+- 新增 agent 查询命令时，只要 stdout schema 包含 `filters`，就必须同步写 `argument_semantics.filters`。
+- 新增全文 query 字段时，必须在 semantics 中说明 query 覆盖的后端字段范围，避免 agent 猜错检索面。
+
 ## 2026-05-26: Eval Bench Overview 仍把入口动作当成首页主价值
 
 ### 现象

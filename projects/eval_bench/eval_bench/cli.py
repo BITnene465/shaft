@@ -314,10 +314,109 @@ AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
     "mutually_exclusive_groups": "list[object]",
     "output_schema": "object",
 }
+PAGINATION_ARGUMENT_SEMANTICS = {
+    "offset": (
+        "zero-based row offset; use response.total and response.limit to request the next page."
+    ),
+    "limit": (
+        "page size; list commands clamp it to at least 1 and API endpoints may cap very "
+        "large values."
+    ),
+}
+TASK_FILTER_ARGUMENT_SEMANTICS = (
+    "exact task filter; detection supports label subtasks, keypoint is fixed to arrow."
+)
+LABEL_FILTER_ARGUMENT_SEMANTICS = (
+    "target-label membership filter; matches entries whose target_labels contain the value."
+)
+TEMPLATE_QUERY_ARGUMENT_SEMANTICS = {
+    "query": (
+        "case-insensitive search over template id, label, description, task, parser, "
+        "metric profile, visualization profile, metadata and JSON payload."
+    ),
+}
+RUN_FILTER_ARGUMENT_SEMANTICS = {
+    "task": TASK_FILTER_ARGUMENT_SEMANTICS,
+    "benchmark_id": "exact benchmark id filter.",
+    "status": "exact run status filter.",
+    "label": LABEL_FILTER_ARGUMENT_SEMANTICS,
+    "model_id": "exact model id filter.",
+    "prompt_id": "exact prompt id filter.",
+    "metric_profile": "exact metric profile filter.",
+    "query": (
+        "case-insensitive search over run id, status, benchmark id, task, model id, "
+        "model path, prompt id, metric profile, note and target labels."
+    ),
+}
+RANK_FILTER_ARGUMENT_SEMANTICS = {
+    **RUN_FILTER_ARGUMENT_SEMANTICS,
+    "min_score": (
+        "minimum numeric score threshold applied to the selected rank score; weighted_score "
+        "uses the explicit weighted score."
+    ),
+    "rank_scheme": (
+        "response filter echo only; set it with --rank-scheme-json or --rank-scheme-file."
+    ),
+}
 AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
     "init-run": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
     "import-predictions": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
+    "list-job-templates": {"filters": TEMPLATE_QUERY_ARGUMENT_SEMANTICS},
+    "list-prompt-templates": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
+            **TEMPLATE_QUERY_ARGUMENT_SEMANTICS,
+        },
+    },
+    "list-jobs": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "kind": "exact job kind filter, for example eval.",
+            "status": "exact job status filter.",
+            "query": (
+                "case-insensitive search over job id, kind, status, error, timestamps, "
+                "payload JSON and metadata JSON."
+            ),
+        },
+    },
+    "list-benchmarks": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
+            "layer": (
+                "benchmark layer membership filter; matches benchmarks whose layers contain "
+                "the value."
+            ),
+            "split": "exact benchmark split filter.",
+            "query": (
+                "case-insensitive search over benchmark id, split, root, manifest paths, "
+                "tasks and layers."
+            ),
+        },
+    },
+    "list-runs": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": RUN_FILTER_ARGUMENT_SEMANTICS,
+    },
+    "list-run-samples": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "run_id": "required exact run id; samples are scoped by that run's target_labels.",
+            "label": "sample-label membership filter applied after run target-label scoping.",
+            "error_filter": "sample diagnostic filter: all, fn, fp, missing or clean.",
+        },
+    },
+    "list-benchmark-samples": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "benchmark_id": "required exact benchmark id.",
+            "label": "ground-truth label membership filter.",
+        },
+    },
     "rank-board": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": RANK_FILTER_ARGUMENT_SEMANTICS,
         "sort_by": {
             "primary_metrics": list(RANK_PRIMARY_METRIC_SORTS),
             "auxiliary_sorts": list(RANK_AUXILIARY_SORTS),
@@ -325,7 +424,35 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
             "default_primary_metric": "f1_iou50",
             "auxiliary_sort_keeps_primary_metric": "f1_iou50",
             "weighted_sort_requires": ["--rank-scheme-json", "--rank-scheme-file"],
-        }
+        },
+        "rank_scheme": {
+            "sources": ["--rank-scheme-json", "--rank-scheme-file"],
+            "default": "disabled; default rank-board keeps f1_iou50 as primary metric.",
+        },
+    },
+    "list-services": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "kind": "exact service kind filter: local_vllm or external_vllm.",
+            "status": "exact service status filter.",
+            "query": (
+                "case-insensitive search over service id, kind, status, error, timestamps, "
+                "config JSON, runtime JSON and metadata JSON."
+            ),
+        },
+    },
+    "list-comparisons": {
+        "pagination": PAGINATION_ARGUMENT_SEMANTICS,
+        "filters": {
+            "task": TASK_FILTER_ARGUMENT_SEMANTICS,
+            "baseline_run_id": "exact baseline run id filter.",
+            "candidate_run_id": "exact candidate run id filter.",
+            "label": LABEL_FILTER_ARGUMENT_SEMANTICS,
+            "query": (
+                "case-insensitive search over comparison id, baseline run id, candidate run "
+                "id, task, metric profile and target labels."
+            ),
+        },
     },
     "resolve-target-labels": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
 }

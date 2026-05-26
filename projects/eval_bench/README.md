@@ -506,7 +506,10 @@ CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceb
 `argument_semantics`、`mutually_exclusive_groups`，便于 agent 区分只读查询、普通写入和删除/取消/停止这类危险生命周期操作，
 并直接读取参数名、flag、类型、默认值、choices、
 是否 repeatable 和互斥组要求；同时包含顶层 `recommended_runner`、每条命令的稳定 `argv_prefix` 和单行
-`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。关键只读命令还会带
+`usage`，agent 可以直接组合 argv，不需要从自然语言 help 里猜命令形态。所有返回 `filters` 的稳定查询命令
+必须在 `argument_semantics.filters` 中说明 exact match、membership、全文 query 和分页语义；
+`list-runs`、`rank-board`、`list-benchmarks`、`list-jobs`、`list-services`、`list-comparisons`、
+job/prompt template 列表以及样本列表都不能让 agent 反向解析 help 文本来猜过滤含义。关键只读命令还会带
 `output_schema`，例如 `rank-board` 明确返回分页、filters、facets、主指标和 entry 字段；
 `resolve-target-labels` 明确返回 detection/keypoint label policy、candidate labels、valid/errors/warnings；
 `get-run-note` / `set-run-note` / `append-run-note` 明确返回 run note、updated_at 和 max_length；

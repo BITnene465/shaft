@@ -224,6 +224,19 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert all(isinstance(item["output_schema"], dict) for item in payload["commands"])
     assert set(AGENT_COMMAND_OUTPUT_SCHEMAS) == AGENT_STABLE_COMMANDS
     assert all(item["output_schema"] for item in payload["commands"])
+    filter_commands = {
+        name
+        for name, schema in AGENT_COMMAND_OUTPUT_SCHEMAS.items()
+        if "filters" in schema.get("required", [])
+    }
+    assert all(
+        "filters" in commands_by_name[name]["argument_semantics"] for name in filter_commands
+    )
+    assert all(
+        "pagination" in commands_by_name[name]["argument_semantics"]
+        for name in filter_commands
+        if name != "list-job-templates"
+    )
     assert commands_by_name["dashboard-state"]["output_schema"]["properties"]["runs"]["item_shape"][
         "target_labels"
     ] == "list[str]"
@@ -535,6 +548,12 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert rank_args["sort_by"]["default"] == "f1_iou50"
     assert "weighted_score" in rank_args["sort_by"]["choices"]
     rank_sort_semantics = commands_by_name["rank-board"]["argument_semantics"]["sort_by"]
+    rank_filter_semantics = commands_by_name["rank-board"]["argument_semantics"]["filters"]
+    assert rank_filter_semantics["label"].startswith("target-label membership")
+    assert "weighted score" in rank_filter_semantics["min_score"]
+    assert commands_by_name["rank-board"]["argument_semantics"]["pagination"]["offset"].startswith(
+        "zero-based"
+    )
     assert rank_sort_semantics["primary_metrics"] == [
         "f1_iou50",
         "precision_iou50",
@@ -641,10 +660,24 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     _cmd_show_agent_command(list_runs_args)
     list_runs_command = json.loads(capsys.readouterr().out)["command"]
     assert list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["run_id"] == "str"
+    list_runs_filters = list_runs_command["argument_semantics"]["filters"]
+    assert list_runs_filters["benchmark_id"] == "exact benchmark id filter."
+    assert "note" in list_runs_filters["query"]
     assert (
         list_runs_command["output_schema"]["properties"]["runs"]["item_shape"]["note_max_length"]
         == "int"
     )
+
+    list_benchmarks_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "list-benchmarks"]
+    )
+    _cmd_show_agent_command(list_benchmarks_args)
+    list_benchmarks_command = json.loads(capsys.readouterr().out)["command"]
+    assert (
+        list_benchmarks_command["argument_semantics"]["filters"]["layer"]
+        == "benchmark layer membership filter; matches benchmarks whose layers contain the value."
+    )
+    assert "manifest paths" in list_benchmarks_command["argument_semantics"]["filters"]["query"]
 
     sample_args = _build_parser().parse_args(["show-agent-command", "--name", "show-run-sample"])
     _cmd_show_agent_command(sample_args)
@@ -657,6 +690,24 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     job_command = json.loads(capsys.readouterr().out)["command"]
     assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["job_id"] == "str"
     assert job_command["output_schema"]["properties"]["jobs"]["item_shape"]["error"] == "str|null"
+    assert "payload JSON" in job_command["argument_semantics"]["filters"]["query"]
+
+    service_list_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "list-services"]
+    )
+    _cmd_show_agent_command(service_list_args)
+    service_list_command = json.loads(capsys.readouterr().out)["command"]
+    assert "runtime JSON" in service_list_command["argument_semantics"]["filters"]["query"]
+
+    comparison_list_args = _build_parser().parse_args(
+        ["show-agent-command", "--name", "list-comparisons"]
+    )
+    _cmd_show_agent_command(comparison_list_args)
+    comparison_list_command = json.loads(capsys.readouterr().out)["command"]
+    assert (
+        comparison_list_command["argument_semantics"]["filters"]["baseline_run_id"]
+        == "exact baseline run id filter."
+    )
 
     job_template_args = _build_parser().parse_args(
         ["show-agent-command", "--name", "show-job-template"]
