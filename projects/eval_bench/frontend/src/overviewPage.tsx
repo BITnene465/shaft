@@ -126,7 +126,7 @@ export function OverviewPage() {
     {
       label: "当前最佳",
       value: bestRun ? formatMetric(bestRun.f1) : "-",
-      detail: bestRun ? bestRun.run.run_id : "等待报告进入排行",
+      detail: bestRun ? bestRun.run.run_id : "暂无 F1 报告",
       to: "/rank-board",
       tone: bestRun ? "good" : "idle",
       icon: <Trophy size={16} />,
@@ -228,9 +228,9 @@ export function OverviewPage() {
       progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "排行榜",
-      value: evaluatedRuns > 0 ? "ready" : "empty",
-      detail: evaluatedRuns > 0 ? "主指标 F1 可排行" : "等待报告",
+      label: "主指标",
+      value: evaluatedRuns.toLocaleString(),
+      detail: evaluatedRuns > 0 ? "F1 报告已生成" : "等待报告",
       to: "/rank-board",
       tone: evaluatedRuns > 0 ? "good" : "idle",
       icon: <AppIcon name="rankBoard" size={17} />,
@@ -282,7 +282,7 @@ export function OverviewPage() {
               <span>Evaluation Runway</span>
               <h3>闭环推进</h3>
             </div>
-            <strong>{evaluatedRuns > 0 ? "rankable" : "warming"}</strong>
+            <strong>{evaluatedRuns > 0 ? "已评分" : "准备中"}</strong>
           </div>
           <OverviewFlowSpine stages={flowStages} />
         </section>
@@ -710,12 +710,12 @@ function overviewPostureLine({
     return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
   if (evaluatedRuns > 0) {
-    return `${evaluatedRuns.toLocaleString()} reports generated · rank board / compare ready.`;
+    return `${evaluatedRuns.toLocaleString()} 份报告已生成，可进入排序与对比工作区。`;
   }
   if (serviceCount > 0 && liveServices === 0) {
     return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
   }
-  return "还没有评估报告，创建任务后首页会跟踪从样本到排行的闭环。";
+  return "还没有评估报告，创建任务后首页会跟踪样本、预测和报告闭环。";
 }
 
 function bestF1Run(runs: RunSummary[]) {

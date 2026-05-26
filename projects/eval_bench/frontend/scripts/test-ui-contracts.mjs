@@ -322,6 +322,11 @@ assert(
     !overviewPage.includes("可以看排行") &&
     !overviewPage.includes("可以进入排行") &&
     !overviewPage.includes("查看排行榜") &&
+    !overviewPage.includes("等待报告进入排行") &&
+    !overviewPage.includes("主指标 F1 可排行") &&
+    !overviewPage.includes("从样本到排行") &&
+    !overviewPage.includes("rankable") &&
+    !overviewPage.includes("F1 ready") &&
     overviewPage.includes("OverviewScoreDial") &&
     overviewPage.includes("overview-score-dial") &&
     overviewPage.includes("OverviewRunFocus") &&

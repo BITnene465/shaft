@@ -707,7 +707,9 @@ async function assertOverviewDensity(page, scope) {
   }
   if (
     state.stateStripItems !== 4 ||
-    /可以看排行|可以进入排行|查看排行榜|先处理阻塞|补齐评估闭环|队列正在推进/.test(state.bodyText)
+    /可以看排行|可以进入排行|查看排行榜|等待报告进入排行|主指标 F1 可排行|从样本到排行|rankable|F1 ready|先处理阻塞|补齐评估闭环|队列正在推进/.test(
+      state.bodyText
+    )
   ) {
     throw new Error(
       `${scope}: overview should use numeric state strip instead of slogan hero ${JSON.stringify({

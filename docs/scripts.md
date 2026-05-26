@@ -279,7 +279,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 圆角 capsule，Overview 必须保留 v17 decision-first command desk：ops board、运行信号、F1 dial、四个决策 tile、闭环 runway、rank console 和最近 run 产物流，
 Realtime Trace 只能展示报告覆盖、队列负载、服务容量、预测积压和 scheduler 资源占用这些粗粒度信号；
 旧活动矩阵、mini chart wall、纯路由入口面板和 chart matrix 不能回流。Overview 不能出现 precision/recall/IoU
-这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源这类低价值总览面板；
+这类细指标文案，也不能回流 Notes、Label footprint、模型分布、Job 日历或 Scheduler 资源明细这类低价值总览面板；
 command desk 需要滚动时不能被 hidden 裁切，ops board、rank console、loop 和最近 run 面板必须保持可读高度，不能在
 compact / narrow 视口塌缩成 30-40px 外壳；最近 run 只能是可点击紧凑摘要，关键入口必须保留 hover/transition 反馈。
 Benchmark / Run 检查器还会模拟样本过滤 0 命中，确认过滤入口、样本列表和主画布空状态留在同一个
