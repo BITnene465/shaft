@@ -9,6 +9,78 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench run report schema 不能作为裸 object 暴露
+
+### 现象
+
+`show-run-report` 是 agent 读取 `metrics.json` / `summary.json` 的稳定入口，但 CLI schema 只声明根节点是
+object。Agent 能拿到报告，却不能从 contract 判断主指标、样本计数、target labels、missing prediction
+和 sample diagnostics 字段是否稳定。
+
+### 根因
+
+run report 同时服务完整 metrics 和轻量 summary，早期为了兼容两种输出只声明了根对象，缺少共享字段层的
+schema。这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 run report 指标、缺失预测和样本诊断的稳定解析。
+- 不改变 `metrics.json` / `summary.json` 文件格式、evaluator、Rank Board、Compare UI 或样本 viewer 语义。
+
+### 修复方式
+
+- CLI schema 增加 `RUN_REPORT_OUTPUT_SCHEMA` 和 label/sample diagnostics 相关字段。
+- `show-run-report` 复用该 schema，覆盖 metrics 与 summary 共享字段；`labels` 保持 `list[object|str]`
+  以兼容完整 report 的 label object 和 summary 的 label string。
+- CLI 测试对 summary payload 执行 schema 校验，并锁定主指标和 sample diagnostics 字段。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_reads_run_reports_and_scoped_samples_for_agents`
+
+### 后续防线
+
+- 新增 run report 共享字段时必须同步 CLI schema；完整 metrics 专属字段和 summary 专属字段可以保持可选，
+  但不能把整个 report 再退回裸 object。
+
+## 2026-05-26: Eval Bench sample detail schema 需要区分稳定摘要和 raw task payload
+
+### 现象
+
+`show-run-sample`、`show-benchmark-sample` 和 `show-comparison-sample` 是 agent 定位单图 GT / prediction
+差异的入口，但 schema 只把 `sample`、`raw_payload` 和 `prediction_payload` 标成泛型 object。Agent 能
+读取样本详情，却不能稳定发现 image、json path、尺寸、实例数量、prediction path 或诊断计数字段。
+
+### 根因
+
+样本详情里有两类结构：`sample` 摘要和 diagnostics 是 Eval Bench 自己生成的稳定结构；`raw_payload`
+和 `prediction_payload` 的 `instances` 内部则继承 raw-data 任务格式，不能被错误固定成 detection 或
+keypoint 单一 schema。之前 schema 没有区分这两个边界，导致全部退化为 object。这是 agent contract
+缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对单图样本详情、成对样本对比和错误样本定位的稳定解析。
+- 不改变 raw-data 文件格式、prediction snapshot、viewer、label filtering、Rank Board 或 evaluator 语义。
+
+### 修复方式
+
+- CLI schema 增加 `SAMPLE_PAYLOAD_OUTPUT_SCHEMA`，声明 raw/prediction payload 的 image、image_path、
+  image_width、image_height 和 instances 字段。
+- CLI schema 增加 `SAMPLE_DIAGNOSTICS_OUTPUT_SCHEMA`，声明 matched/FP/FN/IoU 和错误列表字段。
+- `show-run-sample`、`show-benchmark-sample` 和 `show-comparison-sample` 复用这些 schema；instances
+  内部继续保持 `list[object]`，避免对任务实例格式做错误抽象。
+- CLI 测试对三类样本详情真实 payload 做 schema 校验。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_reads_run_samples_for_agents projects/eval_bench/tests/test_cli.py::test_cli_reads_benchmark_samples_for_agents projects/eval_bench/tests/test_cli.py::test_cli_shows_saved_comparison_and_sample_detail_for_agents`
+
+### 后续防线
+
+- 样本详情新增 Eval Bench 生成字段时，必须同步 CLI schema；raw-data `instances` 内部如果未来要稳定化，
+  应按 task/version 新增专门 schema，不能在当前通用 sample detail 上硬编码。
+
 ## 2026-05-26: Eval Bench template/preflight manifest schema 不能只是粗 object
 
 ### 现象

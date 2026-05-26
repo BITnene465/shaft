@@ -429,6 +429,24 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         CLI_JSON_OUTPUT_SCHEMAS["show-run-sample"]["properties"]["sample"]["item_shape"]
         == run_samples_output_schema["properties"]["samples"]["item_shape"]
     )
+    assert (
+        CLI_JSON_OUTPUT_SCHEMAS["show-run-sample"]["properties"]["raw_payload"][
+            "properties"
+        ]["instances"]
+        == "list[object]"
+    )
+    assert (
+        CLI_JSON_OUTPUT_SCHEMAS["show-run-sample"]["properties"]["prediction_payload"][
+            "item_shape"
+        ]["image"]
+        == "str|null"
+    )
+    assert (
+        CLI_JSON_OUTPUT_SCHEMAS["show-run-sample"]["properties"]["diagnostics"][
+            "item_shape"
+        ]["matched_count"]
+        == "int"
+    )
     benchmark_samples_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-benchmark-samples"]
     assert "filters" in benchmark_samples_output_schema["required"]
     _assert_paged_schema(benchmark_samples_output_schema)
@@ -439,6 +457,12 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
             "item_shape"
         ]
         == benchmark_samples_output_schema["properties"]["samples"]["item_shape"]
+    )
+    assert (
+        CLI_JSON_OUTPUT_SCHEMAS["show-benchmark-sample"]["properties"]["raw_payload"][
+            "properties"
+        ]["image_width"]
+        == "int|null"
     )
     jobs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-jobs"]
     assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "jobs"]
@@ -602,7 +626,11 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "candidate_run_id",
         "report_path",
     ]
-    assert CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]["type"] == "object"
+    run_report_schema = CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]
+    assert run_report_schema["type"] == "object"
+    assert run_report_schema["properties"]["precision_iou50"] == "float"
+    assert run_report_schema["properties"]["labels"] == "list[object|str]"
+    assert run_report_schema["properties"]["samples"]["item_shape"]["matched_count"] == "int"
     comparisons_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-comparisons"]
     _assert_paged_schema(comparisons_output_schema)
     _assert_filter_schema(
@@ -628,7 +656,18 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     )
     comparison_sample_output_schema = CLI_JSON_OUTPUT_SCHEMAS["show-comparison-sample"]
     assert comparison_sample_output_schema["properties"]["baseline"]["item_shape"]["pred_instances"] == "list[object]"
-    assert comparison_sample_output_schema["properties"]["candidate"]["item_shape"]["diagnostics"] == "object|null"
+    assert (
+        comparison_sample_output_schema["properties"]["candidate"]["item_shape"][
+            "diagnostics"
+        ]["item_shape"]["false_positive_count"]
+        == "int"
+    )
+    assert (
+        comparison_sample_output_schema["properties"]["baseline"]["item_shape"][
+            "sample"
+        ]["item_shape"]["gt_instance_count"]
+        == "int"
+    )
 
 
 def test_cli_suppresses_broken_pipe_traceback_for_json_stdout() -> None:
@@ -2257,12 +2296,14 @@ def test_cli_shows_saved_comparison_and_sample_detail_for_agents(
     )
     _cmd_show_comparison_sample(sample_args)
     sample = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-comparison-sample", sample)
     assert sample["baseline_run_id"] == "run_base"
     assert sample["candidate_run_id"] == "run_a"
     assert sample["sample_index"] == 0
     assert sample["baseline"]["sample"]["index"] == 0
     assert sample["candidate"]["sample"]["index"] == 0
     assert [item["label"] for item in sample["baseline"]["gt_instances"]] == ["arrow"]
+    assert [item["label"] for item in sample["baseline"]["raw_payload"]["instances"]] == ["arrow"]
 
 
 def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys) -> None:
@@ -2386,6 +2427,7 @@ def test_cli_reads_run_reports_and_scoped_samples_for_agents(tmp_path: Path, cap
     )
     _cmd_show_run_report(report_args)
     report = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-run-report", report)
     assert report["target_labels_source"] == "explicit"
     assert report["labels"] == ["arrow"]
 
@@ -2426,6 +2468,7 @@ def test_cli_reads_run_reports_and_scoped_samples_for_agents(tmp_path: Path, cap
     )
     _cmd_show_run_sample(detail_args)
     detail = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-run-sample", detail)
     assert [item["label"] for item in detail["gt_instances"]] == ["arrow"]
     assert [item["label"] for item in detail["pred_instances"]] == ["arrow"]
     assert [item["label"] for item in detail["raw_payload"]["instances"]] == ["arrow"]
@@ -2467,6 +2510,7 @@ def test_cli_reads_benchmark_samples_for_agents(tmp_path: Path, capsys) -> None:
     )
     _cmd_show_benchmark_sample(detail_args)
     detail = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-benchmark-sample", detail)
     assert detail["sample"]["instance_count"] == 2
     assert [item["label"] for item in detail["gt_instances"]] == ["icon", "arrow"]
 

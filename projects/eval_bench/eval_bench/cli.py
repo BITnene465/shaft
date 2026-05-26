@@ -108,6 +108,81 @@ BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
     "instance_count": "int",
     "labels": "list[str]",
 }
+SAMPLE_PAYLOAD_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image": "str|null",
+        "image_path": "str|null",
+        "image_width": "int|null",
+        "image_height": "int|null",
+        "instances": "list[object]",
+        "metadata": "object",
+    },
+}
+SAMPLE_DIAGNOSTICS_OUTPUT_SCHEMA = {
+    "type": "object|null",
+    "item_shape": {
+        "index": "int",
+        "image": "str",
+        "gt_instance_count": "int",
+        "pred_instance_count": "int",
+        "matched_count": "int",
+        "false_negative_count": "int",
+        "false_positive_count": "int",
+        "mean_iou": "float",
+        "labels": {
+            "type": "object",
+            "item_shape": {
+                "gt_count": "int",
+                "pred_count": "int",
+                "matched_count": "int",
+                "false_negative_count": "int",
+                "false_positive_count": "int",
+                "mean_iou": "float",
+            },
+        },
+        "matches": "list[object]",
+        "false_negatives": "list[object]",
+        "false_positives": "list[object]",
+    },
+}
+RUN_REPORT_LABEL_OUTPUT_SHAPE = {
+    "label": "str",
+    "gt_count": "int",
+    "pred_count": "int",
+    "matched_count": "int",
+    "precision_iou50": "float",
+    "recall_iou50": "float",
+    "mean_iou": "float",
+    "keypoint_pair_count": "int",
+    "mean_keypoint_distance": "float|null",
+}
+RUN_REPORT_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "run_id": "str",
+        "task": "str",
+        "metric_profile": "str",
+        "sample_count": "int",
+        "prediction_file_count": "int",
+        "gt_instance_count": "int",
+        "pred_instance_count": "int",
+        "matched_count": "int",
+        "precision_iou50": "float",
+        "recall_iou50": "float",
+        "mean_iou": "float",
+        "keypoint_pair_count": "int",
+        "mean_keypoint_distance": "float|null",
+        "label_count": "int",
+        "labels": "list[object|str]",
+        "target_labels": "list[str]",
+        "target_labels_source": "str",
+        "missing_predictions": "list[str]",
+        "missing_prediction_count": "int",
+        "samples": {"type": "array", "item_shape": SAMPLE_DIAGNOSTICS_OUTPUT_SCHEMA["item_shape"]},
+    },
+    "description": "metrics.json or summary.json report payload for a run.",
+}
 PROMPT_GENERATION_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -430,7 +505,7 @@ COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA = {
     },
     "labels": {
         "type": "object",
-        "values": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA,
+        "item_shape": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA["properties"],
     },
 }
 COMPARISON_SUMMARY_OUTPUT_SHAPE = {
@@ -456,12 +531,15 @@ COMPARISON_SUMMARY_OUTPUT_SHAPE = {
 }
 COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE = {
     "run_id": "str",
-    "sample": "object",
+    "sample": {"type": "object", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
     "gt_instances": "list[object]",
     "pred_instances": "list[object]",
-    "raw_payload": "object",
-    "prediction_payload": "object|null",
-    "diagnostics": "object|null",
+    "raw_payload": SAMPLE_PAYLOAD_OUTPUT_SCHEMA,
+    "prediction_payload": {
+        "type": "object|null",
+        "item_shape": SAMPLE_PAYLOAD_OUTPUT_SCHEMA["properties"],
+    },
+    "diagnostics": SAMPLE_DIAGNOSTICS_OUTPUT_SCHEMA,
 }
 JOB_TEMPLATE_OUTPUT_SHAPE = {
     "label": "str",
@@ -971,10 +1049,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "required": ["run"],
         "properties": {"run": {"type": "object", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE}},
     },
-    "show-run-report": {
-        "type": "object",
-        "description": "Raw metrics.json or summary.json report payload for a run.",
-    },
+    "show-run-report": RUN_REPORT_OUTPUT_SCHEMA,
     "list-run-samples": {
         "type": "object",
         "required": ["run_id", "offset", "limit", "total", "filters", "labels", "samples"],
@@ -1002,9 +1077,12 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "sample": {"type": "object", "item_shape": RUN_SAMPLE_SUMMARY_OUTPUT_SHAPE},
             "gt_instances": {"type": "list[object]"},
             "pred_instances": {"type": "list[object]"},
-            "raw_payload": {"type": "object"},
-            "prediction_payload": {"type": "object|null"},
-            "diagnostics": {"type": "object|null"},
+            "raw_payload": SAMPLE_PAYLOAD_OUTPUT_SCHEMA,
+            "prediction_payload": {
+                "type": "object|null",
+                "item_shape": SAMPLE_PAYLOAD_OUTPUT_SCHEMA["properties"],
+            },
+            "diagnostics": SAMPLE_DIAGNOSTICS_OUTPUT_SCHEMA,
         },
     },
     "list-benchmark-samples": {
@@ -1033,7 +1111,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "benchmark_id": {"type": "str"},
             "sample": {"type": "object", "item_shape": BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE},
             "gt_instances": {"type": "list[object]"},
-            "raw_payload": {"type": "object"},
+            "raw_payload": SAMPLE_PAYLOAD_OUTPUT_SCHEMA,
         },
     },
     "list-job-templates": {

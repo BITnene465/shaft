@@ -1024,6 +1024,10 @@ store/comparison API，不需要直接读取 `exports/comparisons` 或 run artif
 `list-comparisons` 和 `show-comparison` 的 CLI JSON schema 会声明 run-level delta、summary 计数、
 baseline/candidate 指标、label delta 和 sample delta 的主要字段，agent 不需要把 `delta` 或
 `summary` 当作无结构 blob 处理。
+样本详情类命令会声明 `sample` 摘要、raw/prediction payload 的 image/size/instances 字段和诊断计数；
+instances 内部仍保留 raw-data task 格式，避免对 detection/keypoint 实例做错误抽象。
+`show-run-report` 会声明 metrics/summary 共享的主指标、样本计数、target labels、missing prediction
+和 sample diagnostics 字段，不再作为裸 object 暴露。
 
 运行轻量 dashboard-store performance smoke：
 
