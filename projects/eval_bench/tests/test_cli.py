@@ -454,8 +454,17 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert job_payload_schema["properties"]["benchmark_id"] == "str"
     assert job_payload_schema["properties"]["target_labels"] == "list[str]"
     assert job_payload_schema["properties"]["runtime_mode"] == "str"
+    assert job_payload_schema["properties"]["job_manifest"]["properties"]["runtime"][
+        "properties"
+    ]["args"]["properties"]["max-model-len"] == "int|null"
+    assert job_payload_schema["properties"]["job_manifest"]["properties"]["eval"][
+        "properties"
+    ]["generation"]["properties"]["max_tokens"] == "int"
     assert job_metadata_schema["properties"]["preflight_warnings"] == "list[str]"
     assert job_metadata_schema["properties"]["progress_done"] == "int|null"
+    assert job_metadata_schema["properties"]["resolved_manifest"] == job_payload_schema[
+        "properties"
+    ]["job_manifest"]
     assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
         jobs_output_schema["properties"]["jobs"]["item_shape"]
     )
@@ -463,7 +472,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"]["properties"]["templates"][
             "item_shape"
         ]["manifest"]
-        == "object"
+        == job_payload_schema["properties"]["job_manifest"]
     )
     assert CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"]["properties"]["total"]["type"] == "int"
     _assert_filter_schema(CLI_JSON_OUTPUT_SCHEMAS["list-job-templates"], ["query"])
@@ -477,6 +486,18 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     _assert_paged_schema(prompt_templates_output_schema)
     _assert_filter_schema(prompt_templates_output_schema, ["task", "query"])
     assert prompt_templates_output_schema["properties"]["templates"]["item_shape"]["metadata"] == "object"
+    assert (
+        prompt_templates_output_schema["properties"]["templates"]["item_shape"]["generation"][
+            "properties"
+        ]["temperature"]
+        == "float"
+    )
+    assert (
+        prompt_templates_output_schema["properties"]["templates"]["item_shape"]["data"][
+            "properties"
+        ]["batch_size"]
+        == "int"
+    )
     assert prompt_templates_output_schema["properties"]["by_id"]["item_shape"]["prompt_id"] == "str"
     assert (
         CLI_JSON_OUTPUT_SCHEMAS["show-prompt-template"]["properties"]["template"][
@@ -497,11 +518,24 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert preflight_schema["properties"]["resolved_manifest"]["properties"]["runtime"][
         "properties"
     ]["mode"] == "str"
+    assert preflight_schema["properties"]["resolved_manifest"]["properties"]["runtime"][
+        "properties"
+    ]["env"]["properties"]["CUDA_VISIBLE_DEVICES"] == "str|null"
     assert preflight_schema["properties"]["resolved_manifest"]["properties"]["eval"][
         "properties"
     ]["target_labels"] == "list[str]"
+    assert preflight_schema["properties"]["resolved_manifest"]["properties"]["eval"][
+        "properties"
+    ]["data"]["properties"]["max_pixels"] == "int|null"
+    assert preflight_schema["properties"]["resolved_manifest"]["properties"]["preannotate"][
+        "properties"
+    ]["source_root"] == "str|null"
     assert preflight_schema["properties"]["resolved_payload"]["properties"]["runtime_mode"] == "str"
     assert preflight_schema["properties"]["resolved_payload"]["properties"]["target_labels"] == "list[str]"
+    assert (
+        preflight_schema["properties"]["resolved_payload"]["properties"]["job_manifest"]
+        == job_payload_schema["properties"]["job_manifest"]
+    )
     assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == job_payload_schema
     assert CLI_JSON_OUTPUT_SCHEMAS["cancel-job"]["properties"]["status"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["deleted"]["type"] == "bool"
@@ -2235,15 +2269,23 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     job_template_args = _build_parser().parse_args(["list-job-templates", "--query", "keypoint"])
     _cmd_list_job_templates(job_template_args)
     job_templates = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("list-job-templates", job_templates)
     assert job_templates["total"] == 1
     assert "keypoint_eval_job" in job_templates["templates"]
     assert job_templates["templates"]["keypoint_eval_job"]["manifest"]["eval"]["task"] == "keypoint"
+    assert (
+        job_templates["templates"]["keypoint_eval_job"]["manifest"]["runtime"]["args"][
+            "max-model-len"
+        ]
+        == 32768
+    )
 
     show_job_template_args = _build_parser().parse_args(
         ["show-job-template", "--template-id", "keypoint_eval_job"]
     )
     _cmd_show_job_template(show_job_template_args)
     job_template = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-job-template", job_template)
     assert job_template["template_id"] == "keypoint_eval_job"
     assert job_template["template"]["manifest"]["eval"]["metric_profile"] == "keypoint_endpoint_v1"
 
@@ -2252,9 +2294,11 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     )
     _cmd_list_prompt_templates(list_args)
     prompt_templates = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("list-prompt-templates", prompt_templates)
     assert prompt_templates["total"] >= 1
     assert "grounding_arrow.latest" in prompt_templates["by_id"]
     assert prompt_templates["by_id"]["grounding_arrow.latest"]["task"] == "detection"
+    assert prompt_templates["by_id"]["grounding_arrow.latest"]["generation"]["max_tokens"] == 4096
 
     show_prompt_args = _build_parser().parse_args(
         [
@@ -2267,6 +2311,7 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     )
     _cmd_show_prompt_template(show_prompt_args)
     prompt_template = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-prompt-template", prompt_template)
     assert prompt_template["template"]["prompt_id"] == "grounding_arrow.latest"
     assert prompt_template["template"]["metadata"]["target_labels"] == ["arrow"]
 
@@ -2291,6 +2336,7 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     )
     _cmd_upsert_prompt_template(upsert_args)
     upserted = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("upsert-prompt-template", upserted)
     assert upserted["prompt_id"] == "custom.arrow.v1"
     assert upserted["metadata"]["target_labels"] == ["arrow"]
 

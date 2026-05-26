@@ -108,11 +108,129 @@ BENCHMARK_SAMPLE_SUMMARY_OUTPUT_SHAPE = {
     "instance_count": "int",
     "labels": "list[str]",
 }
+PROMPT_GENERATION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "max_tokens": "int",
+        "temperature": "float",
+        "top_p": "float",
+    },
+}
+PROMPT_DATA_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "min_pixels": "int|null",
+        "max_pixels": "int|null",
+        "batch_size": "int",
+    },
+}
+JOB_RUNTIME_ENV_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "CUDA_VISIBLE_DEVICES": "str|null",
+        "CUDA_DEVICE_ORDER": "str|null",
+        "cuda_visible_devices": "str|null",
+    },
+}
+JOB_RUNTIME_ARGS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "model": "str|null",
+        "model_path": "str|null",
+        "served-model-name": "str|null",
+        "served_model_name": "str|null",
+        "host": "str",
+        "port": "int|null",
+        "tensor-parallel-size": "int|null",
+        "tensor_parallel_size": "int|null",
+        "max-model-len": "int|null",
+        "max_model_len": "int|null",
+        "gpu-memory-utilization": "float|null",
+        "gpu_memory_utilization": "float|null",
+        "max-num-seqs": "int|null",
+        "max_num_seqs": "int|null",
+        "trust-remote-code": "bool",
+        "trust_remote_code": "bool",
+    },
+}
+JOB_RUNTIME_MANIFEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mode": "str",
+        "engine": "str",
+        "endpoint": "str|null",
+        "service_id": "str|null",
+        "host": "str|null",
+        "port": "int|null",
+        "served_model_name": "str|null",
+        "served-model-name": "str|null",
+        "extra_args": "list[str]",
+        "env": JOB_RUNTIME_ENV_OUTPUT_SCHEMA,
+        "args": JOB_RUNTIME_ARGS_OUTPUT_SCHEMA,
+    },
+}
+JOB_EVAL_MANIFEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "run_id": "str|null",
+        "model_id": "str",
+        "model_path": "str",
+        "benchmark_id": "str",
+        "task": "str",
+        "prompt_id": "str",
+        "prompt_path": "str|null",
+        "system_prompt": "str|null",
+        "prompt_text": "str|null",
+        "user_prompt": "str|null",
+        "parser": "str|null",
+        "metric_profile": "str|null",
+        "visualization_profile": "str|null",
+        "target_labels": "list[str]",
+        "target_labels_source": "str|null",
+        "prompt_template": {
+            "type": "object",
+            "properties": {
+                "prompt_id": "str",
+                "label": "str",
+                "task": "str",
+            },
+        },
+        "generation": PROMPT_GENERATION_OUTPUT_SCHEMA,
+        "data": PROMPT_DATA_OUTPUT_SCHEMA,
+    },
+}
+JOB_PREANNOTATE_MANIFEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "source_root": "str|null",
+        "source_manifest": "str|null",
+        "output_root": "str|null",
+        "model_id": "str|null",
+        "model_path": "str|null",
+        "benchmark_id": "str|null",
+        "task": "str|null",
+        "prompt_id": "str|null",
+        "prompt_path": "str|null",
+        "system_prompt": "str|null",
+        "prompt_text": "str|null",
+        "generation": PROMPT_GENERATION_OUTPUT_SCHEMA,
+        "data": PROMPT_DATA_OUTPUT_SCHEMA,
+    },
+}
+JOB_MANIFEST_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kind": "str",
+        "runtime": JOB_RUNTIME_MANIFEST_OUTPUT_SCHEMA,
+        "eval": JOB_EVAL_MANIFEST_OUTPUT_SCHEMA,
+        "preannotate": JOB_PREANNOTATE_MANIFEST_OUTPUT_SCHEMA,
+    },
+}
 JOB_PAYLOAD_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "manifest": "object",
-        "job_manifest": "object",
+        "manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
+        "job_manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
         "job_kind": "str",
         "runtime_mode": "str",
         "backend": "str",
@@ -153,7 +271,7 @@ JOB_METADATA_OUTPUT_SCHEMA = {
         "progress_current_sample": "str|null",
         "progress_message": "str|null",
         "run_manifest_path": "str|null",
-        "resolved_manifest": "object",
+        "resolved_manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
         "cancel_requested": "bool",
     },
 }
@@ -348,7 +466,7 @@ COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE = {
 JOB_TEMPLATE_OUTPUT_SHAPE = {
     "label": "str",
     "description": "str",
-    "manifest": "object",
+    "manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
 }
 PROMPT_TEMPLATE_OUTPUT_SHAPE = {
     "prompt_id": "str",
@@ -359,8 +477,8 @@ PROMPT_TEMPLATE_OUTPUT_SHAPE = {
     "parser": "str|null",
     "metric_profile": "str|null",
     "visualization_profile": "str|null",
-    "generation": "object",
-    "data": "object",
+    "generation": PROMPT_GENERATION_OUTPUT_SCHEMA,
+    "data": PROMPT_DATA_OUTPUT_SCHEMA,
     "metadata": "object",
     "created_at": "str",
     "updated_at": "str",
@@ -379,8 +497,8 @@ PREFLIGHT_JOB_OUTPUT_SHAPE = {
                     "engine": "str",
                     "endpoint": "str|null",
                     "service_id": "str|null",
-                    "env": "object",
-                    "args": "object",
+                    "env": JOB_RUNTIME_ENV_OUTPUT_SCHEMA,
+                    "args": JOB_RUNTIME_ARGS_OUTPUT_SCHEMA,
                 },
             },
             "eval": {
@@ -394,17 +512,17 @@ PREFLIGHT_JOB_OUTPUT_SHAPE = {
                     "parser": "str|null",
                     "metric_profile": "str|null",
                     "target_labels": "list[str]",
-                    "generation": "object",
-                    "data": "object",
+                    "generation": PROMPT_GENERATION_OUTPUT_SCHEMA,
+                    "data": PROMPT_DATA_OUTPUT_SCHEMA,
                 },
             },
-            "preannotate": "object",
+            "preannotate": JOB_PREANNOTATE_MANIFEST_OUTPUT_SCHEMA,
         },
     },
     "resolved_payload": {
         "type": "object|null",
         "properties": {
-            "job_manifest": "object",
+            "job_manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
             "job_kind": "str",
             "runtime_mode": "str",
             "backend": "str",

@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench template/preflight manifest schema 不能只是粗 object
+
+### 现象
+
+`list-job-templates`、`show-job-template`、`list-prompt-templates`、`show-prompt-template`、
+`upsert-prompt-template` 和 `preflight-job` 是 agent 创建 job 前最先读取的入口，但 schema 仍把
+job manifest、prompt `generation`、prompt `data`、`runtime.env`、`runtime.args`、`eval.generation`
+和 `eval.data` 标成泛型 object。Agent 能拿到模板和 preflight 结果，却不能稳定发现采样、pixel budget、
+runtime 参数和 preannotate 字段。
+
+### 根因
+
+job manifest、prompt template 和 preflight resolved manifest 在实现上已经共享同一套解析逻辑，但 CLI
+schema 没有抽出同一套 manifest / generation / data 字段定义。模板真源在后端，schema 却退化成“任意
+JSON blob”。这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 在入队前选择 job template、读取 prompt template、执行 preflight 和解释 resolved manifest。
+- 不改变 job manifest 文件格式、prompt registry、Dashboard Jobs 页、worker、Rank Board 或 evaluator 语义。
+
+### 修复方式
+
+- CLI schema 增加 prompt generation/data、job runtime env/args、runtime manifest、eval manifest 和
+  preannotate manifest schema。
+- job template、prompt template、preflight resolved manifest、resolved payload job manifest、job record
+  payload 和 job metadata resolved manifest 复用同一套 schema。
+- CLI 测试锁定模板、prompt、preflight 和 job record 的嵌套字段，并对真实 template CLI payload 做 schema 校验。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_manages_job_and_prompt_templates_for_agents projects/eval_bench/tests/test_cli.py::test_cli_preflights_and_creates_manifest_first_job`
+
+### 后续防线
+
+- 新增 job manifest、prompt generation/data 或 preflight resolved 字段时，必须同步 CLI schema；不能让
+  agent 从模板样例、Dashboard state 或 SQLite 反推字段结构。
+
 ## 2026-05-26: Eval Bench comparison delta/summary 不能只是粗 object
 
 ### 现象
