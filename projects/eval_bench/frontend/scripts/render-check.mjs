@@ -6,6 +6,9 @@ const url = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/";
 const screenshotPath =
   process.env.SCREENSHOT_PATH ??
   path.resolve(process.cwd(), "../../..", "temp", "eval_bench_dashboard.png");
+const forbiddenOverviewCopy =
+  /只保留系统运行态、数据规模和近期写入节奏|精细指标进入排行榜与对比页|首页只保留|可以看排行|可以进入排行|查看排行榜|等待报告进入排行|主指标 F1 可排行|从样本到排行|rankable|F1 ready|先处理阻塞|补齐评估闭环|队列正在推进/;
+const fineMetricText = /\b(precision|recall|iou|miou)\b/i;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
@@ -77,6 +80,8 @@ async function assertPragmaticDefaults(page) {
       `dashboard should not use global page scroll: body=${scroll.body}, document=${scroll.document}, viewport=${scroll.viewport}`
     );
   }
+  await assertOverviewCommandDesk(page);
+  await assertAdvancedFiltersCollapsed(page);
   const actionPanels = page.locator("details.action-panel");
   const actionPanelCount = await actionPanels.count();
   for (let index = 0; index < actionPanelCount; index += 1) {
@@ -153,6 +158,73 @@ async function assertPragmaticDefaults(page) {
     }
     if (overlayState.rectCount + overlayState.lineCount > 0 && !overlayState.visibleStroke) {
       throw new Error("overlay geometry exists but has no visible stroke");
+    }
+  }
+}
+
+async function assertOverviewCommandDesk(page) {
+  const overview = page.locator(".dashboard-home").first();
+  if ((await overview.count()) === 0) {
+    return;
+  }
+  const state = await page.evaluate(() => {
+    const root = document.querySelector(".dashboard-home");
+    return {
+      text: root?.textContent ?? "",
+      opsBoards: document.querySelectorAll(".overview-ops-board").length,
+      rankConsoles: document.querySelectorAll(".overview-rank-console").length,
+      scoreDials: document.querySelectorAll(".overview-score-dial").length,
+      telemetryTraces: document.querySelectorAll(".overview-telemetry-trace").length,
+      evidenceRows: document.querySelectorAll(".overview-evidence-row").length,
+      decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
+      oldCharts: document.querySelectorAll(".overview-mini-chart, .overview-chart-matrix").length,
+      oldPanels: document.querySelectorAll(
+        ".overview-proof-strip, .overview-triage-rail, .overview-signal-stack, .overview-activity-matrix"
+      ).length
+    };
+  });
+  if (forbiddenOverviewCopy.test(state.text)) {
+    throw new Error("overview contains forbidden slogan or implementation-copy text");
+  }
+  if (fineMetricText.test(state.text)) {
+    throw new Error("overview exposes fine-grained metric text");
+  }
+  if (state.oldCharts > 0 || state.oldPanels > 0) {
+    throw new Error(
+      `overview rendered deprecated panels: oldCharts=${state.oldCharts}, oldPanels=${state.oldPanels}`
+    );
+  }
+  if (
+    state.opsBoards !== 1 ||
+    state.rankConsoles !== 1 ||
+    state.scoreDials !== 1 ||
+    state.telemetryTraces !== 1 ||
+    state.evidenceRows !== 1 ||
+    state.decisionMetrics !== 4
+  ) {
+    throw new Error(`overview command desk structure regressed: ${JSON.stringify(state)}`);
+  }
+}
+
+async function assertAdvancedFiltersCollapsed(page) {
+  const filterBars = page.locator(".advanced-filter-bar");
+  const count = await filterBars.count();
+  if (count === 0) {
+    return;
+  }
+  for (let index = 0; index < count; index += 1) {
+    const bar = filterBars.nth(index);
+    const popovers = bar.locator(".advanced-filter-popover");
+    if ((await popovers.count()) > 0) {
+      throw new Error("advanced filter popover should be collapsed by default");
+    }
+    const controls = bar.locator(".advanced-filter-controls");
+    if ((await controls.count()) > 0) {
+      throw new Error("advanced filter controls should not occupy page space before opening");
+    }
+    const head = bar.locator(".advanced-filter-head").first();
+    if ((await head.count()) === 0) {
+      throw new Error("advanced filter bar is missing its compact trigger");
     }
   }
 }

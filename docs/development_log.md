@@ -85,6 +85,48 @@ eval / codec / metric / data 误判。
 - 总览页可以展示运行事实、状态、数量和可行动入口，但不能展示解释设计策略的说明句。
 - 用户明确指出的 UI 文案问题需要同时进入源码 contract 和真实页面 smoke，不能只靠人工记忆。
 
+## 2026-05-26: Eval Bench render-check 缺少首页与高级检索基线
+
+### 现象
+
+`test:ui-contracts` 已经能静态阻止总览说明式文案和高级检索旧 class 回流，`test:layout`
+也能在多路由、多视口下做重型 smoke。但日常更轻量的 `render-check` 仍主要检查页面能打开、
+截图能保存、全局滚动和检查器画布，不会在默认首页截图时挡住“只保留...”文案、旧 mini chart wall、
+或高级检索表单默认铺开这类高频 UI 回归。
+
+### 根因
+
+早期 `render-check` 的定位是截图/交互探针，后续 Overview v17 和 AdvancedFilterBar 的不变量主要加在
+`test:layout` 与 `test:ui-contracts`，没有同步抽一层轻量浏览器基线。
+
+### 影响范围
+
+- 影响本地快速验收的覆盖面：开发者可能只跑 `render-check`，却漏掉总览价值文案和 filter 空间策略回归。
+- 不影响 dashboard API、store schema、Rank Board 默认 F1、weighted scheme、run note、label subtask 或 evaluator 语义。
+- 这不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 修复方式
+
+- `render-check` 增加 Overview command desk 基线：必须有 ops board、rank console、F1 dial、telemetry、
+  evidence row 和四个决策 tile。
+- `render-check` 禁止 Overview 真实文本出现“只保留...”“可以看排行...”等说明/口号文案，以及
+  precision / recall / IoU 细指标文案。
+- `render-check` 禁止旧 mini chart/chart matrix/proof/triage/signal/activity 面板回流。
+- `render-check` 增加 AdvancedFilterBar 默认折叠检查：未打开时不能渲染 popover 或完整 controls。
+- README 补充 `render-check` 的轻量 UI 基线职责。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ npm run render-check`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 用户反复指出的 UI 价值/空间策略问题需要至少进入一个轻量浏览器 smoke，而不只放在长耗时 layout smoke 中。
+- `render-check` 只放跨页面基础基线；复杂多路由、多 viewport、弹窗和分页仍归 `test:layout`。
+
 ## 2026-05-26: Eval Bench 高级检索仍复用旧筛选壳 class
 
 ### 现象

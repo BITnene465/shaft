@@ -725,6 +725,11 @@ cd projects/eval_bench/frontend
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run render-check
 ```
 
+`render-check` 是轻量浏览器基线：除了保存当前页面截图，还会确认 dashboard 不使用全局滚动，
+低频 action/config 面板默认折叠，Overview 仍是 v17 command desk，不含“只保留...”这类实现说明文案、
+旧 mini chart/chart matrix 或 precision/recall/IoU 细指标文案；页面中的 `AdvancedFilterBar`
+默认只显示紧凑 Filter 触发器和 token 摘要，不能在未展开时把完整筛选表单铺到主工作区。
+
 核心页面、窄屏布局和弹窗滚动边界也有独立 smoke；它会遍历 overview、rank-board、runs、benchmarks、
 jobs、services 和 settings，在 desktop / compact / narrow 三种 viewport 下确认没有全局滚动溢出、
 page stack 不被 content 裁切、表格和高级检索面板需要滚动时由自己的容器滚动，并确认 rank-board
