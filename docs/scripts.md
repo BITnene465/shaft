@@ -292,6 +292,8 @@ Metrics 七类 `.rank-facet-button` 可点击 chip，点击后能把同一份高
 漏接后端 facet 或只渲染前 5 个值导致长尾筛选不可达。
 UI contract 还会锁住 Rank Board 表格第一分数列必须使用 active primary metric label / score，并保留
 leader-relative `score_delta` 展示，避免用户切换主指标后表格仍固定展示 F1 或只能看到孤立分数。
+Rank Decision Panel 的主指标 chip 只允许 F1、precision、recall、mIoU 和预测数；`created_at` / `run_id`
+必须放在辅助排序组，防止主指标语义再次和列表排序字段混在一起。
 
 说明：
 - `eval_bench` 是仓库内子项目，核心代码在 `projects/eval_bench/eval_bench`

@@ -1130,11 +1130,28 @@ h2 {
   font-size: 12px;
 }
 
-.rank-sort-dial {
+.rank-sort-section {
   z-index: 1;
+  display: grid;
+  gap: 5px;
+}
+
+.rank-sort-section > span {
+  color: #557085;
+  font-family: var(--mono-font);
+  font-size: 10px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.rank-sort-dial {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.rank-sort-section.auxiliary .rank-sort-dial {
+  gap: 6px;
 }
 
 .rank-sort-chip,
@@ -1150,6 +1167,18 @@ h2 {
 .rank-sort-chip:hover,
 .rank-order-chip:hover {
   transform: translateY(-1px);
+}
+
+.rank-sort-chip.auxiliary {
+  color: #516174;
+  background: #f8fafc;
+  border-style: dashed;
+}
+
+.rank-sort-chip.auxiliary.active {
+  color: #0b3d54;
+  background: #edf8fb;
+  border-style: solid;
 }
 
 .rank-order-row {

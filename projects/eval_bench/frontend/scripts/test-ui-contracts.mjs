@@ -564,8 +564,15 @@ assert(
 assert(
   rankBoardPage.includes("function RankDecisionPanel(") &&
     rankBoardPage.includes('className="rank-decision-panel"') &&
-    rankBoardPage.includes("const RANK_DIRECT_METRICS = [") &&
-    rankBoardPage.includes('className="rank-sort-chip"') &&
+    rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
+    rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
+    rankBoardPage.includes("const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];") &&
+    rankBoardPage.includes('className="rank-sort-section"') &&
+    rankBoardPage.includes('className="rank-sort-section auxiliary"') &&
+    rankBoardPage.includes('aria-label="排行榜主指标"') &&
+    rankBoardPage.includes('aria-label="排行榜辅助排序字段"') &&
+    rankBoardPage.includes('className="rank-sort-chip primary"') &&
+    rankBoardPage.includes('className="rank-sort-chip auxiliary"') &&
     rankBoardPage.includes('className="rank-top-panel"') &&
     rankBoardPage.includes('className="rank-spread-panel"') &&
     !rankBoardPage.includes('id: "rank-sort-by"') &&

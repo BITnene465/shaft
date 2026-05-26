@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Rank Board 把辅助排序混进主指标拨盘
+
+### 现象
+
+Rank Board 首层 `RankDecisionPanel` 已经把排名依据从高级检索浮层里拉出来，但“排行榜主指标”拨盘同时包含
+`created_at` 和 `run_id`。这两个字段只是列表排序维度，不是模型质量主指标；用户会误以为可以把创建时间或字符串
+ID 当成 primary metric。
+
+### 根因
+
+前端复用了同一组 `sortBy` chip 来承载质量指标和辅助排序字段，没有在交互层表达后端语义差异。后端
+rank-board 在 `created_at` / `run_id` 排序时仍保持 F1 作为 `primary_metric`，因此这是前端信息架构问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Rank Board 核心页面对“默认 F1、可切主指标”的表达。
+- 不影响 `/api/rank-board`、CLI `rank-board`、weighted scheme、score_delta、report 或 evaluator。
+
+### 修复方式
+
+- 将 `RANK_PRIMARY_METRICS` 拆成 F1、precision、recall、mIoU 和预测数。
+- 将 `created_at` / `run_id` 拆到 `RANK_AUXILIARY_SORTS`，在 `RankDecisionPanel` 里显示为“辅助排序”。
+- `layout-smoke-check.mjs` 检查主指标 chip 数、辅助排序 chip 数和两个分组文案。
+- `test-ui-contracts.mjs` 锁住 `RANK_PRIMARY_METRICS` / `RANK_AUXILIARY_SORTS` 分层，防止后续又混回一个拨盘。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增 Rank Board 排序字段时，先判断它是 primary metric 还是 auxiliary sort；只有前者能进入主指标组。
+- 后端 `primary_metric`、表格第一分数列、Top contenders 和 score_delta 必须继续基于同一个主分数。
+
 ## 2026-05-26: Eval Bench 首页 v12 仍保留低价值导航面板
 
 ### 现象

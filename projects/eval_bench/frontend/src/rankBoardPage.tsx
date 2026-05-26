@@ -31,15 +31,18 @@ const RANK_SORT_LABELS: Record<string, string> = {
   run_id: "Run ID",
   weighted_score: "Weighted"
 };
-const RANK_DIRECT_METRICS = [
+const RANK_PRIMARY_METRICS = [
   "f1_iou50",
   "precision_iou50",
   "recall_iou50",
   "mean_iou",
-  "prediction_count",
+  "prediction_count"
+];
+const RANK_AUXILIARY_SORTS = [
   "created_at",
   "run_id"
 ];
+const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];
 const RANK_PAGE_SIZE = 80;
 
 export function RankBoardPage() {
@@ -373,17 +376,35 @@ function RankDecisionPanel({
         </div>
         <h3>{board.primary_metric_label}</h3>
         <p>{rankBoardOrderLabel(board)}</p>
-        <div className="rank-sort-dial" role="group" aria-label="排行榜主指标">
-          {RANK_DIRECT_METRICS.map((metric) => (
-            <OptionChipButton
-              key={metric}
-              active={sortBy === metric}
-              className="rank-sort-chip"
-              onClick={() => onSortByChange(metric)}
-            >
-              {rankSortLabel(metric)}
-            </OptionChipButton>
-          ))}
+        <div className="rank-sort-section">
+          <span>主指标</span>
+          <div className="rank-sort-dial" role="group" aria-label="排行榜主指标">
+            {RANK_PRIMARY_METRICS.map((metric) => (
+              <OptionChipButton
+                key={metric}
+                active={sortBy === metric}
+                className="rank-sort-chip primary"
+                onClick={() => onSortByChange(metric)}
+              >
+                {rankSortLabel(metric)}
+              </OptionChipButton>
+            ))}
+          </div>
+        </div>
+        <div className="rank-sort-section auxiliary">
+          <span>辅助排序</span>
+          <div className="rank-sort-dial" role="group" aria-label="排行榜辅助排序字段">
+            {RANK_AUXILIARY_SORTS.map((metric) => (
+              <OptionChipButton
+                key={metric}
+                active={sortBy === metric}
+                className="rank-sort-chip auxiliary"
+                onClick={() => onSortByChange(metric)}
+              >
+                {rankSortLabel(metric)}
+              </OptionChipButton>
+            ))}
+          </div>
         </div>
         <div className="rank-order-row">
           <OptionChipButton

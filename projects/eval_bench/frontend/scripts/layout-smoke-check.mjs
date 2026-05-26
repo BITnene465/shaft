@@ -1163,6 +1163,11 @@ async function assertRankDecisionPanel(page, scope) {
   const state = await page.evaluate(() => {
     const panel = document.querySelector(".rank-decision-panel");
     const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip"));
+    const primarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.primary"));
+    const auxiliarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.auxiliary"));
+    const sortSections = Array.from(document.querySelectorAll(".rank-sort-section")).map(
+      (node) => node.textContent ?? ""
+    );
     const orderChips = Array.from(document.querySelectorAll(".rank-order-chip"));
     const activeSortChips = sortChips.filter((chip) => chip.classList.contains("active"));
     const topRows = document.querySelectorAll(".rank-top-row");
@@ -1173,6 +1178,9 @@ async function assertRankDecisionPanel(page, scope) {
     return {
       hasPanel: Boolean(panel),
       sortChipCount: sortChips.length,
+      primarySortChipCount: primarySortChips.length,
+      auxiliarySortChipCount: auxiliarySortChips.length,
+      sortSections,
       orderChipCount: orderChips.length,
       activeSortChipCount: activeSortChips.length,
       topRowCount: topRows.length,
@@ -1182,7 +1190,11 @@ async function assertRankDecisionPanel(page, scope) {
   });
   if (
     !state.hasPanel ||
-    state.sortChipCount < 5 ||
+    state.sortChipCount !== 7 ||
+    state.primarySortChipCount !== 5 ||
+    state.auxiliarySortChipCount !== 2 ||
+    !state.sortSections.some((text) => text.includes("主指标")) ||
+    !state.sortSections.some((text) => text.includes("辅助排序")) ||
     state.orderChipCount !== 2 ||
     state.activeSortChipCount !== 1 ||
     state.spreadBarCount !== 5 ||

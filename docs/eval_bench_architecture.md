@@ -269,6 +269,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   store/API/CLI 必须同步更新 `primary_metric`、`primary_metric_label` 和 entry `score`。不能把加权结果
   重新命名成默认分数；显式 weighted
   scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
+  前端 Rank Board 的首层 controls 必须把 F1、precision、recall、mIoU 和预测数归为“主指标”，把
+  `created_at` / `run_id` 归为“辅助排序”；不能把时间或字符串排序混入主指标拨盘。
   Rank Board entry 必须同时输出 `score_delta`，以当前完整排序的第一名为基准计算主分数差值；分页后的
   entry 不能改用当前页第一名作为基准，避免人类和 agent 误判 leader gap。
   前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
