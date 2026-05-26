@@ -412,7 +412,8 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 （如 `part1/json/a.json`），其次匹配 image path 对应 JSON，最后匹配 basename。
 默认允许缺失预测，并在 report 中记录 missing prediction；如果希望缺失时直接失败，
 加 `--strict`。如果同一个 `run-id` 已存在，加 `--overwrite` 才会替换。layout 检测导入应使用
-`grounding_layout.latest` 或显式传 `--target-label icon --target-label image --target-label shape`；
+`grounding_layout.latest`、带 `metadata.target_labels` 的自定义 prompt template，或显式传
+`--target-label icon --target-label image --target-label shape`；
 否则 evaluator 无法知道本轮 detection 是否应排除 arrow。
 
 `init-run`、`import-predictions` 和 `resolve-target-labels` 的 `--target-label` 都只表示 detection

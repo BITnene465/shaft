@@ -866,6 +866,9 @@ def create_app(
                 detail=f"missing required import fields: {', '.join(missing_fields)}",
             )
         try:
+            prompt_id = str(payload.get("prompt_id") or "imported")
+            prompt_record = request.app.state.eval_bench_database.get_prompt_template(prompt_id)
+            prompt_metadata = dict(prompt_record.metadata) if prompt_record is not None else {}
             result = import_predictions_for_benchmark(
                 store_root=request.app.state.eval_bench_store.layout.root,
                 run_id=str(payload["run_id"]).strip(),
@@ -874,9 +877,10 @@ def create_app(
                 task=str(payload["task"]),  # type: ignore[arg-type]
                 model_id=str(payload["model_id"]).strip(),
                 model_path=str(payload.get("model_path") or "imported"),
-                prompt_id=str(payload.get("prompt_id") or "imported"),
+                prompt_id=prompt_id,
                 spec_id=str(payload.get("spec_id") or "").strip() or None,
                 target_labels=payload.get("target_labels"),
+                prompt_metadata=prompt_metadata,
                 strict=bool(payload.get("strict", False)),
                 overwrite=bool(payload.get("overwrite", False)),
                 evaluate=bool(payload.get("evaluate", True)),

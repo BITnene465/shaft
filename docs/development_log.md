@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench import-predictions 漏读 prompt metadata label scope
+
+### 现象
+
+`init-run`、job preflight、`resolve-target-labels` 和 Dashboard target-label API 都会把 prompt template
+metadata 作为 label 子任务真源之一，但 `import-predictions` 只读取显式 `--target-label`、legacy prompt id
+和 task default。自定义 prompt template 通过 metadata 声明 `target_labels` 时，导入外部预测快照如果不重复传
+target label，评估会退化到错误的 label scope。
+
+### 根因
+
+`import_predictions_for_benchmark()` 调用 `resolve_target_label_policy()` 时没有传入 `prompt_metadata`；
+CLI 和 Dashboard API 入口也没有先从 `EvalBenchDatabase` 读取 prompt template 记录。这是
+eval / metric 评估标准入口不一致导致的误判风险，不是模型能力问题。
+
+### 影响范围
+
+- 影响外部预测快照导入后的 detection label 子任务评估、report 中的 `target_labels_source`，以及后续对比和排行。
+- 不影响常规 `init-run`、job worker 生成的 run manifest，也不影响 keypoint 固定 arrow 的约束。
+
+### 修复方式
+
+- `import_predictions_for_benchmark()` 增加 `prompt_metadata` 参数，并把该 metadata 传入统一的
+  `resolve_target_label_policy()`。
+- CLI `import-predictions` 根据 `--prompt-id` 从 prompt template registry 读取 metadata。
+- Dashboard `POST /api/runs/import-predictions` 复用 app state database 读取同一份 prompt metadata。
+- run manifest 保留导入来源 metadata，同时保留 prompt template 上的 `target_labels` 等字段，便于后续审计。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_prediction_import.py::test_import_predictions_applies_prompt_metadata_target_labels projects/eval_bench/tests/test_cli.py::test_cli_import_predictions_uses_prompt_template_target_labels projects/eval_bench/tests/test_dashboard.py::test_dashboard_import_predictions_uses_prompt_template_target_labels`
+
+### 后续防线
+
+- 所有创建 run 或导入 run 的入口必须遵守同一个 label policy 优先级：显式 target labels、prompt metadata、
+  legacy prompt id、task default、unscoped。新增入口必须同时覆盖函数、CLI/API 和 report source 断言。
+
 ## 2026-05-26: Eval Bench viewer 标签偏好翻页后回到默认
 
 ### 现象

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from eval_bench import services as services_module
 from eval_bench.dashboard import create_app
+from eval_bench.database import EvalBenchDatabase
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -1239,6 +1240,87 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
         },
     )
     assert conflict.status_code == 409
+
+
+def test_dashboard_import_predictions_uses_prompt_template_target_labels(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "benchmarks" / "multitask_val_v1" / "data"
+    split_manifest = tmp_path / "benchmarks" / "multitask_val_v1" / "splits" / "val.txt"
+    prediction_root = tmp_path / "external_predictions"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    _write_json(
+        tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",
+        {
+            "benchmark_id": "multitask_val_v1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "labels": ["custom_arrow", "icon"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(data_root),
+            "manifest_path": str(split_manifest),
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "image_width": 100,
+            "image_height": 50,
+            "instances": [
+                {"label": "icon", "bbox": [10, 10, 40, 40]},
+                {"label": "custom_arrow", "bbox": [50, 10, 80, 40]},
+            ],
+        },
+    )
+    _write_json(
+        prediction_root / "part1" / "json" / "a.json",
+        {
+            "image": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox": [11, 11, 41, 41], "score": 0.9},
+                {"label": "custom_arrow", "bbox": [51, 11, 81, 41], "score": 0.8},
+            ],
+        },
+    )
+    EvalBenchDatabase(tmp_path).upsert_prompt_template(
+        {
+            "prompt_id": "custom.arrow.import",
+            "label": "Custom arrow import",
+            "task": "detection",
+            "system_prompt": "Inspect diagrams.",
+            "user_prompt": "Find custom arrows.",
+            "metadata": {"target_labels": ["custom_arrow"]},
+        }
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    response = client.post(
+        "/api/runs/import-predictions",
+        json={
+            "run_id": "imported_custom_arrow",
+            "benchmark_id": "multitask_val_v1",
+            "prediction_root": str(prediction_root),
+            "task": "detection",
+            "model_id": "model-a",
+            "prompt_id": "custom.arrow.import",
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["run_id"] == "imported_custom_arrow"
+    report = json.loads(Path(payload["report_path"]).read_text(encoding="utf-8"))
+    assert report["target_labels"] == ["custom_arrow"]
+    assert report["target_labels_source"] == "prompt_metadata"
+    state_run = client.get("/api/state").json()["runs"][0]
+    assert state_run["target_labels"] == ["custom_arrow"]
+    detail = client.get("/api/runs/imported_custom_arrow/samples/0").json()
+    assert detail["sample"]["labels"] == ["custom_arrow"]
+    assert [item["label"] for item in detail["pred_instances"]] == ["custom_arrow"]
 
 
 def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> None:

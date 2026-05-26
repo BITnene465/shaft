@@ -128,6 +128,55 @@ def test_import_predictions_applies_prompt_target_labels(tmp_path: Path) -> None
     assert "arrow" not in report["samples"][0]["labels"]
 
 
+def test_import_predictions_applies_prompt_metadata_target_labels(tmp_path: Path) -> None:
+    _write_benchmark(tmp_path)
+    data_root = tmp_path / "benchmarks" / "bench1" / "data"
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox": [0, 0, 100, 100]},
+                {"label": "arrow", "bbox": [200, 200, 260, 260]},
+            ],
+        },
+    )
+    prediction_root = tmp_path / "external_predictions"
+    _write_json(
+        prediction_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [
+                {"label": "icon", "bbox_2d": [0, 0, 100, 100]},
+                {"label": "arrow", "bbox_2d": [200, 200, 260, 260]},
+            ],
+        },
+    )
+
+    result = import_predictions_for_benchmark(
+        store_root=tmp_path,
+        run_id="custom_import",
+        benchmark_id="bench1",
+        prediction_root=prediction_root,
+        task="detection",
+        model_id="external-model",
+        prompt_id="custom.arrow.import",
+        prompt_metadata={"target_labels": ["arrow"], "owner": "bench-team"},
+    )
+
+    assert result.report_path is not None
+    report = json.loads(result.report_path.read_text(encoding="utf-8"))
+    run_payload = json.loads(
+        (tmp_path / "runs" / "custom_import" / "run.json").read_text(encoding="utf-8")
+    )
+    assert report["target_labels"] == ["arrow"]
+    assert report["target_labels_source"] == "prompt_metadata"
+    assert [item["label"] for item in report["labels"]] == ["arrow"]
+    assert "icon" not in report["samples"][0]["labels"]
+    assert run_payload["spec"]["prompt"]["metadata"]["target_labels"] == ["arrow"]
+    assert run_payload["spec"]["prompt"]["metadata"]["owner"] == "bench-team"
+
+
 def test_import_predictions_explicit_target_labels_override_prompt_policy(tmp_path: Path) -> None:
     _write_benchmark(tmp_path)
     data_root = tmp_path / "benchmarks" / "bench1" / "data"

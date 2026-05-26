@@ -63,6 +63,7 @@ def import_predictions_for_benchmark(
     prompt_id: str = "imported",
     spec_id: str | None = None,
     target_labels: list[str] | str | None = None,
+    prompt_metadata: dict[str, Any] | None = None,
     strict: bool = False,
     overwrite: bool = False,
     evaluate: bool = True,
@@ -83,10 +84,13 @@ def import_predictions_for_benchmark(
     benchmark_root = Path(str(benchmark_manifest.get("root") or benchmark_artifacts.data_dir))
     split_entries = _read_split(split_path)
     tasks = [str(item) for item in benchmark_manifest.get("tasks") or [task]]
+    prompt_metadata_payload = dict(prompt_metadata or {})
+    prompt_metadata_payload.setdefault("source", "imported_prediction_snapshot")
     target_policy = resolve_target_label_policy(
         explicit=target_labels,
         prompt_id=prompt_id,
         task=task,
+        prompt_metadata=prompt_metadata_payload,
     )
     validate_target_labels_for_task(task=task, labels=target_policy.labels)
     validate_target_labels_for_benchmark(
@@ -110,7 +114,7 @@ def import_predictions_for_benchmark(
             task=task,
             prompt=PromptRef(
                 prompt_id=prompt_id,
-                metadata={"source": "imported_prediction_snapshot"},
+                metadata=prompt_metadata_payload,
             ),
             inference=InferenceParams(backend="imported"),
             target_labels=target_policy.labels,

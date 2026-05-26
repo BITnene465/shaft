@@ -1343,7 +1343,7 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
 
     task = args.task
-    prompt_template = _prompt_template_for_init_run(args.output_root, args.prompt_id)
+    prompt_template = _prompt_template_for_cli(args.output_root, args.prompt_id)
     prompt_metadata = dict(prompt_template.metadata) if prompt_template is not None else {}
     prompt_generation = dict(prompt_template.generation) if prompt_template is not None else {}
     prompt_data = dict(prompt_template.data) if prompt_template is not None else {}
@@ -1459,10 +1459,17 @@ def _cmd_init_run(args: argparse.Namespace) -> None:
     )
 
 
-def _prompt_template_for_init_run(output_root: str, prompt_id: str):
+def _prompt_template_for_cli(output_root: str, prompt_id: str):
     from .database import EvalBenchDatabase
 
     return EvalBenchDatabase(output_root).get_prompt_template(str(prompt_id))
+
+
+def _prompt_metadata_for_cli(output_root: str, prompt_id: str) -> dict:
+    record = _prompt_template_for_cli(output_root, prompt_id)
+    if record is None:
+        return {}
+    return dict(record.metadata)
 
 
 def _prompt_string_default(value: object, default: str) -> str:
@@ -2209,6 +2216,7 @@ def _cmd_import_predictions(args: argparse.Namespace) -> None:
         prompt_id=str(args.prompt_id),
         spec_id=args.spec_id,
         target_labels=args.target_labels,
+        prompt_metadata=_prompt_metadata_for_cli(args.output_root, str(args.prompt_id)),
         strict=bool(args.strict),
         overwrite=bool(args.overwrite),
         evaluate=not bool(args.skip_evaluate),
