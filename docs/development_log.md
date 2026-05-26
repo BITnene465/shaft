@@ -71,6 +71,8 @@
 - `evaluate-run` stdout 改为 JSON object，包含 `run_id`、`report_path` 和 `summary_path`。
 - `compare-runs` stdout 改为 JSON object，包含 `comparison_id`、左右 run id 和 `report_path`。
 - 同步更新 `AGENT_COMMAND_OUTPUT_SCHEMAS`、CLI 单测和 agent 文档。
+- CLI 测试新增通用 schema payload 校验 helper，把 agent 元命令、init/evaluate/compare、rank-board、
+  import、run note、日志和生命周期命令的真实 stdout 按 `AGENT_COMMAND_OUTPUT_SCHEMAS` 抽样校验。
 
 ### 回归测试
 
@@ -78,11 +80,13 @@
 - `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name init-run`
 - `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name evaluate-run`
 - `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name compare-runs`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py -q`
 
 ### 后续防线
 
 - 新增 agent 稳定命令时，stdout 必须是 JSON object 或 schema 明确声明的 JSON value，不能要求 agent 解析裸文本。
-- `output_schema` 的字段必须和真实命令输出同步测试，尤其是会写 artifact 的生命周期命令。
+- `output_schema` 的字段必须和真实命令输出同步测试，尤其是会写 artifact 的生命周期命令；
+  常用命令应接入通用 schema payload helper，而不是只断言自然语言 help 或 schema dict 存在。
 
 ## 2026-05-26: Eval Bench Overview v15 仍把首页拆成低价值模块墙
 

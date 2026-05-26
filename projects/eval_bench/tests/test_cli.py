@@ -75,6 +75,82 @@ def _parser_command_names() -> set[str]:
     return set(subparsers_action.choices)
 
 
+def _assert_agent_output_payload(command_name: str, payload: object) -> None:
+    schema = AGENT_COMMAND_OUTPUT_SCHEMAS[command_name]
+    _assert_schema_node(schema, payload, command_name)
+
+
+def _assert_schema_node(schema: object, value: object, path: str) -> None:
+    if isinstance(schema, str):
+        _assert_schema_type(schema, value, path)
+        return
+    assert isinstance(schema, dict), f"{path}: schema must be a string or object"
+    schema_type = schema.get("type")
+    if isinstance(schema_type, str):
+        _assert_schema_type(schema_type, value, path)
+    if schema.get("required"):
+        assert isinstance(value, dict), f"{path}: required fields need object payload"
+        for key in schema["required"]:
+            assert key in value, f"{path}: missing required field {key}"
+    properties = schema.get("properties")
+    if isinstance(properties, dict) and isinstance(value, dict):
+        for key, child_schema in properties.items():
+            if key in value:
+                _assert_schema_node(child_schema, value[key], f"{path}.{key}")
+    item_shape = schema.get("item_shape")
+    if item_shape is None:
+        return
+    if schema_type == "array":
+        assert isinstance(value, list), f"{path}: expected array payload"
+        if value:
+            _assert_schema_node(
+                {"type": "object", "properties": item_shape},
+                value[0],
+                f"{path}[0]",
+            )
+    elif schema_type in {"object", "object|null"} and value is not None:
+        assert isinstance(value, dict), f"{path}: expected object payload"
+        _assert_schema_node({"type": "object", "properties": item_shape}, value, path)
+
+
+def _assert_schema_type(schema_type: str, value: object, path: str) -> None:
+    if schema_type.endswith("|null") and value is None:
+        return
+    if schema_type.startswith("list["):
+        assert isinstance(value, list), f"{path}: expected {schema_type}"
+        return
+    if schema_type == "array":
+        assert isinstance(value, list), f"{path}: expected array"
+        return
+    if schema_type in {"object", "dict"}:
+        assert isinstance(value, dict), f"{path}: expected object"
+        return
+    if schema_type == "object|null":
+        assert value is None or isinstance(value, dict), f"{path}: expected object|null"
+        return
+    if schema_type == "str":
+        assert isinstance(value, str), f"{path}: expected str"
+        return
+    if schema_type == "str|null":
+        assert value is None or isinstance(value, str), f"{path}: expected str|null"
+        return
+    if schema_type == "int":
+        assert isinstance(value, int) and not isinstance(value, bool), f"{path}: expected int"
+        return
+    if schema_type == "float":
+        assert isinstance(value, (int, float)) and not isinstance(
+            value, bool
+        ), f"{path}: expected float"
+        return
+    if schema_type == "float|null":
+        assert value is None or (
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+        ), f"{path}: expected float|null"
+        return
+    if schema_type == "bool":
+        assert isinstance(value, bool), f"{path}: expected bool"
+
+
 def test_cli_parser_commands_have_handlers_for_agent_contract() -> None:
     command_names = _parser_command_names()
     handler_names = set(_command_handlers())
@@ -100,6 +176,7 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     args = _build_parser().parse_args(["list-agent-commands"])
     _cmd_list_agent_commands(args)
     payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("list-agent-commands", payload)
 
     command_names = [item["name"] for item in payload["commands"]]
     commands_by_name = {item["name"]: item for item in payload["commands"]}
@@ -489,6 +566,7 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     args = _build_parser().parse_args(["show-agent-command", "--name", "rank-board"])
     _cmd_show_agent_command(args)
     payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("show-agent-command", payload)
 
     assert payload["recommended_runner"] == [".venv/bin/python", "scripts/eval_bench.py"]
     command = payload["command"]
@@ -796,6 +874,7 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path, capsys) -> Non
 
     _cmd_init_run(args)
     output = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("init-run", output)
 
     payload = json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))
     assert output == {
@@ -853,6 +932,7 @@ def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys)
     )
     _cmd_evaluate_run(eval_args)
     eval_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("evaluate-run", eval_payload)
     assert eval_payload == {
         "run_id": "run_arrow",
         "report_path": str(tmp_path / "runs" / "run_arrow" / "reports" / "metrics.json"),
@@ -882,6 +962,7 @@ def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys)
     )
     _cmd_compare_runs(compare_args)
     compare_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("compare-runs", compare_payload)
     assert compare_payload == {
         "comparison_id": "run_base__vs__run_a",
         "baseline_run_id": "run_base",
@@ -935,6 +1016,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_set_run_note(set_args)
     set_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("set-run-note", set_payload)
 
     assert set_payload["note"] == "repro: ckpt epoch_3\nidea: prompt v2"
     assert set_payload["max_length"] == 20_000
@@ -944,6 +1026,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_get_run_note(get_args)
     get_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("get-run-note", get_payload)
     assert get_payload["note"] == set_payload["note"]
     assert get_payload["path"].endswith("runs/run1/note.json")
     assert get_payload["max_length"] == 20_000
@@ -963,6 +1046,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_append_run_note(append_args)
     append_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("append-run-note", append_payload)
 
     assert append_payload["note"].startswith("repro: ckpt epoch_3\nidea: prompt v2\n\n")
     assert "## follow-up\nnext: inspect false positives" in append_payload["note"]
@@ -1000,6 +1084,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
     )
     _cmd_set_run_note(guarded_set_args)
     guarded_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("set-run-note", guarded_payload)
     assert guarded_payload["note"] == "curated guarded note"
 
     get_args = _build_parser().parse_args(
@@ -1029,13 +1114,16 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     state_args = _build_parser().parse_args(["dashboard-state", "--output-root", str(tmp_path)])
     _cmd_dashboard_state(state_args)
-    assert json.loads(capsys.readouterr().out)["run_count"] == 1
+    state_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("dashboard-state", state_payload)
+    assert state_payload["run_count"] == 1
 
     archive_args = _build_parser().parse_args(
         ["archive-run", "--output-root", str(tmp_path), "--run-id", "run1"]
     )
     _cmd_archive_run(archive_args)
     archived = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("archive-run", archived)
     assert archived["status"] == "archived"
     assert json.loads((tmp_path / "runs" / "run1" / "run.json").read_text(encoding="utf-8"))[
         "status"
@@ -1048,7 +1136,9 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
         ["backend-logs", "--output-root", str(tmp_path), "--max-lines", "1"]
     )
     _cmd_backend_logs(backend_log_args)
-    assert json.loads(capsys.readouterr().out)["lines"] == ["beta\n"]
+    backend_logs_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("backend-logs", backend_logs_payload)
+    assert backend_logs_payload["lines"] == ["beta\n"]
 
     runtime_log = tmp_path / "runs" / "run1" / "logs" / "runtime.log"
     runtime_log.parent.mkdir(parents=True)
@@ -1065,19 +1155,25 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
         ["job-logs", "--output-root", str(tmp_path), "--job-id", "job1", "--max-lines", "2"]
     )
     _cmd_job_logs(job_log_args)
-    assert json.loads(capsys.readouterr().out)["lines"] == ["step2\n", "step3\n"]
+    job_logs_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("job-logs", job_logs_payload)
+    assert job_logs_payload["lines"] == ["step2\n", "step3\n"]
 
     cancel_args = _build_parser().parse_args(
         ["cancel-job", "--output-root", str(tmp_path), "--job-id", "job1"]
     )
     _cmd_cancel_job(cancel_args)
-    assert json.loads(capsys.readouterr().out)["status"] == "cancelled"
+    cancelled_job = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("cancel-job", cancelled_job)
+    assert cancelled_job["status"] == "cancelled"
 
     delete_job_args = _build_parser().parse_args(
         ["delete-job", "--output-root", str(tmp_path), "--job-id", "job1"]
     )
     _cmd_delete_job(delete_job_args)
-    assert json.loads(capsys.readouterr().out)["deleted"] is True
+    deleted_job = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("delete-job", deleted_job)
+    assert deleted_job["deleted"] is True
     assert database.get_job("job1") is None
 
     scheduler_args = _build_parser().parse_args(
@@ -1085,6 +1181,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     )
     _cmd_scheduler_status(scheduler_args)
     scheduler_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("scheduler-status", scheduler_payload)
     assert scheduler_payload["source"] == "cli_snapshot"
     assert scheduler_payload["enabled"] is False
 
@@ -1102,19 +1199,24 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
         ]
     )
     _cmd_register_service(register_service_args)
-    assert json.loads(capsys.readouterr().out)["service_id"] == "svc1"
+    registered_service = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("register-service", registered_service)
+    assert registered_service["service_id"] == "svc1"
 
     delete_service_args = _build_parser().parse_args(
         ["delete-service", "--output-root", str(tmp_path), "--service-id", "svc1"]
     )
     _cmd_delete_service(delete_service_args)
-    assert json.loads(capsys.readouterr().out)["service"]["service_id"] == "svc1"
+    deleted_service = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("delete-service", deleted_service)
+    assert deleted_service["service"]["service_id"] == "svc1"
 
     delete_run_args = _build_parser().parse_args(
         ["delete-run", "--output-root", str(tmp_path), "--run-id", "run1"]
     )
     _cmd_delete_run(delete_run_args)
     deleted_run = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("delete-run", deleted_run)
     assert deleted_run["deleted"] is True
     assert not (tmp_path / "runs" / "run1").exists()
     assert Path(deleted_run["trash_path"]).exists()
@@ -1181,6 +1283,7 @@ def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, caps
 
     _cmd_import_predictions(args)
     payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("import-predictions", payload)
     report = json.loads(Path(payload["report_path"]).read_text(encoding="utf-8"))
 
     assert payload["run_id"] == "imported_arrow"
@@ -1269,6 +1372,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     )
     _cmd_rank_board(args)
     payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("rank-board", payload)
 
     assert payload["total"] == 1
     assert payload["primary_metric"] == "weighted_score"
@@ -1296,6 +1400,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     )
     _cmd_rank_board(metric_args)
     metric_payload = json.loads(capsys.readouterr().out)
+    _assert_agent_output_payload("rank-board", metric_payload)
     assert metric_payload["primary_metric"] == "recall_iou50"
     assert metric_payload["primary_metric_label"] == "R@.50"
     assert metric_payload["score_formula"] == "R@.50"

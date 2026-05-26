@@ -221,6 +221,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   detection/keypoint label 子任务字段，并在 `argument_semantics.target_labels` 中说明 repeatable detection label 子任务、
   空值 label policy、keypoint 固定 arrow 和推荐 discovery 命令；run/sample inspection 命令必须描述 summary、payload、diagnostics
   和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
+  常用命令的真实 stdout 还要通过 CLI 测试按 `AGENT_COMMAND_OUTPUT_SCHEMAS` 校验，不能只验证 schema 字段存在。
   template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
   runtime command、warning/error 和 job record 字段，
   dashboard/scheduler state、logs、benchmark/run 创建删除、prediction import、evaluate/compare artifact 输出、

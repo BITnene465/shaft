@@ -523,7 +523,8 @@ agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 只是副作用标记，`destructive` 是风险提示，二者都不是权限控制。新增 agent 命令必须同时进入
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
 `AGENT_DESTRUCTIVE_COMMANDS`；`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合和
-`AGENT_COMMAND_OUTPUT_SCHEMAS` 一致，避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用或仍要从自然语言 help 猜参数和返回字段。
+`AGENT_COMMAND_OUTPUT_SCHEMAS` 一致，并抽样把真实 stdout payload 按对应 `output_schema` 校验，
+避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用，或者 schema 与实际 JSON 再次漂移。
 `init-run`、`import-predictions` 和 `resolve-target-labels` 的 `argument_semantics.target_labels`
 会结构化声明 detection 支持 repeatable label 子任务、空值走统一 label policy，keypoint 固定
 `arrow` 且拒绝非 arrow label；agent 应先调用 `resolve-target-labels` 查看候选和最终范围，再执行会创建或导入 run 的命令。
