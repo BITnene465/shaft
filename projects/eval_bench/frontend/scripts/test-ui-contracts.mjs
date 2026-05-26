@@ -204,7 +204,7 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v10") &&
+  overviewPage.includes("overview-home-v11") &&
     overviewPage.includes("overview-command-center") &&
     overviewPage.includes("overview-priority-stage") &&
     overviewPage.includes("overview-command-rail") &&
@@ -228,10 +228,12 @@ assert(
     overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-operational-grid") &&
     overviewPage.includes("overview-action-list") &&
+    overviewPage.includes("updateOverviewPointer") &&
     !overviewPage.includes("overview-home-v6") &&
     !overviewPage.includes("overview-home-v7") &&
     !overviewPage.includes("overview-home-v8") &&
     !overviewPage.includes("overview-home-v9") &&
+    !overviewPage.includes("overview-home-v10") &&
     !overviewPage.includes("overview-command-center-redesign") &&
     !overviewPage.includes("OverviewHeroMap") &&
     !overviewPage.includes("overview-orbit-map") &&
@@ -259,7 +261,7 @@ assert(
   "overview must stay a curated high-value command deck instead of a low-value panel wall",
 );
 assert(
-  styleSource.includes("Overview v10: spacious two-column cockpit") &&
+  styleSource.includes("Overview v11: interactive flight deck") &&
     styleSource.includes("@keyframes overview-flow-sweep") &&
     styleSource.includes("@keyframes overview-live-breathe") &&
     styleSource.includes("@keyframes overview-card-float") &&
@@ -276,6 +278,7 @@ assert(
     "overview-home-v7",
     "overview-home-v8",
     "overview-home-v9",
+    "overview-home-v10",
     "overview-command-deck",
     "overview-command-center-redesign",
     "overview-focus-panel",
@@ -285,7 +288,7 @@ assert(
     "overview-chart-matrix",
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
-  "overview stylesheet must keep only the active v10 surface, not old design tracks",
+  "overview stylesheet must keep only the active v11 surface, not old design tracks",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(

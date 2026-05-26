@@ -213,13 +213,16 @@ export function OverviewPage() {
   const recentRuns = overviewRecentRuns(data.runs, 3);
 
   return (
-    <section className="page-stack dashboard-home overview-home-v10">
+    <section
+      className="page-stack dashboard-home overview-home-v11"
+      onPointerMove={updateOverviewPointer}
+    >
       <div className="overview-command-center">
         <section className={`overview-priority-stage ${nextAction.tone}`}>
           <div className="overview-priority-copy">
             <div className="overview-kicker-row">
               <span className="overview-live-dot" />
-              <span>Eval Bench Control</span>
+              <span>Eval Bench Flight Deck</span>
               <i className={overviewSyncing ? "overview-sync-pill syncing" : "overview-sync-pill"}>
                 {overviewSyncing ? "同步中" : "已同步"}
               </i>
@@ -247,17 +250,17 @@ export function OverviewPage() {
           <div className="overview-stage-map" aria-label="总览操作入口">
             <Link to="/jobs">
               <PlayCircle size={18} />
-              <span>创建或推进任务</span>
+              <span>推进任务队列</span>
               <ArrowRight size={15} />
             </Link>
             <Link to="/rank-board">
               <AppIcon name="rankBoard" size={18} />
-              <span>查看排名差距</span>
+              <span>检查排行差距</span>
               <ArrowRight size={15} />
             </Link>
             <Link to="/compare">
               <BarChart3 size={18} />
-              <span>进入成对分析</span>
+              <span>打开成对分析</span>
               <ArrowRight size={15} />
             </Link>
           </div>
@@ -299,6 +302,17 @@ export function OverviewPage() {
       </div>
     </section>
   );
+}
+
+function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  if (bounds.width <= 0 || bounds.height <= 0) {
+    return;
+  }
+  const x = ((event.clientX - bounds.left) / bounds.width) * 100;
+  const y = ((event.clientY - bounds.top) / bounds.height) * 100;
+  event.currentTarget.style.setProperty("--overview-pointer-x", `${x.toFixed(2)}%`);
+  event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
 }
 
 function OverviewHealthStrip({

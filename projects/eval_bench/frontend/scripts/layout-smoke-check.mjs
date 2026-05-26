@@ -15,7 +15,7 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v10",
+      ".overview-home-v11",
       ".overview-command-center",
       ".overview-priority-stage",
       ".overview-command-rail",
@@ -578,7 +578,7 @@ async function assertOverviewDensity(page, scope) {
     state.operationalGridDisplay !== "flex"
   ) {
     throw new Error(
-      `${scope}: overview should use a two-column cockpit with compact signals ${JSON.stringify({
+      `${scope}: overview should use a two-column flight deck with compact signals ${JSON.stringify({
         commandCenterDisplay: state.commandCenterDisplay,
         priorityStageDisplay: state.priorityStageDisplay,
         commandRailDisplay: state.commandRailDisplay,
@@ -611,7 +611,7 @@ async function assertOverviewDensity(page, scope) {
   }
   if (state.stageMapDisplay !== "flex" || state.healthStripDisplay !== "flex") {
     throw new Error(
-      `${scope}: overview v10 interactive stage map or health strip is missing ${JSON.stringify({
+      `${scope}: overview v11 interactive stage map or health strip is missing ${JSON.stringify({
         stageMapDisplay: state.stageMapDisplay,
         healthStripDisplay: state.healthStripDisplay
       })}`

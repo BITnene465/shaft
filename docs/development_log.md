@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 总览 v10 仍像静态面板而非交互工作台
+
+### 现象
+
+总览页 v10 已经收敛到两列 cockpit，但用户继续反馈首页“没有任何价值”，系统整体也缺少足够的鼠标悬浮和动态反馈。
+页面可用信息虽然被压缩，但视觉上仍更像静态状态面板，进入首页后不能快速形成“当前判断 -> 下一步 -> 卡点”的操作节奏。
+
+### 根因
+
+上一版主要处理模块数量和布局密度，没有把 Overview 作为一个可交互 flight deck 来设计。
+主舞台、操作入口、状态卡、pipeline 和最近 run 的 hover / focus / transition 反馈不够一致；
+样式层也容易继续沿用旧版本命名，导致后续设计迭代倾向叠加覆盖而不是形成新的真源。
+
+### 影响范围
+
+- 影响 Dashboard 首页的第一屏判断效率、操作引导和交互质感。
+- 不改变 dashboard API、job lifecycle、eval、codec、metric、data 或 rank-board 语义；这是前端信息架构和交互层问题，不是模型能力问题，也不是评估标准误判。
+
+### 修复方式
+
+- 总览升级为 `overview-home-v11` flight deck，保留当前判断、下一步主动作、核心信号、闭环流线、readiness 入口和最近 run ticker。
+- 根节点通过 pointer position CSS 变量驱动主舞台光照，增强首页实时感但不改变任何后端状态语义。
+- 主动作、状态卡、操作入口、pipeline stage 和最近 run 统一 hover / focus / transition / pulse 反馈。
+- 移除 active 样式层里的 v10 轨道，UI contract 和 layout smoke 迁移到 v11。
+- README 同步总览页准入边界和交互要求。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 后续版本升级必须同步 React class、CSS selector、UI contract、layout smoke 和 README；不能用旧版本样式层加覆盖的方式长期维护。
+- 首页新增交互只服务状态感、可点击性和实时感，不得引入独立于 backend state 的前端私有业务语义。
+
 ## 2026-05-26: Eval Bench agent 稳定命令仍有空输出契约
 
 ### 现象

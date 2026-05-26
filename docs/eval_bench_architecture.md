@@ -232,7 +232,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不能重新展示 precision、recall、mIoU 等精细评测指标。
 - 新增总览视觉模块：优先用 priority stage、hero next action、四个可行动信号和 pipeline progress rail 服务“当前是否可用、
   卡在哪里、下一步去哪”的判断，不再把状态分布拆成低价值 mini chart wall、活动矩阵或 Run/Ops/Volume 面板组；总览主体保持
-  v10 cockpit surface：顶部两列只放 priority stage 和实时 command rail，底部两列只放 operations surface 与最近 run 紧凑 ticker。
+  v11 flight deck surface：顶部两列只放 priority stage 和实时 command rail，底部两列只放 operations surface 与最近 run 紧凑 ticker。
   顶部 priority stage 只能承载当前系统态、同步状态、关键规模、当前优先动作和三个高频操作入口，
   不能回流二级诊断，也不能使用只表达装饰关系的 orbit 图。右侧 command rail 固定展示覆盖、
   待评、队列和服务四个可点击入口，并以 2x2 信号板和运行态条形摘要表达实时状态；pipeline progress rail
@@ -240,6 +240,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   service、queue、evaluation 和 rank board 四个入口，每个入口展示状态、占比轨道和目标路由；最近 run
   必须按 `created_at` 倒序截取，且只展示 benchmark/model 与 prediction/report 数量，不能依赖 API 返回顺序。compact / narrow 视口允许页面滚动，但不能把
   focus、readiness 或 recent 核心面板压缩成不可读的折叠外壳。
+  v11 可以使用 pointer position CSS 变量、hover、focus、pulse 和流线动画增强实时感，但这些交互只能服务可点击性和状态扫描，
+  不得引入独立于 store/job/service/scheduler 真源的前端私有业务语义。
   Parser、配置快照、artifact 明细、备注新鲜度、任务类型、模型分布、label footprint、样本/label 权重、
   Job 日历、scheduler 资源和推理参数桶这类低频排障信息不进入总览，留在 Runs / Inspector / Rank Board / Services。
   compact / narrow 视口需要滚动时由 Overview 页面栈承担，command desk 不应把核心面板裁成独立折叠容器；
