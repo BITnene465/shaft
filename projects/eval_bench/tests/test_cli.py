@@ -486,7 +486,17 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         ]
         == "bool"
     )
-    assert CLI_JSON_OUTPUT_SCHEMAS["preflight-job"]["properties"]["runtime_command"] == "list[str]"
+    preflight_schema = CLI_JSON_OUTPUT_SCHEMAS["preflight-job"]
+    assert "runtime_command" in preflight_schema["required"]
+    assert preflight_schema["properties"]["runtime_command"] == "list[str]|null"
+    assert preflight_schema["properties"]["resolved_manifest"]["properties"]["runtime"][
+        "properties"
+    ]["mode"] == "str"
+    assert preflight_schema["properties"]["resolved_manifest"]["properties"]["eval"][
+        "properties"
+    ]["target_labels"] == "list[str]"
+    assert preflight_schema["properties"]["resolved_payload"]["properties"]["runtime_mode"] == "str"
+    assert preflight_schema["properties"]["resolved_payload"]["properties"]["target_labels"] == "list[str]"
     assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == "object"
     assert CLI_JSON_OUTPUT_SCHEMAS["cancel-job"]["properties"]["status"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["deleted"]["type"] == "bool"
@@ -2490,6 +2500,31 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     assert job_detail["job"]["job_id"] == job["job_id"]
     assert job_detail["job"]["payload"]["target_labels"] == ["arrow"]
     assert job_detail["job"]["payload"]["manifest"]["kind"] == "eval_job"
+
+
+def test_cli_preflight_failure_uses_stable_agent_shape(tmp_path: Path, capsys) -> None:
+    payload_path = tmp_path / "bad-job.json"
+    _write_json(payload_path, {"manifest": {"kind": "unsupported_job"}})
+
+    args = _build_parser().parse_args(
+        [
+            "preflight-job",
+            "--output-root",
+            str(tmp_path),
+            "--payload-file",
+            str(payload_path),
+        ]
+    )
+    _cmd_preflight_job(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    _assert_cli_json_payload("preflight-job", payload)
+    assert payload["ok"] is False
+    assert payload["kind"] == ""
+    assert payload["resolved_manifest"] is None
+    assert payload["resolved_payload"] is None
+    assert payload["runtime_command"] is None
+    assert payload["errors"] == ["unsupported job kind: unsupported_job"]
 
 
 def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> None:

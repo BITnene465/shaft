@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench preflight-job 失败路径必须保持稳定 shape
+
+### 现象
+
+`preflight-job` 是 agent 入队前验证 manifest、runtime、benchmark/task/label scope 和 vLLM 命令的关键入口。
+成功路径会返回 `kind`、`resolved_manifest`、`resolved_payload` 和 `runtime_command`，但 unsupported job kind
+这类早期失败只返回 `ok/errors/warnings/resolved`，和 CLI JSON schema 的 required 字段不一致。
+同时 schema 只把 resolved manifest/payload 标成粗 object，agent 仍需要从样例推断核心字段。
+
+### 根因
+
+preflight 早期异常分支在 `resolve_job_payload()` 外直接返回，绕开了正常 payload 构造；schema 也只覆盖
+“有一个对象”，没有声明 manifest/runtime/eval 和 resolved payload 的稳定字段。这是 agent contract
+缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 job preflight 失败路径的统一解析，以及对 resolved runtime/eval/label scope 的字段发现。
+- 不改变 job 执行、worker、Dashboard preflight UI、label policy、Rank Board 或 evaluator 语义。
+
+### 修复方式
+
+- 早期 `ValueError` 分支返回同一套 top-level 字段：`kind=""`、`resolved_manifest=null`、
+  `resolved_payload=null`、`runtime_command=null`。
+- CLI schema 将 `runtime_command` 改成 `list[str]|null` 并列入 required。
+- CLI schema 细化 `resolved_manifest.runtime`、`resolved_manifest.eval` 和 `resolved_payload` 的核心字段。
+- 增加 unsupported job kind 的 preflight 失败路径回归测试，并复用 `_assert_cli_json_payload()` 校验 schema。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_preflights_and_creates_manifest_first_job projects/eval_bench/tests/test_cli.py::test_cli_preflight_failure_uses_stable_agent_shape projects/eval_bench/tests/test_cli.py::test_cli_preflight_rejects_unknown_target_label projects/eval_bench/tests/test_cli.py::test_cli_preflight_rejects_keypoint_label_subtasks`
+
+### 后续防线
+
+- 新增 agent-facing command 时，错误路径和成功路径必须共享 top-level shape；不能让 agent 为异常分支维护
+  另一套解析逻辑。
+
 ## 2026-05-26: Eval Bench 稳定分页 CLI filters 不能只声明 object
 
 ### 现象

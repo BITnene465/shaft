@@ -151,7 +151,15 @@ def preflight_job_payload(
     try:
         resolved = resolve_job_payload(payload, prompt_templates=prompt_templates)
     except ValueError as exc:
-        return {"ok": False, "errors": [str(exc)], "warnings": [], "resolved": None}
+        return {
+            "ok": False,
+            "errors": [str(exc)],
+            "warnings": [],
+            "kind": "",
+            "resolved_manifest": None,
+            "resolved_payload": None,
+            "runtime_command": None,
+        }
 
     if resolved.kind == "eval_job":
         _check_eval_payload(
