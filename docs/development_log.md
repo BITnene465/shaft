@@ -597,6 +597,40 @@ search input，也缺少弹窗表单用的 text input、number input、textarea 
 - 新增高级检索输入、设置页搜索或弹窗表单字段时，先扩展 `controlPrimitives.tsx`，再在业务页组合；不要让页面直接复制输入壳。
 - 如果某个字段需要特殊视觉，只在共享 primitive 上提供可组合 class，而不是绕过表单组件边界。
 
+## 2026-05-26: Eval Bench agent CLI 管道截断会输出 BrokenPipe traceback
+
+### 现象
+
+`list-agent-commands` 会输出较大的 JSON contract，agent 或脚本常会接 `head`、`jq`、日志采集器或分页器做抽样。
+当下游提前关闭 stdout 时，CLI 会把 `BrokenPipeError` traceback 打到 stderr。机器可读 JSON 虽然已经被截断，
+但 stderr 中的 Python traceback 会污染自动化日志，也会让 agent 误判命令失败原因。
+
+### 根因
+
+CLI `main()` 直接调用命令 handler，没有统一处理 stdout 管道提前关闭。问题发生在输出链路，不是命令
+contract、rank board、run note、eval / codec / metric / data 的语义问题。
+
+### 影响范围
+
+- 影响所有可能输出大型 JSON 或日志的 agent CLI 命令。
+- 不改变任何命令的 JSON schema、业务副作用、API 或 store 语义。
+
+### 修复方式
+
+- `eval_bench.cli.main()` 捕获 `BrokenPipeError`，将 stdout 重定向到 `/dev/null` 后安静退出，避免解释器收尾时继续写坏管道。
+- `test_cli.py` 增加真实 subprocess 管道回归：`list-agent-commands | head -c 64` 不能输出 `BrokenPipeError` 或 traceback。
+- README 和 `docs/scripts.md` 记录 agent CLI 可以安全接下游截断器。
+
+### 回归测试
+
+- `.venv/bin/python -m pytest -q projects/eval_bench/tests/test_cli.py::test_cli_suppresses_broken_pipe_traceback_for_agent_json projects/eval_bench/tests/test_cli.py::test_cli_lists_agent_stable_commands`
+- `.venv/bin/python scripts/eval_bench.py list-agent-commands | head -c 64 >/dev/null`
+
+### 后续防线
+
+- 新增大型 JSON/log 输出命令时，不要局部吞异常；统一依赖 CLI `main()` 的管道处理。
+- agent-facing stdout 必须保持机器可读，stderr 不能混入可预期管道截断的 Python traceback。
+
 ## 2026-05-26: Eval Bench rank-board agent 契约没有说明 sort_by 语义分层
 
 ### 现象

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 import pytest
 
@@ -561,6 +563,23 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     }
     assert "Detection label subtask scope" in resolve_args["target_labels"]["help"]
     assert "Keypoint runs are fixed to arrow" in resolve_args["target_labels"]["help"]
+
+
+def test_cli_suppresses_broken_pipe_traceback_for_agent_json() -> None:
+    result = subprocess.run(
+        (
+            f"{sys.executable} scripts/eval_bench.py list-agent-commands "
+            "| head -c 64 >/dev/null"
+        ),
+        cwd=Path(__file__).resolve().parents[3],
+        shell=True,
+        executable="/bin/bash",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "BrokenPipeError" not in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_cli_shows_single_agent_command_contract(capsys) -> None:

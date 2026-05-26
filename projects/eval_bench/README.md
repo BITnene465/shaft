@@ -500,6 +500,8 @@ Python API。Job template 和 prompt template 也有 CLI 入口，agent 创建 j
 evaluator 和模型运行时依赖只在具体命令执行时懒加载，避免 agent 的检索入口被重型运行时拖慢：
 `list-agent-commands` 会输出当前稳定 agent 命令面，`show-agent-command --name <command>` 用于读取单条命令契约；
 真实分发集中在 `eval_bench.cli._command_handlers()`。
+CLI 在 stdout 管道被下游截断时会安静退出，不打印 Python traceback；agent 可以把大型 JSON 输出安全接到
+`head`、`jq`、日志采集器或分页器，而不会把 `BrokenPipeError` 混进机器可读输出。
 每条命令还会带 `domain`、`mutates_state`、`destructive`、`arguments` 和
 `argument_semantics`、`mutually_exclusive_groups`，便于 agent 区分只读查询、普通写入和删除/取消/停止这类危险生命周期操作，
 并直接读取参数名、flag、类型、默认值、choices、

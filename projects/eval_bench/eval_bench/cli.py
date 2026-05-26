@@ -4,7 +4,9 @@ import argparse
 from collections.abc import Callable
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
+import sys
 
 from .artifacts import DEFAULT_STORE_ROOT
 
@@ -2628,7 +2630,23 @@ def main() -> None:
     handler = _command_handlers().get(args.command)
     if handler is None:  # pragma: no cover
         raise AssertionError(f"unhandled command: {args.command}")
-    handler(args)
+    try:
+        handler(args)
+    except BrokenPipeError:
+        _quiet_broken_stdout_pipe()
+
+
+def _quiet_broken_stdout_pipe() -> None:
+    try:
+        stdout_fd = sys.stdout.fileno()
+    except (AttributeError, OSError):
+        raise SystemExit(0) from None
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull_fd, stdout_fd)
+    finally:
+        os.close(devnull_fd)
+    raise SystemExit(0) from None
 
 
 if __name__ == "__main__":
