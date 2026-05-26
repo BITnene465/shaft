@@ -15,20 +15,20 @@ const staticRoutes = [
     path: "/",
     selectors: [
       ".dashboard-home",
-      ".overview-home-v16",
-      ".overview-mission-board",
-      ".overview-score-cluster",
-      ".overview-workflow-row",
+      ".overview-home-v17",
+      ".overview-ops-board",
+      ".overview-rank-console",
+      ".overview-evidence-row",
       ".overview-decision-metrics",
       ".overview-decision-metric",
+      ".overview-decision-icon",
+      ".overview-state-strip",
       ".overview-run-focus",
       ".overview-loop-panel",
       ".overview-flow-spine",
       ".overview-flow-node",
       ".overview-score-dial",
       ".overview-next-action",
-      ".overview-signal-stack",
-      ".overview-signal-card",
       ".overview-recent-card"
     ]
   },
@@ -488,28 +488,26 @@ async function assertOverviewDensity(page, scope) {
         text: node.textContent ?? ""
       };
     });
-    const signalCards = Array.from(document.querySelectorAll(".overview-signal-card")).map((node) => {
+    const decisionTiles = Array.from(document.querySelectorAll(".overview-decision-metric")).map((node) => {
       const rect = node.getBoundingClientRect();
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
-    const commandShell = document.querySelector(".overview-mission-board");
-    const nowPanel = document.querySelector(".overview-mission-board");
-    const livePanel = document.querySelector(".overview-score-cluster");
+    const stateStripText = document.querySelector(".overview-state-strip")?.textContent ?? "";
+    const commandShell = document.querySelector(".overview-ops-board");
+    const nowPanel = document.querySelector(".overview-ops-board");
+    const livePanel = document.querySelector(".overview-rank-console");
     const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
-    const workflowRow = document.querySelector(".overview-workflow-row");
+    const workflowRow = document.querySelector(".overview-evidence-row");
     const nextAction = document.querySelector(".overview-next-action");
     const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
     const decisionMetricRails = Array.from(
       document.querySelectorAll(".overview-decision-metric > i > b")
     ).map((node) => Math.round(node.getBoundingClientRect().width));
-    const signalRails = Array.from(document.querySelectorAll(".overview-signal-card > i > b")).map((node) =>
-      Math.round(node.getBoundingClientRect().width)
-    );
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-mission-board, .overview-loop-panel, .overview-recent-card"
+        ".overview-ops-board, .overview-loop-panel, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
     const commandShellStyle = commandShell ? getComputedStyle(commandShell) : null;
@@ -530,17 +528,19 @@ async function assertOverviewDensity(page, scope) {
       nextActions: document.querySelectorAll(".overview-next-action").length,
       decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
       decisionMetricRails,
-      signalCards,
-      signalRails,
+      decisionTiles,
+      decisionIcons: document.querySelectorAll(".overview-decision-icon").length,
+      stateStripItems: document.querySelectorAll(".overview-state-strip span").length,
+      stateStripText,
       runArtifactRails: document.querySelectorAll(".overview-run-artifacts i b").length,
       runStates: document.querySelectorAll(".overview-run-state .badge").length,
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-recent-card").length,
-      nowPanels: document.querySelectorAll(".overview-mission-board").length,
-      livePanels: document.querySelectorAll(".overview-score-cluster").length,
+      nowPanels: document.querySelectorAll(".overview-ops-board").length,
+      livePanels: document.querySelectorAll(".overview-rank-console").length,
       loopPanels: document.querySelectorAll(".overview-loop-panel").length,
-      workflowRows: document.querySelectorAll(".overview-workflow-row").length,
+      workflowRows: document.querySelectorAll(".overview-evidence-row").length,
       miniCharts: document.querySelectorAll(".overview-mini-chart").length,
       chartMatrix: document.querySelectorAll(".overview-chart-matrix").length,
       legacyActivityMatrix: document.querySelectorAll(".overview-activity-matrix").length,
@@ -597,17 +597,17 @@ async function assertOverviewDensity(page, scope) {
     state.scoreDials !== 1 ||
     state.runFocusCards !== 1 ||
     state.nextActions !== 1 ||
-    state.decisionMetrics !== 3 ||
-    state.signalCards.length !== 4
+    state.decisionMetrics !== 4 ||
+    state.decisionIcons !== 4
   ) {
     throw new Error(
-      `${scope}: overview should expose score focus, flow nodes, one next action, and pulse cards ${JSON.stringify({
+      `${scope}: overview should expose score focus, flow nodes, one next action, and decision tiles ${JSON.stringify({
         flowNodes: state.flowNodes,
         scoreDials: state.scoreDials,
         runFocusCards: state.runFocusCards,
         nextActions: state.nextActions,
         decisionMetrics: state.decisionMetrics,
-        signalCards: state.signalCards.length
+        decisionIcons: state.decisionIcons
       })}`
     );
   }
@@ -652,11 +652,22 @@ async function assertOverviewDensity(page, scope) {
   if (!state.scoreDialTransition || state.scoreDialTransition === "0s") {
     throw new Error(`${scope}: overview score dial is missing interaction transition`);
   }
-  if (state.decisionMetricRails.length !== 3 || state.decisionMetricRails.some((width) => width < 0)) {
+  if (state.decisionMetricRails.length !== 4 || state.decisionMetricRails.some((width) => width < 0)) {
     throw new Error(`${scope}: overview decision metrics should expose progress rails`);
   }
   if (state.oldTimelinePanels > 0) {
     throw new Error(`${scope}: old oversized overview timeline markup is still present`);
+  }
+  if (
+    state.stateStripItems !== 4 ||
+    /可以看排行|可以进入排行|先处理阻塞|补齐评估闭环|队列正在推进/.test(state.bodyText)
+  ) {
+    throw new Error(
+      `${scope}: overview should use numeric state strip instead of slogan hero ${JSON.stringify({
+        items: state.stateStripItems,
+        text: state.stateStripText
+      })}`
+    );
   }
   if (/\b(precision|recall|iou|miou)\b/i.test(state.bodyText)) {
     throw new Error(`${scope}: overview exposes fine-grained eval metric text`);
@@ -688,24 +699,23 @@ async function assertOverviewDensity(page, scope) {
   if (state.panelHeights.some((height) => height <= 0)) {
     throw new Error(`${scope}: overview panels are not visible ${state.panelHeights.join(",")}`);
   }
-  if (
-    state.signalCards.length !== 4 ||
-    state.signalRails.length !== 4 ||
-    !state.signalRails.some((width) => width > 0)
-  ) {
+  if (state.decisionTiles.length !== 4) {
     throw new Error(
-      `${scope}: overview signal visualization is missing ${JSON.stringify({
-        cards: state.signalCards.length,
-        rails: state.signalRails
+      `${scope}: overview decision rail is missing ${JSON.stringify({
+        decisionTiles: state.decisionTiles.length,
+        rails: state.decisionMetricRails
       })}`
     );
   }
-  for (const [index, rect] of state.signalCards.entries()) {
+  if (!state.decisionMetricRails.some((width) => width > 0)) {
+    throw new Error(`${scope}: overview decision rail does not show live progress`);
+  }
+  for (const [index, rect] of state.decisionTiles.entries()) {
     if (rect.width <= 0 || rect.height <= 0) {
-      throw new Error(`${scope}: signal card ${index} is not visible ${JSON.stringify(rect)}`);
+      throw new Error(`${scope}: decision tile ${index} is not visible ${JSON.stringify(rect)}`);
     }
-    if (!scope.startsWith("narrow") && rect.width < 140) {
-      throw new Error(`${scope}: signal card ${index} is too compressed ${JSON.stringify(rect)}`);
+    if (!scope.startsWith("narrow") && rect.width < 160) {
+      throw new Error(`${scope}: decision tile ${index} is too compressed ${JSON.stringify(rect)}`);
     }
   }
 }

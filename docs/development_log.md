@@ -78,6 +78,7 @@ agent 读取 run summary 时也必须自己推导默认主指标。
 - `cd projects/eval_bench/frontend && npm run test:ui-contracts`
 - `cd projects/eval_bench/frontend && npm run build`
 - `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_v17.png npm run render-check`
 
 ### 后续防线
 
@@ -124,6 +125,51 @@ agent 读取 run summary 时也必须自己推导默认主指标。
 - 新增 agent 稳定命令时，stdout 必须是 JSON object 或 schema 明确声明的 JSON value，不能要求 agent 解析裸文本。
 - `output_schema` 的字段必须和真实命令输出同步测试，尤其是会写 artifact 的生命周期命令；
   常用命令应接入通用 schema payload helper，而不是只断言自然语言 help 或 schema dict 存在。
+
+## 2026-05-26: Eval Bench Overview v16 仍像状态展示而非决策首页
+
+### 现象
+
+用户继续反馈主页“没有任何价值”，并要求整个系统更有互动感。v16 已把旧 pulse panel 和低价值图表墙移除，
+但右侧仍把报告覆盖、待评估、任务队列和模型服务当成 signal stack 展示，首屏仍偏“看状态”，
+而不是直接形成“当前最佳、闭环覆盖、待处理、运行压力”的决策判断。
+
+### 根因
+
+v16 的信息结构仍保留状态信号区概念，虽然数量被压到四个，但没有把这些信号重新组织成可点击决策 rail。
+这会让首页继续像模块陈列，而不是工程师进入后马上可操作的 control desk。这是前端信息架构和交互层问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Overview 首屏价值密度、空间层级、hover 感知和后续样式维护契约。
+- 不影响 dashboard API、store、rank-board 默认 F1、weighted scheme、report、comparison 或 evaluator 语义。
+
+### 修复方式
+
+- Overview 升级为 `overview-home-v17` decision-first command desk：顶部只保留 `overview-ops-board`，
+  左侧是同步状态、下一步动作和最佳 run，右侧 `overview-rank-console` 只展示 F1 dial 与四个可点击决策 tile。
+- 四个决策 tile 从状态信号改为当前最佳、报告闭环、待处理和运行压力；删除 `OverviewSignalStack` 与
+  `overview-signal-card` 常驻展示，避免首页继续拆成低价值状态卡墙。
+- 删除“可以看排行”这类大字 hero slogan，主舞台改成 reports / pending / queue / services 数值状态条；
+  已有报告时状态行使用 `rank board / compare ready` 这类工程状态文案。
+- 下方保留评测闭环 runway 与最近 run 证据流，继续禁止 P/R/IoU 细指标、Notes、模型分布、Job 日历等低频诊断回流。
+- CSS 收口到 v17 pointer 十字扫描、同步呼吸、决策 tile hover icon、progress rail、闭环节点和 recent run hover；
+  动效只服务可点击性、实时同步感和状态扫描。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766/ SCREENSHOT_PATH=/home/tanjingyuan/code/arrow-vlm/temp/eval_bench_overview_v17_state_strip.png npm run render-check`
+
+### 后续防线
+
+- Overview 只能新增强化“下一步动作、F1 主指标、闭环卡点、最近产物”的内容。
+- 首页首屏最多保留四个核心决策 tile，不能重新拆出 signal stack、pulse/status 模块墙或纯路由入口。
+- 首页不能使用“可以看排行 / 先处理阻塞 / 补齐评估闭环”这类大字 slogan；首屏文案优先使用可验证数字和状态。
+- 首页交互动效必须绑定可点击入口、同步状态、进度 rail 或 hover/focus，不得引入独立 UI 私有业务语义。
 
 ## 2026-05-26: Eval Bench Overview v15 仍把首页拆成低价值模块墙
 

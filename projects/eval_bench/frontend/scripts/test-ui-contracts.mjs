@@ -248,14 +248,20 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes("overview-home-v16") &&
-    overviewPage.includes("overview-mission-board") &&
-    overviewPage.includes("overview-score-cluster") &&
-    overviewPage.includes("overview-workflow-row") &&
+  overviewPage.includes("overview-home-v17") &&
+    overviewPage.includes("overview-ops-board") &&
+    overviewPage.includes("overview-rank-console") &&
+    overviewPage.includes("overview-evidence-row") &&
     overviewPage.includes("overview-loop-panel") &&
     overviewPage.includes("OverviewDecisionMetrics") &&
     overviewPage.includes("overview-decision-metrics") &&
     overviewPage.includes("overview-decision-metric") &&
+    overviewPage.includes("overview-decision-icon") &&
+    overviewPage.includes("OverviewStateStrip") &&
+    overviewPage.includes("overview-state-strip") &&
+    !overviewPage.includes("overviewHeroTitle") &&
+    !overviewPage.includes("可以看排行") &&
+    !overviewPage.includes("可以进入排行") &&
     overviewPage.includes("OverviewScoreDial") &&
     overviewPage.includes("overview-score-dial") &&
     overviewPage.includes("OverviewRunFocus") &&
@@ -268,8 +274,6 @@ assert(
     overviewPage.includes("overview-flow-node") &&
     overviewPage.includes("overviewPostureLine") &&
     overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
-    overviewPage.includes("OverviewSignalStack") &&
-    overviewPage.includes("overview-signal-stack") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-run-counts") &&
     overviewPage.includes("overview-run-artifacts") &&
@@ -296,8 +300,12 @@ assert(
     !overviewPage.includes("overview-home-v12") &&
     !overviewPage.includes("overview-home-v14") &&
     !overviewPage.includes("overview-home-v15") &&
+    !overviewPage.includes("overview-home-v16") &&
     !overviewPage.includes("overview-pulse-panel") &&
     !overviewPage.includes("overview-operating-row") &&
+    !overviewPage.includes("OverviewSignalStack") &&
+    !overviewPage.includes("overview-signal-stack") &&
+    !overviewPage.includes("overview-signal-card") &&
     !overviewPage.includes("OverviewRouteList") &&
     !overviewPage.includes("overviewRouteActions") &&
     !overviewPage.includes("overview-route-panel") &&
@@ -342,12 +350,12 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v16: value-first command deck") &&
-    styleSource.includes(".overview-home-v16 .overview-mission-board") &&
-    styleSource.includes(".overview-home-v16 .overview-decision-metric:hover") &&
-    styleSource.includes("@keyframes overview-v16-scan") &&
-    styleSource.includes("@keyframes overview-v16-live") &&
-    styleSource.includes("@keyframes overview-v16-float") &&
+  styleSource.includes("Overview v17: decision-first command desk") &&
+    styleSource.includes(".overview-home-v17 .overview-ops-board") &&
+    styleSource.includes(".overview-home-v17 .overview-decision-metric:hover") &&
+    styleSource.includes(".overview-home-v17 .overview-decision-icon") &&
+    styleSource.includes("@keyframes overview-v17-scan") &&
+    styleSource.includes("@keyframes overview-v17-live") &&
     designSource.includes("@keyframes eval-bench-surface-in") &&
     designSource.includes("@keyframes eval-bench-live-pulse") &&
     designSource.includes(".workspace-card:not(.fill):hover") &&
@@ -369,6 +377,7 @@ assert(
     "overview-home-v13",
     "overview-home-v14",
     "overview-home-v15",
+    "overview-home-v16",
     "overview-command-shell",
     "overview-command-deck",
     "overview-pulse-panel",
@@ -386,6 +395,8 @@ assert(
     "overview-workband",
     "overview-hero-board",
     "overview-signal-board",
+    "overview-signal-stack",
+    "overview-signal-card",
     "overview-route-panel",
     "overview-activity-matrix",
     "overview-chart-matrix",

@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  Clock3,
   Database,
   FileCheck2,
   Gauge,
@@ -45,14 +44,6 @@ type OverviewFlowStage = {
   tone: OverviewTone;
   progress: number;
   icon: React.ReactNode;
-};
-type OverviewMetricCard = {
-  label: string;
-  value: string;
-  detail: string;
-  to: OverviewRoute;
-  tone: OverviewTone;
-  progress: number;
 };
 type BestRun = { run: RunSummary; f1: number };
 
@@ -98,7 +89,6 @@ export function OverviewPage() {
   const totalServices = Math.max(services.length, 1);
   const coveragePercent = percent(evaluatedRuns, totalRuns);
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
-  const schedulerEnabled = Boolean(schedulerStatus?.enabled);
   const syncing = jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
   const bestRun = bestF1Run(data.runs);
   const nextAction = overviewNextAction({
@@ -117,9 +107,18 @@ export function OverviewPage() {
     serviceCount: services.length,
     evaluatedRuns
   });
-  const signalItems: OverviewSignal[] = [
+  const decisionMetrics: OverviewSignal[] = [
     {
-      label: "报告覆盖",
+      label: "当前最佳",
+      value: bestRun ? formatMetric(bestRun.f1) : "-",
+      detail: bestRun ? bestRun.run.run_id : "等待报告进入排行",
+      to: "/rank-board",
+      tone: bestRun ? "good" : "idle",
+      icon: <Trophy size={16} />,
+      progress: bestRun ? trackPercent(bestRun.f1, 1) : 0
+    },
+    {
+      label: "报告闭环",
       value: `${coveragePercent}%`,
       detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
       to: "/runs",
@@ -128,68 +127,28 @@ export function OverviewPage() {
       progress: trackPercent(evaluatedRuns, totalRuns)
     },
     {
-      label: "待评估",
+      label: "待处理",
       value: waitingEvaluation.toLocaleString(),
       detail:
         waitingEvaluation > 0
-          ? `${runsWithPredictions.toLocaleString()} runs 有预测`
-          : "当前无待评估产物",
+          ? `${runsWithPredictions.toLocaleString()} runs 已有预测`
+          : "暂无待补报告",
       to: "/runs",
       tone: waitingEvaluation > 0 ? "warm" : "idle",
       icon: <Gauge size={16} />,
       progress: trackPercent(waitingEvaluation, totalRuns)
     },
     {
-      label: "任务队列",
-      value: activeQueue.toLocaleString(),
+      label: failedJobs > 0 ? "任务阻塞" : "运行压力",
+      value: failedJobs > 0 ? failedJobs.toLocaleString() : `${activeQueue}/${services.length}`,
       detail:
         failedJobs > 0
-          ? `${failedJobs.toLocaleString()} failed`
-          : `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
-      to: "/jobs",
-      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
-      icon: activeQueue > 0 ? <Activity size={16} /> : <Clock3 size={16} />,
-      progress: trackPercent(activeQueue + failedJobs, totalJobs)
-    },
-    {
-      label: "模型服务",
-      value: `${liveServices}/${services.length}`,
-      detail:
-        services.length > 0
-          ? `${services.length.toLocaleString()} services registered`
-          : schedulerEnabled
-            ? "调度器等待服务"
-            : "手动模式",
-      to: "/services",
-      tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle",
-      icon: <Server size={16} />,
-      progress: trackPercent(liveServices, totalServices)
-    }
-  ];
-  const decisionMetrics: OverviewMetricCard[] = [
-    {
-      label: "主指标",
-      value: bestRun ? formatMetric(bestRun.f1) : "-",
-      detail: bestRun ? bestRun.run.model_id || bestRun.run.run_id : "等待报告",
-      to: "/rank-board",
-      tone: bestRun ? "good" : "idle",
-      progress: bestRun ? trackPercent(bestRun.f1, 1) : 0
-    },
-    {
-      label: "报告覆盖",
-      value: `${coveragePercent}%`,
-      detail: `${evaluatedRuns.toLocaleString()} / ${data.run_count.toLocaleString()} runs`,
-      to: "/runs",
-      tone: evaluatedRuns > 0 ? "good" : "idle",
-      progress: trackPercent(evaluatedRuns, totalRuns)
-    },
-    {
-      label: failedJobs > 0 ? "失败任务" : "队列",
-      value: failedJobs > 0 ? failedJobs.toLocaleString() : activeQueue.toLocaleString(),
-      detail: `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`,
-      to: "/jobs",
-      tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle",
-      progress: trackPercent(activeQueue + failedJobs, totalJobs)
+          ? `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`
+          : `${liveServices.toLocaleString()} services online`,
+      to: failedJobs > 0 || activeQueue > 0 ? "/jobs" : "/services",
+      tone: failedJobs > 0 ? "danger" : activeQueue > 0 || liveServices > 0 ? "live" : "idle",
+      icon: failedJobs > 0 ? <AlertTriangle size={16} /> : <Activity size={16} />,
+      progress: trackPercent(activeQueue + failedJobs + liveServices, totalJobs + totalServices)
     }
   ];
   const flowStages: OverviewFlowStage[] = [
@@ -234,11 +193,11 @@ export function OverviewPage() {
 
   return (
     <section
-      className="page-stack dashboard-home overview-home-v16"
+      className="page-stack dashboard-home overview-home-v17"
       onPointerMove={updateOverviewPointer}
     >
-      <section className={`overview-mission-board ${nextAction.tone}`}>
-        <div className="overview-mission-copy">
+      <section className={`overview-ops-board ${nextAction.tone}`}>
+        <div className="overview-decision-stage">
           <div className="overview-command-kicker">
             <span className="overview-live-dot" />
             <span>Eval Bench Command</span>
@@ -247,7 +206,13 @@ export function OverviewPage() {
             </i>
           </div>
           <div className="overview-decision-copy">
-            <h2>{overviewHeroTitle(nextAction)}</h2>
+            <OverviewStateStrip
+              evaluatedRuns={evaluatedRuns}
+              waitingEvaluation={waitingEvaluation}
+              activeQueue={activeQueue}
+              liveServices={liveServices}
+              serviceCount={services.length}
+            />
             <p>{postureLine}</p>
           </div>
           <div className="overview-decision-bottom">
@@ -255,14 +220,13 @@ export function OverviewPage() {
             <OverviewRunFocus bestRun={bestRun} />
           </div>
         </div>
-        <aside className="overview-score-cluster" aria-label="主指标与系统态">
+        <aside className="overview-rank-console" aria-label="主指标与系统态">
           <OverviewScoreDial bestRun={bestRun} coveragePercent={coveragePercent} />
           <OverviewDecisionMetrics metrics={decisionMetrics} />
-          <OverviewSignalStack signals={signalItems} />
         </aside>
       </section>
 
-      <div className="overview-workflow-row">
+      <div className="overview-evidence-row">
         <section className="overview-loop-panel" aria-label="评测闭环">
           <div className="overview-section-head compact">
             <div>
@@ -291,7 +255,7 @@ function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
   event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
 }
 
-function OverviewDecisionMetrics({ metrics }: { metrics: OverviewMetricCard[] }) {
+function OverviewDecisionMetrics({ metrics }: { metrics: OverviewSignal[] }) {
   return (
     <div className="overview-decision-metrics" aria-label="首页核心判断指标">
       {metrics.map((metric) => (
@@ -301,6 +265,7 @@ function OverviewDecisionMetrics({ metrics }: { metrics: OverviewMetricCard[] })
           to={metric.to}
           style={{ "--metric-progress": `${metric.progress}%` } as React.CSSProperties}
         >
+          <span className="overview-decision-icon">{metric.icon}</span>
           <span>{metric.label}</span>
           <strong>{metric.value}</strong>
           <em>{metric.detail}</em>
@@ -308,6 +273,37 @@ function OverviewDecisionMetrics({ metrics }: { metrics: OverviewMetricCard[] })
             <b />
           </i>
         </Link>
+      ))}
+    </div>
+  );
+}
+
+function OverviewStateStrip({
+  evaluatedRuns,
+  waitingEvaluation,
+  activeQueue,
+  liveServices,
+  serviceCount
+}: {
+  evaluatedRuns: number;
+  waitingEvaluation: number;
+  activeQueue: number;
+  liveServices: number;
+  serviceCount: number;
+}) {
+  const items = [
+    { label: "reports", value: evaluatedRuns.toLocaleString() },
+    { label: "pending", value: waitingEvaluation.toLocaleString() },
+    { label: "queue", value: activeQueue.toLocaleString() },
+    { label: "services", value: `${liveServices}/${serviceCount}` }
+  ];
+  return (
+    <div className="overview-state-strip" aria-label="总览运行状态">
+      {items.map((item) => (
+        <span key={item.label}>
+          <b>{item.value}</b>
+          <em>{item.label}</em>
+        </span>
       ))}
     </div>
   );
@@ -345,31 +341,6 @@ function OverviewScoreDial({
       </div>
       <ArrowRight size={15} />
     </Link>
-  );
-}
-
-function OverviewSignalStack({ signals }: { signals: OverviewSignal[] }) {
-  return (
-    <div className="overview-signal-stack">
-      {signals.map((signal) => (
-        <Link
-          className={`overview-signal-card ${signal.tone}`}
-          to={signal.to}
-          key={signal.label}
-          style={{ "--signal-progress": `${signal.progress}%` } as React.CSSProperties}
-        >
-          <span>{signal.icon}</span>
-          <div>
-            <strong>{signal.value}</strong>
-            <em>{signal.label}</em>
-            <small>{signal.detail}</small>
-          </div>
-          <i aria-hidden="true">
-            <b />
-          </i>
-        </Link>
-      ))}
-    </div>
   );
 }
 
@@ -523,25 +494,6 @@ function OverviewRecentRunsPanel({ runs }: { runs: RunSummary[] }) {
   );
 }
 
-function overviewHeroTitle(action: OverviewAction) {
-  if (action.tone === "danger") {
-    return "先处理阻塞";
-  }
-  if (action.to === "/services") {
-    return "确认模型服务";
-  }
-  if (action.tone === "warm") {
-    return "补齐评估闭环";
-  }
-  if (action.tone === "live") {
-    return "队列正在推进";
-  }
-  if (action.tone === "good") {
-    return "可以看排行";
-  }
-  return "创建首个评测";
-}
-
 function overviewNextAction({
   failedJobs,
   waitingEvaluation,
@@ -636,7 +588,7 @@ function overviewPostureLine({
     return `${activeQueue.toLocaleString()} 个任务正在排队或运行，关注队列吞吐即可。`;
   }
   if (evaluatedRuns > 0) {
-    return `${evaluatedRuns.toLocaleString()} 个 run 已有报告，可以进入排行或对比。`;
+    return `${evaluatedRuns.toLocaleString()} reports generated · rank board / compare ready.`;
   }
   if (serviceCount > 0 && liveServices === 0) {
     return "模型服务已登记但当前空闲，发起任务前先确认运行时。";
