@@ -80,6 +80,10 @@ assert(
   "sample row selection must be centralized in SelectableRowButton",
 );
 assert(
+  uiSource.includes("export function SelectableTableRow("),
+  "table row selection must be centralized in SelectableTableRow",
+);
+assert(
   uiSource.includes("export function OptionChipButton("),
   "query chip selection must be centralized in OptionChipButton",
 );
@@ -495,6 +499,12 @@ assert(
     !/<Link[^>]+className="mini-link/.test(jobsMiniLinkSource) &&
     !/<Link[^>]+className="mini-link/.test(compareMiniLinkSource),
   "router mini links must use InlineNavLink instead of ad hoc mini-link classes",
+);
+assert(
+  jobsMiniLinkSource.includes("SelectableTableRow") &&
+    jobsMiniLinkSource.includes("selected={job.job_id === selectedJob?.job_id}") &&
+    !jobsMiniLinkSource.includes('className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}'),
+  "jobs queue selectable rows must use SelectableTableRow instead of ad hoc selectable-row class composition",
 );
 assert(
   compareMiniLinkSource.includes("InlineAnchor") &&

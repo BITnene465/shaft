@@ -2193,8 +2193,19 @@ h2 {
   cursor: pointer;
 }
 
+.selectable-row td {
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.selectable-row:hover td {
+  background: #f6fbfe;
+}
+
 .selectable-row.selected td {
   background: #edf6fb;
+  box-shadow: inset 3px 0 0 #2e9dc0;
 }
 
 .job-monitor-header,

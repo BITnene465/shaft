@@ -11,6 +11,7 @@ import type {
   ButtonHTMLAttributes,
   DetailsHTMLAttributes,
   ElementType,
+  HTMLAttributes,
   ReactNode
 } from "react";
 import { AlertTriangle, X } from "lucide-react";
@@ -213,6 +214,25 @@ export function SelectableRowButton({
     >
       {children}
     </button>
+  );
+}
+
+export function SelectableTableRow({
+  selected,
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLTableRowElement> & {
+  selected?: boolean;
+}) {
+  return (
+    <tr
+      {...props}
+      aria-current={selected ? "true" : props["aria-current"]}
+      className={joinClassNames("selectable-row", selected && "selected", className)}
+    >
+      {children}
+    </tr>
   );
 }
 

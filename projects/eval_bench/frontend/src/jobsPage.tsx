@@ -53,6 +53,7 @@ import {
   IconActionButton,
   InlineNavLink,
   PanelTitle,
+  SelectableTableRow,
   WorkspaceDialog
 } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
@@ -293,9 +294,9 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
             </thead>
             <tbody>
               {filteredJobs.map((job) => (
-                <tr
+                <SelectableTableRow
                   key={job.job_id}
-                  className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}
+                  selected={job.job_id === selectedJob?.job_id}
                   onClick={() => setSelectedJobId(job.job_id)}
                 >
                   <td>{job.job_id}</td>
@@ -339,7 +340,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                       />
                     </div>
                   </td>
-                </tr>
+                </SelectableTableRow>
               ))}
             </tbody>
           </table>

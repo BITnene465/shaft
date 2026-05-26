@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Job Queue 仍手写表格选择行
+
+### 现象
+
+Dashboard 的样本行、chip、card、按钮和弹窗已经逐步收敛到 `ui.tsx`，但 Jobs 任务队列表格仍在页面内
+直接拼 `selectable-row selected` class。任务队列是高频工作区，选中态、hover 反馈和可访问性语义继续留在
+业务页会让后续页面各自复制一套行选择规则。
+
+### 根因
+
+已有 `SelectableRowButton` 只适合非表格的 sample list，不能直接放进 `<tr>`。Jobs 页为了保持表格结构，
+继续本地维护 row class。这是前端交互原语缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Jobs 页任务选择行的组件化边界、hover/selected 反馈和后续复用。
+- 不影响 job lifecycle、scheduler、runtime log、API、CLI 或评测结果语义。
+
+### 修复方式
+
+- `ui.tsx` 新增 `SelectableTableRow`，统一维护 `<tr>` 的 `selected` class 和 `aria-current` 语义。
+- Jobs 任务队列改用 `SelectableTableRow`，不再在业务页拼接 `selectable-row selected`。
+- `styles.css` 为 selectable table row 增加 hover/selected transition 和左侧选中 rail。
+- UI contract 增加防线，禁止 Jobs 队列回退到本地 class 拼接。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增表格内可选行时使用 `SelectableTableRow`；非表格样本行继续使用 `SelectableRowButton`。
+- 业务页不再直接维护 row selected class 或 aria-current 语义。
+
 ## 2026-05-26: Eval Bench Overview v14 仍像低价值状态墙
 
 ### 现象

@@ -159,7 +159,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/ui.tsx`
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton`、
     `IconActionButton`、`IconNavLink`、`InlineNavLink`、`InlineAnchor`、`PanelToggleButton` 和 `DisclosurePanel` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
-    使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
+    使用 `OptionChipButton`，表格内可选行使用 `SelectableTableRow`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
     也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
     业务页不直接实现弹窗外壳、标准按钮层级、折叠 details shell、图标/文本导航链接或重复的 row/chip button 形态。
   - `WorkspaceDialog` 是弹窗焦点、滚动锁和可访问性属性的单一真源；业务页只传 title/meta/content，不直接操作
@@ -284,7 +284,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；只有画布
   HUD 这类低层交互允许保留专用样式。样本行必须通过
   `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
-  `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过
+  `OptionChipButton` 维护 active / aria-pressed 语义，任务队列这类表格内可选行必须通过
+  `SelectableTableRow` 维护 selected / aria-current 语义，Compare 这类可选卡片和 viewer object row 必须通过
   `SelectableCardButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
   的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
   业务页和 viewer 控制区折叠面板必须通过 `DisclosurePanel` 维护 `<details>/<summary>` shell。
