@@ -253,6 +253,16 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "prompts",
         "metric_profiles",
     ]
+    benchmark_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-benchmarks"]
+    assert benchmark_output_schema["required"] == [
+        "offset",
+        "limit",
+        "total",
+        "filters",
+        "facets",
+        "benchmarks",
+    ]
+    assert benchmark_output_schema["properties"]["facets"]["type"] == "object"
     assert "score_delta" in rank_output_schema["properties"]["entries"]["item_shape"]
     note_output_schema = CLI_JSON_OUTPUT_SCHEMAS["get-run-note"]
     assert note_output_schema["required"] == [
@@ -283,7 +293,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert "detection" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     runs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-runs"]
-    assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "runs"]
+    assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "runs"]
+    assert runs_output_schema["properties"]["facets"]["type"] == "object"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["f1_iou50"] == "float|null"
@@ -318,7 +329,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         == benchmark_samples_output_schema["properties"]["samples"]["item_shape"]
     )
     jobs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-jobs"]
-    assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "jobs"]
+    assert jobs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "jobs"]
+    assert jobs_output_schema["properties"]["facets"]["type"] == "object"
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["payload"] == "object"
     assert jobs_output_schema["properties"]["jobs"]["item_shape"]["metadata"] == "object"
     assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
@@ -360,6 +372,15 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "item_shape"
     ]["job_id"] == "str"
     services_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-services"]
+    assert services_output_schema["required"] == [
+        "offset",
+        "limit",
+        "total",
+        "filters",
+        "facets",
+        "services",
+    ]
+    assert services_output_schema["properties"]["facets"]["type"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
     assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
     assert (
@@ -1775,6 +1796,10 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert benchmarks["total"] == 1
     assert benchmarks["filters"]["task"] == "detection"
     assert benchmarks["filters"]["split"] == "val"
+    assert benchmarks["facets"]["tasks"] == [
+        {"value": "detection", "count": 1},
+        {"value": "keypoint", "count": 1},
+    ]
     assert benchmarks["benchmarks"][0]["benchmark_id"] == "bench1"
     assert benchmarks["benchmarks"][0]["labels"] == ["arrow", "icon"]
 
@@ -1811,6 +1836,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     runs = json.loads(capsys.readouterr().out)
     assert runs["total"] == 1
     assert runs["filters"]["label"] == "arrow"
+    assert runs["facets"]["labels"] == [{"value": "arrow", "count": 2}]
     assert runs["runs"][0]["run_id"] == "run_a"
     assert runs["runs"][0]["target_labels"] == ["arrow"]
 
@@ -2314,6 +2340,7 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     jobs = json.loads(capsys.readouterr().out)
     assert jobs["total"] == 1
     assert jobs["filters"]["kind"] == "eval"
+    assert jobs["facets"]["kinds"] == [{"value": "eval", "count": 1}]
     assert jobs["jobs"][0]["job_id"] == job["job_id"]
 
     show_job_args = _build_parser().parse_args(
@@ -2552,6 +2579,7 @@ def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
 
     assert payload["total"] == 1
     assert payload["filters"]["kind"] == "external_vllm"
+    assert payload["facets"]["kinds"] == [{"value": "external_vllm", "count": 1}]
     assert payload["services"][0]["service_id"] == "external-qwen3vl"
 
     show_args = _build_parser().parse_args(

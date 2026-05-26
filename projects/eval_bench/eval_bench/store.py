@@ -97,6 +97,7 @@ class BenchmarkListPage:
     limit: int
     total: int
     filters: dict[str, str]
+    facets: dict[str, list[dict[str, Any]]]
     benchmarks: list[BenchmarkSummary]
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,6 +142,7 @@ class RunListPage:
     limit: int
     total: int
     filters: dict[str, str]
+    facets: dict[str, list[dict[str, Any]]]
     runs: list[RunSummary]
 
     def to_dict(self) -> dict[str, Any]:
@@ -422,9 +424,10 @@ class EvalBenchStore:
             "query": (query or "").strip(),
         }
         query_text = filters["query"].lower()
+        all_items = self.benchmarks()
         items = [
             benchmark
-            for benchmark in self.benchmarks()
+            for benchmark in all_items
             if _benchmark_matches_filters(
                 benchmark,
                 task=filters["task"],
@@ -439,6 +442,7 @@ class EvalBenchStore:
             limit=page_limit,
             total=len(items),
             filters=filters,
+            facets=_benchmark_facets(all_items),
             benchmarks=items[start : start + page_limit],
         )
 
@@ -467,9 +471,10 @@ class EvalBenchStore:
             "query": (query or "").strip(),
         }
         query_text = filters["query"].lower()
+        all_items = self.runs()
         items = [
             run
-            for run in self.runs()
+            for run in all_items
             if _run_matches_filters(
                 run,
                 task=filters["task"],
@@ -488,6 +493,7 @@ class EvalBenchStore:
             limit=page_limit,
             total=len(items),
             filters=filters,
+            facets=_run_facets(all_items),
             runs=items[start : start + page_limit],
         )
 
@@ -1643,13 +1649,47 @@ def _rank_facets(entries: list[RankBoardEntry]) -> dict[str, list[dict[str, Any]
     }
 
 
+def _benchmark_facets(items: list[BenchmarkSummary]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "tasks": _facet_counts(items, lambda item: item.tasks),
+        "layers": _facet_counts(items, lambda item: item.layers),
+        "splits": _facet_counts(items, lambda item: [item.split or "unknown"]),
+        "labels": _facet_counts(items, lambda item: item.labels),
+    }
+
+
+def _run_facets(items: list[RunSummary]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "tasks": _facet_counts(items, lambda item: [item.spec_task or "unknown"]),
+        "benchmarks": _facet_counts(items, lambda item: [item.benchmark_id or "unknown"]),
+        "statuses": _facet_counts(items, lambda item: [item.status or "unknown"]),
+        "labels": _facet_counts(
+            items,
+            lambda item: item.target_labels if item.target_labels else ["unscoped"],
+        ),
+        "models": _facet_counts(items, lambda item: [item.model_id or "unknown"]),
+        "prompts": _facet_counts(items, lambda item: [item.prompt_id or "unknown"]),
+        "metric_profiles": _facet_counts(
+            items,
+            lambda item: [item.metric_profile or "unknown"],
+        ),
+    }
+
+
 def _rank_facet(
     entries: list[RankBoardEntry],
     values: Callable[[RankBoardEntry], list[str]],
 ) -> list[dict[str, Any]]:
+    return _facet_counts(entries, values)
+
+
+def _facet_counts(
+    items: list[Any],
+    values: Callable[[Any], list[str]],
+) -> list[dict[str, Any]]:
     counts: dict[str, int] = {}
-    for entry in entries:
-        for value in values(entry):
+    for item in items:
+        for value in values(item):
             key = str(value or "unknown")
             counts[key] = counts.get(key, 0) + 1
     return [

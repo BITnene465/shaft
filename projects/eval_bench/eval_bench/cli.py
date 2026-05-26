@@ -408,8 +408,9 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-benchmarks": {
         "type": "object",
-        "required": ["offset", "limit", "total", "filters", "benchmarks"],
+        "required": ["offset", "limit", "total", "filters", "facets", "benchmarks"],
         "properties": {
+            "facets": {"type": "object"},
             "benchmarks": {"type": "array", "item_shape": BENCHMARK_SUMMARY_OUTPUT_SHAPE},
         },
     },
@@ -422,8 +423,9 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-runs": {
         "type": "object",
-        "required": ["offset", "limit", "total", "filters", "runs"],
+        "required": ["offset", "limit", "total", "filters", "facets", "runs"],
         "properties": {
+            "facets": {"type": "object"},
             "runs": {"type": "array", "item_shape": RUN_SUMMARY_OUTPUT_SHAPE},
         },
     },
@@ -599,8 +601,11 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-jobs": {
         "type": "object",
-        "required": ["offset", "limit", "total", "filters", "jobs"],
-        "properties": {"jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE}},
+        "required": ["offset", "limit", "total", "filters", "facets", "jobs"],
+        "properties": {
+            "facets": {"type": "object"},
+            "jobs": {"type": "array", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
+        },
     },
     "show-job": {
         "type": "object",
@@ -614,8 +619,9 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "list-services": {
         "type": "object",
-        "required": ["offset", "limit", "total", "filters", "services"],
+        "required": ["offset", "limit", "total", "filters", "facets", "services"],
         "properties": {
+            "facets": {"type": "object"},
             "services": {"type": "array", "item_shape": SERVICE_RECORD_OUTPUT_SHAPE},
         },
     },

@@ -27,12 +27,12 @@ import {
 } from "./statusModel";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
+  facetValues,
   formatDate,
   runtimeValue,
   serviceConfigValue,
   serviceEndpointValue,
-  serviceHealth,
-  unique
+  serviceHealth
 } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
@@ -69,25 +69,21 @@ export function ServicesPage() {
     queryKey: ["services", serviceFilters],
     queryFn: () => fetchServices(serviceFilters)
   });
-  const serviceFacetsQuery = useQuery({
-    queryKey: ["services", "facets"],
-    queryFn: () => fetchServices({ limit: 500 })
-  });
   const services = servicesQuery.data?.services ?? [];
-  const serviceFacets = serviceFacetsQuery.data?.services ?? services;
   const totalServices = servicesQuery.data?.total ?? services.length;
-  const statuses = unique([
+  const facets = servicesQuery.data?.facets;
+  const statuses = facetValues(facets, "statuses", [
     "registered",
     "starting",
     "running",
     "stopped",
     "failed",
-    ...serviceFacets.map((service) => service.status).filter(Boolean)
+    ...services.map((service) => service.status)
   ]);
-  const kinds = unique([
+  const kinds = facetValues(facets, "kinds", [
     "local_vllm",
     "external_vllm",
-    ...serviceFacets.map((service) => service.kind).filter(Boolean)
+    ...services.map((service) => service.kind)
   ]);
   useEffect(() => {
     setPageOffset(0);

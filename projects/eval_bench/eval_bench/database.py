@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, event, text
@@ -45,6 +45,7 @@ class JobListPage:
     limit: int
     total: int
     filters: dict[str, str]
+    facets: dict[str, list[dict[str, Any]]]
     jobs: list[JobRecord]
 
     def to_dict(self) -> dict[str, Any]:
@@ -73,6 +74,7 @@ class ServiceListPage:
     limit: int
     total: int
     filters: dict[str, str]
+    facets: dict[str, list[dict[str, Any]]]
     services: list[ServiceRecord]
 
     def to_dict(self) -> dict[str, Any]:
@@ -408,16 +410,23 @@ class EvalBenchDatabase:
             "status": _filter_value(status),
             "query": (query or "").strip(),
         }
-        jobs = self.matching_jobs(
-            kind=filters["kind"],
-            status=filters["status"],
-            query=filters["query"],
-        )
+        all_jobs = self.matching_jobs()
+        jobs = [
+            job
+            for job in all_jobs
+            if _job_matches_filters(
+                job,
+                kind=filters["kind"],
+                status=filters["status"],
+                query=filters["query"].lower(),
+            )
+        ]
         return JobListPage(
             offset=start,
             limit=page_limit,
             total=len(jobs),
             filters=filters,
+            facets=_job_facets(all_jobs),
             jobs=jobs[start : start + page_limit],
         )
 
@@ -625,9 +634,10 @@ class EvalBenchDatabase:
                     """
                 )
             ).mappings()
+            all_services = [self._row_to_service(row) for row in rows]
             services = [
                 service
-                for service in (self._row_to_service(row) for row in rows)
+                for service in all_services
                 if _service_matches_filters(
                     service,
                     kind=filters["kind"],
@@ -640,6 +650,7 @@ class EvalBenchDatabase:
             limit=page_limit,
             total=len(services),
             filters=filters,
+            facets=_service_facets(all_services),
             services=services[start : start + page_limit],
         )
 
@@ -1008,6 +1019,13 @@ def _job_query_matches(job: JobRecord, query: str) -> bool:
     return any(query in str(field or "").lower() for field in fields)
 
 
+def _job_facets(jobs: list[JobRecord]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "kinds": _facet_counts(jobs, lambda job: [job.kind or "unknown"]),
+        "statuses": _facet_counts(jobs, lambda job: [job.status or "unknown"]),
+    }
+
+
 def _service_matches_filters(
     service: ServiceRecord,
     *,
@@ -1022,6 +1040,28 @@ def _service_matches_filters(
     if query and not _service_query_matches(service, query):
         return False
     return True
+
+
+def _service_facets(services: list[ServiceRecord]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "kinds": _facet_counts(services, lambda service: [service.kind or "unknown"]),
+        "statuses": _facet_counts(services, lambda service: [service.status or "unknown"]),
+    }
+
+
+def _facet_counts(
+    items: list[Any],
+    values: Callable[[Any], list[str]],
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for item in items:
+        for value in values(item):
+            key = str(value or "unknown")
+            counts[key] = counts.get(key, 0) + 1
+    return [
+        {"value": value, "count": count}
+        for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
 
 
 def _service_query_matches(service: ServiceRecord, query: str) -> bool:

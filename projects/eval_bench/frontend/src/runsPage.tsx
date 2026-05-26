@@ -24,13 +24,13 @@ import {
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
+  facetValues,
   formatDate,
   inferenceValue,
   isTextInputTarget,
   pixelBudgetValue,
   samplingValue,
-  stringValue,
-  unique
+  stringValue
 } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { DetectionLabelSubtaskPanel } from "./labelSubtaskControls";
@@ -129,19 +129,19 @@ export function RunsPage() {
     queryKey: ["runs", runFilters],
     queryFn: () => fetchRuns(runFilters)
   });
-  const runFacetsQuery = useQuery({
-    queryKey: ["runs", "facets"],
-    queryFn: () => fetchRuns({ limit: 500 })
-  });
   const runs = runsQuery.data?.runs ?? [];
-  const runFacets = runFacetsQuery.data?.runs ?? runs;
-  const tasks = unique(runFacets.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runFacets.map((run) => run.benchmark_id).filter(Boolean));
-  const statuses = unique(runFacets.map((run) => run.status).filter(Boolean));
-  const labels = unique(runFacets.flatMap((run) => run.target_labels).filter(Boolean));
-  const models = unique(runFacets.map((run) => run.model_id).filter(Boolean));
-  const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
-  const metricProfiles = unique(runFacets.map((run) => run.metric_profile).filter(Boolean));
+  const facets = runsQuery.data?.facets;
+  const tasks = facetValues(facets, "tasks", runs.map((run) => run.spec_task));
+  const benchmarks = facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id));
+  const statuses = facetValues(facets, "statuses", runs.map((run) => run.status));
+  const labels = facetValues(facets, "labels", runs.flatMap((run) => run.target_labels));
+  const models = facetValues(facets, "models", runs.map((run) => run.model_id));
+  const prompts = facetValues(facets, "prompts", runs.map((run) => run.prompt_id));
+  const metricProfiles = facetValues(
+    facets,
+    "metric_profiles",
+    runs.map((run) => run.metric_profile)
+  );
   const totalRuns = runsQuery.data?.total ?? runs.length;
   useEffect(() => {
     setPageOffset(0);

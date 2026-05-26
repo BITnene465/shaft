@@ -1,4 +1,4 @@
-import type { RunSummary, ServiceSummary } from "./api";
+import type { FacetBuckets, RunSummary, ServiceSummary } from "./api";
 
 export function formatDate(value: string | null) {
   if (!value) {
@@ -66,6 +66,15 @@ export function basename(path: string) {
 
 export function unique(values: string[]) {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
+}
+
+export function facetValues(
+  facets: FacetBuckets | undefined,
+  key: string,
+  fallback: string[] = []
+) {
+  const values = facets?.[key]?.map((item) => item.value).filter(Boolean) ?? [];
+  return values.length > 0 ? values : unique(fallback);
 }
 
 export function isTextInputTarget(target: EventTarget | null) {

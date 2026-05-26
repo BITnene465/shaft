@@ -278,6 +278,84 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert client.get("/api/state").json()["run_count"] == 2
 
 
+def test_dashboard_list_facets_are_not_limited_to_current_page(tmp_path: Path) -> None:
+    for benchmark_id, task, layer, split in (
+        ("bench_a", "detection", "layout", "val"),
+        ("bench_b", "keypoint", "arrow", "test"),
+    ):
+        _write_json(
+            tmp_path / "benchmarks" / benchmark_id / "benchmark.json",
+            {
+                "benchmark_id": benchmark_id,
+                "tasks": [task],
+                "labels": ["arrow"] if task == "keypoint" else ["icon"],
+                "layers": [layer],
+                "split": split,
+                "sample_count": 1,
+                "root": str(tmp_path / "benchmarks" / benchmark_id / "data"),
+                "manifest_path": str(
+                    tmp_path / "benchmarks" / benchmark_id / "splits" / f"{split}.txt"
+                ),
+            },
+        )
+    for run_id, benchmark_id, task, status, model_id, prompt_id, labels in (
+        ("run_a", "bench_a", "detection", "succeeded", "model-a", "prompt-a", ["icon"]),
+        ("run_b", "bench_b", "keypoint", "imported", "model-b", "prompt-b", ["arrow"]),
+    ):
+        _write_json(
+            tmp_path / "runs" / run_id / "run.json",
+            {
+                "run_id": run_id,
+                "status": status,
+                "created_at": "2026-05-09T00:10:00Z",
+                "model": {"model_id": model_id, "path": f"outputs/{model_id}"},
+                "benchmark": {
+                    "benchmark_id": benchmark_id,
+                    "root": str(tmp_path / "benchmarks" / benchmark_id / "data"),
+                    "split": "val",
+                    "tasks": [task],
+                },
+                "spec": {
+                    "task": task,
+                    "prompt": {"prompt_id": prompt_id},
+                    "target_labels": labels,
+                    "metric_profile": (
+                        "keypoint_endpoint_v1" if task == "keypoint" else "detection_iou_v1"
+                    ),
+                },
+            },
+        )
+    client = TestClient(create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist"))
+
+    benchmarks = client.get("/api/benchmarks", params={"limit": 1}).json()
+    runs = client.get("/api/runs", params={"limit": 1}).json()
+
+    assert len(benchmarks["benchmarks"]) == 1
+    assert benchmarks["total"] == 2
+    assert benchmarks["facets"]["tasks"] == [
+        {"value": "detection", "count": 1},
+        {"value": "keypoint", "count": 1},
+    ]
+    assert benchmarks["facets"]["layers"] == [
+        {"value": "arrow", "count": 1},
+        {"value": "layout", "count": 1},
+    ]
+    assert len(runs["runs"]) == 1
+    assert runs["total"] == 2
+    assert runs["facets"]["models"] == [
+        {"value": "model-a", "count": 1},
+        {"value": "model-b", "count": 1},
+    ]
+    assert runs["facets"]["prompts"] == [
+        {"value": "prompt-a", "count": 1},
+        {"value": "prompt-b", "count": 1},
+    ]
+    assert runs["facets"]["labels"] == [
+        {"value": "arrow", "count": 1},
+        {"value": "icon", "count": 1},
+    ]
+
+
 def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "benchmarks" / "multitask_val_v1" / "benchmark.json",

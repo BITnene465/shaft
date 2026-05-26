@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 高级检索 facet 不能依赖分页样本
+
+### 现象
+
+Runs、Benchmarks、Compare、Jobs 和 Services 页已经使用折叠式高级检索，但部分页面的筛选目录仍通过
+`limit=500` 的列表请求临时推导可选项。结果库或服务/任务记录超过 500 条后，模型、prompt、label、状态或类型
+可能没有出现在高级检索目录里，用户和 agent 都会误以为这些条件不存在。
+
+### 根因
+
+分页数据和检索 facet 使用了同一个列表 payload。前端为了避免拉全量数据，用固定 500 条近似生成目录；
+后端列表接口只返回当前分页和 filters，没有返回完整目录 facet。这是检索状态真源缺失，不是模型能力问题，
+也不是 eval / codec / metric / data 的误判。
+
+### 影响范围
+
+- 影响高级检索目录完整性、跨页筛选可发现性，以及大规模 run/job/service 目录下的 agent 操作稳定性。
+- 不影响已有过滤条件的后端执行结果，也不改变 rank-board 的 F1 默认主指标或 weighted ranking 方案。
+
+### 修复方式
+
+- `benchmark_page()`、`run_page()`、`job_page()` 和 `service_page()` 在分页响应中返回完整 `facets`。
+- 前端 `Runs`、`Benchmarks`、`Compare`、`Jobs` 和 `Services` 页统一通过 `facetValues()` 读取后端 facet，
+  不再发 `limit=500` 的目录近似请求。
+- UI contract 增加静态防线，禁止高级检索目录回退到截断列表请求。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_database.py::test_database_list_pages_expose_complete_facets_across_pagination projects/eval_bench/tests/test_dashboard.py::test_dashboard_list_facets_are_not_limited_to_current_page`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增分页目录页时，筛选选项必须来自后端 facet 或明确的 registry 真源；不能从当前页或固定条数样本中推导。
+
 ## 2026-05-26: Eval Bench import-predictions 漏读 prompt metadata label scope
 
 ### 现象

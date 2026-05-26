@@ -34,9 +34,14 @@ for (const filePath of sourceFiles) {
 }
 
 const jobsPage = await readSource("src/jobsPage.tsx");
+const runsPage = await readSource("src/runsPage.tsx");
+const benchmarksPage = await readSource("src/benchmarksPage.tsx");
+const comparePage = await readSource("src/comparePage.tsx");
+const servicesPage = await readSource("src/servicesPage.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
 const apiSource = await readSource("src/api.ts");
+const formattersSource = await readSource("src/formatters.ts");
 const filterControls = await readSource("src/filterControls.tsx");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
@@ -54,6 +59,19 @@ assert(
     samplePagerSource.includes("export function clampListPageOffset(") &&
     samplePagerSource.includes("export function SamplePager("),
   "paged list controls must share PagerControl and clampListPageOffset",
+);
+assert(
+  apiSource.includes("export type FacetBuckets = Record<string, FacetBucket>;") &&
+    formattersSource.includes("export function facetValues(") &&
+    [runsPage, benchmarksPage, comparePage, servicesPage, jobsPage].every((source) =>
+      source.includes("facetValues(")
+    ) &&
+    !runsPage.includes('fetchRuns({ limit: 500 })') &&
+    !comparePage.includes('fetchRuns({ limit: 500 })') &&
+    !benchmarksPage.includes('fetchBenchmarks({ limit: 500 })') &&
+    !servicesPage.includes('fetchServices({ limit: 500 })') &&
+    !jobsPage.includes('fetchJobs({ limit: 500 })'),
+  "advanced filter option directories must use backend facets instead of truncated 500-item list requests",
 );
 assert(
   filterControls.includes("FilterSelectControl") &&
@@ -324,7 +342,6 @@ assert(
 );
 const overviewPage = await readSource("src/overviewPage.tsx");
 const designSource = await readSource("src/design.css");
-const formattersSource = await readSource("src/formatters.ts");
 assert(
   apiSource.includes("export type TargetLabelResolution =") &&
     apiSource.includes("export type TargetLabelResolutionParams =") &&
@@ -537,7 +554,6 @@ assert(
     !/<button[\s\S]{0,180}className="sidebar-toggle"/.test(mainEntry),
   "sidebar collapse control must use IconActionButton instead of a raw button",
 );
-const benchmarksPage = await readSource("src/benchmarksPage.tsx");
 assert(
   benchmarksPage.includes("export function BenchmarksPage()") &&
     benchmarksPage.includes("export function BenchmarkDetailPage()"),
@@ -570,7 +586,6 @@ assert(
     mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")'),
   "main.tsx must lazy-route to the extracted benchmarks page module",
 );
-const runsPage = await readSource("src/runsPage.tsx");
 assert(
   runsPage.includes("export function RunsPage()") &&
     runsPage.includes("export function RunDetailPage()"),
@@ -629,7 +644,6 @@ assert(
   "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
 );
 const runTables = await readSource("src/runTables.tsx");
-const comparePage = await readSource("src/comparePage.tsx");
 assert(
   runTables.includes("StandaloneCheckboxControl") &&
     runTables.includes('className="row-select-checkbox"') &&
@@ -714,7 +728,6 @@ assert(
     !runsPage.includes("function parseTargetLabels("),
   "runs import dialog must use the shared detection label subtask panel instead of a free-text target label field",
 );
-const servicesPage = await readSource("src/servicesPage.tsx");
 assert(
   servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
     servicesPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&

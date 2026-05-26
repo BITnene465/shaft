@@ -17,6 +17,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
   comparisonSampleHref,
+  facetValues,
   formatCompactSignedMetric,
   formatDate,
   formatMetric,
@@ -112,18 +113,14 @@ export function ComparePage() {
     queryKey: ["runs", "compare", runFilters],
     queryFn: () => fetchRuns(runFilters)
   });
-  const runFacetsQuery = useQuery({
-    queryKey: ["runs", "compare", "facets"],
-    queryFn: () => fetchRuns({ limit: 500 })
-  });
   const runs = runsQuery.data?.runs ?? [];
-  const runFacets = runFacetsQuery.data?.runs ?? runs;
-  const statuses = unique(runFacets.map((run) => run.status).filter(Boolean));
-  const tasks = unique(runFacets.map((run) => run.spec_task).filter(Boolean));
-  const benchmarks = unique(runFacets.map((run) => run.benchmark_id).filter(Boolean));
-  const labels = unique(runFacets.flatMap((run) => run.target_labels).filter(Boolean));
-  const models = unique(runFacets.map((run) => run.model_id).filter(Boolean));
-  const prompts = unique(runFacets.map((run) => run.prompt_id).filter(Boolean));
+  const facets = runsQuery.data?.facets;
+  const statuses = facetValues(facets, "statuses", runs.map((run) => run.status));
+  const tasks = facetValues(facets, "tasks", runs.map((run) => run.spec_task));
+  const benchmarks = facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id));
+  const labels = facetValues(facets, "labels", runs.flatMap((run) => run.target_labels));
+  const models = facetValues(facets, "models", runs.map((run) => run.model_id));
+  const prompts = facetValues(facets, "prompts", runs.map((run) => run.prompt_id));
   const comparableRuns = runs.filter((run) => run.report_path);
   const filteredCount = runsQuery.data?.total ?? runs.length;
   const runPageOffset = runsQuery.data?.offset ?? pageOffset;

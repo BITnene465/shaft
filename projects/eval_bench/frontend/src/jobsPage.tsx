@@ -4,7 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Trash2, X } from "lucide-react";
 
-import type { BenchmarkSummary, JobLog, JobSummary, PromptTemplate, RunSummary, SchedulerStatus } from "./api";
+import type {
+  BenchmarkSummary,
+  FacetBucket,
+  JobLog,
+  JobSummary,
+  PromptTemplate,
+  RunSummary,
+  SchedulerStatus
+} from "./api";
 import {
   cancelJob,
   createJob,
@@ -19,7 +27,7 @@ import {
 } from "./api";
 import { CompactSelectControl, TextareaControl } from "./controlPrimitives";
 import { useDashboardState } from "./dashboardState";
-import { basename, formatDate, jobTarget, stringValue, unique } from "./formatters";
+import { basename, facetValues, formatDate, jobTarget, stringValue, unique } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";
@@ -160,30 +168,27 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     queryFn: () => fetchJobs(jobFilters),
     refetchInterval: 2_000
   });
-  const allJobsQuery = useQuery({
-    queryKey: ["jobs", "facets"],
-    queryFn: () => fetchJobs({ limit: 500 }),
-    refetchInterval: 2_000,
-    enabled: !compact
-  });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],
     queryFn: fetchSchedulerStatus,
     refetchInterval: 2_000
   });
-  const jobsForSummary = allJobsQuery.data?.jobs ?? data?.jobs ?? [];
-  const runningJobs = jobsForSummary.filter((job) => job.status === "running");
   const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
-  const statuses = unique([
+  const facets = data?.facets;
+  const filteredJobs = data?.jobs ?? [];
+  const statuses = facetValues(facets, "statuses", [
     "queued",
     "running",
     "succeeded",
     "failed",
     "cancelled",
-    ...jobsForSummary.map((job) => job.status).filter(Boolean)
+    ...filteredJobs.map((job) => job.status)
   ]);
-  const kinds = unique(["eval", "preannotate", ...jobsForSummary.map((job) => job.kind).filter(Boolean)]);
-  const filteredJobs = data?.jobs ?? [];
+  const kinds = facetValues(facets, "kinds", [
+    "eval",
+    "preannotate",
+    ...filteredJobs.map((job) => job.kind)
+  ]);
   const totalJobs = data?.total ?? filteredJobs.length;
   const selectedRuntimeLogPath =
     selectedJob && typeof selectedJob.metadata.runtime_log_path === "string"
@@ -238,7 +243,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   return (
     <div className={compact ? "queue-stack compact" : "queue-stack"}>
       <SchedulerStrip
-        jobs={jobsForSummary}
+        statusFacets={facets?.statuses ?? []}
         scheduler={schedulerQuery.data ?? { enabled: false }}
       />
       {!compact ? (
@@ -375,15 +380,15 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
 }
 
 function SchedulerStrip({
-  jobs,
+  statusFacets,
   scheduler
 }: {
-  jobs: JobSummary[];
+  statusFacets: FacetBucket;
   scheduler: SchedulerStatus;
 }) {
-  const queued = jobs.filter((job) => job.status === "queued").length;
-  const running = jobs.filter((job) => job.status === "running").length;
-  const failed = jobs.filter((job) => job.status === "failed").length;
+  const queued = facetCount(statusFacets, "queued");
+  const running = facetCount(statusFacets, "running");
+  const failed = facetCount(statusFacets, "failed");
   const reservedDevices = scheduler.reserved_cuda_devices ?? [];
   const reservedPorts = scheduler.reserved_runtime_ports ?? [];
   return (
@@ -400,6 +405,10 @@ function SchedulerStrip({
       {reservedPorts.length > 0 ? <span>占用端口 {reservedPorts.join(",")}</span> : null}
     </div>
   );
+}
+
+function facetCount(facets: FacetBucket, value: string) {
+  return facets.find((item) => item.value === value)?.count ?? 0;
 }
 
 function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null }) {

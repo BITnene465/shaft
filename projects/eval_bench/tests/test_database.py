@@ -27,6 +27,48 @@ def test_database_persists_jobs_across_instances(tmp_path: Path) -> None:
     assert jobs[0].payload["model_id"] == "model-a"
 
 
+def test_database_list_pages_expose_complete_facets_across_pagination(tmp_path: Path) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    database.create_job(kind="eval", payload={"run_id": "run-a"}, status="queued")
+    database.create_job(kind="preannotate", payload={"run_id": "run-b"}, status="running")
+    database.upsert_service(
+        kind="local_vllm",
+        service_id="local-vllm-0",
+        config={"model_path": "outputs/model-a", "port": 8000},
+        status="registered",
+    )
+    database.upsert_service(
+        kind="external_vllm",
+        service_id="external-vllm-0",
+        config={"endpoint": "http://127.0.0.1:8001/v1"},
+        status="running",
+    )
+
+    job_page = database.job_page(limit=1)
+    service_page = database.service_page(limit=1)
+
+    assert len(job_page.jobs) == 1
+    assert job_page.total == 2
+    assert job_page.facets["kinds"] == [
+        {"value": "eval", "count": 1},
+        {"value": "preannotate", "count": 1},
+    ]
+    assert job_page.facets["statuses"] == [
+        {"value": "queued", "count": 1},
+        {"value": "running", "count": 1},
+    ]
+    assert len(service_page.services) == 1
+    assert service_page.total == 2
+    assert service_page.facets["kinds"] == [
+        {"value": "external_vllm", "count": 1},
+        {"value": "local_vllm", "count": 1},
+    ]
+    assert service_page.facets["statuses"] == [
+        {"value": "registered", "count": 1},
+        {"value": "running", "count": 1},
+    ]
+
+
 def test_database_rejects_invalid_job_status(tmp_path: Path) -> None:
     database = EvalBenchDatabase(tmp_path)
 

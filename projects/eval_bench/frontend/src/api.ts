@@ -11,6 +11,9 @@ export type BenchmarkSummary = {
   source_manifest_path: string | null;
 };
 
+export type FacetBucket = Array<{ value: string; count: number }>;
+export type FacetBuckets = Record<string, FacetBucket>;
+
 export type BenchmarkListFilters = {
   offset?: number;
   limit?: number;
@@ -26,6 +29,7 @@ export type BenchmarkListResponse = {
   offset?: number;
   limit?: number;
   filters?: Record<string, string>;
+  facets?: FacetBuckets;
 };
 
 export type RunSummary = {
@@ -78,6 +82,7 @@ export type RunListResponse = {
   offset?: number;
   limit?: number;
   filters?: Record<string, string>;
+  facets?: FacetBuckets;
 };
 
 export type RunNote = {
@@ -122,7 +127,7 @@ export type RankBoard = {
   sort_order: string;
   score_formula: string;
   rank_scheme: Record<string, unknown> | null;
-  facets: Record<string, Array<{ value: string; count: number }>>;
+  facets: FacetBuckets;
   entries: RankBoardEntry[];
 };
 
@@ -151,6 +156,7 @@ export type JobListResponse = {
   offset?: number;
   limit?: number;
   filters?: Record<string, string>;
+  facets?: FacetBuckets;
 };
 
 export type ServiceSummary = {
@@ -179,6 +185,7 @@ export type ServiceListResponse = {
   offset?: number;
   limit?: number;
   filters?: Record<string, string>;
+  facets?: FacetBuckets;
 };
 
 export type ServiceLog = {

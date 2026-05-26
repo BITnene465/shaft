@@ -12,7 +12,7 @@ import {
 } from "./api";
 import { CheckboxFieldControl, TextInputControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
-import { basename, isTextInputTarget, unique } from "./formatters";
+import { basename, facetValues, isTextInputTarget, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { BenchmarkTable } from "./runTables";
 import {
@@ -61,15 +61,11 @@ export function BenchmarksPage() {
     queryKey: ["benchmarks", benchmarkFilters],
     queryFn: () => fetchBenchmarks(benchmarkFilters)
   });
-  const benchmarkFacetsQuery = useQuery({
-    queryKey: ["benchmarks", "facets"],
-    queryFn: () => fetchBenchmarks({ limit: 500 })
-  });
   const benchmarks = benchmarksQuery.data?.benchmarks ?? [];
-  const benchmarkFacets = benchmarkFacetsQuery.data?.benchmarks ?? benchmarks;
-  const tasks = unique(benchmarkFacets.flatMap((benchmark) => benchmark.tasks).filter(Boolean));
-  const layers = unique(benchmarkFacets.flatMap((benchmark) => benchmark.layers).filter(Boolean));
-  const splits = unique(benchmarkFacets.map((benchmark) => benchmark.split).filter(Boolean));
+  const facets = benchmarksQuery.data?.facets;
+  const tasks = facetValues(facets, "tasks", benchmarks.flatMap((benchmark) => benchmark.tasks));
+  const layers = facetValues(facets, "layers", benchmarks.flatMap((benchmark) => benchmark.layers));
+  const splits = facetValues(facets, "splits", benchmarks.map((benchmark) => benchmark.split));
   const totalBenchmarks = benchmarksQuery.data?.total ?? benchmarks.length;
   useEffect(() => {
     setPageOffset(0);
