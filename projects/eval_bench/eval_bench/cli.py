@@ -167,16 +167,59 @@ JOB_RECORD_OUTPUT_SHAPE = {
     "error": "str|null",
     "metadata": JOB_METADATA_OUTPUT_SCHEMA,
 }
+SERVICE_CONFIG_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "model_path": "str|null",
+        "served_model_name": "str|null",
+        "endpoint": "str|null",
+        "host": "str",
+        "port": "int|null",
+        "cuda_visible_devices": "str|null",
+        "tensor_parallel_size": "int|null",
+        "max_model_len": "int|null",
+        "gpu_memory_utilization": "float|null",
+        "max_num_seqs": "int|null",
+        "extra_args": "list[str]",
+    },
+}
+SERVICE_HEALTH_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ok": "bool",
+        "status": "str",
+        "status_code": "int|null",
+        "url": "str|null",
+        "message": "str",
+        "checked_at": "str",
+    },
+}
+SERVICE_RUNTIME_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pid": "int|null",
+        "command": "list[str]",
+        "endpoint": "str|null",
+        "log_path": "str|null",
+        "started_at": "str|null",
+        "stopped_at": "str|null",
+        "health": SERVICE_HEALTH_OUTPUT_SCHEMA,
+    },
+}
+SERVICE_METADATA_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {},
+}
 SERVICE_RECORD_OUTPUT_SHAPE = {
     "service_id": "str",
     "kind": "str",
     "status": "str",
-    "config": "object",
+    "config": SERVICE_CONFIG_OUTPUT_SCHEMA,
     "created_at": "str",
     "updated_at": "str",
     "error": "str|null",
-    "runtime": "object",
-    "metadata": "object",
+    "runtime": SERVICE_RUNTIME_OUTPUT_SCHEMA,
+    "metadata": SERVICE_METADATA_OUTPUT_SCHEMA,
 }
 COMPARISON_SUMMARY_OUTPUT_SHAPE = {
     "comparison_id": "str",

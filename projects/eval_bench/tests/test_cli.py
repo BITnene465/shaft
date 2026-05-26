@@ -524,13 +524,21 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "value": "str",
         "count": "int",
     }
-    assert services_output_schema["properties"]["services"]["item_shape"]["config"] == "object"
-    assert services_output_schema["properties"]["services"]["item_shape"]["runtime"] == "object"
+    service_shape = services_output_schema["properties"]["services"]["item_shape"]
+    service_config_schema = service_shape["config"]
+    service_runtime_schema = service_shape["runtime"]
+    service_metadata_schema = service_shape["metadata"]
+    assert service_config_schema["properties"]["endpoint"] == "str|null"
+    assert service_config_schema["properties"]["extra_args"] == "list[str]"
+    assert service_runtime_schema["properties"]["command"] == "list[str]"
+    assert service_runtime_schema["properties"]["health"]["properties"]["ok"] == "bool"
+    assert service_runtime_schema["properties"]["health"]["properties"]["status_code"] == "int|null"
+    assert service_metadata_schema["properties"] == {}
     assert (
         CLI_JSON_OUTPUT_SCHEMAS["show-service"]["properties"]["service"]["item_shape"]
-        == services_output_schema["properties"]["services"]["item_shape"]
+        == service_shape
     )
-    assert CLI_JSON_OUTPUT_SCHEMAS["register-service"]["properties"]["runtime"] == "object"
+    assert CLI_JSON_OUTPUT_SCHEMAS["register-service"]["properties"]["runtime"] == service_runtime_schema
     assert CLI_JSON_OUTPUT_SCHEMAS["service-command"]["properties"]["command"]["type"] == "list[str]"
     assert CLI_JSON_OUTPUT_SCHEMAS["start-service"]["properties"]["service_id"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["service-health"]["properties"]["error"] == "str|null"
@@ -2738,7 +2746,11 @@ def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
         ]
     )
     _cmd_register_service(register_args)
-    capsys.readouterr()
+    registered = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("register-service", registered)
+    assert registered["config"]["endpoint"] == "http://127.0.0.1:8000/v1"
+    assert registered["runtime"] == {}
+    assert registered["metadata"] == {}
 
     list_args = _build_parser().parse_args(
         [
@@ -2755,11 +2767,15 @@ def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
     )
     _cmd_list_services(list_args)
     payload = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("list-services", payload)
 
     assert payload["total"] == 1
     assert payload["filters"]["kind"] == "external_vllm"
     assert payload["facets"]["kinds"] == [{"value": "external_vllm", "count": 1}]
     assert payload["services"][0]["service_id"] == "external-qwen3vl"
+    assert payload["services"][0]["config"]["endpoint"] == "http://127.0.0.1:8000/v1"
+    assert payload["services"][0]["runtime"] == {}
+    assert payload["services"][0]["metadata"] == {}
 
     show_args = _build_parser().parse_args(
         [
@@ -2772,6 +2788,9 @@ def test_cli_lists_services_with_agent_filters(tmp_path: Path, capsys) -> None:
     )
     _cmd_show_service(show_args)
     detail = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-service", detail)
     assert detail["service"]["service_id"] == "external-qwen3vl"
     assert detail["service"]["kind"] == "external_vllm"
     assert detail["service"]["config"]["endpoint"] == "http://127.0.0.1:8000/v1"
+    assert detail["service"]["runtime"] == {}
+    assert detail["service"]["metadata"] == {}

@@ -9,6 +9,44 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench service record config/runtime 不能只是粗 object
+
+### 现象
+
+`register-service`、`list-services`、`show-service`、`start-service`、`service-health`、`stop-service`
+和 `delete-service` 已经是 agent 管理长期 vLLM service 的稳定入口，但 CLI schema 仍把 service
+record 的 `config`、`runtime` 和 `metadata` 标成泛型 object。Agent 能看到服务存在，却不能从 schema
+判断 endpoint、本地启动参数、pid、launch command、log path 或 health 探测字段是否稳定。
+
+### 根因
+
+前几轮优先补齐了 service registry、lifecycle 和单对象读取，但没有把 `EvalBenchServiceManager` 和
+SQLite record 中已经稳定使用的字段提升到 CLI schema。服务状态真源在后端，schema 却停留在“任意 JSON
+blob”的表达层级。这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec / metric / data
+误判。
+
+### 影响范围
+
+- 影响 agent 对 model service 列表、健康探测和本地 runtime 进程的稳定解析。
+- 不改变 SQLite schema、service 状态机、Dashboard Services 页、worker runtime、Rank Board 或 evaluator 语义。
+
+### 修复方式
+
+- CLI schema 增加 `SERVICE_CONFIG_OUTPUT_SCHEMA`，声明 endpoint、本地 vLLM 启动参数和 extra args。
+- CLI schema 增加 `SERVICE_RUNTIME_OUTPUT_SCHEMA` 和 `SERVICE_HEALTH_OUTPUT_SCHEMA`，声明 pid、command、
+  endpoint、log path、启动/停止时间和 health 探测字段。
+- `SERVICE_RECORD_OUTPUT_SHAPE` 复用上述 schema，覆盖 register/list/show/start/health/stop/delete service 输出。
+- CLI 测试同时锁定 schema 合同和真实 `register-service` / `list-services` / `show-service` payload。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_lists_services_with_agent_filters`
+
+### 后续防线
+
+- 新增 service runtime 或 health 字段时，必须同步 CLI schema；不能让 agent 读取 SQLite、service log 或
+  dashboard state 来推断服务内部结构。
+
 ## 2026-05-26: Eval Bench job record payload/metadata 不能只是粗 object
 
 ### 现象
