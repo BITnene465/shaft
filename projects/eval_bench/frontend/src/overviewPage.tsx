@@ -456,22 +456,40 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
   }
   return (
     <div className="overview-run-list">
-      {runs.map((run, index) => (
-        <Link key={run.run_id} to="/runs/$runId" params={{ runId: run.run_id }}>
-          <em>{String(index + 1).padStart(2, "0")}</em>
-          <span>
-            <strong>{run.run_id}</strong>
-            <small>
-              {run.benchmark_id || "-"} · {run.model_id || "-"}
-            </small>
-          </span>
-          <span className="overview-run-counts" aria-label="run 产物规模">
-            <b>{run.prediction_count.toLocaleString()} pred</b>
-            <b>{run.report_count.toLocaleString()} report</b>
-          </span>
-          <Badge value={run.status} domain="run" />
-        </Link>
-      ))}
+      {runs.map((run, index) => {
+        const readiness = overviewRunReadiness(run);
+        return (
+          <Link
+            className={run.report_path ? "complete" : run.prediction_count > 0 ? "ready" : "draft"}
+            key={run.run_id}
+            to="/runs/$runId"
+            params={{ runId: run.run_id }}
+          >
+            <em>{String(index + 1).padStart(2, "0")}</em>
+            <span className="overview-run-main">
+              <strong>{run.run_id}</strong>
+              <small>
+                {run.benchmark_id || "-"} · {run.model_id || "-"}
+              </small>
+            </span>
+            <span className="overview-run-artifacts" aria-label="run 产物完成度">
+              <i>
+                <b style={{ width: `${readiness.percent}%` }} />
+              </i>
+              <small>{readiness.label}</small>
+            </span>
+            <span className="overview-run-counts" aria-label="run 产物规模">
+              <b>{run.prediction_count.toLocaleString()} pred</b>
+              <b>{run.report_count > 0 ? `${run.report_count.toLocaleString()} report` : "待评"}</b>
+              {run.note.trim() ? <b>note</b> : null}
+            </span>
+            <span className="overview-run-state">
+              <small>{overviewRunAge(run.created_at)}</small>
+              <Badge value={run.status} domain="run" />
+            </span>
+          </Link>
+        );
+      })}
     </div>
   );
 }
@@ -670,6 +688,46 @@ function overviewRecentRuns(runs: RunSummary[], limit: number) {
       );
     })
     .slice(0, limit);
+}
+
+function overviewRunReadiness(run: RunSummary) {
+  const hasPredictions = run.prediction_count > 0;
+  const hasReport = Boolean(run.report_path || run.report_count > 0);
+  const hasNote = run.note.trim().length > 0;
+  const percent = Math.min(
+    100,
+    (hasPredictions ? 48 : 0) + (hasReport ? 40 : 0) + (hasNote ? 12 : 0)
+  );
+  if (hasReport) {
+    return { label: hasNote ? "report + note" : "report ready", percent: Math.max(percent, 88) };
+  }
+  if (hasPredictions) {
+    return { label: hasNote ? "pred + note" : "prediction ready", percent: Math.max(percent, 48) };
+  }
+  return { label: hasNote ? "note only" : "draft", percent: Math.max(percent, 8) };
+}
+
+function overviewRunAge(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+  const createdAt = Date.parse(value);
+  if (!Number.isFinite(createdAt)) {
+    return "-";
+  }
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
+  if (diffSeconds < 60) {
+    return "now";
+  }
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 48) {
+    return `${diffHours}h`;
+  }
+  return `${Math.floor(diffHours / 24)}d`;
 }
 
 function percent(value: number, total: number) {

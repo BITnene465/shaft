@@ -480,7 +480,10 @@ async function assertOverviewDensity(page, scope) {
   const state = await page.evaluate(() => {
     const recentRows = Array.from(document.querySelectorAll(".overview-run-list a")).map((node) => {
       const rect = node.getBoundingClientRect();
-      return Math.round(rect.height);
+      return {
+        height: Math.round(rect.height),
+        text: node.textContent ?? ""
+      };
     });
     const signalCards = Array.from(document.querySelectorAll(".overview-signal-card")).map((node) => {
       const rect = node.getBoundingClientRect();
@@ -525,6 +528,8 @@ async function assertOverviewDensity(page, scope) {
       signalRails,
       stageMapLinks: document.querySelectorAll(".overview-stage-map a").length,
       healthLanes: document.querySelectorAll(".overview-health-strip span").length,
+      runArtifactRails: document.querySelectorAll(".overview-run-artifacts i b").length,
+      runStates: document.querySelectorAll(".overview-run-state .badge").length,
       panelHeights,
       recentRows,
       recentCards: document.querySelectorAll(".overview-workbench .overview-recent-card").length,
@@ -666,8 +671,22 @@ async function assertOverviewDensity(page, scope) {
   ) {
     throw new Error(`${scope}: overview exposes low-value diagnostic panels`);
   }
-  if (state.recentRows.some((height) => height > 72)) {
-    throw new Error(`${scope}: recent run rows are stretched ${state.recentRows.join(",")}`);
+  if (state.recentRows.some((row) => row.height > 76)) {
+    throw new Error(
+      `${scope}: recent run rows are stretched ${state.recentRows.map((row) => row.height).join(",")}`
+    );
+  }
+  if (state.recentRows.some((row) => /\b(P@|R@|precision|recall|iou|miou)\b/i.test(row.text))) {
+    throw new Error(`${scope}: recent run stream exposes fine metrics`);
+  }
+  if (state.runArtifactRails !== state.recentRows.length || state.runStates !== state.recentRows.length) {
+    throw new Error(
+      `${scope}: recent run stream should expose artifact rails and status capsules ${JSON.stringify({
+        rows: state.recentRows.length,
+        rails: state.runArtifactRails,
+        states: state.runStates
+      })}`
+    );
   }
   if (state.panelHeights.some((height) => height <= 0)) {
     throw new Error(`${scope}: overview panels are not visible ${state.panelHeights.join(",")}`);

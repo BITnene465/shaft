@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 总览最近 run 仍像普通结果列表
+
+### 现象
+
+总览页 v11 已经收敛成 flight deck，但“最近产物”仍只是 run id、benchmark/model、prediction/report chip
+和状态的普通列表。它没有表达产物完成度、备注是否存在和创建时间，视觉上更像 Runs 页的缩略版，而不是总控工作台里的
+运行流索引。
+
+### 根因
+
+`OverviewRunList` 只复用了结果库列表思路，没有把 recent run 的职责定义为“产物流状态信号”。这会让首页
+继续承担结果库明细展示职责，和“只回答当前状态、卡点、下一步”的总览边界不一致。这是前端信息架构问题，
+不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Dashboard Overview 的最近 run 区域、compact / narrow 视口可读性和首页操作感。
+- 不影响 run 存储、排行榜排序、对比报告、评估指标或对象级诊断。
+
+### 修复方式
+
+- `OverviewRunList` 改为压缩 run stream：每条展示 run id、benchmark/model、prediction/report/note 产物信号、
+  创建时间和状态胶囊。
+- 新增 `overviewRunReadiness()` 和 `overviewRunAge()`，将最近 run 的展示语义收敛到 Overview 页面内。
+- 样式增加 artifact rail、状态列和 complete/ready/draft tone，继续禁止 P/R/IoU 细指标进入总览。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- `test-ui-contracts.mjs` 要求 Overview recent run 使用 artifact rail、状态列和 readiness helper，且不能引入 `formatMetric`。
+- `layout-smoke-check.mjs` 在真实浏览器里断言 recent run stream 不出现 P/R/precision/recall/IoU 文案，且每条都有 artifact rail 和状态胶囊。
+
 ## 2026-05-26: Eval Bench 业务页折叠 details shell 仍分散实现
 
 ### 现象

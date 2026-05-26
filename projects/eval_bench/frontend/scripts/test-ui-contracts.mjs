@@ -239,6 +239,11 @@ assert(
     overviewPage.includes("overview-stage-map") &&
     overviewPage.includes("OverviewRecentRunsPanel") &&
     overviewPage.includes("overview-run-counts") &&
+    overviewPage.includes("overview-run-artifacts") &&
+    overviewPage.includes("overview-run-state") &&
+    overviewPage.includes("overviewRunReadiness") &&
+    overviewPage.includes("overviewRunAge") &&
+    !overviewPage.includes("formatMetric") &&
     overviewPage.includes("overview-operational-grid") &&
     overviewPage.includes("overview-action-list") &&
     overviewPage.includes("updateOverviewPointer") &&

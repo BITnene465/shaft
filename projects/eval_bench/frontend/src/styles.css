@@ -7711,10 +7711,10 @@ tbody tr:hover td {
 
 .overview-home-v11 .overview-run-list a {
   display: flex;
-  min-height: 60px;
+  min-height: 66px;
   align-items: center;
-  gap: 10px;
-  padding: 9px;
+  gap: 9px;
+  padding: 8px 9px;
   color: #13202d;
   background: linear-gradient(135deg, #ffffff 0%, #f8fbfa 100%);
   border: 1px solid #dbe8e5;
@@ -7725,6 +7725,16 @@ tbody tr:hover td {
     border-color 160ms ease,
     background 160ms ease,
     box-shadow 160ms ease;
+}
+
+.overview-home-v11 .overview-run-list a.ready {
+  border-color: #d9dfc5;
+  background: linear-gradient(135deg, #ffffff 0%, #fbf8ee 100%);
+}
+
+.overview-home-v11 .overview-run-list a.complete {
+  border-color: #cce7df;
+  background: linear-gradient(135deg, #ffffff 0%, #f3fbf8 100%);
 }
 
 .overview-home-v11 .overview-run-list a > em {
@@ -7742,12 +7752,45 @@ tbody tr:hover td {
   font-weight: 900;
 }
 
-.overview-home-v11 .overview-run-list a > span:nth-of-type(1) {
+.overview-home-v11 .overview-run-main {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 3px;
+}
+
+.overview-home-v11 .overview-run-artifacts {
+  display: flex;
+  flex: 0 0 92px;
+  min-width: 72px;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.overview-home-v11 .overview-run-artifacts i {
+  overflow: hidden;
+  height: 5px;
+  background: #e4eeea;
+  border-radius: 999px;
+}
+
+.overview-home-v11 .overview-run-artifacts i b {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #078aa9, #22a66c, #e0a437);
+  border-radius: inherit;
+  transition: width 220ms ease;
+}
+
+.overview-home-v11 .overview-run-artifacts small {
+  overflow: hidden;
+  color: #6d8088;
+  font-size: 9px;
+  font-weight: 840;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .overview-home-v11 .overview-run-counts {
@@ -7766,6 +7809,21 @@ tbody tr:hover td {
   border-radius: 999px;
   font-size: 10px;
   font-weight: 860;
+  line-height: 1;
+}
+
+.overview-home-v11 .overview-run-state {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.overview-home-v11 .overview-run-state small {
+  color: #70858d;
+  font-size: 10px;
+  font-weight: 850;
   line-height: 1;
 }
 
@@ -7905,6 +7963,7 @@ tbody tr:hover td {
   }
 
   .overview-home-v11 .overview-signal-card small,
+  .overview-home-v11 .overview-run-artifacts,
   .overview-home-v11 .overview-run-counts {
     display: none;
   }
