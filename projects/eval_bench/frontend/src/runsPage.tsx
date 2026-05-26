@@ -42,6 +42,7 @@ import {
   ActionButton,
   CommandButton,
   ConfigItem,
+  DisclosurePanel,
   EmptyState,
   SelectableRowButton,
   WorkspaceDialog
@@ -666,13 +667,17 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
   }
 
   return (
-    <details className="run-config-panel">
-      <summary>
-        <span>记录配置</span>
-        <strong>
-          {run.model_id} / {run.prompt_id || "-"} / {inferenceValue(run.inference, "backend")}
-        </strong>
-      </summary>
+    <DisclosurePanel
+      className="run-config-panel"
+      summary={
+        <>
+          <span>记录配置</span>
+          <strong>
+            {run.model_id} / {run.prompt_id || "-"} / {inferenceValue(run.inference, "backend")}
+          </strong>
+        </>
+      }
+    >
       <div className="run-note-editor">
         <div className="run-note-editor-head">
           <FileText size={16} />
@@ -759,8 +764,7 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
         </ConfigBlock>
       </div>
       {systemPrompt || userPrompt ? (
-        <details className="prompt-details">
-          <summary>Prompt 快照</summary>
+        <DisclosurePanel className="prompt-details" summary="Prompt 快照">
           {systemPrompt ? (
             <pre>
               <strong>system</strong>
@@ -775,9 +779,9 @@ function RunConfigPanel({ run }: { run: RunSummary }) {
               {userPrompt}
             </pre>
           ) : null}
-        </details>
+        </DisclosurePanel>
       ) : null}
-    </details>
+    </DisclosurePanel>
   );
 }
 

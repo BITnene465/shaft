@@ -6,7 +6,13 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { createElement, useEffect, useId, useRef } from "react";
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ElementType, ReactNode } from "react";
+import type {
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  DetailsHTMLAttributes,
+  ElementType,
+  ReactNode
+} from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import { statusClassName, statusInfo } from "./statusModel";
@@ -355,11 +361,31 @@ export function ActionPanel({
   children: ReactNode;
 }) {
   return (
-    <details className="action-panel">
-      <summary>
-        <span>{title}</span>
-        <strong>{meta}</strong>
-      </summary>
+    <DisclosurePanel
+      className="action-panel"
+      summary={
+        <>
+          <span>{title}</span>
+          <strong>{meta}</strong>
+        </>
+      }
+    >
+      {children}
+    </DisclosurePanel>
+  );
+}
+
+export function DisclosurePanel({
+  className,
+  summary,
+  children,
+  ...props
+}: DetailsHTMLAttributes<HTMLDetailsElement> & {
+  summary: ReactNode;
+}) {
+  return (
+    <details {...props} className={className}>
+      <summary>{summary}</summary>
       {children}
     </details>
   );

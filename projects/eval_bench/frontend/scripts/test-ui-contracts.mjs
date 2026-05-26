@@ -54,6 +54,12 @@ assert(
   "collapsible panel toggles must share PanelToggleButton",
 );
 assert(
+  uiSource.includes("export function DisclosurePanel(") &&
+    uiSource.includes("<details {...props} className={className}>") &&
+    uiSource.includes("<summary>{summary}</summary>"),
+  "collapsible details shells must share DisclosurePanel",
+);
+assert(
   uiSource.includes("export function IconNavLink(") &&
     uiSource.includes('className: joinClassNames("icon-button", dense && "dense", className)'),
   "router icon links must share IconNavLink",
@@ -139,6 +145,13 @@ assert(
   jobsPage.includes("DetectionLabelSubtaskPanel") &&
     jobsPage.includes("<DetectionLabelSubtaskPanel"),
   "label subtask panel must stay detection-only; keypoint jobs must not expose label subset UI",
+);
+assert(
+  jobsPage.includes("DisclosurePanel") &&
+    jobsPage.includes('className="prompt-template-panel"') &&
+    !/<details\b/.test(jobsPage) &&
+    !/<summary\b/.test(jobsPage),
+  "jobs prompt template panel must use DisclosurePanel instead of a local details shell",
 );
 
 const settingsControls = await readSource("src/settingsControls.tsx");
@@ -360,6 +373,14 @@ assert(
     !runsPage.includes("setNoteDraft(noteDraft +"),
   "run note editor must expose structured templates and refresh dashboard state after 409 conflicts",
 );
+assert(
+  runsPage.includes("DisclosurePanel") &&
+    runsPage.includes('className="run-config-panel"') &&
+    runsPage.includes('className="prompt-details"') &&
+    !/<details\b/.test(runsPage) &&
+    !/<summary\b/.test(runsPage),
+  "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
+);
 const runTables = await readSource("src/runTables.tsx");
 assert(
   runTables.includes("footer?: ReactNode") &&
@@ -497,6 +518,13 @@ assert(
     !rankBoardPage.includes('id: "rank-sort-by"') &&
     !rankBoardPage.includes('id: "rank-sort-order"'),
   "rank board primary metric controls must live in the visible rank decision panel, not inside advanced filters",
+);
+assert(
+  rankBoardPage.includes("DisclosurePanel") &&
+    rankBoardPage.includes('className="rank-scheme-panel"') &&
+    !/<details\b/.test(rankBoardPage) &&
+    !/<summary\b/.test(rankBoardPage),
+  "rank weighted scheme panel must use DisclosurePanel instead of a local details shell",
 );
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(

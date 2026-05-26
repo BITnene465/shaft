@@ -10,7 +10,16 @@ import { AdvancedFilterBar } from "./filterControls";
 import { formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl, clampListPageOffset } from "./samplePager";
-import { ActionButton, Badge, DataTable, EmptyState, InlineNavLink, MetricCard, OptionChipButton } from "./ui";
+import {
+  ActionButton,
+  Badge,
+  DataTable,
+  DisclosurePanel,
+  EmptyState,
+  InlineNavLink,
+  MetricCard,
+  OptionChipButton
+} from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
   f1_iou50: "F1@.50",
@@ -706,14 +715,18 @@ function RankSchemePanel({
 }) {
   const applied = Boolean(board.rank_scheme);
   return (
-    <details className="rank-scheme-panel">
-      <summary>
-        <div>
-          <span>Weighted rank scheme</span>
-          <strong>{applied ? board.primary_metric_label : "显式加权方案"}</strong>
-        </div>
-        <em>{applied ? "已应用" : enabled ? "待验证" : "默认 F1"}</em>
-      </summary>
+    <DisclosurePanel
+      className="rank-scheme-panel"
+      summary={
+        <>
+          <div>
+            <span>Weighted rank scheme</span>
+            <strong>{applied ? board.primary_metric_label : "显式加权方案"}</strong>
+          </div>
+          <em>{applied ? "已应用" : enabled ? "待验证" : "默认 F1"}</em>
+        </>
+      }
+    >
       <div className="rank-scheme-body">
         <label className={enabled ? "control-check active" : "control-check"}>
           <input
@@ -741,7 +754,7 @@ function RankSchemePanel({
           </ActionButton>
         </div>
       </div>
-    </details>
+    </DisclosurePanel>
   );
 }
 

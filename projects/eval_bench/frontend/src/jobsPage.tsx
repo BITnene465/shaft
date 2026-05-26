@@ -48,6 +48,7 @@ import {
   Badge,
   CommandButton,
   DangerConfirmDialog,
+  DisclosurePanel,
   IconActionButton,
   InlineNavLink,
   PanelTitle,
@@ -784,11 +785,16 @@ function PromptTemplatePanel({
 }) {
   const targetLabels = targetLabelsFromPrompt(prompt);
   return (
-    <details className="prompt-template-panel" open>
-      <summary>
-        <span>{prompt.label || prompt.prompt_id}</span>
-        <Badge value={prompt.task} />
-      </summary>
+    <DisclosurePanel
+      className="prompt-template-panel"
+      open
+      summary={
+        <>
+          <span>{prompt.label || prompt.prompt_id}</span>
+          <Badge value={prompt.task} />
+        </>
+      }
+    >
       <div className="prompt-template-meta">
         <span>{prompt.prompt_id}</span>
         <span>{prompt.parser ?? "parser 未设置"}</span>
@@ -811,6 +817,6 @@ function PromptTemplatePanel({
         {saving ? "保存中" : "将当前 Manifest 的 Prompt 保存为模板"}
       </ActionButton>
       {saveError ? <div className="form-error">Prompt 模板保存失败。</div> : null}
-    </details>
+    </DisclosurePanel>
   );
 }

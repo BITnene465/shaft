@@ -151,10 +151,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护工作台设置页面；`main.tsx` 只负责路由到该页面，不承载设置页预览、分组或本地偏好编排。
 - `projects/eval_bench/frontend/src/ui.tsx`
   - 维护 `WorkspaceDialog`、`DataTable`、`Badge`、`ActionButton`、`CommandButton`、
-    `IconActionButton`、`IconNavLink`、`InlineNavLink`、`InlineAnchor` 和 `PanelToggleButton` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
+    `IconActionButton`、`IconNavLink`、`InlineNavLink`、`InlineAnchor`、`PanelToggleButton` 和 `DisclosurePanel` 等基础展示组件；样本行选择使用 `SelectableRowButton`，query/label chip
     使用 `OptionChipButton`，可选卡片使用 `SelectableCardButton`；表单提交和 Settings 快捷键捕获
     也直接使用 `ActionButton` 变体，不保留页面私有 submit/capture raw button；
-    业务页不直接实现弹窗外壳、标准按钮层级、图标/文本导航链接或重复的 row/chip button 形态。
+    业务页不直接实现弹窗外壳、标准按钮层级、折叠 details shell、图标/文本导航链接或重复的 row/chip button 形态。
   - `WorkspaceDialog` 是弹窗焦点、滚动锁和可访问性属性的单一真源；业务页只传 title/meta/content，不直接操作
     body overflow 或手写焦点陷阱。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
@@ -272,6 +272,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `OptionChipButton` 维护 active / aria-pressed 语义，Compare 这类可选卡片和 viewer object row 必须通过
   `SelectableCardButton` 维护 active / aria-pressed 语义，局部 select 必须通过 `controlPrimitives.tsx`
   的 `CompactSelectControl` 或 `FormSelectControl`，避免业务页重复拼 className 或 raw `<select>`。
+  业务页折叠面板必须通过 `DisclosurePanel` 维护 `<details>/<summary>` shell；viewer 画布内轻量 popover 可以保留专用样式。
   Settings 快捷键捕获可以保留 `shortcut-capture` 专用样式和局部 `onKeyDown` 语义，但底层按钮仍必须通过
   `ActionButton`。
   前端 `test:ui-contracts` 是这条边界的静态防线，必须覆盖阻塞式浏览器弹窗、业务页自建 dialog shell

@@ -9,6 +9,43 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 业务页折叠 details shell 仍分散实现
+
+### 现象
+
+标准按钮、chip、select 和 dialog shell 已经组件化，但 Runs 的记录配置 / Prompt 快照、Jobs 的 prompt template
+面板和 Rank Board 的 weighted scheme 仍直接在业务页写 `<details>/<summary>`。后续继续调整 hover、focus、
+summary 结构或可访问性时，需要同时修改多个页面。
+
+### 根因
+
+之前只把按钮、弹窗和折叠触发按钮纳入共享 UI 原语，没有把业务页可折叠内容面板本身定义为一个共享 shell。
+`ActionPanel` 只覆盖少数 action panel，不能承载 run config、rank scheme 这类自定义 summary 内容。
+
+### 影响范围
+
+- 影响 Runs、Jobs 和 Rank Board 的折叠面板结构一致性、可访问性边界和后续视觉维护成本。
+- 不改变 dashboard API、eval、codec、metric、rank-board 排序或 label policy；这是前端组件边界收口问题。
+
+### 修复方式
+
+- 在 `ui.tsx` 新增 `DisclosurePanel`，作为业务页 `<details>/<summary>` shell 真源。
+- `ActionPanel` 改为复用 `DisclosurePanel`。
+- Runs 的记录配置和 Prompt 快照、Jobs 的 prompt template、Rank Board 的 weighted scheme 迁移到 `DisclosurePanel`。
+- UI contract 增加静态防线，禁止这些业务页继续直接写本地 details/summary shell。
+- README、架构文档和脚本文档同步 DisclosurePanel 边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 新增业务页折叠内容面板时默认使用 `DisclosurePanel`；只有 viewer 画布内轻量 popover 这类低层交互可以保留专用 details 外观。
+- 如果需要新的 summary 布局，应扩展 `DisclosurePanel` 的 props，而不是在业务页复制 `<details>/<summary>`。
+
 ## 2026-05-26: Eval Bench keypoint manifest 可隐藏残留 detection target_labels
 
 ### 现象
