@@ -47,10 +47,6 @@ if (process.env.INTERACTION_SMOKE === "1") {
       await objectRow.click();
       await page.locator(".object-row.active").first().waitFor({ timeout: 3_000 });
     }
-    const labelMetricCard = page.locator(".label-metric-card").first();
-    if ((await labelMetricCard.count()) > 0) {
-      await labelMetricCard.waitFor({ timeout: 3_000 });
-    }
     const objectMetric = page.locator(".object-match").first();
     if ((await objectMetric.count()) > 0) {
       await objectMetric.waitFor({ timeout: 3_000 });
@@ -92,12 +88,9 @@ async function assertPragmaticDefaults(page) {
   if ((await runConfig.count()) > 0 && await runConfig.evaluate((node) => node.hasAttribute("open"))) {
     throw new Error("run config should be collapsed by default");
   }
-  const labelMetric = page.locator("details.label-metric-card").first();
-  if (
-    (await labelMetric.count()) > 0 &&
-    await labelMetric.evaluate((node) => node.hasAttribute("open"))
-  ) {
-    throw new Error("label metric details should be collapsed by default");
+  const labelMetric = page.locator(".label-metric-card").first();
+  if ((await labelMetric.count()) > 0) {
+    throw new Error("sample inspector should not render resident label metric cards");
   }
   const layout = page.locator(".viewer-canvas-layout").first();
   if ((await layout.count()) > 0) {
@@ -236,13 +229,6 @@ async function exerciseDetailsPanels(page) {
     await runConfigSummary.click();
   }
 
-  const labelMetric = page.locator("details.label-metric-card").first();
-  if ((await labelMetric.count()) > 0) {
-    const labelMetricSummary = labelMetric.locator(":scope > summary");
-    await labelMetricSummary.click();
-    await page.locator(".label-metric-table").first().waitFor({ timeout: 3_000 });
-    await labelMetricSummary.click();
-  }
 }
 
 async function exerciseOverlayStyleControls(page) {

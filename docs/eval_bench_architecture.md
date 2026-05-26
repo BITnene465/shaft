@@ -288,8 +288,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   在自己的面板内滚动；不能用外层 `overflow: hidden` 把画布压成不可见。
 - 新增目录分页页面：只允许复用 `PagerControl` 和 `clampListPageOffset`；页面可以定义 page size、
   API filter 和业务 className，但不能复制 pager range、上一页/下一页禁用和 offset clamp 逻辑。
-- 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；TP、FP、FN、IoU、P/R
-  等精细指标必须留在折叠式分 label 明细、对象诊断、排行榜或对比页中。
+- 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；viewer side panel
+  不常驻渲染 per-label TP、FP、FN、IoU、P/R 指标表。精细指标必须留在 metric report、对象诊断、
+  排行榜或对比页中。
 
 ## Tests Required By Layer
 

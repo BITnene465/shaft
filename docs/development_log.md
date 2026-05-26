@@ -2472,8 +2472,46 @@ TP、FP、FN 和平均 IoU。用户在快速翻样本时会被精细评测指标
 
 ### 后续防线
 
-- 可视化检查器主视图只放粗粒度状态；精细 metric 进入可折叠明细、排行榜或对比页。
+- 可视化检查器主视图只放粗粒度状态；精细 metric 进入 metric report、对象诊断、排行榜或对比页。
 - 新增 viewer 常显区域时必须先判断信息是否服务快速检查，而不是把 report 字段直接平铺出来。
+
+## 2026-05-26: Eval Bench 可视化检查器常驻分标签指标表移除
+
+### 现象
+
+Run inspector 的外层统计条已经收敛为 `真实 / 预测` 两个计数，但右侧 sample viewer 仍常驻一个可展开的
+分标签指标表，列出 TP、FP、FN、P@.50、R@.50 和平均 IoU。用户在主页和检查器里仍会看到低频细指标堆叠，
+削弱快速翻样本时的空间效率和视觉重点。
+
+### 根因
+
+前端在 `viewerMetrics.ts` 中额外维护了 `visibleLabelMetrics()`，并在 `sampleViewer.tsx` 直接渲染
+`LabelMetricTable`。这让 viewer UI 形成了和 metric report、排行榜、对比页重复的 per-label 指标展示路径。
+这是 UI 信息架构冗余，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 Eval Bench dashboard 中复用 `SampleViewer` 的 Run inspector、工作台设置预览和样本对比视图。
+- 不影响 `metrics.json`、排行榜、对比页、导出诊断或对象级点击排障。
+
+### 修复方式
+
+- 移除 `LabelMetricTable`、`.label-metric-card` 样式和 `visibleLabelMetrics()` 专用计算入口。
+- `SampleViewer` 常驻区域只保留 `VisibleMetricStrip` 的真实/预测计数，以及按需交互的对象列表。
+- per-label 精细指标继续由后端 report、排行榜和对比页承载。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:metrics`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 INTERACTION_SMOKE=1 npm run render-check`
+
+### 后续防线
+
+- `test-ui-contracts.mjs` 禁止 sample viewer 重新引入 `visibleLabelMetrics` / `LabelMetricTable`。
+- `layout-smoke-check.mjs` 在真实浏览器里断言 run inspector side panel 不渲染常驻分标签指标卡。
 
 ## 2026-05-21: Eval Bench ephemeral vLLM TP 启动端口冲突
 

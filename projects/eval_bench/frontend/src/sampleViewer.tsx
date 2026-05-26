@@ -4,14 +4,9 @@ import type { RunSampleDetail } from "./api";
 import { basename, isTextInputTarget, unique } from "./formatters";
 import { CanvasStage } from "./viewerCanvas";
 import { displayImageUrl } from "./viewerGeometry";
-import {
-  buildObjectRows,
-  visibleLabelMetrics,
-  visibleSampleMetrics
-} from "./viewerMetrics";
+import { buildObjectRows, visibleSampleMetrics } from "./viewerMetrics";
 import {
   InstanceStats,
-  LabelMetricTable,
   ObjectList,
   ViewerControlPanel,
   VisibleMetricStrip,
@@ -81,7 +76,6 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     [activeLabelSet, detail.diagnostics, detail.gt_instances, detail.pred_instances]
   );
   const visibleMetrics = visibleSampleMetrics(detail, activeLabelSet);
-  const labelMetrics = visibleLabelMetrics(detail, activeLabelSet);
   const { actionForEvent } = useWorkspaceShortcuts();
 
   useEffect(() => {
@@ -177,7 +171,6 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
         onShowKeypointsChange={setShowKeypoints}
       />
       <VisibleMetricStrip metrics={visibleMetrics} />
-      <LabelMetricTable rows={labelMetrics} />
       <div className="instance-workbench">
         <InstanceStats title="真值实例" instances={visibleGtInstances} />
         <InstanceStats title="预测实例" instances={visiblePredInstances} />

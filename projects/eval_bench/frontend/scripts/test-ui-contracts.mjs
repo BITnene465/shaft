@@ -547,10 +547,18 @@ assert(
 assert(
   viewerPanels.includes("DisclosurePanel") &&
     viewerPanels.includes('className="control-popover"') &&
-    viewerPanels.includes('className="label-metric-card"') &&
     !/<details\b/.test(viewerPanels) &&
     !/<summary\b/.test(viewerPanels),
-  "viewer control popovers and label metrics must use DisclosurePanel instead of local details shells",
+  "viewer control popovers must use DisclosurePanel instead of local details shells",
+);
+assert(
+  !sampleViewer.includes("visibleLabelMetrics") &&
+    !sampleViewer.includes("LabelMetricTable") &&
+    !viewerPanels.includes("LabelMetricTable") &&
+    !viewerPanels.includes('className="label-metric-card"') &&
+    !viewerPanels.includes("P@.50") &&
+    !viewerPanels.includes("R@.50"),
+  "viewer must not expose a resident per-label metric table in the sample inspector",
 );
 assert(
   viewerPanels.includes("SelectableCardButton") &&

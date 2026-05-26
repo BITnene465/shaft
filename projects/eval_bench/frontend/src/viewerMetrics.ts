@@ -24,18 +24,6 @@ export type VisibleMetrics = {
   meanIou: number;
 };
 
-export type LabelMetricRow = {
-  label: string;
-  gtCount: number;
-  predCount: number;
-  matchedCount: number;
-  falsePositiveCount: number;
-  falseNegativeCount: number;
-  meanIou: number;
-  precision: number | null;
-  recall: number | null;
-};
-
 type Diagnostics = RunSampleDetail["diagnostics"];
 
 export function buildObjectRows({
@@ -163,38 +151,6 @@ export function visibleSampleMetrics(
   };
 }
 
-export function visibleLabelMetrics(
-  detail: Pick<RunSampleDetail, "gt_instances" | "pred_instances" | "diagnostics">,
-  labels: Set<string>
-): LabelMetricRow[] {
-  const gtCounts = countInstancesByLabel(detail.gt_instances);
-  const predCounts = countInstancesByLabel(detail.pred_instances);
-  const allLabels = unique([
-    ...Object.keys(gtCounts),
-    ...Object.keys(predCounts),
-    ...Object.keys(detail.diagnostics?.labels ?? {})
-  ]).filter((label) => labels.has(label));
-  return allLabels.map((label) => {
-    const gtCount = gtCounts[label] ?? 0;
-    const predCount = predCounts[label] ?? 0;
-    const diagnostics = detail.diagnostics?.labels[label];
-    const matchedCount = diagnostics?.matched_count ?? 0;
-    const falsePositiveCount = diagnostics?.false_positive_count ?? 0;
-    const falseNegativeCount = diagnostics?.false_negative_count ?? 0;
-    return {
-      label,
-      gtCount,
-      predCount,
-      matchedCount,
-      falsePositiveCount,
-      falseNegativeCount,
-      meanIou: diagnostics?.mean_iou ?? 0,
-      precision: predCount > 0 ? matchedCount / predCount : null,
-      recall: gtCount > 0 ? matchedCount / gtCount : null
-    };
-  });
-}
-
 export function countInstancesByLabel(instances: EvalInstance[]) {
   return instances.reduce<Record<string, number>>((accumulator, instance) => {
     accumulator[instance.label] = (accumulator[instance.label] ?? 0) + 1;
@@ -239,8 +195,4 @@ export function formatBbox(bbox: number[]) {
 
 function formatCoord(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function unique(values: string[]) {
-  return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
 }

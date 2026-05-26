@@ -9,7 +9,6 @@ import {
   objectStatusLabel
 } from "./viewerMetrics";
 import type {
-  LabelMetricRow,
   ObjectKind,
   ObjectRow,
   VisibleMetrics
@@ -206,49 +205,6 @@ export function VisibleMetricStrip({ metrics }: { metrics: VisibleMetrics }) {
         </span>
       ))}
     </div>
-  );
-}
-
-export function LabelMetricTable({ rows }: { rows: LabelMetricRow[] }) {
-  return (
-    <DisclosurePanel className="label-metric-card" summary="分标签指标">
-      {rows.length === 0 ? (
-        <div className="muted-line">没有可见标签。</div>
-      ) : (
-        <div className="label-metric-table">
-          <table>
-            <thead>
-              <tr>
-                <th>标签</th>
-                <th>真值</th>
-                <th>预测</th>
-                <th>TP</th>
-                <th>FP</th>
-                <th>FN</th>
-                <th>P@.50</th>
-                <th>R@.50</th>
-                <th>平均 IoU</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <td title={row.label}>{row.label}</td>
-                  <td>{row.gtCount.toLocaleString()}</td>
-                  <td>{row.predCount.toLocaleString()}</td>
-                  <td>{row.matchedCount.toLocaleString()}</td>
-                  <td>{row.falsePositiveCount.toLocaleString()}</td>
-                  <td>{row.falseNegativeCount.toLocaleString()}</td>
-                  <td>{formatMetric(row.precision)}</td>
-                  <td>{formatMetric(row.recall)}</td>
-                  <td>{formatMetric(row.meanIou)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </DisclosurePanel>
   );
 }
 

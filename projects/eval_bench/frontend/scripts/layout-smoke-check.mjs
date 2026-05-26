@@ -865,10 +865,16 @@ async function assertInspectorFilters(page, scope) {
 async function assertRunInspectorCountStrip(page, scope) {
   const state = await page.evaluate(() => {
     const strip = document.querySelector(".viewer-side-panel .diagnostic-strip");
+    const labelMetricCards = document.querySelectorAll(".viewer-side-panel .label-metric-card").length;
+    const tableHeaders = Array.from(document.querySelectorAll(".viewer-side-panel th")).map(
+      (node) => node.textContent?.trim() ?? ""
+    );
     return {
       text: strip?.textContent?.replace(/\s+/g, " ").trim() ?? "",
       chipCount: strip?.querySelectorAll(":scope > span").length ?? 0,
-      compact: strip?.classList.contains("compact-counts") ?? false
+      compact: strip?.classList.contains("compact-counts") ?? false,
+      labelMetricCards,
+      tableHeaders
     };
   });
   if (!state.compact || state.chipCount !== 2) {
@@ -879,6 +885,14 @@ async function assertRunInspectorCountStrip(page, scope) {
   }
   if (/\b(TP|FP|FN)\b|IoU|平均/.test(state.text)) {
     throw new Error(`${scope}: run inspector count strip exposes fine metrics: ${state.text}`);
+  }
+  if (state.labelMetricCards !== 0) {
+    throw new Error(`${scope}: run inspector should not render resident label metric cards`);
+  }
+  if (state.tableHeaders.some((header) => /^TP$|^FP$|^FN$|^P@|^R@|IoU|平均/.test(header))) {
+    throw new Error(
+      `${scope}: run inspector side panel exposes fine metric table headers ${state.tableHeaders.join(", ")}`
+    );
   }
 }
 

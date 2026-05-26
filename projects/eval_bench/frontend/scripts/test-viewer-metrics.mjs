@@ -76,15 +76,6 @@ assert.equal(summary.falsePositiveCount, 1);
 assert.equal(summary.falseNegativeCount, 2);
 assert.equal(summary.meanIou, 0.86);
 
-const labelRows = metrics.visibleLabelMetrics(detail, labels);
-assert.equal(labelRows.length, 2);
-assert.equal(labelRows[0].label, "arrow");
-assert.equal(labelRows[0].precision, 1);
-assert.equal(labelRows[0].recall, 1);
-assert.equal(labelRows[1].label, "icon");
-assert.equal(labelRows[1].precision, 0);
-assert.equal(labelRows[1].recall, 0);
-
 const objectRows = metrics.buildObjectRows({
   gtInstances: detail.gt_instances,
   predInstances: detail.pred_instances,
