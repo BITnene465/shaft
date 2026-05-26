@@ -19,6 +19,7 @@ const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
 const apiSource = await readSource("src/api.ts");
 const filterControls = await readSource("src/filterControls.tsx");
+const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
 assert(
@@ -35,7 +36,11 @@ assert(
   "paged list controls must share PagerControl and clampListPageOffset",
 );
 assert(
-  filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
+  filterControls.includes('import { FilterSelectControl } from "./controlPrimitives";') &&
+    filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
+    filterControls.includes("<FilterSelectControl") &&
+    !/<select\b/.test(filterControls) &&
+    controlPrimitives.includes("export function FilterSelectControl(") &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function resetAdvancedFilter(") &&
     filterControls.includes("function openAdvancedFilter()") &&

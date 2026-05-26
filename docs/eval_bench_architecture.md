@@ -21,8 +21,8 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
      关闭后焦点恢复和 dialog body 滚动语义不能在业务页复制。
    - 标准按钮统一走 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；
      业务页只保留样本行、label chip、画布 HUD 等专用交互控件。
-   - 页面局部输入控件优先走 `controlPrimitives.tsx`；业务页不能为了局部 toolbar 继续复制
-     `filter-select compact` 这类筛选样式。
+  - 页面局部输入控件优先走 `controlPrimitives.tsx`；业务页和共享 filter 编排层不能为了局部 toolbar
+     继续复制 `filter-select compact` 这类筛选样式或 raw `<select>` 外壳。
 2. **API Facade Layer**
    - FastAPI route、request/response 转换、错误响应和日志。
    - 不直接实现 metric、runtime lifecycle、prediction parsing。
@@ -121,10 +121,10 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
   - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
-  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索触发器、浮层表单、分组目录、条件 token、清空动作和默认值判定真源。
+  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索触发器、浮层表单、分组目录、条件 token、清空动作和默认值判定真源；select 外壳复用 `controlPrimitives.tsx`。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
-  - 维护 number、color、select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
-    弹窗表单和对比选择轨不各自复制 select/input 外壳。
+  - 维护 number、color、filter select、form select、compact select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
+    高级检索、弹窗表单和对比选择轨不各自复制 select/input 外壳。
 - `projects/eval_bench/frontend/src/formatters.ts`
   - 维护前端展示格式、run 下拉选项文案和链接构造；`RunSummary.f1_iou50` 是 API/CLI 的默认主指标真源，前端 F1 计算只做旧 payload 兼容兜底；Run Table、Compare 选择轨和 Rank Board 不能各自把 recall 或 precision 当成默认主指标展示。
 - `projects/eval_bench/eval_bench/log_utils.py`

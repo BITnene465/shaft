@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 
+import { FilterSelectControl } from "./controlPrimitives";
 import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
 
 const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
@@ -27,16 +28,14 @@ export function FilterSelect({
   compact?: boolean;
 }) {
   return (
-    <label className={compact ? "filter-select compact" : "filter-select"}>
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} title={label}>
-        {values.map((item) => (
-          <option key={item} value={item}>
-            {labels?.[item] ?? item}
-          </option>
-        ))}
-      </select>
-    </label>
+    <FilterSelectControl
+      label={label}
+      value={value}
+      values={values}
+      labels={labels}
+      compact={compact}
+      onChange={onChange}
+    />
   );
 }
 

@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 高级检索 select 外壳仍留在 filter 编排层
+
+### 现象
+
+`AdvancedFilterBar` 已经把页面筛选收敛成统一 Filter 浮层，但 `filterControls.tsx` 内部的 `FilterSelect`
+仍直接渲染 raw `<select>` 和 `filter-select compact` 外壳。业务页虽然没有继续复制下拉控件，
+但共享 filter 编排层仍承担了基础输入控件职责。
+
+### 根因
+
+前几轮先把业务页筛选迁到 `AdvancedFilterBar`，又把普通 form/compact select 迁到 `controlPrimitives.tsx`，
+但漏掉了高级检索自己的 select primitive。这会让筛选外壳样式、可访问性和后续键盘行为继续存在两个维护入口。
+
+### 影响范围
+
+- 影响所有复用 `AdvancedFilterBar` 的 Runs、Rank Board、Benchmarks、Jobs、Services、Compare 和 inspector 样本筛选。
+- 不影响 filter 查询语义、后端分页、rank-board 排序、label 子任务或 evaluator metric。
+
+### 修复方式
+
+- 在 `controlPrimitives.tsx` 新增 `FilterSelectControl`，集中维护 `filter-select` / compact select 外壳。
+- `filterControls.tsx` 的 `FilterSelect` 改为只包装 `FilterSelectControl`，不再直接渲染 raw `<select>`。
+- `test-ui-contracts.mjs` 增加防线：`filterControls.tsx` 必须导入并使用 `FilterSelectControl`，不能再出现 raw `<select>`。
+- README、架构文档和脚本文档同步控制原语边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增高级检索控件时，`filterControls.tsx` 只负责分组、浮层、token、清空和焦点逻辑；基础 input/select 外壳进入 `controlPrimitives.tsx`。
+- 业务页和共享编排层都不能重新复制 raw select 或 `filter-select compact` 外壳。
+
 ## 2026-05-26: Eval Bench run summary 缺少 F1 真源
 
 ### 现象

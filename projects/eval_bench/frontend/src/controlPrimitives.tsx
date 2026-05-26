@@ -130,6 +130,35 @@ export function CompactSelectControl({
   );
 }
 
+export function FilterSelectControl({
+  label,
+  value,
+  values,
+  labels,
+  compact = false,
+  onChange
+}: {
+  label: string;
+  value: string;
+  values: string[];
+  labels?: Record<string, string>;
+  compact?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className={compact ? "filter-select compact" : "filter-select"}>
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} title={label}>
+        {values.map((item) => (
+          <option key={item} value={item}>
+            {labels?.[item] ?? item}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function ToggleButton({
   label,
   active,
