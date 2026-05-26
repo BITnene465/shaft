@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench comparison delta/summary 不能只是粗 object
+
+### 现象
+
+`list-comparisons` 和 `show-comparison` 已经是 agent 读取 saved comparison、判断改善/退化样本和回溯
+Rank Board 差异的稳定入口，但 CLI schema 仍把 `delta` 和 `summary` 标成泛型 object。Agent 能看到
+有对比报告，却不能从 schema 判断 precision/recall/IoU、endpoint distance、样本改善计数或 label delta
+字段是否稳定。
+
+### 根因
+
+comparison report 的生成逻辑已经固定输出 run-level delta、summary 计数、baseline/candidate 指标、
+label delta、sample delta、top improvements 和 top regressions，但 schema 只声明到外层 report 字段。
+这是 agent contract 缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 agent 对 saved comparison 的稳定解析、排序解释和回归样本定位。
+- 不改变 comparison report 文件格式、Compare UI、Rank Board 排序、evaluator 指标或样本 viewer 语义。
+
+### 修复方式
+
+- CLI schema 增加 comparison run metrics、label metrics、delta、summary 和 sample delta schema。
+- `COMPARISON_SUMMARY_OUTPUT_SHAPE` 使用上述 schema 声明 `delta`、`summary`、`baseline`、`candidate`、
+  `labels`、`samples`、`top_improvements` 和 `top_regressions`。
+- CLI 测试锁定列表和详情 schema，并对真实 `list-comparisons` / `show-comparison` payload 做 schema 校验。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands projects/eval_bench/tests/test_cli.py::test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters projects/eval_bench/tests/test_cli.py::test_cli_shows_saved_comparison_and_sample_detail_for_agents`
+
+### 后续防线
+
+- 新增 comparison report 字段时，必须同步 CLI schema；不能让 agent 通过读取 report 样例或 dashboard state
+  反推 `delta` / `summary` 的内部结构。
+
 ## 2026-05-26: Eval Bench service record config/runtime 不能只是粗 object
 
 ### 现象

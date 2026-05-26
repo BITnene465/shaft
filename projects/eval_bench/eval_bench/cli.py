@@ -221,6 +221,100 @@ SERVICE_RECORD_OUTPUT_SHAPE = {
     "runtime": SERVICE_RUNTIME_OUTPUT_SCHEMA,
     "metadata": SERVICE_METADATA_OUTPUT_SCHEMA,
 }
+COMPARISON_RUN_METRICS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "precision_iou50": "float",
+        "recall_iou50": "float",
+        "mean_iou": "float",
+        "keypoint_pair_count": "int",
+        "mean_keypoint_distance": "float",
+        "matched_count": "int",
+        "gt_instance_count": "int",
+        "pred_instance_count": "int",
+    },
+}
+COMPARISON_LABEL_METRICS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "gt_count": "int",
+        "pred_count": "int",
+        "matched_count": "int",
+        "false_positive_count": "int",
+        "false_negative_count": "int",
+        "precision_iou50": "float",
+        "recall_iou50": "float",
+        "mean_iou": "float",
+        "keypoint_pair_count": "int",
+        "mean_keypoint_distance": "float",
+    },
+}
+COMPARISON_DELTA_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "precision_iou50": "float",
+        "recall_iou50": "float",
+        "mean_iou": "float",
+        "mean_keypoint_distance": "float",
+        "matched_count": "int",
+        "keypoint_pair_count": "int",
+        "false_positive_count": "int",
+        "false_negative_count": "int",
+    },
+}
+COMPARISON_OVERVIEW_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "improved_samples": "int",
+        "regressed_samples": "int",
+        "changed_samples": "int",
+        "unchanged_samples": "int",
+        "missing_in_baseline": "int",
+        "missing_in_candidate": "int",
+        "improved_labels": "int",
+        "regressed_labels": "int",
+    },
+}
+COMPARISON_LABEL_DELTA_OUTPUT_SCHEMA = {
+    "label": "str",
+    "baseline": COMPARISON_LABEL_METRICS_OUTPUT_SCHEMA,
+    "candidate": COMPARISON_LABEL_METRICS_OUTPUT_SCHEMA,
+    "delta": COMPARISON_DELTA_OUTPUT_SCHEMA,
+    "delta_score": "float",
+}
+COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "matched_count": "int",
+        "false_positive_count": "int",
+        "false_negative_count": "int",
+        "mean_iou": "float",
+        "keypoint_pair_count": "int",
+        "mean_keypoint_distance": "float",
+    },
+}
+COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA = {
+    "key": "str",
+    "image": "str|null",
+    "sample_index": "int|null",
+    "baseline_index": "int|null",
+    "candidate_index": "int|null",
+    "status": "str",
+    "delta_score": "float",
+    "delta": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA,
+    "baseline": {
+        "type": "object|null",
+        "item_shape": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA["properties"],
+    },
+    "candidate": {
+        "type": "object|null",
+        "item_shape": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA["properties"],
+    },
+    "labels": {
+        "type": "object",
+        "values": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA,
+    },
+}
 COMPARISON_SUMMARY_OUTPUT_SHAPE = {
     "comparison_id": "str",
     "baseline_run_id": "str",
@@ -232,8 +326,15 @@ COMPARISON_SUMMARY_OUTPUT_SHAPE = {
     "sample_count": "int",
     "created_at": "str|null",
     "path": "str",
-    "delta": "object",
-    "summary": "object",
+    "warnings": "list[str]",
+    "baseline": COMPARISON_RUN_METRICS_OUTPUT_SCHEMA,
+    "candidate": COMPARISON_RUN_METRICS_OUTPUT_SCHEMA,
+    "delta": COMPARISON_DELTA_OUTPUT_SCHEMA,
+    "summary": COMPARISON_OVERVIEW_OUTPUT_SCHEMA,
+    "labels": {"type": "array", "item_shape": COMPARISON_LABEL_DELTA_OUTPUT_SCHEMA},
+    "samples": {"type": "array", "item_shape": COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA},
+    "top_improvements": {"type": "array", "item_shape": COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA},
+    "top_regressions": {"type": "array", "item_shape": COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA},
 }
 COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE = {
     "run_id": "str",

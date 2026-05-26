@@ -576,8 +576,22 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         ["task", "baseline_run_id", "candidate_run_id", "label", "query"],
     )
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
-    assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["delta"] == "object"
-    assert CLI_JSON_OUTPUT_SCHEMAS["show-comparison"]["properties"]["summary"] == "object"
+    comparison_shape = comparisons_output_schema["properties"]["comparisons"]["item_shape"]
+    assert comparison_shape["delta"]["properties"]["precision_iou50"] == "float"
+    assert comparison_shape["delta"]["properties"]["false_negative_count"] == "int"
+    assert comparison_shape["summary"]["properties"]["improved_samples"] == "int"
+    assert comparison_shape["baseline"]["properties"]["matched_count"] == "int"
+    assert comparison_shape["labels"]["item_shape"]["delta"]["properties"]["mean_iou"] == "float"
+    assert (
+        comparison_shape["top_regressions"]["item_shape"]["baseline"]["item_shape"][
+            "false_positive_count"
+        ]
+        == "int"
+    )
+    assert (
+        CLI_JSON_OUTPUT_SCHEMAS["show-comparison"]["properties"]["summary"]
+        == comparison_shape["summary"]
+    )
     comparison_sample_output_schema = CLI_JSON_OUTPUT_SCHEMAS["show-comparison-sample"]
     assert comparison_sample_output_schema["properties"]["baseline"]["item_shape"]["pred_instances"] == "list[object]"
     assert comparison_sample_output_schema["properties"]["candidate"]["item_shape"]["diagnostics"] == "object|null"
@@ -2019,6 +2033,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     )
     _cmd_list_comparisons(comparison_args)
     comparisons = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("list-comparisons", comparisons)
     assert comparisons["total"] == 1
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
@@ -2174,8 +2189,11 @@ def test_cli_shows_saved_comparison_and_sample_detail_for_agents(
     )
     _cmd_show_comparison(show_args)
     comparison = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("show-comparison", comparison)
     assert comparison["comparison_id"] == "run_base__vs__run_a"
     assert comparison["target_labels"] == ["arrow"]
+    assert comparison["delta"]["recall_iou50"] == 0.0
+    assert comparison["summary"]["improved_samples"] == 0
 
     by_id_args = _build_parser().parse_args(
         [

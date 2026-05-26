@@ -1018,6 +1018,9 @@ Metric 展示分三层：
 Comparison report 会写入 `eval_bench_store/exports/comparisons/`。它只比较已经持久化的 metric report，不重新跑推理。Dashboard 的 Compare 页通过 `/api/comparisons` 读取同一份 report，展示 P/R/IoU、endpoint distance、TP/FP/FN 和 endpoint pair delta；已保存 comparison 历史通过 `/api/comparisons?list=1` 查询，并支持 task、label、baseline run、candidate run、全文 query 和 offset/limit 分页。样本和标签排行使用 metric profile 保留的主指标语义，因此 `keypoint_endpoint_v1` 中 endpoint distance 下降会被视为改善。Compare 页同时列出已保存 comparison，并提供 top 改善/退化样本到并排样本对比 viewer 的跳转。Rank Board 负责全局排名、facet 和主指标排序，默认主指标是 F1@.50。Compare 工作区和成对样本对比的左右 run 面板都使用可拖拽分栏，适合在不同屏幕宽度下长期排障。
 读取已保存 comparison 用 `show-comparison`；读取成对样本详情用 `show-comparison-sample`，两者都走
 store/comparison API，不需要直接读取 `exports/comparisons` 或 run artifact 文件。
+`list-comparisons` 和 `show-comparison` 的 CLI JSON schema 会声明 run-level delta、summary 计数、
+baseline/candidate 指标、label delta 和 sample delta 的主要字段，agent 不需要把 `delta` 或
+`summary` 当作无结构 blob 处理。
 
 运行轻量 dashboard-store performance smoke：
 
