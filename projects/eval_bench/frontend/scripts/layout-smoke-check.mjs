@@ -18,13 +18,11 @@ const staticRoutes = [
       ".overview-home-v17",
       ".overview-ops-board",
       ".overview-rank-console",
-      ".overview-evidence-row",
       ".overview-decision-metrics",
       ".overview-decision-metric",
       ".overview-decision-icon",
       ".overview-state-strip",
       ".overview-run-focus",
-      ".overview-loop-panel",
       ".overview-flow-spine",
       ".overview-flow-node",
       ".overview-score-dial",
@@ -502,9 +500,7 @@ async function assertOverviewDensity(page, scope) {
     const commandShell = document.querySelector(".overview-ops-board");
     const nowPanel = document.querySelector(".overview-ops-board");
     const livePanel = document.querySelector(".overview-rank-console");
-    const loopPanel = document.querySelector(".overview-loop-panel");
     const recentCard = document.querySelector(".overview-recent-card");
-    const workflowRow = document.querySelector(".overview-evidence-row");
     const opsSignal = document.querySelector(".overview-ops-signal");
     const decisionMetric = document.querySelector(".overview-decision-metric");
     const scoreDial = document.querySelector(".overview-score-dial");
@@ -517,15 +513,13 @@ async function assertOverviewDensity(page, scope) {
     ).map((node) => Math.round(node.getBoundingClientRect().width));
     const panelHeights = Array.from(
       document.querySelectorAll(
-        ".overview-ops-board, .overview-loop-panel, .overview-recent-card"
+        ".overview-ops-board, .overview-recent-card"
       )
     ).map((node) => Math.round(node.getBoundingClientRect().height));
     const commandShellStyle = commandShell ? getComputedStyle(commandShell) : null;
     const nowPanelStyle = nowPanel ? getComputedStyle(nowPanel) : null;
     const livePanelStyle = livePanel ? getComputedStyle(livePanel) : null;
-    const loopPanelStyle = loopPanel ? getComputedStyle(loopPanel) : null;
     const recentCardStyle = recentCard ? getComputedStyle(recentCard) : null;
-    const workflowRowStyle = workflowRow ? getComputedStyle(workflowRow) : null;
     const opsSignalStyle = opsSignal ? getComputedStyle(opsSignal) : null;
     const decisionMetricStyle = decisionMetric ? getComputedStyle(decisionMetric) : null;
     const scoreDialStyle = scoreDial ? getComputedStyle(scoreDial) : null;
@@ -565,13 +559,10 @@ async function assertOverviewDensity(page, scope) {
       bodyText,
       nowPanelHeight: nowPanel ? Math.round(nowPanel.getBoundingClientRect().height) : 0,
       livePanelHeight: livePanel ? Math.round(livePanel.getBoundingClientRect().height) : 0,
-      loopPanelHeight: loopPanel ? Math.round(loopPanel.getBoundingClientRect().height) : 0,
       recentCardHeight: recentCard ? Math.round(recentCard.getBoundingClientRect().height) : 0,
       nowPanelDisplay: nowPanelStyle?.display ?? "",
       livePanelDisplay: livePanelStyle?.display ?? "",
-      loopPanelDisplay: loopPanelStyle?.display ?? "",
       recentCardDisplay: recentCardStyle?.display ?? "",
-      workflowRowDisplay: workflowRowStyle?.display ?? "",
       opsSignalTransition: opsSignalStyle?.transitionDuration ?? "",
       decisionMetricTransition: decisionMetricStyle?.transitionDuration ?? "",
       scoreDialTransition: scoreDialStyle?.transitionDuration ?? "",
@@ -595,18 +586,14 @@ async function assertOverviewDensity(page, scope) {
     state.commandShellDisplay !== "flex" ||
     state.nowPanelDisplay !== "flex" ||
     state.livePanelDisplay !== "flex" ||
-    state.loopPanelDisplay !== "block" ||
-    state.recentCardDisplay !== "block" ||
-    state.workflowRowDisplay !== "flex"
+    state.recentCardDisplay !== "block"
   ) {
     throw new Error(
       `${scope}: overview should use a value-first operations desk ${JSON.stringify({
         commandShellDisplay: state.commandShellDisplay,
         nowPanelDisplay: state.nowPanelDisplay,
         livePanelDisplay: state.livePanelDisplay,
-        loopPanelDisplay: state.loopPanelDisplay,
-        recentCardDisplay: state.recentCardDisplay,
-        workflowRowDisplay: state.workflowRowDisplay
+        recentCardDisplay: state.recentCardDisplay
       })}`
     );
   }
@@ -638,12 +625,12 @@ async function assertOverviewDensity(page, scope) {
   if (
     state.nowPanels !== 1 ||
     state.livePanels !== 1 ||
-    state.loopPanels !== 1 ||
+    state.loopPanels !== 0 ||
     state.recentCards !== 1 ||
-    state.workflowRows !== 1
+    state.workflowRows !== 0
   ) {
     throw new Error(
-      `${scope}: overview should keep one mission board, score cluster, loop panel, workflow row, and recent panel ${JSON.stringify({
+      `${scope}: overview should keep one mission board, score cluster, and recent panel without the old duplicate loop row ${JSON.stringify({
         nowPanels: state.nowPanels,
         livePanels: state.livePanels,
         loopPanels: state.loopPanels,
@@ -655,14 +642,12 @@ async function assertOverviewDensity(page, scope) {
   if (
     state.nowPanelHeight < 180 ||
     state.livePanelHeight < 120 ||
-    state.loopPanelHeight < 120 ||
     state.recentCardHeight < 120
   ) {
     throw new Error(
       `${scope}: overview control panels collapsed ${JSON.stringify({
         nowPanelHeight: state.nowPanelHeight,
         livePanelHeight: state.livePanelHeight,
-        loopPanelHeight: state.loopPanelHeight,
         recentCardHeight: state.recentCardHeight
       })}`
     );

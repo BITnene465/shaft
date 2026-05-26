@@ -7248,9 +7248,9 @@ tbody tr:hover td {
 
 .overview-home-v17 .overview-decision-copy {
   display: flex;
-  max-width: 820px;
+  max-width: 880px;
   flex-direction: column;
-  gap: 14px;
+  gap: 13px;
 }
 
 .overview-home-v17 .overview-state-strip {
@@ -7307,6 +7307,58 @@ tbody tr:hover td {
   font-size: 14px;
   font-weight: 680;
   line-height: 1.55;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-spine {
+  margin-top: 2px;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-spine::before {
+  background: linear-gradient(90deg, #70e7df, #f3c15f, #22a66c);
+  opacity: 0.28;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node {
+  min-height: 118px;
+  color: #ecfaf9;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 13%) 0%, rgb(255 255 255 / 7%) 100%),
+    linear-gradient(90deg, rgb(112 231 223 / 8%), transparent);
+  border-color: rgb(205 242 240 / 20%);
+  backdrop-filter: blur(12px);
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node > span {
+  color: #062b38;
+  background: #dff8f3;
+  border-color: rgb(151 229 220 / 64%);
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node strong,
+.overview-home-v17 .overview-ops-board .overview-flow-node em {
+  color: #ffffff;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node small {
+  color: #b9d5d8;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node > i {
+  background: rgb(214 241 239 / 18%);
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node:hover {
+  color: #092333;
+  background: #ffffff;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node:hover strong,
+.overview-home-v17 .overview-ops-board .overview-flow-node:hover em {
+  color: #112c3f;
+}
+
+.overview-home-v17 .overview-ops-board .overview-flow-node:hover small {
+  color: #6a7f8d;
 }
 
 .overview-home-v17 .overview-decision-bottom {
@@ -7913,8 +7965,8 @@ tbody tr:hover td {
 
 .overview-home-v17 .overview-recent-card {
   display: block;
-  flex: 0.9 1 500px;
-  min-width: 390px;
+  width: 100%;
+  min-width: 0;
   padding: 16px;
 }
 
@@ -8035,9 +8087,9 @@ tbody tr:hover td {
 }
 
 .overview-home-v17 .overview-run-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 12px;
 }
 
@@ -8239,7 +8291,8 @@ tbody tr:hover td {
   }
 
   .overview-home-v17 .overview-telemetry-bars,
-  .overview-home-v17 .overview-resource-chips {
+  .overview-home-v17 .overview-resource-chips,
+  .overview-home-v17 .overview-run-list {
     display: flex;
   }
 

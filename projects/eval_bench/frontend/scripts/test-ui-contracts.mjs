@@ -339,8 +339,6 @@ assert(
   overviewPage.includes("overview-home-v17") &&
     overviewPage.includes("overview-ops-board") &&
     overviewPage.includes("overview-rank-console") &&
-    overviewPage.includes("overview-evidence-row") &&
-    overviewPage.includes("overview-loop-panel") &&
     overviewPage.includes("OverviewDecisionMetrics") &&
     overviewPage.includes("overview-decision-metrics") &&
     overviewPage.includes("overview-decision-metric") &&

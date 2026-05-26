@@ -176,6 +176,8 @@ async function assertOverviewCommandDesk(page) {
       scoreDials: document.querySelectorAll(".overview-score-dial").length,
       telemetryTraces: document.querySelectorAll(".overview-telemetry-trace").length,
       evidenceRows: document.querySelectorAll(".overview-evidence-row").length,
+      flowNodes: document.querySelectorAll(".overview-flow-node").length,
+      recentCards: document.querySelectorAll(".overview-recent-card").length,
       decisionMetrics: document.querySelectorAll(".overview-decision-metric").length,
       oldCharts: document.querySelectorAll(".overview-mini-chart, .overview-chart-matrix").length,
       oldPanels: document.querySelectorAll(
@@ -199,7 +201,9 @@ async function assertOverviewCommandDesk(page) {
     state.rankConsoles !== 1 ||
     state.scoreDials !== 1 ||
     state.telemetryTraces !== 1 ||
-    state.evidenceRows !== 1 ||
+    state.evidenceRows !== 0 ||
+    state.flowNodes !== 4 ||
+    state.recentCards !== 1 ||
     state.decisionMetrics !== 4
   ) {
     throw new Error(`overview command desk structure regressed: ${JSON.stringify(state)}`);

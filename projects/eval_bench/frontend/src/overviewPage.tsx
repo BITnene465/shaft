@@ -262,6 +262,7 @@ export function OverviewPage() {
               serviceCount={services.length}
             />
             <p>{postureLine}</p>
+            <OverviewFlowSpine stages={flowStages} />
           </div>
           <div className="overview-decision-bottom">
             <OverviewOpsSignal action={nextAction} />
@@ -275,20 +276,7 @@ export function OverviewPage() {
         </aside>
       </section>
 
-      <div className="overview-evidence-row">
-        <section className="overview-loop-panel" aria-label="评测闭环">
-          <div className="overview-section-head compact">
-            <div>
-              <span>Evaluation Runway</span>
-              <h3>闭环推进</h3>
-            </div>
-            <strong>{evaluatedRuns > 0 ? "已评分" : "准备中"}</strong>
-          </div>
-          <OverviewFlowSpine stages={flowStages} />
-        </section>
-
-        <OverviewRecentRunsPanel runs={recentRuns} />
-      </div>
+      <OverviewRecentRunsPanel runs={recentRuns} />
     </section>
   );
 }
