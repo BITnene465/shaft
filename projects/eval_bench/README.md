@@ -654,7 +654,8 @@ Runs 页和 Compare 页的 run 高级检索直接请求 `GET /api/runs`，和 CL
 label、model、prompt、metric 和 note 全文查询语义；Runs、Compare、Benchmarks、Jobs、Services 和 Rank Board 都必须走后端分页，筛选变化回到第一页，
 不能在前端固定读取 200 条或 500 条后截断；分页响应里的 `facets` 是高级检索目录真源，前端不能从当前页样本推导目录；
 对应 CLI JSON schema 会显式声明 facet keys、bucket 形状以及 `offset` / `limit` / `total` / `filters`
-分页字段类型，脚本化调用不需要依赖某一次列表样例推断目录结构；
+分页字段类型，脚本化调用不需要依赖某一次列表样例推断目录结构；稳定 CLI schema 的 required 字段也必须
+同步进入 properties，不允许只声明字段存在而缺少类型；
 Benchmarks 页直接请求 `GET /api/benchmarks`，
 和 CLI `list-benchmarks` 共享 task、layer、split 和全文查询语义；Jobs 页直接请求 `GET /api/jobs`，
 和 CLI `list-jobs` 共享 kind、status、query、offset 和 limit 语义；Services 页直接请求 `GET /api/services`，

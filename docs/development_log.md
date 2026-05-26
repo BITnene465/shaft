@@ -8207,6 +8207,39 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench CLI schema required 字段补齐 properties
+
+### 现象
+
+`dashboard-state` 和 `resolve-target-labels` 的 CLI JSON schema 中，部分字段已经列入 `required`，
+但没有在 `properties` 中声明类型。Agent 可以确认字段必须出现，却仍需要从真实 stdout 样例推断
+`store_root`、计数字段、`valid`、benchmark/prompt/explicit label 列表等字段形状。
+
+### 根因
+
+前几轮补齐 schema 时主要按命令分散添加 properties，没有一条通用测试保证 required 字段一定有
+properties 描述，导致 required/properties 两个列表出现漂移。
+
+### 影响范围
+
+- 影响 agent / 脚本对 dashboard state 和 target label resolution 的静态输出合约判断。
+- 不改变 CLI stdout、Dashboard API、label policy 或 store 数据结构。
+
+### 修复方式
+
+- `dashboard-state` 补齐 `store_root`、benchmark/run/prediction count 等顶层字段类型。
+- `resolve-target-labels` 补齐 task、benchmark/prompt id、label source、candidate/benchmark/prompt/explicit labels、
+  `valid`、errors 和 warnings 的类型描述。
+- CLI schema 测试增加通用断言：所有 top-level required 字段必须同步声明 properties。
+
+### 回归测试
+
+- `PYTHONPATH=projects/eval_bench .venv/bin/pytest -q projects/eval_bench/tests/test_cli.py::test_cli_json_output_schemas_cover_stable_commands`
+
+### 后续防线
+
+- 新增或修改稳定 CLI 输出时，先补 properties，再把字段加入 required；不能只靠真实 payload 或 README 示例说明字段类型。
+
 ## 2026-05-26: Eval Bench paged CLI schema 补齐分页字段类型
 
 ### 现象

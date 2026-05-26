@@ -219,6 +219,12 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert "list-agent-commands" not in CLI_JSON_OUTPUT_SCHEMAS
     assert "show-agent-command" not in CLI_JSON_OUTPUT_SCHEMAS
 
+    for command_name, schema in CLI_JSON_OUTPUT_SCHEMAS.items():
+        for key in schema.get("required", []):
+            assert key in schema.get("properties", {}), (
+                f"{command_name}: required field {key!r} must declare a JSON schema property"
+            )
+
     init_output_schema = CLI_JSON_OUTPUT_SCHEMAS["init-run"]
     assert init_output_schema["required"] == [
         "run_id",
@@ -326,6 +332,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]
     assert "detection" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
     assert "keypoint is fixed to arrow" in resolve_output_schema["properties"]["label_subtasks_supported"]["description"]
+    assert resolve_output_schema["properties"]["valid"]["type"] == "bool"
+    assert resolve_output_schema["properties"]["benchmark_labels"]["type"] == "list[str]"
     runs_output_schema = CLI_JSON_OUTPUT_SCHEMAS["list-runs"]
     assert runs_output_schema["required"] == ["offset", "limit", "total", "filters", "facets", "runs"]
     _assert_paged_schema(runs_output_schema)
