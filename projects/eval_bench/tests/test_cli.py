@@ -384,6 +384,29 @@ def test_cli_lists_agent_stable_commands(capsys) -> None:
     assert init_run_args["target_labels"]["repeatable"] is True
     assert "Detection label subtask scope" in init_run_args["target_labels"]["help"]
     assert "Keypoint runs are fixed to arrow" in init_run_args["target_labels"]["help"]
+    target_label_semantics = commands_by_name["resolve-target-labels"]["argument_semantics"][
+        "target_labels"
+    ]
+    assert target_label_semantics["task_scope"]["detection"][
+        "label_subtasks_supported"
+    ] is True
+    assert target_label_semantics["task_scope"]["detection"]["repeatable"] is True
+    assert target_label_semantics["task_scope"]["detection"]["empty_uses_label_policy"] is True
+    assert (
+        target_label_semantics["task_scope"]["keypoint"]["fixed_target_labels"]
+        == ["arrow"]
+    )
+    assert target_label_semantics["task_scope"]["keypoint"]["rejects_non_arrow"] is True
+    assert (
+        target_label_semantics["source_priority"][0]
+        == "explicit_target_labels"
+    )
+    assert target_label_semantics["recommended_discovery_command"] == "resolve-target-labels"
+    for command_name in ["init-run", "import-predictions", "resolve-target-labels"]:
+        assert (
+            commands_by_name[command_name]["argument_semantics"]["target_labels"]
+            == target_label_semantics
+        )
     assert init_run_args["max_tokens"]["type"] == "int"
     assert init_run_args["batch_size"]["default"] == 1
 
@@ -479,6 +502,10 @@ def test_cli_shows_single_agent_command_contract(capsys) -> None:
     label_args = _build_parser().parse_args(["show-agent-command", "--name", "resolve-target-labels"])
     _cmd_show_agent_command(label_args)
     label_command = json.loads(capsys.readouterr().out)["command"]
+    label_semantics = label_command["argument_semantics"]["target_labels"]
+    assert label_semantics["task_scope"]["detection"]["label_subtasks_supported"] is True
+    assert label_semantics["task_scope"]["keypoint"]["fixed_target_labels"] == ["arrow"]
+    assert label_semantics["recommended_discovery_command"] == "resolve-target-labels"
     assert label_command["output_schema"]["properties"]["target_labels"]["type"] == "list[str]"
     assert (
         label_command["output_schema"]["properties"]["label_subtasks_supported"]["description"]

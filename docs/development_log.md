@@ -9,6 +9,47 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench target label 参数缺少 agent 结构化语义
+
+### 现象
+
+`init-run`、`import-predictions` 和 `resolve-target-labels` 都暴露了 `--target-label`，help 文案说明
+detection 可以按 label 子任务重复指定，keypoint 固定为 `arrow`。但 agent contract 的
+`argument_semantics` 只有 Rank Board 的 `sort_by` 语义，`resolve-target-labels` 仍输出空对象。
+agent 只能从自然语言 help 猜 detection/keypoint 的差异。
+
+### 根因
+
+上一轮只把 label policy 的输出 schema 做成结构化字段，没有把输入参数的业务语义同步进
+`AGENT_COMMAND_ARGUMENT_SEMANTICS`。这是 agent CLI 契约描述缺口，不是模型能力问题，也不是
+eval / codec / metric / data 误判；后端 label policy、preflight、import 和 evaluator 的实际校验没有变化。
+
+### 影响范围
+
+- 影响 agent 自动创建 run、导入 prediction 和查询 label 子任务范围时的参数决策。
+- 不影响 dashboard API、label policy 真源、run manifest、prediction import、evaluator 或 report 结果。
+
+### 修复方式
+
+- 新增共享 `TARGET_LABEL_ARGUMENT_SEMANTICS`，声明 detection 支持 repeatable label 子任务、
+  空值走统一 label policy，keypoint 固定 `arrow` 并拒绝非 arrow。
+- `init-run`、`import-predictions` 和 `resolve-target-labels` 复用同一份
+  `argument_semantics.target_labels`，并声明推荐 discovery 命令为 `resolve-target-labels`。
+- CLI contract 测试同时覆盖 `list-agent-commands` 和 `show-agent-command --name resolve-target-labels`。
+- README 和架构文档同步 agent 读取 target label 参数语义的要求。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python -m pytest projects/eval_bench/tests/test_cli.py -q`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name resolve-target-labels`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name init-run`
+- `cd /home/tanjingyuan/code/arrow-vlm && .venv/bin/python scripts/eval_bench.py show-agent-command --name import-predictions`
+
+### 后续防线
+
+- 任何 repeatable 参数只要具有 task-specific 语义，都必须补 `argument_semantics`，不能只依赖 argparse help。
+- agent 在执行会创建或导入 run 的命令前，应先通过 `resolve-target-labels` 查看候选 label、最终范围和错误。
+
 ## 2026-05-26: Eval Bench 首页 v13 仍像装饰化控制台
 
 ### 现象

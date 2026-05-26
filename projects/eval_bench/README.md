@@ -521,10 +521,14 @@ agent 不需要读取内部 store 或猜测 JSON shape。`mutates_state`
 parser、handler 映射和 `AGENT_COMMAND_METADATA`，危险生命周期命令还必须进入
 `AGENT_DESTRUCTIVE_COMMANDS`；`AGENT_STABLE_COMMANDS` 由 metadata 派生，测试会检查这些集合和
 `AGENT_COMMAND_OUTPUT_SCHEMAS` 一致，避免 agent 看到 help 里的命令却无法通过真实入口执行、无法判断副作用或仍要从自然语言 help 猜参数和返回字段。
+`init-run`、`import-predictions` 和 `resolve-target-labels` 的 `argument_semantics.target_labels`
+会结构化声明 detection 支持 repeatable label 子任务、空值走统一 label policy，keypoint 固定
+`arrow` 且拒绝非 arrow label；agent 应先调用 `resolve-target-labels` 查看候选和最终范围，再执行会创建或导入 run 的命令。
 
 ```bash
 .venv/bin/python scripts/eval_bench.py list-agent-commands
 .venv/bin/python scripts/eval_bench.py show-agent-command --name rank-board
+.venv/bin/python scripts/eval_bench.py show-agent-command --name resolve-target-labels
 .venv/bin/python scripts/eval_bench.py init-run \
   --run-id trial_arrow_eval \
   --task detection \

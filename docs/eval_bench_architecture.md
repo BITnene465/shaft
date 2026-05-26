@@ -207,7 +207,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   `argv_prefix`、稳定单行 `usage`，参数 schema 从 argparse parser 自动导出为 `arguments` 和
   `mutually_exclusive_groups`；如果一个参数的 choices 同时包含不同语义类别，还必须通过
   `argument_semantics` 给 agent 暴露结构化分类，例如 Rank Board 的 `sort_by` 需要区分 primary metrics、
-  auxiliary sorts 和 weighted sort。`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
+  auxiliary sorts 和 weighted sort，target label 参数需要区分 detection 可重复 label 子任务和
+  keypoint 固定 arrow 语义。`AGENT_STABLE_COMMANDS` 由 metadata 派生。这些集合由
   `test_cli_parser_commands_have_handlers_for_agent_contract` 锁住，避免新增命令只加 parser 或只加 handler，
   或者缺少 agent 判断副作用和参数形态所需的元信息。
 - 新增 CLI 命令或 dashboard route：模块顶层只能保留轻量依赖。`dashboard`、`worker`、`evaluator`、
@@ -216,7 +217,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增或改动 agent 关键命令：`show-agent-command` / `list-agent-commands` 必须同步暴露可执行参数、
   互斥组、副作用标记和非空 `output_schema`；稳定 agent 命令不能只暴露自然语言 help。Rank Board 这类核心只读命令必须描述分页、filters、
   facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary/weighted 语义；run note 与 label policy 命令必须描述 note/concurrency 字段和
-  detection/keypoint label 子任务字段；run/sample inspection 命令必须描述 summary、payload、diagnostics
+  detection/keypoint label 子任务字段，并在 `argument_semantics.target_labels` 中说明 repeatable detection label 子任务、
+  空值 label policy、keypoint 固定 arrow 和推荐 discovery 命令；run/sample inspection 命令必须描述 summary、payload、diagnostics
   和 scoped label 字段；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段，
   template、preflight 和 job creation 命令必须描述 template manifest、prompt record、resolved payload、
   runtime command、warning/error 和 job record 字段，

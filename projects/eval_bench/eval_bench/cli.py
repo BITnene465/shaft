@@ -13,6 +13,30 @@ DETECTION_TARGET_LABEL_HELP = (
     "Detection label subtask scope; repeat for multiple labels. "
     "Keypoint runs are fixed to arrow and reject non-arrow labels."
 )
+TARGET_LABEL_ARGUMENT_SEMANTICS = {
+    "task_scope": {
+        "detection": {
+            "label_subtasks_supported": True,
+            "explicit_labels_arg": "--target-label",
+            "repeatable": True,
+            "empty_uses_label_policy": True,
+        },
+        "keypoint": {
+            "label_subtasks_supported": False,
+            "fixed_target_labels": ["arrow"],
+            "rejects_non_arrow": True,
+        },
+    },
+    "source_priority": [
+        "explicit_target_labels",
+        "prompt_metadata",
+        "legacy_prompt_id",
+        "task_default",
+        "unscoped",
+    ],
+    "recommended_discovery_command": "resolve-target-labels",
+    "applies_to": ["init-run", "import-predictions", "resolve-target-labels"],
+}
 
 RANK_PRIMARY_METRIC_SORTS = (
     "f1_iou50",
@@ -288,6 +312,8 @@ AGENT_COMMAND_CONTRACT_OUTPUT_SHAPE = {
     "output_schema": "object",
 }
 AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
+    "init-run": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
+    "import-predictions": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
     "rank-board": {
         "sort_by": {
             "primary_metrics": list(RANK_PRIMARY_METRIC_SORTS),
@@ -297,7 +323,8 @@ AGENT_COMMAND_ARGUMENT_SEMANTICS: dict[str, dict[str, object]] = {
             "auxiliary_sort_keeps_primary_metric": "f1_iou50",
             "weighted_sort_requires": ["--rank-scheme-json", "--rank-scheme-file"],
         }
-    }
+    },
+    "resolve-target-labels": {"target_labels": TARGET_LABEL_ARGUMENT_SEMANTICS},
 }
 RUN_NOTE_OUTPUT_SCHEMA = {
     "type": "object",
