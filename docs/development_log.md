@@ -9,6 +9,42 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench Overview 运行态计数被分页窗口截断
+
+### 现象
+
+Overview v17 的队列、失败任务、运行任务和在线服务数使用 `fetchJobs({ limit: 500 })` /
+`fetchServices({ limit: 500 })` 拉回首屏列表，再在前端按 `status` 过滤计数。当 job 或 service 数量超过
+该分页窗口时，总控页会低估 queued / running / failed / online 数量，队列压力和服务容量信号不可靠。
+
+### 根因
+
+Overview 把列表页 rows 当成聚合真源使用，没有消费 `/api/jobs` 与 `/api/services` 已经返回的 filtered
+`total`。这是 Dashboard 前端状态真源错误，不是模型能力问题，也不是 eval / codec / metric / data
+误判。
+
+### 影响范围
+
+- 影响 Overview 首页的运行压力、服务容量、状态 strip 和实时 trace。
+- 不影响 Jobs / Services 列表本身的分页展示，也不影响 rank-board、comparison、run note 或 evaluator 指标。
+
+### 修复方式
+
+- Overview 改为分别请求 job total、queued total、running total、failed total、service total 和 running service total。
+- 页面计数只通过后端 filtered `total` 汇总，列表 rows 仅作为缺省兜底，不再用首屏 500 条估算全局状态。
+- `test-ui-contracts.mjs` 增加静态防线，禁止 Overview 回退到 `limit: 500` 首屏过滤或 `jobs.length` /
+  `services.length` 作为运行态总数。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- Overview 只能展示粗粒度运行态，但这类运行态必须来自 API 聚合真源；不能为了减少请求数复用分页列表窗口。
+
 ## 2026-05-26: Eval Bench 首页 pointer-field 互动缺少运行时验证
 
 ### 现象

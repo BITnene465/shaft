@@ -15,7 +15,7 @@ import {
   Trophy
 } from "lucide-react";
 
-import type { RunSummary, SchedulerStatus } from "./api";
+import type { JobListResponse, RunSummary, SchedulerStatus, ServiceListResponse } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { formatMetric, runF1Score } from "./formatters";
@@ -64,14 +64,34 @@ type BestRun = { run: RunSummary; f1: number };
 
 export function OverviewPage() {
   const { data, isLoading, error } = useDashboardState();
-  const jobsQuery = useQuery({
-    queryKey: ["overview-jobs"],
-    queryFn: () => fetchJobs({ limit: 500 }),
+  const jobTotalQuery = useQuery({
+    queryKey: ["overview-jobs-total"],
+    queryFn: () => fetchJobs({ limit: 1 }),
     refetchInterval: 2_000
   });
-  const servicesQuery = useQuery({
-    queryKey: ["overview-services"],
-    queryFn: () => fetchServices({ limit: 500 }),
+  const queuedJobsQuery = useQuery({
+    queryKey: ["overview-jobs-queued"],
+    queryFn: () => fetchJobs({ status: "queued", limit: 1 }),
+    refetchInterval: 2_000
+  });
+  const runningJobsQuery = useQuery({
+    queryKey: ["overview-jobs-running"],
+    queryFn: () => fetchJobs({ status: "running", limit: 1 }),
+    refetchInterval: 2_000
+  });
+  const failedJobsQuery = useQuery({
+    queryKey: ["overview-jobs-failed"],
+    queryFn: () => fetchJobs({ status: "failed", limit: 1 }),
+    refetchInterval: 2_000
+  });
+  const serviceTotalQuery = useQuery({
+    queryKey: ["overview-services-total"],
+    queryFn: () => fetchServices({ limit: 1 }),
+    refetchInterval: 5_000
+  });
+  const runningServicesQuery = useQuery({
+    queryKey: ["overview-services-running"],
+    queryFn: () => fetchServices({ status: "running", limit: 1 }),
     refetchInterval: 5_000
   });
   const schedulerQuery = useQuery({
@@ -86,32 +106,42 @@ export function OverviewPage() {
     return <EmptyState title="看板状态加载失败" tone="danger" />;
   }
 
-  const jobs = jobsQuery.data?.jobs ?? [];
-  const services = servicesQuery.data?.services ?? [];
   const schedulerStatus = schedulerQuery.data;
   const evaluatedRuns = data.runs.filter((run) => run.report_path).length;
   const runsWithPredictions = data.runs.filter((run) => run.prediction_count > 0).length;
   const waitingEvaluation = data.runs.filter(
     (run) => !run.report_path && run.prediction_count > 0
   ).length;
-  const queuedJobs = jobs.filter((job) => job.status === "queued").length;
-  const runningJobs = jobs.filter((job) => job.status === "running").length;
-  const failedJobs = jobs.filter((job) => job.status === "failed").length;
-  const liveServices = services.filter((service) => service.status === "running").length;
+  const queuedJobs = jobPageTotal(queuedJobsQuery.data);
+  const runningJobs = jobPageTotal(runningJobsQuery.data);
+  const failedJobs = jobPageTotal(failedJobsQuery.data);
+  const totalJobRecords = Math.max(
+    jobPageTotal(jobTotalQuery.data),
+    queuedJobs + runningJobs + failedJobs
+  );
+  const liveServices = servicePageTotal(runningServicesQuery.data);
+  const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices);
   const activeQueue = queuedJobs + runningJobs;
   const totalRuns = Math.max(data.run_count, 1);
-  const totalJobs = Math.max(jobs.length, 1);
-  const totalServices = Math.max(services.length, 1);
+  const totalJobs = Math.max(totalJobRecords, 1);
+  const totalServices = Math.max(serviceCount, 1);
   const coveragePercent = percent(evaluatedRuns, totalRuns);
   const volumeTotal = Math.max(data.total_benchmark_samples, data.prediction_count, 1);
-  const syncing = jobsQuery.isFetching || servicesQuery.isFetching || schedulerQuery.isFetching;
+  const syncing =
+    jobTotalQuery.isFetching ||
+    queuedJobsQuery.isFetching ||
+    runningJobsQuery.isFetching ||
+    failedJobsQuery.isFetching ||
+    serviceTotalQuery.isFetching ||
+    runningServicesQuery.isFetching ||
+    schedulerQuery.isFetching;
   const bestRun = bestF1Run(data.runs);
   const nextAction = overviewNextAction({
     failedJobs,
     waitingEvaluation,
     activeQueue,
     liveServices,
-    serviceCount: services.length,
+    serviceCount,
     evaluatedRuns
   });
   const postureLine = overviewPostureLine({
@@ -119,7 +149,7 @@ export function OverviewPage() {
     waitingEvaluation,
     activeQueue,
     liveServices,
-    serviceCount: services.length,
+    serviceCount,
     evaluatedRuns
   });
   const decisionMetrics: OverviewSignal[] = [
@@ -155,7 +185,7 @@ export function OverviewPage() {
     },
     {
       label: failedJobs > 0 ? "任务阻塞" : "运行压力",
-      value: failedJobs > 0 ? failedJobs.toLocaleString() : `${activeQueue}/${services.length}`,
+      value: failedJobs > 0 ? failedJobs.toLocaleString() : `${activeQueue}/${serviceCount}`,
       detail:
         failedJobs > 0
           ? `${queuedJobs.toLocaleString()} queued / ${runningJobs.toLocaleString()} running`
@@ -180,16 +210,16 @@ export function OverviewPage() {
       detail: `${runningJobs.toLocaleString()} running / ${queuedJobs.toLocaleString()} queued`,
       level: trackPercent(
         activeQueue,
-        Math.max(jobs.length, schedulerStatus?.max_concurrent_jobs ?? 1)
+        Math.max(totalJobRecords, schedulerStatus?.max_concurrent_jobs ?? 1)
       ),
       tone: failedJobs > 0 ? "danger" : activeQueue > 0 ? "live" : "idle"
     },
     {
       label: "服务容量",
-      value: `${liveServices}/${services.length}`,
-      detail: services.length > 0 ? "registered model services" : "no service registered",
+      value: `${liveServices}/${serviceCount}`,
+      detail: serviceCount > 0 ? "registered model services" : "no service registered",
       level: trackPercent(liveServices, totalServices),
-      tone: liveServices > 0 ? "live" : services.length > 0 ? "warm" : "idle"
+      tone: liveServices > 0 ? "live" : serviceCount > 0 ? "warm" : "idle"
     },
     {
       label: "预测积压",
@@ -259,7 +289,7 @@ export function OverviewPage() {
               waitingEvaluation={waitingEvaluation}
               activeQueue={activeQueue}
               liveServices={liveServices}
-              serviceCount={services.length}
+              serviceCount={serviceCount}
             />
             <p>{postureLine}</p>
             <OverviewFlowSpine stages={flowStages} />
@@ -290,6 +320,14 @@ function updateOverviewPointer(event: React.PointerEvent<HTMLElement>) {
   const y = ((event.clientY - bounds.top) / bounds.height) * 100;
   event.currentTarget.style.setProperty("--overview-pointer-x", `${x.toFixed(2)}%`);
   event.currentTarget.style.setProperty("--overview-pointer-y", `${y.toFixed(2)}%`);
+}
+
+function jobPageTotal(page?: JobListResponse) {
+  return page?.total ?? page?.jobs.length ?? 0;
+}
+
+function servicePageTotal(page?: ServiceListResponse) {
+  return page?.total ?? page?.services.length ?? 0;
 }
 
 function OverviewDecisionMetrics({ metrics }: { metrics: OverviewSignal[] }) {

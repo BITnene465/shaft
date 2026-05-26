@@ -338,6 +338,32 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
+  overviewPage.includes('queryKey: ["overview-jobs-total"]') &&
+    overviewPage.includes('queryFn: () => fetchJobs({ limit: 1 })') &&
+    overviewPage.includes('queryKey: ["overview-jobs-queued"]') &&
+    overviewPage.includes('queryFn: () => fetchJobs({ status: "queued", limit: 1 })') &&
+    overviewPage.includes('queryKey: ["overview-jobs-running"]') &&
+    overviewPage.includes('queryFn: () => fetchJobs({ status: "running", limit: 1 })') &&
+    overviewPage.includes('queryKey: ["overview-jobs-failed"]') &&
+    overviewPage.includes('queryFn: () => fetchJobs({ status: "failed", limit: 1 })') &&
+    overviewPage.includes('queryKey: ["overview-services-total"]') &&
+    overviewPage.includes('queryFn: () => fetchServices({ limit: 1 })') &&
+    overviewPage.includes('queryKey: ["overview-services-running"]') &&
+    overviewPage.includes('queryFn: () => fetchServices({ status: "running", limit: 1 })') &&
+    overviewPage.includes("function jobPageTotal(") &&
+    overviewPage.includes("function servicePageTotal(") &&
+    overviewPage.includes("const totalJobRecords = Math.max(") &&
+    overviewPage.includes("const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices)") &&
+    !overviewPage.includes('fetchJobs({ limit: 500 })') &&
+    !overviewPage.includes('fetchServices({ limit: 500 })') &&
+    !overviewPage.includes('jobs.filter((job) => job.status === "queued").length') &&
+    !overviewPage.includes('services.filter((service) => service.status === "running").length') &&
+    !overviewPage.includes("serviceCount: services.length") &&
+    !overviewPage.includes("Math.max(jobs.length, 1)") &&
+    !overviewPage.includes("Math.max(services.length, 1)"),
+  "overview job/service runtime counts must use filtered backend totals instead of first-page list estimates",
+);
+assert(
   overviewPage.includes("overview-home-v17") &&
     overviewPage.includes("overview-ops-board") &&
     overviewPage.includes("overview-rank-console") &&
