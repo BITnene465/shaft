@@ -13,8 +13,9 @@ Eval Bench 使用七层边界。新增功能必须先落在正确层级，再由
    - 只负责展示和用户操作编排，不推断 eval 语义。
    - 前端全局命令必须走 command/action registry，不能直接写死快捷键。
    - 页面级筛选优先复用 `AdvancedFilterBar`；默认只露出 Filter 入口和可点击条件 token，
-    展开后再以浮层显示检索表单，避免把多组 select 直接堆在主工作区；单条件清除、清空筛选、默认值判定和生效条件计数也只在
-    `AdvancedFilterBar` 中维护。
+     展开后再以浮层显示检索表单，避免把多组 select 直接堆在主工作区；单条件清除、清空筛选、默认值判定和生效条件计数也只在
+     `AdvancedFilterBar` 中维护。检索浮层的焦点进入、Tab 闭环、Escape 关闭、收起后焦点恢复和外部点击关闭也由
+     `AdvancedFilterBar` 统一维护，业务页不能复制一套键盘交互。
    - Overview 是总控工作台，只展示粗粒度运营信号、趋势和入口，不展示 recall 等细粒度模型指标。
    - 弹窗统一走 `WorkspaceDialog`；关闭按钮、Escape/backdrop、body scroll lock、焦点进入、Tab 焦点闭环、
      关闭后焦点恢复和 dialog body 滚动语义不能在业务页复制。

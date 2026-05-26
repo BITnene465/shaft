@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 
-import { ActionButton, PanelToggleButton } from "./ui";
+import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
 
 export function FilterSelect({
   label,
@@ -77,6 +77,8 @@ export function AdvancedFilterBar({
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const rootRef = useRef<HTMLElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const activeCount = controls.filter((control) => {
     return control.value.trim() !== defaultFilterValue(control);
   }).length;
@@ -89,14 +91,40 @@ export function AdvancedFilterBar({
     if (!open) {
       return;
     }
+    const focusTarget = popoverRef.current?.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR);
+    window.setTimeout(() => {
+      (focusTarget ?? popoverRef.current)?.focus();
+    }, 0);
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setOpen(false);
+        closeAdvancedFilter();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = Array.from(
+        popoverRef.current?.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR) ?? []
+      ).filter((element) => element.offsetParent !== null || element === document.activeElement);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        popoverRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const focusInsidePopover = popoverRef.current?.contains(document.activeElement);
+      if (event.shiftKey && (!focusInsidePopover || document.activeElement === first)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (!focusInsidePopover || document.activeElement === last)) {
+        event.preventDefault();
+        first.focus();
       }
     }
     function onDocumentClick(event: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        window.setTimeout(() => setOpen(false), 0);
+        window.setTimeout(() => closeAdvancedFilter({ restoreFocus: false }), 0);
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -106,6 +134,27 @@ export function AdvancedFilterBar({
       document.removeEventListener("click", onDocumentClick);
     };
   }, [open]);
+  function openAdvancedFilter() {
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setOpen(true);
+  }
+  function closeAdvancedFilter({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    setOpen(false);
+    if (restoreFocus) {
+      window.setTimeout(() => {
+        previouslyFocusedRef.current?.focus();
+      }, 0);
+    }
+  }
+  function toggleAdvancedFilter() {
+    if (open) {
+      closeAdvancedFilter();
+      return;
+    }
+    openAdvancedFilter();
+  }
   function resetAdvancedFilters() {
     for (const control of controls) {
       resetAdvancedFilter(control);
@@ -123,7 +172,7 @@ export function AdvancedFilterBar({
           className="advanced-filter-head"
           aria-controls={panelId}
           aria-haspopup="dialog"
-          onClick={() => setOpen((value) => !value)}
+          onClick={toggleAdvancedFilter}
         >
           <span className="advanced-filter-trigger-icon">
             <SlidersHorizontal size={15} />
@@ -170,7 +219,14 @@ export function AdvancedFilterBar({
         </div>
       </div>
       {open ? (
-        <div className="advanced-filter-popover" id={panelId} role="dialog" aria-label={`${title} 条件`}>
+        <div
+          ref={popoverRef}
+          className="advanced-filter-popover"
+          id={panelId}
+          role="dialog"
+          aria-label={`${title} 条件`}
+          tabIndex={-1}
+        >
           <div className="advanced-filter-popover-head">
             <div>
               <strong>{title}</strong>
@@ -180,7 +236,7 @@ export function AdvancedFilterBar({
               variant="mini"
               className="advanced-filter-close"
               icon={<X size={13} />}
-              onClick={() => setOpen(false)}
+              onClick={() => closeAdvancedFilter()}
             >
               收起
             </ActionButton>

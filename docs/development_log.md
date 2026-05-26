@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench 高级检索浮层缺少焦点闭环
+
+### 现象
+
+`AdvancedFilterBar` 已经被 Runs、Rank Board、Benchmarks、Jobs、Services、Compare 和样本检查器复用，
+用于替代页面里堆叠的多组 select。但它展开后虽然声明为 `role="dialog"`，只支持 Escape 和外部点击关闭；
+焦点不会自动进入检索表单，Tab 也可能跳到页面其他区域，键盘用户很难稳定编辑或收起当前检索条件。
+
+### 根因
+
+前几轮先完成了筛选表单组件化、分组目录、条件 token 和清空动作，没有把“检索浮层也是交互容器”作为共享合约。
+焦点行为如果继续留给业务页补，会在多页面高级检索中形成重复状态和不一致关闭逻辑。
+
+### 影响范围
+
+- 影响所有复用 `AdvancedFilterBar` 的 Dashboard 页面和 inspector 侧栏交互。
+- 不影响后端筛选语义、分页、rank-board 主指标、run note、label 子任务、eval / codec / metric / data 结果。
+
+### 修复方式
+
+- `AdvancedFilterBar` 复用 `DIALOG_FOCUSABLE_SELECTOR`，打开时把焦点送入浮层。
+- 在浮层内部处理 Tab / Shift+Tab 闭环，Escape 和收起按钮关闭后恢复到触发器。
+- 外部点击只关闭浮层，不强行抢回焦点，避免打断用户点击页面其他控件。
+- `test:ui-contracts` 增加静态防线，要求高级检索继续维护焦点 ref、Tab 闭环和可聚焦浮层。
+- README 和架构文档同步高级检索交互边界。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && npm run build`
+
+### 后续防线
+
+- 新增页面筛选时只复用 `AdvancedFilterBar`；不要在业务页为检索浮层手写新的 focus trap、Escape 关闭或外部点击关闭逻辑。
+
 ## 2026-05-26: Eval Bench agent 稳定命令仍输出裸路径
 
 ### 现象

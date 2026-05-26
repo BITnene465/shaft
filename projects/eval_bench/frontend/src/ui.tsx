@@ -20,7 +20,7 @@ import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
 
 type ButtonVariant = "primary" | "secondary" | "mini";
-const DIALOG_FOCUSABLE_SELECTOR = [
+export const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
   "textarea:not([disabled])",

@@ -35,13 +35,21 @@ assert(
   "paged list controls must share PagerControl and clampListPageOffset",
 );
 assert(
-  filterControls.includes('import { ActionButton, PanelToggleButton } from "./ui";') &&
+  filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function resetAdvancedFilter(") &&
+    filterControls.includes("function openAdvancedFilter()") &&
+    filterControls.includes("function closeAdvancedFilter(") &&
+    filterControls.includes("function toggleAdvancedFilter()") &&
     filterControls.includes("function defaultFilterValue(") &&
     filterControls.includes("function groupAdvancedControls(") &&
+    filterControls.includes("const popoverRef = useRef<HTMLDivElement | null>(null);") &&
+    filterControls.includes("const previouslyFocusedRef = useRef<HTMLElement | null>(null);") &&
+    filterControls.includes("event.key !== \"Tab\"") &&
+    filterControls.includes("previouslyFocusedRef.current?.focus()") &&
     filterControls.includes('aria-haspopup="dialog"') &&
     filterControls.includes('className="advanced-filter-popover"') &&
+    filterControls.includes("tabIndex={-1}") &&
     filterControls.includes('className="advanced-filter-directory"') &&
     filterControls.includes('className="advanced-filter-token"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
