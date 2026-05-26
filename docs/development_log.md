@@ -9,6 +9,41 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-26: Eval Bench inspector 样本列表滚动缺少 layout smoke 防线
+
+### 现象
+
+Benchmark / Run inspector 已经使用 `.sample-list` 承载样本列表，CSS 里也设置为 `overflow:auto` 的 flex
+pane。但 layout smoke 只检查 inspector 页面存在 `.sample-list`，没有验证它自身是否仍是独立滚动容器、
+是否横向裁切内容、以及样本行是否因文案增长把侧栏挤高。
+
+### 根因
+
+之前滚动验收主要覆盖 page stack、workspace card、viewer panel、table shell 和高级检索弹层。样本列表位于
+inspector sidebar 内，是二级滚动容器，早期没有纳入 `assertNoClippedPanels` 和专门的 sample-list
+断言。这是前端验收防线缺口，不是模型能力问题，也不是 eval / codec / metric / data 误判。
+
+### 影响范围
+
+- 影响 benchmark/run inspector 在 compact/narrow 视口下的样本列表可读性和长期排障体验。
+- 不改变 Dashboard API、CLI、sample scope、label 子任务、viewer 渲染或评测指标语义。
+
+### 修复方式
+
+- layout smoke 的裁切检查加入 `.sample-list`。
+- 新增 `assertInspectorSampleList()`：检查 `.sample-list` 存在、保持 flex scroll pane、需要滚动时 overflow
+  可滚动、不横向 hidden 裁切、非空时有样本行、样本行高度不膨胀。
+- README 和脚本文档同步样本列表滚动验收契约。
+
+### 回归测试
+
+- `cd /home/tanjingyuan/code/arrow-vlm/projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- inspector 侧栏新增可滚动子面板时，必须进入 layout smoke 的二级滚动容器检查。
+- 样本行新增字段时要保持行高受控，长文本用换行/ellipsis/内部滚动处理，不能挤压 viewer 主区域。
+
 ## 2026-05-26: Eval Bench 样本列表没有回显 filter 状态
 
 ### 现象

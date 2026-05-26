@@ -126,6 +126,7 @@ try {
       }
       if (route.requireInspectorFilters) {
         await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
+        await assertInspectorSampleList(page, `${viewport.name}:${route.name}`);
         await assertInspectorCanvasPane(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireRunInspectorCounts) {
@@ -374,6 +375,7 @@ async function assertNoClippedPanels(page, scope) {
       ".manifest-result-pane",
       ".visual-inspector-page",
       ".inspector-sidebar",
+      ".sample-list",
       ".viewer-panel",
       ".viewer-side-panel",
       ".compare-workspace",
@@ -982,6 +984,76 @@ async function assertInspectorFilters(page, scope) {
   }
   if (state.buttonRect.height > 44) {
     throw new Error(`${scope}: inspector collapsed filter head is too tall ${formatRect(state.buttonRect)}`);
+  }
+}
+
+async function assertInspectorSampleList(page, scope) {
+  const state = await page.evaluate(() => {
+    const sidebar = document.querySelector(".inspector-sidebar");
+    const list = sidebar?.querySelector(".sample-list");
+    const rows = Array.from(list?.querySelectorAll(".sample-row") ?? []).map((row) => {
+      const rect = row.getBoundingClientRect();
+      return {
+        height: Math.round(rect.height),
+        width: Math.round(rect.width),
+        text: row.textContent?.replace(/\s+/g, " ").trim() ?? ""
+      };
+    });
+    const listRect = list?.getBoundingClientRect();
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const style = list ? getComputedStyle(list) : null;
+    return {
+      exists: Boolean(list),
+      listRect,
+      sidebarRect,
+      display: style?.display ?? "",
+      overflowX: style?.overflowX ?? "",
+      overflowY: style?.overflowY ?? "",
+      scrollWidth: list?.scrollWidth ?? 0,
+      clientWidth: list?.clientWidth ?? 0,
+      scrollHeight: list?.scrollHeight ?? 0,
+      clientHeight: list?.clientHeight ?? 0,
+      rows,
+      empty: list?.classList.contains("empty") ?? false
+    };
+  });
+  if (!state.exists || !state.listRect || !state.sidebarRect) {
+    throw new Error(`${scope}: inspector sample list is missing`);
+  }
+  if (state.display !== "flex") {
+    throw new Error(`${scope}: inspector sample list should stay a flex scroll pane`);
+  }
+  if (state.listRect.right > state.sidebarRect.right + 2) {
+    throw new Error(
+      `${scope}: inspector sample list overflows sidebar ${JSON.stringify({
+        list: formatRect(state.listRect),
+        sidebar: formatRect(state.sidebarRect)
+      })}`
+    );
+  }
+  if (state.scrollHeight > state.clientHeight + 2 && !allowsScroll(state.overflowY)) {
+    throw new Error(
+      `${scope}: inspector sample list needs vertical scroll but overflow-y=${state.overflowY}`
+    );
+  }
+  if (state.scrollWidth > state.clientWidth + 2 && clipsOverflow(state.overflowX)) {
+    throw new Error(
+      `${scope}: inspector sample list clips horizontal content ${JSON.stringify({
+        scrollWidth: state.scrollWidth,
+        clientWidth: state.clientWidth,
+        overflowX: state.overflowX
+      })}`
+    );
+  }
+  if (!state.empty && state.rows.length === 0) {
+    throw new Error(`${scope}: inspector sample list has no rows and no empty state`);
+  }
+  if (state.rows.some((row) => row.height > 86)) {
+    throw new Error(
+      `${scope}: inspector sample rows are stretched ${state.rows
+        .map((row) => row.height)
+        .join(",")}`
+    );
   }
 }
 
