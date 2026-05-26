@@ -15,7 +15,12 @@ import {
   updateRunNote
 } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { CheckboxFieldControl, FormSelectControl, TextInputControl } from "./controlPrimitives";
+import {
+  CheckboxFieldControl,
+  FormSelectControl,
+  StandaloneTextareaControl,
+  TextInputControl
+} from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
@@ -692,9 +697,10 @@ function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; default
             </span>
           </div>
         </div>
-        <textarea
+        <StandaloneTextareaControl
+          label="Run note"
           value={noteDraft}
-          onChange={(event) => setNoteDraft(event.target.value)}
+          onChange={setNoteDraft}
           placeholder="记录 checkpoint、prompt 改动、复现实验入口、异常判断和下一步 idea。"
           maxLength={noteMaxLength}
         />
@@ -724,12 +730,12 @@ function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; default
               options={RUN_NOTE_APPEND_HEADINGS}
               onChange={setAppendHeading}
             />
-            <textarea
+            <StandaloneTextareaControl
+              label="追加 run note"
               value={appendDraft}
-              onChange={(event) => setAppendDraft(event.target.value)}
+              onChange={setAppendDraft}
               placeholder="追加新的复现线索、观察或下一步检查，不覆盖已有 note。"
               maxLength={noteMaxLength}
-              aria-label="追加 run note"
             />
           </div>
           <ActionButton

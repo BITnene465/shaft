@@ -719,7 +719,7 @@ Job lifecycle 不能复用目录页首屏窗口：`EvalBenchDatabase.matching_jo
 固定 `limit=200/500/1000` 代替完整 running/queued job 扫描。
 后续页面新增 filter 应优先复用；页面局部下拉输入和高级检索 select 外壳优先复用 `controlPrimitives.tsx`，
 不能在业务页或 filter 编排层直接复制 `filter-select compact` 或 raw `<select>`。弹窗表单中的 text / number /
-textarea / checkbox 字段也优先复用 `TextInputControl`、`NumberInputControl`、`TextareaControl` 和
+textarea / checkbox 字段也优先复用 `TextInputControl`、`NumberInputControl`、`TextareaControl` / `StandaloneTextareaControl` 和
 `CheckboxFieldControl`，避免创建 benchmark、导入 run、注册 service 这些高频弹窗各自维护输入壳。弹窗统一走 `WorkspaceDialog`，关闭按钮、Escape、backdrop 点击和内部滚动都由
 该组件管理。页面标准动作统一走 `ActionButton`、`CommandButton`、`IconActionButton` 或
 `PanelToggleButton`，业务页只为
@@ -832,8 +832,8 @@ npm run test:layout
 判断“能不能取消、删除、启动、停止、评估”。
 `test:ui-contracts` 会静态检查 UI 组件边界，避免业务页重新引入阻塞式浏览器弹窗、直接写 dialog 外壳或
 绕过标准 action button；Benchmarks、Runs 和 Services 的高频弹窗输入字段、Settings、Runs、Services 和 Compare 的局部 select、搜索清空、重置和 label
-清除动作也在这个边界内。同一检查还会全局阻止业务页直接写 raw `<button>`、`<select>`、`<details>` 和
-`<summary>`；这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
+清除动作也在这个边界内。同一检查还会全局阻止业务页直接写 raw `<button>`、`<select>`、`<textarea>`、
+`<details>` 和 `<summary>`；这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
 Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-first command desk 的
 `overview-home-v17`、`overview-ops-board`、`overview-rank-console`、`overview-evidence-row`、
 `overview-score-dial`、`overview-run-focus`、`overview-loop-panel`、`overview-flow-spine` 和 `overview-recent-card`，

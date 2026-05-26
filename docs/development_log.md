@@ -572,12 +572,15 @@ number input、textarea 和 checkbox primitives。页面为了完成业务流直
 
 ### 修复方式
 
-- `controlPrimitives.tsx` 新增 `TextInputControl`、`NumberInputControl`、`TextareaControl` 和
+- `controlPrimitives.tsx` 新增 `TextInputControl`、`NumberInputControl`、`TextareaControl`、
+  `StandaloneTextareaControl` 和
   `CheckboxFieldControl`。
 - Benchmarks 创建副本弹窗、Runs 导入 prediction 弹窗和 Services 注册服务弹窗切换到共享 text / number /
   checkbox primitives。
-- `test:ui-contracts` 锁住这些高频弹窗必须使用共享表单控件，避免继续新增页面私有输入壳。
-- `test:ui-contracts` 额外全局禁止业务页直接写 raw `<button>`、`<select>`、`<details>` 和 `<summary>`，
+- Run note 主编辑器 / 追加入口、Jobs manifest 编辑器和 Rank Board weighted scheme JSON 编辑器切换到共享
+  textarea primitives；Rank Board weighted 开关切换到共享 `ToggleButton`。
+- `test:ui-contracts` 锁住这些高频弹窗和 textarea 面板必须使用共享表单控件，避免继续新增页面私有输入壳。
+- `test:ui-contracts` 额外全局禁止业务页直接写 raw `<button>`、`<select>`、`<textarea>`、`<details>` 和 `<summary>`，
   这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
 - README 同步记录弹窗字段组件化边界。
 

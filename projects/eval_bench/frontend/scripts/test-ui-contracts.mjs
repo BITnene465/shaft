@@ -14,6 +14,7 @@ for (const filePath of sourceFiles) {
   assertNoLegacySampleFilters(source, relativePath);
   assertNoRawButtonElement(source, relativePath);
   assertNoRawSelectOutsidePrimitives(source, relativePath);
+  assertNoRawTextareaOutsidePrimitives(source, relativePath);
   assertNoRawDisclosureElement(source, relativePath);
 }
 
@@ -72,6 +73,7 @@ assert(
   controlPrimitives.includes("export function TextInputControl(") &&
     controlPrimitives.includes("export function NumberInputControl(") &&
     controlPrimitives.includes("export function TextareaControl(") &&
+    controlPrimitives.includes("export function StandaloneTextareaControl(") &&
     controlPrimitives.includes("export function CheckboxFieldControl("),
   "dialog and form fields must share text, number, textarea, and checkbox primitives",
 );
@@ -139,7 +141,7 @@ assert(
   "label subtask panel must not expose a custom-label submit path",
 );
 assert(
-  jobsPage.includes("import { CompactSelectControl } from \"./controlPrimitives\";"),
+  jobsPage.includes("CompactSelectControl"),
   "manifest toolbar selects must use CompactSelectControl",
 );
 assert(
@@ -184,9 +186,12 @@ assert(
 assert(
   jobsPage.includes("DisclosurePanel") &&
     jobsPage.includes('className="prompt-template-panel"') &&
+    jobsPage.includes("TextareaControl") &&
+    jobsPage.includes('className="manifest-editor-field"') &&
     !/<details\b/.test(jobsPage) &&
-    !/<summary\b/.test(jobsPage),
-  "jobs prompt template panel must use DisclosurePanel instead of a local details shell",
+    !/<summary\b/.test(jobsPage) &&
+    !/<textarea\b/.test(jobsPage),
+  "jobs prompt template panel and manifest editor must use shared disclosure/textarea controls",
 );
 assert(
   jobsPage.includes('import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";') &&
@@ -477,6 +482,12 @@ assert(
   "run import dialog must use shared text and checkbox form controls",
 );
 assert(
+  runsPage.includes("StandaloneTextareaControl") &&
+    (runsPage.match(/<StandaloneTextareaControl/g) ?? []).length >= 2 &&
+    !/<textarea\b/.test(runsPage),
+  "run note editor must use shared standalone textarea controls",
+);
+assert(
   runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
     runsPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
     runsPage.includes('className="rank-board-pager run-list-pager"') &&
@@ -498,7 +509,7 @@ assert(
     runsPage.includes("appendRunNote(run.run_id, note, heading)") &&
     runsPage.includes("const appendMutation = useMutation(") &&
     runsPage.includes('className="run-note-append-panel"') &&
-    runsPage.includes('aria-label="追加 run note"') &&
+    runsPage.includes('label="追加 run note"') &&
     runsPage.includes("isApiError(error) && error.status === 409") &&
     (runsPage.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
     runsPage.includes('className="run-note-template-bar"') &&
@@ -709,10 +720,14 @@ assert(
 );
 assert(
   rankBoardPage.includes("DisclosurePanel") &&
+    rankBoardPage.includes("StandaloneTextareaControl") &&
+    rankBoardPage.includes("ToggleButton") &&
     rankBoardPage.includes('className="rank-scheme-panel"') &&
     !/<details\b/.test(rankBoardPage) &&
-    !/<summary\b/.test(rankBoardPage),
-  "rank weighted scheme panel must use DisclosurePanel instead of a local details shell",
+    !/<summary\b/.test(rankBoardPage) &&
+    !/<textarea\b/.test(rankBoardPage) &&
+    !/<input\b/.test(rankBoardPage),
+  "rank weighted scheme panel must use shared disclosure, toggle, and textarea controls",
 );
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(
@@ -884,6 +899,13 @@ function assertNoRawSelectOutsidePrimitives(source, relativePath) {
     return;
   }
   assert(!/<select\b/.test(source), `${relativePath}: selects must use controlPrimitives`);
+}
+
+function assertNoRawTextareaOutsidePrimitives(source, relativePath) {
+  if (relativePath === "src/controlPrimitives.tsx") {
+    return;
+  }
+  assert(!/<textarea\b/.test(source), `${relativePath}: textareas must use controlPrimitives`);
 }
 
 function assertNoRawDisclosureElement(source, relativePath) {

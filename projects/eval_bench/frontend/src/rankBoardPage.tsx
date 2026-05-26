@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
+import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { f1Score, formatMetric, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
@@ -749,19 +750,12 @@ function RankSchemePanel({
       }
     >
       <div className="rank-scheme-body">
-        <label className={enabled ? "control-check active" : "control-check"}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => onEnabledChange(event.target.checked)}
-          />
-          启用加权排行
-        </label>
-        <textarea
+        <ToggleButton label="启用加权排行" active={enabled} onChange={onEnabledChange} />
+        <StandaloneTextareaControl
+          label="Weighted rank scheme JSON"
           value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
+          onChange={onDraftChange}
           spellCheck={false}
-          aria-label="Weighted rank scheme JSON"
         />
         <div className="rank-scheme-footer">
           <span className={error || apiError ? "rank-scheme-status error" : "rank-scheme-status"}>

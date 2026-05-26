@@ -143,6 +143,32 @@ export function TextareaControl({
   );
 }
 
+type StandaloneTextareaControlProps = Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "onChange" | "value"
+> & {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+};
+
+export function StandaloneTextareaControl({
+  label,
+  value,
+  onChange,
+  ...props
+}: StandaloneTextareaControlProps) {
+  return (
+    <textarea
+      {...props}
+      aria-label={props["aria-label"] ?? label}
+      title={props.title ?? label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
 export function CheckboxFieldControl({
   label,
   checked,

@@ -17,7 +17,7 @@ import {
   preflightJob,
   upsertPromptTemplate
 } from "./api";
-import { CompactSelectControl } from "./controlPrimitives";
+import { CompactSelectControl, TextareaControl } from "./controlPrimitives";
 import { useDashboardState } from "./dashboardState";
 import { basename, formatDate, jobTarget, stringValue, unique } from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
@@ -699,18 +699,17 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
               {selectedTemplate ? (
                 <p className="manifest-template-note">{selectedTemplate.description}</p>
               ) : null}
-              <label className="manifest-editor-field">
-                <span>可编辑任务 Manifest</span>
-                <textarea
-                  spellCheck={false}
-                  value={manifestText}
-                  onChange={(event) => {
-                    setManifestText(event.target.value);
-                    setParseError(null);
-                    preflightMutation.reset();
-                  }}
-                />
-              </label>
+              <TextareaControl
+                className="manifest-editor-field"
+                label="可编辑任务 Manifest"
+                spellCheck={false}
+                value={manifestText}
+                onChange={(value) => {
+                  setManifestText(value);
+                  setParseError(null);
+                  preflightMutation.reset();
+                }}
+              />
             </div>
           }
           second={
