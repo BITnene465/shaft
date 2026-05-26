@@ -8207,6 +8207,39 @@ Dashboard 已经把主要动作按钮、样本行、label chip、Compare label d
 - 新增业务页按钮时先判断是否是标准动作、图标动作、行选择、chip 或 card 选择；除极低层 canvas
   pointer/hud 控件外，不在页面里直接拼 raw button class。
 
+## 2026-05-26: Eval Bench Overview v17 文档契约移除旧 evidence/loop 面板
+
+### 现象
+
+Overview v17 的实现和 `test:ui-contracts` 已经禁止 `overview-evidence-row` 与
+`overview-loop-panel` 回流，layout smoke 也要求总览只保留 ops board、rank console、flow spine
+和最近 run 产物流。但 README 和 `docs/scripts.md` 的静态契约说明仍把这两个旧面板列在 active v17
+结构里，和当前测试相矛盾。
+
+### 根因
+
+总览从旧的 loop/evidence row 迭代到 decision-first command desk 后，代码和测试先收敛，文档中的
+active/deprecated 列表没有同步迁移。
+
+### 影响范围
+
+- 影响后续总览页面改动和 UI contract 判断，容易把已废弃的中间面板误认为必须保留。
+- 不改变 Dashboard runtime、API、指标计算或当前页面 DOM。
+
+### 修复方式
+
+- README 和 `docs/scripts.md` 将 `overview-evidence-row` / `overview-loop-panel` 移到 deprecated 列表。
+- `test:ui-contracts` 增加文档防线，确认 README 和脚本文档不会再把旧面板列为 active v17 contract。
+
+### 回归测试
+
+- `cd projects/eval_bench/frontend && npm run test:ui-contracts`
+- `cd projects/eval_bench/frontend && EVAL_BENCH_URL=http://127.0.0.1:8766 npm run test:layout`
+
+### 后续防线
+
+- 总览布局继续迭代时，active class contract 与 deprecated class contract 必须同时更新代码、文档和 UI contract 测试。
+
 ## 2026-05-26: Eval Bench architecture doc 清理旧 agent command discovery 约束
 
 ### 现象

@@ -810,12 +810,12 @@ npm run test:layout
 承载，避免 filter popover、设置页和表格维护多套输入壳。同一检查还会全局阻止业务页直接写 raw `<button>`、`<input>`、`<select>`、`<textarea>`、
 `<details>` 和 `<summary>`；这些元素只能由 `ui.tsx` 或 `controlPrimitives.tsx` 的共享组件承载。
 Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-first command desk 的
-`overview-home-v17`、`overview-ops-board`、`overview-rank-console`、`overview-evidence-row`、
-`overview-ops-signal`、`overview-score-dial`、`overview-run-focus`、`overview-telemetry-trace`、`overview-loop-panel`、`overview-flow-spine` 和 `overview-recent-card`，
+`overview-home-v17`、`overview-ops-board`、`overview-rank-console`、
+`overview-ops-signal`、`overview-score-dial`、`overview-run-focus`、`overview-telemetry-trace`、`overview-flow-spine` 和 `overview-recent-card`，
 并保留共享 hover / pulse 动效，不能重新引用旧
 `overview-home-v6`、`overview-home-v7`、`overview-home-v10`、`overview-home-v12`、`overview-home-v13`、
 `overview-home-v14`、`overview-home-v15`、`overview-home-v16`、`overview-command-deck`、`overview-pulse-panel`、
-`overview-command-shell`、`overview-proof-strip`、`overview-triage-rail`、`overview-focus-panel`、`overview-side-stack`、
+`overview-command-shell`、`overview-evidence-row`、`overview-loop-panel`、`overview-proof-strip`、`overview-triage-rail`、`overview-focus-panel`、`overview-side-stack`、
 `overview-signal-stack`、阻塞优先级面板、orbit 装饰或活动矩阵组件。
 
 `test:workspace-settings` 会检查 viewer/settings 共享配置 schema，确保数值配置项、UI number input 范围、

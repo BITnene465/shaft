@@ -47,6 +47,10 @@ const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
 const styleSource = await readSource("src/styles.css");
+const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
+const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
+const readmeSource = await readProjectFile("../README.md");
+const scriptsDocSource = await readRepoFile("docs/scripts.md");
 assert(
   apiSource.includes("export class ApiError extends Error") &&
     apiSource.includes("export function isApiError(") &&
@@ -542,6 +546,15 @@ assert(
     "overview-mini-chart"
   ].some((token) => styleSource.includes(token)),
   "overview stylesheet must expose the active v17 surface and block deprecated design tracks",
+);
+assert(
+  !readmeSource.includes("overview-evidence-row`、\n`overview-ops-signal") &&
+    !readmeSource.includes("overview-telemetry-trace`、`overview-loop-panel") &&
+    !scriptsDocSource.includes("overview-evidence-row`、`overview-ops-signal") &&
+    !scriptsDocSource.includes("overview-telemetry-trace`、`overview-loop-panel") &&
+    readmeSource.includes("overview-command-shell`、`overview-evidence-row`、`overview-loop-panel`") &&
+    scriptsDocSource.includes("`overview-evidence-row`、`overview-loop-panel`、`overview-signal-stack`"),
+  "README and scripts docs must document overview evidence/loop panels as deprecated, not active v17 contract",
 );
 const mainEntry = await readSource("src/main.tsx");
 assert(
