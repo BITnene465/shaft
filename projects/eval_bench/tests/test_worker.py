@@ -14,6 +14,8 @@ from eval_bench.sample_paths import sample_image_path
 from eval_bench.worker import (
     EvalBenchWorker,
     _default_vllm_internal_port,
+    _gpu_memory_window_is_stable,
+    _is_vllm_memory_profiling_failure,
     _process_group_exists,
     _resolve_prompt,
     _stop_ephemeral_runtime,
@@ -161,6 +163,29 @@ def test_default_vllm_internal_port_is_separate_from_api_port() -> None:
     port = _default_vllm_internal_port({"port": 8000})
 
     assert 28000 <= port < 28100
+
+
+def test_vllm_memory_profiling_failure_is_detected_from_runtime_log(tmp_path: Path) -> None:
+    log_path = tmp_path / "runtime.log"
+    log_path.write_text(
+        "AssertionError: Error in memory profiling. "
+        "Initial free memory 74.0 GiB, current free memory 75.03 GiB.",
+        encoding="utf-8",
+    )
+
+    assert _is_vllm_memory_profiling_failure(log_path)
+    assert not _is_vllm_memory_profiling_failure(tmp_path / "missing.log")
+
+
+def test_gpu_memory_window_stability_uses_per_device_delta() -> None:
+    assert _gpu_memory_window_is_stable(
+        [(74_000, 73_900), (74_050, 73_950), (74_100, 74_000)],
+        max_delta_mib=256,
+    )
+    assert not _gpu_memory_window_is_stable(
+        [(74_000, 73_900), (75_000, 73_950), (75_100, 74_000)],
+        max_delta_mib=256,
+    )
 
 
 def test_image_path_from_gt_uses_existing_non_png_suffix(tmp_path: Path) -> None:
@@ -420,6 +445,7 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
             "task": "detection",
             "prompt_id": "grounding_layout.latest",
             "backend": "dry_run",
+            "metadata": {"notes": "checkpoint=5000; full benchmark sweep"},
         },
     )
 
@@ -432,6 +458,9 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
     assert processed.metadata["progress_done"] == 1
     assert processed.metadata["progress_total"] == 1
     assert processed.metadata["progress_current_sample"] == "part1/json/a.json"
+    assert processed.metadata["run_note_path"].endswith("runs/" + job.job_id + "/note.json")
+    note = json.loads((tmp_path / "runs" / job.job_id / "note.json").read_text(encoding="utf-8"))
+    assert note["note"] == "checkpoint=5000; full benchmark sweep"
     assert (tmp_path / "runs" / job.job_id / "predictions" / "part1" / "json" / "a.json").exists()
     report_path = tmp_path / "runs" / job.job_id / "reports" / "metrics.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))

@@ -39,10 +39,16 @@ from .schema import (
     utc_now_iso,
 )
 from .services import build_vllm_command_from_config, _probe_openai_endpoint
+from .store import EvalBenchStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOGGER = logging.getLogger("eval_bench.worker")
+_VLLM_MEMORY_PROFILING_MARKERS = (
+    "Error in memory profiling",
+    "Initial free memory",
+    "current free memory",
+)
 
 
 class JobCancelled(RuntimeError):
@@ -131,6 +137,7 @@ class EvalBenchWorker:
                 message="Writing run manifest.",
             )
             manifest_path = self.prepare_run(job)
+            run_note_path = _write_run_note_from_job_payload(self.root, job)
             metadata_update = {
                 "run_id": str(job.payload.get("run_id") or job.job_id),
                 "run_manifest_path": str(manifest_path),
@@ -141,6 +148,8 @@ class EvalBenchWorker:
                 "progress_message": "Run manifest prepared.",
                 "progress_updated_at": utc_now_iso(),
             }
+            if run_note_path is not None:
+                metadata_update["run_note_path"] = str(run_note_path)
             if str(job.payload.get("backend") or "") == "dry_run":
                 report_path = self.run_dry_inference(job)
                 metadata_update.update(
@@ -300,38 +309,89 @@ class EvalBenchWorker:
         if cuda_devices:
             env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices)
         env.setdefault("VLLM_PORT", str(_default_vllm_internal_port(job.payload)))
-        log_file = log_path.open("ab")
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=REPO_ROOT,
-                env=env,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
+        max_attempts = _runtime_start_max_attempts(job.payload)
+        backoff_s = _runtime_retry_backoff_s(job.payload)
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            process: subprocess.Popen[bytes] | None = None
+            _append_runtime_log(
+                log_path,
+                (
+                    f"\n[eval-bench] starting vLLM runtime attempt {attempt}/{max_attempts} "
+                    f"at {utc_now_iso()}\n"
+                ),
             )
-        finally:
-            log_file.close()
-        endpoint = _endpoint_from_job_payload(job.payload)
-        self.database.update_job(
-            job.job_id,
-            status="running",
-            metadata_update={
-                "runtime_pid": process.pid,
-                "runtime_log_path": str(log_path),
-                "runtime_endpoint": endpoint,
-                "progress_phase": "starting_runtime",
-                "progress_message": "vLLM runtime process started; waiting for health check.",
-                "progress_updated_at": utc_now_iso(),
-            },
-        )
-        _wait_for_runtime_ready(
-            endpoint,
-            process=process,
-            timeout_s=float(job.payload.get("runtime_timeout_s") or 900.0),
-            cancel_check=lambda: self._raise_if_cancelled(job),
-        )
-        return process, log_path
+            _wait_for_gpu_memory_stable(
+                cuda_devices=env.get("CUDA_VISIBLE_DEVICES"),
+                payload=job.payload,
+                log_path=log_path,
+                cancel_check=lambda: self._raise_if_cancelled(job),
+            )
+            log_file = log_path.open("ab")
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=REPO_ROOT,
+                    env=env,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            finally:
+                log_file.close()
+            endpoint = _endpoint_from_job_payload(job.payload)
+            self.database.update_job(
+                job.job_id,
+                status="running",
+                metadata_update={
+                    "runtime_pid": process.pid,
+                    "runtime_log_path": str(log_path),
+                    "runtime_endpoint": endpoint,
+                    "runtime_start_attempt": attempt,
+                    "progress_phase": "starting_runtime",
+                    "progress_message": (
+                        "vLLM runtime process started; waiting for health check "
+                        f"(attempt {attempt}/{max_attempts})."
+                    ),
+                    "progress_updated_at": utc_now_iso(),
+                },
+            )
+            try:
+                _wait_for_runtime_ready(
+                    endpoint,
+                    process=process,
+                    timeout_s=float(job.payload.get("runtime_timeout_s") or 900.0),
+                    cancel_check=lambda: self._raise_if_cancelled(job),
+                )
+                return process, log_path
+            except Exception as exc:
+                last_error = exc
+                _stop_ephemeral_runtime(process)
+                if isinstance(exc, JobCancelled):
+                    raise
+                if attempt >= max_attempts or not _is_vllm_memory_profiling_failure(log_path):
+                    raise
+                message = (
+                    "vLLM runtime failed during memory profiling; waiting for GPU memory "
+                    f"to settle before retry {attempt + 1}/{max_attempts}."
+                )
+                LOGGER.warning("%s job_id=%s log_path=%s", message, job.job_id, log_path)
+                self.database.update_job(
+                    job.job_id,
+                    status="running",
+                    metadata_update={
+                        "runtime_log_path": str(log_path),
+                        "runtime_start_attempt": attempt,
+                        "runtime_retry_reason": "vllm_memory_profiling",
+                        "progress_phase": "starting_runtime",
+                        "progress_message": message,
+                        "progress_updated_at": utc_now_iso(),
+                    },
+                )
+                _sleep_with_cancel(backoff_s * attempt, cancel_check=lambda: self._raise_if_cancelled(job))
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("failed to start ephemeral vLLM runtime.")
 
     def prepare_run(self, job: JobRecord) -> Path:
         payload = job.payload
@@ -652,6 +712,37 @@ def _update_run_status(path: Path, *, status: str) -> None:
     atomic_write_json(path, payload)
 
 
+def _write_run_note_from_job_payload(root: Path, job: JobRecord) -> Path | None:
+    note_text = _run_note_text_from_payload(job.payload)
+    if note_text is None:
+        return None
+    run_id = str(job.payload.get("run_id") or job.job_id)
+    note = EvalBenchStore(root).update_run_note(run_id, note_text)
+    return Path(note.path)
+
+
+def _run_note_text_from_payload(payload: dict[str, Any]) -> str | None:
+    for key in ("notes", "note", "run_note"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("notes", "note", "run_note"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    manifest = payload.get("job_manifest") or payload.get("manifest")
+    if isinstance(manifest, dict):
+        metadata = manifest.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("notes", "note", "run_note"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
 def _mark_run_failed_if_exists(root: Path, job: JobRecord, *, error: str) -> None:
     run_id = str(job.payload.get("run_id") or job.job_id)
     path = RunArtifacts(root, run_id).manifest_path
@@ -769,6 +860,178 @@ def _wait_for_runtime_ready(
         last_message = str(health.get("message") or last_message)
         time.sleep(2.0)
     raise TimeoutError(f"runtime health check timed out for {endpoint}: {last_message}")
+
+
+def _runtime_start_max_attempts(payload: dict[str, Any]) -> int:
+    configured = _positive_int(payload.get("runtime_start_max_attempts"))
+    if configured is not None:
+        return configured
+    env_value = _positive_int(os.getenv("EVAL_BENCH_RUNTIME_START_MAX_ATTEMPTS"))
+    return env_value or 3
+
+
+def _runtime_retry_backoff_s(payload: dict[str, Any]) -> float:
+    value = payload.get("runtime_retry_backoff_s")
+    if value in (None, ""):
+        value = os.getenv("EVAL_BENCH_RUNTIME_RETRY_BACKOFF_S")
+    if value in (None, ""):
+        return 10.0
+    return max(0.0, float(value))
+
+
+def _wait_for_gpu_memory_stable(
+    *,
+    cuda_devices: str | None,
+    payload: dict[str, Any],
+    log_path: Path,
+    cancel_check: Callable[[], None] | None = None,
+) -> None:
+    if _payload_bool(payload.get("runtime_gpu_memory_settle"), default=True) is False:
+        return
+    timeout_s = float(
+        payload.get("runtime_gpu_memory_stable_timeout_s")
+        or os.getenv("EVAL_BENCH_GPU_MEMORY_STABLE_TIMEOUT_S")
+        or 120.0
+    )
+    interval_s = float(
+        payload.get("runtime_gpu_memory_stable_interval_s")
+        or os.getenv("EVAL_BENCH_GPU_MEMORY_STABLE_INTERVAL_S")
+        or 2.0
+    )
+    stable_samples = int(
+        payload.get("runtime_gpu_memory_stable_samples")
+        or os.getenv("EVAL_BENCH_GPU_MEMORY_STABLE_SAMPLES")
+        or 3
+    )
+    max_delta_mib = int(
+        payload.get("runtime_gpu_memory_stable_delta_mib")
+        or os.getenv("EVAL_BENCH_GPU_MEMORY_STABLE_DELTA_MIB")
+        or 256
+    )
+    stable_samples = max(1, stable_samples)
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    window: list[tuple[int, ...]] = []
+    while True:
+        if cancel_check is not None:
+            cancel_check()
+        sample = _query_gpu_free_memory_mib(cuda_devices)
+        if sample is None:
+            _append_runtime_log(
+                log_path,
+                "[eval-bench] GPU memory settle skipped: nvidia-smi query failed.\n",
+            )
+            return
+        window.append(sample)
+        if len(window) > stable_samples:
+            window.pop(0)
+        if len(window) >= stable_samples and _gpu_memory_window_is_stable(
+            window,
+            max_delta_mib=max_delta_mib,
+        ):
+            _append_runtime_log(
+                log_path,
+                f"[eval-bench] GPU memory stable before vLLM start: samples={window}\n",
+            )
+            return
+        if time.monotonic() >= deadline:
+            _append_runtime_log(
+                log_path,
+                (
+                    "[eval-bench] GPU memory settle timed out; starting vLLM with "
+                    f"latest samples={window}\n"
+                ),
+            )
+            return
+        _sleep_with_cancel(interval_s, cancel_check=cancel_check)
+
+
+def _query_gpu_free_memory_mib(cuda_devices: str | None) -> tuple[int, ...] | None:
+    command = ["nvidia-smi"]
+    device_ids = _cuda_device_ids(cuda_devices)
+    if device_ids:
+        command.append(f"--id={','.join(device_ids)}")
+    command.extend(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10.0,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    values: list[int] = []
+    for line in completed.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            values.append(int(float(stripped.split()[0])))
+        except (ValueError, IndexError):
+            return None
+    return tuple(values) if values else None
+
+
+def _cuda_device_ids(cuda_devices: str | None) -> list[str]:
+    if not cuda_devices:
+        return []
+    return [item.strip() for item in str(cuda_devices).split(",") if item.strip()]
+
+
+def _gpu_memory_window_is_stable(
+    window: list[tuple[int, ...]],
+    *,
+    max_delta_mib: int,
+) -> bool:
+    if not window:
+        return False
+    width = len(window[0])
+    if width == 0 or any(len(sample) != width for sample in window):
+        return False
+    for index in range(width):
+        values = [sample[index] for sample in window]
+        if max(values) - min(values) > max_delta_mib:
+            return False
+    return True
+
+
+def _is_vllm_memory_profiling_failure(log_path: Path) -> bool:
+    if not log_path.exists():
+        return False
+    try:
+        tail = log_path.read_text(encoding="utf-8", errors="ignore")[-20_000:]
+    except OSError:
+        return False
+    return all(marker in tail for marker in _VLLM_MEMORY_PROFILING_MARKERS)
+
+
+def _payload_bool(value: Any, *, default: bool) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"invalid boolean value: {value!r}")
+
+
+def _sleep_with_cancel(seconds: float, *, cancel_check: Callable[[], None] | None = None) -> None:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while time.monotonic() < deadline:
+        if cancel_check is not None:
+            cancel_check()
+        time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+
+
+def _append_runtime_log(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(text)
 
 
 def _stop_ephemeral_runtime(process: subprocess.Popen[bytes]) -> None:

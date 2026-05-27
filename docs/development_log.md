@@ -41,20 +41,25 @@ profiling 阶段失败，典型日志为：
 - 调度方式降为单并发，并把 scheduler interval 调大，避免连续拉起 runtime：
   `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS=1`
   和 `EVAL_BENCH_SCHEDULER_INTERVAL_S=60`。
-- 对因 vLLM memory profiling 失败的 job，视为资源瞬态失败，可以删除后用相同 manifest 重新入队。
+- Worker 在启动 ephemeral vLLM 前增加 GPU free memory settle 检查，等待连续采样稳定后再拉起 runtime。
+- Worker 识别 `runtime.log` 中的 vLLM memory profiling failure，自动清理失败的 runtime 进程组并有限次
+  retry/backoff，避免占卡程序释放显存的竞态直接打掉整轮 job。
+- Job payload 中的 `notes` / `metadata.notes` 会在 run manifest 写出后自动落到 `note.json`；如果 runtime
+  在 ready 前失败，还没有 run manifest，因此只能先保留在 job payload/metadata 中。
 
 ### 回归测试
 
 - `uv run python scripts/eval_bench.py serve-dashboard --help`
 - `uv run python scripts/eval_bench.py create-job --help`
 - `curl -fsS http://127.0.0.1:8765/api/scheduler/status`
+- `uv run pytest -q projects/eval_bench/tests/test_worker.py::test_vllm_memory_profiling_failure_is_detected_from_runtime_log projects/eval_bench/tests/test_worker.py::test_gpu_memory_window_stability_uses_per_device_delta projects/eval_bench/tests/test_worker.py::test_worker_dry_run_writes_predictions_and_report`
 - 检查 failed job 的 `logs/runtime.log`，确认根因是 vLLM memory profiling，而不是 manifest、prompt、
   parser 或 benchmark 配置错误。
 
 ### 后续防线
 
-- Eval Bench worker 应增加 runtime 启动前的 GPU memory settle 检查，等待显存连续多次采样稳定后再启动 vLLM。
-- 对 vLLM memory profiling 这类明确的瞬态资源失败，应支持有限次数自动 retry/backoff。
+- vLLM memory profiling failure 属于资源瞬态失败；如果 retry 仍耗尽，应优先检查是否还有进程在同一容器内
+  反复释放显存，而不是改 prompt、benchmark 或 checkpoint。
 - 提交/启动 eval job 前必须先查看对应子命令 `--help`，不要复用其他子命令的参数名。
 
 ## 2026-05-27: Eval job manifest 顶层 run_id 被忽略导致平台显示默认命名
