@@ -189,7 +189,7 @@ python scripts/eval_bench.py validate-prediction \
 ```bash
 python scripts/eval_bench.py create-job \
   --kind eval \
-  --payload-json '{"manifest":{"kind":"eval_job","runtime":{"mode":"ephemeral","engine":"vllm_openai","env":{"CUDA_VISIBLE_DEVICES":"0","CUDA_DEVICE_ORDER":"PCI_BUS_ID"},"args":{"model":"outputs/qwen3vl-sft/run/best","served-model-name":"qwen3vl-best","host":"127.0.0.1","port":8000,"tensor-parallel-size":1,"max-model-len":32768,"gpu-memory-utilization":0.9,"max-num-seqs":8,"trust-remote-code":true}},"eval":{"model_id":"qwen3vl-best","benchmark_id":"multitask_val_v1","task":"detection","prompt_id":"grounding_arrow.latest","target_labels":["arrow"],"prompt_path":"configs/prompts/grounding_arrow.yaml","generation":{"max_tokens":4096,"temperature":0,"top_p":1},"data":{"max_pixels":1048576,"batch_size":1}}}}'
+  --payload-json '{"manifest":{"kind":"eval_job","runtime":{"mode":"ephemeral","engine":"vllm_openai","env":{"CUDA_VISIBLE_DEVICES":"0","CUDA_DEVICE_ORDER":"PCI_BUS_ID"},"args":{"model":"outputs/qwen3vl-sft/run/best","served-model-name":"qwen3vl-best","host":"127.0.0.1","port":8000,"tensor-parallel-size":1,"max-model-len":32768,"gpu-memory-utilization":0.9,"max-num-seqs":8,"trust-remote-code":true}},"eval":{"model_id":"qwen3vl-best","benchmark_id":"multitask_val_v1","task":"detection","prompt_id":"grounding_arrow.latest","target_labels":["arrow"],"prompt_path":"configs/prompts/grounding_arrow.yaml","generation":{"max_tokens":4096,"temperature":0,"top_p":1},"data":{"max_pixels":2000000,"batch_size":1}}}}'
 
 python scripts/eval_bench.py list-jobs
 ```

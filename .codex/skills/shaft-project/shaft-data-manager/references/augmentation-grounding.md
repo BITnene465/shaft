@@ -23,7 +23,7 @@ Never train on clipped partial GT boxes.
 ## Train Views
 
 - `full_image`
-- `full_image_blur`
+- `full_image_blur` as a bounded replacement subset of full-image train rows
 - `density_crop`
 - controlled `hard_negative_crop`
 - local task-owned image copies for every row
@@ -41,12 +41,11 @@ Generate structured data independently for these detection subtasks:
 | `grounding_layout` | `icon`, `image`, `shape` | `layout` |
 | `grounding_shape` | `shape` | `layout` |
 | `grounding_icon_image` | `icon`, `image` | `layout` |
-| `grounding_shape_arrow` | `shape`, `arrow` | `layout` and `arrow` |
 
 Use `data/raw_data/splits/grounding_train.txt` and `grounding_val.txt` as the split source.
 Filter by required raw coverage before deriving each subtask. For example, `part1` arrow-only
 samples are valid for `grounding_arrow`, but must not become layout, shape, icon/image, or
-shape/arrow negatives.
+other grounding negatives.
 
 ## Maintained Generator
 
@@ -69,8 +68,10 @@ of mechanically cropping every image:
 - Keep the full-image row for every train sample.
 - Do not reference raw images directly from structured rows. Copy or render every row image under
   the task dataset directory, for example `data/grounding_arrow/images/train/`.
-- For train, keep the clean full-image row and add one full-image blur row for each covered
-  source image. The combined JPEG/resize blur count should match the clean full-image count.
+- For train, each covered source image contributes one full-image row total: either clean
+  `full_image` or degraded `full_image_blur`. Clean full and blur full counts should add up to
+  approximately the original source full-image count. Blur is a bounded replacement subset, not a
+  duplicate row for every clean full-image row.
 - Keep positive crop volume controlled by task so local views do not dominate full-image rows.
 - Candidate crops should be random but density-biased, not fixed-size tiles. Sample crop width
   and height from image-relative ranges so the view scale follows the source image size. Use a
@@ -92,8 +93,8 @@ of mechanically cropping every image:
 
 ## Full-Image Blur Rows
 
-Grounding may use light pixel degradation as additional train full-image rows. The clean
-full-image row must remain present.
+Grounding may use light pixel degradation as a train full-image replacement subset. Do not double
+the full-image portion by adding a blur copy for every clean full-image row.
 
 - Apply only to train full-image blur rows.
 - Do not apply to density crops or hard negatives by default.
@@ -102,8 +103,9 @@ full-image row must remain present.
 - `jpeg_blur`: lightly round-trip through JPEG.
 - `resize_blur`: for high-resolution views only, downscale and resize back to the original view
   size.
-- JPEG blur plus resize blur row counts should equal the clean full-image row count. Within blur
-  rows, sample resize blur only when the source view is high resolution; otherwise use JPEG blur.
+- JPEG blur plus resize blur row counts should be at most half of the full-image source count by
+  default. Within blur rows, sample resize blur only when the source view is high resolution;
+  otherwise use JPEG blur.
 - Keep resize blur as a minority/high-resolution-specific degradation; non-high-resolution views
   should fall back to JPEG-style blur.
 
@@ -120,7 +122,8 @@ unchanged because the output view dimensions stay unchanged.
 ## Hard Negatives
 
 - Use only clean empty windows with no full GT and no partial overlap.
-- Keep empty ratio controlled and small relative to positive/full rows.
+- Keep empty ratio controlled and small relative to positive/full rows. The maintained default
+  hard-negative sampling target is `0.008` of `full + positive crop` rows.
 - Do not augment hard negatives with blur by default.
 - Hard negative candidates should use the same image-relative crop philosophy as positive crops,
   then be sampled down after candidates are generated.
@@ -143,6 +146,8 @@ After a grounding rebuild, check:
 - No structured row image path points into `data/raw_data`.
 - Number of files in `images/train` equals `structured/train.jsonl` rows.
 - Number of files in `images/val` equals `structured/val.jsonl` rows.
-- Train `full_image` row count equals train `full_image_blur` row count.
+- Train `full_image + full_image_blur` row count equals the covered train source count.
+- Train `full_image_blur` row count is no more than half of covered train sources unless the user
+  explicitly asks for a stress dataset.
 - Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
 - All bboxes are positive-area and inside the row image dimensions.

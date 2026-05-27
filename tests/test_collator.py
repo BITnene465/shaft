@@ -183,7 +183,7 @@ def test_sft_collator_appends_eos_to_inputs_and_labels() -> None:
     assert int(out["labels"][0, -1].item()) == _FakeTokenizer.eos_token_id
 
 
-def test_sft_collator_truncates_target_tokens_to_max_length() -> None:
+def test_sft_collator_truncates_target_tokens_without_eos_when_over_max_length() -> None:
     model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     collator = SFTCollator(
         model_adapter=model_adapter,
@@ -210,8 +210,8 @@ def test_sft_collator_truncates_target_tokens_to_max_length() -> None:
     out = collator(batch)
 
     assert out["input_ids"].shape[1] == 4
-    assert int(out["input_ids"][0, -1].item()) == _FakeTokenizer.eos_token_id
-    assert int(out["labels"][0, -1].item()) == _FakeTokenizer.eos_token_id
+    assert int(out["input_ids"][0, -1].item()) != _FakeTokenizer.eos_token_id
+    assert int(out["labels"][0, -1].item()) != _FakeTokenizer.eos_token_id
     assert int(torch.sum(out["labels"][0].ne(-100)).item()) == 3
 
 

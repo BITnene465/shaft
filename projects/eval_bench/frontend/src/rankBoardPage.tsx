@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
+import { FileText, FileX } from "lucide-react";
 
 import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
@@ -624,11 +625,18 @@ function RankBoardTable({
     { header: "mIoU", cell: ({ row }) => formatMetric(row.original.mean_iou) },
     {
       header: "备注",
-      cell: ({ row }) => (
-        <span className={row.original.note ? "run-note-preview" : "run-note-preview empty"}>
-          {row.original.note || "-"}
-        </span>
-      )
+      cell: ({ row }) => {
+        const hasNote = Boolean(row.original.note.trim());
+        return (
+          <span
+            className={hasNote ? "run-note-preview" : "run-note-preview empty"}
+            title={hasNote ? "有备注" : "无备注"}
+            aria-label={hasNote ? "有备注" : "无备注"}
+          >
+            {hasNote ? <FileText size={14} /> : <FileX size={14} />}
+          </span>
+        );
+      }
     }
   );
   return <DataTable columns={columns} data={entries} emptyText="没有符合高级检索条件的 run。" />;

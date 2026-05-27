@@ -23,6 +23,7 @@ from .label_policy import (
     TargetLabelPolicy,
     normalize_target_labels,
     resolve_target_label_policy,
+    validate_target_labels_for_benchmark,
     validate_target_labels_for_task,
 )
 from .prediction_parser import parse_prediction_text
@@ -438,6 +439,11 @@ class EvalBenchWorker:
                 source=target_labels_source,
             )
         validate_target_labels_for_task(task=task, labels=target_policy.labels)
+        validate_target_labels_for_benchmark(
+            labels=target_policy.labels,
+            benchmark_labels=benchmark_payload.get("labels"),
+            benchmark_id=benchmark_id,
+        )
 
         manifest = EvalRunManifest(
             run_id=run_id,
@@ -673,6 +679,8 @@ def _generate_vllm_sample_prediction(
             "task": task,
             "created_at": utc_now_iso(),
             "latency_ms": result.latency_ms,
+            "output_char_count": len(result.text),
+            "output_token_count": _approx_output_token_count(result.text),
             "inference_params": inference_metadata,
             "parser": {
                 "name": "eval_bench.prediction_parser",
@@ -1218,8 +1226,6 @@ def _default_prompt_path(*, prompt_id: str, task: TaskKind) -> Path:
     lower_id = prompt_id.lower()
     if task == "keypoint" or "point_arrow" in lower_id or "keypoint" in lower_id:
         return REPO_ROOT / "configs/prompts/point_arrow.yaml"
-    if "shape_arrow" in lower_id:
-        return REPO_ROOT / "configs/prompts/grounding_shape_arrow.yaml"
     if "icon_image" in lower_id:
         return REPO_ROOT / "configs/prompts/grounding_icon_image.yaml"
     if "shape" in lower_id:
@@ -1283,3 +1289,7 @@ def _write_raw_output(artifacts: RunArtifacts, *, image: Path, text: str) -> Pat
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _approx_output_token_count(text: str) -> int:
+    return len([item for item in str(text or "").replace("\n", " ").split(" ") if item])

@@ -76,6 +76,16 @@ direction, or source-group differences. Do not dedupe arrows or connectors witho
 Do not apply train-only augmentation to validation data. Validation should normally be full-image
 and deterministic, even if train gets crops, hard negatives, or blur.
 
+Exception: `point_arrow` validation is crop-level by task definition. It should be deterministic
+arrow crops, not raw full images.
+
+## Blur Is Not A Full-Image Multiplier
+
+For grounding train data, blur full-image rows are a bounded replacement subset of full-image
+rows. Do not keep every clean full-image row and then add a blur copy for every one of them. Clean
+full and blur full counts together should approximately equal the source full-image count; by
+default, JPEG blur plus resize blur should be at most half of covered train sources.
+
 ## JPEG Is Not a Default Grounding Augmentation
 
 Do not add JPEG compression just because it is a common vision augmentation. For these diagram

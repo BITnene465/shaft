@@ -44,7 +44,6 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec("grounding_layout", "grounding", "configs/prompts/grounding_layout.yaml"),
     TaskSpec("grounding_shape", "grounding", "configs/prompts/grounding_shape.yaml"),
     TaskSpec("grounding_icon_image", "grounding", "configs/prompts/grounding_icon_image.yaml"),
-    TaskSpec("grounding_shape_arrow", "grounding", "configs/prompts/grounding_shape_arrow.yaml"),
     TaskSpec("point_arrow", "point", "configs/prompts/point_arrow.yaml"),
 )
 

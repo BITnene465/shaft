@@ -59,13 +59,6 @@ TASKS: tuple[GroundingTaskSpec, ...] = (
         max_positive_crops=1,
         min_positive_instances=2,
     ),
-    GroundingTaskSpec(
-        name="grounding_shape_arrow",
-        labels=("shape", "arrow"),
-        required_layers=("layout", "arrow"),
-        max_positive_crops=2,
-        min_positive_instances=4,
-    ),
 )
 
 
@@ -80,6 +73,7 @@ class BuildConfig:
     candidate_count: int
     negative_candidate_count: int
     negative_ratio: float
+    full_blur_ratio: float
 
 
 @dataclass(frozen=True)
@@ -431,6 +425,19 @@ def _choose_full_blur_augmentation(
     }
 
 
+def _use_full_blur_augmentation(
+    rng: random.Random,
+    *,
+    split: str,
+    ratio: float,
+) -> bool:
+    if split != "train" or ratio <= 0:
+        return False
+    if ratio >= 1:
+        return True
+    return rng.random() < ratio
+
+
 def _apply_pixel_augmentation(image: Image.Image, augmentation: dict[str, Any]) -> Image.Image:
     name = augmentation.get("name")
     if name == "jpeg_blur":
@@ -520,15 +527,30 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     rng = random.Random(f"{config.seed}:{config.task_name}:{config.split}:{json_rel}")
 
     full_rows: list[dict[str, Any]] = []
-    full_output_name = f"{rel_id}__full.png"
+    use_full_blur = _use_full_blur_augmentation(
+        rng,
+        split=config.split,
+        ratio=config.full_blur_ratio,
+    )
+    full_aug = (
+        _choose_full_blur_augmentation(
+            rng,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        if use_full_blur
+        else {"name": "none"}
+    )
+    full_view_type = "full_image_blur" if use_full_blur else "full_image"
+    full_suffix = "full_blur" if use_full_blur else "full"
+    full_output_name = f"{rel_id}__{full_suffix}.png"
     full_output_path = config.image_output_dir / full_output_name
-    full_aug = {"name": "none"}
     _save_generated_image(image, full_output_path, full_aug)
     full_rows.append(
         _build_row(
             task_name=spec.name,
             split=config.split,
-            sample_id=f"{rel_id}__full",
+            sample_id=f"{rel_id}__{full_suffix}",
             image_path=f"../images/{config.split}/{full_output_name}",
             image_width=image_width,
             image_height=image_height,
@@ -536,39 +558,12 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
             raw_record=raw_record,
             json_rel=json_rel,
             target_labels=spec.labels,
-            view_type="full_image",
+            view_type=full_view_type,
             crop_box=(0, 0, image_width, image_height),
             source_instance_indices=[instance.index for instance in instances],
             pixel_augmentation=full_aug,
         )
     )
-    if config.split == "train":
-        blur_aug = _choose_full_blur_augmentation(
-            rng,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        blur_output_name = f"{rel_id}__full_blur.png"
-        blur_output_path = config.image_output_dir / blur_output_name
-        _save_generated_image(image, blur_output_path, blur_aug)
-        full_rows.append(
-            _build_row(
-                task_name=spec.name,
-                split=config.split,
-                sample_id=f"{rel_id}__full_blur",
-                image_path=f"../images/{config.split}/{blur_output_name}",
-                image_width=image_width,
-                image_height=image_height,
-                instances=_full_instances(instances),
-                raw_record=raw_record,
-                json_rel=json_rel,
-                target_labels=spec.labels,
-                view_type="full_image_blur",
-                crop_box=(0, 0, image_width, image_height),
-                source_instance_indices=[instance.index for instance in instances],
-                pixel_augmentation=blur_aug,
-            )
-        )
 
     positive_rows: list[dict[str, Any]] = []
     negative_rows: list[dict[str, Any]] = []
@@ -751,12 +746,12 @@ Generated from `data/raw_data` for grounding detection.
 - Max positive crops per source: `{spec.max_positive_crops}`
 - Min positive crop instances: `{spec.min_positive_instances}`
 - Hard negative ratio target: `{args.negative_ratio}`
+- Full-image blur ratio target: `{args.full_blur_ratio}`
 - Images: all rows reference task-local images under `images/<split>/`; raw images are copied,
   not referenced directly.
-- Full-image blur: each train source keeps one clean full-image row and one full-image blur row.
-  JPEG blur plus resize blur row counts therefore match the clean full-image row count. Resize
-  blur is used only for views with max dimension >= 1500; validation, density crops, and hard
-  negatives stay clean.
+- Full-image blur: each train source contributes one full-image row total. A deterministic
+  subset is written as `full_image_blur`; the rest stays clean `full_image`. Validation, density
+  crops, and hard negatives stay clean.
 
 ## Counts
 
@@ -849,7 +844,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--candidate-count", type=int, default=32)
     parser.add_argument("--negative-candidate-count", type=int, default=48)
-    parser.add_argument("--negative-ratio", type=float, default=0.04)
+    parser.add_argument("--negative-ratio", type=float, default=0.008)
+    parser.add_argument("--full-blur-ratio", type=float, default=0.5)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
@@ -857,6 +853,8 @@ def main() -> None:
     output_root = Path(args.output_root)
     if not raw_root.exists():
         raise FileNotFoundError(raw_root)
+    if not 0 <= float(args.full_blur_ratio) <= 1:
+        raise ValueError("--full-blur-ratio must be in [0, 1].")
 
     summaries: dict[str, Any] = {}
     for spec in _task_by_name(args.task):
@@ -878,6 +876,7 @@ def main() -> None:
             candidate_count=int(args.candidate_count),
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=float(args.negative_ratio),
+            full_blur_ratio=float(args.full_blur_ratio),
         )
         val_config = BuildConfig(
             raw_root=raw_root,
@@ -889,6 +888,7 @@ def main() -> None:
             candidate_count=int(args.candidate_count),
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=0.0,
+            full_blur_ratio=0.0,
         )
         train_rows, covered_train, _ = _build_task_split(
             spec=spec,

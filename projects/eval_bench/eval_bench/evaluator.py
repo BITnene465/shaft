@@ -25,6 +25,11 @@ class EvalReport:
     precision_iou50: float
     recall_iou50: float
     mean_iou: float
+    empty_prediction_rate: float = 0.0
+    pred_gt_ratio: float = 0.0
+    output_char_length: dict[str, Any] = field(default_factory=dict)
+    output_token_length: dict[str, Any] = field(default_factory=dict)
+    dense_sample_buckets: list[dict[str, Any]] = field(default_factory=list)
     keypoint_pair_count: int = 0
     mean_keypoint_distance: float | None = None
     target_labels: list[str] = field(default_factory=list)
@@ -84,6 +89,8 @@ def evaluate_manifest(
     missing_predictions: list[str] = []
     metric_samples: list[MetricSample] = []
     prediction_file_count = 0
+    output_char_lengths: list[int] = []
+    output_token_lengths: list[int] = []
 
     for sample_index, json_relative in enumerate(sample_entries):
         gt_doc = _load_json(benchmark_root / json_relative)
@@ -95,6 +102,15 @@ def evaluate_manifest(
         else:
             pred_doc = {"instances": []}
             missing_predictions.append(str(json_relative))
+        char_count, token_count = _prediction_output_lengths(
+            raw_outputs_dir=predictions_dir.parent / "raw_outputs",
+            prediction=pred_doc,
+            image=image,
+        )
+        if char_count is not None:
+            output_char_lengths.append(char_count)
+        if token_count is not None:
+            output_token_lengths.append(token_count)
         gt_instances = [
             item
             for item in (_normalize_instance(instance) for instance in gt_doc.get("instances") or [])
@@ -132,6 +148,11 @@ def evaluate_manifest(
         precision_iou50=metrics.precision_iou50,
         recall_iou50=metrics.recall_iou50,
         mean_iou=metrics.mean_iou,
+        empty_prediction_rate=_empty_prediction_rate(metrics.samples),
+        pred_gt_ratio=_safe_div(metrics.pred_instance_count, metrics.gt_instance_count),
+        output_char_length=_length_distribution(output_char_lengths),
+        output_token_length=_length_distribution(output_token_lengths),
+        dense_sample_buckets=_dense_sample_buckets(metrics.samples),
         keypoint_pair_count=metrics.keypoint_pair_count,
         mean_keypoint_distance=metrics.mean_keypoint_distance,
         target_labels=target_labels,
@@ -155,6 +176,11 @@ def _report_summary(report: EvalReport) -> dict[str, Any]:
         "precision_iou50": report.precision_iou50,
         "recall_iou50": report.recall_iou50,
         "mean_iou": report.mean_iou,
+        "empty_prediction_rate": report.empty_prediction_rate,
+        "pred_gt_ratio": report.pred_gt_ratio,
+        "output_char_length": report.output_char_length,
+        "output_token_length": report.output_token_length,
+        "dense_sample_buckets": report.dense_sample_buckets,
         "keypoint_pair_count": report.keypoint_pair_count,
         "mean_keypoint_distance": report.mean_keypoint_distance,
         "label_count": len(report.labels),
@@ -195,6 +221,126 @@ def _read_split(path: Path) -> list[Path]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
+
+
+def _prediction_output_lengths(
+    *,
+    raw_outputs_dir: Path,
+    prediction: dict[str, Any],
+    image: Path,
+) -> tuple[int | None, int | None]:
+    metadata = prediction.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    char_count = _optional_int(metadata.get("output_char_count"))
+    token_count = _optional_int(metadata.get("output_token_count"))
+    raw_output_path = _raw_output_path(raw_outputs_dir, image=image)
+    if char_count is None and raw_output_path.exists():
+        text = raw_output_path.read_text(encoding="utf-8", errors="replace")
+        char_count = len(text)
+        token_count = token_count if token_count is not None else _approx_token_count(text)
+    return char_count, token_count
+
+
+def _raw_output_path(raw_outputs_dir: Path, *, image: Path) -> Path:
+    parts = image.parts
+    if len(parts) >= 3 and parts[1] == "images":
+        relative = Path(parts[0]) / "txt" / image.with_suffix(".txt").name
+    else:
+        relative = image.with_suffix(".txt")
+    return raw_outputs_dir / relative
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _approx_token_count(text: str) -> int:
+    return len([item for item in str(text or "").replace("\n", " ").split(" ") if item])
+
+
+def _empty_prediction_rate(samples: list[dict[str, Any]]) -> float:
+    if not samples:
+        return 0.0
+    empty_count = sum(1 for sample in samples if int(sample.get("pred_instance_count") or 0) == 0)
+    return _safe_div(empty_count, len(samples))
+
+
+def _length_distribution(values: list[int]) -> dict[str, Any]:
+    if not values:
+        return {"count": 0, "min": None, "p50": None, "p90": None, "max": None, "mean": None}
+    ordered = sorted(int(value) for value in values)
+    return {
+        "count": len(ordered),
+        "min": ordered[0],
+        "p50": _percentile(ordered, 0.5),
+        "p90": _percentile(ordered, 0.9),
+        "max": ordered[-1],
+        "mean": sum(ordered) / float(len(ordered)),
+    }
+
+
+def _percentile(values: list[int], ratio: float) -> int:
+    if not values:
+        return 0
+    index = min(len(values) - 1, max(0, int(round((len(values) - 1) * ratio))))
+    return values[index]
+
+
+def _dense_sample_buckets(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bucket_rows: dict[str, dict[str, Any]] = {}
+    for sample in samples:
+        gt_count = int(sample.get("gt_instance_count") or 0)
+        bucket = _density_bucket(gt_count)
+        row = bucket_rows.setdefault(
+            bucket,
+            {
+                "bucket": bucket,
+                "sample_count": 0,
+                "gt_instance_count": 0,
+                "pred_instance_count": 0,
+                "matched_count": 0,
+                "empty_prediction_count": 0,
+            },
+        )
+        row["sample_count"] += 1
+        row["gt_instance_count"] += gt_count
+        row["pred_instance_count"] += int(sample.get("pred_instance_count") or 0)
+        row["matched_count"] += int(sample.get("matched_count") or 0)
+        if int(sample.get("pred_instance_count") or 0) == 0:
+            row["empty_prediction_count"] += 1
+    rows: list[dict[str, Any]] = []
+    for bucket in ("empty", "1", "2-5", "6-20", "21+"):
+        row = bucket_rows.get(bucket)
+        if row is None:
+            continue
+        row = dict(row)
+        row["precision_iou50"] = _safe_div(row["matched_count"], row["pred_instance_count"])
+        row["recall_iou50"] = _safe_div(row["matched_count"], row["gt_instance_count"])
+        row["empty_prediction_rate"] = _safe_div(row["empty_prediction_count"], row["sample_count"])
+        rows.append(row)
+    return rows
+
+
+def _density_bucket(gt_count: int) -> str:
+    if gt_count <= 0:
+        return "empty"
+    if gt_count == 1:
+        return "1"
+    if gt_count <= 5:
+        return "2-5"
+    if gt_count <= 20:
+        return "6-20"
+    return "21+"
+
+
+def _safe_div(numerator: int | float, denominator: int | float) -> float:
+    return float(numerator) / float(denominator) if float(denominator) else 0.0
 
 
 def _load_json(path: Path) -> dict[str, Any]:

@@ -105,6 +105,10 @@ assert(
     filterControls.includes("function toggleAdvancedFilter()") &&
     filterControls.includes("function defaultFilterValue(") &&
     filterControls.includes("function groupAdvancedControls(") &&
+    filterControls.includes("function advancedFilterOpenStateKey(") &&
+    filterControls.includes("function readAdvancedFilterOpenState(") &&
+    filterControls.includes("function writeAdvancedFilterOpenState(") &&
+    filterControls.includes("eval_bench_advanced_filter_open") &&
     filterControls.includes("const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [") &&
     filterControls.includes(".advanced-filter-controls input:not([disabled])") &&
     filterControls.includes("const popoverRef = useRef<HTMLDivElement | null>(null);") &&
@@ -702,7 +706,10 @@ assert(
 );
 assert(
   runTables.includes('hash="run-note"') &&
-    runTables.includes('className={row.original.note ? "run-note-preview" : "run-note-preview empty"}') &&
+    runTables.includes('className={hasNote ? "run-note-preview" : "run-note-preview empty"}') &&
+    runTables.includes('title={hasNote ? "有备注" : "无备注"}') &&
+    runTables.includes("<FileText size={14} />") &&
+    runTables.includes("<FileX size={14} />") &&
     runsPage.includes("function shouldOpenRunNotePanel(") &&
     runsPage.includes('id="run-note"') &&
     runsPage.includes("open={configOpen}") &&

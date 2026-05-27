@@ -180,9 +180,9 @@
 - `static` 会在训练启动前构建一次 train sampler，整个 run 复用同一份混合索引。
 - `epoch_refresh` 会在每个 epoch 通过 train sampler 重建训练集 mixing 索引；验证集仍保持静态 concat。
 - `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
-  `max_length` / `cutoff_len`。SFT completion 会优先保留 prompt 和图像前缀，只从 assistant target
-  右侧截断，并在启用 `add_eos_token` 时为截断后的 target 补 EOS。该字段用于避免超长结构化答案把
-  DDP 单步拖入极慢路径；不改变原始 JSONL 数据，也不影响 raw 数据溯源。
+  `max_length` / `cutoff_len`。SFT 不允许静默截断 assistant target；当
+  `prefix_tokens + target_tokens + eos > max_length` 时会直接报错，错误信息会记录三段长度。
+  训练前应按真实 processor 做长度审计，超限样本需要过滤、记录或拆 crop，不能把 dense 答案截断后继续训练。
 
 补充说明：
 

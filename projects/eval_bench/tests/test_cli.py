@@ -1034,7 +1034,7 @@ def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) ->
     assert payload["spec"]["inference"]["max_tokens"] == 4096
     assert payload["spec"]["inference"]["temperature"] == 0.0
     assert payload["spec"]["inference"]["top_p"] == 1.0
-    assert payload["spec"]["inference"]["max_pixels"] == 1048576
+    assert payload["spec"]["inference"]["max_pixels"] == 2_000_000
     assert payload["spec"]["inference"]["batch_size"] == 1
 
 
@@ -2340,6 +2340,7 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     assert "grounding_arrow.latest" in prompt_templates["by_id"]
     assert prompt_templates["by_id"]["grounding_arrow.latest"]["task"] == "detection"
     assert prompt_templates["by_id"]["grounding_arrow.latest"]["generation"]["max_tokens"] == 4096
+    assert prompt_templates["by_id"]["grounding_arrow.latest"]["data"]["max_pixels"] == 2_000_000
 
     show_prompt_args = _build_parser().parse_args(
         [
@@ -2518,6 +2519,11 @@ def test_cli_reads_benchmark_samples_for_agents(tmp_path: Path, capsys) -> None:
 def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -> None:
     model_path = tmp_path / "models" / "model-a"
     _write_json(model_path / "config.json", {"num_attention_heads": 4})
+    (tmp_path / "benchmarks" / "bench1" / "splits").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt").write_text(
+        "part1/json/a.json\n",
+        encoding="utf-8",
+    )
     _write_json(
         tmp_path / "benchmarks" / "bench1" / "benchmark.json",
         {
@@ -2777,6 +2783,11 @@ def test_cli_preflight_rejects_keypoint_label_subtasks(tmp_path: Path, capsys) -
 def test_cli_create_job_persists_preflight_warnings(tmp_path: Path, capsys) -> None:
     model_path = tmp_path / "models" / "model-a"
     _write_json(model_path / "config.json", {"num_attention_heads": 4})
+    (tmp_path / "benchmarks" / "bench1" / "splits").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt").write_text(
+        "part1/json/a.json\n",
+        encoding="utf-8",
+    )
     _write_json(
         tmp_path / "benchmarks" / "bench1" / "benchmark.json",
         {

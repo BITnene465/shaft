@@ -1405,15 +1405,19 @@ def create_app(
         baseline_run_id: str,
         candidate_run_id: str,
         sample_index: int,
+        baseline_index: int | None = None,
+        candidate_index: int | None = None,
     ):
+        resolved_baseline_index = sample_index if baseline_index is None else baseline_index
+        resolved_candidate_index = sample_index if candidate_index is None else candidate_index
         try:
             baseline = request.app.state.eval_bench_store.run_sample_detail(
                 baseline_run_id,
-                sample_index=sample_index,
+                sample_index=resolved_baseline_index,
             )
             candidate = request.app.state.eval_bench_store.run_sample_detail(
                 candidate_run_id,
-                sample_index=sample_index,
+                sample_index=resolved_candidate_index,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1424,6 +1428,8 @@ def create_app(
                 "baseline_run_id": baseline_run_id,
                 "candidate_run_id": candidate_run_id,
                 "sample_index": sample_index,
+                "baseline_index": resolved_baseline_index,
+                "candidate_index": resolved_candidate_index,
                 "baseline": _run_sample_detail_payload(baseline_run_id, baseline),
                 "candidate": _run_sample_detail_payload(candidate_run_id, candidate),
             }

@@ -24,13 +24,14 @@ task families.
   source of truth for grounding. Derive point-arrow train rows by filtering `grounding_train.txt`
   to `part1` arrow instances with `linestrip`; use `point_arrow_val.txt` for point validation.
 - Current grounding structured subtasks are `grounding_arrow`, `grounding_layout`,
-  `grounding_shape`, `grounding_icon_image`, and `grounding_shape_arrow`. Generate them
+  `grounding_shape`, and `grounding_icon_image`. Generate them
   independently from the same grounding split source using each subtask's coverage and label
   filters.
-- Grounding structured rows should reference task-local images, not raw-data image paths. Clean
-  full-image rows copy/render the raw image into `images/<split>/`; train additionally keeps one
-  full-image blur row per covered source, with JPEG blur plus resize blur counts matching the
-  clean full-image count.
+- Grounding structured rows should reference task-local images, not raw-data image paths. Each
+  covered train source contributes one full-image row total: either clean `full_image` or
+  degraded `full_image_blur`. JPEG blur plus resize blur should be a bounded replacement subset,
+  defaulting to at most half of covered train sources, not an additional duplicate full-image
+  copy.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced

@@ -442,6 +442,11 @@ def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
 def test_dashboard_create_job_persists_preflight_warnings(tmp_path: Path) -> None:
     model_path = tmp_path / "models" / "model-a" / "best"
     model_path.mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench_no_labels" / "splits").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench_no_labels" / "splits" / "val.txt").write_text(
+        "part1/json/a.json\n",
+        encoding="utf-8",
+    )
     _write_json(
         tmp_path / "benchmarks" / "bench_no_labels" / "benchmark.json",
         {
@@ -870,6 +875,11 @@ def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
 
     model_path = tmp_path / "models" / "model-a" / "best"
     model_path.mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench1" / "splits").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt").write_text(
+        "part1/json/a.json\n",
+        encoding="utf-8",
+    )
     _write_json(
         tmp_path / "benchmarks" / "bench1" / "benchmark.json",
         {

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from eval_bench.artifacts import RunArtifacts
-from eval_bench.comparison import compare_report_payloads, compare_runs
+from eval_bench.comparison import comparison_sample_detail_payload, compare_report_payloads, compare_runs
 from eval_bench.evaluator import evaluate_run
 from eval_bench.schema import (
     BenchmarkRef,
@@ -70,6 +70,9 @@ def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:
         ),
         task="detection",
     )
+    raw_output = artifacts.raw_outputs_dir / "part1" / "txt" / "a.txt"
+    raw_output.parent.mkdir(parents=True)
+    raw_output.write_text('[{"label":"icon","bbox_2d":[0,0,1000,1000]}]', encoding="utf-8")
 
     report_path = evaluate_run(store_root=tmp_path, run_id="run_detection")
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -83,6 +86,29 @@ def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:
     assert report["matched_count"] == 1
     assert report["precision_iou50"] == 0.5
     assert report["recall_iou50"] == 1.0
+    assert report["empty_prediction_rate"] == 0.0
+    assert report["pred_gt_ratio"] == 2.0
+    assert report["output_char_length"]["count"] == 1
+    assert report["output_char_length"]["min"] == len(
+        '[{"label":"icon","bbox_2d":[0,0,1000,1000]}]'
+    )
+    assert report["output_token_length"]["count"] == 1
+    assert report["dense_sample_buckets"] == [
+        {
+            "bucket": "1",
+            "sample_count": 1,
+            "gt_instance_count": 1,
+            "pred_instance_count": 2,
+            "matched_count": 1,
+            "empty_prediction_count": 0,
+            "precision_iou50": 0.5,
+            "recall_iou50": 1.0,
+            "empty_prediction_rate": 0.0,
+        }
+    ]
+    assert summary["empty_prediction_rate"] == 0.0
+    assert summary["pred_gt_ratio"] == 2.0
+    assert summary["dense_sample_buckets"][0]["bucket"] == "1"
     assert report["labels"][0]["label"] == "icon"
     assert report["labels"][0]["mean_iou"] == 1.0
     assert report["samples"][0]["matched_count"] == 1
@@ -169,6 +195,61 @@ def test_evaluate_run_uses_named_benchmark_split(tmp_path: Path) -> None:
     assert report["sample_count"] == 1
     assert report["samples"][0]["json_path"] == "part1/json/shape.json"
     assert report["matched_count"] == 1
+
+
+def test_comparison_sample_detail_uses_side_specific_indices(tmp_path: Path) -> None:
+    bench_dir = tmp_path / "benchmarks" / "bench1"
+    (bench_dir / "splits").mkdir(parents=True)
+    (bench_dir / "splits" / "baseline.txt").write_text(
+        "part1/json/a.json\npart1/json/b.json\n",
+        encoding="utf-8",
+    )
+    (bench_dir / "splits" / "candidate.txt").write_text(
+        "part1/json/b.json\npart1/json/a.json\n",
+        encoding="utf-8",
+    )
+    for stem, label in (("a", "arrow"), ("b", "shape")):
+        _write_json(
+            bench_dir / "data" / "part1" / "json" / f"{stem}.json",
+            {
+                "image_path": f"part1/images/{stem}.png",
+                "instances": [{"label": label, "bbox": [0, 0, 100, 100]}],
+            },
+        )
+    for run_id, split in (("baseline", "baseline"), ("candidate", "candidate")):
+        RunArtifacts(tmp_path, run_id).write_manifest(
+            EvalRunManifest(
+                run_id=run_id,
+                model=ModelRef(model_id="model-a", path="outputs/model-a/best"),
+                benchmark=BenchmarkRef(
+                    benchmark_id="bench1",
+                    root=str(bench_dir / "data"),
+                    split=split,
+                    tasks=["detection"],
+                    manifest_path=str(bench_dir / "splits" / f"{split}.txt"),
+                ),
+                spec=EvalSpec(
+                    spec_id="detection.default",
+                    task="detection",
+                    prompt=PromptRef(prompt_id="grounding_shape.latest"),
+                    target_labels=["shape"],
+                ),
+            )
+        )
+
+    detail = comparison_sample_detail_payload(
+        store_root=tmp_path,
+        baseline_run_id="baseline",
+        candidate_run_id="candidate",
+        sample_index=0,
+        baseline_sample_index=1,
+        candidate_sample_index=0,
+    )
+
+    assert detail["baseline_index"] == 1
+    assert detail["candidate_index"] == 0
+    assert detail["baseline"]["sample"]["image"] == "part1/images/b.png"
+    assert detail["candidate"]["sample"]["image"] == "part1/images/b.png"
 
 
 def test_evaluate_run_respects_target_labels(tmp_path: Path) -> None:

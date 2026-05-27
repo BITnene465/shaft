@@ -109,7 +109,7 @@ def _eval_job_manifest(
                 "top_p": 1,
             },
             "data": {
-                "max_pixels": 1048576,
+                "max_pixels": 2_000_000,
                 "batch_size": 1,
             },
         },
@@ -557,7 +557,7 @@ def _check_eval_split_against_benchmark(
         errors.append(f"benchmark split is invalid for {benchmark_id}: {exc}")
         return
     if not split_path.exists():
-        warnings.append(f"benchmark split manifest does not exist for {benchmark_id}: {split_path}")
+        errors.append(f"benchmark split manifest does not exist for {benchmark_id}: {split_path}")
 
 
 def _check_target_labels_against_benchmark(

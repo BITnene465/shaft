@@ -54,8 +54,6 @@ def resolve_target_label_policy(
         return TargetLabelPolicy(labels=list(LAYOUT_TARGET_LABELS), source="legacy_prompt_id")
     if "grounding_icon_image" in lower_prompt_id:
         return TargetLabelPolicy(labels=["icon", "image"], source="legacy_prompt_id")
-    if "grounding_shape_arrow" in lower_prompt_id:
-        return TargetLabelPolicy(labels=["shape", "arrow"], source="legacy_prompt_id")
     if "grounding_shape" in lower_prompt_id:
         return TargetLabelPolicy(labels=["shape"], source="legacy_prompt_id")
     if (

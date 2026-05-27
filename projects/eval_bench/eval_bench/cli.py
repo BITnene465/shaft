@@ -1404,6 +1404,8 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "baseline_run_id",
             "candidate_run_id",
             "sample_index",
+            "baseline_index",
+            "candidate_index",
             "baseline",
             "candidate",
         ],
@@ -1411,6 +1413,8 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "baseline_run_id": {"type": "str"},
             "candidate_run_id": {"type": "str"},
             "sample_index": {"type": "int"},
+            "baseline_index": {"type": "int"},
+            "candidate_index": {"type": "int"},
             "baseline": {
                 "type": "object",
                 "item_shape": COMPARISON_SAMPLE_DETAIL_OUTPUT_SHAPE,
@@ -1942,6 +1946,8 @@ def _build_parser() -> argparse.ArgumentParser:
     show_comparison_sample.add_argument("--baseline-run-id", required=True)
     show_comparison_sample.add_argument("--candidate-run-id", required=True)
     show_comparison_sample.add_argument("--sample-index", type=int, required=True)
+    show_comparison_sample.add_argument("--baseline-index", type=int, default=None)
+    show_comparison_sample.add_argument("--candidate-index", type=int, default=None)
 
     perf = subparsers.add_parser("perf-smoke", help="Measure common Eval Bench store paths.")
     perf.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -2943,6 +2949,8 @@ def _cmd_show_comparison_sample(args: argparse.Namespace) -> None:
         baseline_run_id=str(args.baseline_run_id),
         candidate_run_id=str(args.candidate_run_id),
         sample_index=int(args.sample_index),
+        baseline_sample_index=args.baseline_index,
+        candidate_sample_index=args.candidate_index,
     )
     print(json.dumps(payload, ensure_ascii=False))
 

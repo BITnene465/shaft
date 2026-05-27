@@ -38,6 +38,13 @@ assert.equal(formatters.runF1Score(scoredRun).toFixed(3), "0.667");
 assert.equal(formatters.runF1Score({ ...scoredRun, f1_iou50: 0.72 }).toFixed(3), "0.720");
 assert.equal(formatters.runF1Score({ ...scoredRun, f1_iou50: undefined }).toFixed(3), "0.667");
 assert.equal(formatters.formatRunOption(scoredRun), "run-a / model-a / F1 0.667");
+assert.equal(
+  formatters.comparisonSampleHref("base", "cand", 4, {
+    baselineIndex: 9,
+    candidateIndex: 4
+  }),
+  "/compare/base/cand/4?baseline=9&candidate=4"
+);
 
 await rm(tmpDir, { recursive: true, force: true });
 console.log("formatter checks passed");

@@ -1096,20 +1096,18 @@ h2 {
 
 .run-note-preview {
   display: inline-flex;
-  width: min(260px, 24vw);
-  min-width: 120px;
+  width: 28px;
+  min-width: 28px;
+  height: 24px;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  padding: 3px 7px;
+  padding: 0;
   color: #294454;
   background: #f3f9fc;
   border: 1px solid #d8e7ef;
   border-radius: 999px;
   font-size: 12px;
   text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   transition:
     transform 140ms ease,
     color 140ms ease,
@@ -2465,8 +2463,7 @@ h2 {
 
 .selectable-row td {
   transition:
-    background 140ms ease,
-    box-shadow 140ms ease;
+    background 140ms ease;
 }
 
 .selectable-row:hover td {
@@ -2475,6 +2472,9 @@ h2 {
 
 .selectable-row.selected td {
   background: #edf6fb;
+}
+
+.selectable-row.selected td:first-child {
   box-shadow: inset 3px 0 0 #2e9dc0;
 }
 

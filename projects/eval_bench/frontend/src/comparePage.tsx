@@ -535,7 +535,11 @@ function ComparisonQuickActions({
           href={comparisonSampleHref(
             baselineRunId,
             candidateRunId,
-            firstRegression.candidate_index ?? firstRegression.sample_index ?? 0
+            firstRegression.candidate_index ?? firstRegression.sample_index ?? 0,
+            {
+              baselineIndex: firstRegression.baseline_index,
+              candidateIndex: firstRegression.candidate_index
+            }
           )}
         >
           看首个退化样本
@@ -548,7 +552,11 @@ function ComparisonQuickActions({
           href={comparisonSampleHref(
             baselineRunId,
             candidateRunId,
-            firstImprovement.candidate_index ?? firstImprovement.sample_index ?? 0
+            firstImprovement.candidate_index ?? firstImprovement.sample_index ?? 0,
+            {
+              baselineIndex: firstImprovement.baseline_index,
+              candidateIndex: firstImprovement.candidate_index
+            }
           )}
         >
           看首个提升样本
@@ -660,7 +668,7 @@ function filterComparisonSamplesByLabel(samples: ComparisonSample[], label: stri
 
 function firstComparableSample(samples: ComparisonSample[]) {
   return (
-    samples.find((sample) => sample.candidate_index !== null || sample.sample_index !== null) ?? null
+    samples.find((sample) => sample.baseline_index !== null && sample.candidate_index !== null) ?? null
   );
 }
 
@@ -685,7 +693,10 @@ function ComparisonSampleTable({
       ) : (
         <div className="comparison-sample-list">
           {samples.map((sample) => {
-            const index = sample.candidate_index ?? sample.sample_index;
+            const index =
+              sample.baseline_index !== null && sample.candidate_index !== null
+                ? sample.candidate_index
+                : null;
             const name = basename(sample.image ?? sample.key);
             const sampleLabels = Object.keys(sample.labels ?? {}).slice(0, 4);
             const content = (
@@ -742,7 +753,10 @@ function ComparisonSampleTable({
             return (
               <NavigationCardAnchor
                 className="comparison-sample-row"
-                href={comparisonSampleHref(baselineRunId, candidateRunId, index)}
+                href={comparisonSampleHref(baselineRunId, candidateRunId, index, {
+                  baselineIndex: sample.baseline_index,
+                  candidateIndex: sample.candidate_index
+                })}
                 key={sample.key}
               >
                 {content}

@@ -36,7 +36,7 @@ def test_eval_job_manifest_resolves_to_worker_payload() -> None:
     assert int(resolved.payload["port"]) >= 8000
     assert resolved.payload["max_model_len"] == 32768
     assert resolved.payload["max_tokens"] == 4096
-    assert resolved.payload["max_pixels"] == 1048576
+    assert resolved.payload["max_pixels"] == 2_000_000
     assert resolved.payload["batch_size"] == 1
     assert resolved.payload["prompt_id"] == "grounding_arrow.latest"
     assert resolved.payload["target_labels"] == ["arrow"]
@@ -204,6 +204,8 @@ def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:
     model_path = tmp_path / "outputs" / "model" / "best"
     model_path.mkdir(parents=True)
     benchmark_root = tmp_path / "benchmarks" / "bench1"
+    (benchmark_root / "splits").mkdir(parents=True)
+    (benchmark_root / "splits" / "val.txt").write_text("part1/json/a.json\n", encoding="utf-8")
     _write_json(
         benchmark_root / "benchmark.json",
         {
@@ -227,6 +229,32 @@ def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:
     assert result["errors"] == []
     assert result["resolved_payload"]["benchmark_id"] == "bench1"
     assert "--model" in result["runtime_command"]
+
+
+def test_preflight_rejects_missing_benchmark_split_manifest(tmp_path: Path) -> None:
+    model_path = tmp_path / "outputs" / "model" / "best"
+    model_path.mkdir(parents=True)
+    benchmark_root = tmp_path / "benchmarks" / "bench1"
+    _write_json(
+        benchmark_root / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "val",
+            "sample_count": 1,
+            "root": str(benchmark_root / "data"),
+            "manifest_path": str(benchmark_root / "splits" / "val.txt"),
+        },
+    )
+    manifest = job_templates()["eval_job"]["manifest"]
+    manifest["runtime"]["args"]["model"] = str(model_path)
+    manifest["eval"]["benchmark_id"] = "bench1"
+
+    result = preflight_job_payload({"manifest": manifest}, store_root=tmp_path)
+
+    assert result["ok"] is False
+    assert any("benchmark split manifest does not exist" in error for error in result["errors"])
 
 
 def test_preflight_reports_missing_required_eval_inputs(tmp_path: Path) -> None:

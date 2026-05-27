@@ -14,10 +14,24 @@ export function ComparisonSamplePage() {
     from: "/compare/$baselineRunId/$candidateRunId/$sampleIndex"
   });
   const numericIndex = Number(sampleIndex);
+  const searchParams = new URLSearchParams(window.location.search);
+  const baselineIndex = optionalSampleIndex(searchParams.get("baseline"));
+  const candidateIndex = optionalSampleIndex(searchParams.get("candidate"));
   const validIndex = Number.isInteger(numericIndex) && numericIndex >= 0;
   const query = useQuery({
-    queryKey: ["comparison-sample", baselineRunId, candidateRunId, numericIndex],
-    queryFn: () => fetchComparisonSample(baselineRunId, candidateRunId, numericIndex),
+    queryKey: [
+      "comparison-sample",
+      baselineRunId,
+      candidateRunId,
+      numericIndex,
+      baselineIndex,
+      candidateIndex
+    ],
+    queryFn: () =>
+      fetchComparisonSample(baselineRunId, candidateRunId, numericIndex, {
+        baselineIndex,
+        candidateIndex
+      }),
     enabled: validIndex
   });
 
@@ -46,6 +60,14 @@ export function ComparisonSamplePage() {
       <ComparisonSampleViewer detail={query.data} />
     </section>
   );
+}
+
+function optionalSampleIndex(value: string | null) {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function ComparisonSampleViewer({ detail }: { detail: ComparisonSampleDetail }) {

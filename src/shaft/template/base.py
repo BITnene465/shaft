@@ -104,21 +104,27 @@ class ShaftChatTemplate(Template):
     ) -> list[int]:
         if max_length is None:
             output = list(target_ids)
-            if add_eos_token and eos_id is not None and (not output or output[-1] != eos_id):
+            if add_eos_token and eos_id is not None and (not output or output[-1] != int(eos_id)):
                 output.append(int(eos_id))
             return output
 
         budget = int(max_length) - int(prefix_length)
         if budget <= 0:
             return []
-        reserve_eos = bool(add_eos_token and eos_id is not None)
-        if reserve_eos:
-            if len(target_ids) <= budget and target_ids and target_ids[-1] == int(eos_id):
-                return list(target_ids)
-            target_budget = max(budget - 1, 0)
-            output = list(target_ids[:target_budget])
-            output.append(int(eos_id))
+
+        eos_required = bool(
+            add_eos_token
+            and eos_id is not None
+            and (not target_ids or target_ids[-1] != int(eos_id))
+        )
+        if len(target_ids) + int(eos_required) <= budget:
+            output = list(target_ids)
+            if eos_required:
+                output.append(int(eos_id))
             return output
+
+        # Truncated completions must not receive EOS: EOS would teach the model that a
+        # partial target is a valid stopping point.
         return list(target_ids[:budget])
 
     def _compute_prefix_loss_scale(

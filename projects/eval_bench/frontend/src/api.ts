@@ -389,6 +389,8 @@ export type ComparisonSampleDetail = {
   baseline_run_id: string;
   candidate_run_id: string;
   sample_index: number;
+  baseline_index?: number;
+  candidate_index?: number;
   baseline: RunSampleDetail;
   candidate: RunSampleDetail;
 };
@@ -1055,12 +1057,19 @@ export function fetchComparisons(
 export function fetchComparisonSample(
   baselineRunId: string,
   candidateRunId: string,
-  sampleIndex: number
+  sampleIndex: number,
+  indexes: { baselineIndex?: number | null; candidateIndex?: number | null } = {}
 ): Promise<ComparisonSampleDetail> {
   const params = new URLSearchParams({
     baseline_run_id: baselineRunId,
     candidate_run_id: candidateRunId,
     sample_index: String(sampleIndex)
   });
+  if (indexes.baselineIndex !== undefined && indexes.baselineIndex !== null) {
+    params.set("baseline_index", String(indexes.baselineIndex));
+  }
+  if (indexes.candidateIndex !== undefined && indexes.candidateIndex !== null) {
+    params.set("candidate_index", String(indexes.candidateIndex));
+  }
   return fetchJson<ComparisonSampleDetail>(`/api/comparisons/sample?${params.toString()}`);
 }

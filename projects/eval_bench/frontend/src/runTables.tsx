@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Archive, Eye, FileText, GitCompare, RotateCw, Trash2 } from "lucide-react";
+import { Archive, Eye, FileText, FileX, GitCompare, RotateCw, Trash2 } from "lucide-react";
 
 import type { BenchmarkSummary, RunSummary } from "./api";
 import { archiveRun, deleteRun, evaluateRun } from "./api";
@@ -149,18 +149,21 @@ export function RunTable({
           {
             header: "备注",
             id: "note",
-            cell: ({ row }) => (
-              <Link
-                to="/runs/$runId"
-                params={{ runId: row.original.run_id }}
-                hash="run-note"
-                className={row.original.note ? "run-note-preview" : "run-note-preview empty"}
-                title={row.original.note || "未记录备注"}
-              >
-                <FileText size={13} />
-                {row.original.note || "未记录"}
-              </Link>
-            )
+            cell: ({ row }) => {
+              const hasNote = Boolean(row.original.note.trim());
+              return (
+                <Link
+                  to="/runs/$runId"
+                  params={{ runId: row.original.run_id }}
+                  hash="run-note"
+                  className={hasNote ? "run-note-preview" : "run-note-preview empty"}
+                  title={hasNote ? "有备注" : "无备注"}
+                  aria-label={hasNote ? "有备注" : "无备注"}
+                >
+                  {hasNote ? <FileText size={14} /> : <FileX size={14} />}
+                </Link>
+              );
+            }
           } satisfies ColumnDef<RunSummary>
         ]),
     {

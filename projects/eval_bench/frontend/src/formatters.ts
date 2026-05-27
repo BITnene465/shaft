@@ -174,9 +174,19 @@ export function runSampleHref(runId: string, sampleIndex: number) {
 export function comparisonSampleHref(
   baselineRunId: string,
   candidateRunId: string,
-  sampleIndex: number
+  sampleIndex: number,
+  indexes: { baselineIndex?: number | null; candidateIndex?: number | null } = {}
 ) {
-  return `/compare/${encodeURIComponent(baselineRunId)}/${encodeURIComponent(
+  const params = new URLSearchParams();
+  if (indexes.baselineIndex !== undefined && indexes.baselineIndex !== null) {
+    params.set("baseline", String(indexes.baselineIndex));
+  }
+  if (indexes.candidateIndex !== undefined && indexes.candidateIndex !== null) {
+    params.set("candidate", String(indexes.candidateIndex));
+  }
+  const query = params.toString();
+  const path = `/compare/${encodeURIComponent(baselineRunId)}/${encodeURIComponent(
     candidateRunId
   )}/${sampleIndex}`;
+  return query ? `${path}?${query}` : path;
 }

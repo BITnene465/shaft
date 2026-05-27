@@ -76,6 +76,8 @@ Empty arrow layers can be kept as negative samples only when `annotation.layers`
 - Current crop policy is one crop row per valid arrow instance, not base-plus-jitter. Train may
   randomize padding deterministically from the source identity; validation should use a stable
   padding policy.
+- Eval `point_arrow` must use the same crop-level validation rows as SFT validation. Do not
+  evaluate point-arrow on raw full images.
 - Do not double the point dataset with jitter variants unless the user explicitly changes the
   sampling policy. If extra point augmentation is added later, it must keep crop-local `bbox` and
   `linestrip` transformed exactly and must be documented in `data/point_arrow/README.md`.

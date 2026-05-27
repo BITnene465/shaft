@@ -94,7 +94,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`legacy_prompt_id`、
     `task_default` 或 `unscoped` 来源；`legacy_prompt_id` 只能匹配内置 prompt 命名族
     `grounding_layout.*`、`grounding_arrow.*`、`grounding_shape.*`、
-    `grounding_icon_image.*`、`grounding_shape_arrow.*`、`point_arrow.*` 和历史
+    `grounding_icon_image.*`、`point_arrow.*` 和历史
     `keypoint_arrow.*` / `arrow_keypoint.*`。
 - `projects/eval_bench/eval_bench/benchmark.py`
   - 维护 benchmark copy、benchmark suite、named split resolver 和 Banana slice 推断规则。

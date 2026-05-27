@@ -11,6 +11,7 @@ const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
   ".advanced-filter-controls textarea:not([disabled])",
   ".advanced-filter-controls button:not([disabled])"
 ].join(",");
+const ADVANCED_FILTER_OPEN_STORAGE_PREFIX = "eval_bench_advanced_filter_open";
 
 export function FilterSelect({
   label,
@@ -88,7 +89,8 @@ export function AdvancedFilterBar({
   controls: AdvancedFilterControl[];
   actions?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const openStateKey = advancedFilterOpenStateKey(title, controls);
+  const [open, setOpen] = useState(() => readAdvancedFilterOpenState(openStateKey));
   const panelId = useId();
   const rootRef = useRef<HTMLElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -101,6 +103,12 @@ export function AdvancedFilterBar({
     .map((control) => ({ control, value: displayFilterValue(control) }));
   const controlGroups = useMemo(() => groupAdvancedControls(controls), [controls]);
   const summary = activeCount > 0 ? `${activeCount} 个条件生效` : "未设条件";
+  useEffect(() => {
+    setOpen(readAdvancedFilterOpenState(openStateKey));
+  }, [openStateKey]);
+  useEffect(() => {
+    writeAdvancedFilterOpenState(openStateKey, open);
+  }, [openStateKey, open]);
   useEffect(() => {
     if (!open) {
       return;
@@ -372,4 +380,31 @@ function groupAdvancedControls(controls: AdvancedFilterControl[]) {
     }
   }
   return groups.filter((group) => group.controls.length > 0);
+}
+
+function advancedFilterOpenStateKey(title: string, controls: AdvancedFilterControl[]) {
+  const controlIds = controls.map((control) => control.id).join(",");
+  return `${ADVANCED_FILTER_OPEN_STORAGE_PREFIX}:${title}:${controlIds}`;
+}
+
+function readAdvancedFilterOpenState(key: string) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeAdvancedFilterOpenState(key: string, open: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, open ? "1" : "0");
+  } catch {
+    // Ignore storage failures; the filter still works for the current render.
+  }
 }

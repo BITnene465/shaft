@@ -65,16 +65,22 @@ def comparison_sample_detail_payload(
     baseline_run_id: str,
     candidate_run_id: str,
     sample_index: int,
+    baseline_sample_index: int | None = None,
+    candidate_sample_index: int | None = None,
 ) -> dict[str, Any]:
     from .store import EvalBenchStore
 
     store = EvalBenchStore(store_root)
-    baseline = store.run_sample_detail(baseline_run_id, sample_index=sample_index)
-    candidate = store.run_sample_detail(candidate_run_id, sample_index=sample_index)
+    resolved_baseline_index = sample_index if baseline_sample_index is None else baseline_sample_index
+    resolved_candidate_index = sample_index if candidate_sample_index is None else candidate_sample_index
+    baseline = store.run_sample_detail(baseline_run_id, sample_index=resolved_baseline_index)
+    candidate = store.run_sample_detail(candidate_run_id, sample_index=resolved_candidate_index)
     return {
         "baseline_run_id": baseline_run_id,
         "candidate_run_id": candidate_run_id,
         "sample_index": sample_index,
+        "baseline_index": resolved_baseline_index,
+        "candidate_index": resolved_candidate_index,
         "baseline": run_sample_detail_payload(baseline_run_id, baseline),
         "candidate": run_sample_detail_payload(candidate_run_id, candidate),
     }

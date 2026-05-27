@@ -9,7 +9,6 @@ small, task-scoped, and model-output-oriented.
 - `configs/prompts/grounding_layout.yaml`
 - `configs/prompts/grounding_shape.yaml`
 - `configs/prompts/grounding_icon_image.yaml`
-- `configs/prompts/grounding_shape_arrow.yaml`
 - `configs/prompts/point_arrow.yaml`
 
 Do not keep legacy duplicate prompt files such as `keypoint_arrow.yaml`; the maintained point

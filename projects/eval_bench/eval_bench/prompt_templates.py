@@ -7,6 +7,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+MAIN_EVAL_MAX_PIXELS = 2_000_000
 
 
 DEFAULT_PROMPT_SPECS = (
@@ -19,7 +20,7 @@ DEFAULT_PROMPT_SPECS = (
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
         "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
+        "data": {"max_pixels": MAIN_EVAL_MAX_PIXELS, "batch_size": 1},
         "target_labels": ["arrow"],
     },
     {
@@ -31,7 +32,7 @@ DEFAULT_PROMPT_SPECS = (
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
         "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
+        "data": {"max_pixels": MAIN_EVAL_MAX_PIXELS, "batch_size": 1},
         "target_labels": ["icon", "image", "shape"],
     },
     {
@@ -43,7 +44,7 @@ DEFAULT_PROMPT_SPECS = (
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
         "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
+        "data": {"max_pixels": MAIN_EVAL_MAX_PIXELS, "batch_size": 1},
         "target_labels": ["shape"],
     },
     {
@@ -55,20 +56,8 @@ DEFAULT_PROMPT_SPECS = (
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
         "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
+        "data": {"max_pixels": MAIN_EVAL_MAX_PIXELS, "batch_size": 1},
         "target_labels": ["icon", "image"],
-    },
-    {
-        "prompt_id": "grounding_shape_arrow.latest",
-        "label": "Shape/Arrow Detection",
-        "task": "detection",
-        "path": "configs/prompts/grounding_shape_arrow.yaml",
-        "parser": "raw_data_detection_v1",
-        "metric_profile": "detection_iou_v1",
-        "visualization_profile": "default",
-        "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
-        "target_labels": ["shape", "arrow"],
     },
     {
         "prompt_id": "point_arrow.latest",
@@ -79,7 +68,7 @@ DEFAULT_PROMPT_SPECS = (
         "metric_profile": "keypoint_endpoint_v1",
         "visualization_profile": "default",
         "generation": {"max_tokens": 4096, "temperature": 0, "top_p": 1},
-        "data": {"max_pixels": 1048576, "batch_size": 1},
+        "data": {"max_pixels": MAIN_EVAL_MAX_PIXELS, "batch_size": 1},
         "target_labels": ["arrow"],
     },
 )

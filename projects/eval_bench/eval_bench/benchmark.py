@@ -71,24 +71,22 @@ def resolve_benchmark_split_path(
 ) -> Path:
     requested = str(split or benchmark.get("split") or "").strip()
     split_manifests = benchmark.get("split_manifests")
-    if isinstance(split_manifests, Mapping) and requested:
+    if isinstance(split_manifests, Mapping) and split_manifests:
+        if not requested:
+            available = ", ".join(sorted(str(item) for item in split_manifests))
+            raise FileNotFoundError(
+                f"benchmark split is not declared; available splits: {available}"
+            )
         manifest = split_manifests.get(requested)
         if isinstance(manifest, str) and manifest.strip():
             return Path(manifest)
-        manifest_path = str(benchmark.get("manifest_path") or "").strip()
-        if requested == str(benchmark.get("split") or "").strip() and manifest_path:
-            return Path(manifest_path)
-        if split_manifests:
-            available = ", ".join(sorted(str(item) for item in split_manifests))
-            raise FileNotFoundError(
-                f"benchmark split {requested!r} is not available; available splits: {available}"
-            )
+        available = ", ".join(sorted(str(item) for item in split_manifests))
+        raise FileNotFoundError(
+            f"benchmark split {requested!r} is not available; available splits: {available}"
+        )
     manifest_path = str(benchmark.get("manifest_path") or "").strip()
     if manifest_path:
         return Path(manifest_path)
-    if isinstance(split_manifests, Mapping) and split_manifests:
-        first_split = sorted(str(item) for item in split_manifests)[0]
-        return Path(str(split_manifests[first_split]))
     raise FileNotFoundError("benchmark manifest does not declare a split manifest path.")
 
 
@@ -97,8 +95,6 @@ def infer_benchmark_split(*, task: str, prompt_id: str, target_labels: Sequence[
     labels = tuple(sorted(label.strip().lower() for label in target_labels if label.strip()))
     if task == "keypoint" or prompt.startswith(("point_arrow.", "keypoint_arrow.")):
         return "point_arrow"
-    if prompt.startswith("grounding_shape_arrow.") or labels == ("arrow", "shape"):
-        return "grounding_shape_arrow"
     if prompt.startswith("grounding_icon_image.") or labels == ("icon", "image"):
         return "grounding_icon_image"
     if prompt.startswith("grounding_shape.") or labels == ("shape",):
@@ -134,7 +130,10 @@ def resolve_benchmark_split_name(
     default_split = str(benchmark.get("split") or "").strip()
     if default_split and default_split in split_manifests:
         return default_split
-    return sorted(str(item) for item in split_manifests)[0]
+    available = ", ".join(sorted(str(item) for item in split_manifests))
+    raise FileNotFoundError(
+        f"benchmark default split {default_split!r} is not available; available splits: {available}"
+    )
 
 
 def _copy_raw_entries(
