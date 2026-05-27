@@ -57,6 +57,43 @@ profiling 阶段失败，典型日志为：
 - 对 vLLM memory profiling 这类明确的瞬态资源失败，应支持有限次数自动 retry/backoff。
 - 提交/启动 eval job 前必须先查看对应子命令 `--help`，不要复用其他子命令的参数名。
 
+## 2026-05-27: Eval job manifest 顶层 run_id 被忽略导致平台显示默认命名
+
+### 现象
+
+Banana v2.4 Eval Bench job manifest 中已经写入业务 run id，例如
+`banana_v2_4_best__grounding_layout`，但可视化平台 Runs 页显示为 `eval_20260527_...`。
+运行产物目录也落在 `eval_bench_store/runs/eval_...` 下，导致 run 记录和 checkpoint/task 语义脱节。
+
+### 根因
+
+`job_spec._resolve_eval_payload()` 只从 `eval.run_id` 和 legacy `original.run_id` 读取 run id，没有读取
+manifest 顶层 `run_id`。worker 只消费 resolved payload；当 resolved payload 缺少 `run_id` 时，就回退到
+job id 作为 run id。
+
+这是 Eval Bench job manifest 解析语义错误，不是模型能力问题，也不是 metric / codec / data 误判。
+
+### 影响范围
+
+- 影响 manifest-first `eval_job` 的 run 命名、run artifact 目录、Runs 页展示和后续对比检索。
+- 不影响已经完成样本的预测内容本身，但错误 run id 会让结果管理不可读。
+
+### 修复方式
+
+- `eval_job` resolved payload 的 `run_id` 解析顺序改为：
+  `eval.run_id -> manifest.run_id -> original.run_id`。
+- 提交 Banana v2.4 eval job 时同时写入顶层 `manifest.run_id` 和 `eval.run_id`。
+- 清理错误命名 run 和旧队列后，先只重提 `banana_v2_4_best`，并把 `grounding_layout` 放在任务队列首位。
+
+### 回归测试
+
+- `uv run pytest -q projects/eval_bench/tests/test_job_spec.py`
+
+### 后续防线
+
+- manifest-first job 的关键身份字段必须有单测覆盖，尤其是 `run_id`、`benchmark_split`、`prompt_id`。
+- 平台展示 run 前，应优先展示业务 run id；job id 只作为 source/debug metadata。
+
 ## 2026-05-27: 超长结构化 target 会把 DDP 单步拖入极慢路径
 
 ### 现象

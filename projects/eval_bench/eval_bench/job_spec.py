@@ -363,7 +363,7 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         "job_kind": "eval_job",
         "runtime_mode": runtime_mode,
         "backend": backend,
-        "run_id": _first_string(eval_config.get("run_id"), original.get("run_id")),
+        "run_id": _first_string(eval_config.get("run_id"), manifest.get("run_id"), original.get("run_id")),
         "model_id": model_id,
         "model_path": model_path,
         "benchmark_id": _first_string(eval_config.get("benchmark_id"), original.get("benchmark_id")),

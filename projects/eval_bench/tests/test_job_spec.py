@@ -43,6 +43,15 @@ def test_eval_job_manifest_resolves_to_worker_payload() -> None:
     assert "--trust-remote-code" in resolved.payload["extra_args"]
 
 
+def test_eval_job_manifest_top_level_run_id_is_worker_run_id() -> None:
+    manifest = job_templates()["eval_job"]["manifest"]
+    manifest["run_id"] = "banana_v2_4_best__grounding_layout"
+
+    resolved = resolve_job_payload({"manifest": manifest})
+
+    assert resolved.payload["run_id"] == "banana_v2_4_best__grounding_layout"
+
+
 def test_layout_eval_job_template_remains_available() -> None:
     manifest = job_templates()["layout_eval_job"]["manifest"]
     resolved = resolve_job_payload({"manifest": manifest})
