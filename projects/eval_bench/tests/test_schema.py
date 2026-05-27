@@ -16,6 +16,7 @@ from eval_bench.benchmark import (
     BenchmarkSliceSpec,
     create_benchmark_from_raw_data,
     create_benchmark_suite_from_raw_data,
+    resolve_benchmark_split_path,
 )
 from eval_bench.schema import (
     BenchmarkRef,
@@ -209,8 +210,13 @@ def test_create_benchmark_suite_writes_named_splits(tmp_path: Path) -> None:
     payload = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
     assert manifest.sample_count == 2
     assert payload["split"] == "suite"
-    assert payload["sample_counts"] == {"grounding_arrow": 1, "grounding_shape": 1}
-    assert sorted(payload["split_manifests"]) == ["grounding_arrow", "grounding_shape"]
+    assert payload["manifest_path"] == str(artifacts.split_path("suite"))
+    assert payload["sample_counts"] == {"grounding_arrow": 1, "grounding_shape": 1, "suite": 2}
+    assert sorted(payload["split_manifests"]) == ["grounding_arrow", "grounding_shape", "suite"]
+    assert resolve_benchmark_split_path(payload, split="suite") == artifacts.split_path("suite")
+    assert artifacts.split_path("suite").read_text(encoding="utf-8") == (
+        "json/part1__a.json\njson/part1__b.json\n"
+    )
     assert artifacts.split_path("grounding_arrow").read_text(encoding="utf-8") == (
         "json/part1__a.json\n"
     )

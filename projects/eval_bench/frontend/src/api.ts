@@ -34,6 +34,10 @@ export type BenchmarkListResponse = {
   facets?: FacetBuckets;
 };
 
+export type BenchmarkDetailResponse = {
+  benchmark: BenchmarkSummary;
+};
+
 export type RunSummary = {
   run_id: string;
   status: string;
@@ -737,6 +741,10 @@ export function fetchBenchmarks(
   return fetchJson<BenchmarkListResponse>(`/api/benchmarks${query ? `?${query}` : ""}`);
 }
 
+export function fetchBenchmark(benchmarkId: string): Promise<BenchmarkDetailResponse> {
+  return fetchJson<BenchmarkDetailResponse>(`/api/benchmarks/${encodeURIComponent(benchmarkId)}`);
+}
+
 export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkSummary> {
   return fetchJson<BenchmarkSummary>("/api/benchmarks", {
     method: "POST",
@@ -955,7 +963,7 @@ export function fetchRunSampleDetail(runId: string, index: number): Promise<RunS
 
 export function fetchBenchmarkSamples(
   benchmarkId: string,
-  options: { offset: number; limit: number; label?: string }
+  options: { offset: number; limit: number; label?: string; split?: string }
 ): Promise<SamplePage<BenchmarkSampleSummary>> {
   const params = new URLSearchParams({
     offset: String(options.offset),
@@ -964,6 +972,9 @@ export function fetchBenchmarkSamples(
   if (options.label && options.label !== "all") {
     params.set("label", options.label);
   }
+  if (options.split && options.split !== "all") {
+    params.set("split", options.split);
+  }
   return fetchJson<SamplePage<BenchmarkSampleSummary>>(
     `/api/benchmarks/${benchmarkId}/samples?${params.toString()}`
   );
@@ -971,9 +982,17 @@ export function fetchBenchmarkSamples(
 
 export function fetchBenchmarkSampleDetail(
   benchmarkId: string,
-  index: number
+  index: number,
+  options: { split?: string } = {}
 ): Promise<BenchmarkSampleDetail> {
-  return fetchJson<BenchmarkSampleDetail>(`/api/benchmarks/${benchmarkId}/samples/${index}`);
+  const params = new URLSearchParams();
+  if (options.split && options.split !== "all") {
+    params.set("split", options.split);
+  }
+  const query = params.toString();
+  return fetchJson<BenchmarkSampleDetail>(
+    `/api/benchmarks/${benchmarkId}/samples/${index}${query ? `?${query}` : ""}`
+  );
 }
 
 export function fetchSettingsPreviewSample(): Promise<BenchmarkSampleDetail> {

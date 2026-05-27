@@ -1350,7 +1350,7 @@ def _benchmark_matches_filters(
         return False
     if layer and layer not in benchmark.layers:
         return False
-    if split and split != benchmark.split:
+    if split and split not in _benchmark_split_values(benchmark):
         return False
     if query and not _query_matches_fields(
         query,
@@ -1362,10 +1362,18 @@ def _benchmark_matches_filters(
             benchmark.source_manifest_path,
             " ".join(benchmark.tasks),
             " ".join(benchmark.layers),
+            " ".join(_benchmark_split_values(benchmark)),
         ],
     ):
         return False
     return True
+
+
+def _benchmark_split_values(benchmark: BenchmarkSummary) -> list[str]:
+    values = [benchmark.split] if benchmark.split else []
+    values.extend(benchmark.split_manifests)
+    splits = sorted({value for value in values if value})
+    return splits or ["unknown"]
 
 
 def _run_matches_filters(
@@ -1722,7 +1730,7 @@ def _benchmark_facets(items: list[BenchmarkSummary]) -> dict[str, list[dict[str,
     return {
         "tasks": _facet_counts(items, lambda item: item.tasks),
         "layers": _facet_counts(items, lambda item: item.layers),
-        "splits": _facet_counts(items, lambda item: [item.split or "unknown"]),
+        "splits": _facet_counts(items, _benchmark_split_values),
         "labels": _facet_counts(items, lambda item: item.labels),
     }
 

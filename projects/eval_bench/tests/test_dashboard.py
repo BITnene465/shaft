@@ -1479,6 +1479,81 @@ def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> 
     assert preview["gt_instances"][0]["label"] == "icon"
 
 
+def test_dashboard_uses_named_benchmark_split_for_samples_and_facets(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "suite_bench" / "data"
+    split_dir = tmp_path / "benchmarks" / "suite_bench" / "splits"
+    suite_manifest = split_dir / "suite.txt"
+    arrow_manifest = split_dir / "grounding_arrow.txt"
+    shape_manifest = split_dir / "shape split.txt"
+    split_dir.mkdir(parents=True)
+    suite_manifest.write_text("part1/json/a.json\npart1/json/b.json\n", encoding="utf-8")
+    arrow_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    shape_manifest.write_text("part1/json/b.json\n", encoding="utf-8")
+    (data_root / "part1" / "images").mkdir(parents=True)
+    (data_root / "part1" / "images" / "a.png").write_bytes(b"arrow")
+    (data_root / "part1" / "images" / "b.png").write_bytes(b"shape")
+    _write_json(
+        tmp_path / "benchmarks" / "suite_bench" / "benchmark.json",
+        {
+            "benchmark_id": "suite_bench",
+            "tasks": ["detection"],
+            "layers": ["layout"],
+            "split": "suite",
+            "sample_count": 2,
+            "root": str(data_root),
+            "manifest_path": str(suite_manifest),
+            "split_manifests": {
+                "suite": str(suite_manifest),
+                "grounding_arrow": str(arrow_manifest),
+                "shape split": str(shape_manifest),
+            },
+            "sample_counts": {"suite": 2, "grounding_arrow": 1, "shape split": 1},
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "a.json",
+        {
+            "image_path": "part1/images/a.png",
+            "instances": [{"label": "arrow", "bbox": [1, 2, 3, 4]}],
+        },
+    )
+    _write_json(
+        data_root / "part1" / "json" / "b.json",
+        {
+            "image_path": "part1/images/b.png",
+            "instances": [{"label": "shape", "bbox": [1, 2, 3, 4]}],
+        },
+    )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    benchmarks = client.get("/api/benchmarks", params={"split": "shape split"}).json()
+    assert benchmarks["total"] == 1
+    assert {item["value"] for item in benchmarks["facets"]["splits"]} == {
+        "grounding_arrow",
+        "shape split",
+        "suite",
+    }
+
+    page = client.get(
+        "/api/benchmarks/suite_bench/samples",
+        params={"split": "shape split"},
+    ).json()
+    assert page["total"] == 1
+    assert page["filters"]["split"] == "shape split"
+    assert page["samples"][0]["image"] == "part1/images/b.png"
+    assert (
+        page["samples"][0]["image_url"]
+        == "/api/benchmarks/suite_bench/samples/0/image?split=shape+split"
+    )
+    detail = client.get(
+        "/api/benchmarks/suite_bench/samples/0",
+        params={"split": "shape split"},
+    ).json()
+    assert detail["gt_instances"][0]["label"] == "shape"
+
+
 def test_dashboard_serves_image_preview_proxy_and_pyramid_tiles(tmp_path: Path) -> None:
     from PIL import Image
 

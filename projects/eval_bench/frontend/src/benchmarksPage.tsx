@@ -3,9 +3,10 @@ import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
-import type { BenchmarkSampleDetail, BenchmarkSampleSummary } from "./api";
+import type { BenchmarkSampleDetail, BenchmarkSampleSummary, BenchmarkSummary } from "./api";
 import {
   createBenchmark,
+  fetchBenchmark,
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples,
   fetchBenchmarks
@@ -65,7 +66,7 @@ export function BenchmarksPage() {
   const facets = benchmarksQuery.data?.facets;
   const tasks = facetValues(facets, "tasks", benchmarks.flatMap((benchmark) => benchmark.tasks));
   const layers = facetValues(facets, "layers", benchmarks.flatMap((benchmark) => benchmark.layers));
-  const splits = facetValues(facets, "splits", benchmarks.map((benchmark) => benchmark.split));
+  const splits = facetValues(facets, "splits", benchmarks.flatMap(benchmarkSplitValues));
   const totalBenchmarks = benchmarksQuery.data?.total ?? benchmarks.length;
   useEffect(() => {
     setPageOffset(0);
@@ -267,13 +268,22 @@ export function BenchmarkDetailPage() {
   const [selectedIndex, setSelectedIndex] = useState(() => sampleIndexFromLocation());
   const [pageOffset, setPageOffset] = useState(() => samplePageOffsetFromLocation(SAMPLE_PAGE_SIZE));
   const [labelFilter, setLabelFilter] = useState("all");
+  const [splitFilter, setSplitFilter] = useState("all");
+  const benchmarkQuery = useQuery({
+    queryKey: ["benchmark", benchmarkId],
+    queryFn: () => fetchBenchmark(benchmarkId),
+    staleTime: 30_000
+  });
+  const benchmark = benchmarkQuery.data?.benchmark;
+  const splitOptions = useMemo(() => benchmarkSplitValues(benchmark), [benchmark]);
   const samplesQuery = useQuery({
-    queryKey: ["benchmark-samples", benchmarkId, pageOffset, labelFilter],
+    queryKey: ["benchmark-samples", benchmarkId, pageOffset, labelFilter, splitFilter],
     queryFn: () =>
       fetchBenchmarkSamples(benchmarkId, {
         offset: pageOffset,
         limit: SAMPLE_PAGE_SIZE,
-        label: labelFilter
+        label: labelFilter,
+        split: splitFilter
       })
   });
   const page = samplesQuery.data;
@@ -281,14 +291,12 @@ export function BenchmarkDetailPage() {
   const labels = page?.labels ?? [];
   const activeSample = samples.find((sample) => sample.index === selectedIndex) ?? samples[0] ?? null;
   const activeIndex = activeSample?.index ?? selectedIndex;
-  const hasActiveSampleFilter = labelFilter !== "all";
+  const hasActiveSampleFilter = labelFilter !== "all" || splitFilter !== "all";
   const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
-    queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex],
-    queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex),
+    queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex, splitFilter],
+    queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex, { split: splitFilter }),
     enabled: Boolean(activeSample),
-    placeholderData: (previousData) =>
-      previousData?.benchmark_id === benchmarkId ? previousData : undefined,
     staleTime: 30_000
   });
 
@@ -300,6 +308,13 @@ export function BenchmarkDetailPage() {
   function changeLabelFilter(value: string) {
     setLabelFilter(value);
     setPageOffset(0);
+  }
+
+  function changeSplitFilter(value: string) {
+    setSplitFilter(value);
+    setPageOffset(0);
+    setSelectedIndex(0);
+    updateSampleIndexInLocation(0);
   }
 
   function moveSample(delta: number) {
@@ -365,12 +380,12 @@ export function BenchmarkDetailPage() {
     const preload = samples.slice(Math.max(0, position - 1), position + 2);
     preload.forEach((sample) => {
       void queryClient.prefetchQuery({
-        queryKey: ["benchmark-sample-detail", benchmarkId, sample.index],
-        queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, sample.index),
+        queryKey: ["benchmark-sample-detail", benchmarkId, sample.index, splitFilter],
+        queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, sample.index, { split: splitFilter }),
         staleTime: 30_000
       });
     });
-  }, [activeIndex, benchmarkId, queryClient, samples]);
+  }, [activeIndex, benchmarkId, queryClient, samples, splitFilter]);
 
   if (samplesQuery.isLoading) {
     return <EmptyState title="正在加载样本" />;
@@ -396,7 +411,10 @@ export function BenchmarkDetailPage() {
               <BenchmarkSampleFilters
                 labelFilter={labelFilter}
                 labels={labels}
+                splitFilter={splitFilter}
+                splits={splitOptions}
                 onLabelFilterChange={changeLabelFilter}
+                onSplitFilterChange={changeSplitFilter}
               />
               <BenchmarkSampleList
                 samples={samples}
@@ -439,17 +457,32 @@ export function BenchmarkDetailPage() {
 function BenchmarkSampleFilters({
   labelFilter,
   labels,
-  onLabelFilterChange
+  splitFilter,
+  splits,
+  onLabelFilterChange,
+  onSplitFilterChange
 }: {
   labelFilter: string;
   labels: string[];
+  splitFilter: string;
+  splits: string[];
   onLabelFilterChange: (value: string) => void;
+  onSplitFilterChange: (value: string) => void;
 }) {
   return (
     <AdvancedFilterBar
       title="样本检索"
-      meta={`${labels.length.toLocaleString()} labels`}
+      meta={`${splits.length.toLocaleString()} splits / ${labels.length.toLocaleString()} labels`}
       controls={[
+        {
+          type: "select",
+          id: "split",
+          label: "分片",
+          value: splitFilter,
+          values: ["all", ...splits],
+          labels: { all: "默认" },
+          onChange: onSplitFilterChange
+        },
         {
           type: "select",
           id: "label",
@@ -550,4 +583,11 @@ function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
       </div>
     </div>
   );
+}
+
+function benchmarkSplitValues(benchmark: BenchmarkSummary | null | undefined): string[] {
+  if (!benchmark) {
+    return [];
+  }
+  return unique([benchmark.split, ...Object.keys(benchmark.split_manifests ?? {})].filter(Boolean));
 }

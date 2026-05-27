@@ -31,6 +31,11 @@ configs/data/*.yaml
 !configs/data/example.yaml
 configs/prompts/*.yaml
 !configs/prompts/example.yaml
+configs/train/*.yaml
+!configs/train/sft_4b.yaml
+!configs/train/dpo_4b.yaml
+!configs/train/ppo_4b.yaml
+!configs/train/grpo_4b.yaml
 experimental/
 /scripts/acc_exp/
 /deployment/

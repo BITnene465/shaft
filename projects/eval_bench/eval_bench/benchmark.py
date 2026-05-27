@@ -341,7 +341,21 @@ def create_benchmark_suite_from_raw_data(
     resolved_default = default_slice or slices[0].split
     if resolved_default not in split_manifests:
         raise ValueError(f"default_slice must be one of: {sorted(split_manifests)}")
-    manifest_path = split_manifests[resolved_default]
+    top_level_split = str(split or "").strip() or resolved_default
+    if top_level_split in split_manifests:
+        manifest_path = split_manifests[top_level_split]
+        sample_count = sample_counts[top_level_split]
+    else:
+        suite_entries = [entry_map[entry] for entry in union_entries]
+        suite_path = artifacts.split_path(top_level_split)
+        suite_path.write_text(
+            "\n".join(suite_entries) + ("\n" if suite_entries else ""),
+            encoding="utf-8",
+        )
+        split_manifests[top_level_split] = str(suite_path)
+        sample_counts[top_level_split] = len(suite_entries)
+        manifest_path = str(suite_path)
+        sample_count = len(suite_entries)
     manifest_metadata = dict(metadata or {})
     manifest_metadata.setdefault("source_manifest_paths", source_manifests)
     manifest_metadata.setdefault("slices", slice_metadata)
@@ -349,9 +363,9 @@ def create_benchmark_suite_from_raw_data(
         benchmark_id=benchmark_id,
         tasks=all_tasks,
         root=str(artifacts.data_dir),
-        split=split,
+        split=top_level_split,
         manifest_path=manifest_path,
-        sample_count=len(union_entries),
+        sample_count=sample_count,
         source_raw_root=str(raw_root),
         source_manifest_path=source_manifests.get(str(resolved_default)),
         split_manifests=split_manifests,
