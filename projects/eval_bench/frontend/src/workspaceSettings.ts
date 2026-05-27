@@ -390,7 +390,12 @@ export function reconcileViewerLabelPreference({
   const additions = hadEveryPreviousLabel
     ? labels.filter((label) => !previousLabelSet.has(label))
     : [];
-  return uniqueValues([...current, ...additions]);
+  const nextPreference = uniqueValues([...current, ...additions]);
+  const currentLabelSet = new Set(labels);
+  if (labels.length > 0 && !nextPreference.some((label) => currentLabelSet.has(label))) {
+    return uniqueValues([...nextPreference, ...labels]);
+  }
+  return nextPreference;
 }
 
 export function visibleViewerLabels(preferredLabels: string[], labels: string[]) {

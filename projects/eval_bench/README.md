@@ -375,12 +375,14 @@ Eval Bench 不直接拿一次临时输出去扫训练目录。正确流程是：
 
 也就是说，“test”在 Eval Bench 里对应 `benchmark`，预测结果对应 `runs/<run_id>/predictions/`。二者通过 run manifest 里的 benchmark 引用绑定，不通过文件名猜测或直接读取训练 raw data。
 
-一个 benchmark 可以是 suite。`benchmark.json` 仍保留顶层 `manifest_path` 兼容旧单 split 用法，同时可以声明
-`split_manifests` 和 `sample_counts` 来维护多个 named slice，例如 `grounding_arrow`、`grounding_layout`
-和 `point_arrow`。Run manifest 里的 `benchmark.split` 决定本次评测消费哪个 slice；job/import 未显式声明
-split 时，后端会按 task、prompt 和 target labels 推断内置 Banana slice。Eval Bench 自己维护的 benchmark
-copy 使用扁平目录：`data/json/<sample>.json` 和 `data/images/<sample>.<ext>`，不在 benchmark 内继续区分
-`part1` / `part2` 目录；原始 raw 路径只作为 JSON `extra.source_json` / `extra.source_image` 溯源字段保留。
+一个 benchmark 可以是 suite。suite 的 `benchmark.json` 必须把顶层 `split` 和 `manifest_path`
+指向同一个真实 split manifest，例如 `split=suite` 时，`manifest_path` 必须是
+`splits/suite.txt`；`split_manifests` 和 `sample_counts` 则维护所有 named slice，例如
+`grounding_arrow`、`grounding_layout` 和 `point_arrow`。Run manifest 里的 `benchmark.split`
+决定本次评测消费哪个 slice；job/import 未显式声明 split 时，后端会按 task、prompt 和 target labels
+推断内置 Banana slice。Eval Bench 自己维护的 benchmark copy 使用扁平目录：
+`data/json/<sample>.json` 和 `data/images/<sample>.<ext>`，不在 benchmark 内继续区分 `part1` /
+`part2` 目录；原始 raw 路径只作为 JSON `extra.source_json` / `extra.source_image` 溯源字段保留。
 
 最小命令链：
 

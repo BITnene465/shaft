@@ -111,8 +111,8 @@ assert.deepEqual(
     previousLabels: ["arrow"],
     hasStoredPreference: true
   }),
-  ["arrow"],
-  "viewer must preserve hidden label preference across sample/page changes"
+  ["arrow", "icon"],
+  "viewer must avoid an empty active label set when switching to a disjoint label scope"
 );
 assert.deepEqual(
   settings.reconcileViewerLabelPreference({
@@ -132,7 +132,7 @@ assert.deepEqual(
 );
 assert.ok(source.includes("preferredLabels"));
 assert.ok(source.includes("hiddenPreference"));
-assert.ok(!source.includes("return preserved.length > 0 ? uniqueValues(preserved) : labels"));
+assert.ok(source.includes("!nextPreference.some"));
 
 await rm(tmpDir, { recursive: true, force: true });
 console.log("workspace settings checks passed");
