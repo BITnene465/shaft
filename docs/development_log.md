@@ -9,6 +9,54 @@
 - 如果问题涉及评估标准，必须明确区分“模型能力问题”和“eval/codec/metric 误判”。
 - 日志不是待办列表；待实现事项可以同步到 `docs/todo.md`，但根因和经验必须留在这里。
 
+## 2026-05-27: vLLM 显存 profiling 会被占卡程序释放显存打断
+
+### 现象
+
+Banana v2.4 Eval Bench sweep 中，ephemeral vLLM runtime 启动失败，job 报错：
+`runtime process exited before ready: exitcode=1`。runtime log 中 vLLM 在初始化 KV cache 前的显存
+profiling 阶段失败，典型日志为：
+`Initial free memory 70.0 GiB, current free memory 75.03 GiB`。
+
+### 根因
+
+评测机器上存在占卡程序。提交 eval job 后，占卡程序会让路释放显存；但如果释放动作发生在 vLLM
+`determine_available_memory` profiling 的窗口内，vLLM 会看到当前 free memory 大于初始化快照，并按自身
+一致性校验直接断言失败。这是运行时资源协调问题，不是模型能力问题，也不是 eval / codec / metric / data
+标准误判。
+
+本次 CLI 使用也暴露出一个操作问题：`create-job/list-jobs/scheduler-status` 使用 `--output-root`，
+但 `serve-dashboard` 使用 `--store-root`。启动 dashboard 前必须以 `serve-dashboard --help` 为准。
+
+### 影响范围
+
+- 影响 Eval Bench 的 ephemeral vLLM job，尤其是 8 卡 TP 启动时。
+- 只影响 runtime 启动阶段；已经通过 health check 的 job 可以正常 inference。
+- 当同一容器内有占卡程序、上一个 vLLM 进程退出、或其他 CUDA 进程释放显存时，都可能触发。
+
+### 修复方式
+
+- 临时运行方式：dashboard 使用正确 CLI 参数启动：
+  `serve-dashboard --store-root eval_bench_store --frontend-dist projects/eval_bench/frontend/dist`。
+- 调度方式降为单并发，并把 scheduler interval 调大，避免连续拉起 runtime：
+  `EVAL_BENCH_SCHEDULER_MAX_CONCURRENT_JOBS=1`
+  和 `EVAL_BENCH_SCHEDULER_INTERVAL_S=60`。
+- 对因 vLLM memory profiling 失败的 job，视为资源瞬态失败，可以删除后用相同 manifest 重新入队。
+
+### 回归测试
+
+- `uv run python scripts/eval_bench.py serve-dashboard --help`
+- `uv run python scripts/eval_bench.py create-job --help`
+- `curl -fsS http://127.0.0.1:8765/api/scheduler/status`
+- 检查 failed job 的 `logs/runtime.log`，确认根因是 vLLM memory profiling，而不是 manifest、prompt、
+  parser 或 benchmark 配置错误。
+
+### 后续防线
+
+- Eval Bench worker 应增加 runtime 启动前的 GPU memory settle 检查，等待显存连续多次采样稳定后再启动 vLLM。
+- 对 vLLM memory profiling 这类明确的瞬态资源失败，应支持有限次数自动 retry/backoff。
+- 提交/启动 eval job 前必须先查看对应子命令 `--help`，不要复用其他子命令的参数名。
+
 ## 2026-05-27: 超长结构化 target 会把 DDP 单步拖入极慢路径
 
 ### 现象
