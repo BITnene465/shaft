@@ -328,6 +328,11 @@ assert(
   "jobs queue page must use paged API requests instead of a fixed 200-job slice",
 );
 assert(
+  jobsPage.includes("errorMessage(error)") &&
+    !jobsPage.includes("<div className=\"empty-panel danger-text\">队列状态加载失败</div>"),
+  "jobs queue page must show concrete API errors for queue loading failures",
+);
+assert(
   apiSource.includes("run_id: string | null;") &&
     jobsPage.includes("<th className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>评测</th>") &&
     jobsPage.includes("function jobRunId(job: JobSummary)") &&
@@ -578,7 +583,8 @@ assert(
     !overviewPage.includes("overviewHeroTitle") &&
     overviewPage.includes("overview-v18-score") &&
     overviewPage.includes("bestF1Run") &&
-    overviewPage.includes('import { formatMetric, runF1Score } from "./formatters";') &&
+    overviewPage.includes('import { errorMessage, formatMetric, runF1Score } from "./formatters";') &&
+    overviewPage.includes("errorMessage(error)") &&
     overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
     overviewPage.includes("overview-v18-run-artifacts") &&
     overviewPage.includes("overview-v18-run-score") &&
@@ -816,10 +822,12 @@ assert(
   "benchmark sample list rows must use SelectableRowButton",
 );
 assert(
-  benchmarksPage.includes("errorMessage(samplesQuery.error)") &&
+  benchmarksPage.includes("errorMessage(benchmarksQuery.error)") &&
+    benchmarksPage.includes("errorMessage(samplesQuery.error)") &&
     benchmarksPage.includes("errorMessage(detailQuery.error)") &&
+    !benchmarksPage.includes('return <EmptyState title="基准集加载失败" tone="danger" />;') &&
     !benchmarksPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
-  "benchmark sample inspector must show concrete API errors for list and detail failures",
+  "benchmark pages must show concrete API errors for list and detail failures",
 );
 assertNoLegacyFormSubmitClass(benchmarksPage, "benchmarksPage.tsx");
 assert(
@@ -864,10 +872,12 @@ assert(
   "run sample list rows must use SelectableRowButton",
 );
 assert(
-  runsPage.includes("errorMessage(samplesQuery.error)") &&
+  runsPage.includes("errorMessage(runsQuery.error)") &&
+    runsPage.includes("errorMessage(samplesQuery.error)") &&
     runsPage.includes("errorMessage(detailQuery.error)") &&
+    !runsPage.includes('return <EmptyState title="评测记录加载失败" tone="danger" />;') &&
     !runsPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
-  "run sample inspector must show concrete API errors for list and detail failures",
+  "run pages must show concrete API errors for list and detail failures",
 );
 assert(
     runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
@@ -1018,9 +1028,11 @@ assert(
 assert(
   servicesPage.includes("errorMessage(mutation.error)") &&
     servicesPage.includes("errorMessage(query.error)") &&
+    servicesPage.includes("errorMessage(servicesQuery.error)") &&
+    !servicesPage.includes('<EmptyState title="服务加载失败" tone="danger" />') &&
     !servicesPage.includes("<div className=\"form-error full-field\">服务保存失败。</div>") &&
     !servicesPage.includes("<div className=\"service-log-panel form-error\">日志加载失败。</div>"),
-  "services page must show concrete API errors for service save and log loading failures",
+  "services page must show concrete API errors for list, service save, and log loading failures",
 );
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
@@ -1074,6 +1086,11 @@ assert(
     !comparePage.includes("<div className=\"empty-panel danger-text\">对比报告加载失败。</div>") &&
     !comparisonSampleMiniLinkSource.includes('return <EmptyState title="对比样本加载失败" tone="danger" />;'),
   "compare report and comparison sample pages must show concrete API errors",
+);
+assert(
+  rankBoardPage.includes("errorMessage(dashboardQuery.error || boardQuery.error)") &&
+    !rankBoardPage.includes('return <EmptyState title="排行榜加载失败" tone="danger" />;'),
+  "rank board page must show concrete API errors for leaderboard loading failures",
 );
 assert(
   comparePage.includes("SelectableCardButton") &&

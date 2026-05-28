@@ -262,7 +262,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     return <div className="empty-panel">正在加载队列状态</div>;
   }
   if (error || !data) {
-    return <div className="empty-panel danger-text">队列状态加载失败</div>;
+    return <div className="empty-panel danger-text">队列状态加载失败：{errorMessage(error)}</div>;
   }
   return (
     <div className={compact ? "queue-stack compact" : "queue-stack"}>

@@ -18,7 +18,7 @@ import {
 import type { JobListResponse, RunSummary, ServiceListResponse } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { formatMetric, runF1Score } from "./formatters";
+import { errorMessage, formatMetric, runF1Score } from "./formatters";
 import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";
 import { Badge, EmptyState, OptionChipButton } from "./ui";
 
@@ -84,7 +84,7 @@ export function OverviewPage() {
     return <EmptyState title="正在加载看板状态" />;
   }
   if (error || !data) {
-    return <EmptyState title="看板状态加载失败" tone="danger" />;
+    return <EmptyState title={`看板状态加载失败：${errorMessage(error)}`} tone="danger" />;
   }
 
   const evaluatedRuns = data.runs.filter((run) => run.report_path || run.report_count > 0).length;

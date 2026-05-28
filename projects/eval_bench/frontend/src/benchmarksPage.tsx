@@ -87,7 +87,7 @@ export function BenchmarksPage() {
     return <EmptyState title="正在加载基准集" />;
   }
   if (benchmarksQuery.error || !benchmarksQuery.data) {
-    return <EmptyState title="基准集加载失败" tone="danger" />;
+    return <EmptyState title={`基准集加载失败：${errorMessage(benchmarksQuery.error)}`} tone="danger" />;
   }
   return (
     <section className="page-stack density-page">

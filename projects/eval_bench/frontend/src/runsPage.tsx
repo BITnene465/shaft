@@ -176,7 +176,7 @@ export function RunsPage() {
     return <EmptyState title="正在加载评测记录" />;
   }
   if (runsQuery.error || !runsQuery.data) {
-    return <EmptyState title="评测记录加载失败" tone="danger" />;
+    return <EmptyState title={`评测记录加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
   const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
   return (

@@ -9,7 +9,7 @@ import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
-import { f1Score, facetValues, formatMetric } from "./formatters";
+import { errorMessage, f1Score, facetValues, formatMetric } from "./formatters";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
   ActionButton,
@@ -168,7 +168,12 @@ export function RankBoardPage() {
     return <EmptyState title="正在加载排行榜" />;
   }
   if (dashboardQuery.error || !board) {
-    return <EmptyState title="排行榜加载失败" tone="danger" />;
+    return (
+      <EmptyState
+        title={`排行榜加载失败：${errorMessage(dashboardQuery.error || boardQuery.error)}`}
+        tone="danger"
+      />
+    );
   }
   const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
   const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);

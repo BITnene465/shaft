@@ -113,7 +113,7 @@ export function ServicesPage() {
       {servicesQuery.isLoading ? (
         <EmptyState title="正在加载服务" />
       ) : servicesQuery.error || !servicesQuery.data ? (
-        <EmptyState title="服务加载失败" tone="danger" />
+        <EmptyState title={`服务加载失败：${errorMessage(servicesQuery.error)}`} tone="danger" />
       ) : (
         <>
           <AdvancedFilterBar
