@@ -634,6 +634,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]
     run_report_schema = CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]
     assert run_report_schema["type"] == "object"
+    assert run_report_schema["properties"]["benchmark_id"] == "str"
+    assert run_report_schema["properties"]["benchmark_split"] == "str"
     assert run_report_schema["properties"]["precision_iou50"] == "float"
     assert run_report_schema["properties"]["labels"] == "list[object|str]"
     assert run_report_schema["properties"]["samples"]["item_shape"]["matched_count"] == "int"
@@ -645,6 +647,8 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     )
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
     comparison_shape = comparisons_output_schema["properties"]["comparisons"]["item_shape"]
+    assert comparison_shape["benchmark_id"] == "str"
+    assert comparison_shape["benchmark_split"] == "str"
     assert comparison_shape["delta"]["properties"]["precision_iou50"] == "float"
     assert comparison_shape["delta"]["properties"]["false_negative_count"] == "int"
     assert comparison_shape["summary"]["properties"]["improved_samples"] == "int"

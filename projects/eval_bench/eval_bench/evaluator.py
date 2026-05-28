@@ -15,6 +15,8 @@ from .sample_paths import prediction_json_path, sample_image_path
 @dataclass(frozen=True)
 class EvalReport:
     run_id: str
+    benchmark_id: str
+    benchmark_split: str
     task: str
     metric_profile: str
     sample_count: int
@@ -138,6 +140,8 @@ def evaluate_manifest(
     )
     return EvalReport(
         run_id=run_id,
+        benchmark_id=str(benchmark.get("benchmark_id") or ""),
+        benchmark_split=str(benchmark.get("split") or ""),
         task=task,
         metric_profile=semantics.metric_profile.profile_id,
         sample_count=len(sample_entries),
@@ -166,6 +170,8 @@ def evaluate_manifest(
 def _report_summary(report: EvalReport) -> dict[str, Any]:
     return {
         "run_id": report.run_id,
+        "benchmark_id": report.benchmark_id,
+        "benchmark_split": report.benchmark_split,
         "task": report.task,
         "metric_profile": report.metric_profile,
         "sample_count": report.sample_count,

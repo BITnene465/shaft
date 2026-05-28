@@ -79,7 +79,11 @@ def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:
     summary = json.loads((report_path.parent / "summary.json").read_text(encoding="utf-8"))
 
     assert report["sample_count"] == 1
+    assert report["benchmark_id"] == "bench1"
+    assert report["benchmark_split"] == "val"
     assert summary["sample_count"] == 1
+    assert summary["benchmark_id"] == "bench1"
+    assert summary["benchmark_split"] == "val"
     assert "samples" not in summary
     assert report["gt_instance_count"] == 1
     assert report["pred_instance_count"] == 2
@@ -496,6 +500,8 @@ def test_compare_runs_reports_improvements_and_regressions(tmp_path: Path) -> No
     comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
 
     assert comparison["comparison_id"] == "run_detection__vs__run_candidate"
+    assert comparison["benchmark_id"] == "bench1"
+    assert comparison["benchmark_split"] == "val"
     assert comparison["delta"]["matched_count"] == 1
     assert comparison["summary"]["improved_samples"] == 1
     assert comparison["summary"]["improved_labels"] == 1
@@ -513,6 +519,8 @@ def test_compare_reports_warns_when_target_label_scope_differs() -> None:
         baseline_run_id="baseline",
         candidate_run_id="candidate",
         baseline={
+            "benchmark_id": "bench1",
+            "benchmark_split": "val",
             "task": "detection",
             "metric_profile": "detection_iou_v1",
             "target_labels": [],
@@ -520,6 +528,8 @@ def test_compare_reports_warns_when_target_label_scope_differs() -> None:
             "labels": [],
         },
         candidate={
+            "benchmark_id": "bench1",
+            "benchmark_split": "val",
             "task": "detection",
             "metric_profile": "detection_iou_v1",
             "target_labels": ["arrow"],
@@ -529,6 +539,34 @@ def test_compare_reports_warns_when_target_label_scope_differs() -> None:
     )
 
     assert "baseline and candidate target labels differ" in comparison["warnings"]
+
+
+def test_compare_reports_warns_when_benchmark_scope_differs() -> None:
+    comparison = compare_report_payloads(
+        baseline_run_id="baseline",
+        candidate_run_id="candidate",
+        baseline={
+            "benchmark_id": "bench-a",
+            "benchmark_split": "grounding_arrow",
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["arrow"],
+            "samples": [],
+            "labels": [],
+        },
+        candidate={
+            "benchmark_id": "bench-b",
+            "benchmark_split": "grounding_layout",
+            "task": "detection",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["arrow"],
+            "samples": [],
+            "labels": [],
+        },
+    )
+
+    assert "baseline and candidate benchmarks differ" in comparison["warnings"]
+    assert "baseline and candidate benchmark splits differ" in comparison["warnings"]
 
 
 def test_compare_reports_scores_keypoint_distance_as_lower_better() -> None:

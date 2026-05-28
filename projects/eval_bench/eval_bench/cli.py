@@ -166,6 +166,8 @@ RUN_REPORT_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "run_id": "str",
+        "benchmark_id": "str",
+        "benchmark_split": "str",
         "task": "str",
         "metric_profile": "str",
         "sample_count": "int",
@@ -518,6 +520,8 @@ COMPARISON_SUMMARY_OUTPUT_SHAPE = {
     "comparison_id": "str",
     "baseline_run_id": "str",
     "candidate_run_id": "str",
+    "benchmark_id": "str",
+    "benchmark_split": "str",
     "task": "str",
     "metric_profile": "str",
     "target_labels": "list[str]",

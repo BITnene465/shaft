@@ -380,6 +380,8 @@ export type ComparisonSummary = {
   comparison_id: string;
   baseline_run_id: string;
   candidate_run_id: string;
+  benchmark_id?: string;
+  benchmark_split?: string;
   task: string;
   metric_profile?: string;
   target_labels?: string[];

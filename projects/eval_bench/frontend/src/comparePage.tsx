@@ -842,6 +842,8 @@ function ComparisonHistoryPanel({
   const columns: ColumnDef<ComparisonSummary>[] = [
     { header: "对比记录", accessorKey: "comparison_id", meta: { width: "id" } },
     { header: "任务", accessorKey: "task", meta: { width: "compact" } },
+    { header: "基准集", accessorKey: "benchmark_id", meta: { width: "id" } },
+    { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
     {
       header: "Label",
       meta: { width: "wide", wrap: "wrap" },

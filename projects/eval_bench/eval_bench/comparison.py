@@ -123,6 +123,8 @@ def list_comparison_reports(
                 "comparison_id": str(payload.get("comparison_id") or path.stem),
                 "baseline_run_id": str(payload.get("baseline_run_id") or ""),
                 "candidate_run_id": str(payload.get("candidate_run_id") or ""),
+                "benchmark_id": str(payload.get("benchmark_id") or ""),
+                "benchmark_split": str(payload.get("benchmark_split") or ""),
                 "task": str(payload.get("task") or ""),
                 "metric_profile": str(payload.get("metric_profile") or ""),
                 "target_labels": _target_labels(payload),
@@ -206,6 +208,8 @@ def compare_report_payloads(
     return {
         "baseline_run_id": baseline_run_id,
         "candidate_run_id": candidate_run_id,
+        "benchmark_id": candidate.get("benchmark_id") or baseline.get("benchmark_id"),
+        "benchmark_split": candidate.get("benchmark_split") or baseline.get("benchmark_split"),
         "task": candidate.get("task") or baseline.get("task"),
         "metric_profile": candidate.get("metric_profile") or baseline.get("metric_profile"),
         "target_labels": _target_labels(candidate) or _target_labels(baseline),
@@ -487,6 +491,8 @@ def _comparison_query_matches(
         report.get("comparison_id"),
         report.get("baseline_run_id"),
         report.get("candidate_run_id"),
+        report.get("benchmark_id"),
+        report.get("benchmark_split"),
         report.get("task"),
         report.get("metric_profile"),
         " ".join(target_labels),
@@ -496,6 +502,10 @@ def _comparison_query_matches(
 
 def _comparison_warnings(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
     warnings: list[str] = []
+    if str(baseline.get("benchmark_id") or "") != str(candidate.get("benchmark_id") or ""):
+        warnings.append("baseline and candidate benchmarks differ")
+    if str(baseline.get("benchmark_split") or "") != str(candidate.get("benchmark_split") or ""):
+        warnings.append("baseline and candidate benchmark splits differ")
     if str(baseline.get("task") or "") != str(candidate.get("task") or ""):
         warnings.append("baseline and candidate tasks differ")
     if str(baseline.get("metric_profile") or "") != str(candidate.get("metric_profile") or ""):
