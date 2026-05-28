@@ -196,6 +196,7 @@ export function RunsPage() {
       <div className="workspace-card fill">
         <RunTable
           runs={runs}
+          refreshing={runsQuery.isPlaceholderData}
           filterMeta={`${runs.length.toLocaleString()} / ${totalRuns.toLocaleString()} 条 run`}
           filterControls={[
             {

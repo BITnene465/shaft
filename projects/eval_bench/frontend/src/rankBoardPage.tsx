@@ -171,7 +171,7 @@ export function RankBoardPage() {
     return <EmptyState title="排行榜加载失败" tone="danger" />;
   }
   const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
-  const tableRefreshing = boardQuery.isFetching && Boolean(board);
+  const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);
 
   return (
     <section className="page-stack density-page rank-board-page">

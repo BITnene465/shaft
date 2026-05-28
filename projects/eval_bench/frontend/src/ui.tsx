@@ -360,19 +360,28 @@ export function DataTable<T>({
   columns,
   data,
   emptyText,
-  compact
+  compact,
+  refreshing = false,
+  refreshLabel = "表格更新中"
 }: {
   columns: ColumnDef<T>[];
   data: T[];
   emptyText: string;
   compact?: boolean;
+  refreshing?: boolean;
+  refreshLabel?: string;
 }) {
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
   if (data.length === 0) {
     return <div className="empty-panel">{emptyText}</div>;
   }
   return (
-    <div className={compact ? "table-shell compact" : "table-shell"}>
+    <div className={joinClassNames("table-shell", compact && "compact", refreshing && "refreshing")}>
+      {refreshing ? (
+        <span className="table-refresh-indicator" aria-live="polite">
+          {refreshLabel}
+        </span>
+      ) : null}
       <table>
         <thead>
           {table.getHeaderGroups().map((headerGroup) => (

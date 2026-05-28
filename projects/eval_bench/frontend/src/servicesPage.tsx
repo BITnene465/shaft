@@ -147,7 +147,7 @@ export function ServicesPage() {
               }
             ]}
           />
-          <ServiceGrid services={services} />
+          <ServiceGrid services={services} refreshing={servicesQuery.isPlaceholderData} />
           <PagerControl
             className="rank-board-pager service-list-pager"
             offset={servicesQuery.data.offset ?? pageOffset}
@@ -285,12 +285,23 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
 }
 
-function ServiceGrid({ services }: { services: ServiceSummary[] }) {
+function ServiceGrid({
+  services,
+  refreshing = false
+}: {
+  services: ServiceSummary[];
+  refreshing?: boolean;
+}) {
   if (services.length === 0) {
     return <EmptyState title="没有符合高级检索条件的模型服务。" />;
   }
   return (
-    <div className="service-grid">
+    <div className={refreshing ? "service-grid refreshing" : "service-grid"}>
+      {refreshing ? (
+        <span className="table-refresh-indicator" aria-live="polite">
+          服务列表更新中
+        </span>
+      ) : null}
       {services.map((service) => (
         <ServiceCard key={service.service_id} service={service} />
       ))}

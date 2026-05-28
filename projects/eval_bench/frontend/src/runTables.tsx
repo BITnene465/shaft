@@ -24,10 +24,12 @@ import {
 
 export function BenchmarkTable({
   benchmarks,
-  compact = false
+  compact = false,
+  refreshing = false
 }: {
   benchmarks: BenchmarkSummary[];
   compact?: boolean;
+  refreshing?: boolean;
 }) {
   const columns: ColumnDef<BenchmarkSummary>[] = [
     {
@@ -79,6 +81,7 @@ export function BenchmarkTable({
       data={benchmarks}
       emptyText="还没有登记基准集。"
       compact={compact}
+      refreshing={refreshing}
     />
   );
 }
@@ -89,6 +92,7 @@ export function RunTable({
   filterControls,
   filterMeta,
   filterTitle = "结果高级检索",
+  refreshing = false,
   footer
 }: {
   runs: RunSummary[];
@@ -96,6 +100,7 @@ export function RunTable({
   filterControls?: AdvancedFilterControl[];
   filterMeta?: string;
   filterTitle?: string;
+  refreshing?: boolean;
   footer?: ReactNode;
 }) {
   const queryClient = useQueryClient();
@@ -280,6 +285,7 @@ export function RunTable({
         data={filteredRuns}
         emptyText="还没有评测记录。"
         compact={compact}
+        refreshing={refreshing}
       />
       {footer}
       <DangerConfirmDialog

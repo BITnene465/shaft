@@ -1039,7 +1039,7 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  rankBoardPage.includes("const tableRefreshing = boardQuery.isFetching && Boolean(board);") &&
+  rankBoardPage.includes("const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);") &&
     rankBoardPage.includes('className="rank-board-table-toolbar"') &&
     rankBoardPage.includes("rank-board-table-card refreshing") &&
     rankBoardPage.includes('className="rank-board-table-refresh"') &&

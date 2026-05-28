@@ -145,7 +145,7 @@ export function BenchmarksPage() {
         ]}
       />
       <div className="workspace-card fill">
-        <BenchmarkTable benchmarks={benchmarks} />
+        <BenchmarkTable benchmarks={benchmarks} refreshing={benchmarksQuery.isPlaceholderData} />
         <PagerControl
           className="rank-board-pager benchmark-list-pager"
           offset={benchmarksQuery.data.offset ?? pageOffset}

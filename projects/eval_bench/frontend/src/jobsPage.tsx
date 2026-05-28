@@ -178,7 +178,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     }),
     [compact, kindFilter, pageOffset, searchText, statusFilter]
   );
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isPlaceholderData, error } = useQuery({
     queryKey: ["jobs", jobFilters],
     queryFn: () => fetchJobs(jobFilters),
     refetchInterval: 2_000,
@@ -301,7 +301,18 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       ) : filteredJobs.length === 0 ? (
         <div className="empty-panel">没有符合高级检索条件的任务。</div>
       ) : (
-        <div className={compact ? "table-shell compact" : "table-shell"}>
+        <div
+          className={[
+            "table-shell",
+            compact ? "compact" : "",
+            isPlaceholderData && data ? "refreshing" : ""
+          ].filter(Boolean).join(" ")}
+        >
+          {!compact && isPlaceholderData && data ? (
+            <span className="table-refresh-indicator" aria-live="polite">
+              队列更新中
+            </span>
+          ) : null}
           <table>
             <thead>
               <tr>
