@@ -627,7 +627,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = "";
     try {
       const errorPayload = (await response.json()) as { detail?: unknown };
-      detail = typeof errorPayload.detail === "string" ? `: ${errorPayload.detail}` : "";
+      const detailText = apiErrorDetailText(errorPayload.detail);
+      detail = detailText ? `: ${detailText}` : "";
     } catch {
       detail = "";
     }
@@ -642,6 +643,44 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw error;
   }
   return (await response.json()) as T;
+}
+
+export function apiErrorDetailText(detail: unknown): string {
+  if (typeof detail === "string") {
+    return detail.trim();
+  }
+  if (!isPlainRecord(detail)) {
+    return "";
+  }
+  const lines = [
+    ...stringList(detail.errors),
+    ...stringList(detail.warnings).map((warning) => `warning: ${warning}`)
+  ];
+  if (lines.length) {
+    return truncateErrorDetail(lines.join("; "));
+  }
+  for (const key of ["detail", "message", "error"]) {
+    const value = detail[key];
+    if (typeof value === "string" && value.trim()) {
+      return truncateErrorDetail(value.trim());
+    }
+  }
+  return truncateErrorDetail(JSON.stringify(detail));
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function truncateErrorDetail(value: string): string {
+  return value.length > 1200 ? `${value.slice(0, 1197)}...` : value;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function notifyApiError(message: string) {

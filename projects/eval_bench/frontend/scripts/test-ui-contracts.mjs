@@ -63,9 +63,13 @@ const scriptsDocSource = await readRepoFile("docs/scripts.md");
 assert(
   apiSource.includes("export class ApiError extends Error") &&
     apiSource.includes("export function isApiError(") &&
+    apiSource.includes("export function apiErrorDetailText(") &&
     apiSource.includes("this.status = status") &&
+    apiSource.includes("Array.isArray(value)") &&
+    apiSource.includes("detailText ? `: ${detailText}` : \"\"") &&
+    apiSource.includes("JSON.stringify(detail)") &&
     apiSource.includes("throw error;"),
-  "frontend API failures must expose typed ApiError status for structured recovery",
+  "frontend API failures must expose typed ApiError status and structured details for recovery",
 );
 assert(
   apiSource.includes("`/api/runs/${encodeURIComponent(runId)}/evaluate`") &&
