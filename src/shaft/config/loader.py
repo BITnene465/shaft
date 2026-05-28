@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
@@ -11,6 +12,8 @@ from .normalize import normalize_runtime_config
 from .runtime import RuntimeConfig
 
 T = TypeVar("T")
+
+_DEEPSPEED_SHAFT_MANAGED_KEYS = {"optimizer", "scheduler"}
 
 
 def _is_optional(annotation: Any) -> bool:
@@ -92,6 +95,33 @@ def _resolve_config_relative_path(value: Any, *, config_path: Path) -> str:
     return str((config_path.parent / path).resolve())
 
 
+def _validate_deepspeed_runtime_config(config: dict[str, Any], *, source: str) -> None:
+    managed_keys = sorted(set(config) & _DEEPSPEED_SHAFT_MANAGED_KEYS)
+    if managed_keys:
+        raise ValueError(
+            f"{source} contains DeepSpeed-managed keys {managed_keys!r}. "
+            "Shaft owns optimizer/scheduler construction so param_group_lrs and scheduler settings "
+            "stay consistent; remove those keys from train.distributed.deepspeed."
+        )
+
+
+def _validate_deepspeed_config_path(path: str) -> None:
+    config_path = Path(path)
+    if not config_path.exists():
+        return
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            config = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"DeepSpeed config_path is not valid JSON: {config_path}") from exc
+    if not isinstance(config, dict):
+        raise TypeError(f"DeepSpeed config root must be a mapping: {config_path}")
+    _validate_deepspeed_runtime_config(
+        config,
+        source=f"DeepSpeed config_path {config_path}",
+    )
+
+
 def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
     train_payload = payload.get("train")
     if train_payload is None:
@@ -109,6 +139,15 @@ def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path
     if not isinstance(deepspeed_payload, dict):
         raise TypeError("Config key `train.distributed.deepspeed` must be a mapping.")
 
+    inline_config = deepspeed_payload.get("config")
+    if inline_config is not None:
+        if not isinstance(inline_config, dict):
+            raise TypeError("Config key `train.distributed.deepspeed.config` must be a mapping.")
+        _validate_deepspeed_runtime_config(
+            inline_config,
+            source="train.distributed.deepspeed.config",
+        )
+
     config_path_value = deepspeed_payload.get("config_path")
     if config_path_value is None:
         return payload
@@ -119,6 +158,7 @@ def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path
         config_path_text,
         config_path=config_path,
     )
+    _validate_deepspeed_config_path(str(deepspeed_payload["config_path"]))
     return payload
 
 

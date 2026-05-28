@@ -305,8 +305,8 @@ data:
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
   `config_path` 的相对路径按训练 YAML 所在目录解析。Shaft 只负责保存和校验配置真源，不在
   `config` 层展开 DeepSpeed 运行时细节。
-- 当前 Shaft 仍由自定义 optimizer/scheduler 持有参数分组学习率语义；DeepSpeed 示例配置不要写
-  `optimizer`/`scheduler` 块，交给 HF Trainer 将 Shaft optimizer 接入 DeepSpeed。
+- 当前 Shaft 仍由自定义 optimizer/scheduler 持有参数分组学习率语义；DeepSpeed 配置如果包含
+  `optimizer`/`scheduler` 块会在加载阶段报错。应交给 HF Trainer 将 Shaft optimizer 接入 DeepSpeed。
 - `configs/deepspeed/zero1_bf16.json`、`zero2_bf16.json`、`zero3_bf16.json` 分别是 ZeRO-1/2/3
   bf16 示例配置；ZeRO-3 示例包含保存时 gather 16-bit 权重的设置，用于保持 `trainer.save_model()`
   的 HF export 语义。

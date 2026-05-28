@@ -169,6 +169,58 @@ train:
     assert cfg.train.distributed.deepspeed.config_path == str(deepspeed_path.resolve())
 
 
+def test_deepspeed_inline_config_rejects_optimizer_ownership_conflict(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        optimizer:
+          type: AdamW
+        zero_optimization:
+          stage: 2
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Shaft owns optimizer/scheduler"):
+        load_config(config_path)
+
+
+def test_deepspeed_config_path_rejects_optimizer_ownership_conflict(tmp_path: Path) -> None:
+    train_dir = tmp_path / "configs" / "train"
+    train_dir.mkdir(parents=True)
+    deepspeed_dir = tmp_path / "configs" / "deepspeed"
+    deepspeed_dir.mkdir(parents=True)
+    (deepspeed_dir / "zero2.json").write_text(
+        '{"optimizer": {"type": "AdamW"}, "zero_optimization": {"stage": 2}}\n',
+        encoding="utf-8",
+    )
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config_path: ../deepspeed/zero2.json
+"""
+    config_path = train_dir / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Shaft owns optimizer/scheduler"):
+        load_config(config_path)
+
+
 def test_deepspeed_example_configs_cover_zero_stages() -> None:
     root = Path(__file__).resolve().parents[1]
     expected = {
