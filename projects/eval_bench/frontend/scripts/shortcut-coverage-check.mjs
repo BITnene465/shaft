@@ -56,8 +56,15 @@ assert.ok(
 );
 
 const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/";
-const benchmarkId = process.env.EVAL_BENCH_BENCHMARK_ID ?? "multitask_val_v1";
-const runId = process.env.EVAL_BENCH_RUN_ID ?? "config_smoke_prompt_params";
+const shortcutTargets = await discoverShortcutTargets(new URL(rawUrl).origin);
+const benchmarkId = process.env.EVAL_BENCH_BENCHMARK_ID ?? shortcutTargets.benchmarkId;
+const runId = process.env.EVAL_BENCH_RUN_ID ?? shortcutTargets.runId;
+if (!benchmarkId) {
+  throw new Error("shortcut coverage requires a benchmark with at least two samples.");
+}
+if (!runId) {
+  throw new Error("shortcut coverage requires an evaluated run with sample detail.");
+}
 const bindings = {
   "viewer.resetViewport": "R",
   "sample.previous": "M",
@@ -123,6 +130,35 @@ async function checkBenchmarkShortcuts(page) {
   await expectSelectedSample(page, "2", "benchmark sample.next binding");
   await page.keyboard.press(bindings["sample.previous"]);
   await expectSelectedSample(page, "1", "benchmark sample.previous binding");
+}
+
+async function discoverShortcutTargets(rootUrl) {
+  try {
+    const response = await fetch(`${rootUrl}/api/state`);
+    if (!response.ok) {
+      return { benchmarkId: "", runId: "" };
+    }
+    const state = await response.json();
+    const benchmarks = Array.isArray(state.benchmarks) ? state.benchmarks : [];
+    const benchmarkById = new Map(benchmarks.map((item) => [item.benchmark_id, item]));
+    const benchmark = benchmarks.find((item) => Number(item.sample_count) > 1) ?? benchmarks[0];
+    const runs = Array.isArray(state.runs) ? state.runs : [];
+    const run =
+      runs.find((item) => {
+        if (!item?.run_id || !item?.report_path) {
+          return false;
+        }
+        const runBenchmark = benchmarkById.get(item.benchmark_id);
+        return !runBenchmark || Number(runBenchmark.sample_count) > 1;
+      }) ??
+      runs.find((item) => item?.run_id && item?.report_path);
+    return {
+      benchmarkId: benchmark?.benchmark_id ?? "",
+      runId: run?.run_id ?? ""
+    };
+  } catch {
+    return { benchmarkId: "", runId: "" };
+  }
 }
 
 async function checkRunShortcuts(page) {

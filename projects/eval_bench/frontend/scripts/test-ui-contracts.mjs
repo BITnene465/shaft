@@ -55,6 +55,7 @@ const styleSource = await readSource("src/styles.css");
 const designSource = await readSource("src/design.css");
 const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
+const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
 assert(
@@ -370,6 +371,15 @@ assert(
     '<ActionButton variant="secondary" className="settings-inline-action" onClick={onResetAll}>',
   ),
   "shortcut reset-all action must use ActionButton",
+);
+assert(
+  shortcutCoverageSource.includes("async function discoverShortcutTargets(") &&
+    shortcutCoverageSource.includes('fetch(`${rootUrl}/api/state`)') &&
+    shortcutCoverageSource.includes("process.env.EVAL_BENCH_BENCHMARK_ID ?? shortcutTargets.benchmarkId") &&
+    shortcutCoverageSource.includes("process.env.EVAL_BENCH_RUN_ID ?? shortcutTargets.runId") &&
+    !shortcutCoverageSource.includes('?? "multitask_val_v1"') &&
+    !shortcutCoverageSource.includes('?? "config_smoke_prompt_params"'),
+  "shortcut coverage must discover current store benchmark/run targets instead of hard-coding old fixtures",
 );
 assertNoRawSelectElement(settingsControls, "settingsControls.tsx");
 assert(

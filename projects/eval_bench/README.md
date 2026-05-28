@@ -882,6 +882,8 @@ Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-fir
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /
 `useWorkspaceShortcuts`，并用自定义 keymap 在 benchmark、run、compare 和 settings 页面真实触发
 样本切换、图层显隐、几何显隐、视图复位、清除选择和快捷键编辑，确认旧默认键不会绕过用户配置。
+脚本默认从 `/api/state` 发现当前 store 中可用的 benchmark/run；只在需要固定目标时使用
+`EVAL_BENCH_BENCHMARK_ID` / `EVAL_BENCH_RUN_ID` 覆写，避免测试绑定旧 fixture。
 
 针对 viewer 高频鼠标交互还有独立性能检查；它会在真实 run inspector 上连续执行滚轮缩放和拖拽平移，
 并确认 pan/zoom 不会重渲染 heavy overlay layer：

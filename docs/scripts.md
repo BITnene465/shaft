@@ -274,6 +274,10 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 ```
 
+`test:shortcuts` 默认通过 `/api/state` 选择当前 store 中至少有样本的 benchmark 和已评估 run，
+避免绑定旧的固定 fixture ID；需要复现特定样本时再传 `EVAL_BENCH_BENCHMARK_ID` /
+`EVAL_BENCH_RUN_ID`。
+
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立
 圆角 capsule，Overview 必须保留 v17 decision-first command desk：ops board、运行信号、F1 dial、四个决策 tile、闭环 runway、rank console 和最近 run 产物流，
