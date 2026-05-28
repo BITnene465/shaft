@@ -13,6 +13,14 @@ export type BenchmarkSummary = {
   sample_counts?: Record<string, number>;
 };
 
+export type BenchmarkManifest = BenchmarkSummary & {
+  source_raw_root: string | null;
+  source_manifest_path: string | null;
+  split_manifests: Record<string, string>;
+  sample_counts: Record<string, number>;
+  metadata: Record<string, unknown>;
+};
+
 export type FacetBucket = Array<{ value: string; count: number }>;
 export type FacetBuckets = Record<string, FacetBucket>;
 
@@ -333,6 +341,7 @@ export type CreateBenchmarkPayload = {
   default_slice?: string;
   flatten?: boolean;
   overwrite?: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 export type CreateBenchmarkSlicePayload = {
@@ -795,8 +804,8 @@ export function fetchBenchmark(benchmarkId: string): Promise<BenchmarkDetailResp
   return fetchJson<BenchmarkDetailResponse>(`/api/benchmarks/${encodeURIComponent(benchmarkId)}`);
 }
 
-export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkSummary> {
-  return fetchJson<BenchmarkSummary>("/api/benchmarks", {
+export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkManifest> {
+  return fetchJson<BenchmarkManifest>("/api/benchmarks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)

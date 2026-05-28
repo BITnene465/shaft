@@ -1025,6 +1025,11 @@ def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
     assert payload["sample_count"] == 1
     assert payload["labels"] == ["arrow", "icon"]
     assert payload["layers"] == ["layout", "arrow"]
+    assert payload["source_raw_root"] == str(raw_root)
+    assert payload["source_manifest_path"] == str(source_manifest)
+    assert payload["split_manifests"] == {"val": payload["manifest_path"]}
+    assert payload["sample_counts"] == {"val": 1}
+    assert payload["metadata"] == {}
     assert client.get("/api/state").json()["benchmark_count"] == 1
     copied_sample = client.get("/api/benchmarks/multitask_val_v1/samples/0").json()
     assert [item["label"] for item in copied_sample["gt_instances"]] == ["icon", "arrow"]
@@ -1076,6 +1081,7 @@ def test_dashboard_creates_benchmark_suite_from_raw_data(tmp_path: Path) -> None
             "source_root": str(raw_root),
             "split": "suite",
             "default_slice": "grounding_arrow",
+            "metadata": {"owner": "eval-team"},
             "slices": [
                 {
                     "split": "grounding_arrow",
@@ -1105,6 +1111,14 @@ def test_dashboard_creates_benchmark_suite_from_raw_data(tmp_path: Path) -> None
         "grounding_shape": 1,
         "suite": 2,
     }
+    assert payload["source_raw_root"] == str(raw_root)
+    assert payload["source_manifest_path"] == str(split_dir / "grounding_arrow.txt")
+    assert payload["metadata"]["owner"] == "eval-team"
+    assert set(payload["metadata"]["source_manifest_paths"]) == {
+        "grounding_arrow",
+        "grounding_shape",
+    }
+    assert payload["metadata"]["slices"]["grounding_arrow"]["target_labels"] == ["arrow"]
     assert set(payload["split_manifests"]) == {"grounding_arrow", "grounding_shape", "suite"}
     shape_page = client.get(
         "/api/benchmarks/grounding_suite/samples",
