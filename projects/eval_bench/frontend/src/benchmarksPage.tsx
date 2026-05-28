@@ -293,7 +293,7 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         </div>
       ) : null}
       {mutation.error ? (
-        <div className="form-result error full-field">{mutation.error.message}</div>
+        <div className="form-result error full-field">{errorMessage(mutation.error)}</div>
       ) : null}
     </form>
   );

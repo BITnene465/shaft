@@ -825,9 +825,11 @@ assert(
   benchmarksPage.includes("errorMessage(benchmarksQuery.error)") &&
     benchmarksPage.includes("errorMessage(samplesQuery.error)") &&
     benchmarksPage.includes("errorMessage(detailQuery.error)") &&
+    benchmarksPage.includes("errorMessage(mutation.error)") &&
+    !benchmarksPage.includes("mutation.error.message") &&
     !benchmarksPage.includes('return <EmptyState title="基准集加载失败" tone="danger" />;') &&
     !benchmarksPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
-  "benchmark pages must show concrete API errors for list and detail failures",
+  "benchmark pages must show concrete API errors for list, detail, and mutation failures",
 );
 assertNoLegacyFormSubmitClass(benchmarksPage, "benchmarksPage.tsx");
 assert(
@@ -875,9 +877,15 @@ assert(
   runsPage.includes("errorMessage(runsQuery.error)") &&
     runsPage.includes("errorMessage(samplesQuery.error)") &&
     runsPage.includes("errorMessage(detailQuery.error)") &&
+    runsPage.includes("errorMessage(mutation.error)") &&
+    runsPage.includes("errorMessage(noteMutation.error)") &&
+    runsPage.includes("errorMessage(appendMutation.error)") &&
+    !runsPage.includes("mutation.error.message") &&
+    !runsPage.includes("noteMutation.error.message") &&
+    !runsPage.includes("appendMutation.error.message") &&
     !runsPage.includes('return <EmptyState title="评测记录加载失败" tone="danger" />;') &&
     !runsPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
-  "run pages must show concrete API errors for list and detail failures",
+  "run pages must show concrete API errors for list, detail, and mutation failures",
 );
 assert(
     runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&

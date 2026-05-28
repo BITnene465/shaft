@@ -454,7 +454,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         </div>
       ) : null}
       {mutation.error ? (
-        <div className="form-result error full-field">{mutation.error.message}</div>
+        <div className="form-result error full-field">{errorMessage(mutation.error)}</div>
       ) : null}
     </form>
   );
@@ -810,8 +810,8 @@ function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; default
           <span>
             {noteDraft.length.toLocaleString()} / {noteMaxLength.toLocaleString()}
           </span>
-          {noteMutation.error ? <strong>{noteMutation.error.message}</strong> : null}
-          {appendMutation.error ? <strong>{appendMutation.error.message}</strong> : null}
+          {noteMutation.error ? <strong>{errorMessage(noteMutation.error)}</strong> : null}
+          {appendMutation.error ? <strong>{errorMessage(appendMutation.error)}</strong> : null}
           {noteMutation.data ? <em>已保存</em> : null}
           {appendMutation.data ? <em>已追加</em> : null}
           <ActionButton
