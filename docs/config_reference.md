@@ -307,8 +307,9 @@ data:
   `config` 层展开 DeepSpeed 运行时细节。
 - 当前 Shaft 仍由自定义 optimizer/scheduler 持有参数分组学习率语义；DeepSpeed 示例配置不要写
   `optimizer`/`scheduler` 块，交给 HF Trainer 将 Shaft optimizer 接入 DeepSpeed。
-- `configs/deepspeed/zero3_bf16.json` 是 ZeRO-3 bf16 示例配置，包含保存时 gather 16-bit 权重的设置，
-  用于保持 `trainer.save_model()` 的 HF export 语义。
+- `configs/deepspeed/zero1_bf16.json`、`zero2_bf16.json`、`zero3_bf16.json` 分别是 ZeRO-1/2/3
+  bf16 示例配置；ZeRO-3 示例包含保存时 gather 16-bit 权重的设置，用于保持 `trainer.save_model()`
+  的 HF export 语义。
 - 分片策略属于训练运行时；数据、template、task prompt 和 collator 不应该感知 FSDP/DeepSpeed。
 - `gradient_checkpointing`
   - 打开后会把 `TrainingArguments.gradient_checkpointing` 设为 `true`
