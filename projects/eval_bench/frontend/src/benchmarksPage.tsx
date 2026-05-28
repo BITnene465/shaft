@@ -202,17 +202,23 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
       return;
     }
     const slices = suiteSliceParse.slices;
+    const suiteMode = slices.length > 0;
+    const normalizedSplit = split.trim();
+    const benchmarkSplit =
+      suiteMode && (!normalizedSplit || normalizedSplit === "val")
+        ? "suite"
+        : normalizedSplit || "val";
     mutation.mutate({
       benchmark_id: benchmarkId.trim(),
       source_root: sourceRoot.trim(),
-      source_manifest: slices.length > 0 ? undefined : sourceManifest.trim(),
-      split: split.trim() || (slices.length > 0 ? "suite" : "val"),
+      source_manifest: suiteMode ? undefined : sourceManifest.trim(),
+      split: benchmarkSplit,
       tasks,
       layers: layers
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean),
-      slices: slices.length > 0 ? slices : undefined,
+      slices: suiteMode ? slices : undefined,
       default_slice: slices[0]?.split,
       overwrite
     });
@@ -269,7 +275,11 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         type="submit"
         variant="primary"
         icon={<AppIcon name="submitCreate" size={16} />}
-        disabled={mutation.isPending || tasks.length === 0 || Boolean(suiteSliceParse.error)}
+        disabled={
+          mutation.isPending
+          || (suiteSliceParse.slices.length === 0 && tasks.length === 0)
+          || Boolean(suiteSliceParse.error)
+        }
       >
         创建
       </ActionButton>
@@ -299,6 +309,9 @@ function parseBenchmarkSlices(
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"));
+  if (value.trim() && lines.length === 0) {
+    return { slices: [], error: "Suite slices 至少需要一行 split=manifest" };
+  }
   const slices: CreateBenchmarkSlicePayload[] = [];
   const seenSplits = new Set<string>();
   for (const [index, line] of lines.entries()) {

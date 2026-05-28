@@ -727,10 +727,15 @@ assert(
 );
 assert(
   benchmarksPage.includes("parseBenchmarkSlices(") &&
-    benchmarksPage.includes("slices: slices.length > 0 ? slices : undefined") &&
+    benchmarksPage.includes("slices: suiteMode ? slices : undefined") &&
     benchmarksPage.includes("default_slice: slices[0]?.split") &&
     benchmarksPage.includes('label="Suite slices"') &&
     benchmarksPage.includes("suiteSliceParse.error") &&
+    benchmarksPage.includes('normalizedSplit === "val"') &&
+    benchmarksPage.includes('? "suite"') &&
+    benchmarksPage.includes("suiteSliceParse.slices.length === 0") &&
+    benchmarksPage.includes("&& tasks.length === 0") &&
+    benchmarksPage.includes("Suite slices 至少需要一行 split=manifest") &&
     benchmarksPage.includes("Suite slices 第") &&
     benchmarksPage.includes("Suite slices split 重复") &&
     benchmarksPage.includes("Suite slices 不支持的任务") &&
