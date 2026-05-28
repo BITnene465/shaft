@@ -408,13 +408,14 @@ export function BenchmarkDetailPage() {
   }
 
   function changeLabelFilter(value: string) {
-    setLabelFilter(value);
-    setPageOffset(0);
+    updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset);
   }
 
   function changeSplitFilter(value: string) {
-    setSplitFilter(value);
-    setPageOffset(0);
+    if (Object.is(value, splitFilter)) {
+      return;
+    }
+    updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset);
     setSelectedIndex(0);
     updateSampleIndexInLocation(0);
   }

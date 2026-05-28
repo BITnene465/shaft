@@ -526,13 +526,11 @@ export function RunDetailPage() {
   }
 
   function changeErrorFilter(value: string) {
-    setErrorFilter(value);
-    setPageOffset(0);
+    updatePagedFilterValue(errorFilter, value, setErrorFilter, setPageOffset);
   }
 
   function changeLabelFilter(value: string) {
-    setLabelFilter(value);
-    setPageOffset(0);
+    updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset);
   }
 
   function moveSample(delta: number) {

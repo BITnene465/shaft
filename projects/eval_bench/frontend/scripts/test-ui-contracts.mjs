@@ -828,9 +828,13 @@ assert(
 assert(
   benchmarksPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     benchmarksPage.includes("updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)") &&
+    benchmarksPage.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
+    benchmarksPage.includes("updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)") &&
     !benchmarksPage.includes("function updateBenchmarkFilter(") &&
+    !benchmarksPage.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
+    !benchmarksPage.includes("setSplitFilter(value);\n    setPageOffset(0);") &&
     !benchmarksPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "benchmarks page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
+  "benchmarks page list and sample filters must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   benchmarksPage.includes("SelectableRowButton") &&
@@ -890,9 +894,13 @@ assert(
 assert(
   runsPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     runsPage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
+    runsPage.includes("updatePagedFilterValue(errorFilter, value, setErrorFilter, setPageOffset)") &&
+    runsPage.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
     !runsPage.includes("function updateRunFilter(") &&
+    !runsPage.includes("setErrorFilter(value);\n    setPageOffset(0);") &&
+    !runsPage.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
     !runsPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "runs page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
+  "runs page list and sample filters must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   runsPage.includes("SelectableRowButton") &&
