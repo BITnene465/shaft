@@ -484,6 +484,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert job_payload_schema["properties"]["benchmark_id"] == "str"
     assert job_payload_schema["properties"]["target_labels"] == "list[str]"
     assert job_payload_schema["properties"]["runtime_mode"] == "str"
+    assert "manifest" not in job_payload_schema["properties"]
     assert job_payload_schema["properties"]["job_manifest"]["properties"]["runtime"][
         "properties"
     ]["args"]["properties"]["max-model-len"] == "int|null"
@@ -2665,7 +2666,8 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     assert job["status"] == "queued"
     assert job["payload"]["benchmark_id"] == "bench1"
     assert job["payload"]["target_labels"] == ["arrow"]
-    assert job["payload"]["manifest"]["kind"] == "eval_job"
+    assert job["payload"]["job_manifest"]["kind"] == "eval_job"
+    assert "manifest" not in job["payload"]
 
     list_args = _build_parser().parse_args(
         [
@@ -2694,7 +2696,8 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
     job_detail = json.loads(capsys.readouterr().out)
     assert job_detail["job"]["job_id"] == job["job_id"]
     assert job_detail["job"]["payload"]["target_labels"] == ["arrow"]
-    assert job_detail["job"]["payload"]["manifest"]["kind"] == "eval_job"
+    assert job_detail["job"]["payload"]["job_manifest"]["kind"] == "eval_job"
+    assert "manifest" not in job_detail["job"]["payload"]
 
 
 def test_cli_preflight_failure_uses_stable_agent_shape(tmp_path: Path, capsys) -> None:

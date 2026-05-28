@@ -191,8 +191,13 @@ def preflight_job_metadata(preflight: Mapping[str, Any]) -> dict[str, Any]:
 
 def _manifest_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     manifest = payload.get("manifest")
+    job_manifest = payload.get("job_manifest")
+    if isinstance(manifest, dict) and isinstance(job_manifest, dict):
+        raise ValueError("job payload must not define both manifest and job_manifest.")
     if isinstance(manifest, dict):
         return dict(manifest)
+    if isinstance(job_manifest, dict):
+        return dict(job_manifest)
     if "runtime" in payload or "eval" in payload or "preannotate" in payload:
         return dict(payload)
     raise ValueError(

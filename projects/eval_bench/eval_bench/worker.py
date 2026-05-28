@@ -741,7 +741,7 @@ def _run_note_text_from_payload(payload: dict[str, Any]) -> str | None:
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    manifest = payload.get("job_manifest") or payload.get("manifest")
+    manifest = payload.get("job_manifest")
     if isinstance(manifest, dict):
         metadata = manifest.get("metadata")
         if isinstance(metadata, dict):
@@ -807,7 +807,7 @@ def _runtime_config_from_job_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _runtime_env_from_payload(payload: dict[str, Any]) -> dict[str, str]:
-    manifest = payload.get("job_manifest") or payload.get("manifest")
+    manifest = payload.get("job_manifest")
     if not isinstance(manifest, dict):
         return {}
     runtime = manifest.get("runtime")

@@ -1574,10 +1574,7 @@ def create_app(
         kind = "eval" if resolved.kind == "eval_job" else "preannotate"
         record = request.app.state.eval_bench_database.create_job(
             kind=kind,
-            payload={
-                **dict(preflight.get("resolved_payload") or {}),
-                "manifest": preflight.get("resolved_manifest"),
-            },
+            payload=dict(preflight.get("resolved_payload") or {}),
             metadata=preflight_job_metadata(preflight),
         )
         return JSONResponse(record.to_dict(), status_code=201)

@@ -253,6 +253,29 @@ def test_eval_job_manifest_is_only_semantic_source() -> None:
     assert "stray" not in resolved.payload
 
 
+def test_resolved_job_payload_re_resolves_from_job_manifest() -> None:
+    manifest = job_templates()["eval_job"]["manifest"]
+    manifest["runtime"]["args"]["model"] = "outputs/model-a/best"
+    manifest["runtime"]["engine"] = "dry_run"
+    manifest["eval"]["model_id"] = "model-a"
+    manifest["eval"]["benchmark_id"] = "bench1"
+
+    first = resolve_job_payload({"manifest": manifest})
+    second = resolve_job_payload(first.payload)
+
+    assert second.kind == "eval_job"
+    assert second.payload["job_manifest"] == first.payload["job_manifest"]
+    assert second.payload["model_id"] == "model-a"
+    assert "manifest" not in second.payload
+
+
+def test_payload_rejects_manifest_and_job_manifest_dual_sources() -> None:
+    manifest = job_templates()["eval_job"]["manifest"]
+
+    with pytest.raises(ValueError, match="must not define both manifest and job_manifest"):
+        resolve_job_payload({"manifest": manifest, "job_manifest": manifest})
+
+
 def test_prompt_template_target_labels_replace_empty_manifest_list() -> None:
     resolved = resolve_job_payload(
         {

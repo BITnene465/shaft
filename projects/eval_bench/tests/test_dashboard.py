@@ -300,6 +300,8 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert created_payload["metadata"]["run_id"] == created_payload["run_id"]
     assert created_payload["payload"]["model_id"] == "model-a"
     assert created_payload["payload"]["prompt_text"] == "Detect icons."
+    assert created_payload["payload"]["job_manifest"]["kind"] == "eval_job"
+    assert "manifest" not in created_payload["payload"]
     jobs = client.get("/api/jobs").json()
     assert jobs["jobs"][0]["job_id"] == created_payload["job_id"]
     assert jobs["jobs"][0]["run_id"] == created_payload["run_id"]

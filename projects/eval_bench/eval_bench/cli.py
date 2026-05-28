@@ -311,7 +311,6 @@ JOB_MANIFEST_OUTPUT_SCHEMA = {
 JOB_PAYLOAD_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
         "job_manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
         "job_kind": "str",
         "runtime_mode": "str",
@@ -2360,10 +2359,7 @@ def _cmd_create_job(args: argparse.Namespace) -> None:
         raise ValueError(json.dumps(preflight, ensure_ascii=False))
     job = database.create_job(
         kind=_database_job_kind(str(preflight.get("kind") or "eval_job")),
-        payload={
-            **dict(preflight.get("resolved_payload") or {}),
-            "manifest": preflight.get("resolved_manifest"),
-        },
+        payload=dict(preflight.get("resolved_payload") or {}),
         metadata=preflight_job_metadata(preflight),
     )
     print(json.dumps(job.to_dict(), ensure_ascii=False))
