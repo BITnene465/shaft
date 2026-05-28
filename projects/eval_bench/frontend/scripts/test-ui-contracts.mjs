@@ -95,7 +95,10 @@ assert(
     styleSource.includes(".table-shell .table-wrap-wrap") &&
     runTables.includes('meta: { width: "id" }') &&
     rankBoardPage.includes('meta: { width: "metric", align: "end" }') &&
-    comparePage.includes('meta: { width: "date" }'),
+    comparePage.includes('meta: { width: "date" }') &&
+    jobsPage.includes("JOB_QUEUE_COLUMN_CLASS_NAMES") &&
+    jobsPage.includes('tableColumnClassName({ width: "id" })') &&
+    jobsPage.includes("className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}"),
   "shared data tables must use column metadata for adaptive width, wrapping, and alignment",
 );
 assert(
@@ -317,7 +320,7 @@ assert(
 );
 assert(
   apiSource.includes("run_id: string | null;") &&
-    jobsPage.includes("<th>评测</th>") &&
+    jobsPage.includes("<th className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>评测</th>") &&
     jobsPage.includes("function jobRunId(job: JobSummary)") &&
     jobsPage.includes("job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id)") &&
     jobsPage.includes('className="job-eval-cell"') &&

@@ -20,7 +20,7 @@ import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
 
 type ButtonVariant = "primary" | "secondary" | "mini";
-type TableColumnWidth =
+export type TableColumnWidth =
   | "select"
   | "actions"
   | "status"
@@ -31,15 +31,16 @@ type TableColumnWidth =
   | "compact"
   | "text"
   | "wide";
-type TableColumnWrap = "nowrap" | "truncate" | "wrap";
-type TableColumnAlign = "start" | "center" | "end";
+export type TableColumnWrap = "nowrap" | "truncate" | "wrap";
+export type TableColumnAlign = "start" | "center" | "end";
+export type TableColumnMeta = {
+  width?: TableColumnWidth;
+  wrap?: TableColumnWrap;
+  align?: TableColumnAlign;
+};
 
 declare module "@tanstack/react-table" {
-  interface ColumnMeta<TData extends RowData, TValue> {
-    width?: TableColumnWidth;
-    wrap?: TableColumnWrap;
-    align?: TableColumnAlign;
-  }
+  interface ColumnMeta<TData extends RowData, TValue> extends TableColumnMeta {}
 }
 
 export const DIALOG_FOCUSABLE_SELECTOR = [
@@ -55,7 +56,9 @@ function joinClassNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
-function tableColumnClassName(meta: ColumnDef<unknown>["meta"] | undefined) {
+export function tableColumnClassName(
+  meta: TableColumnMeta | ColumnDef<unknown>["meta"] | undefined
+) {
   return joinClassNames(
     "data-table-cell",
     meta?.width ? `table-col-${meta.width}` : "table-col-text",

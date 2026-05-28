@@ -64,11 +64,20 @@ import {
   InlineNavLink,
   PanelTitle,
   SelectableTableRow,
-  WorkspaceDialog
+  WorkspaceDialog,
+  tableColumnClassName
 } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
 const JOB_PAGE_SIZE = 80;
+const JOB_QUEUE_COLUMN_CLASS_NAMES = {
+  identity: tableColumnClassName({ width: "id" }),
+  kind: tableColumnClassName({ width: "compact" }),
+  status: tableColumnClassName({ width: "status", wrap: "wrap" }),
+  target: tableColumnClassName({ width: "wide", wrap: "wrap" }),
+  createdAt: tableColumnClassName({ width: "date" }),
+  actions: tableColumnClassName({ width: "actions", wrap: "wrap" })
+};
 
 export function JobsPage() {
   const { data } = useDashboardState();
@@ -295,12 +304,12 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           <table>
             <thead>
               <tr>
-                <th>评测</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>目标</th>
-                <th>创建时间</th>
-                <th></th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>评测</th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.kind}>类型</th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.status}>状态</th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.target}>目标</th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.createdAt}>创建时间</th>
+                <th className={JOB_QUEUE_COLUMN_CLASS_NAMES.actions}></th>
               </tr>
             </thead>
             <tbody>
@@ -312,7 +321,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                     selected={job.job_id === selectedJob?.job_id}
                     onClick={() => setSelectedJobId(job.job_id)}
                   >
-                    <td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>
                       <div className="job-eval-cell">
                         <strong title={runId || job.job_id}>{runId || job.job_id}</strong>
                         {runId && runId !== job.job_id ? (
@@ -320,12 +329,12 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                         ) : null}
                       </div>
                     </td>
-                    <td>{job.kind}</td>
-                    <td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.kind}>{job.kind}</td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.status}>
                       <Badge value={job.status} domain="job" />
                       <JobProgressInline job={job} />
                     </td>
-                    <td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.target}>
                       <div className="job-target-cell">
                         <span>{jobTarget(job.payload)}</span>
                         {job.error ? <em title={job.error}>{job.error}</em> : null}
@@ -336,8 +345,10 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                         ) : null}
                       </div>
                     </td>
-                    <td>{formatDate(job.created_at)}</td>
-                    <td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.createdAt}>
+                      {formatDate(job.created_at)}
+                    </td>
+                    <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.actions}>
                       <div className="row-actions">
                         <IconActionButton
                           icon={<X size={14} />}
