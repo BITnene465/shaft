@@ -390,6 +390,16 @@ assert(
   "manifest preflight result must reset only on semantic draft changes, not on mutation object rerenders",
 );
 assert(
+  jobsPage.includes("function mutationErrorText(error: unknown)") &&
+    jobsPage.includes("mutationErrorText(preflightMutation.error)") &&
+    jobsPage.includes("mutationErrorText(mutation.error)") &&
+    jobsPage.includes("saveErrorMessage={mutationErrorText(promptMutation.error)}") &&
+    !jobsPage.includes("<div className=\"form-error\">预检查请求失败。</div>") &&
+    !jobsPage.includes("<div className=\"form-error\">任务入队失败。</div>") &&
+    !jobsPage.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>"),
+  "manifest job form errors must show the concrete API error message inside the local panel",
+);
+assert(
   jobsPage.includes("DisclosurePanel") &&
     jobsPage.includes('className="prompt-template-panel"') &&
     jobsPage.includes("TextareaControl") &&

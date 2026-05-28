@@ -795,15 +795,17 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
                   prompt={selectedPrompt}
                   onSaveFromManifest={savePromptFromManifest}
                   saving={promptMutation.isPending}
-                  saveError={promptMutation.isError}
+                  saveErrorMessage={mutationErrorText(promptMutation.error)}
                 />
               ) : null}
               {parseError ? <div className="form-error">JSON 解析错误：{parseError}</div> : null}
               {preflightMutation.data ? <PreflightPanel result={preflightMutation.data} /> : null}
-              {preflightMutation.isError ? (
-                <div className="form-error">预检查请求失败。</div>
+              {preflightMutation.error ? (
+                <div className="form-error">预检查请求失败：{mutationErrorText(preflightMutation.error)}</div>
               ) : null}
-              {mutation.isError ? <div className="form-error">任务入队失败。</div> : null}
+              {mutation.error ? (
+                <div className="form-error">任务入队失败：{mutationErrorText(mutation.error)}</div>
+              ) : null}
               {!parseError && !preflightMutation.data && !preflightMutation.isError && !mutation.isError ? (
                 <div className="manifest-placeholder">
                   编辑 manifest 后执行预检查；通过后再加入队列。
@@ -826,6 +828,13 @@ function parseManifestDraft(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function mutationErrorText(error: unknown) {
+  if (!error) {
+    return "";
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function PreflightPanel({ result }: { result: { ok: boolean; errors: string[]; warnings: string[]; runtime_command?: string[] | null } }) {
@@ -884,12 +893,12 @@ function PromptTemplatePanel({
   prompt,
   onSaveFromManifest,
   saving,
-  saveError
+  saveErrorMessage
 }: {
   prompt: PromptTemplate;
   onSaveFromManifest: () => void;
   saving: boolean;
-  saveError: boolean;
+  saveErrorMessage: string;
 }) {
   const targetLabels = targetLabelsFromPrompt(prompt);
   return (
@@ -924,7 +933,9 @@ function PromptTemplatePanel({
       >
         {saving ? "保存中" : "将当前 Manifest 的 Prompt 保存为模板"}
       </ActionButton>
-      {saveError ? <div className="form-error">Prompt 模板保存失败。</div> : null}
+      {saveErrorMessage ? (
+        <div className="form-error">Prompt 模板保存失败：{saveErrorMessage}</div>
+      ) : null}
     </DisclosurePanel>
   );
 }
