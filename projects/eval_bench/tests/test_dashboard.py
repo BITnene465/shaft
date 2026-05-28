@@ -22,6 +22,44 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _eval_job_payload(
+    *,
+    model_id: str,
+    model_path: str,
+    benchmark_id: str,
+    task: str,
+    prompt_id: str,
+    backend: str = "vllm_openai",
+    runtime_mode: str = "ephemeral",
+    benchmark_split: str | None = None,
+    target_labels: list[str] | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    return {
+        "manifest": {
+            "kind": "eval_job",
+            "runtime": {
+                "mode": runtime_mode,
+                "engine": backend,
+                "args": {
+                    "model": model_path,
+                    "served-model-name": model_id,
+                    "host": "127.0.0.1",
+                },
+            },
+            "eval": {
+                "model_id": model_id,
+                "benchmark_id": benchmark_id,
+                "benchmark_split": benchmark_split or "",
+                "task": task,
+                "prompt_id": prompt_id,
+                "target_labels": list(target_labels or []),
+                "generation": {"max_tokens": max_tokens} if max_tokens is not None else {},
+            },
+        }
+    }
+
+
 def _wait_for_job_status(client: TestClient, job_id: str, status: str) -> dict:
     deadline = time.monotonic() + 5
     latest: dict | None = None
@@ -82,6 +120,16 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
         tmp_path / "runs" / "run1" / "predictions" / "part1" / "json" / "a.json",
         {"image": "part1/images/a.png", "instances": [], "metadata": {}},
     )
+    for stem in ("a", "b"):
+        _write_json(
+            tmp_path / "benchmarks" / "multitask_val_v1" / "data" / "part1" / "json" / f"{stem}.json",
+            {
+                "image_path": f"part1/images/{stem}.png",
+                "image_width": 100,
+                "image_height": 50,
+                "instances": [],
+            },
+        )
 
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
     client = TestClient(app)
@@ -197,31 +245,31 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     model_path.mkdir(parents=True)
     preflight = client.post(
         "/api/jobs/preflight",
-        json={
-            "kind": "eval",
-            "model_id": "model-a",
-            "model_path": str(model_path),
-            "benchmark_id": "multitask_val_v1",
-            "task": "detection",
-            "prompt_id": "custom.layout",
-            "max_tokens": 4096,
-        },
+        json=_eval_job_payload(
+            model_id="model-a",
+            model_path=str(model_path),
+            benchmark_id="multitask_val_v1",
+            task="detection",
+            prompt_id="custom.layout",
+            backend="dry_run",
+            runtime_mode="external",
+            max_tokens=4096,
+        ),
     )
     assert preflight.status_code == 200
     assert preflight.json()["ok"] is True
     assert preflight.json()["resolved_payload"]["prompt_text"] == "Detect icons."
     bad_label_preflight = client.post(
         "/api/jobs/preflight",
-        json={
-            "kind": "eval",
-            "model_id": "model-a",
-            "model_path": str(model_path),
-            "benchmark_id": "multitask_val_v1",
-            "task": "detection",
-            "prompt_id": "custom.layout",
-            "target_labels": ["typo_label"],
-            "max_tokens": 4096,
-        },
+        json=_eval_job_payload(
+            model_id="model-a",
+            model_path=str(model_path),
+            benchmark_id="multitask_val_v1",
+            task="detection",
+            prompt_id="custom.layout",
+            target_labels=["typo_label"],
+            max_tokens=4096,
+        ),
     )
     assert bad_label_preflight.status_code == 200
     bad_label_payload = bad_label_preflight.json()
@@ -232,15 +280,16 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     )
     created = client.post(
         "/api/jobs",
-        json={
-            "kind": "eval",
-            "model_id": "model-a",
-            "model_path": str(model_path),
-            "benchmark_id": "multitask_val_v1",
-            "task": "detection",
-            "prompt_id": "custom.layout",
-            "max_tokens": 4096,
-        },
+        json=_eval_job_payload(
+            model_id="model-a",
+            model_path=str(model_path),
+            benchmark_id="multitask_val_v1",
+            task="detection",
+            prompt_id="custom.layout",
+            backend="dry_run",
+            runtime_mode="external",
+            max_tokens=4096,
+        ),
     )
     assert created.status_code == 201
     created_payload = created.json()
@@ -474,16 +523,15 @@ def test_dashboard_create_job_persists_preflight_warnings(tmp_path: Path) -> Non
 
     warning_job = client.post(
         "/api/jobs",
-        json={
-            "kind": "eval",
-            "model_id": "model-a",
-            "model_path": str(model_path),
-            "benchmark_id": "bench_no_labels",
-            "task": "detection",
-            "prompt_id": "grounding_layout.v2.4.main",
-            "target_labels": ["icon"],
-            "max_tokens": 4096,
-        },
+        json=_eval_job_payload(
+            model_id="model-a",
+            model_path=str(model_path),
+            benchmark_id="bench_no_labels",
+            task="detection",
+            prompt_id="grounding_layout.v2.4.main",
+            target_labels=["icon"],
+            max_tokens=4096,
+        ),
     )
 
     assert warning_job.status_code == 201
@@ -921,14 +969,13 @@ def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
     )
     created_job = client.post(
         "/api/jobs",
-        json={
-            "kind": "eval",
-            "model_id": "model-a",
-            "model_path": str(model_path),
-            "benchmark_id": "bench1",
-            "task": "detection",
-            "prompt_id": "grounding_layout.v2.4.main",
-        },
+        json=_eval_job_payload(
+            model_id="model-a",
+            model_path=str(model_path),
+            benchmark_id="bench1",
+            task="detection",
+            prompt_id="grounding_layout.v2.4.main",
+        ),
     )
     assert created_job.status_code == 201
     job_id = created_job.json()["job_id"]

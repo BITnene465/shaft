@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from eval_bench.job_spec import job_templates, preflight_job_payload, resolve_job_payload
 
 
@@ -188,21 +190,19 @@ def test_prompt_template_target_labels_replace_empty_manifest_list() -> None:
     assert resolved.payload["target_labels_source"] == "prompt_metadata"
 
 
-def test_legacy_eval_payload_preserves_target_labels_in_resolved_manifest() -> None:
-    resolved = resolve_job_payload(
-        {
-            "backend": "dry_run",
-            "model_id": "model-a",
-            "model_path": "outputs/model-a/best",
-            "benchmark_id": "bench1",
-            "task": "detection",
-            "prompt_id": "grounding_layout.test.main",
-            "target_labels": ["icon", "image"],
-        }
-    )
-
-    assert resolved.manifest["eval"]["target_labels"] == ["icon", "image"]
-    assert resolved.payload["target_labels"] == ["icon", "image"]
+def test_legacy_eval_payload_is_rejected() -> None:
+    with pytest.raises(ValueError, match="manifest-first suite schema"):
+        resolve_job_payload(
+            {
+                "backend": "dry_run",
+                "model_id": "model-a",
+                "model_path": "outputs/model-a/best",
+                "benchmark_id": "bench1",
+                "task": "detection",
+                "prompt_id": "grounding_layout.test.main",
+                "target_labels": ["icon", "image"],
+            }
+        )
 
 
 def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:

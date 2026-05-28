@@ -27,6 +27,80 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _eval_job_payload(
+    *,
+    model_id: str,
+    model_path: str,
+    benchmark_id: str,
+    task: str,
+    prompt_id: str,
+    backend: str = "vllm_openai",
+    runtime_mode: str = "existing_service",
+    served_model_name: str | None = None,
+    endpoint: str | None = None,
+    service_id: str | None = None,
+    system_prompt: str | None = None,
+    prompt_text: str | None = None,
+    cuda_visible_devices: str | None = None,
+    tensor_parallel_size: int | None = None,
+    port: int | None = None,
+    max_model_len: int | None = None,
+    gpu_memory_utilization: float | None = None,
+    max_num_seqs: int | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    max_pixels: int | None = None,
+    batch_size: int | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    runtime_args = {
+        "model": model_path,
+        "served-model-name": served_model_name or model_id,
+        "host": "127.0.0.1",
+        "port": port,
+        "tensor-parallel-size": tensor_parallel_size,
+        "max-model-len": max_model_len,
+        "gpu-memory-utilization": gpu_memory_utilization,
+        "max-num-seqs": max_num_seqs,
+    }
+    payload = {
+        "manifest": {
+            "kind": "eval_job",
+            "runtime": {
+                "mode": runtime_mode,
+                "engine": backend,
+                "endpoint": endpoint,
+                "service_id": service_id,
+                "env": {"CUDA_VISIBLE_DEVICES": cuda_visible_devices},
+                "args": {
+                    key: value for key, value in runtime_args.items() if value not in (None, "")
+                },
+            },
+            "eval": {
+                "model_id": model_id,
+                "benchmark_id": benchmark_id,
+                "task": task,
+                "prompt_id": prompt_id,
+                "system_prompt": system_prompt,
+                "prompt_text": prompt_text,
+                "generation": {
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                },
+                "data": {
+                    "max_pixels": max_pixels,
+                    "batch_size": batch_size,
+                },
+            },
+        }
+    }
+    if metadata is not None:
+        payload["metadata"] = metadata
+    return payload
+
+
 def _pid_exists(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -325,27 +399,27 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(
         kind="eval",
-        payload={
-            "model_id": "model-a",
-            "model_path": "outputs/model-a/best",
-            "benchmark_id": "bench1",
-            "task": "keypoint",
-            "prompt_id": "point_arrow.test.main",
-            "system_prompt": "system snapshot",
-            "prompt_text": "predict arrow endpoints",
-            "service_id": "local-vllm-0",
-            "cuda_visible_devices": "0,1,2",
-            "tensor_parallel_size": 3,
-            "port": 8001,
-            "max_model_len": 65536,
-            "gpu_memory_utilization": 0.82,
-            "max_num_seqs": 16,
-            "max_tokens": 4096,
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "max_pixels": 1048576,
-            "batch_size": 2,
-        },
+        payload=_eval_job_payload(
+            model_id="model-a",
+            model_path="outputs/model-a/best",
+            benchmark_id="bench1",
+            task="keypoint",
+            prompt_id="point_arrow.test.main",
+            system_prompt="system snapshot",
+            prompt_text="predict arrow endpoints",
+            service_id="local-vllm-0",
+            cuda_visible_devices="0,1,2",
+            tensor_parallel_size=3,
+            port=8001,
+            max_model_len=65536,
+            gpu_memory_utilization=0.82,
+            max_num_seqs=16,
+            max_tokens=4096,
+            temperature=0.1,
+            top_p=0.9,
+            max_pixels=1048576,
+            batch_size=2,
+        ),
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()
@@ -382,13 +456,13 @@ def test_worker_marks_invalid_job_failed(tmp_path: Path) -> None:
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(
         kind="eval",
-        payload={
-            "model_id": "model-a",
-            "model_path": "outputs/model-a/best",
-            "benchmark_id": "missing",
-            "task": "detection",
-            "prompt_id": "grounding_layout.test.main",
-        },
+        payload=_eval_job_payload(
+            model_id="model-a",
+            model_path="outputs/model-a/best",
+            benchmark_id="missing",
+            task="detection",
+            prompt_id="grounding_layout.test.main",
+        ),
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()
@@ -439,15 +513,16 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(
         kind="eval",
-        payload={
-            "model_id": "dry-model",
-            "model_path": "outputs/dry/best",
-            "benchmark_id": "bench1",
-            "task": "detection",
-            "prompt_id": "grounding_layout.test.main",
-            "backend": "dry_run",
-            "metadata": {"notes": "checkpoint=5000; full benchmark sweep"},
-        },
+        payload=_eval_job_payload(
+            model_id="dry-model",
+            model_path="outputs/dry/best",
+            benchmark_id="bench1",
+            task="detection",
+            prompt_id="grounding_layout.test.main",
+            backend="dry_run",
+            runtime_mode="external",
+            metadata={"notes": "checkpoint=5000; full benchmark sweep"},
+        ),
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()
@@ -522,18 +597,18 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(
         kind="eval",
-        payload={
-            "model_id": "model-a",
-            "model_path": "outputs/model-a/best",
-            "served_model_name": "served-model",
-            "benchmark_id": "bench1",
-            "task": "detection",
-            "prompt_id": "grounding_layout.test.main",
-            "prompt_text": "detect icons",
-            "backend": "vllm_openai",
-            "endpoint": "http://127.0.0.1:8000",
-            "max_tokens": 4096,
-        },
+        payload=_eval_job_payload(
+            model_id="model-a",
+            model_path="outputs/model-a/best",
+            served_model_name="served-model",
+            benchmark_id="bench1",
+            task="detection",
+            prompt_id="grounding_layout.test.main",
+            prompt_text="detect icons",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8000",
+            max_tokens=4096,
+        ),
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()
@@ -621,20 +696,20 @@ def test_worker_vllm_openai_runs_requests_concurrently(
     database = EvalBenchDatabase(tmp_path)
     job = database.create_job(
         kind="eval",
-        payload={
-            "model_id": "model-a",
-            "model_path": "outputs/model-a/best",
-            "served_model_name": "served-model",
-            "benchmark_id": "bench1",
-            "task": "detection",
-            "prompt_id": "grounding_layout.test.main",
-            "prompt_text": "detect icons",
-            "backend": "vllm_openai",
-            "endpoint": "http://127.0.0.1:8000",
-            "max_tokens": 4096,
-            "max_num_seqs": 3,
-            "batch_size": 1,
-        },
+        payload=_eval_job_payload(
+            model_id="model-a",
+            model_path="outputs/model-a/best",
+            served_model_name="served-model",
+            benchmark_id="bench1",
+            task="detection",
+            prompt_id="grounding_layout.test.main",
+            prompt_text="detect icons",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8000",
+            max_tokens=4096,
+            max_num_seqs=3,
+            batch_size=1,
+        ),
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()

@@ -200,58 +200,10 @@ def _manifest_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return dict(manifest)
     if "runtime" in payload or "eval" in payload or "preannotate" in payload:
         return dict(payload)
-    return _legacy_payload_to_manifest(payload)
-
-
-def _legacy_payload_to_manifest(payload: dict[str, Any]) -> dict[str, Any]:
-    runtime_args = {
-        "model": payload.get("model_path"),
-        "served-model-name": payload.get("served_model_name") or payload.get("model_id"),
-        "host": payload.get("host") or "127.0.0.1",
-        "port": payload.get("port"),
-        "tensor-parallel-size": payload.get("tensor_parallel_size"),
-        "max-model-len": payload.get("max_model_len"),
-        "gpu-memory-utilization": payload.get("gpu_memory_utilization"),
-        "max-num-seqs": payload.get("max_num_seqs"),
-    }
-    runtime = {
-        "mode": "existing_service" if payload.get("endpoint") else "external" if payload.get("backend") == "dry_run" else "existing_service",
-        "engine": payload.get("backend") or "vllm_openai",
-        "endpoint": payload.get("endpoint"),
-        "service_id": payload.get("service_id"),
-        "env": {"CUDA_VISIBLE_DEVICES": payload.get("cuda_visible_devices")},
-        "args": {key: value for key, value in runtime_args.items() if value not in (None, "")},
-    }
-    return {
-        "kind": "eval_job",
-        "runtime": runtime,
-        "eval": {
-            "run_id": payload.get("run_id"),
-            "model_id": payload.get("model_id"),
-            "model_path": payload.get("model_path"),
-            "benchmark_id": payload.get("benchmark_id"),
-            "benchmark_split": payload.get("benchmark_split") or payload.get("split"),
-            "task": payload.get("task"),
-            "prompt_id": payload.get("prompt_id"),
-            "prompt_path": payload.get("prompt_path"),
-            "system_prompt": payload.get("system_prompt"),
-            "prompt_text": payload.get("prompt_text") or payload.get("user_prompt"),
-            "parser": payload.get("parser"),
-            "metric_profile": payload.get("metric_profile"),
-            "visualization_profile": payload.get("visualization_profile"),
-            "target_labels": payload.get("target_labels"),
-            "generation": {
-                "max_tokens": payload.get("max_tokens"),
-                "temperature": payload.get("temperature"),
-                "top_p": payload.get("top_p"),
-            },
-            "data": {
-                "min_pixels": payload.get("min_pixels"),
-                "max_pixels": payload.get("max_pixels"),
-                "batch_size": payload.get("batch_size"),
-            },
-        },
-    }
+    raise ValueError(
+        "job payload must use the manifest-first suite schema with a manifest, runtime/eval, "
+        "or preannotate section."
+    )
 
 
 def _apply_prompt_template_to_manifest(
