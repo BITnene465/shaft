@@ -299,8 +299,14 @@ data:
   - `limit_all_gathers`
   - `state_dict_type`: `full_state_dict | local_state_dict | sharded_state_dict`
   - `sync_module_states`
+- `distributed.fsdp.transformer_layer_cls_to_wrap=["auto"]` 会按模型族默认解析。Qwen3VL 当前解析为：
+  - `Qwen3VLTextDecoderLayer`
+  - `Qwen3VLVisionBlock`
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
   Shaft 只负责保存和校验配置真源，不在 `config` 层展开 DeepSpeed 运行时细节。
+- `configs/deepspeed/zero3_bf16.json` 是 ZeRO-3 bf16 示例配置，包含保存时 gather 16-bit 权重的设置，
+  用于保持 `trainer.save_model()` 的 HF export 语义。
+- 分片策略属于训练运行时；数据、template、task prompt 和 collator 不应该感知 FSDP/DeepSpeed。
 - `gradient_checkpointing`
   - 打开后会把 `TrainingArguments.gradient_checkpointing` 设为 `true`
   - 并在模型装配阶段显式把训练态 `use_cache` 关闭
@@ -343,35 +349,6 @@ data:
   - `template` 负责把多轮消息规范化为 supervision plan，并直接产出单样本 `labels / loss_scale / span`
   - `SFTCollator` 只负责 batch 级 processor 调用、padding 与张量装配
   - `training/loss.py` 负责真正的加权 next-token loss
-
-### `train.distributed`
-
-用途：选择训练运行时的参数分片策略。当前 SFT 主链已接入，后续 RLHF 算法应复用同一配置块。
-
-关键字段：
-
-- `strategy`: `ddp | fsdp | deepspeed`
-- `fsdp`
-  - `sharding_strategy`: `full_shard | shard_grad_op | no_shard | hybrid_shard`
-  - `auto_wrap_policy`: `none | transformer | size`
-  - `transformer_layer_cls_to_wrap`: 需要 FSDP transformer auto-wrap 的层类名；`["auto"]` 会按模型族默认解析
-  - `activation_checkpointing`
-  - `state_dict_type`: `full_state_dict | local_state_dict | sharded_state_dict`
-  - `use_orig_params`
-- `deepspeed`
-  - `config_path`: DeepSpeed JSON 配置路径
-  - `config`: 内联 DeepSpeed 配置；与 `config_path` 同时存在时以内联配置为准
-
-说明：
-
-- 默认 `strategy=ddp`，保持原有 torchrun + DDP 行为。
-- `strategy=fsdp` 会把 `fsdp/fsdp_config` 传给 HF `TrainingArguments`。Qwen3VL 的 `auto` 层类名解析为：
-  - `Qwen3VLTextDecoderLayer`
-  - `Qwen3VLVisionBlock`
-- `strategy=deepspeed` 会把 `deepspeed` 传给 HF `TrainingArguments`，运行环境需要额外安装 DeepSpeed。
-- `configs/deepspeed/zero3_bf16.json` 是 ZeRO-3 bf16 示例配置，包含保存时 gather 16-bit 权重的设置，
-  用于保持 `trainer.save_model()` 的 HF export 语义。
-- 分片策略属于训练运行时；数据、template、task prompt 和 collator 不应该感知 FSDP/DeepSpeed。
 
 ## 7. `eval`
 
