@@ -77,7 +77,7 @@ train:
       state_dict_type: full_state_dict
       use_orig_params: true
     deepspeed:
-      config_path: configs/deepspeed/zero3_bf16.json
+      config_path: ../deepspeed/zero3_bf16.json
   report_to: ["wandb"]
   init_from_checkpoint:
   resume_from_checkpoint:

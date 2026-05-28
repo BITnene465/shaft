@@ -303,7 +303,10 @@ data:
   - `Qwen3VLTextDecoderLayer`
   - `Qwen3VLVisionBlock`
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
-  Shaft 只负责保存和校验配置真源，不在 `config` 层展开 DeepSpeed 运行时细节。
+  `config_path` 的相对路径按训练 YAML 所在目录解析。Shaft 只负责保存和校验配置真源，不在
+  `config` 层展开 DeepSpeed 运行时细节。
+- 当前 Shaft 仍由自定义 optimizer/scheduler 持有参数分组学习率语义；DeepSpeed 示例配置不要写
+  `optimizer`/`scheduler` 块，交给 HF Trainer 将 Shaft optimizer 接入 DeepSpeed。
 - `configs/deepspeed/zero3_bf16.json` 是 ZeRO-3 bf16 示例配置，包含保存时 gather 16-bit 权重的设置，
   用于保持 `trainer.save_model()` 的 HF export 语义。
 - 分片策略属于训练运行时；数据、template、task prompt 和 collator 不应该感知 FSDP/DeepSpeed。

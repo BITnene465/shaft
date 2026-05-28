@@ -84,6 +84,44 @@ def _build_dataclass(cls: type[T], payload: dict[str, Any], *, path: str = "") -
     return cls(**kwargs)
 
 
+def _resolve_config_relative_path(value: Any, *, config_path: Path) -> str:
+    text = str(value).strip()
+    path = Path(text)
+    if path.is_absolute():
+        return str(path)
+    return str((config_path.parent / path).resolve())
+
+
+def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
+    train_payload = payload.get("train")
+    if train_payload is None:
+        return payload
+    if not isinstance(train_payload, dict):
+        raise TypeError("Config key `train` must be a mapping.")
+    distributed_payload = train_payload.get("distributed")
+    if distributed_payload is None:
+        return payload
+    if not isinstance(distributed_payload, dict):
+        raise TypeError("Config key `train.distributed` must be a mapping.")
+    deepspeed_payload = distributed_payload.get("deepspeed")
+    if deepspeed_payload is None:
+        return payload
+    if not isinstance(deepspeed_payload, dict):
+        raise TypeError("Config key `train.distributed.deepspeed` must be a mapping.")
+
+    config_path_value = deepspeed_payload.get("config_path")
+    if config_path_value is None:
+        return payload
+    config_path_text = str(config_path_value).strip()
+    if not config_path_text:
+        return payload
+    deepspeed_payload["config_path"] = _resolve_config_relative_path(
+        config_path_text,
+        config_path=config_path,
+    )
+    return payload
+
+
 def load_config(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
@@ -101,5 +139,6 @@ def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
+    payload = _resolve_deepspeed_config_path(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

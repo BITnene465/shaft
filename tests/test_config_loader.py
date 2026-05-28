@@ -141,6 +141,33 @@ train:
     assert cfg.train.distributed.deepspeed.config == {"zero_optimization": {"stage": 3}}
 
 
+def test_deepspeed_config_path_resolves_relative_to_train_config(tmp_path: Path) -> None:
+    train_dir = tmp_path / "configs" / "train"
+    train_dir.mkdir(parents=True)
+    deepspeed_dir = tmp_path / "configs" / "deepspeed"
+    deepspeed_dir.mkdir(parents=True)
+    deepspeed_path = deepspeed_dir / "zero3.json"
+    deepspeed_path.write_text('{"zero_optimization": {"stage": 3}}\n', encoding="utf-8")
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config_path: ../deepspeed/zero3.json
+"""
+    config_path = train_dir / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+
+    cfg = load_config(config_path)
+
+    assert cfg.train.distributed.deepspeed.config_path == str(deepspeed_path.resolve())
+
+
 def test_prompt_sampling_config_normalizes_and_resolves_paths(tmp_path: Path) -> None:
     prompt_dir = tmp_path / "prompts"
     prompt_dir.mkdir()
