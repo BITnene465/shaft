@@ -1083,6 +1083,19 @@ assert(
   "compare run rail must use paged API requests while preserving selected run ids",
 );
 assert(
+  comparePage.includes("function updateCompareRunFilter(") &&
+    comparePage.includes("function updateCompareSharedFilter(") &&
+    comparePage.includes("function updateComparisonHistoryFilter(") &&
+    comparePage.includes("setPageOffset(0);") &&
+    comparePage.includes("setHistoryOffset(0);") &&
+    comparePage.includes("onChange: (value) => updateCompareSharedFilter(searchText, value, setSearchText)") &&
+    comparePage.includes("onChange: (value) => updateCompareRunFilter(statusFilter, value, setStatusFilter)") &&
+    comparePage.includes("updateComparisonHistoryFilter(historyBaselineFilter, value, setHistoryBaselineFilter)") &&
+    !comparePage.includes("useEffect(() => {\n    setPageOffset(0);") &&
+    !comparePage.includes("useEffect(() => {\n    setHistoryOffset(0);"),
+  "compare page filter changes must reset run/history paging in the same state batch instead of issuing stale-offset refreshes",
+);
+assert(
   apiSource.includes("baselineRunId?: string;") &&
     apiSource.includes("candidateRunId?: string;") &&
     apiSource.includes('params.set("list", "1");') &&

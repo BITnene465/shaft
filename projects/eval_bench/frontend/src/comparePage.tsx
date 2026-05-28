@@ -178,29 +178,6 @@ export function ComparePage() {
     }
   }, [comparisonListQuery.refetch, comparisonQuery.data?.comparison_id]);
   useEffect(() => {
-    setPageOffset(0);
-  }, [
-    searchText,
-    statusFilter,
-    taskFilter,
-    benchmarkFilter,
-    benchmarkSplitFilter,
-    labelFilter,
-    modelFilter,
-    promptFilter
-  ]);
-  useEffect(() => {
-    setHistoryOffset(0);
-  }, [
-    searchText,
-    taskFilter,
-    benchmarkFilter,
-    benchmarkSplitFilter,
-    labelFilter,
-    historyBaselineFilter,
-    historyCandidateFilter
-  ]);
-  useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, filteredCount, COMPARE_RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
@@ -223,6 +200,40 @@ export function ComparePage() {
   if (runsQuery.error || !runsQuery.data) {
     return <EmptyState title={`对比状态加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
+  function updateCompareRunFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setPageOffset(0);
+    setter(nextValue);
+  }
+  function updateCompareSharedFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setPageOffset(0);
+    setHistoryOffset(0);
+    setter(nextValue);
+  }
+  function updateComparisonHistoryFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setHistoryOffset(0);
+    setter(nextValue);
+  }
 
   return (
     <section className="page-stack compare-page">
@@ -244,7 +255,7 @@ export function ComparePage() {
             id: "compare-query",
             label: "全文检索",
             value: searchText,
-            onChange: setSearchText,
+            onChange: (value) => updateCompareSharedFilter(searchText, value, setSearchText),
             placeholder: "搜索 run、模型、prompt、备注"
           },
           {
@@ -254,7 +265,7 @@ export function ComparePage() {
             value: statusFilter,
             values: ["all", ...statuses],
             labels: { all: "全部" },
-            onChange: setStatusFilter
+            onChange: (value) => updateCompareRunFilter(statusFilter, value, setStatusFilter)
           },
           {
             type: "select",
@@ -263,7 +274,7 @@ export function ComparePage() {
             value: taskFilter,
             values: ["all", ...tasks],
             labels: { all: "全部" },
-            onChange: setTaskFilter
+            onChange: (value) => updateCompareSharedFilter(taskFilter, value, setTaskFilter)
           },
           {
             type: "select",
@@ -272,7 +283,8 @@ export function ComparePage() {
             value: benchmarkFilter,
             values: ["all", ...benchmarks],
             labels: { all: "全部" },
-            onChange: setBenchmarkFilter
+            onChange: (value) =>
+              updateCompareSharedFilter(benchmarkFilter, value, setBenchmarkFilter)
           },
           {
             type: "select",
@@ -281,7 +293,8 @@ export function ComparePage() {
             value: benchmarkSplitFilter,
             values: ["all", ...benchmarkSplits],
             labels: { all: "全部" },
-            onChange: setBenchmarkSplitFilter
+            onChange: (value) =>
+              updateCompareSharedFilter(benchmarkSplitFilter, value, setBenchmarkSplitFilter)
           },
           {
             type: "select",
@@ -290,7 +303,7 @@ export function ComparePage() {
             value: labelFilter,
             values: ["all", ...labels],
             labels: { all: "全部" },
-            onChange: setLabelFilter
+            onChange: (value) => updateCompareSharedFilter(labelFilter, value, setLabelFilter)
           },
           {
             type: "select",
@@ -299,7 +312,7 @@ export function ComparePage() {
             value: modelFilter,
             values: ["all", ...models],
             labels: { all: "全部" },
-            onChange: setModelFilter
+            onChange: (value) => updateCompareRunFilter(modelFilter, value, setModelFilter)
           },
           {
             type: "select",
@@ -308,14 +321,15 @@ export function ComparePage() {
             value: promptFilter,
             values: ["all", ...prompts],
             labels: { all: "全部" },
-            onChange: setPromptFilter
+            onChange: (value) => updateCompareRunFilter(promptFilter, value, setPromptFilter)
           },
           {
             type: "text",
             id: "compare-history-baseline",
             label: "历史基线",
             value: historyBaselineFilter,
-            onChange: setHistoryBaselineFilter,
+            onChange: (value) =>
+              updateComparisonHistoryFilter(historyBaselineFilter, value, setHistoryBaselineFilter),
             placeholder: "baseline run id"
           },
           {
@@ -323,7 +337,12 @@ export function ComparePage() {
             id: "compare-history-candidate",
             label: "历史候选",
             value: historyCandidateFilter,
-            onChange: setHistoryCandidateFilter,
+            onChange: (value) =>
+              updateComparisonHistoryFilter(
+                historyCandidateFilter,
+                value,
+                setHistoryCandidateFilter
+              ),
             placeholder: "candidate run id"
           }
         ]}
