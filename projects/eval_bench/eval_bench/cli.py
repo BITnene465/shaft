@@ -1256,10 +1256,11 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "delete-job": {
         "type": "object",
-        "required": ["job", "deleted"],
+        "required": ["job", "deleted", "trash_path"],
         "properties": {
             "job": {"type": "object", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
             "deleted": {"type": "bool"},
+            "trash_path": {"type": "str"},
         },
     },
     "list-jobs": {
@@ -2515,9 +2516,17 @@ def _cmd_cancel_job(args: argparse.Namespace) -> None:
 
 def _cmd_delete_job(args: argparse.Namespace) -> None:
     from .database import EvalBenchDatabase
+    from .artifacts import StoreLayout, atomic_write_json
 
     record = EvalBenchDatabase(args.output_root).delete_job(str(args.job_id))
-    print(json.dumps({"job": record.to_dict(), "deleted": True}, ensure_ascii=False))
+    trash_path = StoreLayout(args.output_root).trash_dir / "jobs" / f"{record.job_id}.json"
+    atomic_write_json(trash_path, record.to_dict())
+    print(
+        json.dumps(
+            {"job": record.to_dict(), "deleted": True, "trash_path": str(trash_path)},
+            ensure_ascii=False,
+        )
+    )
 
 
 def _cmd_job_logs(args: argparse.Namespace) -> None:

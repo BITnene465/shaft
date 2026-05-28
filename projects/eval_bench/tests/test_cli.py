@@ -569,6 +569,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert CLI_JSON_OUTPUT_SCHEMAS["create-job"]["properties"]["payload"] == job_payload_schema
     assert CLI_JSON_OUTPUT_SCHEMAS["cancel-job"]["properties"]["status"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["deleted"]["type"] == "bool"
+    assert CLI_JSON_OUTPUT_SCHEMAS["delete-job"]["properties"]["trash_path"]["type"] == "str"
     assert CLI_JSON_OUTPUT_SCHEMAS["process-next-job"]["properties"]["job"][
         "item_shape"
     ]["job_id"] == "str"
@@ -1487,6 +1488,7 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
     deleted_job = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("delete-job", deleted_job)
     assert deleted_job["deleted"] is True
+    assert Path(deleted_job["trash_path"]).exists()
     assert database.get_job("job1") is None
 
     scheduler_args = _build_parser().parse_args(
