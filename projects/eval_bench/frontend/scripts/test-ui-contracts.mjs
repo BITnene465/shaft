@@ -720,6 +720,11 @@ assert(
   "benchmark creation dialog must use shared text and checkbox form controls",
 );
 assert(
+  benchmarksPage.includes('placeholder="grounding_layout_main"') &&
+    !benchmarksPage.includes("multitask_val_v1"),
+  "benchmark creation dialog must avoid legacy fixture benchmark placeholders",
+);
+assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
     benchmarksPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
     benchmarksPage.includes('className="rank-board-pager benchmark-list-pager"') &&
@@ -995,6 +1000,12 @@ assert(
     rankBoardPage.includes("board.facets.benchmarks") &&
     rankBoardPage.includes("board.facets.statuses"),
   "rank board facet rail must expose all backend facets as clickable filter chips",
+);
+assert(
+  rankBoardPage.includes("const benchmarkId = benchmarks.find(") &&
+    rankBoardPage.includes("disabled={!canLoadExample}") &&
+    !rankBoardPage.includes('"multitask_val_v1"'),
+  "rank board weighted scheme examples must use current backend benchmark facets, not legacy fixture ids",
 );
 assert(
   styleSource.includes(".rank-facet-group.expanded > div") &&

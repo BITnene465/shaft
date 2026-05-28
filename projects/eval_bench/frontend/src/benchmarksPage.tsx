@@ -208,7 +208,7 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         label="基准集 ID"
         value={benchmarkId}
         onChange={setBenchmarkId}
-        placeholder="multitask_val_v1"
+        placeholder="grounding_layout_main"
         required
       />
       <TextInputControl

@@ -676,6 +676,7 @@ function RankSchemePanel({
   onDraftChange: (value: string) => void;
 }) {
   const applied = Boolean(board.rank_scheme);
+  const canLoadExample = benchmarks.length > 0;
   return (
     <DisclosurePanel
       className="rank-scheme-panel"
@@ -703,6 +704,8 @@ function RankSchemePanel({
           </span>
           <ActionButton
             variant="mini"
+            disabled={!canLoadExample}
+            title={canLoadExample ? "按当前基准集载入示例" : "暂无可用基准集"}
             onClick={() => onDraftChange(defaultRankSchemeDraft(benchmarks))}
           >
             载入示例
@@ -752,7 +755,17 @@ function formatScoreDelta(value: number | null | undefined) {
 }
 
 function defaultRankSchemeDraft(benchmarks: string[] = []) {
-  const benchmarkId = benchmarks[0] ?? "multitask_val_v1";
+  const benchmarkId = benchmarks.find((value) => value.trim().length > 0);
+  if (!benchmarkId) {
+    return JSON.stringify(
+      {
+        name: "weighted_quality",
+        terms: []
+      },
+      null,
+      2
+    );
+  }
   return JSON.stringify(
     {
       name: "weighted_quality",
