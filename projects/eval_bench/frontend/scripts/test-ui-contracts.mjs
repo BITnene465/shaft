@@ -45,6 +45,7 @@ const servicesPage = await readSource("src/servicesPage.tsx");
 const runTables = await readSource("src/runTables.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
+const manifestToolsSource = await readSource("src/manifestTools.ts");
 const apiSource = await readSource("src/api.ts");
 const formattersSource = await readSource("src/formatters.ts");
 const filterControls = await readSource("src/filterControls.tsx");
@@ -340,6 +341,18 @@ assert(
   jobsPage.includes("DetectionLabelSubtaskPanel") &&
     jobsPage.includes("<DetectionLabelSubtaskPanel"),
   "label subtask panel must stay detection-only; keypoint jobs must not expose label subset UI",
+);
+assert(
+  jobsPage.includes("manifestBenchmarkSplit") &&
+    jobsPage.includes("updateManifestBenchmarkSplit") &&
+    jobsPage.includes("jobBenchmarkSplitOptions(selectedBenchmark, manifestBenchmarkSplitValue)") &&
+    jobsPage.includes('label="Benchmark split"') &&
+    jobsPage.includes("onChange={updateBenchmarkSplit}") &&
+    manifestToolsSource.includes("export function manifestBenchmarkSplit(") &&
+    manifestToolsSource.includes("export function updateManifestBenchmarkSplit(") &&
+    manifestToolsSource.includes("section.benchmark_split = normalized") &&
+    manifestToolsSource.includes("delete section.split"),
+  "jobs manifest editor must expose explicit benchmark_split selection for suite benchmarks",
 );
 assert(
   jobsPage.includes("DisclosurePanel") &&

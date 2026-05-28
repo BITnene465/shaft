@@ -113,6 +113,11 @@ export function manifestBenchmarkId(manifest: Record<string, unknown> | null) {
   return promptStringValue(section?.benchmark_id) ?? "";
 }
 
+export function manifestBenchmarkSplit(manifest: Record<string, unknown> | null) {
+  const section = manifest ? manifestPromptSection(manifest) : null;
+  return promptStringValue(section?.benchmark_split) ?? promptStringValue(section?.split) ?? "";
+}
+
 export function manifestTargetLabels(manifest: Record<string, unknown> | null) {
   const section = manifest ? manifestPromptSection(manifest) : null;
   return isStringArray(section?.target_labels) ? section.target_labels : [];
@@ -161,6 +166,27 @@ export function updateManifestTargetLabels(
   } else {
     delete section.target_labels;
     delete section.target_labels_source;
+  }
+  return cloned;
+}
+
+export function updateManifestBenchmarkSplit(
+  manifest: Record<string, unknown>,
+  split: string
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(manifest)) as Record<string, unknown>;
+  const section = manifestPromptSection(cloned);
+  if (!section) {
+    cloned.eval = {};
+    return updateManifestBenchmarkSplit(cloned, split);
+  }
+  const normalized = split.trim();
+  if (normalized && normalized !== "auto") {
+    section.benchmark_split = normalized;
+    delete section.split;
+  } else {
+    delete section.benchmark_split;
+    delete section.split;
   }
   return cloned;
 }

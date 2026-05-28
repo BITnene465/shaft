@@ -36,12 +36,14 @@ import {
   applyPromptTemplateToManifest,
   formatManifest,
   manifestBenchmarkId,
+  manifestBenchmarkSplit,
   manifestEvalTask,
   manifestHasTargetLabelScope,
   manifestTargetLabels,
   normalizeManifestTargetLabelsForTask,
   promptTemplateFromManifest,
   targetLabelsFromPrompt,
+  updateManifestBenchmarkSplit,
   updateManifestTargetLabels
 } from "./manifestTools";
 import {
@@ -531,7 +533,9 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
   const manifestDraft = useMemo(() => parseManifestDraft(manifestText), [manifestText]);
   const manifestTaskValue = manifestEvalTask(manifestDraft);
   const manifestBenchmarkValue = manifestBenchmarkId(manifestDraft);
+  const manifestBenchmarkSplitValue = manifestBenchmarkSplit(manifestDraft) || "auto";
   const selectedBenchmark = benchmarks.find((benchmark) => benchmark.benchmark_id === manifestBenchmarkValue);
+  const benchmarkSplitOptions = jobBenchmarkSplitOptions(selectedBenchmark, manifestBenchmarkSplitValue);
   const selectedTargetLabels = manifestTargetLabels(manifestDraft);
   const labelOptions = unique([
     ...(selectedBenchmark?.labels ?? []),
@@ -632,6 +636,16 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     preflightMutation.reset();
   }
 
+  function updateBenchmarkSplit(nextSplit: string) {
+    const manifest = parseManifest();
+    if (!manifest) {
+      return;
+    }
+    setManifestText(formatManifest(updateManifestBenchmarkSplit(manifest, nextSplit)));
+    setParseError(null);
+    preflightMutation.reset();
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const manifest = parseManifest();
@@ -670,6 +684,13 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
                     label: template.label || template.prompt_id
                   }))
             }
+          />
+          <CompactSelectControl
+            label="Benchmark split"
+            value={manifestBenchmarkSplitValue}
+            onChange={updateBenchmarkSplit}
+            disabled={!selectedBenchmark}
+            options={benchmarkSplitOptions}
           />
           <ActionButton
             variant="secondary"
@@ -802,6 +823,30 @@ function PreflightPanel({ result }: { result: { ok: boolean; errors: string[]; w
       ) : null}
     </div>
   );
+}
+
+function jobBenchmarkSplitOptions(
+  benchmark: BenchmarkSummary | undefined,
+  currentSplit: string
+) {
+  const values = new Set<string>();
+  if (benchmark?.split) {
+    values.add(benchmark.split);
+  }
+  Object.keys(benchmark?.split_manifests ?? {}).forEach((value) => {
+    if (value.trim()) {
+      values.add(value);
+    }
+  });
+  if (currentSplit && currentSplit !== "auto") {
+    values.add(currentSplit);
+  }
+  return [
+    { value: "auto", label: "自动推断" },
+    ...Array.from(values)
+      .sort((left, right) => left.localeCompare(right))
+      .map((value) => ({ value, label: value }))
+  ];
 }
 
 function PromptTemplatePanel({
