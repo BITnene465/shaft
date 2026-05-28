@@ -890,8 +890,11 @@ Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-fir
 
 ```bash
 cd projects/eval_bench/frontend
-EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id> npm run test:viewer-performance
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:viewer-performance
 ```
+
+传入 dashboard root 时脚本会从 `/api/state` 发现一个可用 run；需要固定目标时也可以传
+`EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id>`。
 
 工作台设置页的叠图预览也有单独回归；它会检查默认 role 色、label × role 颜色和线宽是否实时反映到预览，以及 label 颜色匹配是否大小写不敏感：
 

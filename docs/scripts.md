@@ -268,7 +268,7 @@ npm run test:status-model
 npm run test:manifest-tools
 npm run test:workspace-settings
 EVAL_BENCH_URL=http://127.0.0.1:8765 npm run test:dialogs
-EVAL_BENCH_URL=http://127.0.0.1:8765/runs/<run_id> npm run test:viewer-performance
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:viewer-performance
 EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
@@ -277,6 +277,8 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 `test:shortcuts` 默认通过 `/api/state` 选择当前 store 中至少有样本的 benchmark 和已评估 run，
 避免绑定旧的固定 fixture ID；需要复现特定样本时再传 `EVAL_BENCH_BENCHMARK_ID` /
 `EVAL_BENCH_RUN_ID`。
+`test:viewer-performance` 也可以直接传 dashboard root，它会从 `/api/state` 发现当前可用 run；
+需要固定目标时再传 `/runs/<run_id>`。
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立

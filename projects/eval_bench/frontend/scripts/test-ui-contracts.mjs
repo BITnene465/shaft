@@ -56,6 +56,7 @@ const designSource = await readSource("src/design.css");
 const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
 const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
+const viewerPerformanceSource = await readProjectFile("scripts/viewer-performance-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
 assert(
@@ -380,6 +381,13 @@ assert(
     !shortcutCoverageSource.includes('?? "multitask_val_v1"') &&
     !shortcutCoverageSource.includes('?? "config_smoke_prompt_params"'),
   "shortcut coverage must discover current store benchmark/run targets instead of hard-coding old fixtures",
+);
+assert(
+  viewerPerformanceSource.includes("async function resolveViewerPerformanceUrl(") &&
+    viewerPerformanceSource.includes('fetch(new URL("/api/state", parsed.origin))') &&
+    viewerPerformanceSource.includes('new URL(`/runs/${encodeURIComponent(run.run_id)}`, parsed.origin)') &&
+    !viewerPerformanceSource.includes("config_smoke_prompt_params"),
+  "viewer performance smoke must discover a current run instead of hard-coding old fixtures",
 );
 assertNoRawSelectElement(settingsControls, "settingsControls.tsx");
 assert(

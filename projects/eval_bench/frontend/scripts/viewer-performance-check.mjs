@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 
-const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/runs/config_smoke_prompt_params";
-const url = withPerfFlag(rawUrl);
+const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/";
+const url = withPerfFlag(await resolveViewerPerformanceUrl(rawUrl));
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
@@ -94,6 +94,29 @@ function withPerfFlag(value) {
   const parsed = new URL(value);
   parsed.searchParams.set("perf", "1");
   return parsed.toString();
+}
+
+async function resolveViewerPerformanceUrl(value) {
+  const parsed = new URL(value);
+  if (/^\/runs\/[^/]+/.test(parsed.pathname)) {
+    return parsed.toString();
+  }
+  try {
+    const response = await fetch(new URL("/api/state", parsed.origin));
+    if (!response.ok) {
+      throw new Error(`state request failed with ${response.status}`);
+    }
+    const state = await response.json();
+    const run = Array.isArray(state.runs)
+      ? state.runs.find((item) => item?.run_id && item?.report_path) ?? state.runs.find((item) => item?.run_id)
+      : null;
+    if (run?.run_id) {
+      return new URL(`/runs/${encodeURIComponent(run.run_id)}`, parsed.origin).toString();
+    }
+  } catch (error) {
+    throw new Error(`viewer performance check could not discover a run from ${parsed.origin}: ${error}`);
+  }
+  throw new Error("viewer performance check requires EVAL_BENCH_URL=/runs/<run_id> or a store with runs.");
 }
 
 async function renderMetrics(page) {
