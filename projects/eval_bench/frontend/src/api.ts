@@ -626,8 +626,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let detail = "";
     try {
-      const errorPayload = (await response.json()) as { detail?: unknown };
-      const detailText = apiErrorDetailText(errorPayload.detail);
+      const errorPayload = (await response.json()) as unknown;
+      const detailText = apiErrorDetailText(errorDetailPayload(errorPayload));
       detail = detailText ? `: ${detailText}` : "";
     } catch {
       detail = "";
@@ -649,6 +649,9 @@ export function apiErrorDetailText(detail: unknown): string {
   if (typeof detail === "string") {
     return detail.trim();
   }
+  if (Array.isArray(detail)) {
+    return truncateErrorDetail(detail.map(errorItemText).filter(Boolean).join("; "));
+  }
   if (!isPlainRecord(detail)) {
     return "";
   }
@@ -666,6 +669,28 @@ export function apiErrorDetailText(detail: unknown): string {
     }
   }
   return truncateErrorDetail(JSON.stringify(detail));
+}
+
+function errorDetailPayload(payload: unknown): unknown {
+  return isPlainRecord(payload) && "detail" in payload ? payload.detail : payload;
+}
+
+function errorItemText(item: unknown): string {
+  if (typeof item === "string") {
+    return item.trim();
+  }
+  if (!isPlainRecord(item)) {
+    return String(item).trim();
+  }
+  const message = typeof item.msg === "string" ? item.msg.trim() : "";
+  const location = Array.isArray(item.loc) ? item.loc.map(String).join(".") : "";
+  if (message && location) {
+    return `${location}: ${message}`;
+  }
+  if (message) {
+    return message;
+  }
+  return JSON.stringify(item);
 }
 
 function stringList(value: unknown): string[] {

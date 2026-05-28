@@ -66,6 +66,11 @@ assert(
     apiSource.includes("export function apiErrorDetailText(") &&
     apiSource.includes("this.status = status") &&
     apiSource.includes("Array.isArray(value)") &&
+    apiSource.includes("function errorDetailPayload(") &&
+    apiSource.includes('\"detail\" in payload ? payload.detail : payload') &&
+    apiSource.includes("function errorItemText(") &&
+    apiSource.includes("Array.isArray(item.loc)") &&
+    apiSource.includes("`${location}: ${message}`") &&
     apiSource.includes("detailText ? `: ${detailText}` : \"\"") &&
     apiSource.includes("JSON.stringify(detail)") &&
     apiSource.includes("throw error;"),
