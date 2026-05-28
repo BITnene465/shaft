@@ -779,6 +779,12 @@ assert(
   "sidebar collapse control must use IconActionButton instead of a raw button",
 );
 assert(
+  mainEntry.includes("this.setState({ error: null })") &&
+    mainEntry.includes("重试渲染") &&
+    !mainEntry.includes("window.location.reload()"),
+  "fatal render boundary must retry in place instead of forcing a full page reload",
+);
+assert(
   benchmarksPage.includes("export function BenchmarksPage()") &&
     benchmarksPage.includes("export function BenchmarkDetailPage()"),
   "benchmarks page module must export list and detail pages",

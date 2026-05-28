@@ -71,8 +71,8 @@ class AppErrorBoundary extends React.Component<
           <div className="fatal-panel-inner">
             <strong>看板渲染失败</strong>
             <span>{this.state.error}</span>
-            <ActionButton variant="secondary" onClick={() => window.location.reload()}>
-              重新加载
+            <ActionButton variant="secondary" onClick={() => this.setState({ error: null })}>
+              重试渲染
             </ActionButton>
           </div>
         </div>
