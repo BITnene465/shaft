@@ -915,8 +915,10 @@ export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse
   return fetchJson<RunListResponse>(`/api/runs${query ? `?${query}` : ""}`);
 }
 
-export function evaluateRun(runId: string): Promise<{ run_id: string; report_path: string }> {
-  return fetchJson<{ run_id: string; report_path: string }>(
+export function evaluateRun(
+  runId: string
+): Promise<{ run_id: string; report_path: string; summary_path: string }> {
+  return fetchJson<{ run_id: string; report_path: string; summary_path: string }>(
     `/api/runs/${encodeURIComponent(runId)}/evaluate`,
     { method: "POST" }
   );

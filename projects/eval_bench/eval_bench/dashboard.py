@@ -1034,7 +1034,13 @@ def create_app(
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return JSONResponse({"run_id": run_id, "report_path": str(path)})
+        return JSONResponse(
+            {
+                "run_id": run_id,
+                "report_path": str(path),
+                "summary_path": str(path.parent / "summary.json"),
+            }
+        )
 
     @app.post("/api/runs/{run_id}/archive")
     async def archive_run_endpoint(run_id: str, request: Request):

@@ -1502,6 +1502,13 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
     assert detail["diagnostics"]["matched_count"] == 1
     assert detail["sample"]["labels"] == ["icon"]
     assert detail["pred_instances"][0]["score"] == 0.9
+    evaluated = client.post("/api/runs/imported_run/evaluate")
+    assert evaluated.status_code == 200
+    evaluated_payload = evaluated.json()
+    assert evaluated_payload["run_id"] == "imported_run"
+    assert evaluated_payload["report_path"].endswith("metrics.json")
+    assert evaluated_payload["summary_path"].endswith("summary.json")
+    assert Path(evaluated_payload["summary_path"]).exists()
 
     conflict = client.post(
         "/api/runs/import-predictions",
