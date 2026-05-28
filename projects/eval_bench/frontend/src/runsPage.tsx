@@ -154,19 +154,6 @@ export function RunsPage() {
   );
   const totalRuns = runsQuery.data?.total ?? runs.length;
   useEffect(() => {
-    setPageOffset(0);
-  }, [
-    searchText,
-    statusFilter,
-    taskFilter,
-    benchmarkFilter,
-    benchmarkSplitFilter,
-    labelFilter,
-    modelFilter,
-    promptFilter,
-    metricProfileFilter
-  ]);
-  useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalRuns, RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
@@ -179,6 +166,17 @@ export function RunsPage() {
     return <EmptyState title={`评测记录加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
   const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
+  function updateRunFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setPageOffset(0);
+    setter(nextValue);
+  }
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -205,7 +203,7 @@ export function RunsPage() {
               id: "run-query",
               label: "全文检索",
               value: searchText,
-              onChange: setSearchText,
+              onChange: (value) => updateRunFilter(searchText, value, setSearchText),
               placeholder: "搜索 run、模型、基准集、备注"
             },
             {
@@ -215,7 +213,7 @@ export function RunsPage() {
               value: statusFilter,
               values: ["all", ...statuses],
               labels: { all: "全部" },
-              onChange: setStatusFilter
+              onChange: (value) => updateRunFilter(statusFilter, value, setStatusFilter)
             },
             {
               type: "select",
@@ -224,7 +222,7 @@ export function RunsPage() {
               value: taskFilter,
               values: ["all", ...tasks],
               labels: { all: "全部" },
-              onChange: setTaskFilter
+              onChange: (value) => updateRunFilter(taskFilter, value, setTaskFilter)
             },
             {
               type: "select",
@@ -233,7 +231,7 @@ export function RunsPage() {
               value: benchmarkFilter,
               values: ["all", ...benchmarks],
               labels: { all: "全部" },
-              onChange: setBenchmarkFilter
+              onChange: (value) => updateRunFilter(benchmarkFilter, value, setBenchmarkFilter)
             },
             {
               type: "select",
@@ -242,7 +240,8 @@ export function RunsPage() {
               value: benchmarkSplitFilter,
               values: ["all", ...benchmarkSplits],
               labels: { all: "全部" },
-              onChange: setBenchmarkSplitFilter
+              onChange: (value) =>
+                updateRunFilter(benchmarkSplitFilter, value, setBenchmarkSplitFilter)
             },
             {
               type: "select",
@@ -251,7 +250,7 @@ export function RunsPage() {
               value: labelFilter,
               values: ["all", ...labels],
               labels: { all: "全部" },
-              onChange: setLabelFilter
+              onChange: (value) => updateRunFilter(labelFilter, value, setLabelFilter)
             },
             {
               type: "select",
@@ -260,7 +259,7 @@ export function RunsPage() {
               value: modelFilter,
               values: ["all", ...models],
               labels: { all: "全部" },
-              onChange: setModelFilter
+              onChange: (value) => updateRunFilter(modelFilter, value, setModelFilter)
             },
             {
               type: "select",
@@ -269,7 +268,7 @@ export function RunsPage() {
               value: promptFilter,
               values: ["all", ...prompts],
               labels: { all: "全部" },
-              onChange: setPromptFilter
+              onChange: (value) => updateRunFilter(promptFilter, value, setPromptFilter)
             },
             {
               type: "select",
@@ -278,7 +277,7 @@ export function RunsPage() {
               value: metricProfileFilter,
               values: ["all", ...metricProfiles],
               labels: { all: "全部" },
-              onChange: setMetricProfileFilter
+              onChange: (value) => updateRunFilter(metricProfileFilter, value, setMetricProfileFilter)
             }
           ]}
           footer={

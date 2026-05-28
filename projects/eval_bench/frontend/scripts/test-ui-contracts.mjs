@@ -873,6 +873,14 @@ assert(
   "runs page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
+  runsPage.includes("function updateRunFilter(") &&
+    runsPage.includes("setPageOffset(0);") &&
+    runsPage.includes("onChange: (value) => updateRunFilter(searchText, value, setSearchText)") &&
+    runsPage.includes("onChange: (value) => updateRunFilter(statusFilter, value, setStatusFilter)") &&
+    !runsPage.includes("useEffect(() => {\n    setPageOffset(0);"),
+  "runs page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+);
+assert(
   runsPage.includes("SelectableRowButton") &&
     !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
