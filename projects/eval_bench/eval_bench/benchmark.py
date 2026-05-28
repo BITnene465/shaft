@@ -93,7 +93,9 @@ def resolve_benchmark_split_path(
 def infer_benchmark_split(*, task: str, prompt_id: str, target_labels: Sequence[str]) -> str:
     prompt = prompt_id.strip().lower()
     labels = tuple(sorted(label.strip().lower() for label in target_labels if label.strip()))
-    if task == "keypoint" or prompt.startswith(("point_arrow.", "keypoint_arrow.")):
+    if task == "keypoint" or prompt.startswith(
+        ("point_arrow.", "keypoint_arrow.", "arrow_keypoint.")
+    ):
         return "point_arrow"
     if prompt.startswith("grounding_icon_image.") or labels == ("icon", "image"):
         return "grounding_icon_image"

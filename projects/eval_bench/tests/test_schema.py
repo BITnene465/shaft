@@ -272,6 +272,26 @@ def test_suite_split_name_resolution_rejects_missing_default_split(tmp_path: Pat
         resolve_benchmark_split_name(payload, task="detection", prompt_id="custom")
 
 
+def test_historical_arrow_keypoint_prompt_uses_point_arrow_crop_split(tmp_path: Path) -> None:
+    payload = {
+        "split": "suite",
+        "manifest_path": str(tmp_path / "splits" / "suite.txt"),
+        "split_manifests": {
+            "suite": str(tmp_path / "splits" / "suite.txt"),
+            "point_arrow": str(tmp_path / "splits" / "point_arrow.txt"),
+        },
+    }
+
+    split = resolve_benchmark_split_name(
+        payload,
+        task="detection",
+        prompt_id="arrow_keypoint.v2.4.main",
+        target_labels=["arrow"],
+    )
+
+    assert split == "point_arrow"
+
+
 def test_banana_benchmark_adds_point_arrow_crop_split(tmp_path: Path) -> None:
     module = _load_banana_benchmark_script()
     artifacts = BenchmarkArtifacts(tmp_path / "store", "banana_val")
