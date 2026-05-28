@@ -17,6 +17,7 @@ import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
   comparisonSampleHref,
+  errorMessage,
   facetValues,
   formatCompactSignedMetric,
   formatDate,
@@ -220,7 +221,7 @@ export function ComparePage() {
     return <EmptyState title="正在加载对比状态" />;
   }
   if (runsQuery.error || !runsQuery.data) {
-    return <EmptyState title="对比状态加载失败" tone="danger" />;
+    return <EmptyState title={`对比状态加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
 
   return (
@@ -396,7 +397,9 @@ export function ComparePage() {
                 ) : comparisonQuery.isLoading ? (
                   <div className="empty-panel">正在加载对比报告</div>
                 ) : comparisonQuery.isError ? (
-                  <div className="empty-panel danger-text">对比报告加载失败。</div>
+                  <div className="empty-panel danger-text">
+                    对比报告加载失败：{errorMessage(comparisonQuery.error)}
+                  </div>
                 ) : null}
               </main>
             }

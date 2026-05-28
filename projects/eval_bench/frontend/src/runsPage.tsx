@@ -24,6 +24,7 @@ import {
 import { AdvancedFilterBar } from "./filterControls";
 import {
   basename,
+  errorMessage,
   facetValues,
   formatDate,
   inferenceValue,
@@ -602,7 +603,7 @@ export function RunDetailPage() {
     return <EmptyState title="正在加载评测样本" />;
   }
   if (samplesQuery.error) {
-    return <EmptyState title="评测样本加载失败" tone="danger" />;
+    return <EmptyState title={`评测样本加载失败：${errorMessage(samplesQuery.error)}`} tone="danger" />;
   }
 
   return (
@@ -648,7 +649,7 @@ export function RunDetailPage() {
               {samples.length === 0 ? (
                 <div className="empty-panel">没有符合过滤条件的样本。</div>
               ) : detailQuery.error ? (
-                <div className="empty-panel">样本详情加载失败</div>
+                <div className="empty-panel">样本详情加载失败：{errorMessage(detailQuery.error)}</div>
               ) : detailQuery.isLoading || !detailQuery.data ? (
                 <div className="empty-panel">正在加载样本详情</div>
               ) : (

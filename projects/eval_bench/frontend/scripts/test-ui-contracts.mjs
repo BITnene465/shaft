@@ -815,6 +815,12 @@ assert(
     !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "benchmark sample list rows must use SelectableRowButton",
 );
+assert(
+  benchmarksPage.includes("errorMessage(samplesQuery.error)") &&
+    benchmarksPage.includes("errorMessage(detailQuery.error)") &&
+    !benchmarksPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
+  "benchmark sample inspector must show concrete API errors for list and detail failures",
+);
 assertNoLegacyFormSubmitClass(benchmarksPage, "benchmarksPage.tsx");
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")') &&
@@ -856,6 +862,12 @@ assert(
   runsPage.includes("SelectableRowButton") &&
     !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
+);
+assert(
+  runsPage.includes("errorMessage(samplesQuery.error)") &&
+    runsPage.includes("errorMessage(detailQuery.error)") &&
+    !runsPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
+  "run sample inspector must show concrete API errors for list and detail failures",
 );
 assert(
     runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
@@ -1054,6 +1066,14 @@ assert(
     comparePage.includes("<ComparisonPanel report={comparisonReport} />") &&
     styleSource.includes(".compare-report-pane {\n  position: relative;"),
   "compare report pane must keep the previous report visible while loading a new pair",
+);
+assert(
+  comparePage.includes("errorMessage(runsQuery.error)") &&
+    comparePage.includes("errorMessage(comparisonQuery.error)") &&
+    comparisonSampleMiniLinkSource.includes("errorMessage(query.error)") &&
+    !comparePage.includes("<div className=\"empty-panel danger-text\">对比报告加载失败。</div>") &&
+    !comparisonSampleMiniLinkSource.includes('return <EmptyState title="对比样本加载失败" tone="danger" />;'),
+  "compare report and comparison sample pages must show concrete API errors",
 );
 assert(
   comparePage.includes("SelectableCardButton") &&

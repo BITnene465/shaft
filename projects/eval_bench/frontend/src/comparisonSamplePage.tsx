@@ -4,7 +4,7 @@ import { Eye } from "lucide-react";
 
 import type { ComparisonSampleDetail, RunSampleDetail } from "./api";
 import { fetchComparisonSample } from "./api";
-import { runSampleHref } from "./formatters";
+import { errorMessage, runSampleHref } from "./formatters";
 import { SampleViewer } from "./sampleViewer";
 import { EmptyState, InlineAnchor } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
@@ -42,7 +42,7 @@ export function ComparisonSamplePage() {
     return <EmptyState title="正在加载对比样本" />;
   }
   if (query.isError || !query.data) {
-    return <EmptyState title="对比样本加载失败" tone="danger" />;
+    return <EmptyState title={`对比样本加载失败：${errorMessage(query.error)}`} tone="danger" />;
   }
 
   return (
