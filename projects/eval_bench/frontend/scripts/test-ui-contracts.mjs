@@ -395,6 +395,14 @@ assert(
   "shortcut coverage must discover current store benchmark/run targets instead of hard-coding old fixtures",
 );
 assert(
+  shortcutCoverageSource.includes("appUrl(`/benchmarks/${encodeURIComponent(benchmarkId)}?sample=0`)") &&
+    shortcutCoverageSource.includes("appUrl(`/runs/${encodeURIComponent(runId)}?sample=0`)") &&
+    shortcutCoverageSource.includes(
+      "appUrl(`/compare/${encodeURIComponent(runId)}/${encodeURIComponent(runId)}/0`)",
+    ),
+  "shortcut coverage must encode dynamic benchmark/run route ids",
+);
+assert(
   viewerPerformanceSource.includes("async function resolveViewerPerformanceUrl(") &&
     viewerPerformanceSource.includes('fetch(new URL("/api/state", parsed.origin))') &&
     viewerPerformanceSource.includes('new URL(`/runs/${encodeURIComponent(run.run_id)}`, parsed.origin)') &&

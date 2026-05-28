@@ -120,7 +120,9 @@ console.log(
 );
 
 async function checkBenchmarkShortcuts(page) {
-  await page.goto(appUrl(`/benchmarks/${benchmarkId}?sample=0`), { waitUntil: "networkidle" });
+  await page.goto(appUrl(`/benchmarks/${encodeURIComponent(benchmarkId)}?sample=0`), {
+    waitUntil: "networkidle"
+  });
   await page.locator(".sample-row.selected").first().waitFor({ timeout: 10_000 });
   await expectSelectedSample(page, "1", "benchmark initial sample");
   await page.keyboard.press("]");
@@ -162,7 +164,9 @@ async function discoverShortcutTargets(rootUrl) {
 }
 
 async function checkRunShortcuts(page) {
-  await page.goto(appUrl(`/runs/${runId}?sample=0`), { waitUntil: "networkidle" });
+  await page.goto(appUrl(`/runs/${encodeURIComponent(runId)}?sample=0`), {
+    waitUntil: "networkidle"
+  });
   await page.locator(".viewer-canvas-layout .image-stage").first().waitFor({ timeout: 10_000 });
   await expectSelectedSample(page, "1", "run initial sample");
   await page.keyboard.press("]");
@@ -228,7 +232,10 @@ async function checkRunShortcuts(page) {
 }
 
 async function checkComparisonShortcuts(page) {
-  await page.goto(appUrl(`/compare/${runId}/${runId}/0`), { waitUntil: "networkidle" });
+  await page.goto(
+    appUrl(`/compare/${encodeURIComponent(runId)}/${encodeURIComponent(runId)}/0`),
+    { waitUntil: "networkidle" }
+  );
   await page.locator(".comparison-run-panel .image-stage").first().waitFor({ timeout: 10_000 });
   const panelCount = await page.locator(".comparison-run-panel .image-stage").count();
   assert.ok(panelCount >= 2, "comparison sample page must render both viewer panels");
