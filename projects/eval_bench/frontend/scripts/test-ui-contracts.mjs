@@ -1014,6 +1014,15 @@ assert(
   "compare run rail selects must use FormSelectControl",
 );
 assert(
+  comparePage.includes("placeholderData: (previousData) => previousData") &&
+    comparePage.includes("const comparisonReport = comparisonQuery.data;") &&
+    comparePage.includes("comparisonQuery.isPlaceholderData && Boolean(comparisonReport)") &&
+    comparePage.includes("正在切换对比报告") &&
+    comparePage.includes("<ComparisonPanel report={comparisonReport} />") &&
+    styleSource.includes(".compare-report-pane {\n  position: relative;"),
+  "compare report pane must keep the previous report visible while loading a new pair",
+);
+assert(
   comparePage.includes("SelectableCardButton") &&
     (comparePage.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
     !/<button[\s\S]{0,240}label-delta-card/.test(comparePage),

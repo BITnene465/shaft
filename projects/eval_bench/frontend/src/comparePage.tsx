@@ -164,8 +164,12 @@ export function ComparePage() {
   const comparisonQuery = useQuery({
     queryKey: ["comparison", effectiveBaseline, effectiveCandidate],
     queryFn: () => fetchComparison(effectiveBaseline, effectiveCandidate),
-    enabled: Boolean(effectiveBaseline && effectiveCandidate && effectiveBaseline !== effectiveCandidate)
+    enabled: Boolean(effectiveBaseline && effectiveCandidate && effectiveBaseline !== effectiveCandidate),
+    placeholderData: (previousData) => previousData
   });
+  const comparisonReport = comparisonQuery.data;
+  const comparisonReportRefreshing =
+    comparisonQuery.isPlaceholderData && Boolean(comparisonReport);
 
   useEffect(() => {
     if (comparisonQuery.data?.comparison_id) {
@@ -382,13 +386,18 @@ export function ComparePage() {
                   <div className="empty-panel">至少需要两个已完成评测的 run 才能对比。</div>
                 ) : effectiveBaseline === effectiveCandidate ? (
                   <div className="empty-panel">请选择两个不同的 run。</div>
+                ) : comparisonReport ? (
+                  <>
+                    {comparisonReportRefreshing ? (
+                      <div className="viewer-fetch-chip">正在切换对比报告</div>
+                    ) : null}
+                    <ComparisonPanel report={comparisonReport} />
+                  </>
                 ) : comparisonQuery.isLoading ? (
                   <div className="empty-panel">正在加载对比报告</div>
-                ) : comparisonQuery.isError || !comparisonQuery.data ? (
+                ) : comparisonQuery.isError ? (
                   <div className="empty-panel danger-text">对比报告加载失败。</div>
-                ) : (
-                  <ComparisonPanel report={comparisonQuery.data} />
-                )}
+                ) : null}
               </main>
             }
             second={

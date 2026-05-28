@@ -2839,6 +2839,7 @@ h2 {
 }
 
 .compare-report-pane {
+  position: relative;
   overflow: auto;
 }
 
