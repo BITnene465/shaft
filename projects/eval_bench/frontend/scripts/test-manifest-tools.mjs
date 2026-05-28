@@ -51,6 +51,21 @@ assert.equal(arrowManifest.eval.target_labels_source, "prompt_metadata");
 assert.equal(arrowManifest.eval.prompt_id, "grounding_arrow.test.main");
 assert.equal(arrowManifest.eval.prompt_text, "Detect arrows.");
 
+const promptChangedSplitManifest = tools.applyPromptTemplateToManifest(
+  {
+    kind: "eval_job",
+    eval: {
+      task: "detection",
+      prompt_id: "grounding_layout.test.main",
+      benchmark_split: "grounding_layout",
+      target_labels: ["icon", "image", "shape"]
+    }
+  },
+  arrowPrompt
+);
+assert.equal("benchmark_split" in promptChangedSplitManifest.eval, false);
+assert.equal("split" in promptChangedSplitManifest.eval, false);
+
 const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
   { kind: "eval_job", eval: { task: "keypoint", benchmark_id: "" } },
   [
@@ -204,6 +219,21 @@ assert.equal("target_labels_source" in nonDetectionUpdateManifest.eval, false);
 const explicitLabelManifest = tools.updateManifestTargetLabels(layoutManifest, ["icon"]);
 assert.deepEqual(explicitLabelManifest.eval.target_labels, ["icon"]);
 assert.equal(explicitLabelManifest.eval.target_labels_source, "explicit");
+
+const labelChangedSplitManifest = tools.updateManifestTargetLabels(
+  {
+    kind: "eval_job",
+    eval: {
+      task: "detection",
+      target_labels: ["arrow"],
+      target_labels_source: "explicit",
+      benchmark_split: "grounding_arrow"
+    }
+  },
+  ["shape"]
+);
+assert.deepEqual(labelChangedSplitManifest.eval.target_labels, ["shape"]);
+assert.equal("benchmark_split" in labelChangedSplitManifest.eval, false);
 
 const defaultPolicyManifest = tools.updateManifestTargetLabels(explicitLabelManifest, []);
 assert.equal("target_labels" in defaultPolicyManifest.eval, false);

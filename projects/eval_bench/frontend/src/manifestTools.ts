@@ -67,6 +67,7 @@ export function applyPromptTemplateToManifest(
     label: prompt.label,
     task: prompt.task
   };
+  clearManifestBenchmarkSplit(section);
   return normalizeManifestTargetLabelsForTask(cloned);
 }
 
@@ -161,15 +162,23 @@ export function updateManifestTargetLabels(
   if (manifestTask(section) !== "detection") {
     delete section.target_labels;
     delete section.target_labels_source;
+    clearManifestBenchmarkSplit(section);
     return cloned;
   }
   const normalizedLabels = uniqueLabels(labels);
+  const labelsChanged = !sameStringList(
+    normalizedLabels,
+    isStringArray(section.target_labels) ? section.target_labels : []
+  );
   if (normalizedLabels.length > 0) {
     section.target_labels = normalizedLabels;
     section.target_labels_source = "explicit";
   } else {
     delete section.target_labels;
     delete section.target_labels_source;
+  }
+  if (labelsChanged) {
+    clearManifestBenchmarkSplit(section);
   }
   return cloned;
 }
@@ -275,4 +284,16 @@ function normalizeManifestBenchmarkSplit(
     delete section.benchmark_split;
     delete section.split;
   }
+}
+
+function clearManifestBenchmarkSplit(section: Record<string, unknown>) {
+  delete section.benchmark_split;
+  delete section.split;
+}
+
+function sameStringList(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
 }
