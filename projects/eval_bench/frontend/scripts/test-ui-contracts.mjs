@@ -1132,6 +1132,14 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
+  rankBoardPage.includes("function updateRankFilter(") &&
+    rankBoardPage.includes("setPageOffset(0);") &&
+    rankBoardPage.includes("onSortByChange={(value) => updateRankFilter(sortBy, value, setSortBy)}") &&
+    rankBoardPage.includes("onChange: (value) => updateRankFilter(searchText, value, setSearchText)") &&
+    !rankBoardPage.includes("useEffect(() => {\n    setPageOffset(0);"),
+  "rank board filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+);
+assert(
   rankBoardPage.includes("const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);") &&
     rankBoardPage.includes('className="rank-board-table-toolbar"') &&
     rankBoardPage.includes("refreshing={tableRefreshing}") &&
