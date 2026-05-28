@@ -86,6 +86,19 @@ assert(
   "paged list controls must share PagerControl and clampListPageOffset",
 );
 assert(
+  uiSource.includes("type TableColumnWidth =") &&
+    uiSource.includes("declare module \"@tanstack/react-table\"") &&
+    uiSource.includes("function tableColumnClassName(") &&
+    uiSource.includes("data-table-cell") &&
+    styleSource.includes(".table-shell .table-col-id") &&
+    styleSource.includes(".table-shell .table-col-metric") &&
+    styleSource.includes(".table-shell .table-wrap-wrap") &&
+    runTables.includes('meta: { width: "id" }') &&
+    rankBoardPage.includes('meta: { width: "metric", align: "end" }') &&
+    comparePage.includes('meta: { width: "date" }'),
+  "shared data tables must use column metadata for adaptive width, wrapping, and alignment",
+);
+assert(
   apiSource.includes("export type FacetBuckets = Record<string, FacetBucket>;") &&
     formattersSource.includes("export function facetValues(") &&
     [runsPage, benchmarksPage, comparePage, rankBoardPage, servicesPage, jobsPage].every((source) =>

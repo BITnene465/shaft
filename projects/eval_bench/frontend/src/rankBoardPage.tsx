@@ -621,10 +621,12 @@ function RankBoardTable({
   const columns: ColumnDef<RankBoardEntry>[] = [
     {
       header: "Rank",
+      meta: { width: "compact", align: "center" },
       cell: ({ row }) => <span className="rank-index">#{row.original.rank}</span>
     },
     {
       header: "Run",
+      meta: { width: "id" },
       cell: ({ row }) => (
         <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
@@ -633,10 +635,12 @@ function RankBoardTable({
     },
     {
       header: primaryMetricLabel,
+      meta: { width: "metric", align: "end" },
       cell: ({ row }) => <span className="rank-primary-score">{formatMetric(row.original.score)}</span>
     },
     {
       header: "Δ leader",
+      meta: { width: "metric", align: "end" },
       cell: ({ row }) => (
         <span className={rankDeltaClassName(row.original.score_delta)}>
           {formatScoreDelta(row.original.score_delta)}
@@ -648,26 +652,52 @@ function RankBoardTable({
     columns.push(
       {
         header: "Components",
+        meta: { width: "wide", wrap: "wrap" },
         cell: ({ row }) => <RankScoreComponents components={row.original.score_components} />
       }
     );
   }
   if (primaryMetric !== "f1_iou50") {
-    columns.push({ header: "F1@.50", cell: ({ row }) => formatMetric(rankF1Score(row.original)) });
+    columns.push({
+      header: "F1@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(rankF1Score(row.original))
+    });
   }
   columns.push(
-    { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
-    { header: "任务", accessorKey: "task" },
-    { header: "标签", cell: ({ row }) => row.original.target_labels.join(", ") || "-" },
-    { header: "基准集", accessorKey: "benchmark_id" },
-    { header: "Split", accessorKey: "benchmark_split" },
-    { header: "模型", accessorKey: "model_id" },
-    { header: "Prompt", accessorKey: "prompt_id" },
-    { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },
-    { header: "R@.50", cell: ({ row }) => formatMetric(row.original.recall_iou50) },
-    { header: "mIoU", cell: ({ row }) => formatMetric(row.original.mean_iou) },
+    {
+      header: "状态",
+      meta: { width: "status" },
+      cell: ({ row }) => <Badge value={row.original.status} domain="run" />
+    },
+    { header: "任务", accessorKey: "task", meta: { width: "compact" } },
+    {
+      header: "标签",
+      meta: { width: "wide", wrap: "wrap" },
+      cell: ({ row }) => row.original.target_labels.join(", ") || "-"
+    },
+    { header: "基准集", accessorKey: "benchmark_id", meta: { width: "id" } },
+    { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
+    { header: "模型", accessorKey: "model_id", meta: { width: "id" } },
+    { header: "Prompt", accessorKey: "prompt_id", meta: { width: "id" } },
+    {
+      header: "P@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(row.original.precision_iou50)
+    },
+    {
+      header: "R@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(row.original.recall_iou50)
+    },
+    {
+      header: "mIoU",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(row.original.mean_iou)
+    },
     {
       header: "备注",
+      meta: { width: "compact", align: "center" },
       cell: ({ row }) => {
         const hasNote = Boolean(row.original.note.trim());
         return (

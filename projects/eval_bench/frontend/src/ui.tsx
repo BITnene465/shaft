@@ -3,7 +3,7 @@ import {
   getCoreRowModel,
   useReactTable
 } from "@tanstack/react-table";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, RowData } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { createElement, useEffect, useId, useRef } from "react";
 import type {
@@ -20,6 +20,28 @@ import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
 
 type ButtonVariant = "primary" | "secondary" | "mini";
+type TableColumnWidth =
+  | "select"
+  | "actions"
+  | "status"
+  | "metric"
+  | "number"
+  | "date"
+  | "id"
+  | "compact"
+  | "text"
+  | "wide";
+type TableColumnWrap = "nowrap" | "truncate" | "wrap";
+type TableColumnAlign = "start" | "center" | "end";
+
+declare module "@tanstack/react-table" {
+  interface ColumnMeta<TData extends RowData, TValue> {
+    width?: TableColumnWidth;
+    wrap?: TableColumnWrap;
+    align?: TableColumnAlign;
+  }
+}
+
 export const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -31,6 +53,15 @@ export const DIALOG_FOCUSABLE_SELECTOR = [
 
 function joinClassNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
+}
+
+function tableColumnClassName(meta: ColumnDef<unknown>["meta"] | undefined) {
+  return joinClassNames(
+    "data-table-cell",
+    meta?.width ? `table-col-${meta.width}` : "table-col-text",
+    meta?.wrap ? `table-wrap-${meta.wrap}` : "table-wrap-truncate",
+    meta?.align ? `table-align-${meta.align}` : "table-align-start"
+  );
 }
 
 export function ActionButton({
@@ -344,7 +375,7 @@ export function DataTable<T>({
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
-                <th key={header.id}>
+                <th key={header.id} className={tableColumnClassName(header.column.columnDef.meta)}>
                   {header.isPlaceholder
                     ? null
                     : flexRender(header.column.columnDef.header, header.getContext())}
@@ -357,7 +388,9 @@ export function DataTable<T>({
           {table.getRowModel().rows.map((row) => (
             <tr key={row.id}>
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                <td key={cell.id} className={tableColumnClassName(cell.column.columnDef.meta)}>
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </td>
               ))}
             </tr>
           ))}

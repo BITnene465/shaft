@@ -5406,6 +5406,88 @@ tbody td {
   white-space: nowrap;
 }
 
+.table-shell table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.table-shell .data-table-cell {
+  overflow: hidden;
+  min-width: var(--table-col-min, 96px);
+  max-width: var(--table-col-max, 260px);
+  text-overflow: ellipsis;
+}
+
+.table-shell .table-col-select {
+  --table-col-min: 34px;
+  --table-col-max: 42px;
+  width: 38px;
+}
+
+.table-shell .table-col-actions {
+  --table-col-min: 96px;
+  --table-col-max: 150px;
+}
+
+.table-shell .table-col-status {
+  --table-col-min: 82px;
+  --table-col-max: 112px;
+}
+
+.table-shell .table-col-metric,
+.table-shell .table-col-number {
+  --table-col-min: 72px;
+  --table-col-max: 104px;
+}
+
+.table-shell .table-col-date {
+  --table-col-min: 132px;
+  --table-col-max: 178px;
+}
+
+.table-shell .table-col-id {
+  --table-col-min: 150px;
+  --table-col-max: 260px;
+}
+
+.table-shell .table-col-compact {
+  --table-col-min: 74px;
+  --table-col-max: 132px;
+}
+
+.table-shell .table-col-text {
+  --table-col-min: 96px;
+  --table-col-max: 260px;
+}
+
+.table-shell .table-col-wide {
+  --table-col-min: 220px;
+  --table-col-max: 420px;
+}
+
+.table-shell .table-wrap-nowrap {
+  white-space: nowrap;
+}
+
+.table-shell .table-wrap-truncate {
+  white-space: nowrap;
+}
+
+.table-shell .table-wrap-wrap {
+  min-width: var(--table-col-min, 120px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table-shell .table-align-center {
+  text-align: center;
+}
+
+.table-shell .table-align-end {
+  text-align: right;
+}
+
 tbody tr:hover td {
   background: #f8fbfd;
 }

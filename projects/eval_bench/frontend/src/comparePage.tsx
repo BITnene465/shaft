@@ -838,14 +838,34 @@ function ComparisonHistoryPanel({
     return null;
   }
   const columns: ColumnDef<ComparisonSummary>[] = [
-    { header: "对比记录", accessorKey: "comparison_id" },
-    { header: "任务", accessorKey: "task" },
-    { header: "Label", cell: ({ row }) => row.original.target_labels?.join(", ") || "all" },
-    { header: "样本数", cell: ({ row }) => row.original.sample_count.toLocaleString() },
-    { header: "Delta R", cell: ({ row }) => formatSignedMetric(row.original.delta.recall_iou50) },
-    { header: "提升", cell: ({ row }) => row.original.summary.improved_samples.toLocaleString() },
-    { header: "退化", cell: ({ row }) => row.original.summary.regressed_samples.toLocaleString() },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) }
+    { header: "对比记录", accessorKey: "comparison_id", meta: { width: "id" } },
+    { header: "任务", accessorKey: "task", meta: { width: "compact" } },
+    {
+      header: "Label",
+      meta: { width: "wide", wrap: "wrap" },
+      cell: ({ row }) => row.original.target_labels?.join(", ") || "all"
+    },
+    {
+      header: "样本数",
+      meta: { width: "number", align: "end" },
+      cell: ({ row }) => row.original.sample_count.toLocaleString()
+    },
+    {
+      header: "Delta R",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatSignedMetric(row.original.delta.recall_iou50)
+    },
+    {
+      header: "提升",
+      meta: { width: "number", align: "end" },
+      cell: ({ row }) => row.original.summary.improved_samples.toLocaleString()
+    },
+    {
+      header: "退化",
+      meta: { width: "number", align: "end" },
+      cell: ({ row }) => row.original.summary.regressed_samples.toLocaleString()
+    },
+    { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) }
   ];
   return (
     <div className="history-block">

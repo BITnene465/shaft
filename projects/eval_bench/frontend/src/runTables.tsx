@@ -32,24 +32,35 @@ export function BenchmarkTable({
   const columns: ColumnDef<BenchmarkSummary>[] = [
     {
       header: "基准集",
+      meta: { width: "id" },
       cell: ({ row }) => (
         <Link to="/benchmarks/$benchmarkId" params={{ benchmarkId: row.original.benchmark_id }}>
           {row.original.benchmark_id}
         </Link>
       )
     },
-    { header: "任务", cell: ({ row }) => row.original.tasks.join(", ") || "-" },
-    { header: "标注层", cell: ({ row }) => row.original.layers.join(", ") || "-" },
-    { header: "Split", accessorKey: "split" },
+    {
+      header: "任务",
+      meta: { width: "compact" },
+      cell: ({ row }) => row.original.tasks.join(", ") || "-"
+    },
+    {
+      header: "标注层",
+      meta: { width: "compact" },
+      cell: ({ row }) => row.original.layers.join(", ") || "-"
+    },
+    { header: "Split", accessorKey: "split", meta: { width: "id" } },
     {
       header: "样本数",
       accessorKey: "sample_count",
+      meta: { width: "number", align: "end" },
       cell: ({ row }) => row.original.sample_count.toLocaleString()
     },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) },
+    { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) },
     {
       header: "",
       id: "actions",
+      meta: { width: "actions", wrap: "wrap" },
       cell: ({ row }) => (
         <InlineNavLink
           icon={<Eye size={13} />}
@@ -121,6 +132,7 @@ export function RunTable({
           {
             header: "",
             id: "select",
+            meta: { width: "select", align: "center" },
             cell: ({ row }) => (
               <StandaloneCheckboxControl
                 className="row-select-checkbox"
@@ -133,23 +145,29 @@ export function RunTable({
         ]),
     {
       header: "评测",
+      meta: { width: "id" },
       cell: ({ row }) => (
         <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
         </Link>
       )
     },
-    { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
-    { header: "任务", accessorKey: "spec_task" },
-    { header: "基准集", accessorKey: "benchmark_id" },
-    { header: "Split", accessorKey: "benchmark_split" },
-    { header: "模型", accessorKey: "model_id" },
+    {
+      header: "状态",
+      meta: { width: "status" },
+      cell: ({ row }) => <Badge value={row.original.status} domain="run" />
+    },
+    { header: "任务", accessorKey: "spec_task", meta: { width: "compact" } },
+    { header: "基准集", accessorKey: "benchmark_id", meta: { width: "id" } },
+    { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
+    { header: "模型", accessorKey: "model_id", meta: { width: "id" } },
     ...(compact
       ? []
       : [
           {
             header: "备注",
             id: "note",
+            meta: { width: "compact", align: "center" },
             cell: ({ row }) => {
               const hasNote = Boolean(row.original.note.trim());
               return (
@@ -170,16 +188,30 @@ export function RunTable({
     {
       header: "预测数",
       accessorKey: "prediction_count",
+      meta: { width: "number", align: "end" },
       cell: ({ row }) => row.original.prediction_count.toLocaleString()
     },
-    { header: "F1@.50", cell: ({ row }) => formatMetric(runF1Score(row.original)) },
-    { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },
-    { header: "R@.50", cell: ({ row }) => formatMetric(row.original.recall_iou50) },
-    { header: "报告数", accessorKey: "report_count" },
-    { header: "创建时间", cell: ({ row }) => formatDate(row.original.created_at) },
+    {
+      header: "F1@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(runF1Score(row.original))
+    },
+    {
+      header: "P@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(row.original.precision_iou50)
+    },
+    {
+      header: "R@.50",
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(row.original.recall_iou50)
+    },
+    { header: "报告数", accessorKey: "report_count", meta: { width: "number", align: "end" } },
+    { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) },
     {
       header: "",
       id: "actions",
+      meta: { width: "actions", wrap: "wrap" },
       cell: ({ row }) => (
         <div className="row-actions">
           <IconNavLink
