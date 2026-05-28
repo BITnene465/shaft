@@ -390,10 +390,10 @@ assert(
   "manifest preflight result must reset only on semantic draft changes, not on mutation object rerenders",
 );
 assert(
-  jobsPage.includes("function mutationErrorText(error: unknown)") &&
-    jobsPage.includes("mutationErrorText(preflightMutation.error)") &&
-    jobsPage.includes("mutationErrorText(mutation.error)") &&
-    jobsPage.includes("saveErrorMessage={mutationErrorText(promptMutation.error)}") &&
+  formattersSource.includes("export function errorMessage(value: unknown)") &&
+    jobsPage.includes("errorMessage(preflightMutation.error)") &&
+    jobsPage.includes("errorMessage(mutation.error)") &&
+    jobsPage.includes("saveErrorMessage={errorMessage(promptMutation.error)}") &&
     !jobsPage.includes("<div className=\"form-error\">预检查请求失败。</div>") &&
     !jobsPage.includes("<div className=\"form-error\">任务入队失败。</div>") &&
     !jobsPage.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>"),
@@ -1002,6 +1002,13 @@ assert(
   servicesPage.includes("FormSelectControl") &&
     (servicesPage.match(/<FormSelectControl/g) ?? []).length >= 1,
   "service registration dialog selects must use FormSelectControl",
+);
+assert(
+  servicesPage.includes("errorMessage(mutation.error)") &&
+    servicesPage.includes("errorMessage(query.error)") &&
+    !servicesPage.includes("<div className=\"form-error full-field\">服务保存失败。</div>") &&
+    !servicesPage.includes("<div className=\"service-log-panel form-error\">日志加载失败。</div>"),
+  "services page must show concrete API errors for service save and log loading failures",
 );
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(

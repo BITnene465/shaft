@@ -27,6 +27,7 @@ import {
 } from "./statusModel";
 import { PagerControl, clampListPageOffset } from "./samplePager";
 import {
+  errorMessage,
   facetValues,
   formatDate,
   runtimeValue,
@@ -279,7 +280,9 @@ function ServiceCreatePanel({ bare }: { bare?: boolean }) {
       >
         {mutation.isPending ? "保存中" : "保存服务"}
       </ActionButton>
-      {mutation.isError ? <div className="form-error full-field">服务保存失败。</div> : null}
+      {mutation.error ? (
+        <div className="form-error full-field">服务保存失败：{errorMessage(mutation.error)}</div>
+      ) : null}
     </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
@@ -434,7 +437,7 @@ function ServiceLogPanel({
     return <div className="service-log-panel muted-line">正在加载日志</div>;
   }
   if (query.isError || !query.data) {
-    return <div className="service-log-panel form-error">日志加载失败。</div>;
+    return <div className="service-log-panel form-error">日志加载失败：{errorMessage(query.error)}</div>;
   }
   return (
     <div className="service-log-panel">

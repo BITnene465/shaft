@@ -27,7 +27,15 @@ import {
 } from "./api";
 import { CompactSelectControl, TextareaControl } from "./controlPrimitives";
 import { useDashboardState } from "./dashboardState";
-import { basename, facetValues, formatDate, jobTarget, stringValue, unique } from "./formatters";
+import {
+  basename,
+  errorMessage,
+  facetValues,
+  formatDate,
+  jobTarget,
+  stringValue,
+  unique
+} from "./formatters";
 import { AdvancedFilterBar } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";
@@ -795,16 +803,16 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
                   prompt={selectedPrompt}
                   onSaveFromManifest={savePromptFromManifest}
                   saving={promptMutation.isPending}
-                  saveErrorMessage={mutationErrorText(promptMutation.error)}
+                  saveErrorMessage={errorMessage(promptMutation.error)}
                 />
               ) : null}
               {parseError ? <div className="form-error">JSON 解析错误：{parseError}</div> : null}
               {preflightMutation.data ? <PreflightPanel result={preflightMutation.data} /> : null}
               {preflightMutation.error ? (
-                <div className="form-error">预检查请求失败：{mutationErrorText(preflightMutation.error)}</div>
+                <div className="form-error">预检查请求失败：{errorMessage(preflightMutation.error)}</div>
               ) : null}
               {mutation.error ? (
-                <div className="form-error">任务入队失败：{mutationErrorText(mutation.error)}</div>
+                <div className="form-error">任务入队失败：{errorMessage(mutation.error)}</div>
               ) : null}
               {!parseError && !preflightMutation.data && !preflightMutation.isError && !mutation.isError ? (
                 <div className="manifest-placeholder">
@@ -828,13 +836,6 @@ function parseManifestDraft(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function mutationErrorText(error: unknown) {
-  if (!error) {
-    return "";
-  }
-  return error instanceof Error ? error.message : String(error);
 }
 
 function PreflightPanel({ result }: { result: { ok: boolean; errors: string[]; warnings: string[]; runtime_command?: string[] | null } }) {

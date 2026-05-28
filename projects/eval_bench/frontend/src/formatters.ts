@@ -102,6 +102,13 @@ export function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+export function errorMessage(value: unknown) {
+  if (!value) {
+    return "";
+  }
+  return value instanceof Error ? value.message : String(value);
+}
+
 export function inferenceValue(inference: Record<string, unknown>, key: string) {
   const value = inference[key];
   if (value === null || value === undefined || value === "") {
