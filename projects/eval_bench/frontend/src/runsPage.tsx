@@ -43,7 +43,7 @@ import {
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
-import { PagerControl, SamplePager, clampListPageOffset } from "./samplePager";
+import { PagerControl, SamplePager, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
 import { SampleViewer } from "./sampleViewer";
 import {
   ActionButton,
@@ -166,17 +166,6 @@ export function RunsPage() {
     return <EmptyState title={`评测记录加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
   const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
-  function updateRunFilter(
-    currentValue: string,
-    nextValue: string,
-    setter: (value: string) => void
-  ) {
-    if (nextValue === currentValue) {
-      return;
-    }
-    setPageOffset(0);
-    setter(nextValue);
-  }
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -203,7 +192,8 @@ export function RunsPage() {
               id: "run-query",
               label: "全文检索",
               value: searchText,
-              onChange: (value) => updateRunFilter(searchText, value, setSearchText),
+              onChange: (value) =>
+                updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
               placeholder: "搜索 run、模型、基准集、备注"
             },
             {
@@ -213,7 +203,8 @@ export function RunsPage() {
               value: statusFilter,
               values: ["all", ...statuses],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(statusFilter, value, setStatusFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
             },
             {
               type: "select",
@@ -222,7 +213,8 @@ export function RunsPage() {
               value: taskFilter,
               values: ["all", ...tasks],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(taskFilter, value, setTaskFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)
             },
             {
               type: "select",
@@ -231,7 +223,8 @@ export function RunsPage() {
               value: benchmarkFilter,
               values: ["all", ...benchmarks],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(benchmarkFilter, value, setBenchmarkFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(benchmarkFilter, value, setBenchmarkFilter, setPageOffset)
             },
             {
               type: "select",
@@ -241,7 +234,12 @@ export function RunsPage() {
               values: ["all", ...benchmarkSplits],
               labels: { all: "全部" },
               onChange: (value) =>
-                updateRunFilter(benchmarkSplitFilter, value, setBenchmarkSplitFilter)
+                updatePagedFilterValue(
+                  benchmarkSplitFilter,
+                  value,
+                  setBenchmarkSplitFilter,
+                  setPageOffset
+                )
             },
             {
               type: "select",
@@ -250,7 +248,8 @@ export function RunsPage() {
               value: labelFilter,
               values: ["all", ...labels],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(labelFilter, value, setLabelFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)
             },
             {
               type: "select",
@@ -259,7 +258,8 @@ export function RunsPage() {
               value: modelFilter,
               values: ["all", ...models],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(modelFilter, value, setModelFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(modelFilter, value, setModelFilter, setPageOffset)
             },
             {
               type: "select",
@@ -268,7 +268,8 @@ export function RunsPage() {
               value: promptFilter,
               values: ["all", ...prompts],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(promptFilter, value, setPromptFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(promptFilter, value, setPromptFilter, setPageOffset)
             },
             {
               type: "select",
@@ -277,7 +278,13 @@ export function RunsPage() {
               value: metricProfileFilter,
               values: ["all", ...metricProfiles],
               labels: { all: "全部" },
-              onChange: (value) => updateRunFilter(metricProfileFilter, value, setMetricProfileFilter)
+              onChange: (value) =>
+                updatePagedFilterValue(
+                  metricProfileFilter,
+                  value,
+                  setMetricProfileFilter,
+                  setPageOffset
+                )
             }
           ]}
           footer={

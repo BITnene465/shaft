@@ -9,6 +9,21 @@ export function clampListPageOffset(offset: number, total: number, pageSize: num
   return Math.floor((total - 1) / pageSize) * pageSize;
 }
 
+export function updatePagedFilterValue<T>(
+  currentValue: T,
+  nextValue: T,
+  setValue: (value: T) => void,
+  ...resetOffsets: Array<(offset: number) => void>
+) {
+  if (Object.is(nextValue, currentValue)) {
+    return;
+  }
+  for (const resetOffset of resetOffsets) {
+    resetOffset(0);
+  }
+  setValue(nextValue);
+}
+
 export function PagerControl({
   className,
   offset,

@@ -92,8 +92,10 @@ assert(
 assert(
   samplePagerSource.includes("export function PagerControl(") &&
     samplePagerSource.includes("export function clampListPageOffset(") &&
+    samplePagerSource.includes("export function updatePagedFilterValue<T>(") &&
+    samplePagerSource.includes("...resetOffsets: Array<(offset: number) => void>") &&
     samplePagerSource.includes("export function SamplePager("),
-  "paged list controls must share PagerControl and clampListPageOffset",
+  "paged list controls must share PagerControl, clampListPageOffset, and filter offset reset semantics",
 );
 assert(
   uiSource.includes("type TableColumnWidth =") &&
@@ -812,7 +814,10 @@ assert(
 );
 assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
-    benchmarksPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
+    benchmarksPage.includes("PagerControl") &&
+    benchmarksPage.includes("SamplePager") &&
+    benchmarksPage.includes("clampListPageOffset") &&
+    benchmarksPage.includes("updatePagedFilterValue") &&
     benchmarksPage.includes('className="rank-board-pager benchmark-list-pager"') &&
     benchmarksPage.includes("offset: pageOffset") &&
     benchmarksPage.includes("limit: BENCHMARK_PAGE_SIZE") &&
@@ -821,12 +826,11 @@ assert(
   "benchmarks page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  benchmarksPage.includes("function updateBenchmarkFilter(") &&
-    benchmarksPage.includes("setPageOffset(0);") &&
-    benchmarksPage.includes("onChange: (value) => updateBenchmarkFilter(searchText, value, setSearchText)") &&
-    benchmarksPage.includes("onChange: (value) => updateBenchmarkFilter(taskFilter, value, setTaskFilter)") &&
+  benchmarksPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    benchmarksPage.includes("updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)") &&
+    !benchmarksPage.includes("function updateBenchmarkFilter(") &&
     !benchmarksPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "benchmarks page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+  "benchmarks page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   benchmarksPage.includes("SelectableRowButton") &&
@@ -869,7 +873,10 @@ assert(
 );
 assert(
   runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
-    runsPage.includes("PagerControl, SamplePager, clampListPageOffset") &&
+    runsPage.includes("PagerControl") &&
+    runsPage.includes("SamplePager") &&
+    runsPage.includes("clampListPageOffset") &&
+    runsPage.includes("updatePagedFilterValue") &&
     runsPage.includes('className="rank-board-pager run-list-pager"') &&
     runsPage.includes("offset: pageOffset") &&
     runsPage.includes("limit: RUN_PAGE_SIZE") &&
@@ -881,12 +888,11 @@ assert(
   "runs page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  runsPage.includes("function updateRunFilter(") &&
-    runsPage.includes("setPageOffset(0);") &&
-    runsPage.includes("onChange: (value) => updateRunFilter(searchText, value, setSearchText)") &&
-    runsPage.includes("onChange: (value) => updateRunFilter(statusFilter, value, setStatusFilter)") &&
+  runsPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    runsPage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
+    !runsPage.includes("function updateRunFilter(") &&
     !runsPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "runs page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+  "runs page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   runsPage.includes("SelectableRowButton") &&
@@ -1031,7 +1037,9 @@ assert(
 );
 assert(
   servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
-    servicesPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    servicesPage.includes("PagerControl") &&
+    servicesPage.includes("clampListPageOffset") &&
+    servicesPage.includes("updatePagedFilterValue") &&
     servicesPage.includes('className="rank-board-pager service-list-pager"') &&
     servicesPage.includes("offset: pageOffset") &&
     servicesPage.includes("limit: SERVICE_PAGE_SIZE") &&
@@ -1040,12 +1048,11 @@ assert(
   "services page must use paged API requests instead of a fixed 200-service slice",
 );
 assert(
-  servicesPage.includes("function updateServiceFilter(") &&
-    servicesPage.includes("setPageOffset(0);") &&
-    servicesPage.includes("onChange: (value) => updateServiceFilter(searchText, value, setSearchText)") &&
-    servicesPage.includes("onChange: (value) => updateServiceFilter(statusFilter, value, setStatusFilter)") &&
+  servicesPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    servicesPage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
+    !servicesPage.includes("function updateServiceFilter(") &&
     !servicesPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "services page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+  "services page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   servicesPage.includes("TextInputControl") &&
@@ -1073,7 +1080,9 @@ assert(
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
   comparePage.includes("const COMPARE_RUN_PAGE_SIZE = 80;") &&
-    comparePage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    comparePage.includes("PagerControl") &&
+    comparePage.includes("clampListPageOffset") &&
+    comparePage.includes("updatePagedFilterValue") &&
     comparePage.includes('className="rank-board-pager compare-run-pager"') &&
     comparePage.includes("offset: pageOffset") &&
     comparePage.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
@@ -1083,17 +1092,16 @@ assert(
   "compare run rail must use paged API requests while preserving selected run ids",
 );
 assert(
-  comparePage.includes("function updateCompareRunFilter(") &&
-    comparePage.includes("function updateCompareSharedFilter(") &&
-    comparePage.includes("function updateComparisonHistoryFilter(") &&
-    comparePage.includes("setPageOffset(0);") &&
-    comparePage.includes("setHistoryOffset(0);") &&
-    comparePage.includes("onChange: (value) => updateCompareSharedFilter(searchText, value, setSearchText)") &&
-    comparePage.includes("onChange: (value) => updateCompareRunFilter(statusFilter, value, setStatusFilter)") &&
-    comparePage.includes("updateComparisonHistoryFilter(historyBaselineFilter, value, setHistoryBaselineFilter)") &&
+  comparePage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset, setHistoryOffset)") &&
+    comparePage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
+    comparePage.includes("historyBaselineFilter") &&
+    comparePage.includes("setHistoryBaselineFilter") &&
+    !comparePage.includes("function updateCompareRunFilter(") &&
+    !comparePage.includes("function updateCompareSharedFilter(") &&
+    !comparePage.includes("function updateComparisonHistoryFilter(") &&
     !comparePage.includes("useEffect(() => {\n    setPageOffset(0);") &&
     !comparePage.includes("useEffect(() => {\n    setHistoryOffset(0);"),
-  "compare page filter changes must reset run/history paging in the same state batch instead of issuing stale-offset refreshes",
+  "compare page filter changes must use shared same-batch paging reset for run/history offsets",
 );
 assert(
   apiSource.includes("baselineRunId?: string;") &&
@@ -1160,7 +1168,9 @@ assert(
 );
 assert(
   rankBoardPage.includes("const RANK_PAGE_SIZE = 80;") &&
-    rankBoardPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
+    rankBoardPage.includes("PagerControl") &&
+    rankBoardPage.includes("clampListPageOffset") &&
+    rankBoardPage.includes("updatePagedFilterValue") &&
     rankBoardPage.includes('className="rank-board-pager"') &&
     rankBoardPage.includes("offset: pageOffset") &&
     rankBoardPage.includes("limit: RANK_PAGE_SIZE") &&
@@ -1169,12 +1179,11 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  rankBoardPage.includes("function updateRankFilter(") &&
-    rankBoardPage.includes("setPageOffset(0);") &&
-    rankBoardPage.includes("onSortByChange={(value) => updateRankFilter(sortBy, value, setSortBy)}") &&
-    rankBoardPage.includes("onChange: (value) => updateRankFilter(searchText, value, setSearchText)") &&
+  rankBoardPage.includes("updatePagedFilterValue(sortBy, value, setSortBy, setPageOffset)") &&
+    rankBoardPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    !rankBoardPage.includes("function updateRankFilter(") &&
     !rankBoardPage.includes("useEffect(() => {\n    setPageOffset(0);"),
-  "rank board filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+  "rank board filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
   rankBoardPage.includes("const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);") &&

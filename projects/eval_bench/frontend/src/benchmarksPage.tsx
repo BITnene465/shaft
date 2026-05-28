@@ -28,7 +28,12 @@ import {
   samplePageOffsetFromLocation,
   updateSampleIndexInLocation
 } from "./sampleNavigation";
-import { PagerControl, SamplePager, clampListPageOffset } from "./samplePager";
+import {
+  PagerControl,
+  SamplePager,
+  clampListPageOffset,
+  updatePagedFilterValue
+} from "./samplePager";
 import {
   ActionButton,
   CommandButton,
@@ -86,17 +91,6 @@ export function BenchmarksPage() {
   if (benchmarksQuery.error || !benchmarksQuery.data) {
     return <EmptyState title={`基准集加载失败：${errorMessage(benchmarksQuery.error)}`} tone="danger" />;
   }
-  function updateBenchmarkFilter(
-    currentValue: string,
-    nextValue: string,
-    setter: (value: string) => void
-  ) {
-    if (nextValue === currentValue) {
-      return;
-    }
-    setPageOffset(0);
-    setter(nextValue);
-  }
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -120,7 +114,8 @@ export function BenchmarksPage() {
             id: "benchmark-query",
             label: "全文检索",
             value: searchText,
-            onChange: (value) => updateBenchmarkFilter(searchText, value, setSearchText),
+            onChange: (value) =>
+              updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
             placeholder: "搜索 benchmark、manifest、root、来源"
           },
           {
@@ -130,7 +125,8 @@ export function BenchmarksPage() {
             value: taskFilter,
             values: ["all", ...tasks],
             labels: { all: "全部" },
-            onChange: (value) => updateBenchmarkFilter(taskFilter, value, setTaskFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)
           },
           {
             type: "select",
@@ -139,7 +135,8 @@ export function BenchmarksPage() {
             value: layerFilter,
             values: ["all", ...layers],
             labels: { all: "全部" },
-            onChange: (value) => updateBenchmarkFilter(layerFilter, value, setLayerFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(layerFilter, value, setLayerFilter, setPageOffset)
           },
           {
             type: "select",
@@ -148,7 +145,8 @@ export function BenchmarksPage() {
             value: splitFilter,
             values: ["all", ...splits],
             labels: { all: "全部" },
-            onChange: (value) => updateBenchmarkFilter(splitFilter, value, setSplitFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)
           }
         ]}
       />

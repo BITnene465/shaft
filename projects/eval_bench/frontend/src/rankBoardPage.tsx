@@ -10,7 +10,7 @@ import { useDashboardState } from "./dashboardState";
 import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { errorMessage, f1Score, facetValues, formatMetric } from "./formatters";
-import { PagerControl, clampListPageOffset } from "./samplePager";
+import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
 import {
   ActionButton,
   Badge,
@@ -160,31 +160,6 @@ export function RankBoardPage() {
   }
   const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
   const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);
-  function updateRankFilter(
-    currentValue: string,
-    nextValue: string,
-    setter: (value: string) => void
-  ) {
-    if (nextValue === currentValue) {
-      return;
-    }
-    setPageOffset(0);
-    setter(nextValue);
-  }
-  function updateRankSchemeEnabled(nextValue: boolean) {
-    if (nextValue === rankSchemeEnabled) {
-      return;
-    }
-    setPageOffset(0);
-    setRankSchemeEnabled(nextValue);
-  }
-  function updateRankSchemeDraft(nextValue: string) {
-    if (nextValue === rankSchemeDraft) {
-      return;
-    }
-    setPageOffset(0);
-    setRankSchemeDraft(nextValue);
-  }
 
   return (
     <section className="page-stack density-page rank-board-page">
@@ -194,8 +169,10 @@ export function RankBoardPage() {
         runCount={runs.length}
         sortBy={sortBy}
         sortOrder={sortOrder}
-        onSortByChange={(value) => updateRankFilter(sortBy, value, setSortBy)}
-        onSortOrderChange={(value) => updateRankFilter(sortOrder, value, setSortOrder)}
+        onSortByChange={(value) =>
+          updatePagedFilterValue(sortBy, value, setSortBy, setPageOffset)}
+        onSortOrderChange={(value) =>
+          updatePagedFilterValue(sortOrder, value, setSortOrder, setPageOffset)}
       />
       <AdvancedFilterBar
         title="筛选"
@@ -206,7 +183,8 @@ export function RankBoardPage() {
             id: "rank-query",
             label: "全文检索",
             value: searchText,
-            onChange: (value) => updateRankFilter(searchText, value, setSearchText),
+            onChange: (value) =>
+              updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
             placeholder: "搜索 run、模型、prompt、备注"
           },
           {
@@ -216,7 +194,8 @@ export function RankBoardPage() {
             value: taskFilter,
             values: ["all", ...tasks],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(taskFilter, value, setTaskFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)
           },
           {
             type: "select",
@@ -225,7 +204,8 @@ export function RankBoardPage() {
             value: benchmarkFilter,
             values: ["all", ...benchmarks],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(benchmarkFilter, value, setBenchmarkFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(benchmarkFilter, value, setBenchmarkFilter, setPageOffset)
           },
           {
             type: "select",
@@ -235,7 +215,12 @@ export function RankBoardPage() {
             values: ["all", ...benchmarkSplits],
             labels: { all: "全部" },
             onChange: (value) =>
-              updateRankFilter(benchmarkSplitFilter, value, setBenchmarkSplitFilter)
+              updatePagedFilterValue(
+                benchmarkSplitFilter,
+                value,
+                setBenchmarkSplitFilter,
+                setPageOffset
+              )
           },
           {
             type: "select",
@@ -244,7 +229,8 @@ export function RankBoardPage() {
             value: statusFilter,
             values: ["all", ...statuses],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(statusFilter, value, setStatusFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
           },
           {
             type: "select",
@@ -253,7 +239,8 @@ export function RankBoardPage() {
             value: labelFilter,
             values: ["all", ...labels],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(labelFilter, value, setLabelFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)
           },
           {
             type: "select",
@@ -262,7 +249,8 @@ export function RankBoardPage() {
             value: modelFilter,
             values: ["all", ...models],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(modelFilter, value, setModelFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(modelFilter, value, setModelFilter, setPageOffset)
           },
           {
             type: "select",
@@ -271,7 +259,8 @@ export function RankBoardPage() {
             value: promptFilter,
             values: ["all", ...prompts],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(promptFilter, value, setPromptFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(promptFilter, value, setPromptFilter, setPageOffset)
           },
           {
             type: "select",
@@ -280,7 +269,13 @@ export function RankBoardPage() {
             value: metricProfileFilter,
             values: ["all", ...metricProfiles],
             labels: { all: "全部" },
-            onChange: (value) => updateRankFilter(metricProfileFilter, value, setMetricProfileFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(
+                metricProfileFilter,
+                value,
+                setMetricProfileFilter,
+                setPageOffset
+              )
           },
           {
             type: "number",
@@ -291,7 +286,8 @@ export function RankBoardPage() {
             max: 1,
             step: 0.01,
             placeholder: "0.70",
-            onChange: (value) => updateRankFilter(minScoreFilter, value, setMinScoreFilter)
+            onChange: (value) =>
+              updatePagedFilterValue(minScoreFilter, value, setMinScoreFilter, setPageOffset)
           }
         ]}
         actions={
@@ -332,8 +328,10 @@ export function RankBoardPage() {
         apiError={rankSchemeApiError}
         board={board}
         benchmarks={benchmarks}
-        onEnabledChange={updateRankSchemeEnabled}
-        onDraftChange={updateRankSchemeDraft}
+        onEnabledChange={(value) =>
+          updatePagedFilterValue(rankSchemeEnabled, value, setRankSchemeEnabled, setPageOffset)}
+        onDraftChange={(value) =>
+          updatePagedFilterValue(rankSchemeDraft, value, setRankSchemeDraft, setPageOffset)}
       />
       <RankFacetRail
         board={board}
@@ -348,15 +346,31 @@ export function RankBoardPage() {
           metricProfile: metricProfileFilter
         }}
         onFilterChange={{
-          task: (value) => updateRankFilter(taskFilter, value, setTaskFilter),
-          benchmark: (value) => updateRankFilter(benchmarkFilter, value, setBenchmarkFilter),
-          split: (value) => updateRankFilter(benchmarkSplitFilter, value, setBenchmarkSplitFilter),
-          status: (value) => updateRankFilter(statusFilter, value, setStatusFilter),
-          label: (value) => updateRankFilter(labelFilter, value, setLabelFilter),
-          model: (value) => updateRankFilter(modelFilter, value, setModelFilter),
-          prompt: (value) => updateRankFilter(promptFilter, value, setPromptFilter),
+          task: (value) => updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset),
+          benchmark: (value) =>
+            updatePagedFilterValue(benchmarkFilter, value, setBenchmarkFilter, setPageOffset),
+          split: (value) =>
+            updatePagedFilterValue(
+              benchmarkSplitFilter,
+              value,
+              setBenchmarkSplitFilter,
+              setPageOffset
+            ),
+          status: (value) =>
+            updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset),
+          label: (value) =>
+            updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset),
+          model: (value) =>
+            updatePagedFilterValue(modelFilter, value, setModelFilter, setPageOffset),
+          prompt: (value) =>
+            updatePagedFilterValue(promptFilter, value, setPromptFilter, setPageOffset),
           metricProfile: (value) =>
-            updateRankFilter(metricProfileFilter, value, setMetricProfileFilter)
+            updatePagedFilterValue(
+              metricProfileFilter,
+              value,
+              setMetricProfileFilter,
+              setPageOffset
+            )
         }}
       />
     </section>
