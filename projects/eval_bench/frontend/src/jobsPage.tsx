@@ -592,8 +592,12 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     }
     setManifestText(formatManifest(normalizeManifestTargetLabelsForTask(manifestDraft)));
     setParseError(null);
+    resetPreflightResult();
+  }, [manifestDraft, manifestTaskValue]);
+
+  function resetPreflightResult() {
     preflightMutation.reset();
-  }, [manifestText, manifestDraft, manifestTaskValue, preflightMutation]);
+  }
 
   function loadTemplate(nextTemplateId = templateId) {
     const template = templates[nextTemplateId];
@@ -603,7 +607,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     setTemplateId(nextTemplateId);
     setManifestText(formatManifest(applyBenchmarkDefault(template.manifest, benchmarks)));
     setParseError(null);
-    preflightMutation.reset();
+    resetPreflightResult();
   }
 
   function applySelectedPrompt(nextPromptId = promptId) {
@@ -618,7 +622,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
       formatManifest(applyBenchmarkDefault(applyPromptTemplateToManifest(manifest, promptTemplate), benchmarks))
     );
     setParseError(null);
-    preflightMutation.reset();
+    resetPreflightResult();
   }
 
   function savePromptFromManifest() {
@@ -660,7 +664,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     }
     setManifestText(formatManifest(updateManifestTargetLabels(manifest, nextLabels)));
     setParseError(null);
-    preflightMutation.reset();
+    resetPreflightResult();
   }
 
   function updateBenchmarkSplit(nextSplit: string) {
@@ -670,7 +674,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
     }
     setManifestText(formatManifest(updateManifestBenchmarkSplit(manifest, nextSplit)));
     setParseError(null);
-    preflightMutation.reset();
+    resetPreflightResult();
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -778,7 +782,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
                 onChange={(value) => {
                   setManifestText(value);
                   setParseError(null);
-                  preflightMutation.reset();
+                  resetPreflightResult();
                 }}
               />
             </div>

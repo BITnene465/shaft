@@ -383,6 +383,13 @@ assert(
   "jobs manifest editor must expose explicit benchmark_split selection for suite benchmarks",
 );
 assert(
+  jobsPage.includes("function resetPreflightResult()") &&
+    jobsPage.includes("resetPreflightResult();") &&
+    jobsPage.includes("}, [manifestDraft, manifestTaskValue]);") &&
+    !jobsPage.includes("}, [manifestText, manifestDraft, manifestTaskValue, preflightMutation]);"),
+  "manifest preflight result must reset only on semantic draft changes, not on mutation object rerenders",
+);
+assert(
   jobsPage.includes("DisclosurePanel") &&
     jobsPage.includes('className="prompt-template-panel"') &&
     jobsPage.includes("TextareaControl") &&
