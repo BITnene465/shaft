@@ -112,14 +112,13 @@ def resolve_job_payload(
 ) -> ResolvedJobSpec:
     manifest = _apply_prompt_template_to_manifest(
         _manifest_from_payload(payload),
-        payload=payload,
         prompt_templates=prompt_templates,
     )
-    kind = str(manifest.get("kind") or payload.get("kind") or "eval_job")
+    kind = str(manifest.get("kind") or "eval_job")
     if kind == "eval_job":
-        resolved_payload = _resolve_eval_payload(payload, manifest)
+        resolved_payload = _resolve_eval_payload(manifest)
     elif kind == "preannotate_job":
-        resolved_payload = _resolve_preannotate_payload(payload, manifest)
+        resolved_payload = _resolve_preannotate_payload(manifest)
     else:
         raise ValueError(f"unsupported job kind: {kind}")
     return ResolvedJobSpec(kind=kind, manifest=manifest, payload=resolved_payload)
@@ -205,16 +204,15 @@ def _manifest_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _apply_prompt_template_to_manifest(
     manifest: dict[str, Any],
     *,
-    payload: dict[str, Any],
     prompt_templates: Mapping[str, Mapping[str, Any]] | None,
 ) -> dict[str, Any]:
     cloned = copy.deepcopy(manifest)
-    kind = str(cloned.get("kind") or payload.get("kind") or "eval_job")
+    kind = str(cloned.get("kind") or "eval_job")
     section_key = "preannotate" if kind == "preannotate_job" else "eval"
     section = cloned.get(section_key)
     if not isinstance(section, dict):
         return cloned
-    prompt_id = _first_string(section.get("prompt_id"), payload.get("prompt_id"))
+    prompt_id = _first_string(section.get("prompt_id"))
     template = _prompt_template_for(prompt_id, prompt_templates)
     if not template:
         return cloned
@@ -243,7 +241,7 @@ def _apply_prompt_template_to_manifest(
     return cloned
 
 
-def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+def _resolve_eval_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     runtime = dict(manifest.get("runtime") or {})
     eval_config = dict(manifest.get("eval") or {})
     generation = dict(eval_config.get("generation") or {})
@@ -254,7 +252,6 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         eval_config.get("model_path"),
         runtime_args.get("model"),
         runtime_args.get("model_path"),
-        original.get("model_path"),
     )
     default_model_id = _default_model_id_from_path(model_path)
     served_model_name = _first_string(
@@ -263,89 +260,83 @@ def _resolve_eval_payload(original: dict[str, Any], manifest: dict[str, Any]) ->
         runtime.get("served_model_name"),
         runtime.get("served-model-name"),
         eval_config.get("model_id"),
-        original.get("served_model_name"),
-        original.get("model_id"),
         default_model_id,
     )
     model_id = _first_string(
         eval_config.get("model_id"),
-        original.get("model_id"),
         served_model_name,
         default_model_id,
     )
     runtime_mode = str(runtime.get("mode") or "ephemeral")
-    backend = str(runtime.get("engine") or eval_config.get("backend") or original.get("backend") or "vllm_openai")
-    host = _first_string(runtime_args.get("host"), runtime.get("host"), original.get("host"), "127.0.0.1")
+    backend = str(runtime.get("engine") or eval_config.get("backend") or "vllm_openai")
+    host = _first_string(runtime_args.get("host"), runtime.get("host"), "127.0.0.1")
     cuda_visible_devices = _first_string(
         env.get("CUDA_VISIBLE_DEVICES"),
         env.get("cuda_visible_devices"),
         runtime_args.get("cuda_visible_devices"),
-        original.get("cuda_visible_devices"),
     )
     tensor_parallel_size = _first_value(
         runtime_args.get("tensor_parallel_size"),
         runtime_args.get("tensor-parallel-size"),
-        original.get("tensor_parallel_size"),
     )
     if tensor_parallel_size in (None, ""):
         tensor_parallel_size = len(_cuda_visible_devices(cuda_visible_devices)) or 1
-    port = _first_value(runtime_args.get("port"), runtime.get("port"), original.get("port"))
+    port = _first_value(runtime_args.get("port"), runtime.get("port"))
     if port in (None, "") and runtime_mode == "ephemeral" and backend == "vllm_openai":
         port = _first_available_port(host or "127.0.0.1")
     payload = {
-        **{key: value for key, value in original.items() if key not in {"manifest", "runtime", "eval", "kind"}},
         "job_manifest": manifest,
         "job_kind": "eval_job",
         "runtime_mode": runtime_mode,
         "backend": backend,
-        "run_id": _first_string(eval_config.get("run_id"), manifest.get("run_id"), original.get("run_id")),
+        "run_id": _first_string(eval_config.get("run_id"), manifest.get("run_id")),
         "model_id": model_id,
         "model_path": model_path,
-        "benchmark_id": _first_string(eval_config.get("benchmark_id"), original.get("benchmark_id")),
+        "benchmark_id": _first_string(eval_config.get("benchmark_id")),
         "benchmark_split": _first_string(
             eval_config.get("benchmark_split"),
             eval_config.get("split"),
-            original.get("benchmark_split"),
-            original.get("split"),
         ),
-        "task": _first_string(eval_config.get("task"), original.get("task")),
-        "prompt_id": _first_string(eval_config.get("prompt_id"), original.get("prompt_id")),
-        "prompt_path": _first_string(eval_config.get("prompt_path"), original.get("prompt_path")),
-        "system_prompt": _first_string(eval_config.get("system_prompt"), original.get("system_prompt")),
-        "prompt_text": _first_string(eval_config.get("prompt_text"), eval_config.get("user_prompt"), original.get("prompt_text")),
-        "parser": _first_string(eval_config.get("parser"), original.get("parser")),
-        "metric_profile": _first_string(eval_config.get("metric_profile"), original.get("metric_profile")),
-        "visualization_profile": _first_string(eval_config.get("visualization_profile"), original.get("visualization_profile")),
-        "target_labels": _first_label_list(eval_config.get("target_labels"), original.get("target_labels")),
-        "target_labels_source": _first_string(eval_config.get("target_labels_source"), original.get("target_labels_source")),
-        "endpoint": _first_string(runtime.get("endpoint"), original.get("endpoint")),
-        "service_id": _first_string(runtime.get("service_id"), original.get("service_id")),
+        "task": _first_string(eval_config.get("task")),
+        "prompt_id": _first_string(eval_config.get("prompt_id")),
+        "prompt_path": _first_string(eval_config.get("prompt_path")),
+        "system_prompt": _first_string(eval_config.get("system_prompt")),
+        "prompt_text": _first_string(eval_config.get("prompt_text"), eval_config.get("user_prompt")),
+        "parser": _first_string(eval_config.get("parser")),
+        "metric_profile": _first_string(eval_config.get("metric_profile")),
+        "visualization_profile": _first_string(eval_config.get("visualization_profile")),
+        "target_labels": _first_label_list(eval_config.get("target_labels")),
+        "target_labels_source": _first_string(eval_config.get("target_labels_source")),
+        "endpoint": _first_string(runtime.get("endpoint")),
+        "service_id": _first_string(runtime.get("service_id")),
         "served_model_name": served_model_name,
         "host": host,
         "port": port,
         "cuda_visible_devices": cuda_visible_devices,
         "tensor_parallel_size": tensor_parallel_size,
-        "max_model_len": _first_value(runtime_args.get("max_model_len"), runtime_args.get("max-model-len"), original.get("max_model_len")),
-        "gpu_memory_utilization": _first_value(runtime_args.get("gpu_memory_utilization"), runtime_args.get("gpu-memory-utilization"), original.get("gpu_memory_utilization")),
-        "max_num_seqs": _first_value(runtime_args.get("max_num_seqs"), runtime_args.get("max-num-seqs"), original.get("max_num_seqs")),
+        "max_model_len": _first_value(runtime_args.get("max_model_len"), runtime_args.get("max-model-len")),
+        "gpu_memory_utilization": _first_value(runtime_args.get("gpu_memory_utilization"), runtime_args.get("gpu-memory-utilization")),
+        "max_num_seqs": _first_value(runtime_args.get("max_num_seqs"), runtime_args.get("max-num-seqs")),
         "extra_args": _extra_args_from_runtime_args(runtime_args, runtime.get("extra_args")),
-        "max_tokens": _first_value(generation.get("max_tokens"), generation.get("max-tokens"), original.get("max_tokens"), 4096),
-        "temperature": _first_value(generation.get("temperature"), original.get("temperature"), 0),
-        "top_p": _first_value(generation.get("top_p"), generation.get("top-p"), original.get("top_p"), 1),
-        "min_pixels": _first_value(data.get("min_pixels"), data.get("min-pixels"), original.get("min_pixels")),
-        "max_pixels": _first_value(data.get("max_pixels"), data.get("max-pixels"), original.get("max_pixels")),
-        "batch_size": _first_value(data.get("batch_size"), data.get("batch-size"), original.get("batch_size"), 1),
+        "max_tokens": _first_value(generation.get("max_tokens"), generation.get("max-tokens"), 4096),
+        "temperature": _first_value(generation.get("temperature"), 0),
+        "top_p": _first_value(generation.get("top_p"), generation.get("top-p"), 1),
+        "min_pixels": _first_value(data.get("min_pixels"), data.get("min-pixels")),
+        "max_pixels": _first_value(data.get("max_pixels"), data.get("max-pixels")),
+        "batch_size": _first_value(data.get("batch_size"), data.get("batch-size"), 1),
+        "metadata": manifest.get("metadata") if isinstance(manifest.get("metadata"), dict) else {},
+        "api_key": _first_string(runtime.get("api_key")),
+        "api_key_env": _first_string(runtime.get("api_key_env")),
     }
     return _apply_target_label_policy(
         {key: value for key, value in payload.items() if value not in (None, "")}
     )
 
 
-def _resolve_preannotate_payload(original: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+def _resolve_preannotate_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     runtime = dict(manifest.get("runtime") or {})
     config = dict(manifest.get("preannotate") or {})
     eval_like = _resolve_eval_payload(
-        original,
         {
             "kind": "eval_job",
             "runtime": runtime,

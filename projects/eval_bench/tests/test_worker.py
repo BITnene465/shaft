@@ -97,7 +97,7 @@ def _eval_job_payload(
         }
     }
     if metadata is not None:
-        payload["metadata"] = metadata
+        payload["manifest"]["metadata"] = metadata
     return payload
 
 

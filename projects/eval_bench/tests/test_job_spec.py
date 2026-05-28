@@ -156,6 +156,103 @@ def test_eval_job_manifest_resolves_prompt_template_defaults() -> None:
     assert resolved.payload["target_labels_source"] == "prompt_metadata"
 
 
+def test_eval_job_manifest_is_only_semantic_source() -> None:
+    manifest = {
+        "kind": "eval_job",
+        "metadata": {"notes": "manifest note"},
+        "runtime": {
+            "mode": "existing_service",
+            "engine": "dry_run",
+            "endpoint": "http://manifest-endpoint/v1",
+            "service_id": "manifest-service",
+            "env": {"CUDA_VISIBLE_DEVICES": "0,1"},
+            "args": {
+                "model": "outputs/manifest-model/best",
+                "served-model-name": "manifest-served",
+                "host": "127.0.0.2",
+                "port": 8123,
+                "tensor-parallel-size": 2,
+            },
+        },
+        "eval": {
+            "run_id": "manifest-run",
+            "model_id": "manifest-model",
+            "benchmark_id": "manifest-bench",
+            "benchmark_split": "manifest-split",
+            "task": "detection",
+            "prompt_id": "manifest.prompt",
+            "prompt_text": "manifest prompt",
+            "parser": "raw_data_detection_v1",
+            "metric_profile": "detection_iou_v1",
+            "target_labels": ["icon"],
+            "generation": {"max_tokens": 128, "temperature": 0.2, "top_p": 0.9},
+            "data": {"max_pixels": 123456, "batch_size": 2},
+        },
+    }
+
+    resolved = resolve_job_payload(
+        {
+            "manifest": manifest,
+            "kind": "preannotate_job",
+            "backend": "vllm_openai",
+            "run_id": "top-run",
+            "model_id": "top-model",
+            "model_path": "outputs/top-model/best",
+            "benchmark_id": "top-bench",
+            "benchmark_split": "top-split",
+            "task": "keypoint",
+            "prompt_id": "top.prompt",
+            "prompt_text": "top prompt",
+            "parser": "top_parser",
+            "metric_profile": "top_metric",
+            "target_labels": ["arrow"],
+            "endpoint": "http://top-endpoint/v1",
+            "service_id": "top-service",
+            "max_tokens": 999,
+            "temperature": 1,
+            "top_p": 0.1,
+            "max_pixels": 999999,
+            "batch_size": 9,
+            "metadata": {"notes": "top note"},
+            "stray": "must not be copied",
+        },
+        prompt_templates={
+            "top.prompt": {
+                "prompt_id": "top.prompt",
+                "task": "keypoint",
+                "prompt_text": "top template prompt",
+                "metadata": {"target_labels": ["arrow"]},
+            }
+        },
+    )
+
+    assert resolved.payload["backend"] == "dry_run"
+    assert resolved.payload["run_id"] == "manifest-run"
+    assert resolved.payload["model_id"] == "manifest-model"
+    assert resolved.payload["model_path"] == "outputs/manifest-model/best"
+    assert resolved.payload["served_model_name"] == "manifest-served"
+    assert resolved.payload["benchmark_id"] == "manifest-bench"
+    assert resolved.payload["benchmark_split"] == "manifest-split"
+    assert resolved.payload["task"] == "detection"
+    assert resolved.payload["prompt_id"] == "manifest.prompt"
+    assert resolved.payload["prompt_text"] == "manifest prompt"
+    assert resolved.payload["parser"] == "raw_data_detection_v1"
+    assert resolved.payload["metric_profile"] == "detection_iou_v1"
+    assert resolved.payload["target_labels"] == ["icon"]
+    assert resolved.payload["endpoint"] == "http://manifest-endpoint/v1"
+    assert resolved.payload["service_id"] == "manifest-service"
+    assert resolved.payload["cuda_visible_devices"] == "0,1"
+    assert resolved.payload["tensor_parallel_size"] == 2
+    assert resolved.payload["port"] == 8123
+    assert resolved.payload["max_tokens"] == 128
+    assert resolved.payload["temperature"] == 0.2
+    assert resolved.payload["top_p"] == 0.9
+    assert resolved.payload["max_pixels"] == 123456
+    assert resolved.payload["batch_size"] == 2
+    assert resolved.payload["metadata"] == {"notes": "manifest note"}
+    assert "stray" not in resolved.payload
+
+
 def test_prompt_template_target_labels_replace_empty_manifest_list() -> None:
     resolved = resolve_job_payload(
         {
