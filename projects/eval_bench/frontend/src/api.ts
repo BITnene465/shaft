@@ -502,6 +502,18 @@ export type DeleteResult = {
   trash_path: string | null;
 };
 
+export type ArchiveRunResult = {
+  run_id: string;
+  status: string;
+  manifest_path: string;
+};
+
+export type DeleteJobResult = DeleteResult & {
+  job_id: string;
+  job: JobSummary;
+  trash_path: string;
+};
+
 export type JobTemplate = {
   label: string;
   description: string;
@@ -871,8 +883,8 @@ export function fetchJobLogs(jobId: string, maxLines = 200): Promise<JobLog> {
   return fetchJson<JobLog>(`/api/jobs/${encodeURIComponent(jobId)}/logs?${params.toString()}`);
 }
 
-export function deleteJob(jobId: string): Promise<DeleteResult & { job_id: string }> {
-  return fetchJson<DeleteResult & { job_id: string }>(`/api/jobs/${encodeURIComponent(jobId)}`, {
+export function deleteJob(jobId: string): Promise<DeleteJobResult> {
+  return fetchJson<DeleteJobResult>(`/api/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE"
   });
 }
@@ -925,8 +937,8 @@ export function evaluateRun(
   );
 }
 
-export function archiveRun(runId: string): Promise<{ run_id: string; status: string }> {
-  return fetchJson<{ run_id: string; status: string }>(
+export function archiveRun(runId: string): Promise<ArchiveRunResult> {
+  return fetchJson<ArchiveRunResult>(
     `/api/runs/${encodeURIComponent(runId)}/archive`,
     { method: "POST" }
   );
