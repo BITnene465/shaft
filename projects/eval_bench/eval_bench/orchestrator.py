@@ -169,13 +169,39 @@ class EvalBenchOrchestrator:
         LOGGER.info("orchestrator stopped")
 
     def _run_job(self, job_id: str) -> None:
-        from .worker import EvalBenchWorker
-
         try:
-            EvalBenchWorker(self.root).process_job(job_id)
+            self._load_worker_class()(self.root).process_job(job_id)
+        except Exception as exc:
+            LOGGER.exception("orchestrator worker failed job_id=%s error=%s", job_id, exc)
+            self._mark_worker_failed(job_id, exc)
         finally:
             with self._lock:
                 self._worker_threads.pop(job_id, None)
+
+    def _load_worker_class(self) -> type[Any]:
+        from .worker import EvalBenchWorker
+
+        return EvalBenchWorker
+
+    def _mark_worker_failed(self, job_id: str, exc: Exception) -> None:
+        job = self.database.get_job(job_id)
+        if job is None:
+            LOGGER.warning("worker failure cannot update unknown job_id=%s", job_id)
+            return
+        if job.status in {"succeeded", "cancelled"}:
+            return
+        self.database.update_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+            metadata_update={
+                "worker_action": "failed",
+                "progress_phase": "failed",
+                "progress_message": str(exc) or type(exc).__name__,
+                "progress_updated_at": utc_now_iso(),
+                "scheduler_worker_error_type": type(exc).__name__,
+            },
+        )
 
     def _prune_threads(self) -> None:
         self._worker_threads = {

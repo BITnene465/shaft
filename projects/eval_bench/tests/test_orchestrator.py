@@ -183,3 +183,30 @@ def test_orchestrator_reserves_ephemeral_runtime_ports(
     assert "runtime ports already reserved: 8000" in database.get_job(blocked.job_id).metadata[
         "scheduler_blocked_reason"
     ]
+
+
+def test_orchestrator_marks_worker_load_failure_as_failed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = EvalBenchDatabase(tmp_path)
+    job = database.create_job(kind="eval", payload={"run_id": "worker-load-failure"})
+
+    def fail_worker_load(self: EvalBenchOrchestrator):
+        raise ImportError("cannot import EvalBenchWorker")
+
+    monkeypatch.setattr(EvalBenchOrchestrator, "_load_worker_class", fail_worker_load)
+    orchestrator = EvalBenchOrchestrator(
+        tmp_path,
+        config=SchedulerConfig(max_concurrent_jobs=1, interval_s=0.01),
+    )
+
+    launched = orchestrator.schedule_once()
+
+    assert [record.job_id for record in launched] == [job.job_id]
+    _wait_for_status(database, job.job_id, "failed")
+    failed = database.get_job(job.job_id)
+    assert failed.error == "cannot import EvalBenchWorker"
+    assert failed.metadata["worker_action"] == "failed"
+    assert failed.metadata["progress_phase"] == "failed"
+    assert failed.metadata["scheduler_worker_error_type"] == "ImportError"
