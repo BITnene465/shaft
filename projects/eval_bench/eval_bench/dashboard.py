@@ -11,7 +11,7 @@ from pathlib import Path
 import socket
 import threading
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -67,7 +67,8 @@ def _sample_image_urls(
     *,
     split: str | None = None,
 ) -> dict[str, Any]:
-    image_url = f"/api/{scope}/{owner_id}/samples/{sample_index}/image"
+    encoded_owner_id = quote(owner_id, safe="")
+    image_url = f"/api/{scope}/{encoded_owner_id}/samples/{sample_index}/image"
     query = f"?{urlencode({'split': split})}" if split else ""
     preview_sep = "&" if split else "?"
     return {
