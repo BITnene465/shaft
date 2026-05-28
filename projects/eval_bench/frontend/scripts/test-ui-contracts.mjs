@@ -714,15 +714,23 @@ assert(
   "benchmarks page module must export list and detail pages",
 );
 assert(
-  benchmarksPage.includes('import { CheckboxFieldControl, TextInputControl } from "./controlPrimitives";') &&
+  benchmarksPage.includes("CheckboxFieldControl, TextareaControl, TextInputControl") &&
     (benchmarksPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
-    (benchmarksPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3,
-  "benchmark creation dialog must use shared text and checkbox form controls",
+    (benchmarksPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3 &&
+    benchmarksPage.includes("<TextareaControl"),
+  "benchmark creation dialog must use shared text, textarea, and checkbox form controls",
 );
 assert(
   benchmarksPage.includes('placeholder="grounding_layout_main"') &&
     !benchmarksPage.includes("multitask_val_v1"),
   "benchmark creation dialog must avoid legacy fixture benchmark placeholders",
+);
+assert(
+  benchmarksPage.includes("parseBenchmarkSlices(") &&
+    benchmarksPage.includes("slices: slices.length > 0 ? slices : undefined") &&
+    benchmarksPage.includes("default_slice: slices[0]?.split") &&
+    benchmarksPage.includes('label="Suite slices"'),
+  "benchmark creation dialog must support suite slice payloads",
 );
 assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&

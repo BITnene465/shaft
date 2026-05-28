@@ -21,7 +21,11 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from .artifacts import DEFAULT_STORE_ROOT, atomic_write_json
-from .benchmark import create_benchmark_from_raw_data
+from .benchmark import (
+    BenchmarkSliceSpec,
+    create_benchmark_from_raw_data,
+    create_benchmark_suite_from_raw_data,
+)
 from .comparison import (
     compare_runs,
     filter_comparison_reports,
@@ -77,6 +81,75 @@ def _sample_image_urls(
         "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}{query}",
         "image_tile_size": IMAGE_TILE_SIZE,
     }
+
+
+def _dashboard_string_list(value: Any, *, field: str, required: bool = False) -> list[str]:
+    if value is None:
+        if required:
+            raise ValueError(f"{field} must be a non-empty list")
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    output = [str(item).strip() for item in value if str(item).strip()]
+    if required and not output:
+        raise ValueError(f"{field} must be a non-empty list")
+    return output
+
+
+def _dashboard_tasks(value: Any, *, field: str, required: bool = False) -> list[str]:
+    tasks = _dashboard_string_list(value, field=field, required=required)
+    invalid = [item for item in tasks if item not in {"detection", "keypoint"}]
+    if invalid:
+        raise ValueError(f"{field} contains unsupported tasks: {invalid}")
+    return tasks
+
+
+def _dashboard_benchmark_slices(payload: dict[str, Any]) -> list[BenchmarkSliceSpec]:
+    slices_payload = payload.get("slices")
+    if slices_payload in (None, ""):
+        return []
+    if not isinstance(slices_payload, list):
+        raise ValueError("slices must be a list when provided")
+    global_tasks = payload.get("tasks")
+    global_layers = payload.get("layers")
+    slices: list[BenchmarkSliceSpec] = []
+    for index, item in enumerate(slices_payload):
+        if not isinstance(item, dict):
+            raise ValueError(f"slices[{index}] must be a JSON object")
+        split = str(item.get("split") or "").strip()
+        if not split:
+            raise ValueError(f"slices[{index}].split must be a non-empty string")
+        entries = _dashboard_string_list(item.get("entries"), field=f"slices[{index}].entries")
+        source_manifest = str(
+            item.get("source_manifest") or item.get("manifest") or ""
+        ).strip()
+        if not source_manifest and not entries:
+            raise ValueError(
+                f"slices[{index}] must define source_manifest or non-empty entries"
+            )
+        tasks = _dashboard_tasks(
+            item.get("tasks", global_tasks),
+            field=f"slices[{index}].tasks",
+            required=True,
+        )
+        slices.append(
+            BenchmarkSliceSpec(
+                split=split,
+                tasks=tasks,  # type: ignore[arg-type]
+                source_manifest=source_manifest or None,
+                entries=entries or None,
+                layers=_dashboard_string_list(
+                    item.get("layers", global_layers),
+                    field=f"slices[{index}].layers",
+                ),
+                target_labels=_dashboard_string_list(
+                    item.get("target_labels"),
+                    field=f"slices[{index}].target_labels",
+                ),
+                metadata=dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {},
+            )
+        )
+    return slices
 
 
 def project_dir() -> Path:
@@ -523,30 +596,46 @@ def create_app(
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="benchmark payload must be a JSON object")
-        required_fields = ("benchmark_id", "source_root", "source_manifest", "split")
+        has_slices = bool(payload.get("slices"))
+        required_fields = (
+            ("benchmark_id", "source_root")
+            if has_slices
+            else ("benchmark_id", "source_root", "source_manifest", "split")
+        )
         missing_fields = [field for field in required_fields if not str(payload.get(field) or "").strip()]
         if missing_fields:
             raise HTTPException(
                 status_code=400,
                 detail=f"missing required benchmark fields: {', '.join(missing_fields)}",
             )
-        tasks = payload.get("tasks")
-        if not isinstance(tasks, list) or not tasks:
-            raise HTTPException(status_code=400, detail="tasks must be a non-empty list")
-        layers = payload.get("layers") or []
-        if not isinstance(layers, list):
-            raise HTTPException(status_code=400, detail="layers must be a list when provided")
         try:
-            manifest = create_benchmark_from_raw_data(
-                store_root=request.app.state.eval_bench_store.layout.root,
-                benchmark_id=str(payload["benchmark_id"]).strip(),
-                tasks=[str(item) for item in tasks],  # type: ignore[list-item]
-                source_root=str(payload["source_root"]).strip(),
-                source_manifest=str(payload["source_manifest"]).strip(),
-                split=str(payload["split"]).strip(),
-                layers=[str(item) for item in layers],
-                overwrite=bool(payload.get("overwrite", False)),
-            )
+            slices = _dashboard_benchmark_slices(payload)
+            layers = _dashboard_string_list(payload.get("layers"), field="layers")
+            if slices:
+                manifest = create_benchmark_suite_from_raw_data(
+                    store_root=request.app.state.eval_bench_store.layout.root,
+                    benchmark_id=str(payload["benchmark_id"]).strip(),
+                    source_root=str(payload["source_root"]).strip(),
+                    slices=slices,
+                    split=str(payload.get("split") or "suite").strip() or "suite",
+                    default_slice=str(payload.get("default_slice") or "").strip() or None,
+                    layers=layers,
+                    flatten=bool(payload.get("flatten", False)),
+                    overwrite=bool(payload.get("overwrite", False)),
+                    metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+                )
+            else:
+                tasks = _dashboard_tasks(payload.get("tasks"), field="tasks", required=True)
+                manifest = create_benchmark_from_raw_data(
+                    store_root=request.app.state.eval_bench_store.layout.root,
+                    benchmark_id=str(payload["benchmark_id"]).strip(),
+                    tasks=tasks,  # type: ignore[arg-type]
+                    source_root=str(payload["source_root"]).strip(),
+                    source_manifest=str(payload["source_manifest"]).strip(),
+                    split=str(payload["split"]).strip(),
+                    layers=layers,
+                    overwrite=bool(payload.get("overwrite", False)),
+                )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except FileNotFoundError as exc:

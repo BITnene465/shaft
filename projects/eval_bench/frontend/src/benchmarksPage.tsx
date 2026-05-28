@@ -3,7 +3,12 @@ import type { FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
-import type { BenchmarkSampleDetail, BenchmarkSampleSummary, BenchmarkSummary } from "./api";
+import type {
+  BenchmarkSampleDetail,
+  BenchmarkSampleSummary,
+  BenchmarkSummary,
+  CreateBenchmarkSlicePayload
+} from "./api";
 import {
   createBenchmark,
   fetchBenchmark,
@@ -11,7 +16,7 @@ import {
   fetchBenchmarkSamples,
   fetchBenchmarks
 } from "./api";
-import { CheckboxFieldControl, TextInputControl } from "./controlPrimitives";
+import { CheckboxFieldControl, TextareaControl, TextInputControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { basename, facetValues, isTextInputTarget, unique } from "./formatters";
 import { AppIcon } from "./iconLibrary";
@@ -166,6 +171,7 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
   const [sourceRoot, setSourceRoot] = useState("data/raw_data");
   const [sourceManifest, setSourceManifest] = useState("data/raw_data/splits/layout_val.txt");
   const [split, setSplit] = useState("val");
+  const [suiteSlices, setSuiteSlices] = useState("");
   const [tasks, setTasks] = useState<string[]>(["detection", "keypoint"]);
   const [layers, setLayers] = useState("layout,arrow");
   const [overwrite, setOverwrite] = useState(false);
@@ -188,16 +194,19 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const slices = parseBenchmarkSlices(suiteSlices, tasks, layers);
     mutation.mutate({
       benchmark_id: benchmarkId.trim(),
       source_root: sourceRoot.trim(),
-      source_manifest: sourceManifest.trim(),
-      split: split.trim() || "val",
+      source_manifest: slices.length > 0 ? undefined : sourceManifest.trim(),
+      split: split.trim() || (slices.length > 0 ? "suite" : "val"),
       tasks,
       layers: layers
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean),
+      slices: slices.length > 0 ? slices : undefined,
+      default_slice: slices[0]?.split,
       overwrite
     });
   }
@@ -223,10 +232,18 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         label="Split 文件"
         value={sourceManifest}
         onChange={setSourceManifest}
-        required
+        required={!suiteSlices.trim()}
       />
       <TextInputControl label="Split 名称" value={split} onChange={setSplit} required />
       <TextInputControl label="标注层" value={layers} onChange={setLayers} />
+      <TextareaControl
+        className="wide-field"
+        label="Suite slices"
+        value={suiteSlices}
+        onChange={setSuiteSlices}
+        rows={4}
+        placeholder="grounding_arrow=data/raw_data/splits/grounding_arrow.txt | detection | arrow | arrow"
+      />
       <CheckboxFieldControl
         label="检测"
         checked={tasks.includes("detection")}
@@ -260,6 +277,38 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
     </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
+}
+
+function parseBenchmarkSlices(
+  value: string,
+  defaultTasks: string[],
+  defaultLayers: string
+): CreateBenchmarkSlicePayload[] {
+  const fallbackLayers = splitCompactList(defaultLayers);
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [head, tasksText, layersText, labelsText] = line.split("|").map((item) => item.trim());
+      const separatorIndex = head.indexOf("=");
+      const split = separatorIndex >= 0 ? head.slice(0, separatorIndex).trim() : head;
+      const sourceManifest = separatorIndex >= 0 ? head.slice(separatorIndex + 1).trim() : "";
+      return {
+        split,
+        source_manifest: sourceManifest || undefined,
+        tasks: splitCompactList(tasksText).length > 0 ? splitCompactList(tasksText) : defaultTasks,
+        layers: splitCompactList(layersText).length > 0 ? splitCompactList(layersText) : fallbackLayers,
+        target_labels: splitCompactList(labelsText)
+      };
+    });
+}
+
+function splitCompactList(value: string | undefined): string[] {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export function BenchmarkDetailPage() {

@@ -767,8 +767,11 @@ detection 的 label 子任务范围。后端会创建标准 run、复制 predict
 Runs 表格会把 note 摘要纳入搜索。
 
 Dashboard 的 Benchmarks 页也可以创建 benchmark copy：打开 `创建副本` 弹层，
-填写 raw_data 根目录、split manifest、任务类型和 layer 后提交。这个操作与
-`create-benchmark` CLI 使用同一套后端逻辑，创建后再进入 benchmark inspector 检查 GT。
+填写 raw_data 根目录、split manifest、任务类型和 layer 后提交。需要创建 suite 时，在
+`Suite slices` 中逐行声明 named split，格式为
+`split=manifest | task1,task2 | layer1,layer2 | label1,label2`；后端会写入
+`split_manifests`、`sample_counts` 和顶层 `suite` split。这个操作与
+`create-benchmark` / suite 构建后端使用同一套存储语义，创建后再进入 benchmark inspector 检查 GT。
 
 ## 开发
 

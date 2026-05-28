@@ -1024,6 +1024,78 @@ def test_dashboard_creates_benchmark_copy_from_raw_data(tmp_path: Path) -> None:
     assert conflict.status_code == 409
 
 
+def test_dashboard_creates_benchmark_suite_from_raw_data(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw_data"
+    split_dir = raw_root / "splits"
+    split_dir.mkdir(parents=True)
+    (raw_root / "part1" / "images").mkdir(parents=True)
+    for stem, label in (("arrow", "arrow"), ("shape", "shape")):
+        (raw_root / "part1" / "images" / f"{stem}.png").write_bytes(b"image")
+        _write_json(
+            raw_root / "part1" / "json" / f"{stem}.json",
+            {
+                "image_path": f"part1/images/{stem}.png",
+                "image_width": 100,
+                "image_height": 50,
+                "instances": [{"label": label, "bbox": [1, 2, 10, 20]}],
+            },
+        )
+    (split_dir / "grounding_arrow.txt").write_text(
+        "part1/json/arrow.json\n",
+        encoding="utf-8",
+    )
+    (split_dir / "grounding_shape.txt").write_text(
+        "part1/json/shape.json\n",
+        encoding="utf-8",
+    )
+
+    app = create_app(store_root=tmp_path / "store", frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    response = client.post(
+        "/api/benchmarks",
+        json={
+            "benchmark_id": "grounding_suite",
+            "source_root": str(raw_root),
+            "split": "suite",
+            "default_slice": "grounding_arrow",
+            "slices": [
+                {
+                    "split": "grounding_arrow",
+                    "source_manifest": str(split_dir / "grounding_arrow.txt"),
+                    "tasks": ["detection"],
+                    "layers": ["arrow"],
+                    "target_labels": ["arrow"],
+                },
+                {
+                    "split": "grounding_shape",
+                    "source_manifest": str(split_dir / "grounding_shape.txt"),
+                    "tasks": ["detection"],
+                    "layers": ["layout"],
+                    "target_labels": ["shape"],
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["benchmark_id"] == "grounding_suite"
+    assert payload["split"] == "suite"
+    assert payload["sample_count"] == 2
+    assert payload["sample_counts"] == {
+        "grounding_arrow": 1,
+        "grounding_shape": 1,
+        "suite": 2,
+    }
+    assert set(payload["split_manifests"]) == {"grounding_arrow", "grounding_shape", "suite"}
+    shape_page = client.get(
+        "/api/benchmarks/grounding_suite/samples",
+        params={"split": "grounding_shape"},
+    ).json()
+    assert shape_page["total"] == 1
+    assert shape_page["samples"][0]["image"] == "part1/images/shape.png"
+
+
 def test_dashboard_serves_spa_fallback_when_frontend_is_built(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)

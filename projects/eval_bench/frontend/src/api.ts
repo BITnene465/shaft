@@ -322,11 +322,23 @@ export type DashboardState = {
 export type CreateBenchmarkPayload = {
   benchmark_id: string;
   source_root: string;
-  source_manifest: string;
+  source_manifest?: string;
   split: string;
   tasks: string[];
   layers?: string[];
+  slices?: CreateBenchmarkSlicePayload[];
+  default_slice?: string;
+  flatten?: boolean;
   overwrite?: boolean;
+};
+
+export type CreateBenchmarkSlicePayload = {
+  split: string;
+  source_manifest?: string;
+  entries?: string[];
+  tasks?: string[];
+  layers?: string[];
+  target_labels?: string[];
 };
 
 export type ComparisonReport = {
