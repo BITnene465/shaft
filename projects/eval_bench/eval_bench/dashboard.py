@@ -41,7 +41,7 @@ from .job_spec import (
     preflight_job_payload,
     resolve_job_payload,
 )
-from .job_lifecycle import job_holds_scheduler_resources
+from .job_lifecycle import job_holds_scheduler_resources, mark_worker_failure
 from .log_utils import job_runtime_log_path, tail_text_lines
 from .orchestrator import EvalBenchOrchestrator
 from .prediction_import import import_predictions_for_benchmark
@@ -380,38 +380,19 @@ def _process_job_in_background(store_root: Path, job_id: str) -> None:
     except Exception as exc:
         logger = logging.getLogger("eval_bench.dashboard")
         logger.exception("dashboard worker failed job_id=%s error=%s", job_id, exc)
-        _mark_dashboard_worker_failed(store_root, job_id, exc)
+        mark_worker_failure(
+            EvalBenchDatabase(store_root),
+            job_id,
+            exc,
+            source="dashboard",
+            logger=logger,
+        )
 
 
 def _load_worker_class() -> type[Any]:
     from .worker import EvalBenchWorker
 
     return EvalBenchWorker
-
-
-def _mark_dashboard_worker_failed(store_root: Path, job_id: str, exc: Exception) -> None:
-    database = EvalBenchDatabase(store_root)
-    job = database.get_job(job_id)
-    if job is None:
-        logging.getLogger("eval_bench.dashboard").warning(
-            "dashboard worker failure cannot update unknown job_id=%s",
-            job_id,
-        )
-        return
-    if job.status in {"succeeded", "cancelled"}:
-        return
-    database.update_job(
-        job_id,
-        status="failed",
-        error=str(exc),
-        metadata_update={
-            "worker_action": "failed",
-            "progress_phase": "failed",
-            "progress_message": str(exc) or type(exc).__name__,
-            "progress_updated_at": utc_now_iso(),
-            "dashboard_worker_error_type": type(exc).__name__,
-        },
-    )
 
 
 def _pid_exists(pid: Any) -> bool:

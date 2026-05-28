@@ -208,5 +208,7 @@ def test_orchestrator_marks_worker_load_failure_as_failed(
     failed = database.get_job(job.job_id)
     assert failed.error == "cannot import EvalBenchWorker"
     assert failed.metadata["worker_action"] == "failed"
+    assert failed.metadata["worker_failure_source"] == "scheduler"
+    assert failed.metadata["worker_error_type"] == "ImportError"
     assert failed.metadata["progress_phase"] == "failed"
     assert failed.metadata["scheduler_worker_error_type"] == "ImportError"

@@ -942,6 +942,8 @@ def test_dashboard_background_worker_marks_uncaught_failure(
     failed = _wait_for_job_status(client, job.job_id, "failed")
     assert failed["error"] == "manual worker crashed"
     assert failed["metadata"]["worker_action"] == "failed"
+    assert failed["metadata"]["worker_failure_source"] == "dashboard"
+    assert failed["metadata"]["worker_error_type"] == "RuntimeError"
     assert failed["metadata"]["progress_phase"] == "failed"
     assert failed["metadata"]["dashboard_worker_error_type"] == "RuntimeError"
 
