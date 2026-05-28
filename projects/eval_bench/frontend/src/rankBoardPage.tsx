@@ -7,19 +7,11 @@ import { FileText, FileX } from "lucide-react";
 import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { StandaloneTextareaControl, ToggleButton } from "./controlPrimitives";
+import { CompactSelectControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
 import { errorMessage, f1Score, facetValues, formatMetric } from "./formatters";
 import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
-import {
-  ActionButton,
-  Badge,
-  DataTable,
-  DisclosurePanel,
-  EmptyState,
-  InlineNavLink,
-  OptionChipButton
-} from "./ui";
+import { Badge, DataTable, EmptyState, InlineNavLink, OptionChipButton } from "./ui";
 
 const RANK_SORT_LABELS: Record<string, string> = {
   f1_iou50: "F1@.50",
@@ -28,8 +20,7 @@ const RANK_SORT_LABELS: Record<string, string> = {
   mean_iou: "mIoU",
   prediction_count: "预测数",
   created_at: "创建时间",
-  run_id: "Run ID",
-  weighted_score: "Weighted"
+  run_id: "Run ID"
 };
 const RANK_PRIMARY_METRICS = [
   "f1_iou50",
@@ -44,6 +35,32 @@ const RANK_AUXILIARY_SORTS = [
 ];
 const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];
 const RANK_PAGE_SIZE = 80;
+const RANK_SECONDARY_METRIC_COLUMNS: Array<{
+  id: string;
+  header: string;
+  value: (entry: RankBoardEntry) => number | null;
+}> = [
+  {
+    id: "f1_iou50",
+    header: "F1@.50",
+    value: (entry) => rankF1Score(entry)
+  },
+  {
+    id: "precision_iou50",
+    header: "P@.50",
+    value: (entry) => entry.precision_iou50
+  },
+  {
+    id: "recall_iou50",
+    header: "R@.50",
+    value: (entry) => entry.recall_iou50
+  },
+  {
+    id: "mean_iou",
+    header: "mIoU",
+    value: (entry) => entry.mean_iou
+  }
+];
 
 export function RankBoardPage() {
   const dashboardQuery = useDashboardState();
@@ -61,11 +78,6 @@ export function RankBoardPage() {
   const [sortBy, setSortBy] = useState("f1_iou50");
   const [sortOrder, setSortOrder] = useState("desc");
   const [pageOffset, setPageOffset] = useState(0);
-  const [rankSchemeEnabled, setRankSchemeEnabled] = useState(false);
-  const [rankSchemeDraft, setRankSchemeDraft] = useState(defaultRankSchemeDraft());
-  const [rankSchemeRequestError, setRankSchemeRequestError] = useState<string | null>(null);
-  const rankSchemeError = rankSchemeEnabled ? validateRankSchemeDraft(rankSchemeDraft) : null;
-  const rankSchemeParam = rankSchemeEnabled && !rankSchemeError ? rankSchemeDraft : undefined;
   const boardQuery = useQuery({
     queryKey: [
       "rank-board",
@@ -81,37 +93,25 @@ export function RankBoardPage() {
       minScoreFilter,
       sortBy,
       sortOrder,
-      pageOffset,
-      rankSchemeParam
+      pageOffset
     ],
-    queryFn: async () => {
-      try {
-        const nextBoard = await fetchRankBoard({
-          offset: pageOffset,
-          limit: RANK_PAGE_SIZE,
-          query: searchText,
-          task: taskFilter,
-          benchmarkId: benchmarkFilter,
-          benchmarkSplit: benchmarkSplitFilter,
-          status: statusFilter,
-          label: labelFilter,
-          modelId: modelFilter,
-          promptId: promptFilter,
-          metricProfile: metricProfileFilter,
-          minScore: minScoreFilter,
-          sortBy,
-          sortOrder,
-          rankScheme: rankSchemeParam
-        });
-        setRankSchemeRequestError(null);
-        return nextBoard;
-      } catch (error) {
-        if (rankSchemeParam) {
-          setRankSchemeRequestError(errorMessage(error));
-        }
-        throw error;
-      }
-    },
+    queryFn: () =>
+      fetchRankBoard({
+        offset: pageOffset,
+        limit: RANK_PAGE_SIZE,
+        query: searchText,
+        task: taskFilter,
+        benchmarkId: benchmarkFilter,
+        benchmarkSplit: benchmarkSplitFilter,
+        status: statusFilter,
+        label: labelFilter,
+        modelId: modelFilter,
+        promptId: promptFilter,
+        metricProfile: metricProfileFilter,
+        minScore: minScoreFilter,
+        sortBy,
+        sortOrder
+      }),
     placeholderData: (previousData) => previousData
   });
   const board = boardQuery.data;
@@ -158,7 +158,6 @@ export function RankBoardPage() {
       />
     );
   }
-  const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
   const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);
 
   return (
@@ -291,12 +290,8 @@ export function RankBoardPage() {
           }
         ]}
         actions={
-          <span className={board.rank_scheme ? "rank-formula-chip weighted" : "rank-formula-chip"}>
-            <strong>
-              {board.rank_scheme
-                ? `Weighted ${board.primary_metric_label}`
-                : `主指标 ${board.primary_metric_label}`}
-            </strong>
+          <span className="rank-formula-chip">
+            <strong>{`主指标 ${board.primary_metric_label}`}</strong>
             {board.sort_by !== board.primary_metric ? (
               <em>排序 {rankSortLabel(board.sort_by)}</em>
             ) : null}
@@ -318,21 +313,8 @@ export function RankBoardPage() {
           primaryMetric={board.primary_metric}
           primaryMetricLabel={board.primary_metric_label}
           refreshing={tableRefreshing}
-          weighted={Boolean(board.rank_scheme)}
         />
       </div>
-      <RankSchemePanel
-        enabled={rankSchemeEnabled}
-        draft={rankSchemeDraft}
-        error={rankSchemeError}
-        apiError={rankSchemeApiError}
-        board={board}
-        benchmarks={benchmarks}
-        onEnabledChange={(value) =>
-          updatePagedFilterValue(rankSchemeEnabled, value, setRankSchemeEnabled, setPageOffset)}
-        onDraftChange={(value) =>
-          updatePagedFilterValue(rankSchemeDraft, value, setRankSchemeDraft, setPageOffset)}
-      />
       <RankFacetRail
         board={board}
         filters={{
@@ -394,6 +376,16 @@ function RankDecisionPanel({
   onSortByChange: (value: string) => void;
   onSortOrderChange: (value: string) => void;
 }) {
+  const primaryMetricValue = RANK_PRIMARY_METRICS.includes(sortBy) ? sortBy : board.primary_metric;
+  const primaryMetricOptions = [
+    ...(!RANK_PRIMARY_METRICS.includes(primaryMetricValue)
+      ? [{ value: primaryMetricValue, label: board.primary_metric_label }]
+      : []),
+    ...RANK_PRIMARY_METRICS.map((metric) => ({
+      value: metric,
+      label: rankSortLabel(metric)
+    }))
+  ];
   return (
     <section className="rank-decision-panel rank-leaderboard-toolbar">
       <div className="rank-board-summary">
@@ -412,20 +404,14 @@ function RankDecisionPanel({
         ) : null}
       </div>
       <div className="rank-toolbar-controls">
-        <div className="rank-sort-section">
-          <span>主指标</span>
-          <div className="rank-sort-dial" role="group" aria-label="排行榜主指标">
-            {RANK_PRIMARY_METRICS.map((metric) => (
-              <OptionChipButton
-                key={metric}
-                active={sortBy === metric}
-                className="rank-sort-chip primary"
-                onClick={() => onSortByChange(metric)}
-              >
-                {rankSortLabel(metric)}
-              </OptionChipButton>
-            ))}
-          </div>
+        <div className="rank-sort-section primary">
+          <CompactSelectControl
+            dense
+            label="主指标"
+            value={primaryMetricValue}
+            options={primaryMetricOptions}
+            onChange={onSortByChange}
+          />
         </div>
         <div className="rank-sort-section auxiliary">
           <span>排序</span>
@@ -630,36 +616,46 @@ function RankBoardTable({
   entries,
   primaryMetric,
   primaryMetricLabel,
-  refreshing,
-  weighted
+  refreshing
 }: {
   entries: RankBoardEntry[];
   primaryMetric: string;
   primaryMetricLabel: string;
   refreshing: boolean;
-  weighted: boolean;
 }) {
+  const secondaryMetricColumns: ColumnDef<RankBoardEntry>[] = RANK_SECONDARY_METRIC_COLUMNS
+    .filter((metric) => metric.id !== primaryMetric)
+    .map((metric) => ({
+      id: `metric_${metric.id}`,
+      header: metric.header,
+      meta: { width: "metric", align: "end" },
+      cell: ({ row }) => formatMetric(metric.value(row.original))
+    }));
   const columns: ColumnDef<RankBoardEntry>[] = [
     {
+      id: "rank",
       header: "Rank",
       meta: { width: "compact", align: "center" },
       cell: ({ row }) => <span className="rank-index">#{row.original.rank}</span>
     },
     {
+      id: "run_id",
       header: "Run",
-      meta: { width: "id" },
+      meta: { width: "id", wrap: "wrap" },
       cell: ({ row }) => (
-        <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
+        <Link className="run-id-link" to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
         </Link>
       )
     },
     {
+      id: "primary_metric",
       header: primaryMetricLabel,
       meta: { width: "metric", align: "end" },
       cell: ({ row }) => <span className="rank-primary-score">{formatMetric(row.original.score)}</span>
     },
     {
+      id: "leader_delta",
       header: "Δ leader",
       meta: { width: "metric", align: "end" },
       cell: ({ row }) => (
@@ -669,30 +665,17 @@ function RankBoardTable({
       )
     }
   ];
-  if (weighted) {
-    columns.push(
-      {
-        header: "Components",
-        meta: { width: "wide", wrap: "wrap" },
-        cell: ({ row }) => <RankScoreComponents components={row.original.score_components} />
-      }
-    );
-  }
-  if (primaryMetric !== "f1_iou50") {
-    columns.push({
-      header: "F1@.50",
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatMetric(rankF1Score(row.original))
-    });
-  }
   columns.push(
+    ...secondaryMetricColumns,
     {
+      id: "status",
       header: "状态",
       meta: { width: "status" },
       cell: ({ row }) => <Badge value={row.original.status} domain="run" />
     },
     { header: "任务", accessorKey: "task", meta: { width: "compact" } },
     {
+      id: "target_labels",
       header: "标签",
       meta: { width: "wide", wrap: "wrap" },
       cell: ({ row }) => row.original.target_labels.join(", ") || "-"
@@ -702,21 +685,7 @@ function RankBoardTable({
     { header: "模型", accessorKey: "model_id", meta: { width: "id" } },
     { header: "Prompt", accessorKey: "prompt_id", meta: { width: "id" } },
     {
-      header: "P@.50",
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatMetric(row.original.precision_iou50)
-    },
-    {
-      header: "R@.50",
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatMetric(row.original.recall_iou50)
-    },
-    {
-      header: "mIoU",
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatMetric(row.original.mean_iou)
-    },
-    {
+      id: "note",
       header: "备注",
       meta: { width: "compact", align: "center" },
       cell: ({ row }) => {
@@ -743,82 +712,6 @@ function RankBoardTable({
   );
 }
 
-function RankSchemePanel({
-  enabled,
-  draft,
-  error,
-  apiError,
-  board,
-  benchmarks,
-  onEnabledChange,
-  onDraftChange
-}: {
-  enabled: boolean;
-  draft: string;
-  error: string | null;
-  apiError: string | null;
-  board: RankBoard;
-  benchmarks: string[];
-  onEnabledChange: (value: boolean) => void;
-  onDraftChange: (value: string) => void;
-}) {
-  const applied = Boolean(board.rank_scheme);
-  const canLoadExample = benchmarks.length > 0;
-  return (
-    <DisclosurePanel
-      className="rank-scheme-panel"
-      summary={
-        <>
-          <div>
-            <span>Weighted rank scheme</span>
-            <strong>{applied ? board.primary_metric_label : "显式加权方案"}</strong>
-          </div>
-          <em>{applied ? "已应用" : enabled ? "待验证" : "默认 F1"}</em>
-        </>
-      }
-    >
-      <div className="rank-scheme-body">
-        <ToggleButton label="启用加权排行" active={enabled} onChange={onEnabledChange} />
-        <StandaloneTextareaControl
-          label="Weighted rank scheme JSON"
-          value={draft}
-          onChange={onDraftChange}
-          spellCheck={false}
-        />
-        <div className="rank-scheme-footer">
-          <span className={error || apiError ? "rank-scheme-status error" : "rank-scheme-status"}>
-            {error ?? apiError ?? (applied ? board.score_formula : "默认按 F1@.50 排序，不使用综合分。")}
-          </span>
-          <ActionButton
-            variant="mini"
-            disabled={!canLoadExample}
-            title={canLoadExample ? "按当前基准集载入示例" : "暂无可用基准集"}
-            onClick={() => onDraftChange(defaultRankSchemeDraft(benchmarks))}
-          >
-            载入示例
-          </ActionButton>
-        </div>
-      </div>
-    </DisclosurePanel>
-  );
-}
-
-function RankScoreComponents({ components }: { components: Array<Record<string, unknown>> }) {
-  if (components.length === 0) {
-    return <span className="rank-components empty">-</span>;
-  }
-  return (
-    <span className="rank-components">
-      {components.slice(0, 3).map((component, index) => (
-        <em key={`${component.benchmark_id ?? "bench"}-${component.metric ?? "metric"}-${index}`}>
-          {String(component.benchmark_id ?? "-")}.{String(component.metric ?? "-")}{" "}
-          <strong>{formatMetric(numericValue(component.value))}</strong>
-        </em>
-      ))}
-    </span>
-  );
-}
-
 function rankF1Score(entry: RankBoardEntry) {
   return entry.f1_iou50 ?? f1Score(entry.precision_iou50, entry.recall_iou50) ?? entry.score ?? null;
 }
@@ -839,71 +732,4 @@ function formatScoreDelta(value: number | null | undefined) {
   }
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${formatMetric(value)}`;
-}
-
-function defaultRankSchemeDraft(benchmarks: string[] = []) {
-  const benchmarkId = benchmarks.find((value) => value.trim().length > 0);
-  if (!benchmarkId) {
-    return JSON.stringify(
-      {
-        name: "weighted_quality",
-        terms: []
-      },
-      null,
-      2
-    );
-  }
-  return JSON.stringify(
-    {
-      name: "weighted_quality",
-      terms: [
-        { benchmark_id: benchmarkId, metric: "f1_iou50", weight: 0.7, missing: "drop" },
-        { benchmark_id: benchmarkId, metric: "mean_iou", weight: 0.3, missing: "zero" }
-      ]
-    },
-    null,
-    2
-  );
-}
-
-function validateRankSchemeDraft(value: string) {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(value);
-  } catch {
-    return "rank_scheme 必须是 JSON object";
-  }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return "rank_scheme 必须是 JSON object";
-  }
-  const terms = (payload as { terms?: unknown; weights?: unknown }).terms
-    ?? (payload as { weights?: unknown }).weights;
-  if (!Array.isArray(terms) || terms.length === 0) {
-    return "terms 必须是非空数组";
-  }
-  for (const [index, term] of terms.entries()) {
-    if (!term || typeof term !== "object" || Array.isArray(term)) {
-      return `terms[${index}] 必须是 object`;
-    }
-    const item = term as Record<string, unknown>;
-    if (typeof item.benchmark_id !== "string" || item.benchmark_id.trim() === "") {
-      return `terms[${index}].benchmark_id 必填`;
-    }
-    if (typeof item.metric !== "string" || item.metric.trim() === "") {
-      return `terms[${index}].metric 必填`;
-    }
-    const weight = Number(item.weight);
-    if (!Number.isFinite(weight) || weight <= 0) {
-      return `terms[${index}].weight 必须为正数`;
-    }
-    const missing = typeof item.missing === "string" ? item.missing : "drop";
-    if (!["drop", "skip", "zero"].includes(missing)) {
-      return `terms[${index}].missing 必须是 drop/skip/zero`;
-    }
-  }
-  return null;
-}
-
-function numericValue(value: unknown) {
-  return typeof value === "number" ? value : null;
 }

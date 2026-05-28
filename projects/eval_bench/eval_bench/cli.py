@@ -24,8 +24,7 @@ RANK_PRIMARY_METRIC_SORTS = (
     "prediction_count",
 )
 RANK_AUXILIARY_SORTS = ("created_at", "run_id")
-RANK_WEIGHTED_SORT = "weighted_score"
-RANK_SORT_BY_CHOICES = (*RANK_PRIMARY_METRIC_SORTS, *RANK_AUXILIARY_SORTS, RANK_WEIGHTED_SORT)
+RANK_SORT_BY_CHOICES = (*RANK_PRIMARY_METRIC_SORTS, *RANK_AUXILIARY_SORTS)
 
 
 CLI_DESTRUCTIVE_COMMANDS = frozenset(
@@ -835,7 +834,6 @@ RANK_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
         "metric_profile",
         "min_score",
         "query",
-        "rank_scheme",
     ]
 )
 BENCHMARK_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["task", "layer", "split", "query"])
@@ -1016,7 +1014,6 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "sort_by",
             "sort_order",
             "score_formula",
-            "rank_scheme",
             "facets",
             "entries",
         ],
@@ -1029,7 +1026,6 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "sort_by": {"type": "str"},
             "sort_order": {"type": "str"},
             "score_formula": {"type": "str"},
-            "rank_scheme": {"type": "object|null"},
             "facets": RUN_FACET_OUTPUT_SCHEMA,
             "entries": {
                 "type": "array",
@@ -1049,7 +1045,6 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
                     "metric_profile": "str",
                     "prediction_count": "int",
                     "note": "str",
-                    "score_components": "list[object]",
                 },
             },
         },
@@ -1803,17 +1798,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rank_board.add_argument("--sort-order", choices=("asc", "desc"), default="desc")
     rank_board.add_argument("--query", default=None)
-    rank_scheme_source = rank_board.add_mutually_exclusive_group()
-    rank_scheme_source.add_argument(
-        "--rank-scheme-json",
-        default=None,
-        help="Explicit weighted ranking scheme JSON object.",
-    )
-    rank_scheme_source.add_argument(
-        "--rank-scheme-file",
-        default=None,
-        help="Path to an explicit weighted ranking scheme JSON object.",
-    )
 
     get_run_note = subparsers.add_parser("get-run-note", help="Print the editable note for a run.")
     get_run_note.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -2732,7 +2716,6 @@ def _cmd_rank_board(args: argparse.Namespace) -> None:
         sort_by=args.sort_by,
         sort_order=args.sort_order,
         query=args.query,
-        rank_scheme=_rank_scheme_from_args(args),
     )
     print(json.dumps(board.to_dict(), ensure_ascii=False))
 
@@ -3078,20 +3061,6 @@ def _json_payload_from_args(args: argparse.Namespace) -> dict[str, object]:
     payload = json.loads(source_text)
     if not isinstance(payload, dict):
         raise ValueError("payload must be a JSON object.")
-    return payload
-
-
-def _rank_scheme_from_args(args: argparse.Namespace) -> dict[str, object] | None:
-    source_text = None
-    if getattr(args, "rank_scheme_file", None):
-        source_text = Path(str(args.rank_scheme_file)).read_text(encoding="utf-8")
-    elif getattr(args, "rank_scheme_json", None):
-        source_text = str(args.rank_scheme_json)
-    if source_text is None:
-        return None
-    payload = json.loads(source_text)
-    if not isinstance(payload, dict):
-        raise ValueError("rank scheme must be a JSON object.")
     return payload
 
 

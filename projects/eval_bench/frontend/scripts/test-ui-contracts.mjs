@@ -55,6 +55,11 @@ const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
 const styleSource = await readSource("src/styles.css");
 const designSource = await readSource("src/design.css");
+const removedCompositeApiToken = ["rank", "scheme"].join("_");
+const removedCompositeCamelToken = ["rank", "Scheme"].join("");
+const removedCompositeClassToken = ["rank", "scheme"].join("-");
+const removedCompositePanelToken = ["Rank", "Scheme", "Panel"].join("");
+const removedCompositeComponentsToken = ["score", "components"].join("_");
 const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
 const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
@@ -105,11 +110,11 @@ assert(
     styleSource.includes(".table-shell .table-col-id") &&
     styleSource.includes(".table-shell .table-col-metric") &&
     styleSource.includes(".table-shell .table-wrap-wrap") &&
-    runTables.includes('meta: { width: "id" }') &&
+    runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
     rankBoardPage.includes('meta: { width: "metric", align: "end" }') &&
     comparePage.includes('meta: { width: "date" }') &&
     jobsPage.includes("JOB_QUEUE_COLUMN_CLASS_NAMES") &&
-    jobsPage.includes('tableColumnClassName({ width: "id" })') &&
+    jobsPage.includes('tableColumnClassName({ width: "id", wrap: "wrap" })') &&
     jobsPage.includes("className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}"),
   "shared data tables must use column metadata for adaptive width, wrapping, and alignment",
 );
@@ -346,6 +351,19 @@ assert(
     runTables.includes('header: "评测"') &&
     !runTables.includes('header: "记录"'),
   "eval identity must be run_id-first in both jobs queue and result library tables",
+);
+assert(
+  runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
+    runTables.includes('className="run-id-link"') &&
+    rankBoardPage.includes('meta: { width: "id", wrap: "wrap" }') &&
+    rankBoardPage.includes('className="run-id-link"') &&
+    jobsPage.includes('identity: tableColumnClassName({ width: "id", wrap: "wrap" })') &&
+    jobsPage.includes('className="run-id-text"') &&
+    styleSource.includes(".run-id-link,") &&
+    styleSource.includes("text-overflow: clip;") &&
+    styleSource.includes(".job-eval-cell .run-id-text") &&
+    styleSource.includes(".overview-v18-run-id .run-id-text"),
+  "run names must wrap across table and card surfaces instead of being truncated with ellipsis",
 );
 assert(
   (jobsPage.match(/<CompactSelectControl/g) ?? []).length >= 2,
@@ -1160,10 +1178,8 @@ assert(
 );
 assert(
   rankBoardPage.includes("errorMessage(dashboardQuery.error || boardQuery.error)") &&
-    rankBoardPage.includes("setRankSchemeRequestError(errorMessage(error))") &&
-    !rankBoardPage.includes("setRankSchemeRequestError(error instanceof Error") &&
     !rankBoardPage.includes('return <EmptyState title="排行榜加载失败" tone="danger" />;'),
-  "rank board page must show concrete API errors for leaderboard and rank scheme failures",
+  "rank board page must show concrete API errors for leaderboard failures",
 );
 assert(
   comparePage.includes("SelectableCardButton") &&
@@ -1239,12 +1255,6 @@ assert(
   "rank board facet rail must expose all backend facets as clickable filter chips",
 );
 assert(
-  rankBoardPage.includes("const benchmarkId = benchmarks.find(") &&
-    rankBoardPage.includes("disabled={!canLoadExample}") &&
-    !rankBoardPage.includes('"multitask_val_v1"'),
-  "rank board weighted scheme examples must use current backend benchmark facets, not legacy fixture ids",
-);
-assert(
   styleSource.includes(".rank-facet-group.expanded > div") &&
     styleSource.includes("max-height: 126px") &&
     styleSource.includes("flex-wrap: wrap") &&
@@ -1253,12 +1263,17 @@ assert(
 );
 assert(
   rankBoardPage.includes("primaryMetricLabel") &&
-    rankBoardPage.includes('primaryMetric !== "f1_iou50"') &&
+    rankBoardPage.includes("const RANK_SECONDARY_METRIC_COLUMNS") &&
+    rankBoardPage.includes(".filter((metric) => metric.id !== primaryMetric)") &&
+    rankBoardPage.includes('id: "primary_metric"') &&
+    rankBoardPage.includes('id: "leader_delta"') &&
     rankBoardPage.includes('className="rank-primary-score"') &&
     rankBoardPage.includes("formatScoreDelta(row.original.score_delta)") &&
     rankBoardPage.includes("function rankDeltaClassName") &&
-    !rankBoardPage.includes('header: "Weighted"'),
-  "rank board table must render the active primary metric and leader-relative delta columns",
+    !rankBoardPage.includes('header: "Weighted"') &&
+    !rankBoardPage.includes(removedCompositeComponentsToken) &&
+    !rankBoardPage.includes(removedCompositeApiToken),
+  "rank board table must render one stable active primary metric column without duplicating secondary metric columns",
 );
 assert(
   rankBoardPage.includes("function RankDecisionPanel(") &&
@@ -1267,11 +1282,13 @@ assert(
     rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
     rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
     rankBoardPage.includes("const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];") &&
-    rankBoardPage.includes('className="rank-sort-section"') &&
+    rankBoardPage.includes("CompactSelectControl") &&
+    rankBoardPage.includes('className="rank-sort-section primary"') &&
     rankBoardPage.includes('className="rank-sort-section auxiliary"') &&
-    rankBoardPage.includes('aria-label="排行榜主指标"') &&
+    rankBoardPage.includes('label="主指标"') &&
+    rankBoardPage.includes("options={primaryMetricOptions}") &&
     rankBoardPage.includes('aria-label="排行榜辅助排序字段"') &&
-    rankBoardPage.includes('className="rank-sort-chip primary"') &&
+    !rankBoardPage.includes('className="rank-sort-chip primary"') &&
     rankBoardPage.includes('className="rank-sort-chip auxiliary"') &&
     !rankBoardPage.includes('className="rank-top-panel"') &&
     !rankBoardPage.includes('className="rank-spread-panel"') &&
@@ -1281,15 +1298,13 @@ assert(
   "rank board primary metric controls must stay in a compact leaderboard toolbar above the table",
 );
 assert(
-  rankBoardPage.includes("DisclosurePanel") &&
-    rankBoardPage.includes("StandaloneTextareaControl") &&
-    rankBoardPage.includes("ToggleButton") &&
-    rankBoardPage.includes('className="rank-scheme-panel"') &&
-    !/<details\b/.test(rankBoardPage) &&
-    !/<summary\b/.test(rankBoardPage) &&
-    !/<textarea\b/.test(rankBoardPage) &&
-    !/<input\b/.test(rankBoardPage),
-  "rank weighted scheme panel must use shared disclosure, toggle, and textarea controls",
+  !rankBoardPage.includes(removedCompositePanelToken) &&
+    !rankBoardPage.includes(removedCompositeCamelToken) &&
+    !rankBoardPage.includes(removedCompositeClassToken) &&
+    !apiSource.includes(removedCompositeCamelToken) &&
+    !apiSource.includes(removedCompositeApiToken) &&
+    !apiSource.includes(removedCompositeComponentsToken),
+  "rank composite metric controls and API parameters must be removed",
 );
 const sampleViewer = await readSource("src/sampleViewer.tsx");
 assert(

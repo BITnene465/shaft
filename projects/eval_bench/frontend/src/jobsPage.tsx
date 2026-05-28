@@ -79,7 +79,7 @@ import { ResizableSplit } from "./workspaceLayout";
 
 const JOB_PAGE_SIZE = 80;
 const JOB_QUEUE_COLUMN_CLASS_NAMES = {
-  identity: tableColumnClassName({ width: "id" }),
+  identity: tableColumnClassName({ width: "id", wrap: "wrap" }),
   kind: tableColumnClassName({ width: "compact" }),
   status: tableColumnClassName({ width: "status", wrap: "wrap" }),
   target: tableColumnClassName({ width: "wide", wrap: "wrap" }),
@@ -141,7 +141,9 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
             params={{ runId: run.run_id }}
           >
             <span className="recent-run-head">
-              <strong title={run.run_id}>{run.run_id}</strong>
+              <strong className="run-id-text" title={run.run_id}>
+                {run.run_id}
+              </strong>
               <Badge value={run.status} domain="run" />
             </span>
             <span
@@ -343,7 +345,9 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
                   >
                     <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>
                       <div className="job-eval-cell">
-                        <strong title={runId || job.job_id}>{runId || job.job_id}</strong>
+                        <strong className="run-id-text" title={runId || job.job_id}>
+                          {runId || job.job_id}
+                        </strong>
                         {runId && runId !== job.job_id ? (
                           <small title={job.job_id}>job {job.job_id}</small>
                         ) : null}

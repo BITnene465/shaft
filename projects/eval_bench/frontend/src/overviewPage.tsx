@@ -547,7 +547,7 @@ function OverviewRunList({ runs }: { runs: RunSummary[] }) {
         return (
           <Link key={run.run_id} to="/runs/$runId" params={{ runId: run.run_id }} className={readiness.tone}>
             <span className="overview-v18-run-id">
-              <strong>{run.run_id}</strong>
+              <strong className="run-id-text">{run.run_id}</strong>
               <small>{run.model_id || "-"}</small>
             </span>
             <span className="overview-v18-run-artifacts">

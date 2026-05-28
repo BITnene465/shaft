@@ -150,9 +150,9 @@ export function RunTable({
         ]),
     {
       header: "评测",
-      meta: { width: "id" },
+      meta: { width: "id", wrap: "wrap" },
       cell: ({ row }) => (
-        <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
+        <Link className="run-id-link" to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
         </Link>
       )

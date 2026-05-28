@@ -36,7 +36,6 @@ const staticRoutes = [
       ".rank-board-table-card",
       ".rank-sort-chip",
       ".advanced-filter-bar",
-      ".rank-scheme-panel",
       ".rank-board-table-card"
     ],
     requireRankChunk: true
@@ -138,7 +137,6 @@ try {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
         await assertRankDecisionPanel(page, `${viewport.name}:${route.name}`);
         await assertRankFacetRail(page, `${viewport.name}:${route.name}`);
-        await assertRankSchemePanel(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireBenchmarksChunk) {
         await assertBenchmarksPageChunkLoaded(page, `${viewport.name}:${route.name}`);
@@ -1856,7 +1854,16 @@ async function assertRankFacetRail(page, scope) {
       staticCountNodes: document.querySelectorAll(".rank-facet-group em strong").length
     };
   });
-  const expectedGroups = ["Tasks", "Benchmarks", "Status", "Labels", "Models", "Prompts", "Metrics"];
+  const expectedGroups = [
+    "Tasks",
+    "Benchmarks",
+    "Splits",
+    "Status",
+    "Labels",
+    "Models",
+    "Prompts",
+    "Metrics"
+  ];
   if (state.groups.length === 0) {
     return;
   }
@@ -1945,6 +1952,7 @@ async function assertRankDecisionPanel(page, scope) {
     const panel = document.querySelector(".rank-decision-panel");
     const toolbar = document.querySelector(".rank-leaderboard-toolbar");
     const tableCard = document.querySelector(".rank-board-table-card");
+    const primarySelect = document.querySelector(".rank-sort-section.primary select");
     const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip"));
     const primarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.primary"));
     const auxiliarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.auxiliary"));
@@ -1965,6 +1973,10 @@ async function assertRankDecisionPanel(page, scope) {
       hasPanel: Boolean(panel),
       hasToolbar: Boolean(toolbar),
       hasTableCard: Boolean(tableCard),
+      hasPrimarySelect: Boolean(primarySelect),
+      primarySelectOptions: primarySelect
+        ? Array.from(primarySelect.querySelectorAll("option")).map((option) => option.value)
+        : [],
       sortChipCount: sortChips.length,
       primarySortChipCount: primarySortChips.length,
       auxiliarySortChipCount: auxiliarySortChips.length,
@@ -1983,121 +1995,27 @@ async function assertRankDecisionPanel(page, scope) {
     !state.hasPanel ||
     !state.hasToolbar ||
     !state.hasTableCard ||
-    state.sortChipCount !== 7 ||
-    state.primarySortChipCount !== 5 ||
+    !state.hasPrimarySelect ||
+    state.primarySelectOptions.length !== 5 ||
+    state.sortChipCount !== 2 ||
+    state.primarySortChipCount !== 0 ||
     state.auxiliarySortChipCount !== 2 ||
     !state.sortSections.some((text) => text.includes("主指标")) ||
     !state.sortSections.some((text) => text.includes("排序")) ||
     state.orderChipCount !== 2 ||
-    state.activeSortChipCount !== 1 ||
+    state.activeSortChipCount !== 0 ||
     state.hasTopPanel ||
     state.hasSpreadPanel ||
     state.hasMetricStrip ||
-    state.panelHeight > 150 ||
+    state.panelHeight > 180 ||
     !state.tableStartsAfterPanel ||
     state.advancedSortControls.length > 0
   ) {
     throw new Error(`${scope}: rank decision panel contract failed ${JSON.stringify(state)}`);
   }
-  await page.locator(".rank-sort-chip", { hasText: "mIoU" }).first().click();
-  await page.locator(".rank-sort-chip.active", { hasText: "mIoU" }).first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-sort-section.primary select").selectOption("mean_iou");
+  await page.locator(".rank-primary-score").first().waitFor({ timeout: 10_000 });
   await page.locator(".rank-board-table-card").first().waitFor({ timeout: 10_000 });
-}
-
-async function assertRankSchemePanel(page, scope) {
-  const state = await page.evaluate(() => {
-    const panel = document.querySelector(".rank-scheme-panel");
-    const textarea = panel?.querySelector("textarea");
-    const summary = panel?.querySelector("summary");
-    return {
-      hasPanel: Boolean(panel),
-      open: panel?.hasAttribute("open") ?? false,
-      hasTextarea: Boolean(textarea),
-      summaryHeight: summary ? Math.round(summary.getBoundingClientRect().height) : 0
-    };
-  });
-  if (!state.hasPanel || !state.hasTextarea) {
-    throw new Error(`${scope}: rank scheme panel is missing`);
-  }
-  if (state.open) {
-    throw new Error(`${scope}: rank scheme panel should be collapsed by default`);
-  }
-  if (state.summaryHeight > 54) {
-    throw new Error(`${scope}: rank scheme summary is too tall ${state.summaryHeight}`);
-  }
-  const benchmarkId = await page.evaluate(async () => {
-    const response = await fetch("/api/state");
-    if (!response.ok) {
-      return "";
-    }
-    const state = await response.json();
-    const run = Array.isArray(state.runs)
-      ? state.runs.find((item) => item.benchmark_id && item.report_path)
-      : null;
-    return run?.benchmark_id ?? "";
-  });
-  if (!benchmarkId) {
-    return;
-  }
-  const scheme = JSON.stringify(
-    {
-      name: "layout_smoke_weighted",
-      terms: [
-        { benchmark_id: benchmarkId, metric: "f1_iou50", weight: 0.7, missing: "drop" },
-        { benchmark_id: benchmarkId, metric: "mean_iou", weight: 0.3, missing: "zero" }
-      ]
-    },
-    null,
-    2
-  );
-  await page.locator(".rank-scheme-panel summary").click();
-  await page.locator(".rank-scheme-panel textarea").fill(scheme);
-  await page.locator(".rank-scheme-body .control-check input").check();
-  await page.locator(".rank-formula-chip.weighted").waitFor({ timeout: 10_000 });
-  const weightedState = await page.evaluate(() => ({
-    chipText: document.querySelector(".rank-formula-chip")?.textContent?.trim() ?? "",
-    headers: Array.from(document.querySelectorAll(".table-shell th")).map(
-      (node) => node.textContent?.trim() ?? ""
-    ),
-    primaryScores: document.querySelectorAll(".rank-primary-score").length
-  }));
-  if (
-    !weightedState.chipText.includes("Weighted") ||
-    !weightedState.headers.includes("layout_smoke_weighted") ||
-    !weightedState.headers.includes("Components") ||
-    weightedState.primaryScores < 1
-  ) {
-    throw new Error(`${scope}: weighted rank scheme did not apply ${JSON.stringify(weightedState)}`);
-  }
-  const invalidScheme = JSON.stringify(
-    {
-      name: "layout_smoke_invalid",
-      terms: [
-        { benchmark_id: benchmarkId, metric: "unsupported_metric", weight: 1, missing: "drop" }
-      ]
-    },
-    null,
-    2
-  );
-  expectedConsoleErrors.set(page, (expectedConsoleErrors.get(page) ?? 0) + 2);
-  await page.locator(".rank-scheme-panel textarea").fill(invalidScheme);
-  await page.locator(".rank-scheme-status.error").waitFor({ timeout: 10_000 });
-  const invalidState = await page.evaluate(() => ({
-    statusText: document.querySelector(".rank-scheme-status")?.textContent?.trim() ?? "",
-    hasTable: Boolean(document.querySelector(".rank-board-table-card")),
-    bodyText: document.body.textContent ?? ""
-  }));
-  if (!invalidState.statusText.includes("metric is not supported") || !invalidState.hasTable) {
-    throw new Error(
-      `${scope}: invalid weighted scheme should stay inline ${JSON.stringify({
-        statusText: invalidState.statusText,
-        hasTable: invalidState.hasTable
-      })}`
-    );
-  }
-  if (invalidState.bodyText.includes("排行榜加载失败")) {
-    throw new Error(`${scope}: invalid weighted scheme collapsed the whole rank-board page`);
-  }
 }
 
 async function assertComparePageChunkLoaded(page, scope) {

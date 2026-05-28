@@ -895,7 +895,6 @@ def create_app(
         sort_by: str = "f1_iou50",
         sort_order: str = "desc",
         query: str | None = None,
-        rank_scheme: str | None = None,
     ):
         try:
             board = request.app.state.eval_bench_store.rank_board(
@@ -913,7 +912,6 @@ def create_app(
                 sort_by=sort_by,
                 sort_order=sort_order,
                 query=query,
-                rank_scheme=rank_scheme,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

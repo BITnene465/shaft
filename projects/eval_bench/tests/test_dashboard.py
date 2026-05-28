@@ -778,45 +778,6 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert recall_ascending["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert recall_ascending["entries"][1]["score_delta"] == pytest.approx(0.3)
 
-    rank_scheme = {
-        "name": "bench1_quality",
-        "terms": [
-            {
-                "benchmark_id": "bench1",
-                "metric": "precision_iou50",
-                "weight": 0.25,
-                "missing": "drop",
-            },
-            {
-                "benchmark_id": "bench1",
-                "metric": "mean_iou",
-                "weight": 0.75,
-                "missing": "zero",
-            },
-        ],
-    }
-    weighted = client.get(
-        "/api/rank-board",
-        params={"rank_scheme": json.dumps(rank_scheme)},
-    ).json()
-    assert weighted["primary_metric"] == "weighted_score"
-    assert weighted["primary_metric_label"] == "bench1_quality"
-    assert weighted["sort_by"] == "weighted_score"
-    assert weighted["rank_scheme"] == rank_scheme
-    assert weighted["entries"][0]["score"] == pytest.approx(0.75)
-    assert weighted["entries"][0]["score_delta"] == pytest.approx(0.0)
-    assert weighted["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
-
-    bad_scheme = client.get("/api/rank-board", params={"rank_scheme": '{"terms": []}'})
-    assert bad_scheme.status_code == 400
-
-    weighted_sort_without_scheme = client.get(
-        "/api/rank-board",
-        params={"sort_by": "weighted_score"},
-    )
-    assert weighted_sort_without_scheme.status_code == 400
-    assert "requires rank_scheme" in weighted_sort_without_scheme.json()["detail"]
-
 
 def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
     app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
@@ -918,6 +879,46 @@ def test_dashboard_job_logs_can_return_full_log(tmp_path: Path) -> None:
 
     assert tail["lines"] == ["b\n", "c\n"]
     assert full["lines"] == ["a\n", "b\n", "c\n"]
+
+
+def test_dashboard_job_logs_follow_deleted_run_to_trash(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    log_path = tmp_path / "runs" / "run1" / "logs" / "runtime.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("kept\nruntime\n", encoding="utf-8")
+    _write_json(
+        tmp_path / "runs" / "run1" / "run.json",
+        {
+            "kind": "eval_run",
+            "run_id": "run1",
+            "status": "succeeded",
+            "submitter": "test",
+            "model": {"model_id": "m", "path": "models/m"},
+            "benchmark": {
+                "benchmark_id": "bench1",
+                "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+                "split": "val",
+                "tasks": ["detection"],
+            },
+            "spec": {"task": "detection"},
+            "artifact_root": str(tmp_path / "runs" / "run1"),
+        },
+    )
+    app.state.eval_bench_database.create_job(
+        kind="eval",
+        job_id="job1",
+        payload={"run_id": "run1"},
+        status="succeeded",
+        metadata={"runtime_log_path": str(log_path)},
+    )
+
+    deleted = client.delete("/api/runs/run1")
+    payload = client.get("/api/jobs/job1/logs", params={"max_lines": 0}).json()
+
+    assert deleted.status_code == 200
+    assert payload["log_path"] == str(Path(deleted.json()["trash_path"]) / "logs" / "runtime.log")
+    assert payload["lines"] == ["kept\n", "runtime\n"]
 
 
 def test_dashboard_background_worker_marks_uncaught_failure(

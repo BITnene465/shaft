@@ -214,10 +214,7 @@ def test_cli_help_is_the_public_discovery_surface() -> None:
 
     assert rank_help.returncode == 0
     assert "--sort-by" in rank_help.stdout
-    assert "--rank-scheme-json" in rank_help.stdout
-    assert "--rank-scheme-file" in rank_help.stdout
     assert "f1_iou50" in rank_help.stdout
-    assert "weighted_score" in rank_help.stdout
     assert "contract" not in rank_help.stdout.lower()
 
 
@@ -291,7 +288,6 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "sort_by",
         "sort_order",
         "score_formula",
-        "rank_scheme",
         "facets",
         "entries",
     ]
@@ -309,13 +305,11 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
             "metric_profile",
             "min_score",
             "query",
-            "rank_scheme",
         ],
     )
     assert rank_output_schema["properties"]["evaluated_count"]["type"] == "int"
     assert rank_output_schema["properties"]["primary_metric"]["type"] == "str"
     assert rank_output_schema["properties"]["primary_metric_label"]["type"] == "str"
-    assert rank_output_schema["properties"]["rank_scheme"]["type"] == "object|null"
     assert rank_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "benchmarks",
@@ -1899,26 +1893,6 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
             "run_id",
             "--sort-order",
             "desc",
-            "--rank-scheme-json",
-            json.dumps(
-                {
-                    "name": "agent_weighted_quality",
-                    "terms": [
-                        {
-                            "benchmark_id": "bench1",
-                            "metric": "precision_iou50",
-                            "weight": 0.4,
-                            "missing": "drop",
-                        },
-                        {
-                            "benchmark_id": "bench1",
-                            "metric": "mean_iou",
-                            "weight": 0.6,
-                            "missing": "zero",
-                        },
-                    ],
-                }
-            ),
         ]
     )
     _cmd_rank_board(args)
@@ -1926,14 +1900,12 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     _assert_cli_json_payload("rank-board", payload)
 
     assert payload["total"] == 1
-    assert payload["primary_metric"] == "weighted_score"
-    assert payload["primary_metric_label"] == "agent_weighted_quality"
+    assert payload["primary_metric"] == "f1_iou50"
+    assert payload["primary_metric_label"] == "F1@.50"
     assert payload["sort_by"] == "run_id"
     assert payload["sort_order"] == "desc"
     assert payload["filters"]["benchmark_split"] == "grounding_layout"
     assert payload["filters"]["min_score"] == "0.7"
-    assert payload["filters"]["rank_scheme"] == "agent_weighted_quality"
-    assert payload["rank_scheme"]["name"] == "agent_weighted_quality"
     assert payload["facets"]["splits"] == [{"value": "grounding_layout", "count": 1}]
     assert payload["facets"]["metric_profiles"] == [{"value": "detection_iou_v1", "count": 1}]
     assert payload["entries"][0]["run_id"] == "run_a"
@@ -1941,7 +1913,6 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert payload["entries"][0]["rank"] == 1
     assert payload["entries"][0]["score"] == pytest.approx(0.9)
     assert payload["entries"][0]["score_delta"] == pytest.approx(0.0)
-    assert payload["entries"][0]["score_components"][0]["metric"] == "precision_iou50"
 
     metric_args = _build_parser().parse_args(
         [
@@ -1962,18 +1933,6 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert metric_payload["entries"][0]["score"] == pytest.approx(0.9)
     assert metric_payload["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert metric_payload["entries"][1]["score_delta"] < 0
-
-    weighted_sort_without_scheme = _build_parser().parse_args(
-        [
-            "rank-board",
-            "--output-root",
-            str(tmp_path),
-            "--sort-by",
-            "weighted_score",
-        ]
-    )
-    with pytest.raises(ValueError, match="requires rank_scheme"):
-        _cmd_rank_board(weighted_sort_without_scheme)
 
 
 def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
