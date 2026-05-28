@@ -88,14 +88,22 @@ export function ServicesPage() {
     ...services.map((service) => service.kind)
   ]);
   useEffect(() => {
-    setPageOffset(0);
-  }, [searchText, statusFilter, kindFilter]);
-  useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalServices, SERVICE_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
     }
   }, [pageOffset, totalServices]);
+  function updateServiceFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setPageOffset(0);
+    setter(nextValue);
+  }
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">
@@ -125,7 +133,7 @@ export function ServicesPage() {
                 id: "service-query",
                 label: "全文检索",
                 value: searchText,
-                onChange: setSearchText,
+                onChange: (value) => updateServiceFilter(searchText, value, setSearchText),
                 placeholder: "搜索服务、模型、endpoint、CUDA、健康状态"
               },
               {
@@ -135,7 +143,7 @@ export function ServicesPage() {
                 value: statusFilter,
                 values: ["all", ...statuses],
                 labels: { all: "全部" },
-                onChange: setStatusFilter
+                onChange: (value) => updateServiceFilter(statusFilter, value, setStatusFilter)
               },
               {
                 type: "select",
@@ -144,7 +152,7 @@ export function ServicesPage() {
                 value: kindFilter,
                 values: ["all", ...kinds],
                 labels: { all: "全部" },
-                onChange: setKindFilter
+                onChange: (value) => updateServiceFilter(kindFilter, value, setKindFilter)
               }
             ]}
           />

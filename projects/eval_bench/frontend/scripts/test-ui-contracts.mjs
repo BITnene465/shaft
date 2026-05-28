@@ -1040,6 +1040,14 @@ assert(
   "services page must use paged API requests instead of a fixed 200-service slice",
 );
 assert(
+  servicesPage.includes("function updateServiceFilter(") &&
+    servicesPage.includes("setPageOffset(0);") &&
+    servicesPage.includes("onChange: (value) => updateServiceFilter(searchText, value, setSearchText)") &&
+    servicesPage.includes("onChange: (value) => updateServiceFilter(statusFilter, value, setStatusFilter)") &&
+    !servicesPage.includes("useEffect(() => {\n    setPageOffset(0);"),
+  "services page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+);
+assert(
   servicesPage.includes("TextInputControl") &&
     servicesPage.includes("NumberInputControl") &&
     (servicesPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
