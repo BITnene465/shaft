@@ -1378,11 +1378,22 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "compare-runs": {
         "type": "object",
-        "required": ["comparison_id", "baseline_run_id", "candidate_run_id", "report_path"],
+        "required": [
+            "comparison_id",
+            "baseline_run_id",
+            "candidate_run_id",
+            "benchmark_id",
+            "benchmark_split",
+            "warnings",
+            "report_path",
+        ],
         "properties": {
             "comparison_id": {"type": "str"},
             "baseline_run_id": {"type": "str"},
             "candidate_run_id": {"type": "str"},
+            "benchmark_id": {"type": "str"},
+            "benchmark_split": {"type": "str"},
+            "warnings": {"type": "list[str]"},
             "report_path": {"type": "str"},
         },
     },
@@ -2900,12 +2911,18 @@ def _cmd_compare_runs(args: argparse.Namespace) -> None:
         baseline_run_id=str(args.baseline_run_id),
         candidate_run_id=str(args.candidate_run_id),
     )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        payload = {}
     print(
         json.dumps(
             {
                 "comparison_id": path.stem,
                 "baseline_run_id": str(args.baseline_run_id),
                 "candidate_run_id": str(args.candidate_run_id),
+                "benchmark_id": str(payload.get("benchmark_id") or ""),
+                "benchmark_split": str(payload.get("benchmark_split") or ""),
+                "warnings": [str(item) for item in payload.get("warnings") or []],
                 "report_path": str(path),
             },
             ensure_ascii=False,

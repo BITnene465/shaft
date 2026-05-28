@@ -630,6 +630,9 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         "comparison_id",
         "baseline_run_id",
         "candidate_run_id",
+        "benchmark_id",
+        "benchmark_split",
+        "warnings",
         "report_path",
     ]
     run_report_schema = CLI_JSON_OUTPUT_SCHEMAS["show-run-report"]
@@ -1224,6 +1227,9 @@ def test_cli_lifecycle_commands_emit_agent_json_payloads(tmp_path: Path, capsys)
         "comparison_id": "run_base__vs__run_a",
         "baseline_run_id": "run_base",
         "candidate_run_id": "run_a",
+        "benchmark_id": "bench1",
+        "benchmark_split": "val",
+        "warnings": [],
         "report_path": str(tmp_path / "exports" / "comparisons" / "run_base__vs__run_a.json"),
     }
     assert Path(compare_payload["report_path"]).exists()
