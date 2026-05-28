@@ -821,6 +821,14 @@ assert(
   "benchmarks page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
+  benchmarksPage.includes("function updateBenchmarkFilter(") &&
+    benchmarksPage.includes("setPageOffset(0);") &&
+    benchmarksPage.includes("onChange: (value) => updateBenchmarkFilter(searchText, value, setSearchText)") &&
+    benchmarksPage.includes("onChange: (value) => updateBenchmarkFilter(taskFilter, value, setTaskFilter)") &&
+    !benchmarksPage.includes("useEffect(() => {\n    setPageOffset(0);"),
+  "benchmarks page filter changes must reset paging in the same state batch instead of issuing a stale-offset refresh",
+);
+assert(
   benchmarksPage.includes("SelectableRowButton") &&
     !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "benchmark sample list rows must use SelectableRowButton",

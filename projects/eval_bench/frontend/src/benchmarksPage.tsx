@@ -75,9 +75,6 @@ export function BenchmarksPage() {
   const splits = facetValues(facets, "splits", benchmarks.flatMap(benchmarkSplitValues));
   const totalBenchmarks = benchmarksQuery.data?.total ?? benchmarks.length;
   useEffect(() => {
-    setPageOffset(0);
-  }, [searchText, taskFilter, layerFilter, splitFilter]);
-  useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalBenchmarks, BENCHMARK_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
       setPageOffset(nextOffset);
@@ -88,6 +85,17 @@ export function BenchmarksPage() {
   }
   if (benchmarksQuery.error || !benchmarksQuery.data) {
     return <EmptyState title={`基准集加载失败：${errorMessage(benchmarksQuery.error)}`} tone="danger" />;
+  }
+  function updateBenchmarkFilter(
+    currentValue: string,
+    nextValue: string,
+    setter: (value: string) => void
+  ) {
+    if (nextValue === currentValue) {
+      return;
+    }
+    setPageOffset(0);
+    setter(nextValue);
   }
   return (
     <section className="page-stack density-page">
@@ -112,7 +120,7 @@ export function BenchmarksPage() {
             id: "benchmark-query",
             label: "全文检索",
             value: searchText,
-            onChange: setSearchText,
+            onChange: (value) => updateBenchmarkFilter(searchText, value, setSearchText),
             placeholder: "搜索 benchmark、manifest、root、来源"
           },
           {
@@ -122,7 +130,7 @@ export function BenchmarksPage() {
             value: taskFilter,
             values: ["all", ...tasks],
             labels: { all: "全部" },
-            onChange: setTaskFilter
+            onChange: (value) => updateBenchmarkFilter(taskFilter, value, setTaskFilter)
           },
           {
             type: "select",
@@ -131,7 +139,7 @@ export function BenchmarksPage() {
             value: layerFilter,
             values: ["all", ...layers],
             labels: { all: "全部" },
-            onChange: setLayerFilter
+            onChange: (value) => updateBenchmarkFilter(layerFilter, value, setLayerFilter)
           },
           {
             type: "select",
@@ -140,7 +148,7 @@ export function BenchmarksPage() {
             value: splitFilter,
             values: ["all", ...splits],
             labels: { all: "全部" },
-            onChange: setSplitFilter
+            onChange: (value) => updateBenchmarkFilter(splitFilter, value, setSplitFilter)
           }
         ]}
       />
