@@ -909,6 +909,15 @@ assert(
   "runs import dialog must use the shared detection label subtask panel instead of a free-text target label field",
 );
 assert(
+  runsPage.includes('const [benchmarkSplit, setBenchmarkSplit] = useState("auto")') &&
+    runsPage.includes("benchmarkImportSplitOptions(selectedBenchmark)") &&
+    runsPage.includes('split: benchmarkSplit === "auto" ? undefined : benchmarkSplit') &&
+    runsPage.includes('label="Benchmark split"') &&
+    runsPage.includes('{ value: "auto", label: "自动推断" }') &&
+    runsPage.includes("benchmark?.split_manifests"),
+  "runs import dialog must allow explicit benchmark split selection for suite benchmarks",
+);
+assert(
   servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
     servicesPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
     servicesPage.includes('className="rank-board-pager service-list-pager"') &&

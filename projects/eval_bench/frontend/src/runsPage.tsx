@@ -292,6 +292,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
   const [modelId, setModelId] = useState("");
   const [modelPath, setModelPath] = useState("imported");
   const [promptId, setPromptId] = useState("imported");
+  const [benchmarkSplit, setBenchmarkSplit] = useState("auto");
   const [targetLabels, setTargetLabels] = useState<string[]>([]);
   const [specId, setSpecId] = useState("");
   const [strict, setStrict] = useState(false);
@@ -309,6 +310,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
   const effectiveBenchmarkId = benchmarkId || benchmarks[0]?.benchmark_id || "";
   const selectedBenchmark = benchmarks.find((benchmark) => benchmark.benchmark_id === effectiveBenchmarkId);
   const labelOptions = selectedBenchmark?.labels ?? [];
+  const benchmarkSplitOptions = benchmarkImportSplitOptions(selectedBenchmark);
   useEffect(() => {
     if (task !== "detection") {
       setTargetLabels([]);
@@ -318,6 +320,9 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
       setTargetLabels((current) => current.filter((label) => labelOptions.includes(label)));
     }
   }, [task, effectiveBenchmarkId, labelOptions.join("\u0000")]);
+  useEffect(() => {
+    setBenchmarkSplit("auto");
+  }, [effectiveBenchmarkId]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -330,6 +335,7 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
       model_path: modelPath.trim() || "imported",
       prompt_id: promptId.trim() || "imported",
       spec_id: specId.trim() || undefined,
+      split: benchmarkSplit === "auto" ? undefined : benchmarkSplit,
       target_labels: targetLabels,
       strict,
       overwrite,
@@ -391,6 +397,12 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
         onChange={setModelPath}
       />
       <TextInputControl label="Prompt" value={promptId} onChange={setPromptId} />
+      <FormSelectControl
+        label="Benchmark split"
+        value={benchmarkSplit}
+        options={benchmarkSplitOptions}
+        onChange={setBenchmarkSplit}
+      />
       <DetectionLabelSubtaskPanel
         className="full-field"
         task={task}
@@ -426,6 +438,24 @@ function ImportPredictionsPanel({ benchmarks, bare }: { benchmarks: BenchmarkSum
     </form>
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
+}
+
+function benchmarkImportSplitOptions(benchmark: BenchmarkSummary | undefined) {
+  const values = new Set<string>();
+  if (benchmark?.split) {
+    values.add(benchmark.split);
+  }
+  Object.keys(benchmark?.split_manifests ?? {}).forEach((value) => {
+    if (value.trim()) {
+      values.add(value);
+    }
+  });
+  return [
+    { value: "auto", label: "自动推断" },
+    ...Array.from(values)
+      .sort((left, right) => left.localeCompare(right))
+      .map((value) => ({ value, label: value }))
+  ];
 }
 
 export function RunDetailPage() {

@@ -463,6 +463,7 @@ export type ImportPredictionPayload = {
   model_path?: string;
   prompt_id?: string;
   spec_id?: string;
+  split?: string;
   target_labels?: string[];
   strict?: boolean;
   overwrite?: boolean;
