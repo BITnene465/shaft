@@ -451,6 +451,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert run_payload["spec"]["prompt"]["metadata"]["system_prompt"] == "system snapshot"
     assert run_payload["spec"]["prompt"]["metadata"]["user_prompt"] == "predict arrow endpoints"
     assert run_payload["metadata"]["source_job_id"] == job.job_id
+    assert "job_manifest" not in run_payload["metadata"]
 
 
 def test_worker_marks_invalid_job_failed(tmp_path: Path) -> None:

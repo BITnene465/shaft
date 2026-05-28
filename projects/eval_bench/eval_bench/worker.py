@@ -478,7 +478,6 @@ class EvalBenchWorker:
                 "source_job_id": job.job_id,
                 "worker_action": "prepare_run",
                 "job_kind": job.payload.get("job_kind"),
-                "job_manifest": job.payload.get("job_manifest"),
                 "runtime_mode": job.payload.get("runtime_mode"),
             },
         )
