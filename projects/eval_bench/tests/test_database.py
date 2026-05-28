@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from eval_bench.database import EvalBenchDatabase
+from eval_bench.prompt_templates import DEFAULT_PROMPT_SPECS
 
 
 def test_database_persists_jobs_across_instances(tmp_path: Path) -> None:
@@ -24,6 +25,9 @@ def test_database_persists_jobs_across_instances(tmp_path: Path) -> None:
 
     assert len(jobs) == 1
     assert jobs[0].job_id == job.job_id
+    assert jobs[0].run_id == job.run_id == job.job_id
+    assert jobs[0].payload["run_id"] == job.run_id
+    assert jobs[0].metadata["run_id"] == job.run_id
     assert jobs[0].payload["model_id"] == "model-a"
 
 
@@ -49,6 +53,7 @@ def test_database_list_pages_expose_complete_facets_across_pagination(tmp_path: 
 
     assert len(job_page.jobs) == 1
     assert job_page.total == 2
+    assert {job.run_id for job in job_page.jobs} <= {"run-a", "run-b"}
     assert job_page.facets["kinds"] == [
         {"value": "eval", "count": 1},
         {"value": "preannotate", "count": 1},
@@ -119,10 +124,12 @@ def test_database_persists_model_services_across_instances(tmp_path: Path) -> No
 def test_database_refreshes_repo_prompt_templates_without_overwriting_user_templates(
     tmp_path: Path,
 ) -> None:
+    arrow_prompt_id = str(DEFAULT_PROMPT_SPECS[0]["prompt_id"])
+    layout_prompt_id = str(DEFAULT_PROMPT_SPECS[1]["prompt_id"])
     database = EvalBenchDatabase(tmp_path)
     database.upsert_prompt_template(
         {
-            "prompt_id": "grounding_arrow.latest",
+            "prompt_id": arrow_prompt_id,
             "label": "Custom Arrow",
             "task": "detection",
             "system_prompt": "custom system",
@@ -132,7 +139,7 @@ def test_database_refreshes_repo_prompt_templates_without_overwriting_user_templ
     )
     database.upsert_prompt_template(
         {
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": layout_prompt_id,
             "label": "Stale Layout",
             "task": "detection",
             "system_prompt": "stale system",
@@ -143,8 +150,8 @@ def test_database_refreshes_repo_prompt_templates_without_overwriting_user_templ
 
     refreshed = EvalBenchDatabase(tmp_path)
 
-    arrow = refreshed.get_prompt_template("grounding_arrow.latest")
-    layout = refreshed.get_prompt_template("grounding_layout.latest")
+    arrow = refreshed.get_prompt_template(arrow_prompt_id)
+    layout = refreshed.get_prompt_template(layout_prompt_id)
     assert arrow is not None
     assert arrow.label == "Custom Arrow"
     assert arrow.metadata["target_labels"] == ["custom"]

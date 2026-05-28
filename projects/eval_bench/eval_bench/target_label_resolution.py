@@ -25,6 +25,7 @@ def resolve_target_label_scope(
         record = database.get_prompt_template(prompt_id)
         if record is None:
             warnings.append(f"prompt template does not exist: {prompt_id}")
+            resolved_task = resolved_task or _task_from_prompt_id(prompt_id)
         else:
             prompt_metadata = dict(record.metadata)
             resolved_task = resolved_task or record.task
@@ -57,3 +58,12 @@ def resolve_target_label_scope(
 def _optional_string(value: str | None) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _task_from_prompt_id(prompt_id: str) -> str | None:
+    lowered = prompt_id.lower()
+    if "point_arrow" in lowered or "keypoint_arrow" in lowered or "arrow_keypoint" in lowered:
+        return "keypoint"
+    if lowered.startswith("grounding_") or "grounding_" in lowered:
+        return "detection"
+    return None

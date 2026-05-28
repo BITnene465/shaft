@@ -91,16 +91,23 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 profile-driven matcher、geometry primitive、sample diagnostic 和 label aggregation。
   - `keypoint_endpoint_v1` 使用 ordered endpoint distance matcher，不再用 bbox IoU 决定 TP/FP/FN。
 - `projects/eval_bench/eval_bench/label_policy.py`
-  - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`legacy_prompt_id`、
-    `task_default` 或 `unscoped` 来源；`legacy_prompt_id` 只能匹配内置 prompt 命名族
+  - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`suite_default`、
+    `task_default` 或 `unscoped` 来源；`suite_default` 只匹配 Eval Bench 维护的内置 suite 命名族
     `grounding_layout.*`、`grounding_arrow.*`、`grounding_shape.*`、
     `grounding_icon_image.*`、`point_arrow.*` 和历史
     `keypoint_arrow.*` / `arrow_keypoint.*`。
+- `projects/eval_bench/eval_bench/prompt_templates.py`
+  - 维护 repo seed prompt template。当前 seed 包含 grounding detection prompts 和
+    `point_arrow.v2.4.main`；point prompt 只作为显式 keypoint eval 入口，不重新引入默认
+    `keypoint_eval_job` 模板。
 - `projects/eval_bench/eval_bench/benchmark.py`
   - 维护 benchmark copy、benchmark suite、named split resolver 和 Banana slice 推断规则。
     一个 Eval Bench 自维护 benchmark 可以通过 `split_manifests` / `sample_counts` 暴露多个
     named slice；worker、evaluator、prediction import、store 和 dashboard 只能调用 resolver
     选择 split manifest，不能各自读取顶层 `manifest_path` 或按 part 目录猜测。
+  - Banana v2.4 suite 同时维护 grounding detection slices 和 crop 级 `point_arrow` slice。
+    `point_arrow` 必须来自 `data/point_arrow/structured/val.jsonl` 的 arrow crop，不允许用 raw
+    full image 作为 point eval 样本。
   - Eval Bench 自维护 benchmark copy 使用扁平 `data/json` 与 `data/images` 目录；`part1` /
     `part2` 只允许作为 JSON `extra.source_json` / `extra.source_image` 溯源信息存在，不能作为
     benchmark 内部的任务或切分维度。
@@ -109,6 +116,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/database.py`
   - 维护 job/service/prompt template registry；job/service 列表过滤和分页由 `job_page` /
     `service_page` 提供，CLI/API/Jobs/Services 页面不能各自复制高级检索语义。
+  - Eval job 的用户可读评测身份是 `run_id`；`job_id` 只表示一次队列执行。`jobs.run_id` 是
+    job registry 中的持久字段，API/CLI/Jobs 页面和结果库必须以 `run_id` 优先展示评测记录，
+    只有尚未落盘 run manifest 的 job 才回退到 `job_id`。
   - `matching_jobs()` 是 job lifecycle 和 scheduler 的完整匹配集合真源；`job_page()` / `list_jobs()`
     只负责分页展示，不能用于 running resource check 或 queued FIFO scan。
 - `projects/eval_bench/eval_bench/sample_paths.py`

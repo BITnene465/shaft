@@ -25,11 +25,11 @@ def test_eval_semantics_prefers_explicit_target_labels() -> None:
     assert semantics.metric_profile.profile_id == "detection_iou_v1"
 
 
-def test_target_label_policy_records_legacy_prompt_id_source() -> None:
+def test_target_label_policy_records_suite_default_source() -> None:
     policy = resolve_target_label_policy(prompt_id="grounding_layout.latest", task="detection")
 
     assert policy.labels == ["icon", "image", "shape"]
-    assert policy.source == "legacy_prompt_id"
+    assert policy.source == "suite_default"
 
 
 def test_target_label_policy_does_not_infer_custom_layout_prompt_ids() -> None:

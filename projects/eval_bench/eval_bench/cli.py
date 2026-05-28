@@ -356,6 +356,7 @@ JOB_METADATA_OUTPUT_SCHEMA = {
 }
 JOB_RECORD_OUTPUT_SHAPE = {
     "job_id": "str",
+    "run_id": "str|null",
     "kind": "str",
     "status": "str",
     "payload": JOB_PAYLOAD_OUTPUT_SCHEMA,
@@ -1193,6 +1194,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": [
             "job_id",
+            "run_id",
             "kind",
             "status",
             "payload",
@@ -1207,6 +1209,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "type": "object",
         "required": [
             "job_id",
+            "run_id",
             "kind",
             "status",
             "payload",

@@ -245,11 +245,16 @@ sequenceDiagram
 - Eval Bench 使用 `eval_bench_store/db/eval_bench.sqlite` 记录持久化 job；第一版正式支持 manifest-driven `eval_job`。Job manifest 由 `runtime` 和 `eval` 两块组成，前端只提供模板初始值，用户可以自由增加、删除或修改字段；提交前后端 preflight 会检查 benchmark/model/task/prompt，展示 vLLM 命令，并把未知 `runtime.args` 作为 CLI flags 保留。
 - `runtime.mode=ephemeral` 表示 job 自己启动一个短生命周期 vLLM OpenAI server，等待 ready 后执行 eval，结束或失败后关闭该进程，日志写入 `runs/<run_id>/logs/runtime.log`。`runtime.mode=existing_service` 表示 job 连接已有 endpoint，不负责启停服务。
 - Eval Bench 使用同一 SQLite store 管理长期 model service registry。Services 页可以登记外部 vLLM endpoint，也可以登记本地 vLLM OpenAI server 的 CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数；本地服务通过当前 `.venv` 的 Python 以 `python -m vllm.entrypoints.openai.api_server` 启动，日志写入 `eval_bench_store/services/<service_id>/service.log`，并提供 Start/Stop API。长期 vLLM 属于 Service，一次性 vLLM 属于 Job runtime，生命周期不能混用。
+- Eval job 的用户可读评测身份是 `run_id`；`job_id` 只表示一次队列执行。评测中心和结果库都必须优先展示
+  `run_id`，只有还没有落盘 run manifest 的 job 才回退到 `job_id`。
 - `eval_semantics.py` 是 evaluator、prediction import 和 comparison 的评估语义入口；`label_policy.py`
-  负责 target label scope 及来源，`metric_profiles.py` 负责 metric profile registry，
+  负责 target label scope 及来源，来源包括 `explicit`、`prompt_metadata`、`suite_default`、
+  `task_default` 和 `unscoped`；`metric_profiles.py` 负责 metric profile registry，
   `job_lifecycle.py` 负责 job 状态和调度资源占用规则。新增任务、指标、label scope 或 job
   状态必须先更新这些中间层，再接 UI/API/worker。Job preflight 和 `import-predictions`
   都必须复用 `label_policy.py` 校验 target labels 是否存在于 benchmark label index。
+- Banana v2.4 Eval Bench suite 同时维护 grounding detection slices 和 crop 级 `point_arrow` split；
+  `point_arrow` 来自 `data/point_arrow/structured/val.jsonl`，默认 job 模板仍只暴露 detection 入口。
 - `src/shaft/infer`、`src/shaft/codec`、`src/shaft/metrics` 继续作为推理、解析、指标能力真源。
 - Eval Bench 负责把一次推理运行落成 raw-data-like prediction snapshot，并记录 `model_id`、模型路径、prompt ID/path/hash、prompt 文本快照、推理参数、job manifest、runtime/service 参数、创建时间、耗时、parser 信息等溯源元数据；这些字段是 run manifest 的一等快照，并在 dashboard 的 Run Inspector 中展示。
 - `runs/<run_id>/note.json` 是可编辑 run note 真源；人类 UI 和 agent CLI/API 的覆盖写、追加写都必须复用 store

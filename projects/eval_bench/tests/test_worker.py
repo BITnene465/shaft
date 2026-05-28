@@ -150,7 +150,7 @@ def _ephemeral_eval_job_payload() -> dict:
                 "model_id": "served-model",
                 "benchmark_id": "bench1",
                 "task": "detection",
-                "prompt_id": "grounding_layout.latest",
+                "prompt_id": "grounding_layout.test.main",
                 "prompt_text": "detect icons",
                 "generation": {"max_tokens": 16, "temperature": 0, "top_p": 1},
                 "data": {"batch_size": 1, "max_pixels": 1048576},
@@ -330,7 +330,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
             "model_path": "outputs/model-a/best",
             "benchmark_id": "bench1",
             "task": "keypoint",
-            "prompt_id": "arrow_keypoint.latest",
+            "prompt_id": "point_arrow.test.main",
             "system_prompt": "system snapshot",
             "prompt_text": "predict arrow endpoints",
             "service_id": "local-vllm-0",
@@ -358,7 +358,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert run_payload["status"] == "queued"
     assert run_payload["spec"]["task"] == "keypoint"
     assert run_payload["spec"]["target_labels"] == ["arrow"]
-    assert run_payload["spec"]["metadata"]["target_labels_source"] == "legacy_prompt_id"
+    assert run_payload["spec"]["metadata"]["target_labels_source"] == "suite_default"
     assert run_payload["spec"]["inference"]["batch_size"] == 2
     assert run_payload["spec"]["inference"]["service_id"] == "local-vllm-0"
     assert run_payload["spec"]["inference"]["cuda_visible_devices"] == "0,1,2"
@@ -370,7 +370,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert run_payload["spec"]["inference"]["temperature"] == 0.1
     assert run_payload["spec"]["inference"]["top_p"] == 0.9
     assert run_payload["spec"]["inference"]["max_pixels"] == 1048576
-    assert run_payload["spec"]["prompt"]["prompt_id"] == "arrow_keypoint.latest"
+    assert run_payload["spec"]["prompt"]["prompt_id"] == "point_arrow.test.main"
     assert run_payload["spec"]["prompt"]["text_hash"]
     assert run_payload["spec"]["prompt"]["metadata"]["source"] == "inline"
     assert run_payload["spec"]["prompt"]["metadata"]["system_prompt"] == "system snapshot"
@@ -387,7 +387,7 @@ def test_worker_marks_invalid_job_failed(tmp_path: Path) -> None:
             "model_path": "outputs/model-a/best",
             "benchmark_id": "missing",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.test.main",
         },
     )
 
@@ -403,13 +403,14 @@ def test_worker_default_prompt_resolution_is_repo_rooted(tmp_path: Path, monkeyp
     monkeypatch.chdir(tmp_path)
 
     system_prompt, user_prompt, prompt_id = _resolve_prompt(
-        {"prompt_id": "grounding_layout.latest"},
+        {"prompt_id": "grounding_layout.test.main"},
         task="detection",
     )
 
     assert "Return only valid compact JSON" in system_prompt
     assert "Detect all visible top-level layout elements" in user_prompt
-    assert prompt_id == "shaft.grounding_layout.v1"
+    assert prompt_id.startswith("shaft.grounding_layout.prompt_pool.")
+    assert prompt_id.endswith(".main")
 
 
 def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
@@ -443,7 +444,7 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
             "model_path": "outputs/dry/best",
             "benchmark_id": "bench1",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.test.main",
             "backend": "dry_run",
             "metadata": {"notes": "checkpoint=5000; full benchmark sweep"},
         },
@@ -466,7 +467,7 @@ def test_worker_dry_run_writes_predictions_and_report(tmp_path: Path) -> None:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["prediction_file_count"] == 1
     assert report["target_labels"] == ["icon", "image", "shape"]
-    assert report["target_labels_source"] == "prompt_metadata"
+    assert report["target_labels_source"] == "suite_default"
     assert report["recall_iou50"] == 0.0
     run_payload = json.loads((tmp_path / "runs" / job.job_id / "run.json").read_text(encoding="utf-8"))
     assert run_payload["status"] == "succeeded"
@@ -527,7 +528,7 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
             "served_model_name": "served-model",
             "benchmark_id": "bench1",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.test.main",
             "prompt_text": "detect icons",
             "backend": "vllm_openai",
             "endpoint": "http://127.0.0.1:8000",
@@ -626,7 +627,7 @@ def test_worker_vllm_openai_runs_requests_concurrently(
             "served_model_name": "served-model",
             "benchmark_id": "bench1",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.test.main",
             "prompt_text": "detect icons",
             "backend": "vllm_openai",
             "endpoint": "http://127.0.0.1:8000",

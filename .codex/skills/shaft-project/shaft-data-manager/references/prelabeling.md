@@ -32,15 +32,15 @@ unified `grounding` detection and optional `point_arrow`.
 Recommended stages:
 
 1. Grounding/layout labels on the full image.
-   - Use the prompt in `configs/prompts/grounding_layout.yaml`.
+   - Use the prompt in `configs/prompts/pools/grounding_layout.v2.4.yaml`.
    - Keep labels `icon`, `image`, and `shape`.
    - If the model emits `shape_combination`, normalize the label to `icon` and preserve the
      original label in `extra`.
 2. Grounding/arrow labels on the full image.
-   - Use the prompt in `configs/prompts/grounding_arrow.yaml`.
+   - Use the prompt in `configs/prompts/pools/grounding_arrow.v2.4.yaml`.
    - Normalize model-facing arrow detections to `label: "arrow"`.
 3. Arrow point prediction on padded arrow crops when point annotations are needed.
-   - Use the prompt in `configs/prompts/point_arrow.yaml`.
+   - Use the prompt in `configs/prompts/pools/point_arrow.v2.4.yaml`.
    - Map crop-local keypoints back to original image coordinates.
    - Store them on the same arrow instance as `linestrip`; if keypoint prediction fails, keep the
      arrow bbox and record the stage error.

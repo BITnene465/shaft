@@ -5,11 +5,11 @@ small, task-scoped, and model-output-oriented.
 
 ## Current Prompt Files
 
-- `configs/prompts/grounding_arrow.yaml`
-- `configs/prompts/grounding_layout.yaml`
-- `configs/prompts/grounding_shape.yaml`
-- `configs/prompts/grounding_icon_image.yaml`
-- `configs/prompts/point_arrow.yaml`
+- `configs/prompts/pools/grounding_arrow.v2.4.yaml`
+- `configs/prompts/pools/grounding_layout.v2.4.yaml`
+- `configs/prompts/pools/grounding_shape.v2.4.yaml`
+- `configs/prompts/pools/grounding_icon_image.v2.4.yaml`
+- `configs/prompts/pools/point_arrow.v2.4.yaml`
 
 Do not keep legacy duplicate prompt files such as `keypoint_arrow.yaml`; the maintained point
 task name is `point_arrow`.
@@ -17,6 +17,13 @@ task name is `point_arrow`.
 ## Method
 
 - Keep one prompt config per train/eval subtask.
+- Equivalent train-time prompt variants may be configured as runtime prompt pools. Keep one
+  versioned pool YAML per subtask, and keep the canonical prompt as the `main` pool member when
+  desired.
+- Prompt variants may change wording only. They must not change target labels, output schema,
+  ordering policy, or task semantics.
+- When runtime prompt pools are enabled, generated SFT rows may keep `user_prompt` empty; the pool
+  is the train prompt source and every enabled train dataset must have an explicit pool.
 - Metadata should identify the stable task family (`grounding` or `point`), the subtask, and the
   target labels.
 - The system prompt should only define response discipline: valid compact JSON, no markdown, no

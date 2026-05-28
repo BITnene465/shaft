@@ -9,6 +9,7 @@ import sys
 import pytest
 
 from eval_bench.database import EvalBenchDatabase
+from eval_bench.prompt_templates import DEFAULT_PROMPT_SPECS
 from eval_bench.cli import (
     CLI_JSON_OUTPUT_SCHEMAS,
     CLI_DESTRUCTIVE_COMMANDS,
@@ -797,7 +798,7 @@ def _write_sample_store(tmp_path: Path) -> None:
                 "metric_profile": "detection_iou_v1",
                 "target_labels": ["arrow"],
                 "metadata": {"target_labels_source": "explicit"},
-                "prompt": {"prompt_id": "grounding_arrow.latest"},
+                "prompt": {"prompt_id": "grounding_arrow.v2.4.main"},
             },
         },
     )
@@ -918,7 +919,7 @@ def test_init_run_cli_accepts_target_label_subset(tmp_path: Path, capsys) -> Non
             "--spec-id",
             "layout.icons",
             "--prompt-id",
-            "grounding_layout.latest",
+            "grounding_layout.v2.4.main",
             "--target-label",
             "icon",
             "--target-label",
@@ -981,7 +982,7 @@ def test_init_run_cli_rejects_unknown_target_label_when_benchmark_has_index(
             "--spec-id",
             "layout.typo",
             "--prompt-id",
-            "grounding_layout.latest",
+            "grounding_layout.v2.4.main",
             "--target-label",
             "arrwo",
         ]
@@ -1018,7 +1019,7 @@ def test_init_run_cli_infers_target_labels_from_prompt_policy(tmp_path: Path) ->
             "--spec-id",
             "layout.default",
             "--prompt-id",
-            "grounding_layout.latest",
+            "grounding_layout.v2.4.main",
         ]
     )
 
@@ -1242,7 +1243,7 @@ def test_cli_gets_and_sets_run_note(tmp_path: Path, capsys) -> None:
             "--spec-id",
             "layout.icons",
             "--prompt-id",
-            "grounding_layout.latest",
+            "grounding_layout.v2.4.main",
         ]
     )
     _cmd_init_run(init_args)
@@ -1524,7 +1525,7 @@ def test_cli_prints_agent_ops_summary(tmp_path: Path, capsys) -> None:
             "spec": {
                 "task": "detection",
                 "target_labels": ["arrow"],
-                "prompt": {"prompt_id": "grounding_arrow.latest"},
+                "prompt": {"prompt_id": "grounding_arrow.v2.4.main"},
                 "metric_profile": "detection",
             },
         },
@@ -1659,7 +1660,7 @@ def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, caps
             "--model-id",
             "external-model",
             "--prompt-id",
-            "grounding_layout.latest",
+            "grounding_layout.v2.4.main",
             "--target-label",
             "arrow",
         ]
@@ -1985,7 +1986,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
                 "task": "detection",
                 "metric_profile": "detection_iou_v1",
                 "target_labels": ["arrow"],
-                "prompt": {"prompt_id": "grounding_arrow.latest"},
+                "prompt": {"prompt_id": "grounding_arrow.v2.4.main"},
             },
         },
     )
@@ -2005,7 +2006,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
                 "task": "keypoint",
                 "metric_profile": "keypoint_endpoint_v1",
                 "target_labels": ["arrow"],
-                "prompt": {"prompt_id": "keypoint_arrow.latest"},
+                "prompt": {"prompt_id": "keypoint_arrow.test.main"},
             },
         },
     )
@@ -2131,7 +2132,7 @@ def test_cli_resolves_target_labels_for_agent_label_subtasks(
     )
     EvalBenchDatabase(tmp_path).upsert_prompt_template(
         {
-            "prompt_id": "grounding_arrow.latest",
+            "prompt_id": "grounding_arrow.v2.4.main",
             "label": "Arrow grounding",
             "task": "detection",
             "system_prompt": "You inspect diagrams.",
@@ -2148,7 +2149,7 @@ def test_cli_resolves_target_labels_for_agent_label_subtasks(
             "--benchmark-id",
             "bench1",
             "--prompt-id",
-            "grounding_arrow.latest",
+            "grounding_arrow.v2.4.main",
         ]
     )
     _cmd_resolve_target_labels(args)
@@ -2170,7 +2171,7 @@ def test_cli_resolves_target_labels_for_agent_label_subtasks(
             "--task",
             "keypoint",
             "--prompt-id",
-            "keypoint_arrow.latest",
+            "keypoint_arrow.test.main",
         ]
     )
     _cmd_resolve_target_labels(keypoint_args)
@@ -2307,28 +2308,26 @@ def test_cli_shows_saved_comparison_and_sample_detail_for_agents(
 
 
 def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys) -> None:
-    job_template_args = _build_parser().parse_args(["list-job-templates", "--query", "keypoint"])
+    job_template_args = _build_parser().parse_args(["list-job-templates", "--query", "arrow"])
     _cmd_list_job_templates(job_template_args)
     job_templates = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("list-job-templates", job_templates)
     assert job_templates["total"] == 1
-    assert "keypoint_eval_job" in job_templates["templates"]
-    assert job_templates["templates"]["keypoint_eval_job"]["manifest"]["eval"]["task"] == "keypoint"
+    assert "eval_job" in job_templates["templates"]
+    assert job_templates["templates"]["eval_job"]["manifest"]["eval"]["task"] == "detection"
     assert (
-        job_templates["templates"]["keypoint_eval_job"]["manifest"]["runtime"]["args"][
-            "max-model-len"
-        ]
+        job_templates["templates"]["eval_job"]["manifest"]["runtime"]["args"]["max-model-len"]
         == 32768
     )
 
     show_job_template_args = _build_parser().parse_args(
-        ["show-job-template", "--template-id", "keypoint_eval_job"]
+        ["show-job-template", "--template-id", "eval_job"]
     )
     _cmd_show_job_template(show_job_template_args)
     job_template = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("show-job-template", job_template)
-    assert job_template["template_id"] == "keypoint_eval_job"
-    assert job_template["template"]["manifest"]["eval"]["metric_profile"] == "keypoint_endpoint_v1"
+    assert job_template["template_id"] == "eval_job"
+    assert job_template["template"]["manifest"]["eval"]["metric_profile"] == "detection_iou_v1"
 
     list_args = _build_parser().parse_args(
         ["list-prompt-templates", "--output-root", str(tmp_path), "--task", "detection"]
@@ -2336,11 +2335,27 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
     _cmd_list_prompt_templates(list_args)
     prompt_templates = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("list-prompt-templates", prompt_templates)
+    arrow_prompt_id = str(DEFAULT_PROMPT_SPECS[0]["prompt_id"])
     assert prompt_templates["total"] >= 1
-    assert "grounding_arrow.latest" in prompt_templates["by_id"]
-    assert prompt_templates["by_id"]["grounding_arrow.latest"]["task"] == "detection"
-    assert prompt_templates["by_id"]["grounding_arrow.latest"]["generation"]["max_tokens"] == 4096
-    assert prompt_templates["by_id"]["grounding_arrow.latest"]["data"]["max_pixels"] == 2_000_000
+    assert arrow_prompt_id in prompt_templates["by_id"]
+    assert prompt_templates["by_id"][arrow_prompt_id]["task"] == "detection"
+    assert prompt_templates["by_id"][arrow_prompt_id]["generation"]["max_tokens"] == 4096
+    assert prompt_templates["by_id"][arrow_prompt_id]["data"]["max_pixels"] == 2_000_000
+    point_prompt_id = "point_arrow.v2.4.main"
+    keypoint_list_args = _build_parser().parse_args(
+        ["list-prompt-templates", "--output-root", str(tmp_path), "--task", "keypoint"]
+    )
+    _cmd_list_prompt_templates(keypoint_list_args)
+    keypoint_prompt_templates = json.loads(capsys.readouterr().out)
+    _assert_cli_json_payload("list-prompt-templates", keypoint_prompt_templates)
+    assert point_prompt_id in keypoint_prompt_templates["by_id"]
+    assert keypoint_prompt_templates["by_id"][point_prompt_id]["parser"] == "raw_data_keypoint_v1"
+    assert keypoint_prompt_templates["by_id"][point_prompt_id]["metric_profile"] == (
+        "keypoint_endpoint_v1"
+    )
+    assert keypoint_prompt_templates["by_id"][point_prompt_id]["metadata"]["target_labels"] == [
+        "arrow"
+    ]
 
     show_prompt_args = _build_parser().parse_args(
         [
@@ -2348,13 +2363,13 @@ def test_cli_manages_job_and_prompt_templates_for_agents(tmp_path: Path, capsys)
             "--output-root",
             str(tmp_path),
             "--prompt-id",
-            "grounding_arrow.latest",
+            arrow_prompt_id,
         ]
     )
     _cmd_show_prompt_template(show_prompt_args)
     prompt_template = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("show-prompt-template", prompt_template)
-    assert prompt_template["template"]["prompt_id"] == "grounding_arrow.latest"
+    assert prompt_template["template"]["prompt_id"] == arrow_prompt_id
     assert prompt_template["template"]["metadata"]["target_labels"] == ["arrow"]
 
     custom_payload = {
@@ -2558,7 +2573,7 @@ def test_cli_preflights_and_creates_manifest_first_job(tmp_path: Path, capsys) -
                     "model_id": "model-a",
                     "benchmark_id": "bench1",
                     "task": "detection",
-                    "prompt_id": "grounding_arrow.latest",
+                    "prompt_id": "grounding_arrow.v2.4.main",
                     "target_labels": ["arrow"],
                 },
             }
@@ -2691,7 +2706,7 @@ def test_cli_preflight_rejects_unknown_target_label(tmp_path: Path, capsys) -> N
                     "model_id": "model-a",
                     "benchmark_id": "bench1",
                     "task": "detection",
-                    "prompt_id": "grounding_arrow.latest",
+                    "prompt_id": "grounding_arrow.v2.4.main",
                     "target_labels": ["arrwo"],
                 },
             }
@@ -2754,7 +2769,7 @@ def test_cli_preflight_rejects_keypoint_label_subtasks(tmp_path: Path, capsys) -
                     "model_id": "model-a",
                     "benchmark_id": "bench1",
                     "task": "keypoint",
-                    "prompt_id": "keypoint_arrow.latest",
+                    "prompt_id": "keypoint_arrow.test.main",
                     "metric_profile": "keypoint_endpoint_v1",
                     "target_labels": ["icon"],
                 },
@@ -2821,7 +2836,7 @@ def test_cli_create_job_persists_preflight_warnings(tmp_path: Path, capsys) -> N
                     "model_id": "model-a",
                     "benchmark_id": "bench1",
                     "task": "detection",
-                    "prompt_id": "grounding_arrow.latest",
+                    "prompt_id": "grounding_arrow.v2.4.main",
                     "target_labels": ["arrow"],
                 },
             }

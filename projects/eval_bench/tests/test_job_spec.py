@@ -38,7 +38,7 @@ def test_eval_job_manifest_resolves_to_worker_payload() -> None:
     assert resolved.payload["max_tokens"] == 4096
     assert resolved.payload["max_pixels"] == 2_000_000
     assert resolved.payload["batch_size"] == 1
-    assert resolved.payload["prompt_id"] == "grounding_arrow.latest"
+    assert resolved.payload["prompt_id"] == manifest["eval"]["prompt_id"]
     assert resolved.payload["target_labels"] == ["arrow"]
     assert "--trust-remote-code" in resolved.payload["extra_args"]
 
@@ -56,19 +56,24 @@ def test_layout_eval_job_template_remains_available() -> None:
     manifest = job_templates()["layout_eval_job"]["manifest"]
     resolved = resolve_job_payload({"manifest": manifest})
 
-    assert resolved.payload["prompt_id"] == "grounding_layout.latest"
+    assert resolved.payload["prompt_id"] == manifest["eval"]["prompt_id"]
     assert resolved.payload["task"] == "detection"
     assert resolved.payload["target_labels"] == ["icon", "image", "shape"]
 
 
 def test_eval_job_payload_resolves_runtime_target_label_policy() -> None:
-    keypoint_manifest = job_templates()["keypoint_eval_job"]["manifest"]
-    keypoint_manifest["eval"].pop("target_labels")
+    keypoint_manifest = job_templates()["eval_job"]["manifest"]
+    keypoint_manifest["eval"] = {
+        "task": "keypoint",
+        "prompt_id": "point_arrow.test.main",
+        "parser": "raw_data_keypoint_v1",
+        "metric_profile": "keypoint_endpoint_v1",
+    }
     keypoint_resolved = resolve_job_payload({"manifest": keypoint_manifest})
 
     assert keypoint_resolved.payload["task"] == "keypoint"
     assert keypoint_resolved.payload["target_labels"] == ["arrow"]
-    assert keypoint_resolved.payload["target_labels_source"] == "legacy_prompt_id"
+    assert keypoint_resolved.payload["target_labels_source"] == "suite_default"
 
     keypoint_manifest["eval"]["prompt_id"] = "custom_eval"
     keypoint_custom_resolved = resolve_job_payload({"manifest": keypoint_manifest})
@@ -76,13 +81,13 @@ def test_eval_job_payload_resolves_runtime_target_label_policy() -> None:
     assert keypoint_custom_resolved.payload["target_labels_source"] == "task_default"
 
     layout_manifest = job_templates()["eval_job"]["manifest"]
-    layout_manifest["eval"]["prompt_id"] = "grounding_layout.latest"
+    layout_manifest["eval"]["prompt_id"] = "grounding_layout.test.main"
     layout_manifest["eval"].pop("target_labels")
     layout_resolved = resolve_job_payload({"manifest": layout_manifest})
 
     assert layout_resolved.payload["task"] == "detection"
     assert layout_resolved.payload["target_labels"] == ["icon", "image", "shape"]
-    assert layout_resolved.payload["target_labels_source"] == "legacy_prompt_id"
+    assert layout_resolved.payload["target_labels_source"] == "suite_default"
 
 
 def test_eval_job_manifest_preserves_unknown_runtime_args_as_cli_extra_args() -> None:
@@ -191,7 +196,7 @@ def test_legacy_eval_payload_preserves_target_labels_in_resolved_manifest() -> N
             "model_path": "outputs/model-a/best",
             "benchmark_id": "bench1",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.test.main",
             "target_labels": ["icon", "image"],
         }
     )
@@ -309,7 +314,7 @@ def test_preflight_rejects_unwired_preannotate_job(tmp_path: Path) -> None:
                     "source_manifest": str(source_manifest),
                     "output_root": str(tmp_path / "preannotations"),
                     "task": "detection",
-                    "prompt_id": "grounding_layout.latest",
+                    "prompt_id": "grounding_layout.test.main",
                 },
             }
         },

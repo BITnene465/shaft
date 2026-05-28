@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from shaft.config import DatasetSourceConfig, RuntimeConfig
+from shaft.config import DatasetSourceConfig, PromptSamplingConfig, RuntimeConfig
 from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftMixedIndexSampler
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
@@ -32,6 +32,38 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return path
+
+
+def _write_prompt_pool(
+    path: Path,
+    *,
+    pool_id: str,
+    version: str = "test-version",
+    prompts: list[tuple[str, str, str]],
+) -> Path:
+    prompt_lines = []
+    for variant_id, system_prompt, user_prompt in prompts:
+        prompt_lines.extend(
+            [
+                f"  - id: {variant_id}",
+                f"    system_prompt: {system_prompt!r}",
+                f"    user_prompt: {user_prompt!r}",
+            ]
+        )
+    path.write_text(
+        "\n".join(
+            [
+                "metadata:",
+                f"  id: {pool_id}",
+                f"  version: {version}",
+                "prompts:",
+                *prompt_lines,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -95,6 +127,76 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert isinstance(train_dataset.records, dict)
     assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
     assert dataset_bundle.train_sampler.refresh_mode == "static"
+
+
+def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": "{\"a\":1}",
+                "sample_id": "sample-1",
+                "system_prompt": "canonical system",
+                "user_prompt": "canonical user",
+            }
+        ],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": "{\"v\":1}",
+                "sample_id": "val-1",
+                "system_prompt": "canonical system",
+                "user_prompt": "canonical user",
+            }
+        ],
+    )
+    prompt_pool = _write_prompt_pool(
+        tmp_path / "prompt_pool.yaml",
+        pool_id="prompt.pool",
+        version="test-version",
+        prompts=[
+            ("a", "system a", "user a"),
+            ("b", "system b", "user b"),
+        ],
+    )
+
+    config = RuntimeConfig()
+    config.experiment.seed = 11
+    config.data.mix_strategy = "concat"
+    config.data.shuffle = False
+    config.data.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        train_only=True,
+        seed=99,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+
+    train_sample = dataset_bundle.train_dataset[0]
+    assert train_sample["user_prompt"] in {"user a", "user b"}
+    assert train_sample["system_prompt"] in {"system a", "system b"}
+    assert train_sample["extra"]["runtime_prompt_id"] in {"prompt.pool.a", "prompt.pool.b"}
+    assert train_sample["extra"]["runtime_prompt_version"] == "test-version"
+    assert train_sample["extra"]["runtime_prompt_epoch"] == 0
+
+    dataset_bundle.train_sampler.set_epoch(3)
+    epoch_sample = dataset_bundle.train_dataset[0]
+    assert epoch_sample["extra"]["runtime_prompt_epoch"] == 3
+
+    val_sample = dataset_bundle.eval_dataset[0]
+    assert val_sample["user_prompt"] == "canonical user"
+    assert val_sample["system_prompt"] == "canonical system"
+    assert "runtime_prompt_id" not in val_sample["extra"]
 
 
 def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:

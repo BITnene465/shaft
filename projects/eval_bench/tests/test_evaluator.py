@@ -345,7 +345,7 @@ def test_evaluate_run_infers_layout_target_labels_from_prompt_id(tmp_path: Path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
     assert report["target_labels"] == ["icon", "image", "shape"]
-    assert report["target_labels_source"] == "legacy_prompt_id"
+    assert report["target_labels_source"] == "suite_default"
     assert report["gt_instance_count"] == 1
     assert report["pred_instance_count"] == 1
     assert [item["label"] for item in report["labels"]] == ["icon"]

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
+from shaft.prompting import load_prompt_template
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -12,10 +12,10 @@ MAIN_EVAL_MAX_PIXELS = 2_000_000
 
 DEFAULT_PROMPT_SPECS = (
     {
-        "prompt_id": "grounding_arrow.latest",
+        "prompt_id": "grounding_arrow.v2.4.main",
         "label": "Arrow Detection",
         "task": "detection",
-        "path": "configs/prompts/grounding_arrow.yaml",
+        "path": "configs/prompts/pools/grounding_arrow.v2.4.yaml",
         "parser": "raw_data_detection_v1",
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
@@ -24,10 +24,10 @@ DEFAULT_PROMPT_SPECS = (
         "target_labels": ["arrow"],
     },
     {
-        "prompt_id": "grounding_layout.latest",
+        "prompt_id": "grounding_layout.v2.4.main",
         "label": "Layout Detection",
         "task": "detection",
-        "path": "configs/prompts/grounding_layout.yaml",
+        "path": "configs/prompts/pools/grounding_layout.v2.4.yaml",
         "parser": "raw_data_detection_v1",
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
@@ -36,10 +36,10 @@ DEFAULT_PROMPT_SPECS = (
         "target_labels": ["icon", "image", "shape"],
     },
     {
-        "prompt_id": "grounding_shape.latest",
+        "prompt_id": "grounding_shape.v2.4.main",
         "label": "Shape Detection",
         "task": "detection",
-        "path": "configs/prompts/grounding_shape.yaml",
+        "path": "configs/prompts/pools/grounding_shape.v2.4.yaml",
         "parser": "raw_data_detection_v1",
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
@@ -48,10 +48,10 @@ DEFAULT_PROMPT_SPECS = (
         "target_labels": ["shape"],
     },
     {
-        "prompt_id": "grounding_icon_image.latest",
+        "prompt_id": "grounding_icon_image.v2.4.main",
         "label": "Icon/Image Detection",
         "task": "detection",
-        "path": "configs/prompts/grounding_icon_image.yaml",
+        "path": "configs/prompts/pools/grounding_icon_image.v2.4.yaml",
         "parser": "raw_data_detection_v1",
         "metric_profile": "detection_iou_v1",
         "visualization_profile": "default",
@@ -60,10 +60,10 @@ DEFAULT_PROMPT_SPECS = (
         "target_labels": ["icon", "image"],
     },
     {
-        "prompt_id": "point_arrow.latest",
+        "prompt_id": "point_arrow.v2.4.main",
         "label": "Arrow Point",
         "task": "keypoint",
-        "path": "configs/prompts/point_arrow.yaml",
+        "path": "configs/prompts/pools/point_arrow.v2.4.yaml",
         "parser": "raw_data_keypoint_v1",
         "metric_profile": "keypoint_endpoint_v1",
         "visualization_profile": "default",
@@ -79,16 +79,15 @@ def default_prompt_templates(repo_root: str | Path = REPO_ROOT) -> list[dict[str
     templates: list[dict[str, Any]] = []
     for spec in DEFAULT_PROMPT_SPECS:
         prompt_path = root / str(spec["path"])
-        prompt_payload = _read_prompt_file(prompt_path)
-        metadata = dict(prompt_payload.get("metadata") or {})
-        prompt = dict(prompt_payload.get("prompt") or {})
+        prompt = load_prompt_template(prompt_path, variant_id="main")
+        metadata = dict(prompt.metadata)
         templates.append(
             {
                 "prompt_id": spec["prompt_id"],
                 "label": spec["label"],
                 "task": spec["task"],
-                "system_prompt": str(prompt.get("system_prompt") or "").strip(),
-                "user_prompt": str(prompt.get("user_prompt") or "").strip(),
+                "system_prompt": prompt.system_prompt,
+                "user_prompt": prompt.user_prompt,
                 "parser": spec["parser"],
                 "metric_profile": spec["metric_profile"],
                 "visualization_profile": spec["visualization_profile"],
@@ -97,17 +96,13 @@ def default_prompt_templates(repo_root: str | Path = REPO_ROOT) -> list[dict[str
                 "metadata": {
                     "source": "repo_config",
                     "source_path": spec["path"],
-                    "source_prompt_id": metadata.get("id"),
+                    "source_prompt_id": prompt.prompt_id,
                     "source_name": metadata.get("name"),
+                    "prompt_pool_id": metadata.get("prompt_pool_id"),
+                    "prompt_version": metadata.get("prompt_version"),
+                    "prompt_variant_id": metadata.get("prompt_variant_id"),
                     "target_labels": list(spec["target_labels"]),
                 },
             }
         )
     return templates
-
-
-def _read_prompt_file(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(payload, dict):
-        raise ValueError(f"prompt file must contain a mapping: {path}")
-    return payload

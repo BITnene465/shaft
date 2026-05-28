@@ -135,6 +135,7 @@
 - `catalog_path`
 - `catalog_names`
 - `datasets`
+- `prompt_sampling`
 - `mix_strategy`
 - `mix_refresh`
 - `num_workers`
@@ -180,9 +181,46 @@
 - `static` 会在训练启动前构建一次 train sampler，整个 run 复用同一份混合索引。
 - `epoch_refresh` 会在每个 epoch 通过 train sampler 重建训练集 mixing 索引；验证集仍保持静态 concat。
 - `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
-  `max_length` / `cutoff_len`。SFT 不允许静默截断 assistant target；当
-  `prefix_tokens + target_tokens + eos > max_length` 时会直接报错，错误信息会记录三段长度。
-  训练前应按真实 processor 做长度审计，超限样本需要过滤、记录或拆 crop，不能把 dense 答案截断后继续训练。
+  `max_length` / `cutoff_len`。当 `prefix_tokens + target_tokens + eos > max_length` 时，SFT 会按剩余
+  token budget 截断 assistant target；被截断的 target 不会补 EOS，避免把半截 JSON 教成合法结束。
+  训练前仍应按真实 processor 做长度审计，超限样本优先过滤、记录或拆 crop。
+
+### `data.prompt_sampling`
+
+用途：训练运行时对同一数据样本随机轮换等价 prompt，避免把固定 prompt 学成任务 one-hot 编码。
+
+关键字段：
+
+- `enabled`: 是否启用，默认 `false`。
+- `train_only`: 是否只对 train dataset 生效，默认 `true`。推荐保持 `true`，让 val/eval 使用固定 canonical
+  prompt。
+- `seed`: prompt 采样种子；未设置时使用 `experiment.seed`。
+- `pools`: 按 `dataset_name` 配置单个版本化 prompt pool YAML 文件。
+
+示例：
+
+```yaml
+data:
+  prompt_sampling:
+    enabled: true
+    train_only: true
+    seed: 42
+    pools:
+      grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
+      point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
+```
+
+约束：
+
+- prompt pool 路径相对训练 YAML 所在目录解析；一个数据集只能指向一个 pool 文件。
+- pool 只按 `dataset_name` 匹配，不能跨任务复用不同 label scope 的 prompt。
+- 每个 pool YAML 必须包含 `metadata.id`、版本信息和非空 `prompts` 列表；每个 prompt variant 必须包含
+  `id` 和 `user_prompt`。
+- 启用后，所有 `enabled=true` 的训练数据集都必须有对应 pool；SFT 行里的 `user_prompt` 不再作为 prompt
+  真源。
+- 采样键包含 `seed + epoch + dataset_name + sample_id`，同一 epoch 内可复现，不同 epoch 可能切换。
+- 当前实现只替换 `system_prompt/user_prompt` 形式的样本；如果样本已经提供多轮 `messages`，会跳过采样并在
+  `extra.prompt_sampling_skipped` 里记录原因。
 
 补充说明：
 

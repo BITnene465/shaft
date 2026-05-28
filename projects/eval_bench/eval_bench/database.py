@@ -19,6 +19,13 @@ def _job_id(kind: str) -> str:
     return f"{kind}_{timestamp}_{uuid4().hex[:8]}"
 
 
+def _non_empty_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _service_id(kind: str) -> str:
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
     return f"{kind}_{timestamp}_{uuid4().hex[:8]}"
@@ -27,6 +34,7 @@ def _service_id(kind: str) -> str:
 @dataclass(frozen=True)
 class JobRecord:
     job_id: str
+    run_id: str | None
     kind: str
     status: str
     payload: dict[str, Any]
@@ -122,6 +130,7 @@ class EvalBenchDatabase:
                     """
                     CREATE TABLE IF NOT EXISTS jobs (
                         job_id TEXT PRIMARY KEY,
+                        run_id TEXT,
                         kind TEXT NOT NULL,
                         status TEXT NOT NULL,
                         payload_json TEXT NOT NULL,
@@ -133,9 +142,12 @@ class EvalBenchDatabase:
                     """
                 )
             )
+            self._ensure_job_run_id_column(connection)
+            self._backfill_job_run_ids(connection)
             connection.execute(
                 text("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)")
             )
+            connection.execute(text("CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON jobs(run_id)"))
             connection.execute(
                 text(
                     """
@@ -192,6 +204,68 @@ class EvalBenchDatabase:
             )
         self.seed_prompt_templates(default_prompt_templates())
 
+    def _ensure_job_run_id_column(self, connection: Any) -> None:
+        columns = {
+            str(row["name"])
+            for row in connection.execute(text("PRAGMA table_info(jobs)")).mappings()
+        }
+        if "run_id" not in columns:
+            connection.execute(text("ALTER TABLE jobs ADD COLUMN run_id TEXT"))
+
+    def _backfill_job_run_ids(self, connection: Any) -> None:
+        rows = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT job_id, kind, run_id, payload_json, metadata_json
+                    FROM jobs
+                    WHERE run_id IS NULL OR run_id = ''
+                    """
+                )
+            ).mappings()
+        )
+        for row in rows:
+            try:
+                payload = json.loads(str(row["payload_json"]))
+            except json.JSONDecodeError:
+                payload = {}
+            try:
+                metadata = json.loads(str(row["metadata_json"]))
+            except json.JSONDecodeError:
+                metadata = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            run_id = (
+                _non_empty_string(row.get("run_id"))
+                or _non_empty_string(payload.get("run_id"))
+                or _non_empty_string(metadata.get("run_id"))
+            )
+            if run_id is None and str(row["kind"]) == "eval":
+                run_id = str(row["job_id"])
+            if run_id is None:
+                continue
+            payload.setdefault("run_id", run_id)
+            metadata.setdefault("run_id", run_id)
+            connection.execute(
+                text(
+                    """
+                    UPDATE jobs
+                    SET run_id = :run_id,
+                        payload_json = :payload_json,
+                        metadata_json = :metadata_json
+                    WHERE job_id = :job_id
+                    """
+                ),
+                {
+                    "job_id": str(row["job_id"]),
+                    "run_id": run_id,
+                    "payload_json": json.dumps(payload, ensure_ascii=False),
+                    "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                },
+            )
+
     def create_job(
         self,
         *,
@@ -200,38 +274,55 @@ class EvalBenchDatabase:
         metadata: dict[str, Any] | None = None,
         status: str = "queued",
         job_id: str | None = None,
+        run_id: str | None = None,
     ) -> JobRecord:
-        if not kind.strip():
+        kind = kind.strip()
+        if not kind:
             raise ValueError("job kind must be non-empty.")
         if not isinstance(payload, dict):
             raise ValueError("job payload must be a dict.")
         if status not in {"queued", "running", "succeeded", "failed", "cancelled"}:
             raise ValueError(f"unsupported job status: {status}")
         now = utc_now_iso()
+        resolved_job_id = job_id or _job_id(kind)
+        resolved_payload = dict(payload)
+        resolved_metadata = dict(metadata or {})
+        resolved_run_id = (
+            _non_empty_string(run_id)
+            or _non_empty_string(resolved_payload.get("run_id"))
+            or _non_empty_string(resolved_metadata.get("run_id"))
+        )
+        if resolved_run_id is None and kind == "eval":
+            resolved_run_id = resolved_job_id
+        if resolved_run_id is not None:
+            resolved_payload.setdefault("run_id", resolved_run_id)
+            resolved_metadata.setdefault("run_id", resolved_run_id)
         record = JobRecord(
-            job_id=job_id or _job_id(kind.strip()),
-            kind=kind.strip(),
+            job_id=resolved_job_id,
+            run_id=resolved_run_id,
+            kind=kind,
             status=status,
-            payload=payload,
+            payload=resolved_payload,
             created_at=now,
             updated_at=now,
-            metadata=dict(metadata or {}),
+            metadata=resolved_metadata,
         )
         with self.engine.begin() as connection:
             connection.execute(
                 text(
                     """
                     INSERT INTO jobs (
-                        job_id, kind, status, payload_json, created_at, updated_at, error,
+                        job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                         metadata_json
                     ) VALUES (
-                        :job_id, :kind, :status, :payload_json, :created_at, :updated_at,
+                        :job_id, :run_id, :kind, :status, :payload_json, :created_at, :updated_at,
                         :error, :metadata_json
                     )
                     """
                 ),
                 {
                     "job_id": record.job_id,
+                    "run_id": record.run_id,
                     "kind": record.kind,
                     "status": record.status,
                     "payload_json": json.dumps(record.payload, ensure_ascii=False),
@@ -244,15 +335,20 @@ class EvalBenchDatabase:
         return record
 
     def _row_to_job(self, row: Any) -> JobRecord:
+        payload = json.loads(str(row["payload_json"]))
+        metadata = json.loads(str(row["metadata_json"]))
         return JobRecord(
             job_id=str(row["job_id"]),
+            run_id=_non_empty_string(row.get("run_id"))
+            or _non_empty_string(payload.get("run_id"))
+            or _non_empty_string(metadata.get("run_id")),
             kind=str(row["kind"]),
             status=str(row["status"]),
-            payload=json.loads(str(row["payload_json"])),
+            payload=payload,
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
             error=row["error"],
-            metadata=json.loads(str(row["metadata_json"])),
+            metadata=metadata,
         )
 
     def get_job(self, job_id: str) -> JobRecord | None:
@@ -260,7 +356,7 @@ class EvalBenchDatabase:
             row = connection.execute(
                 text(
                     """
-                    SELECT job_id, kind, status, payload_json, created_at, updated_at, error,
+                    SELECT job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                            metadata_json
                     FROM jobs
                     WHERE job_id = :job_id
@@ -276,7 +372,7 @@ class EvalBenchDatabase:
                 row = connection.execute(
                     text(
                         """
-                        SELECT job_id, kind, status, payload_json, created_at, updated_at, error,
+                        SELECT job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                                metadata_json
                         FROM jobs
                         WHERE status = 'queued'
@@ -289,7 +385,7 @@ class EvalBenchDatabase:
                 row = connection.execute(
                     text(
                         """
-                        SELECT job_id, kind, status, payload_json, created_at, updated_at, error,
+                        SELECT job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                                metadata_json
                         FROM jobs
                         WHERE status = 'queued' AND kind = :kind
@@ -326,7 +422,7 @@ class EvalBenchDatabase:
             row = connection.execute(
                 text(
                     """
-                    SELECT job_id, kind, status, payload_json, created_at, updated_at, error,
+                    SELECT job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                            metadata_json
                     FROM jobs
                     WHERE job_id = :job_id AND status = 'queued'
@@ -446,7 +542,7 @@ class EvalBenchDatabase:
             rows = connection.execute(
                 text(
                     """
-                    SELECT job_id, kind, status, payload_json, created_at, updated_at, error,
+                    SELECT job_id, run_id, kind, status, payload_json, created_at, updated_at, error,
                            metadata_json
                     FROM jobs
                     ORDER BY created_at DESC, job_id DESC
@@ -1008,6 +1104,7 @@ def _job_matches_filters(
 def _job_query_matches(job: JobRecord, query: str) -> bool:
     fields = [
         job.job_id,
+        job.run_id,
         job.kind,
         job.status,
         job.error,

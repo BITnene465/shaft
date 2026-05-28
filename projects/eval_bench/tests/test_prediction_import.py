@@ -123,7 +123,7 @@ def test_import_predictions_applies_prompt_target_labels(tmp_path: Path) -> None
     assert result.report_path is not None
     report = json.loads(result.report_path.read_text(encoding="utf-8"))
     assert report["target_labels"] == ["icon", "image", "shape"]
-    assert report["target_labels_source"] == "legacy_prompt_id"
+    assert report["target_labels_source"] == "suite_default"
     assert [item["label"] for item in report["labels"]] == ["icon", "shape"]
     assert "arrow" not in report["samples"][0]["labels"]
 

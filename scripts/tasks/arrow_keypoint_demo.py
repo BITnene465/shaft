@@ -14,7 +14,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import yaml
 
 # Gradio/httpx may fail to import when SOCKS proxy env vars are set but socksio is
 # not installed. This demo only talks to local vLLM by default, so ignore proxies.
@@ -31,6 +30,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from shaft.codec import decode_with_codec  # noqa: E402
+from shaft.prompting import load_prompt_template  # noqa: E402
 
 
 FALLBACK_SYSTEM_PROMPT = "You are a visual annotation assistant. Return only valid JSON with no markdown or extra text."
@@ -54,9 +54,9 @@ FALLBACK_ARROW_KEYPOINT_PROMPT = (
     "Do not return bbox, labels, markdown, comments, or any extra text."
 )
 
-DEFAULT_ARROW_PROMPT_PATH = REPO_ROOT / "configs/prompts/grounding_arrow.yaml"
-DEFAULT_LAYOUT_PROMPT_PATH = REPO_ROOT / "configs/prompts/grounding_layout.yaml"
-DEFAULT_KEYPOINT_PROMPT_PATH = REPO_ROOT / "configs/prompts/point_arrow.yaml"
+DEFAULT_ARROW_PROMPT_PATH = REPO_ROOT / "configs/prompts/pools/grounding_arrow.v2.4.yaml"
+DEFAULT_LAYOUT_PROMPT_PATH = REPO_ROOT / "configs/prompts/pools/grounding_layout.v2.4.yaml"
+DEFAULT_KEYPOINT_PROMPT_PATH = REPO_ROOT / "configs/prompts/pools/point_arrow.v2.4.yaml"
 NUM_BINS = 1000
 OUTPUT_DIR = REPO_ROOT / "temp/arrow_keypoint_demo/outputs"
 LABELS = ("arrow", "icon", "image", "shape")
@@ -80,19 +80,10 @@ ARROW_PALETTE = (
 
 def _load_prompt(path: Path, *, fallback_user_prompt: str) -> tuple[str, str, str]:
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        prompt = load_prompt_template(path, variant_id="main")
     except Exception:
         return FALLBACK_SYSTEM_PROMPT, fallback_user_prompt, path.stem
-    prompt = payload.get("prompt") if isinstance(payload, dict) else {}
-    metadata = payload.get("metadata") if isinstance(payload, dict) else {}
-    if not isinstance(prompt, dict):
-        prompt = {}
-    if not isinstance(metadata, dict):
-        metadata = {}
-    system_prompt = str(prompt.get("system_prompt") or FALLBACK_SYSTEM_PROMPT).strip()
-    user_prompt = str(prompt.get("user_prompt") or fallback_user_prompt).strip()
-    prompt_id = str(metadata.get("id") or path.stem).strip()
-    return system_prompt, user_prompt, prompt_id
+    return prompt.system_prompt or FALLBACK_SYSTEM_PROMPT, prompt.user_prompt, prompt.prompt_id
 
 
 DEFAULT_SYSTEM_PROMPT, DEFAULT_ARROW_GROUNDING_PROMPT, DEFAULT_ARROW_PROMPT_ID = _load_prompt(

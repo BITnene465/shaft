@@ -38,6 +38,27 @@ def _resolve_dataset_paths(dataset_payload: dict[str, Any], *, base_dir: Path) -
     return resolved
 
 
+def _resolve_prompt_sampling_paths(data_payload: dict[str, Any], *, base_dir: Path) -> None:
+    prompt_sampling = data_payload.get("prompt_sampling")
+    if prompt_sampling is None:
+        return
+    if not isinstance(prompt_sampling, dict):
+        raise TypeError("Config key `data.prompt_sampling` must be a mapping.")
+    pools = prompt_sampling.get("pools")
+    if pools is None:
+        return
+    if not isinstance(pools, dict):
+        raise TypeError("Config key `data.prompt_sampling.pools` must be a mapping.")
+    resolved_pools: dict[str, str] = {}
+    for dataset_name, path in pools.items():
+        if isinstance(path, list):
+            raise TypeError(
+                f"Config key `data.prompt_sampling.pools.{dataset_name}` must be one prompt pool file, not a list."
+            )
+        resolved_pools[str(dataset_name)] = _resolve_path_value(path, base_dir=base_dir)
+    prompt_sampling["pools"] = resolved_pools
+
+
 def _load_yaml_mapping(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
@@ -95,6 +116,7 @@ def resolve_dataset_catalog(payload: dict[str, Any], *, config_path: Path) -> di
         return resolved_payload
     if not isinstance(data_payload, dict):
         raise TypeError("Config key `data` must be a mapping.")
+    _resolve_prompt_sampling_paths(data_payload, base_dir=config_path.parent)
 
     inline_datasets = data_payload.get("datasets", [])
     if inline_datasets is None:

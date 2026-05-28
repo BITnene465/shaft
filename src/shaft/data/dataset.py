@@ -47,8 +47,15 @@ class PPORecord:
 
 
 class _BaseVisionDataset(Dataset):
-    def __init__(self, *, online_transforms: list[Any] | None = None) -> None:
+    def __init__(self, *, online_transforms: list[Any] | None = None, split: str = "train") -> None:
         self.online_transforms = list(online_transforms or [])
+        self.split = str(split).strip() or "train"
+
+    def _runtime_context(self, train_sampler: Any | None) -> dict[str, Any]:
+        return {
+            "_split": self.split,
+            "_epoch": int(getattr(train_sampler, "epoch", 0) or 0),
+        }
 
     def _load_image(self, image_path: str):
         return Image.open(image_path).convert("RGB")
@@ -116,11 +123,12 @@ class SFTDataset(_BaseVisionDataset):
         records: Sequence[SFTRecord] | dict[str, list[SFTRecord]],
         *,
         online_transforms: list[Any] | None = None,
+        split: str = "train",
         mixed_length: int | None = None,
         mixed_indices: Sequence[tuple[str, int]] | None = None,
         train_sampler: Any | None = None,
     ) -> None:
-        super().__init__(online_transforms=online_transforms)
+        super().__init__(online_transforms=online_transforms, split=split)
         self.records = records
         self.mixed_length = int(mixed_length) if mixed_length is not None else None
         self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
@@ -149,6 +157,7 @@ class SFTDataset(_BaseVisionDataset):
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
             "extra": dict(record.extra),
+            **self._runtime_context(self.train_sampler),
         }
         return self._apply_online_transforms(sample)
 
@@ -198,11 +207,12 @@ class DPODataset(_BaseVisionDataset):
         records: Sequence[DPORecord] | dict[str, list[DPORecord]],
         *,
         online_transforms: list[Any] | None = None,
+        split: str = "train",
         mixed_length: int | None = None,
         mixed_indices: Sequence[tuple[str, int]] | None = None,
         train_sampler: Any | None = None,
     ) -> None:
-        super().__init__(online_transforms=online_transforms)
+        super().__init__(online_transforms=online_transforms, split=split)
         self.records = records
         self.mixed_length = int(mixed_length) if mixed_length is not None else None
         self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
@@ -232,6 +242,7 @@ class DPODataset(_BaseVisionDataset):
             "chosen_text": record.chosen_text,
             "rejected_text": record.rejected_text,
             "extra": dict(record.extra),
+            **self._runtime_context(self.train_sampler),
         }
         return self._apply_online_transforms(sample)
 
@@ -242,11 +253,12 @@ class PPODataset(_BaseVisionDataset):
         records: Sequence[PPORecord] | dict[str, list[PPORecord]],
         *,
         online_transforms: list[Any] | None = None,
+        split: str = "train",
         mixed_length: int | None = None,
         mixed_indices: Sequence[tuple[str, int]] | None = None,
         train_sampler: Any | None = None,
     ) -> None:
-        super().__init__(online_transforms=online_transforms)
+        super().__init__(online_transforms=online_transforms, split=split)
         self.records = records
         self.mixed_length = int(mixed_length) if mixed_length is not None else None
         self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
@@ -274,5 +286,6 @@ class PPODataset(_BaseVisionDataset):
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
             "extra": dict(record.extra),
+            **self._runtime_context(self.train_sampler),
         }
         return self._apply_online_transforms(sample)

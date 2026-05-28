@@ -41,6 +41,7 @@ from .schema import (
 )
 from .services import build_vllm_command_from_config, _probe_openai_endpoint
 from .store import EvalBenchStore
+from shaft.prompting import load_prompt_template
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1225,14 +1226,14 @@ def _prompt_hash(*, system_prompt: str, user_prompt: str) -> str:
 def _default_prompt_path(*, prompt_id: str, task: TaskKind) -> Path:
     lower_id = prompt_id.lower()
     if task == "keypoint" or "point_arrow" in lower_id or "keypoint" in lower_id:
-        return REPO_ROOT / "configs/prompts/point_arrow.yaml"
+        return REPO_ROOT / "configs/prompts/pools/point_arrow.v2.4.yaml"
     if "icon_image" in lower_id:
-        return REPO_ROOT / "configs/prompts/grounding_icon_image.yaml"
+        return REPO_ROOT / "configs/prompts/pools/grounding_icon_image.v2.4.yaml"
     if "shape" in lower_id:
-        return REPO_ROOT / "configs/prompts/grounding_shape.yaml"
+        return REPO_ROOT / "configs/prompts/pools/grounding_shape.v2.4.yaml"
     if "arrow" in lower_id:
-        return REPO_ROOT / "configs/prompts/grounding_arrow.yaml"
-    return REPO_ROOT / "configs/prompts/grounding_layout.yaml"
+        return REPO_ROOT / "configs/prompts/pools/grounding_arrow.v2.4.yaml"
+    return REPO_ROOT / "configs/prompts/pools/grounding_layout.v2.4.yaml"
 
 
 def _resolve_repo_path(value: str | Path) -> Path:
@@ -1243,19 +1244,11 @@ def _resolve_repo_path(value: str | Path) -> Path:
 
 
 def _load_prompt_file(path: Path) -> tuple[str, str, str | None]:
-    import yaml
-
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(payload, dict):
-        raise ValueError(f"prompt file must contain a mapping: {path}")
-    prompt = payload.get("prompt") or {}
-    metadata = payload.get("metadata") or {}
-    if not isinstance(prompt, dict):
-        raise ValueError(f"prompt file must contain prompt mapping: {path}")
+    prompt = load_prompt_template(path, variant_id="main")
     return (
-        str(prompt.get("system_prompt") or "").strip(),
-        str(prompt.get("user_prompt") or "").strip(),
-        str(metadata.get("id") or "").strip() or None,
+        prompt.system_prompt,
+        prompt.user_prompt,
+        prompt.prompt_id,
     )
 
 

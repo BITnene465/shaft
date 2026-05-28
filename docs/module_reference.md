@@ -120,6 +120,8 @@
 - `ShaftDatasetMeta.use_for_eval` 用于表达“该数据集是否参与验证集构建与在线 eval”。
 - `ShaftDataCenter` 会始终构建训练记录池，但只为 `use_for_eval=true` 的数据集加载 `val` split。
 - 训练集 mixing 不再在 `data center` 中物化为固定大列表，而是通过 `ShaftMixedIndexSampler` 在 train dataloader 层完成。
+- `data.prompt_sampling` 在运行时作为 train online transform 应用，按 `dataset_name` 从等价 prompt pool
+  中采样并替换 `system_prompt/user_prompt`；默认不作用于 val/eval。
 - GRPO 当前复用 `jsonl_sft` 数据：
   - `SFTDataset` 提供 prompt-target 样本
   - `GRPODataset` 把样本适配为 TRL GRPO 所需的 `prompt / image / target_text` 字段

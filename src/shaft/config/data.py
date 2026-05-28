@@ -4,6 +4,14 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class PromptSamplingConfig:
+    enabled: bool = False
+    train_only: bool = True
+    seed: int | None = None
+    pools: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class DatasetSourceConfig:
     dataset_name: str
     source_type: str = "jsonl_sft"
@@ -25,6 +33,7 @@ class DataConfig:
     catalog_path: str | None = None
     catalog_names: list[str] = field(default_factory=list)
     datasets: list[DatasetSourceConfig] = field(default_factory=list)
+    prompt_sampling: PromptSamplingConfig = field(default_factory=PromptSamplingConfig)
     mix_strategy: str = "interleave_under"
     mix_refresh: str = "static"
     num_workers: int = 4

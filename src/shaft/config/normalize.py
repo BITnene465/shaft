@@ -65,6 +65,25 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None
+    prompt_sampling = config.data.prompt_sampling
+    prompt_sampling.enabled = bool(prompt_sampling.enabled)
+    prompt_sampling.train_only = bool(prompt_sampling.train_only)
+    if prompt_sampling.seed is not None:
+        prompt_sampling.seed = int(prompt_sampling.seed)
+    normalized_prompt_pools: dict[str, str] = {}
+    for dataset_name, path in dict(prompt_sampling.pools).items():
+        normalized_name = str(dataset_name).strip()
+        if not normalized_name:
+            raise ValueError("data.prompt_sampling.pools contains an empty dataset key.")
+        normalized_path = str(path).strip()
+        if not normalized_path:
+            raise ValueError(
+                f"data.prompt_sampling.pools.{normalized_name} must point to a prompt pool file."
+            )
+        normalized_prompt_pools[normalized_name] = normalized_path
+    prompt_sampling.pools = normalized_prompt_pools
+    if prompt_sampling.enabled and not prompt_sampling.pools:
+        raise ValueError("data.prompt_sampling.enabled=true requires at least one prompt pool.")
 
     finetune = config.model.finetune
     finetune.mode = str(finetune.mode).strip().lower()
@@ -131,6 +150,18 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             raise ValueError(
                 f"data.datasets[{dataset.dataset_name}] uses {dataset.source_type} but algorithm is grpo. "
                 "GRPO currently expects jsonl_sft data."
+            )
+
+    if prompt_sampling.enabled:
+        missing_prompt_pools = [
+            dataset.dataset_name
+            for dataset in config.data.datasets
+            if dataset.enabled and dataset.dataset_name not in prompt_sampling.pools
+        ]
+        if missing_prompt_pools:
+            raise ValueError(
+                "data.prompt_sampling.enabled=true requires prompt pools for all enabled datasets. "
+                f"Missing: {missing_prompt_pools}"
             )
 
     if bool(config.eval.enabled):

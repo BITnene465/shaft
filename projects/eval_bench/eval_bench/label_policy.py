@@ -8,7 +8,7 @@ LAYOUT_TARGET_LABELS = ("icon", "image", "shape")
 ARROW_TARGET_LABELS = ("arrow",)
 KEYPOINT_TARGET_LABELS = frozenset(ARROW_TARGET_LABELS)
 TARGET_LABEL_SOURCES = frozenset(
-    {"explicit", "prompt_metadata", "legacy_prompt_id", "task_default", "unscoped"}
+    {"explicit", "prompt_metadata", "suite_default", "task_default", "unscoped"}
 )
 
 
@@ -51,18 +51,18 @@ def resolve_target_label_policy(
         return TargetLabelPolicy(labels=labels, source="prompt_metadata")
     lower_prompt_id = (prompt_id or "").lower()
     if "grounding_layout" in lower_prompt_id:
-        return TargetLabelPolicy(labels=list(LAYOUT_TARGET_LABELS), source="legacy_prompt_id")
+        return TargetLabelPolicy(labels=list(LAYOUT_TARGET_LABELS), source="suite_default")
     if "grounding_icon_image" in lower_prompt_id:
-        return TargetLabelPolicy(labels=["icon", "image"], source="legacy_prompt_id")
+        return TargetLabelPolicy(labels=["icon", "image"], source="suite_default")
     if "grounding_shape" in lower_prompt_id:
-        return TargetLabelPolicy(labels=["shape"], source="legacy_prompt_id")
+        return TargetLabelPolicy(labels=["shape"], source="suite_default")
     if (
         "point_arrow" in lower_prompt_id
         or "keypoint_arrow" in lower_prompt_id
         or "arrow_keypoint" in lower_prompt_id
         or "grounding_arrow" in lower_prompt_id
     ):
-        return TargetLabelPolicy(labels=list(ARROW_TARGET_LABELS), source="legacy_prompt_id")
+        return TargetLabelPolicy(labels=list(ARROW_TARGET_LABELS), source="suite_default")
     if task == "keypoint":
         return TargetLabelPolicy(labels=list(ARROW_TARGET_LABELS), source="task_default")
     return TargetLabelPolicy(labels=[], source="unscoped")

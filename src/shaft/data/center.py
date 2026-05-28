@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import inspect
 from typing import Any, Generic, TypeVar
 
 from shaft.config import DataConfig
@@ -9,7 +10,7 @@ from shaft.config import DataConfig
 from .sampler import ShaftMixedIndexSampler
 from .meta import build_dataset_metas
 from .sources import build_data_source
-from .transforms import build_offline_pipeline, build_online_pipeline
+from .transforms import build_offline_pipeline, build_online_pipeline, build_prompt_sampling_transform
 
 RecordT = TypeVar("RecordT")
 DatasetT = TypeVar("DatasetT")
@@ -22,6 +23,8 @@ class ShaftPreparedRecords(Generic[RecordT]):
     val_records: list[RecordT]
     val_records_by_dataset: dict[str, list[RecordT]]
     online_transforms: list[OnlineSampleTransform]
+    train_online_transforms: list[OnlineSampleTransform] | None = None
+    eval_online_transforms: list[OnlineSampleTransform] | None = None
     train_sampler: ShaftMixedIndexSampler | None = None
 
     def build_dataset_pair(self, dataset_cls: type[DatasetT]) -> tuple[DatasetT, DatasetT]:
@@ -31,19 +34,33 @@ class ShaftPreparedRecords(Generic[RecordT]):
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
         train_length = len(self.train_sampler) if self.train_sampler is not None else None
         train_indices = list(self.train_sampler.current_indices) if self.train_sampler is not None else None
+        train_online_transforms = self.train_online_transforms or self.online_transforms
+        eval_online_transforms = self.eval_online_transforms or self.online_transforms
         eval_datasets_by_name = {
-            dataset_name: dataset_cls(records, online_transforms=self.online_transforms)
+            dataset_name: _build_dataset(
+                dataset_cls,
+                records,
+                online_transforms=eval_online_transforms,
+                split="val",
+            )
             for dataset_name, records in sorted(self.val_records_by_dataset.items())
         }
         return ShaftDatasetBundle(
-            train_dataset=dataset_cls(
+            train_dataset=_build_dataset(
+                dataset_cls,
                 self.train_records,
-                online_transforms=self.online_transforms,
+                online_transforms=train_online_transforms,
+                split="train",
                 mixed_length=train_length,
                 mixed_indices=train_indices,
                 train_sampler=self.train_sampler,
             ),
-            eval_dataset=dataset_cls(self.val_records, online_transforms=self.online_transforms),
+            eval_dataset=_build_dataset(
+                dataset_cls,
+                self.val_records,
+                online_transforms=eval_online_transforms,
+                split="val",
+            ),
             eval_datasets_by_name=eval_datasets_by_name,
             train_sampler=self.train_sampler,
         )
@@ -94,11 +111,24 @@ class ShaftDataCenter:
         val_records: list[Any] = []
         for dataset_name in sorted(records_by_dataset_val):
             val_records.extend(records_by_dataset_val[dataset_name])
+        dataset_aware_transform = self._build_dataset_aware_online_transform(dataset_online_pipelines)
+        train_online_transforms = [dataset_aware_transform]
+        eval_online_transforms = [dataset_aware_transform]
+        prompt_sampling_transform = build_prompt_sampling_transform(
+            self.data_config.prompt_sampling,
+            default_seed=self.seed,
+        )
+        if prompt_sampling_transform is not None:
+            train_online_transforms.append(prompt_sampling_transform)
+            if not self.data_config.prompt_sampling.train_only:
+                eval_online_transforms.append(prompt_sampling_transform)
         return ShaftPreparedRecords(
             train_records=records_by_dataset_train,
             val_records=val_records,
             val_records_by_dataset=records_by_dataset_val,
-            online_transforms=[self._build_dataset_aware_online_transform(dataset_online_pipelines)],
+            online_transforms=train_online_transforms,
+            train_online_transforms=train_online_transforms,
+            eval_online_transforms=eval_online_transforms,
             train_sampler=train_sampler,
         )
 
@@ -120,3 +150,24 @@ class ShaftDataCenter:
             return pipeline(sample)
 
         return _dataset_aware_online_transform
+
+
+def _supports_kwarg(callable_obj: Any, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+    if keyword in signature.parameters:
+        return True
+    return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+
+
+def _build_dataset(
+    dataset_cls: type[DatasetT],
+    records: Any,
+    **kwargs: Any,
+) -> DatasetT:
+    filtered_kwargs = dict(kwargs)
+    if not _supports_kwarg(dataset_cls, "split"):
+        filtered_kwargs.pop("split", None)
+    return dataset_cls(records, **filtered_kwargs)

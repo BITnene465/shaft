@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from eval_bench import services as services_module
 from eval_bench.dashboard import create_app
 from eval_bench.database import EvalBenchDatabase
+from eval_bench.prompt_templates import DEFAULT_PROMPT_SPECS
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -165,11 +166,12 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert template_detail.status_code == 200
     assert template_detail.json()["template"]["manifest"]["kind"] == "eval_job"
     assert client.get("/api/job-templates/not_found").status_code == 404
+    layout_prompt_id = str(DEFAULT_PROMPT_SPECS[1]["prompt_id"])
     prompt_templates = client.get("/api/prompt-templates").json()
-    assert "grounding_layout.latest" in prompt_templates["by_id"]
-    prompt_template_detail = client.get("/api/prompt-templates/grounding_layout.latest")
+    assert layout_prompt_id in prompt_templates["by_id"]
+    prompt_template_detail = client.get(f"/api/prompt-templates/{layout_prompt_id}")
     assert prompt_template_detail.status_code == 200
-    assert prompt_template_detail.json()["template"]["prompt_id"] == "grounding_layout.latest"
+    assert prompt_template_detail.json()["template"]["prompt_id"] == layout_prompt_id
     saved_prompt = client.post(
         "/api/prompt-templates",
         json={
@@ -244,14 +246,19 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     created_payload = created.json()
     assert created_payload["kind"] == "eval"
     assert created_payload["status"] == "queued"
+    assert created_payload["run_id"] == created_payload["job_id"]
+    assert created_payload["payload"]["run_id"] == created_payload["run_id"]
+    assert created_payload["metadata"]["run_id"] == created_payload["run_id"]
     assert created_payload["payload"]["model_id"] == "model-a"
     assert created_payload["payload"]["prompt_text"] == "Detect icons."
     jobs = client.get("/api/jobs").json()
     assert jobs["jobs"][0]["job_id"] == created_payload["job_id"]
+    assert jobs["jobs"][0]["run_id"] == created_payload["run_id"]
     assert jobs["total"] == 1
     job_detail = client.get(f"/api/jobs/{created_payload['job_id']}")
     assert job_detail.status_code == 200
     assert job_detail.json()["job"]["job_id"] == created_payload["job_id"]
+    assert job_detail.json()["job"]["run_id"] == created_payload["run_id"]
     assert client.get("/api/jobs/not_found").status_code == 404
     filtered_jobs = client.get(
         "/api/jobs",
@@ -264,6 +271,7 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     }
     assert filtered_jobs["total"] == 1
     assert filtered_jobs["jobs"][0]["job_id"] == created_payload["job_id"]
+    assert filtered_jobs["jobs"][0]["run_id"] == created_payload["run_id"]
 
     processed = client.post("/api/jobs/process-next")
     assert processed.status_code == 200
@@ -272,9 +280,10 @@ def test_dashboard_api_exposes_store_state(tmp_path: Path) -> None:
     assert processed_payload["background"] is True
     assert processed_payload["job"]["status"] == "running"
     completed_job = _wait_for_job_status(client, created_payload["job_id"], "succeeded")
-    assert completed_job["metadata"]["run_id"] == created_payload["job_id"]
+    assert completed_job["run_id"] == created_payload["run_id"]
+    assert completed_job["metadata"]["run_id"] == created_payload["run_id"]
     assert completed_job["metadata"]["progress_phase"] == "succeeded"
-    assert (tmp_path / "runs" / created_payload["job_id"] / "run.json").exists()
+    assert (tmp_path / "runs" / created_payload["run_id"] / "run.json").exists()
     assert client.get("/api/state").json()["run_count"] == 2
 
 
@@ -383,7 +392,7 @@ def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
         params=[
             ("benchmark_id", "multitask_val_v1"),
             ("task", "detection"),
-            ("prompt_id", "grounding_arrow.latest"),
+            ("prompt_id", "grounding_arrow.v2.4.main"),
             ("target_label", "arrow"),
         ],
     )
@@ -402,7 +411,7 @@ def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
         "/api/target-labels",
         params={
             "benchmark_id": "multitask_val_v1",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.v2.4.main",
         },
     )
     assert prompt_default.status_code == 200
@@ -418,7 +427,7 @@ def test_dashboard_resolves_target_labels_for_agents(tmp_path: Path) -> None:
         params=[
             ("benchmark_id", "multitask_val_v1"),
             ("task", "keypoint"),
-            ("prompt_id", "keypoint_arrow.latest"),
+            ("prompt_id", "keypoint_arrow.test.main"),
             ("target_label", "icon"),
         ],
     )
@@ -471,7 +480,7 @@ def test_dashboard_create_job_persists_preflight_warnings(tmp_path: Path) -> Non
             "model_path": str(model_path),
             "benchmark_id": "bench_no_labels",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.v2.4.main",
             "target_labels": ["icon"],
             "max_tokens": 4096,
         },
@@ -619,7 +628,7 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
                 "spec": {
                     "task": "detection",
                     "metric_profile": "detection_iou_v1",
-                    "prompt": {"prompt_id": "grounding_layout.latest"},
+                    "prompt": {"prompt_id": "grounding_layout.v2.4.main"},
                     "target_labels": [label],
                 },
             },
@@ -900,7 +909,7 @@ def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
             "model_path": str(model_path),
             "benchmark_id": "bench1",
             "task": "detection",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.v2.4.main",
         },
     )
     assert created_job.status_code == 201
@@ -1298,7 +1307,7 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
             "prediction_root": str(prediction_root),
             "task": "detection",
             "model_id": "model-a",
-            "prompt_id": "grounding_layout.latest",
+            "prompt_id": "grounding_layout.v2.4.main",
             "target_labels": ["icon"],
         },
     )

@@ -324,6 +324,8 @@ def test_banana_benchmark_adds_point_arrow_crop_split(tmp_path: Path) -> None:
 
     assert updated["tasks"] == ["detection", "keypoint"]
     assert updated["split_manifests"]["point_arrow"] == str(artifacts.split_path("point_arrow"))
+    assert updated["sample_counts"]["point_arrow"] == 1
+    assert updated["metadata"]["slices"]["point_arrow"]["view_type"] == "arrow_crop"
     assert artifacts.split_path("point_arrow").read_text(encoding="utf-8") == (
         "point_arrow/json/sample__arrow_0001.json\n"
     )

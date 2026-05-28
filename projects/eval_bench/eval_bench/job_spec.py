@@ -37,7 +37,7 @@ def job_templates() -> dict[str, Any]:
             "description": "启动临时模型 runtime，在 benchmark 上执行箭头检测并生成 run/report。",
             "manifest": _eval_job_manifest(
                 task="detection",
-                prompt_id="grounding_arrow.latest",
+                prompt_id="grounding_arrow.v2.4.main",
                 parser="raw_data_detection_v1",
                 metric_profile="detection_iou_v1",
                 target_labels=["arrow"],
@@ -48,21 +48,10 @@ def job_templates() -> dict[str, Any]:
             "description": "启动临时模型 runtime，在 benchmark 上执行 layout 检测并生成 run/report。",
             "manifest": _eval_job_manifest(
                 task="detection",
-                prompt_id="grounding_layout.latest",
+                prompt_id="grounding_layout.v2.4.main",
                 parser="raw_data_detection_v1",
                 metric_profile="detection_iou_v1",
                 target_labels=["icon", "image", "shape"],
-            ),
-        },
-        "keypoint_eval_job": {
-            "label": "Arrow Point Eval Job",
-            "description": "启动临时模型 runtime，在 benchmark 上执行箭头关键点评估并生成 run/report。",
-            "manifest": _eval_job_manifest(
-                task="keypoint",
-                prompt_id="point_arrow.latest",
-                parser="raw_data_keypoint_v1",
-                metric_profile="keypoint_endpoint_v1",
-                target_labels=["arrow"],
             ),
         },
     }

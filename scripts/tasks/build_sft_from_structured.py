@@ -13,7 +13,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-import yaml
+from shaft.prompting import load_prompt_template
 
 
 @dataclass(frozen=True)
@@ -40,11 +40,15 @@ class ConvertConfig:
 
 
 TASKS: tuple[TaskSpec, ...] = (
-    TaskSpec("grounding_arrow", "grounding", "configs/prompts/grounding_arrow.yaml"),
-    TaskSpec("grounding_layout", "grounding", "configs/prompts/grounding_layout.yaml"),
-    TaskSpec("grounding_shape", "grounding", "configs/prompts/grounding_shape.yaml"),
-    TaskSpec("grounding_icon_image", "grounding", "configs/prompts/grounding_icon_image.yaml"),
-    TaskSpec("point_arrow", "point", "configs/prompts/point_arrow.yaml"),
+    TaskSpec("grounding_arrow", "grounding", "configs/prompts/pools/grounding_arrow.v2.4.yaml"),
+    TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v2.4.yaml"),
+    TaskSpec("grounding_shape", "grounding", "configs/prompts/pools/grounding_shape.v2.4.yaml"),
+    TaskSpec(
+        "grounding_icon_image",
+        "grounding",
+        "configs/prompts/pools/grounding_icon_image.v2.4.yaml",
+    ),
+    TaskSpec("point_arrow", "point", "configs/prompts/pools/point_arrow.v2.4.yaml"),
 )
 
 
@@ -67,20 +71,11 @@ def _write_jsonl_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _load_prompt_config(path: Path) -> PromptConfig:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    metadata = payload.get("metadata") or {}
-    prompt = payload.get("prompt") or {}
-    prompt_id = str(metadata.get("id") or payload.get("prompt_id") or "").strip()
-    if not prompt_id:
-        raise ValueError(f"Missing prompt id in {path}.")
-    system_prompt = str(prompt.get("system_prompt") or payload.get("system_prompt") or "").strip()
-    user_prompt = str(prompt.get("user_prompt") or payload.get("user_prompt") or "").strip()
-    if not user_prompt:
-        raise ValueError(f"Missing user_prompt in {path}.")
+    prompt = load_prompt_template(path, variant_id="main")
     return PromptConfig(
-        prompt_id=prompt_id,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+        prompt_id=prompt.prompt_id,
+        system_prompt=prompt.system_prompt,
+        user_prompt=prompt.user_prompt,
     )
 
 
@@ -318,7 +313,7 @@ def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
         "sample_id": str(record["sample_id"]),
         "dataset_name": config.task.name,
         "system_prompt": config.prompt.system_prompt,
-        "user_prompt": config.prompt.user_prompt,
+        "user_prompt": "",
         "target_text": target_text,
         "extra": extra,
     }
@@ -373,6 +368,7 @@ def _write_readme(path: Path, *, task: TaskSpec, prompt: PromptConfig, rows: lis
         f"# {task.name} SFT\n\n"
         f"- Task kind: `{task.kind}`\n"
         f"- Prompt id: `{prompt.prompt_id}`\n"
+        "- `user_prompt` is intentionally empty; runtime prompt pools are the train prompt source.\n"
         f"- Rows in last converted split: `{len(rows)}`\n"
         f"- Last converted split counts from structured extra: `{dict(split_counts)}`\n"
         "- Coordinate bins: `1000`\n"
