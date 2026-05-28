@@ -2039,6 +2039,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
             "task": "detection",
             "metric_profile": "detection_iou_v1",
             "target_labels": ["arrow"],
+            "warnings": ["baseline and candidate benchmark splits differ"],
             "sample_count": 2,
             "created_at": "2026-05-09T00:30:00Z",
             "delta": {"precision_iou50": 0.2},
@@ -2135,6 +2136,9 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
     assert comparisons["comparisons"][0]["metric_profile"] == "detection_iou_v1"
+    assert comparisons["comparisons"][0]["warnings"] == [
+        "baseline and candidate benchmark splits differ"
+    ]
 
 
 def test_cli_resolves_target_labels_for_agent_label_subtasks(

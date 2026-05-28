@@ -850,6 +850,20 @@ function ComparisonHistoryPanel({
       cell: ({ row }) => row.original.target_labels?.join(", ") || "all"
     },
     {
+      header: "风险",
+      meta: { width: "compact" },
+      cell: ({ row }) => {
+        const warnings = row.original.warnings ?? [];
+        return warnings.length ? (
+          <span className="badge warning" title={warnings.join("\n")}>
+            {warnings.length} warning
+          </span>
+        ) : (
+          <span className="muted-text">-</span>
+        );
+      }
+    },
+    {
       header: "样本数",
       meta: { width: "number", align: "end" },
       cell: ({ row }) => row.original.sample_count.toLocaleString()

@@ -129,6 +129,7 @@ def list_comparison_reports(
                 "metric_profile": str(payload.get("metric_profile") or ""),
                 "target_labels": _target_labels(payload),
                 "target_labels_source": payload.get("target_labels_source"),
+                "warnings": _string_list(payload.get("warnings")),
                 "sample_count": int(payload.get("sample_count") or 0),
                 "created_at": payload.get("created_at"),
                 "path": str(path),
@@ -496,6 +497,7 @@ def _comparison_query_matches(
         report.get("task"),
         report.get("metric_profile"),
         " ".join(target_labels),
+        " ".join(_string_list(report.get("warnings"))),
     ]
     return any(query in str(field or "").lower() for field in fields)
 
@@ -515,6 +517,12 @@ def _comparison_warnings(baseline: dict[str, Any], candidate: dict[str, Any]) ->
     if baseline_labels != candidate_labels:
         warnings.append("baseline and candidate target labels differ")
     return warnings
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item)]
 
 
 def _sample_image(sample: dict[str, Any] | None) -> str | None:

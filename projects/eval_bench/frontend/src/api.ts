@@ -348,6 +348,8 @@ export type ComparisonReport = {
   comparison_id?: string;
   baseline_run_id: string;
   candidate_run_id: string;
+  benchmark_id?: string;
+  benchmark_split?: string;
   task: string;
   metric_profile?: string;
   target_labels?: string[];
@@ -386,6 +388,7 @@ export type ComparisonSummary = {
   metric_profile?: string;
   target_labels?: string[];
   target_labels_source?: string | null;
+  warnings?: string[];
   sample_count: number;
   created_at: string | null;
   path: string;
