@@ -344,38 +344,46 @@ export type CreateBenchmarkSlicePayload = {
   target_labels?: string[];
 };
 
-export type ComparisonReport = {
-  comparison_id?: string;
-  baseline_run_id: string;
-  candidate_run_id: string;
-  benchmark_id?: string;
-  benchmark_split?: string;
-  task: string;
-  metric_profile?: string;
-  target_labels?: string[];
-  warnings?: string[];
-  sample_count: number;
-  delta: {
-    precision_iou50: number;
-    recall_iou50: number;
-    mean_iou: number;
-    mean_keypoint_distance: number;
-    matched_count: number;
-    keypoint_pair_count: number;
-    false_positive_count: number;
-    false_negative_count: number;
-  };
-  summary: {
-    improved_samples: number;
-    regressed_samples: number;
-    changed_samples: number;
-    unchanged_samples: number;
-    missing_in_baseline: number;
-    missing_in_candidate: number;
-  };
-  labels?: ComparisonLabelDelta[];
-  top_improvements: ComparisonSample[];
-  top_regressions: ComparisonSample[];
+export type ComparisonRunMetrics = {
+  precision_iou50: number;
+  recall_iou50: number;
+  mean_iou: number;
+  keypoint_pair_count: number;
+  mean_keypoint_distance: number;
+  matched_count: number;
+  gt_instance_count: number;
+  pred_instance_count: number;
+};
+
+export type ComparisonDelta = {
+  precision_iou50: number;
+  recall_iou50: number;
+  mean_iou: number;
+  mean_keypoint_distance: number;
+  matched_count: number;
+  keypoint_pair_count: number;
+  false_positive_count: number;
+  false_negative_count: number;
+};
+
+export type ComparisonOverview = {
+  improved_samples: number;
+  regressed_samples: number;
+  changed_samples: number;
+  unchanged_samples: number;
+  missing_in_baseline: number;
+  missing_in_candidate: number;
+  improved_labels: number;
+  regressed_labels: number;
+};
+
+export type ComparisonSampleMetrics = {
+  matched_count: number;
+  false_positive_count: number;
+  false_negative_count: number;
+  mean_iou: number;
+  keypoint_pair_count: number;
+  mean_keypoint_distance: number;
 };
 
 export type ComparisonSummary = {
@@ -392,8 +400,8 @@ export type ComparisonSummary = {
   sample_count: number;
   created_at: string | null;
   path: string;
-  delta: ComparisonReport["delta"];
-  summary: ComparisonReport["summary"];
+  delta: ComparisonDelta;
+  summary: ComparisonOverview;
 };
 
 export type ComparisonListFilters = {
@@ -425,26 +433,11 @@ export type ComparisonSample = {
   baseline_index: number | null;
   candidate_index: number | null;
   status: string;
-  labels?: Record<
-    string,
-    {
-      matched_count: number;
-      false_positive_count: number;
-      false_negative_count: number;
-      mean_iou: number;
-      keypoint_pair_count: number;
-      mean_keypoint_distance: number;
-    }
-  >;
+  labels?: Record<string, ComparisonSampleMetrics>;
   delta_score: number;
-  delta: {
-    matched_count: number;
-    false_positive_count: number;
-    false_negative_count: number;
-    mean_iou: number;
-    keypoint_pair_count: number;
-    mean_keypoint_distance: number;
-  };
+  delta: ComparisonSampleMetrics;
+  baseline?: ComparisonSampleMetrics | null;
+  candidate?: ComparisonSampleMetrics | null;
 };
 
 export type ComparisonLabelDelta = {
@@ -452,16 +445,30 @@ export type ComparisonLabelDelta = {
   delta_score: number;
   baseline: Record<string, number>;
   candidate: Record<string, number>;
-  delta: {
-    precision_iou50: number;
-    recall_iou50: number;
-    mean_iou: number;
-    mean_keypoint_distance: number;
-    matched_count: number;
-    keypoint_pair_count: number;
-    false_positive_count: number;
-    false_negative_count: number;
-  };
+  delta: ComparisonDelta;
+};
+
+export type ComparisonReport = {
+  comparison_id?: string;
+  baseline_run_id: string;
+  candidate_run_id: string;
+  benchmark_id?: string;
+  benchmark_split?: string;
+  task: string;
+  metric_profile?: string;
+  target_labels?: string[];
+  target_labels_source?: string | null;
+  warnings?: string[];
+  sample_count: number;
+  created_at?: string | null;
+  baseline: ComparisonRunMetrics;
+  candidate: ComparisonRunMetrics;
+  delta: ComparisonDelta;
+  summary: ComparisonOverview;
+  labels?: ComparisonLabelDelta[];
+  samples?: ComparisonSample[];
+  top_improvements: ComparisonSample[];
+  top_regressions: ComparisonSample[];
 };
 
 export type ImportPredictionPayload = {

@@ -516,7 +516,7 @@ COMPARISON_SAMPLE_DELTA_OUTPUT_SCHEMA = {
         "item_shape": COMPARISON_SAMPLE_METRICS_OUTPUT_SCHEMA["properties"],
     },
 }
-COMPARISON_SUMMARY_OUTPUT_SHAPE = {
+COMPARISON_HISTORY_OUTPUT_SHAPE = {
     "comparison_id": "str",
     "baseline_run_id": "str",
     "candidate_run_id": "str",
@@ -529,6 +529,22 @@ COMPARISON_SUMMARY_OUTPUT_SHAPE = {
     "sample_count": "int",
     "created_at": "str|null",
     "path": "str",
+    "warnings": "list[str]",
+    "delta": COMPARISON_DELTA_OUTPUT_SCHEMA,
+    "summary": COMPARISON_OVERVIEW_OUTPUT_SCHEMA,
+}
+COMPARISON_REPORT_OUTPUT_SHAPE = {
+    "comparison_id": "str",
+    "baseline_run_id": "str",
+    "candidate_run_id": "str",
+    "benchmark_id": "str",
+    "benchmark_split": "str",
+    "task": "str",
+    "metric_profile": "str",
+    "target_labels": "list[str]",
+    "target_labels_source": "str|null",
+    "sample_count": "int",
+    "created_at": "str|null",
     "warnings": "list[str]",
     "baseline": COMPARISON_RUN_METRICS_OUTPUT_SCHEMA,
     "candidate": COMPARISON_RUN_METRICS_OUTPUT_SCHEMA,
@@ -1411,7 +1427,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
         "properties": {
             **PAGED_LIST_OUTPUT_SHAPE,
             "filters": COMPARISON_FILTER_OUTPUT_SCHEMA,
-            "comparisons": {"type": "array", "item_shape": COMPARISON_SUMMARY_OUTPUT_SHAPE},
+            "comparisons": {"type": "array", "item_shape": COMPARISON_HISTORY_OUTPUT_SHAPE},
         },
     },
     "show-comparison": {
@@ -1427,7 +1443,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "delta",
             "summary",
         ],
-        "properties": COMPARISON_SUMMARY_OUTPUT_SHAPE,
+        "properties": COMPARISON_REPORT_OUTPUT_SHAPE,
     },
     "show-comparison-sample": {
         "type": "object",

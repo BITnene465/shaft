@@ -663,10 +663,13 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert comparison_shape["delta"]["properties"]["precision_iou50"] == "float"
     assert comparison_shape["delta"]["properties"]["false_negative_count"] == "int"
     assert comparison_shape["summary"]["properties"]["improved_samples"] == "int"
-    assert comparison_shape["baseline"]["properties"]["matched_count"] == "int"
-    assert comparison_shape["labels"]["item_shape"]["delta"]["properties"]["mean_iou"] == "float"
+    assert "baseline" not in comparison_shape
+    assert "samples" not in comparison_shape
+    show_comparison_shape = CLI_JSON_OUTPUT_SCHEMAS["show-comparison"]["properties"]
+    assert show_comparison_shape["baseline"]["properties"]["matched_count"] == "int"
+    assert show_comparison_shape["labels"]["item_shape"]["delta"]["properties"]["mean_iou"] == "float"
     assert (
-        comparison_shape["top_regressions"]["item_shape"]["baseline"]["item_shape"][
+        show_comparison_shape["top_regressions"]["item_shape"]["baseline"]["item_shape"][
             "false_positive_count"
         ]
         == "int"
