@@ -110,11 +110,13 @@ export function ComparePage() {
   );
   const comparisonListQuery = useQuery({
     queryKey: ["comparisons", comparisonFilters],
-    queryFn: () => fetchComparisons(comparisonFilters)
+    queryFn: () => fetchComparisons(comparisonFilters),
+    placeholderData: (previousData) => previousData
   });
   const runsQuery = useQuery({
     queryKey: ["runs", "compare", runFilters],
-    queryFn: () => fetchRuns(runFilters)
+    queryFn: () => fetchRuns(runFilters),
+    placeholderData: (previousData) => previousData
   });
   const runs = runsQuery.data?.runs ?? [];
   const facets = runsQuery.data?.facets;

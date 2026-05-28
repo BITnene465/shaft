@@ -181,7 +181,8 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["jobs", jobFilters],
     queryFn: () => fetchJobs(jobFilters),
-    refetchInterval: 2_000
+    refetchInterval: 2_000,
+    placeholderData: (previousData) => previousData
   });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],

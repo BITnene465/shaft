@@ -65,7 +65,8 @@ export function BenchmarksPage() {
   );
   const benchmarksQuery = useQuery({
     queryKey: ["benchmarks", benchmarkFilters],
-    queryFn: () => fetchBenchmarks(benchmarkFilters)
+    queryFn: () => fetchBenchmarks(benchmarkFilters),
+    placeholderData: (previousData) => previousData
   });
   const benchmarks = benchmarksQuery.data?.benchmarks ?? [];
   const facets = benchmarksQuery.data?.facets;

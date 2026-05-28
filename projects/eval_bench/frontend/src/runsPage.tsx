@@ -130,7 +130,8 @@ export function RunsPage() {
   );
   const runsQuery = useQuery({
     queryKey: ["runs", runFilters],
-    queryFn: () => fetchRuns(runFilters)
+    queryFn: () => fetchRuns(runFilters),
+    placeholderData: (previousData) => previousData
   });
   const runs = runsQuery.data?.runs ?? [];
   const facets = runsQuery.data?.facets;

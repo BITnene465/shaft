@@ -1048,6 +1048,16 @@ assert(
   "rank board refresh feedback must be scoped to the table area instead of the whole page",
 );
 assert(
+  [
+    runsPage,
+    benchmarksPage,
+    comparePage,
+    servicesPage,
+    jobsPage,
+  ].every((source) => source.includes("placeholderData: (previousData) => previousData")),
+  "list pages must keep previous data while filters refetch instead of replacing the whole workspace",
+);
+assert(
   rankBoardPage.includes("OptionChipButton") &&
     rankBoardPage.includes('className="rank-facet-button"') &&
     rankBoardPage.includes('className="rank-facet-toggle"') &&
