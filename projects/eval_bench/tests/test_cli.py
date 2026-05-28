@@ -626,6 +626,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         ]
         == "int"
     )
+    assert CLI_JSON_OUTPUT_SCHEMAS["import-predictions"]["properties"]["summary_path"] == "str|null"
     assert CLI_JSON_OUTPUT_SCHEMAS["compare-runs"]["required"] == [
         "comparison_id",
         "baseline_run_id",
@@ -1698,6 +1699,8 @@ def test_cli_import_predictions_accepts_target_label_subset(tmp_path: Path, caps
     report = json.loads(Path(payload["report_path"]).read_text(encoding="utf-8"))
 
     assert payload["run_id"] == "imported_arrow"
+    assert payload["summary_path"].endswith("summary.json")
+    assert Path(payload["summary_path"]).exists()
     assert report["target_labels"] == ["arrow"]
     assert report["target_labels_source"] == "explicit"
     assert [item["label"] for item in report["labels"]] == ["arrow"]

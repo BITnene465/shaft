@@ -491,6 +491,7 @@ export type ImportPredictionResult = {
   run_id: string;
   run_manifest_path: string;
   report_path: string | null;
+  summary_path: string | null;
   imported_predictions: number;
   missing_predictions: string[];
   missing_prediction_count: number;

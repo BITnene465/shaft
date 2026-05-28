@@ -38,6 +38,7 @@ class ImportedPredictionRun:
     run_id: str
     run_manifest_path: Path
     report_path: Path | None
+    summary_path: Path | None
     imported_predictions: int
     missing_predictions: list[str]
 
@@ -46,6 +47,7 @@ class ImportedPredictionRun:
             "run_id": self.run_id,
             "run_manifest_path": str(self.run_manifest_path),
             "report_path": str(self.report_path) if self.report_path else None,
+            "summary_path": str(self.summary_path) if self.summary_path else None,
             "imported_predictions": self.imported_predictions,
             "missing_predictions": self.missing_predictions,
             "missing_prediction_count": len(self.missing_predictions),
@@ -177,10 +179,12 @@ def import_predictions_for_benchmark(
         },
     )
     report_path = evaluate_run(store_root=store_root, run_id=run_id) if evaluate else None
+    summary_path = report_path.parent / "summary.json" if report_path else None
     return ImportedPredictionRun(
         run_id=run_id,
         run_manifest_path=manifest_path,
         report_path=report_path,
+        summary_path=summary_path,
         imported_predictions=imported_count,
         missing_predictions=missing,
     )

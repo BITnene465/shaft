@@ -1495,6 +1495,8 @@ def test_dashboard_imports_prediction_snapshot_and_evaluates(tmp_path: Path) -> 
     assert payload["imported_predictions"] == 1
     assert payload["missing_prediction_count"] == 0
     assert payload["report_path"].endswith("metrics.json")
+    assert payload["summary_path"].endswith("summary.json")
+    assert Path(payload["summary_path"]).exists()
     state_run = client.get("/api/state").json()["runs"][0]
     assert state_run["run_id"] == "imported_run"
     assert state_run["target_labels"] == ["icon"]

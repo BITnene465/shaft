@@ -70,6 +70,8 @@ def test_import_predictions_creates_run_and_evaluates_against_benchmark(tmp_path
     assert result.imported_predictions == 1
     assert result.missing_predictions == ["part1/json/b.json"]
     assert result.report_path is not None
+    assert result.summary_path == result.report_path.parent / "summary.json"
+    assert result.summary_path.exists()
     report = json.loads(result.report_path.read_text(encoding="utf-8"))
     assert report["sample_count"] == 2
     assert report["prediction_file_count"] == 1
