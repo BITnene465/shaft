@@ -138,6 +138,7 @@
 - `src/shaft/model/builder.py`
 - `src/shaft/model/registry.py`
 - `src/shaft/model/policies.py`
+- `src/shaft/model/sharding.py`
 - `src/shaft/model/finetune.py`
 - `src/shaft/model/qwen3vl.py`
 
@@ -146,7 +147,7 @@
 - 声明模型族元信息。
 - 构建 HF model/tokenizer/processor。
 - 处理全量微调与 PEFT。
-- 收口 processor policy / peft policy。
+- 收口 processor / peft / sharding policy。
 
 ### 关键类
 
@@ -159,6 +160,7 @@
 - `ModelCapabilities`
 - `ProcessorPolicy`
 - `PeftPolicy`
+- `ModelShardingPolicy`
 - `Qwen3VLLoader`
 
 ### 关键函数

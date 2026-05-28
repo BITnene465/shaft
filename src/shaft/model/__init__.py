@@ -30,6 +30,7 @@ from .policies import (
     register_processor_policy,
 )
 from .registry import MODEL_REGISTRY, build_model_meta, default_model_groups
+from .sharding import ModelShardingPolicy
 from .types import (
     DefaultPeftPolicy,
     ModelArtifacts,
@@ -56,6 +57,7 @@ __all__ = [
     "ModelLoader",
     "ModelMeta",
     "ModelModuleGroups",
+    "ModelShardingPolicy",
     "PeftPolicy",
     "ProcessorPolicy",
     "ShaftAdapterFinetunePlan",

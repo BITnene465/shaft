@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from .sharding import ModelShardingPolicy
+
 
 def _dedupe_non_empty(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
@@ -184,6 +186,7 @@ class ModelGroup:
     module_groups: ModelModuleGroups | None = None
     processor_policy: ProcessorPolicy | None = None
     peft_policy: PeftPolicy | None = None
+    sharding_policy: ModelShardingPolicy | None = None
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
 
@@ -208,6 +211,7 @@ class ModelMeta:
     module_groups: ModelModuleGroups = field(default_factory=ModelModuleGroups)
     processor_policy: ProcessorPolicy = field(default_factory=ProcessorPolicy)
     peft_policy: PeftPolicy = field(default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"]))
+    sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
     loader: ModelLoader | None = None
@@ -222,6 +226,7 @@ class ModelMeta:
             module_groups=self.module_groups,
             processor_policy=self.processor_policy,
             peft_policy=self.peft_policy,
+            sharding_policy=self.sharding_policy,
             requires=self.requires,
             additional_saved_files=self.additional_saved_files,
             loader=loader,
@@ -253,6 +258,11 @@ class ModelMeta:
         peft_policy = (
             matched.peft_policy if matched is not None and matched.peft_policy is not None else self.peft_policy
         )
+        sharding_policy = (
+            matched.sharding_policy
+            if matched is not None and matched.sharding_policy is not None
+            else self.sharding_policy
+        )
         requires = list(self.requires)
         if matched is not None:
             requires.extend(matched.requires)
@@ -268,6 +278,7 @@ class ModelMeta:
             module_groups=module_groups,
             processor_policy=processor_policy,
             peft_policy=peft_policy,
+            sharding_policy=sharding_policy,
             requires=_dedupe_non_empty(tuple(requires)),
             additional_saved_files=_dedupe_non_empty(tuple(additional_saved_files)),
             group_name=matched.name if matched is not None else None,
@@ -339,6 +350,7 @@ class ShaftModelAdapter:
     module_groups: ModelModuleGroups
     processor_policy: ProcessorPolicy
     peft_policy: PeftPolicy
+    sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
     group_name: str | None = None
@@ -349,6 +361,15 @@ class ShaftModelAdapter:
 
     def resolve_target_modules(self, target_modules: list[str]) -> list[str]:
         return self.peft_policy.resolve_target_modules(target_modules)
+
+    def resolve_fsdp_transformer_layer_cls_to_wrap(self, values: list[str]) -> list[str]:
+        try:
+            return self.sharding_policy.resolve_fsdp_transformer_layer_cls_to_wrap(values)
+        except ValueError as exc:
+            raise ValueError(
+                "train.distributed.fsdp.transformer_layer_cls_to_wrap=['auto'] is not available "
+                f"for model.model_type={self.model_type!r}. Configure explicit transformer layer class names."
+            ) from exc
 
     def build_processor_inputs(
         self,

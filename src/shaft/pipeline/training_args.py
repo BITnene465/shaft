@@ -8,24 +8,24 @@ from transformers import TrainingArguments
 
 from shaft.config import RuntimeConfig
 
-_AUTO_FSDP_TRANSFORMER_LAYERS: dict[str, tuple[str, ...]] = {
-    "qwen3vl": ("Qwen3VLTextDecoderLayer", "Qwen3VLVisionBlock"),
-}
-
 
 def _resolve_fsdp_transformer_layers(config: RuntimeConfig) -> list[str]:
     configured = list(config.train.distributed.fsdp.transformer_layer_cls_to_wrap)
-    normalized = [str(item).strip() for item in configured if str(item).strip()]
-    if normalized != ["auto"]:
-        return normalized
+    from shaft.model import build_model_meta
+
     model_type = str(config.model.model_type).strip().lower()
-    resolved = _AUTO_FSDP_TRANSFORMER_LAYERS.get(model_type)
-    if not resolved:
+    try:
+        model_meta = build_model_meta(model_type)
+    except KeyError as exc:
         raise ValueError(
             "train.distributed.fsdp.transformer_layer_cls_to_wrap=['auto'] is not available "
             f"for model.model_type={model_type!r}. Configure explicit transformer layer class names."
-        )
-    return list(resolved)
+        ) from exc
+    model_adapter = model_meta.resolve_adapter(
+        model_name_or_path=config.model.model_name_or_path,
+        template_type=config.model.template,
+    )
+    return model_adapter.resolve_fsdp_transformer_layer_cls_to_wrap(configured)
 
 
 def _build_fsdp_args(config: RuntimeConfig) -> tuple[str | None, dict[str, Any] | None]:

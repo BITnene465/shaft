@@ -12,6 +12,7 @@ from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
 from .finetune_plan import build_resolved_finetune_plan
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
+from .sharding import ModelShardingPolicy
 from .types import (
     ModelArtifacts,
     ModelCapabilities,
@@ -63,6 +64,9 @@ QWEN3VL_META = ModelMeta(
     ),
     processor_policy=build_processor_policy("pixel_budget"),
     peft_policy=build_peft_policy("all_linear"),
+    sharding_policy=ModelShardingPolicy(
+        fsdp_transformer_layer_cls_to_wrap=("Qwen3VLTextDecoderLayer", "Qwen3VLVisionBlock"),
+    ),
 )
 
 

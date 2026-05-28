@@ -4,7 +4,16 @@ from collections.abc import Iterable
 
 from shaft.plugins import Registry
 
-from .types import ModelCapabilities, ModelGroup, ModelLoader, ModelMeta, ModelModuleGroups, PeftPolicy, ProcessorPolicy
+from .sharding import ModelShardingPolicy
+from .types import (
+    ModelCapabilities,
+    ModelGroup,
+    ModelLoader,
+    ModelMeta,
+    ModelModuleGroups,
+    PeftPolicy,
+    ProcessorPolicy,
+)
 
 MODEL_REGISTRY: Registry[ModelMeta] = Registry("model")
 
@@ -28,6 +37,7 @@ def default_model_groups(
     module_groups: ModelModuleGroups | None = None,
     processor_policy: ProcessorPolicy | None = None,
     peft_policy: PeftPolicy | None = None,
+    sharding_policy: ModelShardingPolicy | None = None,
     requires: Iterable[str] = (),
     additional_saved_files: Iterable[str] = (),
 ) -> tuple[ModelGroup, ...]:
@@ -41,6 +51,7 @@ def default_model_groups(
             module_groups=module_groups,
             processor_policy=processor_policy,
             peft_policy=peft_policy,
+            sharding_policy=sharding_policy,
             requires=tuple(str(item).strip() for item in requires if str(item).strip()),
             additional_saved_files=tuple(
                 str(item).strip() for item in additional_saved_files if str(item).strip()
