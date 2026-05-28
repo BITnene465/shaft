@@ -298,13 +298,7 @@ export function RankBoardPage() {
           </span>
         }
       />
-      <div
-        className={
-          tableRefreshing
-            ? "workspace-card fill rank-board-table-card refreshing"
-            : "workspace-card fill rank-board-table-card"
-        }
-      >
+      <div className="workspace-card fill rank-board-table-card">
         <div className="rank-board-table-toolbar">
           <PagerControl
             className="rank-board-pager"
@@ -313,16 +307,12 @@ export function RankBoardPage() {
             total={board.total}
             onPageChange={setPageOffset}
           />
-          {tableRefreshing ? (
-            <span className="rank-board-table-refresh" aria-live="polite">
-              表格更新中
-            </span>
-          ) : null}
         </div>
         <RankBoardTable
           entries={entries}
           primaryMetric={board.primary_metric}
           primaryMetricLabel={board.primary_metric_label}
+          refreshing={tableRefreshing}
           weighted={Boolean(board.rank_scheme)}
         />
       </div>
@@ -616,11 +606,13 @@ function RankBoardTable({
   entries,
   primaryMetric,
   primaryMetricLabel,
+  refreshing,
   weighted
 }: {
   entries: RankBoardEntry[];
   primaryMetric: string;
   primaryMetricLabel: string;
+  refreshing: boolean;
   weighted: boolean;
 }) {
   const columns: ColumnDef<RankBoardEntry>[] = [
@@ -717,7 +709,14 @@ function RankBoardTable({
       }
     }
   );
-  return <DataTable columns={columns} data={entries} emptyText="没有符合高级检索条件的 run。" />;
+  return (
+    <DataTable
+      columns={columns}
+      data={entries}
+      emptyText="没有符合高级检索条件的 run。"
+      refreshing={refreshing}
+    />
+  );
 }
 
 function RankSchemePanel({

@@ -2105,42 +2105,6 @@ h2 {
   flex: 1 1 auto;
 }
 
-.rank-board-table-refresh {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  color: #416273;
-  background: #f6fafc;
-  border: 1px solid #d3e3eb;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 760;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.rank-board-table-card.refreshing::after {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #1684ad 45%, transparent);
-  content: "";
-  pointer-events: none;
-  transform: translateX(-70%);
-  animation: rank-board-table-refresh 1.1s ease-in-out infinite;
-}
-
-.rank-board-table-card.refreshing .table-shell {
-  border-color: #cbdde7;
-}
-
-@keyframes rank-board-table-refresh {
-  to {
-    transform: translateX(70%);
-  }
-}
-
 .rank-board-table-card .table-shell {
   min-height: min(500px, 58vh);
 }

@@ -1128,11 +1128,12 @@ assert(
 assert(
   rankBoardPage.includes("const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);") &&
     rankBoardPage.includes('className="rank-board-table-toolbar"') &&
-    rankBoardPage.includes("rank-board-table-card refreshing") &&
-    rankBoardPage.includes('className="rank-board-table-refresh"') &&
-    styleSource.includes(".rank-board-table-card.refreshing::after") &&
-    styleSource.includes("@keyframes rank-board-table-refresh"),
-  "rank board refresh feedback must be scoped to the table area instead of the whole page",
+    rankBoardPage.includes("refreshing={tableRefreshing}") &&
+    !rankBoardPage.includes("rank-board-table-card refreshing") &&
+    !rankBoardPage.includes('className="rank-board-table-refresh"') &&
+    !styleSource.includes(".rank-board-table-card.refreshing::after") &&
+    !styleSource.includes("@keyframes rank-board-table-refresh"),
+  "rank board refresh feedback must use the shared table-region indicator only",
 );
 assert(
   [
