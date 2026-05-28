@@ -351,7 +351,8 @@ assert(
     manifestToolsSource.includes("export function manifestBenchmarkSplit(") &&
     manifestToolsSource.includes("export function updateManifestBenchmarkSplit(") &&
     manifestToolsSource.includes("section.benchmark_split = normalized") &&
-    manifestToolsSource.includes("delete section.split"),
+    manifestToolsSource.includes("delete section.split") &&
+    manifestToolsSource.includes("function normalizeManifestBenchmarkSplit("),
   "jobs manifest editor must expose explicit benchmark_split selection for suite benchmarks",
 );
 assert(

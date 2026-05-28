@@ -18,7 +18,11 @@ export function applyBenchmarkDefault(
     (benchmark) => benchmark.benchmark_id === currentBenchmarkId
   );
   if (!currentBenchmark || !benchmarkSupportsTask(currentBenchmark, cloned.eval.task)) {
-    cloned.eval.benchmark_id = defaultBenchmarkForTask(cloned.eval.task, benchmarks).benchmark_id;
+    const nextBenchmark = defaultBenchmarkForTask(cloned.eval.task, benchmarks);
+    cloned.eval.benchmark_id = nextBenchmark.benchmark_id;
+    normalizeManifestBenchmarkSplit(cloned.eval, nextBenchmark);
+  } else {
+    normalizeManifestBenchmarkSplit(cloned.eval, currentBenchmark);
   }
   return cloned;
 }
@@ -253,4 +257,22 @@ function benchmarkSupportsTask(benchmark: BenchmarkSummary, task: unknown) {
     return true;
   }
   return benchmark.tasks.includes(task.trim());
+}
+
+function normalizeManifestBenchmarkSplit(
+  section: Record<string, unknown>,
+  benchmark: BenchmarkSummary
+) {
+  const split = promptStringValue(section.benchmark_split) ?? promptStringValue(section.split);
+  if (!split) {
+    return;
+  }
+  const splitValues = new Set([
+    benchmark.split,
+    ...Object.keys(benchmark.split_manifests ?? {})
+  ].filter(Boolean));
+  if (!splitValues.has(split)) {
+    delete section.benchmark_split;
+    delete section.split;
+  }
 }

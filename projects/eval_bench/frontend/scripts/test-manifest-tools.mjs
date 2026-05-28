@@ -113,6 +113,53 @@ const taskMismatchBenchmarkManifest = tools.applyBenchmarkDefault(
 );
 assert.equal(taskMismatchBenchmarkManifest.eval.benchmark_id, "banana_point_arrow_bench");
 
+const staleBenchmarkSplitManifest = tools.applyBenchmarkDefault(
+  {
+    kind: "eval_job",
+    eval: {
+      task: "keypoint",
+      benchmark_id: "banana_bench",
+      benchmark_split: "grounding_arrow"
+    }
+  },
+  [
+    {
+      benchmark_id: "banana_bench",
+      tasks: ["detection"],
+      labels: ["arrow"],
+      layers: [],
+      split: "suite",
+      sample_count: 400,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null,
+      split_manifests: {
+        suite: "splits/suite.txt",
+        grounding_arrow: "splits/grounding_arrow.txt"
+      }
+    },
+    {
+      benchmark_id: "banana_point_arrow_bench",
+      tasks: ["keypoint"],
+      labels: ["arrow"],
+      layers: [],
+      split: "point_arrow",
+      sample_count: 1966,
+      root: "",
+      manifest_path: "",
+      created_at: null,
+      source_manifest_path: null,
+      split_manifests: {
+        point_arrow: "splits/point_arrow.txt"
+      }
+    }
+  ]
+);
+assert.equal(staleBenchmarkSplitManifest.eval.benchmark_id, "banana_point_arrow_bench");
+assert.equal("benchmark_split" in staleBenchmarkSplitManifest.eval, false);
+assert.equal("split" in staleBenchmarkSplitManifest.eval, false);
+
 const customPromptWithoutLabels = {
   ...arrowPrompt,
   prompt_id: "custom.no-labels",
