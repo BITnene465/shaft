@@ -877,7 +877,8 @@ assert(
 assert(
   formattersSource.includes("export function f1Score(") &&
     formattersSource.includes("export function runF1Score(") &&
-    formattersSource.includes("/ F1 ${formatMetric(runF1Score(run))}") &&
+    formattersSource.includes("parts.push(run.model_id, `F1 ${formatMetric(runF1Score(run))}`)") &&
+    formattersSource.includes("if (run.benchmark_id)") &&
     runTables.includes('import { formatDate, formatMetric, runF1Score } from "./formatters";') &&
     !runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
     runTables.includes('header: "F1@.50"') &&

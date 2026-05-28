@@ -86,7 +86,12 @@ export function isTextInputTarget(target: EventTarget | null) {
 }
 
 export function formatRunOption(run: RunSummary) {
-  return `${run.run_id} / ${run.benchmark_id}:${run.benchmark_split || "-"} / ${run.model_id} / F1 ${formatMetric(runF1Score(run))}`;
+  const parts = [run.run_id];
+  if (run.benchmark_id) {
+    parts.push(`${run.benchmark_id}:${run.benchmark_split || "-"}`);
+  }
+  parts.push(run.model_id, `F1 ${formatMetric(runF1Score(run))}`);
+  return parts.join(" / ");
 }
 
 export function runIdExists(runs: RunSummary[], runId: string) {

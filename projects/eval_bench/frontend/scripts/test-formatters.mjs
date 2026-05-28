@@ -39,6 +39,14 @@ assert.equal(formatters.runF1Score({ ...scoredRun, f1_iou50: 0.72 }).toFixed(3),
 assert.equal(formatters.runF1Score({ ...scoredRun, f1_iou50: undefined }).toFixed(3), "0.667");
 assert.equal(formatters.formatRunOption(scoredRun), "run-a / model-a / F1 0.667");
 assert.equal(
+  formatters.formatRunOption({
+    ...scoredRun,
+    benchmark_id: "bench-a",
+    benchmark_split: "val"
+  }),
+  "run-a / bench-a:val / model-a / F1 0.667"
+);
+assert.equal(
   formatters.comparisonSampleHref("base", "cand", 4, {
     baselineIndex: 9,
     candidateIndex: 4
