@@ -1256,8 +1256,9 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     },
     "delete-job": {
         "type": "object",
-        "required": ["job", "deleted", "trash_path"],
+        "required": ["job_id", "job", "deleted", "trash_path"],
         "properties": {
+            "job_id": {"type": "str"},
             "job": {"type": "object", "item_shape": JOB_RECORD_OUTPUT_SHAPE},
             "deleted": {"type": "bool"},
             "trash_path": {"type": "str"},
@@ -2523,7 +2524,12 @@ def _cmd_delete_job(args: argparse.Namespace) -> None:
     atomic_write_json(trash_path, record.to_dict())
     print(
         json.dumps(
-            {"job": record.to_dict(), "deleted": True, "trash_path": str(trash_path)},
+            {
+                "job_id": record.job_id,
+                "job": record.to_dict(),
+                "deleted": True,
+                "trash_path": str(trash_path),
+            },
             ensure_ascii=False,
         )
     )
