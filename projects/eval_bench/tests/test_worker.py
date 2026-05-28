@@ -427,6 +427,7 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert processed is not None
     assert processed.job_id == job.job_id
     assert processed.status == "succeeded"
+    assert "resolved_manifest" not in processed.metadata
     run_path = tmp_path / "runs" / job.job_id / "run.json"
     run_payload = json.loads(run_path.read_text(encoding="utf-8"))
     assert run_payload["status"] == "queued"

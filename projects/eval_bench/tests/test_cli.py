@@ -493,9 +493,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]["generation"]["properties"]["max_tokens"] == "int"
     assert job_metadata_schema["properties"]["preflight_warnings"] == "list[str]"
     assert job_metadata_schema["properties"]["progress_done"] == "int|null"
-    assert job_metadata_schema["properties"]["resolved_manifest"] == job_payload_schema[
-        "properties"
-    ]["job_manifest"]
+    assert "resolved_manifest" not in job_metadata_schema["properties"]
     assert CLI_JSON_OUTPUT_SCHEMAS["show-job"]["properties"]["job"]["item_shape"] == (
         jobs_output_schema["properties"]["jobs"]["item_shape"]
     )

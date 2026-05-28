@@ -144,7 +144,6 @@ class EvalBenchWorker:
                 "run_id": str(job.payload.get("run_id") or job.job_id),
                 "run_manifest_path": str(manifest_path),
                 "job_kind": resolved_kind,
-                "resolved_manifest": resolved.manifest,
                 "worker_action": "prepare_run",
                 "progress_phase": "prepare_run",
                 "progress_message": "Run manifest prepared.",

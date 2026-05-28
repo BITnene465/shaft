@@ -352,7 +352,6 @@ JOB_METADATA_OUTPUT_SCHEMA = {
         "progress_current_sample": "str|null",
         "progress_message": "str|null",
         "run_manifest_path": "str|null",
-        "resolved_manifest": JOB_MANIFEST_OUTPUT_SCHEMA,
         "cancel_requested": "bool",
     },
 }
