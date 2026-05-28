@@ -495,7 +495,8 @@ export function RunDetailPage() {
         limit: SAMPLE_PAGE_SIZE,
         label: labelFilter,
         errorFilter
-      })
+      }),
+    placeholderData: (previousData) => previousData
   });
   const page = samplesQuery.data;
   const samples = page?.samples ?? [];
@@ -628,6 +629,7 @@ export function RunDetailPage() {
               <SampleList
                 samples={samples}
                 selectedIndex={activeIndex}
+                refreshing={samplesQuery.isPlaceholderData}
                 onSelect={selectSample}
                 emptyText="没有符合过滤条件的样本。"
               />
@@ -939,11 +941,13 @@ function SampleFilters({
 function SampleList({
   samples,
   selectedIndex,
+  refreshing = false,
   onSelect,
   emptyText
 }: {
   samples: RunSampleSummary[];
   selectedIndex: number;
+  refreshing?: boolean;
   onSelect: (index: number) => void;
   emptyText: string;
 }) {
@@ -951,7 +955,12 @@ function SampleList({
     return <div className="sample-list empty">{emptyText}</div>;
   }
   return (
-    <div className="sample-list">
+    <div className={refreshing ? "sample-list refreshing" : "sample-list"}>
+      {refreshing ? (
+        <span className="table-refresh-indicator" aria-live="polite">
+          样本列表更新中
+        </span>
+      ) : null}
       {samples.map((sample) => (
         <SelectableRowButton
           key={sample.index}

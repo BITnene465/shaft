@@ -377,7 +377,8 @@ export function BenchmarkDetailPage() {
         limit: SAMPLE_PAGE_SIZE,
         label: labelFilter,
         split: splitFilter
-      })
+      }),
+    placeholderData: (previousData) => previousData
   });
   const page = samplesQuery.data;
   const samples = page?.samples ?? [];
@@ -390,6 +391,8 @@ export function BenchmarkDetailPage() {
     queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex, splitFilter],
     queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex, { split: splitFilter }),
     enabled: Boolean(activeSample),
+    placeholderData: (previousData) =>
+      previousData?.benchmark_id === benchmarkId ? previousData : undefined,
     staleTime: 30_000
   });
 
@@ -512,6 +515,7 @@ export function BenchmarkDetailPage() {
               <BenchmarkSampleList
                 samples={samples}
                 selectedIndex={activeIndex}
+                refreshing={samplesQuery.isPlaceholderData}
                 onSelect={selectSample}
                 emptyText="没有符合过滤条件的样本。"
               />
@@ -593,11 +597,13 @@ function BenchmarkSampleFilters({
 function BenchmarkSampleList({
   samples,
   selectedIndex,
+  refreshing = false,
   onSelect,
   emptyText
 }: {
   samples: BenchmarkSampleSummary[];
   selectedIndex: number;
+  refreshing?: boolean;
   onSelect: (index: number) => void;
   emptyText: string;
 }) {
@@ -605,7 +611,12 @@ function BenchmarkSampleList({
     return <div className="sample-list empty">{emptyText}</div>;
   }
   return (
-    <div className="sample-list">
+    <div className={refreshing ? "sample-list refreshing" : "sample-list"}>
+      {refreshing ? (
+        <span className="table-refresh-indicator" aria-live="polite">
+          样本列表更新中
+        </span>
+      ) : null}
       {samples.map((sample) => (
         <SelectableRowButton
           key={sample.index}

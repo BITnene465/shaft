@@ -454,12 +454,14 @@ h1 {
 }
 
 .table-shell.refreshing,
-.service-grid.refreshing {
+.service-grid.refreshing,
+.sample-list.refreshing {
   position: relative;
 }
 
 .table-shell.refreshing::after,
-.service-grid.refreshing::after {
+.service-grid.refreshing::after,
+.sample-list.refreshing::after {
   position: absolute;
   top: 0;
   right: 0;
