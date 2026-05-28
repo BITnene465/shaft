@@ -67,6 +67,17 @@ train:
   save_final_model: true
   save_final_state: true
   ddp_find_unused_parameters: false
+  distributed:
+    strategy: ddp  # ddp | fsdp | deepspeed
+    fsdp:
+      sharding_strategy: full_shard
+      auto_wrap_policy: transformer
+      transformer_layer_cls_to_wrap: ["auto"]
+      activation_checkpointing: true
+      state_dict_type: full_state_dict
+      use_orig_params: true
+    deepspeed:
+      config_path: configs/deepspeed/zero3_bf16.json
   report_to: ["wandb"]
   init_from_checkpoint:
   resume_from_checkpoint:

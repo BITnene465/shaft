@@ -144,6 +144,7 @@ sequenceDiagram
     - `GRPO`
   - 其中 `GRPO` 复用 `jsonl_sft` 作为 prompt-target 数据契约，并通过共享 `codec` + 内置 reward registry 构建 reward functions
 - HF 参数映射：`build_hf_training_args()`
+  - 负责把 `train.distributed.strategy` 映射到 HF `TrainingArguments.fsdp/fsdp_config/deepspeed`
 - checkpoint 规则：
   - `inspect_checkpoint_layout()`
   - `resolve_resume_checkpoint()`
@@ -157,7 +158,18 @@ sequenceDiagram
 3. `data` 只产出样本和 batch，不涉及 loss/optimizer。
 4. `model` 只负责模型族差异，不介入数据源路径和训练调度。
 
-### 5.3 冻结边界
+### 5.3 分片训练边界
+
+- 分片策略统一落在 `train.distributed`：
+  - `ddp`: 默认 torchrun + DDP
+  - `fsdp`: PyTorch/HF FSDP
+  - `deepspeed`: DeepSpeed ZeRO
+- `pipeline/training_args.py` 是分片策略进入 HF Trainer 的唯一入口。
+- 模型族只提供必要的结构默认值，例如 Qwen3VL 的 FSDP transformer layer class names。
+- `data`、`template`、`codec` 和任务 prompt 不允许根据分片策略分叉。
+- SFT 已接入 FSDP 与 DeepSpeed；DPO/PPO/GRPO 后续必须复用同一配置语义，不新增平行字段。
+
+### 5.4 冻结边界
 
 - 冻结规则统一落在 `model.finetune.freeze` 与 `src/shaft/model/freeze.py`。
 - `src/shaft/model/finetune_plan.py` 负责把：

@@ -5,6 +5,35 @@ from typing import Any
 
 
 @dataclass
+class TrainFSDPConfig:
+    sharding_strategy: str = "full_shard"
+    auto_wrap_policy: str = "transformer"
+    transformer_layer_cls_to_wrap: list[str] = field(default_factory=lambda: ["auto"])
+    min_num_params: int = 0
+    activation_checkpointing: bool = True
+    cpu_offload: bool = False
+    use_orig_params: bool = True
+    backward_prefetch: str | None = None
+    forward_prefetch: bool = False
+    limit_all_gathers: bool = True
+    state_dict_type: str = "full_state_dict"
+    sync_module_states: bool = False
+
+
+@dataclass
+class TrainDeepSpeedConfig:
+    config_path: str | None = None
+    config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TrainDistributedConfig:
+    strategy: str = "ddp"  # ddp | fsdp | deepspeed
+    fsdp: TrainFSDPConfig = field(default_factory=TrainFSDPConfig)
+    deepspeed: TrainDeepSpeedConfig = field(default_factory=TrainDeepSpeedConfig)
+
+
+@dataclass
 class TrainConfig:
     epochs: int = 1
     max_steps: int = -1
@@ -41,6 +70,7 @@ class TrainConfig:
     save_final_state: bool = True
     init_from_checkpoint: str | None = None
     resume_from_checkpoint: str | None = None
+    distributed: TrainDistributedConfig = field(default_factory=TrainDistributedConfig)
 
 
 @dataclass

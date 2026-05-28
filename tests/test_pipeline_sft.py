@@ -11,7 +11,11 @@ from shaft.config import FinetuneConfig, RuntimeConfig, load_config
 from shaft.data import SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
 from shaft.model.finetune_plan import build_resolved_finetune_plan, resolved_finetune_summary_path
-from shaft.pipeline.training_args import build_hf_training_args
+from shaft.pipeline.training_args import (
+    _build_deepspeed_arg,
+    _build_fsdp_args,
+    build_hf_training_args,
+)
 from shaft.pipeline import run_sft
 from shaft.template import build_template
 from shaft.training.topology import validate_training_topology
@@ -213,6 +217,55 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
     args = build_hf_training_args(config)
 
     assert args.gradient_checkpointing is True
+
+
+def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+
+    args = build_hf_training_args(config)
+
+    assert [option.value for option in args.fsdp] == ["full_shard", "auto_wrap"]
+    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
+        "Qwen3VLTextDecoderLayer",
+        "Qwen3VLVisionBlock",
+    ]
+    assert args.fsdp_config["activation_checkpointing"] is True
+    assert args.fsdp_config["state_dict_type"] == "full_state_dict"
+
+
+def test_fsdp_auto_layers_require_model_default(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.model.model_type = "unknown_model"
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+
+    try:
+        _build_fsdp_args(config)
+    except ValueError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - defensive assertion path
+        raise AssertionError("FSDP auto layer resolution should require a registered default")
+
+    assert "transformer_layer_cls_to_wrap=['auto']" in message
+
+
+def test_deepspeed_training_arg_prefers_inline_config(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "deepspeed"
+    config.train.distributed.deepspeed.config_path = "configs/deepspeed/zero3_bf16.json"
+    config.train.distributed.deepspeed.config = {"zero_optimization": {"stage": 3}}
+
+    assert _build_deepspeed_arg(config) == {"zero_optimization": {"stage": 3}}
+
+
+def test_deepspeed_training_arg_uses_config_path(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "deepspeed"
+    config.train.distributed.deepspeed.config_path = "configs/deepspeed/zero3_bf16.json"
+
+    assert _build_deepspeed_arg(config) == "configs/deepspeed/zero3_bf16.json"
 
 
 def test_training_topology_rejects_single_process_data_parallel(monkeypatch, tmp_path: Path) -> None:

@@ -18,6 +18,9 @@ from .training import (
     EvalDatasetPolicyConfig,
     EvalMetricConfig,
     EvalNormalizerConfig,
+    TrainDeepSpeedConfig,
+    TrainDistributedConfig,
+    TrainFSDPConfig,
     TrainConfig,
 )
 
@@ -45,6 +48,9 @@ __all__ = [
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
+    "TrainDeepSpeedConfig",
+    "TrainDistributedConfig",
+    "TrainFSDPConfig",
     "TrainConfig",
     "load_config",
     "load_config_from_payload",

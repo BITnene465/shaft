@@ -32,6 +32,9 @@
 - `DataConfig`
 - `DatasetSourceConfig`
 - `TrainConfig`
+- `TrainDistributedConfig`
+- `TrainFSDPConfig`
+- `TrainDeepSpeedConfig`
 - `EvalConfig`
 - `EvalDatasetPolicyConfig`
 - `EvalMetricConfig`
@@ -431,6 +434,12 @@
   - `src/shaft/model/finetune.py`
     - 负责在训练态关闭 `use_cache`
     - `qlora` 路径会把该开关传给 `prepare_model_for_kbit_training`
+- `train.distributed` 当前通过 `src/shaft/pipeline/training_args.py` 接入 HF Trainer：
+  - `strategy=ddp` 保持默认 torchrun/DDP
+  - `strategy=fsdp` 透传 `TrainingArguments.fsdp/fsdp_config`
+  - `strategy=deepspeed` 透传 `TrainingArguments.deepspeed`
+  - Qwen3VL 的 FSDP `transformer_layer_cls_to_wrap=["auto"]` 会解析为
+    `Qwen3VLTextDecoderLayer` 与 `Qwen3VLVisionBlock`
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`

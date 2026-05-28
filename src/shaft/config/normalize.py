@@ -14,6 +14,11 @@ _PPO_VALUE_MODEL_MODES = {"shared_backbone", "copy_backbone"}
 _PPO_REWARD_MODEL_MODES = {"adapter_disabled_policy", "copy_backbone"}
 _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
+_TRAIN_DISTRIBUTED_STRATEGIES = {"ddp", "fsdp", "deepspeed"}
+_FSDP_SHARDING_STRATEGIES = {"full_shard", "shard_grad_op", "no_shard", "hybrid_shard"}
+_FSDP_AUTO_WRAP_POLICIES = {"none", "transformer", "size"}
+_FSDP_BACKWARD_PREFETCH = {"backward_pre", "backward_post"}
+_FSDP_STATE_DICT_TYPES = {"full_state_dict", "local_state_dict", "sharded_state_dict"}
 _ONLINE_EVAL_NORMALIZERS = {"identity", "range"}
 _FREEZE_GROUPS = {"language_model", "vision_tower", "aligner", "generator"}
 _PARAM_GROUP_LR_KEYS = {
@@ -236,6 +241,72 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         seen_no_decay_name_patterns.add(normalized_pattern)
         normalized_no_decay_name_patterns.append(normalized_pattern)
     train.no_decay_name_patterns = normalized_no_decay_name_patterns
+    train.distributed.strategy = str(train.distributed.strategy).strip().lower()
+    if train.distributed.strategy not in _TRAIN_DISTRIBUTED_STRATEGIES:
+        raise ValueError(
+            f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
+            f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
+        )
+    fsdp_cfg = train.distributed.fsdp
+    fsdp_cfg.sharding_strategy = str(fsdp_cfg.sharding_strategy).strip().lower()
+    if fsdp_cfg.sharding_strategy not in _FSDP_SHARDING_STRATEGIES:
+        raise ValueError(
+            f"Unsupported train.distributed.fsdp.sharding_strategy={fsdp_cfg.sharding_strategy!r}."
+        )
+    fsdp_cfg.auto_wrap_policy = str(fsdp_cfg.auto_wrap_policy).strip().lower()
+    if fsdp_cfg.auto_wrap_policy not in _FSDP_AUTO_WRAP_POLICIES:
+        raise ValueError(
+            f"Unsupported train.distributed.fsdp.auto_wrap_policy={fsdp_cfg.auto_wrap_policy!r}."
+        )
+    fsdp_cfg.transformer_layer_cls_to_wrap = _normalize_string_list(
+        fsdp_cfg.transformer_layer_cls_to_wrap
+    )
+    if fsdp_cfg.auto_wrap_policy == "transformer" and not fsdp_cfg.transformer_layer_cls_to_wrap:
+        raise ValueError(
+            "train.distributed.fsdp.transformer_layer_cls_to_wrap cannot be empty "
+            "when auto_wrap_policy='transformer'."
+        )
+    fsdp_cfg.min_num_params = int(fsdp_cfg.min_num_params)
+    if fsdp_cfg.min_num_params < 0:
+        raise ValueError("train.distributed.fsdp.min_num_params must be >= 0.")
+    fsdp_cfg.activation_checkpointing = bool(fsdp_cfg.activation_checkpointing)
+    fsdp_cfg.cpu_offload = bool(fsdp_cfg.cpu_offload)
+    fsdp_cfg.use_orig_params = bool(fsdp_cfg.use_orig_params)
+    fsdp_cfg.forward_prefetch = bool(fsdp_cfg.forward_prefetch)
+    fsdp_cfg.limit_all_gathers = bool(fsdp_cfg.limit_all_gathers)
+    fsdp_cfg.sync_module_states = bool(fsdp_cfg.sync_module_states)
+    fsdp_cfg.state_dict_type = str(fsdp_cfg.state_dict_type).strip().lower()
+    if fsdp_cfg.state_dict_type not in _FSDP_STATE_DICT_TYPES:
+        raise ValueError(
+            f"Unsupported train.distributed.fsdp.state_dict_type={fsdp_cfg.state_dict_type!r}."
+        )
+    fsdp_cfg.backward_prefetch = (
+        str(fsdp_cfg.backward_prefetch).strip().lower()
+        if fsdp_cfg.backward_prefetch is not None
+        else None
+    )
+    if fsdp_cfg.backward_prefetch == "":
+        fsdp_cfg.backward_prefetch = None
+    if fsdp_cfg.backward_prefetch is not None and fsdp_cfg.backward_prefetch not in _FSDP_BACKWARD_PREFETCH:
+        raise ValueError(
+            f"Unsupported train.distributed.fsdp.backward_prefetch={fsdp_cfg.backward_prefetch!r}."
+        )
+
+    deepspeed_cfg = train.distributed.deepspeed
+    deepspeed_cfg.config_path = (
+        str(deepspeed_cfg.config_path).strip() if deepspeed_cfg.config_path is not None else None
+    )
+    if deepspeed_cfg.config_path == "":
+        deepspeed_cfg.config_path = None
+    if not isinstance(deepspeed_cfg.config, dict):
+        raise ValueError("train.distributed.deepspeed.config must be a mapping.")
+    if train.distributed.strategy == "deepspeed" and not (
+        deepspeed_cfg.config_path or deepspeed_cfg.config
+    ):
+        raise ValueError(
+            "train.distributed.strategy='deepspeed' requires either "
+            "train.distributed.deepspeed.config_path or train.distributed.deepspeed.config."
+        )
 
     eval_cfg = config.eval
     if isinstance(eval_cfg.eval_strategy, bool):

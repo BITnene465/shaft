@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import RuntimeConfig, load_config
+from shaft.config import RuntimeConfig, TrainDistributedConfig, load_config
+from shaft.config.schema import TrainDistributedConfig as SchemaTrainDistributedConfig
 
 
 def test_load_minimal_config(tmp_path: Path) -> None:
@@ -26,6 +27,9 @@ data:
     assert cfg.data.datasets[0].dataset_name == "ds1"
     assert cfg.model.finetune.mode == "full"
     assert cfg.model.attn_implementation is None
+    assert isinstance(cfg.train.distributed, TrainDistributedConfig)
+    assert SchemaTrainDistributedConfig is TrainDistributedConfig
+    assert cfg.train.distributed.strategy == "ddp"
 
 
 def test_normalization(tmp_path: Path) -> None:
@@ -47,6 +51,15 @@ train:
   lr_scheduler_type: LINEAR
   loss_scale: ALL
   gradient_checkpointing: true
+  distributed:
+    strategy: FSDP
+    fsdp:
+      sharding_strategy: FULL_SHARD
+      auto_wrap_policy: TRANSFORMER
+      transformer_layer_cls_to_wrap: [" auto ", "auto"]
+      activation_checkpointing: true
+      state_dict_type: FULL_STATE_DICT
+      backward_prefetch: BACKWARD_PRE
   save_epoch_interval: 2
   param_group_lrs:
     Language_Model: 1.0e-5
@@ -68,6 +81,12 @@ model:
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
     assert cfg.train.gradient_checkpointing is True
+    assert cfg.train.distributed.strategy == "fsdp"
+    assert cfg.train.distributed.fsdp.sharding_strategy == "full_shard"
+    assert cfg.train.distributed.fsdp.auto_wrap_policy == "transformer"
+    assert cfg.train.distributed.fsdp.transformer_layer_cls_to_wrap == ["auto"]
+    assert cfg.train.distributed.fsdp.state_dict_type == "full_state_dict"
+    assert cfg.train.distributed.fsdp.backward_prefetch == "backward_pre"
     assert cfg.train.save_epoch_interval == 2
     assert cfg.eval.epoch_interval == 3
     assert cfg.train.param_group_lrs == {
@@ -78,6 +97,48 @@ model:
     assert cfg.model.finetune.mode == "dora"
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
+
+
+def test_deepspeed_strategy_requires_config(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: deepspeed
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires either"):
+        load_config(config_path)
+
+
+def test_deepspeed_strategy_accepts_inline_config(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 3
+"""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(payload, encoding="utf-8")
+
+    cfg = load_config(config_path)
+
+    assert cfg.train.distributed.strategy == "deepspeed"
+    assert cfg.train.distributed.deepspeed.config == {"zero_optimization": {"stage": 3}}
 
 
 def test_prompt_sampling_config_normalizes_and_resolves_paths(tmp_path: Path) -> None:
