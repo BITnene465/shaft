@@ -729,7 +729,12 @@ assert(
   benchmarksPage.includes("parseBenchmarkSlices(") &&
     benchmarksPage.includes("slices: slices.length > 0 ? slices : undefined") &&
     benchmarksPage.includes("default_slice: slices[0]?.split") &&
-    benchmarksPage.includes('label="Suite slices"'),
+    benchmarksPage.includes('label="Suite slices"') &&
+    benchmarksPage.includes("suiteSliceParse.error") &&
+    benchmarksPage.includes("Suite slices 第") &&
+    benchmarksPage.includes("Suite slices split 重复") &&
+    benchmarksPage.includes("Suite slices 不支持的任务") &&
+    benchmarksPage.includes("Boolean(suiteSliceParse.error)"),
   "benchmark creation dialog must support suite slice payloads",
 );
 assert(

@@ -175,6 +175,10 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
   const [tasks, setTasks] = useState<string[]>(["detection", "keypoint"]);
   const [layers, setLayers] = useState("layout,arrow");
   const [overwrite, setOverwrite] = useState(false);
+  const suiteSliceParse = useMemo(
+    () => parseBenchmarkSlices(suiteSlices, tasks, layers),
+    [suiteSlices, tasks, layers]
+  );
   const mutation = useMutation({
     mutationFn: createBenchmark,
     onSuccess: () => {
@@ -194,7 +198,10 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const slices = parseBenchmarkSlices(suiteSlices, tasks, layers);
+    if (suiteSliceParse.error) {
+      return;
+    }
+    const slices = suiteSliceParse.slices;
     mutation.mutate({
       benchmark_id: benchmarkId.trim(),
       source_root: sourceRoot.trim(),
@@ -244,6 +251,9 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         rows={4}
         placeholder="grounding_arrow=data/raw_data/splits/grounding_arrow.txt | detection | arrow | arrow"
       />
+      {suiteSliceParse.error ? (
+        <div className="form-result error full-field">{suiteSliceParse.error}</div>
+      ) : null}
       <CheckboxFieldControl
         label="检测"
         checked={tasks.includes("detection")}
@@ -259,7 +269,7 @@ function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
         type="submit"
         variant="primary"
         icon={<AppIcon name="submitCreate" size={16} />}
-        disabled={mutation.isPending || tasks.length === 0}
+        disabled={mutation.isPending || tasks.length === 0 || Boolean(suiteSliceParse.error)}
       >
         创建
       </ActionButton>
@@ -283,25 +293,45 @@ function parseBenchmarkSlices(
   value: string,
   defaultTasks: string[],
   defaultLayers: string
-): CreateBenchmarkSlicePayload[] {
+): { slices: CreateBenchmarkSlicePayload[]; error: string | null } {
   const fallbackLayers = splitCompactList(defaultLayers);
-  return value
+  const lines = value
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [head, tasksText, layersText, labelsText] = line.split("|").map((item) => item.trim());
-      const separatorIndex = head.indexOf("=");
-      const split = separatorIndex >= 0 ? head.slice(0, separatorIndex).trim() : head;
-      const sourceManifest = separatorIndex >= 0 ? head.slice(separatorIndex + 1).trim() : "";
+    .filter((line) => line && !line.startsWith("#"));
+  const slices: CreateBenchmarkSlicePayload[] = [];
+  const seenSplits = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    const [head, tasksText, layersText, labelsText] = line.split("|").map((item) => item.trim());
+    const separatorIndex = head.indexOf("=");
+    if (separatorIndex <= 0 || separatorIndex >= head.length - 1) {
       return {
-        split,
-        source_manifest: sourceManifest || undefined,
-        tasks: splitCompactList(tasksText).length > 0 ? splitCompactList(tasksText) : defaultTasks,
-        layers: splitCompactList(layersText).length > 0 ? splitCompactList(layersText) : fallbackLayers,
-        target_labels: splitCompactList(labelsText)
+        slices: [],
+        error: `Suite slices 第 ${index + 1} 行必须使用 split=manifest 格式`
       };
+    }
+    const split = head.slice(0, separatorIndex).trim();
+    const sourceManifest = head.slice(separatorIndex + 1).trim();
+    if (seenSplits.has(split)) {
+      return { slices: [], error: `Suite slices split 重复: ${split}` };
+    }
+    seenSplits.add(split);
+    const parsedTasks = splitCompactList(tasksText);
+    const parsedLayers = splitCompactList(layersText);
+    const tasks = parsedTasks.length > 0 ? parsedTasks : defaultTasks;
+    const invalidTasks = tasks.filter((task) => task !== "detection" && task !== "keypoint");
+    if (invalidTasks.length > 0) {
+      return { slices: [], error: `Suite slices 不支持的任务: ${invalidTasks.join(", ")}` };
+    }
+    slices.push({
+      split,
+      source_manifest: sourceManifest,
+      tasks,
+      layers: parsedLayers.length > 0 ? parsedLayers : fallbackLayers,
+      target_labels: splitCompactList(labelsText)
     });
+  }
+  return { slices, error: null };
 }
 
 function splitCompactList(value: string | undefined): string[] {
