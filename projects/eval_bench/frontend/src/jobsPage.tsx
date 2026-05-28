@@ -652,7 +652,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
       setParseError(null);
       return parsed as Record<string, unknown>;
     } catch (error) {
-      setParseError(error instanceof Error ? error.message : String(error));
+      setParseError(errorMessage(error));
       return null;
     }
   }

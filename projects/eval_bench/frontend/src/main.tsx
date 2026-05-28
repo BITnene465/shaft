@@ -24,6 +24,7 @@ import {
 import { useSidebarPreference } from "./workspaceSettings";
 import { useDashboardState } from "./dashboardState";
 import { AppIcon } from "./iconLibrary";
+import { errorMessage } from "./formatters";
 import { JobsPage } from "./jobsPage";
 import { OverviewPage } from "./overviewPage";
 import { ServicesPage } from "./servicesPage";
@@ -56,7 +57,7 @@ class AppErrorBoundary extends React.Component<
   }
 
   static getDerivedStateFromError(error: unknown) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    return { error: errorMessage(error) };
   }
 
   componentDidCatch(error: unknown) {

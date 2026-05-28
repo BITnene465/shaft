@@ -107,7 +107,7 @@ export function RankBoardPage() {
         return nextBoard;
       } catch (error) {
         if (rankSchemeParam) {
-          setRankSchemeRequestError(error instanceof Error ? error.message : String(error));
+          setRankSchemeRequestError(errorMessage(error));
         }
         throw error;
       }

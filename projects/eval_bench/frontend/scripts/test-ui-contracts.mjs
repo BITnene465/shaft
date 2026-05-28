@@ -42,6 +42,7 @@ const comparePage = await readSource("src/comparePage.tsx");
 const overviewPage = await readSource("src/overviewPage.tsx");
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
+const mainEntry = await readSource("src/main.tsx");
 const runTables = await readSource("src/runTables.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
@@ -398,11 +399,15 @@ assert(
   formattersSource.includes("export function errorMessage(value: unknown)") &&
     jobsPage.includes("errorMessage(preflightMutation.error)") &&
     jobsPage.includes("errorMessage(mutation.error)") &&
+    jobsPage.includes("setParseError(errorMessage(error))") &&
     jobsPage.includes("saveErrorMessage={errorMessage(promptMutation.error)}") &&
+    mainEntry.includes("import { errorMessage } from \"./formatters\";") &&
+    mainEntry.includes("return { error: errorMessage(error) };") &&
     !jobsPage.includes("<div className=\"form-error\">预检查请求失败。</div>") &&
     !jobsPage.includes("<div className=\"form-error\">任务入队失败。</div>") &&
-    !jobsPage.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>"),
-  "manifest job form errors must show the concrete API error message inside the local panel",
+    !jobsPage.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>") &&
+    !mainEntry.includes("return { error: error instanceof Error ? error.message : String(error) };"),
+  "manifest job form and render boundary errors must use shared concrete error text",
 );
 assert(
   jobsPage.includes("DisclosurePanel") &&
@@ -761,7 +766,6 @@ assert(
     !/overview-home-v18[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(styleSource),
   "overview command desk must avoid fine metric copy and five-plus column grids",
 );
-const mainEntry = await readSource("src/main.tsx");
 assert(
   mainEntry.includes('import { OverviewPage } from "./overviewPage";'),
   "main.tsx must route to the extracted OverviewPage module",
@@ -1097,8 +1101,10 @@ assert(
 );
 assert(
   rankBoardPage.includes("errorMessage(dashboardQuery.error || boardQuery.error)") &&
+    rankBoardPage.includes("setRankSchemeRequestError(errorMessage(error))") &&
+    !rankBoardPage.includes("setRankSchemeRequestError(error instanceof Error") &&
     !rankBoardPage.includes('return <EmptyState title="排行榜加载失败" tone="danger" />;'),
-  "rank board page must show concrete API errors for leaderboard loading failures",
+  "rank board page must show concrete API errors for leaderboard and rank scheme failures",
 );
 assert(
   comparePage.includes("SelectableCardButton") &&
