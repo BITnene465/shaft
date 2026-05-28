@@ -12,8 +12,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from eval_bench import services as services_module
+import eval_bench.dashboard as dashboard_module
 from eval_bench.dashboard import create_app
 from eval_bench.database import EvalBenchDatabase
+from eval_bench.worker import EvalBenchWorker
 from eval_bench.prompt_templates import DEFAULT_PROMPT_SPECS
 
 
@@ -916,6 +918,32 @@ def test_dashboard_job_logs_can_return_full_log(tmp_path: Path) -> None:
 
     assert tail["lines"] == ["b\n", "c\n"]
     assert full["lines"] == ["a\n", "b\n", "c\n"]
+
+
+def test_dashboard_background_worker_marks_uncaught_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+    database = app.state.eval_bench_database
+    job = database.create_job(kind="eval", payload={"run_id": "manual-worker-failure"})
+
+    class FailingWorker(EvalBenchWorker):
+        def process_job(self, job_id: str):  # type: ignore[override]
+            raise RuntimeError("manual worker crashed")
+
+    monkeypatch.setattr(dashboard_module, "_load_worker_class", lambda: FailingWorker)
+
+    processed = client.post("/api/jobs/process-next")
+
+    assert processed.status_code == 200
+    assert processed.json()["processed"] is True
+    failed = _wait_for_job_status(client, job.job_id, "failed")
+    assert failed["error"] == "manual worker crashed"
+    assert failed["metadata"]["worker_action"] == "failed"
+    assert failed["metadata"]["progress_phase"] == "failed"
+    assert failed["metadata"]["dashboard_worker_error_type"] == "RuntimeError"
 
 
 def test_dashboard_manages_run_job_and_service_records(tmp_path: Path) -> None:
