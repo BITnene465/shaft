@@ -43,6 +43,7 @@ RUN_SUMMARY_OUTPUT_SHAPE = {
     "run_id": "str",
     "status": "str",
     "benchmark_id": "str",
+    "benchmark_split": "str",
     "tasks": "list[str]",
     "spec_task": "str",
     "target_labels": "list[str]",
@@ -768,6 +769,7 @@ RUN_FACET_OUTPUT_SCHEMA = {
     "keys": [
         "tasks",
         "benchmarks",
+        "splits",
         "statuses",
         "labels",
         "models",
@@ -806,6 +808,7 @@ RANK_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
     [
         "task",
         "benchmark_id",
+        "benchmark_split",
         "status",
         "label",
         "model_id",
@@ -821,6 +824,7 @@ RUN_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
     [
         "task",
         "benchmark_id",
+        "benchmark_split",
         "status",
         "label",
         "model_id",
@@ -1010,6 +1014,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
                     "f1_iou50": "float|null",
                     "status": "str",
                     "benchmark_id": "str",
+                    "benchmark_split": "str",
                     "task": "str",
                     "target_labels": "list[str]",
                     "model_id": "str",
@@ -1670,6 +1675,7 @@ def _build_parser() -> argparse.ArgumentParser:
     list_runs.add_argument("--limit", type=int, default=100)
     list_runs.add_argument("--task", choices=("detection", "keypoint"), default=None)
     list_runs.add_argument("--benchmark-id", default=None)
+    list_runs.add_argument("--benchmark-split", default=None)
     list_runs.add_argument("--status", default=None)
     list_runs.add_argument("--label", default=None)
     list_runs.add_argument("--model-id", default=None)
@@ -1742,6 +1748,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rank_board.add_argument("--limit", type=int, default=100)
     rank_board.add_argument("--task", choices=("detection", "keypoint"), default=None)
     rank_board.add_argument("--benchmark-id", default=None)
+    rank_board.add_argument("--benchmark-split", default=None)
     rank_board.add_argument("--status", default=None)
     rank_board.add_argument("--label", default=None)
     rank_board.add_argument("--model-id", default=None)
@@ -2523,6 +2530,7 @@ def _cmd_list_runs(args: argparse.Namespace) -> None:
         limit=args.limit,
         task=args.task,
         benchmark_id=args.benchmark_id,
+        benchmark_split=args.benchmark_split,
         status=args.status,
         label=args.label,
         model_id=args.model_id,
@@ -2661,6 +2669,7 @@ def _cmd_rank_board(args: argparse.Namespace) -> None:
         limit=max(1, int(args.limit)),
         task=args.task,
         benchmark_id=args.benchmark_id,
+        benchmark_split=args.benchmark_split,
         status=args.status,
         label=args.label,
         model_id=args.model_id,

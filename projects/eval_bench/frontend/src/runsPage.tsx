@@ -95,6 +95,7 @@ export function RunsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [taskFilter, setTaskFilter] = useState("all");
   const [benchmarkFilter, setBenchmarkFilter] = useState("all");
+  const [benchmarkSplitFilter, setBenchmarkSplitFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
@@ -107,6 +108,7 @@ export function RunsPage() {
       status: statusFilter !== "all" ? statusFilter : undefined,
       task: taskFilter !== "all" ? taskFilter : undefined,
       benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
+      benchmarkSplit: benchmarkSplitFilter !== "all" ? benchmarkSplitFilter : undefined,
       label: labelFilter !== "all" ? labelFilter : undefined,
       modelId: modelFilter !== "all" ? modelFilter : undefined,
       promptId: promptFilter !== "all" ? promptFilter : undefined,
@@ -115,6 +117,7 @@ export function RunsPage() {
     }),
     [
       benchmarkFilter,
+      benchmarkSplitFilter,
       labelFilter,
       metricProfileFilter,
       modelFilter,
@@ -133,6 +136,11 @@ export function RunsPage() {
   const facets = runsQuery.data?.facets;
   const tasks = facetValues(facets, "tasks", runs.map((run) => run.spec_task));
   const benchmarks = facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id));
+  const benchmarkSplits = facetValues(
+    facets,
+    "splits",
+    runs.map((run) => run.benchmark_split)
+  );
   const statuses = facetValues(facets, "statuses", runs.map((run) => run.status));
   const labels = facetValues(facets, "labels", runs.flatMap((run) => run.target_labels));
   const models = facetValues(facets, "models", runs.map((run) => run.model_id));
@@ -150,6 +158,7 @@ export function RunsPage() {
     statusFilter,
     taskFilter,
     benchmarkFilter,
+    benchmarkSplitFilter,
     labelFilter,
     modelFilter,
     promptFilter,
@@ -222,6 +231,15 @@ export function RunsPage() {
               values: ["all", ...benchmarks],
               labels: { all: "全部" },
               onChange: setBenchmarkFilter
+            },
+            {
+              type: "select",
+              id: "run-benchmark-split",
+              label: "Split",
+              value: benchmarkSplitFilter,
+              values: ["all", ...benchmarkSplits],
+              labels: { all: "全部" },
+              onChange: setBenchmarkSplitFilter
             },
             {
               type: "select",

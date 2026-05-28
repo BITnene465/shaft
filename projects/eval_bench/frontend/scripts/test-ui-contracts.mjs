@@ -803,6 +803,9 @@ assert(
     runsPage.includes('className="rank-board-pager run-list-pager"') &&
     runsPage.includes("offset: pageOffset") &&
     runsPage.includes("limit: RUN_PAGE_SIZE") &&
+    runsPage.includes("benchmarkSplitFilter") &&
+    runsPage.includes("benchmarkSplit: benchmarkSplitFilter") &&
+    runsPage.includes('id: "run-benchmark-split"') &&
     !runsPage.includes("function RunListPager(") &&
     !runsPage.includes("limit: 200"),
   "runs page must use paged API requests instead of a fixed 200-row slice",
@@ -1036,11 +1039,13 @@ assert(
     rankBoardPage.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
     rankBoardPage.includes("onFilterChange.task") &&
     rankBoardPage.includes("onFilterChange.benchmark") &&
+    rankBoardPage.includes("onFilterChange.split") &&
     rankBoardPage.includes("onFilterChange.status") &&
     rankBoardPage.includes("onFilterChange.label") &&
     rankBoardPage.includes("onFilterChange.metricProfile") &&
     rankBoardPage.includes("board.facets.tasks") &&
     rankBoardPage.includes("board.facets.benchmarks") &&
+    rankBoardPage.includes("board.facets.splits") &&
     rankBoardPage.includes("board.facets.statuses"),
   "rank board facet rail must expose all backend facets as clickable filter chips",
 );

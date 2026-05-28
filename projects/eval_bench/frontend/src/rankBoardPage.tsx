@@ -51,6 +51,7 @@ export function RankBoardPage() {
   const [searchText, setSearchText] = useState("");
   const [taskFilter, setTaskFilter] = useState("all");
   const [benchmarkFilter, setBenchmarkFilter] = useState("all");
+  const [benchmarkSplitFilter, setBenchmarkSplitFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
@@ -71,6 +72,7 @@ export function RankBoardPage() {
       searchText,
       taskFilter,
       benchmarkFilter,
+      benchmarkSplitFilter,
       statusFilter,
       labelFilter,
       modelFilter,
@@ -90,6 +92,7 @@ export function RankBoardPage() {
           query: searchText,
           task: taskFilter,
           benchmarkId: benchmarkFilter,
+          benchmarkSplit: benchmarkSplitFilter,
           status: statusFilter,
           label: labelFilter,
           modelId: modelFilter,
@@ -118,6 +121,11 @@ export function RankBoardPage() {
     "benchmarks",
     runs.map((run) => run.benchmark_id)
   );
+  const benchmarkSplits = facetValues(
+    board?.facets,
+    "splits",
+    runs.map((run) => run.benchmark_split)
+  );
   const statuses = facetValues(board?.facets, "statuses", runs.map((run) => run.status));
   const labels = facetValues(board?.facets, "labels", runs.flatMap((run) => run.target_labels));
   const models = facetValues(board?.facets, "models", runs.map((run) => run.model_id));
@@ -135,6 +143,7 @@ export function RankBoardPage() {
     searchText,
     taskFilter,
     benchmarkFilter,
+    benchmarkSplitFilter,
     statusFilter,
     labelFilter,
     modelFilter,
@@ -204,6 +213,15 @@ export function RankBoardPage() {
             values: ["all", ...benchmarks],
             labels: { all: "全部" },
             onChange: setBenchmarkFilter
+          },
+          {
+            type: "select",
+            id: "rank-benchmark-split",
+            label: "Split",
+            value: benchmarkSplitFilter,
+            values: ["all", ...benchmarkSplits],
+            labels: { all: "全部" },
+            onChange: setBenchmarkSplitFilter
           },
           {
             type: "select",
@@ -318,6 +336,7 @@ export function RankBoardPage() {
         filters={{
           task: taskFilter,
           benchmark: benchmarkFilter,
+          split: benchmarkSplitFilter,
           status: statusFilter,
           label: labelFilter,
           model: modelFilter,
@@ -327,6 +346,7 @@ export function RankBoardPage() {
         onFilterChange={{
           task: setTaskFilter,
           benchmark: setBenchmarkFilter,
+          split: setBenchmarkSplitFilter,
           status: setStatusFilter,
           label: setLabelFilter,
           model: setModelFilter,
@@ -452,6 +472,7 @@ function RankFacetRail({
   filters: {
     task: string;
     benchmark: string;
+    split: string;
     status: string;
     label: string;
     model: string;
@@ -461,6 +482,7 @@ function RankFacetRail({
   onFilterChange: {
     task: (value: string) => void;
     benchmark: (value: string) => void;
+    split: (value: string) => void;
     status: (value: string) => void;
     label: (value: string) => void;
     model: (value: string) => void;
@@ -480,6 +502,12 @@ function RankFacetRail({
       items: board.facets.benchmarks ?? [],
       activeValue: filters.benchmark,
       onSelect: onFilterChange.benchmark
+    },
+    {
+      title: "Splits",
+      items: board.facets.splits ?? [],
+      activeValue: filters.split,
+      onSelect: onFilterChange.split
     },
     {
       title: "Status",
@@ -632,6 +660,7 @@ function RankBoardTable({
     { header: "任务", accessorKey: "task" },
     { header: "标签", cell: ({ row }) => row.original.target_labels.join(", ") || "-" },
     { header: "基准集", accessorKey: "benchmark_id" },
+    { header: "Split", accessorKey: "benchmark_split" },
     { header: "模型", accessorKey: "model_id" },
     { header: "Prompt", accessorKey: "prompt_id" },
     { header: "P@.50", cell: ({ row }) => formatMetric(row.original.precision_iou50) },

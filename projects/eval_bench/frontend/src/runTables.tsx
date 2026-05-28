@@ -142,6 +142,7 @@ export function RunTable({
     { header: "状态", cell: ({ row }) => <Badge value={row.original.status} domain="run" /> },
     { header: "任务", accessorKey: "spec_task" },
     { header: "基准集", accessorKey: "benchmark_id" },
+    { header: "Split", accessorKey: "benchmark_split" },
     { header: "模型", accessorKey: "model_id" },
     ...(compact
       ? []

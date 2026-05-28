@@ -127,8 +127,12 @@ function RecentRunList({ runs }: { runs: RunSummary[] }) {
               <strong title={run.run_id}>{run.run_id}</strong>
               <Badge value={run.status} domain="run" />
             </span>
-            <span className="recent-run-meta" title={`${run.benchmark_id} / ${run.model_id}`}>
-              {run.benchmark_id || "-"} / {run.model_id || "unknown model"}
+            <span
+              className="recent-run-meta"
+              title={`${run.benchmark_id}:${run.benchmark_split || "-"} / ${run.model_id}`}
+            >
+              {run.benchmark_id || "-"}:{run.benchmark_split || "-"} /{" "}
+              {run.model_id || "unknown model"}
             </span>
             <span className="recent-run-artifacts" aria-label="run 产物状态">
               <i>

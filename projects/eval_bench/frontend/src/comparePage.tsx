@@ -50,6 +50,7 @@ export function ComparePage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [taskFilter, setTaskFilter] = useState("all");
   const [benchmarkFilter, setBenchmarkFilter] = useState("all");
+  const [benchmarkSplitFilter, setBenchmarkSplitFilter] = useState("all");
   const [labelFilter, setLabelFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState("all");
   const [promptFilter, setPromptFilter] = useState("all");
@@ -89,6 +90,7 @@ export function ComparePage() {
       status: statusFilter !== "all" ? statusFilter : undefined,
       task: taskFilter !== "all" ? taskFilter : undefined,
       benchmarkId: benchmarkFilter !== "all" ? benchmarkFilter : undefined,
+      benchmarkSplit: benchmarkSplitFilter !== "all" ? benchmarkSplitFilter : undefined,
       label: labelFilter !== "all" ? labelFilter : undefined,
       modelId: modelFilter !== "all" ? modelFilter : undefined,
       promptId: promptFilter !== "all" ? promptFilter : undefined,
@@ -96,6 +98,7 @@ export function ComparePage() {
     }),
     [
       benchmarkFilter,
+      benchmarkSplitFilter,
       labelFilter,
       modelFilter,
       pageOffset,
@@ -118,6 +121,11 @@ export function ComparePage() {
   const statuses = facetValues(facets, "statuses", runs.map((run) => run.status));
   const tasks = facetValues(facets, "tasks", runs.map((run) => run.spec_task));
   const benchmarks = facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id));
+  const benchmarkSplits = facetValues(
+    facets,
+    "splits",
+    runs.map((run) => run.benchmark_split)
+  );
   const labels = facetValues(facets, "labels", runs.flatMap((run) => run.target_labels));
   const models = facetValues(facets, "models", runs.map((run) => run.model_id));
   const prompts = facetValues(facets, "prompts", runs.map((run) => run.prompt_id));
@@ -151,7 +159,16 @@ export function ComparePage() {
   }, [comparisonListQuery.refetch, comparisonQuery.data?.comparison_id]);
   useEffect(() => {
     setPageOffset(0);
-  }, [searchText, statusFilter, taskFilter, benchmarkFilter, labelFilter, modelFilter, promptFilter]);
+  }, [
+    searchText,
+    statusFilter,
+    taskFilter,
+    benchmarkFilter,
+    benchmarkSplitFilter,
+    labelFilter,
+    modelFilter,
+    promptFilter
+  ]);
   useEffect(() => {
     setHistoryOffset(0);
   }, [searchText, taskFilter, labelFilter, historyBaselineFilter, historyCandidateFilter]);
@@ -228,6 +245,15 @@ export function ComparePage() {
             values: ["all", ...benchmarks],
             labels: { all: "全部" },
             onChange: setBenchmarkFilter
+          },
+          {
+            type: "select",
+            id: "compare-benchmark-split",
+            label: "Split",
+            value: benchmarkSplitFilter,
+            values: ["all", ...benchmarkSplits],
+            labels: { all: "全部" },
+            onChange: setBenchmarkSplitFilter
           },
           {
             type: "select",

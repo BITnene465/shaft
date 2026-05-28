@@ -42,6 +42,7 @@ export type RunSummary = {
   run_id: string;
   status: string;
   benchmark_id: string;
+  benchmark_split: string;
   tasks: string[];
   spec_task: string;
   target_labels: string[];
@@ -74,6 +75,7 @@ export type RunListFilters = {
   limit?: number;
   task?: string;
   benchmarkId?: string;
+  benchmarkSplit?: string;
   status?: string;
   label?: string;
   modelId?: string;
@@ -107,6 +109,7 @@ export type RankBoardEntry = {
   score_delta?: number | null;
   status: string;
   benchmark_id: string;
+  benchmark_split: string;
   task: string;
   target_labels: string[];
   model_id: string;
@@ -625,6 +628,7 @@ export function fetchRankBoard(options: {
   limit: number;
   task?: string;
   benchmarkId?: string;
+  benchmarkSplit?: string;
   status?: string;
   label?: string;
   modelId?: string;
@@ -645,6 +649,9 @@ export function fetchRankBoard(options: {
   }
   if (options.benchmarkId && options.benchmarkId !== "all") {
     params.set("benchmark_id", options.benchmarkId);
+  }
+  if (options.benchmarkSplit && options.benchmarkSplit !== "all") {
+    params.set("benchmark_split", options.benchmarkSplit);
   }
   if (options.status && options.status !== "all") {
     params.set("status", options.status);
@@ -868,6 +875,9 @@ export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse
   }
   if (filters.benchmarkId && filters.benchmarkId !== "all") {
     params.set("benchmark_id", filters.benchmarkId);
+  }
+  if (filters.benchmarkSplit && filters.benchmarkSplit !== "all") {
+    params.set("benchmark_split", filters.benchmarkSplit);
   }
   if (filters.status && filters.status !== "all") {
     params.set("status", filters.status);

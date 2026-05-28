@@ -111,6 +111,7 @@ class RunSummary:
     run_id: str
     status: str
     benchmark_id: str
+    benchmark_split: str
     tasks: list[str]
     spec_task: str
     target_labels: list[str]
@@ -171,6 +172,7 @@ class RankBoardEntry:
     score: float | None
     status: str
     benchmark_id: str
+    benchmark_split: str
     task: str
     target_labels: list[str]
     model_id: str
@@ -366,6 +368,9 @@ class EvalBenchStore:
             run_id = str(payload.get("run_id") or run_dir.name)
             note = self._run_note_for_payload(run_id, payload)
             prompt_metadata = dict(prompt.get("metadata") or {})
+            benchmark_split = str(
+                benchmark.get("split") or benchmark.get("benchmark_split") or ""
+            ).strip()
             target_labels = _string_list(
                 spec.get("target_labels")
                 or (report_payload or {}).get("target_labels")
@@ -384,6 +389,7 @@ class EvalBenchStore:
                         or benchmark.get("id")
                         or ""
                     ),
+                    benchmark_split=benchmark_split,
                     tasks=[str(item) for item in benchmark.get("tasks") or []],
                     spec_task=str(spec.get("task") or ""),
                     target_labels=target_labels,
@@ -459,6 +465,7 @@ class EvalBenchStore:
         limit: int = 100,
         task: str | None = None,
         benchmark_id: str | None = None,
+        benchmark_split: str | None = None,
         status: str | None = None,
         label: str | None = None,
         model_id: str | None = None,
@@ -469,6 +476,7 @@ class EvalBenchStore:
         filters = {
             "task": _normalize_filter_value(task) or "",
             "benchmark_id": _normalize_filter_value(benchmark_id) or "",
+            "benchmark_split": _normalize_filter_value(benchmark_split) or "",
             "status": _normalize_filter_value(status) or "",
             "label": _normalize_filter_value(label) or "",
             "model_id": _normalize_filter_value(model_id) or "",
@@ -485,6 +493,7 @@ class EvalBenchStore:
                 run,
                 task=filters["task"],
                 benchmark_id=filters["benchmark_id"],
+                benchmark_split=filters["benchmark_split"],
                 status=filters["status"],
                 label=filters["label"],
                 model_id=filters["model_id"],
@@ -592,6 +601,7 @@ class EvalBenchStore:
         limit: int = 100,
         task: str | None = None,
         benchmark_id: str | None = None,
+        benchmark_split: str | None = None,
         status: str | None = None,
         label: str | None = None,
         model_id: str | None = None,
@@ -612,6 +622,7 @@ class EvalBenchStore:
         filters = {
             "task": _normalize_filter_value(task) or "",
             "benchmark_id": _normalize_filter_value(benchmark_id) or "",
+            "benchmark_split": _normalize_filter_value(benchmark_split) or "",
             "status": _normalize_filter_value(status) or "",
             "label": _normalize_filter_value(label) or "",
             "model_id": _normalize_filter_value(model_id) or "",
@@ -627,6 +638,8 @@ class EvalBenchStore:
             if filters["task"] and run.spec_task != filters["task"]:
                 continue
             if filters["benchmark_id"] and run.benchmark_id != filters["benchmark_id"]:
+                continue
+            if filters["benchmark_split"] and run.benchmark_split != filters["benchmark_split"]:
                 continue
             if filters["status"] and run.status != filters["status"]:
                 continue
@@ -673,6 +686,7 @@ class EvalBenchStore:
                     score=score,
                     status=run.status,
                     benchmark_id=run.benchmark_id,
+                    benchmark_split=run.benchmark_split,
                     task=run.spec_task,
                     target_labels=run.target_labels,
                     model_id=run.model_id,
@@ -1381,6 +1395,7 @@ def _run_matches_filters(
     *,
     task: str,
     benchmark_id: str,
+    benchmark_split: str,
     status: str,
     label: str,
     model_id: str,
@@ -1391,6 +1406,8 @@ def _run_matches_filters(
     if task and run.spec_task != task:
         return False
     if benchmark_id and run.benchmark_id != benchmark_id:
+        return False
+    if benchmark_split and run.benchmark_split != benchmark_split:
         return False
     if status and run.status != status:
         return False
@@ -1418,6 +1435,7 @@ def _run_query_matches(run: RunSummary, query: str) -> bool:
             run.run_id,
             run.status,
             run.benchmark_id,
+            run.benchmark_split,
             run.spec_task,
             run.model_id,
             run.model_path,
@@ -1712,6 +1730,7 @@ def _rank_facets(entries: list[RankBoardEntry]) -> dict[str, list[dict[str, Any]
     return {
         "tasks": _rank_facet(entries, lambda entry: [entry.task or "unknown"]),
         "benchmarks": _rank_facet(entries, lambda entry: [entry.benchmark_id or "unknown"]),
+        "splits": _rank_facet(entries, lambda entry: [entry.benchmark_split or "unknown"]),
         "statuses": _rank_facet(entries, lambda entry: [entry.status or "unknown"]),
         "labels": _rank_facet(
             entries,
@@ -1739,6 +1758,7 @@ def _run_facets(items: list[RunSummary]) -> dict[str, list[dict[str, Any]]]:
     return {
         "tasks": _facet_counts(items, lambda item: [item.spec_task or "unknown"]),
         "benchmarks": _facet_counts(items, lambda item: [item.benchmark_id or "unknown"]),
+        "splits": _facet_counts(items, lambda item: [item.benchmark_split or "unknown"]),
         "statuses": _facet_counts(items, lambda item: [item.status or "unknown"]),
         "labels": _facet_counts(
             items,

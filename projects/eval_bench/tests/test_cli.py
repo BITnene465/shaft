@@ -301,6 +301,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         [
             "task",
             "benchmark_id",
+            "benchmark_split",
             "status",
             "label",
             "model_id",
@@ -318,6 +319,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert rank_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "benchmarks",
+        "splits",
         "statuses",
         "labels",
         "models",
@@ -388,6 +390,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
         [
             "task",
             "benchmark_id",
+            "benchmark_split",
             "status",
             "label",
             "model_id",
@@ -399,6 +402,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     assert runs_output_schema["properties"]["facets"]["keys"] == [
         "tasks",
         "benchmarks",
+        "splits",
         "statuses",
         "labels",
         "models",
@@ -407,6 +411,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     ]
     assert runs_output_schema["properties"]["facets"] == rank_output_schema["properties"]["facets"]
     assert runs_output_schema["properties"]["runs"]["item_shape"]["target_labels"] == "list[str]"
+    assert runs_output_schema["properties"]["runs"]["item_shape"]["benchmark_split"] == "str"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["note_updated_at"] == "str|null"
     assert runs_output_schema["properties"]["runs"]["item_shape"]["f1_iou50"] == "float|null"
     assert CLI_JSON_OUTPUT_SCHEMAS["show-run"]["properties"]["run"]["item_shape"] == (
@@ -1810,9 +1815,9 @@ def test_cli_import_predictions_rejects_unknown_target_label(tmp_path: Path) -> 
 
 
 def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
-    for run_id, label, precision in (
-        ("run_a", "icon", 0.9),
-        ("run_b", "arrow", 0.5),
+    for run_id, label, split, precision in (
+        ("run_a", "icon", "grounding_layout", 0.9),
+        ("run_b", "arrow", "grounding_arrow", 0.5),
     ):
         run_dir = tmp_path / "runs" / run_id
         (run_dir / "reports").mkdir(parents=True)
@@ -1826,7 +1831,7 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
                     "benchmark": {
                         "benchmark_id": "bench1",
                         "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
-                        "split": "val",
+                        "split": split,
                         "tasks": ["detection"],
                     },
                     "spec": {
@@ -1859,6 +1864,8 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
             "icon",
             "--metric-profile",
             "detection_iou_v1",
+            "--benchmark-split",
+            "grounding_layout",
             "--min-score",
             "0.7",
             "--sort-by",
@@ -1896,11 +1903,14 @@ def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
     assert payload["primary_metric_label"] == "agent_weighted_quality"
     assert payload["sort_by"] == "run_id"
     assert payload["sort_order"] == "desc"
+    assert payload["filters"]["benchmark_split"] == "grounding_layout"
     assert payload["filters"]["min_score"] == "0.7"
     assert payload["filters"]["rank_scheme"] == "agent_weighted_quality"
     assert payload["rank_scheme"]["name"] == "agent_weighted_quality"
+    assert payload["facets"]["splits"] == [{"value": "grounding_layout", "count": 1}]
     assert payload["facets"]["metric_profiles"] == [{"value": "detection_iou_v1", "count": 1}]
     assert payload["entries"][0]["run_id"] == "run_a"
+    assert payload["entries"][0]["benchmark_split"] == "grounding_layout"
     assert payload["entries"][0]["rank"] == 1
     assert payload["entries"][0]["score"] == pytest.approx(0.9)
     assert payload["entries"][0]["score_delta"] == pytest.approx(0.0)
@@ -2072,6 +2082,8 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
             "detection",
             "--benchmark-id",
             "bench1",
+            "--benchmark-split",
+            "val",
             "--label",
             "arrow",
             "--model-id",
@@ -2085,6 +2097,7 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     _cmd_list_runs(run_args)
     runs = json.loads(capsys.readouterr().out)
     assert runs["total"] == 1
+    assert runs["filters"]["benchmark_split"] == "val"
     assert runs["filters"]["label"] == "arrow"
     assert runs["facets"]["labels"] == [{"value": "arrow", "count": 2}]
     assert runs["runs"][0]["run_id"] == "run_a"

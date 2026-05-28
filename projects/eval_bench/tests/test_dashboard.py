@@ -608,9 +608,9 @@ def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
 
 
 def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
-    for run_id, label, precision, recall, note in (
-        ("run_a", "icon", 0.9, 0.8, "layout idea"),
-        ("run_b", "arrow", 0.4, 0.5, "arrow baseline"),
+    for run_id, label, split, precision, recall, note in (
+        ("run_a", "icon", "grounding_layout", 0.9, 0.8, "layout idea"),
+        ("run_b", "arrow", "grounding_arrow", 0.4, 0.5, "arrow baseline"),
     ):
         _write_json(
             tmp_path / "runs" / run_id / "run.json",
@@ -622,7 +622,7 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
                 "benchmark": {
                     "benchmark_id": "bench1",
                     "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
-                    "split": "val",
+                    "split": split,
                     "tasks": ["detection"],
                 },
                 "spec": {
@@ -667,11 +667,29 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert board["entries"][1]["score_delta"] < 0
     assert board["entries"][0]["note"] == "layout idea"
     assert board["entries"][0]["target_labels"] == ["icon"]
+    assert board["entries"][0]["benchmark_split"] == "grounding_layout"
+    assert board["facets"]["splits"] == [
+        {"value": "grounding_arrow", "count": 1},
+        {"value": "grounding_layout", "count": 1},
+    ]
     assert board["facets"]["labels"][0] == {"value": "arrow", "count": 1}
     assert board["facets"]["metric_profiles"][0] == {
         "value": "detection_iou_v1",
         "count": 2,
     }
+
+    runs = client.get("/api/runs", params={"benchmark_split": "grounding_layout"}).json()
+    assert runs["total"] == 1
+    assert runs["filters"]["benchmark_split"] == "grounding_layout"
+    assert runs["runs"][0]["run_id"] == "run_a"
+
+    split_board = client.get(
+        "/api/rank-board",
+        params={"benchmark_split": "grounding_arrow"},
+    ).json()
+    assert split_board["total"] == 1
+    assert split_board["filters"]["benchmark_split"] == "grounding_arrow"
+    assert split_board["entries"][0]["run_id"] == "run_b"
 
     paged = client.get("/api/rank-board", params={"offset": 1, "limit": 1}).json()
     assert paged["offset"] == 1
