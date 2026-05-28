@@ -1033,7 +1033,10 @@ running job，供前端轮询状态和进度：
 
 当 job manifest 使用 `runtime.mode=ephemeral` 且 `runtime.engine=vllm_openai` 时，worker 会先启动一个该 job 专属的 vLLM OpenAI server，等待 `/v1/models` ready，再执行推理，最后关闭这个进程。runtime stdout/stderr 写入 `runs/<run_id>/logs/runtime.log`，Dashboard 可通过 `/api/jobs/<job_id>/logs` 读取 tail。当 job manifest 使用 `runtime.mode=existing_service` 并提供 `endpoint` 时，worker 不负责启停模型服务，只通过 OpenAI-compatible chat-completions 请求执行推理。`endpoint` 可以是 server root、`/v1` 或 `/v1/chat/completions`。
 
-做集成测试时，可以在 job payload 中设置 `"backend":"dry_run"`。worker 会为每个 benchmark sample 写入空 prediction snapshot，执行 `evaluate-run`，并把 run 标记为 `succeeded`。这可以在不调用模型后端的情况下验证完整 artifact 链路。
+做集成测试时，可以在 manifest 中设置 `runtime.engine="dry_run"`、`runtime.mode="external"`。
+worker 会为每个 benchmark sample 写入空 prediction snapshot，执行 `evaluate-run`，并把 run 标记为
+`succeeded`。这可以在不调用模型后端的情况下验证完整 artifact 链路。旧的扁平 job payload
+不再是合法入口；提交 job 时必须使用 `manifest.kind="eval_job"` 或 `preannotate_job`。
 
 评估已有 run 的 prediction snapshot：
 

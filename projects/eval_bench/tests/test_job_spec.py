@@ -205,6 +205,42 @@ def test_legacy_eval_payload_is_rejected() -> None:
         )
 
 
+def test_legacy_job_kind_alias_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported job kind: eval"):
+        resolve_job_payload(
+            {
+                "manifest": {
+                    "kind": "eval",
+                    "runtime": {"mode": "existing_service", "engine": "dry_run"},
+                    "eval": {
+                        "model_id": "model-a",
+                        "model_path": "outputs/model-a/best",
+                        "benchmark_id": "bench1",
+                        "task": "detection",
+                        "prompt_id": "grounding_layout.test.main",
+                    },
+                }
+            }
+        )
+
+
+def test_legacy_preannotate_job_kind_alias_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported job kind: preannotate"):
+        resolve_job_payload(
+            {
+                "manifest": {
+                    "kind": "preannotate",
+                    "runtime": {"mode": "existing_service", "engine": "dry_run"},
+                    "preannotate": {
+                        "model_id": "model-a",
+                        "source_root": "raw",
+                        "output_root": "out",
+                    },
+                }
+            }
+        )
+
+
 def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:
     model_path = tmp_path / "outputs" / "model" / "best"
     model_path.mkdir(parents=True)

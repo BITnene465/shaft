@@ -116,10 +116,6 @@ def resolve_job_payload(
         prompt_templates=prompt_templates,
     )
     kind = str(manifest.get("kind") or payload.get("kind") or "eval_job")
-    if kind == "eval":
-        kind = "eval_job"
-    if kind == "preannotate":
-        kind = "preannotate_job"
     if kind == "eval_job":
         resolved_payload = _resolve_eval_payload(payload, manifest)
     elif kind == "preannotate_job":
@@ -214,8 +210,6 @@ def _apply_prompt_template_to_manifest(
 ) -> dict[str, Any]:
     cloned = copy.deepcopy(manifest)
     kind = str(cloned.get("kind") or payload.get("kind") or "eval_job")
-    if kind == "eval":
-        kind = "eval_job"
     section_key = "preannotate" if kind == "preannotate_job" else "eval"
     section = cloned.get(section_key)
     if not isinstance(section, dict):
