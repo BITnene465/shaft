@@ -143,7 +143,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/workspaceSettings.ts`
   - 维护 viewer 外观、交互、快捷键、图层显示和 label 选择等浏览器本地偏好。
 - `projects/eval_bench/frontend/src/filterControls.tsx`
-  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索触发器、浮层表单、分组目录、条件 token、清空动作和默认值判定真源；select 外壳复用 `controlPrimitives.tsx`。
+  - 维护 `FilterSelect` 和 `AdvancedFilterBar`，是页面级高级检索触发器、浮层表单、草稿值、显式应用、分组目录、条件 token、清空动作和默认值判定真源；select 外壳复用 `controlPrimitives.tsx`。
+  - 高级检索输入不能直接驱动页面查询状态；search / number / select 修改先进入 `AdvancedFilterBar`
+    草稿，点击应用或按 Enter 后才写回调用方筛选状态。
 - `projects/eval_bench/frontend/src/controlPrimitives.tsx`
   - 维护 number、color、filter select、form select、compact select、toggle 等局部输入基础控件；manifest toolbar、viewer、settings、
     高级检索、弹窗表单和对比选择轨不各自复制 select/input 外壳。
@@ -290,6 +292,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   不允许用大面积装饰动画替代信息结构，也不能让动效改变数据语义或造成滚动/布局抖动。
 - 新增 dashboard 通用交互反馈：优先扩展共享按钮、卡片、表格行、chip、导航和状态胶囊的 hover/focus/active
   反馈，不要在单个业务页复制私有动效。
+- 新增高级检索交互：不要在业务页复制草稿、应用、dirty 状态或 Enter 快捷键；这些行为只属于
+  `AdvancedFilterBar`，业务页只提供当前已应用值和 `onChange`。
 - 顶栏 profile/status 是独立 capsule，不再使用外层圆角容器；在线、同步中和异常的动效只落在 status pill
   本身，避免 wrapper 承担状态语义。
 - 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态

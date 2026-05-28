@@ -289,7 +289,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           <table>
             <thead>
               <tr>
-                <th>任务</th>
+                <th>评测</th>
                 <th>类型</th>
                 <th>状态</th>
                 <th>目标</th>
@@ -298,55 +298,65 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {filteredJobs.map((job) => (
-                <SelectableTableRow
-                  key={job.job_id}
-                  selected={job.job_id === selectedJob?.job_id}
-                  onClick={() => setSelectedJobId(job.job_id)}
-                >
-                  <td>{job.job_id}</td>
-                  <td>{job.kind}</td>
-                  <td>
-                    <Badge value={job.status} domain="job" />
-                    <JobProgressInline job={job} />
-                  </td>
-                  <td>
-                    <div className="job-target-cell">
-                      <span>{jobTarget(job.payload)}</span>
-                      {job.error ? <em title={job.error}>{job.error}</em> : null}
-                      {typeof job.metadata.runtime_log_path === "string" ? (
-                        <small title={job.metadata.runtime_log_path}>
-                          runtime log: {basename(job.metadata.runtime_log_path)}
-                        </small>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td>{formatDate(job.created_at)}</td>
-                  <td>
-                    <div className="row-actions">
-                      <IconActionButton
-                        icon={<X size={14} />}
-                        disabled={!canCancelJob(job) || cancelMutation.isPending}
-                        title={job.status === "running" ? "终止运行中评测" : "取消排队任务"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          cancelMutation.mutate(job.job_id);
-                        }}
-                      />
-                      <IconActionButton
-                        icon={<Trash2 size={14} />}
-                        danger
-                        disabled={!canDeleteJob(job) || deleteMutation.isPending}
-                        title="删除任务记录"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setDeleteJobTarget(job);
-                        }}
-                      />
-                    </div>
-                  </td>
-                </SelectableTableRow>
-              ))}
+              {filteredJobs.map((job) => {
+                const runId = jobRunId(job);
+                return (
+                  <SelectableTableRow
+                    key={job.job_id}
+                    selected={job.job_id === selectedJob?.job_id}
+                    onClick={() => setSelectedJobId(job.job_id)}
+                  >
+                    <td>
+                      <div className="job-eval-cell">
+                        <strong title={runId || job.job_id}>{runId || job.job_id}</strong>
+                        {runId && runId !== job.job_id ? (
+                          <small title={job.job_id}>job {job.job_id}</small>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td>{job.kind}</td>
+                    <td>
+                      <Badge value={job.status} domain="job" />
+                      <JobProgressInline job={job} />
+                    </td>
+                    <td>
+                      <div className="job-target-cell">
+                        <span>{jobTarget(job.payload)}</span>
+                        {job.error ? <em title={job.error}>{job.error}</em> : null}
+                        {typeof job.metadata.runtime_log_path === "string" ? (
+                          <small title={job.metadata.runtime_log_path}>
+                            runtime log: {basename(job.metadata.runtime_log_path)}
+                          </small>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td>{formatDate(job.created_at)}</td>
+                    <td>
+                      <div className="row-actions">
+                        <IconActionButton
+                          icon={<X size={14} />}
+                          disabled={!canCancelJob(job) || cancelMutation.isPending}
+                          title={job.status === "running" ? "终止运行中评测" : "取消排队任务"}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            cancelMutation.mutate(job.job_id);
+                          }}
+                        />
+                        <IconActionButton
+                          icon={<Trash2 size={14} />}
+                          danger
+                          disabled={!canDeleteJob(job) || deleteMutation.isPending}
+                          title="删除任务记录"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteJobTarget(job);
+                          }}
+                        />
+                      </div>
+                    </td>
+                  </SelectableTableRow>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -414,7 +424,7 @@ function facetCount(facets: FacetBucket, value: string) {
 function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null }) {
   const progress = jobProgress(job);
   const lines = logs?.lines ?? [];
-  const linkedRunId = stringValue(job.metadata.run_id);
+  const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : "";
   return (
     <div className="job-detail-panel">
       <div className="job-monitor-header">
@@ -467,6 +477,10 @@ function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null })
   );
 }
 
+function jobRunId(job: JobSummary) {
+  return job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id);
+}
+
 function JobProgressInline({ job }: { job: JobSummary }) {
   if (job.status !== "running" && job.status !== "failed" && job.status !== "succeeded") {
     return null;
@@ -494,7 +508,7 @@ export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSumm
   const templateIds = Object.keys(templates);
   const promptIds = promptTemplates.map((template) => template.prompt_id);
   const [templateId, setTemplateId] = useState("eval_job");
-  const [promptId, setPromptId] = useState("grounding_arrow.latest");
+  const [promptId, setPromptId] = useState("grounding_arrow.v2.4.main");
   const [manifestText, setManifestText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const mutation = useMutation({

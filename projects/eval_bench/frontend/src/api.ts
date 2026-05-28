@@ -139,6 +139,7 @@ export type RankBoard = {
 
 export type JobSummary = {
   job_id: string;
+  run_id: string | null;
   kind: string;
   status: string;
   payload: Record<string, unknown>;

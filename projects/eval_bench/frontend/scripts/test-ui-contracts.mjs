@@ -52,6 +52,7 @@ const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
 const samplePagerSource = await readSource("src/samplePager.tsx");
 const styleSource = await readSource("src/styles.css");
+const designSource = await readSource("src/design.css");
 const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
 const readmeSource = await readProjectFile("../README.md");
@@ -100,6 +101,19 @@ assert(
     controlPrimitives.includes("export function SearchInputControl(") &&
     filterControls.includes("function resetAdvancedFilters()") &&
     filterControls.includes("function resetAdvancedFilter(") &&
+    filterControls.includes("function resetSingleAdvancedFilter(") &&
+    filterControls.includes("function updateDraftValue(") &&
+    filterControls.includes("function applyDraftFilters(") &&
+    filterControls.includes("function applyDraftFiltersFromKeyboard(") &&
+    filterControls.includes("function applyAdvancedFilterValues(") &&
+    filterControls.includes("function readAdvancedFilterDraftValues(") &&
+    filterControls.includes("function writeAdvancedFilterDraftValues(") &&
+    filterControls.includes("function advancedFilterDirtyControlIds(") &&
+    filterControls.includes("window.sessionStorage") &&
+    filterControls.includes("event.composedPath().includes(rootRef.current)") &&
+    filterControls.includes("const latestDraftValuesRef = useRef<Record<string, string>>(draftValues);") &&
+    filterControls.includes("const dirtyControlIdsRef = useRef<Set<string>>(") &&
+    filterControls.includes("function syncDraftValuesWithApplied(") &&
     filterControls.includes("function openAdvancedFilter()") &&
     filterControls.includes("function closeAdvancedFilter(") &&
     filterControls.includes("function toggleAdvancedFilter()") &&
@@ -108,6 +122,8 @@ assert(
     filterControls.includes("function advancedFilterOpenStateKey(") &&
     filterControls.includes("function readAdvancedFilterOpenState(") &&
     filterControls.includes("function writeAdvancedFilterOpenState(") &&
+    filterControls.includes("function advancedFilterValues(") &&
+    filterControls.includes("function advancedFilterValuesKey(") &&
     filterControls.includes("eval_bench_advanced_filter_open") &&
     filterControls.includes("const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [") &&
     filterControls.includes(".advanced-filter-controls input:not([disabled])") &&
@@ -124,7 +140,12 @@ assert(
     filterControls.includes('className="advanced-filter-text-control"') &&
     filterControls.includes('className="advanced-filter-token"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
-    filterControls.includes("onClick={() => resetAdvancedFilter(filter.control)}") &&
+    filterControls.includes('className="advanced-filter-apply"') &&
+    filterControls.includes("onKeyDown={applyDraftFiltersFromKeyboard}") &&
+    filterControls.includes('hasDraftChanges ? "dirty" : ""') &&
+    filterControls.includes('aria-keyshortcuts="Enter"') &&
+    filterControls.includes("onClick={() => resetSingleAdvancedFilter(filter.control)}") &&
+    filterControls.includes("onClick={applyDraftFilters}") &&
     filterControls.includes("<PanelToggleButton") &&
     !filterControls.includes('className="search-box advanced-search-box"') &&
     !filterControls.includes('className="filter-select compact advanced-number-box"') &&
@@ -142,6 +163,35 @@ assert(
     !styleSource.includes(".advanced-search-box") &&
     !styleSource.includes(".advanced-number-box"),
   "advanced filter controls must use dedicated semantic classes instead of legacy search/filter shells",
+);
+assert(
+  styleSource.includes("scrollbar-gutter: stable") &&
+    styleSource.includes("table-layout: auto") &&
+    styleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    styleSource.includes("overflow-wrap: anywhere") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 144px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
+    styleSource.includes(".service-form") &&
+    styleSource.includes(".table-shell td:has(.row-actions)") &&
+    styleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
+    styleSource.includes(".job-form label,\n.manifest-job-form label") &&
+    styleSource.includes(".row-actions {\n  display: flex;\n  flex-wrap: wrap;") &&
+    !styleSource.includes("grid-template-columns: repeat(4, minmax(160px, 1fr)) auto") &&
+    !styleSource.includes("minmax(430px, 1fr)") &&
+    !styleSource.includes("minmax(360px, 1fr)") &&
+    designSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
+    designSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
+    designSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    designSource.includes(".table-shell td:has(.row-actions)") &&
+    designSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
+    designSource.includes(".job-form label,\n.manifest-job-form label") &&
+    designSource.includes("overflow-wrap: normal") &&
+    !designSource.includes("grid-template-columns: repeat(12, minmax(0, 1fr))"),
+  "tables and form grids must auto-fit in both base and design styles without late overrides",
 );
 assert(
   controlPrimitives.includes("export function TextInputControl(") &&
@@ -236,6 +286,18 @@ assert(
     !jobsPage.includes("limit: compact ? 12 : 200") &&
     !jobsPage.includes("limit: 200"),
   "jobs queue page must use paged API requests instead of a fixed 200-job slice",
+);
+assert(
+  apiSource.includes("run_id: string | null;") &&
+    jobsPage.includes("<th>评测</th>") &&
+    jobsPage.includes("function jobRunId(job: JobSummary)") &&
+    jobsPage.includes("job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id)") &&
+    jobsPage.includes('className="job-eval-cell"') &&
+    jobsPage.includes("title={runId || job.job_id}") &&
+    jobsPage.includes("const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : \"\";") &&
+    runTables.includes('header: "评测"') &&
+    !runTables.includes('header: "记录"'),
+  "eval identity must be run_id-first in both jobs queue and result library tables",
 );
 assert(
   (jobsPage.match(/<CompactSelectControl/g) ?? []).length >= 2,
@@ -357,7 +419,6 @@ assert(
   !/<button[^>]+removeLabelColor/.test(settingsPage),
   "settings label clear action must use ActionButton",
 );
-const designSource = await readSource("src/design.css");
 assert(
   apiSource.includes("export type TargetLabelResolution =") &&
     apiSource.includes("export type TargetLabelResolutionParams =") &&
@@ -872,6 +933,15 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
+  rankBoardPage.includes("const tableRefreshing = boardQuery.isFetching && Boolean(board);") &&
+    rankBoardPage.includes('className="rank-board-table-toolbar"') &&
+    rankBoardPage.includes("rank-board-table-card refreshing") &&
+    rankBoardPage.includes('className="rank-board-table-refresh"') &&
+    styleSource.includes(".rank-board-table-card.refreshing::after") &&
+    styleSource.includes("@keyframes rank-board-table-refresh"),
+  "rank board refresh feedback must be scoped to the table area instead of the whole page",
+);
+assert(
   rankBoardPage.includes("OptionChipButton") &&
     rankBoardPage.includes('className="rank-facet-button"') &&
     rankBoardPage.includes('className="rank-facet-toggle"') &&
@@ -907,7 +977,7 @@ assert(
 assert(
   rankBoardPage.includes("function RankDecisionPanel(") &&
     rankBoardPage.includes('className="rank-decision-panel rank-leaderboard-toolbar"') &&
-    rankBoardPage.includes('className="workspace-card fill rank-board-table-card"') &&
+    rankBoardPage.includes("workspace-card fill rank-board-table-card") &&
     rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
     rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
     rankBoardPage.includes("const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];") &&

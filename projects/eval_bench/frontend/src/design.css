@@ -548,6 +548,28 @@ h1 {
   background: #ffffff;
 }
 
+.table-shell table {
+  min-width: 100%;
+}
+
+.table-shell th,
+.table-shell td {
+  min-width: 0;
+}
+
+.table-shell td > :where(a, span, strong, em, small, code, div),
+.table-shell th > :where(span, strong) {
+  max-width: 100%;
+}
+
+.table-shell td > :where(a:not(.run-note-preview), span:not(.badge, .run-note-preview), strong, em, small, code) {
+  overflow-wrap: anywhere;
+}
+
+.table-shell td:has(.row-actions) {
+  overflow: visible;
+}
+
 thead th {
   background: #f4f8fb;
   color: #607386;
@@ -776,18 +798,18 @@ tbody tr:hover {
 }
 
 .job-form {
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 12px;
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
+  align-items: start;
 }
 
 .job-form label {
-  grid-column: span 4;
+  grid-column: auto;
   min-width: 0;
 }
 
 .job-form .wide-field {
-  grid-column: span 6;
+  grid-column: 1 / -1;
 }
 
 .job-form .full-field,
@@ -797,13 +819,47 @@ tbody tr:hover {
 }
 
 .job-form .checkbox-field {
-  grid-column: span 4;
+  grid-column: auto;
   align-self: center;
 }
 
 .job-form button[type="submit"] {
-  grid-column: span 3;
+  grid-column: auto;
   justify-self: start;
+}
+
+.job-form label,
+.manifest-job-form label,
+.service-form label,
+.comparison-controls label,
+.prompt-template-panel label,
+.advanced-filter-controls label,
+.settings-editor-pane label {
+  min-width: 0;
+}
+
+.job-form input,
+.job-form select,
+.job-form textarea,
+.manifest-job-form input,
+.manifest-job-form select,
+.manifest-job-form textarea,
+.service-form input,
+.service-form select,
+.service-form textarea,
+.comparison-controls input,
+.comparison-controls select,
+.comparison-controls textarea,
+.advanced-filter-controls input,
+.advanced-filter-controls select,
+.advanced-filter-controls textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.row-actions {
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .job-form span,
@@ -846,24 +902,33 @@ tbody tr:hover {
 }
 
 .manifest-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  align-items: start;
   gap: 8px;
 }
 
 .manifest-toolbar .filter-select {
-  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .manifest-toolbar .primary-button,
 .manifest-toolbar .secondary-button {
   min-height: 34px;
-  flex: 0 0 auto;
 }
 
 .manifest-toolbar .primary-button {
   min-width: 112px;
+}
+
+.advanced-filter-bar.dirty .advanced-filter-head {
+  border-color: color-mix(in srgb, var(--bench-cyan) 48%, var(--bench-line));
+}
+
+.advanced-filter-bar.dirty .advanced-filter-apply {
+  color: #ffffff;
+  background: var(--bench-cyan-strong);
+  border-color: var(--bench-cyan-strong);
 }
 
 .label-subtask-panel {
@@ -957,8 +1022,10 @@ tbody tr:hover {
 
 .sample-row-main span,
 .sample-row-meta {
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .sample-row.selected {
@@ -1189,9 +1256,23 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+.recent-run-card .recent-run-head strong,
+.recent-run-card .recent-run-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.recent-run-card .badge,
+.recent-run-artifacts em {
+  white-space: nowrap;
+}
+
 td,
 tbody td {
-  overflow: visible;
+  overflow: hidden;
+  max-width: clamp(96px, 18vw, 320px);
   text-overflow: clip;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1708,7 +1789,7 @@ tbody td {
   .manifest-toolbar .filter-select,
   .manifest-toolbar .primary-button,
   .manifest-toolbar .secondary-button {
-    flex: 1 1 100%;
+    width: 100%;
   }
 
   .label-subtask-panel {

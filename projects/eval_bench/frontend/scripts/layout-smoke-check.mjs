@@ -105,6 +105,8 @@ try {
       await assertPageStack(page, `${viewport.name}:${route.name}`);
       await assertNoClippedPanels(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
+      await assertTableActionCellsFit(page, `${viewport.name}:${route.name}`);
+      await assertFormControlsFit(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilterKeyboardFlow(page, `${viewport.name}:${route.name}`);
       if (route.name === "runs" || route.name === "rank-board") {
@@ -163,6 +165,7 @@ try {
     await dialogPage.locator(".workspace-dialog").first().waitFor({ timeout: 5_000 });
     await dialogPage.locator(item.form).first().waitFor({ timeout: 5_000 });
     await assertDialogLayout(dialogPage, `dialog:${item.path}`);
+    await assertFormControlsFit(dialogPage, `dialog:${item.path}`);
     await dialogPage.keyboard.press("Escape");
     await dialogPage.locator(".workspace-dialog").waitFor({ state: "hidden", timeout: 5_000 });
   }
@@ -946,6 +949,154 @@ async function assertTablesCanScroll(page, scope) {
   }
 }
 
+async function assertTableActionCellsFit(page, scope) {
+  const actionCells = await page.locator(".table-shell td .row-actions").evaluateAll((nodes) =>
+    nodes
+      .filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((node, index) => {
+        const cell = node.closest("td");
+        const shell = node.closest(".table-shell");
+        const rect = node.getBoundingClientRect();
+        const cellRect = cell?.getBoundingClientRect();
+        const shellRect = shell?.getBoundingClientRect();
+        const shellStyle = shell ? getComputedStyle(shell) : null;
+        const style = getComputedStyle(node);
+        return {
+          index,
+          flexWrap: style.flexWrap,
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+          rect,
+          cellRect,
+          shellRect,
+          shellScrollWidth: shell?.scrollWidth ?? 0,
+          shellClientWidth: shell?.clientWidth ?? 0,
+          shellOverflowX: shellStyle?.overflowX ?? ""
+        };
+      })
+  );
+  for (const cell of actionCells) {
+    if (cell.flexWrap !== "wrap") {
+      throw new Error(`${scope}: table action cell ${cell.index} must wrap actions`);
+    }
+    if (cell.scrollWidth > cell.clientWidth + 2) {
+      throw new Error(
+        `${scope}: table action cell ${cell.index} action group overflows ${JSON.stringify({
+          scrollWidth: cell.scrollWidth,
+          clientWidth: cell.clientWidth,
+          rect: formatRect(cell.rect),
+          cell: formatRect(cell.cellRect)
+        })}`
+      );
+    }
+    const shellHasHorizontalScroll = cell.shellScrollWidth > cell.shellClientWidth + 2;
+    if (
+      cell.shellRect &&
+      !shellHasHorizontalScroll &&
+      !allowsScroll(cell.shellOverflowX) &&
+      cell.rect.right > cell.shellRect.right + 2
+    ) {
+      throw new Error(
+        `${scope}: table action cell ${cell.index} leaks outside table shell ${JSON.stringify({
+          rect: formatRect(cell.rect),
+          shell: formatRect(cell.shellRect)
+        })}`
+      );
+    }
+  }
+}
+
+async function assertFormControlsFit(page, scope) {
+  const controls = await page
+    .locator(
+      [
+        ".job-form input",
+        ".job-form select",
+        ".job-form textarea",
+        ".manifest-job-form input",
+        ".manifest-job-form select",
+        ".manifest-job-form textarea",
+        ".service-form input",
+        ".service-form select",
+        ".service-form textarea",
+        ".import-form input",
+        ".import-form select",
+        ".import-form textarea",
+        ".benchmark-form input",
+        ".benchmark-form select",
+        ".benchmark-form textarea",
+        ".comparison-controls input",
+        ".comparison-controls select",
+        ".comparison-controls textarea",
+        ".advanced-filter-controls input",
+        ".advanced-filter-controls select",
+        ".advanced-filter-controls textarea"
+      ].join(", ")
+    )
+    .evaluateAll((nodes) =>
+      nodes
+        .filter((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .map((node, index) => {
+          const container =
+            node.closest(
+              "label, .advanced-filter-search-control, .advanced-filter-number-control, .advanced-filter-text-control, .compact-select, .filter-select"
+            ) ?? node.parentElement;
+          const rect = node.getBoundingClientRect();
+          const containerRect = container?.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          const containerStyle = container ? getComputedStyle(container) : null;
+          return {
+            index,
+            tag: node.tagName,
+            type: node instanceof HTMLInputElement ? node.type : "",
+            className: node instanceof HTMLElement ? node.className : "",
+            rect,
+            containerRect,
+            width: style.width,
+            minWidth: style.minWidth,
+            containerOverflowX: containerStyle?.overflowX ?? ""
+          };
+        })
+    );
+  for (const control of controls) {
+    if (!control.containerRect) {
+      continue;
+    }
+    if (control.rect.width > control.containerRect.width + 3 && !allowsScroll(control.containerOverflowX)) {
+      throw new Error(
+        `${scope}: form control ${control.index} is wider than its field ${JSON.stringify({
+          tag: control.tag,
+          type: control.type,
+          width: control.width,
+          minWidth: control.minWidth,
+          rect: formatRect(control.rect),
+          container: formatRect(control.containerRect)
+        })}`
+      );
+    }
+    if (
+      (control.rect.left < control.containerRect.left - 2 ||
+        control.rect.right > control.containerRect.right + 2) &&
+      !allowsScroll(control.containerOverflowX)
+    ) {
+      throw new Error(
+        `${scope}: form control ${control.index} leaks outside its field ${JSON.stringify({
+          tag: control.tag,
+          type: control.type,
+          rect: formatRect(control.rect),
+          container: formatRect(control.containerRect)
+        })}`
+      );
+    }
+  }
+}
+
 async function assertAdvancedFilters(page, scope) {
   const filters = await page.locator(".advanced-filter-bar").evaluateAll((nodes) =>
     nodes
@@ -980,6 +1131,18 @@ async function assertAdvancedFilterClear(page, scope) {
   const filter = page.locator(".advanced-filter-bar").first();
   const searchInput = await openAdvancedFilter(filter);
   await searchInput.fill("layout-smoke-token-reset");
+  const dirtyState = await filter.evaluate((node) => {
+    const applyButton = node.querySelector(".advanced-filter-apply");
+    return {
+      dirty: node.classList.contains("dirty"),
+      keyshortcuts: applyButton?.getAttribute("aria-keyshortcuts") ?? "",
+      disabled: applyButton instanceof HTMLButtonElement ? applyButton.disabled : null
+    };
+  });
+  if (!dirtyState.dirty || dirtyState.keyshortcuts !== "Enter" || dirtyState.disabled) {
+    throw new Error(`${scope}: advanced filter draft state is not visible ${JSON.stringify(dirtyState)}`);
+  }
+  await searchInput.press("Enter");
   await filter.locator(".advanced-filter-token").first().waitFor({ timeout: 5_000 });
   await filter.locator(".advanced-filter-token").first().click();
   const tokenState = await filter.evaluate((node) => {
@@ -995,8 +1158,10 @@ async function assertAdvancedFilterClear(page, scope) {
     throw new Error(`${scope}: advanced filter token clear did not reset filter ${JSON.stringify(tokenState)}`);
   }
   await page.waitForTimeout(120);
+  await assertAdvancedFilterPreservesDraftAfterTokenClear(filter, scope);
   const resetSearchInput = await openAdvancedFilter(filter);
   await resetSearchInput.fill("layout-smoke-filter-reset");
+  await filter.locator(".advanced-filter-apply").click();
   await filter.locator(".advanced-filter-clear").waitFor({ timeout: 5_000 });
   await filter.locator(".advanced-filter-clear").click();
   const state = await filter.evaluate((node) => {
@@ -1010,6 +1175,74 @@ async function assertAdvancedFilterClear(page, scope) {
   });
   if (state.inputValue !== "" || state.clearVisible || state.summary !== "未设条件") {
     throw new Error(`${scope}: advanced filter clear did not reset filters ${JSON.stringify(state)}`);
+  }
+}
+
+async function assertAdvancedFilterPreservesDraftAfterTokenClear(filter, scope) {
+  await openAdvancedFilter(filter);
+  const select = filter.locator(".advanced-filter-controls select").first();
+  if ((await select.count()) === 0) {
+    return;
+  }
+  const targetValue = await select.evaluate((node) => {
+    if (!(node instanceof HTMLSelectElement)) {
+      return "";
+    }
+    return Array.from(node.options)
+      .map((option) => option.value)
+      .find((value) => value && value !== node.value) ?? "";
+  });
+  if (!targetValue) {
+    return;
+  }
+  const selectLabel = await select.evaluate((node) => {
+    const label = node.closest("label");
+    return label?.querySelector("span")?.textContent?.trim() ?? "";
+  });
+  await select.selectOption(targetValue);
+  await filter.locator(".advanced-filter-apply").click();
+  const appliedToken = selectLabel
+    ? filter.locator(".advanced-filter-token", { hasText: `${selectLabel}:` }).first()
+    : filter.locator(".advanced-filter-token").first();
+  await appliedToken.waitFor({ timeout: 5_000 });
+  const searchInput = filter.locator('.advanced-filter-controls input[type="search"]').first();
+  if ((await searchInput.count()) === 0) {
+    return;
+  }
+  await searchInput.fill("layout-smoke-preserved-draft");
+  await filter.evaluate(
+    (node, expectedValue) =>
+      new Promise((resolve, reject) => {
+        let attempts = 0;
+        const tick = () => {
+          const input = node.querySelector('.advanced-filter-controls input[type="search"]');
+          if (input instanceof HTMLInputElement && input.value === expectedValue) {
+            resolve(true);
+            return;
+          }
+          attempts += 1;
+          if (attempts > 20) {
+            reject(new Error("search draft value was not committed before token clear"));
+            return;
+          }
+          window.setTimeout(tick, 25);
+        };
+        tick();
+      }),
+    "layout-smoke-preserved-draft"
+  );
+  await appliedToken.click();
+  const state = await filter.evaluate((node) => {
+    const input = node.querySelector('.advanced-filter-controls input[type="search"]');
+    return {
+      inputValue: input instanceof HTMLInputElement ? input.value : "",
+      dirty: node.classList.contains("dirty")
+    };
+  });
+  if (state.inputValue !== "layout-smoke-preserved-draft" || !state.dirty) {
+    throw new Error(
+      `${scope}: clearing an applied token should preserve unrelated draft filters ${JSON.stringify(state)}`
+    );
   }
 }
 
@@ -1471,7 +1704,10 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
   }
   const filterHead = page.locator(".inspector-sidebar .advanced-filter-head").first();
   await filterHead.click();
-  const select = page.locator(".inspector-sidebar .advanced-filter-controls select").first();
+  const selects = page.locator(".inspector-sidebar .advanced-filter-controls select");
+  const selectCount = await selects.count();
+  const select =
+    routeName === "benchmark-inspector" && selectCount > 1 ? selects.nth(1) : selects.first();
   await select.waitFor({ timeout: 5_000 });
   const optionValues = await select.locator("option").evaluateAll((options) =>
     options
@@ -1503,6 +1739,7 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
   await page.route(pattern, handler);
   try {
     await select.selectOption(optionValues[0]);
+    await page.locator(".inspector-sidebar .advanced-filter-apply").click();
     await page
       .locator(".viewer-panel .empty-panel", { hasText: "没有符合过滤条件的样本" })
       .waitFor({ timeout: 10_000 });

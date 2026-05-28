@@ -485,13 +485,60 @@ h2 {
 
 .job-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 10px;
-  align-items: end;
+  align-items: start;
   padding: 14px;
   background: #ffffff;
   border: 1px solid #dbe3ec;
   border-radius: 3px;
+}
+
+.job-form label,
+.manifest-job-form label,
+.service-form label,
+.comparison-controls label,
+.prompt-template-panel label,
+.advanced-filter-controls label,
+.settings-editor-pane label {
+  min-width: 0;
+}
+
+.job-form input,
+.job-form select,
+.job-form textarea,
+.manifest-job-form input,
+.manifest-job-form select,
+.manifest-job-form textarea,
+.service-form input,
+.service-form select,
+.service-form textarea,
+.comparison-controls input,
+.comparison-controls select,
+.comparison-controls textarea,
+.advanced-filter-controls input,
+.advanced-filter-controls select,
+.advanced-filter-controls textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.job-form textarea,
+.manifest-job-form textarea,
+.service-form textarea,
+.comparison-controls textarea,
+.advanced-filter-controls textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.job-form span,
+.manifest-job-form span,
+.service-form span,
+.comparison-controls span,
+.advanced-filter-controls span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .action-panel {
@@ -559,6 +606,8 @@ h2 {
 .job-form select,
 .job-form textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 36px;
   padding: 0 10px;
   color: #17202b;
@@ -582,7 +631,7 @@ h2 {
 }
 
 .job-form .wide-field {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 
 .job-form .checkbox-field {
@@ -607,9 +656,9 @@ h2 {
 
 .manifest-toolbar {
   display: grid;
-  grid-template-columns: minmax(170px, 0.72fr) minmax(200px, 1fr) repeat(4, auto);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 10px;
-  align-items: end;
+  align-items: start;
 }
 
 .manifest-template-note {
@@ -1090,8 +1139,11 @@ h2 {
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .run-note-preview {
@@ -2035,9 +2087,58 @@ h2 {
 }
 
 .rank-board-table-card {
+  position: relative;
+  overflow: hidden;
   flex: 1 1 auto;
   min-height: min(620px, 68vh);
   border-radius: 4px;
+}
+
+.rank-board-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rank-board-table-toolbar .rank-board-pager {
+  flex: 1 1 auto;
+}
+
+.rank-board-table-refresh {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  color: #416273;
+  background: #f6fafc;
+  border: 1px solid #d3e3eb;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rank-board-table-card.refreshing::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #1684ad 45%, transparent);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-70%);
+  animation: rank-board-table-refresh 1.1s ease-in-out infinite;
+}
+
+.rank-board-table-card.refreshing .table-shell {
+  border-color: #cbdde7;
+}
+
+@keyframes rank-board-table-refresh {
+  to {
+    transform: translateX(70%);
+  }
 }
 
 .rank-board-table-card .table-shell {
@@ -2316,15 +2417,15 @@ h2 {
 
 .recent-run-card {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   color: #182838;
   text-decoration: none;
   background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #d8e2eb;
-  border-radius: 12px;
-  box-shadow: 0 8px 18px rgb(28 57 83 / 5%);
+  border-radius: 4px;
+  box-shadow: 0 6px 14px rgb(28 57 83 / 5%);
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -2354,7 +2455,7 @@ h2 {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .recent-run-head strong,
@@ -2365,20 +2466,36 @@ h2 {
   white-space: nowrap;
 }
 
+.recent-run-card .recent-run-head strong,
+.recent-run-card .recent-run-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-run-card .badge {
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .recent-run-meta {
   color: #607080;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 680;
 }
 
 .recent-run-artifacts {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .recent-run-artifacts > i {
   overflow: hidden;
-  height: 5px;
+  height: 4px;
   background: #e2ebef;
   border-radius: 999px;
 }
@@ -2394,18 +2511,20 @@ h2 {
 .recent-run-artifacts > span {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .recent-run-artifacts em {
-  padding: 2px 6px;
+  padding: 1px 5px;
   color: #274253;
   background: #ffffff;
   border: 1px solid #d7e2eb;
-  border-radius: 999px;
+  border-radius: 2px;
   font-size: 11px;
   font-style: normal;
   font-weight: 740;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .scheduler-strip {
@@ -2582,6 +2701,31 @@ h2 {
   display: grid;
   min-width: 0;
   gap: 3px;
+}
+
+.job-eval-cell {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.job-eval-cell strong,
+.job-eval-cell small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-eval-cell strong {
+  color: #17202b;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.job-eval-cell small {
+  color: #6a7a8b;
+  font-size: 11px;
 }
 
 .job-target-cell em,
@@ -2881,12 +3025,13 @@ h2 {
 }
 
 .service-form {
-  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  align-items: start;
 }
 
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 12px;
 }
 
@@ -3435,7 +3580,9 @@ h2 {
 
 .table-shell {
   min-height: 0;
+  max-width: 100%;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .table-shell.compact {
@@ -3445,18 +3592,47 @@ h2 {
 
 table {
   width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 th,
 td {
   overflow: hidden;
+  min-width: 0;
+  max-width: clamp(96px, 18vw, 320px);
   padding: 11px 14px;
   text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   border-bottom: 1px solid #e8edf2;
+}
+
+th {
+  white-space: nowrap;
+}
+
+.table-shell.compact th,
+.table-shell.compact td {
+  padding: 9px 11px;
+}
+
+.table-shell td > :where(a, span, strong, em, small, code, div),
+.table-shell th > :where(span, strong) {
+  max-width: 100%;
+}
+
+.table-shell td > :where(a:not(.run-note-preview), span:not(.badge, .run-note-preview), strong, em, small, code) {
+  overflow-wrap: anywhere;
+}
+
+.table-shell td:has(.row-actions) {
+  overflow: visible;
+  max-width: clamp(92px, 13vw, 190px);
 }
 
 .run-table-stack:not(.compact) th:first-child,
@@ -3495,7 +3671,7 @@ td {
 .run-table-stack:not(.compact) td:last-child,
 .queue-stack th:last-child,
 .queue-stack td:last-child {
-  width: 178px;
+  width: clamp(112px, 14vw, 178px);
   overflow: visible;
 }
 
@@ -3657,18 +3833,22 @@ tbody tr:hover td {
 }
 
 .sample-row-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 720;
   line-height: 1.25;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .sample-row-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #607080;
   font-size: 12px;
   line-height: 1.3;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .sample-status {
@@ -4746,15 +4926,15 @@ tbody tr:hover td {
   }
 
   .job-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   }
 
   .manifest-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   }
 
   .service-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   }
 
   .job-form .wide-field {
@@ -5339,7 +5519,7 @@ tbody tr:hover td {
 }
 
 .manifest-toolbar {
-  grid-template-columns: minmax(170px, 0.72fr) minmax(200px, 1fr) repeat(4, auto);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   padding: 10px;
   background: #fbfcfd;
   border: 1px solid #e5ebf1;
@@ -5364,7 +5544,7 @@ tbody tr:hover td {
 
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(430px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
   gap: 12px;
 }
 
@@ -5744,8 +5924,13 @@ tbody tr:hover td {
 .manifest-toolbar select,
 .job-form input,
 .job-form select,
+.job-form textarea,
+.advanced-filter-search-control input,
 .advanced-filter-number-control input,
+.advanced-filter-text-control input,
 .manifest-editor-field textarea {
+  min-width: 0;
+  max-width: 100%;
   border-color: #c9d5e1;
   border-radius: 2px;
 }
@@ -7001,6 +7186,19 @@ tbody tr:hover td {
     inset 0 0 0 1px rgb(255 255 255 / 70%);
 }
 
+.advanced-filter-bar.dirty .advanced-filter-head {
+  border-color: #98c8d7;
+  box-shadow:
+    inset 3px 0 0 #1684ad,
+    0 8px 18px rgb(34 103 130 / 9%);
+}
+
+.advanced-filter-bar.dirty .advanced-filter-apply {
+  color: #ffffff;
+  background: #155f84;
+  border-color: #155f84;
+}
+
 .advanced-filter-compact {
   display: grid;
   grid-template-columns: minmax(210px, max-content) minmax(0, 1fr) max-content;
@@ -7186,6 +7384,7 @@ tbody tr:hover td {
 
 .advanced-filter-popover-head div {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
 }
@@ -7203,13 +7402,14 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
+.advanced-filter-apply,
 .advanced-filter-close {
   flex: 0 0 auto;
 }
 
 .advanced-filter-directory {
   display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.4fr) minmax(190px, 0.7fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 10px;
   align-items: start;
 }
@@ -7246,7 +7446,7 @@ tbody tr:hover td {
 
 .advanced-filter-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 144px), 1fr));
   gap: 8px;
   min-width: 0;
   align-items: stretch;

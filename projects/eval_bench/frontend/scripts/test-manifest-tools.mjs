@@ -26,13 +26,13 @@ const layoutManifest = {
   kind: "eval_job",
   eval: {
     task: "detection",
-    prompt_id: "grounding_layout.latest",
+    prompt_id: "grounding_layout.test.main",
     target_labels: ["icon", "image", "shape"]
   }
 };
 
 const arrowPrompt = {
-  prompt_id: "grounding_arrow.latest",
+  prompt_id: "grounding_arrow.test.main",
   label: "Arrow Detection",
   task: "detection",
   system_prompt: "JSON only.",
@@ -48,7 +48,7 @@ const arrowPrompt = {
 const arrowManifest = tools.applyPromptTemplateToManifest(layoutManifest, arrowPrompt);
 assert.deepEqual(arrowManifest.eval.target_labels, ["arrow"]);
 assert.equal(arrowManifest.eval.target_labels_source, "prompt_metadata");
-assert.equal(arrowManifest.eval.prompt_id, "grounding_arrow.latest");
+assert.equal(arrowManifest.eval.prompt_id, "grounding_arrow.test.main");
 assert.equal(arrowManifest.eval.prompt_text, "Detect arrows.");
 
 const benchmarkDefaultManifest = tools.applyBenchmarkDefault(
@@ -124,7 +124,7 @@ assert.equal("target_labels_source" in customManifest.eval, false);
 
 const keypointPrompt = {
   ...arrowPrompt,
-  prompt_id: "keypoint_arrow.latest",
+  prompt_id: "keypoint_arrow.test.main",
   label: "Arrow Keypoints",
   task: "keypoint",
   parser: "raw_data_keypoint_v1",

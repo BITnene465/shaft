@@ -162,6 +162,7 @@ export function RankBoardPage() {
     return <EmptyState title="排行榜加载失败" tone="danger" />;
   }
   const rankSchemeApiError = rankSchemeEnabled && !rankSchemeError ? rankSchemeRequestError : null;
+  const tableRefreshing = boardQuery.isFetching && Boolean(board);
 
   return (
     <section className="page-stack density-page rank-board-page">
@@ -274,14 +275,27 @@ export function RankBoardPage() {
           </span>
         }
       />
-      <div className="workspace-card fill rank-board-table-card">
-        <PagerControl
-          className="rank-board-pager"
-          offset={board.offset}
-          limit={board.limit}
-          total={board.total}
-          onPageChange={setPageOffset}
-        />
+      <div
+        className={
+          tableRefreshing
+            ? "workspace-card fill rank-board-table-card refreshing"
+            : "workspace-card fill rank-board-table-card"
+        }
+      >
+        <div className="rank-board-table-toolbar">
+          <PagerControl
+            className="rank-board-pager"
+            offset={board.offset}
+            limit={board.limit}
+            total={board.total}
+            onPageChange={setPageOffset}
+          />
+          {tableRefreshing ? (
+            <span className="rank-board-table-refresh" aria-live="polite">
+              表格更新中
+            </span>
+          ) : null}
+        </div>
         <RankBoardTable
           entries={entries}
           primaryMetric={board.primary_metric}

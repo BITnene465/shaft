@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { Check, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { FilterSelectControl, SearchInputControl, TextInputControl } from "./controlPrimitives";
 import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
@@ -90,11 +90,19 @@ export function AdvancedFilterBar({
   actions?: ReactNode;
 }) {
   const openStateKey = advancedFilterOpenStateKey(title, controls);
+  const draftStateKey = `${openStateKey}:draft`;
   const [open, setOpen] = useState(() => readAdvancedFilterOpenState(openStateKey));
+  const [draftValues, setDraftValues] = useState<Record<string, string>>(() =>
+    readAdvancedFilterDraftValues(draftStateKey, controls)
+  );
   const panelId = useId();
   const rootRef = useRef<HTMLElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const latestDraftValuesRef = useRef<Record<string, string>>(draftValues);
+  const dirtyControlIdsRef = useRef<Set<string>>(
+    advancedFilterDirtyControlIds(controls, draftValues)
+  );
   const activeCount = controls.filter((control) => {
     return control.value.trim() !== defaultFilterValue(control);
   }).length;
@@ -103,12 +111,36 @@ export function AdvancedFilterBar({
     .map((control) => ({ control, value: displayFilterValue(control) }));
   const controlGroups = useMemo(() => groupAdvancedControls(controls), [controls]);
   const summary = activeCount > 0 ? `${activeCount} 个条件生效` : "未设条件";
+  const appliedValuesKey = advancedFilterValuesKey(controls);
+  const hasDraftChanges = controls.some((control) => draftValueFor(control) !== control.value);
   useEffect(() => {
     setOpen(readAdvancedFilterOpenState(openStateKey));
   }, [openStateKey]);
   useEffect(() => {
+    const nextDraftValues = readAdvancedFilterDraftValues(draftStateKey, controls);
+    dirtyControlIdsRef.current = advancedFilterDirtyControlIds(controls, nextDraftValues);
+    latestDraftValuesRef.current = nextDraftValues;
+    setDraftValues(nextDraftValues);
+  }, [draftStateKey]);
+  useEffect(() => {
     writeAdvancedFilterOpenState(openStateKey, open);
   }, [openStateKey, open]);
+  useEffect(() => {
+    const controlIds = new Set(controls.map((control) => control.id));
+    for (const id of dirtyControlIdsRef.current) {
+      if (!controlIds.has(id)) {
+        dirtyControlIdsRef.current.delete(id);
+      }
+    }
+    const nextDraftValues = syncDraftValuesWithApplied(
+      controls,
+      latestDraftValuesRef.current,
+      dirtyControlIdsRef.current
+    );
+    latestDraftValuesRef.current = nextDraftValues;
+    setDraftValues(nextDraftValues);
+    writeAdvancedFilterDraftValues(draftStateKey, nextDraftValues, dirtyControlIdsRef.current);
+  }, [appliedValuesKey, openStateKey]);
   useEffect(() => {
     if (!open) {
       return;
@@ -147,7 +179,8 @@ export function AdvancedFilterBar({
       }
     }
     function onDocumentClick(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+      const clickedInsideRoot = rootRef.current && event.composedPath().includes(rootRef.current);
+      if (rootRef.current && !clickedInsideRoot) {
         window.setTimeout(() => closeAdvancedFilter({ restoreFocus: false }), 0);
       }
     }
@@ -180,14 +213,71 @@ export function AdvancedFilterBar({
     openAdvancedFilter();
   }
   function resetAdvancedFilters() {
+    const nextValues: Record<string, string> = {};
     for (const control of controls) {
-      resetAdvancedFilter(control);
+      nextValues[control.id] = defaultFilterValue(control);
     }
+    dirtyControlIdsRef.current.clear();
+    latestDraftValuesRef.current = nextValues;
+    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    setDraftValues(nextValues);
+    applyAdvancedFilterValues(controls, nextValues);
+  }
+  function resetSingleAdvancedFilter(control: AdvancedFilterControl) {
+    const nextValue = defaultFilterValue(control);
+    dirtyControlIdsRef.current.delete(control.id);
+    const nextValues = { ...latestDraftValuesRef.current, [control.id]: nextValue };
+    latestDraftValuesRef.current = nextValues;
+    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    setDraftValues(nextValues);
+    resetAdvancedFilter(control);
+  }
+  function updateDraftValue(control: AdvancedFilterControl, value: string) {
+    if (value === control.value) {
+      dirtyControlIdsRef.current.delete(control.id);
+    } else {
+      dirtyControlIdsRef.current.add(control.id);
+    }
+    const nextValues = { ...latestDraftValuesRef.current, [control.id]: value };
+    latestDraftValuesRef.current = nextValues;
+    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    setDraftValues(nextValues);
+  }
+  function draftValueFor(control: AdvancedFilterControl) {
+    return draftValues[control.id] ?? control.value;
+  }
+  function applyDraftFilters() {
+    dirtyControlIdsRef.current.clear();
+    writeAdvancedFilterDraftValues(
+      draftStateKey,
+      latestDraftValuesRef.current,
+      dirtyControlIdsRef.current
+    );
+    applyAdvancedFilterValues(controls, latestDraftValuesRef.current);
+  }
+  function applyDraftFiltersFromKeyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" || !hasDraftChanges) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLButtonElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLAnchorElement
+    ) {
+      return;
+    }
+    event.preventDefault();
+    applyDraftFilters();
   }
   return (
     <section
       ref={rootRef}
-      className={open ? "advanced-filter-bar open" : "advanced-filter-bar"}
+      className={[
+        "advanced-filter-bar",
+        open ? "open" : "",
+        hasDraftChanges ? "dirty" : ""
+      ].filter(Boolean).join(" ")}
       aria-label={`${title}: ${meta}`}
     >
       <div className="advanced-filter-compact">
@@ -216,7 +306,7 @@ export function AdvancedFilterBar({
                 title={`清除 ${filter.control.label}: ${filter.value}`}
                 aria-label={`清除 ${filter.control.label}: ${filter.value}`}
                 icon={<X size={11} />}
-                onClick={() => resetAdvancedFilter(filter.control)}
+                onClick={() => resetSingleAdvancedFilter(filter.control)}
               >
                 <span>{filter.control.label}: {filter.value}</span>
               </ActionButton>
@@ -250,12 +340,24 @@ export function AdvancedFilterBar({
           role="dialog"
           aria-label={`${title} 条件`}
           tabIndex={-1}
+          onKeyDown={applyDraftFiltersFromKeyboard}
         >
           <div className="advanced-filter-popover-head">
             <div>
               <strong>{title}</strong>
-              <span>{meta}</span>
+              <span>{hasDraftChanges ? `${meta} / 有未应用修改` : meta}</span>
             </div>
+            <ActionButton
+              variant="mini"
+              className="advanced-filter-apply"
+              icon={<Check size={13} />}
+              disabled={!hasDraftChanges}
+              title="应用筛选条件，快捷键 Enter"
+              aria-keyshortcuts="Enter"
+              onClick={applyDraftFilters}
+            >
+              应用
+            </ActionButton>
             <ActionButton
               variant="mini"
               className="advanced-filter-close"
@@ -273,7 +375,11 @@ export function AdvancedFilterBar({
                   <span>{group.controls.length.toLocaleString()} 项</span>
                 </div>
                 <div className="advanced-filter-controls">
-                  {group.controls.map((control) => renderAdvancedControl(control))}
+                  {group.controls.map((control) =>
+                    renderAdvancedControl(control, draftValueFor(control), (value) =>
+                      updateDraftValue(control, value)
+                    )
+                  )}
                 </div>
               </section>
             ))}
@@ -295,6 +401,18 @@ function resetAdvancedFilter(control: AdvancedFilterControl) {
   control.onChange(defaultFilterValue(control));
 }
 
+function applyAdvancedFilterValues(
+  controls: AdvancedFilterControl[],
+  values: Record<string, string>,
+) {
+  for (const control of controls) {
+    const nextValue = values[control.id] ?? control.value;
+    if (nextValue !== control.value) {
+      control.onChange(nextValue);
+    }
+  }
+}
+
 function displayFilterValue(control: AdvancedFilterControl) {
   if (control.type === "select") {
     return control.labels?.[control.value] ?? control.value;
@@ -302,7 +420,11 @@ function displayFilterValue(control: AdvancedFilterControl) {
   return control.value;
 }
 
-function renderAdvancedControl(control: AdvancedFilterControl) {
+function renderAdvancedControl(
+  control: AdvancedFilterControl,
+  value: string,
+  onChange: (value: string) => void,
+) {
   if (control.type === "search") {
     return (
       <SearchInputControl
@@ -310,8 +432,8 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
         icon={<Search size={15} />}
         key={control.id}
         label={control.label}
-        value={control.value}
-        onChange={control.onChange}
+        value={value}
+        onChange={onChange}
         placeholder={control.placeholder}
       />
     );
@@ -326,8 +448,8 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
         min={control.min}
         max={control.max}
         step={control.step}
-        value={control.value}
-        onChange={control.onChange}
+        value={value}
+        onChange={onChange}
         placeholder={control.placeholder}
       />
     );
@@ -338,8 +460,8 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
         className="advanced-filter-text-control"
         key={control.id}
         label={control.label}
-        value={control.value}
-        onChange={control.onChange}
+        value={value}
+        onChange={onChange}
         placeholder={control.placeholder}
       />
     );
@@ -348,10 +470,10 @@ function renderAdvancedControl(control: AdvancedFilterControl) {
     <FilterSelect
       key={control.id}
       label={control.label}
-      value={control.value}
+      value={value}
       values={control.values}
       labels={control.labels}
-      onChange={control.onChange}
+      onChange={onChange}
       compact
     />
   );
@@ -398,6 +520,46 @@ function readAdvancedFilterOpenState(key: string) {
   }
 }
 
+function readAdvancedFilterDraftValues(
+  key: string,
+  controls: AdvancedFilterControl[],
+): Record<string, string> {
+  if (typeof window === "undefined") {
+    return advancedFilterValues(controls);
+  }
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    const stored = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    return Object.fromEntries(
+      controls.map((control) => [
+        control.id,
+        typeof stored[control.id] === "string" ? stored[control.id] : control.value,
+      ])
+    ) as Record<string, string>;
+  } catch {
+    return advancedFilterValues(controls);
+  }
+}
+
+function writeAdvancedFilterDraftValues(
+  key: string,
+  values: Record<string, string>,
+  dirtyControlIds: ReadonlySet<string>,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    if (dirtyControlIds.size === 0) {
+      window.sessionStorage.removeItem(key);
+      return;
+    }
+    window.sessionStorage.setItem(key, JSON.stringify(values));
+  } catch {
+    // Ignore storage failures; drafts still work for the current render.
+  }
+}
+
 function writeAdvancedFilterOpenState(key: string, open: boolean) {
   if (typeof window === "undefined") {
     return;
@@ -407,4 +569,40 @@ function writeAdvancedFilterOpenState(key: string, open: boolean) {
   } catch {
     // Ignore storage failures; the filter still works for the current render.
   }
+}
+
+function advancedFilterValues(controls: AdvancedFilterControl[]) {
+  return Object.fromEntries(controls.map((control) => [control.id, control.value])) as Record<string, string>;
+}
+
+function advancedFilterDirtyControlIds(
+  controls: AdvancedFilterControl[],
+  values: Record<string, string>,
+) {
+  return new Set(
+    controls
+      .filter((control) => (values[control.id] ?? control.value) !== control.value)
+      .map((control) => control.id)
+  );
+}
+
+function advancedFilterValuesKey(controls: AdvancedFilterControl[]) {
+  return controls.map((control) => `${control.id}\u0000${control.value}`).join("\u0001");
+}
+
+function syncDraftValuesWithApplied(
+  controls: AdvancedFilterControl[],
+  currentDraftValues: Record<string, string>,
+  dirtyControlIds: ReadonlySet<string>,
+) {
+  return Object.fromEntries(
+    controls.map((control) => {
+      return [
+        control.id,
+        dirtyControlIds.has(control.id)
+          ? currentDraftValues[control.id] ?? control.value
+          : control.value,
+      ];
+    })
+  );
 }

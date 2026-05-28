@@ -132,7 +132,7 @@ export function RunTable({
           } satisfies ColumnDef<RunSummary>
         ]),
     {
-      header: "记录",
+      header: "评测",
       cell: ({ row }) => (
         <Link to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
