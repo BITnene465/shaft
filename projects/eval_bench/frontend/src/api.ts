@@ -879,9 +879,10 @@ export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse
 }
 
 export function evaluateRun(runId: string): Promise<{ run_id: string; report_path: string }> {
-  return fetchJson<{ run_id: string; report_path: string }>(`/api/runs/${runId}/evaluate`, {
-    method: "POST"
-  });
+  return fetchJson<{ run_id: string; report_path: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/evaluate`,
+    { method: "POST" }
+  );
 }
 
 export function archiveRun(runId: string): Promise<{ run_id: string; status: string }> {
@@ -957,11 +958,13 @@ export function fetchRunSamples(
   if (options.errorFilter && options.errorFilter !== "all") {
     params.set("error_filter", options.errorFilter);
   }
-  return fetchJson<SamplePage<RunSampleSummary>>(`/api/runs/${runId}/samples?${params.toString()}`);
+  return fetchJson<SamplePage<RunSampleSummary>>(
+    `/api/runs/${encodeURIComponent(runId)}/samples?${params.toString()}`
+  );
 }
 
 export function fetchRunSampleDetail(runId: string, index: number): Promise<RunSampleDetail> {
-  return fetchJson<RunSampleDetail>(`/api/runs/${runId}/samples/${index}`);
+  return fetchJson<RunSampleDetail>(`/api/runs/${encodeURIComponent(runId)}/samples/${index}`);
 }
 
 export function fetchBenchmarkSamples(
@@ -979,7 +982,7 @@ export function fetchBenchmarkSamples(
     params.set("split", options.split);
   }
   return fetchJson<SamplePage<BenchmarkSampleSummary>>(
-    `/api/benchmarks/${benchmarkId}/samples?${params.toString()}`
+    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples?${params.toString()}`
   );
 }
 
@@ -994,7 +997,7 @@ export function fetchBenchmarkSampleDetail(
   }
   const query = params.toString();
   return fetchJson<BenchmarkSampleDetail>(
-    `/api/benchmarks/${benchmarkId}/samples/${index}${query ? `?${query}` : ""}`
+    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples/${index}${query ? `?${query}` : ""}`
   );
 }
 

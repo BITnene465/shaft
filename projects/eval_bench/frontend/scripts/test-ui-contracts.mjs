@@ -67,6 +67,18 @@ assert(
   "frontend API failures must expose typed ApiError status for structured recovery",
 );
 assert(
+  apiSource.includes("`/api/runs/${encodeURIComponent(runId)}/evaluate`") &&
+    apiSource.includes("`/api/runs/${encodeURIComponent(runId)}/samples?${params.toString()}`") &&
+    apiSource.includes("`/api/runs/${encodeURIComponent(runId)}/samples/${index}`") &&
+    apiSource.includes(
+      "`/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples?${params.toString()}`",
+    ) &&
+    apiSource.includes(
+      "`/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples/${index}${query ? `?${query}` : \"\"}`",
+    ),
+  "frontend API must encode run and benchmark ids in sample/evaluate paths",
+);
+assert(
   samplePagerSource.includes("export function PagerControl(") &&
     samplePagerSource.includes("export function clampListPageOffset(") &&
     samplePagerSource.includes("export function SamplePager("),
