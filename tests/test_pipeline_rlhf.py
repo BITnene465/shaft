@@ -532,11 +532,11 @@ def test_grpo_dataset_applies_image_pixel_budget() -> None:
     dataset = GRPODataset(
         _SingleImageDataset(),
         template=build_template("smoke_vlm"),
-        max_pixels=1000,
+        max_pixels=2000,
     )
 
     sample = dataset[0]
 
-    assert sample["image"].size[0] * sample["image"].size[1] <= 1000
+    assert sample["image"].size[0] * sample["image"].size[1] <= 2000
     assert sample["image"].size != image.size
     assert image.size == (100, 50)

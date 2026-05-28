@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import urllib.request
+import base64
+from io import BytesIO
 
 from PIL import Image
 import torch
@@ -175,3 +177,55 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
     assert body["seed"] == 11
     assert body["messages"][0]["role"] == "system"
     assert body["messages"][1]["content"][0]["type"] == "image_url"
+
+
+def test_vllm_openai_engine_resizes_image_before_request(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "large.jpg"
+    Image.new("RGB", (4096, 2748), color=(255, 255, 255)).save(image)
+    captured: dict[str, object] = {}
+
+    class _DummyHTTPResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"choices": [{"message": {"role": "assistant", "content": "[]"}}]},
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        assert isinstance(request, urllib.request.Request)
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _DummyHTTPResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen3vl",
+            model_name_or_path="banana",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+            generation=InferGenerationConfig(max_new_tokens=16, do_sample=False),
+        )
+    )
+    _ = engine.run(
+        ShaftInferRequest(
+            image_path=str(image),
+            user_prompt="return json",
+            max_pixels=1_000_000,
+        )
+    )
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    image_url = body["messages"][0]["content"][0]["image_url"]["url"]
+    encoded = image_url.split(",", 1)[1]
+    with Image.open(BytesIO(base64.b64decode(encoded))) as sent:
+        assert sent.size == (1216, 800)
+    assert body["mm_processor_kwargs"]["max_pixels"] == 1_000_000

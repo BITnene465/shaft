@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 import json
-import mimetypes
 from pathlib import Path
 import time
 from typing import Any
 from urllib import request
+
+from shaft.utils.qwen_pixel_budget import image_to_data_url_with_qwen_pixel_budget
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class GeneratedText:
     text: str
     latency_ms: float
     raw_response: dict[str, Any]
+    image_request: dict[str, Any]
 
 
 class OpenAICompatibleVLLMAdapter:
@@ -40,7 +41,14 @@ class OpenAICompatibleVLLMAdapter:
         max_tokens: int,
         temperature: float,
         top_p: float,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
     ) -> GeneratedText:
+        image_data_url, image_budget = image_to_data_url_with_qwen_pixel_budget(
+            image_path,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
         payload = {
             "model": self.served_model_name,
             "messages": [
@@ -49,7 +57,7 @@ class OpenAICompatibleVLLMAdapter:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}},
+                        {"type": "image_url", "image_url": {"url": image_data_url}},
                     ],
                 },
             ],
@@ -70,6 +78,7 @@ class OpenAICompatibleVLLMAdapter:
             text=_extract_text(raw_response),
             latency_ms=latency_ms,
             raw_response=raw_response,
+            image_request=image_budget.to_dict(),
         )
 
 
@@ -80,12 +89,6 @@ def _chat_completions_url(endpoint: str) -> str:
     if value.endswith("/v1"):
         return f"{value}/chat/completions"
     return f"{value}/v1/chat/completions"
-
-
-def _image_data_url(path: Path) -> str:
-    mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
 
 
 def _extract_text(payload: dict[str, Any]) -> str:

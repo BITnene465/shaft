@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,6 +7,8 @@ from typing import Any
 
 from PIL import Image
 from torch.utils.data import Dataset
+
+from shaft.utils.qwen_pixel_budget import apply_qwen_pixel_budget
 
 
 @dataclass
@@ -98,23 +99,14 @@ def _fit_image_to_pixel_budget(
 ) -> Any:
     if not isinstance(image, Image.Image):
         return image
-    width, height = image.size
-    if width <= 0 or height <= 0:
+    if min_pixels is None and max_pixels is None:
         return image
-    area = width * height
-    target_area = area
-    if max_pixels is not None and area > int(max_pixels):
-        target_area = int(max_pixels)
-    elif min_pixels is not None and area < int(min_pixels):
-        target_area = int(min_pixels)
-    if target_area <= 0 or target_area == area:
-        return image
-    scale = math.sqrt(float(target_area) / float(area))
-    new_width = max(1, int(width * scale))
-    new_height = max(1, int(height * scale))
-    if new_width == width and new_height == height:
-        return image
-    return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    resized, _ = apply_qwen_pixel_budget(
+        image,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+    )
+    return resized
 
 
 class SFTDataset(_BaseVisionDataset):

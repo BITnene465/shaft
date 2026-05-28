@@ -662,9 +662,12 @@ def _generate_vllm_sample_prediction(
         max_tokens=max_tokens,
         temperature=temperature,
         top_p=top_p,
+        min_pixels=_optional_int(inference, "min_pixels"),
+        max_pixels=_optional_int(inference, "max_pixels"),
     )
     inference_metadata = dict(inference)
     inference_metadata["request_concurrency"] = request_concurrency
+    inference_metadata["image_request"] = result.image_request
     prediction = parse_prediction_text(
         text=result.text,
         task=task,

@@ -562,10 +562,12 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
         def generate(self, **kwargs):
             assert kwargs["user_prompt"] == "detect icons"
             assert kwargs["max_tokens"] == 4096
+            assert kwargs["max_pixels"] == 1048576
             return GeneratedText(
                 text='[{"label":"icon","bbox_2d":[0,0,1000,1000]}]',
                 latency_ms=12.5,
                 raw_response={"choices": []},
+                image_request={"source_pixels": 5000, "target_pixels": 5000, "resized": False},
             )
 
     monkeypatch.setattr("eval_bench.worker.OpenAICompatibleVLLMAdapter", FakeAdapter)
@@ -610,6 +612,7 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
             backend="vllm_openai",
             endpoint="http://127.0.0.1:8000",
             max_tokens=4096,
+            max_pixels=1048576,
         ),
     )
 
@@ -626,6 +629,8 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
     prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
     assert prediction["instances"][0]["bbox"] == [0.0, 0.0, 100.0, 50.0]
     assert prediction["metadata"]["latency_ms"] == 12.5
+    assert prediction["metadata"]["inference_params"]["max_pixels"] == 1048576
+    assert prediction["metadata"]["inference_params"]["image_request"]["resized"] is False
     assert (tmp_path / "runs" / job.job_id / "raw_outputs" / "part1" / "txt" / "a.txt").exists()
     report = json.loads(
         (tmp_path / "runs" / job.job_id / "reports" / "metrics.json").read_text(encoding="utf-8")
@@ -661,6 +666,7 @@ def test_worker_vllm_openai_runs_requests_concurrently(
                 text='[{"label":"icon","bbox_2d":[0,0,1000,1000]}]',
                 latency_ms=12.5,
                 raw_response={"choices": []},
+                image_request={"source_pixels": 5000, "target_pixels": 5000, "resized": False},
             )
 
     monkeypatch.setattr("eval_bench.worker.OpenAICompatibleVLLMAdapter", FakeAdapter)

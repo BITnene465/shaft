@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import base64
 from dataclasses import dataclass
 import copy
 import json
-import mimetypes
 import time
 from typing import Any
 import urllib.error
@@ -19,6 +17,7 @@ from shaft.model import ShaftModelAdapter, build_model_tokenizer_processor
 from shaft.model.generation import align_model_generation_config, set_model_use_cache
 from shaft.template import Template
 
+from shaft.utils.qwen_pixel_budget import image_to_data_url_with_qwen_pixel_budget
 from .schema import InferEngineConfig, InferGenerationConfig
 
 
@@ -230,15 +229,28 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         return f"{normalized}/v1/chat/completions"
 
     @staticmethod
-    def _encode_image_data_url(image_path: str) -> str:
-        mime_type, _ = mimetypes.guess_type(image_path)
-        content_type = mime_type or "image/png"
-        with open(image_path, "rb") as handle:
-            raw = handle.read()
-        b64 = base64.b64encode(raw).decode("ascii")
-        return f"data:{content_type};base64,{b64}"
+    def _encode_image_data_url(
+        image_path: str,
+        *,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
+    ) -> str:
+        data_url, _ = image_to_data_url_with_qwen_pixel_budget(
+            image_path,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        return data_url
 
-    def _build_messages(self, *, image_path: str, user_prompt: str, system_prompt: str) -> list[dict[str, Any]]:
+    def _build_messages(
+        self,
+        *,
+        image_path: str,
+        user_prompt: str,
+        system_prompt: str,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
+    ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         if system_prompt.strip():
             messages.append({"role": "system", "content": system_prompt})
@@ -248,7 +260,13 @@ class VLLMOpenAIInferAdapter(InferAdapter):
                 "content": [
                     {
                         "type": "image_url",
-                        "image_url": {"url": self._encode_image_data_url(image_path)},
+                        "image_url": {
+                            "url": self._encode_image_data_url(
+                                image_path,
+                                min_pixels=min_pixels,
+                                max_pixels=max_pixels,
+                            )
+                        },
                     },
                     {"type": "text", "text": user_prompt},
                 ],
@@ -283,10 +301,14 @@ class VLLMOpenAIInferAdapter(InferAdapter):
     def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         t0 = time.perf_counter()
         generation = request.generation or self.default_generation
+        effective_min_pixels = request.min_pixels
+        effective_max_pixels = request.max_pixels
         messages = request.messages or self._build_messages(
             image_path=request.image_path,
             user_prompt=request.user_prompt,
             system_prompt=request.system_prompt,
+            min_pixels=effective_min_pixels,
+            max_pixels=effective_max_pixels,
         )
         do_sample = bool(generation.do_sample)
         payload: dict[str, Any] = {
