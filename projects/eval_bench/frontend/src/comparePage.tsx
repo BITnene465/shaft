@@ -67,6 +67,8 @@ export function ComparePage() {
   const comparisonFilters = useMemo(
     () => ({
       task: taskFilter === "all" ? undefined : taskFilter,
+      benchmarkId: benchmarkFilter === "all" ? undefined : benchmarkFilter,
+      benchmarkSplit: benchmarkSplitFilter === "all" ? undefined : benchmarkSplitFilter,
       baselineRunId: historyBaselineFilter.trim() || undefined,
       candidateRunId: historyCandidateFilter.trim() || undefined,
       label: labelFilter === "all" ? undefined : labelFilter,
@@ -74,11 +76,22 @@ export function ComparePage() {
       offset: historyOffset,
       limit: COMPARISON_HISTORY_PAGE_SIZE
     }),
-    [historyBaselineFilter, historyCandidateFilter, historyOffset, labelFilter, searchText, taskFilter]
+    [
+      benchmarkFilter,
+      benchmarkSplitFilter,
+      historyBaselineFilter,
+      historyCandidateFilter,
+      historyOffset,
+      labelFilter,
+      searchText,
+      taskFilter
+    ]
   );
   const hasComparisonHistoryFilters = Boolean(
     searchText.trim() ||
       taskFilter !== "all" ||
+      benchmarkFilter !== "all" ||
+      benchmarkSplitFilter !== "all" ||
       labelFilter !== "all" ||
       historyBaselineFilter.trim() ||
       historyCandidateFilter.trim()
@@ -173,7 +186,15 @@ export function ComparePage() {
   ]);
   useEffect(() => {
     setHistoryOffset(0);
-  }, [searchText, taskFilter, labelFilter, historyBaselineFilter, historyCandidateFilter]);
+  }, [
+    searchText,
+    taskFilter,
+    benchmarkFilter,
+    benchmarkSplitFilter,
+    labelFilter,
+    historyBaselineFilter,
+    historyCandidateFilter
+  ]);
   useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, filteredCount, COMPARE_RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {

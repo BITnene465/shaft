@@ -144,12 +144,16 @@ def filter_comparison_reports(
     reports: list[dict[str, Any]],
     *,
     task: str | None = None,
+    benchmark_id: str | None = None,
+    benchmark_split: str | None = None,
     baseline_run_id: str | None = None,
     candidate_run_id: str | None = None,
     label: str | None = None,
     query: str | None = None,
 ) -> list[dict[str, Any]]:
     task_filter = _filter_value(task)
+    benchmark_filter = _filter_value(benchmark_id)
+    split_filter = _filter_value(benchmark_split)
     baseline_filter = _filter_value(baseline_run_id)
     candidate_filter = _filter_value(candidate_run_id)
     label_filter = _filter_value(label)
@@ -158,6 +162,10 @@ def filter_comparison_reports(
     for report in reports:
         target_labels = _target_labels(report)
         if task_filter and str(report.get("task") or "") != task_filter:
+            continue
+        if benchmark_filter and str(report.get("benchmark_id") or "") != benchmark_filter:
+            continue
+        if split_filter and str(report.get("benchmark_split") or "") != split_filter:
             continue
         if baseline_filter and str(report.get("baseline_run_id") or "") != baseline_filter:
             continue

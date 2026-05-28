@@ -1440,6 +1440,8 @@ def create_app(
         candidate_run_id: str | None = None,
         list_mode: bool = Query(False, alias="list"),
         task: str | None = None,
+        benchmark_id: str | None = None,
+        benchmark_split: str | None = None,
         label: str | None = None,
         query: str | None = None,
         offset: int = 0,
@@ -1450,6 +1452,8 @@ def create_app(
             candidate_filter = _filter_value(candidate_run_id) if list_mode else ""
             filters = {
                 "task": _filter_value(task),
+                "benchmark_id": _filter_value(benchmark_id),
+                "benchmark_split": _filter_value(benchmark_split),
                 "label": _filter_value(label),
                 "query": (query or "").strip(),
             }
@@ -1462,6 +1466,8 @@ def create_app(
                     store_root=request.app.state.eval_bench_store.layout.root,
                 ),
                 task=filters["task"],
+                benchmark_id=filters["benchmark_id"],
+                benchmark_split=filters["benchmark_split"],
                 baseline_run_id=baseline_filter,
                 candidate_run_id=candidate_filter,
                 label=filters["label"],

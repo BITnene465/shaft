@@ -398,6 +398,8 @@ export type ComparisonSummary = {
 
 export type ComparisonListFilters = {
   task?: string;
+  benchmarkId?: string;
+  benchmarkSplit?: string;
   baselineRunId?: string;
   candidateRunId?: string;
   label?: string;
@@ -1063,6 +1065,12 @@ export function fetchComparisons(
   }
   if (filters.task && filters.task !== "all") {
     params.set("task", filters.task);
+  }
+  if (filters.benchmarkId && filters.benchmarkId !== "all") {
+    params.set("benchmark_id", filters.benchmarkId);
+  }
+  if (filters.benchmarkSplit && filters.benchmarkSplit !== "all") {
+    params.set("benchmark_split", filters.benchmarkSplit);
   }
   if (filters.baselineRunId?.trim()) {
     params.set("baseline_run_id", filters.baselineRunId.trim());

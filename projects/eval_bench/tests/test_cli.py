@@ -646,7 +646,15 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     _assert_paged_schema(comparisons_output_schema)
     _assert_filter_schema(
         comparisons_output_schema,
-        ["task", "baseline_run_id", "candidate_run_id", "label", "query"],
+        [
+            "task",
+            "benchmark_id",
+            "benchmark_split",
+            "baseline_run_id",
+            "candidate_run_id",
+            "label",
+            "query",
+        ],
     )
     assert comparisons_output_schema["properties"]["comparisons"]["item_shape"]["target_labels"] == "list[str]"
     comparison_shape = comparisons_output_schema["properties"]["comparisons"]["item_shape"]
@@ -2036,6 +2044,8 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
             "comparison_id": "run_base__vs__run_a",
             "baseline_run_id": "run_base",
             "candidate_run_id": "run_a",
+            "benchmark_id": "bench1",
+            "benchmark_split": "val",
             "task": "detection",
             "metric_profile": "detection_iou_v1",
             "target_labels": ["arrow"],
@@ -2121,6 +2131,10 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
             str(tmp_path),
             "--task",
             "detection",
+            "--benchmark-id",
+            "bench1",
+            "--benchmark-split",
+            "val",
             "--baseline-run-id",
             "run_base",
             "--label",
@@ -2133,6 +2147,8 @@ def test_cli_lists_benchmarks_runs_and_comparisons_with_agent_filters(
     comparisons = json.loads(capsys.readouterr().out)
     _assert_cli_json_payload("list-comparisons", comparisons)
     assert comparisons["total"] == 1
+    assert comparisons["filters"]["benchmark_id"] == "bench1"
+    assert comparisons["filters"]["benchmark_split"] == "val"
     assert comparisons["filters"]["baseline_run_id"] == "run_base"
     assert comparisons["comparisons"][0]["comparison_id"] == "run_base__vs__run_a"
     assert comparisons["comparisons"][0]["metric_profile"] == "detection_iou_v1"

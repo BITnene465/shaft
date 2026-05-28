@@ -844,7 +844,15 @@ PROMPT_TEMPLATE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["task", "query"])
 JOB_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["kind", "status", "query"])
 SERVICE_FILTER_OUTPUT_SCHEMA = _filter_output_schema(["kind", "status", "query"])
 COMPARISON_FILTER_OUTPUT_SCHEMA = _filter_output_schema(
-    ["task", "baseline_run_id", "candidate_run_id", "label", "query"]
+    [
+        "task",
+        "benchmark_id",
+        "benchmark_split",
+        "baseline_run_id",
+        "candidate_run_id",
+        "label",
+        "query",
+    ]
 )
 CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
     "dashboard-state": {
@@ -1958,6 +1966,8 @@ def _build_parser() -> argparse.ArgumentParser:
     list_comparisons.add_argument("--offset", type=int, default=0)
     list_comparisons.add_argument("--limit", type=int, default=100)
     list_comparisons.add_argument("--task", choices=("detection", "keypoint"), default=None)
+    list_comparisons.add_argument("--benchmark-id", default=None)
+    list_comparisons.add_argument("--benchmark-split", default=None)
     list_comparisons.add_argument("--baseline-run-id", default=None)
     list_comparisons.add_argument("--candidate-run-id", default=None)
     list_comparisons.add_argument("--label", default=None)
@@ -2947,6 +2957,8 @@ def _cmd_list_comparisons(args: argparse.Namespace) -> None:
 
     filters = {
         "task": _normalize_cli_filter(args.task),
+        "benchmark_id": _normalize_cli_filter(args.benchmark_id),
+        "benchmark_split": _normalize_cli_filter(args.benchmark_split),
         "baseline_run_id": _normalize_cli_filter(args.baseline_run_id),
         "candidate_run_id": _normalize_cli_filter(args.candidate_run_id),
         "label": _normalize_cli_filter(args.label),
@@ -2955,6 +2967,8 @@ def _cmd_list_comparisons(args: argparse.Namespace) -> None:
     items = filter_comparison_reports(
         list_comparison_reports(store_root=args.output_root),
         task=filters["task"],
+        benchmark_id=filters["benchmark_id"],
+        benchmark_split=filters["benchmark_split"],
         baseline_run_id=filters["baseline_run_id"],
         candidate_run_id=filters["candidate_run_id"],
         label=filters["label"],

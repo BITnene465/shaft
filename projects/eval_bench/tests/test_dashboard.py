@@ -1848,6 +1848,8 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
             tmp_path / "runs" / run_id / "reports" / "metrics.json",
             {
                 "run_id": run_id,
+                "benchmark_id": "multitask_val_v1",
+                "benchmark_split": "val",
                 "task": "detection",
                 "metric_profile": "detection_iou_v1",
                 "target_labels": ["icon"],
@@ -1907,6 +1909,8 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
         params={
             "list": "1",
             "task": "detection",
+            "benchmark_id": "multitask_val_v1",
+            "benchmark_split": "val",
             "baseline_run_id": "baseline",
             "candidate_run_id": "candidate",
             "label": "icon",
@@ -1915,6 +1919,8 @@ def test_dashboard_exposes_pairwise_comparison(tmp_path: Path) -> None:
     ).json()
     assert filtered["filters"] == {
         "task": "detection",
+        "benchmark_id": "multitask_val_v1",
+        "benchmark_split": "val",
         "label": "icon",
         "query": "candidate",
         "baseline_run_id": "baseline",
