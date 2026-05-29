@@ -10,7 +10,9 @@ from PIL import Image
 from shaft.config import load_config
 from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
 from shaft.model import build_model_meta
+from shaft.algorithms.rlhf_utils import build_trl_dpo_config, build_trl_grpo_config
 from shaft.pipeline import run_rlhf
+from shaft.pipeline.training_args import build_hf_training_args
 from shaft.template import build_template
 
 
@@ -284,6 +286,82 @@ def test_run_rlhf_grpo_smoke(tmp_path: Path) -> None:
     with patch("shaft.algorithms.grpo.ShaftGRPOTrainer", _FakeTrainer):
         metrics = run_rlhf(cfg)
     assert "train_loss" in metrics
+
+
+def test_dpo_trl_config_preserves_deepspeed_args(tmp_path: Path) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    cfg.train.distributed.strategy = "deepspeed"
+    cfg.train.distributed.deepspeed.config = {
+        "bf16": {"enabled": "auto"},
+        "gradient_accumulation_steps": "auto",
+        "gradient_clipping": "auto",
+        "train_micro_batch_size_per_gpu": "auto",
+        "train_batch_size": "auto",
+        "zero_optimization": {"stage": 2},
+    }
+
+    train_args = build_hf_training_args(cfg)
+    dpo_args = build_trl_dpo_config(train_args=train_args, rlhf_config=cfg.rlhf.dpo)
+
+    assert dpo_args.deepspeed == cfg.train.distributed.deepspeed.config
+    assert getattr(dpo_args, "hf_deepspeed_config", None) is not None
+
+
+def test_grpo_trl_config_preserves_fsdp_args(tmp_path: Path) -> None:
+    cfg = load_config(_write_grpo_config(tmp_path))
+    cfg.train.distributed.strategy = "fsdp"
+    cfg.train.distributed.fsdp.auto_wrap_policy = "none"
+
+    train_args = build_hf_training_args(cfg)
+    grpo_args = build_trl_grpo_config(train_args=train_args, rlhf_config=cfg.rlhf.grpo)
+
+    assert grpo_args.fsdp == ["full_shard"]
+    assert grpo_args.fsdp_config["activation_checkpointing"] is True
+
+
+def test_run_rlhf_builds_training_args_before_model_for_deepspeed(tmp_path: Path) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    cfg.train.distributed.strategy = "deepspeed"
+    cfg.train.distributed.deepspeed.config = {
+        "bf16": {"enabled": "auto"},
+        "gradient_accumulation_steps": "auto",
+        "gradient_clipping": "auto",
+        "train_micro_batch_size_per_gpu": "auto",
+        "train_batch_size": "auto",
+        "zero_optimization": {"stage": 3},
+    }
+    call_order: list[str] = []
+
+    def _fake_build_training_args(runtime_config):
+        assert runtime_config is cfg
+        call_order.append("training_args")
+        return build_hf_training_args(runtime_config)
+
+    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
+        assert runtime_config is cfg
+        assert init_from_checkpoint is None
+        call_order.append("model")
+        assert call_order == ["training_args", "model"]
+        return type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "template": build_template("smoke_vlm"),
+            },
+        )()
+
+    with patch("shaft.pipeline.rlhf.build_hf_training_args", _fake_build_training_args):
+        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor", _fake_build_model):
+            with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
+                _ = run_rlhf(cfg)
+
+    assert call_order == ["training_args", "model"]
+    assert _FakeTrainer.last_kwargs["args"].deepspeed == cfg.train.distributed.deepspeed.config
 
 
 def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:

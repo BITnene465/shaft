@@ -55,6 +55,7 @@ serve = [
 ]
 distributed = [
   "deepspeed>=0.16.0; sys_platform == 'linux'",
+  "ninja>=1.11.0; sys_platform == 'linux'",
 ]
 eval-bench = [
   "aiosqlite>=0.20.0",

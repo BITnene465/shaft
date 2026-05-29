@@ -2651,6 +2651,7 @@ dev = [
 ]
 distributed = [
     { name = "deepspeed", marker = "sys_platform == 'linux'" },
+    { name = "ninja", marker = "sys_platform == 'linux'" },
 ]
 eval-bench = [
     { name = "aiosqlite" },
@@ -2692,6 +2693,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "modelscope", specifier = ">=1.35.3" },
+    { name = "ninja", marker = "sys_platform == 'linux' and extra == 'distributed'", specifier = ">=1.11.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=2.30.0" },
     { name = "peft", specifier = ">=0.14.0" },

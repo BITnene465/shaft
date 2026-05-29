@@ -268,6 +268,99 @@ def test_deepspeed_training_arg_uses_config_path(tmp_path: Path) -> None:
     assert _build_deepspeed_arg(config) == "configs/deepspeed/zero3_bf16.json"
 
 
+def test_build_hf_training_args_supports_deepspeed_strategy(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "deepspeed"
+    config.train.distributed.deepspeed.config = {
+        "bf16": {"enabled": "auto"},
+        "gradient_accumulation_steps": "auto",
+        "gradient_clipping": "auto",
+        "train_micro_batch_size_per_gpu": "auto",
+        "train_batch_size": "auto",
+        "zero_optimization": {"stage": 2},
+    }
+
+    args = build_hf_training_args(config)
+
+    assert args.deepspeed == config.train.distributed.deepspeed.config
+    assert getattr(args, "hf_deepspeed_config", None) is not None
+    assert args.fsdp == []
+
+
+def test_build_hf_training_args_resets_deepspeed_state_for_non_deepspeed(tmp_path: Path) -> None:
+    from transformers.integrations.deepspeed import deepspeed_config
+
+    deepspeed_config_payload = {
+        "bf16": {"enabled": "auto"},
+        "gradient_accumulation_steps": "auto",
+        "gradient_clipping": "auto",
+        "train_micro_batch_size_per_gpu": "auto",
+        "train_batch_size": "auto",
+        "zero_optimization": {"stage": 2},
+    }
+    deepspeed_dir = tmp_path / "deepspeed"
+    deepspeed_dir.mkdir()
+    deepspeed_runtime = _write_config(deepspeed_dir)
+    deepspeed_runtime.train.distributed.strategy = "deepspeed"
+    deepspeed_runtime.train.distributed.deepspeed.config = deepspeed_config_payload
+    _ = build_hf_training_args(deepspeed_runtime)
+    assert deepspeed_config()["zero_optimization"]["stage"] == 2
+
+    ddp_dir = tmp_path / "ddp"
+    ddp_dir.mkdir()
+    ddp_runtime = _write_config(ddp_dir)
+    ddp_args = build_hf_training_args(ddp_runtime)
+
+    assert ddp_args.deepspeed is None
+    assert deepspeed_config() is None
+
+
+def test_run_sft_builds_training_args_before_model_for_deepspeed(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "deepspeed"
+    config.train.distributed.deepspeed.config = {
+        "bf16": {"enabled": "auto"},
+        "gradient_accumulation_steps": "auto",
+        "gradient_clipping": "auto",
+        "train_micro_batch_size_per_gpu": "auto",
+        "train_batch_size": "auto",
+        "zero_optimization": {"stage": 3},
+    }
+    call_order: list[str] = []
+    training_args = object()
+
+    def _fake_build_training_args(runtime_config):
+        assert runtime_config is config
+        call_order.append("training_args")
+        return training_args
+
+    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
+        assert runtime_config is config
+        assert init_from_checkpoint is None
+        call_order.append("model")
+        assert call_order == ["training_args", "model"]
+        return type(
+            "Artifacts",
+            (),
+            {
+                "model": _FakeModel(),
+                "tokenizer": _FakeTokenizer(),
+                "processor": _FakeProcessor(),
+                "model_meta": build_model_meta("smoke_vlm"),
+                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
+                "template": build_template("smoke_vlm"),
+            },
+        )()
+
+    with patch("shaft.pipeline.sft.build_hf_training_args", _fake_build_training_args):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor", _fake_build_model):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_sft(config)
+
+    assert call_order == ["training_args", "model"]
+    assert _FakeTrainer.last_kwargs["args"] is training_args
+
+
 def test_training_topology_rejects_single_process_data_parallel(monkeypatch, tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.train.use_cpu = False

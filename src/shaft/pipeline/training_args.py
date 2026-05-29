@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,16 @@ def _build_deepspeed_arg(config: RuntimeConfig) -> dict[str, Any] | str | None:
     )
 
 
+def _reset_deepspeed_runtime_state() -> None:
+    """Clear HF/Accelerate DeepSpeed globals when Shaft is not using DeepSpeed."""
+    os.environ.pop("ACCELERATE_USE_DEEPSPEED", None)
+    try:
+        from transformers.integrations.deepspeed import unset_hf_deepspeed_config
+    except Exception:  # pragma: no cover - defensive fallback for optional integration drift
+        return
+    unset_hf_deepspeed_config()
+
+
 def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     train_cfg = config.train
     eval_cfg = config.eval
@@ -80,6 +91,8 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     dataloader_num_workers = int(config.data.num_workers)
     fsdp, fsdp_config = _build_fsdp_args(config)
     deepspeed = _build_deepspeed_arg(config)
+    if deepspeed is None:
+        _reset_deepspeed_runtime_state()
     return TrainingArguments(
         output_dir=str(Path(config.experiment.output_dir)),
         run_name=config.experiment.run_id or config.experiment.name,

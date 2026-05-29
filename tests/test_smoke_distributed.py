@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -77,16 +77,14 @@ eval:
 
 
 def test_torchrun_train_eval_smoke(tmp_path: Path) -> None:
-    torchrun_bin = shutil.which("torchrun")
-    if not torchrun_bin:
-        pytest.skip("torchrun is not available in current environment.")
-
     cfg_path = _write_data_and_config(tmp_path)
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = ""
     env["OMP_NUM_THREADS"] = "1"
     command = [
-        torchrun_bin,
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
         "--standalone",
         "--nnodes=1",
         "--nproc_per_node=2",

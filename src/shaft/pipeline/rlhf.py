@@ -83,6 +83,7 @@ class ShaftRLHFPipeline:
 
         validate_training_state_policy(config)
         validate_training_topology(config)
+        training_args = self.build_training_args()
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
@@ -177,7 +178,7 @@ class ShaftRLHFPipeline:
             "rlhf_config": getattr(config.rlhf, algorithm_name),
             "finetune_mode": config.model.finetune.mode,
             "model": artifacts.model,
-            "args": self.build_training_args(),
+            "args": training_args,
             "train_dataset": train_dataset,
             "eval_dataset": eval_dataset if config.eval.enabled else None,
             "train_sampler": dataset_bundle.train_sampler if algorithm_name in {"dpo", "ppo"} else None,

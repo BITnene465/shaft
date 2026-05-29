@@ -67,6 +67,7 @@ class ShaftSFTPipeline:
             )
         validate_training_state_policy(config)
         validate_training_topology(config)
+        training_args = self.build_training_args()
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
@@ -166,7 +167,7 @@ class ShaftSFTPipeline:
             context=AlgorithmContext(params=dict(config.algorithm.params)),
             train_config=config.train,
             model=artifacts.model,
-            args=self.build_training_args(),
+            args=training_args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
             train_sampler=dataset_bundle.train_sampler,
