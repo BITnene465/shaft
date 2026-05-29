@@ -36,6 +36,12 @@
 - `HFLocalInferAdapter`
 - `VLLMOpenAIInferAdapter`
 
+### 2.4 大模型本地加载
+
+`InferEngineConfig.device_map` 会透传到 HF `from_pretrained`。当设置为 `auto` 或显式
+device map 时，`HFLocalInferAdapter` 不再把模型整体 `.to(device)` 到单卡，而是按 HF
+已经生成的 `hf_device_map` 保留分片加载结果，并把输入张量移动到首个模型设备。
+
 ## 3. 执行模型
 
 ### 3.1 单阶段

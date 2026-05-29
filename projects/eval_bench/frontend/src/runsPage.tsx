@@ -29,7 +29,7 @@ import {
   formatDate,
   inferenceValue,
   isTextInputTarget,
-  pixelBudgetValue,
+  requestPixelBudgetValue,
   samplingValue,
   stringValue
 } from "./formatters";
@@ -855,7 +855,7 @@ function RunConfigPanel({ run, defaultOpen = false }: { run: RunSummary; default
           <ConfigItem label="并发序列" value={inferenceValue(run.inference, "max_num_seqs")} />
           <ConfigItem label="显存占比" value={inferenceValue(run.inference, "gpu_memory_utilization")} />
           <ConfigItem label="批大小" value={inferenceValue(run.inference, "batch_size")} />
-          <ConfigItem label="像素预算" value={pixelBudgetValue(run.inference)} />
+          <ConfigItem label="请求前像素预算" value={requestPixelBudgetValue(run.inference)} />
           <ConfigItem label="采样" value={samplingValue(run.inference)} />
         </ConfigBlock>
         <ConfigBlock title="评测">

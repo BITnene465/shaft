@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from eval_bench import runtime_resources
 from eval_bench import services as services_module
 from eval_bench.services import EvalBenchServiceManager, build_vllm_command
 
@@ -23,7 +24,15 @@ def test_service_manager_registers_local_vllm_and_builds_command(tmp_path: Path)
             "max_model_len": 65536,
             "gpu_memory_utilization": 0.9,
             "max_num_seqs": 16,
-            "extra_args": ["--trust-remote-code"],
+            "trust_remote_code": True,
+            "generation_config": "vllm",
+            "dtype": "bfloat16",
+            "kv_cache_dtype": "auto",
+            "load_format": "auto",
+            "enforce_eager": True,
+            "disable_custom_all_reduce": True,
+            "max_num_batched_tokens": 8192,
+            "limit_mm_per_prompt": {"image": 1},
         }
     )
 
@@ -39,6 +48,19 @@ def test_service_manager_registers_local_vllm_and_builds_command(tmp_path: Path)
     assert "--max-model-len" in command
     assert "65536" in command
     assert "--trust-remote-code" in command
+    assert "--generation-config" in command
+    assert "vllm" in command
+    assert "--dtype" in command
+    assert "bfloat16" in command
+    assert "--kv-cache-dtype" in command
+    assert "auto" in command
+    assert "--load-format" in command
+    assert "--enforce-eager" in command
+    assert "--disable-custom-all-reduce" in command
+    assert "--max-num-batched-tokens" in command
+    assert "8192" in command
+    assert "--limit-mm-per-prompt" in command
+    assert '{"image": 1}' in command
 
 
 def test_service_manager_rejects_incomplete_service_configs(tmp_path: Path) -> None:
@@ -49,6 +71,63 @@ def test_service_manager_rejects_incomplete_service_configs(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="endpoint"):
         manager.register_service({"kind": "external_vllm", "service_id": "external"})
+
+
+def test_service_manager_auto_places_local_vllm_on_detected_gpus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_resources,
+        "detect_cuda_devices",
+        lambda: [runtime_resources.GpuInfo(str(index)) for index in range(8)],
+    )
+    manager = EvalBenchServiceManager(tmp_path)
+
+    record = manager.register_service(
+        {
+            "kind": "local_vllm",
+            "service_id": "local-vllm-32b",
+            "model_path": "outputs/model/32b",
+            "port": 8000,
+        }
+    )
+
+    command = build_vllm_command(record)
+    assert record.config["cuda_visible_devices"] == "0,1,2,3,4,5,6,7"
+    assert record.config["tensor_parallel_size"] == 8
+    assert "--tensor-parallel-size" in command
+    assert "8" in command
+
+
+def test_service_manager_rejects_unknown_service_config_keys(tmp_path: Path) -> None:
+    manager = EvalBenchServiceManager(tmp_path)
+
+    with pytest.raises(ValueError, match="unsupported service config key"):
+        manager.register_service(
+            {
+                "kind": "local_vllm",
+                "service_id": "local-vllm-0",
+                "model_path": "outputs/model/best",
+                "port": 8000,
+                "extra_args": ["--disable-log-requests"],
+            }
+        )
+
+
+def test_service_manager_rejects_top_level_pixel_budget_service_config(tmp_path: Path) -> None:
+    manager = EvalBenchServiceManager(tmp_path)
+
+    with pytest.raises(ValueError, match="pixel budget belongs to eval.data"):
+        manager.register_service(
+            {
+                "kind": "local_vllm",
+                "service_id": "local-vllm-0",
+                "model_path": "outputs/model/best",
+                "port": 8000,
+                "max_pixels": 1_000_000,
+            }
+        )
 
 
 def test_service_manager_exposes_launch_command_without_starting_process(tmp_path: Path) -> None:

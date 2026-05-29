@@ -353,9 +353,10 @@ assert(
   "eval identity must be run_id-first in both jobs queue and result library tables",
 );
 assert(
-  runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
+    runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
     runTables.includes('className="run-id-link"') &&
-    rankBoardPage.includes('meta: { width: "id", wrap: "wrap" }') &&
+    rankBoardPage.includes('width: "id"') &&
+    rankBoardPage.includes('wrap: "wrap"') &&
     rankBoardPage.includes('className="run-id-link"') &&
     jobsPage.includes('identity: tableColumnClassName({ width: "id", wrap: "wrap" })') &&
     jobsPage.includes('className="run-id-text"') &&
@@ -1019,7 +1020,6 @@ const compareMiniLinkSource = await readSource("src/comparePage.tsx");
 const comparisonSampleMiniLinkSource = await readSource("src/comparisonSamplePage.tsx");
 assert(
   runTables.includes("InlineNavLink") &&
-    rankBoardMiniLinkSource.includes("InlineNavLink") &&
     jobsMiniLinkSource.includes("InlineNavLink") &&
     compareMiniLinkSource.includes("InlineNavLink") &&
     !/<Link[^>]+className="mini-link/.test(runTables) &&
@@ -1209,7 +1209,8 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  rankBoardPage.includes("updatePagedFilterValue(sortBy, value, setSortBy, setPageOffset)") &&
+  rankBoardPage.includes("const handleSortChange = (value: string) => {") &&
+    rankBoardPage.includes("setPageOffset(0);") &&
     rankBoardPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     !rankBoardPage.includes("function updateRankFilter(") &&
     !rankBoardPage.includes("useEffect(() => {\n    setPageOffset(0);"),
@@ -1262,40 +1263,44 @@ assert(
   "expanded rank board facets must wrap inside a bounded scroll pane instead of stretching the page",
 );
 assert(
-  rankBoardPage.includes("primaryMetricLabel") &&
-    rankBoardPage.includes("const RANK_SECONDARY_METRIC_COLUMNS") &&
-    rankBoardPage.includes(".filter((metric) => metric.id !== primaryMetric)") &&
-    rankBoardPage.includes('id: "primary_metric"') &&
+  rankBoardPage.includes("function SortableHeader(") &&
+    rankBoardPage.includes("const RANK_METRIC_COLUMNS") &&
+    rankBoardPage.includes('id: `metric_${metric.id}`') &&
+    rankBoardPage.includes('id: "created_at"') &&
+    rankBoardPage.includes('header: () => auxiliaryHeader("Run", "run_id")') &&
+    rankBoardPage.includes('header: () => auxiliaryHeader("创建时间", "created_at")') &&
+    rankBoardPage.includes("defaultRankSortOrder(value)") &&
+    rankBoardPage.includes("toggleSortOrder(sortOrder)") &&
+    rankBoardPage.includes("rank-sort-active-cell") &&
     rankBoardPage.includes('id: "leader_delta"') &&
-    rankBoardPage.includes('className="rank-primary-score"') &&
+    rankBoardPage.includes('"rank-primary-score"') &&
     rankBoardPage.includes("formatScoreDelta(row.original.score_delta)") &&
     rankBoardPage.includes("function rankDeltaClassName") &&
     !rankBoardPage.includes('header: "Weighted"') &&
     !rankBoardPage.includes(removedCompositeComponentsToken) &&
     !rankBoardPage.includes(removedCompositeApiToken),
-  "rank board table must render one stable active primary metric column without duplicating secondary metric columns",
+  "rank board table must expose metric and auxiliary sorting through stable sortable headers",
 );
 assert(
-  rankBoardPage.includes("function RankDecisionPanel(") &&
-    rankBoardPage.includes('className="rank-decision-panel rank-leaderboard-toolbar"') &&
+  rankBoardPage.includes("function RankBoardStatusBar(") &&
+    rankBoardPage.includes('className="rank-board-statusbar"') &&
     rankBoardPage.includes("workspace-card fill rank-board-table-card") &&
     rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
     rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
-    rankBoardPage.includes("const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];") &&
-    rankBoardPage.includes("CompactSelectControl") &&
-    rankBoardPage.includes('className="rank-sort-section primary"') &&
-    rankBoardPage.includes('className="rank-sort-section auxiliary"') &&
-    rankBoardPage.includes('label="主指标"') &&
-    rankBoardPage.includes("options={primaryMetricOptions}") &&
-    rankBoardPage.includes('aria-label="排行榜辅助排序字段"') &&
+    !rankBoardPage.includes("CompactSelectControl") &&
+    !rankBoardPage.includes('className="rank-sort-section primary"') &&
+    !rankBoardPage.includes('className="rank-sort-section auxiliary"') &&
     !rankBoardPage.includes('className="rank-sort-chip primary"') &&
-    rankBoardPage.includes('className="rank-sort-chip auxiliary"') &&
+    !rankBoardPage.includes('className="rank-sort-chip auxiliary"') &&
+    !rankBoardPage.includes('className="rank-order-chip"') &&
+    !rankBoardPage.includes("rankBoardOrderLabel") &&
+    !rankBoardPage.includes("best={") &&
     !rankBoardPage.includes('className="rank-top-panel"') &&
     !rankBoardPage.includes('className="rank-spread-panel"') &&
     !rankBoardPage.includes("rank-metric-strip") &&
     !rankBoardPage.includes('id: "rank-sort-by"') &&
     !rankBoardPage.includes('id: "rank-sort-order"'),
-  "rank board primary metric controls must stay in a compact leaderboard toolbar above the table",
+  "rank board sorting must live in table headers without separate dropdown or button controls",
 );
 assert(
   !rankBoardPage.includes(removedCompositePanelToken) &&

@@ -37,6 +37,7 @@ export type TableColumnMeta = {
   width?: TableColumnWidth;
   wrap?: TableColumnWrap;
   align?: TableColumnAlign;
+  className?: string;
 };
 
 declare module "@tanstack/react-table" {
@@ -63,7 +64,8 @@ export function tableColumnClassName(
     "data-table-cell",
     meta?.width ? `table-col-${meta.width}` : "table-col-text",
     meta?.wrap ? `table-wrap-${meta.wrap}` : "table-wrap-truncate",
-    meta?.align ? `table-align-${meta.align}` : "table-align-start"
+    meta?.align ? `table-align-${meta.align}` : "table-align-start",
+    meta?.className
   );
 }
 

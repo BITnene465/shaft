@@ -4,8 +4,12 @@ const baseUrl = (process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/").replace
 const expectedConsoleErrors = new WeakMap();
 
 const viewports = [
+  { name: "wide", width: 1920, height: 1080 },
   { name: "desktop", width: 1440, height: 960 },
+  { name: "laptop", width: 1280, height: 720 },
   { name: "compact", width: 1024, height: 760 },
+  { name: "short", width: 900, height: 600 },
+  { name: "landscape", width: 900, height: 430 },
   { name: "narrow", width: 760, height: 860 }
 ];
 
@@ -31,10 +35,9 @@ const staticRoutes = [
     path: "/rank-board",
     selectors: [
       ".rank-board-page",
-      ".rank-decision-panel",
-      ".rank-leaderboard-toolbar",
+      ".rank-board-statusbar",
       ".rank-board-table-card",
-      ".rank-sort-chip",
+      ".rank-sort-header",
       ".advanced-filter-bar",
       ".rank-board-table-card"
     ],
@@ -135,7 +138,7 @@ try {
       }
       if (route.requireRankChunk) {
         await assertRankBoardChunkLoaded(page, `${viewport.name}:${route.name}`);
-        await assertRankDecisionPanel(page, `${viewport.name}:${route.name}`);
+        await assertRankHeaderSorting(page, `${viewport.name}:${route.name}`);
         await assertRankFacetRail(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireBenchmarksChunk) {
@@ -546,7 +549,12 @@ async function assertOverviewDensity(page, scope) {
   if (overviewState.legacyPanels > 0) {
     throw new Error(`${scope}: deprecated overview panels are still rendered`);
   }
-  if (!scope.startsWith("narrow") && overviewState.gridColumns < 2) {
+  if (
+    !scope.startsWith("narrow") &&
+    !scope.startsWith("short") &&
+    !scope.startsWith("landscape") &&
+    overviewState.gridColumns < 2
+  ) {
     throw new Error(`${scope}: overview should use two or three columns on wide screens`);
   }
   if (
@@ -559,10 +567,15 @@ async function assertOverviewDensity(page, scope) {
   ) {
     throw new Error(`${scope}: overview panels collapsed ${JSON.stringify(overviewState)}`);
   }
-  if (!scope.startsWith("narrow") && overviewState.primary.width <= overviewState.queue.width) {
+  if (
+    !scope.startsWith("narrow") &&
+    !scope.startsWith("short") &&
+    !scope.startsWith("landscape") &&
+    overviewState.primary.width <= overviewState.queue.width
+  ) {
     throw new Error(`${scope}: primary overview module should occupy the larger column span`);
   }
-  if (overviewState.runRows.some((row) => row.height > 76)) {
+  if (overviewState.runRows.some((row) => row.height > 84)) {
     throw new Error(
       `${scope}: recent run rows are stretched ${overviewState.runRows.map((row) => row.height).join(",")}`
     );
@@ -903,7 +916,7 @@ async function assertJobsRecentRuns(page, scope) {
     throw new Error(`${scope}: jobs recent results should not render fine metric blocks`);
   }
   for (const [index, card] of state.cards.entries()) {
-    if (card.height > 112) {
+    if (card.height > 132) {
       throw new Error(`${scope}: jobs recent result card ${index} is too tall ${card.height}`);
     }
     if (/\b(P@|R@|precision|recall|iou|miou)\b/i.test(card.text)) {
@@ -1947,75 +1960,76 @@ async function assertRankFacetExpansion(page, scope) {
   await toggle.click();
 }
 
-async function assertRankDecisionPanel(page, scope) {
+async function assertRankHeaderSorting(page, scope) {
   const state = await page.evaluate(() => {
-    const panel = document.querySelector(".rank-decision-panel");
-    const toolbar = document.querySelector(".rank-leaderboard-toolbar");
+    const statusbar = document.querySelector(".rank-board-statusbar");
     const tableCard = document.querySelector(".rank-board-table-card");
+    const sortHeaders = Array.from(document.querySelectorAll(".rank-sort-header"));
+    const activeSortHeaders = sortHeaders.filter((header) => header.classList.contains("active"));
+    const headerLabels = sortHeaders.map((header) => header.textContent ?? "");
+    const activeCells = Array.from(document.querySelectorAll(".rank-sort-active-cell"));
     const primarySelect = document.querySelector(".rank-sort-section.primary select");
-    const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip"));
-    const primarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.primary"));
-    const auxiliarySortChips = Array.from(document.querySelectorAll(".rank-sort-chip.auxiliary"));
-    const sortSections = Array.from(document.querySelectorAll(".rank-sort-section")).map(
-      (node) => node.textContent ?? ""
-    );
-    const orderChips = Array.from(document.querySelectorAll(".rank-order-chip"));
-    const activeSortChips = sortChips.filter((chip) => chip.classList.contains("active"));
+    const sortChips = Array.from(document.querySelectorAll(".rank-sort-chip, .rank-order-chip"));
+    const leading = document.querySelector(".rank-board-leading");
     const topPanel = document.querySelector(".rank-top-panel");
     const spreadPanel = document.querySelector(".rank-spread-panel");
     const metricStrip = document.querySelector(".rank-metric-strip");
     const advancedSortControls = Array.from(document.querySelectorAll(".advanced-filter-bar [id]"))
       .map((node) => node.id)
       .filter((id) => id.includes("rank-sort"));
-    const panelRect = panel?.getBoundingClientRect();
+    const statusbarRect = statusbar?.getBoundingClientRect();
     const tableRect = tableCard?.getBoundingClientRect();
     return {
-      hasPanel: Boolean(panel),
-      hasToolbar: Boolean(toolbar),
+      hasStatusbar: Boolean(statusbar),
       hasTableCard: Boolean(tableCard),
       hasPrimarySelect: Boolean(primarySelect),
-      primarySelectOptions: primarySelect
-        ? Array.from(primarySelect.querySelectorAll("option")).map((option) => option.value)
-        : [],
+      sortHeaderCount: sortHeaders.length,
+      activeSortHeaderCount: activeSortHeaders.length,
+      headerLabels,
+      activeCellCount: activeCells.length,
       sortChipCount: sortChips.length,
-      primarySortChipCount: primarySortChips.length,
-      auxiliarySortChipCount: auxiliarySortChips.length,
-      sortSections,
-      orderChipCount: orderChips.length,
-      activeSortChipCount: activeSortChips.length,
+      hasLeading: Boolean(leading),
       hasTopPanel: Boolean(topPanel),
       hasSpreadPanel: Boolean(spreadPanel),
       hasMetricStrip: Boolean(metricStrip),
       advancedSortControls,
-      panelHeight: panelRect ? Math.round(panelRect.height) : 0,
-      tableStartsAfterPanel: Boolean(panelRect && tableRect && tableRect.top > panelRect.bottom)
+      statusbarHeight: statusbarRect ? Math.round(statusbarRect.height) : 0,
+      tableStartsAfterStatusbar: Boolean(
+        statusbarRect && tableRect && tableRect.top > statusbarRect.bottom
+      )
     };
   });
   if (
-    !state.hasPanel ||
-    !state.hasToolbar ||
+    !state.hasStatusbar ||
     !state.hasTableCard ||
-    !state.hasPrimarySelect ||
-    state.primarySelectOptions.length !== 5 ||
-    state.sortChipCount !== 2 ||
-    state.primarySortChipCount !== 0 ||
-    state.auxiliarySortChipCount !== 2 ||
-    !state.sortSections.some((text) => text.includes("主指标")) ||
-    !state.sortSections.some((text) => text.includes("排序")) ||
-    state.orderChipCount !== 2 ||
-    state.activeSortChipCount !== 0 ||
+    state.hasPrimarySelect ||
+    state.sortHeaderCount < 7 ||
+    state.activeSortHeaderCount !== 1 ||
+    !state.headerLabels.some((text) => text.includes("F1@.50")) ||
+    !state.headerLabels.some((text) => text.includes("P@.50")) ||
+    !state.headerLabels.some((text) => text.includes("R@.50")) ||
+    !state.headerLabels.some((text) => text.includes("mIoU")) ||
+    !state.headerLabels.some((text) => text.includes("预测数")) ||
+    !state.headerLabels.some((text) => text.includes("Run")) ||
+    !state.headerLabels.some((text) => text.includes("创建时间")) ||
+    state.activeCellCount === 0 ||
+    state.sortChipCount !== 0 ||
+    state.hasLeading ||
     state.hasTopPanel ||
     state.hasSpreadPanel ||
     state.hasMetricStrip ||
-    state.panelHeight > 180 ||
-    !state.tableStartsAfterPanel ||
+    state.statusbarHeight > 90 ||
+    !state.tableStartsAfterStatusbar ||
     state.advancedSortControls.length > 0
   ) {
-    throw new Error(`${scope}: rank decision panel contract failed ${JSON.stringify(state)}`);
+    throw new Error(`${scope}: rank header sorting contract failed ${JSON.stringify(state)}`);
   }
-  await page.locator(".rank-sort-section.primary select").selectOption("mean_iou");
+  await page.keyboard.press("Escape");
+  await page.locator(".rank-sort-header", { hasText: "mIoU" }).click();
   await page.locator(".rank-primary-score").first().waitFor({ timeout: 10_000 });
   await page.locator(".rank-board-table-card").first().waitFor({ timeout: 10_000 });
+  await page.locator(".rank-sort-header", { hasText: "Run" }).click();
+  await page.locator(".rank-sort-header", { hasText: "F1@.50" }).click();
 }
 
 async function assertComparePageChunkLoaded(page, scope) {

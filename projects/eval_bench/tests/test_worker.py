@@ -47,6 +47,12 @@ def _eval_job_payload(
     max_model_len: int | None = None,
     gpu_memory_utilization: float | None = None,
     max_num_seqs: int | None = None,
+    trust_remote_code: bool | None = None,
+    generation_config: str | None = None,
+    dtype: str | None = None,
+    kv_cache_dtype: str | None = None,
+    load_format: str | None = None,
+    max_num_batched_tokens: int | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -63,6 +69,12 @@ def _eval_job_payload(
         "max-model-len": max_model_len,
         "gpu-memory-utilization": gpu_memory_utilization,
         "max-num-seqs": max_num_seqs,
+        "trust-remote-code": trust_remote_code,
+        "generation-config": generation_config,
+        "dtype": dtype,
+        "kv-cache-dtype": kv_cache_dtype,
+        "load-format": load_format,
+        "max-num-batched-tokens": max_num_batched_tokens,
     }
     payload = {
         "manifest": {
@@ -251,6 +263,17 @@ def test_vllm_memory_profiling_failure_is_detected_from_runtime_log(tmp_path: Pa
     assert not _is_vllm_memory_profiling_failure(tmp_path / "missing.log")
 
 
+def test_vllm_low_free_memory_startup_failure_is_retryable(tmp_path: Path) -> None:
+    log_path = tmp_path / "runtime.log"
+    log_path.write_text(
+        "ValueError: Free memory on device cuda:1 (14.70/79.33 GiB) on startup "
+        "is less than desired GPU memory utilization (0.8, 63.46 GiB).",
+        encoding="utf-8",
+    )
+
+    assert _is_vllm_memory_profiling_failure(log_path)
+
+
 def test_gpu_memory_window_stability_uses_per_device_delta() -> None:
     assert _gpu_memory_window_is_stable(
         [(74_000, 73_900), (74_050, 73_950), (74_100, 74_000)],
@@ -414,6 +437,12 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
             max_model_len=65536,
             gpu_memory_utilization=0.82,
             max_num_seqs=16,
+            trust_remote_code=True,
+            generation_config="vllm",
+            dtype="bfloat16",
+            kv_cache_dtype="auto",
+            load_format="auto",
+            max_num_batched_tokens=8192,
             max_tokens=4096,
             temperature=0.1,
             top_p=0.9,
@@ -442,6 +471,12 @@ def test_worker_prepares_run_manifest_from_queued_job(tmp_path: Path) -> None:
     assert run_payload["spec"]["inference"]["max_model_len"] == 65536
     assert run_payload["spec"]["inference"]["gpu_memory_utilization"] == 0.82
     assert run_payload["spec"]["inference"]["max_num_seqs"] == 16
+    assert run_payload["spec"]["inference"]["trust_remote_code"] is True
+    assert run_payload["spec"]["inference"]["generation_config"] == "vllm"
+    assert run_payload["spec"]["inference"]["dtype"] == "bfloat16"
+    assert run_payload["spec"]["inference"]["kv_cache_dtype"] == "auto"
+    assert run_payload["spec"]["inference"]["load_format"] == "auto"
+    assert run_payload["spec"]["inference"]["max_num_batched_tokens"] == 8192
     assert run_payload["spec"]["inference"]["temperature"] == 0.1
     assert run_payload["spec"]["inference"]["top_p"] == 0.9
     assert run_payload["spec"]["inference"]["max_pixels"] == 1048576

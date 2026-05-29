@@ -6,6 +6,7 @@ import time
 
 from eval_bench.database import EvalBenchDatabase
 from eval_bench.orchestrator import EvalBenchOrchestrator, SchedulerConfig
+from eval_bench import runtime_resources
 from eval_bench.worker import EvalBenchWorker
 
 
@@ -151,6 +152,41 @@ def test_orchestrator_blocks_invalid_tensor_parallel_request(tmp_path: Path) -> 
     assert "tensor_parallel_size=2" in blocked.metadata["scheduler_blocked_reason"]
 
 
+def test_orchestrator_reserves_detected_gpus_for_unpinned_ephemeral_jobs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_resources,
+        "detect_cuda_devices",
+        lambda: [runtime_resources.GpuInfo(str(index)) for index in range(4)],
+    )
+    database = EvalBenchDatabase(tmp_path)
+    running = database.create_job(
+        kind="eval",
+        payload={"runtime_mode": "ephemeral"},
+        status="running",
+        metadata={"runtime_pid": os.getpid()},
+    )
+    blocked = database.create_job(
+        kind="eval",
+        payload={"runtime_mode": "ephemeral", "tensor_parallel_size": 2},
+    )
+    orchestrator = EvalBenchOrchestrator(
+        tmp_path,
+        config=SchedulerConfig(max_concurrent_jobs=2, interval_s=0.01),
+    )
+    monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
+
+    launched = orchestrator.schedule_once()
+
+    assert launched == []
+    assert database.get_job(running.job_id).status == "running"
+    blocked_after = database.get_job(blocked.job_id)
+    assert blocked_after.status == "queued"
+    assert "CUDA devices already reserved" in blocked_after.metadata["scheduler_blocked_reason"]
+
+
 def test_orchestrator_reserves_ephemeral_runtime_ports(
     tmp_path: Path,
     monkeypatch,
@@ -158,17 +194,17 @@ def test_orchestrator_reserves_ephemeral_runtime_ports(
     database = EvalBenchDatabase(tmp_path)
     database.create_job(
         kind="eval",
-        payload={"runtime_mode": "ephemeral", "port": 8000},
+        payload={"runtime_mode": "ephemeral", "port": 8000, "cuda_visible_devices": "0"},
         status="running",
         metadata={"runtime_pid": os.getpid()},
     )
     blocked = database.create_job(
         kind="eval",
-        payload={"runtime_mode": "ephemeral", "port": 8000},
+        payload={"runtime_mode": "ephemeral", "port": 8000, "cuda_visible_devices": "1"},
     )
     schedulable = database.create_job(
         kind="eval",
-        payload={"runtime_mode": "ephemeral", "port": 8001},
+        payload={"runtime_mode": "ephemeral", "port": 8001, "cuda_visible_devices": "2"},
     )
     monkeypatch.setattr(EvalBenchOrchestrator, "_run_job", lambda self, job_id: None)
     orchestrator = EvalBenchOrchestrator(

@@ -86,6 +86,8 @@ class Qwen3VLLoader(ModelLoader):
             "trust_remote_code": bool(config.model.trust_remote_code),
             "dtype": resolved_dtype,
         }
+        if config.model.device_map not in (None, ""):
+            common_kwargs["device_map"] = config.model.device_map
         attn_implementation = _resolve_attn_implementation(config.model.attn_implementation)
         if attn_implementation:
             common_kwargs["attn_implementation"] = attn_implementation

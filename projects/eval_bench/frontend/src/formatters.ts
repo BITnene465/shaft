@@ -166,7 +166,7 @@ export function serviceEndpointValue(service: ServiceSummary) {
   return port === "-" ? "-" : `http://${host === "-" ? "127.0.0.1" : host}:${port}`;
 }
 
-export function pixelBudgetValue(inference: Record<string, unknown>) {
+export function requestPixelBudgetValue(inference: Record<string, unknown>) {
   const minPixels = inferenceValue(inference, "min_pixels");
   const maxPixels = inferenceValue(inference, "max_pixels");
   if (minPixels === "-" && maxPixels === "-") {

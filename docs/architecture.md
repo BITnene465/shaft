@@ -254,7 +254,7 @@ sequenceDiagram
   - Evaluation Semantics Layer：prompt template、target label policy、metric profile、parser/profile 选择。
   - Artifact and Store Layer：benchmark copy、run manifest、prediction snapshot、report、comparison 和 trash。
   - Rendering and Asset Layer：image proxy、preview/tile、viewer geometry、overlay color/style。
-- Eval Bench 使用 `eval_bench_store/db/eval_bench.sqlite` 记录持久化 job；第一版正式支持 manifest-driven `eval_job`。Job manifest 由 `runtime` 和 `eval` 两块组成，前端只提供模板初始值，用户可以自由增加、删除或修改字段；提交前后端 preflight 会检查 benchmark/model/task/prompt，展示 vLLM 命令，并把未知 `runtime.args` 作为 CLI flags 保留。
+- Eval Bench 使用 `eval_bench_store/db/eval_bench.sqlite` 记录持久化 job；第一版正式支持 manifest-driven `eval_job`。Job manifest 由 `runtime` 和 `eval` 两块组成，前端只提供模板初始值，用户可以修改白名单字段；提交前后端 preflight 会检查 benchmark/model/task/prompt，解析 vLLM runtime placement，展示 vLLM 命令。`runtime.args` 不做未知参数透传，新增 vLLM 启动参数必须先进入 schema、payload 和命令生成逻辑。
 - `runtime.mode=ephemeral` 表示 job 自己启动一个短生命周期 vLLM OpenAI server，等待 ready 后执行 eval，结束或失败后关闭该进程，日志写入 `runs/<run_id>/logs/runtime.log`。`runtime.mode=existing_service` 表示 job 连接已有 endpoint，不负责启停服务。
 - Eval Bench 使用同一 SQLite store 管理长期 model service registry。Services 页可以登记外部 vLLM endpoint，也可以登记本地 vLLM OpenAI server 的 CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数；本地服务通过当前 `.venv` 的 Python 以 `python -m vllm.entrypoints.openai.api_server` 启动，日志写入 `eval_bench_store/services/<service_id>/service.log`，并提供 Start/Stop API。长期 vLLM 属于 Service，一次性 vLLM 属于 Job runtime，生命周期不能混用。
 - Eval job 的用户可读评测身份是 `run_id`；`job_id` 只表示一次队列执行。评测中心和结果库都必须优先展示

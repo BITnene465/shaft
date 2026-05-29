@@ -195,6 +195,7 @@ PROMPT_GENERATION_OUTPUT_SCHEMA = {
         "max_tokens": "int",
         "temperature": "float",
         "top_p": "float",
+        "top_k": "int|null",
     },
 }
 PROMPT_DATA_OUTPUT_SCHEMA = {
@@ -222,8 +223,8 @@ JOB_RUNTIME_ARGS_OUTPUT_SCHEMA = {
         "served_model_name": "str|null",
         "host": "str",
         "port": "int|null",
-        "tensor-parallel-size": "int|null",
-        "tensor_parallel_size": "int|null",
+        "tensor-parallel-size": "int|'auto'|null",
+        "tensor_parallel_size": "int|'auto'|null",
         "max-model-len": "int|null",
         "max_model_len": "int|null",
         "gpu-memory-utilization": "float|null",
@@ -232,6 +233,22 @@ JOB_RUNTIME_ARGS_OUTPUT_SCHEMA = {
         "max_num_seqs": "int|null",
         "trust-remote-code": "bool",
         "trust_remote_code": "bool",
+        "generation-config": "str|null",
+        "generation_config": "str|null",
+        "dtype": "str|null",
+        "kv-cache-dtype": "str|null",
+        "kv_cache_dtype": "str|null",
+        "quantization": "str|null",
+        "load-format": "str|null",
+        "load_format": "str|null",
+        "enforce-eager": "bool|null",
+        "enforce_eager": "bool|null",
+        "disable-custom-all-reduce": "bool|null",
+        "disable_custom_all_reduce": "bool|null",
+        "max-num-batched-tokens": "int|null",
+        "max_num_batched_tokens": "int|null",
+        "limit-mm-per-prompt": "object|str|null",
+        "limit_mm_per_prompt": "object|str|null",
     },
 }
 JOB_RUNTIME_MANIFEST_OUTPUT_SCHEMA = {
@@ -245,7 +262,6 @@ JOB_RUNTIME_MANIFEST_OUTPUT_SCHEMA = {
         "port": "int|null",
         "served_model_name": "str|null",
         "served-model-name": "str|null",
-        "extra_args": "list[str]",
         "env": JOB_RUNTIME_ENV_OUTPUT_SCHEMA,
         "args": JOB_RUNTIME_ARGS_OUTPUT_SCHEMA,
     },
@@ -332,7 +348,19 @@ JOB_PAYLOAD_OUTPUT_SCHEMA = {
         "port": "int",
         "cuda_visible_devices": "str|null",
         "tensor_parallel_size": "int",
-        "extra_args": "list[str]",
+        "max_model_len": "int|null",
+        "gpu_memory_utilization": "float|null",
+        "max_num_seqs": "int|null",
+        "trust_remote_code": "bool|null",
+        "generation_config": "str|null",
+        "dtype": "str|null",
+        "kv_cache_dtype": "str|null",
+        "quantization": "str|null",
+        "load_format": "str|null",
+        "enforce_eager": "bool|null",
+        "disable_custom_all_reduce": "bool|null",
+        "max_num_batched_tokens": "int|null",
+        "limit_mm_per_prompt": "object|str|null",
         "max_tokens": "int",
         "temperature": "float",
         "top_p": "float",
@@ -378,7 +406,16 @@ SERVICE_CONFIG_OUTPUT_SCHEMA = {
         "max_model_len": "int|null",
         "gpu_memory_utilization": "float|null",
         "max_num_seqs": "int|null",
-        "extra_args": "list[str]",
+        "trust_remote_code": "bool|null",
+        "generation_config": "str|null",
+        "dtype": "str|null",
+        "kv_cache_dtype": "str|null",
+        "quantization": "str|null",
+        "load_format": "str|null",
+        "enforce_eager": "bool|null",
+        "disable_custom_all_reduce": "bool|null",
+        "max_num_batched_tokens": "int|null",
+        "limit_mm_per_prompt": "object|str|null",
     },
 }
 SERVICE_HEALTH_OUTPUT_SCHEMA = {
@@ -645,10 +682,10 @@ PREFLIGHT_JOB_OUTPUT_SHAPE = {
             "port": "int",
             "cuda_visible_devices": "str|null",
             "tensor_parallel_size": "int",
-            "extra_args": "list[str]",
             "max_tokens": "int",
             "temperature": "float",
             "top_p": "float",
+            "top_k": "int|null",
             "min_pixels": "int|null",
             "max_pixels": "int|null",
             "batch_size": "int",
@@ -1861,11 +1898,20 @@ def _build_parser() -> argparse.ArgumentParser:
     register_service.add_argument("--host", default="127.0.0.1")
     register_service.add_argument("--port", type=int, default=None)
     register_service.add_argument("--cuda-visible-devices", default=None)
-    register_service.add_argument("--tensor-parallel-size", type=int, default=None)
+    register_service.add_argument("--tensor-parallel-size", default=None)
     register_service.add_argument("--max-model-len", type=int, default=None)
     register_service.add_argument("--gpu-memory-utilization", type=float, default=None)
     register_service.add_argument("--max-num-seqs", type=int, default=None)
-    register_service.add_argument("--extra-arg", action="append", default=[])
+    register_service.add_argument("--trust-remote-code", action="store_true")
+    register_service.add_argument("--generation-config", default=None)
+    register_service.add_argument("--dtype", default=None)
+    register_service.add_argument("--kv-cache-dtype", default=None)
+    register_service.add_argument("--quantization", default=None)
+    register_service.add_argument("--load-format", default=None)
+    register_service.add_argument("--enforce-eager", action="store_true")
+    register_service.add_argument("--disable-custom-all-reduce", action="store_true")
+    register_service.add_argument("--max-num-batched-tokens", type=int, default=None)
+    register_service.add_argument("--limit-mm-per-prompt", default=None)
 
     list_services = subparsers.add_parser("list-services", help="List model services.")
     list_services.add_argument("--output-root", default=str(DEFAULT_STORE_ROOT))
@@ -2802,7 +2848,16 @@ def _cmd_register_service(args: argparse.Namespace) -> None:
             "max_model_len": args.max_model_len,
             "gpu_memory_utilization": args.gpu_memory_utilization,
             "max_num_seqs": args.max_num_seqs,
-            "extra_args": args.extra_arg,
+            "trust_remote_code": args.trust_remote_code,
+            "generation_config": args.generation_config,
+            "dtype": args.dtype,
+            "kv_cache_dtype": args.kv_cache_dtype,
+            "quantization": args.quantization,
+            "load_format": args.load_format,
+            "enforce_eager": args.enforce_eager,
+            "disable_custom_all_reduce": args.disable_custom_all_reduce,
+            "max_num_batched_tokens": args.max_num_batched_tokens,
+            "limit_mm_per_prompt": args.limit_mm_per_prompt,
         }
     )
     print(json.dumps(record.to_dict(), ensure_ascii=False))

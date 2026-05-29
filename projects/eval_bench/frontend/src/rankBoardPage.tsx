@@ -2,26 +2,16 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { FileText, FileX } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, FileText, FileX } from "lucide-react";
 
 import type { RankBoard, RankBoardEntry } from "./api";
 import { fetchRankBoard } from "./api";
 import { useDashboardState } from "./dashboardState";
-import { CompactSelectControl } from "./controlPrimitives";
 import { AdvancedFilterBar } from "./filterControls";
-import { errorMessage, f1Score, facetValues, formatMetric } from "./formatters";
+import { errorMessage, f1Score, facetValues, formatDate, formatMetric } from "./formatters";
 import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
-import { Badge, DataTable, EmptyState, InlineNavLink, OptionChipButton } from "./ui";
+import { ActionButton, Badge, DataTable, EmptyState, OptionChipButton } from "./ui";
 
-const RANK_SORT_LABELS: Record<string, string> = {
-  f1_iou50: "F1@.50",
-  precision_iou50: "P@.50",
-  recall_iou50: "R@.50",
-  mean_iou: "mIoU",
-  prediction_count: "预测数",
-  created_at: "创建时间",
-  run_id: "Run ID"
-};
 const RANK_PRIMARY_METRICS = [
   "f1_iou50",
   "precision_iou50",
@@ -33,12 +23,13 @@ const RANK_AUXILIARY_SORTS = [
   "created_at",
   "run_id"
 ];
-const RANK_DIRECT_METRICS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];
+const RANK_SORTABLE_FIELDS = [...RANK_PRIMARY_METRICS, ...RANK_AUXILIARY_SORTS];
 const RANK_PAGE_SIZE = 80;
-const RANK_SECONDARY_METRIC_COLUMNS: Array<{
+const RANK_METRIC_COLUMNS: Array<{
   id: string;
   header: string;
   value: (entry: RankBoardEntry) => number | null;
+  format?: (value: number | null) => string;
 }> = [
   {
     id: "f1_iou50",
@@ -59,6 +50,12 @@ const RANK_SECONDARY_METRIC_COLUMNS: Array<{
     id: "mean_iou",
     header: "mIoU",
     value: (entry) => entry.mean_iou
+  },
+  {
+    id: "prediction_count",
+    header: "预测数",
+    value: (entry) => entry.prediction_count,
+    format: (value) => (value === null ? "-" : value.toLocaleString())
   }
 ];
 
@@ -136,7 +133,19 @@ export function RankBoardPage() {
     runs.map((run) => run.metric_profile)
   );
   const entries = board?.entries ?? [];
-  const best = entries[0] ?? null;
+  const handleSortChange = (value: string) => {
+    if (!RANK_SORTABLE_FIELDS.includes(value)) {
+      return;
+    }
+    const nextOrder = sortBy === value ? toggleSortOrder(sortOrder) : defaultRankSortOrder(value);
+    if (sortBy !== value) {
+      setSortBy(value);
+    }
+    if (sortOrder !== nextOrder) {
+      setSortOrder(nextOrder);
+    }
+    setPageOffset(0);
+  };
   useEffect(() => {
     if (!board) {
       return;
@@ -162,16 +171,9 @@ export function RankBoardPage() {
 
   return (
     <section className="page-stack density-page rank-board-page">
-      <RankDecisionPanel
+      <RankBoardStatusBar
         board={board}
-        best={best}
         runCount={runs.length}
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        onSortByChange={(value) =>
-          updatePagedFilterValue(sortBy, value, setSortBy, setPageOffset)}
-        onSortOrderChange={(value) =>
-          updatePagedFilterValue(sortOrder, value, setSortOrder, setPageOffset)}
       />
       <AdvancedFilterBar
         title="筛选"
@@ -289,14 +291,6 @@ export function RankBoardPage() {
               updatePagedFilterValue(minScoreFilter, value, setMinScoreFilter, setPageOffset)
           }
         ]}
-        actions={
-          <span className="rank-formula-chip">
-            <strong>{`主指标 ${board.primary_metric_label}`}</strong>
-            {board.sort_by !== board.primary_metric ? (
-              <em>排序 {rankSortLabel(board.sort_by)}</em>
-            ) : null}
-          </span>
-        }
       />
       <div className="workspace-card fill rank-board-table-card">
         <div className="rank-board-table-toolbar">
@@ -311,7 +305,9 @@ export function RankBoardPage() {
         <RankBoardTable
           entries={entries}
           primaryMetric={board.primary_metric}
-          primaryMetricLabel={board.primary_metric_label}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSortChange={handleSortChange}
           refreshing={tableRefreshing}
         />
       </div>
@@ -359,35 +355,15 @@ export function RankBoardPage() {
   );
 }
 
-function RankDecisionPanel({
+function RankBoardStatusBar({
   board,
-  best,
-  runCount,
-  sortBy,
-  sortOrder,
-  onSortByChange,
-  onSortOrderChange
+  runCount
 }: {
   board: RankBoard;
-  best: RankBoardEntry | null;
   runCount: number;
-  sortBy: string;
-  sortOrder: string;
-  onSortByChange: (value: string) => void;
-  onSortOrderChange: (value: string) => void;
 }) {
-  const primaryMetricValue = RANK_PRIMARY_METRICS.includes(sortBy) ? sortBy : board.primary_metric;
-  const primaryMetricOptions = [
-    ...(!RANK_PRIMARY_METRICS.includes(primaryMetricValue)
-      ? [{ value: primaryMetricValue, label: board.primary_metric_label }]
-      : []),
-    ...RANK_PRIMARY_METRICS.map((metric) => ({
-      value: metric,
-      label: rankSortLabel(metric)
-    }))
-  ];
   return (
-    <section className="rank-decision-panel rank-leaderboard-toolbar">
+    <section className="rank-board-statusbar">
       <div className="rank-board-summary">
         <strong>Leaderboard</strong>
         <span>{board.total.toLocaleString()} runs</span>
@@ -395,73 +371,8 @@ function RankDecisionPanel({
         <span>{facetTotal(board, "benchmarks").toLocaleString()} benchmarks</span>
         <span>{runCount.toLocaleString()} total</span>
       </div>
-      <div className="rank-board-leading">
-        <span>{rankBoardOrderLabel(board)}</span>
-        {best ? (
-          <InlineNavLink to="/runs/$runId" params={{ runId: best.run_id }}>
-            #{best.rank} {best.run_id} · {formatMetric(best.score)}
-          </InlineNavLink>
-        ) : null}
-      </div>
-      <div className="rank-toolbar-controls">
-        <div className="rank-sort-section primary">
-          <CompactSelectControl
-            dense
-            label="主指标"
-            value={primaryMetricValue}
-            options={primaryMetricOptions}
-            onChange={onSortByChange}
-          />
-        </div>
-        <div className="rank-sort-section auxiliary">
-          <span>排序</span>
-          <div className="rank-sort-dial" role="group" aria-label="排行榜辅助排序字段">
-            {RANK_AUXILIARY_SORTS.map((metric) => (
-              <OptionChipButton
-                key={metric}
-                active={sortBy === metric}
-                className="rank-sort-chip auxiliary"
-                onClick={() => onSortByChange(metric)}
-              >
-                {rankSortLabel(metric)}
-              </OptionChipButton>
-            ))}
-          </div>
-        </div>
-        <div className="rank-order-row">
-          <OptionChipButton
-            active={sortOrder === "desc"}
-            className="rank-order-chip"
-            onClick={() => onSortOrderChange("desc")}
-          >
-            降序
-          </OptionChipButton>
-          <OptionChipButton
-            active={sortOrder === "asc"}
-            className="rank-order-chip"
-            onClick={() => onSortOrderChange("asc")}
-          >
-            升序
-          </OptionChipButton>
-        </div>
-      </div>
-      <span className="rank-score-formula">{board.score_formula}</span>
     </section>
   );
-}
-
-function rankSortLabel(value: string) {
-  return RANK_SORT_LABELS[value] ?? value;
-}
-
-function rankBoardOrderLabel(
-  board: Pick<RankBoard, "primary_metric" | "primary_metric_label" | "sort_by" | "sort_order">
-) {
-  const direction = board.sort_order === "asc" ? "升序" : "降序";
-  if (board.sort_by !== board.primary_metric) {
-    return `主指标 ${board.primary_metric_label}，按 ${rankSortLabel(board.sort_by)} ${direction}`;
-  }
-  return `按主指标 ${board.primary_metric_label} ${direction}`;
 }
 
 function facetTotal(board: Pick<RankBoard, "facets">, key: string) {
@@ -615,48 +526,82 @@ function RankFacetGroup({
 function RankBoardTable({
   entries,
   primaryMetric,
-  primaryMetricLabel,
+  sortBy,
+  sortOrder,
+  onSortChange,
   refreshing
 }: {
   entries: RankBoardEntry[];
   primaryMetric: string;
-  primaryMetricLabel: string;
+  sortBy: string;
+  sortOrder: string;
+  onSortChange: (value: string) => void;
   refreshing: boolean;
 }) {
-  const secondaryMetricColumns: ColumnDef<RankBoardEntry>[] = RANK_SECONDARY_METRIC_COLUMNS
-    .filter((metric) => metric.id !== primaryMetric)
-    .map((metric) => ({
+  const rankHeader = RANK_PRIMARY_METRICS.includes(sortBy) ? "Rank" : "#";
+  const metricColumns: ColumnDef<RankBoardEntry>[] = RANK_METRIC_COLUMNS.map((metric) => {
+    const active = sortBy === metric.id;
+    const metricFormatter = metric.format ?? formatMetric;
+    return {
       id: `metric_${metric.id}`,
-      header: metric.header,
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatMetric(metric.value(row.original))
-    }));
+      header: () => (
+        <SortableHeader
+          label={metric.header}
+          sortValue={metric.id}
+          active={active}
+          sortOrder={sortOrder}
+          onSortChange={onSortChange}
+        />
+      ),
+      meta: {
+        width: "metric",
+        align: "end",
+        className: active ? "rank-sort-active-cell rank-metric-cell" : "rank-metric-cell"
+      },
+      cell: ({ row }) => {
+        const value = metric.id === primaryMetric ? row.original.score : metric.value(row.original);
+        return (
+          <span className={active ? "rank-primary-score" : undefined}>
+            {metricFormatter(value)}
+          </span>
+        );
+      }
+    };
+  });
+  const auxiliaryHeader = (label: string, value: string) => (
+    <SortableHeader
+      label={label}
+      sortValue={value}
+      active={sortBy === value}
+      sortOrder={sortOrder}
+      onSortChange={onSortChange}
+    />
+  );
   const columns: ColumnDef<RankBoardEntry>[] = [
     {
       id: "rank",
-      header: "Rank",
+      header: rankHeader,
       meta: { width: "compact", align: "center" },
       cell: ({ row }) => <span className="rank-index">#{row.original.rank}</span>
     },
     {
       id: "run_id",
-      header: "Run",
-      meta: { width: "id", wrap: "wrap" },
+      header: () => auxiliaryHeader("Run", "run_id"),
+      meta: {
+        width: "id",
+        wrap: "wrap",
+        className: sortBy === "run_id" ? "rank-sort-active-cell" : undefined
+      },
       cell: ({ row }) => (
         <Link className="run-id-link" to="/runs/$runId" params={{ runId: row.original.run_id }}>
           {row.original.run_id}
         </Link>
       )
     },
-    {
-      id: "primary_metric",
-      header: primaryMetricLabel,
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => <span className="rank-primary-score">{formatMetric(row.original.score)}</span>
-    },
+    ...metricColumns,
     {
       id: "leader_delta",
-      header: "Δ leader",
+      header: RANK_PRIMARY_METRICS.includes(sortBy) ? "Δ leader" : "Δ first",
       meta: { width: "metric", align: "end" },
       cell: ({ row }) => (
         <span className={rankDeltaClassName(row.original.score_delta)}>
@@ -666,7 +611,6 @@ function RankBoardTable({
     }
   ];
   columns.push(
-    ...secondaryMetricColumns,
     {
       id: "status",
       header: "状态",
@@ -684,6 +628,15 @@ function RankBoardTable({
     { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
     { header: "模型", accessorKey: "model_id", meta: { width: "id" } },
     { header: "Prompt", accessorKey: "prompt_id", meta: { width: "id" } },
+    {
+      id: "created_at",
+      header: () => auxiliaryHeader("创建时间", "created_at"),
+      meta: {
+        width: "date",
+        className: sortBy === "created_at" ? "rank-sort-active-cell" : undefined
+      },
+      cell: ({ row }) => formatDate(row.original.created_at)
+    },
     {
       id: "note",
       header: "备注",
@@ -710,6 +663,43 @@ function RankBoardTable({
       refreshing={refreshing}
     />
   );
+}
+
+function SortableHeader({
+  label,
+  sortValue,
+  active,
+  sortOrder,
+  onSortChange
+}: {
+  label: string;
+  sortValue: string;
+  active: boolean;
+  sortOrder: string;
+  onSortChange: (value: string) => void;
+}) {
+  const Icon = active ? (sortOrder === "asc" ? ArrowUp : ArrowDown) : ChevronsUpDown;
+  return (
+    <ActionButton
+      variant="mini"
+      compact
+      className={active ? "rank-sort-header active" : "rank-sort-header"}
+      aria-sort={active ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+      title={active ? `${label} ${sortOrder === "asc" ? "升序" : "降序"}` : `按 ${label} 排序`}
+      onClick={() => onSortChange(sortValue)}
+    >
+      <span>{label}</span>
+      <Icon size={13} aria-hidden="true" />
+    </ActionButton>
+  );
+}
+
+function defaultRankSortOrder(value: string) {
+  return value === "run_id" ? "asc" : "desc";
+}
+
+function toggleSortOrder(value: string) {
+  return value === "desc" ? "asc" : "desc";
 }
 
 function rankF1Score(entry: RankBoardEntry) {

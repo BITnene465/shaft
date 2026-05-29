@@ -10,6 +10,7 @@ from typing import Any
 from .artifacts import DEFAULT_STORE_ROOT
 from .database import EvalBenchDatabase, JobRecord
 from .job_lifecycle import job_holds_scheduler_resources, mark_worker_failure
+from . import runtime_resources
 from .schema import utc_now_iso
 
 
@@ -262,6 +263,12 @@ def _job_cuda_devices(job: JobRecord) -> set[str]:
             for item in str(value).split(",")
             if item.strip() and item.strip() != "-1"
         }
+    if _job_uses_ephemeral_runtime(job):
+        detected = [gpu.index for gpu in runtime_resources.detect_cuda_devices()]
+        tensor_parallel_size = _optional_int(job.payload.get("tensor_parallel_size"))
+        if detected and tensor_parallel_size is not None:
+            return set(detected[:tensor_parallel_size])
+        return set(detected)
     return set()
 
 

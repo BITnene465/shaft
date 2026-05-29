@@ -28,6 +28,7 @@ class InferEngineConfig:
     served_model_name: str | None = None
     request_timeout_seconds: float = 60.0
     device: str | None = None
+    device_map: str | dict[str, str] | None = None
     min_pixels: int | None = None
     max_pixels: int | None = None
     generation: InferGenerationConfig = field(default_factory=InferGenerationConfig)

@@ -41,6 +41,7 @@ class OpenAICompatibleVLLMAdapter:
         max_tokens: int,
         temperature: float,
         top_p: float,
+        top_k: int | None = None,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
     ) -> GeneratedText:
@@ -56,8 +57,8 @@ class OpenAICompatibleVLLMAdapter:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": user_prompt},
                         {"type": "image_url", "image_url": {"url": image_data_url}},
+                        {"type": "text", "text": user_prompt},
                     ],
                 },
             ],
@@ -65,6 +66,8 @@ class OpenAICompatibleVLLMAdapter:
             "temperature": temperature,
             "top_p": top_p,
         }
+        if top_k is not None:
+            payload["top_k"] = int(top_k)
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:

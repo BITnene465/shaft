@@ -17,7 +17,8 @@ from .label_policy import (
     target_label_benchmark_messages,
     target_label_task_errors,
 )
-from .services import build_vllm_command_from_config
+from . import runtime_resources
+from .services import build_vllm_command_from_config, validate_no_service_pixel_budget_args
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -81,6 +82,15 @@ def _eval_job_manifest(
                 "gpu-memory-utilization": 0.9,
                 "max-num-seqs": 8,
                 "trust-remote-code": True,
+                "generation-config": None,
+                "dtype": None,
+                "kv-cache-dtype": None,
+                "quantization": None,
+                "load-format": None,
+                "enforce-eager": None,
+                "disable-custom-all-reduce": None,
+                "max-num-batched-tokens": None,
+                "limit-mm-per-prompt": None,
             },
         },
         "eval": {
@@ -96,6 +106,7 @@ def _eval_job_manifest(
                 "max_tokens": 4096,
                 "temperature": 0,
                 "top_p": 1,
+                "top_k": None,
             },
             "data": {
                 "max_pixels": 2_000_000,
@@ -252,6 +263,8 @@ def _resolve_eval_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     generation = dict(eval_config.get("generation") or {})
     data = dict(eval_config.get("data") or {})
     runtime_args = _normalized_mapping(runtime.get("args"))
+    validate_no_service_pixel_budget_args(runtime_args, context="runtime.args")
+    _validate_runtime_args(runtime_args, runtime)
     env = _normalized_mapping(runtime.get("env"))
     model_path = _first_string(
         eval_config.get("model_path"),
@@ -280,12 +293,16 @@ def _resolve_eval_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         env.get("cuda_visible_devices"),
         runtime_args.get("cuda_visible_devices"),
     )
-    tensor_parallel_size = _first_value(
-        runtime_args.get("tensor_parallel_size"),
-        runtime_args.get("tensor-parallel-size"),
+    placement = runtime_resources.resolve_vllm_runtime_placement(
+        model_path=model_path,
+        cuda_visible_devices=cuda_visible_devices,
+        tensor_parallel_size=_first_value(
+            runtime_args.get("tensor_parallel_size"),
+            runtime_args.get("tensor-parallel-size"),
+        ),
     )
-    if tensor_parallel_size in (None, ""):
-        tensor_parallel_size = len(_cuda_visible_devices(cuda_visible_devices)) or 1
+    cuda_visible_devices = placement.cuda_visible_devices
+    tensor_parallel_size = placement.tensor_parallel_size
     port = _first_value(runtime_args.get("port"), runtime.get("port"))
     if port in (None, "") and runtime_mode == "ephemeral" and backend == "vllm_openai":
         port = _first_available_port(host or "127.0.0.1")
@@ -322,10 +339,23 @@ def _resolve_eval_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "max_model_len": _first_value(runtime_args.get("max_model_len"), runtime_args.get("max-model-len")),
         "gpu_memory_utilization": _first_value(runtime_args.get("gpu_memory_utilization"), runtime_args.get("gpu-memory-utilization")),
         "max_num_seqs": _first_value(runtime_args.get("max_num_seqs"), runtime_args.get("max-num-seqs")),
-        "extra_args": _extra_args_from_runtime_args(runtime_args, runtime.get("extra_args")),
+        "trust_remote_code": _first_value(runtime_args.get("trust_remote_code"), runtime_args.get("trust-remote-code")),
+        "generation_config": _first_string(runtime_args.get("generation_config"), runtime_args.get("generation-config")),
+        "dtype": _first_string(runtime_args.get("dtype")),
+        "kv_cache_dtype": _first_string(runtime_args.get("kv_cache_dtype"), runtime_args.get("kv-cache-dtype")),
+        "quantization": _first_string(runtime_args.get("quantization")),
+        "load_format": _first_string(runtime_args.get("load_format"), runtime_args.get("load-format")),
+        "enforce_eager": _first_value(runtime_args.get("enforce_eager"), runtime_args.get("enforce-eager")),
+        "disable_custom_all_reduce": _first_value(
+            runtime_args.get("disable_custom_all_reduce"),
+            runtime_args.get("disable-custom-all-reduce"),
+        ),
+        "max_num_batched_tokens": _first_value(runtime_args.get("max_num_batched_tokens"), runtime_args.get("max-num-batched-tokens")),
+        "limit_mm_per_prompt": _first_value(runtime_args.get("limit_mm_per_prompt"), runtime_args.get("limit-mm-per-prompt")),
         "max_tokens": _first_value(generation.get("max_tokens"), generation.get("max-tokens"), 4096),
         "temperature": _first_value(generation.get("temperature"), 0),
         "top_p": _first_value(generation.get("top_p"), generation.get("top-p"), 1),
+        "top_k": _first_value(generation.get("top_k"), generation.get("top-k")),
         "min_pixels": _first_value(data.get("min_pixels"), data.get("min-pixels")),
         "max_pixels": _first_value(data.get("max_pixels"), data.get("max-pixels")),
         "batch_size": _first_value(data.get("batch_size"), data.get("batch-size"), 1),
@@ -597,12 +627,26 @@ def _runtime_config_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "max_model_len": payload.get("max_model_len"),
         "gpu_memory_utilization": payload.get("gpu_memory_utilization"),
         "max_num_seqs": payload.get("max_num_seqs"),
-        "extra_args": payload.get("extra_args"),
+        "trust_remote_code": payload.get("trust_remote_code"),
+        "generation_config": payload.get("generation_config"),
+        "dtype": payload.get("dtype"),
+        "kv_cache_dtype": payload.get("kv_cache_dtype"),
+        "quantization": payload.get("quantization"),
+        "load_format": payload.get("load_format"),
+        "enforce_eager": payload.get("enforce_eager"),
+        "disable_custom_all_reduce": payload.get("disable_custom_all_reduce"),
+        "max_num_batched_tokens": payload.get("max_num_batched_tokens"),
+        "limit_mm_per_prompt": payload.get("limit_mm_per_prompt"),
     }
 
 
-def _extra_args_from_runtime_args(runtime_args: dict[str, Any], explicit: Any) -> list[str]:
-    known = {
+def _validate_runtime_args(runtime_args: dict[str, Any], runtime: Mapping[str, Any]) -> None:
+    if runtime.get("extra_args") not in (None, "", []):
+        raise ValueError(
+            "runtime.extra_args is not supported. Add the required vLLM option as an "
+            "explicit eval-bench runtime field instead."
+        )
+    allowed = {
         "model",
         "model_path",
         "served_model_name",
@@ -618,17 +662,28 @@ def _extra_args_from_runtime_args(runtime_args: dict[str, Any], explicit: Any) -
         "gpu-memory-utilization",
         "max_num_seqs",
         "max-num-seqs",
+        "trust_remote_code",
+        "trust-remote-code",
+        "generation_config",
+        "generation-config",
+        "dtype",
+        "kv_cache_dtype",
+        "kv-cache-dtype",
+        "quantization",
+        "load_format",
+        "load-format",
+        "enforce_eager",
+        "enforce-eager",
+        "disable_custom_all_reduce",
+        "disable-custom-all-reduce",
+        "max_num_batched_tokens",
+        "max-num-batched-tokens",
+        "limit_mm_per_prompt",
+        "limit-mm-per-prompt",
     }
-    extra_args = _string_list(explicit)
-    for key, value in runtime_args.items():
-        if key in known or value in (None, "", False):
-            continue
-        flag = f"--{key.replace('_', '-')}"
-        if value is True:
-            extra_args.append(flag)
-        else:
-            extra_args.extend([flag, _stringify_cli_value(value)])
-    return extra_args
+    unknown = sorted(str(key) for key in runtime_args if str(key) not in allowed)
+    if unknown:
+        raise ValueError(f"unknown runtime.args key(s): {', '.join(unknown)}")
 
 
 def _normalized_mapping(value: Any) -> dict[str, Any]:
@@ -697,24 +752,6 @@ def _first_label_list(*values: Any) -> list[str]:
 
 def _label_list(value: Any) -> list[str]:
     return normalize_target_labels(value)
-
-
-def _string_list(value: Any) -> list[str]:
-    if value in (None, ""):
-        return []
-    if isinstance(value, str):
-        return [item for item in value.split() if item]
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    raise ValueError("extra_args must be a list or a shell-like string.")
-
-
-def _stringify_cli_value(value: Any) -> str:
-    if isinstance(value, (dict, list)):
-        import json
-
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
 
 
 def _resolve_repo_path(value: str | Path) -> Path:

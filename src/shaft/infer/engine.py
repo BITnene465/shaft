@@ -63,8 +63,13 @@ class HFLocalInferAdapter(InferAdapter):
         default_generation: InferGenerationConfig | None = None,
     ) -> None:
         resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device(resolved_device)
-        self.model = model.to(self.device).eval()
+        self._is_sharded = bool(getattr(model, "hf_device_map", None))
+        if self._is_sharded:
+            self.model = model.eval()
+            self.device = _resolve_sharded_input_device(model)
+        else:
+            self.device = torch.device(resolved_device)
+            self.model = model.to(self.device).eval()
         self._enable_generation_cache()
         self.tokenizer = tokenizer
         self.processor = processor
@@ -224,6 +229,8 @@ class VLLMOpenAIInferAdapter(InferAdapter):
     @staticmethod
     def _resolve_chat_completions_url(endpoint: str) -> str:
         normalized = endpoint.rstrip("/")
+        if normalized.endswith("/chat/completions"):
+            return normalized
         if normalized.endswith("/v1"):
             return f"{normalized}/chat/completions"
         return f"{normalized}/v1/chat/completions"
@@ -317,15 +324,9 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             "max_tokens": int(generation.max_new_tokens),
             "repetition_penalty": float(generation.repetition_penalty),
         }
-        mm_processor_kwargs: dict[str, int] = {}
-        if request.min_pixels is not None:
-            mm_processor_kwargs["min_pixels"] = int(request.min_pixels)
-        if request.max_pixels is not None:
-            mm_processor_kwargs["max_pixels"] = int(request.max_pixels)
-        if mm_processor_kwargs:
-            payload["mm_processor_kwargs"] = mm_processor_kwargs
 
         if request.backend_options:
+            _validate_no_pixel_budget_backend_options(request.backend_options)
             for key, value in request.backend_options.items():
                 if key in payload:
                     continue
@@ -379,6 +380,41 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         )
 
 
+def _validate_no_pixel_budget_backend_options(options: dict[str, Any]) -> None:
+    blocked = {
+        "min_pixels",
+        "min-pixels",
+        "max_pixels",
+        "max-pixels",
+        "mm_processor_kwargs",
+        "mm-processor-kwargs",
+    }
+    for key, value in options.items():
+        if value in (None, "", False):
+            continue
+        normalized = str(key).strip().lower()
+        if normalized in blocked:
+            raise ValueError(
+                f"backend_options must not set {key!r}; pixel budget is applied by "
+                "resizing the image before the request."
+            )
+
+
+def _resolve_sharded_input_device(model: torch.nn.Module) -> torch.device:
+    model_device = getattr(model, "device", None)
+    if model_device is not None:
+        return torch.device(model_device)
+    device_map = getattr(model, "hf_device_map", None)
+    if isinstance(device_map, dict):
+        for value in device_map.values():
+            if isinstance(value, int):
+                return torch.device(f"cuda:{value}")
+            normalized = str(value)
+            if normalized and normalized not in {"cpu", "disk"}:
+                return torch.device(normalized)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 class ShaftInferEngine:
     def __init__(self, *, adapter: InferAdapter):
         self.adapter = adapter
@@ -406,6 +442,7 @@ class ShaftInferEngine:
         runtime_config.model.trust_remote_code = bool(config.trust_remote_code)
         runtime_config.model.attn_implementation = config.attn_implementation
         runtime_config.model.torch_dtype = config.torch_dtype
+        runtime_config.model.device_map = config.device_map
         runtime_config.model.finetune.mode = config.load_mode
         artifacts = build_model_tokenizer_processor(runtime_config)
         adapter = HFLocalInferAdapter(

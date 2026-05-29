@@ -36,4 +36,5 @@ class ModelConfig:
     trust_remote_code: bool = True
     attn_implementation: str | None = None
     torch_dtype: str = "bfloat16"
+    device_map: str | dict[str, str] | None = None
     finetune: FinetuneConfig = field(default_factory=FinetuneConfig)

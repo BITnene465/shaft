@@ -51,12 +51,14 @@ def test_vllm_adapter_enforces_qwen_pixel_budget_before_request(
         max_tokens=128,
         temperature=0.0,
         top_p=1.0,
+        top_k=20,
         max_pixels=1_000_000,
     )
 
     body = captured["body"]
     assert isinstance(body, dict)
-    image_url = body["messages"][1]["content"][1]["image_url"]["url"]
+    assert body["top_k"] == 20
+    image_url = body["messages"][1]["content"][0]["image_url"]["url"]
     assert image_url.startswith("data:image/jpeg;base64,")
     assert "mm_processor_kwargs" not in body
     assert result.image_request["source_width"] == 4096

@@ -5,12 +5,14 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from typing import Any
+from typing import Any, Mapping
 
 from .artifacts import DEFAULT_STORE_ROOT, StoreLayout
 from .database import EvalBenchDatabase, ServiceListPage, ServiceRecord
+from . import runtime_resources
 from .schema import utc_now_iso
 
 
@@ -64,27 +66,50 @@ class EvalBenchServiceManager:
     def register_service(self, payload: dict[str, Any]) -> ServiceRecord:
         kind = str(payload.get("kind") or "local_vllm")
         service_id = _optional_string(payload, "service_id")
+        validate_no_service_pixel_budget_args(payload, context="service registration")
+        _reject_unknown_service_payload_keys(payload)
+        if kind == "local_vllm":
+            placement = runtime_resources.resolve_vllm_runtime_placement(
+                model_path=payload.get("model_path"),
+                cuda_visible_devices=payload.get("cuda_visible_devices"),
+                tensor_parallel_size=payload.get("tensor_parallel_size"),
+            )
+            cuda_visible_devices = placement.cuda_visible_devices
+            tensor_parallel_size = placement.tensor_parallel_size
+        else:
+            cuda_visible_devices = _optional_string(payload, "cuda_visible_devices")
+            tensor_parallel_size = _optional_int(payload, "tensor_parallel_size")
         config = {
             "model_path": _optional_string(payload, "model_path"),
             "served_model_name": _optional_string(payload, "served_model_name"),
             "endpoint": _optional_string(payload, "endpoint"),
             "host": str(payload.get("host") or "127.0.0.1"),
             "port": _optional_int(payload, "port"),
-            "cuda_visible_devices": _optional_string(payload, "cuda_visible_devices"),
-            "tensor_parallel_size": _optional_int(payload, "tensor_parallel_size"),
+            "cuda_visible_devices": cuda_visible_devices,
+            "tensor_parallel_size": tensor_parallel_size,
             "max_model_len": _optional_int(payload, "max_model_len"),
             "gpu_memory_utilization": _optional_float(payload, "gpu_memory_utilization"),
             "max_num_seqs": _optional_int(payload, "max_num_seqs"),
-            "extra_args": _string_list(payload.get("extra_args")),
+            "trust_remote_code": _optional_bool(payload, "trust_remote_code"),
+            "generation_config": _optional_string(payload, "generation_config"),
+            "dtype": _optional_string(payload, "dtype"),
+            "kv_cache_dtype": _optional_string(payload, "kv_cache_dtype"),
+            "quantization": _optional_string(payload, "quantization"),
+            "load_format": _optional_string(payload, "load_format"),
+            "enforce_eager": _optional_bool(payload, "enforce_eager"),
+            "disable_custom_all_reduce": _optional_bool(payload, "disable_custom_all_reduce"),
+            "max_num_batched_tokens": _optional_int(payload, "max_num_batched_tokens"),
+            "limit_mm_per_prompt": payload.get("limit_mm_per_prompt"),
         }
         if kind == "local_vllm":
             if not config["model_path"]:
                 raise ValueError("local_vllm service requires model_path.")
             if config["port"] is None:
                 raise ValueError("local_vllm service requires port.")
+            validate_no_service_pixel_budget_args(config)
         if kind == "external_vllm" and not config["endpoint"]:
             raise ValueError("external_vllm service requires endpoint.")
-        config = {key: value for key, value in config.items() if value not in (None, [], "")}
+        config = {key: value for key, value in config.items() if value not in (None, [], "", False)}
         return self.database.upsert_service(kind=kind, config=config, service_id=service_id)
 
     def start_service(self, service_id: str) -> ServiceRecord:
@@ -274,6 +299,7 @@ def build_vllm_command(record: ServiceRecord) -> list[str]:
 
 
 def build_vllm_command_from_config(config: dict[str, Any], *, service_id: str) -> list[str]:
+    validate_no_service_pixel_budget_args(config)
     python = REPO_ROOT / ".venv" / "bin" / "python"
     python_bin = str(python if python.exists() else Path(sys.executable))
     command = [
@@ -294,14 +320,51 @@ def build_vllm_command_from_config(config: dict[str, Any], *, service_id: str) -
         "max_model_len": "--max-model-len",
         "gpu_memory_utilization": "--gpu-memory-utilization",
         "max_num_seqs": "--max-num-seqs",
+        "generation_config": "--generation-config",
+        "dtype": "--dtype",
+        "kv_cache_dtype": "--kv-cache-dtype",
+        "quantization": "--quantization",
+        "load_format": "--load-format",
+        "max_num_batched_tokens": "--max-num-batched-tokens",
+        "limit_mm_per_prompt": "--limit-mm-per-prompt",
     }
     for key, flag in optional_flags.items():
         value = config.get(key)
         if value not in (None, ""):
-            command.extend([flag, str(value)])
-    for item in _string_list(config.get("extra_args")):
-        command.append(item)
+            command.extend([flag, _stringify_cli_value(value)])
+    boolean_flags = {
+        "trust_remote_code": "--trust-remote-code",
+        "enforce_eager": "--enforce-eager",
+        "disable_custom_all_reduce": "--disable-custom-all-reduce",
+    }
+    for key, flag in boolean_flags.items():
+        if config.get(key) is True:
+            command.append(flag)
     return command
+
+
+def validate_no_service_pixel_budget_args(
+    config: Mapping[str, Any],
+    *,
+    context: str = "vLLM service config",
+) -> None:
+    blocked_keys = {
+        "min_pixels",
+        "min-pixels",
+        "max_pixels",
+        "max-pixels",
+        "mm_processor_kwargs",
+        "mm-processor-kwargs",
+    }
+    for key, value in config.items():
+        if value is None or value == "" or value is False:
+            continue
+        normalized = str(key).strip().lower()
+        if normalized in blocked_keys:
+            raise ValueError(
+                f"{context} must not set {key!r}; pixel budget belongs to eval.data "
+                "and is applied before each request."
+            )
 
 
 def service_endpoint(record: ServiceRecord) -> str:
@@ -408,14 +471,55 @@ def _optional_float(payload: dict[str, Any], key: str) -> float | None:
     return float(value)
 
 
-def _string_list(value: Any) -> list[str]:
+def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
+    value = payload.get(key)
     if value in (None, ""):
-        return []
+        return None
+    if isinstance(value, bool):
+        return value
     if isinstance(value, str):
-        return [item for item in value.split() if item]
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    raise ValueError("extra_args must be a list or a shell-like string.")
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    raise ValueError(f"{key} must be a boolean when set.")
+
+
+def _reject_unknown_service_payload_keys(payload: Mapping[str, Any]) -> None:
+    allowed = {
+        "kind",
+        "service_id",
+        "model_path",
+        "served_model_name",
+        "endpoint",
+        "host",
+        "port",
+        "cuda_visible_devices",
+        "tensor_parallel_size",
+        "max_model_len",
+        "gpu_memory_utilization",
+        "max_num_seqs",
+        "trust_remote_code",
+        "generation_config",
+        "dtype",
+        "kv_cache_dtype",
+        "quantization",
+        "load_format",
+        "enforce_eager",
+        "disable_custom_all_reduce",
+        "max_num_batched_tokens",
+        "limit_mm_per_prompt",
+    }
+    unknown = sorted(str(key) for key in payload if str(key) not in allowed)
+    if unknown:
+        raise ValueError(f"unsupported service config key(s): {', '.join(unknown)}")
+
+
+def _stringify_cli_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def _pid_is_alive(pid: int) -> bool:

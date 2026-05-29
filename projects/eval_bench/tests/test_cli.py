@@ -588,7 +588,7 @@ def test_cli_json_output_schemas_cover_stable_commands() -> None:
     service_runtime_schema = service_shape["runtime"]
     service_metadata_schema = service_shape["metadata"]
     assert service_config_schema["properties"]["endpoint"] == "str|null"
-    assert service_config_schema["properties"]["extra_args"] == "list[str]"
+    assert "extra_args" not in service_config_schema["properties"]
     assert service_runtime_schema["properties"]["command"] == "list[str]"
     assert service_runtime_schema["properties"]["health"]["properties"]["ok"] == "bool"
     assert service_runtime_schema["properties"]["health"]["properties"]["status_code"] == "int|null"

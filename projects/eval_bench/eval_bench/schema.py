@@ -163,9 +163,20 @@ class InferenceParams:
     max_model_len: int | None = None
     gpu_memory_utilization: float | None = None
     max_num_seqs: int | None = None
+    trust_remote_code: bool | None = None
+    generation_config: str | None = None
+    dtype: str | None = None
+    kv_cache_dtype: str | None = None
+    quantization: str | None = None
+    load_format: str | None = None
+    enforce_eager: bool | None = None
+    disable_custom_all_reduce: bool | None = None
+    max_num_batched_tokens: int | None = None
+    limit_mm_per_prompt: str | dict[str, Any] | None = None
     max_tokens: int = 4096
     temperature: float = 0.0
     top_p: float = 1.0
+    top_k: int | None = None
     min_pixels: int | None = None
     max_pixels: int | None = None
     batch_size: int = 1
@@ -175,6 +186,8 @@ class InferenceParams:
         _require_non_empty_string(self.backend, field_name="inference.backend")
         if self.max_tokens <= 0:
             raise ValueError("inference.max_tokens must be > 0.")
+        if self.top_k is not None and self.top_k <= 0:
+            raise ValueError("inference.top_k must be > 0 when set.")
         if self.batch_size <= 0:
             raise ValueError("inference.batch_size must be > 0.")
         if self.tensor_parallel_size is not None and self.tensor_parallel_size <= 0:
@@ -185,6 +198,8 @@ class InferenceParams:
             raise ValueError("inference.max_model_len must be > 0 when set.")
         if self.max_num_seqs is not None and self.max_num_seqs <= 0:
             raise ValueError("inference.max_num_seqs must be > 0 when set.")
+        if self.max_num_batched_tokens is not None and self.max_num_batched_tokens <= 0:
+            raise ValueError("inference.max_num_batched_tokens must be > 0 when set.")
         if (
             self.gpu_memory_utilization is not None
             and not (0.0 < self.gpu_memory_utilization <= 1.0)

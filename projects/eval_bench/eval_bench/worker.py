@@ -51,6 +51,10 @@ _VLLM_MEMORY_PROFILING_MARKERS = (
     "Initial free memory",
     "current free memory",
 )
+_VLLM_LOW_FREE_MEMORY_MARKERS = (
+    "Free memory on device",
+    "is less than desired GPU memory utilization",
+)
 
 
 class JobCancelled(RuntimeError):
@@ -419,9 +423,20 @@ class EvalBenchWorker:
             max_model_len=_optional_int(payload, "max_model_len"),
             gpu_memory_utilization=_optional_float(payload, "gpu_memory_utilization"),
             max_num_seqs=_optional_int(payload, "max_num_seqs"),
+            trust_remote_code=_optional_bool(payload, "trust_remote_code"),
+            generation_config=_optional_string(payload, "generation_config"),
+            dtype=_optional_string(payload, "dtype"),
+            kv_cache_dtype=_optional_string(payload, "kv_cache_dtype"),
+            quantization=_optional_string(payload, "quantization"),
+            load_format=_optional_string(payload, "load_format"),
+            enforce_eager=_optional_bool(payload, "enforce_eager"),
+            disable_custom_all_reduce=_optional_bool(payload, "disable_custom_all_reduce"),
+            max_num_batched_tokens=_optional_int(payload, "max_num_batched_tokens"),
+            limit_mm_per_prompt=payload.get("limit_mm_per_prompt"),
             max_tokens=int(payload.get("max_tokens") or 4096),
             temperature=float(payload.get("temperature") or 0.0),
             top_p=float(payload.get("top_p") or 1.0),
+            top_k=_optional_int(payload, "top_k"),
             min_pixels=_optional_int(payload, "min_pixels"),
             max_pixels=_optional_int(payload, "max_pixels"),
             batch_size=int(payload.get("batch_size") or 1),
@@ -570,6 +585,9 @@ class EvalBenchWorker:
         max_tokens = int(inference.get("max_tokens") or job.payload.get("max_tokens") or 4096)
         temperature = float(inference.get("temperature") or job.payload.get("temperature") or 0.0)
         top_p = float(inference.get("top_p") or job.payload.get("top_p") or 1.0)
+        top_k = _optional_int(inference, "top_k")
+        if top_k is None:
+            top_k = _optional_int(job.payload, "top_k")
 
         with ThreadPoolExecutor(max_workers=request_concurrency) as executor:
             def submit_next() -> bool:
@@ -591,6 +609,7 @@ class EvalBenchWorker:
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
+                    top_k=top_k,
                     inference=inference,
                     request_concurrency=request_concurrency,
                     run_id=run_id,
@@ -647,6 +666,7 @@ def _generate_vllm_sample_prediction(
     max_tokens: int,
     temperature: float,
     top_p: float,
+    top_k: int | None,
     inference: dict[str, Any],
     request_concurrency: int,
     run_id: str,
@@ -662,6 +682,7 @@ def _generate_vllm_sample_prediction(
         max_tokens=max_tokens,
         temperature=temperature,
         top_p=top_p,
+        top_k=top_k,
         min_pixels=_optional_int(inference, "min_pixels"),
         max_pixels=_optional_int(inference, "max_pixels"),
     )
@@ -803,7 +824,16 @@ def _runtime_config_from_job_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "max_model_len": payload.get("max_model_len"),
         "gpu_memory_utilization": payload.get("gpu_memory_utilization"),
         "max_num_seqs": payload.get("max_num_seqs"),
-        "extra_args": payload.get("extra_args"),
+        "trust_remote_code": payload.get("trust_remote_code"),
+        "generation_config": payload.get("generation_config"),
+        "dtype": payload.get("dtype"),
+        "kv_cache_dtype": payload.get("kv_cache_dtype"),
+        "quantization": payload.get("quantization"),
+        "load_format": payload.get("load_format"),
+        "enforce_eager": payload.get("enforce_eager"),
+        "disable_custom_all_reduce": payload.get("disable_custom_all_reduce"),
+        "max_num_batched_tokens": payload.get("max_num_batched_tokens"),
+        "limit_mm_per_prompt": payload.get("limit_mm_per_prompt"),
     }
 
 
@@ -1014,7 +1044,9 @@ def _is_vllm_memory_profiling_failure(log_path: Path) -> bool:
         tail = log_path.read_text(encoding="utf-8", errors="ignore")[-20_000:]
     except OSError:
         return False
-    return all(marker in tail for marker in _VLLM_MEMORY_PROFILING_MARKERS)
+    return all(marker in tail for marker in _VLLM_MEMORY_PROFILING_MARKERS) or all(
+        marker in tail for marker in _VLLM_LOW_FREE_MEMORY_MARKERS
+    )
 
 
 def _payload_bool(value: Any, *, default: bool) -> bool:
@@ -1157,6 +1189,20 @@ def _optional_float(payload: dict[str, Any], key: str) -> float | None:
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _optional_bool(payload: dict[str, Any], key: str) -> bool | None:
+    value = payload.get(key)
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"job payload {key!r} must be a boolean when set.")
 
 
 def _require_task(payload: dict[str, Any]) -> TaskKind:
