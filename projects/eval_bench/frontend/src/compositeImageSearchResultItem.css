@@ -1,0 +1,60 @@
+.image-jump-result {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: var(--composite-pad-7) var(--composite-pad-8);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(90deg, var(--result-direction-tint, transparent), transparent 56%),
+    transparent;
+  color: var(--composite-ink);
+  scroll-margin-block: var(--composite-pad-8);
+  text-align: left;
+}
+
+.image-jump-result::before {
+  position: absolute;
+  inset: var(--composite-pad-5) auto var(--composite-pad-5) 0;
+  width: 3px;
+  background: var(--result-direction-color, transparent);
+  content: "";
+  opacity: 0.72;
+}
+
+.image-jump-result.direction-forward {
+  --result-direction-color: var(--composite-accent);
+  --result-direction-tint: color-mix(in srgb, var(--composite-accent) 7%, transparent);
+}
+
+.image-jump-result.direction-backward {
+  --result-direction-color: var(--bench-green);
+  --result-direction-tint: color-mix(in srgb, var(--bench-green) 7%, transparent);
+}
+
+.image-jump-result.current {
+  --result-direction-color: var(--composite-ink);
+  --result-direction-tint: color-mix(in srgb, var(--composite-ink) 8%, transparent);
+}
+
+.image-jump-result:hover,
+.image-jump-result.active {
+  background:
+    linear-gradient(90deg, var(--result-direction-tint, transparent), transparent 64%),
+    color-mix(in srgb, var(--composite-accent) 9%, var(--composite-surface));
+  border-color: color-mix(in srgb, var(--composite-accent) 26%, var(--composite-line-soft));
+}
+
+.image-jump-result.current {
+  box-shadow: inset 3px 0 0 var(--composite-ink);
+}
+
+.image-jump-result.active::before {
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .image-jump-result {
+    padding-inline: var(--composite-pad-7);
+  }
+}

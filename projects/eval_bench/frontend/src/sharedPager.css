@@ -1,0 +1,27 @@
+.rank-board-pager {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--control-gap-10);
+  min-height: var(--control-pager-height);
+  padding: 7px var(--control-pad-10);
+  background:
+    linear-gradient(90deg, rgb(23 77 101 / 5%), transparent 52%),
+    #ffffff;
+  border-bottom: 1px solid #e5ebf1;
+}
+
+.rank-board-pager > span {
+  color: #445466;
+  font-family: var(--mono-font);
+  font-size: var(--control-text-caption);
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.rank-board-pager > div {
+  display: inline-flex;
+  gap: var(--control-gap-6);
+  align-items: center;
+}

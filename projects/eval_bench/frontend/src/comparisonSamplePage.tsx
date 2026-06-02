@@ -9,6 +9,9 @@ import { SampleViewer } from "./sampleViewer";
 import { EmptyState, InlineAnchor } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
 
+import "./comparePage.css";
+import "./comparisonSampleStyles.css";
+
 export function ComparisonSamplePage() {
   const { baselineRunId, candidateRunId, sampleIndex } = useParams({
     from: "/compare/$baselineRunId/$candidateRunId/$sampleIndex"

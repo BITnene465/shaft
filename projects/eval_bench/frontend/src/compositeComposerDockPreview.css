@@ -1,0 +1,104 @@
+.composer-dock-preview {
+  position: absolute;
+  z-index: 12;
+  top: var(--composite-pad-8);
+  left: calc(100% + var(--composite-gap-8));
+  display: grid;
+  width: min(280px, calc(100vw - 112px));
+  gap: var(--composite-gap-8);
+  padding: var(--composite-pad-10);
+  color: var(--composite-ink);
+  background: rgb(255 255 255 / 96%);
+  border: 1px solid #cfdae6;
+  box-shadow: 0 18px 42px rgb(15 23 42 / 18%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.composite-composer-dock:hover .composer-dock-preview,
+.composite-composer-dock:focus-within .composer-dock-preview {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.composer-dock-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--composite-gap-8);
+}
+
+.composer-dock-preview-head span {
+  color: #6d7c8f;
+  font-size: var(--text-2xs);
+  font-weight: 820;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.composer-dock-preview-head strong {
+  color: var(--composite-ink);
+  font-size: var(--text-xs);
+  font-weight: 840;
+}
+
+.composer-dock-preview-list {
+  display: grid;
+  gap: var(--composite-gap-5);
+}
+
+.composer-dock-preview-list > span {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: var(--composite-gap-7);
+  align-items: center;
+  min-width: 0;
+  padding-bottom: var(--composite-pad-5);
+  border-bottom: 1px solid #e4ebf2;
+}
+
+.composer-dock-preview-list > span:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.composer-dock-preview-list i {
+  width: 8px;
+  height: 22px;
+  border-radius: var(--composite-radius-pill);
+}
+
+.composer-dock-preview-list strong,
+.composer-dock-preview-list em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-dock-preview-list strong {
+  color: #243243;
+  font-size: var(--text-xs);
+  font-weight: 780;
+}
+
+.composer-dock-preview-list em,
+.composer-dock-preview-empty {
+  color: #728195;
+  font-size: var(--text-2xs);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.composer-dock-preview-list .missing {
+  opacity: 0.62;
+}
+
+@media (max-width: 940px) {
+  .composer-dock-preview {
+    top: calc(100% + var(--composite-gap-8));
+    left: var(--composite-pad-8);
+    width: min(320px, calc(100vw - 32px));
+  }
+}

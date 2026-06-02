@@ -1,0 +1,226 @@
+.overview-v18-console {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #f8fafb;
+  border: 1px solid #e1e7ec;
+  border-radius: 7px;
+}
+
+.overview-v18-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overview-v18-console-head > span {
+  color: #5d6975;
+  font-family: var(--mono-font);
+  font-size: var(--text-3xs);
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.overview-v18-console-head > div {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.overview-v18-surface-tab {
+  min-height: 25px;
+  padding: 0 9px;
+  color: #586774;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 3px;
+  font-size: var(--text-2xs);
+  box-shadow: none;
+}
+
+.overview-v18-surface-tab:hover,
+.overview-v18-surface-tab.active {
+  color: #0f4d5c;
+  background: #e9f4f5;
+  border-color: #cfe2e5;
+  box-shadow: none;
+  transform: none;
+}
+
+.overview-v18-surface-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.55fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.overview-v18-signal-map {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.overview-v18-signal-map::before {
+  display: none;
+  content: none;
+}
+
+.overview-v18-signal-node {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  align-content: start;
+  min-height: 124px;
+  padding: 10px;
+  color: #17202a;
+  background: #ffffff;
+  border: 1px solid #dde6ec;
+  border-radius: 6px;
+  text-align: left;
+  box-shadow: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.overview-v18-signal-node:hover,
+.overview-v18-signal-node.active {
+  color: #17202a;
+  background: #fbfdff;
+  border-color: #a8cbd3;
+  box-shadow: none;
+  transform: none;
+}
+
+.overview-v18-signal-node::before {
+  width: 30px;
+  height: 3px;
+  margin-bottom: 3px;
+  content: "";
+  background: #155e75;
+  border-radius: 999px;
+}
+
+.overview-v18-signal-node.good::before {
+  background: #16835f;
+}
+
+.overview-v18-signal-node.warm::before {
+  background: #c28718;
+}
+
+.overview-v18-signal-node.danger::before {
+  background: #c84545;
+}
+
+.overview-v18-signal-node > span,
+.overview-v18-signal-node > strong,
+.overview-v18-signal-node > em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-v18-signal-node > span {
+  color: #536270;
+  font-size: var(--text-3xs);
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.overview-v18-signal-node > strong {
+  color: #111827;
+  font-size: 26px;
+  font-weight: 920;
+  line-height: 1;
+}
+
+.overview-v18-signal-node > em {
+  color: #667480;
+  font-size: var(--text-2xs);
+  font-style: normal;
+  font-weight: 720;
+}
+
+.overview-v18-signal-node > i {
+  display: none;
+}
+
+.overview-v18-signal-inspector {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #d7e3e8;
+  border-radius: 6px;
+}
+
+.overview-v18-signal-inspector > span {
+  color: #536270;
+  font-family: var(--mono-font);
+  font-size: var(--text-3xs);
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.overview-v18-signal-inspector > strong {
+  color: #111827;
+  font-size: 30px;
+  font-weight: 920;
+  line-height: 1;
+}
+
+.overview-v18-signal-inspector p {
+  min-height: 40px;
+  margin: 0;
+  color: #33424d;
+  font-size: var(--text-xs);
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.overview-v18-signal-inspector a {
+  display: inline-flex;
+  width: max-content;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: #0f4d5c;
+  background: #e9f4f5;
+  border: 1px solid #cfe2e5;
+  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: 820;
+  text-decoration: none;
+}
+
+.overview-v18-signal-inspector a:hover {
+  color: #ffffff;
+  background: #155e75;
+  border-color: #155e75;
+}
+
+.overview-v18-signal-inspector.good > strong {
+  color: #16835f;
+}
+
+.overview-v18-signal-inspector.live > strong {
+  color: #155e75;
+}
+
+.overview-v18-signal-inspector.warm > strong {
+  color: #9a650e;
+}
+
+.overview-v18-signal-inspector.danger > strong {
+  color: #b83636;
+}

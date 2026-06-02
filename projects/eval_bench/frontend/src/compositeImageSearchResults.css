@@ -1,0 +1,93 @@
+.image-jump-results-panel {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  background: var(--composite-surface);
+}
+
+.image-jump-results {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  overscroll-behavior: contain;
+  overflow: auto;
+  padding: var(--composite-pad-5);
+  cursor: grab;
+  scrollbar-width: thin;
+  user-select: none;
+}
+
+.image-jump-scan-rail {
+  position: absolute;
+  z-index: 2;
+  inset: var(--composite-pad-5) auto var(--composite-pad-5) var(--composite-pad-5);
+  display: grid;
+  width: 64px;
+  pointer-events: none;
+}
+
+.image-jump-scan-rail i {
+  position: absolute;
+  top: var(--image-result-scan-top, 50%);
+  left: 0;
+  width: 4px;
+  height: 34px;
+  border-radius: var(--composite-radius-pill);
+  background: var(--image-result-scan-color, var(--composite-accent));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 12%, transparent);
+  transform: translateY(-50%);
+}
+
+.image-jump-scan-rail span {
+  position: absolute;
+  top: var(--image-result-scan-top, 50%);
+  left: 11px;
+  padding: var(--composite-pad-2) var(--composite-pad-5);
+  border: 1px solid color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 28%, var(--composite-line-soft));
+  background: color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 12%, var(--composite-surface));
+  color: var(--composite-ink);
+  font-size: var(--text-2xs);
+  font-weight: 860;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 140ms ease;
+}
+
+.image-jump-results:hover .image-jump-scan-rail span,
+.image-jump-scan-rail[data-dragging="true"] span {
+  opacity: 1;
+}
+
+.image-jump-scan-rail.direction-forward {
+  --image-result-scan-color: var(--composite-accent);
+}
+
+.image-jump-scan-rail.direction-backward {
+  --image-result-scan-color: var(--bench-green);
+}
+
+.image-jump-scan-rail.direction-current {
+  --image-result-scan-color: var(--composite-ink);
+}
+
+.image-jump-results.dragging {
+  cursor: grabbing;
+}
+
+.image-jump-results.dragging [data-result-window-index] {
+  pointer-events: none;
+}
+
+.image-jump-empty {
+  display: grid;
+  min-width: 180px;
+  place-items: center;
+  padding: var(--composite-pad-8);
+  border: 1px dashed var(--composite-line-soft);
+  background: var(--composite-surface-quiet);
+  color: var(--composite-muted);
+  font-size: var(--text-xs);
+}

@@ -1,0 +1,21 @@
+:root {
+  --filter-gap-2: 2px;
+  --filter-gap-3: 3px;
+  --filter-gap-5: 5px;
+  --filter-gap-6: 6px;
+  --filter-gap-8: 8px;
+  --filter-gap-10: 10px;
+  --filter-pad-1: 1px;
+  --filter-pad-4: 4px;
+  --filter-pad-7: 7px;
+  --filter-pad-8: 8px;
+  --filter-pad-9: 9px;
+  --filter-control-min: 26px;
+  --filter-head-min: 30px;
+  --filter-bar-min: 32px;
+  --filter-text-label: var(--text-3xs);
+  --filter-text-caption: var(--text-2xs);
+  --filter-text-body: var(--text-xs);
+  --filter-text-input: var(--text-sm);
+  --filter-radius-control: 2px;
+}

@@ -1,0 +1,38 @@
+.image-jump-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  width: min(760px, 82vw);
+  max-height: min(430px, 58vh);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid #ccd7e4;
+  background: var(--composite-surface);
+  box-shadow: 0 18px 44px rgb(15 23 42 / 18%);
+}
+
+.image-jump-atlas-panel {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.image-jump-popover-body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(210px, 0.82fr) minmax(320px, 1fr);
+}
+
+@media (max-width: 760px) {
+  .image-jump-popover {
+    width: min(520px, calc(100vw - 32px));
+  }
+
+  .image-jump-popover-body {
+    grid-template-columns: 1fr;
+  }
+}

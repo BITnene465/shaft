@@ -35,13 +35,28 @@ const staticRoutes = [
     path: "/rank-board",
     selectors: [
       ".rank-board-page",
-      ".rank-board-statusbar",
+      ".rank-board-summary",
       ".rank-board-table-card",
       ".rank-sort-header",
       ".advanced-filter-bar",
       ".rank-board-table-card"
     ],
     requireRankChunk: true
+  },
+  {
+    name: "suite-report",
+    path: "/suite-report",
+    selectors: [
+      ".composite-report-page",
+      ".composite-report-command",
+      ".composite-report-shell",
+      ".composite-composer-dock",
+      ".composite-stage-region",
+      ".composite-report-stage-card",
+      ".composite-image-navigator",
+      ".image-nearby-rail"
+    ],
+    requireCompositeReport: true
   },
   {
     name: "runs",
@@ -96,7 +111,7 @@ try {
     const page = await browser.newPage({ viewport });
     attachErrorListeners(page, errors, viewport.name);
     for (const route of routes) {
-      await page.goto(`${baseUrl}${route.path}`, { waitUntil: "networkidle" });
+      await page.goto(`${baseUrl}${route.path}`, { waitUntil: "domcontentloaded" });
       await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
       await page.locator(".content").first().waitFor({ timeout: 10_000 });
       for (const selector of route.selectors) {
@@ -141,6 +156,9 @@ try {
         await assertRankHeaderSorting(page, `${viewport.name}:${route.name}`);
         await assertRankFacetRail(page, `${viewport.name}:${route.name}`);
       }
+      if (route.requireCompositeReport) {
+        await assertCompositeReportWorkbench(page, `${viewport.name}:${route.name}`);
+      }
       if (route.requireBenchmarksChunk) {
         await assertBenchmarksPageChunkLoaded(page, `${viewport.name}:${route.name}`);
       }
@@ -160,7 +178,7 @@ try {
   const dialogPage = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   attachErrorListeners(dialogPage, errors, "dialogs");
   for (const item of dialogCases) {
-    await dialogPage.goto(`${baseUrl}${item.path}`, { waitUntil: "networkidle" });
+    await dialogPage.goto(`${baseUrl}${item.path}`, { waitUntil: "domcontentloaded" });
     await dialogPage.locator(".content").first().waitFor({ timeout: 10_000 });
     await dialogPage.getByRole("button", { name: item.button }).click();
     await dialogPage.locator(".workspace-dialog").first().waitFor({ timeout: 5_000 });
@@ -1025,25 +1043,25 @@ async function assertFormControlsFit(page, scope) {
     .locator(
       [
         ".job-form input",
-        ".job-form select",
+        ".job-form .select-popover-trigger",
         ".job-form textarea",
         ".manifest-job-form input",
-        ".manifest-job-form select",
+        ".manifest-job-form .select-popover-trigger",
         ".manifest-job-form textarea",
         ".service-form input",
-        ".service-form select",
+        ".service-form .select-popover-trigger",
         ".service-form textarea",
         ".import-form input",
-        ".import-form select",
+        ".import-form .select-popover-trigger",
         ".import-form textarea",
         ".benchmark-form input",
-        ".benchmark-form select",
+        ".benchmark-form .select-popover-trigger",
         ".benchmark-form textarea",
         ".comparison-controls input",
-        ".comparison-controls select",
+        ".comparison-controls .select-popover-trigger",
         ".comparison-controls textarea",
         ".advanced-filter-controls input",
-        ".advanced-filter-controls select",
+        ".advanced-filter-controls .select-popover-trigger",
         ".advanced-filter-controls textarea"
       ].join(", ")
     )
@@ -1172,7 +1190,7 @@ async function assertAdvancedFilterClear(page, scope) {
   await assertAdvancedFilterPreservesDraftAfterTokenClear(filter, scope);
   const resetSearchInput = await openAdvancedFilter(filter);
   await resetSearchInput.fill("layout-smoke-filter-reset");
-  await filter.locator(".advanced-filter-apply").click();
+  await filter.locator(".advanced-filter-apply").click({ force: true });
   await filter.locator(".advanced-filter-clear").waitFor({ timeout: 5_000 });
   await filter.locator(".advanced-filter-clear").click();
   const state = await filter.evaluate((node) => {
@@ -1191,27 +1209,32 @@ async function assertAdvancedFilterClear(page, scope) {
 
 async function assertAdvancedFilterPreservesDraftAfterTokenClear(filter, scope) {
   await openAdvancedFilter(filter);
-  const select = filter.locator(".advanced-filter-controls select").first();
+  const select = filter.locator(".advanced-filter-controls .select-popover-control").first();
   if ((await select.count()) === 0) {
     return;
   }
-  const targetValue = await select.evaluate((node) => {
-    if (!(node instanceof HTMLSelectElement)) {
+  await select.locator(".select-popover-trigger").click();
+  const targetOption = select
+    .locator(".select-popover-option")
+    .filter({ hasNotText: "全部" })
+    .first();
+  if ((await targetOption.count()) === 0) {
+    return;
+  }
+  const targetValue = await targetOption.evaluate((node) => {
+    if (!(node instanceof HTMLElement)) {
       return "";
     }
-    return Array.from(node.options)
-      .map((option) => option.value)
-      .find((value) => value && value !== node.value) ?? "";
+    return node.dataset.selectValue ?? "";
   });
   if (!targetValue) {
     return;
   }
   const selectLabel = await select.evaluate((node) => {
-    const label = node.closest("label");
-    return label?.querySelector("span")?.textContent?.trim() ?? "";
+    return node.querySelector(".select-popover-label")?.textContent?.trim() ?? "";
   });
-  await select.selectOption(targetValue);
-  await filter.locator(".advanced-filter-apply").click();
+  await targetOption.click();
+  await filter.locator(".advanced-filter-apply").click({ force: true });
   const appliedToken = selectLabel
     ? filter.locator(".advanced-filter-token", { hasText: `${selectLabel}:` }).first()
     : filter.locator(".advanced-filter-token").first();
@@ -1272,7 +1295,7 @@ async function assertAdvancedFilterKeyboardFlow(page, scope) {
     const popoverNode = node.querySelector(".advanced-filter-popover");
     const controls = Array.from(
       node.querySelectorAll(
-        ".advanced-filter-controls input:not([disabled]), .advanced-filter-controls select:not([disabled]), .advanced-filter-controls textarea:not([disabled]), .advanced-filter-controls button:not([disabled])"
+        ".advanced-filter-controls input:not([disabled]), .advanced-filter-controls textarea:not([disabled]), .advanced-filter-controls button:not([disabled])"
       )
     );
     const active = document.activeElement;
@@ -1715,14 +1738,16 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
   }
   const filterHead = page.locator(".inspector-sidebar .advanced-filter-head").first();
   await filterHead.click();
-  const selects = page.locator(".inspector-sidebar .advanced-filter-controls select");
+  const selects = page.locator(".inspector-sidebar .advanced-filter-controls .select-popover-control");
   const selectCount = await selects.count();
   const select =
     routeName === "benchmark-inspector" && selectCount > 1 ? selects.nth(1) : selects.first();
   await select.waitFor({ timeout: 5_000 });
-  const optionValues = await select.locator("option").evaluateAll((options) =>
-    options
-      .map((option) => option.value)
+  await select.locator(".select-popover-trigger").click();
+  const options = select.locator(".select-popover-option");
+  const optionValues = await options.evaluateAll((nodes) =>
+    nodes
+      .map((option) => (option instanceof HTMLElement ? option.dataset.selectValue ?? "" : ""))
       .filter((value) => value && value !== "all")
   );
   if (optionValues.length === 0) {
@@ -1749,8 +1774,8 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
   };
   await page.route(pattern, handler);
   try {
-    await select.selectOption(optionValues[0]);
-    await page.locator(".inspector-sidebar .advanced-filter-apply").click();
+    await options.filter({ hasNotText: "全部" }).first().click();
+    await page.locator(".inspector-sidebar .advanced-filter-apply").click({ force: true });
     await page
       .locator(".viewer-panel .empty-panel", { hasText: "没有符合过滤条件的样本" })
       .waitFor({ timeout: 10_000 });
@@ -1778,6 +1803,592 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
   } finally {
     await page.unroute(pattern, handler);
   }
+}
+
+async function assertCompositeReportWorkbench(page, scope) {
+  await page.locator(".image-nearby-card").first().waitFor({ timeout: 10_000 });
+  const collapsedState = await page.evaluate(() => {
+    const shell = document.querySelector(".composite-report-shell");
+    const dock = document.querySelector(".composite-composer-dock");
+    const drawer = document.querySelector(".composite-sidebar-drawer");
+    const stageRegion = document.querySelector(".composite-stage-region");
+    const nearbyRail = document.querySelector(".image-nearby-rail");
+    const search = document.querySelector(".image-navigator-search input");
+    const canvas = document.querySelector(".image-stage");
+    const overlay = document.querySelector(".overlay-svg");
+    const focus = document.querySelector(".composite-report-focus");
+    const split = document.querySelector(".composite-split-stage");
+    const inspector = document.querySelector(".composite-inspector-panel");
+    const shellRect = shell?.getBoundingClientRect();
+    const dockRect = dock?.getBoundingClientRect();
+    const stageRect = stageRegion?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      sidebarOpen: shell?.classList.contains("sidebar-open") ?? false,
+      hasDrawer: Boolean(drawer),
+      shellWidth: shellRect?.width ?? 0,
+      shellHeight: shellRect?.height ?? 0,
+      dockWidth: dockRect?.width ?? 0,
+      dockHeight: dockRect?.height ?? 0,
+      stageWidth: stageRect?.width ?? 0,
+      stageHeight: stageRect?.height ?? 0,
+      nearbyItems: nearbyRail?.querySelectorAll(".image-nearby-card").length ?? 0,
+      hasSearch: Boolean(search),
+      hasCanvas: Boolean(canvas),
+      hasOverlay: Boolean(overlay),
+      hasFocus: Boolean(focus),
+      hasSplit: Boolean(split),
+      hasInspector: Boolean(inspector)
+    };
+  });
+  if (collapsedState.sidebarOpen || collapsedState.hasDrawer) {
+    throw new Error(`${scope}: composite report composer should default collapsed ${JSON.stringify(collapsedState)}`);
+  }
+  if (collapsedState.viewportWidth > 940 && collapsedState.dockWidth > 70) {
+    throw new Error(`${scope}: collapsed composer dock is too wide ${JSON.stringify(collapsedState)}`);
+  }
+  if (collapsedState.viewportWidth <= 940 && collapsedState.dockHeight > 72) {
+    throw new Error(`${scope}: compact composer dock is too tall ${JSON.stringify(collapsedState)}`);
+  }
+  if (collapsedState.nearbyItems < 1 || !collapsedState.hasSearch) {
+    throw new Error(`${scope}: composite report nearby image rail is not interactive ${JSON.stringify(collapsedState)}`);
+  }
+  if (collapsedState.nearbyItems > 9) {
+    throw new Error(`${scope}: composite report should use a compact nearby image window ${JSON.stringify(collapsedState)}`);
+  }
+  if (!collapsedState.hasCanvas || !collapsedState.hasOverlay || !collapsedState.hasFocus || !collapsedState.hasSplit || !collapsedState.hasInspector) {
+    throw new Error(`${scope}: composite report visual stage did not render ${JSON.stringify(collapsedState)}`);
+  }
+  await assertCompositeScrubPreview(page, scope);
+  await assertCompositeObjectInteraction(page, scope);
+  await assertCompositeInteractionPalette(page, scope);
+  await page.locator(".composite-composer-dock .icon-button").first().click();
+  await page.locator(".composite-sidebar-drawer").waitFor({ timeout: 3_000 });
+  const drawerState = await page.evaluate(() => {
+    const resultPool = document.querySelector(".report-run-pool");
+    const layerPlan = document.querySelector(".report-layer-plan");
+    const drawer = document.querySelector(".composite-sidebar-drawer");
+    const drawerRect = drawer?.getBoundingClientRect();
+    return {
+      drawerWidth: drawerRect?.width ?? 0,
+      drawerHeight: drawerRect?.height ?? 0,
+      resultCards: resultPool?.querySelectorAll(".report-run-card").length ?? 0,
+      layerRows: layerPlan?.querySelectorAll(".report-layer-row").length ?? 0
+    };
+  });
+  if (drawerState.resultCards < 1 || drawerState.layerRows < 2 || drawerState.drawerWidth < 260 || drawerState.drawerHeight < 120) {
+    throw new Error(`${scope}: composer drawer did not expose result pool and layered report plan ${JSON.stringify(drawerState)}`);
+  }
+  await page.locator(".composite-sidebar-head .icon-button").first().click();
+  await page.locator(".composite-sidebar-drawer").waitFor({ state: "hidden", timeout: 3_000 });
+  await page.locator(".image-navigator-search input").fill("1");
+  await page.locator(".image-jump-popover").waitFor({ timeout: 3000 });
+  const searchState = await page.evaluate(() => ({
+    popover: Boolean(document.querySelector(".image-jump-popover")),
+    atlas: Boolean(document.querySelector(".image-jump-atlas")),
+    activePreview: document.querySelector(".image-jump-active-preview")?.textContent?.trim() ?? "",
+    mapBins: document.querySelectorAll(".image-map-bin").length,
+    activeMapBins: document.querySelectorAll(".image-map-bin.active").length,
+    results: document.querySelectorAll(".image-jump-result").length,
+    nearbyItems: document.querySelectorAll(".image-nearby-card").length
+  }));
+  if (
+    !searchState.popover ||
+    !searchState.atlas ||
+    searchState.mapBins < 8 ||
+    searchState.activeMapBins !== 1 ||
+    !searchState.activePreview ||
+    searchState.results < 1 ||
+    searchState.results > 48
+  ) {
+    throw new Error(`${scope}: composite image search popover is not bounded ${JSON.stringify(searchState)}`);
+  }
+  await assertCompositeImageSearchPreview(page, scope);
+  if (searchState.nearbyItems > 11) {
+    throw new Error(`${scope}: composite nearby image window expanded during search ${JSON.stringify(searchState)}`);
+  }
+  await page.locator(".composite-stage-mode .query-chip", { hasText: "分屏" }).click();
+  const splitOnly = await page.evaluate(() => ({
+    focus: Boolean(document.querySelector(".composite-report-focus")),
+    split: Boolean(document.querySelector(".composite-split-stage")),
+    activeMode: document.querySelector(".composite-stage-mode .query-chip.active")?.textContent?.trim() ?? ""
+  }));
+  if (splitOnly.focus || !splitOnly.split || splitOnly.activeMode !== "分屏") {
+    throw new Error(`${scope}: composite split-only mode did not apply ${JSON.stringify(splitOnly)}`);
+  }
+  await page.locator(".composite-stage-mode .query-chip", { hasText: "叠加" }).click();
+  const overlayOnly = await page.evaluate(() => ({
+    focus: Boolean(document.querySelector(".composite-report-focus")),
+    split: Boolean(document.querySelector(".composite-split-stage")),
+    activeMode: document.querySelector(".composite-stage-mode .query-chip.active")?.textContent?.trim() ?? ""
+  }));
+  if (!overlayOnly.focus || overlayOnly.split || overlayOnly.activeMode !== "叠加") {
+    throw new Error(`${scope}: composite overlay-only mode did not apply ${JSON.stringify(overlayOnly)}`);
+  }
+  await page.locator(".composite-stage-mode .query-chip", { hasText: "总览" }).click();
+  const focusChip = page.locator(".composite-layer-focus-strip .query-chip").nth(1);
+  if ((await focusChip.count()) > 0 && !(await focusChip.isDisabled())) {
+    await focusChip.click();
+    const focusState = await page.evaluate(() => ({
+      focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "",
+      focusedRows: document.querySelectorAll(".layer-report-row.focused").length,
+      splitPanes: document.querySelectorAll(".composite-split-pane").length
+    }));
+    if (!focusState.focusedToolbar || focusState.focusedRows !== 1 || focusState.splitPanes !== 1) {
+      throw new Error(`${scope}: composite layer focus did not narrow the workbench ${JSON.stringify(focusState)}`);
+    }
+    await page.locator(".composite-layer-focus-strip .query-chip", { hasText: "全部" }).click();
+  }
+  const enabledFocusChipCount = await page
+    .locator(".composite-layer-focus-strip .query-chip:not([disabled])")
+    .count();
+  if (enabledFocusChipCount > 1) {
+    const beforeWheelFocus = await page.evaluate(
+      () => document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? ""
+    );
+    await page.locator(".composite-layer-focus-strip").hover();
+    await page.mouse.wheel(0, 96);
+    await page.waitForFunction((previous) => {
+      const focused = document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "";
+      return Boolean(focused) && focused !== previous;
+    }, beforeWheelFocus);
+    const wheelFocusState = await page.evaluate(() => ({
+      focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "",
+      focusedRows: document.querySelectorAll(".layer-report-row.focused").length,
+      splitPanes: document.querySelectorAll(".composite-split-pane").length
+    }));
+    if (wheelFocusState.focusedToolbar === "全部图层" || wheelFocusState.splitPanes !== 1) {
+      throw new Error(`${scope}: composite layer focus wheel did not cycle focus ${JSON.stringify(wheelFocusState)}`);
+    }
+    await page.locator(".composite-layer-focus-strip .query-chip", { hasText: "全部" }).click();
+  }
+  await page.locator(".image-navigator-search input").fill("");
+  await page.keyboard.press("/");
+  const shortcutSearchState = await page.evaluate(() => ({
+    focusedSearch: document.activeElement?.matches(".image-navigator-search input") ?? false,
+    popover: Boolean(document.querySelector(".image-jump-popover"))
+  }));
+  if (!shortcutSearchState.focusedSearch || !shortcutSearchState.popover) {
+    throw new Error(`${scope}: composite / shortcut did not open image search ${JSON.stringify(shortcutSearchState)}`);
+  }
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  const beforeKeyboardIndex = await compositeActiveImageIndex(page);
+  if (collapsedState.nearbyItems > 1) {
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction((previous) => {
+      const active = document.querySelector(".image-nearby-card.active span");
+      return Number(active?.textContent ?? 0) !== previous;
+    }, beforeKeyboardIndex);
+    const afterKeyboardIndex = await compositeActiveImageIndex(page);
+    if (afterKeyboardIndex !== beforeKeyboardIndex + 1) {
+      throw new Error(
+        `${scope}: composite ArrowRight shortcut did not step images ${JSON.stringify({
+          beforeKeyboardIndex,
+          afterKeyboardIndex
+        })}`
+      );
+    }
+  }
+  await assertCompositeNearbyRailDrag(page, scope);
+}
+
+async function assertCompositeImageSearchPreview(page, scope) {
+  const secondResult = page.locator(".image-jump-result").nth(1);
+  if ((await secondResult.count()) === 0) {
+    return;
+  }
+  const beforePreview = await page.evaluate(
+    () => document.querySelector(".image-jump-active-preview")?.textContent?.trim() ?? ""
+  );
+  await secondResult.hover();
+  await page.waitForFunction((previous) => {
+    const preview = document.querySelector(".image-jump-active-preview")?.textContent?.trim() ?? "";
+    return Boolean(preview) && preview !== previous;
+  }, beforePreview);
+  const previewState = await page.evaluate(() => {
+    const preview = document.querySelector(".image-jump-active-preview");
+    const active = document.querySelector(".image-jump-result.active");
+    return {
+      preview: preview?.textContent?.trim() ?? "",
+      activeResult: active?.textContent?.trim() ?? "",
+      previewTitle: preview?.getAttribute("title") ?? "",
+      activeTitle: active?.getAttribute("title") ?? ""
+    };
+  });
+  if (!previewState.preview || !previewState.activeResult || previewState.previewTitle !== previewState.activeTitle) {
+    throw new Error(`${scope}: composite image search active preview did not follow hovered result ${JSON.stringify(previewState)}`);
+  }
+  const beforeWheelPreview = previewState.previewTitle;
+  await page.locator(".image-jump-results").hover();
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction((previous) => {
+    const preview = document.querySelector(".image-jump-active-preview");
+    return Boolean(preview?.getAttribute("title")) && preview?.getAttribute("title") !== previous;
+  }, beforeWheelPreview);
+  const wheelState = await page.evaluate(() => {
+    const preview = document.querySelector(".image-jump-active-preview");
+    const active = document.querySelector(".image-jump-result.active");
+    return {
+      preview: preview?.textContent?.trim() ?? "",
+      activeResult: active?.textContent?.trim() ?? "",
+      previewTitle: preview?.getAttribute("title") ?? "",
+      activeTitle: active?.getAttribute("title") ?? ""
+    };
+  });
+  if (!wheelState.preview || !wheelState.activeResult || wheelState.previewTitle !== wheelState.activeTitle) {
+    throw new Error(`${scope}: composite image search wheel navigation did not drive active preview ${JSON.stringify(wheelState)}`);
+  }
+}
+
+async function assertCompositeInteractionPalette(page, scope) {
+  const paletteState = await page.evaluate(() => ({
+    toolbar: Boolean(document.querySelector(".composite-interaction-palette[role='toolbar']")),
+    previous: Boolean(document.querySelector(".interaction-palette-tool[data-tool='previous']")),
+    next: Boolean(document.querySelector(".interaction-palette-tool[data-tool='next']")),
+    search: Boolean(document.querySelector(".interaction-palette-tool[data-tool='search']")),
+    reset: Boolean(document.querySelector(".interaction-palette-tool[data-tool='reset']"))
+  }));
+  if (!paletteState.toolbar || !paletteState.previous || !paletteState.next || !paletteState.search || !paletteState.reset) {
+    throw new Error(`${scope}: composite interaction palette is not an actionable toolbar ${JSON.stringify(paletteState)}`);
+  }
+  await page.locator(".interaction-palette-tool[data-tool='search']").click();
+  const searchState = await page.evaluate(() => ({
+    focusedSearch: document.activeElement?.matches(".image-navigator-search input") ?? false,
+    popover: Boolean(document.querySelector(".image-jump-popover"))
+  }));
+  if (!searchState.focusedSearch || !searchState.popover) {
+    throw new Error(`${scope}: composite interaction palette search button did not open search ${JSON.stringify(searchState)}`);
+  }
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  const beforeIndex = await compositeActiveImageIndex(page);
+  const nextButton = page.locator(".interaction-palette-tool[data-tool='next']");
+  if (!(await nextButton.isDisabled())) {
+    await nextButton.click();
+    await page.waitForFunction((previous) => {
+      const active = document.querySelector(".image-nearby-card.active span");
+      return Number(active?.textContent ?? 0) === previous + 1;
+    }, beforeIndex);
+    const previousButton = page.locator(".interaction-palette-tool[data-tool='previous']");
+    await previousButton.click();
+    await page.waitForFunction((previous) => {
+      const active = document.querySelector(".image-nearby-card.active span");
+      return Number(active?.textContent ?? 0) === previous;
+    }, beforeIndex);
+  }
+}
+
+async function assertCompositeScrubPreview(page, scope) {
+  const scrubTrack = page.locator(".image-scrub-track").first();
+  await scrubTrack.scrollIntoViewIfNeeded();
+  const rect = await scrubTrack.boundingBox();
+  if (!rect || rect.width <= 8 || rect.height <= 4) {
+    throw new Error(`${scope}: composite scrub track is not measurable ${JSON.stringify(rect)}`);
+  }
+  await page.mouse.move(Math.max(0, rect.x - 24), Math.max(0, rect.y - 24));
+  await page.mouse.move(rect.x + rect.width * 0.72, rect.y + rect.height / 2);
+  try {
+    await page.waitForFunction(() => {
+      const preview = document.querySelector(".image-scrub-preview");
+      return Boolean(preview?.textContent?.trim());
+    }, null, { timeout: 3_000 });
+  } catch {
+    const hitState = await page.evaluate(() => {
+      const track = document.querySelector(".image-scrub-track");
+      const rect = track?.getBoundingClientRect();
+      if (!track || !rect) {
+        return { hasTrack: false };
+      }
+      const hit = document.elementFromPoint(rect.left + rect.width * 0.72, rect.top + rect.height / 2);
+      return {
+        hasTrack: true,
+        hitClass: hit?.className ?? "",
+        hitTag: hit?.tagName ?? "",
+        isTrackHit: hit === track || track.contains(hit)
+      };
+    });
+    throw new Error(`${scope}: composite scrub hover preview did not render after hover ${JSON.stringify(hitState)}`);
+  }
+  const hoverState = await page.evaluate(() => {
+    const preview = document.querySelector(".image-scrub-preview");
+    return {
+      visible: Boolean(preview),
+      text: preview?.textContent?.trim() ?? "",
+      rect: preview?.getBoundingClientRect()
+    };
+  });
+  if (!hoverState.visible || !hoverState.text) {
+    throw new Error(`${scope}: composite scrub hover preview did not render ${JSON.stringify(hoverState)}`);
+  }
+  await page.mouse.move(rect.x + rect.width + 40, rect.y + rect.height + 40);
+  await page.waitForFunction(() => !document.querySelector(".image-scrub-preview"));
+}
+
+async function assertCompositeNearbyRailDrag(page, scope) {
+  const rail = page.locator(".image-nearby-rail").first();
+  const rect = await rail.boundingBox();
+  if (!rect || rect.width <= 80 || rect.height <= 20) {
+    throw new Error(`${scope}: composite nearby rail is not draggable ${JSON.stringify(rect)}`);
+  }
+  const beforeIndex = await compositeActiveImageIndex(page);
+  const railState = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll(".image-nearby-card span"));
+    const indexes = cards
+      .map((card) => Number(card.textContent ?? 0))
+      .filter((index) => Number.isFinite(index));
+    return {
+      maxIndex: Math.max(0, ...indexes),
+      minIndex: Math.min(Number.MAX_SAFE_INTEGER, ...indexes)
+    };
+  });
+  if (beforeIndex <= 0 || railState.maxIndex <= railState.minIndex) {
+    return;
+  }
+  const dragToNext = beforeIndex < railState.maxIndex;
+  const startX = rect.x + rect.width * (dragToNext ? 0.74 : 0.26);
+  const endX = rect.x + rect.width * (dragToNext ? 0.34 : 0.66);
+  const centerY = rect.y + rect.height / 2;
+  await page.mouse.move(startX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(endX, centerY, { steps: 8 });
+  try {
+    await page.waitForFunction((expectedHint) => {
+      const hint = document.querySelector(".image-nearby-drag-hint");
+      return Boolean(hint?.textContent?.includes(expectedHint));
+    }, dragToNext ? "Next" : "Previous");
+  } catch (error) {
+    const dragState = await page.evaluate(({ x, y }) => {
+      const rail = document.querySelector(".image-nearby-rail");
+      const hit = document.elementFromPoint(x, y);
+      return {
+        active: document.querySelector(".image-nearby-card.active span")?.textContent ?? "",
+        dragging: rail?.classList.contains("dragging") ?? false,
+        hasHint: Boolean(document.querySelector(".image-nearby-drag-hint")),
+        hitClass: hit?.className ?? "",
+        hitTag: hit?.tagName ?? ""
+      };
+    }, { x: endX, y: centerY });
+    await page.mouse.up();
+    throw new Error(`${scope}: composite nearby rail drag hint did not render ${JSON.stringify(dragState)}`);
+  }
+  await page.mouse.up();
+  await page.waitForFunction((previous) => {
+    const active = document.querySelector(".image-nearby-card.active span");
+    return Number(active?.textContent ?? 0) !== previous;
+  }, beforeIndex);
+  const afterIndex = await compositeActiveImageIndex(page);
+  if (dragToNext ? afterIndex <= beforeIndex : afterIndex >= beforeIndex) {
+    throw new Error(
+      `${scope}: composite nearby rail drag did not step image ${JSON.stringify({
+        beforeIndex,
+        afterIndex,
+        dragToNext
+      })}`
+    );
+  }
+}
+
+async function assertCompositeObjectInteraction(page, scope) {
+  const objectChip = page.locator(".layer-object-chip").first();
+  if ((await objectChip.count()) === 0) {
+    return;
+  }
+  await objectChip.hover();
+  const hoverState = await page.evaluate(() => ({
+    activeChips: document.querySelectorAll(".layer-object-chip.active").length,
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
+    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
+    hudIdle: document.querySelector(".composite-object-hud")?.classList.contains("idle") ?? false
+  }));
+  if (hoverState.activeChips < 1 || hoverState.activeOverlays < 1 || hoverState.hudIdle || !hoverState.hud.includes("Hovered Object")) {
+    throw new Error(`${scope}: composite object hover did not highlight canvas ${JSON.stringify(hoverState)}`);
+  }
+  await objectChip.click();
+  const lockedState = await page.evaluate(() => ({
+    activeChips: document.querySelectorAll(".layer-object-chip.active").length,
+    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
+    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
+    clearButton: Array.from(document.querySelectorAll(".composite-object-hud button")).some((button) =>
+      button.textContent?.includes("清除")
+    )
+  }));
+  if (lockedState.lockedChips < 1 || lockedState.activeOverlays < 1 || !lockedState.hud.includes("Locked Object") || !lockedState.clearButton) {
+    throw new Error(`${scope}: composite object click did not lock canvas highlight ${JSON.stringify(lockedState)}`);
+  }
+  await assertCompositeObjectWheelNavigation(page, scope);
+  await assertCompositePanAfterObjectLock(page, scope);
+  await page.locator(".composite-object-hud button", { hasText: "清除" }).click();
+  const clearedState = await page.evaluate(() => ({
+    activeChips: document.querySelectorAll(".layer-object-chip.active").length,
+    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
+    hudIdle: document.querySelector(".composite-object-hud")?.classList.contains("idle") ?? false
+  }));
+  if (clearedState.activeChips > 0 || clearedState.lockedChips > 0 || !clearedState.hudIdle) {
+    throw new Error(`${scope}: composite object HUD clear did not reset interaction ${JSON.stringify(clearedState)}`);
+  }
+  await objectChip.hover();
+  const activeOverlay = page.locator(".overlay-instance.active").first();
+  if ((await activeOverlay.count()) === 0) {
+    throw new Error(`${scope}: composite object hover did not expose an inspectable overlay`);
+  }
+  await activeOverlay.dblclick({ force: true });
+  const inspectedState = await page.evaluate(() => ({
+    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
+    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
+    focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? ""
+  }));
+  if (
+    inspectedState.lockedChips < 1 ||
+    inspectedState.activeOverlays < 1 ||
+    !inspectedState.hud.includes("Locked Object") ||
+    !inspectedState.focusedToolbar ||
+    inspectedState.focusedToolbar === "全部图层"
+  ) {
+    throw new Error(`${scope}: composite object double click did not inspect and focus its layer ${JSON.stringify(inspectedState)}`);
+  }
+  await page.locator(".composite-object-hud button", { hasText: "清除" }).click();
+}
+
+async function assertCompositeObjectWheelNavigation(page, scope) {
+  const stripIndex = await page.evaluate(() =>
+    Array.from(document.querySelectorAll(".layer-object-strip")).findIndex(
+      (strip) => strip.querySelectorAll(".layer-object-chip").length > 1
+    )
+  );
+  if (stripIndex < 0) {
+    return;
+  }
+  const strip = page.locator(".layer-object-strip").nth(stripIndex);
+  await strip.locator(".layer-object-chip").first().click();
+  const beforeWheel = await page.evaluate(() => ({
+    lockedTitle: document.querySelector(".layer-object-chip.locked")?.getAttribute("title") ?? "",
+    hud: document.querySelector(".composite-object-hud")?.textContent ?? ""
+  }));
+  await strip.hover();
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction((previous) => {
+    const lockedTitle = document.querySelector(".layer-object-chip.locked")?.getAttribute("title") ?? "";
+    return Boolean(lockedTitle) && lockedTitle !== previous;
+  }, beforeWheel.lockedTitle);
+  const wheelState = await page.evaluate(() => ({
+    beforeTitle: document.querySelector(".layer-object-chip.locked")?.getAttribute("title") ?? "",
+    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
+    hud: document.querySelector(".composite-object-hud")?.textContent ?? ""
+  }));
+  if (
+    wheelState.lockedChips !== 1 ||
+    wheelState.activeOverlays < 1 ||
+    !wheelState.hud.includes("Locked Object") ||
+    wheelState.beforeTitle === beforeWheel.lockedTitle
+  ) {
+    throw new Error(`${scope}: composite object wheel navigation did not cycle locked object ${JSON.stringify({
+      beforeWheel,
+      wheelState
+    })}`);
+  }
+}
+
+async function assertCompositePanAfterObjectLock(page, scope) {
+  const dragPoint = await page.evaluate(() => {
+    const stage = document.querySelector(".composite-report-focus .image-stage");
+    const activeOverlay = document.querySelector(".composite-report-focus .overlay-instance.active");
+    const hud = document.querySelector(".composite-report-focus .canvas-hud");
+    if (!stage) {
+      return null;
+    }
+    const stageRect = stage.getBoundingClientRect();
+    const activeRect = activeOverlay?.getBoundingClientRect();
+    const hudRect = hud?.getBoundingClientRect();
+    const candidates = [
+      { x: stageRect.left + 26, y: stageRect.top + 26 },
+      { x: stageRect.right - 52, y: stageRect.top + 30 },
+      { x: stageRect.left + 32, y: stageRect.bottom - 58 },
+      { x: stageRect.left + stageRect.width * 0.5, y: stageRect.top + stageRect.height * 0.5 }
+    ];
+    const outside = (point, rect) =>
+      !rect ||
+      point.x < rect.left - 4 ||
+      point.x > rect.right + 4 ||
+      point.y < rect.top - 4 ||
+      point.y > rect.bottom + 4;
+    return candidates.find((point) => outside(point, activeRect) && outside(point, hudRect)) ?? null;
+  });
+  if (!dragPoint) {
+    throw new Error(`${scope}: composite canvas did not expose a safe blank point for pan test`);
+  }
+  await page.mouse.move(dragPoint.x, dragPoint.y);
+  await page.mouse.wheel(0, -520);
+  await page.waitForFunction(() => Boolean(document.querySelector(".composite-report-focus .canvas-reset-button")));
+  const beforeTransform = await page.evaluate(() => {
+    const layer = document.querySelector(".composite-report-focus .image-zoom-layer");
+    return layer ? getComputedStyle(layer).transform : "";
+  });
+  await page.mouse.down();
+  await page.mouse.move(dragPoint.x + 72, dragPoint.y + 38, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction((previous) => {
+    const layer = document.querySelector(".composite-report-focus .image-zoom-layer");
+    return layer && getComputedStyle(layer).transform !== previous;
+  }, beforeTransform);
+  const panState = await page.evaluate((previous) => {
+    const layer = document.querySelector(".composite-report-focus .image-zoom-layer");
+    const reset = document.querySelector(".composite-report-focus .canvas-reset-button");
+    return {
+      beforeTransform: previous,
+      afterTransform: layer ? getComputedStyle(layer).transform : "",
+      hasReset: Boolean(reset),
+      activeOverlayCount: document.querySelectorAll(".composite-report-focus .overlay-instance.active").length
+    };
+  }, beforeTransform);
+  if (panState.beforeTransform === panState.afterTransform || !panState.hasReset || panState.activeOverlayCount < 1) {
+    throw new Error(`${scope}: composite canvas blank-area pan is blocked after object lock ${JSON.stringify(panState)}`);
+  }
+  await page.locator(".interaction-palette-tool[data-tool='reset']").click();
+  await page.waitForFunction(() => !document.querySelector(".composite-report-focus .canvas-reset-button"));
+  const resetState = await page.evaluate(() => ({
+    hasReset: Boolean(document.querySelector(".composite-report-focus .canvas-reset-button")),
+    activeOverlayCount: document.querySelectorAll(".composite-report-focus .overlay-instance.active").length
+  }));
+  if (resetState.hasReset || resetState.activeOverlayCount < 1) {
+    throw new Error(`${scope}: composite interaction palette reset did not reset viewport while preserving object selection ${JSON.stringify(resetState)}`);
+  }
+  await page.mouse.move(dragPoint.x, dragPoint.y);
+  await page.mouse.wheel(0, -520);
+  await page.waitForFunction(() => Boolean(document.querySelector(".composite-report-focus .canvas-reset-button")));
+  await page.mouse.dblclick(dragPoint.x, dragPoint.y);
+  await page.waitForFunction(() => !document.querySelector(".composite-report-focus .canvas-reset-button"));
+  const doubleClickResetState = await page.evaluate(() => ({
+    hasReset: Boolean(document.querySelector(".composite-report-focus .canvas-reset-button")),
+    activeOverlayCount: document.querySelectorAll(".composite-report-focus .overlay-instance.active").length,
+    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length
+  }));
+  if (
+    doubleClickResetState.hasReset ||
+    doubleClickResetState.activeOverlayCount < 1 ||
+    doubleClickResetState.lockedChips < 1
+  ) {
+    throw new Error(`${scope}: composite canvas blank double click did not reset viewport while preserving object lock ${JSON.stringify(doubleClickResetState)}`);
+  }
+}
+
+async function compositeActiveImageIndex(page) {
+  return page.evaluate(() => {
+    const active = document.querySelector(".image-nearby-card.active span");
+    return Number(active?.textContent ?? 0);
+  });
 }
 
 async function assertDialogLayout(page, scope) {
@@ -1962,7 +2573,7 @@ async function assertRankFacetExpansion(page, scope) {
 
 async function assertRankHeaderSorting(page, scope) {
   const state = await page.evaluate(() => {
-    const statusbar = document.querySelector(".rank-board-statusbar");
+    const summary = document.querySelector(".rank-board-summary");
     const tableCard = document.querySelector(".rank-board-table-card");
     const sortHeaders = Array.from(document.querySelectorAll(".rank-sort-header"));
     const activeSortHeaders = sortHeaders.filter((header) => header.classList.contains("active"));
@@ -1977,10 +2588,10 @@ async function assertRankHeaderSorting(page, scope) {
     const advancedSortControls = Array.from(document.querySelectorAll(".advanced-filter-bar [id]"))
       .map((node) => node.id)
       .filter((id) => id.includes("rank-sort"));
-    const statusbarRect = statusbar?.getBoundingClientRect();
+    const summaryRect = summary?.getBoundingClientRect();
     const tableRect = tableCard?.getBoundingClientRect();
     return {
-      hasStatusbar: Boolean(statusbar),
+      hasSummary: Boolean(summary),
       hasTableCard: Boolean(tableCard),
       hasPrimarySelect: Boolean(primarySelect),
       sortHeaderCount: sortHeaders.length,
@@ -1993,14 +2604,17 @@ async function assertRankHeaderSorting(page, scope) {
       hasSpreadPanel: Boolean(spreadPanel),
       hasMetricStrip: Boolean(metricStrip),
       advancedSortControls,
-      statusbarHeight: statusbarRect ? Math.round(statusbarRect.height) : 0,
-      tableStartsAfterStatusbar: Boolean(
-        statusbarRect && tableRect && tableRect.top > statusbarRect.bottom
+      summaryHeight: summaryRect ? Math.round(summaryRect.height) : 0,
+      summaryInsideTableCard: Boolean(
+        summaryRect &&
+          tableRect &&
+          summaryRect.top >= tableRect.top &&
+          summaryRect.bottom <= tableRect.bottom
       )
     };
   });
   if (
-    !state.hasStatusbar ||
+    !state.hasSummary ||
     !state.hasTableCard ||
     state.hasPrimarySelect ||
     state.sortHeaderCount < 7 ||
@@ -2018,8 +2632,8 @@ async function assertRankHeaderSorting(page, scope) {
     state.hasTopPanel ||
     state.hasSpreadPanel ||
     state.hasMetricStrip ||
-    state.statusbarHeight > 90 ||
-    !state.tableStartsAfterStatusbar ||
+    state.summaryHeight > 42 ||
+    !state.summaryInsideTableCard ||
     state.advancedSortControls.length > 0
   ) {
     throw new Error(`${scope}: rank header sorting contract failed ${JSON.stringify(state)}`);

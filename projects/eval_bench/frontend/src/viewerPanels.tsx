@@ -15,6 +15,8 @@ import type {
 } from "./viewerMetrics";
 import type { ShortcutActionId } from "./workspaceSettings";
 
+import "./viewerInspector.css";
+
 export function ViewerControlPanel({
   labels,
   activeLabels,

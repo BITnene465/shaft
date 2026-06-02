@@ -1,0 +1,67 @@
+.composite-panel-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--composite-gap-8);
+}
+
+.composite-panel-head.framed {
+  padding: var(--composite-pad-8) var(--composite-pad-10);
+  border-bottom: 1px solid var(--composite-line-soft);
+  background: var(--composite-surface-quiet);
+}
+
+.composite-panel-head > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: var(--composite-gap-2);
+}
+
+.composite-panel-head strong,
+.composite-panel-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composite-panel-head strong {
+  color: var(--composite-ink);
+  font-size: var(--text-lg);
+}
+
+.composite-panel-head.density-compact strong {
+  font-size: var(--text-sm);
+}
+
+.composite-panel-head span,
+.composite-panel-action {
+  color: var(--composite-muted);
+  font-size: var(--text-2xs);
+}
+
+.composite-panel-head span:first-child {
+  color: var(--composite-muted-alt);
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.composite-panel-action {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--composite-gap-6);
+}
+
+.composite-panel-empty {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  border: 1px dashed var(--composite-line-control);
+  background: var(--composite-surface-subtle);
+  color: var(--composite-muted-alt);
+  font-size: var(--text-sm);
+  text-align: center;
+}

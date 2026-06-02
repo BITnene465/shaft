@@ -1,0 +1,213 @@
+.service-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  align-items: start;
+}
+
+.service-form label {
+  min-width: 0;
+}
+
+.service-form input,
+.service-form .select-popover-trigger,
+.service-form textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.service-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.service-form span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.service-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
+  gap: 12px;
+}
+
+.service-grid.refreshing::after {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--bench-cyan), transparent);
+  content: "";
+  animation: table-region-refresh 1.05s ease-in-out infinite;
+}
+
+.service-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bench-surface) 94%, white);
+  border: 1px solid #dce3ea;
+  border-radius: 2px;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 5%);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.service-card:hover {
+  border-color: #a9cfde;
+  box-shadow: var(--bench-shadow-tight);
+}
+
+.service-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-bottom: 1px solid #e5ebf1;
+}
+
+.service-card-heading h2 {
+  max-width: 44ch;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+}
+
+.service-card-heading p {
+  margin-top: 4px;
+  max-width: 62ch;
+  overflow: hidden;
+  color: #607080;
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.service-command {
+  overflow: auto;
+  max-height: 120px;
+  margin: 0;
+  padding: 10px;
+  color: #dce8f5;
+  background: #101820;
+  border: 1px solid #263545;
+  border-radius: 2px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.service-health {
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  color: #8a1c28;
+  background: #fff4f5;
+  border: 1px solid #f1c3ca;
+  border-radius: 3px;
+}
+
+.service-health.ok {
+  color: #15543c;
+  background: #ecf8f2;
+  border-color: #bbe5d0;
+}
+
+.service-health span {
+  min-height: 20px;
+  padding: 2px 7px;
+  background: #ffffff;
+  border-radius: 2px;
+  font-size: var(--text-2xs);
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.service-health strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-log-panel {
+  overflow: hidden;
+  border: 1px solid #dbe3ec;
+  border-radius: 3px;
+}
+
+.service-log-heading {
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  color: #607080;
+  background: #f7f9fb;
+  border-bottom: 1px solid #e3e9ef;
+  font-size: var(--text-2xs);
+  font-weight: 740;
+  text-transform: uppercase;
+}
+
+.service-log-heading strong {
+  overflow: hidden;
+  color: #263545;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-log-panel pre {
+  overflow: auto;
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  color: #dce8f5;
+  background: #101820;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .service-form {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .service-form,
+  .service-config-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .service-card {
+    transform-origin: 50% 42%;
+  }
+
+  .service-card:hover {
+    transition-duration: 180ms;
+  }
+}

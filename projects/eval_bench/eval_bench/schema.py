@@ -7,9 +7,11 @@ from typing import Any, Literal
 
 
 TaskKind = Literal["detection", "keypoint"]
+BenchmarkType = Literal["official", "diagnostic", "temporary", "prelabel"]
 RunStatus = Literal["created", "queued", "running", "succeeded", "failed", "cancelled"]
 PredictionStatus = Literal["predicted", "failed", "skipped"]
 SUPPORTED_TASKS: set[str] = {"detection", "keypoint"}
+SUPPORTED_BENCHMARK_TYPES: set[str] = {"official", "diagnostic", "temporary", "prelabel"}
 
 
 def utc_now_iso() -> str:
@@ -110,6 +112,7 @@ class BenchmarkManifest:
     split: str
     manifest_path: str
     sample_count: int
+    benchmark_type: BenchmarkType = "official"
     created_at: str = field(default_factory=utc_now_iso)
     source_raw_root: str | None = None
     source_manifest_path: str | None = None
@@ -125,6 +128,8 @@ class BenchmarkManifest:
         _require_non_empty_string(self.split, field_name="split")
         _require_non_empty_string(self.manifest_path, field_name="manifest_path")
         _validate_tasks(self.tasks, field_name="tasks")
+        if self.benchmark_type not in SUPPORTED_BENCHMARK_TYPES:
+            raise ValueError(f"Unsupported benchmark_type={self.benchmark_type!r}.")
         if self.sample_count < 0:
             raise ValueError("sample_count must be >= 0.")
         for split, path in self.split_manifests.items():
@@ -134,6 +139,100 @@ class BenchmarkManifest:
             _require_non_empty_string(split, field_name="sample_counts keys")
             if int(count) < 0:
                 raise ValueError(f"sample_counts[{split!r}] must be >= 0.")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return _jsonable(asdict(self))
+
+
+@dataclass(frozen=True)
+class SuiteTaskSplit:
+    split: str
+    benchmark_id: str
+    manifest_path: str
+    sample_count: int
+    tasks: list[TaskKind]
+    layers: list[str] = field(default_factory=list)
+    target_labels: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        _require_non_empty_string(self.split, field_name="task_splits[].split")
+        _require_non_empty_string(self.benchmark_id, field_name="task_splits[].benchmark_id")
+        _require_non_empty_string(self.manifest_path, field_name="task_splits[].manifest_path")
+        _validate_tasks(self.tasks, field_name="task_splits[].tasks")
+        if int(self.sample_count) < 0:
+            raise ValueError("task_splits[].sample_count must be >= 0.")
+        for label in self.target_labels:
+            _require_non_empty_string(label, field_name="task_splits[].target_labels[]")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return _jsonable(asdict(self))
+
+
+@dataclass(frozen=True)
+class EvalSuiteManifest:
+    suite_id: str
+    version: str
+    task_splits: list[SuiteTaskSplit]
+    sample_universe: dict[str, Any]
+    metric_profile: str
+    official: bool = True
+    benchmark_type: BenchmarkType = "official"
+    created_at: str = field(default_factory=utc_now_iso)
+    benchmark_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        _require_non_empty_string(self.suite_id, field_name="suite_id")
+        _require_non_empty_string(self.version, field_name="version")
+        _require_non_empty_string(self.metric_profile, field_name="metric_profile")
+        if self.benchmark_type not in SUPPORTED_BENCHMARK_TYPES:
+            raise ValueError(f"Unsupported benchmark_type={self.benchmark_type!r}.")
+        if self.official and self.benchmark_type != "official":
+            raise ValueError("official suites must use benchmark_type='official'.")
+        if not self.task_splits:
+            raise ValueError("task_splits must be a non-empty list.")
+        split_names: set[str] = set()
+        for task_split in self.task_splits:
+            task_split.validate()
+            if task_split.split in split_names:
+                raise ValueError(f"duplicate task split: {task_split.split}")
+            split_names.add(task_split.split)
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return _jsonable(asdict(self))
+
+
+@dataclass(frozen=True)
+class CampaignManifest:
+    campaign_id: str
+    suite_id: str
+    model_id: str
+    checkpoint: str
+    prompt_set: list[str]
+    pixel_budget: int | None
+    decoding_config: dict[str, Any]
+    run_ids: list[str]
+    aggregate_report: dict[str, Any]
+    created_at: str = field(default_factory=utc_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        _require_non_empty_string(self.campaign_id, field_name="campaign_id")
+        _require_non_empty_string(self.suite_id, field_name="suite_id")
+        _require_non_empty_string(self.model_id, field_name="model_id")
+        _require_non_empty_string(self.checkpoint, field_name="checkpoint")
+        if self.pixel_budget is not None and int(self.pixel_budget) <= 0:
+            raise ValueError("pixel_budget must be > 0 when set.")
+        if not self.run_ids:
+            raise ValueError("run_ids must be a non-empty list.")
+        for prompt_id in self.prompt_set:
+            _require_non_empty_string(prompt_id, field_name="prompt_set[]")
+        for run_id in self.run_ids:
+            _require_non_empty_string(run_id, field_name="run_ids[]")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()

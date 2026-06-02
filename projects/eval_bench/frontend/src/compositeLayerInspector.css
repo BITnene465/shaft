@@ -1,0 +1,149 @@
+.composite-inspector-panel {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--composite-gap-8);
+  overflow: hidden;
+  padding: var(--composite-pad-10);
+  border-left: 1px solid var(--composite-line);
+  background: var(--composite-surface-subtle);
+}
+
+.composite-inspector-head {
+  display: grid;
+  gap: var(--composite-gap-2);
+}
+
+.composite-inspector-head span {
+  color: var(--composite-muted);
+  font-size: var(--text-2xs);
+  font-weight: 840;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.composite-inspector-head strong {
+  color: var(--composite-ink-strong);
+  font-size: var(--text-md);
+}
+
+.composite-inspector-list {
+  display: grid;
+  align-content: start;
+  gap: var(--composite-gap-6);
+  min-height: 0;
+  overflow: auto;
+}
+
+.layer-report-row {
+  display: grid;
+  grid-template-columns: var(--composite-inspector-row-rail-width) minmax(0, 1fr);
+  gap: var(--composite-gap-7);
+  min-width: 0;
+  padding: var(--composite-pad-7);
+  border: 1px solid var(--composite-inspector-row-line);
+  background: var(--composite-surface);
+  cursor: pointer;
+}
+
+.layer-report-row:hover,
+.layer-report-row.focused {
+  border-color: var(--composite-inspector-row-focus-line);
+  background: var(--composite-inspector-row-focus-surface);
+}
+
+.layer-report-row > i {
+  width: var(--composite-inspector-row-rail-width);
+  min-height: 100%;
+}
+
+.layer-report-row > div {
+  min-width: 0;
+}
+
+.layer-report-row strong,
+.layer-report-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-report-row strong {
+  color: var(--composite-ink-strong);
+  font-size: var(--text-sm);
+}
+
+.layer-report-row span {
+  color: var(--composite-muted);
+  font-size: var(--text-2xs);
+}
+
+.layer-report-row.missing {
+  opacity: 0.62;
+}
+
+.layer-report-flags {
+  display: flex;
+  gap: var(--composite-gap-4);
+  margin-top: var(--composite-gap-6);
+}
+
+.layer-report-flags em {
+  padding: var(--composite-pad-2) var(--composite-pad-5);
+  border: 1px solid var(--composite-inspector-flag-line);
+  background: var(--composite-inspector-flag-surface);
+  color: var(--composite-inspector-flag-ink);
+  font-size: var(--text-2xs);
+  font-style: normal;
+  font-weight: 820;
+}
+
+.layer-report-flags em.off {
+  border-color: var(--composite-inspector-flag-off-line);
+  color: var(--composite-inspector-flag-off-ink);
+  background: var(--composite-surface-subtle);
+}
+
+.layer-report-row dl {
+  display: grid;
+  grid-column: 2;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--composite-gap-4);
+  margin: 2px 0 0;
+}
+
+.layer-report-row dl div {
+  display: grid;
+  gap: 1px;
+  padding: var(--composite-pad-4);
+  background: var(--composite-inspector-metric-surface);
+}
+
+.layer-report-row dt,
+.layer-report-row dd {
+  margin: 0;
+  font-size: var(--text-2xs);
+}
+
+.layer-report-row dt {
+  color: var(--composite-inspector-metric-label);
+  font-weight: 820;
+}
+
+.layer-report-row dd {
+  color: var(--composite-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1280px) {
+  .composite-inspector-panel {
+    max-height: var(--composite-inspector-panel-compact-max);
+    border-top: 1px solid var(--composite-line);
+    border-left: 0;
+  }
+
+  .composite-inspector-list {
+    grid-template-columns: repeat(auto-fit, minmax(var(--composite-inspector-card-min), 1fr));
+  }
+}

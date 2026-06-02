@@ -7,7 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from .sample_paths import prediction_json_relative_path
-from .schema import BenchmarkManifest, EvalRunManifest, PredictionDocument, TaskKind
+from .schema import (
+    BenchmarkManifest,
+    CampaignManifest,
+    EvalRunManifest,
+    EvalSuiteManifest,
+    PredictionDocument,
+    TaskKind,
+)
 
 DEFAULT_STORE_ROOT = Path("eval_bench_store")
 
@@ -45,6 +52,14 @@ class StoreLayout:
         return self.root / "benchmarks"
 
     @property
+    def suites_dir(self) -> Path:
+        return self.root / "suites"
+
+    @property
+    def campaigns_dir(self) -> Path:
+        return self.root / "campaigns"
+
+    @property
     def tmp_dir(self) -> Path:
         return self.root / "tmp"
 
@@ -70,6 +85,8 @@ class StoreLayout:
             self.db_dir,
             self.runs_dir,
             self.benchmarks_dir,
+            self.suites_dir,
+            self.campaigns_dir,
             self.tmp_dir,
             self.exports_dir,
             self.logs_dir,
@@ -197,6 +214,54 @@ class RunArtifacts:
         path = self.prediction_path(prediction.image)
         atomic_write_json(path, prediction.to_dict(task=task))
         return path
+
+
+class SuiteArtifacts:
+    def __init__(self, root: str | Path = DEFAULT_STORE_ROOT, suite_id: str = "") -> None:
+        self.store = StoreLayout(root)
+        self.root = self.store.root
+        self.suite_id = str(suite_id)
+        if not self.suite_id:
+            raise ValueError("suite_id must be a non-empty string.")
+        self.suite_dir = self.store.suites_dir / self.suite_id
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.suite_dir / "suite.json"
+
+    def ensure(self) -> None:
+        self.store.ensure()
+        self.suite_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_manifest(self, manifest: EvalSuiteManifest) -> Path:
+        manifest.validate()
+        self.ensure()
+        atomic_write_json(self.manifest_path, manifest.to_dict())
+        return self.manifest_path
+
+
+class CampaignArtifacts:
+    def __init__(self, root: str | Path = DEFAULT_STORE_ROOT, campaign_id: str = "") -> None:
+        self.store = StoreLayout(root)
+        self.root = self.store.root
+        self.campaign_id = str(campaign_id)
+        if not self.campaign_id:
+            raise ValueError("campaign_id must be a non-empty string.")
+        self.campaign_dir = self.store.campaigns_dir / self.campaign_id
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.campaign_dir / "campaign.json"
+
+    def ensure(self) -> None:
+        self.store.ensure()
+        self.campaign_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_manifest(self, manifest: CampaignManifest) -> Path:
+        manifest.validate()
+        self.ensure()
+        atomic_write_json(self.manifest_path, manifest.to_dict())
+        return self.manifest_path
 
 
 def load_prediction(path: str | Path, *, task: TaskKind | None = None) -> PredictionDocument:

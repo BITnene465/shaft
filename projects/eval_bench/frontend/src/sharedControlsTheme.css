@@ -1,0 +1,39 @@
+:root {
+  --control-gap-2: 2px;
+  --control-gap-4: 4px;
+  --control-gap-6: 6px;
+  --control-gap-8: 8px;
+  --control-gap-10: 10px;
+  --control-gap-12: 12px;
+  --control-gap-16: 16px;
+
+  --control-pad-8: 8px;
+  --control-pad-10: 10px;
+  --control-pad-11: 11px;
+  --control-pad-12: 12px;
+  --control-pad-14: 14px;
+
+  --control-radius-tight: 2px;
+  --control-radius-icon: 3px;
+  --control-radius-card: 4px;
+  --control-radius-pill: 999px;
+
+  --control-icon-size: 36px;
+  --control-icon-dense-size: 28px;
+  --control-primary-height: 36px;
+  --control-secondary-height: 34px;
+  --control-status-height: 32px;
+  --control-compact-height: 30px;
+  --control-mini-height: 26px;
+  --control-chip-height: 24px;
+  --control-pager-height: 42px;
+  --control-metric-height: 76px;
+  --control-metric-icon-size: 38px;
+
+  --control-text-micro: var(--text-3xs);
+  --control-text-caption: var(--text-2xs);
+  --control-text-small: var(--text-xs);
+  --control-text-body: var(--text-sm);
+  --control-text-section: var(--text-md);
+  --control-metric-value-size: var(--metric-display-size);
+}

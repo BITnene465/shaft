@@ -1,0 +1,142 @@
+/* Shared interaction feedback for a dense, low-motion engineering interface. */
+.primary-button,
+.secondary-button,
+.mini-button,
+.mini-link,
+.icon-button,
+.text-button,
+.selectable-card-button,
+.panel-toggle-button,
+.query-chip,
+.badge,
+.nav-item {
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.mini-button:hover,
+.mini-link:hover,
+.icon-button:hover,
+.selectable-card-button:hover,
+.panel-toggle-button:hover,
+.query-chip:hover,
+.badge:hover,
+.nav-item:hover,
+.primary-button:active,
+.secondary-button:active,
+.mini-button:active,
+.mini-link:active,
+.icon-button:active {
+  transform: none;
+}
+
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.mini-button:focus-visible,
+.mini-link:focus-visible,
+.icon-button:focus-visible,
+.nav-item:focus-visible,
+.selectable-card-button:focus-visible,
+.panel-toggle-button:focus-visible,
+.query-chip:focus-visible,
+.rank-sort-header:focus-visible {
+  outline: 2px solid rgb(99 127 149 / 12%);
+  outline-offset: 2px;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.mini-button:disabled,
+.icon-button:disabled {
+  transform: none;
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.primary-button,
+.secondary-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.primary-button::after,
+.secondary-button::after,
+.metric-card::after {
+  display: none;
+  content: none;
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.mini-button:hover,
+.mini-link:hover,
+.icon-button:hover,
+.nav-item.active {
+  box-shadow: inset 3px 0 0 var(--bench-action);
+}
+
+.primary-button {
+  background: var(--bench-action);
+  border-color: color-mix(in srgb, var(--bench-action) 82%, black);
+}
+
+.primary-button:hover {
+  background: color-mix(in srgb, var(--bench-action) 88%, black);
+  border-color: color-mix(in srgb, var(--bench-action) 78%, black);
+}
+
+.search-box:focus-within,
+.filter-select:focus-within,
+.select-popover-control:focus-within .select-popover-trigger {
+  outline: 2px solid rgb(99 127 149 / 12%);
+  border-color: #637f95;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-item .app-icon,
+  .icon-button svg,
+  .primary-button svg,
+  .secondary-button svg,
+  .mini-button svg,
+  .query-chip svg,
+  .selectable-card-button svg,
+  .panel-toggle-button svg {
+    transition:
+      transform 160ms ease,
+      filter 160ms ease;
+  }
+
+  .nav-item:hover .app-icon,
+  .icon-button:hover svg,
+  .primary-button:hover svg,
+  .secondary-button:hover svg,
+  .mini-button:hover svg,
+  .query-chip:hover svg,
+  .selectable-card-button:hover svg,
+  .panel-toggle-button:hover svg {
+    transform: none;
+    filter: none;
+  }
+
+  .badge.live,
+  .status-pill.online,
+  .status-pill.loading {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}

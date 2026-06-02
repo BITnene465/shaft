@@ -1,0 +1,76 @@
+.settings-label-add-row {
+  max-width: 420px;
+  padding: 0;
+  border-top: 0;
+}
+
+.settings-label-table {
+  display: grid;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #dbe3ec;
+}
+
+.settings-label-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.22fr) minmax(0, 1fr) 54px;
+  gap: var(--settings-gap-8);
+  align-items: center;
+  min-height: var(--settings-label-row-min);
+  padding: var(--settings-pad-6) var(--settings-pad-8);
+  border-bottom: 1px solid #edf1f5;
+}
+
+.settings-label-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-label-row span {
+  min-width: 0;
+  overflow: visible;
+  color: #243143;
+  font-size: var(--settings-text-small);
+  font-weight: 720;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.settings-label-row input[type="color"] {
+  width: 38px;
+  height: 24px;
+  padding: var(--settings-pad-1);
+  border: 1px solid #cfd9e4;
+}
+
+.settings-label-role-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(52px, 1fr));
+  gap: var(--settings-gap-6);
+}
+
+.settings-label-role-grid label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: var(--settings-gap-4);
+}
+
+.settings-label-role-grid small {
+  color: #617286;
+  font-size: var(--settings-text-micro);
+  font-weight: 760;
+}
+
+.settings-label-clear-action {
+  min-height: var(--settings-control-min);
+  color: #617286;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--settings-text-caption);
+}
+
+.settings-label-clear-action:hover {
+  color: #9d2632;
+}

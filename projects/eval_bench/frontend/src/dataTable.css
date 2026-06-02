@@ -1,0 +1,298 @@
+.table-shell {
+  min-height: 0;
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  background: #ffffff;
+  border: 1px solid #d8e1ea;
+  border-radius: 3px;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.table-shell:hover {
+  border-color: #bfd4e2;
+  box-shadow: 0 16px 34px rgb(18 45 65 / 8%);
+}
+
+.table-shell.compact {
+  border: 0;
+  border-radius: 0 0 8px 8px;
+}
+
+.workspace-card.fill .table-shell,
+.workspace-card .table-shell,
+.suite-rank-card .table-shell {
+  min-height: 0;
+  border: 0;
+  border-top: 1px solid #e5ebf1;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.suite-rank-card .table-shell {
+  flex: 1;
+}
+
+.table-shell.refreshing {
+  position: relative;
+}
+
+.table-shell.refreshing::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 5;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--bench-cyan), transparent);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-70%);
+  animation: table-region-refresh 1.1s ease-in-out infinite;
+}
+
+.table-refresh-indicator {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  z-index: 6;
+  padding: 3px 8px;
+  color: #416273;
+  background: color-mix(in srgb, var(--bench-surface) 88%, white);
+  border: 1px solid color-mix(in srgb, var(--bench-cyan) 24%, var(--bench-line));
+  border-radius: 999px;
+  font-size: var(--text-2xs);
+  font-weight: 760;
+  line-height: 1.2;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.table-shell table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+}
+
+.table-shell th,
+.table-shell td {
+  overflow: hidden;
+  min-width: 0;
+  max-width: clamp(96px, 18vw, 320px);
+  padding: 11px 14px;
+  border-bottom: 1px solid #e8edf2;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: left;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.table-shell th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 34px;
+  color: #607386;
+  background: #f4f8fb;
+  border-bottom: 1px solid var(--bench-line);
+  font-size: var(--text-2xs);
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table-shell td {
+  height: 38px;
+  color: #1d2733;
+  border-bottom: 1px solid #edf1f5;
+  font-size: var(--text-xs);
+}
+
+.table-shell.compact th,
+.table-shell.compact td {
+  padding: 9px 11px;
+}
+
+.table-shell tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table-shell tbody tr {
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.table-shell tbody tr:hover {
+  box-shadow: inset 3px 0 0 rgb(21 94 117 / 34%);
+}
+
+.table-shell tbody tr:hover td {
+  background: #f8fbfd;
+  transition: background 130ms ease;
+}
+
+.selectable-row {
+  cursor: pointer;
+}
+
+.selectable-row td {
+  transition: background 140ms ease;
+}
+
+.selectable-row:hover td {
+  background: #f6fbfe;
+}
+
+.selectable-row.selected td {
+  background: #edf6fb;
+}
+
+.selectable-row.selected td:first-child {
+  box-shadow: inset 3px 0 0 #2e9dc0;
+}
+
+.table-shell td > :where(a, span, strong, em, small, code, div),
+.table-shell th > :where(span, strong) {
+  max-width: 100%;
+}
+
+.table-shell td > :where(a, span:not(.badge), strong, em, small, code) {
+  overflow-wrap: anywhere;
+}
+
+.table-shell td:has(.row-actions) {
+  overflow: visible;
+  max-width: clamp(92px, 13vw, 190px);
+}
+
+.table-shell a {
+  color: #174d65;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.table-shell a:hover {
+  text-decoration: underline;
+}
+
+.table-shell .data-table-cell {
+  overflow: hidden;
+  min-width: var(--table-col-min, 96px);
+  max-width: var(--table-col-max, 260px);
+  text-overflow: ellipsis;
+}
+
+.table-shell .table-col-select {
+  --table-col-min: 34px;
+  --table-col-max: 42px;
+  width: 38px;
+}
+
+.table-shell .table-col-actions {
+  --table-col-min: 96px;
+  --table-col-max: 150px;
+}
+
+.table-shell .table-col-status {
+  --table-col-min: 82px;
+  --table-col-max: 112px;
+}
+
+.table-shell .table-col-metric,
+.table-shell .table-col-number {
+  --table-col-min: 72px;
+  --table-col-max: 104px;
+}
+
+.table-shell .table-col-date {
+  --table-col-min: 132px;
+  --table-col-max: 178px;
+}
+
+.table-shell .table-col-id {
+  --table-col-min: 150px;
+  --table-col-max: 260px;
+}
+
+.table-shell .table-col-compact {
+  --table-col-min: 74px;
+  --table-col-max: 132px;
+}
+
+.table-shell .table-col-text {
+  --table-col-min: 96px;
+  --table-col-max: 260px;
+}
+
+.table-shell .table-col-wide {
+  --table-col-min: 220px;
+  --table-col-max: 420px;
+}
+
+.table-shell .table-wrap-nowrap,
+.table-shell .table-wrap-truncate {
+  white-space: nowrap;
+}
+
+.table-shell .table-wrap-wrap {
+  min-width: var(--table-col-min, 120px);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.table-shell .table-align-center {
+  text-align: center;
+}
+
+.table-shell .table-align-end {
+  text-align: right;
+}
+
+.row-select-checkbox {
+  display: inline-grid;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  place-content: center;
+  appearance: none;
+  background: #ffffff;
+  border: 1px solid #b9c6d2;
+  border-radius: 2px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.row-select-checkbox:checked {
+  background: #155f84;
+  border-color: #155f84;
+  box-shadow: inset 0 0 0 3px #ffffff;
+}
+
+.row-select-checkbox:focus-visible {
+  outline: 2px solid #a8d6eb;
+  outline-offset: 2px;
+}
+
+@keyframes table-region-refresh {
+  0% {
+    transform: translateX(-70%);
+  }
+
+  50% {
+    transform: translateX(70%);
+  }
+
+  100% {
+    transform: translateX(130%);
+  }
+}

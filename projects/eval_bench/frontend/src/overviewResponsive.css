@@ -1,0 +1,49 @@
+@media (min-width: 1320px) {
+  .overview-v18-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(300px, 0.72fr);
+  }
+
+  .overview-v18-primary,
+  .overview-v18-recent {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 920px) {
+  .overview-v18-grid,
+  .overview-v18-primary-body,
+  .overview-v18-flow,
+  .overview-v18-surface-body,
+  .overview-v18-signal-map {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-v18-signal-map::before,
+  .overview-v18-signal-node > i {
+    display: none;
+  }
+
+  .overview-v18-run-list a {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .overview-v18-run-artifacts,
+  .overview-v18-run-score {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .overview-home-v18 {
+    padding: 8px;
+  }
+
+  .overview-v18-pairs {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-v18-action-copy strong,
+  .overview-v18-big-number {
+    font-size: 42px;
+  }
+}

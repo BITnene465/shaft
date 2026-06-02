@@ -1,0 +1,39 @@
+.rank-board-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--rank-gap-8);
+  overflow: hidden;
+  line-height: 1;
+}
+
+.rank-board-summary strong {
+  flex: 0 0 auto;
+  color: #101925;
+  font-size: var(--rank-text-title);
+  font-weight: 860;
+  line-height: 1;
+}
+
+.rank-board-summary span {
+  flex: 0 0 auto;
+  color: #536475;
+  font-family: var(--mono-font);
+  font-size: var(--rank-text-caption);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rank-board-summary span:not(:last-child)::after {
+  margin-left: 8px;
+  color: #c5d0da;
+  content: "/";
+}
+
+@media (max-width: 760px) {
+  .rank-board-summary {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+}

@@ -1,0 +1,74 @@
+.shortcut-map-table {
+  display: grid;
+  gap: 0;
+  border: 1px solid #dbe3ec;
+}
+
+.shortcut-map-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 58px;
+  gap: var(--settings-gap-8);
+  align-items: center;
+  min-height: var(--settings-shortcut-row-min);
+  padding: var(--settings-pad-7) var(--settings-pad-8);
+  border-top: 1px solid #edf1f5;
+}
+
+.shortcut-map-row:first-child {
+  border-top: 0;
+}
+
+.shortcut-map-row.conflict {
+  background: #fff7ed;
+}
+
+.shortcut-map-row div {
+  display: grid;
+  min-width: 0;
+  gap: var(--settings-gap-2);
+}
+
+.shortcut-map-row span {
+  color: #4b7890;
+  font-size: var(--settings-text-micro);
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shortcut-map-row strong,
+.shortcut-map-row code {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.shortcut-map-row strong {
+  color: #1e2937;
+  font-size: var(--settings-text-small);
+}
+
+.shortcut-map-row code {
+  color: #617286;
+  font-size: var(--settings-text-micro);
+}
+
+.shortcut-map-row button {
+  min-height: var(--settings-button-min);
+  color: #255267;
+  background: #f8fafc;
+  border: 1px solid #cfd9e4;
+  cursor: pointer;
+  font-size: var(--settings-text-caption);
+}
+
+.shortcut-map-row.conflict .shortcut-capture {
+  color: #9a3412;
+  border-color: #fdba74;
+}
+
+.shortcut-capture {
+  font-family: var(--mono-font);
+  font-weight: 760;
+}

@@ -660,6 +660,26 @@ def test_dashboard_updates_editable_run_note(tmp_path: Path) -> None:
 
 
 def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "benchmark_type": "official",
+            "tasks": ["detection"],
+            "layers": ["layout", "arrow"],
+            "labels": ["icon", "arrow"],
+            "split": "suite",
+            "sample_count": 4,
+            "sample_counts": {"grounding_layout": 2, "grounding_arrow": 2},
+            "split_manifests": {
+                "grounding_layout": str(tmp_path / "benchmarks" / "bench1" / "splits" / "grounding_layout.txt"),
+                "grounding_arrow": str(tmp_path / "benchmarks" / "bench1" / "splits" / "grounding_arrow.txt"),
+            },
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "suite.txt"),
+            "created_at": "2026-05-09T00:00:00Z",
+        },
+    )
     for run_id, label, split, precision, recall, note in (
         ("run_a", "icon", "grounding_layout", 0.9, 0.8, "layout idea"),
         ("run_b", "arrow", "grounding_arrow", 0.4, 0.5, "arrow baseline"),
@@ -777,6 +797,212 @@ def test_dashboard_exposes_independent_rank_board(tmp_path: Path) -> None:
     assert recall_ascending["entries"][0]["score"] == pytest.approx(0.5)
     assert recall_ascending["entries"][0]["score_delta"] == pytest.approx(0.0)
     assert recall_ascending["entries"][1]["score_delta"] == pytest.approx(0.3)
+
+
+def test_dashboard_exposes_suite_campaign_and_integrity(tmp_path: Path) -> None:
+    official_root = tmp_path / "benchmarks" / "official_suite"
+    (official_root / "splits").mkdir(parents=True)
+    (official_root / "splits" / "grounding_layout.txt").write_text(
+        "part1/json/layout_a.json\npart1/json/layout_b.json\n",
+        encoding="utf-8",
+    )
+    (official_root / "splits" / "grounding_arrow.txt").write_text(
+        "part1/json/arrow_a.json\npart1/json/arrow_b.json\n",
+        encoding="utf-8",
+    )
+    (official_root / "splits" / "suite.txt").write_text(
+        "part1/json/layout_a.json\npart1/json/layout_b.json\n"
+        "part1/json/arrow_a.json\npart1/json/arrow_b.json\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        official_root / "benchmark.json",
+        {
+            "benchmark_id": "official_suite",
+            "benchmark_type": "official",
+            "tasks": ["detection"],
+            "layers": ["layout", "arrow"],
+            "labels": ["icon", "arrow"],
+            "split": "suite",
+            "sample_count": 4,
+            "sample_counts": {"grounding_layout": 2, "grounding_arrow": 2},
+            "split_manifests": {
+                "grounding_layout": str(official_root / "splits" / "grounding_layout.txt"),
+                "grounding_arrow": str(official_root / "splits" / "grounding_arrow.txt"),
+            },
+            "root": str(official_root / "data"),
+            "manifest_path": str(official_root / "splits" / "suite.txt"),
+            "created_at": "2026-05-09T00:00:00Z",
+            "metadata": {"version": "v2.4"},
+        },
+    )
+    _write_json(
+        tmp_path / "benchmarks" / "tmp_bench" / "benchmark.json",
+        {
+            "benchmark_id": "tmp_bench",
+            "benchmark_type": "temporary",
+            "tasks": ["detection"],
+            "split": "grounding_layout",
+            "sample_count": 1,
+            "root": str(tmp_path / "benchmarks" / "tmp_bench" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "tmp_bench" / "splits" / "grounding_layout.txt"),
+        },
+    )
+    for run_id, benchmark_id, split, precision in (
+        ("layout_run", "official_suite", "grounding_layout", 0.9),
+        ("arrow_run", "official_suite", "grounding_arrow", 0.7),
+        ("tmp_run", "tmp_bench", "grounding_layout", 0.99),
+        ("orphan_run", "missing_bench", "grounding_layout", 0.88),
+    ):
+        _write_json(
+            tmp_path / "runs" / run_id / "run.json",
+            {
+                "run_id": run_id,
+                "status": "succeeded",
+                "created_at": f"2026-05-09T00:0{len(run_id)}:00Z",
+                "model": {"model_id": "model-a", "path": "outputs/model-a/ckpt-100"},
+                "benchmark": {
+                    "benchmark_id": benchmark_id,
+                    "root": str(tmp_path / "benchmarks" / benchmark_id / "data"),
+                    "split": split,
+                    "tasks": ["detection"],
+                },
+                "spec": {
+                    "task": "detection",
+                    "metric_profile": "detection_iou_v1",
+                    "prompt": {"prompt_id": f"{split}.main"},
+                    "target_labels": ["icon"],
+                    "inference": {
+                        "max_pixels": 2_000_000,
+                        "max_tokens": 2048,
+                        "temperature": 0.0,
+                        "top_p": 1.0,
+                    },
+                },
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "reports" / "summary.json",
+            {
+                "precision_iou50": precision,
+                "recall_iou50": precision,
+                "mean_iou": precision,
+                "prediction_file_count": 2,
+            },
+        )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    benchmarks = client.get("/api/benchmarks").json()
+    assert benchmarks["total"] == 1
+    assert benchmarks["benchmarks"][0]["benchmark_id"] == "official_suite"
+    assert benchmarks["benchmarks"][0]["benchmark_type"] == "official"
+
+    runs = client.get("/api/runs").json()["runs"]
+    integrity = {run["run_id"]: run["integrity_status"] for run in runs}
+    assert integrity["layout_run"] == "ok"
+    assert integrity["tmp_run"] == "non_official_benchmark"
+    assert integrity["orphan_run"] == "missing_benchmark"
+
+    suites = client.get("/api/suites").json()
+    assert suites["total"] == 1
+    suite = suites["suites"][0]
+    assert suite["suite_id"] == "official_suite"
+    assert suite["version"] == "v2.4"
+    assert suite["integrity_status"] == "ok"
+    assert suite["validation_errors"] == []
+    assert [item["split"] for item in suite["task_splits"]] == [
+        "grounding_arrow",
+        "grounding_layout",
+    ]
+    assert suite["sample_universe"]["sample_count"] == 4
+
+    campaigns = client.get("/api/campaigns").json()
+    assert campaigns["total"] == 1
+    campaign = campaigns["campaigns"][0]
+    assert campaign["suite_id"] == "official_suite"
+    assert campaign["model_id"] == "model-a"
+    assert campaign["pixel_budget"] == 2_000_000
+    assert campaign["task_splits"] == ["grounding_arrow", "grounding_layout"]
+    assert campaign["aggregate_report"]["f1_iou50"] == pytest.approx(0.8)
+
+    suite_board = client.get("/api/suite-rank-board").json()
+    assert suite_board["total"] == 1
+    assert suite_board["evaluated_count"] == 1
+    assert suite_board["primary_metric"] == "aggregate_score"
+    assert suite_board["entries"][0]["campaign_id"] == campaign["campaign_id"]
+    assert suite_board["entries"][0]["aggregate_score"] == pytest.approx(0.8)
+    assert suite_board["entries"][0]["task_splits"] == ["grounding_arrow", "grounding_layout"]
+
+    filtered_suite_board = client.get(
+        "/api/suite-rank-board",
+        params={"suite_id": "official_suite", "model_id": "model-a"},
+    ).json()
+    assert filtered_suite_board["total"] == 1
+    assert filtered_suite_board["filters"]["suite_id"] == "official_suite"
+
+    board = client.get("/api/rank-board").json()
+    assert board["total"] == 2
+    assert {entry["run_id"] for entry in board["entries"]} == {"layout_run", "arrow_run"}
+    assert all(entry["benchmark_type"] == "official" for entry in board["entries"])
+
+
+def test_dashboard_marks_invalid_official_suite_manifest(tmp_path: Path) -> None:
+    split_manifest = tmp_path / "benchmarks" / "bench1" / "splits" / "grounding_layout.txt"
+    split_manifest.parent.mkdir(parents=True)
+    split_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    _write_json(
+        tmp_path / "suites" / "broken_suite" / "suite.json",
+        {
+            "suite_id": "broken_suite",
+            "version": "v1",
+            "benchmark_id": "bench1",
+            "benchmark_type": "official",
+            "official": True,
+            "metric_profile": "detection_iou_v1",
+            "sample_universe": {"sample_count": 2},
+            "task_splits": [
+                {
+                    "split": "grounding_layout",
+                    "benchmark_id": "bench1",
+                    "manifest_path": str(split_manifest),
+                    "sample_count": 2,
+                    "tasks": ["detection"],
+                    "layers": ["layout"],
+                    "target_labels": ["icon"],
+                }
+            ],
+        },
+    )
+    _write_json(
+        tmp_path / "campaigns" / "bad_campaign" / "campaign.json",
+        {
+            "campaign_id": "bad_campaign",
+            "suite_id": "broken_suite",
+            "model_id": "model-a",
+            "checkpoint": "outputs/model-a/ckpt-100",
+            "prompt_set": ["grounding_layout.main"],
+            "pixel_budget": 2_000_000,
+            "decoding_config": {"temperature": 0.0},
+            "run_ids": ["layout_run"],
+            "task_splits": ["grounding_layout"],
+            "aggregate_report": {"f1_iou50": 0.9},
+        },
+    )
+
+    client = TestClient(create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist"))
+
+    suites = client.get("/api/suites").json()
+    assert suites["total"] == 1
+    suite = suites["suites"][0]
+    assert suite["suite_id"] == "broken_suite"
+    assert suite["integrity_status"] == "sample_count_mismatch"
+    assert "sample_count=2" in suite["integrity_reason"]
+    assert suite["validation_errors"]
+
+    suite_board = client.get("/api/suite-rank-board").json()
+    assert suite_board["total"] == 0
 
 
 def test_dashboard_logs_http_errors_with_request_id(tmp_path: Path) -> None:
@@ -1444,6 +1670,183 @@ def test_dashboard_exposes_run_sample_detail_and_image(tmp_path: Path) -> None:
         {"label": "icon", "gt_index": 0, "pred_index": 0, "iou": 1.0}
     ]
     assert client.get("/api/runs/run1/samples/0/image").content == b"image"
+
+
+def test_dashboard_exposes_composite_layout_arrow_sample_view(tmp_path: Path) -> None:
+    data_root = tmp_path / "benchmarks" / "suite1" / "data"
+    split_dir = tmp_path / "benchmarks" / "suite1" / "splits"
+    layout_manifest = split_dir / "grounding_layout.txt"
+    arrow_manifest = split_dir / "grounding_arrow.txt"
+    split_dir.mkdir(parents=True)
+    layout_manifest.write_text("part1/json/a.json\npart1/json/b.json\n", encoding="utf-8")
+    arrow_manifest.write_text("part1/json/a.json\n", encoding="utf-8")
+    (data_root / "part1" / "images").mkdir(parents=True)
+    (data_root / "part1" / "images" / "a.png").write_bytes(b"image")
+    (data_root / "part1" / "images" / "b.png").write_bytes(b"image")
+    for stem in ("a", "b"):
+        _write_json(
+            data_root / "part1" / "json" / f"{stem}.json",
+            {
+                "image_path": f"part1/images/{stem}.png",
+                "image_width": 100,
+                "image_height": 50,
+                "instances": [
+                    {"label": "icon", "bbox": [1, 2, 10, 20]},
+                    {"label": "arrow", "bbox": [30, 30, 40, 40]},
+                ],
+            },
+        )
+    for run_id, split, label, manifest_path in (
+        ("layout_run", "grounding_layout", "icon", layout_manifest),
+        ("arrow_run", "grounding_arrow", "arrow", arrow_manifest),
+    ):
+        _write_json(
+            tmp_path / "runs" / run_id / "run.json",
+            {
+                "run_id": run_id,
+                "status": "succeeded",
+                "created_at": "2026-05-09T00:10:00Z",
+                "model": {"model_id": "model-a", "path": "outputs/model-a/best"},
+                "benchmark": {
+                    "benchmark_id": "suite1",
+                    "root": str(data_root),
+                    "split": split,
+                    "tasks": ["detection"],
+                    "manifest_path": str(manifest_path),
+                },
+                "spec": {"task": "detection", "target_labels": [label]},
+            },
+        )
+        _write_json(
+            tmp_path / "runs" / run_id / "predictions" / "part1" / "json" / "a.json",
+            {
+                "image": "part1/images/a.png",
+                "instances": [{"label": label, "bbox": [2, 3, 11, 21]}],
+                "metadata": {},
+            },
+        )
+        if run_id == "layout_run":
+            _write_json(
+                tmp_path / "runs" / run_id / "predictions" / "part1" / "json" / "b.json",
+                {
+                    "image": "part1/images/b.png",
+                    "instances": [{"label": label, "bbox": [2, 3, 11, 21]}],
+                    "metadata": {},
+                },
+            )
+        _write_json(
+            tmp_path / "runs" / run_id / "reports" / "metrics.json",
+            {
+                "run_id": run_id,
+                "task": "detection",
+                "samples": [
+                    {
+                        "index": 0,
+                        "json_path": "part1/json/a.json",
+                        "image": "part1/images/a.png",
+                        "gt_instance_count": 1,
+                        "pred_instance_count": 1,
+                        "matched_count": 1,
+                        "false_negative_count": 0,
+                        "false_positive_count": 0,
+                        "mean_iou": 1.0,
+                        "matches": [{"label": label, "gt_index": 0, "pred_index": 0, "iou": 1.0}],
+                        "false_negatives": [],
+                        "false_positives": [],
+                        "labels": {
+                            label: {
+                                "gt_count": 1,
+                                "pred_count": 1,
+                                "matched_count": 1,
+                                "false_negative_count": 0,
+                                "false_positive_count": 0,
+                                "mean_iou": 1.0,
+                            }
+                        },
+                    }
+                ]
+                + (
+                    [
+                        {
+                            "index": 1,
+                            "json_path": "part1/json/b.json",
+                            "image": "part1/images/b.png",
+                            "gt_instance_count": 1,
+                            "pred_instance_count": 1,
+                            "matched_count": 1,
+                            "false_negative_count": 0,
+                            "false_positive_count": 0,
+                            "mean_iou": 1.0,
+                            "matches": [
+                                {"label": label, "gt_index": 0, "pred_index": 0, "iou": 1.0}
+                            ],
+                            "false_negatives": [],
+                            "false_positives": [],
+                            "labels": {},
+                        }
+                    ]
+                    if run_id == "layout_run"
+                    else []
+                ),
+            },
+        )
+
+    app = create_app(store_root=tmp_path, frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    detail = client.get(
+        "/api/composite-samples",
+        params={
+            "sample_index": 0,
+            "layout_run_id": "layout_run",
+            "arrow_run_id": "arrow_run",
+        },
+    ).json()
+
+    assert detail["kind"] == "composite_sample_view"
+    assert detail["image_count"] == 2
+    assert detail["image_key"] == "part1/images/a.png"
+    assert detail["layer_options"] == ["layout", "arrow"]
+    assert detail["view_modes"] == ["gt", "prediction", "diff"]
+    assert detail["diagnostics"]["warnings"] == []
+    assert detail["diagnostics"]["per_layer"]["layout"]["matched_count"] == 1
+    assert [layer["layer"] for layer in detail["layers"]] == ["layout", "arrow"]
+    assert detail["layers"][0]["benchmark_split"] == "grounding_layout"
+    assert detail["layers"][0]["sample"]["image_url"] == "/api/runs/layout_run/samples/0/image"
+    assert [item["label"] for item in detail["layers"][0]["gt_instances"]] == ["icon"]
+    assert [item["label"] for item in detail["layers"][1]["gt_instances"]] == ["arrow"]
+
+    generic_detail = client.get(
+        "/api/composite-samples",
+        params=[
+            ("sample_index", "0"),
+            ("layer_run", "layout:layout_run"),
+            ("layer_run", "arrow_overlay:arrow_run"),
+        ],
+    ).json()
+    assert generic_detail["layer_options"] == ["layout", "arrow_overlay"]
+    assert [layer["run_id"] for layer in generic_detail["layers"]] == ["layout_run", "arrow_run"]
+
+    union_detail = client.get(
+        "/api/composite-samples",
+        params=[
+            ("sample_index", "1"),
+            ("layer_run", "layout:layout_run"),
+            ("layer_run", "arrow:arrow_run"),
+        ],
+    ).json()
+    assert union_detail["image_key"] == "part1/images/b.png"
+    assert [layer["layer"] for layer in union_detail["layers"]] == ["layout"]
+    assert {item["layer"]: item["status"] for item in union_detail["layer_statuses"]} == {
+        "layout": "ready",
+        "arrow": "image_missing",
+    }
+
+    missing_layer = client.get(
+        "/api/composite-samples",
+        params={"sample_index": 0, "layout_run_id": "layout_run"},
+    )
+    assert missing_layer.status_code == 400
 
 
 def test_dashboard_encodes_sample_image_owner_ids(tmp_path: Path) -> None:

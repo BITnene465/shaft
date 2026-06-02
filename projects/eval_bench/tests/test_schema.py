@@ -10,8 +10,10 @@ import pytest
 from eval_bench.artifacts import (
     DEFAULT_STORE_ROOT,
     BenchmarkArtifacts,
+    CampaignArtifacts,
     RunArtifacts,
     StoreLayout,
+    SuiteArtifacts,
     load_prediction,
 )
 from eval_bench.benchmark import (
@@ -22,14 +24,18 @@ from eval_bench.benchmark import (
     resolve_benchmark_split_path,
 )
 from eval_bench.schema import (
+    BenchmarkManifest,
     BenchmarkRef,
+    CampaignManifest,
     EvalRunManifest,
     EvalSpec,
+    EvalSuiteManifest,
     InferenceParams,
     ModelRef,
     PredictionDocument,
     PredictionInstance,
     PromptRef,
+    SuiteTaskSplit,
 )
 
 
@@ -131,6 +137,80 @@ def test_store_layout_keeps_db_and_runs_outside_outputs() -> None:
     assert layout.db_path == Path("eval_bench_store/db/eval_bench.sqlite")
     assert layout.runs_dir == Path("eval_bench_store/runs")
     assert layout.benchmarks_dir == Path("eval_bench_store/benchmarks")
+    assert layout.suites_dir == Path("eval_bench_store/suites")
+    assert layout.campaigns_dir == Path("eval_bench_store/campaigns")
+
+
+def test_suite_and_campaign_manifests_validate_official_eval_semantics(tmp_path: Path) -> None:
+    benchmark = BenchmarkManifest(
+        benchmark_id="banana_v2_4_val",
+        benchmark_type="official",
+        tasks=["detection"],
+        root=str(tmp_path / "benchmarks" / "banana_v2_4_val" / "data"),
+        split="suite",
+        manifest_path=str(tmp_path / "benchmarks" / "banana_v2_4_val" / "splits" / "suite.txt"),
+        sample_count=400,
+    )
+    BenchmarkArtifacts(tmp_path, benchmark.benchmark_id).write_manifest(benchmark)
+
+    suite = EvalSuiteManifest(
+        suite_id="banana_v2_4_val",
+        version="v2.4",
+        benchmark_id="banana_v2_4_val",
+        benchmark_type="official",
+        official=True,
+        metric_profile="detection_iou_v1",
+        sample_universe={"sample_count": 400},
+        task_splits=[
+            SuiteTaskSplit(
+                split="grounding_layout",
+                benchmark_id="banana_v2_4_val",
+                manifest_path=str(tmp_path / "benchmarks" / "banana_v2_4_val" / "splits" / "grounding_layout.txt"),
+                sample_count=200,
+                tasks=["detection"],
+                layers=["layout"],
+                target_labels=["icon"],
+            )
+        ],
+    )
+    suite_path = SuiteArtifacts(tmp_path, suite.suite_id).write_manifest(suite)
+    assert json.loads(suite_path.read_text(encoding="utf-8"))["official"] is True
+
+    with pytest.raises(ValueError, match="official suites"):
+        EvalSuiteManifest(
+            suite_id="bad_suite",
+            version="v1",
+            benchmark_type="temporary",
+            official=True,
+            metric_profile="detection_iou_v1",
+            sample_universe={},
+            task_splits=suite.task_splits,
+        ).validate()
+
+    with pytest.raises(ValueError, match="duplicate task split"):
+        EvalSuiteManifest(
+            suite_id="duplicate_suite",
+            version="v1",
+            benchmark_type="official",
+            official=True,
+            metric_profile="detection_iou_v1",
+            sample_universe={"sample_count": 400},
+            task_splits=[suite.task_splits[0], suite.task_splits[0]],
+        ).validate()
+
+    campaign = CampaignManifest(
+        campaign_id="model_a__banana_v2_4_val",
+        suite_id=suite.suite_id,
+        model_id="model-a",
+        checkpoint="outputs/model-a/ckpt-100",
+        prompt_set=["grounding_layout.main"],
+        pixel_budget=2_000_000,
+        decoding_config={"max_tokens": 2048, "temperature": 0.0},
+        run_ids=["layout_run"],
+        aggregate_report={"f1_iou50": 0.8},
+    )
+    campaign_path = CampaignArtifacts(tmp_path, campaign.campaign_id).write_manifest(campaign)
+    assert json.loads(campaign_path.read_text(encoding="utf-8"))["suite_id"] == suite.suite_id
 
 
 def test_create_benchmark_copies_raw_data_validation_subset(tmp_path: Path) -> None:

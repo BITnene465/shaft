@@ -1,0 +1,95 @@
+.image-jump-control {
+  display: grid;
+  grid-template-columns: auto minmax(112px, 148px) auto;
+  min-width: 0;
+  align-items: stretch;
+  gap: 0;
+  color: #536274;
+  background: var(--composite-surface);
+  border: 1px solid #d6e0ea;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 4%);
+}
+
+.image-jump-step-group {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: stretch;
+}
+
+.image-jump-step.icon-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: var(--composite-control-min);
+  color: #40566c;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.image-jump-step.icon-button:hover {
+  color: #102a35;
+  background: #eef6fb;
+  transform: none;
+  box-shadow: none;
+}
+
+.image-jump-step.icon-button:disabled {
+  color: #a3afbd;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.image-jump-step.edge {
+  color: #64748b;
+}
+
+.image-jump-field {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto;
+  gap: var(--composite-gap-5);
+  align-items: center;
+  min-height: var(--composite-control-min);
+  padding: 0 var(--composite-pad-8);
+  border-right: 1px solid var(--composite-line-soft);
+  border-left: 1px solid var(--composite-line-soft);
+  background: linear-gradient(180deg, var(--composite-surface), var(--composite-surface-subtle));
+  font-size: var(--text-xs);
+}
+
+.image-jump-input {
+  display: grid;
+  grid-template-columns: auto minmax(42px, 1fr);
+  gap: var(--composite-gap-5);
+  align-items: center;
+  min-width: 0;
+}
+
+.image-jump-input span,
+.image-jump-field strong {
+  font-size: var(--text-2xs);
+  font-weight: 820;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.image-jump-input input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--composite-pad-3) var(--composite-pad-4);
+  border: 0;
+  outline: 0;
+  color: #142033;
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .image-jump-control {
+    width: 100%;
+    grid-template-columns: auto minmax(92px, 1fr) auto;
+  }
+}

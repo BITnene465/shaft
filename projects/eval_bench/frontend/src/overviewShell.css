@@ -1,0 +1,128 @@
+/* Overview v18: compact operator workspace with two-column fallbacks and three-column desktop layout. */
+.dashboard-home.overview-home-v18 {
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  background: #f4f7f9;
+  scrollbar-width: thin;
+}
+
+.overview-v18-card-head div,
+.overview-v18-run-id {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.overview-v18-card-head span {
+  color: #65717d;
+  font-size: var(--text-3xs);
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.overview-v18-card-head h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 880;
+  letter-spacing: 0;
+}
+
+.overview-v18-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(290px, 0.75fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.overview-v18-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+  padding: 16px;
+  color: #17202a;
+  background: #ffffff;
+  border: 1px solid #d9e1e7;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgb(16 24 40 / 5%);
+}
+
+.overview-v18-primary,
+.overview-v18-recent {
+  grid-column: span 1;
+}
+
+.overview-v18-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  content: "";
+  background: #247a8f;
+}
+
+.overview-v18-card.good::before,
+.overview-v18-run-list a.complete::before {
+  background: #16835f;
+}
+
+.overview-v18-card.live::before {
+  background: #247a8f;
+}
+
+.overview-v18-card.warm::before,
+.overview-v18-run-list a.ready::before {
+  background: #c28718;
+}
+
+.overview-v18-card.danger::before {
+  background: #c84545;
+}
+
+.overview-v18-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.overview-v18-icon-link {
+  display: inline-flex;
+  width: 38px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: #0f4d5c;
+  background: #eef7f7;
+  border: 1px solid #d5e7e7;
+  border-radius: 6px;
+  text-decoration: none;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.overview-v18-icon-link:hover {
+  color: #ffffff;
+  background: #155e75;
+  border-color: #155e75;
+}
+
+.overview-v18-icon-link:focus-visible,
+.overview-v18-flow-item:focus-visible,
+.overview-v18-score:focus-visible,
+.overview-v18-run-list a:focus-visible,
+.overview-v18-scheduler:focus-visible {
+  outline: 2px solid rgb(21 94 117 / 70%);
+  outline-offset: 2px;
+}

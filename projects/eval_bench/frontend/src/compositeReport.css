@@ -1,0 +1,105 @@
+.composite-report-page {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--composite-page-surface);
+}
+
+.composite-report-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--composite-dock-rail-size) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  border-bottom: 1px solid var(--composite-shell-line);
+  background: var(--composite-surface);
+}
+
+.composite-report-shell.sidebar-open {
+  grid-template-columns: var(--composite-dock-rail-size) minmax(0, 1fr);
+}
+
+.composite-report-shell.sidebar-collapsed {
+  grid-template-columns: var(--composite-dock-rail-size) minmax(0, 1fr);
+}
+
+.composite-sidebar-backdrop {
+  position: absolute;
+  z-index: var(--composite-sidebar-backdrop-z);
+  inset: 0 0 0 var(--composite-dock-rail-size);
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--composite-sidebar-backdrop);
+  box-shadow: none;
+  cursor: default;
+}
+
+.composite-sidebar-backdrop:hover {
+  background: var(--composite-sidebar-backdrop-hover);
+}
+
+.composite-stage-region {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--composite-surface);
+}
+
+.composite-stage-region > .composite-report-stage-card {
+  flex: 1;
+}
+
+@media (max-width: 1320px) {
+  .composite-report-shell.sidebar-open {
+    grid-template-columns: var(--composite-dock-rail-size) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 940px) {
+  .composite-report-page {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding-top: var(--composite-shell-scroll-padding);
+  }
+
+  .composite-report-shell,
+  .composite-report-shell.sidebar-collapsed,
+  .composite-report-shell.sidebar-open {
+    min-height: var(--composite-shell-mobile-min-height);
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .composite-sidebar-backdrop {
+    inset: var(--composite-dock-rail-size) 0 0 0;
+  }
+}
+
+@media (max-width: 940px) and (max-height: 680px) {
+  .composite-report-page {
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-padding-top: var(--composite-shell-short-scroll-padding);
+  }
+
+  .composite-report-shell,
+  .composite-report-shell.sidebar-collapsed,
+  .composite-report-shell.sidebar-open {
+    min-height: var(--composite-shell-mobile-min-height);
+    flex: 0 0 auto;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .composite-sidebar-backdrop {
+    inset: 0;
+  }
+}

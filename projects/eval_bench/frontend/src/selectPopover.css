@@ -1,0 +1,198 @@
+.select-popover-control {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.select-popover-filter.compact {
+  width: 100%;
+  max-width: 100%;
+}
+
+.select-popover-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #667485;
+  font-size: var(--control-text-micro);
+  font-weight: 720;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.select-popover-form .select-popover-label,
+.select-popover-compact .select-popover-label {
+  color: #657386;
+  font-size: var(--control-text-caption);
+  font-weight: 720;
+}
+
+.select-popover-compact .select-popover-label,
+.select-popover-control.dense .select-popover-label {
+  font-size: var(--control-text-caption);
+  font-weight: 760;
+}
+
+.select-popover-trigger {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+  color: #1d2a38;
+  background: #ffffff;
+  border-color: #cfd8e3;
+  border-radius: 2px;
+  box-shadow: none;
+  font-size: var(--control-text-body);
+  font-weight: 640;
+  text-align: left;
+}
+
+.select-popover-filter .select-popover-trigger {
+  min-height: 26px;
+  padding: 0 7px;
+  background: #ffffff;
+}
+
+.select-popover-compact .select-popover-trigger,
+.select-popover-control.dense .select-popover-trigger {
+  min-height: 26px;
+  font-size: var(--control-text-body);
+  font-weight: 640;
+}
+
+.select-popover-trigger:hover,
+.select-popover-control[data-select-open="true"] .select-popover-trigger {
+  color: #102233;
+  background: #f8fafc;
+  border-color: #9eb1c3;
+}
+
+.select-popover-trigger:focus-visible,
+.select-popover-control:focus-within .select-popover-trigger {
+  border-color: #637f95;
+  box-shadow: 0 0 0 2px rgba(99, 127, 149, 0.12);
+  outline: 0;
+}
+
+.select-popover-menu {
+  position: fixed;
+  z-index: 260;
+  top: var(--select-menu-top, calc(100% + 2px));
+  left: var(--select-menu-left, 0);
+  display: grid;
+  width: var(--select-menu-width, max(100%, min(300px, 72vw)));
+  max-width: min(340px, calc(100vw - 32px));
+  max-height: var(--select-menu-max-height, min(36vh, 260px));
+  grid-template-rows: auto auto minmax(0, 1fr);
+  padding: 4px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #b9c6d2;
+  border-radius: 2px;
+  box-shadow: 0 14px 30px rgb(15 23 42 / 16%);
+}
+
+.select-popover-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 6px;
+  background: #ffffff;
+  border: 1px solid #d7e3ec;
+  border-radius: 2px;
+}
+
+.select-popover-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0;
+  color: #132334;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.select-popover-clear {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+}
+
+.select-popover-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 2px 3px;
+  color: #748294;
+  font-size: var(--control-text-micro);
+  font-weight: 650;
+}
+
+.select-popover-meta strong {
+  color: #8795a3;
+  font-weight: 680;
+}
+
+.select-popover-list {
+  display: grid;
+  gap: 1px;
+  overflow: auto;
+  max-height: none;
+  padding-right: 1px;
+}
+
+.select-popover-option {
+  display: grid;
+  min-height: 26px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-content: stretch;
+  gap: 6px;
+  padding: 0 7px;
+  color: #1b2a3a;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 1px;
+  font-size: var(--control-text-body);
+  font-weight: 620;
+  text-align: left;
+}
+
+.select-popover-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-popover-option:hover,
+.select-popover-option.active {
+  color: #102233;
+  background: #eef3f7;
+  border-color: #d8e1ea;
+}
+
+.select-popover-option.selected {
+  color: #102233;
+  background: #e7eef5;
+  border-color: #c9d6e2;
+  font-weight: 740;
+}
+
+.select-popover-empty {
+  padding: 10px 8px;
+  color: #7a8a99;
+  font-size: var(--control-text-small);
+  text-align: center;
+}

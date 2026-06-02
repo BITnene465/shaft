@@ -1,0 +1,151 @@
+.job-activity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 0.8fr);
+  gap: 12px;
+  min-height: min(420px, 100%);
+}
+
+.job-activity-grid > .workspace-card.fill {
+  min-height: 220px;
+  overflow: auto;
+}
+
+.queue-stack {
+  display: flex;
+  min-height: 160px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workspace-card.fill .queue-stack {
+  min-height: 160px;
+}
+
+.queue-stack > .table-shell {
+  min-height: 0;
+}
+
+.queue-stack th:last-child,
+.queue-stack td:last-child {
+  text-align: right;
+}
+
+.queue-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.scheduler-strip {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  gap: 14px;
+  padding: 0 10px;
+  color: #4f6275;
+  background: #f8fafc;
+  border: 1px solid #d8e2ea;
+  font-size: var(--text-xs);
+}
+
+.scheduler-strip > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #15364b;
+}
+
+.scheduler-strip strong {
+  font-size: var(--text-xs);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #9aa8b5;
+}
+
+.status-dot.live {
+  background: #16a06d;
+  box-shadow: 0 0 0 3px rgba(22, 160, 109, 0.14);
+}
+
+.queue-note {
+  color: #69798a;
+  font-size: var(--text-xs);
+}
+
+.job-target-cell,
+.job-eval-cell {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.job-eval-cell strong,
+.job-eval-cell small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-eval-cell .run-id-text {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.job-eval-cell strong {
+  color: #17202b;
+  font-size: var(--text-xs);
+  font-weight: 760;
+}
+
+.job-eval-cell small {
+  color: #6a7a8b;
+  font-size: var(--text-2xs);
+}
+
+.job-target-cell em,
+.job-target-cell small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-2xs);
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.job-target-cell em {
+  color: #9d2632;
+}
+
+.job-target-cell small {
+  color: #66788a;
+}
+
+.job-progress-inline {
+  display: grid;
+  gap: 3px;
+  min-width: 90px;
+  margin-top: 5px;
+}
+
+.job-progress-inline small {
+  color: #526579;
+  font-size: var(--text-3xs);
+  line-height: 1.2;
+}
+
+.job-progress-mini {
+  width: 96px;
+  height: 4px;
+}
+
+@media (max-width: 1180px) {
+  .job-activity-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -271,6 +271,7 @@ EVAL_BENCH_URL=http://127.0.0.1:8765 npm run test:dialogs
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:viewer-performance
 EVAL_BENCH_URL=http://127.0.0.1:8765/settings npm run test:settings-preview
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:shortcuts
+EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:composite-report
 EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 ```
 
@@ -279,6 +280,10 @@ EVAL_BENCH_URL=http://127.0.0.1:8765/ npm run test:layout
 `EVAL_BENCH_RUN_ID`。
 `test:viewer-performance` 也可以直接传 dashboard root，它会从 `/api/state` 发现当前可用 run；
 需要固定目标时再传 `/runs/<run_id>`。
+
+`test:composite-report` 专门覆盖组合报告页 `/suite-report`，在 wide / desktop-narrow /
+short-console 三种横向视口下验证左侧编排器默认折叠、抽屉可打开并通过 backdrop 关闭、图片搜索跳转
+popover 与结果列表可用，以及画布 pointer reticle 和 gesture HUD 能被鼠标 pointer 事件触发。
 
 `test:layout` 会遍历核心页面和弹窗，在 desktop / compact / narrow 视口下检查全局滚动、局部滚动容器、
 高级检索面板、独立 rank-board / compare chunk，并固定 Overview 的高价值约束：顶栏 status 必须是独立

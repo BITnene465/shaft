@@ -1,0 +1,21 @@
+.config-item strong,
+.label-color-name {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+td,
+tbody td {
+  overflow: hidden;
+  max-width: clamp(96px, 18vw, 320px);
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.select-popover-value,
+.query-chip {
+  text-overflow: clip;
+}

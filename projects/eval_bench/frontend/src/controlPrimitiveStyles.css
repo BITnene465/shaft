@@ -1,0 +1,219 @@
+.number-setting-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.number-setting-control span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #536171;
+  font-size: var(--control-text-small);
+  font-weight: 720;
+}
+
+.number-setting-control strong {
+  color: #0f172a;
+  font-size: var(--control-text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.number-setting-control input[type="number"] {
+  width: 78px;
+  height: 28px;
+  padding: 0 7px;
+  color: var(--bench-ink);
+  background: #ffffff;
+  border: 1px solid #cbd7e2;
+  border-radius: 2px;
+  font-size: var(--control-text-body);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.number-setting-control input[type="number"]:focus {
+  border-color: var(--bench-cyan);
+  box-shadow: 0 0 0 2px rgb(21 95 132 / 12%);
+}
+
+.compact-select.dense {
+  min-height: 34px;
+}
+
+.compact-select {
+  display: grid;
+  gap: 4px;
+}
+
+.compact-select span,
+.control-popover summary {
+  color: #607080;
+  font-size: var(--control-text-caption);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.compact-select select {
+  width: 100%;
+  min-height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 7px;
+  color: #101828;
+  background: #ffffff;
+  border: 1px solid #c9d5e1;
+  border-radius: 2px;
+  font-size: var(--control-text-body);
+  font-weight: 680;
+}
+
+.control-popover {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #d7e0e9;
+  border-radius: 2px;
+}
+
+.control-popover summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 7px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.control-popover summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-popover summary strong {
+  color: #18364f;
+  font-size: var(--control-text-caption);
+}
+
+.control-group {
+  min-width: 0;
+}
+
+.control-group.compact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: 5px;
+  align-content: start;
+  justify-content: start;
+}
+
+.control-group.compact .control-title {
+  grid-column: 1 / -1;
+}
+
+.control-title {
+  margin-bottom: 5px;
+  color: #607080;
+  font-size: var(--control-text-caption);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.control-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.control-title-row .control-title {
+  margin-bottom: 0;
+}
+
+.text-button {
+  min-height: 20px;
+  padding: 0;
+  color: #2f6f93;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--control-text-caption);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.control-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+}
+
+.control-check {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 21px;
+  gap: 5px;
+  color: #516174;
+  cursor: pointer;
+  font-size: var(--control-text-small);
+  font-weight: 650;
+}
+
+.control-check input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #1d5d7a;
+}
+
+.control-check.active {
+  color: #174d65;
+  font-weight: 760;
+}
+
+.color-control-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.label-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.color-control {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.color-control span {
+  overflow: hidden;
+  color: #516174;
+  font-size: var(--control-text-micro);
+  font-weight: 760;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.color-control input {
+  width: 100%;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--bench-line);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.mini-action-row {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+}

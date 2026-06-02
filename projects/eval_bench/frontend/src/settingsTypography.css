@@ -1,0 +1,116 @@
+.typography-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--settings-gap-6);
+}
+
+.typography-preset-card {
+  display: grid;
+  min-width: 0;
+  min-height: var(--settings-preset-min);
+  gap: var(--settings-gap-3);
+  padding: var(--settings-pad-8) var(--settings-pad-10);
+  color: #334155;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f9fc 100%);
+  border: 1px solid #d7e2ea;
+  border-left: 3px solid #d7e2ea;
+  cursor: pointer;
+  text-align: left;
+}
+
+.typography-preset-card:hover {
+  border-color: #a8cfe0;
+  background: #f1f8fb;
+}
+
+.typography-preset-card.active {
+  color: #0b3d55;
+  background: #ffffff;
+  border-color: #7fc1da;
+  border-left-color: var(--bench-cyan);
+  box-shadow: inset 0 -2px 0 rgb(22 132 173 / 28%);
+}
+
+.typography-preset-card span {
+  min-width: 0;
+  color: inherit;
+  font-size: var(--settings-text-small);
+  font-weight: 780;
+}
+
+.typography-preset-card small {
+  min-width: 0;
+  color: #627386;
+  font-size: var(--settings-text-micro);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.settings-typography-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(min(100%, 220px), 1fr));
+  gap: var(--settings-gap-8) 12px;
+}
+
+.settings-typography-grid .settings-text-control:nth-child(3),
+.settings-typography-grid .settings-text-control:nth-child(5) {
+  grid-column: 1 / -1;
+}
+
+.settings-text-control {
+  display: grid;
+  gap: var(--settings-gap-4);
+  min-width: 0;
+}
+
+.settings-text-control span {
+  color: #415366;
+  font-size: var(--settings-text-caption);
+  font-weight: 720;
+}
+
+.settings-text-control input {
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  padding: 0 var(--settings-pad-9);
+  color: #162231;
+  background: #f8fafc;
+  border: 1px solid #d8e2ec;
+  border-radius: var(--settings-radius-control);
+  font-size: var(--settings-text-small);
+}
+
+.typography-preview-strip {
+  display: grid;
+  gap: var(--settings-gap-3);
+  max-width: 540px;
+  padding: var(--settings-pad-9) var(--settings-pad-10);
+  background: #f8fafc;
+  border: 1px solid #d8e2ec;
+  border-radius: var(--settings-radius-control);
+  font-family: var(--app-font-family);
+}
+
+.typography-preview-strip strong {
+  color: #152033;
+  font-size: var(--settings-text-body);
+  font-weight: 780;
+}
+
+.typography-preview-strip span {
+  color: #5d6f83;
+  font-size: var(--settings-text-caption);
+}
+
+.typography-preview-strip code {
+  color: #2f6480;
+  font-family: var(--mono-font);
+  font-size: var(--settings-text-micro);
+}
+
+@media (max-width: 900px) {
+  .typography-preset-grid {
+    grid-template-columns: 1fr;
+  }
+}

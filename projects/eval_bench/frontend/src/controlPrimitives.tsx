@@ -1,4 +1,17 @@
-import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  TextareaHTMLAttributes
+} from "react";
+
+export {
+  CompactSelectControl,
+  FilterSelectControl,
+  FormSelectControl
+} from "./selectPopoverControl";
+export type { SelectOption } from "./selectPopoverControl";
+
+import "./controlPrimitiveStyles.css";
 
 export function NumberSettingControl({
   label,
@@ -33,6 +46,37 @@ export function NumberSettingControl({
   );
 }
 
+export function RangeSettingControl({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="range-setting-control">
+      <span className="sr-only">{label}</span>
+      <input
+        type="range"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        aria-label={label}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
 export function ColorControl({
   label,
   value,
@@ -49,12 +93,6 @@ export function ColorControl({
     </label>
   );
 }
-
-export type SelectOption = {
-  value: string;
-  label: string;
-  disabled?: boolean;
-};
 
 type TextInputControlProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -307,111 +345,6 @@ export function InlineColorControl({
     <label>
       <small>{caption ?? label}</small>
       <StandaloneColorControl label={label} value={value} onChange={onChange} />
-    </label>
-  );
-}
-
-export function FormSelectControl({
-  label,
-  value,
-  options,
-  disabled = false,
-  required = false,
-  className,
-  hideLabel = false,
-  onChange
-}: {
-  label: string;
-  value: string;
-  options: ReadonlyArray<SelectOption>;
-  disabled?: boolean;
-  required?: boolean;
-  className?: string;
-  hideLabel?: boolean;
-  onChange: (value: string) => void;
-}) {
-  const labelClassName = [className, hideLabel ? "select-control-label-hidden" : ""]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <label className={labelClassName || undefined}>
-      <span>{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-        required={required}
-        title={label}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-export function CompactSelectControl({
-  label,
-  value,
-  options,
-  disabled = false,
-  dense = false,
-  onChange
-}: {
-  label: string;
-  value: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  disabled?: boolean;
-  dense?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className={dense ? "compact-select dense" : "compact-select"}>
-      <span>{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-        title={label}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-export function FilterSelectControl({
-  label,
-  value,
-  values,
-  labels,
-  compact = false,
-  onChange
-}: {
-  label: string;
-  value: string;
-  values: string[];
-  labels?: Record<string, string>;
-  compact?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className={compact ? "filter-select compact" : "filter-select"}>
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} title={label}>
-        {values.map((item) => (
-          <option key={item} value={item}>
-            {labels?.[item] ?? item}
-          </option>
-        ))}
-      </select>
     </label>
   );
 }

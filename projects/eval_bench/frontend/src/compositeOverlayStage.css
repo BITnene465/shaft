@@ -1,0 +1,50 @@
+.composite-overlay-stage {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--composite-gap-8);
+  padding: var(--composite-pad-10);
+  overflow: hidden;
+}
+
+.composite-layer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--composite-gap-8);
+}
+
+.composite-layer-legend span {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--composite-gap-6);
+  padding: var(--composite-pad-5) var(--composite-pad-8);
+  border: 1px solid var(--composite-line-muted);
+  background: var(--composite-surface);
+  color: var(--composite-ink);
+  font-size: var(--text-sm);
+}
+
+.composite-layer-legend span.missing {
+  color: #8a97a6;
+  background: transparent;
+}
+
+.composite-layer-legend i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+}
+
+.composite-layer-legend strong {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--composite-muted);
+  font-size: var(--text-2xs);
+  font-weight: 840;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}

@@ -1,0 +1,150 @@
+:root {
+  --text-3xs: calc(var(--app-base-font-size) * 0.82);
+  --text-2xs: calc(var(--app-base-font-size) * 0.88);
+  --text-xs: calc(var(--app-base-font-size) * 0.94);
+  --text-sm: var(--app-base-font-size);
+  --text-md: calc(var(--app-base-font-size) * 1.12);
+  --text-lg: calc(var(--app-base-font-size) * 1.25);
+  --text-xl: calc(var(--app-base-font-size) * 1.45);
+  --metric-display-size: calc(var(--app-base-font-size) * 1.9);
+  --hero-display-size: calc(var(--app-base-font-size) * 2.06);
+}
+
+body,
+.app-shell,
+.content,
+.workspace-card,
+.settings-workbench-shell,
+.table-shell,
+.job-form,
+.select-popover,
+.select-popover-trigger,
+.filter-select,
+.search-box,
+.primary-button,
+.secondary-button,
+.mini-button,
+.mini-link,
+.icon-button,
+.query-chip,
+.badge {
+  font-family: var(--app-font-family);
+}
+
+h1,
+.topbar h1 {
+  font-size: var(--text-xl);
+  line-height: 1.12;
+}
+
+h2,
+.workspace-card h2,
+.settings-command-title h2,
+.settings-drawer-head strong {
+  font-size: var(--text-lg);
+  line-height: 1.18;
+}
+
+.brand-title,
+.workspace-card strong,
+.section-header h2,
+.settings-preview-strip strong,
+.run-id-link,
+.run-id-text {
+  font-size: var(--text-md);
+}
+
+.nav-item,
+.status-pill,
+.primary-button,
+.secondary-button,
+.form-result,
+.form-error,
+.table-shell td,
+.job-form input,
+.job-form select,
+.job-form textarea,
+.job-form .select-popover-trigger,
+.select-popover-trigger,
+.search-box input,
+.filter-select select,
+.settings-text-control input,
+.typography-preview-strip strong {
+  font-size: var(--text-sm);
+}
+
+.brand-subtitle,
+.eyebrow,
+.metric-label,
+.config-item span,
+.config-item strong,
+.mini-button,
+.mini-link,
+.query-chip,
+.badge,
+.table-refresh-indicator,
+.job-form span,
+.settings-text-control span,
+.settings-editor-pane .number-setting-control span,
+.typography-preview-strip span,
+.rank-board-pager > span,
+.settings-profile-strip,
+.settings-section-button small,
+.settings-drawer-head small,
+.viewer-fetch-chip {
+  font-size: var(--text-xs);
+}
+
+.table-shell th,
+.select-popover-label,
+.select-popover-count,
+.typography-preview-strip code,
+.settings-command-title span,
+.settings-drawer-head span,
+.settings-preview-dock span,
+.overview-v18-console-head > span,
+.overview-v18-signal-node > span,
+.overview-v18-signal-inspector > span {
+  font-size: var(--text-2xs);
+}
+
+.metric-value {
+  font-size: var(--metric-display-size);
+}
+
+.overview-v18-signal-node > strong,
+.overview-v18-signal-inspector > strong {
+  font-size: var(--hero-display-size);
+}
+
+.overview-v18-surface-tab,
+.overview-v18-signal-node > em,
+.overview-v18-signal-inspector p,
+.overview-v18-signal-inspector a {
+  font-size: var(--text-sm);
+}
+
+.table-shell th,
+.table-shell td {
+  padding-block: 9px;
+}
+
+.table-shell.compact th,
+.table-shell.compact td {
+  padding-block: 7px;
+}
+
+.job-form input,
+.job-form .select-popover-trigger,
+.job-form select,
+.job-form textarea {
+  min-height: 32px;
+}
+
+.primary-button {
+  min-height: 33px;
+}
+
+.secondary-button {
+  min-height: 32px;
+}

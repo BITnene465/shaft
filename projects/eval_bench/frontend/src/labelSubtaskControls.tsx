@@ -1,5 +1,6 @@
 import { unique } from "./formatters";
 import { ActionButton, OptionChipButton } from "./ui";
+import "./labelSubtaskControls.css";
 
 export function DetectionLabelSubtaskPanel({
   task,

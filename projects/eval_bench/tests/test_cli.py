@@ -1534,6 +1534,18 @@ def test_cli_exposes_agent_lifecycle_and_log_commands(tmp_path: Path, capsys) ->
 
 def test_cli_prints_agent_ops_summary(tmp_path: Path, capsys) -> None:
     _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "benchmark_type": "official",
+            "tasks": ["detection"],
+            "split": "val",
+            "sample_count": 0,
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "val.txt"),
+        },
+    )
+    _write_json(
         tmp_path / "runs" / "run-best" / "run.json",
         {
             "run_id": "run-best",
@@ -1616,7 +1628,7 @@ def test_cli_prints_agent_ops_summary(tmp_path: Path, capsys) -> None:
     assert payload["runs"]["best_f1_run"]["run_id"] == "run-best"
     assert payload["runs"]["best_f1_run"]["target_labels"] == ["arrow"]
     assert payload["benchmarks"] == {
-        "total": 0,
+        "total": 1,
         "sample_count": 0,
         "prediction_count": 4,
     }
@@ -1836,6 +1848,25 @@ def test_cli_import_predictions_rejects_unknown_target_label(tmp_path: Path) -> 
 
 
 def test_cli_prints_filtered_rank_board(tmp_path: Path, capsys) -> None:
+    _write_json(
+        tmp_path / "benchmarks" / "bench1" / "benchmark.json",
+        {
+            "benchmark_id": "bench1",
+            "benchmark_type": "official",
+            "tasks": ["detection"],
+            "layers": ["layout", "arrow"],
+            "labels": ["icon", "arrow"],
+            "split": "suite",
+            "sample_count": 0,
+            "sample_counts": {"grounding_layout": 0, "grounding_arrow": 0},
+            "split_manifests": {
+                "grounding_layout": str(tmp_path / "benchmarks" / "bench1" / "splits" / "grounding_layout.txt"),
+                "grounding_arrow": str(tmp_path / "benchmarks" / "bench1" / "splits" / "grounding_arrow.txt"),
+            },
+            "root": str(tmp_path / "benchmarks" / "bench1" / "data"),
+            "manifest_path": str(tmp_path / "benchmarks" / "bench1" / "splits" / "suite.txt"),
+        },
+    )
     for run_id, label, split, precision in (
         ("run_a", "icon", "grounding_layout", 0.9),
         ("run_b", "arrow", "grounding_arrow", 0.5),

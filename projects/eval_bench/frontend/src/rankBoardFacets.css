@@ -1,0 +1,208 @@
+.rank-facet-rail {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--rank-gap-10);
+}
+
+.rank-facet-group {
+  display: grid;
+  min-width: 0;
+  gap: var(--rank-gap-8);
+  padding: var(--rank-pad-10);
+  background: #ffffff;
+  border: 1px solid #dbe3ec;
+  border-radius: var(--rank-radius-control);
+  box-shadow: none;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.rank-facet-group:hover {
+  border-color: #c2d8e3;
+  box-shadow: none;
+  transform: none;
+}
+
+.rank-facet-group > span {
+  color: #647589;
+  font-size: var(--rank-text-caption);
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.rank-facet-group > div {
+  display: flex;
+  min-width: 0;
+  gap: var(--rank-gap-6);
+  overflow: auto hidden;
+  scrollbar-width: thin;
+}
+
+.rank-facet-group.expanded > div {
+  max-height: 126px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.rank-facet-group em,
+.rank-facet-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--rank-gap-6);
+  max-width: 220px;
+  padding: var(--rank-pad-4) var(--rank-pad-7);
+  overflow: hidden;
+  color: #1c2835;
+  background: #f8fafc;
+  border: 1px solid #dbe3ec;
+  font-size: var(--rank-text-caption);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-facet-button {
+  min-height: var(--rank-chip-min);
+  border-radius: var(--rank-radius-pill);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.rank-facet-button:hover,
+.rank-facet-button.active {
+  color: #0b3d54;
+  background: #e9f7fb;
+  border-color: #9fd0df;
+  box-shadow: none;
+  transform: none;
+}
+
+.rank-facet-button.active {
+  box-shadow: inset 0 0 0 1px rgb(13 142 181 / 20%);
+}
+
+.rank-facet-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: var(--rank-chip-min);
+  align-items: center;
+  padding: var(--rank-pad-4) var(--rank-pad-8);
+  color: #506273;
+  background: #ffffff;
+  border: 1px dashed #bfcfdc;
+  border-radius: var(--rank-radius-pill);
+  cursor: pointer;
+  font-size: var(--rank-text-caption);
+  font-weight: 820;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.rank-facet-toggle:hover,
+.rank-facet-toggle.active {
+  color: #0b3d54;
+  background: #f0fbfd;
+  border-color: #8dc9dc;
+  box-shadow: none;
+  transform: none;
+}
+
+.rank-facet-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-facet-group strong {
+  color: #174d65;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-board-page .rank-facet-rail {
+  order: 4;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--rank-gap-6);
+  opacity: 0.86;
+}
+
+.rank-board-page .rank-facet-group {
+  gap: var(--rank-gap-6);
+  padding: var(--rank-pad-7);
+  box-shadow: none;
+}
+
+.rank-board-page .rank-facet-group:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.rank-board-page .rank-facet-button,
+.rank-board-page .rank-facet-toggle {
+  min-height: var(--rank-facet-min);
+  padding: var(--rank-pad-3) var(--rank-pad-6);
+  border-radius: var(--rank-radius-panel);
+  box-shadow: none;
+  font-size: var(--rank-text-tiny);
+}
+
+.rank-board-page .rank-facet-readonly {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--rank-gap-6);
+  max-width: 220px;
+  min-height: var(--rank-facet-min);
+  padding: var(--rank-pad-3) var(--rank-pad-6);
+  overflow: hidden;
+  color: #1c2835;
+  background: #f8fafc;
+  border: 1px solid #dbe3ec;
+  border-radius: var(--rank-radius-panel);
+  font-size: var(--rank-text-tiny);
+}
+
+.rank-board-page .rank-facet-readonly span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-board-page .rank-facet-readonly strong {
+  color: #0f5d83;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-board-page .rank-facet-button:hover,
+.rank-board-page .rank-facet-button.active,
+.rank-board-page .rank-facet-toggle:hover,
+.rank-board-page .rank-facet-toggle.active {
+  box-shadow: none;
+  transform: none;
+}
+
+@media (max-width: 1280px) {
+  .rank-board-page .rank-facet-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .rank-board-page .rank-facet-rail {
+    grid-template-columns: 1fr;
+  }
+}

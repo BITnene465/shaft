@@ -1,0 +1,24 @@
+.composite-canvas-pointer-reticle {
+  z-index: var(--composite-pointer-reticle-z);
+}
+
+.composite-canvas-pointer-reticle .axis-x,
+.composite-canvas-pointer-reticle .axis-y {
+  position: absolute;
+  background: var(--composite-pointer-axis-color);
+  opacity: var(--composite-pointer-axis-opacity);
+}
+
+.composite-canvas-pointer-reticle .axis-x {
+  top: var(--composite-pointer-y, 50%);
+  right: 0;
+  left: 0;
+  height: var(--composite-pointer-axis-width);
+}
+
+.composite-canvas-pointer-reticle .axis-y {
+  top: 0;
+  bottom: 0;
+  left: var(--composite-pointer-x, 50%);
+  width: var(--composite-pointer-axis-width);
+}

@@ -5,6 +5,9 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const srcRoot = path.join(root, "src");
 const sourceFiles = await collectSourceFiles(srcRoot);
+const styleFiles = await collectStyleFiles(srcRoot);
+const maxSourceLines = 900;
+const maxStyleLines = 480;
 const forbiddenUiCopy = [
   "只保留系统运行态、数据规模和近期写入节奏",
   "精细指标进入排行榜与对比页",
@@ -24,6 +27,7 @@ const forbiddenUiCopy = [
 for (const filePath of sourceFiles) {
   const source = await readFile(filePath, "utf8");
   const relativePath = path.relative(root, filePath);
+  assertMaxLines(source, relativePath, maxSourceLines);
   assertNoForbiddenUiCopy(source, relativePath, forbiddenUiCopy);
   assertNoBlockingBrowserDialogs(source, relativePath);
   assertNoBusinessDialogShell(source, relativePath);
@@ -35,25 +39,199 @@ for (const filePath of sourceFiles) {
   assertNoRawDisclosureElement(source, relativePath);
 }
 
+for (const filePath of styleFiles) {
+  const source = await readFile(filePath, "utf8");
+  const relativePath = path.relative(root, filePath);
+  assertMaxLines(source, relativePath, maxStyleLines);
+  assert.notEqual(relativePath, "src/styles.css", "legacy monolithic styles.css must stay removed");
+}
+
 const jobsPage = await readSource("src/jobsPage.tsx");
+const jobsCreatePanelSource = await readSource("src/jobsCreatePanel.tsx");
+const jobsQueuePanelSource = await readSource("src/jobsQueuePanel.tsx");
+const jobsQueueTableSource = await readSource("src/jobsQueueTable.tsx");
 const runsPage = await readSource("src/runsPage.tsx");
+const runDetailPageSource = await readSource("src/runDetailPage.tsx");
 const benchmarksPage = await readSource("src/benchmarksPage.tsx");
+const benchmarkCreatePanelSource = await readSource("src/benchmarkCreatePanel.tsx");
+const benchmarkModelSource = await readSource("src/benchmarkModel.ts");
+const benchmarkSampleInspectorSource = await readSource("src/benchmarkSampleInspector.tsx");
 const comparePage = await readSource("src/comparePage.tsx");
+const compareControllerSource = await readSource("src/compareController.ts");
+const compareFiltersSource = await readSource("src/compareFilters.tsx");
+const compareReportComponentsSource = await readSource("src/compareReportComponents.tsx");
+const compareReportMetricsSource = await readSource("src/compareReportMetrics.tsx");
+const compareReportSamplesSource = await readSource("src/compareReportSamples.tsx");
+const compareRunRailComponentsSource = await readSource("src/compareRunRailComponents.tsx");
+const suiteReportPage = await readSource("src/suiteReportPage.tsx");
 const overviewPage = await readSource("src/overviewPage.tsx");
+const overviewModelSource = await readSource("src/overviewModel.ts");
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
+const rankThemeStyleSource = await readSource("src/rankTheme.css");
+const rankBoardPageStyleSource = await readSource("src/rankBoardPage.css");
+const rankBoardSummaryStyleSource = await readSource("src/rankBoardSummary.css");
+const rankBoardFacetsStyleSource = await readSource("src/rankBoardFacets.css");
+const rankBoardTablesStyleSource = await readSource("src/rankBoardTables.css");
+const rankBoardControllerSource = await readSource("src/rankBoardController.ts");
+const rankBoardFiltersSource = await readSource("src/rankBoardFilters.tsx");
+const rankBoardFacetsSource = await readSource("src/rankBoardFacets.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
+const servicesCreatePanelSource = await readSource("src/servicesCreatePanel.tsx");
+const servicesGridSource = await readSource("src/servicesGrid.tsx");
 const mainEntry = await readSource("src/main.tsx");
+const appShellSource = await readSource("src/appShell.tsx");
 const runTables = await readSource("src/runTables.tsx");
+const runsImportPanelSource = await readSource("src/runsImportPanel.tsx");
+const runConfigPanelSource = await readSource("src/runConfigPanel.tsx");
+const runSampleSidebarSource = await readSource("src/runSampleSidebar.tsx");
 const runArtifactSignals = await readSource("src/runArtifactSignals.ts");
 const uiSource = await readSource("src/ui.tsx");
+const uiActionsSource = await readSource("src/uiActions.tsx");
+const uiDataTableSource = await readSource("src/uiDataTable.tsx");
+const uiDialogSource = await readSource("src/uiDialog.tsx");
 const manifestToolsSource = await readSource("src/manifestTools.ts");
 const apiSource = await readSource("src/api.ts");
+const apiTypesSource = await readSource("src/apiTypes.ts");
 const formattersSource = await readSource("src/formatters.ts");
 const filterControls = await readSource("src/filterControls.tsx");
+const advancedFilterTypesSource = await readSource("src/advancedFilterTypes.ts");
+const advancedFilterFieldsSource = await readSource("src/advancedFilterFields.tsx");
+const advancedFilterModelSource = await readSource("src/advancedFilterModel.ts");
+const advancedFilterStorageSource = await readSource("src/advancedFilterStorage.ts");
+const workspaceSettingsSource = await readSource("src/workspaceSettings.ts");
+const workspaceSettingsSchemaSource = await readSource("src/workspaceSettingsSchema.ts");
+const workspaceSettingsStorageSource = await readSource("src/workspaceSettingsStorage.ts");
+const typographySettingsSource = await readSource("src/typographySettings.ts");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
+const selectPopoverControl = await readSource("src/selectPopoverControl.tsx");
+const rankBoardViewStateSource = await readSource("src/rankBoardViewState.ts");
+const rankBoardModelSource = await readSource("src/rankBoardModel.ts");
+const rankBoardTablesSource = await readSource("src/rankBoardTables.tsx");
+const runsViewStateSource = await readSource("src/runsViewState.ts");
+const jobsViewStateSource = await readSource("src/jobsViewState.ts");
+const compareViewStateSource = await readSource("src/compareViewState.ts");
 const labelSubtaskControls = await readSource("src/labelSubtaskControls.tsx");
+const labelSubtaskControlsStyleSource = await readSource("src/labelSubtaskControls.css");
 const samplePagerSource = await readSource("src/samplePager.tsx");
-const styleSource = await readSource("src/styles.css");
+const styleSource = await readCssSource();
+const appBaseStyleSource = await readSource("src/appBase.css");
+const appChromeStyleSource = await readSource("src/appChrome.css");
+const appChromeVisualStyleSource = await readSource("src/appChromeVisual.css");
+const appChromeCollapsedStyleSource = await readSource("src/appChromeCollapsed.css");
+const appTypographyStyleSource = await readSource("src/appTypography.css");
+const interactionFeedbackStyleSource = await readSource("src/interactionFeedback.css");
+const sharedControlsThemeStyleSource = await readSource("src/sharedControlsTheme.css");
+const sharedControlsStyleSource = await readSource("src/sharedControls.css");
+const sharedButtonsStyleSource = await readSource("src/sharedButtons.css");
+const sharedIndicatorsStyleSource = await readSource("src/sharedIndicators.css");
+const sharedMetricsStyleSource = await readSource("src/sharedMetrics.css");
+const sharedPagerStyleSource = await readSource("src/sharedPager.css");
+const sharedSplitStyleSource = await readSource("src/sharedSplit.css");
+const controlPrimitiveStyleSource = await readSource("src/controlPrimitiveStyles.css");
+const selectPopoverStyleSource = await readSource("src/selectPopover.css");
+const labelColorControlsStyleSource = await readSource("src/labelColorControls.css");
+const appThemeStyleSource = await readSource("src/appTheme.css");
+const adaptiveContentStyleSource = await readSource("src/adaptiveContent.css");
+const dataTableStyleSource = await readSource("src/dataTable.css");
+const runTablesStyleSource = await readSource("src/runTables.css");
+const runsStyleSource = await readSource("src/runsPage.css");
+const jobsStyleSource = await readSource("src/jobsPage.css");
+const jobsQueueStyleSource = await readSource("src/jobsQueue.css");
+const jobsRecentRunsStyleSource = await readSource("src/jobsRecentRuns.css");
+const jobsDetailStyleSource = await readSource("src/jobsDetail.css");
+const jobsManifestStyleSource = await readSource("src/jobsManifest.css");
+const formControlsStyleSource = await readSource("src/formControls.css");
+const filterThemeStyleSource = await readSource("src/filterTheme.css");
+const filterControlsStyleSource = await readSource("src/filterControls.css");
+const workspaceThemeStyleSource = await readSource("src/workspaceTheme.css");
+const workspaceShellStyleSource = await readSource("src/workspaceShell.css");
+const workspaceDialogStyleSource = await readSource("src/workspaceDialog.css");
+const pageCommandStyleSource = await readSource("src/pageCommand.css");
+const settingsThemeStyleSource = await readSource("src/settingsTheme.css");
+const settingsWorkbenchStyleSource = await readSource("src/settingsWorkbench.css");
+const settingsPreviewStyleSource = await readSource("src/settingsPreview.css");
+const settingsDrawerStyleSource = await readSource("src/settingsDrawer.css");
+const settingsEditorStyleSource = await readSource("src/settingsEditor.css");
+const settingsTypographyStyleSource = await readSource("src/settingsTypography.css");
+const settingsLabelsStyleSource = await readSource("src/settingsLabels.css");
+const settingsShortcutsStyleSource = await readSource("src/settingsShortcuts.css");
+const overviewStyleSource = await readSource("src/overviewPage.css");
+const overviewShellStyleSource = await readSource("src/overviewShell.css");
+const overviewPrimaryStyleSource = await readSource("src/overviewPrimary.css");
+const overviewConsoleStyleSource = await readSource("src/overviewConsole.css");
+const overviewOperationsStyleSource = await readSource("src/overviewOperations.css");
+const overviewResponsiveStyleSource = await readSource("src/overviewResponsive.css");
+const compareStyleSource = await readSource("src/comparePage.css");
+const compareThemeStyleSource = await readSource("src/compareTheme.css");
+const compareRunRailStyleSource = await readSource("src/compareRunRail.css");
+const compareReportPanelStyleSource = await readSource("src/compareReportPanel.css");
+const comparisonSampleStyleSource = await readSource("src/comparisonSampleStyles.css");
+const inspectorPageStyleSource = await readSource("src/inspectorPage.css");
+const compositeThemeStyleSource = await readSource("src/compositeTheme.css");
+const compositeMicroMeterStyleSource = await readSource("src/compositeMicroMeter.css");
+const compositePanelPrimitivesStyleSource = await readSource("src/compositePanelPrimitives.css");
+const compositeReportStyleSource = await readSource("src/compositeReport.css");
+const compositeComposerDockStyleSource = await readSource("src/compositeComposerDock.css");
+const compositeComposerDockPreviewStyleSource = await readSource("src/compositeComposerDockPreview.css");
+const compositeComposerDrawerStyleSource = await readSource("src/compositeComposerDrawer.css");
+const compositeReportPanelStyleSource = await readSource("src/compositeReportPanel.css");
+const compositeReportRunPoolStyleSource = await readSource("src/compositeReportRunPool.css");
+const compositeReportLayerPlanStyleSource = await readSource("src/compositeReportLayerPlan.css");
+const compositeImageNavigatorStyleSource = await readSource("src/compositeImageNavigator.css");
+const compositeImageJumpControlStyleSource = await readSource("src/compositeImageJumpControl.css");
+const compositeImageSearchBarStyleSource = await readSource("src/compositeImageSearchBar.css");
+const compositeImagePanelStyleSource = await readSource("src/compositeImagePanel.css");
+const compositeImageJumpItemStyleSource = await readSource("src/compositeImageJumpItem.css");
+const compositeImageSearchResultItemStyleSource = await readSource("src/compositeImageSearchResultItem.css");
+const compositeInteractionPaletteStyleSource = await readSource("src/compositeInteractionPalette.css");
+const compositeImageAtlasStyleSource = await readSource("src/compositeImageAtlas.css");
+const compositeImageTimelineStyleSource = await readSource("src/compositeImageTimeline.css");
+const compositeImageIndexMeterStyleSource = await readSource("src/compositeImageIndexMeter.css");
+const compositeImageScrubTrackStyleSource = await readSource("src/compositeImageScrubTrack.css");
+const compositeImageNearbyRailStyleSource = await readSource("src/compositeImageNearbyRail.css");
+const compositeImageSearchPopoverStyleSource = await readSource("src/compositeImageSearchPopover.css");
+const compositeImageSearchResultsStyleSource = await readSource("src/compositeImageSearchResults.css");
+const compositeImageSearchPreviewStyleSource = await readSource("src/compositeImageSearchPreview.css");
+const compositeImageSearchStatusStyleSource = await readSource("src/compositeImageSearchStatus.css");
+const compositeReportStageStyleSource = await readSource("src/compositeReportStage.css");
+const compositeStageWorkbenchStyleSource = await readSource("src/compositeStageWorkbench.css");
+const compositeLayerFocusToolbarStyleSource = await readSource("src/compositeLayerFocusToolbar.css");
+const compositeObjectHudStyleSource = await readSource("src/compositeObjectHud.css");
+const compositeObjectContextMenuStyleSource = await readSource("src/compositeObjectContextMenu.css");
+const compositeOverlayStageStyleSource = await readSource("src/compositeOverlayStage.css");
+const compositeLayerCanvasStyleSource = await readSource("src/compositeLayerCanvas.css");
+const compositeCanvasOverlayStyleSource = await readSource("src/compositeCanvasOverlay.css");
+const compositeCanvasGestureHudStyleSource = await readSource("src/compositeCanvasGestureHud.css");
+const compositeCanvasPointerReticleStyleSource = await readSource("src/compositeCanvasPointerReticle.css");
+const compositeLayerInspectorStyleSource = await readSource("src/compositeLayerInspector.css");
+const compositeLayerObjectStripStyleSource = await readSource("src/compositeLayerObjectStrip.css");
+const compositeSplitStageStyleSource = await readSource("src/compositeSplitStage.css");
+const compositeSplitPaneStyleSource = await readSource("src/compositeSplitPane.css");
+const compositeReportModelSource = await readSource("src/compositeReportModel.ts");
+const compositeLayerPaletteSource = await readSource("src/compositeLayerPalette.ts");
+const compositeImageNavigationModelSource = await readSource("src/compositeImageNavigationModel.ts");
+const compositeImageNavigationControllerSource = await readSource(
+  "src/compositeImageNavigationController.ts",
+);
+const compositeImageSearchControllerSource = await readSource("src/compositeImageSearchController.ts");
+const compositeImageScrubTrack = await readSource("src/compositeImageScrubTrack.tsx");
+const compositeImageNearbyRailControllerSource = await readSource(
+  "src/compositeImageNearbyRailController.ts",
+);
+const compositeImageTimelineControllerSource = await readSource(
+  "src/compositeImageTimelineController.ts",
+);
+const compositeObjectInteractionSource = await readSource("src/compositeObjectInteraction.ts");
+const compositeObjectModelSource = await readSource("src/compositeObjectModel.ts");
+const compositeObjectInteractionControllerSource = await readSource(
+  "src/compositeObjectInteractionController.ts",
+);
+const compositeObjectKeyboardNavigationSource = await readSource("src/compositeObjectKeyboardNavigation.ts");
+const compositeObjectContextMenuLifecycleSource = await readSource(
+  "src/compositeObjectContextMenuLifecycle.ts",
+);
+const compositeCanvasObjectMappingSource = await readSource("src/compositeCanvasObjectMapping.ts");
+const keyboardTargetsSource = await readSource("src/keyboardTargets.ts");
 const designSource = await readSource("src/design.css");
 const removedCompositeApiToken = ["rank", "scheme"].join("_");
 const removedCompositeCamelToken = ["rank", "Scheme"].join("");
@@ -62,10 +240,25 @@ const removedCompositePanelToken = ["Rank", "Scheme", "Panel"].join("");
 const removedCompositeComponentsToken = ["score", "components"].join("_");
 const readProjectFile = (relativePath) => readFile(path.join(root, relativePath), "utf8");
 const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", "..", relativePath), "utf8");
+const packageJsonSource = await readProjectFile("package.json");
 const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
 const viewerPerformanceSource = await readProjectFile("scripts/viewer-performance-check.mjs");
+const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
+const evalBenchArchitectureSource = await readRepoFile("docs/eval_bench_architecture.md");
+const rawVisualPageControlGeometryPattern =
+  /(?:\bfont-size:\s*(?:\d|0\.|[0-9.]+rem)|\b(?:gap|padding):\s*(?:1|4|6|8|9|10|12|14)px\b|\bmin-height:\s*(?:28|34|38|52)px\b|\bborder-radius:\s*(?:2|3)px\b)/;
+const rawAdvancedFilterGeometryPattern =
+  /(?:\bfont-size:\s*(?:10|11|12|13)px\b|\bgap:\s*(?:2|3|5|6|8|10)px\b|\bpadding:\s*(?:0 7px|0 9px 0 7px|1px 1px 7px|4px|7px|8px)\b|\bmin-height:\s*(?:26|30|32)px\b|\bborder-radius:\s*2px\b)/;
+const rawCompareReportGeometryPattern =
+  /(?:\bfont-size:\s*(?:11|12|13|15|19|20)px\b|\bgap:\s*(?:3|4|6|8|10|12|16|18)px\b|\bpadding:\s*(?:0 8px|3px 0|4px 0|4px 7px|7px 0|7px 10px 8px 0|12px)\b|\b(?:height|line-height|min-height):\s*(?:26|30|34|44|56)px\b|\bborder-radius:\s*2px\b)/;
+const rawRankBoardGeometryPattern =
+  /(?:\bfont-size:\s*(?:10|11|15)px\b|\bgap:\s*(?:5|6|8|10)px\b|\bpadding:\s*(?:2px 8px|3px 6px|4px 7px|4px 8px|7px 10px|7px|8px|10px)\b|\bmin-height:\s*(?:24|28|30|32|38|46)px\b|\bborder-radius:\s*(?:2|3|4|999)px\b)/;
+const rawWorkspaceShellGeometryPattern =
+  /(?:\bfont-size:\s*(?:10|11|12|13|14|16)px\b|\bgap:\s*(?:2|8|10|12|14|16)px\b|\bpadding:\s*(?:10px|12px|14px|18px|24px|32px|0 10px|0 12px|10px 12px 10px 14px)\b|\bmin-height:\s*(?:32|44|46|54)px\b|\bborder-radius:\s*(?:2|3|8)px\b)/;
+const rawSharedControlsGeometryPattern =
+  /(?:\bfont-size:\s*(?:11|12|13|14|28)px\b|\bgap:\s*(?:2|4|6|8|10|12|16)px\b|\bpadding:\s*(?:8px|10px|14px|0 8px|0 10px|0 11px|0 12px|0 14px|2px 8px|7px 10px)\b|\bmin-height:\s*(?:24|26|28|30|32|34|36|42|76)px\b|\bborder-radius:\s*(?:2|3|4|999)px\b|\b(?:width|height):\s*(?:28|36|38)px\b)/;
 assert(
   apiSource.includes("export class ApiError extends Error") &&
     apiSource.includes("export function isApiError(") &&
@@ -81,6 +274,273 @@ assert(
     apiSource.includes("JSON.stringify(detail)") &&
     apiSource.includes("throw error;"),
   "frontend API failures must expose typed ApiError status and structured details for recovery",
+);
+assert(
+    mainEntry.includes('import "./appBase.css";') &&
+    mainEntry.includes('import "./appChrome.css";') &&
+    mainEntry.includes('import "./sharedControls.css";') &&
+    mainEntry.includes('import "./labelColorControls.css";') &&
+    mainEntry.includes('import "./appTheme.css";') &&
+    mainEntry.includes('import "./appChromeVisual.css";') &&
+    mainEntry.includes('import "./appChromeCollapsed.css";') &&
+    mainEntry.includes('import "./design.css";') &&
+    mainEntry.includes('import "./interactionFeedback.css";') &&
+    mainEntry.includes('import "./appTypography.css";') &&
+    mainEntry.includes('import "./viewerTheme.css";') &&
+    mainEntry.includes('import "./compositeTheme.css";') &&
+    mainEntry.includes('import { AppErrorBoundary, AppShell } from "./appShell";') &&
+    appShellSource.includes("bootstrapTypographySettings") &&
+    appShellSource.includes("useTypographySettings();") &&
+    appShellSource.includes("bootstrapTypographySettings();") &&
+    mainEntry.includes('import "./adaptiveContent.css";') &&
+    mainEntry.indexOf('import "./appBase.css";') < mainEntry.indexOf('import "./appTheme.css";') &&
+    mainEntry.indexOf('import "./appChrome.css";') < mainEntry.indexOf('import "./appTheme.css";') &&
+    mainEntry.indexOf('import "./sharedControls.css";') < mainEntry.indexOf('import "./appTheme.css";') &&
+    mainEntry.indexOf('import "./labelColorControls.css";') <
+      mainEntry.indexOf('import "./appTheme.css";') &&
+    mainEntry.indexOf('import "./appTheme.css";') <
+      mainEntry.indexOf('import "./appChromeVisual.css";') &&
+    mainEntry.indexOf('import "./appChromeVisual.css";') <
+      mainEntry.indexOf('import "./appChromeCollapsed.css";') &&
+    mainEntry.indexOf('import "./appChromeCollapsed.css";') <
+      mainEntry.indexOf('import "./design.css";') &&
+    mainEntry.indexOf('import "./design.css";') <
+      mainEntry.indexOf('import "./interactionFeedback.css";') &&
+    mainEntry.indexOf('import "./interactionFeedback.css";') <
+      mainEntry.indexOf('import "./appTypography.css";') &&
+    mainEntry.indexOf('import "./appTypography.css";') <
+      mainEntry.indexOf('import "./viewerTheme.css";') &&
+    mainEntry.indexOf('import "./viewerTheme.css";') <
+      mainEntry.indexOf('import "./compositeTheme.css";') &&
+    mainEntry.indexOf('import "./compositeTheme.css";') <
+      mainEntry.indexOf('import "./adaptiveContent.css";') &&
+    appChromeCollapsedStyleSource.includes(".app-shell.sidebar-collapsed") &&
+    appChromeCollapsedStyleSource.includes(".sidebar.collapsed .brand-logo") &&
+    appChromeCollapsedStyleSource.includes(".sidebar-toggle:hover") &&
+    appBaseStyleSource.includes("--app-font-family") &&
+    appBaseStyleSource.includes("--app-base-font-size: 12px") &&
+    appBaseStyleSource.includes("font-family: var(--app-font-family)") &&
+    appBaseStyleSource.includes("font-size: var(--app-base-font-size)") &&
+    appThemeStyleSource.includes("font-family: var(--app-font-family)") &&
+    appThemeStyleSource.includes("font-size: var(--app-base-font-size)") &&
+    designSource.includes("--bench-bg") &&
+    designSource.includes("--bench-action") &&
+    designSource.includes("--bench-shadow-tight") &&
+    interactionFeedbackStyleSource.includes("outline: 2px solid rgb(99 127 149 / 12%)") &&
+    interactionFeedbackStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
+    interactionFeedbackStyleSource.includes(".search-box:focus-within") &&
+    appTypographyStyleSource.includes("--text-3xs") &&
+    appTypographyStyleSource.includes("--text-xs") &&
+    appTypographyStyleSource.includes("--metric-display-size") &&
+    appTypographyStyleSource.includes("font-family: var(--app-font-family)") &&
+    appTypographyStyleSource.includes(".table-shell th") &&
+    appTypographyStyleSource.includes(".table-shell td") &&
+    appTypographyStyleSource.includes(".job-form input") &&
+    !appTypographyStyleSource.includes(".report-layer") &&
+    !appTypographyStyleSource.includes(".image-jump") &&
+    !appTypographyStyleSource.includes(".composite-object") &&
+    !appTypographyStyleSource.includes(".object-context") &&
+    appBaseStyleSource.includes(".sr-only") &&
+    appBaseStyleSource.includes("button,\ninput,\ntextarea") &&
+    appChromeStyleSource.includes(".app-shell") &&
+    appChromeStyleSource.includes(".toast-stack") &&
+    appChromeStyleSource.includes(".sidebar") &&
+    appChromeStyleSource.includes(".topbar") &&
+    appChromeStyleSource.includes(".user-profile-chip") &&
+    appChromeStyleSource.includes("grid-template-columns: 232px minmax(0, 1fr)") &&
+    appChromeStyleSource.includes("gap: 14px") &&
+    appChromeStyleSource.includes("padding: 16px 12px") &&
+    appChromeStyleSource.includes("min-height: 54px") &&
+    appChromeStyleSource.includes("font-weight: 760") &&
+    appChromeStyleSource.includes("text-transform: uppercase") &&
+    appChromeVisualStyleSource.includes(".sidebar::after") &&
+    appChromeVisualStyleSource.includes(".content::before") &&
+    appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
+    appChromeVisualStyleSource.includes(".user-profile-chip:hover") &&
+    appChromeVisualStyleSource.includes(".status-pill:hover") &&
+    !appChromeVisualStyleSource.includes(".sidebar.collapsed") &&
+    !designSource.includes(".primary-button") &&
+    !designSource.includes(".secondary-button") &&
+    !designSource.includes(".mini-button") &&
+    !designSource.includes(".mini-link") &&
+    !designSource.includes(".icon-button") &&
+    !designSource.includes(".query-chip") &&
+    !designSource.includes(".badge") &&
+    !designSource.includes(".metric-card") &&
+    !designSource.includes(".metric-icon") &&
+    !designSource.includes(".metric-value") &&
+    !designSource.includes(".rank-primary-score") &&
+    !designSource.includes(".rank-sort-header") &&
+    !designSource.includes(".search-box") &&
+    !designSource.includes(".select-popover-trigger") &&
+    !designSource.includes("@keyframes") &&
+    !appThemeStyleSource.includes(".app-shell") &&
+    !appThemeStyleSource.includes(".sidebar") &&
+    !appThemeStyleSource.includes(".brand") &&
+    !appThemeStyleSource.includes(".nav-list") &&
+    !appThemeStyleSource.includes(".nav-item") &&
+    !appThemeStyleSource.includes(".store-chip") &&
+    !appThemeStyleSource.includes(".content") &&
+    !appThemeStyleSource.includes(".topbar") &&
+    !appThemeStyleSource.includes(".eyebrow") &&
+    !appThemeStyleSource.includes(".status-pill") &&
+    !appThemeStyleSource.includes("h1") &&
+    !appThemeStyleSource.includes("h2") &&
+    !appThemeStyleSource.includes(".app-shell.sidebar-collapsed") &&
+    !appThemeStyleSource.includes(".sidebar.collapsed") &&
+    !appThemeStyleSource.includes(".sidebar-toggle") &&
+    !appThemeStyleSource.includes(".dashboard-home") &&
+    !appThemeStyleSource.includes(".home-grid") &&
+    !appThemeStyleSource.includes(".summary-grid") &&
+    !appThemeStyleSource.includes(".metric-card") &&
+    !appThemeStyleSource.includes(".metric-icon") &&
+    !appThemeStyleSource.includes(".primary-button") &&
+    !appThemeStyleSource.includes(".secondary-button") &&
+    !appThemeStyleSource.includes(".mini-button") &&
+    !appThemeStyleSource.includes(".mini-link") &&
+    !appThemeStyleSource.includes(".icon-button") &&
+    !appThemeStyleSource.includes(".query-chip") &&
+    !appThemeStyleSource.includes(".search-box") &&
+    !appThemeStyleSource.includes(".filter-select") &&
+    !appThemeStyleSource.includes(".compact-select") &&
+    !designSource.includes(".sidebar::after") &&
+    !designSource.includes(".content::before") &&
+    !designSource.includes(".user-profile-chip") &&
+    !designSource.includes("@keyframes status-breathe") &&
+    !appThemeStyleSource.includes(".toast-stack") &&
+    !appThemeStyleSource.includes(".toast-message") &&
+    !appThemeStyleSource.includes(".user-profile-chip") &&
+    !appThemeStyleSource.includes(".sr-only"),
+  "base reset, app chrome, and app theme styles must live in explicit CSS modules",
+);
+assert(
+  adaptiveContentStyleSource.includes("td,\ntbody td") &&
+    adaptiveContentStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    adaptiveContentStyleSource.includes("overflow-wrap: anywhere") &&
+    adaptiveContentStyleSource.includes(".config-item strong") &&
+    adaptiveContentStyleSource.includes(".select-popover-value") &&
+    !designSource.includes("td,\ntbody td") &&
+    !designSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    !designSource.includes(".select-popover-value"),
+  "adaptive text and table wrapping rules must live in adaptiveContent.css instead of design.css",
+);
+assert(
+  mainEntry.includes('import "./sharedControlsTheme.css";') &&
+    mainEntry.includes('import "./sharedControls.css";') &&
+    mainEntry.includes('import "./sharedButtons.css";') &&
+    mainEntry.includes('import "./sharedIndicators.css";') &&
+    mainEntry.includes('import "./sharedMetrics.css";') &&
+    mainEntry.includes('import "./sharedPager.css";') &&
+    mainEntry.includes('import "./sharedSplit.css";') &&
+    mainEntry.indexOf('import "./sharedControlsTheme.css";') <
+      mainEntry.indexOf('import "./sharedControls.css";') &&
+    mainEntry.indexOf('import "./sharedControls.css";') <
+      mainEntry.indexOf('import "./sharedButtons.css";') &&
+    mainEntry.indexOf('import "./sharedButtons.css";') <
+      mainEntry.indexOf('import "./sharedIndicators.css";') &&
+    mainEntry.indexOf('import "./sharedIndicators.css";') <
+      mainEntry.indexOf('import "./sharedMetrics.css";') &&
+    mainEntry.indexOf('import "./sharedMetrics.css";') <
+      mainEntry.indexOf('import "./sharedPager.css";') &&
+    mainEntry.indexOf('import "./sharedPager.css";') <
+      mainEntry.indexOf('import "./sharedSplit.css";') &&
+    sharedControlsThemeStyleSource.includes("--control-primary-height") &&
+    sharedControlsThemeStyleSource.includes("--control-icon-dense-size") &&
+    sharedControlsThemeStyleSource.includes("--control-chip-height") &&
+    sharedControlsThemeStyleSource.includes("--control-metric-value-size") &&
+    !rawSharedControlsGeometryPattern.test(sharedControlsStyleSource) &&
+    sharedControlsStyleSource.includes(".section-header") &&
+    sharedControlsStyleSource.includes(".config-item") &&
+    sharedControlsStyleSource.includes(".row-actions") &&
+    sharedButtonsStyleSource.includes("var(--control-primary-height)") &&
+    sharedButtonsStyleSource.includes("var(--control-icon-dense-size)") &&
+    sharedButtonsStyleSource.includes(".primary-button") &&
+    sharedButtonsStyleSource.includes(".secondary-button") &&
+    sharedButtonsStyleSource.includes(".mini-button") &&
+    sharedButtonsStyleSource.includes(".icon-button") &&
+    sharedButtonsStyleSource.includes(".mini-link.compare-ready") &&
+    sharedIndicatorsStyleSource.includes("var(--control-chip-height)") &&
+    sharedIndicatorsStyleSource.includes(".status-pill") &&
+    sharedIndicatorsStyleSource.includes(".query-chip") &&
+    sharedIndicatorsStyleSource.includes(".badge.live::before") &&
+    sharedIndicatorsStyleSource.includes("@keyframes badge-live-pulse") &&
+    sharedMetricsStyleSource.includes("var(--control-metric-value-size)") &&
+    sharedMetricsStyleSource.includes(".summary-grid") &&
+    sharedMetricsStyleSource.includes(".metric-card") &&
+    sharedMetricsStyleSource.includes(".metric-icon") &&
+    sharedPagerStyleSource.includes(".rank-board-pager") &&
+    sharedSplitStyleSource.includes(".resizable-split") &&
+    sharedSplitStyleSource.includes(".split-resizer") &&
+    controlPrimitives.includes('import "./controlPrimitiveStyles.css";') &&
+    controlPrimitiveStyleSource.includes(".number-setting-control") &&
+    controlPrimitiveStyleSource.includes(".compact-select") &&
+    controlPrimitiveStyleSource.includes(".compact-select select") &&
+    controlPrimitiveStyleSource.includes(".control-popover") &&
+    controlPrimitiveStyleSource.includes(".control-check") &&
+    controlPrimitiveStyleSource.includes(".color-control") &&
+    !appThemeStyleSource.includes(".select-popover-menu") &&
+    !appThemeStyleSource.includes(".select-popover-list") &&
+    !appThemeStyleSource.includes(".badge.live::before") &&
+    !appThemeStyleSource.includes("@keyframes badge-live-pulse") &&
+    !appThemeStyleSource.includes(".resizable-split") &&
+    !appThemeStyleSource.includes(".icon-button.dense") &&
+    !sharedControlsStyleSource.includes(".primary-button") &&
+    !sharedControlsStyleSource.includes(".secondary-button") &&
+    !sharedControlsStyleSource.includes(".mini-button") &&
+    !sharedControlsStyleSource.includes(".icon-button") &&
+    !sharedControlsStyleSource.includes(".mini-link") &&
+    !sharedControlsStyleSource.includes(".status-pill") &&
+    !sharedControlsStyleSource.includes(".query-chip") &&
+    !sharedControlsStyleSource.includes(".badge") &&
+    !sharedControlsStyleSource.includes(".metric-card") &&
+    !sharedControlsStyleSource.includes(".rank-board-pager") &&
+    !sharedControlsStyleSource.includes(".resizable-split") &&
+    !sharedControlsStyleSource.includes(".number-setting-control") &&
+    !sharedControlsStyleSource.includes(".compact-select") &&
+    !sharedControlsStyleSource.includes(".control-popover") &&
+    !sharedControlsStyleSource.includes(".control-check") &&
+    !sharedControlsStyleSource.includes(".color-control") &&
+    !sharedControlsStyleSource.includes(".select-popover-menu") &&
+    !sharedControlsStyleSource.includes(".select-popover-list"),
+  "shared UI primitives and control primitive styles must live in focused CSS modules while appTheme.css remains a theme override layer",
+);
+assert(
+  filterControlsStyleSource.includes(".search-box,\n.filter-select") &&
+    filterControlsStyleSource.includes(".filter-select span") &&
+    filterControlsStyleSource.includes(".filter-select select,\n.search-box input"),
+  "filter/search visual overrides must live in filterControls.css instead of appTheme.css",
+);
+assert(
+  selectPopoverControl.includes('import "./selectPopover.css";') &&
+    selectPopoverControl.includes('import { createPortal } from "react-dom";') &&
+    selectPopoverControl.includes('data-select-popover-menu="true"') &&
+    selectPopoverStyleSource.includes(".select-popover-control") &&
+    selectPopoverStyleSource.includes(".select-popover-filter.compact {\n  width: 100%;") &&
+    selectPopoverStyleSource.includes("max-width: 100%;") &&
+    !selectPopoverStyleSource.includes("width: min(150px, 18vw)") &&
+    selectPopoverStyleSource.includes(".select-popover-menu") &&
+    selectPopoverStyleSource.includes("position: fixed;") &&
+    selectPopoverStyleSource.includes("z-index: 260;") &&
+    selectPopoverStyleSource.includes(".select-popover-list") &&
+    selectPopoverStyleSource.includes(".select-popover-filter .select-popover-trigger") &&
+    selectPopoverStyleSource.includes("max-height: var(--select-menu-max-height") &&
+    !appThemeStyleSource.includes(".select-popover-menu") &&
+    !designSource.includes(".select-popover-menu"),
+  "select popover styles must stay colocated with selectPopoverControl instead of shared theme files",
+);
+assert(
+  labelColorControlsStyleSource.includes(".label-color-add-row") &&
+    labelColorControlsStyleSource.includes(".inline-select-control") &&
+    labelColorControlsStyleSource.includes(".select-control-label-hidden > span") &&
+    labelColorControlsStyleSource.includes(".label-color-grid") &&
+    labelColorControlsStyleSource.includes(".label-color-row") &&
+    labelColorControlsStyleSource.includes(".label-color-role-grid") &&
+    !appThemeStyleSource.includes(".label-color-add-row") &&
+    !appThemeStyleSource.includes(".inline-select-control") &&
+    !appThemeStyleSource.includes(".select-control-label-hidden > span") &&
+    !appThemeStyleSource.includes(".label-color-row") &&
+    !appThemeStyleSource.includes(".label-color-role-grid"),
+  "label color controls must live in labelColorControls.css instead of the legacy theme layer",
 );
 assert(
   apiSource.includes("`/api/runs/${encodeURIComponent(runId)}/evaluate`") &&
@@ -103,76 +563,100 @@ assert(
   "paged list controls must share PagerControl, clampListPageOffset, and filter offset reset semantics",
 );
 assert(
-  uiSource.includes("type TableColumnWidth =") &&
-    uiSource.includes("declare module \"@tanstack/react-table\"") &&
-    uiSource.includes("function tableColumnClassName(") &&
-    uiSource.includes("data-table-cell") &&
-    styleSource.includes(".table-shell .table-col-id") &&
-    styleSource.includes(".table-shell .table-col-metric") &&
-    styleSource.includes(".table-shell .table-wrap-wrap") &&
+    uiSource.includes('export * from "./uiDataTable";') &&
+    uiDataTableSource.includes("export type TableColumnWidth =") &&
+    uiDataTableSource.includes("declare module \"@tanstack/react-table\"") &&
+    uiDataTableSource.includes("export function tableColumnClassName(") &&
+    uiDataTableSource.includes("data-table-cell") &&
+    mainEntry.includes('import "./dataTable.css";') &&
+    dataTableStyleSource.includes(".table-shell .table-col-id") &&
+    dataTableStyleSource.includes(".table-shell .table-col-metric") &&
+    dataTableStyleSource.includes(".table-shell .table-wrap-wrap") &&
+    dataTableStyleSource.includes(".table-shell.refreshing::after") &&
+    dataTableStyleSource.includes(".table-refresh-indicator") &&
+    dataTableStyleSource.includes(".row-select-checkbox") &&
+    dataTableStyleSource.includes(".selectable-row") &&
+    dataTableStyleSource.includes("@keyframes table-region-refresh") &&
     runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
-    rankBoardPage.includes('meta: { width: "metric", align: "end" }') &&
-    comparePage.includes('meta: { width: "date" }') &&
-    jobsPage.includes("JOB_QUEUE_COLUMN_CLASS_NAMES") &&
-    jobsPage.includes('tableColumnClassName({ width: "id", wrap: "wrap" })') &&
-    jobsPage.includes("className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}"),
+    rankBoardTablesSource.includes('meta: { width: "metric", align: "end" }') &&
+    compareRunRailComponentsSource.includes('meta: { width: "date" }') &&
+    jobsQueueTableSource.includes("JOB_QUEUE_COLUMN_CLASS_NAMES") &&
+    jobsQueueTableSource.includes('tableColumnClassName({ width: "id", wrap: "wrap" })') &&
+    jobsQueueTableSource.includes("className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}"),
   "shared data tables must use column metadata for adaptive width, wrapping, and alignment",
 );
 assert(
-  apiSource.includes("export type FacetBuckets = Record<string, FacetBucket>;") &&
+  apiTypesSource.includes("export type FacetBuckets = Record<string, FacetBucket>;") &&
     formattersSource.includes("export function facetValues(") &&
-    [runsPage, benchmarksPage, comparePage, rankBoardPage, servicesPage, jobsPage].every((source) =>
+    [runsPage, benchmarksPage, compareControllerSource, rankBoardControllerSource, servicesPage, jobsQueuePanelSource].every((source) =>
       source.includes("facetValues(")
     ) &&
-    rankBoardPage.includes('facetValues(board?.facets, "tasks"') &&
+    rankBoardControllerSource.includes('facetValues(board?.facets, "tasks"') &&
     !rankBoardPage.includes("const tasks = unique(runs") &&
+    !rankBoardControllerSource.includes("const tasks = unique(runs") &&
     !runTables.includes("const tasks = unique(runs") &&
     !runTables.includes("filterControls ?? [") &&
     !runsPage.includes('fetchRuns({ limit: 500 })') &&
     !comparePage.includes('fetchRuns({ limit: 500 })') &&
+    !compareControllerSource.includes('fetchRuns({ limit: 500 })') &&
     !benchmarksPage.includes('fetchBenchmarks({ limit: 500 })') &&
     !servicesPage.includes('fetchServices({ limit: 500 })') &&
-    !jobsPage.includes('fetchJobs({ limit: 500 })'),
+    !jobsQueuePanelSource.includes('fetchJobs({ limit: 500 })'),
   "advanced filter option directories must use backend facets instead of truncated 500-item list requests",
 );
 assert(
-  filterControls.includes("FilterSelectControl") &&
-    filterControls.includes("SearchInputControl") &&
-    filterControls.includes("TextInputControl") &&
+  advancedFilterTypesSource.includes("export type AdvancedFilterControl") &&
+    filterControls.includes('import type { AdvancedFilterControl } from "./advancedFilterTypes";') &&
+    filterControls.includes('import { renderAdvancedControl } from "./advancedFilterFields";') &&
+    filterControls.includes('export type { AdvancedFilterControl } from "./advancedFilterTypes";') &&
+    filterControls.includes('export { FilterSelect } from "./advancedFilterFields";') &&
+    advancedFilterFieldsSource.includes("FilterSelectControl") &&
+    advancedFilterFieldsSource.includes("SearchInputControl") &&
+    advancedFilterFieldsSource.includes("TextInputControl") &&
     filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
-    filterControls.includes("<FilterSelectControl") &&
-    filterControls.includes("<SearchInputControl") &&
-    filterControls.includes("<TextInputControl") &&
+    advancedFilterFieldsSource.includes("<FilterSelectControl") &&
+    advancedFilterFieldsSource.includes("<SearchInputControl") &&
+    advancedFilterFieldsSource.includes("<TextInputControl") &&
     !/<input\b/.test(filterControls) &&
     !/<select\b/.test(filterControls) &&
-    controlPrimitives.includes("export function FilterSelectControl(") &&
+    !/<input\b/.test(advancedFilterFieldsSource) &&
+    !/<select\b/.test(advancedFilterFieldsSource) &&
+    controlPrimitives.includes("FilterSelectControl") &&
+    selectPopoverControl.includes("export function FilterSelectControl(") &&
     controlPrimitives.includes("export function SearchInputControl(") &&
     filterControls.includes("function resetAdvancedFilters()") &&
-    filterControls.includes("function resetAdvancedFilter(") &&
+    advancedFilterModelSource.includes("export function resetAdvancedFilter(") &&
     filterControls.includes("function resetSingleAdvancedFilter(") &&
     filterControls.includes("function updateDraftValue(") &&
     filterControls.includes("function applyDraftFilters(") &&
     filterControls.includes("function applyDraftFiltersFromKeyboard(") &&
-    filterControls.includes("function applyAdvancedFilterValues(") &&
-    filterControls.includes("function readAdvancedFilterDraftValues(") &&
-    filterControls.includes("function writeAdvancedFilterDraftValues(") &&
-    filterControls.includes("function advancedFilterDirtyControlIds(") &&
-    filterControls.includes("window.sessionStorage") &&
+    advancedFilterModelSource.includes("export function applyAdvancedFilterValues(") &&
+    filterControls.includes('import "./filterTheme.css";') &&
+    filterControls.includes('import "./filterControls.css";') &&
+    advancedFilterStorageSource.includes("export function readAdvancedFilterDraftValues(") &&
+    advancedFilterStorageSource.includes("export function writeAdvancedFilterDraftValues(") &&
+    advancedFilterModelSource.includes("export function advancedFilterDirtyControlIds(") &&
+    advancedFilterStorageSource.includes("window.sessionStorage") &&
     filterControls.includes("event.composedPath().includes(rootRef.current)") &&
     filterControls.includes("const latestDraftValuesRef = useRef<Record<string, string>>(draftValues);") &&
     filterControls.includes("const dirtyControlIdsRef = useRef<Set<string>>(") &&
-    filterControls.includes("function syncDraftValuesWithApplied(") &&
+    advancedFilterModelSource.includes("export function syncDraftValuesWithApplied(") &&
     filterControls.includes("function openAdvancedFilter()") &&
     filterControls.includes("function closeAdvancedFilter(") &&
     filterControls.includes("function toggleAdvancedFilter()") &&
-    filterControls.includes("function defaultFilterValue(") &&
-    filterControls.includes("function groupAdvancedControls(") &&
-    filterControls.includes("function advancedFilterOpenStateKey(") &&
-    filterControls.includes("function readAdvancedFilterOpenState(") &&
-    filterControls.includes("function writeAdvancedFilterOpenState(") &&
-    filterControls.includes("function advancedFilterValues(") &&
-    filterControls.includes("function advancedFilterValuesKey(") &&
-    filterControls.includes("eval_bench_advanced_filter_open") &&
+    advancedFilterModelSource.includes("export function defaultFilterValue(") &&
+    advancedFilterModelSource.includes("export function displayFilterValue(") &&
+    advancedFilterModelSource.includes("export function groupAdvancedControls(") &&
+    advancedFilterStorageSource.includes("export function advancedFilterOpenStateKey(") &&
+    advancedFilterStorageSource.includes("export function readAdvancedFilterOpenState(") &&
+    advancedFilterStorageSource.includes("export function writeAdvancedFilterOpenState(") &&
+    advancedFilterModelSource.includes("export function advancedFilterValues(") &&
+    advancedFilterModelSource.includes("export function advancedFilterValuesKey(") &&
+    advancedFilterStorageSource.includes("eval_bench_advanced_filter_open") &&
+    !filterControls.includes("window.sessionStorage") &&
+    !filterControls.includes("const ADVANCED_FILTER_OPEN_STORAGE_PREFIX") &&
+    !filterControls.includes("function groupAdvancedControls(") &&
+    !filterControls.includes("function advancedFilterValues(") &&
     filterControls.includes("const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [") &&
     filterControls.includes(".advanced-filter-controls input:not([disabled])") &&
     filterControls.includes("const popoverRef = useRef<HTMLDivElement | null>(null);") &&
@@ -183,9 +667,9 @@ assert(
     filterControls.includes('className="advanced-filter-popover"') &&
     filterControls.includes("tabIndex={-1}") &&
     filterControls.includes('className="advanced-filter-directory"') &&
-    filterControls.includes('className="advanced-filter-search-control"') &&
-    filterControls.includes('className="advanced-filter-number-control"') &&
-    filterControls.includes('className="advanced-filter-text-control"') &&
+    advancedFilterFieldsSource.includes('className="advanced-filter-search-control"') &&
+    advancedFilterFieldsSource.includes('className="advanced-filter-number-control"') &&
+    advancedFilterFieldsSource.includes('className="advanced-filter-text-control"') &&
     filterControls.includes('className="advanced-filter-token"') &&
     filterControls.includes('className="advanced-filter-clear"') &&
     filterControls.includes('className="advanced-filter-apply"') &&
@@ -198,46 +682,158 @@ assert(
     !filterControls.includes('className="search-box advanced-search-box"') &&
     !filterControls.includes('className="filter-select compact advanced-number-box"') &&
     !/<button[\s\S]{0,260}advanced-filter-head/.test(filterControls),
-  "advanced filter reset, token clear, popup layout, and grouping must be centralized in AdvancedFilterBar",
+  "advanced filter chrome must stay in AdvancedFilterBar while field rendering, model rules, and storage stay in dedicated modules",
 );
 assert(
   !styleSource.includes(".filter-bar"),
   "legacy filter-bar CSS must not return; page filters must use AdvancedFilterBar",
 );
 assert(
-  styleSource.includes(".advanced-filter-search-control") &&
-    styleSource.includes(".advanced-filter-number-control") &&
-    styleSource.includes(".advanced-filter-text-control") &&
+  filterControlsStyleSource.includes(".advanced-filter-search-control") &&
+    filterControlsStyleSource.includes(".advanced-filter-number-control") &&
+    filterControlsStyleSource.includes(".advanced-filter-text-control") &&
+    filterThemeStyleSource.includes("--filter-control-min: 26px") &&
+    filterThemeStyleSource.includes("--filter-head-min: 30px") &&
+    filterThemeStyleSource.includes("--filter-text-input: var(--text-sm)") &&
+    filterThemeStyleSource.includes("--filter-radius-control: 2px") &&
+    filterControlsStyleSource.includes("var(--filter-control-min)") &&
+    filterControlsStyleSource.includes("var(--filter-text-label)") &&
+    filterControlsStyleSource.includes("var(--filter-radius-control)") &&
+    !rawAdvancedFilterGeometryPattern.test(filterControlsStyleSource) &&
     !styleSource.includes(".advanced-search-box") &&
-    !styleSource.includes(".advanced-number-box"),
+    !styleSource.includes(".advanced-number-box") &&
+    !appThemeStyleSource.includes(".advanced-filter-search-control") &&
+    !appThemeStyleSource.includes(".advanced-filter-number-control") &&
+    !appThemeStyleSource.includes(".advanced-filter-text-control") &&
+    !designSource.includes(".advanced-filter-search-control") &&
+    !designSource.includes(".advanced-filter-number-control") &&
+    !designSource.includes(".advanced-filter-text-control"),
   "advanced filter controls must use dedicated semantic classes instead of legacy search/filter shells",
 );
 assert(
-  styleSource.includes("scrollbar-gutter: stable") &&
+    styleSource.includes("scrollbar-gutter: stable") &&
     styleSource.includes("table-layout: auto") &&
     styleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
     styleSource.includes("overflow-wrap: anywhere") &&
+    dataTableStyleSource.includes(".table-shell td:has(.row-actions)") &&
+    dataTableStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 144px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr))") &&
+    filterControls.includes('data-filter-group={group.id}') &&
+    styleSource.includes("grid-template-columns: minmax(74px, max-content) minmax(0, 1fr)") &&
+    advancedFilterModelSource.includes('{ id: "quick", title: "检索与阈值"') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="scope"] .advanced-filter-controls') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-controls') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-search-control') &&
+    styleSource.includes("flex: 1 1 320px") &&
+    styleSource.includes("flex: 0 1 150px") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr))") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
     styleSource.includes(".service-form") &&
-    styleSource.includes(".table-shell td:has(.row-actions)") &&
-    styleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
-    styleSource.includes(".job-form label,\n.manifest-job-form label") &&
+    filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
+    jobsPage.includes('import "./jobsPage.css";') &&
+    mainEntry.includes('import "./formControls.css";') &&
+    mainEntry.includes('import "./workspaceTheme.css";') &&
+    mainEntry.includes('import "./workspaceShell.css";') &&
+    mainEntry.includes('import "./workspaceDialog.css";') &&
+    mainEntry.includes('import "./pageCommand.css";') &&
+    mainEntry.indexOf('import "./workspaceTheme.css";') <
+      mainEntry.indexOf('import "./workspaceShell.css";') &&
+    mainEntry.indexOf('import "./workspaceShell.css";') <
+      mainEntry.indexOf('import "./workspaceDialog.css";') &&
+    mainEntry.indexOf('import "./workspaceDialog.css";') <
+      mainEntry.indexOf('import "./pageCommand.css";') &&
+    workspaceThemeStyleSource.includes("--workspace-tab-height") &&
+    workspaceThemeStyleSource.includes("--workspace-dialog-head-height") &&
+    workspaceThemeStyleSource.includes("--workspace-radius-panel") &&
+    workspaceThemeStyleSource.includes("--workspace-command-button-height") &&
+    workspaceThemeStyleSource.includes("--workspace-text-caption") &&
+    workspaceShellStyleSource.includes("var(--workspace-tab-height)") &&
+    workspaceShellStyleSource.includes("var(--workspace-radius-panel)") &&
+    workspaceShellStyleSource.includes("var(--workspace-text-caption)") &&
+    !rawWorkspaceShellGeometryPattern.test(workspaceShellStyleSource) &&
+    !rawWorkspaceShellGeometryPattern.test(workspaceDialogStyleSource) &&
+    workspaceShellStyleSource.includes(".workspace-card") &&
+    workspaceShellStyleSource.includes(".workspace-tabs") &&
+    workspaceShellStyleSource.includes(".action-panel") &&
+    workspaceShellStyleSource.includes(".fatal-panel") &&
+    !workspaceShellStyleSource.includes(".workspace-dialog-backdrop") &&
+    !workspaceShellStyleSource.includes(".danger-confirm-panel") &&
+    workspaceDialogStyleSource.includes(".workspace-dialog-backdrop") &&
+    workspaceDialogStyleSource.includes(".workspace-dialog-head") &&
+    workspaceDialogStyleSource.includes("var(--workspace-dialog-head-height)") &&
+    workspaceDialogStyleSource.includes("var(--workspace-text-caption)") &&
+    workspaceDialogStyleSource.includes(".danger-confirm-panel") &&
+    pageCommandStyleSource.includes(".density-page") &&
+    pageCommandStyleSource.includes(".page-command-row") &&
+    pageCommandStyleSource.includes(".command-button") &&
+    pageCommandStyleSource.includes(".compact-form-card") &&
+    pageCommandStyleSource.includes("var(--workspace-command-button-height)") &&
+    !appThemeStyleSource.includes(".workspace-card") &&
+    !appThemeStyleSource.includes(".workspace-tabs") &&
+    !appThemeStyleSource.includes(".action-panel") &&
+    !appThemeStyleSource.includes(".workspace-dialog-backdrop") &&
+    !appThemeStyleSource.includes(".danger-confirm-panel") &&
+    !designSource.includes(".workspace-card") &&
+    !designSource.includes(".workspace-tabs") &&
+    !designSource.includes(".action-panel") &&
+    !designSource.includes(".workspace-dialog-backdrop") &&
+    !designSource.includes(".danger-confirm-panel") &&
+    !designSource.includes(".page-command-row") &&
+    !designSource.includes(".command-button") &&
+    !designSource.includes(".compact-form-card") &&
+    !designSource.includes(".number-setting-control") &&
+    formControlsStyleSource.includes(".job-form") &&
+    formControlsStyleSource.includes(".form-result") &&
+    formControlsStyleSource.includes(".form-error") &&
+    formControlsStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
+    jobsStyleSource.includes('@import "./jobsQueue.css";') &&
+    jobsStyleSource.includes('@import "./jobsRecentRuns.css";') &&
+    jobsStyleSource.includes('@import "./jobsDetail.css";') &&
+    jobsStyleSource.includes('@import "./jobsManifest.css";') &&
+    jobsManifestStyleSource.includes(".manifest-job-form label") &&
+    jobsManifestStyleSource.includes(".manifest-toolbar") &&
+    jobsQueueStyleSource.includes(".queue-stack") &&
+    jobsRecentRunsStyleSource.includes(".recent-run-card") &&
+    jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
+    jobsDetailStyleSource.includes(".job-detail-panel") &&
+    jobsManifestStyleSource.includes(".prompt-template-panel") &&
+    !appThemeStyleSource.includes(".manifest-toolbar") &&
+    !appThemeStyleSource.includes(".recent-run-card") &&
+    !appThemeStyleSource.includes(".job-eval-cell") &&
+    !appThemeStyleSource.includes(".job-form") &&
+    !appThemeStyleSource.includes(".form-result") &&
+    !appThemeStyleSource.includes(".form-error") &&
+    !appThemeStyleSource.includes(".data-table-cell") &&
+    !appThemeStyleSource.includes(".table-col-id") &&
+    !appThemeStyleSource.includes(".row-select-checkbox") &&
+    !appThemeStyleSource.includes(".selectable-row") &&
+    !appThemeStyleSource.includes(".table-shell.refreshing") &&
+    !appThemeStyleSource.includes("@keyframes table-region-refresh") &&
+    !designSource.includes(".job-form") &&
+    !designSource.includes(".form-result") &&
+    !designSource.includes(".form-error") &&
+    !designSource.includes(".table-shell") &&
+    !designSource.includes(".data-table-cell") &&
+    !designSource.includes(".table-col-id") &&
+    !designSource.includes(".row-select-checkbox") &&
+    !designSource.includes(".selectable-row") &&
+    !designSource.includes("@keyframes table-region-refresh") &&
     styleSource.includes(".row-actions {\n  display: flex;\n  flex-wrap: wrap;") &&
     !styleSource.includes("grid-template-columns: repeat(4, minmax(160px, 1fr)) auto") &&
     !styleSource.includes("minmax(430px, 1fr)") &&
     !styleSource.includes("minmax(360px, 1fr)") &&
-    designSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
-    designSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
-    designSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
-    designSource.includes(".table-shell td:has(.row-actions)") &&
-    designSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
-    designSource.includes(".job-form label,\n.manifest-job-form label") &&
-    designSource.includes("overflow-wrap: normal") &&
+    styleSource.includes(".service-card") &&
+    !designSource.includes(".service-card") &&
+    jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
+    adaptiveContentStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
+    !designSource.includes(".advanced-filter-bar.dirty") &&
+    !designSource.includes(".manifest-toolbar") &&
+    !designSource.includes(".recent-run-card") &&
+    !designSource.includes(".manifest-job-form") &&
+    styleSource.includes("overflow-wrap: normal") &&
     !designSource.includes("grid-template-columns: repeat(12, minmax(0, 1fr))"),
   "tables and form grids must auto-fit in both base and design styles without late overrides",
 );
@@ -252,13 +848,81 @@ assert(
   "dialog and form fields must share text, number, textarea, and checkbox primitives",
 );
 assert(
+  jobsPage.includes('import { JobQueuePanel } from "./jobsQueuePanel";') &&
+    jobsPage.includes('import { JobCreatePanel } from "./jobsCreatePanel";') &&
+    jobsPage.includes("<JobQueuePanel />") &&
+    jobsPage.includes("<JobCreatePanel") &&
+    !jobsPage.includes("export function JobQueuePanel(") &&
+    !jobsPage.includes("export function JobCreatePanel(") &&
+    !jobsPage.includes("function SchedulerStrip(") &&
+    !jobsPage.includes("function JobDetailPanel(") &&
+    !jobsPage.includes("manifestBenchmarkSplit") &&
+    !jobsPage.includes("createJob") &&
+    !jobsPage.includes("fetchJobTemplates") &&
+    !jobsPage.includes("CompactSelectControl") &&
+    !jobsPage.includes("TextareaControl") &&
+    jobsQueuePanelSource.includes("export function JobQueuePanel(") &&
+    jobsQueuePanelSource.includes("function SchedulerStrip(") &&
+    jobsQueuePanelSource.includes("function JobDetailPanel(") &&
+    !jobsQueuePanelSource.includes("function JobProgressInline(") &&
+    jobsQueuePanelSource.includes('import { JobQueueTable, jobRunId } from "./jobsQueueTable";') &&
+    jobsQueuePanelSource.includes("<JobQueueTable") &&
+    jobsQueueTableSource.includes("export function JobQueueTable(") &&
+    jobsQueueTableSource.includes("function JobQueueRow(") &&
+    jobsQueueTableSource.includes("function JobProgressInline(") &&
+    jobsCreatePanelSource.includes("export function JobCreatePanel(") &&
+    jobsCreatePanelSource.includes("function PromptTemplatePanel(") &&
+    jobsCreatePanelSource.includes("function PreflightPanel("),
+  "jobs queue and manifest create workflows must live in focused submodules instead of jobsPage",
+);
+assert(
+  controlPrimitives.includes('} from "./selectPopoverControl";') &&
+    !controlPrimitives.includes("function SelectPopoverControl(") &&
+    selectPopoverControl.includes("function SelectPopoverControl(") &&
+    selectPopoverControl.includes("SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverControl.includes("selectOptionMatches(") &&
+    selectPopoverControl.includes('role="listbox"') &&
+    selectPopoverControl.includes('role="option"') &&
+    selectPopoverControl.includes('placeholder="搜索选项"') &&
+    selectPopoverControl.includes("visibleOptions = useMemo(") &&
+    !/<select\b/.test(controlPrimitives) &&
+    !/<select\b/.test(selectPopoverControl),
+  "select primitives must render a searchable bounded custom popover instead of native browser selects",
+);
+assert(
+  styleSource.includes(".select-popover-filter .select-popover-trigger {\n  min-height: 26px;") &&
+    styleSource.includes("max-height: var(--select-menu-max-height") &&
+    filterControlsStyleSource.includes(".advanced-filter-bar {\n  position: relative;") &&
+    filterControlsStyleSource.includes("transition: none;") &&
+    filterControlsStyleSource.includes(".advanced-filter-popover {\n  position: absolute;") &&
+    filterControlsStyleSource.includes("grid-template-rows: auto minmax(0, 1fr);") &&
+    filterControlsStyleSource.includes("overflow: visible;") &&
+    !filterControlsStyleSource.includes("grid-template-areas:") &&
+    !filterControlsStyleSource.includes("2.35fr") &&
+    filterControlsStyleSource.includes("grid-template-columns: minmax(74px, max-content) minmax(0, 1fr);") &&
+    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="scope"] .advanced-filter-controls') &&
+    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-controls') &&
+    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"quick\"] .advanced-filter-controls {\n  display: flex;") &&
+    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"quick\"] .advanced-filter-search-control") &&
+    !filterControlsStyleSource.includes("minmax(min(100%, 280px), 1fr) repeat(auto-fit") &&
+    filterControlsStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr));") &&
+    filterControls.includes('closest(\'[data-select-popover-menu="true"]\')') &&
+    !styleSource.includes("animation: advanced-filter-enter") &&
+    !styleSource.includes("@keyframes advanced-filter-enter") &&
+    !appThemeStyleSource.includes(".advanced-filter-bar {\n  position: relative;") &&
+    !designSource.includes(".advanced-filter-bar {\n  position: relative;") &&
+    interactionFeedbackStyleSource.includes("outline: 2px solid rgb(99 127 149 / 12%)"),
+  "filter and select controls must stay compact, neutral, and free of decorative open animations",
+);
+assert(
   controlPrimitives.includes("export function StandaloneCheckboxControl(") &&
     controlPrimitives.includes("export function StandaloneColorControl(") &&
     controlPrimitives.includes("export function InlineColorControl("),
   "table selection and color controls must share standalone primitives",
 );
 assert(
-  uiSource.includes("export function PanelToggleButton("),
+  uiSource.includes('export * from "./uiActions";') &&
+    uiActionsSource.includes("export function PanelToggleButton("),
   "collapsible panel toggles must share PanelToggleButton",
 );
 assert(
@@ -268,43 +932,44 @@ assert(
   "collapsible details shells must share DisclosurePanel",
 );
 assert(
-  uiSource.includes("export function IconNavLink(") &&
-    uiSource.includes('className: joinClassNames("icon-button", dense && "dense", className)'),
+  uiActionsSource.includes("export function IconNavLink(") &&
+    uiActionsSource.includes('className: joinClassNames("icon-button", dense && "dense", className)'),
   "router icon links must share IconNavLink",
 );
 assert(
-  uiSource.includes("export function InlineNavLink(") &&
-    uiSource.includes('className: joinClassNames("mini-link", className)'),
+  uiActionsSource.includes("export function InlineNavLink(") &&
+    uiActionsSource.includes('className: joinClassNames("mini-link", className)'),
   "router inline links must share InlineNavLink",
 );
 assert(
-  uiSource.includes("export function InlineAnchor(") &&
-    uiSource.includes('className={joinClassNames("mini-link", className)}'),
+  uiActionsSource.includes("export function InlineAnchor(") &&
+    uiActionsSource.includes('className={joinClassNames("mini-link", className)}'),
   "href inline links must share InlineAnchor",
 );
 assert(
-  uiSource.includes("export function NavigationCardAnchor(") &&
-    uiSource.includes("export function NavigationCardFrame("),
+  uiActionsSource.includes("export function NavigationCardAnchor(") &&
+    uiActionsSource.includes("export function NavigationCardFrame("),
   "card-style navigation rows must share NavigationCardAnchor/NavigationCardFrame",
 );
 assert(
-  uiSource.includes("export function SelectableRowButton("),
+  uiActionsSource.includes("export function SelectableRowButton("),
   "sample row selection must be centralized in SelectableRowButton",
 );
 assert(
-  uiSource.includes("export function SelectableTableRow("),
+  uiActionsSource.includes("export function SelectableTableRow("),
   "table row selection must be centralized in SelectableTableRow",
 );
 assert(
-  uiSource.includes("export function OptionChipButton("),
+  uiActionsSource.includes("export function OptionChipButton("),
   "query chip selection must be centralized in OptionChipButton",
 );
 assert(
-  uiSource.includes("const DIALOG_FOCUSABLE_SELECTOR =") &&
-    uiSource.includes("document.body.style.overflow = \"hidden\"") &&
-    uiSource.includes("previouslyFocused?.focus()") &&
-    uiSource.includes("tabIndex={-1}") &&
-    uiSource.includes("aria-describedby={meta ? metaId : undefined}"),
+  uiSource.includes('export * from "./uiDialog";') &&
+    uiDialogSource.includes("export const DIALOG_FOCUSABLE_SELECTOR =") &&
+    uiDialogSource.includes("document.body.style.overflow = \"hidden\"") &&
+    uiDialogSource.includes("previouslyFocused?.focus()") &&
+    uiDialogSource.includes("tabIndex={-1}") &&
+    uiDialogSource.includes("aria-describedby={meta ? metaId : undefined}"),
   "WorkspaceDialog must own focus trapping, body scroll lock, and accessibility wiring",
 );
 assert(
@@ -321,33 +986,51 @@ assert(
   "label subtask panel must not expose a custom-label submit path",
 );
 assert(
-  jobsPage.includes("CompactSelectControl"),
+  jobsCreatePanelSource.includes("CompactSelectControl"),
   "manifest toolbar selects must use CompactSelectControl",
 );
 assert(
-  jobsPage.includes("const JOB_PAGE_SIZE = 80;") &&
-    jobsPage.includes('import { PagerControl, clampListPageOffset } from "./samplePager";') &&
-    jobsPage.includes('<PagerControl\n          className="rank-board-pager job-list-pager"') &&
-    jobsPage.includes("offset: compact ? 0 : pageOffset") &&
-    jobsPage.includes("limit: compact ? 12 : JOB_PAGE_SIZE") &&
-    !jobsPage.includes("function JobListPager(") &&
-    !jobsPage.includes("limit: compact ? 12 : 200") &&
-    !jobsPage.includes("limit: 200"),
+  jobsQueuePanelSource.includes("const JOB_PAGE_SIZE = 80;") &&
+    jobsQueuePanelSource.includes(
+      'import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";',
+    ) &&
+    jobsQueuePanelSource.includes('<PagerControl\n          className="rank-board-pager job-list-pager"') &&
+    jobsQueuePanelSource.includes("offset: compact ? 0 : pageOffset") &&
+    jobsQueuePanelSource.includes("limit: compact ? 12 : JOB_PAGE_SIZE") &&
+    !jobsQueuePanelSource.includes("function JobListPager(") &&
+    !jobsQueuePanelSource.includes("limit: compact ? 12 : 200") &&
+    !jobsQueuePanelSource.includes("limit: 200"),
   "jobs queue page must use paged API requests instead of a fixed 200-job slice",
 );
 assert(
-  jobsPage.includes("errorMessage(error)") &&
-    !jobsPage.includes("<div className=\"empty-panel danger-text\">队列状态加载失败</div>"),
+  jobsQueuePanelSource.includes("readJobsViewState") &&
+    jobsQueuePanelSource.includes("writeJobsViewState") &&
+    jobsQueuePanelSource.includes("JOBS_VIEW_STATE_RESET_EVENT") &&
+    jobsQueuePanelSource.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    jobsQueuePanelSource.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
+    jobsQueuePanelSource.includes("updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)") &&
+    jobsViewStateSource.includes("export const JOBS_VIEW_STATE_KEY") &&
+    jobsViewStateSource.includes("export const JOBS_VIEW_STATE_RESET_EVENT") &&
+    jobsViewStateSource.includes("selectedJobId") &&
+    jobsViewStateSource.includes("window.sessionStorage") &&
+    appShellSource.includes('import { resetJobsViewState } from "./jobsViewState";') &&
+    appShellSource.includes("onNavigate={resetJobsViewState}") &&
+    !jobsQueuePanelSource.includes("useEffect(() => {\n    if (!compact) {\n      setPageOffset(0);"),
+  "jobs queue must preserve filters, paging, and selected job across back-navigation and reset from main nav",
+);
+assert(
+  jobsQueuePanelSource.includes("errorMessage(error)") &&
+    !jobsQueuePanelSource.includes("<div className=\"empty-panel danger-text\">队列状态加载失败</div>"),
   "jobs queue page must show concrete API errors for queue loading failures",
 );
 assert(
-  apiSource.includes("run_id: string | null;") &&
-    jobsPage.includes("<th className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>评测</th>") &&
-    jobsPage.includes("function jobRunId(job: JobSummary)") &&
-    jobsPage.includes("job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id)") &&
-    jobsPage.includes('className="job-eval-cell"') &&
-    jobsPage.includes("title={runId || job.job_id}") &&
-    jobsPage.includes("const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : \"\";") &&
+  apiTypesSource.includes("run_id: string | null;") &&
+    jobsQueueTableSource.includes("<th className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>评测</th>") &&
+    jobsQueueTableSource.includes("export function jobRunId(job: JobSummary)") &&
+    jobsQueueTableSource.includes("job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id)") &&
+    jobsQueueTableSource.includes('className="job-eval-cell"') &&
+    jobsQueueTableSource.includes("title={runId || job.job_id}") &&
+    jobsQueuePanelSource.includes("const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : \"\";") &&
     runTables.includes('header: "评测"') &&
     !runTables.includes('header: "记录"'),
   "eval identity must be run_id-first in both jobs queue and result library tables",
@@ -355,26 +1038,30 @@ assert(
 assert(
     runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
     runTables.includes('className="run-id-link"') &&
-    rankBoardPage.includes('width: "id"') &&
-    rankBoardPage.includes('wrap: "wrap"') &&
-    rankBoardPage.includes('className="run-id-link"') &&
-    jobsPage.includes('identity: tableColumnClassName({ width: "id", wrap: "wrap" })') &&
-    jobsPage.includes('className="run-id-text"') &&
-    styleSource.includes(".run-id-link,") &&
-    styleSource.includes("text-overflow: clip;") &&
+    rankBoardTablesSource.includes('width: "id"') &&
+    rankBoardTablesSource.includes('wrap: "wrap"') &&
+    rankBoardTablesSource.includes('className="run-id-link"') &&
+    jobsQueueTableSource.includes('identity: tableColumnClassName({ width: "id", wrap: "wrap" })') &&
+    jobsQueueTableSource.includes('className="run-id-text"') &&
+    mainEntry.includes('import "./runTables.css";') &&
+    runTablesStyleSource.includes(".run-id-link,") &&
+    runTablesStyleSource.includes("text-overflow: clip;") &&
+    runTablesStyleSource.includes(".table-shell .run-id-link") &&
+    !appThemeStyleSource.includes(".run-id-link,") &&
+    !dataTableStyleSource.includes(".table-shell .run-id-link") &&
     styleSource.includes(".job-eval-cell .run-id-text") &&
     styleSource.includes(".overview-v18-run-id .run-id-text"),
   "run names must wrap across table and card surfaces instead of being truncated with ellipsis",
 );
 assert(
-  (jobsPage.match(/<CompactSelectControl/g) ?? []).length >= 2,
+  (jobsCreatePanelSource.match(/<CompactSelectControl/g) ?? []).length >= 2,
   "manifest toolbar must render template and prompt through CompactSelectControl",
 );
 assert(
-  !jobsPage.includes('className="filter-select compact"'),
-  "jobs page must not create ad hoc compact filter selects outside filterControls",
+  !jobsCreatePanelSource.includes('className="filter-select compact"'),
+  "jobs create panel must not create ad hoc compact filter selects outside shared controls",
 );
-assertNoLegacyFormSubmitClass(jobsPage, "jobsPage.tsx");
+assertNoLegacyFormSubmitClass(jobsCreatePanelSource, "jobsCreatePanel.tsx");
 assert(
   labelSubtaskControls.includes("OptionChipButton") &&
     labelSubtaskControls.includes("DetectionLabelSubtaskPanel") &&
@@ -386,20 +1073,25 @@ assert(
 );
 assert(
   labelSubtaskControls.includes("<OptionChipButton") &&
+    labelSubtaskControls.includes('import "./labelSubtaskControls.css";') &&
+    labelSubtaskControlsStyleSource.includes(".label-subtask-panel") &&
+    labelSubtaskControlsStyleSource.includes(".label-subtask-chips") &&
+    !designSource.includes(".label-subtask-panel") &&
+    !designSource.includes(".label-subtask-chips") &&
     !labelSubtaskControls.includes('className={selectedSet.has(label) ? "query-chip active" : "query-chip"}'),
-  "label subtask chips must use OptionChipButton instead of raw query-chip buttons",
+  "label subtask controls must own their component styles and use OptionChipButton instead of raw query-chip buttons",
 );
 assert(
-  jobsPage.includes("DetectionLabelSubtaskPanel") &&
-    jobsPage.includes("<DetectionLabelSubtaskPanel"),
+  jobsCreatePanelSource.includes("DetectionLabelSubtaskPanel") &&
+    jobsCreatePanelSource.includes("<DetectionLabelSubtaskPanel"),
   "label subtask panel must stay detection-only; keypoint jobs must not expose label subset UI",
 );
 assert(
-  jobsPage.includes("manifestBenchmarkSplit") &&
-    jobsPage.includes("updateManifestBenchmarkSplit") &&
-    jobsPage.includes("jobBenchmarkSplitOptions(selectedBenchmark, manifestBenchmarkSplitValue)") &&
-    jobsPage.includes('label="Benchmark split"') &&
-    jobsPage.includes("onChange={updateBenchmarkSplit}") &&
+  jobsCreatePanelSource.includes("manifestBenchmarkSplit") &&
+    jobsCreatePanelSource.includes("updateManifestBenchmarkSplit") &&
+    jobsCreatePanelSource.includes("jobBenchmarkSplitOptions(selectedBenchmark, manifestBenchmarkSplitValue)") &&
+    jobsCreatePanelSource.includes('label="Benchmark split"') &&
+    jobsCreatePanelSource.includes("onChange={updateBenchmarkSplit}") &&
     manifestToolsSource.includes("export function manifestBenchmarkSplit(") &&
     manifestToolsSource.includes("export function updateManifestBenchmarkSplit(") &&
     manifestToolsSource.includes("section.benchmark_split = normalized") &&
@@ -410,34 +1102,34 @@ assert(
   "jobs manifest editor must expose explicit benchmark_split selection for suite benchmarks",
 );
 assert(
-  jobsPage.includes("function resetPreflightResult()") &&
-    jobsPage.includes("resetPreflightResult();") &&
-    jobsPage.includes("}, [manifestDraft, manifestTaskValue]);") &&
-    !jobsPage.includes("}, [manifestText, manifestDraft, manifestTaskValue, preflightMutation]);"),
+  jobsCreatePanelSource.includes("function resetPreflightResult()") &&
+    jobsCreatePanelSource.includes("resetPreflightResult();") &&
+    jobsCreatePanelSource.includes("}, [manifestDraft, manifestTaskValue]);") &&
+    !jobsCreatePanelSource.includes("}, [manifestText, manifestDraft, manifestTaskValue, preflightMutation]);"),
   "manifest preflight result must reset only on semantic draft changes, not on mutation object rerenders",
 );
 assert(
   formattersSource.includes("export function errorMessage(value: unknown)") &&
-    jobsPage.includes("errorMessage(preflightMutation.error)") &&
-    jobsPage.includes("errorMessage(mutation.error)") &&
-    jobsPage.includes("setParseError(errorMessage(error))") &&
-    jobsPage.includes("saveErrorMessage={errorMessage(promptMutation.error)}") &&
-    mainEntry.includes("import { errorMessage } from \"./formatters\";") &&
-    mainEntry.includes("return { error: errorMessage(error) };") &&
-    !jobsPage.includes("<div className=\"form-error\">预检查请求失败。</div>") &&
-    !jobsPage.includes("<div className=\"form-error\">任务入队失败。</div>") &&
-    !jobsPage.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>") &&
-    !mainEntry.includes("return { error: error instanceof Error ? error.message : String(error) };"),
+    jobsCreatePanelSource.includes("errorMessage(preflightMutation.error)") &&
+    jobsCreatePanelSource.includes("errorMessage(mutation.error)") &&
+    jobsCreatePanelSource.includes("setParseError(errorMessage(error))") &&
+    jobsCreatePanelSource.includes("saveErrorMessage={errorMessage(promptMutation.error)}") &&
+    appShellSource.includes("import { errorMessage } from \"./formatters\";") &&
+    appShellSource.includes("return { error: errorMessage(error) };") &&
+    !jobsCreatePanelSource.includes("<div className=\"form-error\">预检查请求失败。</div>") &&
+    !jobsCreatePanelSource.includes("<div className=\"form-error\">任务入队失败。</div>") &&
+    !jobsCreatePanelSource.includes("<div className=\"form-error\">Prompt 模板保存失败。</div>") &&
+    !appShellSource.includes("return { error: error instanceof Error ? error.message : String(error) };"),
   "manifest job form and render boundary errors must use shared concrete error text",
 );
 assert(
-  jobsPage.includes("DisclosurePanel") &&
-    jobsPage.includes('className="prompt-template-panel"') &&
-    jobsPage.includes("TextareaControl") &&
-    jobsPage.includes('className="manifest-editor-field"') &&
-    !/<details\b/.test(jobsPage) &&
-    !/<summary\b/.test(jobsPage) &&
-    !/<textarea\b/.test(jobsPage),
+  jobsCreatePanelSource.includes("DisclosurePanel") &&
+    jobsCreatePanelSource.includes('className="prompt-template-panel"') &&
+    jobsCreatePanelSource.includes("TextareaControl") &&
+    jobsCreatePanelSource.includes('className="manifest-editor-field"') &&
+    !/<details\b/.test(jobsCreatePanelSource) &&
+    !/<summary\b/.test(jobsCreatePanelSource) &&
+    !/<textarea\b/.test(jobsCreatePanelSource),
   "jobs prompt template panel and manifest editor must use shared disclosure/textarea controls",
 );
 assert(
@@ -498,6 +1190,29 @@ assert(
     !viewerPerformanceSource.includes("config_smoke_prompt_params"),
   "viewer performance smoke must discover a current run instead of hard-coding old fixtures",
 );
+assert(
+  packageJsonSource.includes('"test:composite-report": "node scripts/composite-report-smoke-check.mjs"') &&
+    compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
+    compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
+    compositeReportSmokeSource.includes('{ name: "desktop-narrow", width: 1180, height: 760 }') &&
+    compositeReportSmokeSource.includes('{ name: "short-console", width: 980, height: 720 }') &&
+    compositeReportSmokeSource.includes("composite-report-shell.sidebar-collapsed") &&
+    compositeReportSmokeSource.includes("composite-composer-dock.collapsed") &&
+    compositeReportSmokeSource.includes("composite-sidebar-drawer") &&
+    compositeReportSmokeSource.includes("composite-sidebar-backdrop") &&
+    compositeReportSmokeSource.includes("image-navigator-search input") &&
+    compositeReportSmokeSource.includes("image-jump-popover") &&
+    compositeReportSmokeSource.includes("image-jump-result") &&
+    compositeReportSmokeSource.includes('composite-workbench-canvas[data-pointer-reticle="active"]') &&
+    compositeReportSmokeSource.includes("composite-canvas-pointer-reticle") &&
+    compositeReportSmokeSource.includes("composite-canvas-gesture-hud") &&
+    readmeSource.includes("npm run test:composite-report") &&
+    readmeSource.includes("组合报告专项浏览器 smoke") &&
+    scriptsDocSource.includes("npm run test:composite-report") &&
+    scriptsDocSource.includes("`test:composite-report` 专门覆盖组合报告页 `/suite-report`") &&
+    evalBenchArchitectureSource.includes("`test:composite-report`"),
+  "composite report smoke must protect collapsed composer, image jumping, and pointer feedback across core desktop viewports",
+);
 assertNoRawSelectElement(settingsControls, "settingsControls.tsx");
 assert(
   settingsControls.includes("FormSelectControl") &&
@@ -507,14 +1222,184 @@ assert(
 );
 
 const settingsPage = await readSource("src/settingsPage.tsx");
+const settingsPreferenceDrawer = await readSource("src/settingsPreferenceDrawer.tsx");
+const rawSettingsEditorGeometryPattern =
+  /(?:\bfont-size:\s*(?:10|11|12|13|15|20)px\b|\bgap:\s*(?:2|3|4|6|8|10|18|24)px\b|\bpadding:\s*(?:14px 22px 12px|12px 16px|10px 14px|8px 10px|0 7px|0 9px|9px 10px|0 10px|2px|6px 8px|1px|0 22px 20px|3px 7px|7px 8px)\b|\bmin-height:\s*(?:24|28|30|36|38|46|58|68)px\b|\bborder-radius:\s*(?:2|4)px\b)/;
 assert(
-  settingsPage.includes("CompactSelectControl") &&
-    settingsPage.includes("NumberSettingControl") &&
-    settingsPage.includes("SearchInputControl"),
-  "settings page selects must use CompactSelectControl",
+  settingsPage.includes("SearchInputControl") &&
+    settingsPreferenceDrawer.includes("CompactSelectControl") &&
+    settingsPreferenceDrawer.includes("NumberSettingControl") &&
+    settingsPreferenceDrawer.includes("TextInputControl"),
+  "settings page must keep search in the page shell and delegate setting controls to SettingsPreferenceDrawer",
 );
 assert(
-  /<CompactSelectControl\s+dense\s+label="预测线型"/.test(settingsPage),
+  settingsPage.includes('import { SettingsPreferenceDrawer } from "./settingsPreferenceDrawer";') &&
+    settingsPage.includes("<SettingsPreferenceDrawer") &&
+    settingsPage.includes("visiblePanels={visiblePanels}") &&
+    settingsPreferenceDrawer.includes("export function SettingsPreferenceDrawer") &&
+    settingsPreferenceDrawer.includes("export type SettingsPanelId") &&
+    settingsPreferenceDrawer.includes("export type SettingsSectionSummary") &&
+    settingsPreferenceDrawer.includes("SettingsEditorSection") &&
+    settingsPreferenceDrawer.includes("SettingsPreferenceRow") &&
+    settingsPreferenceDrawer.includes("ShortcutSettingsPanel") &&
+    !settingsPage.includes("SettingsEditorSection") &&
+    !settingsPage.includes("ShortcutSettingsPanel") &&
+    !settingsPage.includes("LabelColorQuickAdd") &&
+    !settingsPage.includes("function isTypographyPresetActive"),
+  "settings page must delegate preference drawer groups to a focused settingsPreferenceDrawer module",
+);
+assert(
+  settingsPreferenceDrawer.includes("CompactSelectControl") &&
+    settingsPreferenceDrawer.includes("NumberSettingControl") &&
+    settingsPage.includes("SearchInputControl") &&
+    settingsPreferenceDrawer.includes("TextInputControl"),
+  "settings drawer selects must use CompactSelectControl",
+);
+assert(
+  typographySettingsSource.includes("export type TypographySettings") &&
+    typographySettingsSource.includes("export const DEFAULT_TYPOGRAPHY_SETTINGS") &&
+    typographySettingsSource.includes("export const TYPOGRAPHY_PRESETS") &&
+    typographySettingsSource.includes("export function bootstrapTypographySettings") &&
+    typographySettingsSource.includes("TYPOGRAPHY_STORAGE_VERSION_KEY") &&
+    typographySettingsSource.includes("CURRENT_TYPOGRAPHY_STORAGE_VERSION") &&
+    typographySettingsSource.includes("12px-default") &&
+    typographySettingsSource.includes("localStorage.setItem(TYPOGRAPHY_STORAGE_VERSION_KEY") &&
+    typographySettingsSource.includes("fontCssUrl") &&
+    typographySettingsSource.includes("customFontName") &&
+    typographySettingsSource.includes("customFontFileUrl") &&
+    typographySettingsSource.includes("const LEGACY_DEFAULT_BASE_FONT_SIZES = [") &&
+    typographySettingsSource.includes(
+      "20.5",
+    ) &&
+    typographySettingsSource.includes("baseFontSize: 12") &&
+    typographySettingsSource.includes("baseFontSize: 11") &&
+    typographySettingsSource.includes("baseFontSize: 14") &&
+    typographySettingsSource.includes("Math.max(10, Math.min(20, numeric))") &&
+    typographySettingsSource.includes("isStoredOldDefaultTypography(parsed, normalized)") &&
+    typographySettingsSource.includes("CUSTOM_FONT_LINK_ID") &&
+    typographySettingsSource.includes("CUSTOM_FONT_FACE_STYLE_ID") &&
+    typographySettingsSource.includes("applyTypographySettings") &&
+    typographySettingsSource.includes("updateCustomFontLink") &&
+    typographySettingsSource.includes("updateCustomFontFaceStyle") &&
+    typographySettingsSource.includes("effectiveFontFamily") &&
+    typographySettingsSource.includes("TYPOGRAPHY_CHANGED_EVENT") &&
+    typographySettingsSource.includes("sameTypographySettings") &&
+    settingsPage.includes('id: "typography"') &&
+    settingsPage.includes("typographySettings.baseFontSize") &&
+    settingsPreferenceDrawer.includes("TYPOGRAPHY_PRESETS.map") &&
+    settingsPreferenceDrawer.includes("isTypographyPresetActive") &&
+    settingsPage.includes("useTypographySettings") &&
+    settingsPreferenceDrawer.includes('settingKey="evalBench.typography"') &&
+    settingsPreferenceDrawer.includes('label="界面字体族"') &&
+    settingsPreferenceDrawer.includes('label="等宽字体族"') &&
+    settingsPreferenceDrawer.includes('label="字体 CSS URL"') &&
+    settingsPreferenceDrawer.includes('label="自定义字体名称"') &&
+    settingsPreferenceDrawer.includes('label="字体文件 URL"') &&
+    settingsPreferenceDrawer.includes('label="基础字号"') &&
+    settingsPreferenceDrawer.includes("min={10}") &&
+    settingsPreferenceDrawer.includes("max={20}") &&
+    settingsPage.includes("resetTypographySettings") &&
+    settingsPage.includes('import "./settingsTypography.css";') &&
+    settingsTypographyStyleSource.includes(".typography-preset-grid") &&
+    settingsTypographyStyleSource.includes(".typography-preset-card") &&
+    settingsTypographyStyleSource.includes(".settings-typography-grid") &&
+    settingsTypographyStyleSource.includes(".typography-preview-strip") &&
+    settingsTypographyStyleSource.includes("font-family: var(--app-font-family)") &&
+    settingsTypographyStyleSource.includes("font-family: var(--mono-font)") &&
+    !settingsEditorStyleSource.includes(".typography-preset-grid") &&
+    !settingsEditorStyleSource.includes(".typography-preset-card") &&
+    !settingsEditorStyleSource.includes(".settings-typography-grid") &&
+    !settingsEditorStyleSource.includes(".typography-preview-strip"),
+  "settings page must expose typography density controls plus loadable font CSS and font files through typographySettings",
+);
+assert(
+  settingsPage.includes('import "./settingsTheme.css";') &&
+    settingsPage.indexOf('import "./settingsTheme.css";') <
+      settingsPage.indexOf('import "./settingsWorkbench.css";') &&
+    settingsThemeStyleSource.includes("--settings-gap-24") &&
+    settingsThemeStyleSource.includes("--settings-pad-22") &&
+    settingsThemeStyleSource.includes("--settings-text-caption") &&
+    settingsThemeStyleSource.includes("--settings-editor-head-min") &&
+    settingsThemeStyleSource.includes("--settings-shortcut-row-min") &&
+    settingsThemeStyleSource.includes("--settings-preview-foot-min") &&
+    settingsEditorStyleSource.includes("var(--settings-text-caption)") &&
+    settingsEditorStyleSource.includes("var(--settings-editor-head-min)") &&
+    settingsShortcutsStyleSource.includes("var(--settings-shortcut-row-min)") &&
+    settingsWorkbenchStyleSource.includes("var(--settings-preset-min)") &&
+    settingsPreviewStyleSource.includes("var(--settings-preview-foot-min)") &&
+    settingsDrawerStyleSource.includes("var(--settings-drawer-head-min)") &&
+    !rawSettingsEditorGeometryPattern.test(settingsEditorStyleSource),
+  "settings workbench styles must use the shared settings theme tokens instead of repeated editor geometry literals",
+);
+assert(
+  settingsPage.includes('import "./settingsWorkbench.css";') &&
+    settingsPage.includes('import "./settingsPreview.css";') &&
+    settingsPage.includes('import "./settingsDrawer.css";') &&
+    settingsPage.includes('import "./settingsEditor.css";') &&
+    settingsPage.includes('import "./settingsTypography.css";') &&
+    settingsPage.includes('import "./settingsLabels.css";') &&
+    settingsPage.includes('import "./settingsShortcuts.css";') &&
+    settingsPage.indexOf('import "./settingsEditor.css";') <
+      settingsPage.indexOf('import "./settingsTypography.css";') &&
+    settingsPage.indexOf('import "./settingsTypography.css";') <
+      settingsPage.indexOf('import "./settingsLabels.css";') &&
+    settingsPage.indexOf('import "./settingsLabels.css";') <
+      settingsPage.indexOf('import "./settingsShortcuts.css";') &&
+    !settingsPage.includes('import "./settingsPage.css";') &&
+    settingsWorkbenchStyleSource.includes(".settings-workbench-page") &&
+    settingsWorkbenchStyleSource.includes(".settings-command-bar") &&
+    settingsWorkbenchStyleSource.includes(".settings-search-box") &&
+    settingsPreviewStyleSource.includes(".settings-preview-pane") &&
+    settingsPreviewStyleSource.includes(".settings-preview-stage") &&
+    settingsDrawerStyleSource.includes(".settings-preference-drawer") &&
+    settingsDrawerStyleSource.includes(".settings-drawer-head") &&
+    settingsLabelsStyleSource.includes(".settings-label-row") &&
+    settingsLabelsStyleSource.includes(".settings-label-role-grid") &&
+    settingsShortcutsStyleSource.includes(".shortcut-map-row") &&
+    settingsShortcutsStyleSource.includes(".shortcut-capture") &&
+    settingsEditorStyleSource.includes(".settings-inline-action .app-icon") &&
+    settingsEditorStyleSource.includes(".settings-preference-row") &&
+    !settingsWorkbenchStyleSource.includes(".settings-preview-pane") &&
+    !settingsPreviewStyleSource.includes(".settings-preference-row") &&
+    !settingsDrawerStyleSource.includes(".shortcut-map-row") &&
+    !settingsEditorStyleSource.includes(".settings-command-bar") &&
+    !settingsEditorStyleSource.includes(".settings-label-row") &&
+    !settingsEditorStyleSource.includes(".settings-label-role-grid") &&
+    !settingsEditorStyleSource.includes(".shortcut-map-row") &&
+    !settingsEditorStyleSource.includes(".shortcut-capture") &&
+    !settingsEditorStyleSource.includes(".settings-command-list") &&
+    !settingsEditorStyleSource.includes(".settings-color-strip") &&
+    !settingsWorkbenchStyleSource.includes(".settings-grid") &&
+    !settingsPreviewStyleSource.includes(".settings-preview-card") &&
+    !settingsEditorStyleSource.includes(".settings-control-card") &&
+    !settingsEditorStyleSource.includes(".settings-workflow-card") &&
+    !settingsEditorStyleSource.includes(".settings-note-grid") &&
+    !settingsPreviewStyleSource.includes(".settings-preview-svg") &&
+    !appThemeStyleSource.includes(".settings-workbench-page") &&
+    !appThemeStyleSource.includes(".settings-command-bar") &&
+    !appThemeStyleSource.includes(".shortcut-map-row") &&
+    !appThemeStyleSource.includes(".settings-preview-pane") &&
+    !appThemeStyleSource.includes(".settings-grid") &&
+    !appThemeStyleSource.includes(".settings-preview-card") &&
+    !appThemeStyleSource.includes(".settings-control-card") &&
+    !appThemeStyleSource.includes(".settings-workflow-card") &&
+    !appThemeStyleSource.includes(".settings-note-grid") &&
+    !appThemeStyleSource.includes(".settings-preview-svg") &&
+    !designSource.includes(".settings-workbench-page") &&
+    !designSource.includes(".settings-command-bar") &&
+    !designSource.includes(".shortcut-map-row") &&
+    !designSource.includes(".settings-preview-pane") &&
+    !designSource.includes(".settings-grid") &&
+    !designSource.includes(".settings-preview-card") &&
+    !designSource.includes(".settings-control-card") &&
+    !designSource.includes(".settings-workflow-card") &&
+    !designSource.includes(".settings-note-grid") &&
+    !designSource.includes(".settings-preview-svg") &&
+    !designSource.includes(".settings-inline-action"),
+  "settings workbench styles must live in focused settings CSS modules instead of one page blob or global base/design CSS",
+);
+assert(
+  /<CompactSelectControl\s+dense\s+label="预测线型"/.test(settingsPreferenceDrawer),
   "settings prediction line style select must use CompactSelectControl",
 );
 assert(
@@ -525,8 +1410,8 @@ assert(
   "settings search must use SearchInputControl and IconActionButton",
 );
 assert(
-  settingsPage.includes("InlineColorControl") &&
-    !/<input\b/.test(settingsPage),
+  settingsPreferenceDrawer.includes("InlineColorControl") &&
+    !/<input\b/.test(settingsPreferenceDrawer),
   "settings label color grid must use InlineColorControl instead of raw color inputs",
 );
 assert(
@@ -535,47 +1420,63 @@ assert(
   "settings section navigation must use SelectableCardButton instead of raw section buttons",
 );
 assert(
-  !settingsPage.includes('className="compact-select dense"'),
+  !settingsPreferenceDrawer.includes('className="compact-select dense"'),
   "settings page must not create ad hoc compact select shells",
 );
 assert(
-  !/<button[^>]+className="settings-inline-action"/.test(settingsPage),
+  !/<button[^>]+className="settings-inline-action"/.test(settingsPreferenceDrawer),
   "settings inline standard actions must use ActionButton",
 );
 assert(
-  !/<button[^>]+removeLabelColor/.test(settingsPage),
+  !/<button[^>]+onRemoveLabelColor/.test(settingsPreferenceDrawer),
   "settings label clear action must use ActionButton",
 );
 assert(
-  apiSource.includes("export type TargetLabelResolution =") &&
-    apiSource.includes("export type TargetLabelResolutionParams =") &&
+  apiSource.includes('import type {') &&
+    apiSource.includes('} from "./apiTypes";') &&
+    apiSource.includes('export type * from "./apiTypes";') &&
+    apiTypesSource.includes("export type TargetLabelResolution =") &&
+    apiTypesSource.includes("export type TargetLabelResolutionParams =") &&
+    apiTypesSource.includes("export type CompositeSampleView =") &&
+    apiTypesSource.includes("export type RunSampleDetail =") &&
+    apiTypesSource.includes("export type JobPreflightResult =") &&
+    !apiSource.includes("export type CompositeSampleView =") &&
+    !apiSource.includes("export type RunSampleDetail =") &&
     apiSource.includes("export function fetchTargetLabelResolution(") &&
     apiSource.includes('params.append("target_label", value)') &&
     apiSource.includes('fetchJson<TargetLabelResolution>(`/api/target-labels'),
-  "api client must expose agent-safe target label resolution endpoint",
+  "api client must keep schema types in apiTypes while exposing agent-safe target label resolution endpoint",
 );
 assert(
   overviewPage.includes("export function OverviewPage()"),
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewPage.includes('queryKey: ["overview-jobs-total"]') &&
-    overviewPage.includes('queryFn: () => fetchJobs({ limit: 1 })') &&
-    overviewPage.includes('queryKey: ["overview-jobs-queued"]') &&
-    overviewPage.includes('queryFn: () => fetchJobs({ status: "queued", limit: 1 })') &&
-    overviewPage.includes('queryKey: ["overview-jobs-running"]') &&
-    overviewPage.includes('queryFn: () => fetchJobs({ status: "running", limit: 1 })') &&
-    overviewPage.includes('queryKey: ["overview-jobs-failed"]') &&
-    overviewPage.includes('queryFn: () => fetchJobs({ status: "failed", limit: 1 })') &&
-    overviewPage.includes('queryKey: ["overview-services-total"]') &&
-    overviewPage.includes('queryFn: () => fetchServices({ limit: 1 })') &&
-    overviewPage.includes('queryKey: ["overview-services-running"]') &&
-    overviewPage.includes('queryFn: () => fetchServices({ status: "running", limit: 1 })') &&
-    overviewPage.includes("function jobPageTotal(") &&
-    overviewPage.includes("function servicePageTotal(") &&
-    overviewPage.includes("const totalJobs = Math.max(") &&
-    overviewPage.includes("const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices)") &&
-    !overviewPage.includes('fetchJobs({ limit: 500 })') &&
+  overviewModelSource.includes("export function useOverviewModel()") &&
+    overviewPage.includes("const overview = useOverviewModel();") &&
+    overviewModelSource.includes('queryKey: ["overview-jobs-total"]') &&
+    overviewModelSource.includes('queryFn: () => fetchJobs({ limit: 1 })') &&
+    overviewModelSource.includes('queryKey: ["overview-jobs-queued"]') &&
+    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "queued", limit: 1 })') &&
+    overviewModelSource.includes('queryKey: ["overview-jobs-running"]') &&
+    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "running", limit: 1 })') &&
+    overviewModelSource.includes('queryKey: ["overview-jobs-failed"]') &&
+    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "failed", limit: 1 })') &&
+    overviewModelSource.includes('queryKey: ["overview-services-total"]') &&
+    overviewModelSource.includes('queryFn: () => fetchServices({ limit: 1 })') &&
+    overviewModelSource.includes('queryKey: ["overview-services-running"]') &&
+    overviewModelSource.includes('queryFn: () => fetchServices({ status: "running", limit: 1 })') &&
+    overviewModelSource.includes("function jobPageTotal(") &&
+    overviewModelSource.includes("function servicePageTotal(") &&
+    overviewModelSource.includes("const totalJobs = Math.max(") &&
+    overviewModelSource.includes("const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices)") &&
+    !overviewPage.includes("useQuery(") &&
+    !overviewPage.includes("fetchSchedulerStatus") &&
+    !overviewPage.includes("function jobPageTotal(") &&
+    !overviewPage.includes("function servicePageTotal(") &&
+    !overviewPage.includes("function overviewNextAction(") &&
+    !overviewPage.includes("function bestF1Run(") &&
+    !overviewModelSource.includes('fetchJobs({ limit: 500 })') &&
     !overviewPage.includes('fetchServices({ limit: 500 })') &&
     !overviewPage.includes('jobs.filter((job) => job.status === "queued").length') &&
     !overviewPage.includes('services.filter((service) => service.status === "running").length') &&
@@ -605,16 +1506,18 @@ assert(
     overviewPage.includes("overview-v18-signal-node") &&
     overviewPage.includes("overview-v18-signal-inspector") &&
     overviewPage.includes("overviewSignalNodes") &&
+    overviewPage.includes("function overviewActionIcon(") &&
     overviewPage.includes("OptionChipButton") &&
     !overviewPage.includes("overviewHeroTitle") &&
     overviewPage.includes("overview-v18-score") &&
-    overviewPage.includes("bestF1Run") &&
+    overviewModelSource.includes("function bestF1Run(") &&
+    overviewModelSource.includes("recentRunsByCreatedAt(data.runs") &&
+    overviewModelSource.includes("export type OverviewActionIcon") &&
     overviewPage.includes('import { errorMessage, formatMetric, runF1Score } from "./formatters";') &&
-    overviewPage.includes("errorMessage(error)") &&
-    overviewPage.includes("recentRunsByCreatedAt(data.runs") &&
+    overviewPage.includes("errorMessage(overview.error)") &&
     overviewPage.includes("overview-v18-run-artifacts") &&
     overviewPage.includes("overview-v18-run-score") &&
-    overviewPage.includes('import { recentRunsByCreatedAt, runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";') &&
+    overviewPage.includes('import { runAgeLabel, runArtifactReadiness } from "./runArtifactSignals";') &&
     !overviewPage.includes("updateOverviewPointer") &&
     !overviewPage.includes("overview-home-v17") &&
     !overviewPage.includes("overview-ops-board") &&
@@ -698,26 +1601,39 @@ assert(
   "recent run artifact sorting/readiness/age logic must have one shared source",
 );
 assert(
-  styleSource.includes("Overview v18: compact operator workspace") &&
-    styleSource.includes(".overview-home-v18") &&
-    styleSource.includes(".overview-v18-grid") &&
-    styleSource.includes(".overview-v18-primary") &&
-    styleSource.includes(".overview-v18-recent") &&
-    styleSource.includes(".overview-v18-console") &&
-    styleSource.includes(".overview-v18-signal-map") &&
-    styleSource.includes(".overview-v18-signal-node.active") &&
-    styleSource.includes(".overview-v18-signal-inspector") &&
-    styleSource.includes(".overview-v18-card::before") &&
-    styleSource.includes(".overview-v18-flow-item:hover") &&
-    styleSource.includes(".overview-v18-icon-link:hover") &&
-    designSource.includes("@keyframes eval-bench-surface-in") &&
-    designSource.includes("@keyframes eval-bench-live-pulse") &&
-    designSource.includes(".workspace-card:not(.fill):hover") &&
-    designSource.includes(".nav-item:hover .app-icon") &&
-    designSource.includes(".nav-item:hover::after") &&
-    designSource.includes(".user-profile-chip:hover") &&
-    designSource.includes(".status-pill:hover"),
-  "overview and shared controls must keep focused layout and tactile hover feedback",
+  overviewStyleSource.includes('@import "./overviewShell.css";') &&
+    overviewStyleSource.includes('@import "./overviewPrimary.css";') &&
+    overviewStyleSource.includes('@import "./overviewConsole.css";') &&
+    overviewStyleSource.includes('@import "./overviewOperations.css";') &&
+    overviewStyleSource.includes('@import "./overviewResponsive.css";') &&
+    overviewShellStyleSource.includes("Overview v18: compact operator workspace") &&
+    overviewShellStyleSource.includes(".dashboard-home.overview-home-v18") &&
+    overviewShellStyleSource.includes(".overview-home-v18") &&
+    overviewShellStyleSource.includes(".overview-v18-grid") &&
+    overviewShellStyleSource.includes(".overview-v18-primary") &&
+    overviewShellStyleSource.includes(".overview-v18-recent") &&
+    overviewShellStyleSource.includes(".overview-v18-card::before") &&
+    overviewShellStyleSource.includes(".overview-v18-icon-link:hover") &&
+    overviewShellStyleSource.includes("background: #f4f7f9") &&
+    overviewPrimaryStyleSource.includes(".overview-v18-flow-item:hover") &&
+    overviewPrimaryStyleSource.includes(".overview-v18-score:hover") &&
+    overviewPrimaryStyleSource.includes("box-shadow: none") &&
+    overviewConsoleStyleSource.includes(".overview-v18-console") &&
+    overviewConsoleStyleSource.includes(".overview-v18-signal-map") &&
+    overviewConsoleStyleSource.includes(".overview-v18-signal-node.active") &&
+    overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&
+    overviewOperationsStyleSource.includes(".overview-v18-run-list") &&
+    overviewOperationsStyleSource.includes(".overview-v18-service-line") &&
+    overviewResponsiveStyleSource.includes("@media (min-width: 1320px)") &&
+    appChromeVisualStyleSource.includes(".content::before") &&
+    appChromeVisualStyleSource.includes("display: none") &&
+    workspaceShellStyleSource.includes(".workspace-card:not(.fill):hover") &&
+    appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
+    appChromeVisualStyleSource.includes(".nav-item::after") &&
+    appChromeVisualStyleSource.includes("content: none") &&
+    appChromeVisualStyleSource.includes(".user-profile-chip:hover") &&
+    appChromeVisualStyleSource.includes(".status-pill:hover"),
+  "overview and shared controls must keep focused layout while suppressing decorative motion",
 );
 assert(
   ![
@@ -784,7 +1700,7 @@ assert(
 );
 assert(
   !/recall|precision|mIoU|R@\.50|P@\.50/i.test(overviewPage) &&
-    !/overview-home-v18[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(styleSource),
+    !/overview-home-v18[\s\S]*grid-template-columns:\s*repeat\((?:[5-9]|\d{2,})/.test(overviewStyleSource),
   "overview command desk must avoid fine metric copy and five-plus column grids",
 );
 assert(
@@ -792,55 +1708,61 @@ assert(
   "main.tsx must route to the extracted OverviewPage module",
 );
 assert(
-  mainEntry.includes('className="sidebar-toggle"') &&
-    mainEntry.includes("<IconActionButton") &&
-    !/<button[\s\S]{0,180}className="sidebar-toggle"/.test(mainEntry),
+  appShellSource.includes('className="sidebar-toggle"') &&
+    appShellSource.includes("<IconActionButton") &&
+    !/<button[\s\S]{0,180}className="sidebar-toggle"/.test(appShellSource),
   "sidebar collapse control must use IconActionButton instead of a raw button",
 );
 assert(
-  mainEntry.includes("this.setState({ error: null })") &&
-    mainEntry.includes("重试渲染") &&
-    !mainEntry.includes("window.location.reload()"),
+  appShellSource.includes("this.setState({ error: null })") &&
+    appShellSource.includes("重试渲染") &&
+    !appShellSource.includes("window.location.reload()"),
   "fatal render boundary must retry in place instead of forcing a full page reload",
 );
 assert(
   benchmarksPage.includes("export function BenchmarksPage()") &&
-    benchmarksPage.includes("export function BenchmarkDetailPage()"),
-  "benchmarks page module must export list and detail pages",
+    benchmarksPage.includes('export { BenchmarkDetailPage } from "./benchmarkSampleInspector";') &&
+    benchmarksPage.includes('import { BenchmarkCreatePanel } from "./benchmarkCreatePanel";') &&
+    benchmarksPage.includes('import { benchmarkSplitValues } from "./benchmarkModel";') &&
+    !benchmarksPage.includes("function BenchmarkCreatePanel(") &&
+    !benchmarksPage.includes("function BenchmarkSampleViewer(") &&
+    !benchmarksPage.includes("function parseBenchmarkSlices("),
+  "benchmarks page module must stay as the list-page shell and delegate create/detail responsibilities",
 );
 assert(
-  benchmarksPage.includes("CheckboxFieldControl, TextareaControl, TextInputControl") &&
-    (benchmarksPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
-    (benchmarksPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3 &&
-    benchmarksPage.includes("<TextareaControl"),
+  benchmarkCreatePanelSource.includes("CheckboxFieldControl, TextareaControl, TextInputControl") &&
+    (benchmarkCreatePanelSource.match(/<TextInputControl/g) ?? []).length >= 5 &&
+    (benchmarkCreatePanelSource.match(/<CheckboxFieldControl/g) ?? []).length >= 3 &&
+    benchmarkCreatePanelSource.includes("<TextareaControl"),
   "benchmark creation dialog must use shared text, textarea, and checkbox form controls",
 );
 assert(
-  benchmarksPage.includes('placeholder="grounding_layout_main"') &&
-    !benchmarksPage.includes("multitask_val_v1"),
+  benchmarkCreatePanelSource.includes('placeholder="grounding_layout_main"') &&
+    !benchmarkCreatePanelSource.includes("multitask_val_v1"),
   "benchmark creation dialog must avoid legacy fixture benchmark placeholders",
 );
 assert(
-  benchmarksPage.includes("parseBenchmarkSlices(") &&
-    benchmarksPage.includes("slices: suiteMode ? slices : undefined") &&
-    benchmarksPage.includes("default_slice: slices[0]?.split") &&
-    benchmarksPage.includes('label="Suite slices"') &&
-    benchmarksPage.includes("suiteSliceParse.error") &&
-    benchmarksPage.includes('normalizedSplit === "val"') &&
-    benchmarksPage.includes('? "suite"') &&
-    benchmarksPage.includes("suiteSliceParse.slices.length === 0") &&
-    benchmarksPage.includes("&& tasks.length === 0") &&
-    benchmarksPage.includes("Suite slices 至少需要一行 split=manifest") &&
-    benchmarksPage.includes("Suite slices 第") &&
-    benchmarksPage.includes("Suite slices split 重复") &&
-    benchmarksPage.includes("Suite slices 不支持的任务") &&
-    benchmarksPage.includes("Boolean(suiteSliceParse.error)"),
+  benchmarkCreatePanelSource.includes("parseBenchmarkSlices(") &&
+    benchmarkCreatePanelSource.includes("slices: suiteMode ? slices : undefined") &&
+    benchmarkCreatePanelSource.includes("default_slice: slices[0]?.split") &&
+    benchmarkCreatePanelSource.includes('label="Suite slices"') &&
+    benchmarkCreatePanelSource.includes("suiteSliceParse.error") &&
+    benchmarkCreatePanelSource.includes('normalizedSplit === "val"') &&
+    benchmarkCreatePanelSource.includes('? "suite"') &&
+    benchmarkCreatePanelSource.includes("suiteSliceParse.slices.length === 0") &&
+    benchmarkCreatePanelSource.includes("&& tasks.length === 0") &&
+    benchmarkCreatePanelSource.includes("Boolean(suiteSliceParse.error)") &&
+    benchmarkModelSource.includes("export function parseBenchmarkSlices(") &&
+    benchmarkModelSource.includes("Suite slices 至少需要一行 split=manifest") &&
+    benchmarkModelSource.includes("Suite slices 第") &&
+    benchmarkModelSource.includes("Suite slices split 重复") &&
+    benchmarkModelSource.includes("Suite slices 不支持的任务"),
   "benchmark creation dialog must support suite slice payloads",
 );
 assert(
   benchmarksPage.includes("const BENCHMARK_PAGE_SIZE = 80;") &&
     benchmarksPage.includes("PagerControl") &&
-    benchmarksPage.includes("SamplePager") &&
+    benchmarkSampleInspectorSource.includes("SamplePager") &&
     benchmarksPage.includes("clampListPageOffset") &&
     benchmarksPage.includes("updatePagedFilterValue") &&
     benchmarksPage.includes('className="rank-board-pager benchmark-list-pager"') &&
@@ -853,30 +1775,31 @@ assert(
 assert(
   benchmarksPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     benchmarksPage.includes("updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)") &&
-    benchmarksPage.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
-    benchmarksPage.includes("updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)") &&
+    benchmarkSampleInspectorSource.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
+    benchmarkSampleInspectorSource.includes("updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)") &&
     !benchmarksPage.includes("function updateBenchmarkFilter(") &&
-    !benchmarksPage.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
-    !benchmarksPage.includes("setSplitFilter(value);\n    setPageOffset(0);") &&
-    !benchmarksPage.includes("useEffect(() => {\n    setPageOffset(0);"),
+    !benchmarkSampleInspectorSource.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
+    !benchmarkSampleInspectorSource.includes("setSplitFilter(value);\n    setPageOffset(0);") &&
+    !benchmarkSampleInspectorSource.includes("useEffect(() => {\n    setPageOffset(0);"),
   "benchmarks page list and sample filters must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
-  benchmarksPage.includes("SelectableRowButton") &&
-    !benchmarksPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
+  benchmarkSampleInspectorSource.includes("SelectableRowButton") &&
+    !benchmarkSampleInspectorSource.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "benchmark sample list rows must use SelectableRowButton",
 );
 assert(
   benchmarksPage.includes("errorMessage(benchmarksQuery.error)") &&
-    benchmarksPage.includes("errorMessage(samplesQuery.error)") &&
-    benchmarksPage.includes("errorMessage(detailQuery.error)") &&
-    benchmarksPage.includes("errorMessage(mutation.error)") &&
-    !benchmarksPage.includes("mutation.error.message") &&
+    benchmarkSampleInspectorSource.includes("errorMessage(samplesQuery.error)") &&
+    benchmarkSampleInspectorSource.includes("errorMessage(detailQuery.error)") &&
+    benchmarkCreatePanelSource.includes("errorMessage(mutation.error)") &&
+    !benchmarkCreatePanelSource.includes("mutation.error.message") &&
     !benchmarksPage.includes('return <EmptyState title="基准集加载失败" tone="danger" />;') &&
-    !benchmarksPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
+    !benchmarkSampleInspectorSource.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
   "benchmark pages must show concrete API errors for list, detail, and mutation failures",
 );
 assertNoLegacyFormSubmitClass(benchmarksPage, "benchmarksPage.tsx");
+assertNoLegacyFormSubmitClass(benchmarkCreatePanelSource, "benchmarkCreatePanel.tsx");
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarksPage")') &&
     mainEntry.includes('lazyRouteComponent(() => import("./benchmarksPage"), "BenchmarkDetailPage")'),
@@ -884,26 +1807,37 @@ assert(
 );
 assert(
   runsPage.includes("export function RunsPage()") &&
-    runsPage.includes("export function RunDetailPage()"),
-  "runs page module must export list and detail pages",
+    runsPage.includes('export { RunDetailPage } from "./runDetailPage";') &&
+    runDetailPageSource.includes("export function RunDetailPage()") &&
+    runsPage.includes('import { ImportPredictionsPanel } from "./runsImportPanel";') &&
+    runDetailPageSource.includes('import { RunConfigPanel, shouldOpenRunNotePanel } from "./runConfigPanel";') &&
+    runDetailPageSource.includes('import { SampleFilters, SampleList } from "./runSampleSidebar";') &&
+    !runsPage.includes("function ImportPredictionsPanel(") &&
+    !runsPage.includes("function RunDetailPage(") &&
+    !runsPage.includes('from "./runConfigPanel"') &&
+    !runsPage.includes('from "./runSampleSidebar"') &&
+    !runsPage.includes("function RunConfigPanel(") &&
+    !runsPage.includes("function SampleFilters(") &&
+    !runsPage.includes("function SampleList("),
+  "runs page module must keep list concerns separate and re-export the extracted run detail module",
 );
 assert(
-  runsPage.includes("CheckboxFieldControl") &&
-    runsPage.includes("TextInputControl") &&
-    (runsPage.match(/<TextInputControl/g) ?? []).length >= 6 &&
-    (runsPage.match(/<CheckboxFieldControl/g) ?? []).length >= 3,
+  runsImportPanelSource.includes("CheckboxFieldControl") &&
+    runsImportPanelSource.includes("TextInputControl") &&
+    (runsImportPanelSource.match(/<TextInputControl/g) ?? []).length >= 6 &&
+    (runsImportPanelSource.match(/<CheckboxFieldControl/g) ?? []).length >= 3,
   "run import dialog must use shared text and checkbox form controls",
 );
 assert(
-  runsPage.includes("StandaloneTextareaControl") &&
-    (runsPage.match(/<StandaloneTextareaControl/g) ?? []).length >= 2 &&
-    !/<textarea\b/.test(runsPage),
+  runConfigPanelSource.includes("StandaloneTextareaControl") &&
+    (runConfigPanelSource.match(/<StandaloneTextareaControl/g) ?? []).length >= 2 &&
+    !/<textarea\b/.test(runConfigPanelSource),
   "run note editor must use shared standalone textarea controls",
 );
 assert(
   runsPage.includes("const RUN_PAGE_SIZE = 80;") &&
     runsPage.includes("PagerControl") &&
-    runsPage.includes("SamplePager") &&
+    runDetailPageSource.includes("SamplePager") &&
     runsPage.includes("clampListPageOffset") &&
     runsPage.includes("updatePagedFilterValue") &&
     runsPage.includes('className="rank-board-pager run-list-pager"') &&
@@ -919,8 +1853,8 @@ assert(
 assert(
   runsPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     runsPage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
-    runsPage.includes("updatePagedFilterValue(errorFilter, value, setErrorFilter, setPageOffset)") &&
-    runsPage.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
+    runDetailPageSource.includes("updatePagedFilterValue(errorFilter, value, setErrorFilter, setPageOffset)") &&
+    runDetailPageSource.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
     !runsPage.includes("function updateRunFilter(") &&
     !runsPage.includes("setErrorFilter(value);\n    setPageOffset(0);") &&
     !runsPage.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
@@ -928,47 +1862,73 @@ assert(
   "runs page list and sample filters must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
-  runsPage.includes("SelectableRowButton") &&
-    !runsPage.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
+  runsPage.includes("readRunsViewState") &&
+    runsPage.includes("writeRunsViewState") &&
+    runsPage.includes("RUNS_VIEW_STATE_RESET_EVENT") &&
+    runsViewStateSource.includes("export const RUNS_VIEW_STATE_KEY") &&
+    runsViewStateSource.includes("export const RUNS_VIEW_STATE_RESET_EVENT") &&
+    runsViewStateSource.includes("window.sessionStorage") &&
+    appShellSource.includes('import { resetRunsViewState } from "./runsViewState";') &&
+    appShellSource.includes("onNavigate={resetRunsViewState}"),
+  "runs page must preserve filters and paging across run-detail back-navigation and reset from main nav",
+);
+assert(
+  runSampleSidebarSource.includes("SelectableRowButton") &&
+    !runSampleSidebarSource.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
   "run sample list rows must use SelectableRowButton",
 );
 assert(
   runsPage.includes("errorMessage(runsQuery.error)") &&
-    runsPage.includes("errorMessage(samplesQuery.error)") &&
-    runsPage.includes("errorMessage(detailQuery.error)") &&
-    runsPage.includes("errorMessage(mutation.error)") &&
-    runsPage.includes("errorMessage(noteMutation.error)") &&
-    runsPage.includes("errorMessage(appendMutation.error)") &&
-    !runsPage.includes("mutation.error.message") &&
-    !runsPage.includes("noteMutation.error.message") &&
-    !runsPage.includes("appendMutation.error.message") &&
+    runDetailPageSource.includes("errorMessage(samplesQuery.error)") &&
+    runDetailPageSource.includes("errorMessage(detailQuery.error)") &&
+    runsImportPanelSource.includes("errorMessage(mutation.error)") &&
+    runConfigPanelSource.includes("errorMessage(noteMutation.error)") &&
+    runConfigPanelSource.includes("errorMessage(appendMutation.error)") &&
+    !runsImportPanelSource.includes("mutation.error.message") &&
+    !runConfigPanelSource.includes("noteMutation.error.message") &&
+    !runConfigPanelSource.includes("appendMutation.error.message") &&
     !runsPage.includes('return <EmptyState title="评测记录加载失败" tone="danger" />;') &&
-    !runsPage.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
+    !runDetailPageSource.includes("<div className=\"empty-panel\">样本详情加载失败</div>"),
   "run pages must show concrete API errors for list, detail, and mutation failures",
 );
 assert(
-    runsPage.includes("const RUN_NOTE_TEMPLATES = [") &&
-    runsPage.includes("const RUN_NOTE_APPEND_HEADINGS = [") &&
-    runsPage.includes("function insertNoteTemplate(") &&
-    runsPage.includes("appendRunNote(run.run_id, note, heading, noteVersion)") &&
-    runsPage.includes("const appendMutation = useMutation(") &&
-    runsPage.includes('className="run-note-append-panel"') &&
-    runsPage.includes('label="追加 run note"') &&
-    runsPage.includes("isApiError(error) && error.status === 409") &&
-    (runsPage.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
-    runsPage.includes('className="run-note-template-bar"') &&
-    runsPage.includes("<ActionButton") &&
-    !runsPage.includes('error.message.includes("409")') &&
-    !runsPage.includes("setNoteDraft(noteDraft +"),
+    runConfigPanelSource.includes("const RUN_NOTE_TEMPLATES = [") &&
+    runConfigPanelSource.includes("const RUN_NOTE_APPEND_HEADINGS = [") &&
+    runConfigPanelSource.includes("function insertNoteTemplate(") &&
+    runConfigPanelSource.includes("appendRunNote(run.run_id, note, heading, noteVersion)") &&
+    runConfigPanelSource.includes("const appendMutation = useMutation(") &&
+    runConfigPanelSource.includes('className="run-note-append-panel"') &&
+    runConfigPanelSource.includes('label="追加 run note"') &&
+    runConfigPanelSource.includes("isApiError(error) && error.status === 409") &&
+    (runConfigPanelSource.match(/invalidateQueries\(\{ queryKey: \["dashboard-state"\] \}\)/g) ?? []).length >= 2 &&
+    runConfigPanelSource.includes('className="run-note-template-bar"') &&
+    runConfigPanelSource.includes("<ActionButton") &&
+    !runConfigPanelSource.includes('error.message.includes("409")') &&
+    !runConfigPanelSource.includes("setNoteDraft(noteDraft +"),
   "run note editor must expose structured templates and refresh dashboard state after 409 conflicts",
 );
 assert(
-  runsPage.includes("DisclosurePanel") &&
-    runsPage.includes('className="run-config-panel"') &&
-    runsPage.includes('className="prompt-details"') &&
-    !/<details\b/.test(runsPage) &&
-    !/<summary\b/.test(runsPage),
-  "run config and prompt snapshot panels must use DisclosurePanel instead of local details shells",
+  runConfigPanelSource.includes("DisclosurePanel") &&
+    runDetailPageSource.includes('import "./runsPage.css";') &&
+    runConfigPanelSource.includes('className="run-config-panel"') &&
+    runConfigPanelSource.includes('className="prompt-details"') &&
+    runsStyleSource.includes(".run-config-panel") &&
+    runsStyleSource.includes(".run-note-editor") &&
+    runsStyleSource.includes(".run-note-template-bar") &&
+    runsStyleSource.includes(".run-note-append-panel") &&
+    runsStyleSource.includes(".run-config-grid") &&
+    runsStyleSource.includes(".prompt-details") &&
+    !appThemeStyleSource.includes(".run-config-panel") &&
+    !appThemeStyleSource.includes(".run-note-editor") &&
+    !appThemeStyleSource.includes(".run-note-template-bar") &&
+    !appThemeStyleSource.includes(".run-config-grid") &&
+    !appThemeStyleSource.includes(".prompt-details") &&
+    !appThemeStyleSource.includes(".run-query-bar") &&
+    !designSource.includes(".run-config-panel") &&
+    !designSource.includes(".run-query-bar") &&
+    !/<details\b/.test(runConfigPanelSource) &&
+    !/<summary\b/.test(runConfigPanelSource),
+  "run config, note, and prompt snapshot panels must use DisclosurePanel and keep page styles in runsPage.css",
 );
 assert(
   runTables.includes("StandaloneCheckboxControl") &&
@@ -982,11 +1942,18 @@ assert(
     runTables.includes('title={hasNote ? "有备注" : "无备注"}') &&
     runTables.includes("<FileText size={14} />") &&
     runTables.includes("<FileX size={14} />") &&
-    runsPage.includes("function shouldOpenRunNotePanel(") &&
-    runsPage.includes('id="run-note"') &&
-    runsPage.includes("open={configOpen}") &&
-    runsPage.includes("setConfigOpen(event.currentTarget.open)") &&
-    runsPage.includes("defaultOpen={shouldOpenRunNotePanel()}"),
+    runTablesStyleSource.includes(".run-note-preview") &&
+    runTablesStyleSource.includes(".run-table-stack") &&
+    runTablesStyleSource.includes(".workspace-card.fill .run-table-stack") &&
+    !appThemeStyleSource.includes(".run-note-preview") &&
+    !appThemeStyleSource.includes(".run-table-stack") &&
+    !dataTableStyleSource.includes("run-note-preview") &&
+    !designSource.includes(".run-note-preview") &&
+    runConfigPanelSource.includes("export function shouldOpenRunNotePanel(") &&
+    runConfigPanelSource.includes('id="run-note"') &&
+    runConfigPanelSource.includes("open={configOpen}") &&
+    runConfigPanelSource.includes("setConfigOpen(event.currentTarget.open)") &&
+    runDetailPageSource.includes("defaultOpen={shouldOpenRunNotePanel()}"),
   "run note previews must deep-link to the editable run note panel",
 );
 assert(
@@ -998,9 +1965,9 @@ assert(
     !runTables.includes('import { formatDate, formatMetric, runF1Score, unique } from "./formatters";') &&
     runTables.includes('header: "F1@.50"') &&
     runTables.includes("formatMetric(runF1Score(row.original))") &&
-    comparePage.includes("runF1Score") &&
-    comparePage.includes('className="compare-run-primary-metric"') &&
-    comparePage.includes("F1 {formatMetric(runF1Score(selected))}"),
+    compareRunRailComponentsSource.includes("runF1Score") &&
+    compareRunRailComponentsSource.includes('className="compare-run-primary-metric"') &&
+    compareRunRailComponentsSource.includes("F1 {formatMetric(runF1Score(selected))}"),
   "run option labels, run tables, and compare run cards must foreground F1 as the default direct metric",
 );
 assert(
@@ -1015,7 +1982,7 @@ assert(
   "run table row icon links must use IconNavLink instead of ad hoc icon-button links",
 );
 const rankBoardMiniLinkSource = await readSource("src/rankBoardPage.tsx");
-const jobsMiniLinkSource = await readSource("src/jobsPage.tsx");
+const jobsMiniLinkSource = jobsQueuePanelSource;
 const compareMiniLinkSource = await readSource("src/comparePage.tsx");
 const comparisonSampleMiniLinkSource = await readSource("src/comparisonSamplePage.tsx");
 assert(
@@ -1029,16 +1996,16 @@ assert(
   "router mini links must use InlineNavLink instead of ad hoc mini-link classes",
 );
 assert(
-  jobsMiniLinkSource.includes("SelectableTableRow") &&
-    jobsMiniLinkSource.includes("selected={job.job_id === selectedJob?.job_id}") &&
-    !jobsMiniLinkSource.includes('className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}'),
+  jobsQueueTableSource.includes("SelectableTableRow") &&
+    jobsQueueTableSource.includes("selected={selected}") &&
+    !jobsQueueTableSource.includes('className={job.job_id === selectedJob?.job_id ? "selectable-row selected" : "selectable-row"}'),
   "jobs queue selectable rows must use SelectableTableRow instead of ad hoc selectable-row class composition",
 );
 assert(
-  compareMiniLinkSource.includes("InlineAnchor") &&
+  compareReportSamplesSource.includes("InlineAnchor") &&
     comparisonSampleMiniLinkSource.includes("InlineAnchor") &&
     runTables.includes("InlineAnchor") &&
-    !/<a[^>]+className="mini-link/.test(compareMiniLinkSource) &&
+    !/<a[^>]+className="mini-link/.test(compareReportSamplesSource) &&
     !/<a[^>]+className="mini-link/.test(comparisonSampleMiniLinkSource) &&
     !/<a[^>]+className=\{[^}]*mini-link/.test(runTables) &&
     !runTables.includes('"mini-link compare-ready"'),
@@ -1047,24 +2014,24 @@ assert(
 assertNoLegacyFormSubmitClass(runsPage, "runsPage.tsx");
 assertNoRawSelectElement(runsPage, "runsPage.tsx");
 assert(
-  runsPage.includes("FormSelectControl") &&
-    (runsPage.match(/<FormSelectControl/g) ?? []).length >= 2,
+  runsImportPanelSource.includes("FormSelectControl") &&
+    (runsImportPanelSource.match(/<FormSelectControl/g) ?? []).length >= 2,
   "runs import dialog selects must use FormSelectControl",
 );
 assert(
-  runsPage.includes("DetectionLabelSubtaskPanel") &&
-    runsPage.includes("const [targetLabels, setTargetLabels] = useState<string[]>([])") &&
-    runsPage.includes("target_labels: targetLabels") &&
-    !runsPage.includes("function parseTargetLabels("),
+  runsImportPanelSource.includes("DetectionLabelSubtaskPanel") &&
+    runsImportPanelSource.includes("const [targetLabels, setTargetLabels] = useState<string[]>([])") &&
+    runsImportPanelSource.includes("target_labels: targetLabels") &&
+    !runsImportPanelSource.includes("function parseTargetLabels("),
   "runs import dialog must use the shared detection label subtask panel instead of a free-text target label field",
 );
 assert(
-  runsPage.includes('const [benchmarkSplit, setBenchmarkSplit] = useState("auto")') &&
-    runsPage.includes("benchmarkImportSplitOptions(selectedBenchmark)") &&
-    runsPage.includes('split: benchmarkSplit === "auto" ? undefined : benchmarkSplit') &&
-    runsPage.includes('label="Benchmark split"') &&
-    runsPage.includes('{ value: "auto", label: "自动推断" }') &&
-    runsPage.includes("benchmark?.split_manifests"),
+  runsImportPanelSource.includes('const [benchmarkSplit, setBenchmarkSplit] = useState("auto")') &&
+    runsImportPanelSource.includes("benchmarkImportSplitOptions(selectedBenchmark)") &&
+    runsImportPanelSource.includes('split: benchmarkSplit === "auto" ? undefined : benchmarkSplit') &&
+    runsImportPanelSource.includes('label="Benchmark split"') &&
+    runsImportPanelSource.includes('{ value: "auto", label: "自动推断" }') &&
+    runsImportPanelSource.includes("benchmark?.split_manifests"),
   "runs import dialog must allow explicit benchmark split selection for suite benchmarks",
 );
 assert(
@@ -1087,47 +2054,70 @@ assert(
   "services page filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
-  servicesPage.includes("TextInputControl") &&
-    servicesPage.includes("NumberInputControl") &&
-    (servicesPage.match(/<TextInputControl/g) ?? []).length >= 5 &&
-    (servicesPage.match(/<NumberInputControl/g) ?? []).length >= 5,
+  servicesPage.includes('import { ServiceCreatePanel } from "./servicesCreatePanel";') &&
+    servicesCreatePanelSource.includes("TextInputControl") &&
+    servicesCreatePanelSource.includes("NumberInputControl") &&
+    (servicesCreatePanelSource.match(/<TextInputControl/g) ?? []).length >= 5 &&
+    (servicesCreatePanelSource.match(/<NumberInputControl/g) ?? []).length >= 5 &&
+    !servicesPage.includes("function ServiceCreatePanel("),
   "service registration dialog must use shared text and number form controls",
 );
 assertNoLegacyFormSubmitClass(servicesPage, "servicesPage.tsx");
 assertNoRawSelectElement(servicesPage, "servicesPage.tsx");
+assertNoLegacyFormSubmitClass(servicesCreatePanelSource, "servicesCreatePanel.tsx");
+assertNoRawSelectElement(servicesCreatePanelSource, "servicesCreatePanel.tsx");
 assert(
-  servicesPage.includes("FormSelectControl") &&
-    (servicesPage.match(/<FormSelectControl/g) ?? []).length >= 1,
+  servicesCreatePanelSource.includes("FormSelectControl") &&
+    (servicesCreatePanelSource.match(/<FormSelectControl/g) ?? []).length >= 1,
   "service registration dialog selects must use FormSelectControl",
 );
 assert(
-  servicesPage.includes("errorMessage(mutation.error)") &&
-    servicesPage.includes("errorMessage(query.error)") &&
+  servicesCreatePanelSource.includes("errorMessage(mutation.error)") &&
+    servicesGridSource.includes("errorMessage(query.error)") &&
     servicesPage.includes("errorMessage(servicesQuery.error)") &&
     !servicesPage.includes('<EmptyState title="服务加载失败" tone="danger" />') &&
-    !servicesPage.includes("<div className=\"form-error full-field\">服务保存失败。</div>") &&
-    !servicesPage.includes("<div className=\"service-log-panel form-error\">日志加载失败。</div>"),
+    !servicesCreatePanelSource.includes("<div className=\"form-error full-field\">服务保存失败。</div>") &&
+    !servicesGridSource.includes("<div className=\"service-log-panel form-error\">日志加载失败。</div>"),
   "services page must show concrete API errors for list, service save, and log loading failures",
+);
+assert(
+  servicesPage.includes('import { ServiceGrid } from "./servicesGrid";') &&
+    servicesPage.includes("<ServiceGrid") &&
+    servicesGridSource.includes("export function ServiceGrid(") &&
+    servicesGridSource.includes("function ServiceCard(") &&
+    servicesGridSource.includes("function ServiceLogPanel(") &&
+    servicesGridSource.includes("startService(service.service_id)") &&
+    servicesGridSource.includes("checkServiceHealth(service.service_id)") &&
+    servicesGridSource.includes("stopService(service.service_id)") &&
+    servicesGridSource.includes("deleteService(service.service_id)") &&
+    servicesGridSource.includes("fetchServiceLogs(service.service_id)") &&
+    !servicesPage.includes("function ServiceCard(") &&
+    !servicesPage.includes("function ServiceLogPanel("),
+  "services page must delegate service cards, runtime actions, and logs to the service grid module",
 );
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
-  comparePage.includes("const COMPARE_RUN_PAGE_SIZE = 80;") &&
+  compareControllerSource.includes("export const COMPARE_RUN_PAGE_SIZE = 80;") &&
     comparePage.includes("PagerControl") &&
-    comparePage.includes("clampListPageOffset") &&
-    comparePage.includes("updatePagedFilterValue") &&
+    compareControllerSource.includes("clampListPageOffset") &&
+    compareFiltersSource.includes("updatePagedFilterValue") &&
     comparePage.includes('className="rank-board-pager compare-run-pager"') &&
-    comparePage.includes("offset: pageOffset") &&
-    comparePage.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
-    comparePage.includes("已选择；当前页未加载该 run") &&
+    compareControllerSource.includes("offset: pageOffset") &&
+    compareControllerSource.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
+    compareRunRailComponentsSource.includes("已选择；当前页未加载该 run") &&
+    comparePage.includes('import { ComparisonHistoryPanel, RunSelectRail } from "./compareRunRailComponents";') &&
+    !comparePage.includes("function RunSelectRail(") &&
+    !comparePage.includes("function ComparisonHistoryPanel(") &&
     !comparePage.includes("function CompareRunPager(") &&
     !comparePage.includes("limit: 200"),
   "compare run rail must use paged API requests while preserving selected run ids",
 );
 assert(
-  comparePage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset, setHistoryOffset)") &&
-    comparePage.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
-    comparePage.includes("historyBaselineFilter") &&
-    comparePage.includes("setHistoryBaselineFilter") &&
+  compareFiltersSource.includes("setters.setSearchText") &&
+    compareFiltersSource.includes("setters.setPageOffset") &&
+    compareFiltersSource.includes("setters.setHistoryOffset") &&
+    compareFiltersSource.includes("historyBaselineFilter") &&
+    compareFiltersSource.includes("setters.setHistoryBaselineFilter") &&
     !comparePage.includes("function updateCompareRunFilter(") &&
     !comparePage.includes("function updateCompareSharedFilter(") &&
     !comparePage.includes("function updateComparisonHistoryFilter(") &&
@@ -1136,88 +2126,235 @@ assert(
   "compare page filter changes must use shared same-batch paging reset for run/history offsets",
 );
 assert(
-  apiSource.includes("baselineRunId?: string;") &&
-    apiSource.includes("candidateRunId?: string;") &&
+  compareViewStateSource.includes("export const COMPARE_VIEW_STATE_KEY") &&
+    compareViewStateSource.includes("export const COMPARE_VIEW_STATE_RESET_EVENT") &&
+    compareViewStateSource.includes("export function readCompareViewState(") &&
+    compareViewStateSource.includes("export function writeCompareViewState(") &&
+    compareViewStateSource.includes("export function resetCompareViewState(") &&
+    compareViewStateSource.includes("activeLabel") &&
+    compareViewStateSource.includes("window.sessionStorage") &&
+    compareControllerSource.includes("readCompareViewState") &&
+    compareControllerSource.includes("writeCompareViewState") &&
+    compareControllerSource.includes("COMPARE_VIEW_STATE_RESET_EVENT") &&
+    compareControllerSource.includes("window.addEventListener(COMPARE_VIEW_STATE_RESET_EVENT, resetViewState)") &&
+    !comparePage.includes("readCompareViewState") &&
+    comparePage.includes("activeLabel={activeLabel}") &&
+    comparePage.includes("onActiveLabelChange={setActiveLabel}") &&
+    appShellSource.includes('import { resetCompareViewState } from "./compareViewState";') &&
+    appShellSource.includes("onNavigate={resetCompareViewState}"),
+  "compare page must preserve filters, selected runs, offsets, and active label across back-navigation and reset from main nav",
+);
+assert(
+  apiTypesSource.includes("baselineRunId?: string;") &&
+    apiTypesSource.includes("candidateRunId?: string;") &&
     apiSource.includes('params.set("list", "1");') &&
     apiSource.includes('params.set("baseline_run_id", filters.baselineRunId.trim());') &&
     apiSource.includes('params.set("candidate_run_id", filters.candidateRunId.trim());') &&
-    comparePage.includes("historyBaselineFilter") &&
-    comparePage.includes("historyCandidateFilter") &&
-    comparePage.includes("const COMPARISON_HISTORY_PAGE_SIZE = 50;") &&
-    comparePage.includes("const [historyOffset, setHistoryOffset] = useState(0);") &&
-    comparePage.includes("offset: historyOffset") &&
-    comparePage.includes("limit: COMPARISON_HISTORY_PAGE_SIZE") &&
-    comparePage.includes('className="rank-board-pager compare-history-pager"') &&
+    compareFiltersSource.includes("historyBaselineFilter") &&
+    compareFiltersSource.includes("historyCandidateFilter") &&
+    compareControllerSource.includes("export const COMPARISON_HISTORY_PAGE_SIZE = 50;") &&
+    compareControllerSource.includes("const [historyOffset, setHistoryOffset] = useState(initialViewState.historyOffset);") &&
+    compareControllerSource.includes("offset: historyOffset") &&
+    compareControllerSource.includes("limit: COMPARISON_HISTORY_PAGE_SIZE") &&
+    compareRunRailComponentsSource.includes('className="rank-board-pager compare-history-pager"') &&
     comparePage.includes("onPageChange={setHistoryOffset}") &&
-    comparePage.includes('id: "compare-history-baseline"') &&
-    comparePage.includes('id: "compare-history-candidate"') &&
+    compareFiltersSource.includes('id: "compare-history-baseline"') &&
+    compareFiltersSource.includes('id: "compare-history-candidate"') &&
     comparePage.includes("active={hasComparisonHistoryFilters}"),
   "compare history advanced search must expose baseline/candidate filters and pagination through the list API",
 );
 assert(
-  comparePage.includes('import { FormSelectControl } from "./controlPrimitives";') &&
-    (comparePage.match(/<FormSelectControl/g) ?? []).length >= 1,
+  compareRunRailComponentsSource.includes('import { FormSelectControl } from "./controlPrimitives";') &&
+    (compareRunRailComponentsSource.match(/<FormSelectControl/g) ?? []).length >= 1,
   "compare run rail selects must use FormSelectControl",
 );
 assert(
-  comparePage.includes("placeholderData: (previousData) => previousData") &&
-    comparePage.includes("const comparisonReport = comparisonQuery.data;") &&
-    comparePage.includes("comparisonQuery.isPlaceholderData && Boolean(comparisonReport)") &&
+  compareControllerSource.includes("placeholderData: (previousData) => previousData") &&
+    compareControllerSource.includes("const comparisonReport = comparisonQuery.data;") &&
+    compareControllerSource.includes("comparisonQuery.isPlaceholderData && Boolean(comparisonReport)") &&
     comparePage.includes("正在切换对比报告") &&
-    comparePage.includes("<ComparisonPanel report={comparisonReport} />") &&
+    comparePage.includes("<ComparisonPanel") &&
+    comparePage.includes("report={comparisonReport}") &&
     styleSource.includes(".compare-report-pane {\n  position: relative;"),
   "compare report pane must keep the previous report visible while loading a new pair",
 );
 assert(
-  comparePage.includes("errorMessage(runsQuery.error)") &&
-    comparePage.includes("errorMessage(comparisonQuery.error)") &&
+  comparePage.includes('import { ComparisonPanel } from "./compareReportComponents";') &&
+    !comparePage.includes("function ComparisonPanel(") &&
+    compareReportComponentsSource.includes("<ComparisonReportTabs />") &&
+    compareReportComponentsSource.includes('from "./compareReportMetrics"') &&
+    compareReportComponentsSource.includes('from "./compareReportSamples"') &&
+    compareReportComponentsSource.includes(
+      "<ComparisonMetricTable report={report} showsEndpointMetric={showsEndpointMetric} />",
+    ) &&
+    compareReportComponentsSource.includes("<ComparisonOutcomeBand summary={report.summary} />") &&
+    !compareReportComponentsSource.includes("function ComparisonMetricTable(") &&
+    !compareReportComponentsSource.includes("function ComparisonSampleTable(") &&
+    compareReportMetricsSource.includes("export function ComparisonReportTabs(") &&
+    compareReportMetricsSource.includes("export function ComparisonMetricTable(") &&
+    compareReportMetricsSource.includes("export function ComparisonOutcomeBand(") &&
+    compareReportSamplesSource.includes("export function ComparisonQuickActions(") &&
+    compareReportSamplesSource.includes("export function ComparisonLabelDeltaStrip(") &&
+    compareReportSamplesSource.includes("export function ComparisonSampleTable(") &&
+    comparePage.includes('import "./compareTheme.css";') &&
+    comparePage.includes('import "./compareRunRail.css";') &&
+    comparePage.includes('import "./compareReportPanel.css";') &&
+    comparePage.indexOf('import "./comparePage.css";') <
+      comparePage.indexOf('import "./compareTheme.css";') &&
+    comparePage.indexOf('import "./compareTheme.css";') <
+      comparePage.indexOf('import "./compareRunRail.css";') &&
+    compareThemeStyleSource.includes("--compare-gap-18: 18px") &&
+    compareThemeStyleSource.includes("--compare-tab-min: 34px") &&
+    compareThemeStyleSource.includes("--compare-delta-min: 56px") &&
+    compareThemeStyleSource.includes("--compare-text-value: var(--text-xl)") &&
+    compareReportPanelStyleSource.includes(".comparison-report-tabs") &&
+    compareReportPanelStyleSource.includes(".comparison-metric-table table") &&
+    compareReportPanelStyleSource.includes(".comparison-outcome-band") &&
+    compareReportPanelStyleSource.includes("var(--compare-tab-min)") &&
+    compareReportPanelStyleSource.includes("var(--compare-text-small)") &&
+    compareReportPanelStyleSource.includes("var(--compare-radius-control)") &&
+    !rawCompareReportGeometryPattern.test(compareReportPanelStyleSource) &&
+    compareReportPanelStyleSource.includes(".compare-page .comparison-metric-table,") &&
+    compareReportPanelStyleSource.includes(".compare-page .comparison-outcome-band,") &&
+    compareReportPanelStyleSource.includes(".compare-page .sample-count-chip,") &&
+    compareReportPanelStyleSource.includes(".compare-page .label-delta-card") &&
+    styleSource.includes(".compare-run-rail,\n.compare-report-pane,\n.compare-context-pane {\n  min-height: 0;\n  overflow: auto;\n  background: #ffffff;\n  border: 0;") &&
+    styleSource.includes(".compare-context-card {\n  display: grid;") &&
+    styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid #dbe5ee;") &&
+    compareReportPanelStyleSource.includes(".label-delta-card {\n  display: grid;") &&
+    compareReportPanelStyleSource.includes("border-bottom: 1px solid #d8e2eb;") &&
+    compareRunRailStyleSource.includes(".compare-run-select") &&
+    compareRunRailStyleSource.includes(".compare-run-card") &&
+    compareRunRailStyleSource.includes(".history-block") &&
+    compareStyleSource.includes(".compare-page .compare-run-rail,") &&
+    compareStyleSource.includes("border: 0;\n  border-top: 1px solid var(--bench-line);") &&
+    compareStyleSource.includes("animation: none;\n  transition: none;") &&
+    !compareStyleSource.includes(".comparison-metric-table table") &&
+    !compareStyleSource.includes(".label-delta-card {\n  display: grid;") &&
+    !compareStyleSource.includes(".compare-run-card {\n  display: grid;") &&
+    !compareStyleSource.includes(".history-block") &&
+    comparePage.includes('import "./comparisonSampleStyles.css";') &&
+    comparisonSampleStyleSource.includes(".comparison-sample-row") &&
+    comparisonSampleStyleSource.includes(".comparison-run-panel") &&
+    comparisonSampleStyleSource.includes(".metric-delta") &&
+    comparisonSampleStyleSource.includes("var(--viewer-gap-8)") &&
+    comparisonSampleStyleSource.includes("var(--viewer-text-small)") &&
+    comparisonSampleStyleSource.includes("var(--viewer-radius-control)") &&
+    !rawVisualPageControlGeometryPattern.test(comparisonSampleStyleSource) &&
+    !compareStyleSource.includes(".comparison-sample-row") &&
+    !compareStyleSource.includes(".comparison-run-panel") &&
+    !compareStyleSource.includes(".metric-delta") &&
+    !designSource.includes(".compare-page .compare-run-rail,") &&
+    !designSource.includes(".compare-workspace") &&
+    !designSource.includes(".label-delta-card"),
+  "compare page must use restrained section dividers instead of stacking boxed cards",
+);
+assert(
+  compareControllerSource.includes("errorMessage(runsQuery.error)") &&
+    comparePage.includes("errorMessage(comparisonError)") &&
+    compareControllerSource.includes("comparisonError: comparisonQuery.error") &&
     comparisonSampleMiniLinkSource.includes("errorMessage(query.error)") &&
     !comparePage.includes("<div className=\"empty-panel danger-text\">对比报告加载失败。</div>") &&
     !comparisonSampleMiniLinkSource.includes('return <EmptyState title="对比样本加载失败" tone="danger" />;'),
   "compare report and comparison sample pages must show concrete API errors",
 );
 assert(
-  rankBoardPage.includes("errorMessage(dashboardQuery.error || boardQuery.error)") &&
+  rankBoardControllerSource.includes("errorMessage(dashboardQuery.error || boardQuery.error)") &&
+    rankBoardPage.includes("errorTitle") &&
     !rankBoardPage.includes('return <EmptyState title="排行榜加载失败" tone="danger" />;'),
   "rank board page must show concrete API errors for leaderboard failures",
 );
 assert(
-  comparePage.includes("SelectableCardButton") &&
-    (comparePage.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
-    !/<button[\s\S]{0,240}label-delta-card/.test(comparePage),
+  compareReportSamplesSource.includes("SelectableCardButton") &&
+    (compareReportSamplesSource.match(/<SelectableCardButton/g) ?? []).length >= 2 &&
+    !compareReportComponentsSource.includes("SelectableCardButton") &&
+    !comparePage.includes("SelectableCardButton") &&
+    !/<button[\s\S]{0,240}label-delta-card/.test(compareReportSamplesSource),
   "compare label delta cards must use SelectableCardButton instead of raw buttons",
 );
 assert(
-  comparePage.includes("NavigationCardAnchor") &&
-    comparePage.includes("NavigationCardFrame") &&
-    comparePage.includes('<NavigationCardAnchor\n                className="comparison-sample-row"') &&
-    comparePage.includes('<NavigationCardFrame className="comparison-sample-row disabled"') &&
-    !/<a[\s\S]{0,160}className="comparison-sample-row"/.test(comparePage) &&
-    !/<div[\s\S]{0,120}className="comparison-sample-row disabled"/.test(comparePage),
+  compareReportSamplesSource.includes("NavigationCardAnchor") &&
+    compareReportSamplesSource.includes("NavigationCardFrame") &&
+    compareReportSamplesSource.includes('className="comparison-sample-row"') &&
+    compareReportSamplesSource.includes('className="comparison-sample-row disabled"') &&
+    !compareReportComponentsSource.includes("NavigationCardAnchor") &&
+    !compareReportComponentsSource.includes("NavigationCardFrame") &&
+    !comparePage.includes("NavigationCardAnchor") &&
+    !comparePage.includes("NavigationCardFrame") &&
+    !/<a[\s\S]{0,160}className="comparison-sample-row"/.test(compareReportSamplesSource) &&
+    !/<div[\s\S]{0,120}className="comparison-sample-row disabled"/.test(
+      compareReportSamplesSource,
+    ),
   "compare sample navigation rows must use shared navigation card primitives",
 );
 assert(
-  rankBoardPage.includes("const RANK_PAGE_SIZE = 80;") &&
+  rankBoardModelSource.includes("export const RANK_PAGE_SIZE = 80;") &&
+    rankBoardPage.includes('import "./rankTheme.css";') &&
+    rankBoardPage.includes('import "./rankBoardPage.css";') &&
+    rankBoardPage.indexOf('import "./rankTheme.css";') <
+      rankBoardPage.indexOf('import "./rankBoardPage.css";') &&
+    rankThemeStyleSource.includes("--rank-gap-10: 10px") &&
+    rankThemeStyleSource.includes("--rank-radius-pill: 999px") &&
+    rankThemeStyleSource.includes("--rank-toolbar-min: 46px") &&
+    rankThemeStyleSource.includes("--rank-text-title: var(--text-md)") &&
+    [
+      rankBoardPageStyleSource,
+      rankBoardSummaryStyleSource,
+      rankBoardFacetsStyleSource,
+      rankBoardTablesStyleSource
+    ].every((source) => !rawRankBoardGeometryPattern.test(source)) &&
+    rankBoardPageStyleSource.includes("var(--rank-gap-8)") &&
+    rankBoardFacetsStyleSource.includes("var(--rank-radius-pill)") &&
+    rankBoardSummaryStyleSource.includes("var(--rank-text-caption)") &&
+    rankBoardTablesStyleSource.includes("var(--rank-radius-pill)") &&
+    rankBoardControllerSource.includes("RANK_PAGE_SIZE") &&
+    rankBoardControllerSource.includes("RANK_SORTABLE_FIELDS") &&
     rankBoardPage.includes("PagerControl") &&
-    rankBoardPage.includes("clampListPageOffset") &&
-    rankBoardPage.includes("updatePagedFilterValue") &&
+    rankBoardControllerSource.includes("clampListPageOffset") &&
+    rankBoardControllerSource.includes("updatePagedFilterValue") &&
     rankBoardPage.includes('className="rank-board-pager"') &&
-    rankBoardPage.includes("offset: pageOffset") &&
-    rankBoardPage.includes("limit: RANK_PAGE_SIZE") &&
+    rankBoardControllerSource.includes("offset: pageOffset") &&
+    rankBoardControllerSource.includes("limit: RANK_PAGE_SIZE") &&
+    rankBoardPage.includes("useRankBoardController") &&
     !rankBoardPage.includes("function RankBoardPager(") &&
     !rankBoardPage.includes("limit: 200"),
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  rankBoardPage.includes("const handleSortChange = (value: string) => {") &&
-    rankBoardPage.includes("setPageOffset(0);") &&
-    rankBoardPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    rankBoardControllerSource.includes("const handleSortChange = (value: string) => {") &&
+    rankBoardControllerSource.includes("setPageOffset(0);") &&
+    rankBoardModelSource.includes("export function defaultRankSortOrder(") &&
+    rankBoardModelSource.includes("export function toggleSortOrder(") &&
+    rankBoardControllerSource.includes("defaultRankSortOrder(value)") &&
+    rankBoardControllerSource.includes("toggleSortOrder(sortOrder)") &&
+    rankBoardFiltersSource.includes("updatePagedFilterValue(") &&
+    rankBoardFiltersSource.includes("values.searchText") &&
+    rankBoardFiltersSource.includes("setters.setSearchText") &&
+    rankBoardPage.includes("<RankBoardFilterBar") &&
     !rankBoardPage.includes("function updateRankFilter(") &&
+    !rankBoardPage.includes('id: "rank-query"') &&
     !rankBoardPage.includes("useEffect(() => {\n    setPageOffset(0);"),
   "rank board filter changes must use shared same-batch paging reset instead of issuing a stale-offset refresh",
 );
 assert(
-  rankBoardPage.includes("const tableRefreshing = boardQuery.isPlaceholderData && Boolean(board);") &&
+  rankBoardViewStateSource.includes("export const RANK_BOARD_VIEW_STATE_KEY") &&
+    rankBoardViewStateSource.includes("export const RANK_BOARD_VIEW_STATE_RESET_EVENT") &&
+    rankBoardViewStateSource.includes("export function readRankBoardViewState(") &&
+    rankBoardViewStateSource.includes("export function writeRankBoardViewState(") &&
+    rankBoardViewStateSource.includes("export function resetRankBoardViewState(") &&
+    rankBoardViewStateSource.includes("window.sessionStorage") &&
+    rankBoardControllerSource.includes("readRankBoardViewState") &&
+    rankBoardControllerSource.includes("writeRankBoardViewState") &&
+    rankBoardControllerSource.includes("RANK_BOARD_VIEW_STATE_RESET_EVENT") &&
+    rankBoardControllerSource.includes("window.addEventListener(RANK_BOARD_VIEW_STATE_RESET_EVENT, resetViewState)") &&
+    !rankBoardPage.includes("readRankBoardViewState") &&
+    !rankBoardPage.includes("writeRankBoardViewState") &&
+    appShellSource.includes('import { resetRankBoardViewState } from "./rankBoardViewState";') &&
+    appShellSource.includes("onNavigate={resetRankBoardViewState}"),
+  "rank board must preserve table/filter state across detail back-navigation and reset only from the main nav item",
+);
+assert(
+  rankBoardControllerSource.includes("tableRefreshing: boardQuery.isPlaceholderData && Boolean(board)") &&
     rankBoardPage.includes('className="rank-board-table-toolbar"') &&
     rankBoardPage.includes("refreshing={tableRefreshing}") &&
     !rankBoardPage.includes("rank-board-table-card refreshing") &&
@@ -1230,29 +2367,33 @@ assert(
   [
     runsPage,
     benchmarksPage,
-    comparePage,
+    compareControllerSource,
     servicesPage,
-    jobsPage,
+    jobsQueuePanelSource,
   ].every((source) => source.includes("placeholderData: (previousData) => previousData")),
   "list pages must keep previous data while filters refetch instead of replacing the whole workspace",
 );
 assert(
-  rankBoardPage.includes("OptionChipButton") &&
-    rankBoardPage.includes('className="rank-facet-button"') &&
-    rankBoardPage.includes('className="rank-facet-toggle"') &&
-    rankBoardPage.includes("const visibleItems = expanded ? items : items.slice(0, 5)") &&
-    rankBoardPage.includes("items.length > 5") &&
-    rankBoardPage.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
-    rankBoardPage.includes("onFilterChange.task") &&
-    rankBoardPage.includes("onFilterChange.benchmark") &&
-    rankBoardPage.includes("onFilterChange.split") &&
-    rankBoardPage.includes("onFilterChange.status") &&
-    rankBoardPage.includes("onFilterChange.label") &&
-    rankBoardPage.includes("onFilterChange.metricProfile") &&
-    rankBoardPage.includes("board.facets.tasks") &&
-    rankBoardPage.includes("board.facets.benchmarks") &&
-    rankBoardPage.includes("board.facets.splits") &&
-    rankBoardPage.includes("board.facets.statuses"),
+  rankBoardFacetsSource.includes("OptionChipButton") &&
+    rankBoardFacetsSource.includes('import "./rankBoardSummary.css";') &&
+    rankBoardFacetsSource.includes('import "./rankBoardFacets.css";') &&
+    rankBoardFacetsSource.includes('className="rank-facet-button"') &&
+    rankBoardFacetsSource.includes('className="rank-facet-toggle"') &&
+    rankBoardFacetsSource.includes("const visibleItems = expanded ? items : items.slice(0, 5)") &&
+    rankBoardFacetsSource.includes("items.length > 5") &&
+    rankBoardFacetsSource.includes('onClick={() => onSelect(active ? "all" : item.value)}') &&
+    rankBoardFacetsSource.includes("onFilterChange.task") &&
+    rankBoardFacetsSource.includes("onFilterChange.benchmark") &&
+    rankBoardFacetsSource.includes("onFilterChange.split") &&
+    rankBoardFacetsSource.includes("onFilterChange.status") &&
+    rankBoardFacetsSource.includes("onFilterChange.label") &&
+    rankBoardFacetsSource.includes("onFilterChange.metricProfile") &&
+    rankBoardFacetsSource.includes("board.facets.tasks") &&
+    rankBoardFacetsSource.includes("board.facets.benchmarks") &&
+    rankBoardFacetsSource.includes("board.facets.splits") &&
+    rankBoardFacetsSource.includes("board.facets.statuses") &&
+    !rankBoardPage.includes("function RankFacetGroup(") &&
+    !rankBoardPage.includes('className="rank-facet-button"'),
   "rank board facet rail must expose all backend facets as clickable filter chips",
 );
 assert(
@@ -1263,31 +2404,39 @@ assert(
   "expanded rank board facets must wrap inside a bounded scroll pane instead of stretching the page",
 );
 assert(
-  rankBoardPage.includes("function SortableHeader(") &&
-    rankBoardPage.includes("const RANK_METRIC_COLUMNS") &&
-    rankBoardPage.includes('id: `metric_${metric.id}`') &&
-    rankBoardPage.includes('id: "created_at"') &&
-    rankBoardPage.includes('header: () => auxiliaryHeader("Run", "run_id")') &&
-    rankBoardPage.includes('header: () => auxiliaryHeader("创建时间", "created_at")') &&
-    rankBoardPage.includes("defaultRankSortOrder(value)") &&
-    rankBoardPage.includes("toggleSortOrder(sortOrder)") &&
-    rankBoardPage.includes("rank-sort-active-cell") &&
-    rankBoardPage.includes('id: "leader_delta"') &&
-    rankBoardPage.includes('"rank-primary-score"') &&
-    rankBoardPage.includes("formatScoreDelta(row.original.score_delta)") &&
-    rankBoardPage.includes("function rankDeltaClassName") &&
+  rankBoardTablesSource.includes("function SortableHeader(") &&
+    rankBoardTablesSource.includes('import "./rankBoardTables.css";') &&
+    rankBoardTablesSource.includes("const RANK_METRIC_COLUMNS") &&
+    rankBoardTablesSource.includes('id: `metric_${metric.id}`') &&
+    rankBoardTablesSource.includes('id: "created_at"') &&
+    rankBoardTablesSource.includes('header: () => auxiliaryHeader("Run", "run_id")') &&
+    rankBoardTablesSource.includes('header: () => auxiliaryHeader("创建时间", "created_at")') &&
+    rankBoardTablesSource.includes("rank-sort-active-cell") &&
+    rankBoardTablesSource.includes('id: "leader_delta"') &&
+    rankBoardTablesSource.includes('"rank-primary-score"') &&
+    rankBoardTablesSource.includes("formatScoreDelta(row.original.score_delta)") &&
+    rankBoardTablesSource.includes("function rankDeltaClassName") &&
+    rankBoardControllerSource.includes("defaultRankSortOrder(value)") &&
+    rankBoardControllerSource.includes("toggleSortOrder(sortOrder)") &&
+    !rankBoardPage.includes("function SortableHeader(") &&
+    !rankBoardPage.includes("const RANK_METRIC_COLUMNS") &&
     !rankBoardPage.includes('header: "Weighted"') &&
-    !rankBoardPage.includes(removedCompositeComponentsToken) &&
-    !rankBoardPage.includes(removedCompositeApiToken),
-  "rank board table must expose metric and auxiliary sorting through stable sortable headers",
+    !rankBoardTablesSource.includes('header: "Weighted"') &&
+    !rankBoardTablesSource.includes(removedCompositeComponentsToken) &&
+    !rankBoardTablesSource.includes(removedCompositeApiToken),
+  "rank board table components must expose metric and auxiliary sorting through stable sortable headers",
 );
 assert(
-  rankBoardPage.includes("function RankBoardStatusBar(") &&
-    rankBoardPage.includes('className="rank-board-statusbar"') &&
+  rankBoardFacetsSource.includes("export function RankBoardSummary(") &&
+    rankBoardFacetsSource.includes('className="rank-board-summary"') &&
     rankBoardPage.includes("workspace-card fill rank-board-table-card") &&
-    rankBoardPage.includes("const RANK_PRIMARY_METRICS = [") &&
-    rankBoardPage.includes("const RANK_AUXILIARY_SORTS = [") &&
+    rankBoardModelSource.includes("export const RANK_PRIMARY_METRICS = [") &&
+    rankBoardModelSource.includes("export const RANK_AUXILIARY_SORTS = [") &&
+    rankBoardPage.includes('import { RankBoardTable, SuiteRankBoardTable } from "./rankBoardTables";') &&
     !rankBoardPage.includes("CompactSelectControl") &&
+    !rankBoardPage.includes("function RankBoardSummary(") &&
+    !rankBoardPage.includes("function SuiteRankSummary(") &&
+    !rankBoardPage.includes("function SuiteRankFacetRail(") &&
     !rankBoardPage.includes('className="rank-sort-section primary"') &&
     !rankBoardPage.includes('className="rank-sort-section auxiliary"') &&
     !rankBoardPage.includes('className="rank-sort-chip primary"') &&
@@ -1301,6 +2450,18 @@ assert(
     !rankBoardPage.includes('id: "rank-sort-by"') &&
     !rankBoardPage.includes('id: "rank-sort-order"'),
   "rank board sorting must live in table headers without separate dropdown or button controls",
+);
+assert(
+  rankBoardPageStyleSource.includes(".rank-mode-switch") &&
+    rankBoardPageStyleSource.includes(".rank-board-table-card") &&
+    !rankBoardPageStyleSource.includes(".rank-facet-group") &&
+    !rankBoardPageStyleSource.includes(".rank-primary-score") &&
+    !rankBoardPageStyleSource.includes(".rank-board-summary") &&
+    rankBoardFacetsStyleSource.includes(".rank-facet-group.expanded > div") &&
+    rankBoardSummaryStyleSource.includes(".rank-board-summary") &&
+    rankBoardTablesStyleSource.includes(".rank-primary-score") &&
+    rankBoardTablesStyleSource.includes(".rank-sort-header"),
+  "rank board styles must keep page frame, summary, facets, and table concerns in separate CSS modules",
 );
 assert(
   !rankBoardPage.includes(removedCompositePanelToken) &&
@@ -1322,9 +2483,31 @@ assert(
 );
 const viewerPanels = await readSource("src/viewerPanels.tsx");
 const viewerMetrics = await readSource("src/viewerMetrics.ts");
+const viewerThemeStyleSource = await readSource("src/viewerTheme.css");
+const viewerCanvasStyleSource = await readSource("src/viewerCanvas.css");
+const viewerOverlayCanvasStyleSource = await readSource("src/viewerOverlayCanvas.css");
+const viewerInspectorStyleSource = await readSource("src/viewerInspector.css");
+const viewerComponentStyleSources = [
+  viewerCanvasStyleSource,
+  viewerOverlayCanvasStyleSource,
+  viewerInspectorStyleSource
+];
+const rawViewerControlGeometryPattern =
+  /(?:\bfont-size:\s*\d|\b(?:gap|padding):\s*(?:2|3|4|5|6|7|8|9|10|11)px\b|\bmin-height:\s*(?:19|20|22|24|28|42|46)px\b|\bborder-radius:\s*(?:2|3)px\b)/;
 assert(
   viewerPanels.includes('import { CompactSelectControl, ToggleButton } from "./controlPrimitives";'),
   "viewer layer preset select must use CompactSelectControl",
+);
+assert(
+  benchmarkSampleInspectorSource.includes('import "./inspectorPage.css";') &&
+    runDetailPageSource.includes('import "./inspectorPage.css";') &&
+    inspectorPageStyleSource.includes(".visual-inspector-page") &&
+    inspectorPageStyleSource.includes(".sample-row") &&
+    inspectorPageStyleSource.includes("var(--viewer-sample-row-min)") &&
+    inspectorPageStyleSource.includes("var(--viewer-filter-min)") &&
+    inspectorPageStyleSource.includes("var(--viewer-radius-control)") &&
+    !rawVisualPageControlGeometryPattern.test(inspectorPageStyleSource),
+  "visual inspector page styles must use the shared viewer token layer instead of page-local control geometry",
 );
 assert(
   viewerPanels.includes("OptionChipButton"),
@@ -1369,11 +2552,1906 @@ assert(
   "viewer label chips must use OptionChipButton instead of raw label-select buttons",
 );
 const viewerCanvas = await readSource("src/viewerCanvas.tsx");
+const viewerInstanceLayer = await readSource("src/viewerInstanceLayer.tsx");
+const viewerRenderMetricsSource = await readSource("src/viewerRenderMetrics.ts");
+const viewerTileLayer = await readSource("src/viewerTileLayer.tsx");
+const viewerViewportController = await readSource("src/viewerViewportController.ts");
+const viewerViewportPointerInteractionSource = await readSource(
+  "src/viewerViewportPointerInteraction.ts",
+);
+const viewerViewportSyncSource = await readSource("src/viewerViewportSync.ts");
+const viewerViewportTileLevelSource = await readSource("src/viewerViewportTileLevel.ts");
+const viewerViewportWheelZoomSource = await readSource("src/viewerViewportWheelZoom.ts");
+const viewerViewportCommandsSource = await readSource("src/viewerViewportCommands.ts");
 assert(
   viewerCanvas.includes('import { ActionButton } from "./ui";') &&
     viewerCanvas.includes('className="canvas-reset-button"') &&
+    viewerCanvas.includes("onInspect?: (objectId: string | null) => void") &&
+    viewerCanvas.includes('import { MemoizedInstanceLayer } from "./viewerInstanceLayer";') &&
+    viewerCanvas.includes("onObjectContextMenu?: (request: CanvasObjectContextMenuRequest) => void") &&
+    viewerCanvas.includes("const overlayInteractive = Boolean(onHover || onLock || onInspect || onObjectContextMenu);") &&
+    viewerCanvas.includes("event.target !== event.currentTarget || !activeObjectId") &&
+    viewerCanvas.includes("onLock?.(activeObjectId)") &&
+    viewerCanvas.includes("onDoubleClick={(event) =>") &&
+    viewerCanvas.includes("resetViewport();") &&
+    !viewerCanvas.includes("onInspect?.(activeObjectId)") &&
+    viewerCanvas.includes("objectId: activeObjectId") &&
+    viewerViewportPointerInteractionSource.includes("function isOverlayInteractionTarget") &&
+    viewerViewportPointerInteractionSource.includes(
+      'target.closest(".overlay-instance, .canvas-hud")',
+    ) &&
+    !viewerViewportPointerInteractionSource.includes(".overlay-svg.has-active, .canvas-hud") &&
+    viewerCanvas.includes("allowOverlaySurfacePan = false") &&
+    viewerCanvas.includes("allowOverlaySurfacePan?: boolean") &&
+    viewerCanvas.includes("allowOverlaySurfacePan,") &&
+    viewerViewportPointerInteractionSource.includes("allowOverlaySurfacePan = false") &&
+    viewerViewportPointerInteractionSource.includes("function canPanOverlaySurface") &&
+    viewerViewportPointerInteractionSource.includes("event.button === 1 || event.altKey || event.shiftKey") &&
+    viewerViewportPointerInteractionSource.includes("!canPanOverlaySurface(event, allowOverlaySurfacePan)") &&
+    viewerViewportController.includes('from "./viewerViewportPointerInteraction"') &&
+    viewerViewportController.includes('from "./viewerViewportWheelZoom"') &&
+    viewerViewportController.includes("useViewerViewportPointerInteraction({") &&
+    viewerViewportController.includes("useViewerViewportWheelZoom({") &&
+    !viewerViewportController.includes("function isOverlayInteractionTarget") &&
+    viewerInstanceLayer.includes("export type CanvasObjectContextMenuRequest") &&
+    viewerInstanceLayer.includes("export const MemoizedInstanceLayer = React.memo(InstanceLayer);") &&
+    viewerInstanceLayer.includes("function InstanceLayer(") &&
+    viewerInstanceLayer.includes('className="overlay-hitbox"') &&
+    viewerInstanceLayer.includes('className="overlay-hitline"') &&
+    viewerInstanceLayer.includes("onDoubleClick={(event) =>") &&
+    viewerInstanceLayer.includes("onInspect?.(objectId)") &&
+    viewerInstanceLayer.includes("onContextMenu={(event) =>") &&
+    viewerInstanceLayer.includes("event.preventDefault();") &&
+    viewerInstanceLayer.includes("onObjectContextMenu?.({") &&
+    viewerInstanceLayer.includes("recordViewerRenderMetric(`instanceLayer:${kind}`)") &&
+    viewerRenderMetricsSource.includes("export function recordViewerRenderMetric") &&
+    !viewerCanvas.includes("function InstanceLayer(") &&
+    !viewerCanvas.includes("arrowHeadPoints") &&
+    !viewerCanvas.includes("normalizeBbox") &&
+    !viewerCanvas.includes("resolveInstanceColor") &&
     !/<button[\s\S]{0,120}resetViewport/.test(viewerCanvas),
-  "viewer canvas reset control must use ActionButton instead of a raw button",
+  "viewer canvas reset control must use ActionButton while instance overlay rendering lives in viewerInstanceLayer",
+);
+assert(
+  viewerCanvas.includes('import { PyramidTileLayer } from "./viewerTileLayer";') &&
+    viewerViewportTileLevelSource.includes('import { tileLevelForZoom } from "./viewerTileLayer";') &&
+    viewerViewportTileLevelSource.includes("export function useViewerViewportTileLevel") &&
+    viewerViewportTileLevelSource.includes("const TILE_LOAD_IDLE_DELAY_MS = 700") &&
+    viewerViewportTileLevelSource.includes("const clearScheduledTileLevel = useCallback") &&
+    viewerViewportTileLevelSource.includes("const resetTileLevel = useCallback") &&
+    viewerViewportTileLevelSource.includes("const scheduleTileLevelUpdate = useCallback") &&
+    viewerViewportTileLevelSource.includes("tileLevelForZoom({") &&
+    viewerViewportTileLevelSource.includes("tileLoadTimeoutRef") &&
+    viewerViewportController.includes('from "./viewerViewportTileLevel"') &&
+    viewerViewportController.includes("useViewerViewportTileLevel({") &&
+    viewerViewportController.includes("resetTileLevel") &&
+    viewerViewportController.includes("scheduleTileLevelUpdate") &&
+    !viewerViewportController.includes('import { tileLevelForZoom } from "./viewerTileLayer";') &&
+    !viewerViewportController.includes("TILE_LOAD_IDLE_DELAY_MS") &&
+    !viewerViewportController.includes("tileLoadTimeoutRef") &&
+    !viewerCanvas.includes("function PyramidTileLayer(") &&
+    !viewerCanvas.includes("function tileLevelForZoom(") &&
+    viewerTileLayer.includes("export function PyramidTileLayer(") &&
+    viewerTileLayer.includes("export function tileLevelForZoom(") &&
+    viewerTileLayer.includes("MAX_RENDERED_TILES = 24") &&
+    viewerTileLayer.includes("TILE_ZOOM_THRESHOLD = 2.1"),
+  "viewer tile pyramid rendering and zoom-level selection must live in viewerTileLayer",
+);
+assert(
+  viewerCanvas.includes('import { useViewerViewportController } from "./viewerViewportController";') &&
+    viewerCanvas.includes("useViewerViewportController({") &&
+    viewerViewportController.includes("export function useViewerViewportController") &&
+    viewerViewportController.includes("ResizeObserver") &&
+    viewerViewportController.includes("clampPan") &&
+    viewerViewportController.includes("computeFitSize") &&
+    viewerViewportController.includes("useWorkspaceShortcuts") &&
+    viewerViewportController.includes("viewportSyncKey?: string | null") &&
+    viewerViewportController.includes("allowOverlaySurfacePan?: boolean") &&
+    viewerViewportController.includes("allowOverlaySurfacePan = false") &&
+    viewerViewportController.includes('from "./viewerViewportSync"') &&
+    viewerViewportController.includes("currentSyncedViewport(viewportSyncKey)") &&
+    viewerViewportController.includes("subscribeSyncedViewport") &&
+    viewerViewportController.includes("publishSyncedViewport") &&
+    viewerViewportController.includes('from "./viewerViewportCommands"') &&
+    viewerViewportController.includes("VIEWPORT_RESET_COMMAND") &&
+    viewerViewportController.includes("viewportResetCommandDetail(event)") &&
+    viewerViewportController.includes("detail.viewportSyncKey !== viewportSyncKey") &&
+    viewerViewportController.includes("currentSyncedSnapshot") &&
+    viewerViewportController.includes("applySyncedViewport") &&
+    viewerViewportPointerInteractionSource.includes("export function useViewerViewportPointerInteraction") &&
+    viewerViewportPointerInteractionSource.includes("dragRef") &&
+    viewerViewportPointerInteractionSource.includes("setPointerCapture") &&
+    viewerViewportPointerInteractionSource.includes("releasePointerCapture") &&
+    viewerViewportPointerInteractionSource.includes("pendingPanRef.current") &&
+    viewerViewportPointerInteractionSource.includes("interactionSettings.panSensitivity") &&
+    viewerViewportPointerInteractionSource.includes("event.preventDefault();") &&
+    viewerViewportPointerInteractionSource.includes("event.stopPropagation();") &&
+    viewerViewportWheelZoomSource.includes("export function useViewerViewportWheelZoom") &&
+    viewerViewportWheelZoomSource.includes("normalizedWheelDelta") &&
+    viewerViewportWheelZoomSource.includes("addEventListener(\"wheel\", handleWheel, { passive: false })") &&
+    viewerViewportWheelZoomSource.includes("onWheelZoomRef") &&
+    viewerViewportWheelZoomSource.includes("interactionSettings.wheelZoomSensitivity") &&
+    !viewerViewportController.includes("setPointerCapture") &&
+    !viewerViewportController.includes("releasePointerCapture") &&
+    !viewerViewportController.includes("function handleWheel(") &&
+    !viewerViewportController.includes("normalizedWheelDelta") &&
+    viewerViewportSyncSource.includes("export type SyncedViewportSnapshot") &&
+    viewerViewportSyncSource.includes("const syncedViewports = new Map") &&
+    viewerViewportSyncSource.includes("const syncedViewportSubscribers = new Map") &&
+    viewerViewportSyncSource.includes("export function currentSyncedViewport") &&
+    viewerViewportSyncSource.includes("export function subscribeSyncedViewport") &&
+    viewerViewportSyncSource.includes("export function publishSyncedViewport") &&
+    viewerViewportCommandsSource.includes("export const VIEWPORT_RESET_COMMAND") &&
+    viewerViewportCommandsSource.includes("export function requestViewportReset") &&
+    viewerViewportCommandsSource.includes("export function viewportResetCommandDetail") &&
+    viewerViewportCommandsSource.includes("new CustomEvent<ViewportResetCommandDetail>") &&
+    !viewerViewportController.includes("const syncedViewports = new Map") &&
+    !viewerViewportController.includes("const syncedViewportSubscribers = new Map") &&
+    viewerViewportController.includes("function resetViewport()") &&
+    !viewerCanvas.includes("function handleWheel(") &&
+    !viewerCanvas.includes("function applyZoom(") &&
+    !viewerCanvas.includes("new ResizeObserver") &&
+    !viewerCanvas.includes("normalizedWheelDelta") &&
+    !viewerCanvas.includes("clampPan"),
+  "viewer viewport zoom/pan/fit/keyboard state must live in viewerViewportController",
+);
+assert(
+  viewerCanvas.includes('import "./viewerOverlayCanvas.css";') &&
+    viewerCanvas.includes('import "./viewerCanvas.css";') &&
+    viewerThemeStyleSource.includes("--viewer-gap-8: 8px") &&
+    viewerThemeStyleSource.includes("--viewer-gap-12: 12px") &&
+    viewerThemeStyleSource.includes("--viewer-pad-1: 1px") &&
+    viewerThemeStyleSource.includes("--viewer-pad-7: 7px") &&
+    viewerThemeStyleSource.includes("--viewer-radius-control: 2px") &&
+    viewerThemeStyleSource.includes("--viewer-filter-min: 34px") &&
+    viewerThemeStyleSource.includes("--viewer-object-row-min: 42px") &&
+    viewerThemeStyleSource.includes("--viewer-sample-row-min: 52px") &&
+    viewerThemeStyleSource.includes("--viewer-text-caption: var(--text-2xs)") &&
+    viewerCanvasStyleSource.includes("var(--viewer-gap-8)") &&
+    viewerCanvasStyleSource.includes("var(--viewer-text-small)") &&
+    viewerInspectorStyleSource.includes("var(--viewer-object-row-min)") &&
+    viewerOverlayCanvasStyleSource.includes("var(--viewer-radius-control)") &&
+    viewerComponentStyleSources.every(
+      (source) => !rawViewerControlGeometryPattern.test(source),
+    ) &&
+    viewerOverlayCanvasStyleSource.includes(".image-stage") &&
+    viewerOverlayCanvasStyleSource.includes(".image-zoom-layer") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-svg.interactive") &&
+    viewerOverlayCanvasStyleSource.includes("pointer-events: visiblePainted") &&
+    !viewerOverlayCanvasStyleSource.includes("pointer-events: visibleStroke") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance .overlay-hitbox") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance .overlay-hitline") &&
+    viewerOverlayCanvasStyleSource.includes("pointer-events: all") &&
+    viewerOverlayCanvasStyleSource.includes("pointer-events: stroke") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.active rect") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-svg.has-active .overlay-instance:not(.active):not(.related)") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.related rect") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.related .label-backplate") &&
+    viewerOverlayCanvasStyleSource.includes(".canvas-hud") &&
+    !viewerCanvasStyleSource.includes(".image-zoom-layer") &&
+    !viewerCanvasStyleSource.includes(".overlay-instance") &&
+    !viewerCanvasStyleSource.includes(".canvas-hud"),
+  "viewer overlay canvas styles must live in viewerOverlayCanvas.css instead of the shell/panel CSS",
+);
+assert(
+  workspaceSettingsSource.includes('export * from "./workspaceSettingsSchema";') &&
+    workspaceSettingsSource.includes('export * from "./workspaceSettingsStorage";') &&
+    workspaceSettingsSource.includes('from "./workspaceSettingsSchema"') &&
+    workspaceSettingsSource.includes('from "./workspaceSettingsStorage"') &&
+    workspaceSettingsSchemaSource.includes("export const DEFAULT_OVERLAY_STYLE") &&
+    workspaceSettingsSchemaSource.includes("labelFontSize: 10") &&
+    workspaceSettingsSchemaSource.includes("labelStrokeWidth: 0.45") &&
+    workspaceSettingsSchemaSource.includes("labelBackgroundOpacity: 0.82") &&
+    workspaceSettingsSchemaSource.includes('{ key: "labelFontSize", label: "标签字号", min: 7, max: 18') &&
+    workspaceSettingsSchemaSource.includes("export const SHORTCUT_ACTIONS") &&
+    workspaceSettingsStorageSource.includes("export function loadOverlayStyle") &&
+    workspaceSettingsStorageSource.includes("export function normalizeShortcutBinding") &&
+    workspaceSettingsStorageSource.includes("export function visibleViewerLabels") &&
+    workspaceSettingsStorageSource.includes("export function applyViewerVisibleLabelSelection") &&
+    !workspaceSettingsSource.includes("export const DEFAULT_OVERLAY_STYLE") &&
+    !workspaceSettingsSource.includes("export const SHORTCUT_ACTIONS") &&
+    !workspaceSettingsSource.includes("function loadOverlayStyle") &&
+    !workspaceSettingsSource.includes("function normalizeShortcutBinding") &&
+    !workspaceSettingsSource.includes("function migrateLegacyOverlayLabelStyle") &&
+    workspaceSettingsStorageSource.includes("export function migrateLegacyOverlayLabelStyle(") &&
+    workspaceSettingsStorageSource.includes("raw.labelFontSize === 14") &&
+    workspaceSettingsStorageSource.includes("raw.labelStrokeWidth === 4") &&
+    workspaceSettingsStorageSource.includes("raw.labelBackgroundOpacity === 0.86") &&
+    workspaceSettingsStorageSource.includes("raw.labelFontSize === 11") &&
+    workspaceSettingsStorageSource.includes("raw.labelStrokeWidth === 0.9") &&
+    workspaceSettingsStorageSource.includes("raw.labelBackgroundOpacity === 0.64") &&
+    viewerInstanceLayer.includes("export function compactOverlayLabel") &&
+    viewerInstanceLayer.includes("export function overlayLabelBounds") &&
+    viewerInstanceLayer.includes("LABEL_MAX_CHARS = 24") &&
+    viewerInstanceLayer.includes("<title>{instance.label}</title>") &&
+    !viewerInstanceLayer.includes("instance.label.length * overlayStyle.labelFontSize * 0.58 + 8") &&
+    viewerOverlayCanvasStyleSource.includes("fill: #fffffe;") &&
+    viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 10px);") &&
+    viewerOverlayCanvasStyleSource.includes("stroke-width: var(--overlay-label-stroke, 0.45px);") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.gt.match .overlay-label text") &&
+    viewerOverlayCanvasStyleSource.includes("fill: #172033;") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.active .label-backplate") &&
+    !viewerOverlayCanvasStyleSource.includes("font-size: calc(var(--overlay-label-size") &&
+    viewerOverlayCanvasStyleSource.includes("fill: #f7fffb;") &&
+    viewerOverlayCanvasStyleSource.includes("fill: #fffaf3;") &&
+    viewerOverlayCanvasStyleSource.includes("fill: #fff8fa;") &&
+    !viewerOverlayCanvasStyleSource.includes("fill: #0b1118;\n  fill-opacity: var(--overlay-label-bg-opacity, 0.86)") &&
+    !viewerOverlayCanvasStyleSource.includes("fill: #0b1118;\n  fill-opacity: var(--overlay-label-bg-opacity, 0.64)") &&
+    !viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 11px);") &&
+    !viewerOverlayCanvasStyleSource.includes("stroke-width: var(--overlay-label-stroke, 4px)") &&
+    !viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 14px);"),
+  "viewer bbox labels must use compact light backplates instead of large black labels",
+);
+assert(
+  viewerPanels.includes('import "./viewerInspector.css";') &&
+    viewerInspectorStyleSource.includes(".viewer-side-panel") &&
+    viewerInspectorStyleSource.includes(".object-row") &&
+    viewerInspectorStyleSource.includes(".instance-card") &&
+    viewerInspectorStyleSource.includes(".label-chip") &&
+    !viewerCanvasStyleSource.includes(".viewer-side-panel") &&
+    !viewerCanvasStyleSource.includes(".object-row") &&
+    !viewerCanvasStyleSource.includes(".instance-card"),
+  "viewer inspector/object panel styles must live in viewerInspector.css instead of viewerCanvas.css",
+);
+const compositeReportStage = await readSource("src/compositeReportStage.tsx");
+const compositeReportStageControllerSource = await readSource("src/compositeReportStageController.ts");
+const compositeStageWorkbench = await readSource("src/compositeStageWorkbench.tsx");
+const compositeMicroMeter = await readSource("src/compositeMicroMeter.tsx");
+const compositeObjectHud = await readSource("src/compositeObjectHud.tsx");
+const compositeObjectContextMenu = await readSource("src/compositeObjectContextMenu.tsx");
+const compositeImageNavigator = await readSource("src/compositeImageNavigator.tsx");
+const compositeImageNavigatorKeyboard = await readSource("src/compositeImageNavigatorKeyboard.ts");
+const compositeImageNavigatorPrimary = await readSource("src/compositeImageNavigatorPrimary.tsx");
+const compositeImageJumpControl = await readSource("src/compositeImageJumpControl.tsx");
+const compositeInteractionPalette = await readSource("src/compositeInteractionPalette.tsx");
+const compositeImageSearchBar = await readSource("src/compositeImageSearchBar.tsx");
+const compositePanelPrimitives = await readSource("src/compositePanelPrimitives.tsx");
+const compositeImagePanel = await readSource("src/compositeImagePanel.tsx");
+const compositeImageJumpItem = await readSource("src/compositeImageJumpItem.tsx");
+const compositeImageSearchActiveScrollSource = await readSource("src/compositeImageSearchActiveScroll.ts");
+const compositeImageSearchResultItem = await readSource("src/compositeImageSearchResultItem.tsx");
+const compositeImageAtlas = await readSource("src/compositeImageAtlas.tsx");
+const compositeImageAtlasPanel = await readSource("src/compositeImageAtlasPanel.tsx");
+const compositeImageAtlasControllerSource = await readSource("src/compositeImageAtlasController.ts");
+const compositeImageTimeline = await readSource("src/compositeImageTimeline.tsx");
+const compositeImageIndexMeter = await readSource("src/compositeImageIndexMeter.tsx");
+const compositeImageNearbyRail = await readSource("src/compositeImageNearbyRail.tsx");
+const compositeImageSearchPopover = await readSource("src/compositeImageSearchPopover.tsx");
+const compositeImageSearchResults = await readSource("src/compositeImageSearchResults.tsx");
+const compositeImageSearchResultList = await readSource("src/compositeImageSearchResultList.tsx");
+const compositeImageSearchScanRail = await readSource("src/compositeImageSearchScanRail.tsx");
+const compositeImageSearchResultDragSource = await readSource("src/compositeImageSearchResultDrag.ts");
+const compositeImageSearchWheelSource = await readSource("src/compositeImageSearchWheel.ts");
+const compositeImageSearchPreview = await readSource("src/compositeImageSearchPreview.tsx");
+const compositeImageSearchStatus = await readSource("src/compositeImageSearchStatus.tsx");
+const compositeReportCommandBar = await readSource("src/compositeReportCommandBar.tsx");
+const compositeReportCommandBarStyle = await readSource("src/compositeReportCommandBar.css");
+const compositeReportShell = await readSource("src/compositeReportShell.tsx");
+const compositeReportComposer = await readSource("src/compositeReportComposer.tsx");
+const compositeReportComposerDock = await readSource("src/compositeReportComposerDock.tsx");
+const compositeReportComposerDockPreview = await readSource("src/compositeReportComposerDockPreview.tsx");
+const compositeReportPanel = await readSource("src/compositeReportPanel.tsx");
+const compositeReportRunPool = await readSource("src/compositeReportRunPool.tsx");
+const compositeReportLayerPlan = await readSource("src/compositeReportLayerPlan.tsx");
+const compositeReportControllerSource = await readSource("src/compositeReportController.ts");
+const compositeReportViewStateSource = await readSource("src/compositeReportViewState.ts");
+const compositeReportComposerModelSource = await readSource("src/compositeReportComposerModel.ts");
+const compositeOverlayStage = await readSource("src/compositeOverlayStage.tsx");
+const compositeLayerFocusToolbar = await readSource("src/compositeLayerFocusToolbar.tsx");
+const compositeLayerInspector = await readSource("src/compositeLayerInspector.tsx");
+const compositeLayerObjectStrip = await readSource("src/compositeLayerObjectStrip.tsx");
+const compositeLayerObjectStripDragSource = await readSource("src/compositeLayerObjectStripDrag.ts");
+const compositePointerSweepSource = await readSource("src/compositePointerSweep.ts");
+const compositePointerDragSource = await readSource("src/compositePointerDrag.ts");
+const compositeSplitStage = await readSource("src/compositeSplitStage.tsx");
+const compositeSplitPane = await readSource("src/compositeSplitPane.tsx");
+const compositeSplitLayerCanvas = await readSource("src/compositeSplitLayerCanvas.tsx");
+const compositeLayerCanvas = await readSource("src/compositeLayerCanvas.tsx");
+const compositeCanvasOverlay = await readSource("src/compositeCanvasOverlay.tsx");
+const compositeCanvasGestureHud = await readSource("src/compositeCanvasGestureHud.tsx");
+const compositeCanvasPointerReticle = await readSource("src/compositeCanvasPointerReticle.tsx");
+const compositeCanvasPointerTrackerSource = await readSource("src/compositeCanvasPointerTracker.ts");
+const compositeLayerCanvasControllerSource = await readSource("src/compositeLayerCanvasController.ts");
+assert(
+  suiteReportPage.includes('from "./compositeReportCommandBar"') &&
+    suiteReportPage.includes('from "./compositeReportController"') &&
+    suiteReportPage.includes('from "./compositeReportShell"') &&
+    suiteReportPage.includes("const report = useCompositeReportController();") &&
+    suiteReportPage.includes("<CompositeReportCommandBar") &&
+    suiteReportPage.includes("report.stageMode") &&
+    suiteReportPage.includes("<CompositeReportShell report={report} />") &&
+    !suiteReportPage.includes("<ReportComposerDock") &&
+    !suiteReportPage.includes("<ReportComposerDrawer") &&
+    !suiteReportPage.includes("composite-stage-region") &&
+    !suiteReportPage.includes('data-sidebar={report.sidebarOpen ? "open" : "collapsed"}') &&
+    !suiteReportPage.includes("<CompositeStage") &&
+    compositeReportShell.includes("export function CompositeReportShell") &&
+    compositeReportShell.includes('from "./compositeReportComposer"') &&
+    compositeReportShell.includes('from "./compositeReportStage"') &&
+    compositeReportShell.includes("CompositeReportController") &&
+    compositeReportShell.includes("useCompositeSidebarDismiss({") &&
+    compositeReportShell.includes("function useCompositeSidebarDismiss") &&
+    compositeReportShell.includes("window.addEventListener(\"keydown\", handleKeyDown)") &&
+    compositeReportShell.includes("window.removeEventListener(\"keydown\", handleKeyDown)") &&
+    compositeReportShell.includes('event.key === "Escape"') &&
+    compositeReportShell.includes("<ReportComposerDock") &&
+    compositeReportShell.includes("<ReportComposerDrawer") &&
+    compositeReportShell.includes("composite-stage-region") &&
+    compositeReportShell.includes("report.sidebarOpen") &&
+    compositeReportShell.includes('data-sidebar={sidebarState}') &&
+    compositeReportShell.includes("composite-sidebar-backdrop") &&
+    compositeReportShell.includes('aria-label="关闭报告编排器"') &&
+    compositeReportShell.includes("onClick={() => report.setSidebarOpen(false)}") &&
+    compositeReportShell.includes("report.activeLayerConfigs") &&
+    compositeReportShell.includes("report.focusedLayerKey") &&
+    compositeReportShell.includes("<CompositeStage") &&
+    compositeReportCommandBar.includes("export function CompositeReportCommandBar") &&
+    compositeReportCommandBar.includes("function ReportSignal(") &&
+    compositeReportCommandBar.includes("function StageModeSwitch(") &&
+    compositeReportCommandBar.includes("STAGE_MODES.map") &&
+    compositeReportCommandBar.includes('import "./compositeReportCommandBar.css";') &&
+    compositeReportCommandBarStyle.includes(".composite-report-command") &&
+    compositeReportCommandBarStyle.includes(".composite-stage-mode-button.active") &&
+    compositeReportControllerSource.includes("export function useCompositeReportController") &&
+    compositeReportControllerSource.includes("export type CompositeReportController = ReturnType<typeof useCompositeReportController>;") &&
+    compositeReportControllerSource.includes('queryKey: ["composite-report-sample", layerRuns, sampleIndex]') &&
+    compositeReportControllerSource.includes("fetchCompositeSample({ sampleIndex, layerRuns })") &&
+    compositeReportControllerSource.includes("const initialViewState = useMemo(() => loadCompositeReportViewState(), []);") &&
+    compositeReportControllerSource.includes("useState<LayerSlot[]>(initialViewState.slots)") &&
+    compositeReportControllerSource.includes("useState<StageMode>(initialViewState.stageMode)") &&
+    compositeReportControllerSource.includes("const [sidebarOpen, setSidebarOpen] = useState(false);") &&
+    compositeReportControllerSource.includes("sidebarOpen: false") &&
+    compositeReportControllerSource.includes("saveCompositeReportViewState({") &&
+    compositeReportControllerSource.includes("reconcileCompositeReportSlots(current, reportRuns)") &&
+    compositeReportViewStateSource.includes("export function loadCompositeReportViewState") &&
+    compositeReportViewStateSource.includes("export function saveCompositeReportViewState") &&
+    compositeReportViewStateSource.includes("export function reconcileCompositeReportSlots") &&
+    compositeReportViewStateSource.includes('const COMPOSITE_REPORT_VIEW_STATE_KEY = "eval_bench_composite_report_view";') &&
+    compositeReportViewStateSource.includes('stageMode: "both"') &&
+    compositeReportViewStateSource.includes("sidebarOpen: false") &&
+    !compositeReportControllerSource.includes("useState(initialViewState.sidebarOpen)") &&
+    !compositeReportViewStateSource.includes("sidebarOpen: value.sidebarOpen === true") &&
+    !compositeReportControllerSource.includes('const [stageMode, setStageMode] = useState<StageMode>("both");') &&
+    compositeReportControllerSource.includes("filterReportRuns(reportRuns, query, layerFilter)") &&
+    compositeReportControllerSource.includes("groupSlots(slots, runById)") &&
+    compositeReportControllerSource.includes('pickLayerPreset(reportRuns, ["layout", "arrow"])') &&
+    compositeReportComposer.includes('export { ReportComposerDock } from "./compositeReportComposerDock";') &&
+    compositeReportComposer.includes("export function ReportComposerDrawer") &&
+    compositeReportComposer.includes("<ReportRunPool") &&
+    compositeReportComposer.includes("<ReportLayerPlan") &&
+    compositeReportComposerDock.includes("export function ReportComposerDock") &&
+    compositePanelPrimitives.includes("export function CompositePanelHeader") &&
+    compositePanelPrimitives.includes("export function CompositePanelEmptyState") &&
+    compositePanelPrimitives.includes('import "./compositePanelPrimitives.css";') &&
+    compositeReportPanel.includes("export function CompositeReportPanelHeader") &&
+    compositeReportPanel.includes("export function CompositeReportEmptyState") &&
+    compositeReportPanel.includes('import { CompositePanelEmptyState, CompositePanelHeader } from "./compositePanelPrimitives";') &&
+    compositeReportPanel.includes("<CompositePanelHeader") &&
+    compositeReportPanel.includes("<CompositePanelEmptyState") &&
+    compositeReportPanel.includes('import "./compositeReportPanel.css";') &&
+    compositeReportRunPool.includes("export function ReportRunPool") &&
+    compositeReportLayerPlan.includes("export function ReportLayerPlan") &&
+    compositeReportComposerDock.includes('import "./compositeComposerDock.css";') &&
+    compositeReportComposer.includes('import "./compositeComposerDrawer.css";') &&
+    compositeReportRunPool.includes('import { CompositeReportPanelHeader } from "./compositeReportPanel";') &&
+    compositeReportRunPool.includes("<CompositeReportPanelHeader") &&
+    compositeReportRunPool.includes('eyebrow="Result Pool"') &&
+    compositeReportRunPool.includes('title="评测结果池"') &&
+    compositeReportRunPool.includes('className="report-run-filter-tabs"') &&
+    !compositeReportRunPool.includes("report-layer-tabs") &&
+    !compositeReportRunPool.includes('import "./compositeReportComposerPanels.css";') &&
+    compositeReportRunPool.includes('import "./compositeReportRunPool.css";') &&
+    compositeReportLayerPlan.includes('import { CompositeReportEmptyState, CompositeReportPanelHeader } from "./compositeReportPanel";') &&
+    compositeReportLayerPlan.includes("<CompositeReportPanelHeader") &&
+    compositeReportLayerPlan.includes("<CompositeReportEmptyState>") &&
+    compositeReportLayerPlan.includes('eyebrow="Report Layers"') &&
+    compositeReportLayerPlan.includes('title="分层报告结构"') &&
+    !compositeReportLayerPlan.includes('import "./compositeReportComposerPanels.css";') &&
+    compositeReportLayerPlan.includes('import "./compositeReportLayerPlan.css";') &&
+    !compositeReportRunPool.includes('className="report-panel-head"') &&
+    !compositeReportLayerPlan.includes('className="report-panel-head"') &&
+    !compositeReportLayerPlan.includes('className="report-empty-state"') &&
+    !compositeReportComposer.includes('import "./compositeReportComposer.css";') &&
+    compositeReportRunPool.includes("<SearchInputControl") &&
+    compositeReportLayerPlan.includes("<TextInputControl") &&
+    compositeReportComposerDock.includes("composite-composer-dock") &&
+    compositeReportComposerDock.includes("ActionButton") &&
+    compositeReportComposerDock.includes("composite-composer-dock open") &&
+    compositeReportComposerDock.includes("composite-composer-dock collapsed") &&
+    compositeReportComposerDock.includes('data-state={open ? "open" : "collapsed"}') &&
+    compositeReportComposerDock.includes("aria-expanded={open}") &&
+    compositeReportComposerDock.includes("onDoubleClick={() => onOpenChange(!open)}") &&
+    compositeReportComposerDock.includes("composer-dock-grip") &&
+    compositeReportComposerDock.includes("PLAN") &&
+    !compositeReportComposerDock.includes("COMPOSER") &&
+    compositeReportComposerDock.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
+    compositeReportComposerDock.includes("<CompositeMicroMeter") &&
+    compositeReportComposerDock.includes("const activeSlotProgress =") &&
+    compositeReportComposerDock.includes("const readyProgress =") &&
+    compositeReportComposerDock.includes("progress={activeSlotProgress}") &&
+    compositeReportComposerDock.includes("progress={readyProgress}") &&
+    compositeReportComposerDock.includes("<ReportComposerDockPreview") &&
+    compositeReportComposerDock.includes('from "./compositeReportComposerDockPreview"') &&
+    compositeReportComposerDockPreview.includes("export function ReportComposerDockPreview") &&
+    compositeReportComposerDockPreview.includes("composer-dock-preview") &&
+    compositeReportComposerDockPreview.includes("visibleStatuses") &&
+    compositeReportComposerDockPreview.includes("打开编排器添加 layout / arrow 图层") &&
+    compositeReportComposerDockPreview.includes('import "./compositeComposerDockPreview.css";') &&
+    compositeComposerDockStyleSource.includes("position: relative") &&
+    compositeComposerDockStyleSource.includes(".composite-composer-dock.collapsed") &&
+    compositeComposerDockStyleSource.includes(".composer-dock-grip") &&
+    compositeComposerDockStyleSource.includes("writing-mode: vertical-rl") &&
+    compositeComposerDockStyleSource.includes(".composer-dock-meter i") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-meter strong") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-meter span") &&
+    compositeComposerDockPreviewStyleSource.includes(".composer-dock-preview") &&
+    compositeComposerDockPreviewStyleSource.includes(".composite-composer-dock:hover .composer-dock-preview") &&
+    compositeComposerDockPreviewStyleSource.includes(".composite-composer-dock:focus-within .composer-dock-preview") &&
+    compositeComposerDockPreviewStyleSource.includes("pointer-events: none") &&
+    compositeReportComposer.includes("composite-sidebar-drawer") &&
+    compositeReportComposer.includes("composite-sidebar-grid") &&
+    compositeReportRunPool.includes("report-run-pool") &&
+    compositeReportLayerPlan.includes("report-layer-plan") &&
+    !compositeReportComposer.includes("<SearchInputControl") &&
+    !compositeReportComposer.includes("<TextInputControl") &&
+    !compositeReportComposer.includes("function ReportRunPool(") &&
+    !compositeReportComposer.includes("function ReportLayerPlan(") &&
+    compositeReportComposerModelSource.includes("export function filterReportRuns") &&
+    compositeReportComposerModelSource.includes("export function groupSlots") &&
+    compositeReportComposerModelSource.includes("export function pickLayerPreset") &&
+    compositeReportComposerModelSource.includes("export function layerIndex") &&
+    compositeReportComposerModelSource.includes("export function fallbackRun") &&
+    !suiteReportPage.includes("function ReportRunPool(") &&
+    !suiteReportPage.includes("function ReportLayerPlan(") &&
+    !suiteReportPage.includes("function ReportComposerDock(") &&
+    !suiteReportPage.includes("function ReportSignal(") &&
+    !suiteReportPage.includes("STAGE_MODES.map") &&
+    !suiteReportPage.includes("errorMessage(") &&
+    !suiteReportPage.includes("useState") &&
+    !suiteReportPage.includes("useMemo") &&
+    !suiteReportPage.includes("useEffect") &&
+    !suiteReportPage.includes("useQuery") &&
+    !suiteReportPage.includes("fetchCompositeSample") &&
+    !suiteReportPage.includes('from "./compositeReportComposerModel"') &&
+    !suiteReportPage.includes("function filterReportRuns(") &&
+    !suiteReportPage.includes("function groupSlots(") &&
+    !suiteReportPage.includes("function pickLayerPreset(") &&
+    !suiteReportPage.includes("<SearchInputControl") &&
+    !suiteReportPage.includes("<TextInputControl") &&
+    compositeReportModelSource.includes('{ value: "both", label: "总览" }') &&
+    compositeReportModelSource.includes('{ value: "overlay", label: "叠加" }') &&
+    compositeReportModelSource.includes('{ value: "split", label: "分屏" }') &&
+    !compositeReportModelSource.includes("LAYER_COLORS") &&
+    !compositeReportModelSource.includes("#2563eb") &&
+    compositeLayerPaletteSource.includes("export const LAYER_COLORS") &&
+    compositeLayerPaletteSource.includes("export const LAYER_UNAVAILABLE_COLOR") &&
+    compositeLayerPaletteSource.includes("var(--composite-layer-blue)") &&
+    compositeLayerPaletteSource.includes("var(--composite-layer-unavailable)") &&
+    !/#(?:2563eb|dc2626|059669|b45309|7c3aed|0891b2|a8b2bd)\b/i.test(compositeLayerPaletteSource) &&
+    compositeLayerPaletteSource.includes("export function layerColor") &&
+    compositeLayerPaletteSource.includes("export function layerAvailabilityColor") &&
+    compositeThemeStyleSource.includes("--composite-layer-blue: #2563eb") &&
+    compositeThemeStyleSource.includes("--composite-layer-unavailable: #a8b2bd") &&
+    compositeReportComposerDock.includes('from "./compositeLayerPalette"') &&
+    compositeReportComposerDockPreview.includes('from "./compositeLayerPalette"') &&
+    compositeReportRunPool.includes('from "./compositeLayerPalette"') &&
+    compositeReportLayerPlan.includes('from "./compositeLayerPalette"') &&
+    compositeOverlayStage.includes('from "./compositeLayerPalette"') &&
+    compositeLayerFocusToolbar.includes('from "./compositeLayerPalette"') &&
+    compositeLayerInspector.includes('from "./compositeLayerPalette"') &&
+    !suiteReportPage.includes("<NumberSettingControl") &&
+    !suiteReportPage.includes("railCollapsed") &&
+    !suiteReportPage.includes("image-union-local"),
+  "composite report must default to a collapsed composer dock and expose result pool, hierarchical layer plan, and both/overlay/split modes when opened",
+);
+assert(
+  compositeReportStage.includes('import { CompositeImageNavigator } from "./compositeImageNavigator";') &&
+    compositeReportStage.includes('from "./compositeStageWorkbench"') &&
+    compositeReportStage.includes('from "./compositeReportStageController"') &&
+    compositeReportStage.includes("const stage = useCompositeReportStageController({") &&
+    compositeReportStage.includes("<CompositeImageNavigator") &&
+    compositeReportStage.includes("<CompositeStageWorkbench") &&
+    !compositeReportStage.includes('from "./compositeOverlayStage"') &&
+    !compositeReportStage.includes('from "./compositeLayerInspector"') &&
+    !compositeReportStage.includes('from "./compositeSplitStage"') &&
+    !compositeReportStage.includes('from "./compositeObjectHud"') &&
+    compositeStageWorkbench.includes('import { CompositeInspector } from "./compositeLayerInspector";') &&
+    compositeStageWorkbench.includes('from "./compositeOverlayStage"') &&
+    compositeStageWorkbench.includes('from "./compositeSplitStage"') &&
+    compositeStageWorkbench.includes('from "./compositeObjectHud"') &&
+    compositeStageWorkbench.includes('from "./compositeObjectContextMenu"') &&
+    compositeStageWorkbench.includes("export function CompositeStageWorkbench") &&
+    compositeStageWorkbench.includes("composite-report-focus") &&
+    compositeStageWorkbench.includes("<OverlayStage") &&
+    compositeStageWorkbench.includes("<SplitStage") &&
+    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
+    compositeSplitPane.includes("export function CompositeSplitPane") &&
+    compositeSplitLayerCanvas.includes("export function CompositeSplitLayerCanvas") &&
+    !compositeSplitStage.includes("<CompositeLayerCanvas") &&
+    !compositeSplitStage.includes("objectKeyForLocalObject") &&
+    compositeStageWorkbench.includes("viewportSyncKey={stage.viewportSyncKey}") &&
+    compositeStageWorkbench.includes("CompositeInspector") &&
+    compositeStageWorkbench.includes("<CompositeLayerFocusToolbar") &&
+    compositeReportStageControllerSource.includes("export function useCompositeReportStageController") &&
+    compositeReportStageControllerSource.includes("export type CompositeReportStageState") &&
+    compositeReportStageControllerSource.includes("const viewportSyncKey = composite ? `composite:${composite.image_key}` : null;") &&
+    compositeReportStageControllerSource.includes("const focusAvailable = Boolean(") &&
+    compositeReportStageControllerSource.includes("const activeFocusedLayerKey = focusAvailable ? focusedLayerKey : null;") &&
+    compositeReportStageControllerSource.includes("const focusedLayers = activeFocusedLayerKey") &&
+    compositeReportStageControllerSource.includes("const focusedStatuses = activeFocusedLayerKey") &&
+    compositeReportStageControllerSource.includes("useCompositeObjectInteraction({") &&
+    compositeReportStageControllerSource.includes("onFocusedLayerChange(null)") &&
+    compositeLayerFocusToolbar.includes("export function CompositeLayerFocusToolbar") &&
+    compositeLayerFocusToolbar.includes("cycleFocusFromWheel") &&
+    compositeLayerFocusToolbar.includes("onWheelCapture={cycleFocusFromWheel}") &&
+    compositeLayerFocusToolbar.includes("availableLayers") &&
+    compositeLayerFocusToolbar.includes("OptionChipButton") &&
+    compositeLayerFocusToolbar.includes('import "./compositeLayerFocusToolbar.css";') &&
+    compositeReportStageControllerSource.includes('from "./compositeObjectInteractionController"') &&
+    !compositeReportStage.includes('from "./compositeObjectInteractionController"') &&
+    !compositeReportStage.includes("useCompositeObjectInteraction({") &&
+    compositeStageWorkbench.includes("<CompositeObjectContextMenu") &&
+    compositeStageWorkbench.includes("stage.objectInteraction.openObjectContextMenu") &&
+    compositeObjectInteractionControllerSource.includes("export function useCompositeObjectInteraction") &&
+    compositeObjectInteractionControllerSource.includes("const [contextMenu, setContextMenu]") &&
+    compositeObjectInteractionControllerSource.includes("function openObjectContextMenu") &&
+    compositeObjectInteractionControllerSource.includes("setLockedObjectKey(request.objectKey)") &&
+    compositeObjectInteractionControllerSource.includes("useCompositeObjectContextMenuLifecycle({ contextMenu, closeContextMenu })") &&
+    compositeObjectInteractionControllerSource.includes("useCompositeObjectKeyboardNavigation({ navigateObject })") &&
+    compositeObjectContextMenuLifecycleSource.includes('event.key === "Escape"') &&
+    compositeObjectContextMenuLifecycleSource.includes("function closeMenuFromKey") &&
+    compositeObjectKeyboardNavigationSource.includes("function navigateObjectFromKey") &&
+    compositeObjectInteractionControllerSource.includes("nextCompositeObjectKey(layers, activeObjectKey, direction)") &&
+    compositeObjectInteractionControllerSource.includes("const navigateObject = useCallback") &&
+    compositeObjectInteractionControllerSource.includes("function handleObjectWheel") &&
+    compositeObjectInteractionControllerSource.includes("if (!event.altKey && !event.shiftKey)") &&
+    compositeObjectInteractionControllerSource.includes("onObjectWheel: handleObjectWheel") &&
+    compositeObjectInteractionControllerSource.includes("event.deltaY") &&
+    compositeObjectInteractionControllerSource.includes("event.preventDefault();") &&
+    compositeObjectInteractionControllerSource.includes("event.stopPropagation();") &&
+    compositeObjectInteractionControllerSource.includes("allCompositeObjectRefs") &&
+    compositeObjectInteractionControllerSource.includes("const objectRefs = useMemo") &&
+    compositeObjectInteractionControllerSource.includes("const activeObjectIndex = objectRefs.findIndex") &&
+    compositeObjectInteractionControllerSource.includes("objectCount: objectRefs.length") &&
+    compositeObjectKeyboardNavigationSource.includes("export function objectNavigationDirection") &&
+    compositeObjectKeyboardNavigationSource.includes('from "./keyboardTargets"') &&
+    keyboardTargetsSource.includes("export function isEditableTarget") &&
+    !compositeObjectInteractionControllerSource.includes("function objectNavigationDirection") &&
+    !compositeObjectInteractionControllerSource.includes("function isEditableTarget") &&
+    compositeObjectInteractionControllerSource.includes("closeContextMenu,") &&
+    compositeStageWorkbench.includes("CompositeObjectHud") &&
+    compositeMicroMeter.includes("export function CompositeMicroMeter") &&
+    compositeMicroMeter.includes('import "./compositeMicroMeter.css";') &&
+    compositeMicroMeter.includes("--composite-meter-progress") &&
+    compositeMicroMeter.includes('value ? "has-value" : ""') &&
+    compositeMicroMeter.includes("{value ? <strong>{value}</strong> : null}") &&
+    compositeMicroMeter.includes("Math.max(0, Math.min(1, progress))") &&
+    compositeObjectHud.includes("export function CompositeObjectHud") &&
+    compositeObjectHud.includes('import "./compositeObjectHud.css";') &&
+    compositeObjectHud.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
+    !compositeObjectHud.includes('import type { CSSProperties } from "react";') &&
+    compositeObjectHud.includes("activeObjectIndex") &&
+    compositeObjectHud.includes("objectCount") &&
+    compositeObjectHud.includes("relatedObjectCount") &&
+    !compositeObjectHud.includes("--object-progress") &&
+    compositeObjectHud.includes("object-hud-cruise") &&
+    compositeObjectHud.includes("<CompositeMicroMeter") &&
+    compositeObjectHud.includes("Locked Object") &&
+    compositeObjectHud.includes("Hovered Object") &&
+    compositeObjectHud.includes("Object Probe") &&
+    compositeObjectHud.includes("聚焦图层") &&
+    compositeObjectHud.includes("Alt/Shift + Wheel 或 [/] 巡航对象") &&
+    compositeObjectHud.includes("Alt/Shift + Drag 平移") &&
+    compositeObjectHud.includes("Right click 对象菜单") &&
+    compositeObjectHud.includes("[/] 巡航对象") &&
+    compositeObjectHud.includes("清除") &&
+    compositeObjectContextMenu.includes("export type CompositeObjectMenuRequest") &&
+    compositeObjectContextMenu.includes("export function CompositeObjectContextMenu") &&
+    compositeObjectContextMenu.includes('role="menu"') &&
+    compositeObjectContextMenu.includes("onPointerDown={(event) => event.stopPropagation()}") &&
+    compositeObjectContextMenu.includes("锁定对象") &&
+    compositeObjectContextMenu.includes("解锁对象") &&
+    compositeObjectContextMenu.includes("聚焦图层") &&
+    compositeObjectContextMenu.includes("查看详情") &&
+    compositeObjectContextMenu.includes("清除选择") &&
+    compositeObjectContextMenu.includes('import "./compositeObjectContextMenu.css";') &&
+    compositeObjectInteractionControllerSource.includes("resolveCompositeObjectRef") &&
+    compositeObjectInteractionControllerSource.includes("function inspectObject") &&
+    compositeObjectInteractionControllerSource.includes("function clearObjectInteraction") &&
+    compositeObjectInteractionControllerSource.includes("function toggleObjectLock") &&
+    compositeObjectInteractionControllerSource.includes("activeObjectKey") &&
+    compositeStageWorkbench.includes("activeObjectIndex={stage.objectInteraction.activeObjectIndex}") &&
+    compositeStageWorkbench.includes("objectCount={stage.objectInteraction.objectCount}") &&
+    compositeStageWorkbench.includes("relatedObjectCount={stage.objectInteraction.relatedObjectKeys.size}") &&
+    compositeObjectInteractionControllerSource.includes("lockedObjectKey") &&
+    compositeObjectInteractionControllerSource.includes("relatedCompositeObjectKeys") &&
+    compositeObjectInteractionControllerSource.includes("relatedObjectKeys") &&
+    compositeStageWorkbench.includes("stage.objectInteraction.activeObjectKey") &&
+    compositeStageWorkbench.includes("stage.objectInteraction.relatedObjectKeys") &&
+    compositeStageWorkbench.includes("stage.objectInteraction.lockedObjectKey") &&
+    compositeStageWorkbench.includes("onObjectHover") &&
+    compositeStageWorkbench.includes("onObjectLock") &&
+    compositeStageWorkbench.includes("onObjectWheel={stage.objectInteraction.onObjectWheel}") &&
+    compositeStageWorkbench.includes("onObjectInspect={stage.objectInteraction.inspectObject}") &&
+    compositeObjectModelSource.includes("export type CompositeObjectRef") &&
+    compositeObjectModelSource.includes("export type CompositeObjectKind") &&
+    compositeObjectModelSource.includes("export type CompositeObjectStatus") &&
+    compositeObjectModelSource.includes("export function compositeObjectKey") &&
+    compositeObjectModelSource.includes("export function parseCompositeObjectKey") &&
+    compositeObjectModelSource.includes("export function localCanvasObjectIdToKey") &&
+    compositeObjectModelSource.includes("export function objectDiagnosticStatus") &&
+    compositeObjectModelSource.includes("export function objectStatusWeight") &&
+    compositeObjectModelSource.includes("export function normalizeObjectLabel") &&
+    compositeObjectInteractionSource.includes("export function buildOverlayObjects") &&
+    compositeObjectInteractionSource.includes("export function buildLayerObjectRefs") &&
+    compositeObjectInteractionSource.includes("export function buildLayerObjectRefsForScope") &&
+    compositeObjectInteractionSource.includes("export function relatedCompositeObjectKeys") &&
+    compositeObjectInteractionSource.includes("export function allCompositeObjectRefs") &&
+    compositeObjectInteractionSource.includes("export function nextCompositeObjectKey") &&
+    compositeObjectInteractionSource.includes("export function resolveCompositeObjectRef") &&
+    compositeObjectInteractionSource.includes('from "./compositeObjectModel"') &&
+    !compositeObjectInteractionSource.includes("export function parseCompositeObjectKey") &&
+    !compositeObjectInteractionSource.includes("export function localCanvasObjectIdToKey") &&
+    !compositeObjectInteractionSource.includes("function objectDiagnosticStatus") &&
+    compositeCanvasObjectMappingSource.includes("export function overlayObjectIdForKey") &&
+    compositeCanvasObjectMappingSource.includes('from "./compositeObjectModel"') &&
+    compositeCanvasObjectMappingSource.includes("export function objectKeyForOverlayObject") &&
+    compositeCanvasObjectMappingSource.includes("export function relatedOverlayObjectIds") &&
+    compositeCanvasObjectMappingSource.includes("export function localObjectIdForKey") &&
+    compositeCanvasObjectMappingSource.includes("export function relatedLocalObjectIds") &&
+    compositeCanvasObjectMappingSource.includes("export function objectKeyForLocalObject") &&
+    compositeOverlayStage.includes("export function OverlayStage") &&
+    compositeOverlayStage.includes("buildOverlayObjects") &&
+    compositeOverlayStage.includes('from "./compositeCanvasObjectMapping"') &&
+    compositeOverlayStage.includes("<CompositeLayerCanvas") &&
+    compositeOverlayStage.includes("viewportSyncKey?: string | null") &&
+    compositeOverlayStage.includes("viewportSyncKey={viewportSyncKey}") &&
+    compositeOverlayStage.includes("relatedObjectKeys: Set<string>") &&
+    compositeOverlayStage.includes("relatedOverlayIds") &&
+    compositeOverlayStage.includes("relatedObjectIds={relatedOverlayIds}") &&
+    compositeOverlayStage.includes("onObjectInspect") &&
+    compositeOverlayStage.includes("onInspect={(objectId) => onObjectInspect(resolveOverlayObjectKey(objectId))}") &&
+    compositeOverlayStage.includes("onObjectWheel") &&
+    compositeOverlayStage.includes("onObjectWheel={onObjectWheel}") &&
+    compositeOverlayStage.includes("onObjectContextMenu") &&
+    compositeOverlayStage.includes("resolveOverlayObjectKey(request.objectId)") &&
+    compositeOverlayStage.includes('import "./compositeOverlayStage.css";') &&
+    compositeLayerInspector.includes("export function CompositeInspector") &&
+    compositeLayerInspector.includes('import { LayerObjectStrip } from "./compositeLayerObjectStrip";') &&
+    compositeLayerInspector.includes("buildLayerObjectRefs") &&
+    compositeLayerInspector.includes("relatedObjectKeys: Set<string>") &&
+    compositeLayerInspector.includes("<LayerObjectStrip") &&
+    compositeLayerInspector.includes("onObjectInspect={onObjectInspect}") &&
+    compositeStageWorkbench.includes("onObjectInspect={stage.objectInteraction.inspectObject}") &&
+    !compositeLayerInspector.includes('relatedObjectKeys.has(object.key) ? "related" : ""') &&
+    !compositeLayerInspector.includes("function LayerObjectStrip") &&
+    !compositeLayerInspector.includes("onWheelCapture={onObjectWheel}") &&
+    !compositeLayerInspector.includes("event.deltaY") &&
+    compositeLayerInspector.includes('import "./compositeLayerInspector.css";') &&
+    compositeLayerObjectStrip.includes("export function LayerObjectStrip") &&
+    compositeLayerObjectStrip.includes('import { useLayerObjectStripDrag } from "./compositeLayerObjectStripDrag";') &&
+    compositeLayerObjectStrip.includes("const objectDrag = useLayerObjectStripDrag") &&
+    compositeLayerObjectStrip.includes("objectDrag.objectStripDragHandlers") &&
+    compositeLayerObjectStrip.includes("objectDrag.shouldSuppressClick()") &&
+    compositeLayerObjectStrip.includes("layer-object-drag-hint") &&
+    compositeLayerObjectStrip.includes("data-object-key={object.key}") &&
+    compositeLayerObjectStrip.includes("objectDrag.dragging") &&
+    compositeLayerObjectStrip.includes('"layer-object-strip dragging"') &&
+    compositeLayerObjectStrip.includes('"layer-object-strip"') &&
+    !compositeLayerObjectStrip.includes("objects.slice(0, 6)") &&
+    !compositeLayerObjectStrip.includes("overflowCount") &&
+    !compositeLayerObjectStrip.includes("setPointerCapture") &&
+    compositeLayerObjectStripDragSource.includes("export function useLayerObjectStripDrag") &&
+    compositeLayerObjectStripDragSource.includes('import { usePointerSweepSelection } from "./compositePointerSweep";') &&
+    compositeLayerObjectStripDragSource.includes("objectKeyFromPointer") &&
+    compositeLayerObjectStripDragSource.includes("usePointerSweepSelection") &&
+    compositeLayerObjectStripDragSource.includes("resolveValueFromPointer: objectKeyFromPointer") &&
+    compositeLayerObjectStripDragSource.includes("pointerSweepHandlers") &&
+    compositeLayerObjectStripDragSource.includes("shouldSuppressClick") &&
+    !compositeLayerObjectStripDragSource.includes("useRef") &&
+    !compositeLayerObjectStripDragSource.includes("useState") &&
+    !compositeLayerObjectStripDragSource.includes("setPointerCapture") &&
+    !compositeLayerObjectStripDragSource.includes("suppressClickRef") &&
+    compositePointerSweepSource.includes("export function usePointerSweepSelection") &&
+    compositePointerSweepSource.includes("useRef") &&
+    compositePointerSweepSource.includes("useState") &&
+    compositePointerSweepSource.includes("resolveValueFromPointer") &&
+    compositePointerSweepSource.includes("previewValueAtPointer") &&
+    compositePointerSweepSource.includes("event.button !== 0") &&
+    compositePointerSweepSource.includes("setPointerCapture") &&
+    compositePointerSweepSource.includes("releasePointerCapture") &&
+    compositePointerSweepSource.includes("onPointerDown") &&
+    compositePointerSweepSource.includes("onPointerMove") &&
+    compositePointerSweepSource.includes("onPointerUp") &&
+    compositePointerSweepSource.includes("onPointerCancel") &&
+    compositePointerSweepSource.includes("activeValueRef") &&
+    compositePointerSweepSource.includes("suppressClickRef") &&
+    compositePointerSweepSource.includes("pointerSweepHandlers") &&
+    compositePointerDragSource.includes("export function usePointerDrag") &&
+    compositePointerDragSource.includes("export type PointerDragState") &&
+    compositePointerDragSource.includes("thresholdPx = DEFAULT_DRAG_THRESHOLD_PX") &&
+    compositePointerDragSource.includes("Math.hypot(deltaX, deltaY) > thresholdPx") &&
+    compositePointerDragSource.includes("element.setPointerCapture(event.pointerId)") &&
+    compositePointerDragSource.includes("element.releasePointerCapture(event.pointerId)") &&
+    compositePointerDragSource.includes("pointerDragHandlers") &&
+    compositePointerDragSource.includes("shouldSuppressClick") &&
+    compositeLayerObjectStrip.includes("relatedObjectKeys.has(object.key)") &&
+    compositeLayerObjectStrip.includes("onWheelCapture={onObjectWheel}") &&
+    compositeLayerObjectStrip.includes("onPointerEnter={() => onObjectHover(object.key)}") &&
+    compositeLayerObjectStrip.includes("onObjectLock(object.key)") &&
+    compositeLayerObjectStrip.includes("onObjectInspect(object.key)") &&
+    compositeLayerObjectStrip.includes("onDoubleClick") &&
+    compositeLayerObjectStrip.includes("{objects.length.toLocaleString()} objects") &&
+    compositeLayerObjectStrip.includes("<OptionChipButton") &&
+    compositeLayerObjectStrip.includes('import "./compositeLayerObjectStrip.css";') &&
+    [
+      compositeMicroMeterStyleSource,
+      compositeObjectHudStyleSource,
+      compositeObjectContextMenuStyleSource,
+      compositeLayerInspectorStyleSource,
+      compositeLayerObjectStripStyleSource
+    ].every((source) => !/font-size:\s*\d/.test(source)) &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-chip.related") &&
+    compositeLayerObjectStripStyleSource.includes("overflow-x: auto") &&
+    compositeLayerObjectStripStyleSource.includes("overscroll-behavior-inline: contain") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-strip.dragging") &&
+    compositeLayerObjectStripStyleSource.includes("cursor: grab") &&
+    compositeLayerObjectStripStyleSource.includes("cursor: grabbing") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-drag-hint") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-drag-hint.active") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-chip b") &&
+    compositeThemeStyleSource.includes("--composite-object-strip-line") &&
+    compositeThemeStyleSource.includes("--composite-object-fn-ink") &&
+    compositeThemeStyleSource.includes("--composite-object-fp-ink") &&
+    compositeThemeStyleSource.includes("--composite-object-related-ring") &&
+    compositeLayerObjectStripStyleSource.includes("border-color: var(--composite-object-strip-line)") &&
+    compositeLayerObjectStripStyleSource.includes("color: var(--composite-object-fn-ink)") &&
+    compositeLayerObjectStripStyleSource.includes("color: var(--composite-object-fp-ink)") &&
+    compositeLayerObjectStripStyleSource.includes("box-shadow: var(--composite-object-related-ring)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeLayerObjectStripStyleSource) &&
+    compositeThemeStyleSource.includes("--composite-inspector-row-line") &&
+    compositeThemeStyleSource.includes("--composite-inspector-row-focus-line") &&
+    compositeThemeStyleSource.includes("--composite-inspector-flag-ink") &&
+    compositeThemeStyleSource.includes("--composite-inspector-metric-surface") &&
+    compositeThemeStyleSource.includes("--composite-inspector-row-rail-width") &&
+    compositeLayerInspectorStyleSource.includes(
+      "grid-template-columns: var(--composite-inspector-row-rail-width) minmax(0, 1fr)",
+    ) &&
+    compositeLayerInspectorStyleSource.includes("border: 1px solid var(--composite-inspector-row-line)") &&
+    compositeLayerInspectorStyleSource.includes("background: var(--composite-inspector-row-focus-surface)") &&
+    compositeLayerInspectorStyleSource.includes("color: var(--composite-inspector-flag-ink)") &&
+    compositeLayerInspectorStyleSource.includes("background: var(--composite-inspector-metric-surface)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeLayerInspectorStyleSource) &&
+    !compositeLayerInspectorStyleSource.includes(".layer-object-strip") &&
+    !compositeLayerInspectorStyleSource.includes(".layer-object-chip") &&
+    compositeSplitStage.includes("export function SplitStage") &&
+    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
+    compositeSplitPane.includes("export function CompositeSplitPane") &&
+    compositeSplitPane.includes('import { CompositeSplitLayerCanvas } from "./compositeSplitLayerCanvas";') &&
+    compositeSplitPane.includes("<CompositeSplitLayerCanvas") &&
+    compositeSplitLayerCanvas.includes("export function CompositeSplitLayerCanvas") &&
+    compositeSplitLayerCanvas.includes('from "./compositeCanvasObjectMapping"') &&
+    compositeSplitLayerCanvas.includes("<CompositeLayerCanvas") &&
+    compositeSplitStage.includes("viewportSyncKey?: string | null") &&
+    compositeSplitLayerCanvas.includes("viewportSyncKey={viewportSyncKey}") &&
+    compositeSplitStage.includes("relatedObjectKeys: Set<string>") &&
+    compositeSplitLayerCanvas.includes("relatedLocalIds") &&
+    compositeSplitLayerCanvas.includes("relatedObjectIds={relatedLocalIds}") &&
+    compositeSplitStage.includes("onObjectInspect") &&
+    compositeSplitLayerCanvas.includes("onInspect={(objectId) =>") &&
+    compositeSplitStage.includes("onObjectWheel") &&
+    compositeSplitPane.includes("onObjectWheel") &&
+    compositeSplitLayerCanvas.includes("onObjectWheel={onObjectWheel}") &&
+    compositeSplitStage.includes("onObjectContextMenu") &&
+    compositeSplitLayerCanvas.includes("resolveLocalObjectKey(request.objectId)") &&
+    !compositeSplitStage.includes('from "./compositeCanvasObjectMapping"') &&
+    !compositeSplitStage.includes("<CompositeLayerCanvas") &&
+    !compositeSplitStage.includes("parseCompositeObjectKey") &&
+    !compositeSplitStage.includes("localCanvasObjectIdToKey") &&
+    compositeSplitStage.includes('import "./compositeSplitStage.css";') &&
+    compositeLayerCanvas.includes("export function CompositeLayerCanvas") &&
+    compositeLayerCanvas.includes('from "./compositeLayerCanvasController"') &&
+    compositeLayerCanvas.includes("useCompositeLayerCanvasController({") &&
+    compositeLayerCanvas.includes("<CanvasStage") &&
+    compositeLayerCanvas.includes("viewportSyncKey?: string | null") &&
+    compositeLayerCanvas.includes("viewportSyncKey={viewportSyncKey}") &&
+    compositeLayerCanvas.includes("relatedObjectIds?: Set<string>") &&
+    compositeLayerCanvas.includes("relatedObjectIds={relatedObjectIds}") &&
+    compositeLayerCanvas.includes("onInspect?: (objectId: string | null) => void") &&
+    compositeLayerCanvas.includes("onInspect={onInspect}") &&
+    compositeLayerCanvas.includes("onObjectWheel?: (event: WheelEvent<HTMLElement>) => void") &&
+    compositeLayerCanvas.includes('data-object-wheel-cruise={onObjectWheel ? "modified" : undefined}') &&
+    compositeLayerCanvas.includes('data-overlay-surface-pan="modified"') &&
+    compositeLayerCanvas.includes("onWheelCapture={onObjectWheel}") &&
+    compositeLayerCanvas.includes("allowOverlaySurfacePan") &&
+    compositeLayerCanvas.includes('from "./viewerInstanceLayer"') &&
+    compositeLayerCanvas.includes("onObjectContextMenu?: (request: CanvasObjectContextMenuRequest) => void") &&
+    compositeLayerCanvas.includes("onObjectContextMenu={onObjectContextMenu}") &&
+    compositeLayerCanvas.includes("activeObjectId={canvas.resolvedActiveObjectId}") &&
+    compositeLayerCanvas.includes('import { CompositeCanvasGestureHud } from "./compositeCanvasGestureHud";') &&
+    compositeLayerCanvas.includes("<CompositeCanvasGestureHud") &&
+    compositeLayerCanvas.includes("activeObjectId={canvas.resolvedActiveObjectId}") &&
+    compositeLayerCanvas.includes("relatedObjectCount={relatedObjectIds?.size ?? 0}") &&
+    compositeLayerCanvas.includes("wheelCruise={Boolean(onObjectWheel)}") &&
+    compositeLayerCanvas.includes("contextMenu={Boolean(onObjectContextMenu)}") &&
+    !compositeLayerCanvas.includes("composite-canvas-gesture-hud") &&
+    compositeLayerCanvas.includes('import { CompositeCanvasPointerReticle } from "./compositeCanvasPointerReticle";') &&
+    compositeLayerCanvas.includes('import { useCompositeCanvasPointerTracker } from "./compositeCanvasPointerTracker";') &&
+    compositeLayerCanvas.includes("const pointer = useCompositeCanvasPointerTracker();") &&
+    compositeLayerCanvas.includes('data-pointer-reticle={pointer.pointerActive ? "active" : undefined}') &&
+    compositeLayerCanvas.includes("style={{ ...canvas.overlayVars, ...pointer.pointerVars }}") &&
+    compositeLayerCanvas.includes("{...pointer.pointerHandlers}") &&
+    compositeLayerCanvas.includes("<CompositeCanvasPointerReticle pointer={pointer.pointer} />") &&
+    !compositeLayerCanvas.includes("clientX") &&
+    !compositeLayerCanvas.includes("getBoundingClientRect") &&
+    compositeCanvasOverlay.includes("export function CompositeCanvasOverlayPanel") &&
+    compositeCanvasOverlay.includes("export function CompositeCanvasOverlayChip") &&
+    compositeCanvasOverlay.includes("export function CompositeCanvasCoordinateTag") &&
+    compositeCanvasOverlay.includes('import "./compositeCanvasOverlay.css";') &&
+    compositeCanvasOverlay.includes("joinClassNames") &&
+    compositeCanvasGestureHud.includes("export function CompositeCanvasGestureHud") &&
+    compositeCanvasGestureHud.includes('from "./compositeCanvasOverlay"') &&
+    compositeCanvasGestureHud.includes("<CompositeCanvasOverlayPanel") &&
+    compositeCanvasGestureHud.includes("<CompositeCanvasOverlayChip") &&
+    compositeCanvasGestureHud.includes("MousePointer2") &&
+    compositeCanvasGestureHud.includes("relatedObjectCount.toLocaleString()") &&
+    compositeCanvasGestureHud.includes('aria-label="组合画布鼠标交互状态"') &&
+    compositeCanvasGestureHud.includes("wheelCruise: boolean") &&
+    compositeCanvasGestureHud.includes("surfacePan: boolean") &&
+    compositeCanvasGestureHud.includes("contextMenu: boolean") &&
+    !compositeCanvasGestureHud.includes("<span") &&
+    compositeCanvasPointerTrackerSource.includes("export function useCompositeCanvasPointerTracker") &&
+    compositeCanvasPointerTrackerSource.includes("CompositeCanvasPointerState") &&
+    compositeCanvasPointerTrackerSource.includes("handleCanvasPointerMove") &&
+    compositeCanvasPointerTrackerSource.includes("getBoundingClientRect") &&
+    compositeCanvasPointerTrackerSource.includes("--composite-pointer-x") &&
+    compositeCanvasPointerTrackerSource.includes("--composite-pointer-y") &&
+    compositeCanvasPointerTrackerSource.includes("pointerHandlers") &&
+    compositeCanvasPointerReticle.includes("export function CompositeCanvasPointerReticle") &&
+    compositeCanvasPointerReticle.includes('from "./compositeCanvasOverlay"') &&
+    compositeCanvasPointerReticle.includes("<CompositeCanvasOverlayPanel") &&
+    compositeCanvasPointerReticle.includes("<CompositeCanvasCoordinateTag") &&
+    compositeCanvasPointerReticle.includes("composite-canvas-pointer-reticle") &&
+    compositeCanvasPointerReticle.includes("padStart") &&
+    compositeCanvasPointerReticle.includes('aria-hidden="true"') &&
+    !compositeCanvasPointerReticle.includes("<span") &&
+    compositeLayerCanvas.includes("onHover={canvas.handleHover}") &&
+    compositeLayerCanvas.includes("onLock={canvas.handleLock}") &&
+    compositeLayerCanvasControllerSource.includes("export function useCompositeLayerCanvasController") &&
+    compositeLayerCanvasControllerSource.includes("useWorkspaceSettings(labels)") &&
+    compositeLayerCanvasControllerSource.includes("localHoveredObjectId") &&
+    compositeLayerCanvasControllerSource.includes("localLockedObjectId") &&
+    compositeLayerCanvasControllerSource.includes("resolvedActiveObjectId") &&
+    compositeLayerCanvasControllerSource.includes("function handleHover") &&
+    compositeLayerCanvasControllerSource.includes("function handleLock") &&
+    !compositeLayerCanvas.includes("useState") &&
+    !compositeLayerCanvas.includes("useWorkspaceSettings") &&
+    !compositeLayerCanvas.includes("localHoveredObjectId") &&
+    !compositeLayerCanvas.includes("localLockedObjectId") &&
+    compositeLayerCanvas.includes('import "./compositeLayerCanvas.css";') &&
+    !compositeReportStage.includes("function buildOverlayObjects") &&
+    !compositeReportStage.includes("function buildLayerObjectRefs") &&
+    !compositeReportStage.includes("function objectDiagnosticStatus") &&
+    !compositeReportStage.includes("function OverlayStage") &&
+    !compositeReportStage.includes("function CompositeInspector") &&
+    !compositeReportStage.includes("function CompositeWorkbenchToolbar") &&
+    !compositeReportStage.includes("layerColor") &&
+    !compositeReportStage.includes("function SplitStage") &&
+    !compositeReportStage.includes("function CompositeLayerCanvas") &&
+    !compositeReportStage.includes("function LayerObjectStrip") &&
+    !compositeReportStage.includes("const [contextMenu, setContextMenu]") &&
+    !compositeReportStage.includes("function navigateObjectFromKey") &&
+    !compositeReportStage.includes("function openObjectContextMenu") &&
+    !compositeReportStage.includes("function inspectObject") &&
+    !compositeReportStage.includes("function clearObjectInteraction") &&
+    !compositeReportStage.includes("function toggleObjectLock") &&
+    !compositeReportStage.includes("const viewportSyncKey =") &&
+    !compositeReportStage.includes("const focusAvailable =") &&
+    !compositeReportStage.includes("const focusedLayers =") &&
+    !compositeReportStage.includes("const focusedStatuses =") &&
+    !compositeReportStage.includes("useEffect") &&
+    compositeReportStage.includes("focusedLayerKey") &&
+    !compositeReportStage.includes("mode === \"both\" || mode === \"overlay\"") &&
+    !compositeReportStage.includes("mode === \"both\" || mode === \"split\"") &&
+    compositeStageWorkbench.includes("mode === \"both\" || mode === \"overlay\"") &&
+    compositeStageWorkbench.includes("mode === \"both\" || mode === \"split\"") &&
+    !compositeReportStage.includes("function ImageNavigator") &&
+    !compositeReportStage.includes("image-union-local"),
+  "composite report stage must orchestrate image jumping, overlay, inspector, split matrix, and layer focus through dedicated modules",
+);
+assert(
+  compositeImageNavigator.includes("<CompositeImageNavigatorPrimary") &&
+    compositeImageNavigator.includes("<CompositeImageSearchBar") &&
+    compositeImageNavigator.includes("useCompositeImageNavigationController") &&
+    compositeImageNavigator.includes("navigation.primaryProps") &&
+    compositeImageNavigator.includes("navigation.timelineProps") &&
+    compositeImageNavigator.includes("navigation.searchProps") &&
+    compositeImageNavigator.includes("<CompositeImageTimeline") &&
+    compositeImageNavigator.includes("<CompositeInteractionPalette") &&
+    compositeImageNavigator.includes("focusCompositeImageSearchInput(navigation.rootRef.current)") &&
+    compositeImageNavigator.includes('requestViewportReset(`composite:${composite.image_key}`)') &&
+    compositeImageNavigator.includes("onPrevious={() => navigation.primaryProps.onStep(-1)}") &&
+    compositeImageNavigator.includes("onNext={() => navigation.primaryProps.onStep(1)}") &&
+    compositeInteractionPalette.includes("export function CompositeInteractionPalette") &&
+    compositeInteractionPalette.includes("IconActionButton") &&
+    compositeInteractionPalette.includes('role="toolbar"') &&
+    compositeInteractionPalette.includes('data-tool="previous"') &&
+    compositeInteractionPalette.includes('data-tool="next"') &&
+    compositeInteractionPalette.includes('data-tool="search"') &&
+    compositeInteractionPalette.includes('data-tool="reset"') &&
+    compositeInteractionPalette.includes("disabled={!canPrevious}") &&
+    compositeInteractionPalette.includes("disabled={!canNext}") &&
+    !compositeInteractionPalette.includes('role="list"') &&
+    !compositeInteractionPalette.includes('role="listitem"') &&
+    compositeInteractionPalette.includes('import "./compositeInteractionPalette.css";') &&
+    compositeImageNavigationControllerSource.includes("export function useCompositeImageNavigationController") &&
+    compositeImageNavigationControllerSource.includes("useCompositeImageKeyboard") &&
+    compositeImageNavigationControllerSource.includes("useCompositeImageSearchController") &&
+    compositeImageNavigationControllerSource.includes("useCompositeImageTimelineController") &&
+    compositeImageSearchControllerSource.includes("export function useCompositeImageSearchController") &&
+    compositeImageSearchControllerSource.includes("imageResultWindow(filteredImages, activeResultIndex)") &&
+    compositeImageSearchControllerSource.includes("activeImageResultIndex(filteredImages, composite.image_index)") &&
+    compositeImageSearchControllerSource.includes("resultWindow.offset + index") &&
+    !compositeImageSearchControllerSource.includes("filteredImages.slice(0, IMAGE_RESULT_LIMIT)") &&
+    compositeImageSearchControllerSource.includes("buildImageMapBins") &&
+    compositeImageSearchControllerSource.includes("activeResultIndex") &&
+    compositeImageSearchControllerSource.includes("closeFromDocument") &&
+    compositeImageSearchControllerSource.includes("handleSearchResultWheel") &&
+    compositeImageSearchControllerSource.includes("onSearchResultWheel") &&
+    compositeImageSearchControllerSource.includes('import { imageSearchWheelStep } from "./compositeImageSearchWheel";') &&
+    compositeImageSearchControllerSource.includes("const step = imageSearchWheelStep(event)") &&
+    !compositeImageSearchControllerSource.includes("event.deltaY") &&
+    !compositeImageSearchControllerSource.includes("event.deltaX") &&
+    !compositeImageSearchControllerSource.includes("event.preventDefault()") &&
+    compositeImageSearchWheelSource.includes("export function imageSearchWheelStep(event: WheelEvent)") &&
+    compositeImageSearchWheelSource.includes('import { useEffect } from "react";') &&
+    !compositeImageSearchWheelSource.includes("WheelEvent as") &&
+    !compositeImageSearchWheelSource.includes('import type { WheelEvent } from "react";') &&
+    compositeImageSearchWheelSource.includes("event.deltaY") &&
+    compositeImageSearchWheelSource.includes("event.deltaX") &&
+    compositeImageSearchWheelSource.includes("event.preventDefault();") &&
+    compositeImageSearchWheelSource.includes("event.stopPropagation();") &&
+    compositeImageSearchWheelSource.includes("export function useImageSearchWheelCruise") &&
+    compositeImageSearchWheelSource.includes("useEffect") &&
+    compositeImageSearchWheelSource.includes("elementRef: RefObject<T | null>") &&
+    compositeImageSearchWheelSource.includes('node.addEventListener("wheel", handleNativeWheel, { passive: false })') &&
+    compositeImageSearchWheelSource.includes('node.removeEventListener("wheel", handleNativeWheel)') &&
+    compositeImageSearchControllerSource.includes("locateActiveNearbyItem") &&
+    !compositeImageSearchControllerSource.includes("locateActiveFilmstripItem") &&
+    compositeImageSearchControllerSource.includes('querySelector(".image-nearby-card.active")') &&
+    compositeImageTimelineControllerSource.includes("export function useCompositeImageTimelineController") &&
+    compositeImageTimelineControllerSource.includes("nearbyImageKeys") &&
+    compositeImageTimelineControllerSource.includes("scrubPreview") &&
+    compositeImageTimelineControllerSource.includes("previewFromScrubPointer") &&
+    compositeImageTimelineControllerSource.includes("composite.image_keys, composite.image_index") &&
+    compositeImageTimelineControllerSource.includes('import { usePointerDrag } from "./compositePointerDrag";') &&
+    compositeImageTimelineControllerSource.includes("const scrubDrag = usePointerDrag<HTMLDivElement>") &&
+    compositeImageTimelineControllerSource.includes("onStart: (event) => jumpFromScrubPointer(event)") &&
+    compositeImageTimelineControllerSource.includes("onMove: (event) => jumpFromScrubPointer(event)") &&
+    compositeImageTimelineControllerSource.includes("scrubbing: scrubDrag.dragging") &&
+    !compositeImageTimelineControllerSource.includes("setPointerCapture") &&
+    !compositeImageTimelineControllerSource.includes("releasePointerCapture") &&
+    !compositeImageTimelineControllerSource.includes("setScrubbing") &&
+    compositeImageTimelineControllerSource.includes("handleScrubPointerMove") &&
+    compositeImageTimelineControllerSource.includes("handleScrubPointerLeave") &&
+    compositeImageNavigationControllerSource.includes("primaryProps") &&
+    compositeImageNavigationControllerSource.includes("timelineProps") &&
+    compositeImageNavigationControllerSource.includes("searchProps") &&
+    compositeImageNavigatorPrimary.includes("export function CompositeImageNavigatorPrimary") &&
+    compositeImageNavigatorPrimary.includes('import { CompositeImageJumpControl } from "./compositeImageJumpControl";') &&
+    compositeImageNavigatorPrimary.includes("<CompositeImageJumpControl") &&
+    !compositeImageNavigatorPrimary.includes("<TextInputControl") &&
+    !compositeImageNavigatorPrimary.includes("<IconActionButton") &&
+    compositeImageJumpControl.includes("export function CompositeImageJumpControl") &&
+    compositeImageJumpControl.includes("<TextInputControl") &&
+    compositeImageJumpControl.includes("<IconActionButton") &&
+    compositeImageJumpControl.includes("image-jump-control") &&
+    compositeImageJumpControl.includes("image-jump-step-group") &&
+    compositeImageJumpControl.includes("image-jump-step edge") &&
+    compositeImageJumpControl.includes('import "./compositeImageJumpControl.css";') &&
+    compositeImageSearchBar.includes("export function CompositeImageSearchBar") &&
+    compositeImageSearchBar.includes("<SearchInputControl") &&
+    compositeImageSearchBar.includes("<CompositeImageSearchPopover") &&
+    compositeImageSearchBar.includes("onSearchResultWheel") &&
+    compositeImageSearchBar.includes('event.key === "ArrowDown"') &&
+    compositeImageSearchBar.includes('event.key === "ArrowUp"') &&
+    compositeImageSearchBar.includes('event.key === "Enter"') &&
+    compositeImageSearchBar.includes('import "./compositeImageSearchBar.css";') &&
+    compositeImageTimeline.includes("export function CompositeImageTimeline") &&
+    compositeImageTimeline.includes('import { CompositeImageIndexMeter } from "./compositeImageIndexMeter";') &&
+    compositeImageTimeline.includes('import { CompositeImageNearbyRail } from "./compositeImageNearbyRail";') &&
+    compositeImageTimeline.includes('import { CompositeImageScrubTrack } from "./compositeImageScrubTrack";') &&
+    compositeImageTimeline.includes("<CompositeImageIndexMeter") &&
+    !compositeImageTimeline.includes("<RangeSettingControl") &&
+    compositeImageTimeline.includes("<CompositeImageScrubTrack") &&
+    !compositeImageTimeline.includes("image-scrub-track") &&
+    !compositeImageTimeline.includes("image-scrub-preview") &&
+    compositeImageTimeline.includes("<CompositeImageNearbyRail") &&
+    compositeImageTimeline.includes("imageCount={imageCount}") &&
+    compositeImageTimeline.includes("onWheelCapture={onTimelineWheel}") &&
+    compositeImageTimeline.includes('import "./compositeImageTimeline.css";') &&
+    compositeImageScrubTrack.includes("export function CompositeImageScrubTrack") &&
+    compositeImageScrubTrack.includes('className={scrubbing ? "image-scrub-track scrubbing" : "image-scrub-track"}') &&
+    compositeImageScrubTrack.includes("image-scrub-preview") &&
+    compositeImageScrubTrack.includes("scrubDeltaLabel(scrubPreview.delta)") &&
+    compositeImageScrubTrack.includes("onPointerDown={onScrubPointerDown}") &&
+    compositeImageScrubTrack.includes("onMouseMove={onScrubMouseMove}") &&
+    compositeImageScrubTrack.includes("basename(scrubPreview.image)") &&
+    compositeImageScrubTrack.includes('import "./compositeImageScrubTrack.css";') &&
+    compositeImageNearbyRail.includes("export function CompositeImageNearbyRail") &&
+    compositeImageNearbyRail.includes("useCompositeImageNearbyRailController") &&
+    compositeImageNearbyRail.includes('className={rail.dragging ? "image-nearby-rail dragging" : "image-nearby-rail"}') &&
+    compositeImageNearbyRail.includes("rail.dragHint") &&
+    compositeImageNearbyRail.includes("image-nearby-drag-hint") &&
+    compositeImageNearbyRail.includes("image-nearby-axis") &&
+    compositeImageNearbyRail.includes("image-nearby-card") &&
+    compositeImageNearbyRail.includes('role="listbox"') &&
+    compositeImageNearbyRail.includes('role="option"') &&
+    compositeImageNearbyRail.includes("aria-selected={active}") &&
+    compositeImageNearbyRail.includes("Math.abs(item.index - imageIndex)") &&
+    compositeImageNearbyRail.includes("<ActionButton") &&
+    compositeImageNearbyRail.includes("onPointerDown={rail.onPointerDown}") &&
+    compositeImageNearbyRail.includes("onWheelCapture={rail.onWheelCapture}") &&
+    compositeImageNearbyRail.includes("rail.shouldSuppressClick()") &&
+    compositeImageNearbyRailControllerSource.includes("export function useCompositeImageNearbyRailController") &&
+    compositeImageNearbyRailControllerSource.includes("DRAG_THRESHOLD_PX") &&
+    compositeImageNearbyRailControllerSource.includes("DRAG_STEP_PX") &&
+    compositeImageNearbyRailControllerSource.includes("dragVirtualIndexRef") &&
+    compositeImageNearbyRailControllerSource.includes("clampImageIndex") &&
+    compositeImageNearbyRailControllerSource.includes("onJump(dragVirtualIndexRef.current)") &&
+    compositeImageNearbyRailControllerSource.includes('import { usePointerDrag } from "./compositePointerDrag";') &&
+    compositeImageNearbyRailControllerSource.includes("const drag = usePointerDrag<HTMLElement>") &&
+    compositeImageNearbyRailControllerSource.includes("elementRef: railRef") &&
+    compositeImageNearbyRailControllerSource.includes("thresholdPx: DRAG_THRESHOLD_PX") &&
+    compositeImageNearbyRailControllerSource.includes("dragging: drag.dragging") &&
+    compositeImageNearbyRailControllerSource.includes("shouldSuppressClick: drag.shouldSuppressClick") &&
+    !compositeImageNearbyRailControllerSource.includes("setPointerCapture") &&
+    !compositeImageNearbyRailControllerSource.includes("releasePointerCapture") &&
+    !compositeImageNearbyRailControllerSource.includes("draggingRef") &&
+    !compositeImageNearbyRailControllerSource.includes("dragMovedRef") &&
+    compositeImageNearbyRailControllerSource.includes("rail.scrollLeft") &&
+    compositeImageNearbyRailControllerSource.includes("onStep(wheelDelta > 0 ? 1 : -1)") &&
+    compositeImageTimelineControllerSource.includes("onStep: step") &&
+    compositeImageTimeline.includes("onStep={onStep}") &&
+    compositeImageNearbyRail.includes('import "./compositeImageNearbyRail.css";') &&
+    compositeImagePanel.includes("export function CompositeImagePanelHeader") &&
+    compositeImagePanel.includes('import { CompositePanelHeader } from "./compositePanelPrimitives";') &&
+    compositeImagePanel.includes("<CompositePanelHeader") &&
+    compositeImagePanel.includes('density="compact"') &&
+    compositeImagePanel.includes("framed") &&
+    compositeImagePanel.includes("image-panel-head") &&
+    compositeImagePanel.includes("image-panel-head-action") &&
+    compositeImagePanel.includes('import "./compositeImagePanel.css";') &&
+    compositeImageSearchPopover.includes("export function CompositeImageSearchPopover") &&
+    compositeImageSearchPopover.includes("image-jump-popover") &&
+    compositeImageSearchPopover.includes('import { CompositeImageAtlasPanel } from "./compositeImageAtlasPanel";') &&
+    compositeImageSearchPopover.includes("<CompositeImageAtlasPanel") &&
+    !compositeImageSearchPopover.includes('import { CompositeImagePanelHeader } from "./compositeImagePanel";') &&
+    !compositeImageSearchPopover.includes("<CompositeImagePanelHeader") &&
+    !compositeImageSearchPopover.includes("useCompositeImageAtlasController") &&
+    !compositeImageSearchPopover.includes("<CompositeImageAtlas\n") &&
+    !compositeImageSearchPopover.includes("<CompositeImageAtlas ") &&
+    !compositeImageSearchPopover.includes("image-jump-command-head") &&
+    compositeImageSearchPopover.includes("image-jump-popover-body") &&
+    compositeImageSearchPopover.includes('import { CompositeImageSearchResults } from "./compositeImageSearchResults";') &&
+    compositeImageSearchPopover.includes("<CompositeImageSearchResults") &&
+    compositeImageSearchPopover.includes("visibleSearchResults={visibleSearchResults}") &&
+    compositeImageSearchPopover.includes("imageCount={imageCount}") &&
+    compositeImageSearchPopover.includes("onResultWheel={onResultWheel}") &&
+    !compositeImageSearchPopover.includes("const activeResult = visibleSearchResults[activeResultIndex]") &&
+    !compositeImageSearchPopover.includes('import { CompositeImageSearchPreview } from "./compositeImageSearchPreview";') &&
+    !compositeImageSearchPopover.includes("<CompositeImageSearchPreview") &&
+    !compositeImageSearchPopover.includes("event.deltaY") &&
+    !compositeImageSearchPopover.includes("function jumpToActiveResult") &&
+    !compositeImageSearchPopover.includes("Enter / Click") &&
+    compositeImageAtlasPanel.includes("export function CompositeImageAtlasPanel") &&
+    compositeImageAtlasPanel.includes('import { CompositeImageAtlas } from "./compositeImageAtlas";') &&
+    compositeImageAtlasPanel.includes('import { useCompositeImageAtlasController } from "./compositeImageAtlasController";') &&
+    compositeImageAtlasPanel.includes('import { CompositeImagePanelHeader } from "./compositeImagePanel";') &&
+    compositeImageAtlasPanel.includes("<CompositeImagePanelHeader") &&
+    compositeImageAtlasPanel.includes("<CompositeImageAtlas") &&
+    compositeImageAtlasPanel.includes("const atlas = useCompositeImageAtlasController") &&
+    compositeImageSearchResults.includes("export function CompositeImageSearchResults") &&
+    !compositeImageSearchResults.includes("const resultListRef = useRef<HTMLDivElement | null>(null)") &&
+    !compositeImageSearchResults.includes('import { useImageSearchWheelCruise } from "./compositeImageSearchWheel";') &&
+    !compositeImageSearchResults.includes('import { useImageSearchActiveScroll } from "./compositeImageSearchActiveScroll";') &&
+    !compositeImageSearchResults.includes("useImageSearchWheelCruise({") &&
+    !compositeImageSearchResults.includes("useImageSearchActiveScroll({") &&
+    !compositeImageSearchResults.includes("addEventListener") &&
+    !compositeImageSearchResults.includes("removeEventListener") &&
+    !compositeImageSearchResults.includes("handleNativeWheel") &&
+    !compositeImageSearchResults.includes('data-wheel-cruise="native"') &&
+    compositeImageSearchResults.includes("const activeResult = visibleSearchResults[activeResultIndex]") &&
+    compositeImageSearchResults.includes("const dragTargetLabel = resultDragTargetLabel(resultDrag.dragging, activeResult)") &&
+    compositeImageSearchResults.includes("function resultDragTargetLabel") &&
+    !compositeImageSearchResults.includes("function scrollActiveImageResultIntoView") &&
+    !compositeImageSearchResults.includes("scrollIntoView") &&
+    compositeImageSearchActiveScrollSource.includes("export function useImageSearchActiveScroll") &&
+    compositeImageSearchActiveScrollSource.includes("scrollActiveImageResultIntoView(elementRef.current, activeResultIndex)") &&
+    compositeImageSearchActiveScrollSource.includes("function scrollActiveImageResultIntoView") &&
+    compositeImageSearchActiveScrollSource.includes('?.scrollIntoView({ block: "nearest" })') &&
+    compositeImageSearchActiveScrollSource.includes("resultCount") &&
+    compositeImageSearchResults.includes('import { CompositeImageSearchPreview } from "./compositeImageSearchPreview";') &&
+    compositeImageSearchResults.includes("<CompositeImageSearchPreview") &&
+    compositeImageSearchResults.includes("activeResult={activeResult}") &&
+    !compositeImageSearchResults.includes("onWheelCapture={onResultWheel}") &&
+    compositeImageSearchResults.includes("image-jump-results-panel") &&
+    compositeImageSearchResults.includes('import { CompositeImagePanelHeader } from "./compositeImagePanel";') &&
+    compositeImageSearchResults.includes("<CompositeImagePanelHeader") &&
+    !compositeImageSearchResults.includes("image-jump-results-head") &&
+    compositeImageSearchResults.includes(
+      'import { CompositeImageSearchMore, CompositeImageSearchStatus } from "./compositeImageSearchStatus";',
+    ) &&
+    compositeImageSearchResults.includes("<CompositeImageSearchStatus") &&
+    compositeImageSearchResults.includes("hiddenBeforeCount={hiddenBeforeCount}") &&
+    compositeImageSearchResults.includes("hiddenAfterCount={hiddenAfterCount}") &&
+    compositeImageSearchResults.includes("dragging={resultDrag.dragging}") &&
+    compositeImageSearchResults.includes("dragTargetLabel={dragTargetLabel}") &&
+    compositeImageSearchResults.includes("<CompositeImageSearchMore hiddenCount={hiddenCount} />") &&
+    !compositeImageSearchResults.includes("image-jump-window-meter") &&
+    !compositeImageSearchResults.includes("image-jump-empty") &&
+    !compositeImageSearchResults.includes("image-jump-more") &&
+    compositeImageSearchResults.includes('import { CompositeImageSearchResultList } from "./compositeImageSearchResultList";') &&
+    compositeImageSearchResults.includes("<CompositeImageSearchResultList") &&
+    compositeImageSearchResults.includes("resultDragHandlers={resultDrag.resultDragHandlers}") &&
+    compositeImageSearchResults.includes("shouldSuppressClick={resultDrag.shouldSuppressClick}") &&
+    compositeImageSearchResults.includes("onActiveResultIndexChange={onActiveResultIndexChange}") &&
+    compositeImageSearchResultList.includes("export function CompositeImageSearchResultList") &&
+    compositeImageSearchResultList.includes("const resultListRef = useRef<HTMLDivElement | null>(null)") &&
+    compositeImageSearchResultList.includes('import { useImageSearchWheelCruise } from "./compositeImageSearchWheel";') &&
+    compositeImageSearchResultList.includes('import { useImageSearchActiveScroll } from "./compositeImageSearchActiveScroll";') &&
+    compositeImageSearchResultList.includes("useImageSearchWheelCruise({") &&
+    compositeImageSearchResultList.includes("useImageSearchActiveScroll({") &&
+    compositeImageSearchResultList.includes('data-wheel-cruise="native"') &&
+    compositeImageSearchResultList.includes('import { CompositeImageSearchScanRail } from "./compositeImageSearchScanRail";') &&
+    compositeImageSearchResultList.includes("<CompositeImageSearchScanRail") &&
+    !compositeImageSearchResultList.includes("function CompositeImageSearchResultScanRail") &&
+    !compositeImageSearchResultList.includes("image-jump-scan-rail") &&
+    compositeImageSearchScanRail.includes("export function CompositeImageSearchScanRail") &&
+    compositeImageSearchScanRail.includes("--image-result-scan-progress") &&
+    compositeImageSearchScanRail.includes("--image-result-scan-top") &&
+    compositeImageSearchScanRail.includes("data-dragging={dragging ? \"true\" : undefined}") &&
+    compositeImageSearchScanRail.includes('delta === 0 ? "current" : delta > 0 ? "forward" : "backward"') &&
+    compositeImageSearchScanRail.includes("className={`image-jump-scan-rail direction-${direction}`}") &&
+    compositeImageSearchResultList.includes("image-jump-empty") &&
+    compositeImageSearchResultList.includes("visibleSearchResults.map") &&
+    compositeImageSearchResultList.includes("<CompositeImageSearchResultItem") &&
+    compositeImageSearchResultList.includes("windowIndex={index}") &&
+    compositeImageSearchResultList.includes('import { CompositeImageSearchResultItem } from "./compositeImageSearchResultItem";') &&
+    !compositeImageSearchResults.includes("<CompositeImageJumpIdentity") &&
+    !compositeImageSearchResults.includes("<CompositeImageJumpPosition") &&
+    !compositeImageSearchResults.includes("<CompositeImageJumpDelta") &&
+    !compositeImageSearchResults.includes("imageProgressPercent(item.index, imageCount)") &&
+    !compositeImageSearchResults.includes("basename(item.image)") &&
+    !compositeImageSearchResults.includes("<ActionButton") &&
+    compositeImageSearchResults.includes('import { useCompositeImageSearchResultDrag } from "./compositeImageSearchResultDrag";') &&
+    compositeImageSearchResults.includes("const resultDrag = useCompositeImageSearchResultDrag") &&
+    compositeImageSearchResults.includes("resultDrag.resultDragHandlers") &&
+    compositeImageSearchResults.includes("shouldSuppressClick={resultDrag.shouldSuppressClick}") &&
+    !compositeImageSearchResults.includes("image-jump-drag-hint") &&
+    !compositeImageSearchResults.includes("function resultIndexFromPointer") &&
+    !compositeImageSearchResults.includes("function previewResultAtPointer") &&
+    !compositeImageSearchResults.includes("setPointerCapture") &&
+    compositeImageSearchStatus.includes("export function CompositeImageSearchStatus") &&
+    compositeImageSearchStatus.includes("export function CompositeImageSearchMore") &&
+    compositeImageSearchStatus.includes("dragTargetLabel") &&
+    compositeImageSearchStatus.includes("{dragTargetLabel ? <strong>{dragTargetLabel}</strong> : null}") &&
+    compositeImageSearchStatus.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
+    compositeImageSearchStatus.includes('import "./compositeImageSearchStatus.css";') &&
+    compositeImageSearchStatus.includes("image-jump-search-status") &&
+    compositeImageSearchStatus.includes("image-jump-search-window") &&
+    compositeImageSearchStatus.includes("<CompositeMicroMeter") &&
+    compositeImageSearchStatus.includes("beforeProgress") &&
+    compositeImageSearchStatus.includes("afterProgress") &&
+    compositeImageSearchStatus.includes('className="image-jump-search-window-meter"') &&
+    compositeImageSearchStatus.includes('className="image-jump-search-window-meter after"') &&
+    compositeImageSearchStatus.includes("image-jump-search-gesture") &&
+    compositeImageSearchStatus.includes("image-jump-search-more") &&
+    compositeImageSearchStatus.includes('data-dragging={dragging ? "true" : undefined}') &&
+    compositeImageSearchResultDragSource.includes("export function useCompositeImageSearchResultDrag") &&
+    compositeImageSearchResultDragSource.includes('import { usePointerSweepSelection } from "./compositePointerSweep";') &&
+    compositeImageSearchResultDragSource.includes("type SearchResultSweepValue") &&
+    compositeImageSearchResultDragSource.includes("resultValueFromPointer") &&
+    compositeImageSearchResultDragSource.includes("usePointerSweepSelection") &&
+    compositeImageSearchResultDragSource.includes("resolveValueFromPointer: resultValueFromPointer") &&
+    compositeImageSearchResultDragSource.includes("pointerSweepHandlers") &&
+    compositeImageSearchResultDragSource.includes("shouldSuppressClick") &&
+    !compositeImageSearchResultDragSource.includes("useRef") &&
+    !compositeImageSearchResultDragSource.includes("useState") &&
+    !compositeImageSearchResultDragSource.includes("setPointerCapture") &&
+    !compositeImageSearchResultDragSource.includes("suppressClickRef") &&
+    !compositeImageSearchResults.includes("data-result-window-index={index}") &&
+    !compositeImageSearchResults.includes('role="option"') &&
+    !compositeImageSearchResults.includes("aria-selected={active}") &&
+    !compositeImageSearchResults.includes("onFocus={() => onActiveResultIndexChange(index)}") &&
+    !compositeImageSearchResults.includes("image-jump-result-position") &&
+    !compositeImageSearchResults.includes("image-jump-result-delta") &&
+    !compositeImageSearchResults.includes("onActiveResultIndexChange(index)") &&
+    compositeImageSearchResults.includes('import "./compositeImageSearchResults.css";') &&
+    compositeImageJumpItem.includes("export function CompositeImageJumpSummary") &&
+    compositeImageJumpItem.includes("export function CompositeImageJumpIdentity") &&
+    compositeImageJumpItem.includes("export function CompositeImageJumpPosition") &&
+    compositeImageJumpItem.includes("export function CompositeImageJumpDelta") &&
+    compositeImageJumpItem.includes("canShowPosition") &&
+    compositeImageJumpItem.includes("canShowDelta") &&
+    compositeImageJumpItem.includes("export function imageJumpDeltaLabel") &&
+    compositeImageJumpItem.includes("basename(item.image)") &&
+    compositeImageJumpItem.includes("imageProgressPercent(item.index, imageCount)") &&
+    compositeImageJumpItem.includes('import "./compositeImageJumpItem.css";') &&
+    compositeImageSearchResultItem.includes("export function CompositeImageSearchResultItem") &&
+    compositeImageSearchResultItem.includes('import { CompositeImageJumpSummary } from "./compositeImageJumpItem";') &&
+    compositeImageSearchResultItem.includes("<ActionButton") &&
+    compositeImageSearchResultItem.includes('role="option"') &&
+    compositeImageSearchResultItem.includes("aria-selected={active}") &&
+    compositeImageSearchResultItem.includes("data-result-window-index={windowIndex}") &&
+    compositeImageSearchResultItem.includes("data-result-direction={direction}") &&
+    compositeImageSearchResultItem.includes("onMouseEnter={() => onPreview(windowIndex)}") &&
+    compositeImageSearchResultItem.includes("onFocus={() => onPreview(windowIndex)}") &&
+    compositeImageSearchResultItem.includes("<CompositeImageJumpSummary") &&
+    compositeImageSearchResultItem.includes("currentIndex={imageIndex}") &&
+    compositeImageSearchResultItem.includes("showPosition") &&
+    compositeImageSearchResultItem.includes("showDelta") &&
+    !compositeImageSearchResultItem.includes("<CompositeImageJumpIdentity") &&
+    !compositeImageSearchResultItem.includes("<CompositeImageJumpPosition") &&
+    !compositeImageSearchResultItem.includes("<CompositeImageJumpDelta") &&
+    compositeImageSearchResultItem.includes('import "./compositeImageSearchResultItem.css";') &&
+    compositeImageSearchPreview.includes("export function CompositeImageSearchPreview") &&
+    compositeImageSearchPreview.includes("<ActionButton") &&
+    compositeImageSearchPreview.includes('import { CompositeImageJumpSummary } from "./compositeImageJumpItem";') &&
+    compositeImageSearchPreview.includes('<CompositeImageJumpSummary item={activeResult} badge="Active" compact />') &&
+    !compositeImageSearchPreview.includes("<CompositeImageJumpIdentity") &&
+    !compositeImageSearchPreview.includes("basename(activeResult.image)") &&
+    compositeImageSearchPreview.includes("Enter / Click") &&
+    compositeImageSearchPreview.includes('import "./compositeImageSearchPreview.css";') &&
+    compositeImageSearchPopover.includes("<CompositeImageAtlasPanel") &&
+    !compositeImageSearchPopover.includes("useCompositeImageAtlasController") &&
+    !compositeImageSearchPopover.includes("{...atlas}") &&
+    compositeImageAtlasPanel.includes("useCompositeImageAtlasController") &&
+    compositeImageAtlasPanel.includes("<CompositeImageAtlas") &&
+    compositeImageAtlasPanel.includes("{...atlas}") &&
+    compositeImageSearchPopover.includes('import "./compositeImageSearchPopover.css";') &&
+    compositeImageAtlasControllerSource.includes("export function useCompositeImageAtlasController") &&
+    compositeImageAtlasControllerSource.includes("atlasDragging") &&
+    compositeImageAtlasControllerSource.includes('import { usePointerSweepSelection } from "./compositePointerSweep";') &&
+    compositeImageAtlasControllerSource.includes("const sweep = usePointerSweepSelection") &&
+    compositeImageAtlasControllerSource.includes("binFromPointer") &&
+    compositeImageAtlasControllerSource.includes("[data-image-map-bin-key]") &&
+    compositeImageAtlasControllerSource.includes("atlasSweepHandlers: sweep.pointerSweepHandlers") &&
+    compositeImageAtlasControllerSource.includes("shouldSuppressAtlasClick: sweep.shouldSuppressClick") &&
+    !compositeImageAtlasControllerSource.includes("window.addEventListener") &&
+    !compositeImageAtlasControllerSource.includes("function startAtlasDrag") &&
+    !compositeImageAtlasControllerSource.includes("function moveAtlasDrag") &&
+    compositeImageAtlasControllerSource.includes("function handleAtlasBinKeyDown") &&
+    compositeImageAtlasControllerSource.includes('event.key === "ArrowRight"') &&
+    compositeImageAtlas.includes("export function CompositeImageAtlas") &&
+    compositeImageAtlas.includes("hoveredMapBin") &&
+    compositeImageAtlas.includes("atlasDragging") &&
+    compositeImageAtlas.includes("image-jump-atlas") &&
+    compositeImageAtlas.includes("image-jump-map") &&
+    compositeImageAtlas.includes("image-map-bin") &&
+    compositeImageAtlas.includes("onPointerDown={atlasSweepHandlers.onPointerDown}") &&
+    compositeImageAtlas.includes("onPointerMove={atlasSweepHandlers.onPointerMove}") &&
+    compositeImageAtlas.includes("onPointerUp={atlasSweepHandlers.onPointerUp}") &&
+    compositeImageAtlas.includes("onPointerCancel={atlasSweepHandlers.onPointerCancel}") &&
+    compositeImageAtlas.includes("data-image-map-bin-key={bin.key}") &&
+    compositeImageAtlas.includes("shouldSuppressAtlasClick()") &&
+    compositeImageAtlas.includes("onPointerEnter={() => onAtlasBinPointerEnter(bin)}") &&
+    compositeImageAtlas.includes("onPointerMove={() => onAtlasBinPointerMove(bin)}") &&
+    compositeImageAtlas.includes("onAtlasBinClick(bin)") &&
+    compositeImageAtlas.includes("onKeyDown={(event) => onAtlasBinKeyDown(bin, event)}") &&
+    !compositeImageAtlas.includes("useState") &&
+    !compositeImageAtlas.includes("setHoveredMapBin") &&
+    !compositeImageAtlas.includes("onJump(bin.midpoint)") &&
+    compositeImageAtlas.includes('import "./compositeImageAtlas.css";') &&
+    compositeImageNavigatorKeyboard.includes("export function useCompositeImageKeyboard") &&
+    compositeImageNavigatorKeyboard.includes('event.key === "/"') &&
+    compositeImageNavigatorKeyboard.includes('event.key === "ArrowLeft"') &&
+    compositeImageNavigatorKeyboard.includes('event.key === "ArrowRight"') &&
+    compositeImageNavigatorKeyboard.includes('event.key === "PageUp"') &&
+    compositeImageNavigatorKeyboard.includes('event.key === "PageDown"') &&
+    compositeImageNavigatorKeyboard.includes("export function focusCompositeImageSearchInput") &&
+    compositeImageNavigatorKeyboard.includes('from "./keyboardTargets"') &&
+    !compositeImageNavigatorKeyboard.includes("function isEditableTarget") &&
+    !compositeImageNavigator.includes("image-interaction-hints") &&
+    !compositeImageNavigator.includes("Right click: 对象菜单") &&
+    !compositeImageSearchPopover.includes("Hover 预览") &&
+    compositeImageNavigationModelSource.includes("export const IMAGE_RESULT_LIMIT") &&
+    compositeImageNavigationModelSource.includes("export const IMAGE_MAP_BIN_COUNT") &&
+    compositeImageNavigationModelSource.includes("export const NEIGHBOR_RADIUS") &&
+    compositeImageNavigationModelSource.includes("export type ImageResultWindow") &&
+    compositeImageNavigationModelSource.includes("export type ImageMapBin") &&
+    compositeImageNavigationModelSource.includes("export function filterImageKeys") &&
+    compositeImageNavigationModelSource.includes("export function imageResultWindow") &&
+    compositeImageNavigationModelSource.includes("export function activeImageResultIndex") &&
+    compositeImageNavigationModelSource.includes("export function nearbyImageKeys") &&
+    compositeImageNavigationModelSource.includes("export function buildImageMapBins") &&
+    compositeImageNavigationModelSource.includes("export function clampImageIndex") &&
+    compositeImageNavigationModelSource.includes("export function imageProgressPercent") &&
+    compositeImageNavigationModelSource.includes("export function previewFromScrubPointer") &&
+    compositeImageNavigationModelSource.includes("delta: index - clampImageIndex(activeIndex, imageKeys.length)") &&
+    !compositeImageNavigationControllerSource.includes("IMAGE_RESULT_LIMIT") &&
+    !compositeImageNavigationControllerSource.includes("buildImageMapBins") &&
+    !compositeImageNavigationControllerSource.includes("activeResultIndex") &&
+    !compositeImageNavigationControllerSource.includes("scrubPreview") &&
+    !compositeImageNavigationControllerSource.includes("previewFromScrubPointer") &&
+    !compositeImageNavigationControllerSource.includes("handleScrubPointerDown") &&
+    !compositeImageNavigationControllerSource.includes("handleScrubPointerMove") &&
+    !compositeImageNavigationControllerSource.includes("handleScrubPointerLeave") &&
+    !compositeImageNavigator.includes("function filterImageKeys") &&
+    !compositeImageNavigator.includes("function nearbyImageKeys") &&
+    !compositeImageNavigator.includes("function clampImageIndex") &&
+    !compositeImageNavigator.includes("function indexFromScrubPointer") &&
+    !compositeImageNavigator.includes("function handleScrubPointerDown") &&
+    !compositeImageNavigator.includes("function handleScrubPointerMove") &&
+    !compositeImageNavigator.includes("function moveActiveResult") &&
+    !compositeImageNavigator.includes("useCompositeImageKeyboard") &&
+    !compositeImageNavigator.includes("IMAGE_RESULT_LIMIT") &&
+    !compositeImageNavigator.includes("buildImageMapBins") &&
+    !compositeImageNavigator.includes("previewFromScrubPointer") &&
+    !compositeImageNavigator.includes("activeResultIndex") &&
+    !compositeImageNavigator.includes("scrubPreview") &&
+    !compositeImageNavigator.includes("<RangeSettingControl") &&
+    !compositeImageNavigator.includes("<CompositeImageAtlas") &&
+    !compositeImageNavigator.includes("image-jump-popover") &&
+    !compositeImageNavigator.includes("image-scrub-track") &&
+    !compositeImageNavigator.includes("<SearchInputControl") &&
+    !compositeImageNavigator.includes("<TextInputControl") &&
+    !compositeImageNavigator.includes("<IconActionButton") &&
+    !compositeImageTimeline.includes("image-filmstrip") &&
+    !compositeImageTimeline.includes("image-filmstrip-item") &&
+    !compositeImageSearchPopover.includes("image-filmstrip") &&
+    !compositeImageTimeline.includes("<ActionButton") &&
+    !compositeImageNavigator.includes('event.key === "/"') &&
+    !compositeImageNavigator.includes("hoveredMapBin") &&
+    !compositeImageNavigator.includes("onPointerEnter={() => setHoveredMapBin(bin)}") &&
+    !/<button\b/.test(compositeImageNavigator) &&
+    !/<input\b/.test(compositeImageNavigator),
+  "composite image navigator must compose command search, atlas navigation, nearby navigation, mouse scrubbing, keyboard selection, and wheel stepping through focused subcomponents",
+);
+const compositeComponentStyleSources = [
+  compositeReportStyleSource,
+  compositeComposerDockStyleSource,
+  compositeComposerDrawerStyleSource,
+  compositeMicroMeterStyleSource,
+  compositePanelPrimitivesStyleSource,
+  compositeReportPanelStyleSource,
+  compositeReportRunPoolStyleSource,
+  compositeReportLayerPlanStyleSource,
+  compositeImageNavigatorStyleSource,
+  compositeImageJumpControlStyleSource,
+  compositeImageSearchBarStyleSource,
+  compositeImagePanelStyleSource,
+  compositeImageJumpItemStyleSource,
+  compositeImageSearchResultItemStyleSource,
+  compositeInteractionPaletteStyleSource,
+  compositeImageAtlasStyleSource,
+  compositeImageTimelineStyleSource,
+  compositeImageIndexMeterStyleSource,
+  compositeImageNearbyRailStyleSource,
+  compositeImageSearchPopoverStyleSource,
+  compositeImageSearchResultsStyleSource,
+  compositeImageSearchPreviewStyleSource,
+  compositeImageSearchStatusStyleSource,
+  compositeReportStageStyleSource,
+  compositeStageWorkbenchStyleSource,
+  compositeLayerFocusToolbarStyleSource,
+  compositeObjectHudStyleSource,
+  compositeObjectContextMenuStyleSource,
+  compositeOverlayStageStyleSource,
+  compositeLayerCanvasStyleSource,
+  compositeCanvasOverlayStyleSource,
+  compositeCanvasGestureHudStyleSource,
+  compositeCanvasPointerReticleStyleSource,
+  compositeLayerInspectorStyleSource,
+  compositeLayerObjectStripStyleSource,
+  compositeSplitStageStyleSource,
+  compositeSplitPaneStyleSource
+];
+const rawCompositeControlGeometryPattern =
+  /(?:\b(?:gap|padding):\s*(?:2|3|4|5|6|7|8|9|10|12)px\b|\bmin-height:\s*(?:22|24|30|40)px\b|\bborder-radius:\s*(?:2|999)px\b)/;
+const compositeImageNavigationInteractionStyles = [
+  compositeImageScrubTrackStyleSource,
+  compositeImageNearbyRailStyleSource,
+  compositeImageJumpItemStyleSource
+];
+assert(
+  compositeImageNavigator.includes('import "./compositeImageNavigator.css";') &&
+    compositeImageJumpControl.includes('import "./compositeImageJumpControl.css";') &&
+    compositeImageSearchBar.includes('import "./compositeImageSearchBar.css";') &&
+    compositeInteractionPalette.includes('import "./compositeInteractionPalette.css";') &&
+    compositeImageTimeline.includes('import "./compositeImageTimeline.css";') &&
+    compositeImageNearbyRail.includes('import "./compositeImageNearbyRail.css";') &&
+    compositeImageSearchPopover.includes('import "./compositeImageSearchPopover.css";') &&
+    compositeImageNavigatorStyleSource.includes(".composite-image-navigator") &&
+    compositeImageJumpControlStyleSource.includes(".image-jump-control") &&
+    compositeImageJumpControlStyleSource.includes(".image-jump-step-group") &&
+    compositeImageJumpControlStyleSource.includes(".image-jump-step.icon-button") &&
+    compositeImageJumpControlStyleSource.includes(".image-jump-field") &&
+    compositeImageSearchBarStyleSource.includes(".image-navigator-search-row") &&
+    compositeImageSearchBarStyleSource.includes(".image-navigator-search") &&
+    compositeImageSearchBarStyleSource.includes(".image-navigator-count") &&
+    compositeInteractionPaletteStyleSource.includes(".composite-interaction-palette") &&
+    compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool") &&
+    compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button") &&
+    compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button:disabled") &&
+    compositeInteractionPaletteStyleSource.includes('.interaction-palette-tool[data-tool="reset"]') &&
+    !compositeInteractionPaletteStyleSource.includes("display: none") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-rail") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-axis") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.active") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.adjacent") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.context") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-rail.dragging") &&
+    compositeImageNearbyRailStyleSource.includes(".image-nearby-drag-hint") &&
+    compositeImageNearbyRailStyleSource.includes("cursor: grab") &&
+    compositeImageNearbyRailStyleSource.includes("cursor: grabbing") &&
+    compositePanelPrimitivesStyleSource.includes(".composite-panel-head") &&
+    compositePanelPrimitivesStyleSource.includes(".composite-panel-head.framed") &&
+    compositePanelPrimitivesStyleSource.includes(".composite-panel-action") &&
+    compositePanelPrimitivesStyleSource.includes(".composite-panel-empty") &&
+    !compositeImagePanelStyleSource.includes(".image-panel-head {") &&
+    !compositeImagePanelStyleSource.includes(".image-panel-head-action {") &&
+    compositeImagePanelStyleSource.includes(".image-panel-head-action kbd") &&
+    compositeImageJumpItemStyleSource.includes(".image-jump-identity") &&
+    compositeImageJumpItemStyleSource.includes(".image-jump-identity-main") &&
+    compositeImageJumpItemStyleSource.includes(".image-jump-position") &&
+    compositeImageJumpItemStyleSource.includes("--image-result-position") &&
+    compositeImageJumpItemStyleSource.includes(".image-jump-delta") &&
+    compositeImageSearchResultItemStyleSource.includes(".image-jump-result") &&
+    compositeImageSearchResultItemStyleSource.includes(".image-jump-result.direction-forward") &&
+    compositeImageSearchResultItemStyleSource.includes(".image-jump-result.direction-backward") &&
+    compositeImageSearchResultItemStyleSource.includes(".image-jump-result.current") &&
+    compositeImageSearchResultItemStyleSource.includes("scroll-margin-block") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result {") &&
+    compositeImageSearchPopoverStyleSource.includes(".image-jump-popover") &&
+    !compositeImageSearchPopoverStyleSource.includes(".image-jump-command-head") &&
+    compositeImageSearchPopoverStyleSource.includes(".image-jump-atlas-panel") &&
+    compositeImageSearchPopoverStyleSource.includes(".image-jump-popover-body") &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-results-panel") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-results-head") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-window-meter") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-drag-hint") &&
+    compositeImageSearchResultsStyleSource.includes("overscroll-behavior: contain") &&
+    compositeImageSearchResultsStyleSource.includes("scrollbar-width: thin") &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-scan-rail") &&
+    compositeImageSearchResultsStyleSource.includes("--image-result-scan-top") &&
+    compositeImageSearchResultsStyleSource.includes("top: var(--image-result-scan-top, 50%)") &&
+    !compositeImageSearchResultsStyleSource.includes("translateY(calc(var(--image-result-scan-progress") &&
+    compositeImageSearchResultsStyleSource.includes('.image-jump-scan-rail[data-dragging="true"] span') &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-scan-rail.direction-forward") &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-scan-rail.direction-backward") &&
+    !compositeImageSearchResultItemStyleSource.includes(".image-jump-scan-rail") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-status") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-window") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-window-meter") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-window-meter.after i") &&
+    !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window span") &&
+    !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window strong") &&
+    !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window b") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-gesture") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-gesture strong") &&
+    compositeImageSearchStatusStyleSource.includes("font-variant-numeric: tabular-nums") &&
+    compositeImageSearchStatusStyleSource.includes(
+      '.image-jump-search-status[data-dragging="true"] .image-jump-search-gesture',
+    ) &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-results.dragging") &&
+    compositeImageSearchResultsStyleSource.includes("cursor: grab") &&
+    compositeImageSearchResultsStyleSource.includes("cursor: grabbing") &&
+    compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview") &&
+    !compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview > strong") &&
+    !compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview b") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result-index") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result-main") &&
+    !compositeImageSearchPopoverStyleSource.includes(".image-jump-active-preview") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-active-preview") &&
+    compositeImageSearchResultsStyleSource.includes(".image-jump-empty") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-more") &&
+    compositeImageSearchStatusStyleSource.includes(".image-jump-search-more") &&
+    compositeImageAtlasStyleSource.includes(".image-jump-atlas") &&
+    compositeImageAtlasStyleSource.includes(".image-jump-map") &&
+    compositeImageAtlasStyleSource.includes(".image-map-bin") &&
+    compositeImageAtlasStyleSource.includes("--match-density") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result,") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result-position") &&
+    !compositeImageSearchResultsStyleSource.includes("--image-result-position") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-jump-result-delta") &&
+    compositeImageIndexMeter.includes("export function CompositeImageIndexMeter") &&
+    compositeImageIndexMeter.includes("imageProgressPercent") &&
+    compositeImageIndexMeter.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
+    compositeImageIndexMeter.includes("<CompositeMicroMeter") &&
+    compositeImageIndexMeter.includes("progress={progress}") &&
+    !compositeImageIndexMeter.includes('import type { CSSProperties } from "react";') &&
+    !compositeImageIndexMeter.includes("--image-progress") &&
+    compositeImageIndexMeterStyleSource.includes(".image-index-meter") &&
+    !compositeImageIndexMeterStyleSource.includes("--image-progress") &&
+    !compositeImageIndexMeterStyleSource.includes("grid-template-columns: auto auto minmax(0, 1fr)") &&
+    compositeImageIndexMeterStyleSource.includes(".image-index-meter i") &&
+    compositeImageScrubTrackStyleSource.includes(".image-scrub-track") &&
+    compositeImageScrubTrackStyleSource.includes(".image-scrub-preview") &&
+    compositeImageScrubTrackStyleSource.includes(".image-scrub-preview em") &&
+    compositeThemeStyleSource.includes("--composite-interaction-wash") &&
+    compositeThemeStyleSource.includes("--composite-overlay-line") &&
+    compositeThemeStyleSource.includes("--composite-overlay-shadow") &&
+    compositeThemeStyleSource.includes("--composite-scrub-track-height") &&
+    compositeThemeStyleSource.includes("--composite-scrub-tick-step") &&
+    compositeThemeStyleSource.includes("--composite-scrub-scroll-margin-bottom") &&
+    compositeThemeStyleSource.includes("--composite-nearby-column-min") &&
+    compositeThemeStyleSource.includes("--composite-accent-strong") &&
+    compositeThemeStyleSource.includes("--composite-atlas-background") &&
+    compositeThemeStyleSource.includes("--composite-atlas-bin-base") &&
+    compositeThemeStyleSource.includes("--composite-atlas-bin-min-height") &&
+    compositeThemeStyleSource.includes("--composite-atlas-bin-density-height") &&
+    compositeThemeStyleSource.includes("--composite-position-wash") &&
+    compositeThemeStyleSource.includes("--composite-position-glow") &&
+    compositeThemeStyleSource.includes("--composite-position-track-height") &&
+    compositeImageAtlasStyleSource.includes("background: var(--composite-atlas-background)") &&
+    compositeImageAtlasStyleSource.includes(
+      "grid-template-columns: repeat(auto-fit, minmax(var(--composite-atlas-bin-min), 1fr))",
+    ) &&
+    compositeImageAtlasStyleSource.includes("min-height: var(--composite-atlas-bin-min-height)") &&
+    compositeImageAtlasStyleSource.includes("height: calc(var(--match-density) * var(--composite-atlas-bin-density-height))") &&
+    compositeImageJumpItemStyleSource.includes("height: var(--composite-position-track-height)") &&
+    compositeImageJumpItemStyleSource.includes("box-shadow: var(--composite-position-glow)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeImageAtlasStyleSource) &&
+    compositeImageScrubTrackStyleSource.includes("height: var(--composite-scrub-track-height)") &&
+    compositeImageScrubTrackStyleSource.includes("scroll-margin-bottom: var(--composite-scrub-scroll-margin-bottom)") &&
+    compositeImageScrubTrackStyleSource.includes("box-shadow: var(--composite-overlay-shadow)") &&
+    compositeImageNearbyRailStyleSource.includes(
+      "grid-auto-columns: minmax(var(--composite-nearby-column-min), 1fr)",
+    ) &&
+    compositeImageNearbyRailStyleSource.includes("box-shadow: var(--composite-overlay-shadow)") &&
+    compositeImageNavigationInteractionStyles.every(
+      (source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source),
+    ) &&
+    !compositeImageTimelineStyleSource.includes(".image-scrub-track") &&
+    !compositeImageTimelineStyleSource.includes(".image-scrub-preview") &&
+    [
+      compositeImageNavigatorStyleSource,
+      compositeImageJumpControlStyleSource,
+      compositeImageAtlasStyleSource,
+      compositeImageIndexMeterStyleSource,
+      compositeImageScrubTrackStyleSource,
+      compositeImageTimelineStyleSource,
+      compositeImageNearbyRailStyleSource,
+      compositeImageSearchBarStyleSource,
+      compositeImagePanelStyleSource,
+      compositeImageJumpItemStyleSource,
+      compositeImageSearchResultItemStyleSource,
+      compositeImageSearchPopoverStyleSource,
+      compositeImageSearchResultsStyleSource,
+      compositeImageSearchPreviewStyleSource,
+      compositeInteractionPaletteStyleSource
+    ].every((source) => !/font-size:\s*\d/.test(source)) &&
+    !compositeImageTimelineStyleSource.includes(".image-filmstrip") &&
+    !compositeImageTimelineStyleSource.includes(".image-filmstrip-item") &&
+    !compositeImageSearchPopoverStyleSource.includes(".image-filmstrip") &&
+    !compositeImageSearchResultsStyleSource.includes(".image-filmstrip") &&
+    !compositeImageNavigatorStyleSource.includes(".image-navigator-search-row") &&
+    !compositeImageNavigatorStyleSource.includes(".image-navigator-search") &&
+    !compositeImageNavigatorStyleSource.includes(".image-navigator-count") &&
+    !compositeImageNavigatorStyleSource.includes(".image-jump-field") &&
+    !compositeImageNavigatorStyleSource.includes(".image-jump-input") &&
+    !compositeImageNavigatorStyleSource.includes(".image-jump-popover") &&
+    !compositeImageNavigatorStyleSource.includes(".image-filmstrip") &&
+    !compositeImageNavigatorStyleSource.includes(".image-scrub-track") &&
+    !compositeImageTimelineStyleSource.includes(".image-index-meter") &&
+    !compositeImageNavigatorStyleSource.includes(".image-jump-atlas") &&
+    !compositeImageNavigatorStyleSource.includes(".image-map-bin") &&
+    !compositeImageNavigatorStyleSource.includes(".composite-interaction-palette") &&
+    !compositeReportStyleSource.includes(".composite-image-navigator") &&
+    compositeComposerDockStyleSource.includes(".composite-composer-dock") &&
+    compositeComposerDockStyleSource.includes(".composer-dock-meter") &&
+    compositeComposerDockStyleSource.includes(".composer-dock-grip") &&
+    compositeComposerDrawerStyleSource.includes(".composite-sidebar-drawer") &&
+    compositeComposerDrawerStyleSource.includes(".composite-sidebar-grid") &&
+    !compositeReportPanelStyleSource.includes(".report-panel-head") &&
+    !compositeReportPanelStyleSource.includes(".report-panel-actions") &&
+    !compositeReportPanelStyleSource.includes(".report-empty-state") &&
+    !compositeReportPanelStyleSource.includes(".report-layer-name") &&
+    compositeReportRunPoolStyleSource.includes(".report-run-pool") &&
+    compositeReportRunPoolStyleSource.includes(".report-run-card") &&
+    compositeReportRunPoolStyleSource.includes(".report-run-filter-tabs") &&
+    !compositeReportRunPoolStyleSource.includes(".report-layer-tabs") &&
+    compositeReportLayerPlanStyleSource.includes(".report-layer-plan") &&
+    compositeReportLayerPlanStyleSource.includes(".report-layer-row") &&
+    compositeReportLayerPlanStyleSource.includes(".report-layer-name span") &&
+    !compositeComposerDockStyleSource.includes(".report-run-pool") &&
+    !compositeComposerDrawerStyleSource.includes(".report-run-card") &&
+    !compositeReportRunPoolStyleSource.includes(".report-layer-row") &&
+    !compositeReportLayerPlanStyleSource.includes(".report-run-card") &&
+    !compositeReportStyleSource.includes(".composite-composer-dock") &&
+    !compositeReportStyleSource.includes(".composite-sidebar-drawer") &&
+    !compositeReportStyleSource.includes(".report-run-pool") &&
+    !compositeReportStyleSource.includes(".report-layer-plan") &&
+    compositeReportStyleSource.includes(".composite-report-shell.sidebar-open") &&
+    compositeReportStyleSource.includes(".composite-report-shell.sidebar-collapsed") &&
+    compositeReportStyleSource.includes(".composite-sidebar-backdrop") &&
+    compositeThemeStyleSource.includes("--composite-page-surface") &&
+    compositeThemeStyleSource.includes("--composite-shell-line") &&
+    compositeThemeStyleSource.includes("--composite-sidebar-backdrop-z") &&
+    compositeThemeStyleSource.includes("--composite-sidebar-backdrop-hover") &&
+    compositeThemeStyleSource.includes("--composite-shell-mobile-min-height") &&
+    compositeReportStyleSource.includes("z-index: var(--composite-sidebar-backdrop-z)") &&
+    compositeReportStyleSource.includes("background: var(--composite-page-surface)") &&
+    compositeReportStyleSource.includes("border-bottom: 1px solid var(--composite-shell-line)") &&
+    compositeReportStyleSource.includes("background: var(--composite-sidebar-backdrop)") &&
+    compositeReportStyleSource.includes("inset: var(--composite-dock-rail-size) 0 0 0") &&
+    compositeReportStyleSource.includes(
+      "grid-template-columns: var(--composite-dock-rail-size) minmax(0, 1fr)",
+    ) &&
+    !compositeReportStyleSource.includes("grid-template-columns: 48px minmax(0, 1fr)") &&
+    !compositeReportStyleSource.includes("minmax(560px, 680px)") &&
+    !compositeReportStyleSource.includes("minmax(420px, 48vw)") &&
+    compositeComposerDrawerStyleSource.includes("position: absolute") &&
+    compositeComposerDrawerStyleSource.includes("inset: 0 auto 0 var(--composite-dock-rail-size)") &&
+    compositeComposerDrawerStyleSource.includes(
+      "width: min(var(--composite-drawer-width), calc(100% - var(--composite-dock-rail-size)))",
+    ) &&
+    compositeComposerDockStyleSource.includes("width: var(--composite-dock-rail-size)") &&
+    compositeThemeStyleSource.includes("--composite-dock-rail-size") &&
+    compositeThemeStyleSource.includes("--composite-drawer-width") &&
+    !compositeComposerDrawerStyleSource.includes("calc(100% - 48px)") &&
+    compositeComposerDrawerStyleSource.includes("box-shadow: 16px 0 36px") &&
+    !appThemeStyleSource.includes(".suite-report-page") &&
+    !appThemeStyleSource.includes(".suite-report-grid") &&
+    !appThemeStyleSource.includes(".suite-panel") &&
+    !appThemeStyleSource.includes(".composite-view-card") &&
+    !appThemeStyleSource.includes(".composite-image-frame") &&
+    !appThemeStyleSource.includes(".composite-instance-box") &&
+    !appThemeStyleSource.includes(".composite-stage {") &&
+    compositeReportStage.includes('import "./compositeReportStage.css";') &&
+    compositeStageWorkbench.includes('import "./compositeStageWorkbench.css";') &&
+    compositeLayerFocusToolbar.includes('import "./compositeLayerFocusToolbar.css";') &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-workbench") &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-focus") &&
+    compositeLayerFocusToolbarStyleSource.includes(".composite-workbench-toolbar") &&
+    compositeLayerFocusToolbarStyleSource.includes(".composite-layer-focus-strip") &&
+    compositeLayerFocusToolbarStyleSource.includes("overscroll-behavior: contain") &&
+    !compositeReportStageStyleSource.includes(".composite-workbench-toolbar") &&
+    !compositeReportStageStyleSource.includes(".composite-layer-focus-strip") &&
+    compositeObjectHudStyleSource.includes(".composite-object-hud") &&
+    compositeObjectHudStyleSource.includes(".object-hud-actions") &&
+    compositeThemeStyleSource.includes("--composite-object-hud-background") &&
+    compositeThemeStyleSource.includes("--composite-object-hud-fp-background") &&
+    compositeThemeStyleSource.includes("--composite-object-menu-background") &&
+    compositeThemeStyleSource.includes("--composite-object-menu-shadow") &&
+    compositeThemeStyleSource.includes("--composite-object-menu-safe-height") &&
+    compositeThemeStyleSource.includes("--composite-object-menu-safe-right") &&
+    compositeObjectHudStyleSource.includes("background: var(--composite-object-hud-background)") &&
+    compositeObjectHudStyleSource.includes("background: var(--composite-object-hud-fp-background)") &&
+    compositeObjectHudStyleSource.includes("color: var(--composite-object-clear)") &&
+    !compositeObjectHudStyleSource.includes(".object-hud-cruise") &&
+    !compositeObjectHudStyleSource.includes("--object-progress") &&
+    !compositeObjectHudStyleSource.includes("width: calc(var(--object-progress) * 100%)") &&
+    compositeMicroMeterStyleSource.includes(".composite-micro-meter") &&
+    compositeMicroMeterStyleSource.includes(".composite-micro-meter.has-value") &&
+    compositeMicroMeterStyleSource.includes("--composite-meter-progress") &&
+    compositeMicroMeterStyleSource.includes("width: calc(var(--composite-meter-progress) * 100%)") &&
+    compositeObjectHudStyleSource.includes(".composite-object-hud.status-fp") &&
+    compositeObjectHudStyleSource.includes(".composite-object-hud.status-fn") &&
+    compositeObjectContextMenuStyleSource.includes(".composite-object-context-menu") &&
+    compositeObjectContextMenuStyleSource.includes(".object-context-actions") &&
+    compositeObjectContextMenuStyleSource.includes(
+      "top: min(var(--context-y), calc(100vh - var(--composite-object-menu-safe-height)))",
+    ) &&
+    compositeObjectContextMenuStyleSource.includes(
+      "left: min(var(--context-x), calc(100vw - var(--composite-object-menu-safe-right)))",
+    ) &&
+    compositeObjectContextMenuStyleSource.includes("box-shadow: var(--composite-object-menu-shadow)") &&
+    compositeObjectContextMenuStyleSource.includes(".composite-object-context-menu.status-fp") &&
+    [
+      compositeObjectHudStyleSource,
+      compositeObjectContextMenuStyleSource
+    ].every((source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source)) &&
+    !compositeReportStageStyleSource.includes(".composite-object-hud") &&
+    !compositeReportStageStyleSource.includes(".composite-object-context-menu") &&
+    !compositeReportStage.includes("function CompositeObjectHud") &&
+    !compositeReportStage.includes("function CompositeObjectContextMenu") &&
+    !compositeReportStageStyleSource.includes(".composite-report-workbench") &&
+    !compositeReportStageStyleSource.includes(".composite-report-focus") &&
+    compositeOverlayStageStyleSource.includes(".composite-overlay-stage") &&
+    compositeOverlayStageStyleSource.includes(".composite-layer-legend") &&
+    compositeLayerCanvasStyleSource.includes(".composite-workbench-canvas") &&
+    compositeLayerCanvasStyleSource.includes("position: relative") &&
+    compositeLayerCanvasStyleSource.includes(".composite-workbench-canvas.small") &&
+    compositeLayerCanvasStyleSource.includes('.composite-workbench-canvas[data-object-wheel-cruise="modified"]') &&
+    compositeLayerCanvasStyleSource.includes('.composite-workbench-canvas[data-overlay-surface-pan="modified"] .image-stage') &&
+    compositeLayerCanvasStyleSource.includes("touch-action: none") &&
+    compositeLayerCanvasStyleSource.includes("overscroll-behavior: contain") &&
+    compositeLayerCanvasStyleSource.includes('[data-pointer-reticle="active"]') &&
+    compositeThemeStyleSource.includes("--composite-canvas-line") &&
+    compositeThemeStyleSource.includes("--composite-canvas-grid-line") &&
+    compositeThemeStyleSource.includes("--composite-canvas-grid-line-active") &&
+    compositeThemeStyleSource.includes("--composite-canvas-grid-size") &&
+    compositeThemeStyleSource.includes("--composite-canvas-small-min-height") &&
+    compositeLayerCanvasStyleSource.includes("border: 1px solid var(--composite-canvas-line)") &&
+    compositeLayerCanvasStyleSource.includes("var(--composite-canvas-grid-line)") &&
+    compositeLayerCanvasStyleSource.includes("var(--composite-canvas-grid-line-active)") &&
+    compositeLayerCanvasStyleSource.includes(
+      "background-size: var(--composite-canvas-grid-size) var(--composite-canvas-grid-size)",
+    ) &&
+    compositeLayerCanvasStyleSource.includes("min-height: var(--composite-canvas-small-min-height)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeLayerCanvasStyleSource) &&
+    compositeCanvasGestureHudStyleSource.includes(".composite-canvas-gesture-hud") &&
+    !compositeCanvasGestureHudStyleSource.includes("pointer-events: none") &&
+    !compositeCanvasGestureHudStyleSource.includes("span.ready") &&
+    !compositeCanvasGestureHudStyleSource.includes("span.active") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-overlay-panel") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-overlay-panel.anchor-bottom-right") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-overlay-panel.anchor-full") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-overlay-chip.ready") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-overlay-chip.active") &&
+    compositeCanvasOverlayStyleSource.includes(".composite-canvas-coordinate-tag") &&
+    compositeCanvasOverlayStyleSource.includes("pointer-events: none") &&
+    compositeThemeStyleSource.includes("--composite-canvas-overlay-line") &&
+    compositeThemeStyleSource.includes("--composite-canvas-overlay-surface") &&
+    compositeThemeStyleSource.includes("--composite-canvas-overlay-shadow") &&
+    compositeThemeStyleSource.includes("--composite-canvas-coordinate-safe-y") &&
+    compositeCanvasOverlayStyleSource.includes("border: 1px solid var(--composite-canvas-overlay-line)") &&
+    compositeCanvasOverlayStyleSource.includes("background: var(--composite-canvas-overlay-surface)") &&
+    compositeCanvasOverlayStyleSource.includes("box-shadow: var(--composite-canvas-overlay-shadow)") &&
+    compositeCanvasOverlayStyleSource.includes("var(--composite-canvas-coordinate-safe-y)") &&
+    !compositeCanvasOverlayStyleSource.includes("--composite-pad-16") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeCanvasOverlayStyleSource) &&
+    !compositeLayerCanvasStyleSource.includes(".composite-canvas-gesture-hud") &&
+    compositeCanvasPointerReticleStyleSource.includes(".composite-canvas-pointer-reticle") &&
+    compositeCanvasPointerReticleStyleSource.includes("--composite-pointer-x") &&
+    compositeCanvasPointerReticleStyleSource.includes("--composite-pointer-y") &&
+    compositeThemeStyleSource.includes("--composite-pointer-reticle-z") &&
+    compositeThemeStyleSource.includes("--composite-pointer-axis-color") &&
+    compositeThemeStyleSource.includes("--composite-pointer-axis-opacity") &&
+    compositeThemeStyleSource.includes("--composite-pointer-axis-width") &&
+    compositeCanvasPointerReticleStyleSource.includes("z-index: var(--composite-pointer-reticle-z)") &&
+    compositeCanvasPointerReticleStyleSource.includes("background: var(--composite-pointer-axis-color)") &&
+    compositeCanvasPointerReticleStyleSource.includes("opacity: var(--composite-pointer-axis-opacity)") &&
+    compositeCanvasPointerReticleStyleSource.includes("height: var(--composite-pointer-axis-width)") &&
+    !compositeCanvasPointerReticleStyleSource.includes("pointer-events: none") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeCanvasPointerReticleStyleSource) &&
+    compositeCanvasPointerReticleStyleSource.includes(".axis-x") &&
+    compositeCanvasPointerReticleStyleSource.includes(".axis-y") &&
+    !compositeLayerCanvasStyleSource.includes(".composite-canvas-pointer-reticle") &&
+    compositeLayerInspectorStyleSource.includes(".composite-inspector-panel") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-strip") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-chip.fn") &&
+    compositeLayerObjectStripStyleSource.includes(".layer-object-chip.fp") &&
+    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
+    compositeSplitPane.includes('import { CompositeSplitLayerCanvas } from "./compositeSplitLayerCanvas";') &&
+    compositeSplitLayerCanvas.includes("objectKeyForLocalObject") &&
+    compositeSplitLayerCanvas.includes("<CompositeLayerCanvas") &&
+    !compositeSplitStage.includes("function SplitLayerCanvas") &&
+    !compositeSplitStage.includes("function MissingLayerPane") &&
+    compositeSplitStageStyleSource.includes(".composite-split-stage") &&
+    compositeSplitPaneStyleSource.includes(".composite-split-pane") &&
+    compositeSplitPaneStyleSource.includes(".composite-pane-head") &&
+    compositeSplitPaneStyleSource.includes(".missing-layer-pane") &&
+    compositeThemeStyleSource.includes("--composite-empty-state-min-height") &&
+    compositeThemeStyleSource.includes("--composite-workbench-primary-min") &&
+    compositeThemeStyleSource.includes("--composite-workbench-focus-min") &&
+    compositeThemeStyleSource.includes("--composite-split-pane-min-height") &&
+    compositeThemeStyleSource.includes("--composite-split-stage-column-min") &&
+    compositeThemeStyleSource.includes("--composite-split-focus-ring-width") &&
+    compositeReportStageStyleSource.includes("min-height: var(--composite-empty-state-min-height)") &&
+    compositeStageWorkbenchStyleSource.includes("var(--composite-workbench-primary-min)") &&
+    compositeStageWorkbenchStyleSource.includes("var(--composite-workbench-focus-min)") &&
+    compositeSplitPaneStyleSource.includes("min-height: var(--composite-split-pane-min-height)") &&
+    compositeSplitPaneStyleSource.includes("box-shadow: inset var(--composite-split-focus-ring-width)") &&
+    compositeSplitStageStyleSource.includes("var(--composite-split-stage-column-min)") &&
+    [
+      compositeReportStyleSource,
+      compositeReportStageStyleSource,
+      compositeStageWorkbenchStyleSource,
+      compositeSplitStageStyleSource,
+      compositeSplitPaneStyleSource
+    ].every((source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source)) &&
+    !compositeSplitStageStyleSource.includes(".composite-split-pane") &&
+    !compositeSplitStageStyleSource.includes(".composite-pane-head") &&
+    compositeThemeStyleSource.includes("--composite-surface: #ffffff") &&
+    compositeThemeStyleSource.includes("--composite-line: #d8e1ea") &&
+    compositeThemeStyleSource.includes("--composite-ink: #172033") &&
+    compositeThemeStyleSource.includes("--composite-accent: #2248c5") &&
+    compositeThemeStyleSource.includes("--composite-gap-2: 2px") &&
+    compositeThemeStyleSource.includes("--composite-gap-12: 12px") &&
+    compositeThemeStyleSource.includes("--composite-pad-2: 2px") &&
+    compositeThemeStyleSource.includes("--composite-pad-12: 12px") &&
+    compositeThemeStyleSource.includes("--composite-control-min: 30px") &&
+    compositeThemeStyleSource.includes("--composite-dock-track-size") &&
+    compositeThemeStyleSource.includes("--composite-dock-grip-min") &&
+    compositeThemeStyleSource.includes("--composite-radius-control: 2px") &&
+    compositeReportStyleSource.includes("var(--composite-surface)") &&
+    compositeImageNavigatorStyleSource.includes("var(--composite-surface-muted)") &&
+    compositeImageAtlasStyleSource.includes("var(--composite-accent)") &&
+    compositeObjectHudStyleSource.includes("var(--composite-ink-strong)") &&
+    compositeSplitPaneStyleSource.includes("var(--composite-focus)") &&
+    !compositeReportStageStyleSource.includes(".composite-inspector-panel") &&
+    !compositeReportStageStyleSource.includes(".layer-object-chip") &&
+    !compositeReportStageStyleSource.includes(".composite-split-stage") &&
+    !compositeReportStageStyleSource.includes(".composite-split-pane") &&
+    !compositeReportStageStyleSource.includes(".composite-workbench-canvas") &&
+    !compositeReportStageStyleSource.includes(".composite-overlay-stage") &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-overlay") &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-split") &&
+    [
+      compositeReportStyleSource,
+      compositeComposerDockStyleSource,
+      compositeComposerDrawerStyleSource,
+      compositePanelPrimitivesStyleSource,
+      compositeReportPanelStyleSource,
+      compositeReportRunPoolStyleSource,
+      compositeReportLayerPlanStyleSource,
+      compositeImageNavigatorStyleSource,
+      compositeImageJumpControlStyleSource,
+      compositeImageSearchBarStyleSource,
+      compositeImagePanelStyleSource,
+      compositeImageJumpItemStyleSource,
+      compositeImageSearchResultItemStyleSource,
+      compositeInteractionPaletteStyleSource,
+      compositeImageAtlasStyleSource,
+      compositeImageTimelineStyleSource,
+      compositeImageIndexMeterStyleSource,
+      compositeImageNearbyRailStyleSource,
+      compositeImageSearchPopoverStyleSource,
+      compositeImageSearchResultsStyleSource,
+      compositeImageSearchPreviewStyleSource,
+      compositeImageSearchStatusStyleSource,
+      compositeReportStageStyleSource,
+      compositeStageWorkbenchStyleSource,
+      compositeLayerFocusToolbarStyleSource,
+      compositeMicroMeterStyleSource,
+      compositeObjectHudStyleSource,
+      compositeObjectContextMenuStyleSource,
+      compositeOverlayStageStyleSource,
+      compositeLayerCanvasStyleSource,
+      compositeLayerInspectorStyleSource,
+      compositeLayerObjectStripStyleSource,
+      compositeSplitStageStyleSource,
+      compositeSplitPaneStyleSource
+    ].every((source) => !/font-size:\s*\d/.test(source)) &&
+    [
+      compositeReportStyleSource,
+      compositeComposerDockStyleSource,
+      compositeComposerDrawerStyleSource,
+      compositePanelPrimitivesStyleSource,
+      compositeReportPanelStyleSource,
+      compositeReportRunPoolStyleSource,
+      compositeReportLayerPlanStyleSource,
+      compositeImageNavigatorStyleSource,
+      compositeImageJumpControlStyleSource,
+      compositeImageSearchBarStyleSource,
+      compositeImagePanelStyleSource,
+      compositeImageJumpItemStyleSource,
+      compositeImageSearchResultItemStyleSource,
+      compositeInteractionPaletteStyleSource,
+      compositeImageAtlasStyleSource,
+      compositeImageTimelineStyleSource,
+      compositeImageIndexMeterStyleSource,
+      compositeImageNearbyRailStyleSource,
+      compositeImageSearchPopoverStyleSource,
+      compositeImageSearchResultsStyleSource,
+      compositeImageSearchPreviewStyleSource,
+      compositeImageSearchStatusStyleSource,
+      compositeReportStageStyleSource,
+      compositeStageWorkbenchStyleSource,
+      compositeLayerFocusToolbarStyleSource,
+      compositeMicroMeterStyleSource,
+      compositeObjectHudStyleSource,
+      compositeObjectContextMenuStyleSource,
+      compositeOverlayStageStyleSource,
+      compositeLayerCanvasStyleSource,
+      compositeLayerInspectorStyleSource,
+      compositeLayerObjectStripStyleSource,
+      compositeSplitStageStyleSource,
+      compositeSplitPaneStyleSource
+    ].every((source) =>
+      !/#(?:ffffff|fbfcfd|f8fafc|f3f6f9|d8e1ea|e2eaf2|dce4ed|d9e2ec|172033|152033|111827|66778c|66768a|2248c5|1f5eff)\b/i.test(source)
+    ) &&
+    compositeComponentStyleSources.every(
+      (source) => !rawCompositeControlGeometryPattern.test(source),
+    ) &&
+    !compositeReportStyleSource.includes(".composite-report-workbench") &&
+    !compositeReportStyleSource.includes(".composite-report-focus") &&
+    !compositeReportStyleSource.includes(".composite-inspector-panel") &&
+    !compositeImageNavigatorStyleSource.includes(".image-union-local"),
+  "composite report styles must keep page, stage, and image navigator CSS in separate modules",
 );
 assert(
   mainEntry.includes('lazyRouteComponent(() => import("./runsPage"), "RunsPage")') &&
@@ -1388,6 +4466,12 @@ assert(
 assert(
   comparisonSamplePage.includes('import { SampleViewer } from "./sampleViewer";'),
   "comparison sample page must reuse the shared SampleViewer",
+);
+assert(
+  comparisonSamplePage.includes('import "./comparisonSampleStyles.css";') &&
+    comparisonSampleStyleSource.includes(".comparison-sample-detail") &&
+    comparisonSampleStyleSource.includes(".comparison-sample-title"),
+  "comparison sample page must use the shared comparison sample style module",
 );
 assert(
   mainEntry.includes(
@@ -1432,8 +4516,32 @@ async function collectSourceFiles(directory) {
   return files;
 }
 
+async function collectStyleFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectStyleFiles(entryPath)));
+    } else if (entry.name.endsWith(".css")) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
 async function readSource(relativePath) {
   return readFile(path.join(root, relativePath), "utf8");
+}
+
+async function readCssSource() {
+  const entries = await readdir(srcRoot, { withFileTypes: true });
+  const cssFiles = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".css"))
+    .map((entry) => path.join(srcRoot, entry.name))
+    .sort();
+  const sources = await Promise.all(cssFiles.map((filePath) => readFile(filePath, "utf8")));
+  return sources.join("\n");
 }
 
 function assertNoBlockingBrowserDialogs(source, relativePath) {
@@ -1442,7 +4550,7 @@ function assertNoBlockingBrowserDialogs(source, relativePath) {
 }
 
 function assertNoBusinessDialogShell(source, relativePath) {
-  if (relativePath === "src/ui.tsx") {
+  if (relativePath === "src/ui.tsx" || relativePath === "src/uiDialog.tsx") {
     return;
   }
   assert(
@@ -1461,6 +4569,14 @@ function assertNoForbiddenUiCopy(source, relativePath, forbiddenItems) {
   }
 }
 
+function assertMaxLines(source, relativePath, maxLines) {
+  const lineCount = source.split("\n").length;
+  assert(
+    lineCount <= maxLines,
+    `${relativePath}: ${lineCount} lines exceeds the ${maxLines}-line modularity budget`,
+  );
+}
+
 function assertNoLegacyFormSubmitClass(source, relativePath) {
   assert(
     !source.includes("form-submit-button"),
@@ -1476,14 +4592,14 @@ function assertNoRawSelectElement(source, relativePath) {
 }
 
 function assertNoRawButtonElement(source, relativePath) {
-  if (relativePath === "src/ui.tsx") {
+  if (relativePath === "src/ui.tsx" || relativePath === "src/uiActions.tsx") {
     return;
   }
   assert(!/<button\b/.test(source), `${relativePath}: buttons must use shared UI primitives`);
 }
 
 function assertNoRawInputOutsidePrimitives(source, relativePath) {
-  if (relativePath === "src/controlPrimitives.tsx") {
+  if (relativePath === "src/controlPrimitives.tsx" || relativePath === "src/selectPopoverControl.tsx") {
     return;
   }
   assert(!/<input\b/.test(source), `${relativePath}: inputs must use controlPrimitives`);

@@ -1,37 +1,31 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 
 import type { EvalInstance } from "./api";
 import { fetchSettingsPreviewSample } from "./api";
-import {
-  CompactSelectControl,
-  InlineColorControl,
-  NumberSettingControl,
-  SearchInputControl
-} from "./controlPrimitives";
+import { SearchInputControl } from "./controlPrimitives";
 import { unique } from "./formatters";
-import { AppIcon } from "./iconLibrary";
+import type { SettingsPanelId, SettingsSectionSummary } from "./settingsPreferenceDrawer";
+import { SettingsPreferenceDrawer } from "./settingsPreferenceDrawer";
 import {
-  LabelColorQuickAdd,
-  SettingsEditorSection,
-  SettingsPreferenceRow,
-  ShortcutSettingsPanel
-} from "./settingsControls";
-import {
-  INTERACTION_SETTING_CONTROLS,
-  INSTANCE_COLOR_ROLES,
-  OVERLAY_STYLE_CONTROLS,
-  PRED_LINE_STYLE_OPTIONS,
-  explicitLabelColor,
-  settingControlValue,
-  settingValueFromControl,
   useWorkspaceShortcuts,
   useWorkspaceSettings
 } from "./workspaceSettings";
+import { useTypographySettings } from "./typographySettings";
 import { displayImageUrl } from "./viewerGeometry";
 import { CanvasStage } from "./viewerCanvas";
-import { ActionButton, EmptyState, IconActionButton, SelectableCardButton } from "./ui";
+import { IconActionButton, SelectableCardButton } from "./ui";
+
+import "./settingsTheme.css";
+import "./settingsWorkbench.css";
+import "./settingsPreview.css";
+import "./settingsDrawer.css";
+import "./settingsEditor.css";
+import "./settingsTypography.css";
+import "./settingsLabels.css";
+import "./settingsShortcuts.css";
 
 const SETTINGS_PREVIEW_IMAGE_URL = "/static/settings_preview.svg";
 const SETTINGS_PREVIEW_LABELS = ["arrow", "icon"];
@@ -89,6 +83,12 @@ export function SettingsPage() {
     resetInteractionSettings,
     resetLabelColors
   } = useWorkspaceSettings(previewLabelsList.length ? previewLabelsList : SETTINGS_PREVIEW_LABELS);
+  const {
+    typographySettings,
+    typographyVars,
+    updateTypographySettings,
+    resetTypographySettings
+  } = useTypographySettings();
   const shortcutSettings = useWorkspaceShortcuts();
   const previewSample = previewQuery.data?.sample ?? null;
   const previewWidth = previewSample?.image_width ?? 960;
@@ -98,7 +98,7 @@ export function SettingsPage() {
     previewQuery.data && previewSample
       ? `${previewQuery.data.benchmark_id} / #${previewSample.index + 1}`
       : "未找到基准集样本时使用内置示意图";
-  const [activeSettingsPanel, setActiveSettingsPanel] = useState("appearance");
+  const [activeSettingsPanel, setActiveSettingsPanel] = useState<SettingsPanelId>("appearance");
   const [settingsQuery, setSettingsQuery] = useState("");
   const sortedLabels = useMemo(
     () => [...labels].sort((left, right) => left.localeCompare(right)),
@@ -106,17 +106,17 @@ export function SettingsPage() {
   );
   const settingsSections = [
     { id: "appearance", label: "外观", meta: "几何样式" },
+    { id: "typography", label: "字体", meta: `${typographySettings.baseFontSize}px` },
     { id: "labels", label: "标签颜色", meta: `${sortedLabels.length} labels` },
     { id: "interaction", label: "交互", meta: "缩放、拖拽和范围" },
     { id: "workflow", label: "快捷键", meta: "Action map" }
-  ];
+  ] satisfies SettingsSectionSummary[];
   const query = settingsQuery.trim().toLowerCase();
-  const visiblePanels = query
+  const visiblePanels: SettingsPanelId[] = query
     ? settingsSections
         .filter((section) => `${section.label} ${section.meta}`.toLowerCase().includes(query))
         .map((section) => section.id)
     : [activeSettingsPanel];
-  const showPanel = (id: string) => visiblePanels.includes(id);
   const activeSection = settingsSections.find((section) => section.id === activeSettingsPanel);
   const visibleSectionLabel = query ? "搜索结果" : activeSection?.label ?? "设置";
   const visibleSectionMeta = query
@@ -125,7 +125,10 @@ export function SettingsPage() {
 
   return (
     <section className="page-stack settings-page settings-workbench-page">
-      <div className="settings-workbench-shell settings-console-shell" style={overlayVars}>
+      <div
+        className="settings-workbench-shell settings-console-shell"
+        style={{ ...overlayVars, ...typographyVars }}
+      >
         <header className="settings-command-bar">
           <div className="settings-command-title">
             <div>
@@ -204,167 +207,38 @@ export function SettingsPage() {
               <strong>{previewMeta}</strong>
             </div>
             <div className="settings-preview-foot">
-              <span style={{ "--swatch": overlayColors.gt } as React.CSSProperties}>GT</span>
-              <span style={{ "--swatch": overlayColors.pred } as React.CSSProperties}>Pred</span>
-              <span style={{ "--swatch": overlayColors.fn } as React.CSSProperties}>FN</span>
-              <span style={{ "--swatch": overlayColors.fp } as React.CSSProperties}>FP</span>
+              <span style={{ "--swatch": overlayColors.gt } as CSSProperties}>GT</span>
+              <span style={{ "--swatch": overlayColors.pred } as CSSProperties}>Pred</span>
+              <span style={{ "--swatch": overlayColors.fn } as CSSProperties}>FN</span>
+              <span style={{ "--swatch": overlayColors.fp } as CSSProperties}>FP</span>
             </div>
           </div>
         </main>
 
-        <section className="settings-preference-drawer">
-          <div className="settings-drawer-head">
-            <div>
-              <span>Settings</span>
-              <strong>{visibleSectionLabel}</strong>
-              <small>{visibleSectionMeta}</small>
-            </div>
-            <p>配置键名、控件和实时预览保持同步；搜索时只展示匹配分组。</p>
-          </div>
-          <div className="settings-drawer-scroll">
-            {showPanel("appearance") ? (
-              <SettingsEditorSection title="可视化外观" description="控制框、线、点和标签的几何表达。">
-                <SettingsPreferenceRow
-                  title="几何样式"
-                  settingKey="evalBench.overlay.style"
-                  description="控制框、线、点和标签的绘制密度。"
-                >
-                  <div className="settings-number-grid">
-                    {OVERLAY_STYLE_CONTROLS.map((control) => (
-                      <NumberSettingControl
-                        key={control.key}
-                        label={control.label}
-                        value={overlayStyle[control.key]}
-                        min={control.min}
-                        max={control.max}
-                        step={control.step}
-                        onChange={(value) => updateOverlayStyle(control.key, value)}
-                      />
-                    ))}
-                    <CompactSelectControl
-                      dense
-                      label="预测线型"
-                      value={overlayStyle.predLineStyle}
-                      onChange={(value) => updateOverlayStyle("predLineStyle", value)}
-                      options={PRED_LINE_STYLE_OPTIONS}
-                    />
-                  </div>
-                  <ActionButton
-                    variant="secondary"
-                    className="settings-inline-action"
-                    icon={<AppIcon name="resetSettings" size={16} />}
-                    onClick={resetOverlayStyle}
-                  >
-                    重置样式
-                  </ActionButton>
-                </SettingsPreferenceRow>
-              </SettingsEditorSection>
-            ) : null}
-
-            {showPanel("labels") ? (
-              <SettingsEditorSection title="标签颜色" description="用于覆盖特定 label 的颜色；匹配大小写不敏感，但显示保留原始 label。">
-                <SettingsPreferenceRow
-                  title="新增规则"
-                  settingKey="evalBench.overlay.labelColors"
-                  description="输入 label 后按 Enter 或点击添加。"
-                >
-                  <LabelColorQuickAdd onChange={updateLabelColor} />
-                </SettingsPreferenceRow>
-                <SettingsPreferenceRow
-                  title="当前 label"
-                  settingKey="evalBench.overlay.labelColors.*"
-                  description="来自当前预览样本和已保存的 label 规则。"
-                >
-                  <div className="settings-label-table">
-                    {sortedLabels.length === 0 ? (
-                      <div className="muted-line">还没有可配置的 label。</div>
-                    ) : (
-                      sortedLabels.map((label) => (
-                        <div className="settings-label-row" key={label}>
-                          <span>{label}</span>
-                          <div className="settings-label-role-grid">
-                            {INSTANCE_COLOR_ROLES.map((role) => (
-                              <InlineColorControl
-                                key={role.key}
-                                label={`${label} ${role.label} 颜色`}
-                                caption={role.label}
-                                value={explicitLabelColor(labelColors, label, role.key) ?? overlayColors[role.key]}
-                                onChange={(value) => updateLabelColor(label, role.key, value)}
-                              />
-                            ))}
-                          </div>
-                          <ActionButton
-                            variant="mini"
-                            compact
-                            className="settings-label-clear-action"
-                            onClick={() => removeLabelColor(label)}
-                          >
-                            清除
-                          </ActionButton>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <ActionButton
-                    variant="secondary"
-                    className="settings-inline-action"
-                    icon={<AppIcon name="clearRules" size={16} />}
-                    onClick={resetLabelColors}
-                  >
-                    清空 label 颜色
-                  </ActionButton>
-                </SettingsPreferenceRow>
-              </SettingsEditorSection>
-            ) : null}
-
-            {showPanel("interaction") ? (
-              <SettingsEditorSection title="画布交互" description="让缩放和平移适配不同鼠标、触控板和大图场景。">
-                <SettingsPreferenceRow
-                  title="鼠标操作"
-                  settingKey="evalBench.viewer.interaction"
-                  description="缩放灵敏度越低，滚轮越稳；平移灵敏度越低，拖拽越慢。"
-                >
-                  <div className="settings-number-grid">
-                    {INTERACTION_SETTING_CONTROLS.map((control) => (
-                      <NumberSettingControl
-                        key={control.key}
-                        label={control.label}
-                        value={settingControlValue(interactionSettings[control.key], control)}
-                        min={settingControlValue(control.min, control)}
-                        max={settingControlValue(control.max, control)}
-                        step={settingControlValue(control.step, control)}
-                        onChange={(value) =>
-                          updateInteractionSetting(control.key, settingValueFromControl(value, control))
-                        }
-                      />
-                    ))}
-                  </div>
-                  <ActionButton
-                    variant="secondary"
-                    className="settings-inline-action"
-                    icon={<AppIcon name="resetSettings" size={16} />}
-                    onClick={resetInteractionSettings}
-                  >
-                    重置交互
-                  </ActionButton>
-                </SettingsPreferenceRow>
-              </SettingsEditorSection>
-            ) : null}
-
-            {showPanel("workflow") ? (
-              <SettingsEditorSection title="快捷键" description="按 action 管理键位，适配后续新增图层和工具。">
-                <ShortcutSettingsPanel
-                  bindings={shortcutSettings.bindings}
-                  onChange={shortcutSettings.updateShortcut}
-                  onReset={shortcutSettings.resetShortcut}
-                  onResetAll={shortcutSettings.resetShortcuts}
-                />
-              </SettingsEditorSection>
-            ) : null}
-
-            {visiblePanels.length === 0 ? <EmptyState title="没有匹配的设置项" /> : null}
-          </div>
-        </section>
+        <SettingsPreferenceDrawer
+          visibleSectionLabel={visibleSectionLabel}
+          visibleSectionMeta={visibleSectionMeta}
+          visiblePanels={visiblePanels}
+          overlayColors={overlayColors}
+          overlayStyle={overlayStyle}
+          typographySettings={typographySettings}
+          labelColors={labelColors}
+          sortedLabels={sortedLabels}
+          interactionSettings={interactionSettings}
+          shortcutBindings={shortcutSettings.bindings}
+          onOverlayStyleChange={updateOverlayStyle}
+          onResetOverlayStyle={resetOverlayStyle}
+          onTypographySettingsChange={updateTypographySettings}
+          onResetTypographySettings={resetTypographySettings}
+          onLabelColorChange={updateLabelColor}
+          onRemoveLabelColor={removeLabelColor}
+          onResetLabelColors={resetLabelColors}
+          onInteractionSettingChange={updateInteractionSetting}
+          onResetInteractionSettings={resetInteractionSettings}
+          onShortcutChange={shortcutSettings.updateShortcut}
+          onShortcutReset={shortcutSettings.resetShortcut}
+          onResetShortcuts={shortcutSettings.resetShortcuts}
+        />
       </div>
     </section>
   );

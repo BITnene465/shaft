@@ -1,0 +1,135 @@
+.job-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
+  align-items: start;
+  padding: 14px;
+  background: #ffffff;
+  border: 0;
+  border-radius: 0;
+}
+
+.job-form label {
+  display: flex;
+  grid-column: auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.job-form input,
+.job-form .select-popover-trigger,
+.job-form select,
+.job-form textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  color: #17202b;
+  background: #ffffff;
+  border: 1px solid var(--bench-line);
+  border-radius: 2px;
+}
+
+.job-form input:focus,
+.job-form .select-popover-control:focus-within .select-popover-trigger,
+.job-form select:focus,
+.job-form textarea:focus {
+  border-color: #637f95;
+  outline: 2px solid rgb(99 127 149 / 12%);
+}
+
+.job-form textarea {
+  min-height: 92px;
+  padding: 9px 10px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.job-form span {
+  min-width: 0;
+  color: #5b7183;
+  font-size: var(--control-text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.job-form .wide-field,
+.job-form .full-field,
+.job-form .form-result,
+.job-form .form-error {
+  grid-column: 1 / -1;
+}
+
+.job-form .checkbox-field {
+  grid-column: auto;
+  align-self: center;
+  flex-direction: row;
+  align-items: center;
+  min-height: 36px;
+}
+
+.job-form .checkbox-field input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+}
+
+.job-form button[type="submit"] {
+  grid-column: auto;
+  justify-self: start;
+}
+
+.action-panel .job-form,
+.workspace-dialog .job-form {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.form-result {
+  align-self: center;
+  color: #405162;
+  font-size: var(--control-text-body);
+}
+
+.form-result a {
+  color: #076c9b;
+}
+
+.form-result.error,
+.form-error {
+  color: #9d2632;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  font-size: var(--control-text-body);
+}
+
+@media (max-width: 980px) {
+  .job-form {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+
+  .job-form .wide-field {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .job-form {
+    grid-template-columns: 1fr;
+  }
+
+  .job-form label,
+  .job-form .wide-field,
+  .job-form .checkbox-field,
+  .job-form button[type="submit"] {
+    grid-column: 1 / -1;
+  }
+}

@@ -1,0 +1,135 @@
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-status-height);
+  padding: 0 var(--control-pad-11);
+  color: #15543c;
+  background: #e6f6ef;
+  border: 1px solid #b8e5d0;
+  border-radius: var(--control-radius-pill);
+  font-size: var(--control-text-body);
+  font-weight: 650;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.status-pill:hover {
+  transform: translateY(-1px);
+  border-color: #91d6bb;
+  box-shadow: 0 12px 24px rgb(21 84 60 / 12%);
+}
+
+.status-pill.danger {
+  color: #8a1c28;
+  background: #fdecef;
+  border-color: #f1b7bf;
+}
+
+.badge {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: var(--control-gap-6);
+  min-height: var(--control-chip-height);
+  padding: 0 var(--control-pad-8);
+  border: 1px solid transparent;
+  border-radius: var(--control-radius-pill);
+  font-size: var(--control-text-small);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.badge:hover {
+  transform: translateY(-1px);
+}
+
+.badge.success {
+  color: #15543c;
+  background: #dff3ea;
+  border-color: #b8e5d3;
+}
+
+.badge.danger {
+  color: #8a1c28;
+  background: #fde5e9;
+  border-color: #f8c7cf;
+}
+
+.badge.warning {
+  color: #7a4512;
+  background: #fff1d6;
+  border-color: #f7d596;
+}
+
+.badge.info {
+  color: #0f4d67;
+  background: #dff5fb;
+  border-color: #b8e5f1;
+}
+
+.badge.neutral {
+  color: #4b5866;
+  background: #edf1f5;
+  border-color: #d9e2ea;
+}
+
+.badge.muted {
+  color: #697586;
+  background: #f3f5f7;
+  border-color: #e0e5eb;
+}
+
+.badge.live::before {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--control-radius-pill);
+  background: currentColor;
+  content: "";
+  animation: badge-live-pulse 1.6s ease-in-out infinite;
+}
+
+.query-chip {
+  max-width: 130px;
+  min-height: var(--control-chip-height);
+  padding: 2px var(--control-pad-8);
+  overflow: hidden;
+  color: #405162;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #f7f9fb;
+  border: 1px solid #d4dee8;
+  border-radius: var(--control-radius-icon);
+  cursor: pointer;
+  font-size: var(--control-text-small);
+  font-weight: 700;
+}
+
+.query-chip:hover {
+  background: #edf3f8;
+}
+
+.query-chip.active {
+  color: #ffffff;
+  background: #235a78;
+  border-color: #235a78;
+}
+
+@keyframes badge-live-pulse {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

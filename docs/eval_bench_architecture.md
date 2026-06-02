@@ -348,4 +348,4 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - Dashboard API lifecycle: `projects/eval_bench/tests/test_dashboard.py`
 - CLI/agent entrypoints: `projects/eval_bench/tests/test_cli.py`
 - Frontend command/settings/viewer: frontend `test:shortcuts`、`test:workspace-settings`、
-  `test:viewer-performance`、`test:layout` 和 render checks。
+  `test:viewer-performance`、`test:composite-report`、`test:layout` 和 render checks。

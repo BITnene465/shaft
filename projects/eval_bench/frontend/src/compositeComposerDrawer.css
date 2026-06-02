@@ -1,0 +1,83 @@
+.composite-sidebar-drawer {
+  position: absolute;
+  z-index: 16;
+  inset: 0 auto 0 var(--composite-dock-rail-size);
+  display: grid;
+  width: min(var(--composite-drawer-width), calc(100% - var(--composite-dock-rail-size)));
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid var(--composite-line);
+  background: var(--composite-surface);
+  box-shadow: 16px 0 36px rgb(15 23 42 / 16%);
+}
+
+.composite-sidebar-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--composite-gap-10);
+  padding: var(--composite-pad-9) var(--composite-pad-10);
+  border-bottom: 1px solid #dfe7ef;
+  background: var(--composite-surface-muted);
+}
+
+.composite-sidebar-head > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--composite-gap-2);
+}
+
+.composite-sidebar-head span {
+  color: var(--composite-muted-alt);
+  font-size: var(--text-2xs);
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.composite-sidebar-head strong {
+  overflow: hidden;
+  color: var(--composite-ink);
+  font-size: var(--text-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composite-sidebar-grid {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(250px, 0.9fr) minmax(280px, 1.1fr);
+  overflow: hidden;
+}
+
+@media (max-width: 1320px) {
+  .composite-sidebar-drawer {
+    width: min(var(--composite-drawer-width-compact), calc(100% - var(--composite-dock-rail-size)));
+  }
+
+  .composite-sidebar-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 0.45fr) minmax(220px, 0.55fr);
+  }
+}
+
+@media (max-width: 940px) {
+  .composite-sidebar-drawer {
+    z-index: 20;
+    inset: 42px 0 auto 0;
+    width: auto;
+    height: min(520px, calc(100% - 42px));
+    border-right: 0;
+    border-bottom: 1px solid #cbd7e4;
+    box-shadow: 0 18px 40px rgb(15 23 42 / 18%);
+  }
+
+  .composite-sidebar-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(170px, 0.42fr) minmax(220px, 0.58fr);
+  }
+}

@@ -1,0 +1,10 @@
+.image-index-meter {
+  overflow: hidden;
+  padding: var(--composite-pad-7) var(--composite-pad-8);
+  background: var(--composite-surface-subtle);
+  border: 1px solid var(--composite-line-muted);
+}
+
+.image-index-meter i {
+  background: var(--composite-focus);
+}

@@ -33,6 +33,7 @@ from .comparison import (
     load_comparison_report,
     run_sample_detail_payload,
 )
+from .composite_view import build_composite_sample_view
 from .database import EvalBenchDatabase
 from .evaluator import evaluate_run
 from .job_spec import (
@@ -81,6 +82,23 @@ def _sample_image_urls(
         "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}{query}",
         "image_tile_size": IMAGE_TILE_SIZE,
     }
+
+
+def _parse_composite_layer_runs(values: list[str]) -> dict[str, str]:
+    layer_runs: dict[str, str] = {}
+    for raw_value in values:
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        if ":" not in value:
+            raise ValueError("layer_run must use 'layer:run_id' format.")
+        layer, run_id = value.split(":", 1)
+        normalized_layer = layer.strip()
+        normalized_run_id = run_id.strip()
+        if not normalized_layer or not normalized_run_id:
+            raise ValueError("layer_run must include both layer and run_id.")
+        layer_runs[normalized_layer] = normalized_run_id
+    return layer_runs
 
 
 def _dashboard_string_list(value: Any, *, field: str, required: bool = False) -> list[str]:
@@ -878,6 +896,52 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"run does not exist: {run_id}")
         return JSONResponse({"run": asdict(run)})
 
+    @app.get("/api/suites")
+    async def suites(request: Request):
+        return JSONResponse(request.app.state.eval_bench_store.suite_page().to_dict())
+
+    @app.get("/api/suites/{suite_id}")
+    async def suite_detail(suite_id: str, request: Request):
+        try:
+            suite = request.app.state.eval_bench_store.suite(suite_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse({"suite": asdict(suite)})
+
+    @app.get("/api/campaigns")
+    async def campaigns(request: Request):
+        return JSONResponse(request.app.state.eval_bench_store.campaign_page().to_dict())
+
+    @app.get("/api/campaigns/{campaign_id}")
+    async def campaign_detail(campaign_id: str, request: Request):
+        try:
+            campaign = request.app.state.eval_bench_store.campaign(campaign_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return JSONResponse({"campaign": asdict(campaign)})
+
+    @app.get("/api/suite-rank-board")
+    async def suite_rank_board(
+        request: Request,
+        offset: int = 0,
+        limit: int = 100,
+        suite_id: str | None = None,
+        model_id: str | None = None,
+        prompt_id: str | None = None,
+        sort_by: str = "aggregate_score",
+        sort_order: str = "desc",
+    ):
+        board = request.app.state.eval_bench_store.suite_rank_board(
+            offset=max(0, offset),
+            limit=min(max(1, limit), 500),
+            suite_id=suite_id,
+            model_id=model_id,
+            prompt_id=prompt_id,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        return JSONResponse(board.to_dict())
+
     @app.get("/api/rank-board")
     async def rank_board(
         request: Request,
@@ -1133,6 +1197,49 @@ def create_app(
         except IndexError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return JSONResponse(_run_sample_detail_payload(run_id, detail))
+
+    @app.get("/api/composite-samples")
+    async def composite_sample_detail(
+        request: Request,
+        sample_index: int,
+        layer_run: list[str] = Query(default=[]),
+        layout_run_id: str | None = None,
+        arrow_run_id: str | None = None,
+        shape_run_id: str | None = None,
+        icon_run_id: str | None = None,
+    ):
+        legacy_layer_runs = {
+            "layout": layout_run_id or "",
+            "arrow": arrow_run_id or "",
+            "shape": shape_run_id or "",
+            "icon_image": icon_run_id or "",
+        }
+        layer_runs = _parse_composite_layer_runs(layer_run)
+        for layer, run_id in legacy_layer_runs.items():
+            if run_id and layer not in layer_runs:
+                layer_runs[layer] = run_id
+        try:
+            payload = build_composite_sample_view(
+                request.app.state.eval_bench_store,
+                layer_runs=layer_runs,
+                sample_index=sample_index,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        for layer in payload["layers"]:
+            layer["sample"].update(
+                _sample_image_urls("runs", layer["run_id"], layer["sample_index"])
+            )
+        for status in payload.get("layer_statuses", []):
+            sample = status.get("sample")
+            sample_index = status.get("sample_index")
+            if isinstance(sample, dict) and sample_index is not None:
+                sample.update(_sample_image_urls("runs", status["run_id"], int(sample_index)))
+        return JSONResponse(payload)
 
     @app.get("/api/runs/{run_id}/samples/{sample_index}/image")
     async def run_sample_image(run_id: str, sample_index: int, request: Request):

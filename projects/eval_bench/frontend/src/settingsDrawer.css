@@ -1,0 +1,71 @@
+.settings-preference-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 112px;
+  overflow: hidden;
+  background: #ffffff;
+  border-top: 1px solid #cfd8e3;
+}
+
+.settings-drawer-head {
+  display: flex;
+  min-height: var(--settings-drawer-head-min);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-gap-16);
+  padding: var(--settings-pad-8) var(--settings-pad-14);
+  background: #f6f9fb;
+  border-bottom: 1px solid #dce5ee;
+}
+
+.settings-drawer-head div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--settings-gap-9);
+}
+
+.settings-drawer-head span {
+  color: #4b7890;
+  font-size: var(--settings-text-micro);
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-drawer-head strong {
+  color: #162536;
+  font-size: var(--settings-text-body);
+}
+
+.settings-drawer-head small,
+.settings-drawer-head p {
+  overflow: visible;
+  color: #65778a;
+  font-size: var(--settings-text-caption);
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.settings-drawer-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (max-height: 640px) {
+  .settings-drawer-head p {
+    display: none;
+  }
+
+  .settings-preference-drawer {
+    min-height: 104px;
+  }
+
+  .settings-drawer-head {
+    min-height: var(--settings-drawer-compact-min);
+    padding: var(--settings-pad-5) var(--settings-pad-10);
+  }
+}

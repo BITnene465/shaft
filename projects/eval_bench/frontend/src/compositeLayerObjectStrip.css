@@ -1,0 +1,91 @@
+.layer-object-strip {
+  display: flex;
+  grid-column: 2;
+  flex-wrap: nowrap;
+  gap: var(--composite-gap-4);
+  min-width: 0;
+  margin-top: var(--composite-gap-4);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+}
+
+.layer-object-strip.dragging {
+  cursor: grabbing;
+}
+
+.layer-object-drag-hint {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: var(--composite-chip-min);
+  padding: 0 var(--composite-pad-5);
+  color: var(--composite-muted);
+  background: var(--composite-surface-subtle);
+  border: 1px solid var(--composite-line-soft);
+  font-size: var(--text-2xs);
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.layer-object-drag-hint.active {
+  color: var(--composite-accent);
+  background: color-mix(in srgb, var(--composite-accent) 10%, var(--composite-surface));
+  border-color: color-mix(in srgb, var(--composite-accent) 28%, var(--composite-line-soft));
+}
+
+.layer-object-chip {
+  flex: 0 0 auto;
+  min-height: var(--composite-chip-min);
+  padding: var(--composite-pad-2) var(--composite-pad-7);
+  border-color: var(--composite-object-strip-line);
+  font-size: var(--text-2xs);
+}
+
+.layer-object-chip span {
+  color: inherit;
+  font-size: var(--text-3xs, var(--text-2xs));
+  font-weight: 860;
+}
+
+.layer-object-chip b {
+  color: inherit;
+  font-size: var(--text-3xs);
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+.layer-object-chip.fn {
+  color: var(--composite-object-fn-ink);
+  background: var(--composite-object-fn-surface);
+  border-color: var(--composite-object-fn-line);
+}
+
+.layer-object-chip.fp {
+  color: var(--composite-object-fp-ink);
+  background: var(--composite-object-fp-surface);
+  border-color: var(--composite-object-fp-line);
+}
+
+.layer-object-chip.locked,
+.layer-object-chip.active {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.layer-object-chip.related {
+  box-shadow: var(--composite-object-related-ring);
+}
+
+.layer-object-strip em {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--composite-chip-min);
+  padding: 0 var(--composite-pad-5);
+  color: var(--composite-object-strip-empty);
+  font-size: var(--text-2xs);
+  font-style: normal;
+  font-weight: 760;
+}

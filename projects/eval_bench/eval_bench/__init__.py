@@ -1,23 +1,36 @@
-from .artifacts import DEFAULT_STORE_ROOT, BenchmarkArtifacts, RunArtifacts, StoreLayout
+from .artifacts import (
+    DEFAULT_STORE_ROOT,
+    BenchmarkArtifacts,
+    CampaignArtifacts,
+    RunArtifacts,
+    StoreLayout,
+    SuiteArtifacts,
+)
 from .schema import (
+    CampaignManifest,
     BenchmarkManifest,
     BenchmarkRef,
     EvalRunManifest,
     EvalSpec,
+    EvalSuiteManifest,
     InferenceParams,
     ModelRef,
     PredictionDocument,
     PredictionInstance,
     PromptRef,
+    SuiteTaskSplit,
 )
 
 __all__ = [
     "BenchmarkArtifacts",
     "BenchmarkManifest",
     "BenchmarkRef",
+    "CampaignArtifacts",
+    "CampaignManifest",
     "DEFAULT_STORE_ROOT",
     "EvalRunManifest",
     "EvalSpec",
+    "EvalSuiteManifest",
     "InferenceParams",
     "ModelRef",
     "PredictionDocument",
@@ -25,4 +38,6 @@ __all__ = [
     "PromptRef",
     "RunArtifacts",
     "StoreLayout",
+    "SuiteArtifacts",
+    "SuiteTaskSplit",
 ]

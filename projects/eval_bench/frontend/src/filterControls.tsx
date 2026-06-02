@@ -1,9 +1,32 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import { Check, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 
-import { FilterSelectControl, SearchInputControl, TextInputControl } from "./controlPrimitives";
+import type { AdvancedFilterControl } from "./advancedFilterTypes";
+import { renderAdvancedControl } from "./advancedFilterFields";
+import {
+  advancedFilterDirtyControlIds,
+  advancedFilterValuesKey,
+  applyAdvancedFilterValues,
+  defaultFilterValue,
+  displayFilterValue,
+  groupAdvancedControls,
+  resetAdvancedFilter,
+  syncDraftValuesWithApplied
+} from "./advancedFilterModel";
+import {
+  advancedFilterOpenStateKey,
+  readAdvancedFilterDraftValues,
+  readAdvancedFilterOpenState,
+  writeAdvancedFilterDraftValues,
+  writeAdvancedFilterOpenState
+} from "./advancedFilterStorage";
 import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
+export type { AdvancedFilterControl } from "./advancedFilterTypes";
+export { FilterSelect } from "./advancedFilterFields";
+
+import "./filterTheme.css";
+import "./filterControls.css";
 
 const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
   ".advanced-filter-controls input:not([disabled])",
@@ -11,72 +34,6 @@ const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
   ".advanced-filter-controls textarea:not([disabled])",
   ".advanced-filter-controls button:not([disabled])"
 ].join(",");
-const ADVANCED_FILTER_OPEN_STORAGE_PREFIX = "eval_bench_advanced_filter_open";
-
-export function FilterSelect({
-  label,
-  value,
-  values,
-  labels,
-  onChange,
-  compact = false
-}: {
-  label: string;
-  value: string;
-  values: string[];
-  labels?: Record<string, string>;
-  onChange: (value: string) => void;
-  compact?: boolean;
-}) {
-  return (
-    <FilterSelectControl
-      label={label}
-      value={value}
-      values={values}
-      labels={labels}
-      compact={compact}
-      onChange={onChange}
-    />
-  );
-}
-
-export type AdvancedFilterControl =
-  | {
-      type: "search";
-      id: string;
-      label: string;
-      value: string;
-      placeholder?: string;
-      onChange: (value: string) => void;
-    }
-  | {
-      type: "text";
-      id: string;
-      label: string;
-      value: string;
-      placeholder?: string;
-      onChange: (value: string) => void;
-    }
-  | {
-      type: "number";
-      id: string;
-      label: string;
-      value: string;
-      min?: number;
-      max?: number;
-      step?: number;
-      placeholder?: string;
-      onChange: (value: string) => void;
-    }
-  | {
-      type: "select";
-      id: string;
-      label: string;
-      value: string;
-      values: string[];
-      labels?: Record<string, string>;
-      onChange: (value: string) => void;
-    };
 
 export function AdvancedFilterBar({
   title,
@@ -180,7 +137,9 @@ export function AdvancedFilterBar({
     }
     function onDocumentClick(event: MouseEvent) {
       const clickedInsideRoot = rootRef.current && event.composedPath().includes(rootRef.current);
-      if (rootRef.current && !clickedInsideRoot) {
+      const clickedInsideSelectMenu =
+        event.target instanceof Element && event.target.closest('[data-select-popover-menu="true"]');
+      if (rootRef.current && !clickedInsideRoot && !clickedInsideSelectMenu) {
         window.setTimeout(() => closeAdvancedFilter({ restoreFocus: false }), 0);
       }
     }
@@ -369,7 +328,7 @@ export function AdvancedFilterBar({
           </div>
           <div className="advanced-filter-directory">
             {controlGroups.map((group) => (
-              <section className="advanced-filter-group" key={group.id}>
+              <section className="advanced-filter-group" data-filter-group={group.id} key={group.id}>
                 <div className="advanced-filter-group-title">
                   <strong>{group.title}</strong>
                   <span>{group.controls.length.toLocaleString()} 项</span>
@@ -387,222 +346,5 @@ export function AdvancedFilterBar({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function defaultFilterValue(control: AdvancedFilterControl) {
-  if (control.type === "select") {
-    return control.values.includes("all") ? "all" : control.values[0] ?? "";
-  }
-  return "";
-}
-
-function resetAdvancedFilter(control: AdvancedFilterControl) {
-  control.onChange(defaultFilterValue(control));
-}
-
-function applyAdvancedFilterValues(
-  controls: AdvancedFilterControl[],
-  values: Record<string, string>,
-) {
-  for (const control of controls) {
-    const nextValue = values[control.id] ?? control.value;
-    if (nextValue !== control.value) {
-      control.onChange(nextValue);
-    }
-  }
-}
-
-function displayFilterValue(control: AdvancedFilterControl) {
-  if (control.type === "select") {
-    return control.labels?.[control.value] ?? control.value;
-  }
-  return control.value;
-}
-
-function renderAdvancedControl(
-  control: AdvancedFilterControl,
-  value: string,
-  onChange: (value: string) => void,
-) {
-  if (control.type === "search") {
-    return (
-      <SearchInputControl
-        className="advanced-filter-search-control"
-        icon={<Search size={15} />}
-        key={control.id}
-        label={control.label}
-        value={value}
-        onChange={onChange}
-        placeholder={control.placeholder}
-      />
-    );
-  }
-  if (control.type === "number") {
-    return (
-      <TextInputControl
-        className="advanced-filter-number-control"
-        key={control.id}
-        label={control.label}
-        type="number"
-        min={control.min}
-        max={control.max}
-        step={control.step}
-        value={value}
-        onChange={onChange}
-        placeholder={control.placeholder}
-      />
-    );
-  }
-  if (control.type === "text") {
-    return (
-      <TextInputControl
-        className="advanced-filter-text-control"
-        key={control.id}
-        label={control.label}
-        value={value}
-        onChange={onChange}
-        placeholder={control.placeholder}
-      />
-    );
-  }
-  return (
-    <FilterSelect
-      key={control.id}
-      label={control.label}
-      value={value}
-      values={control.values}
-      labels={control.labels}
-      onChange={onChange}
-      compact
-    />
-  );
-}
-
-function groupAdvancedControls(controls: AdvancedFilterControl[]) {
-  const groups = [
-    { id: "query", title: "检索式", controls: [] as AdvancedFilterControl[] },
-    { id: "scope", title: "范围目录", controls: [] as AdvancedFilterControl[] },
-    { id: "rank", title: "排序与阈值", controls: [] as AdvancedFilterControl[] }
-  ];
-  for (const control of controls) {
-    const normalized = `${control.id} ${control.label}`.toLowerCase();
-    if (control.type === "search") {
-      groups[0].controls.push(control);
-    } else if (
-      control.type === "number" ||
-      normalized.includes("sort") ||
-      normalized.includes("排序") ||
-      normalized.includes("最低") ||
-      normalized.includes("order")
-    ) {
-      groups[2].controls.push(control);
-    } else {
-      groups[1].controls.push(control);
-    }
-  }
-  return groups.filter((group) => group.controls.length > 0);
-}
-
-function advancedFilterOpenStateKey(title: string, controls: AdvancedFilterControl[]) {
-  const controlIds = controls.map((control) => control.id).join(",");
-  return `${ADVANCED_FILTER_OPEN_STORAGE_PREFIX}:${title}:${controlIds}`;
-}
-
-function readAdvancedFilterOpenState(key: string) {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  try {
-    return window.localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function readAdvancedFilterDraftValues(
-  key: string,
-  controls: AdvancedFilterControl[],
-): Record<string, string> {
-  if (typeof window === "undefined") {
-    return advancedFilterValues(controls);
-  }
-  try {
-    const raw = window.sessionStorage.getItem(key);
-    const stored = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-    return Object.fromEntries(
-      controls.map((control) => [
-        control.id,
-        typeof stored[control.id] === "string" ? stored[control.id] : control.value,
-      ])
-    ) as Record<string, string>;
-  } catch {
-    return advancedFilterValues(controls);
-  }
-}
-
-function writeAdvancedFilterDraftValues(
-  key: string,
-  values: Record<string, string>,
-  dirtyControlIds: ReadonlySet<string>,
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    if (dirtyControlIds.size === 0) {
-      window.sessionStorage.removeItem(key);
-      return;
-    }
-    window.sessionStorage.setItem(key, JSON.stringify(values));
-  } catch {
-    // Ignore storage failures; drafts still work for the current render.
-  }
-}
-
-function writeAdvancedFilterOpenState(key: string, open: boolean) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(key, open ? "1" : "0");
-  } catch {
-    // Ignore storage failures; the filter still works for the current render.
-  }
-}
-
-function advancedFilterValues(controls: AdvancedFilterControl[]) {
-  return Object.fromEntries(controls.map((control) => [control.id, control.value])) as Record<string, string>;
-}
-
-function advancedFilterDirtyControlIds(
-  controls: AdvancedFilterControl[],
-  values: Record<string, string>,
-) {
-  return new Set(
-    controls
-      .filter((control) => (values[control.id] ?? control.value) !== control.value)
-      .map((control) => control.id)
-  );
-}
-
-function advancedFilterValuesKey(controls: AdvancedFilterControl[]) {
-  return controls.map((control) => `${control.id}\u0000${control.value}`).join("\u0001");
-}
-
-function syncDraftValuesWithApplied(
-  controls: AdvancedFilterControl[],
-  currentDraftValues: Record<string, string>,
-  dirtyControlIds: ReadonlySet<string>,
-) {
-  return Object.fromEntries(
-    controls.map((control) => {
-      return [
-        control.id,
-        dirtyControlIds.has(control.id)
-          ? currentDraftValues[control.id] ?? control.value
-          : control.value,
-      ];
-    })
   );
 }

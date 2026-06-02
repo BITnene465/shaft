@@ -1,0 +1,93 @@
+.image-jump-search-status {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  border-bottom: 1px solid var(--composite-line-soft);
+  background: var(--composite-surface);
+}
+
+.image-jump-search-status[data-clipped="true"] {
+  grid-template-columns: minmax(150px, 0.92fr) minmax(120px, 1fr);
+}
+
+.image-jump-search-window {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--composite-gap-7);
+  align-items: center;
+  padding: var(--composite-pad-6) var(--composite-pad-9);
+  border-right: 1px solid var(--composite-line-soft);
+}
+
+.image-jump-search-window-meter {
+  padding: var(--composite-pad-4) var(--composite-pad-5);
+  background: var(--composite-surface-quiet);
+  border: 1px solid var(--composite-line-soft);
+}
+
+.image-jump-search-window-meter i {
+  background: var(--composite-accent);
+}
+
+.image-jump-search-window-meter.after i {
+  background: var(--bench-green);
+}
+
+.image-jump-search-gesture {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--composite-gap-8);
+  min-height: var(--composite-chip-min);
+  padding: 0 var(--composite-pad-9);
+  color: var(--composite-muted);
+  font-size: var(--text-2xs);
+  font-weight: 780;
+}
+
+.image-jump-search-status[data-dragging="true"] .image-jump-search-gesture {
+  color: var(--composite-accent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--composite-accent) 13%, transparent), transparent),
+    var(--composite-surface);
+}
+
+.image-jump-search-gesture span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-jump-search-gesture strong {
+  flex: 0 0 auto;
+  padding: var(--composite-pad-2) var(--composite-pad-5);
+  color: var(--composite-surface);
+  background: var(--composite-accent);
+  font-size: var(--text-2xs);
+  font-weight: 860;
+  font-variant-numeric: tabular-nums;
+}
+
+.image-jump-search-more {
+  display: grid;
+  min-width: 180px;
+  place-items: center;
+  padding: var(--composite-pad-8);
+  border: 1px dashed var(--composite-line-soft);
+  background: var(--composite-surface-quiet);
+  color: var(--composite-muted);
+  font-size: var(--text-xs);
+}
+
+@media (width <= 980px) {
+  .image-jump-search-status[data-clipped="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .image-jump-search-window {
+    border-right: 0;
+    border-bottom: 1px solid var(--composite-line-soft);
+  }
+}

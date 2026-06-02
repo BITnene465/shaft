@@ -1,0 +1,363 @@
+.image-stage {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #0b1118;
+  border: 1px solid #111a25;
+  border-radius: var(--viewer-radius-control);
+  contain: layout paint;
+  isolation: isolate;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewer-stack > .image-stage {
+  flex: 1 1 auto;
+  min-height: 180px;
+}
+
+.benchmark-stage {
+  flex: 1;
+  min-height: 0;
+}
+
+.image-stage.pannable {
+  cursor: grab;
+}
+
+.image-stage.panning {
+  cursor: grabbing;
+}
+
+.image-zoom-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  backface-visibility: hidden;
+  contain: layout paint;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.canvas-hud {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: var(--viewer-gap-6);
+  align-items: center;
+  padding: var(--viewer-pad-5) var(--viewer-pad-7);
+  color: #e8eef5;
+  background: rgb(9 15 22 / 78%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: var(--viewer-radius-control);
+  font-size: var(--viewer-text-small);
+  font-weight: 740;
+  pointer-events: auto;
+}
+
+.canvas-hud button {
+  min-height: var(--viewer-filter-chip-min);
+  padding: 0 var(--viewer-pad-7);
+  color: #ffffff;
+  background: rgb(255 255 255 / 12%);
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: var(--viewer-radius-control);
+  cursor: pointer;
+  font-size: var(--viewer-text-small);
+  font-weight: 720;
+}
+
+.canvas-hud button:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
+.image-zoom-layer img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+}
+
+.pyramid-tile-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.image-zoom-layer .pyramid-tile {
+  position: absolute;
+  display: block;
+  object-fit: fill;
+  user-select: none;
+}
+
+.overlay-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.overlay-svg.interactive {
+  pointer-events: auto;
+}
+
+.image-stage.panning .overlay-svg.interactive {
+  pointer-events: none;
+}
+
+.overlay-instance {
+  cursor: pointer;
+  pointer-events: visiblePainted;
+}
+
+.overlay-svg.has-active .overlay-instance:not(.active):not(.related) {
+  opacity: 0.28;
+}
+
+.overlay-instance.related {
+  opacity: 0.92;
+}
+
+.overlay-instance rect {
+  fill: var(--instance-color, transparent);
+  fill-opacity: var(--overlay-box-fill-opacity, 0.06);
+  opacity: var(--overlay-opacity, 1);
+  stroke-width: var(--overlay-box-width, 3);
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance .label-backplate {
+  fill: #fffffe;
+  fill-opacity: var(--overlay-label-bg-opacity, 0.82);
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
+  stroke-opacity: 0.38;
+  stroke-width: 0.55;
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance .overlay-hitbox {
+  fill: transparent !important;
+  fill-opacity: 0 !important;
+  stroke: transparent !important;
+  stroke-opacity: 0 !important;
+  stroke-width: 0 !important;
+  pointer-events: all;
+}
+
+.overlay-instance .overlay-hitline {
+  fill: none !important;
+  stroke: transparent !important;
+  stroke-opacity: 0 !important;
+  stroke-width: 16px !important;
+  pointer-events: stroke;
+}
+
+.overlay-instance text {
+  paint-order: stroke;
+  font-size: var(--overlay-label-size, 10px);
+  font-weight: 680;
+  letter-spacing: 0;
+  stroke: rgb(255 255 255 / 52%);
+  stroke-width: var(--overlay-label-stroke, 0.45px);
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance polyline {
+  fill: none;
+  opacity: var(--overlay-opacity, 1);
+  stroke-width: var(--overlay-line-width, 4);
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance circle {
+  opacity: var(--overlay-opacity, 1);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance.gt.match rect,
+.overlay-instance.gt.match polyline,
+.overlay-instance.gt.neutral rect,
+.overlay-instance.gt.neutral polyline {
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
+}
+
+.overlay-instance.gt.match text,
+.overlay-instance.gt.neutral text {
+  fill: var(--instance-color, var(--overlay-gt, #23c483));
+}
+
+.overlay-instance.gt.fn rect,
+.overlay-instance.gt.fn polyline {
+  stroke: var(--instance-color, var(--overlay-fn, #ff4d57));
+}
+
+.overlay-instance.gt.match circle,
+.overlay-instance.gt.neutral circle {
+  fill: var(--instance-color, var(--overlay-gt, #23c483));
+  stroke: #0b1118;
+}
+
+.overlay-instance.gt.fn circle {
+  fill: var(--instance-color, var(--overlay-fn, #ff4d57));
+  stroke: #0b1118;
+}
+
+.overlay-instance.gt.fn text {
+  fill: var(--instance-color, var(--overlay-fn, #ff4d57));
+}
+
+.overlay-instance.pred.match rect,
+.overlay-instance.pred.match polyline,
+.overlay-instance.pred.neutral rect,
+.overlay-instance.pred.neutral polyline {
+  stroke: var(--instance-color, var(--overlay-pred, #f2a51f));
+  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+}
+
+.overlay-instance.pred.match text,
+.overlay-instance.pred.neutral text {
+  fill: var(--instance-color, var(--overlay-pred, #f2a51f));
+}
+
+.overlay-instance.pred.fp rect,
+.overlay-instance.pred.fp polyline {
+  stroke: var(--instance-color, var(--overlay-fp, #d6409f));
+  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+}
+
+.overlay-instance.pred.match circle,
+.overlay-instance.pred.neutral circle {
+  fill: var(--instance-color, var(--overlay-pred, #f2a51f));
+  stroke: #0b1118;
+}
+
+.overlay-instance.pred.fp circle {
+  fill: var(--instance-color, var(--overlay-fp, #d6409f));
+  stroke: #0b1118;
+}
+
+.overlay-instance.pred.fp text {
+  fill: var(--instance-color, var(--overlay-fp, #d6409f));
+}
+
+.overlay-instance rect,
+.overlay-instance polyline {
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
+}
+
+.overlay-instance text {
+  fill: #172033;
+}
+
+.overlay-instance .overlay-label text {
+  fill: #172033;
+}
+
+.overlay-instance.gt.match .overlay-label text,
+.overlay-instance.gt.neutral .overlay-label text,
+.overlay-instance.gt.fn .overlay-label text,
+.overlay-instance.pred.match .overlay-label text,
+.overlay-instance.pred.neutral .overlay-label text,
+.overlay-instance.pred.fp .overlay-label text {
+  fill: #172033;
+  stroke: rgb(255 255 255 / 52%);
+}
+
+.overlay-instance.gt.fn .label-backplate,
+.overlay-instance.pred.fp .label-backplate {
+  fill: #fff8fa;
+}
+
+.overlay-instance.pred.match .label-backplate,
+.overlay-instance.pred.neutral .label-backplate {
+  fill: #fffaf3;
+}
+
+.overlay-instance.gt.match .label-backplate,
+.overlay-instance.gt.neutral .label-backplate {
+  fill: #f7fffb;
+}
+
+.overlay-instance circle {
+  fill: var(--instance-color, var(--overlay-gt, #23c483));
+  stroke: #0b1118;
+}
+
+.overlay-instance .line-endpoint {
+  fill: #0b1118;
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
+  stroke-width: 2.2;
+}
+
+.overlay-instance .direction-head {
+  fill: var(--instance-color, var(--overlay-gt, #23c483));
+  opacity: var(--overlay-opacity, 1);
+  stroke: #0b1118;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.overlay-instance.pred.match rect,
+.overlay-instance.pred.match polyline,
+.overlay-instance.pred.neutral rect,
+.overlay-instance.pred.neutral polyline,
+.overlay-instance.pred.fp rect,
+.overlay-instance.pred.fp polyline {
+  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+}
+
+.overlay-instance.active rect,
+.overlay-instance.active polyline,
+.overlay-instance.related rect,
+.overlay-instance.related polyline {
+  stroke: var(--overlay-active, #ffffff);
+  stroke-width: var(--overlay-active-width, 6);
+}
+
+.overlay-instance.related rect,
+.overlay-instance.related polyline {
+  stroke-width: calc(var(--overlay-active-width, 6) * 0.72);
+}
+
+.overlay-instance.active text,
+.overlay-instance.related text {
+  font-size: var(--overlay-label-size, 10px);
+  font-weight: 720;
+}
+
+.overlay-instance.active .label-backplate,
+.overlay-instance.related .label-backplate {
+  fill-opacity: 0.92;
+  stroke-opacity: 0.9;
+  stroke-width: 0.75;
+}
+
+.overlay-instance.active .line-endpoint,
+.overlay-instance.related .line-endpoint {
+  stroke: var(--overlay-active, #ffffff);
+}
+
+.overlay-instance.active .direction-head,
+.overlay-instance.related .direction-head {
+  fill: var(--overlay-active, #ffffff);
+}
+
+.image-stage {
+  background:
+    linear-gradient(45deg, #0d1520 25%, #101a27 25% 50%, #0d1520 50% 75%, #101a27 75%);
+  background-size: 28px 28px;
+  border-color: #1e2a3a;
+}
+
+@media (max-width: 900px) {
+  .image-stage {
+    min-height: 56vh;
+  }
+}

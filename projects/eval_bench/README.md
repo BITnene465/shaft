@@ -844,6 +844,7 @@ npm run test:status-model
 npm run test:workspace-settings
 npm run test:ui-contracts
 npm run test:shortcuts
+npm run test:composite-report
 npm run test:layout
 ```
 
@@ -871,6 +872,10 @@ Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-fir
 样本切换、图层显隐、几何显隐、视图复位、清除选择和快捷键编辑，确认旧默认键不会绕过用户配置。
 脚本默认从 `/api/state` 发现当前 store 中可用的 benchmark/run；只在需要固定目标时使用
 `EVAL_BENCH_BENCHMARK_ID` / `EVAL_BENCH_RUN_ID` 覆写，避免测试绑定旧 fixture。
+
+`test:composite-report` 是组合报告专项浏览器 smoke。它固定访问 `/suite-report`，在 `1440x900`、
+`1180x760` 和 `980x720` 三种横向视口下检查左侧编排器默认折叠、抽屉打开/关闭、图片搜索跳转
+popover、跳转结果、画布 pointer reticle 和 gesture HUD，防止组合可视化页退回静态列表或占满左侧空间。
 
 针对 viewer 高频鼠标交互还有独立性能检查；它会在真实 run inspector 上连续执行滚轮缩放和拖拽平移，
 并确认 pan/zoom 不会重渲染 heavy overlay layer：
