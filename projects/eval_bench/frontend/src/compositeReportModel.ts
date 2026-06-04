@@ -9,14 +9,7 @@ export const VIEW_MODES = [
   { value: "gt", label: "GT" }
 ] as const;
 
-export const STAGE_MODES = [
-  { value: "both", label: "总览" },
-  { value: "overlay", label: "叠加" },
-  { value: "split", label: "分屏" }
-] as const;
-
 export type ViewMode = (typeof VIEW_MODES)[number]["value"];
-export type StageMode = (typeof STAGE_MODES)[number]["value"];
 
 export type LayerSlot = {
   id: string;

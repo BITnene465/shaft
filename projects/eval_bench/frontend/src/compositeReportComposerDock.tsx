@@ -1,9 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
-import type { CompositeSampleView } from "./api";
-import { layerAvailabilityColor } from "./compositeLayerPalette";
-import { CompositeMicroMeter } from "./compositeMicroMeter";
-import { ReportComposerDockPreview } from "./compositeReportComposerDockPreview";
 import { ActionButton, IconActionButton } from "./ui";
 
 import "./compositeComposerDock.css";
@@ -13,19 +9,16 @@ export function ReportComposerDock({
   activeSlots,
   readyLayerCount,
   missingLayerCount,
-  statuses,
   onOpenChange
 }: {
   open: boolean;
   activeSlots: number;
   readyLayerCount: number;
   missingLayerCount: number;
-  statuses?: CompositeSampleView["layer_statuses"];
   onOpenChange: (value: boolean) => void;
 }) {
-  const readyTotal = readyLayerCount + missingLayerCount;
-  const activeSlotProgress = activeSlots > 0 ? 1 : 0;
-  const readyProgress = readyTotal > 0 ? readyLayerCount / readyTotal : 0;
+  const dockLabel = open ? "OPEN" : "PLAN";
+  const dockTitle = `${activeSlots.toLocaleString()} slots, ${readyLayerCount.toLocaleString()} ready, ${missingLayerCount.toLocaleString()} missing`;
   return (
     <aside
       className={open ? "composite-composer-dock open" : "composite-composer-dock collapsed"}
@@ -45,45 +38,12 @@ export function ReportComposerDock({
         compact
         className="composer-dock-grip"
         aria-label={open ? "折叠报告编排器" : "展开报告编排器"}
-        title={open ? "折叠报告编排器" : "展开报告编排器"}
+        title={dockTitle}
         onClick={() => onOpenChange(!open)}
       >
-        <span>{open ? "OPEN" : "PLAN"}</span>
+        <span>{dockLabel}</span>
+        <strong>{activeSlots.toLocaleString()}</strong>
       </ActionButton>
-      <CompositeMicroMeter
-        className="composer-dock-meter"
-        label="layers"
-        value={activeSlots.toLocaleString()}
-        meta="slots"
-        progress={activeSlotProgress}
-        idle={activeSlots <= 0}
-        ariaLabel={`${activeSlots.toLocaleString()} layers`}
-      />
-      <CompositeMicroMeter
-        className="composer-dock-meter"
-        label="ready"
-        value={readyLayerCount.toLocaleString()}
-        meta={`${missingLayerCount.toLocaleString()} miss`}
-        progress={readyProgress}
-        idle={readyTotal <= 0}
-        ariaLabel={`${readyLayerCount.toLocaleString()} ready / ${missingLayerCount.toLocaleString()} missing`}
-      />
-      <div className="composer-dock-dots" aria-label="当前图层状态">
-        {(statuses ?? []).slice(0, 8).map((status, index) => (
-          <i
-            className={status.available ? "ready" : "missing"}
-            key={`${status.layer}_${status.run_id}`}
-            style={{ background: layerAvailabilityColor(index, status.available) }}
-            title={`${status.layer}: ${status.status}`}
-          />
-        ))}
-      </div>
-      <ReportComposerDockPreview
-        activeSlots={activeSlots}
-        readyLayerCount={readyLayerCount}
-        missingLayerCount={missingLayerCount}
-        statuses={statuses}
-      />
     </aside>
   );
 }

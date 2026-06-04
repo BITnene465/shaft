@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { EvalInstance, RunSampleDetail } from "./api";
 import { DEFAULT_INTERACTION_SETTINGS } from "./workspaceSettings";
 import { MemoizedInstanceLayer } from "./viewerInstanceLayer";
@@ -15,6 +16,13 @@ import { ActionButton } from "./ui";
 
 import "./viewerOverlayCanvas.css";
 import "./viewerCanvas.css";
+
+const MIN_SCREEN_LABEL_SIZE = 6;
+const MAX_SCREEN_LABEL_SIZE = 12;
+
+function clampScreenLabelSize(value: number) {
+  return Math.max(MIN_SCREEN_LABEL_SIZE, Math.min(MAX_SCREEN_LABEL_SIZE, value));
+}
 
 export function CanvasStage({
   width,
@@ -105,6 +113,15 @@ export function CanvasStage({
     viewportSyncKey,
     width
   });
+  const adaptiveOverlayStyle = useMemo(() => {
+    const fitWidth = Math.max(1, fitSize.width);
+    const imageWidth = Math.max(1, width);
+    const screenLabelSize = clampScreenLabelSize(overlayStyle.labelFontSize);
+    return {
+      ...overlayStyle,
+      labelFontSize: (screenLabelSize * imageWidth) / fitWidth
+    };
+  }, [fitSize.width, overlayStyle, width]);
 
   return (
     <div
@@ -184,7 +201,7 @@ export function CanvasStage({
               activeObjectId={activeObjectId}
               relatedObjectIds={relatedObjectIds}
               overlayColors={overlayColors}
-              overlayStyle={overlayStyle}
+              overlayStyle={adaptiveOverlayStyle}
               labelColors={labelColors}
               onHover={onHover}
               onLock={onLock}
@@ -204,7 +221,7 @@ export function CanvasStage({
               activeObjectId={activeObjectId}
               relatedObjectIds={relatedObjectIds}
               overlayColors={overlayColors}
-              overlayStyle={overlayStyle}
+              overlayStyle={adaptiveOverlayStyle}
               labelColors={labelColors}
               onHover={onHover}
               onLock={onLock}

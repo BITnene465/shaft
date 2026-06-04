@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { FacetBucket, JobLog, JobSummary, SchedulerStatus } from "./api";
@@ -283,6 +284,7 @@ function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null })
   const progress = jobProgress(job);
   const lines = logs?.lines ?? [];
   const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : "";
+  const percent = progress.percent ?? 8;
   return (
     <div className="job-detail-panel">
       <div className="job-monitor-header">
@@ -299,9 +301,12 @@ function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null })
           <Badge value={job.status} domain="job" />
         </div>
       </div>
-      <div className="job-progress-row">
+      <div
+        className="job-progress-row"
+        style={{ "--job-progress": (percent / 100).toFixed(4) } as CSSProperties}
+      >
         <div className="job-progress-track" aria-label="任务进度">
-          <span style={{ width: `${progress.percent ?? 8}%` }} />
+          <span />
         </div>
         <span>{progress.text}</span>
       </div>

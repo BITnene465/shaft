@@ -28,15 +28,13 @@ export function NumberSettingControl({
   step: number;
   onChange: (value: number) => void;
 }) {
+  const displayValue = formatNumberInputValue(value, step);
   return (
     <label className="number-setting-control">
-      <span>
-        {label}
-        <strong>{Number.isInteger(value) ? value : value.toFixed(2)}</strong>
-      </span>
+      <span>{label}</span>
       <input
         type="number"
-        value={value}
+        value={displayValue}
         min={min}
         max={max}
         step={step}
@@ -44,6 +42,15 @@ export function NumberSettingControl({
       />
     </label>
   );
+}
+
+function formatNumberInputValue(value: number, step: number) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  const [, fraction = ""] = String(step).split(".");
+  const precision = Math.min(6, fraction.length);
+  return precision === 0 ? String(Math.round(value)) : value.toFixed(precision);
 }
 
 export function RangeSettingControl({

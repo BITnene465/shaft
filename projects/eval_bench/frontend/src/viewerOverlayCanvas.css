@@ -112,32 +112,20 @@
 }
 
 .overlay-instance {
-  cursor: pointer;
+  cursor: default;
   pointer-events: visiblePainted;
 }
 
-.overlay-svg.has-active .overlay-instance:not(.active):not(.related) {
-  opacity: 0.28;
-}
-
-.overlay-instance.related {
-  opacity: 0.92;
+.overlay-svg.has-active .overlay-instance:not(.active) {
+  opacity: 1;
 }
 
 .overlay-instance rect {
   fill: var(--instance-color, transparent);
   fill-opacity: var(--overlay-box-fill-opacity, 0.06);
   opacity: var(--overlay-opacity, 1);
-  stroke-width: var(--overlay-box-width, 3);
-  vector-effect: non-scaling-stroke;
-}
-
-.overlay-instance .label-backplate {
-  fill: #fffffe;
-  fill-opacity: var(--overlay-label-bg-opacity, 0.82);
-  stroke: var(--instance-color, var(--overlay-gt, #23c483));
-  stroke-opacity: 0.38;
-  stroke-width: 0.55;
+  stroke-linejoin: round;
+  stroke-width: var(--overlay-box-width, 2);
   vector-effect: non-scaling-stroke;
 }
 
@@ -150,6 +138,16 @@
   pointer-events: all;
 }
 
+.overlay-instance .overlay-label {
+  opacity: 0.76;
+  cursor: pointer;
+  pointer-events: all;
+}
+
+.overlay-svg.has-active .overlay-instance:not(.active) .overlay-label {
+  opacity: 0.64;
+}
+
 .overlay-instance .overlay-hitline {
   fill: none !important;
   stroke: transparent !important;
@@ -159,11 +157,12 @@
 }
 
 .overlay-instance text {
-  paint-order: stroke;
-  font-size: var(--overlay-label-size, 10px);
+  font-size: var(--overlay-label-size, 8px);
   font-weight: 680;
   letter-spacing: 0;
+  paint-order: stroke;
   stroke: rgb(255 255 255 / 52%);
+  stroke-linejoin: round;
   stroke-width: var(--overlay-label-stroke, 0.45px);
   vector-effect: non-scaling-stroke;
 }
@@ -171,7 +170,9 @@
 .overlay-instance polyline {
   fill: none;
   opacity: var(--overlay-opacity, 1);
-  stroke-width: var(--overlay-line-width, 4);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--overlay-line-width, 3);
   vector-effect: non-scaling-stroke;
 }
 
@@ -181,10 +182,10 @@
   vector-effect: non-scaling-stroke;
 }
 
-.overlay-instance.gt.match rect,
-.overlay-instance.gt.match polyline,
-.overlay-instance.gt.neutral rect,
-.overlay-instance.gt.neutral polyline {
+.overlay-instance.gt.match .overlay-box,
+.overlay-instance.gt.match polyline:not(.overlay-hitline),
+.overlay-instance.gt.neutral .overlay-box,
+.overlay-instance.gt.neutral polyline:not(.overlay-hitline) {
   stroke: var(--instance-color, var(--overlay-gt, #23c483));
 }
 
@@ -193,8 +194,8 @@
   fill: var(--instance-color, var(--overlay-gt, #23c483));
 }
 
-.overlay-instance.gt.fn rect,
-.overlay-instance.gt.fn polyline {
+.overlay-instance.gt.fn .overlay-box,
+.overlay-instance.gt.fn polyline:not(.overlay-hitline) {
   stroke: var(--instance-color, var(--overlay-fn, #ff4d57));
 }
 
@@ -213,12 +214,12 @@
   fill: var(--instance-color, var(--overlay-fn, #ff4d57));
 }
 
-.overlay-instance.pred.match rect,
-.overlay-instance.pred.match polyline,
-.overlay-instance.pred.neutral rect,
-.overlay-instance.pred.neutral polyline {
+.overlay-instance.pred.match .overlay-box,
+.overlay-instance.pred.match polyline:not(.overlay-hitline),
+.overlay-instance.pred.neutral .overlay-box,
+.overlay-instance.pred.neutral polyline:not(.overlay-hitline) {
   stroke: var(--instance-color, var(--overlay-pred, #f2a51f));
-  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+  stroke-dasharray: var(--overlay-pred-dash, 7 4);
 }
 
 .overlay-instance.pred.match text,
@@ -226,10 +227,10 @@
   fill: var(--instance-color, var(--overlay-pred, #f2a51f));
 }
 
-.overlay-instance.pred.fp rect,
-.overlay-instance.pred.fp polyline {
+.overlay-instance.pred.fp .overlay-box,
+.overlay-instance.pred.fp polyline:not(.overlay-hitline) {
   stroke: var(--instance-color, var(--overlay-fp, #d6409f));
-  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+  stroke-dasharray: var(--overlay-pred-dash, 7 4);
 }
 
 .overlay-instance.pred.match circle,
@@ -247,17 +248,18 @@
   fill: var(--instance-color, var(--overlay-fp, #d6409f));
 }
 
-.overlay-instance rect,
-.overlay-instance polyline {
+.overlay-instance .overlay-box,
+.overlay-instance polyline:not(.overlay-hitline) {
   stroke: var(--instance-color, var(--overlay-gt, #23c483));
 }
 
-.overlay-instance text {
-  fill: #172033;
-}
-
-.overlay-instance .overlay-label text {
-  fill: #172033;
+.overlay-instance .label-backplate {
+  fill: #fffffe;
+  fill-opacity: var(--overlay-label-bg-opacity, 0.74);
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
+  stroke-opacity: 0.38;
+  stroke-width: 0.55;
+  vector-effect: non-scaling-stroke;
 }
 
 .overlay-instance.gt.match .overlay-label text,
@@ -291,7 +293,7 @@
 }
 
 .overlay-instance .line-endpoint {
-  fill: #0b1118;
+  fill: rgb(11 17 24 / 90%);
   stroke: var(--instance-color, var(--overlay-gt, #23c483));
   stroke-width: 2.2;
 }
@@ -304,49 +306,41 @@
   vector-effect: non-scaling-stroke;
 }
 
-.overlay-instance.pred.match rect,
-.overlay-instance.pred.match polyline,
-.overlay-instance.pred.neutral rect,
-.overlay-instance.pred.neutral polyline,
-.overlay-instance.pred.fp rect,
-.overlay-instance.pred.fp polyline {
-  stroke-dasharray: var(--overlay-pred-dash, 8 5);
+.overlay-instance.pred.match .overlay-box,
+.overlay-instance.pred.match polyline:not(.overlay-hitline),
+.overlay-instance.pred.neutral .overlay-box,
+.overlay-instance.pred.neutral polyline:not(.overlay-hitline),
+.overlay-instance.pred.fp .overlay-box,
+.overlay-instance.pred.fp polyline:not(.overlay-hitline) {
+  stroke-dasharray: var(--overlay-pred-dash, 7 4);
 }
 
-.overlay-instance.active rect,
-.overlay-instance.active polyline,
-.overlay-instance.related rect,
-.overlay-instance.related polyline {
-  stroke: var(--overlay-active, #ffffff);
-  stroke-width: var(--overlay-active-width, 6);
+.overlay-instance.active .overlay-box,
+.overlay-instance.active polyline:not(.overlay-hitline) {
+  stroke-width: calc(var(--overlay-box-width, 3) + 2);
 }
 
-.overlay-instance.related rect,
-.overlay-instance.related polyline {
-  stroke-width: calc(var(--overlay-active-width, 6) * 0.72);
+.overlay-instance.active text {
+  font-size: var(--overlay-label-size, 8px);
+  font-weight: 760;
 }
 
-.overlay-instance.active text,
-.overlay-instance.related text {
-  font-size: var(--overlay-label-size, 10px);
-  font-weight: 720;
+.overlay-instance.active .label-backplate {
+  fill-opacity: 0.96;
+  stroke-opacity: 0.86;
+  stroke-width: 0.8;
 }
 
-.overlay-instance.active .label-backplate,
-.overlay-instance.related .label-backplate {
-  fill-opacity: 0.92;
-  stroke-opacity: 0.9;
-  stroke-width: 0.75;
+.overlay-instance.active .overlay-label {
+  opacity: 1;
 }
 
-.overlay-instance.active .line-endpoint,
-.overlay-instance.related .line-endpoint {
-  stroke: var(--overlay-active, #ffffff);
+.overlay-instance.active .line-endpoint {
+  stroke: var(--instance-color, var(--overlay-gt, #23c483));
 }
 
-.overlay-instance.active .direction-head,
-.overlay-instance.related .direction-head {
-  fill: var(--overlay-active, #ffffff);
+.overlay-instance.active .direction-head {
+  fill: var(--instance-color, var(--overlay-gt, #23c483));
 }
 
 .image-stage {

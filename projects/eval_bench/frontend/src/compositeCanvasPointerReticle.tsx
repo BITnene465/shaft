@@ -2,18 +2,15 @@ import {
   CompositeCanvasCoordinateTag,
   CompositeCanvasOverlayPanel
 } from "./compositeCanvasOverlay";
-import type { CompositeCanvasPointerState } from "./compositeCanvasPointerTracker";
+import type { RefObject } from "react";
 
 import "./compositeCanvasPointerReticle.css";
 
 export function CompositeCanvasPointerReticle({
-  pointer
+  coordinateRef
 }: {
-  pointer: CompositeCanvasPointerState | null;
+  coordinateRef: RefObject<HTMLSpanElement>;
 }) {
-  if (!pointer) {
-    return null;
-  }
   return (
     <CompositeCanvasOverlayPanel
       anchor="full"
@@ -23,8 +20,7 @@ export function CompositeCanvasPointerReticle({
       <i className="axis-x" />
       <i className="axis-y" />
       <CompositeCanvasCoordinateTag>
-        {Math.round(pointer.percentX).toString().padStart(2, "0")} /{" "}
-        {Math.round(pointer.percentY).toString().padStart(2, "0")}
+        <span ref={coordinateRef} />
       </CompositeCanvasCoordinateTag>
     </CompositeCanvasOverlayPanel>
   );

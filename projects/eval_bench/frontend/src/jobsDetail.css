@@ -42,22 +42,61 @@
 
 .job-progress-track,
 .job-progress-mini {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
   overflow: hidden;
-  background: #d9e5ef;
+  border-radius: 999px;
+  background:
+    conic-gradient(
+      from -72deg,
+      #18d2c8 0turn,
+      #1978a8 calc(var(--job-progress, 0) * 0.64turn),
+      #20a36a calc(var(--job-progress, 0) * 1turn),
+      #d9e5ef 0
+    );
+  box-shadow: 0 0 12px rgb(25 120 168 / 16%);
+}
+
+.job-progress-track::before,
+.job-progress-mini::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    conic-gradient(from 0deg, transparent 0 74%, rgb(255 255 255 / 60%) 82%, transparent 92%);
+  content: "";
+  opacity: 0.7;
+  animation: job-progress-sweep 1.8s linear infinite;
 }
 
 .job-progress-track {
-  position: relative;
-  flex: 1;
-  height: 8px;
+  width: 26px;
+  height: 26px;
 }
 
 .job-progress-track span,
 .job-progress-mini span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #1978a8, #20a36a);
-  transition: width 180ms ease;
+  position: relative;
+  z-index: 1;
+  width: 46%;
+  height: 46%;
+  border-radius: inherit;
+  background: #f7fbff;
+}
+
+@keyframes job-progress-sweep {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-progress-track::before,
+  .job-progress-mini::before {
+    animation: none;
+  }
 }
 
 .job-monitor-meta {

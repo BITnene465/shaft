@@ -15,7 +15,7 @@ import {
   isRun,
   uniqueLayerKey
 } from "./compositeReportModel";
-import type { ActiveLayerConfig, LayerSlot, StageMode } from "./compositeReportModel";
+import type { ActiveLayerConfig, LayerSlot } from "./compositeReportModel";
 import {
   loadCompositeReportViewState,
   reconcileCompositeReportSlots,
@@ -35,7 +35,6 @@ export function useCompositeReportController() {
   const initialViewState = useMemo(() => loadCompositeReportViewState(), []);
   const [slots, setSlots] = useState<LayerSlot[]>(initialViewState.slots);
   const [sampleIndex, setSampleIndex] = useState(initialViewState.sampleIndex);
-  const [stageMode, setStageMode] = useState<StageMode>(initialViewState.stageMode);
   const [focusedLayerKey, setFocusedLayerKey] = useState<string | null>(
     initialViewState.focusedLayerKey
   );
@@ -96,13 +95,12 @@ export function useCompositeReportController() {
     saveCompositeReportViewState({
       slots,
       sampleIndex,
-      stageMode,
       focusedLayerKey,
       query,
       layerFilter,
       sidebarOpen: false
     });
-  }, [focusedLayerKey, layerFilter, query, sampleIndex, slots, stageMode]);
+  }, [focusedLayerKey, layerFilter, query, sampleIndex, slots]);
 
   const filteredRuns = useMemo(
     () => filterReportRuns(reportRuns, query, layerFilter),
@@ -176,13 +174,11 @@ export function useCompositeReportController() {
     missingLayerCount,
     compositeEnabled,
     compositeQuery,
-    stageMode,
     focusedLayerKey,
     query,
     layerFilter,
     sidebarOpen,
     setSampleIndex,
-    setStageMode,
     setFocusedLayerKey,
     setQuery,
     setLayerFilter,

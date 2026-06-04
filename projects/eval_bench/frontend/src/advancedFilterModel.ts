@@ -32,20 +32,22 @@ export function displayFilterValue(control: AdvancedFilterControl) {
 
 export function groupAdvancedControls(controls: AdvancedFilterControl[]) {
   const groups = [
-    { id: "quick", title: "检索与阈值", controls: [] as AdvancedFilterControl[] },
-    { id: "scope", title: "范围目录", controls: [] as AdvancedFilterControl[] }
+    { id: "search", title: "搜索", controls: [] as AdvancedFilterControl[] },
+    { id: "scope", title: "范围目录", controls: [] as AdvancedFilterControl[] },
+    { id: "tune", title: "阈值排序", controls: [] as AdvancedFilterControl[] },
   ];
   for (const control of controls) {
     const normalized = `${control.id} ${control.label}`.toLowerCase();
-    if (
-      control.type === "search" ||
+    if (control.type === "search") {
+      groups[0].controls.push(control);
+    } else if (
       control.type === "number" ||
       normalized.includes("sort") ||
       normalized.includes("排序") ||
       normalized.includes("最低") ||
       normalized.includes("order")
     ) {
-      groups[0].controls.push(control);
+      groups[2].controls.push(control);
     } else {
       groups[1].controls.push(control);
     }

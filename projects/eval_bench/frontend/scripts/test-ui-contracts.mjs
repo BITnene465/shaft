@@ -188,15 +188,15 @@ const compositeImageAtlasStyleSource = await readSource("src/compositeImageAtlas
 const compositeImageTimelineStyleSource = await readSource("src/compositeImageTimeline.css");
 const compositeImageIndexMeterStyleSource = await readSource("src/compositeImageIndexMeter.css");
 const compositeImageScrubTrackStyleSource = await readSource("src/compositeImageScrubTrack.css");
-const compositeImageNearbyRailStyleSource = await readSource("src/compositeImageNearbyRail.css");
+const compositeImageNearbyRailStyleSource = "";
 const compositeImageSearchPopoverStyleSource = await readSource("src/compositeImageSearchPopover.css");
 const compositeImageSearchResultsStyleSource = await readSource("src/compositeImageSearchResults.css");
 const compositeImageSearchPreviewStyleSource = await readSource("src/compositeImageSearchPreview.css");
 const compositeImageSearchStatusStyleSource = await readSource("src/compositeImageSearchStatus.css");
 const compositeReportStageStyleSource = await readSource("src/compositeReportStage.css");
 const compositeStageWorkbenchStyleSource = await readSource("src/compositeStageWorkbench.css");
-const compositeLayerFocusToolbarStyleSource = await readSource("src/compositeLayerFocusToolbar.css");
-const compositeObjectHudStyleSource = await readSource("src/compositeObjectHud.css");
+const compositeLayerFocusToolbarStyleSource = "";
+const compositeObjectHudStyleSource = "";
 const compositeObjectContextMenuStyleSource = await readSource("src/compositeObjectContextMenu.css");
 const compositeOverlayStageStyleSource = await readSource("src/compositeOverlayStage.css");
 const compositeLayerCanvasStyleSource = await readSource("src/compositeLayerCanvas.css");
@@ -205,8 +205,8 @@ const compositeCanvasGestureHudStyleSource = await readSource("src/compositeCanv
 const compositeCanvasPointerReticleStyleSource = await readSource("src/compositeCanvasPointerReticle.css");
 const compositeLayerInspectorStyleSource = await readSource("src/compositeLayerInspector.css");
 const compositeLayerObjectStripStyleSource = await readSource("src/compositeLayerObjectStrip.css");
-const compositeSplitStageStyleSource = await readSource("src/compositeSplitStage.css");
-const compositeSplitPaneStyleSource = await readSource("src/compositeSplitPane.css");
+const compositeSplitStageStyleSource = "";
+const compositeSplitPaneStyleSource = "";
 const compositeReportModelSource = await readSource("src/compositeReportModel.ts");
 const compositeLayerPaletteSource = await readSource("src/compositeLayerPalette.ts");
 const compositeImageNavigationModelSource = await readSource("src/compositeImageNavigationModel.ts");
@@ -215,9 +215,7 @@ const compositeImageNavigationControllerSource = await readSource(
 );
 const compositeImageSearchControllerSource = await readSource("src/compositeImageSearchController.ts");
 const compositeImageScrubTrack = await readSource("src/compositeImageScrubTrack.tsx");
-const compositeImageNearbyRailControllerSource = await readSource(
-  "src/compositeImageNearbyRailController.ts",
-);
+const compositeImageNearbyRailControllerSource = "";
 const compositeImageTimelineControllerSource = await readSource(
   "src/compositeImageTimelineController.ts",
 );
@@ -511,9 +509,16 @@ assert(
   "filter/search visual overrides must live in filterControls.css instead of appTheme.css",
 );
 assert(
-  selectPopoverControl.includes('import "./selectPopover.css";') &&
+    selectPopoverControl.includes('import "./selectPopover.css";') &&
     selectPopoverControl.includes('import { createPortal } from "react-dom";') &&
     selectPopoverControl.includes('data-select-popover-menu="true"') &&
+    selectPopoverControl.includes("SELECT_MENU_MAX_HEIGHT") &&
+    selectPopoverControl.includes('closest(\'[role="dialog"], .settings-drawer-scroll\')') &&
+    selectPopoverControl.includes("safeTop") &&
+    selectPopoverControl.includes("safeBottom") &&
+    selectPopoverControl.includes("availableBelow") &&
+    selectPopoverControl.includes("availableAbove") &&
+    selectPopoverControl.includes("data-placement={menuPlacement}") &&
     selectPopoverStyleSource.includes(".select-popover-control") &&
     selectPopoverStyleSource.includes(".select-popover-filter.compact {\n  width: 100%;") &&
     selectPopoverStyleSource.includes("max-width: 100%;") &&
@@ -522,6 +527,7 @@ assert(
     selectPopoverStyleSource.includes("position: fixed;") &&
     selectPopoverStyleSource.includes("z-index: 260;") &&
     selectPopoverStyleSource.includes(".select-popover-list") &&
+    selectPopoverStyleSource.includes('.select-popover-menu[data-placement="top"]') &&
     selectPopoverStyleSource.includes(".select-popover-filter .select-popover-trigger") &&
     selectPopoverStyleSource.includes("max-height: var(--select-menu-max-height") &&
     !appThemeStyleSource.includes(".select-popover-menu") &&
@@ -721,12 +727,13 @@ assert(
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
     filterControls.includes('data-filter-group={group.id}') &&
     styleSource.includes("grid-template-columns: minmax(74px, max-content) minmax(0, 1fr)") &&
-    advancedFilterModelSource.includes('{ id: "quick", title: "检索与阈值"') &&
+    advancedFilterModelSource.includes('{ id: "search", title: "搜索"') &&
+    advancedFilterModelSource.includes('{ id: "tune", title: "阈值排序"') &&
     styleSource.includes('.advanced-filter-group[data-filter-group="scope"] .advanced-filter-controls') &&
-    styleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-controls') &&
-    styleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-search-control') &&
-    styleSource.includes("flex: 1 1 320px") &&
-    styleSource.includes("flex: 0 1 150px") &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="search"] {') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="search"] .advanced-filter-controls') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="search"] .advanced-filter-group-title') &&
+    styleSource.includes('.advanced-filter-group[data-filter-group="tune"] .advanced-filter-controls') &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr))") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
@@ -901,9 +908,11 @@ assert(
     !filterControlsStyleSource.includes("2.35fr") &&
     filterControlsStyleSource.includes("grid-template-columns: minmax(74px, max-content) minmax(0, 1fr);") &&
     filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="scope"] .advanced-filter-controls') &&
-    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="quick"] .advanced-filter-controls') &&
-    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"quick\"] .advanced-filter-controls {\n  display: flex;") &&
-    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"quick\"] .advanced-filter-search-control") &&
+    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="search"] {') &&
+    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="search"] .advanced-filter-controls') &&
+    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"search\"] .advanced-filter-controls {\n  grid-template-columns: minmax(0, 1fr);") &&
+    filterControlsStyleSource.includes(".advanced-filter-group[data-filter-group=\"search\"] .advanced-filter-group-title {\n  display: none;") &&
+    filterControlsStyleSource.includes('.advanced-filter-group[data-filter-group="tune"] .advanced-filter-controls') &&
     !filterControlsStyleSource.includes("minmax(min(100%, 280px), 1fr) repeat(auto-fit") &&
     filterControlsStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr));") &&
     filterControls.includes('closest(\'[data-select-popover-menu="true"]\')') &&
@@ -1184,11 +1193,14 @@ assert(
   "shortcut coverage must encode dynamic benchmark/run route ids",
 );
 assert(
-  viewerPerformanceSource.includes("async function resolveViewerPerformanceUrl(") &&
+    viewerPerformanceSource.includes("async function resolveViewerPerformanceUrl(") &&
     viewerPerformanceSource.includes('fetch(new URL("/api/state", parsed.origin))') &&
     viewerPerformanceSource.includes('new URL(`/runs/${encodeURIComponent(run.run_id)}`, parsed.origin)') &&
+    viewerPerformanceSource.includes('.viewer-pointer-surface[data-pointer-reticle="active"]') &&
+    viewerPerformanceSource.includes(".viewer-pointer-surface .composite-canvas-pointer-reticle") &&
+    viewerPerformanceSource.includes(".viewer-pointer-surface .composite-canvas-coordinate-tag") &&
     !viewerPerformanceSource.includes("config_smoke_prompt_params"),
-  "viewer performance smoke must discover a current run instead of hard-coding old fixtures",
+  "viewer performance smoke must discover current runs and protect ordinary viewer pointer feedback",
 );
 assert(
   packageJsonSource.includes('"test:composite-report": "node scripts/composite-report-smoke-check.mjs"') &&
@@ -1254,6 +1266,13 @@ assert(
     settingsPage.includes("SearchInputControl") &&
     settingsPreferenceDrawer.includes("TextInputControl"),
   "settings drawer selects must use CompactSelectControl",
+);
+assert(
+  controlPrimitives.includes("export function NumberSettingControl") &&
+    controlPrimitives.includes("formatNumberInputValue") &&
+    !controlPrimitives.includes("<strong>{Number.isInteger(value)") &&
+    !controlPrimitiveStyleSource.includes(".number-setting-control strong"),
+  "settings number controls must not duplicate the current value beside the numeric input",
 );
 assert(
   typographySettingsSource.includes("export type TypographySettings") &&
@@ -2473,6 +2492,9 @@ assert(
   "rank composite metric controls and API parameters must be removed",
 );
 const sampleViewer = await readSource("src/sampleViewer.tsx");
+const viewerPointerSurfaceSource = await readSource("src/viewerPointerSurface.tsx");
+const visualStatusBar = await readSource("src/visualStatusBar.tsx");
+const visualStatusBarStyleSource = await readSource("src/visualStatusBar.css");
 assert(
   sampleViewer.includes("export function SampleViewer("),
   "sample viewer module must export the shared SampleViewer",
@@ -2480,6 +2502,35 @@ assert(
 assert(
   sampleViewer.includes("OptionChipButton") && !sampleViewer.includes('className="query-chip"'),
   "sample viewer utility chips must use OptionChipButton",
+);
+assert(
+    sampleViewer.includes('import { VisualStatusBar } from "./visualStatusBar";') &&
+    benchmarkSampleInspectorSource.includes('import { VisualStatusBar } from "./visualStatusBar";') &&
+    sampleViewer.includes('className="viewer-visual-status"') &&
+    benchmarkSampleInspectorSource.includes('className="viewer-visual-status"') &&
+    sampleViewer.includes('className="viewer-stage-shell"') &&
+    benchmarkSampleInspectorSource.includes('className="viewer-stage-shell benchmark-stage"') &&
+    !sampleViewer.includes("viewer-toolbar") &&
+    visualStatusBar.includes("export function VisualStatusBar") &&
+    visualStatusBarStyleSource.includes(".visual-status-bar") &&
+    visualStatusBarStyleSource.includes(".visual-status-bar.composite-visual-status") &&
+    visualStatusBarStyleSource.includes(".visual-status-bar.viewer-visual-status") &&
+    visualStatusBarStyleSource.includes('data-refreshing="true"') &&
+    visualStatusBarStyleSource.includes("position: absolute"),
+  "sample viewers must use the shared in-canvas visual status bar instead of a layout-consuming toolbar",
+);
+assert(
+  sampleViewer.includes('import { ViewerPointerSurface } from "./viewerPointerSurface";') &&
+    benchmarkSampleInspectorSource.includes('import { ViewerPointerSurface } from "./viewerPointerSurface";') &&
+    sampleViewer.includes("<ViewerPointerSurface>") &&
+    benchmarkSampleInspectorSource.includes("<ViewerPointerSurface>") &&
+    viewerPointerSurfaceSource.includes("export function ViewerPointerSurface") &&
+    viewerPointerSurfaceSource.includes('import { CompositeCanvasPointerReticle } from "./compositeCanvasPointerReticle";') &&
+    viewerPointerSurfaceSource.includes('import { useCompositeCanvasPointerTracker } from "./compositeCanvasPointerTracker";') &&
+    viewerPointerSurfaceSource.includes("const pointer = useCompositeCanvasPointerTracker();") &&
+    viewerPointerSurfaceSource.includes("{...pointer.pointerHandlers}") &&
+    viewerPointerSurfaceSource.includes("<CompositeCanvasPointerReticle coordinateRef={pointer.coordinateRef} />"),
+  "ordinary visual workbenches must share the composite pointer reticle and coordinate tracker",
 );
 const viewerPanels = await readSource("src/viewerPanels.tsx");
 const viewerMetrics = await readSource("src/viewerMetrics.ts");
@@ -2494,6 +2545,13 @@ const viewerComponentStyleSources = [
 ];
 const rawViewerControlGeometryPattern =
   /(?:\bfont-size:\s*\d|\b(?:gap|padding):\s*(?:2|3|4|5|6|7|8|9|10|11)px\b|\bmin-height:\s*(?:19|20|22|24|28|42|46)px\b|\bborder-radius:\s*(?:2|3)px\b)/;
+assert(
+  viewerCanvasStyleSource.includes(".viewer-stage-shell") &&
+    viewerCanvasStyleSource.includes(".viewer-stage-shell > .image-stage") &&
+    viewerCanvasStyleSource.includes(".viewer-stage-shell > .viewer-pointer-surface") &&
+    viewerCanvasStyleSource.includes(".viewer-pointer-surface > .image-stage"),
+  "viewer canvas CSS must provide a fixed in-canvas shell for status overlays",
+);
 assert(
   viewerPanels.includes('import { CompactSelectControl, ToggleButton } from "./controlPrimitives";'),
   "viewer layer preset select must use CompactSelectControl",
@@ -2723,10 +2781,10 @@ assert(
     viewerOverlayCanvasStyleSource.includes(".overlay-instance .overlay-hitline") &&
     viewerOverlayCanvasStyleSource.includes("pointer-events: all") &&
     viewerOverlayCanvasStyleSource.includes("pointer-events: stroke") &&
-    viewerOverlayCanvasStyleSource.includes(".overlay-instance.active rect") &&
-    viewerOverlayCanvasStyleSource.includes(".overlay-svg.has-active .overlay-instance:not(.active):not(.related)") &&
-    viewerOverlayCanvasStyleSource.includes(".overlay-instance.related rect") &&
-    viewerOverlayCanvasStyleSource.includes(".overlay-instance.related .label-backplate") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.active .overlay-box") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-svg.has-active .overlay-instance:not(.active)") &&
+    !viewerInstanceLayer.includes('related ? "related"') &&
+    !viewerOverlayCanvasStyleSource.includes(".overlay-instance.related") &&
     viewerOverlayCanvasStyleSource.includes(".canvas-hud") &&
     !viewerCanvasStyleSource.includes(".image-zoom-layer") &&
     !viewerCanvasStyleSource.includes(".overlay-instance") &&
@@ -2739,15 +2797,20 @@ assert(
     workspaceSettingsSource.includes('from "./workspaceSettingsSchema"') &&
     workspaceSettingsSource.includes('from "./workspaceSettingsStorage"') &&
     workspaceSettingsSchemaSource.includes("export const DEFAULT_OVERLAY_STYLE") &&
-    workspaceSettingsSchemaSource.includes("labelFontSize: 10") &&
+    workspaceSettingsSchemaSource.includes("labelFontSize: 8") &&
     workspaceSettingsSchemaSource.includes("labelStrokeWidth: 0.45") &&
     workspaceSettingsSchemaSource.includes("labelBackgroundOpacity: 0.82") &&
-    workspaceSettingsSchemaSource.includes('{ key: "labelFontSize", label: "标签字号", min: 7, max: 18') &&
+    workspaceSettingsSchemaSource.includes("precision?: number") &&
+    workspaceSettingsSchemaSource.includes('{ key: "boxStrokeWidth", label: "框线宽", min: 1, max: 10, step: 1, precision: 0 }') &&
+    workspaceSettingsSchemaSource.includes('{ key: "activeStrokeWidth", label: "高亮线宽", min: 2, max: 16, step: 1, precision: 0 }') &&
+    workspaceSettingsSchemaSource.includes('{ key: "labelFontSize", label: "标签字号", min: 6, max: 14') &&
     workspaceSettingsSchemaSource.includes("export const SHORTCUT_ACTIONS") &&
     workspaceSettingsStorageSource.includes("export function loadOverlayStyle") &&
     workspaceSettingsStorageSource.includes("export function normalizeShortcutBinding") &&
     workspaceSettingsStorageSource.includes("export function visibleViewerLabels") &&
     workspaceSettingsStorageSource.includes("export function applyViewerVisibleLabelSelection") &&
+    workspaceSettingsStorageSource.includes("roundToStep") &&
+    workspaceSettingsStorageSource.includes("precisionFromStep") &&
     !workspaceSettingsSource.includes("export const DEFAULT_OVERLAY_STYLE") &&
     !workspaceSettingsSource.includes("export const SHORTCUT_ACTIONS") &&
     !workspaceSettingsSource.includes("function loadOverlayStyle") &&
@@ -2760,14 +2823,29 @@ assert(
     workspaceSettingsStorageSource.includes("raw.labelFontSize === 11") &&
     workspaceSettingsStorageSource.includes("raw.labelStrokeWidth === 0.9") &&
     workspaceSettingsStorageSource.includes("raw.labelBackgroundOpacity === 0.64") &&
+    workspaceSettingsStorageSource.includes("raw.labelStrokeWidth === 0.45") &&
+    workspaceSettingsStorageSource.includes("raw.labelBackgroundOpacity === 0.82") &&
     viewerInstanceLayer.includes("export function compactOverlayLabel") &&
     viewerInstanceLayer.includes("export function overlayLabelBounds") &&
-    viewerInstanceLayer.includes("LABEL_MAX_CHARS = 24") &&
+    viewerInstanceLayer.includes("fitOverlayLabel") &&
+    viewerInstanceLayer.includes("LABEL_MAX_BOX_RATIO") &&
+    viewerInstanceLayer.includes("fontSize={labelBounds.fontSize}") &&
+    viewerInstanceLayer.includes("onPointerEnter={() => onHover?.(objectId)}") &&
+    !viewerInstanceLayer.includes("onPointerEnter={() => onHover?.(objectId)}\n            onPointerLeave") &&
+    viewerInstanceLayer.includes('className="overlay-box"') &&
+    viewerCanvas.includes("adaptiveOverlayStyle") &&
+    viewerCanvas.includes("fitSize.width") &&
     viewerInstanceLayer.includes("<title>{instance.label}</title>") &&
     !viewerInstanceLayer.includes("instance.label.length * overlayStyle.labelFontSize * 0.58 + 8") &&
     viewerOverlayCanvasStyleSource.includes("fill: #fffffe;") &&
-    viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 10px);") &&
+    viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 8px);") &&
     viewerOverlayCanvasStyleSource.includes("stroke-width: var(--overlay-label-stroke, 0.45px);") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance .overlay-label") &&
+    viewerOverlayCanvasStyleSource.includes("pointer-events: all") &&
+    viewerOverlayCanvasStyleSource.includes(".overlay-instance.active .overlay-label") &&
+    viewerOverlayCanvasStyleSource.includes("fill-opacity: 0.96;") &&
+    viewerOverlayCanvasStyleSource.includes("stroke-opacity: 0.86;") &&
+    viewerOverlayCanvasStyleSource.includes("font-weight: 760;") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-instance.gt.match .overlay-label text") &&
     viewerOverlayCanvasStyleSource.includes("fill: #172033;") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-instance.active .label-backplate") &&
@@ -2797,7 +2875,7 @@ const compositeReportStage = await readSource("src/compositeReportStage.tsx");
 const compositeReportStageControllerSource = await readSource("src/compositeReportStageController.ts");
 const compositeStageWorkbench = await readSource("src/compositeStageWorkbench.tsx");
 const compositeMicroMeter = await readSource("src/compositeMicroMeter.tsx");
-const compositeObjectHud = await readSource("src/compositeObjectHud.tsx");
+const compositeObjectHud = "";
 const compositeObjectContextMenu = await readSource("src/compositeObjectContextMenu.tsx");
 const compositeImageNavigator = await readSource("src/compositeImageNavigator.tsx");
 const compositeImageNavigatorKeyboard = await readSource("src/compositeImageNavigatorKeyboard.ts");
@@ -2815,7 +2893,7 @@ const compositeImageAtlasPanel = await readSource("src/compositeImageAtlasPanel.
 const compositeImageAtlasControllerSource = await readSource("src/compositeImageAtlasController.ts");
 const compositeImageTimeline = await readSource("src/compositeImageTimeline.tsx");
 const compositeImageIndexMeter = await readSource("src/compositeImageIndexMeter.tsx");
-const compositeImageNearbyRail = await readSource("src/compositeImageNearbyRail.tsx");
+const compositeImageNearbyRail = "";
 const compositeImageSearchPopover = await readSource("src/compositeImageSearchPopover.tsx");
 const compositeImageSearchResults = await readSource("src/compositeImageSearchResults.tsx");
 const compositeImageSearchResultList = await readSource("src/compositeImageSearchResultList.tsx");
@@ -2824,8 +2902,6 @@ const compositeImageSearchResultDragSource = await readSource("src/compositeImag
 const compositeImageSearchWheelSource = await readSource("src/compositeImageSearchWheel.ts");
 const compositeImageSearchPreview = await readSource("src/compositeImageSearchPreview.tsx");
 const compositeImageSearchStatus = await readSource("src/compositeImageSearchStatus.tsx");
-const compositeReportCommandBar = await readSource("src/compositeReportCommandBar.tsx");
-const compositeReportCommandBarStyle = await readSource("src/compositeReportCommandBar.css");
 const compositeReportShell = await readSource("src/compositeReportShell.tsx");
 const compositeReportComposer = await readSource("src/compositeReportComposer.tsx");
 const compositeReportComposerDock = await readSource("src/compositeReportComposerDock.tsx");
@@ -2837,15 +2913,15 @@ const compositeReportControllerSource = await readSource("src/compositeReportCon
 const compositeReportViewStateSource = await readSource("src/compositeReportViewState.ts");
 const compositeReportComposerModelSource = await readSource("src/compositeReportComposerModel.ts");
 const compositeOverlayStage = await readSource("src/compositeOverlayStage.tsx");
-const compositeLayerFocusToolbar = await readSource("src/compositeLayerFocusToolbar.tsx");
+const compositeLayerFocusToolbar = "";
 const compositeLayerInspector = await readSource("src/compositeLayerInspector.tsx");
 const compositeLayerObjectStrip = await readSource("src/compositeLayerObjectStrip.tsx");
 const compositeLayerObjectStripDragSource = await readSource("src/compositeLayerObjectStripDrag.ts");
 const compositePointerSweepSource = await readSource("src/compositePointerSweep.ts");
 const compositePointerDragSource = await readSource("src/compositePointerDrag.ts");
-const compositeSplitStage = await readSource("src/compositeSplitStage.tsx");
-const compositeSplitPane = await readSource("src/compositeSplitPane.tsx");
-const compositeSplitLayerCanvas = await readSource("src/compositeSplitLayerCanvas.tsx");
+const compositeSplitStage = "";
+const compositeSplitPane = "";
+const compositeSplitLayerCanvas = "";
 const compositeLayerCanvas = await readSource("src/compositeLayerCanvas.tsx");
 const compositeCanvasOverlay = await readSource("src/compositeCanvasOverlay.tsx");
 const compositeCanvasGestureHud = await readSource("src/compositeCanvasGestureHud.tsx");
@@ -2853,12 +2929,12 @@ const compositeCanvasPointerReticle = await readSource("src/compositeCanvasPoint
 const compositeCanvasPointerTrackerSource = await readSource("src/compositeCanvasPointerTracker.ts");
 const compositeLayerCanvasControllerSource = await readSource("src/compositeLayerCanvasController.ts");
 assert(
-  suiteReportPage.includes('from "./compositeReportCommandBar"') &&
-    suiteReportPage.includes('from "./compositeReportController"') &&
+  suiteReportPage.includes('from "./compositeReportController"') &&
     suiteReportPage.includes('from "./compositeReportShell"') &&
     suiteReportPage.includes("const report = useCompositeReportController();") &&
-    suiteReportPage.includes("<CompositeReportCommandBar") &&
-    suiteReportPage.includes("report.stageMode") &&
+    !suiteReportPage.includes('from "./compositeReportCommandBar"') &&
+    !suiteReportPage.includes("<CompositeReportCommandBar") &&
+    !suiteReportPage.includes("report.stageMode") &&
     suiteReportPage.includes("<CompositeReportShell report={report} />") &&
     !suiteReportPage.includes("<ReportComposerDock") &&
     !suiteReportPage.includes("<ReportComposerDrawer") &&
@@ -2884,21 +2960,20 @@ assert(
     compositeReportShell.includes("onClick={() => report.setSidebarOpen(false)}") &&
     compositeReportShell.includes("report.activeLayerConfigs") &&
     compositeReportShell.includes("report.focusedLayerKey") &&
+    compositeReportShell.includes("refreshing={report.compositeQuery.isFetching") &&
+    compositeReportShell.includes("!report.compositeQuery.isLoading") &&
+    compositeReportShell.includes("activeSlotCount={report.activeSlots.length}") &&
+    compositeReportShell.includes("readyLayerCount={report.readyLayerCount}") &&
+    compositeReportShell.includes("missingLayerCount={report.missingLayerCount}") &&
     compositeReportShell.includes("<CompositeStage") &&
-    compositeReportCommandBar.includes("export function CompositeReportCommandBar") &&
-    compositeReportCommandBar.includes("function ReportSignal(") &&
-    compositeReportCommandBar.includes("function StageModeSwitch(") &&
-    compositeReportCommandBar.includes("STAGE_MODES.map") &&
-    compositeReportCommandBar.includes('import "./compositeReportCommandBar.css";') &&
-    compositeReportCommandBarStyle.includes(".composite-report-command") &&
-    compositeReportCommandBarStyle.includes(".composite-stage-mode-button.active") &&
     compositeReportControllerSource.includes("export function useCompositeReportController") &&
     compositeReportControllerSource.includes("export type CompositeReportController = ReturnType<typeof useCompositeReportController>;") &&
     compositeReportControllerSource.includes('queryKey: ["composite-report-sample", layerRuns, sampleIndex]') &&
     compositeReportControllerSource.includes("fetchCompositeSample({ sampleIndex, layerRuns })") &&
     compositeReportControllerSource.includes("const initialViewState = useMemo(() => loadCompositeReportViewState(), []);") &&
     compositeReportControllerSource.includes("useState<LayerSlot[]>(initialViewState.slots)") &&
-    compositeReportControllerSource.includes("useState<StageMode>(initialViewState.stageMode)") &&
+    !compositeReportControllerSource.includes("StageMode") &&
+    !compositeReportControllerSource.includes("stageMode") &&
     compositeReportControllerSource.includes("const [sidebarOpen, setSidebarOpen] = useState(false);") &&
     compositeReportControllerSource.includes("sidebarOpen: false") &&
     compositeReportControllerSource.includes("saveCompositeReportViewState({") &&
@@ -2907,7 +2982,7 @@ assert(
     compositeReportViewStateSource.includes("export function saveCompositeReportViewState") &&
     compositeReportViewStateSource.includes("export function reconcileCompositeReportSlots") &&
     compositeReportViewStateSource.includes('const COMPOSITE_REPORT_VIEW_STATE_KEY = "eval_bench_composite_report_view";') &&
-    compositeReportViewStateSource.includes('stageMode: "both"') &&
+    !compositeReportViewStateSource.includes("stageMode") &&
     compositeReportViewStateSource.includes("sidebarOpen: false") &&
     !compositeReportControllerSource.includes("useState(initialViewState.sidebarOpen)") &&
     !compositeReportViewStateSource.includes("sidebarOpen: value.sidebarOpen === true") &&
@@ -2964,30 +3039,23 @@ assert(
     compositeReportComposerDock.includes("composer-dock-grip") &&
     compositeReportComposerDock.includes("PLAN") &&
     !compositeReportComposerDock.includes("COMPOSER") &&
-    compositeReportComposerDock.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
-    compositeReportComposerDock.includes("<CompositeMicroMeter") &&
-    compositeReportComposerDock.includes("const activeSlotProgress =") &&
-    compositeReportComposerDock.includes("const readyProgress =") &&
-    compositeReportComposerDock.includes("progress={activeSlotProgress}") &&
-    compositeReportComposerDock.includes("progress={readyProgress}") &&
-    compositeReportComposerDock.includes("<ReportComposerDockPreview") &&
-    compositeReportComposerDock.includes('from "./compositeReportComposerDockPreview"') &&
-    compositeReportComposerDockPreview.includes("export function ReportComposerDockPreview") &&
-    compositeReportComposerDockPreview.includes("composer-dock-preview") &&
-    compositeReportComposerDockPreview.includes("visibleStatuses") &&
-    compositeReportComposerDockPreview.includes("打开编排器添加 layout / arrow 图层") &&
-    compositeReportComposerDockPreview.includes('import "./compositeComposerDockPreview.css";') &&
+    !compositeReportComposerDock.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
+    !compositeReportComposerDock.includes("<CompositeMicroMeter") &&
+    !compositeReportComposerDock.includes("function RailStat") &&
+    !compositeReportComposerDock.includes("composer-dock-stats") &&
+    !compositeReportComposerDock.includes("composer-dock-stat") &&
+    !compositeReportComposerDock.includes("const activeSlotProgress =") &&
+    !compositeReportComposerDock.includes("const readyProgress =") &&
+    !compositeReportComposerDock.includes("<ReportComposerDockPreview") &&
+    !compositeReportComposerDock.includes('from "./compositeReportComposerDockPreview"') &&
     compositeComposerDockStyleSource.includes("position: relative") &&
     compositeComposerDockStyleSource.includes(".composite-composer-dock.collapsed") &&
     compositeComposerDockStyleSource.includes(".composer-dock-grip") &&
     compositeComposerDockStyleSource.includes("writing-mode: vertical-rl") &&
-    compositeComposerDockStyleSource.includes(".composer-dock-meter i") &&
-    !compositeComposerDockStyleSource.includes(".composer-dock-meter strong") &&
-    !compositeComposerDockStyleSource.includes(".composer-dock-meter span") &&
-    compositeComposerDockPreviewStyleSource.includes(".composer-dock-preview") &&
-    compositeComposerDockPreviewStyleSource.includes(".composite-composer-dock:hover .composer-dock-preview") &&
-    compositeComposerDockPreviewStyleSource.includes(".composite-composer-dock:focus-within .composer-dock-preview") &&
-    compositeComposerDockPreviewStyleSource.includes("pointer-events: none") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-stats") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-stat") &&
+    !compositeComposerDockStyleSource.includes("--dock-stat-progress") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-meter") &&
     compositeReportComposer.includes("composite-sidebar-drawer") &&
     compositeReportComposer.includes("composite-sidebar-grid") &&
     compositeReportRunPool.includes("report-run-pool") &&
@@ -3018,9 +3086,9 @@ assert(
     !suiteReportPage.includes("function pickLayerPreset(") &&
     !suiteReportPage.includes("<SearchInputControl") &&
     !suiteReportPage.includes("<TextInputControl") &&
-    compositeReportModelSource.includes('{ value: "both", label: "总览" }') &&
-    compositeReportModelSource.includes('{ value: "overlay", label: "叠加" }') &&
-    compositeReportModelSource.includes('{ value: "split", label: "分屏" }') &&
+    !compositeReportModelSource.includes("STAGE_MODES") &&
+    !compositeReportModelSource.includes('{ value: "both", label: "总览" }') &&
+    !compositeReportModelSource.includes('{ value: "split", label: "分屏" }') &&
     !compositeReportModelSource.includes("LAYER_COLORS") &&
     !compositeReportModelSource.includes("#2563eb") &&
     compositeLayerPaletteSource.includes("export const LAYER_COLORS") &&
@@ -3032,17 +3100,17 @@ assert(
     compositeLayerPaletteSource.includes("export function layerAvailabilityColor") &&
     compositeThemeStyleSource.includes("--composite-layer-blue: #2563eb") &&
     compositeThemeStyleSource.includes("--composite-layer-unavailable: #a8b2bd") &&
-    compositeReportComposerDock.includes('from "./compositeLayerPalette"') &&
+    !compositeReportComposerDock.includes('from "./compositeLayerPalette"') &&
     compositeReportComposerDockPreview.includes('from "./compositeLayerPalette"') &&
     compositeReportRunPool.includes('from "./compositeLayerPalette"') &&
     compositeReportLayerPlan.includes('from "./compositeLayerPalette"') &&
     compositeOverlayStage.includes('from "./compositeLayerPalette"') &&
-    compositeLayerFocusToolbar.includes('from "./compositeLayerPalette"') &&
+    !compositeLayerFocusToolbar.includes('from "./compositeLayerPalette"') &&
     compositeLayerInspector.includes('from "./compositeLayerPalette"') &&
     !suiteReportPage.includes("<NumberSettingControl") &&
     !suiteReportPage.includes("railCollapsed") &&
     !suiteReportPage.includes("image-union-local"),
-  "composite report must default to a collapsed composer dock and expose result pool, hierarchical layer plan, and both/overlay/split modes when opened",
+  "composite report must default to a collapsed composer dock, keep composition in the drawer, and avoid page-level mode/header controls",
 );
 assert(
   compositeReportStage.includes('import { CompositeImageNavigator } from "./compositeImageNavigator";') &&
@@ -3050,28 +3118,42 @@ assert(
     compositeReportStage.includes('from "./compositeReportStageController"') &&
     compositeReportStage.includes("const stage = useCompositeReportStageController({") &&
     compositeReportStage.includes("<CompositeImageNavigator") &&
+    compositeReportStage.includes("navigator={<CompositeImageNavigator") &&
     compositeReportStage.includes("<CompositeStageWorkbench") &&
+    compositeReportStage.includes("refreshing: boolean") &&
+    compositeReportStage.includes("activeSlotCount: number") &&
     !compositeReportStage.includes('from "./compositeOverlayStage"') &&
     !compositeReportStage.includes('from "./compositeLayerInspector"') &&
     !compositeReportStage.includes('from "./compositeSplitStage"') &&
     !compositeReportStage.includes('from "./compositeObjectHud"') &&
     compositeStageWorkbench.includes('import { CompositeInspector } from "./compositeLayerInspector";') &&
     compositeStageWorkbench.includes('from "./compositeOverlayStage"') &&
-    compositeStageWorkbench.includes('from "./compositeSplitStage"') &&
-    compositeStageWorkbench.includes('from "./compositeObjectHud"') &&
+    !compositeStageWorkbench.includes('from "./compositeSplitStage"') &&
+    !compositeStageWorkbench.includes('from "./compositeObjectHud"') &&
+    !compositeStageWorkbench.includes('from "./compositeLayerFocusToolbar"') &&
     compositeStageWorkbench.includes('from "./compositeObjectContextMenu"') &&
+    compositeStageWorkbench.includes('from "./visualStatusBar"') &&
+    compositeStageWorkbench.includes('import { ResizableSplit } from "./workspaceLayout";') &&
     compositeStageWorkbench.includes("export function CompositeStageWorkbench") &&
+    compositeStageWorkbench.includes("navigator: ReactNode") &&
     compositeStageWorkbench.includes("composite-report-focus") &&
     compositeStageWorkbench.includes("<OverlayStage") &&
-    compositeStageWorkbench.includes("<SplitStage") &&
-    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
-    compositeSplitPane.includes("export function CompositeSplitPane") &&
-    compositeSplitLayerCanvas.includes("export function CompositeSplitLayerCanvas") &&
+    compositeStageWorkbench.includes("navigator={navigator}") &&
+    compositeStageWorkbench.includes("<ResizableSplit") &&
+    compositeStageWorkbench.includes('storageKey="eval_bench_composite_inspector_width"') &&
+    compositeStageWorkbench.includes('fixedPane="second"') &&
+    compositeStageWorkbench.includes("useCompositeWorkbenchCompactMode") &&
+    !compositeStageWorkbench.includes("<SplitStage") &&
+    compositeSplitStage === "" &&
+    compositeSplitPane === "" &&
+    compositeSplitLayerCanvas === "" &&
     !compositeSplitStage.includes("<CompositeLayerCanvas") &&
     !compositeSplitStage.includes("objectKeyForLocalObject") &&
     compositeStageWorkbench.includes("viewportSyncKey={stage.viewportSyncKey}") &&
     compositeStageWorkbench.includes("CompositeInspector") &&
-    compositeStageWorkbench.includes("<CompositeLayerFocusToolbar") &&
+    !compositeStageWorkbench.includes("<CompositeLayerFocusToolbar") &&
+    compositeStageWorkbench.includes("<VisualStatusBar") &&
+    compositeStageWorkbench.includes("aggregateCompositeDiagnostics") &&
     compositeReportStageControllerSource.includes("export function useCompositeReportStageController") &&
     compositeReportStageControllerSource.includes("export type CompositeReportStageState") &&
     compositeReportStageControllerSource.includes("const viewportSyncKey = composite ? `composite:${composite.image_key}` : null;") &&
@@ -3081,12 +3163,7 @@ assert(
     compositeReportStageControllerSource.includes("const focusedStatuses = activeFocusedLayerKey") &&
     compositeReportStageControllerSource.includes("useCompositeObjectInteraction({") &&
     compositeReportStageControllerSource.includes("onFocusedLayerChange(null)") &&
-    compositeLayerFocusToolbar.includes("export function CompositeLayerFocusToolbar") &&
-    compositeLayerFocusToolbar.includes("cycleFocusFromWheel") &&
-    compositeLayerFocusToolbar.includes("onWheelCapture={cycleFocusFromWheel}") &&
-    compositeLayerFocusToolbar.includes("availableLayers") &&
-    compositeLayerFocusToolbar.includes("OptionChipButton") &&
-    compositeLayerFocusToolbar.includes('import "./compositeLayerFocusToolbar.css";') &&
+    compositeLayerFocusToolbar === "" &&
     compositeReportStageControllerSource.includes('from "./compositeObjectInteractionController"') &&
     !compositeReportStage.includes('from "./compositeObjectInteractionController"') &&
     !compositeReportStage.includes("useCompositeObjectInteraction({") &&
@@ -3119,32 +3196,15 @@ assert(
     !compositeObjectInteractionControllerSource.includes("function objectNavigationDirection") &&
     !compositeObjectInteractionControllerSource.includes("function isEditableTarget") &&
     compositeObjectInteractionControllerSource.includes("closeContextMenu,") &&
-    compositeStageWorkbench.includes("CompositeObjectHud") &&
+    !compositeStageWorkbench.includes("CompositeObjectHud") &&
     compositeMicroMeter.includes("export function CompositeMicroMeter") &&
     compositeMicroMeter.includes('import "./compositeMicroMeter.css";') &&
     compositeMicroMeter.includes("--composite-meter-progress") &&
     compositeMicroMeter.includes('value ? "has-value" : ""') &&
     compositeMicroMeter.includes("{value ? <strong>{value}</strong> : null}") &&
+    compositeMicroMeter.includes("composite-meter-ring") &&
     compositeMicroMeter.includes("Math.max(0, Math.min(1, progress))") &&
-    compositeObjectHud.includes("export function CompositeObjectHud") &&
-    compositeObjectHud.includes('import "./compositeObjectHud.css";') &&
-    compositeObjectHud.includes('import { CompositeMicroMeter } from "./compositeMicroMeter";') &&
-    !compositeObjectHud.includes('import type { CSSProperties } from "react";') &&
-    compositeObjectHud.includes("activeObjectIndex") &&
-    compositeObjectHud.includes("objectCount") &&
-    compositeObjectHud.includes("relatedObjectCount") &&
-    !compositeObjectHud.includes("--object-progress") &&
-    compositeObjectHud.includes("object-hud-cruise") &&
-    compositeObjectHud.includes("<CompositeMicroMeter") &&
-    compositeObjectHud.includes("Locked Object") &&
-    compositeObjectHud.includes("Hovered Object") &&
-    compositeObjectHud.includes("Object Probe") &&
-    compositeObjectHud.includes("聚焦图层") &&
-    compositeObjectHud.includes("Alt/Shift + Wheel 或 [/] 巡航对象") &&
-    compositeObjectHud.includes("Alt/Shift + Drag 平移") &&
-    compositeObjectHud.includes("Right click 对象菜单") &&
-    compositeObjectHud.includes("[/] 巡航对象") &&
-    compositeObjectHud.includes("清除") &&
+    compositeObjectHud === "" &&
     compositeObjectContextMenu.includes("export type CompositeObjectMenuRequest") &&
     compositeObjectContextMenu.includes("export function CompositeObjectContextMenu") &&
     compositeObjectContextMenu.includes('role="menu"') &&
@@ -3160,9 +3220,8 @@ assert(
     compositeObjectInteractionControllerSource.includes("function clearObjectInteraction") &&
     compositeObjectInteractionControllerSource.includes("function toggleObjectLock") &&
     compositeObjectInteractionControllerSource.includes("activeObjectKey") &&
-    compositeStageWorkbench.includes("activeObjectIndex={stage.objectInteraction.activeObjectIndex}") &&
-    compositeStageWorkbench.includes("objectCount={stage.objectInteraction.objectCount}") &&
-    compositeStageWorkbench.includes("relatedObjectCount={stage.objectInteraction.relatedObjectKeys.size}") &&
+    !compositeStageWorkbench.includes("activeObjectIndex={stage.objectInteraction.activeObjectIndex}") &&
+    !compositeStageWorkbench.includes("relatedObjectCount={stage.objectInteraction.relatedObjectKeys.size}") &&
     compositeObjectInteractionControllerSource.includes("lockedObjectKey") &&
     compositeObjectInteractionControllerSource.includes("relatedCompositeObjectKeys") &&
     compositeObjectInteractionControllerSource.includes("relatedObjectKeys") &&
@@ -3204,6 +3263,8 @@ assert(
     compositeOverlayStage.includes("buildOverlayObjects") &&
     compositeOverlayStage.includes('from "./compositeCanvasObjectMapping"') &&
     compositeOverlayStage.includes("<CompositeLayerCanvas") &&
+    compositeOverlayStage.includes("navigator?: ReactNode") &&
+    compositeOverlayStage.includes("{navigator}") &&
     compositeOverlayStage.includes("viewportSyncKey?: string | null") &&
     compositeOverlayStage.includes("viewportSyncKey={viewportSyncKey}") &&
     compositeOverlayStage.includes("relatedObjectKeys: Set<string>") &&
@@ -3311,44 +3372,26 @@ assert(
     !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeLayerObjectStripStyleSource) &&
     compositeThemeStyleSource.includes("--composite-inspector-row-line") &&
     compositeThemeStyleSource.includes("--composite-inspector-row-focus-line") &&
-    compositeThemeStyleSource.includes("--composite-inspector-flag-ink") &&
-    compositeThemeStyleSource.includes("--composite-inspector-metric-surface") &&
     compositeThemeStyleSource.includes("--composite-inspector-row-rail-width") &&
     compositeLayerInspectorStyleSource.includes(
       "grid-template-columns: var(--composite-inspector-row-rail-width) minmax(0, 1fr)",
     ) &&
-    compositeLayerInspectorStyleSource.includes("border: 1px solid var(--composite-inspector-row-line)") &&
+    compositeLayerInspectorStyleSource.includes("border-bottom: 1px solid var(--composite-inspector-row-line)") &&
     compositeLayerInspectorStyleSource.includes("background: var(--composite-inspector-row-focus-surface)") &&
-    compositeLayerInspectorStyleSource.includes("color: var(--composite-inspector-flag-ink)") &&
-    compositeLayerInspectorStyleSource.includes("background: var(--composite-inspector-metric-surface)") &&
+    !compositeLayerInspectorStyleSource.includes(".layer-report-flags") &&
+    !compositeLayerInspectorStyleSource.includes(".layer-report-row dl") &&
+    !compositeLayerInspectorStyleSource.includes("color: var(--composite-inspector-flag-ink)") &&
+    !compositeLayerInspectorStyleSource.includes("background: var(--composite-inspector-metric-surface)") &&
     !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeLayerInspectorStyleSource) &&
     !compositeLayerInspectorStyleSource.includes(".layer-object-strip") &&
     !compositeLayerInspectorStyleSource.includes(".layer-object-chip") &&
-    compositeSplitStage.includes("export function SplitStage") &&
-    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
-    compositeSplitPane.includes("export function CompositeSplitPane") &&
-    compositeSplitPane.includes('import { CompositeSplitLayerCanvas } from "./compositeSplitLayerCanvas";') &&
-    compositeSplitPane.includes("<CompositeSplitLayerCanvas") &&
-    compositeSplitLayerCanvas.includes("export function CompositeSplitLayerCanvas") &&
-    compositeSplitLayerCanvas.includes('from "./compositeCanvasObjectMapping"') &&
-    compositeSplitLayerCanvas.includes("<CompositeLayerCanvas") &&
-    compositeSplitStage.includes("viewportSyncKey?: string | null") &&
-    compositeSplitLayerCanvas.includes("viewportSyncKey={viewportSyncKey}") &&
-    compositeSplitStage.includes("relatedObjectKeys: Set<string>") &&
-    compositeSplitLayerCanvas.includes("relatedLocalIds") &&
-    compositeSplitLayerCanvas.includes("relatedObjectIds={relatedLocalIds}") &&
-    compositeSplitStage.includes("onObjectInspect") &&
-    compositeSplitLayerCanvas.includes("onInspect={(objectId) =>") &&
-    compositeSplitStage.includes("onObjectWheel") &&
-    compositeSplitPane.includes("onObjectWheel") &&
-    compositeSplitLayerCanvas.includes("onObjectWheel={onObjectWheel}") &&
-    compositeSplitStage.includes("onObjectContextMenu") &&
-    compositeSplitLayerCanvas.includes("resolveLocalObjectKey(request.objectId)") &&
+    compositeSplitStage === "" &&
+    compositeSplitPane === "" &&
+    compositeSplitLayerCanvas === "" &&
     !compositeSplitStage.includes('from "./compositeCanvasObjectMapping"') &&
     !compositeSplitStage.includes("<CompositeLayerCanvas") &&
     !compositeSplitStage.includes("parseCompositeObjectKey") &&
     !compositeSplitStage.includes("localCanvasObjectIdToKey") &&
-    compositeSplitStage.includes('import "./compositeSplitStage.css";') &&
     compositeLayerCanvas.includes("export function CompositeLayerCanvas") &&
     compositeLayerCanvas.includes('from "./compositeLayerCanvasController"') &&
     compositeLayerCanvas.includes("useCompositeLayerCanvasController({") &&
@@ -3378,10 +3421,11 @@ assert(
     compositeLayerCanvas.includes('import { CompositeCanvasPointerReticle } from "./compositeCanvasPointerReticle";') &&
     compositeLayerCanvas.includes('import { useCompositeCanvasPointerTracker } from "./compositeCanvasPointerTracker";') &&
     compositeLayerCanvas.includes("const pointer = useCompositeCanvasPointerTracker();") &&
-    compositeLayerCanvas.includes('data-pointer-reticle={pointer.pointerActive ? "active" : undefined}') &&
-    compositeLayerCanvas.includes("style={{ ...canvas.overlayVars, ...pointer.pointerVars }}") &&
+    !compositeLayerCanvas.includes('data-pointer-reticle={pointer.pointerActive ? "active" : undefined}') &&
+    compositeLayerCanvas.includes("style={canvas.overlayVars}") &&
+    !compositeLayerCanvas.includes("pointer.pointerVars") &&
     compositeLayerCanvas.includes("{...pointer.pointerHandlers}") &&
-    compositeLayerCanvas.includes("<CompositeCanvasPointerReticle pointer={pointer.pointer} />") &&
+    compositeLayerCanvas.includes("<CompositeCanvasPointerReticle coordinateRef={pointer.coordinateRef} />") &&
     !compositeLayerCanvas.includes("clientX") &&
     !compositeLayerCanvas.includes("getBoundingClientRect") &&
     compositeCanvasOverlay.includes("export function CompositeCanvasOverlayPanel") &&
@@ -3401,20 +3445,23 @@ assert(
     compositeCanvasGestureHud.includes("contextMenu: boolean") &&
     !compositeCanvasGestureHud.includes("<span") &&
     compositeCanvasPointerTrackerSource.includes("export function useCompositeCanvasPointerTracker") &&
-    compositeCanvasPointerTrackerSource.includes("CompositeCanvasPointerState") &&
+    !compositeCanvasPointerTrackerSource.includes("useState") &&
+    compositeCanvasPointerTrackerSource.includes("coordinateRef") &&
     compositeCanvasPointerTrackerSource.includes("handleCanvasPointerMove") &&
     compositeCanvasPointerTrackerSource.includes("getBoundingClientRect") &&
     compositeCanvasPointerTrackerSource.includes("--composite-pointer-x") &&
     compositeCanvasPointerTrackerSource.includes("--composite-pointer-y") &&
+    compositeCanvasPointerTrackerSource.includes("dataset.pointerReticle") &&
+    compositeCanvasPointerTrackerSource.includes("style.setProperty") &&
     compositeCanvasPointerTrackerSource.includes("pointerHandlers") &&
     compositeCanvasPointerReticle.includes("export function CompositeCanvasPointerReticle") &&
     compositeCanvasPointerReticle.includes('from "./compositeCanvasOverlay"') &&
     compositeCanvasPointerReticle.includes("<CompositeCanvasOverlayPanel") &&
     compositeCanvasPointerReticle.includes("<CompositeCanvasCoordinateTag") &&
     compositeCanvasPointerReticle.includes("composite-canvas-pointer-reticle") &&
-    compositeCanvasPointerReticle.includes("padStart") &&
+    compositeCanvasPointerReticle.includes("coordinateRef") &&
     compositeCanvasPointerReticle.includes('aria-hidden="true"') &&
-    !compositeCanvasPointerReticle.includes("<span") &&
+    compositeCanvasPointerReticle.includes("<span ref={coordinateRef} />") &&
     compositeLayerCanvas.includes("onHover={canvas.handleHover}") &&
     compositeLayerCanvas.includes("onLock={canvas.handleLock}") &&
     compositeLayerCanvasControllerSource.includes("export function useCompositeLayerCanvasController") &&
@@ -3453,14 +3500,17 @@ assert(
     compositeReportStage.includes("focusedLayerKey") &&
     !compositeReportStage.includes("mode === \"both\" || mode === \"overlay\"") &&
     !compositeReportStage.includes("mode === \"both\" || mode === \"split\"") &&
-    compositeStageWorkbench.includes("mode === \"both\" || mode === \"overlay\"") &&
-    compositeStageWorkbench.includes("mode === \"both\" || mode === \"split\"") &&
+    !compositeStageWorkbench.includes("mode === \"both\" || mode === \"overlay\"") &&
+    !compositeStageWorkbench.includes("mode === \"both\" || mode === \"split\"") &&
     !compositeReportStage.includes("function ImageNavigator") &&
     !compositeReportStage.includes("image-union-local"),
-  "composite report stage must orchestrate image jumping, overlay, inspector, split matrix, and layer focus through dedicated modules",
+  "composite report stage must orchestrate image jumping, overlay, inspector, and object interaction through dedicated canvas-first modules",
 );
 assert(
   compositeImageNavigator.includes("<CompositeImageNavigatorPrimary") &&
+    compositeImageNavigator.includes("useCompositeNavigatorDensity") &&
+    compositeImageNavigator.includes("ResizeObserver") &&
+    compositeImageNavigator.includes("data-density={density}") &&
     compositeImageNavigator.includes("<CompositeImageSearchBar") &&
     compositeImageNavigator.includes("useCompositeImageNavigationController") &&
     compositeImageNavigator.includes("navigation.primaryProps") &&
@@ -3516,24 +3566,25 @@ assert(
     compositeImageSearchWheelSource.includes("elementRef: RefObject<T | null>") &&
     compositeImageSearchWheelSource.includes('node.addEventListener("wheel", handleNativeWheel, { passive: false })') &&
     compositeImageSearchWheelSource.includes('node.removeEventListener("wheel", handleNativeWheel)') &&
-    compositeImageSearchControllerSource.includes("locateActiveNearbyItem") &&
-    !compositeImageSearchControllerSource.includes("locateActiveFilmstripItem") &&
-    compositeImageSearchControllerSource.includes('querySelector(".image-nearby-card.active")') &&
+    compositeImageSearchControllerSource.includes("focusCurrentImageSearch") &&
+    !compositeImageSearchControllerSource.includes("locateActiveNearbyItem") &&
+    !compositeImageSearchControllerSource.includes('querySelector(".image-nearby-card.active")') &&
     compositeImageTimelineControllerSource.includes("export function useCompositeImageTimelineController") &&
-    compositeImageTimelineControllerSource.includes("nearbyImageKeys") &&
-    compositeImageTimelineControllerSource.includes("scrubPreview") &&
-    compositeImageTimelineControllerSource.includes("previewFromScrubPointer") &&
-    compositeImageTimelineControllerSource.includes("composite.image_keys, composite.image_index") &&
-    compositeImageTimelineControllerSource.includes('import { usePointerDrag } from "./compositePointerDrag";') &&
-    compositeImageTimelineControllerSource.includes("const scrubDrag = usePointerDrag<HTMLDivElement>") &&
-    compositeImageTimelineControllerSource.includes("onStart: (event) => jumpFromScrubPointer(event)") &&
-    compositeImageTimelineControllerSource.includes("onMove: (event) => jumpFromScrubPointer(event)") &&
-    compositeImageTimelineControllerSource.includes("scrubbing: scrubDrag.dragging") &&
+    !compositeImageTimelineControllerSource.includes("nearbyImageKeys") &&
+    !compositeImageTimelineControllerSource.includes("nearbyImages") &&
+    !compositeImageTimelineControllerSource.includes("scrubPreview") &&
+    !compositeImageTimelineControllerSource.includes("previewFromScrubPointer") &&
+    compositeImageTimelineControllerSource.includes("imageIndex: composite.image_index") &&
+    !compositeImageTimelineControllerSource.includes('import { usePointerDrag } from "./compositePointerDrag";') &&
+    !compositeImageTimelineControllerSource.includes("const scrubDrag = usePointerDrag<HTMLDivElement>") &&
+    !compositeImageTimelineControllerSource.includes("onStart: (event) => jumpFromScrubPointer(event)") &&
+    !compositeImageTimelineControllerSource.includes("onMove: (event) => jumpFromScrubPointer(event)") &&
+    !compositeImageTimelineControllerSource.includes("scrubbing: scrubDrag.dragging") &&
     !compositeImageTimelineControllerSource.includes("setPointerCapture") &&
     !compositeImageTimelineControllerSource.includes("releasePointerCapture") &&
     !compositeImageTimelineControllerSource.includes("setScrubbing") &&
-    compositeImageTimelineControllerSource.includes("handleScrubPointerMove") &&
-    compositeImageTimelineControllerSource.includes("handleScrubPointerLeave") &&
+    !compositeImageTimelineControllerSource.includes("handleScrubPointerMove") &&
+    !compositeImageTimelineControllerSource.includes("handleScrubPointerLeave") &&
     compositeImageNavigationControllerSource.includes("primaryProps") &&
     compositeImageNavigationControllerSource.includes("timelineProps") &&
     compositeImageNavigationControllerSource.includes("searchProps") &&
@@ -3556,18 +3607,19 @@ assert(
     compositeImageSearchBar.includes('event.key === "ArrowDown"') &&
     compositeImageSearchBar.includes('event.key === "ArrowUp"') &&
     compositeImageSearchBar.includes('event.key === "Enter"') &&
+    compositeImageSearchBar.includes("useImageSearchPlacement") &&
+    compositeImageSearchBar.includes("availableBelow") &&
+    compositeImageSearchBar.includes("availableAbove") &&
     compositeImageSearchBar.includes('import "./compositeImageSearchBar.css";') &&
     compositeImageTimeline.includes("export function CompositeImageTimeline") &&
     compositeImageTimeline.includes('import { CompositeImageIndexMeter } from "./compositeImageIndexMeter";') &&
-    compositeImageTimeline.includes('import { CompositeImageNearbyRail } from "./compositeImageNearbyRail";') &&
-    compositeImageTimeline.includes('import { CompositeImageScrubTrack } from "./compositeImageScrubTrack";') &&
+    !compositeImageTimeline.includes("CompositeImageNearbyRail") &&
+    !compositeImageTimeline.includes('import { CompositeImageScrubTrack } from "./compositeImageScrubTrack";') &&
     compositeImageTimeline.includes("<CompositeImageIndexMeter") &&
     !compositeImageTimeline.includes("<RangeSettingControl") &&
-    compositeImageTimeline.includes("<CompositeImageScrubTrack") &&
+    !compositeImageTimeline.includes("<CompositeImageScrubTrack") &&
     !compositeImageTimeline.includes("image-scrub-track") &&
     !compositeImageTimeline.includes("image-scrub-preview") &&
-    compositeImageTimeline.includes("<CompositeImageNearbyRail") &&
-    compositeImageTimeline.includes("imageCount={imageCount}") &&
     compositeImageTimeline.includes("onWheelCapture={onTimelineWheel}") &&
     compositeImageTimeline.includes('import "./compositeImageTimeline.css";') &&
     compositeImageScrubTrack.includes("export function CompositeImageScrubTrack") &&
@@ -3578,42 +3630,10 @@ assert(
     compositeImageScrubTrack.includes("onMouseMove={onScrubMouseMove}") &&
     compositeImageScrubTrack.includes("basename(scrubPreview.image)") &&
     compositeImageScrubTrack.includes('import "./compositeImageScrubTrack.css";') &&
-    compositeImageNearbyRail.includes("export function CompositeImageNearbyRail") &&
-    compositeImageNearbyRail.includes("useCompositeImageNearbyRailController") &&
-    compositeImageNearbyRail.includes('className={rail.dragging ? "image-nearby-rail dragging" : "image-nearby-rail"}') &&
-    compositeImageNearbyRail.includes("rail.dragHint") &&
-    compositeImageNearbyRail.includes("image-nearby-drag-hint") &&
-    compositeImageNearbyRail.includes("image-nearby-axis") &&
-    compositeImageNearbyRail.includes("image-nearby-card") &&
-    compositeImageNearbyRail.includes('role="listbox"') &&
-    compositeImageNearbyRail.includes('role="option"') &&
-    compositeImageNearbyRail.includes("aria-selected={active}") &&
-    compositeImageNearbyRail.includes("Math.abs(item.index - imageIndex)") &&
-    compositeImageNearbyRail.includes("<ActionButton") &&
-    compositeImageNearbyRail.includes("onPointerDown={rail.onPointerDown}") &&
-    compositeImageNearbyRail.includes("onWheelCapture={rail.onWheelCapture}") &&
-    compositeImageNearbyRail.includes("rail.shouldSuppressClick()") &&
-    compositeImageNearbyRailControllerSource.includes("export function useCompositeImageNearbyRailController") &&
-    compositeImageNearbyRailControllerSource.includes("DRAG_THRESHOLD_PX") &&
-    compositeImageNearbyRailControllerSource.includes("DRAG_STEP_PX") &&
-    compositeImageNearbyRailControllerSource.includes("dragVirtualIndexRef") &&
-    compositeImageNearbyRailControllerSource.includes("clampImageIndex") &&
-    compositeImageNearbyRailControllerSource.includes("onJump(dragVirtualIndexRef.current)") &&
-    compositeImageNearbyRailControllerSource.includes('import { usePointerDrag } from "./compositePointerDrag";') &&
-    compositeImageNearbyRailControllerSource.includes("const drag = usePointerDrag<HTMLElement>") &&
-    compositeImageNearbyRailControllerSource.includes("elementRef: railRef") &&
-    compositeImageNearbyRailControllerSource.includes("thresholdPx: DRAG_THRESHOLD_PX") &&
-    compositeImageNearbyRailControllerSource.includes("dragging: drag.dragging") &&
-    compositeImageNearbyRailControllerSource.includes("shouldSuppressClick: drag.shouldSuppressClick") &&
-    !compositeImageNearbyRailControllerSource.includes("setPointerCapture") &&
-    !compositeImageNearbyRailControllerSource.includes("releasePointerCapture") &&
-    !compositeImageNearbyRailControllerSource.includes("draggingRef") &&
-    !compositeImageNearbyRailControllerSource.includes("dragMovedRef") &&
-    compositeImageNearbyRailControllerSource.includes("rail.scrollLeft") &&
-    compositeImageNearbyRailControllerSource.includes("onStep(wheelDelta > 0 ? 1 : -1)") &&
-    compositeImageTimelineControllerSource.includes("onStep: step") &&
-    compositeImageTimeline.includes("onStep={onStep}") &&
-    compositeImageNearbyRail.includes('import "./compositeImageNearbyRail.css";') &&
+    compositeImageNearbyRail === "" &&
+    compositeImageNearbyRailControllerSource === "" &&
+    compositeImageNearbyRailStyleSource === "" &&
+    !compositeImageTimeline.includes("onStep={onStep}") &&
     compositeImagePanel.includes("export function CompositeImagePanelHeader") &&
     compositeImagePanel.includes('import { CompositePanelHeader } from "./compositePanelPrimitives";') &&
     compositeImagePanel.includes("<CompositePanelHeader") &&
@@ -3624,6 +3644,8 @@ assert(
     compositeImagePanel.includes('import "./compositeImagePanel.css";') &&
     compositeImageSearchPopover.includes("export function CompositeImageSearchPopover") &&
     compositeImageSearchPopover.includes("image-jump-popover") &&
+    compositeImageSearchPopover.includes('placement: "top" | "bottom"') &&
+    compositeImageSearchPopover.includes('data-placement={placement}') &&
     compositeImageSearchPopover.includes('import { CompositeImageAtlasPanel } from "./compositeImageAtlasPanel";') &&
     compositeImageSearchPopover.includes("<CompositeImageAtlasPanel") &&
     !compositeImageSearchPopover.includes('import { CompositeImagePanelHeader } from "./compositeImagePanel";') &&
@@ -3857,13 +3879,13 @@ assert(
     !compositeImageSearchPopover.includes("Hover 预览") &&
     compositeImageNavigationModelSource.includes("export const IMAGE_RESULT_LIMIT") &&
     compositeImageNavigationModelSource.includes("export const IMAGE_MAP_BIN_COUNT") &&
-    compositeImageNavigationModelSource.includes("export const NEIGHBOR_RADIUS") &&
+    !compositeImageNavigationModelSource.includes("NEIGHBOR_RADIUS") &&
     compositeImageNavigationModelSource.includes("export type ImageResultWindow") &&
     compositeImageNavigationModelSource.includes("export type ImageMapBin") &&
     compositeImageNavigationModelSource.includes("export function filterImageKeys") &&
     compositeImageNavigationModelSource.includes("export function imageResultWindow") &&
     compositeImageNavigationModelSource.includes("export function activeImageResultIndex") &&
-    compositeImageNavigationModelSource.includes("export function nearbyImageKeys") &&
+    !compositeImageNavigationModelSource.includes("export function nearbyImageKeys") &&
     compositeImageNavigationModelSource.includes("export function buildImageMapBins") &&
     compositeImageNavigationModelSource.includes("export function clampImageIndex") &&
     compositeImageNavigationModelSource.includes("export function imageProgressPercent") &&
@@ -3878,7 +3900,7 @@ assert(
     !compositeImageNavigationControllerSource.includes("handleScrubPointerMove") &&
     !compositeImageNavigationControllerSource.includes("handleScrubPointerLeave") &&
     !compositeImageNavigator.includes("function filterImageKeys") &&
-    !compositeImageNavigator.includes("function nearbyImageKeys") &&
+    !compositeImageNavigator.includes("nearbyImageKeys") &&
     !compositeImageNavigator.includes("function clampImageIndex") &&
     !compositeImageNavigator.includes("function indexFromScrubPointer") &&
     !compositeImageNavigator.includes("function handleScrubPointerDown") &&
@@ -3906,7 +3928,7 @@ assert(
     !compositeImageNavigator.includes("onPointerEnter={() => setHoveredMapBin(bin)}") &&
     !/<button\b/.test(compositeImageNavigator) &&
     !/<input\b/.test(compositeImageNavigator),
-  "composite image navigator must compose command search, atlas navigation, nearby navigation, mouse scrubbing, keyboard selection, and wheel stepping through focused subcomponents",
+  "composite image navigator must compose command search, atlas navigation, keyboard selection, and wheel stepping without a bottom nearby image list",
 );
 const compositeComponentStyleSources = [
   compositeReportStyleSource,
@@ -3927,7 +3949,6 @@ const compositeComponentStyleSources = [
   compositeImageAtlasStyleSource,
   compositeImageTimelineStyleSource,
   compositeImageIndexMeterStyleSource,
-  compositeImageNearbyRailStyleSource,
   compositeImageSearchPopoverStyleSource,
   compositeImageSearchResultsStyleSource,
   compositeImageSearchPreviewStyleSource,
@@ -3951,7 +3972,6 @@ const rawCompositeControlGeometryPattern =
   /(?:\b(?:gap|padding):\s*(?:2|3|4|5|6|7|8|9|10|12)px\b|\bmin-height:\s*(?:22|24|30|40)px\b|\bborder-radius:\s*(?:2|999)px\b)/;
 const compositeImageNavigationInteractionStyles = [
   compositeImageScrubTrackStyleSource,
-  compositeImageNearbyRailStyleSource,
   compositeImageJumpItemStyleSource
 ];
 assert(
@@ -3960,14 +3980,19 @@ assert(
     compositeImageSearchBar.includes('import "./compositeImageSearchBar.css";') &&
     compositeInteractionPalette.includes('import "./compositeInteractionPalette.css";') &&
     compositeImageTimeline.includes('import "./compositeImageTimeline.css";') &&
-    compositeImageNearbyRail.includes('import "./compositeImageNearbyRail.css";') &&
+    compositeImageNearbyRail === "" &&
     compositeImageSearchPopover.includes('import "./compositeImageSearchPopover.css";') &&
     compositeImageNavigatorStyleSource.includes(".composite-image-navigator") &&
+    compositeImageNavigatorStyleSource.includes('.composite-image-navigator[data-density="controls"]') &&
+    compositeImageNavigatorStyleSource.includes('.composite-image-navigator[data-density="compact"]') &&
+    compositeImageNavigatorStyleSource.includes('.composite-image-navigator[data-density="compact"] .image-navigator-primary') &&
+    compositeImageNavigatorStyleSource.includes('grid-template-areas: "timeline search actions"') &&
     compositeImageJumpControlStyleSource.includes(".image-jump-control") &&
     compositeImageJumpControlStyleSource.includes(".image-jump-step-group") &&
     compositeImageJumpControlStyleSource.includes(".image-jump-step.icon-button") &&
     compositeImageJumpControlStyleSource.includes(".image-jump-field") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-search-row") &&
+    compositeImageSearchBarStyleSource.includes("overflow: visible") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-search") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-count") &&
     compositeInteractionPaletteStyleSource.includes(".composite-interaction-palette") &&
@@ -3976,15 +4001,9 @@ assert(
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button:disabled") &&
     compositeInteractionPaletteStyleSource.includes('.interaction-palette-tool[data-tool="reset"]') &&
     !compositeInteractionPaletteStyleSource.includes("display: none") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-rail") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-axis") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.active") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.adjacent") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-card.context") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-rail.dragging") &&
-    compositeImageNearbyRailStyleSource.includes(".image-nearby-drag-hint") &&
-    compositeImageNearbyRailStyleSource.includes("cursor: grab") &&
-    compositeImageNearbyRailStyleSource.includes("cursor: grabbing") &&
+    !compositeImageNavigatorStyleSource.includes("image-nearby") &&
+    !compositeImageTimelineStyleSource.includes("image-nearby") &&
+    !compositeImageSearchBarStyleSource.includes("image-nearby") &&
     compositePanelPrimitivesStyleSource.includes(".composite-panel-head") &&
     compositePanelPrimitivesStyleSource.includes(".composite-panel-head.framed") &&
     compositePanelPrimitivesStyleSource.includes(".composite-panel-action") &&
@@ -4004,6 +4023,8 @@ assert(
     compositeImageSearchResultItemStyleSource.includes("scroll-margin-block") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-result {") &&
     compositeImageSearchPopoverStyleSource.includes(".image-jump-popover") &&
+    compositeImageSearchPopoverStyleSource.includes("right: 0") &&
+    compositeImageSearchPopoverStyleSource.includes("left: auto") &&
     !compositeImageSearchPopoverStyleSource.includes(".image-jump-command-head") &&
     compositeImageSearchPopoverStyleSource.includes(".image-jump-atlas-panel") &&
     compositeImageSearchPopoverStyleSource.includes(".image-jump-popover-body") &&
@@ -4063,6 +4084,7 @@ assert(
     !compositeImageIndexMeter.includes('import type { CSSProperties } from "react";') &&
     !compositeImageIndexMeter.includes("--image-progress") &&
     compositeImageIndexMeterStyleSource.includes(".image-index-meter") &&
+    compositeImageIndexMeterStyleSource.includes("@media (max-width: 940px) and (max-height: 680px)") &&
     !compositeImageIndexMeterStyleSource.includes("--image-progress") &&
     !compositeImageIndexMeterStyleSource.includes("grid-template-columns: auto auto minmax(0, 1fr)") &&
     compositeImageIndexMeterStyleSource.includes(".image-index-meter i") &&
@@ -4096,10 +4118,6 @@ assert(
     compositeImageScrubTrackStyleSource.includes("height: var(--composite-scrub-track-height)") &&
     compositeImageScrubTrackStyleSource.includes("scroll-margin-bottom: var(--composite-scrub-scroll-margin-bottom)") &&
     compositeImageScrubTrackStyleSource.includes("box-shadow: var(--composite-overlay-shadow)") &&
-    compositeImageNearbyRailStyleSource.includes(
-      "grid-auto-columns: minmax(var(--composite-nearby-column-min), 1fr)",
-    ) &&
-    compositeImageNearbyRailStyleSource.includes("box-shadow: var(--composite-overlay-shadow)") &&
     compositeImageNavigationInteractionStyles.every(
       (source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source),
     ) &&
@@ -4112,7 +4130,6 @@ assert(
       compositeImageIndexMeterStyleSource,
       compositeImageScrubTrackStyleSource,
       compositeImageTimelineStyleSource,
-      compositeImageNearbyRailStyleSource,
       compositeImageSearchBarStyleSource,
       compositeImagePanelStyleSource,
       compositeImageJumpItemStyleSource,
@@ -4140,7 +4157,8 @@ assert(
     !compositeImageNavigatorStyleSource.includes(".composite-interaction-palette") &&
     !compositeReportStyleSource.includes(".composite-image-navigator") &&
     compositeComposerDockStyleSource.includes(".composite-composer-dock") &&
-    compositeComposerDockStyleSource.includes(".composer-dock-meter") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-stat") &&
+    !compositeComposerDockStyleSource.includes(".composer-dock-meter") &&
     compositeComposerDockStyleSource.includes(".composer-dock-grip") &&
     compositeComposerDrawerStyleSource.includes(".composite-sidebar-drawer") &&
     compositeComposerDrawerStyleSource.includes(".composite-sidebar-grid") &&
@@ -4191,7 +4209,7 @@ assert(
     compositeThemeStyleSource.includes("--composite-dock-rail-size") &&
     compositeThemeStyleSource.includes("--composite-drawer-width") &&
     !compositeComposerDrawerStyleSource.includes("calc(100% - 48px)") &&
-    compositeComposerDrawerStyleSource.includes("box-shadow: 16px 0 36px") &&
+    compositeComposerDrawerStyleSource.includes("box-shadow: 14px 0 32px") &&
     !appThemeStyleSource.includes(".suite-report-page") &&
     !appThemeStyleSource.includes(".suite-report-grid") &&
     !appThemeStyleSource.includes(".suite-panel") &&
@@ -4201,34 +4219,31 @@ assert(
     !appThemeStyleSource.includes(".composite-stage {") &&
     compositeReportStage.includes('import "./compositeReportStage.css";') &&
     compositeStageWorkbench.includes('import "./compositeStageWorkbench.css";') &&
-    compositeLayerFocusToolbar.includes('import "./compositeLayerFocusToolbar.css";') &&
+    compositeLayerFocusToolbar === "" &&
+    compositeLayerFocusToolbarStyleSource === "" &&
+    compositeObjectHud === "" &&
+    compositeObjectHudStyleSource === "" &&
     compositeStageWorkbenchStyleSource.includes(".composite-report-workbench") &&
     compositeStageWorkbenchStyleSource.includes(".composite-report-focus") &&
-    compositeLayerFocusToolbarStyleSource.includes(".composite-workbench-toolbar") &&
-    compositeLayerFocusToolbarStyleSource.includes(".composite-layer-focus-strip") &&
-    compositeLayerFocusToolbarStyleSource.includes("overscroll-behavior: contain") &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-focus.resizable-split") &&
+    compositeStageWorkbenchStyleSource.includes(".composite-report-focus.compact") &&
     !compositeReportStageStyleSource.includes(".composite-workbench-toolbar") &&
     !compositeReportStageStyleSource.includes(".composite-layer-focus-strip") &&
-    compositeObjectHudStyleSource.includes(".composite-object-hud") &&
-    compositeObjectHudStyleSource.includes(".object-hud-actions") &&
     compositeThemeStyleSource.includes("--composite-object-hud-background") &&
     compositeThemeStyleSource.includes("--composite-object-hud-fp-background") &&
     compositeThemeStyleSource.includes("--composite-object-menu-background") &&
     compositeThemeStyleSource.includes("--composite-object-menu-shadow") &&
     compositeThemeStyleSource.includes("--composite-object-menu-safe-height") &&
     compositeThemeStyleSource.includes("--composite-object-menu-safe-right") &&
-    compositeObjectHudStyleSource.includes("background: var(--composite-object-hud-background)") &&
-    compositeObjectHudStyleSource.includes("background: var(--composite-object-hud-fp-background)") &&
-    compositeObjectHudStyleSource.includes("color: var(--composite-object-clear)") &&
     !compositeObjectHudStyleSource.includes(".object-hud-cruise") &&
     !compositeObjectHudStyleSource.includes("--object-progress") &&
     !compositeObjectHudStyleSource.includes("width: calc(var(--object-progress) * 100%)") &&
     compositeMicroMeterStyleSource.includes(".composite-micro-meter") &&
-    compositeMicroMeterStyleSource.includes(".composite-micro-meter.has-value") &&
+    compositeMicroMeterStyleSource.includes("composite-meter-ring") &&
     compositeMicroMeterStyleSource.includes("--composite-meter-progress") &&
-    compositeMicroMeterStyleSource.includes("width: calc(var(--composite-meter-progress) * 100%)") &&
-    compositeObjectHudStyleSource.includes(".composite-object-hud.status-fp") &&
-    compositeObjectHudStyleSource.includes(".composite-object-hud.status-fn") &&
+    compositeMicroMeterStyleSource.includes("conic-gradient") &&
+    compositeMicroMeterStyleSource.includes("composite-meter-sweep") &&
+    !compositeMicroMeterStyleSource.includes("width: calc(var(--composite-meter-progress) * 100%)") &&
     compositeObjectContextMenuStyleSource.includes(".composite-object-context-menu") &&
     compositeObjectContextMenuStyleSource.includes(".object-context-actions") &&
     compositeObjectContextMenuStyleSource.includes(
@@ -4251,6 +4266,7 @@ assert(
     !compositeReportStageStyleSource.includes(".composite-report-focus") &&
     compositeOverlayStageStyleSource.includes(".composite-overlay-stage") &&
     compositeOverlayStageStyleSource.includes(".composite-layer-legend") &&
+    compositeOverlayStageStyleSource.includes(".composite-layer-legend {\n    display: none;") &&
     compositeLayerCanvasStyleSource.includes(".composite-workbench-canvas") &&
     compositeLayerCanvasStyleSource.includes("position: relative") &&
     compositeLayerCanvasStyleSource.includes(".composite-workbench-canvas.small") &&
@@ -4297,6 +4313,7 @@ assert(
     compositeCanvasPointerReticleStyleSource.includes(".composite-canvas-pointer-reticle") &&
     compositeCanvasPointerReticleStyleSource.includes("--composite-pointer-x") &&
     compositeCanvasPointerReticleStyleSource.includes("--composite-pointer-y") &&
+    compositeCanvasPointerReticleStyleSource.includes(".viewer-pointer-surface[data-pointer-reticle=\"active\"]") &&
     compositeThemeStyleSource.includes("--composite-pointer-reticle-z") &&
     compositeThemeStyleSource.includes("--composite-pointer-axis-color") &&
     compositeThemeStyleSource.includes("--composite-pointer-axis-opacity") &&
@@ -4314,28 +4331,20 @@ assert(
     compositeLayerObjectStripStyleSource.includes(".layer-object-strip") &&
     compositeLayerObjectStripStyleSource.includes(".layer-object-chip.fn") &&
     compositeLayerObjectStripStyleSource.includes(".layer-object-chip.fp") &&
-    compositeSplitStage.includes('import { CompositeSplitPane } from "./compositeSplitPane";') &&
-    compositeSplitPane.includes('import { CompositeSplitLayerCanvas } from "./compositeSplitLayerCanvas";') &&
-    compositeSplitLayerCanvas.includes("objectKeyForLocalObject") &&
-    compositeSplitLayerCanvas.includes("<CompositeLayerCanvas") &&
+    compositeSplitStage === "" &&
+    compositeSplitStageStyleSource === "" &&
+    compositeSplitPane === "" &&
+    compositeSplitPaneStyleSource === "" &&
+    compositeSplitLayerCanvas === "" &&
     !compositeSplitStage.includes("function SplitLayerCanvas") &&
     !compositeSplitStage.includes("function MissingLayerPane") &&
-    compositeSplitStageStyleSource.includes(".composite-split-stage") &&
-    compositeSplitPaneStyleSource.includes(".composite-split-pane") &&
-    compositeSplitPaneStyleSource.includes(".composite-pane-head") &&
-    compositeSplitPaneStyleSource.includes(".missing-layer-pane") &&
     compositeThemeStyleSource.includes("--composite-empty-state-min-height") &&
-    compositeThemeStyleSource.includes("--composite-workbench-primary-min") &&
     compositeThemeStyleSource.includes("--composite-workbench-focus-min") &&
     compositeThemeStyleSource.includes("--composite-split-pane-min-height") &&
     compositeThemeStyleSource.includes("--composite-split-stage-column-min") &&
     compositeThemeStyleSource.includes("--composite-split-focus-ring-width") &&
     compositeReportStageStyleSource.includes("min-height: var(--composite-empty-state-min-height)") &&
-    compositeStageWorkbenchStyleSource.includes("var(--composite-workbench-primary-min)") &&
     compositeStageWorkbenchStyleSource.includes("var(--composite-workbench-focus-min)") &&
-    compositeSplitPaneStyleSource.includes("min-height: var(--composite-split-pane-min-height)") &&
-    compositeSplitPaneStyleSource.includes("box-shadow: inset var(--composite-split-focus-ring-width)") &&
-    compositeSplitStageStyleSource.includes("var(--composite-split-stage-column-min)") &&
     [
       compositeReportStyleSource,
       compositeReportStageStyleSource,
@@ -4358,18 +4367,16 @@ assert(
     compositeThemeStyleSource.includes("--composite-dock-grip-min") &&
     compositeThemeStyleSource.includes("--composite-radius-control: 2px") &&
     compositeReportStyleSource.includes("var(--composite-surface)") &&
-    compositeImageNavigatorStyleSource.includes("var(--composite-surface-muted)") &&
+    compositeImageNavigatorStyleSource.includes("var(--composite-canvas-overlay-surface)") &&
     compositeImageAtlasStyleSource.includes("var(--composite-accent)") &&
-    compositeObjectHudStyleSource.includes("var(--composite-ink-strong)") &&
-    compositeSplitPaneStyleSource.includes("var(--composite-focus)") &&
     !compositeReportStageStyleSource.includes(".composite-inspector-panel") &&
     !compositeReportStageStyleSource.includes(".layer-object-chip") &&
     !compositeReportStageStyleSource.includes(".composite-split-stage") &&
     !compositeReportStageStyleSource.includes(".composite-split-pane") &&
     !compositeReportStageStyleSource.includes(".composite-workbench-canvas") &&
     !compositeReportStageStyleSource.includes(".composite-overlay-stage") &&
-    compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-overlay") &&
-    compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-split") &&
+    !compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-overlay") &&
+    !compositeStageWorkbenchStyleSource.includes(".composite-report-workbench.mode-split") &&
     [
       compositeReportStyleSource,
       compositeComposerDockStyleSource,
@@ -4388,7 +4395,6 @@ assert(
       compositeImageAtlasStyleSource,
       compositeImageTimelineStyleSource,
       compositeImageIndexMeterStyleSource,
-      compositeImageNearbyRailStyleSource,
       compositeImageSearchPopoverStyleSource,
       compositeImageSearchResultsStyleSource,
       compositeImageSearchPreviewStyleSource,
@@ -4424,7 +4430,6 @@ assert(
       compositeImageAtlasStyleSource,
       compositeImageTimelineStyleSource,
       compositeImageIndexMeterStyleSource,
-      compositeImageNearbyRailStyleSource,
       compositeImageSearchPopoverStyleSource,
       compositeImageSearchResultsStyleSource,
       compositeImageSearchPreviewStyleSource,

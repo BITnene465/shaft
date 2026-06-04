@@ -55,7 +55,6 @@ export function useCompositeImageNavigationController({
 
   const timelineProps = useCompositeImageTimelineController({
     composite,
-    jumpTo,
     step
   });
 

@@ -1,28 +1,20 @@
 .number-setting-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 78px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-height: 30px;
 }
 
 .number-setting-control span {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   color: #536171;
   font-size: var(--control-text-small);
   font-weight: 720;
 }
 
-.number-setting-control strong {
-  color: #0f172a;
-  font-size: var(--control-text-caption);
-  font-variant-numeric: tabular-nums;
-}
-
 .number-setting-control input[type="number"] {
-  width: 78px;
+  width: 100%;
+  min-width: 0;
   height: 28px;
   padding: 0 7px;
   color: var(--bench-ink);

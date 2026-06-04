@@ -1,36 +1,21 @@
 .composite-micro-meter {
   --composite-meter-progress: 0;
+  --composite-meter-ring-size: 34px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--composite-gap-6);
+  align-items: center;
+}
+
+.composite-meter-copy {
   display: grid;
   min-width: 0;
-  gap: var(--composite-gap-4);
-  align-content: center;
+  gap: 1px;
 }
 
-.composite-micro-meter.has-value {
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: baseline;
-}
-
-.composite-micro-meter.has-value span {
-  order: 1;
-}
-
-.composite-micro-meter.has-value strong {
-  order: 2;
-}
-
-.composite-micro-meter.has-value em {
-  order: 3;
-  min-width: 0;
-}
-
-.composite-micro-meter.has-value b {
-  order: 4;
-  grid-column: 1 / -1;
-}
-
-.composite-micro-meter span,
-.composite-micro-meter em {
+.composite-micro-meter em,
+.composite-micro-meter small {
   overflow: hidden;
   color: var(--composite-muted);
   font-size: var(--text-2xs);
@@ -44,26 +29,74 @@
 
 .composite-micro-meter strong {
   color: var(--composite-ink-strong);
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-.composite-micro-meter b {
+.composite-meter-ring {
   position: relative;
-  display: block;
-  height: var(--composite-gap-6);
+  display: inline-grid;
+  width: var(--composite-meter-ring-size);
+  height: var(--composite-meter-ring-size);
   overflow: hidden;
-  background: var(--composite-line-soft);
+  place-items: center;
+  border-radius: var(--composite-radius-pill);
+  background:
+    conic-gradient(
+      from -72deg,
+      #18d2c8 0turn,
+      #2476ff calc(var(--composite-meter-progress) * 0.58turn),
+      #31c86b calc(var(--composite-meter-progress) * 1turn),
+      var(--composite-line-soft) 0
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 72%) inset,
+    0 0 14px color-mix(in srgb, var(--composite-accent) 22%, transparent);
+}
+
+.composite-meter-ring::after {
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  background: var(--composite-surface);
+  content: "";
+}
+
+.composite-meter-ring::before {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    conic-gradient(from 0deg, transparent 0 74%, rgb(255 255 255 / 64%) 82%, transparent 92%);
+  content: "";
+  mix-blend-mode: screen;
+  opacity: 0.72;
+  animation: composite-meter-sweep 1.8s linear infinite;
 }
 
 .composite-micro-meter i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: calc(var(--composite-meter-progress) * 100%);
+  position: relative;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--composite-radius-pill);
   background: var(--composite-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--composite-accent) 60%, transparent);
 }
 
-.composite-micro-meter.idle i {
+.composite-micro-meter.idle .composite-meter-ring {
   opacity: 0;
+}
+
+@keyframes composite-meter-sweep {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composite-meter-ring::before {
+    animation: none;
+  }
 }

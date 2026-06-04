@@ -86,11 +86,9 @@ export function useCompositeImageSearchController({
     setSearchOpen(false);
   }
 
-  function locateActiveNearbyItem() {
+  function focusCurrentImageSearch() {
     setSearchOpen(false);
-    rootRef.current
-      ?.querySelector(".image-nearby-card.active")
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
+    rootRef.current?.querySelector<HTMLInputElement>(".image-navigator-search input")?.focus();
   }
 
   return {
@@ -114,6 +112,6 @@ export function useCompositeImageSearchController({
     onActiveResultIndexChange: (index: number) =>
       setActiveResultIndex(resultWindow.offset + index),
     onJump: jumpTo,
-    onLocateActive: locateActiveNearbyItem
+    onLocateActive: focusCurrentImageSearch
   };
 }

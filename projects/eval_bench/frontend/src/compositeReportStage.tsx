@@ -1,6 +1,6 @@
 import type { CompositeSampleView } from "./api";
 import { CompositeImageNavigator } from "./compositeImageNavigator";
-import type { ActiveLayerConfig, StageMode } from "./compositeReportModel";
+import type { ActiveLayerConfig } from "./compositeReportModel";
 import { useCompositeReportStageController } from "./compositeReportStageController";
 import { CompositeStageWorkbench } from "./compositeStageWorkbench";
 import { errorMessage } from "./formatters";
@@ -11,20 +11,26 @@ export function CompositeStage({
   composite,
   layerConfigs,
   loading,
+  refreshing,
   error,
   enabled,
   onImageIndexChange,
-  mode,
+  activeSlotCount,
+  readyLayerCount,
+  missingLayerCount,
   focusedLayerKey,
   onFocusedLayerChange
 }: {
   composite?: CompositeSampleView;
   layerConfigs: ActiveLayerConfig[];
   loading: boolean;
+  refreshing: boolean;
   error: unknown;
   enabled: boolean;
   onImageIndexChange: (index: number) => void;
-  mode: StageMode;
+  activeSlotCount: number;
+  readyLayerCount: number;
+  missingLayerCount: number;
   focusedLayerKey: string | null;
   onFocusedLayerChange: (layer: string | null) => void;
 }) {
@@ -46,7 +52,6 @@ export function CompositeStage({
         <div className="composite-empty-state">暂无组合视图。</div>
       ) : (
         <>
-          <CompositeImageNavigator composite={composite} onImageIndexChange={onImageIndexChange} />
           {stage.layers.length === 0 ? (
             <div className="composite-empty-state">当前图片没有任何可渲染预测图层。</div>
           ) : (
@@ -54,8 +59,13 @@ export function CompositeStage({
               <CompositeStageWorkbench
                 stage={stage}
                 layerConfigs={layerConfigs}
-                mode={mode}
+                composite={composite}
+                activeSlotCount={activeSlotCount}
+                readyLayerCount={readyLayerCount}
+                missingLayerCount={missingLayerCount}
+                refreshing={refreshing}
                 onFocusedLayerChange={onFocusedLayerChange}
+                navigator={<CompositeImageNavigator composite={composite} onImageIndexChange={onImageIndexChange} />}
               />
             </>
           )}

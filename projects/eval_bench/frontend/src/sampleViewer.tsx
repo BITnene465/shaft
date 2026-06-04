@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { RunSampleDetail } from "./api";
 import { basename, isTextInputTarget, unique } from "./formatters";
@@ -19,6 +19,9 @@ import {
   useWorkspaceShortcuts
 } from "./workspaceSettings";
 import { OptionChipButton } from "./ui";
+import { VisualStatusBar } from "./visualStatusBar";
+import type { VisualStatusItem } from "./visualStatusBar";
+import { ViewerPointerSurface } from "./viewerPointerSurface";
 
 export function SampleViewer({ detail }: { detail: RunSampleDetail }) {
   return <InteractiveSampleViewer detail={detail} />;
@@ -77,6 +80,45 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
   );
   const visibleMetrics = visibleSampleMetrics(detail, activeLabelSet);
   const { actionForEvent } = useWorkspaceShortcuts();
+  const activeObject = objectRows.find((object) => object.id === activeObjectId);
+  const statusItems: VisualStatusItem[] = [
+    {
+      label: "Sample",
+      value: `#${detail.sample.index + 1}`,
+      title: detail.sample.json_path
+    },
+    {
+      label: "GT/Pred",
+      value: `${visibleMetrics.gtCount.toLocaleString()}/${visibleMetrics.predCount.toLocaleString()}`
+    },
+    {
+      label: "Match",
+      value: (detail.diagnostics?.matched_count ?? 0).toLocaleString(),
+      tone: "good"
+    },
+    {
+      label: "FN/FP",
+      value: `${(detail.diagnostics?.false_negative_count ?? 0).toLocaleString()}/${(detail.diagnostics?.false_positive_count ?? 0).toLocaleString()}`,
+      tone:
+        (detail.diagnostics?.false_negative_count ?? 0) +
+          (detail.diagnostics?.false_positive_count ?? 0) >
+        0
+          ? "warn"
+          : "good"
+    },
+    {
+      label: "mIoU",
+      value: detail.diagnostics ? detail.diagnostics.mean_iou.toFixed(3) : "-",
+      tone: detail.diagnostics && detail.diagnostics.mean_iou >= 0.7 ? "good" : "warn"
+    },
+    {
+      label: activeObject ? "Object" : "Image",
+      value: activeObject
+        ? `${activeObject.kind.toUpperCase()}#${activeObject.index + 1}`
+        : `${width}x${height}`,
+      title: activeObject?.label ?? detail.sample.image
+    }
+  ];
 
   useEffect(() => {
     setLockedObjectId(null);
@@ -99,6 +141,16 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
     }
     setLockedObjectId((current) => (current === objectId ? null : objectId));
   }
+
+  const previewObject = useCallback(
+    (objectId: string | null) => {
+      if (lockedObjectId) {
+        return;
+      }
+      setHoveredObjectId((current) => (current === objectId ? current : objectId));
+    },
+    [lockedObjectId]
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -128,30 +180,45 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
   }, [actionForEvent]);
 
   const canvasStage = (
-    <CanvasStage
-      width={width}
-      height={height}
-      imageUrl={displayImageUrl(detail.sample)}
-      imageAlt={detail.sample.image}
-      imageTileUrlTemplate={detail.sample.image_tile_url_template}
-      imageTileSize={detail.sample.image_tile_size}
-      gtInstances={detail.gt_instances}
-      predInstances={detail.pred_instances}
-      diagnostics={detail.diagnostics}
-      visibleLabels={activeLabelSet}
-      showGt={showGt}
-      showPred={showPred}
-      showBoxes={showBoxes}
-      showLines={showLines}
-      showKeypoints={showKeypoints}
-      activeObjectId={activeObjectId}
-      overlayColors={overlayColors}
-      overlayStyle={overlayStyle}
-      labelColors={labelColors}
-      interactionSettings={interactionSettings}
-      onHover={setHoveredObjectId}
-      onLock={toggleLockedObject}
-    />
+    <div className="viewer-stage-shell">
+      <VisualStatusBar
+        className="viewer-visual-status"
+        title={basename(detail.sample.image)}
+        subtitle={detail.run_id}
+        items={statusItems}
+        actions={
+          <OptionChipButton onClick={() => setInspectorCollapsed((value) => !value)}>
+            {inspectorCollapsed ? "检查器" : "收起"}
+          </OptionChipButton>
+        }
+      />
+      <ViewerPointerSurface>
+        <CanvasStage
+          width={width}
+          height={height}
+          imageUrl={displayImageUrl(detail.sample)}
+          imageAlt={detail.sample.image}
+          imageTileUrlTemplate={detail.sample.image_tile_url_template}
+          imageTileSize={detail.sample.image_tile_size}
+          gtInstances={detail.gt_instances}
+          predInstances={detail.pred_instances}
+          diagnostics={detail.diagnostics}
+          visibleLabels={activeLabelSet}
+          showGt={showGt}
+          showPred={showPred}
+          showBoxes={showBoxes}
+          showLines={showLines}
+          showKeypoints={showKeypoints}
+          activeObjectId={activeObjectId}
+          overlayColors={overlayColors}
+          overlayStyle={overlayStyle}
+          labelColors={labelColors}
+          interactionSettings={interactionSettings}
+          onHover={previewObject}
+          onLock={toggleLockedObject}
+        />
+      </ViewerPointerSurface>
+    </div>
   );
   const inspectorPanel = (
     <aside className="viewer-side-panel">
@@ -178,7 +245,7 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
           objects={objectRows}
           activeObjectId={activeObjectId}
           lockedObjectId={lockedObjectId}
-          onHover={setHoveredObjectId}
+          onHover={previewObject}
           onLock={toggleLockedObject}
         />
       </div>
@@ -187,21 +254,6 @@ function InteractiveSampleViewer({ detail }: { detail: RunSampleDetail }) {
 
   return (
     <div className="viewer-stack" style={overlayVars}>
-      <div className="viewer-toolbar">
-        <div>
-          <h2>{basename(detail.sample.image)}</h2>
-          <p>{detail.sample.image}</p>
-        </div>
-        <div className="legend-row">
-          <span className="legend-item gt">真值匹配</span>
-          <span className="legend-item fn">漏检</span>
-          <span className="legend-item pred">预测匹配</span>
-          <span className="legend-item fp">误检</span>
-          <OptionChipButton onClick={() => setInspectorCollapsed((value) => !value)}>
-            {inspectorCollapsed ? "显示检查器" : "收起检查器"}
-          </OptionChipButton>
-        </div>
-      </div>
       {inspectorCollapsed ? (
         <div className="viewer-canvas-layout side-collapsed">{canvasStage}</div>
       ) : (

@@ -17,6 +17,7 @@ const SELECT_VISIBLE_LIMIT = 80;
 const SELECT_MENU_VIEWPORT_GAP = 8;
 const SELECT_MENU_MAX_WIDTH = 340;
 const SELECT_MENU_MIN_HEIGHT = 140;
+const SELECT_MENU_MAX_HEIGHT = 300;
 
 type SelectPopoverKind = "form" | "compact" | "filter";
 
@@ -88,6 +89,7 @@ function SelectPopoverControl({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuStyle, setMenuStyle] = useState<Record<string, string>>({});
+  const [menuPlacement, setMenuPlacement] = useState<"top" | "bottom">("bottom");
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
@@ -158,10 +160,19 @@ function SelectPopoverControl({
       }
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const availableBelow = Math.max(
-        SELECT_MENU_MIN_HEIGHT,
-        viewportHeight - rect.bottom - SELECT_MENU_VIEWPORT_GAP
+      const boundaryRect = rootRef.current
+        ?.closest('[role="dialog"], .settings-drawer-scroll')
+        ?.getBoundingClientRect();
+      const safeTop = Math.max(SELECT_MENU_VIEWPORT_GAP, boundaryRect?.top ?? SELECT_MENU_VIEWPORT_GAP);
+      const safeBottom = Math.min(
+        viewportHeight - SELECT_MENU_VIEWPORT_GAP,
+        boundaryRect?.bottom ?? viewportHeight - SELECT_MENU_VIEWPORT_GAP
       );
+      const availableBelow = Math.max(0, safeBottom - rect.bottom - 2);
+      const availableAbove = Math.max(0, rect.top - safeTop - 2);
+      const openUp = availableBelow < SELECT_MENU_MIN_HEIGHT && availableAbove > availableBelow;
+      const availableSpace = openUp ? availableAbove : availableBelow;
+      const menuMaxHeight = Math.max(1, Math.min(availableSpace, SELECT_MENU_MAX_HEIGHT));
       const menuWidth = Math.min(
         Math.max(rect.width, Math.min(300, viewportWidth - SELECT_MENU_VIEWPORT_GAP * 2)),
         SELECT_MENU_MAX_WIDTH,
@@ -171,15 +182,15 @@ function SelectPopoverControl({
         Math.max(SELECT_MENU_VIEWPORT_GAP, rect.left),
         viewportWidth - menuWidth - SELECT_MENU_VIEWPORT_GAP
       );
-      const menuTop = Math.min(
-        rect.bottom + 2,
-        viewportHeight - SELECT_MENU_MIN_HEIGHT - SELECT_MENU_VIEWPORT_GAP
-      );
+      const menuTop = openUp
+        ? Math.max(safeTop, rect.top - menuMaxHeight - 2)
+        : Math.min(rect.bottom + 2, safeBottom - menuMaxHeight);
+      setMenuPlacement(openUp ? "top" : "bottom");
       setMenuStyle({
         "--select-menu-left": `${menuLeft}px`,
-        "--select-menu-top": `${Math.max(SELECT_MENU_VIEWPORT_GAP, menuTop)}px`,
+        "--select-menu-top": `${Math.max(safeTop, menuTop)}px`,
         "--select-menu-width": `${menuWidth}px`,
-        "--select-menu-max-height": `${Math.min(availableBelow, 300)}px`
+        "--select-menu-max-height": `${menuMaxHeight}px`
       });
     }
     updateMenuPosition();
@@ -299,6 +310,7 @@ function SelectPopoverControl({
           ref={menuRef}
           className="select-popover-menu"
           data-select-popover-menu="true"
+          data-placement={menuPlacement}
           style={menuStyle}
         >
           {searchable ? (

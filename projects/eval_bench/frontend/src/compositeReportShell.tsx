@@ -30,7 +30,6 @@ export function CompositeReportShell({ report }: { report: CompositeReportContro
         activeSlots={report.activeSlots.length}
         readyLayerCount={report.readyLayerCount}
         missingLayerCount={report.missingLayerCount}
-        statuses={report.compositeQuery.data?.layer_statuses}
         onOpenChange={report.setSidebarOpen}
       />
       {report.sidebarOpen ? (
@@ -65,10 +64,13 @@ export function CompositeReportShell({ report }: { report: CompositeReportContro
           composite={report.compositeQuery.data}
           layerConfigs={report.activeLayerConfigs}
           loading={report.compositeQuery.isLoading && report.compositeEnabled}
+          refreshing={report.compositeQuery.isFetching && !report.compositeQuery.isLoading}
           error={report.compositeQuery.error}
           enabled={report.compositeEnabled}
           onImageIndexChange={report.setSampleIndex}
-          mode={report.stageMode}
+          activeSlotCount={report.activeSlots.length}
+          readyLayerCount={report.readyLayerCount}
+          missingLayerCount={report.missingLayerCount}
           focusedLayerKey={report.focusedLayerKey}
           onFocusedLayerChange={report.setFocusedLayerKey}
         />

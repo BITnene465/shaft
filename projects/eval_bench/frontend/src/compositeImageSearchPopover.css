@@ -2,7 +2,8 @@
   position: absolute;
   z-index: 40;
   top: calc(100% + 6px);
-  left: 0;
+  right: 0;
+  left: auto;
   display: grid;
   width: min(760px, 82vw);
   max-height: min(430px, 58vh);
@@ -11,6 +12,12 @@
   border: 1px solid #ccd7e4;
   background: var(--composite-surface);
   box-shadow: 0 18px 44px rgb(15 23 42 / 18%);
+}
+
+.image-jump-popover[data-placement="top"] {
+  top: auto;
+  bottom: calc(100% + 6px);
+  box-shadow: 0 -18px 44px rgb(15 23 42 / 18%);
 }
 
 .image-jump-atlas-panel {

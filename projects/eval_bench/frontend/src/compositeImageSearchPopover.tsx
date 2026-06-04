@@ -5,6 +5,7 @@ import { CompositeImageSearchResults } from "./compositeImageSearchResults";
 import "./compositeImageSearchPopover.css";
 
 export function CompositeImageSearchPopover({
+  placement,
   imageIndex,
   imageKey,
   filteredCount,
@@ -20,6 +21,7 @@ export function CompositeImageSearchPopover({
   onResultWheel,
   onActiveResultIndexChange
 }: {
+  placement: "top" | "bottom";
   imageIndex: number;
   imageKey: string;
   filteredCount: number;
@@ -36,7 +38,7 @@ export function CompositeImageSearchPopover({
   onActiveResultIndexChange: (index: number) => void;
 }) {
   return (
-    <div className="image-jump-popover">
+    <div className="image-jump-popover" data-placement={placement}>
       <div className="image-jump-popover-body">
         <CompositeImageAtlasPanel
           imageIndex={imageIndex}

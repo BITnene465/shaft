@@ -8,3 +8,9 @@
 .image-index-meter i {
   background: var(--composite-focus);
 }
+
+@media (max-width: 940px) and (max-height: 680px) {
+  .image-index-meter {
+    padding: var(--composite-pad-3) var(--composite-pad-5);
+  }
+}

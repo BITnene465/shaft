@@ -48,13 +48,12 @@ const staticRoutes = [
     path: "/suite-report",
     selectors: [
       ".composite-report-page",
-      ".composite-report-command",
       ".composite-report-shell",
       ".composite-composer-dock",
       ".composite-stage-region",
       ".composite-report-stage-card",
       ".composite-image-navigator",
-      ".image-nearby-rail"
+      ".image-index-meter"
     ],
     requireCompositeReport: true
   },
@@ -1806,18 +1805,16 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
 }
 
 async function assertCompositeReportWorkbench(page, scope) {
-  await page.locator(".image-nearby-card").first().waitFor({ timeout: 10_000 });
+  await page.locator(".image-index-meter").first().waitFor({ timeout: 10_000 });
   const collapsedState = await page.evaluate(() => {
     const shell = document.querySelector(".composite-report-shell");
     const dock = document.querySelector(".composite-composer-dock");
     const drawer = document.querySelector(".composite-sidebar-drawer");
     const stageRegion = document.querySelector(".composite-stage-region");
-    const nearbyRail = document.querySelector(".image-nearby-rail");
     const search = document.querySelector(".image-navigator-search input");
     const canvas = document.querySelector(".image-stage");
     const overlay = document.querySelector(".overlay-svg");
     const focus = document.querySelector(".composite-report-focus");
-    const split = document.querySelector(".composite-split-stage");
     const inspector = document.querySelector(".composite-inspector-panel");
     const shellRect = shell?.getBoundingClientRect();
     const dockRect = dock?.getBoundingClientRect();
@@ -1833,12 +1830,13 @@ async function assertCompositeReportWorkbench(page, scope) {
       dockHeight: dockRect?.height ?? 0,
       stageWidth: stageRect?.width ?? 0,
       stageHeight: stageRect?.height ?? 0,
-      nearbyItems: nearbyRail?.querySelectorAll(".image-nearby-card").length ?? 0,
+      nearbyItems: document.querySelectorAll(".image-nearby-card").length,
+      hasNearbyRail: Boolean(document.querySelector(".image-nearby-rail")),
+      hasIndexMeter: Boolean(document.querySelector(".image-index-meter")),
       hasSearch: Boolean(search),
       hasCanvas: Boolean(canvas),
       hasOverlay: Boolean(overlay),
       hasFocus: Boolean(focus),
-      hasSplit: Boolean(split),
       hasInspector: Boolean(inspector)
     };
   });
@@ -1851,16 +1849,12 @@ async function assertCompositeReportWorkbench(page, scope) {
   if (collapsedState.viewportWidth <= 940 && collapsedState.dockHeight > 72) {
     throw new Error(`${scope}: compact composer dock is too tall ${JSON.stringify(collapsedState)}`);
   }
-  if (collapsedState.nearbyItems < 1 || !collapsedState.hasSearch) {
-    throw new Error(`${scope}: composite report nearby image rail is not interactive ${JSON.stringify(collapsedState)}`);
+  if (collapsedState.hasNearbyRail || collapsedState.nearbyItems > 0 || !collapsedState.hasIndexMeter || !collapsedState.hasSearch) {
+    throw new Error(`${scope}: composite report should use compact image controls without a bottom nearby image list ${JSON.stringify(collapsedState)}`);
   }
-  if (collapsedState.nearbyItems > 9) {
-    throw new Error(`${scope}: composite report should use a compact nearby image window ${JSON.stringify(collapsedState)}`);
-  }
-  if (!collapsedState.hasCanvas || !collapsedState.hasOverlay || !collapsedState.hasFocus || !collapsedState.hasSplit || !collapsedState.hasInspector) {
+  if (!collapsedState.hasCanvas || !collapsedState.hasOverlay || !collapsedState.hasFocus || !collapsedState.hasInspector) {
     throw new Error(`${scope}: composite report visual stage did not render ${JSON.stringify(collapsedState)}`);
   }
-  await assertCompositeScrubPreview(page, scope);
   await assertCompositeObjectInteraction(page, scope);
   await assertCompositeInteractionPalette(page, scope);
   await page.locator(".composite-composer-dock .icon-button").first().click();
@@ -1891,7 +1885,8 @@ async function assertCompositeReportWorkbench(page, scope) {
     mapBins: document.querySelectorAll(".image-map-bin").length,
     activeMapBins: document.querySelectorAll(".image-map-bin.active").length,
     results: document.querySelectorAll(".image-jump-result").length,
-    nearbyItems: document.querySelectorAll(".image-nearby-card").length
+    nearbyItems: document.querySelectorAll(".image-nearby-card").length,
+    hasNearbyRail: Boolean(document.querySelector(".image-nearby-rail"))
   }));
   if (
     !searchState.popover ||
@@ -1905,63 +1900,8 @@ async function assertCompositeReportWorkbench(page, scope) {
     throw new Error(`${scope}: composite image search popover is not bounded ${JSON.stringify(searchState)}`);
   }
   await assertCompositeImageSearchPreview(page, scope);
-  if (searchState.nearbyItems > 11) {
-    throw new Error(`${scope}: composite nearby image window expanded during search ${JSON.stringify(searchState)}`);
-  }
-  await page.locator(".composite-stage-mode .query-chip", { hasText: "分屏" }).click();
-  const splitOnly = await page.evaluate(() => ({
-    focus: Boolean(document.querySelector(".composite-report-focus")),
-    split: Boolean(document.querySelector(".composite-split-stage")),
-    activeMode: document.querySelector(".composite-stage-mode .query-chip.active")?.textContent?.trim() ?? ""
-  }));
-  if (splitOnly.focus || !splitOnly.split || splitOnly.activeMode !== "分屏") {
-    throw new Error(`${scope}: composite split-only mode did not apply ${JSON.stringify(splitOnly)}`);
-  }
-  await page.locator(".composite-stage-mode .query-chip", { hasText: "叠加" }).click();
-  const overlayOnly = await page.evaluate(() => ({
-    focus: Boolean(document.querySelector(".composite-report-focus")),
-    split: Boolean(document.querySelector(".composite-split-stage")),
-    activeMode: document.querySelector(".composite-stage-mode .query-chip.active")?.textContent?.trim() ?? ""
-  }));
-  if (!overlayOnly.focus || overlayOnly.split || overlayOnly.activeMode !== "叠加") {
-    throw new Error(`${scope}: composite overlay-only mode did not apply ${JSON.stringify(overlayOnly)}`);
-  }
-  await page.locator(".composite-stage-mode .query-chip", { hasText: "总览" }).click();
-  const focusChip = page.locator(".composite-layer-focus-strip .query-chip").nth(1);
-  if ((await focusChip.count()) > 0 && !(await focusChip.isDisabled())) {
-    await focusChip.click();
-    const focusState = await page.evaluate(() => ({
-      focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "",
-      focusedRows: document.querySelectorAll(".layer-report-row.focused").length,
-      splitPanes: document.querySelectorAll(".composite-split-pane").length
-    }));
-    if (!focusState.focusedToolbar || focusState.focusedRows !== 1 || focusState.splitPanes !== 1) {
-      throw new Error(`${scope}: composite layer focus did not narrow the workbench ${JSON.stringify(focusState)}`);
-    }
-    await page.locator(".composite-layer-focus-strip .query-chip", { hasText: "全部" }).click();
-  }
-  const enabledFocusChipCount = await page
-    .locator(".composite-layer-focus-strip .query-chip:not([disabled])")
-    .count();
-  if (enabledFocusChipCount > 1) {
-    const beforeWheelFocus = await page.evaluate(
-      () => document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? ""
-    );
-    await page.locator(".composite-layer-focus-strip").hover();
-    await page.mouse.wheel(0, 96);
-    await page.waitForFunction((previous) => {
-      const focused = document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "";
-      return Boolean(focused) && focused !== previous;
-    }, beforeWheelFocus);
-    const wheelFocusState = await page.evaluate(() => ({
-      focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? "",
-      focusedRows: document.querySelectorAll(".layer-report-row.focused").length,
-      splitPanes: document.querySelectorAll(".composite-split-pane").length
-    }));
-    if (wheelFocusState.focusedToolbar === "全部图层" || wheelFocusState.splitPanes !== 1) {
-      throw new Error(`${scope}: composite layer focus wheel did not cycle focus ${JSON.stringify(wheelFocusState)}`);
-    }
-    await page.locator(".composite-layer-focus-strip .query-chip", { hasText: "全部" }).click();
+  if (searchState.hasNearbyRail || searchState.nearbyItems > 0) {
+    throw new Error(`${scope}: composite image search should not restore the removed nearby image list ${JSON.stringify(searchState)}`);
   }
   await page.locator(".image-navigator-search input").fill("");
   await page.keyboard.press("/");
@@ -1979,23 +1919,21 @@ async function assertCompositeReportWorkbench(page, scope) {
     }
   });
   const beforeKeyboardIndex = await compositeActiveImageIndex(page);
-  if (collapsedState.nearbyItems > 1) {
-    await page.keyboard.press("ArrowRight");
-    await page.waitForFunction((previous) => {
-      const active = document.querySelector(".image-nearby-card.active span");
-      return Number(active?.textContent ?? 0) !== previous;
-    }, beforeKeyboardIndex);
-    const afterKeyboardIndex = await compositeActiveImageIndex(page);
-    if (afterKeyboardIndex !== beforeKeyboardIndex + 1) {
-      throw new Error(
-        `${scope}: composite ArrowRight shortcut did not step images ${JSON.stringify({
-          beforeKeyboardIndex,
-          afterKeyboardIndex
-        })}`
-      );
-    }
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction((previous) => {
+    const label = document.querySelector(".image-index-meter")?.getAttribute("aria-label") ?? "";
+    const match = label.match(/(\d+)\s*\/\s*(\d+)/);
+    return Number(match?.[1] ?? 0) !== previous;
+  }, beforeKeyboardIndex);
+  const afterKeyboardIndex = await compositeActiveImageIndex(page);
+  if (afterKeyboardIndex !== beforeKeyboardIndex + 1) {
+    throw new Error(
+      `${scope}: composite ArrowRight shortcut did not step images ${JSON.stringify({
+        beforeKeyboardIndex,
+        afterKeyboardIndex
+      })}`
+    );
   }
-  await assertCompositeNearbyRailDrag(page, scope);
 }
 
 async function assertCompositeImageSearchPreview(page, scope) {
@@ -2076,14 +2014,16 @@ async function assertCompositeInteractionPalette(page, scope) {
   if (!(await nextButton.isDisabled())) {
     await nextButton.click();
     await page.waitForFunction((previous) => {
-      const active = document.querySelector(".image-nearby-card.active span");
-      return Number(active?.textContent ?? 0) === previous + 1;
+      const label = document.querySelector(".image-index-meter")?.getAttribute("aria-label") ?? "";
+      const match = label.match(/(\d+)\s*\/\s*(\d+)/);
+      return Number(match?.[1] ?? 0) === previous + 1;
     }, beforeIndex);
     const previousButton = page.locator(".interaction-palette-tool[data-tool='previous']");
     await previousButton.click();
     await page.waitForFunction((previous) => {
-      const active = document.querySelector(".image-nearby-card.active span");
-      return Number(active?.textContent ?? 0) === previous;
+      const label = document.querySelector(".image-index-meter")?.getAttribute("aria-label") ?? "";
+      const match = label.match(/(\d+)\s*\/\s*(\d+)/);
+      return Number(match?.[1] ?? 0) === previous;
     }, beforeIndex);
   }
 }
@@ -2134,70 +2074,6 @@ async function assertCompositeScrubPreview(page, scope) {
   await page.waitForFunction(() => !document.querySelector(".image-scrub-preview"));
 }
 
-async function assertCompositeNearbyRailDrag(page, scope) {
-  const rail = page.locator(".image-nearby-rail").first();
-  const rect = await rail.boundingBox();
-  if (!rect || rect.width <= 80 || rect.height <= 20) {
-    throw new Error(`${scope}: composite nearby rail is not draggable ${JSON.stringify(rect)}`);
-  }
-  const beforeIndex = await compositeActiveImageIndex(page);
-  const railState = await page.evaluate(() => {
-    const cards = Array.from(document.querySelectorAll(".image-nearby-card span"));
-    const indexes = cards
-      .map((card) => Number(card.textContent ?? 0))
-      .filter((index) => Number.isFinite(index));
-    return {
-      maxIndex: Math.max(0, ...indexes),
-      minIndex: Math.min(Number.MAX_SAFE_INTEGER, ...indexes)
-    };
-  });
-  if (beforeIndex <= 0 || railState.maxIndex <= railState.minIndex) {
-    return;
-  }
-  const dragToNext = beforeIndex < railState.maxIndex;
-  const startX = rect.x + rect.width * (dragToNext ? 0.74 : 0.26);
-  const endX = rect.x + rect.width * (dragToNext ? 0.34 : 0.66);
-  const centerY = rect.y + rect.height / 2;
-  await page.mouse.move(startX, centerY);
-  await page.mouse.down();
-  await page.mouse.move(endX, centerY, { steps: 8 });
-  try {
-    await page.waitForFunction((expectedHint) => {
-      const hint = document.querySelector(".image-nearby-drag-hint");
-      return Boolean(hint?.textContent?.includes(expectedHint));
-    }, dragToNext ? "Next" : "Previous");
-  } catch (error) {
-    const dragState = await page.evaluate(({ x, y }) => {
-      const rail = document.querySelector(".image-nearby-rail");
-      const hit = document.elementFromPoint(x, y);
-      return {
-        active: document.querySelector(".image-nearby-card.active span")?.textContent ?? "",
-        dragging: rail?.classList.contains("dragging") ?? false,
-        hasHint: Boolean(document.querySelector(".image-nearby-drag-hint")),
-        hitClass: hit?.className ?? "",
-        hitTag: hit?.tagName ?? ""
-      };
-    }, { x: endX, y: centerY });
-    await page.mouse.up();
-    throw new Error(`${scope}: composite nearby rail drag hint did not render ${JSON.stringify(dragState)}`);
-  }
-  await page.mouse.up();
-  await page.waitForFunction((previous) => {
-    const active = document.querySelector(".image-nearby-card.active span");
-    return Number(active?.textContent ?? 0) !== previous;
-  }, beforeIndex);
-  const afterIndex = await compositeActiveImageIndex(page);
-  if (dragToNext ? afterIndex <= beforeIndex : afterIndex >= beforeIndex) {
-    throw new Error(
-      `${scope}: composite nearby rail drag did not step image ${JSON.stringify({
-        beforeIndex,
-        afterIndex,
-        dragToNext
-      })}`
-    );
-  }
-}
-
 async function assertCompositeObjectInteraction(page, scope) {
   const objectChip = page.locator(".layer-object-chip").first();
   if ((await objectChip.count()) === 0) {
@@ -2206,59 +2082,35 @@ async function assertCompositeObjectInteraction(page, scope) {
   await objectChip.hover();
   const hoverState = await page.evaluate(() => ({
     activeChips: document.querySelectorAll(".layer-object-chip.active").length,
-    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
-    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
-    hudIdle: document.querySelector(".composite-object-hud")?.classList.contains("idle") ?? false
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length
   }));
-  if (hoverState.activeChips < 1 || hoverState.activeOverlays < 1 || hoverState.hudIdle || !hoverState.hud.includes("Hovered Object")) {
+  if (hoverState.activeChips < 1 || hoverState.activeOverlays < 1) {
     throw new Error(`${scope}: composite object hover did not highlight canvas ${JSON.stringify(hoverState)}`);
   }
   await objectChip.click();
   const lockedState = await page.evaluate(() => ({
     activeChips: document.querySelectorAll(".layer-object-chip.active").length,
     lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
-    activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
-    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
-    clearButton: Array.from(document.querySelectorAll(".composite-object-hud button")).some((button) =>
-      button.textContent?.includes("清除")
-    )
+    activeOverlays: document.querySelectorAll(".overlay-instance.active").length
   }));
-  if (lockedState.lockedChips < 1 || lockedState.activeOverlays < 1 || !lockedState.hud.includes("Locked Object") || !lockedState.clearButton) {
+  if (lockedState.lockedChips < 1 || lockedState.activeOverlays < 1) {
     throw new Error(`${scope}: composite object click did not lock canvas highlight ${JSON.stringify(lockedState)}`);
   }
-  await assertCompositeObjectWheelNavigation(page, scope);
   await assertCompositePanAfterObjectLock(page, scope);
-  await page.locator(".composite-object-hud button", { hasText: "清除" }).click();
-  const clearedState = await page.evaluate(() => ({
-    activeChips: document.querySelectorAll(".layer-object-chip.active").length,
-    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
-    hudIdle: document.querySelector(".composite-object-hud")?.classList.contains("idle") ?? false
-  }));
-  if (clearedState.activeChips > 0 || clearedState.lockedChips > 0 || !clearedState.hudIdle) {
-    throw new Error(`${scope}: composite object HUD clear did not reset interaction ${JSON.stringify(clearedState)}`);
-  }
   await objectChip.hover();
   const activeOverlay = page.locator(".overlay-instance.active").first();
   if ((await activeOverlay.count()) === 0) {
     throw new Error(`${scope}: composite object hover did not expose an inspectable overlay`);
   }
-  await activeOverlay.dblclick({ force: true });
-  const inspectedState = await page.evaluate(() => ({
-    lockedChips: document.querySelectorAll(".layer-object-chip.locked").length,
+  await activeOverlay.click({ button: "right", force: true });
+  const menuState = await page.evaluate(() => ({
     activeOverlays: document.querySelectorAll(".overlay-instance.active").length,
-    hud: document.querySelector(".composite-object-hud")?.textContent ?? "",
-    focusedToolbar: document.querySelector(".composite-workbench-toolbar strong")?.textContent?.trim() ?? ""
+    menu: Boolean(document.querySelector(".composite-object-context-menu"))
   }));
-  if (
-    inspectedState.lockedChips < 1 ||
-    inspectedState.activeOverlays < 1 ||
-    !inspectedState.hud.includes("Locked Object") ||
-    !inspectedState.focusedToolbar ||
-    inspectedState.focusedToolbar === "全部图层"
-  ) {
-    throw new Error(`${scope}: composite object double click did not inspect and focus its layer ${JSON.stringify(inspectedState)}`);
+  if (menuState.activeOverlays < 1 || !menuState.menu) {
+    throw new Error(`${scope}: composite object context menu did not open from canvas ${JSON.stringify(menuState)}`);
   }
-  await page.locator(".composite-object-hud button", { hasText: "清除" }).click();
+  await page.keyboard.press("Escape");
 }
 
 async function assertCompositeObjectWheelNavigation(page, scope) {
@@ -2386,8 +2238,9 @@ async function assertCompositePanAfterObjectLock(page, scope) {
 
 async function compositeActiveImageIndex(page) {
   return page.evaluate(() => {
-    const active = document.querySelector(".image-nearby-card.active span");
-    return Number(active?.textContent ?? 0);
+    const label = document.querySelector(".image-index-meter")?.getAttribute("aria-label") ?? "";
+    const match = label.match(/(\d+)\s*\/\s*(\d+)/);
+    return Number(match?.[1] ?? 0);
   });
 }
 

@@ -31,12 +31,14 @@ export function CompositeMicroMeter({
       style={style}
       aria-label={ariaLabel}
     >
-      <span>{label}</span>
-      {value ? <strong>{value}</strong> : null}
-      <b aria-hidden="true">
+      <b className="composite-meter-ring" aria-hidden="true">
         <i />
       </b>
-      <em>{meta}</em>
+      <span className="composite-meter-copy">
+        <em>{label}</em>
+        {value ? <strong>{value}</strong> : null}
+        <small>{meta}</small>
+      </span>
     </div>
   );
 }

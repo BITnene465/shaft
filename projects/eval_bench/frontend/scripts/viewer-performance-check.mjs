@@ -24,6 +24,8 @@ page.on("request", (request) => {
 await page.goto(url, { waitUntil: "networkidle" });
 const stage = page.locator(".image-stage").first();
 await stage.waitFor({ timeout: 10_000 });
+const pointerSurface = page.locator(".viewer-pointer-surface").first();
+await pointerSurface.waitFor({ timeout: 10_000 });
 await page.locator(".image-zoom-layer").first().waitFor({ timeout: 10_000 });
 await page.locator(".overlay-svg").first().waitFor({ timeout: 10_000 });
 
@@ -33,8 +35,24 @@ const box = await stage.boundingBox();
 if (!box) {
   throw new Error("image stage is not visible");
 }
-const x = box.x + 18;
-const y = box.y + 18;
+const x = box.x + box.width / 2;
+const y = box.y + box.height / 2;
+
+await page.mouse.move(x, y);
+await page.waitForTimeout(80);
+if ((await page.locator('.viewer-pointer-surface[data-pointer-reticle="active"]').count()) !== 1) {
+  throw new Error("ordinary viewer pointer movement did not activate the reticle state");
+}
+if ((await page.locator(".viewer-pointer-surface .composite-canvas-pointer-reticle").count()) !== 1) {
+  throw new Error("ordinary viewer did not render the shared canvas pointer reticle");
+}
+const coordinateLabel = await page
+  .locator(".viewer-pointer-surface .composite-canvas-coordinate-tag")
+  .first()
+  .textContent();
+if (!coordinateLabel || !/\d+\s*\/\s*\d+/.test(coordinateLabel)) {
+  throw new Error(`ordinary viewer coordinate status did not update: ${coordinateLabel ?? "<empty>"}`);
+}
 
 for (let index = 0; index < 36; index += 1) {
   await page.mouse.move(x, y);
@@ -83,6 +101,7 @@ console.log(
       canvas_renders_during_pan_zoom: canvasDelta,
       gt_layer_renders_during_pan_zoom: gtLayerDelta,
       pred_layer_renders_during_pan_zoom: predLayerDelta,
+      pointer_reticle: "active",
       image_requests_during_initial_inspection: imageRequests
     },
     null,

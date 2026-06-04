@@ -1,9 +1,11 @@
 .composite-interaction-palette {
   display: flex;
+  grid-area: actions;
   min-width: 0;
   align-items: center;
+  align-self: center;
   gap: var(--composite-gap-3);
-  justify-self: start;
+  justify-self: end;
 }
 
 .interaction-palette-anchor,

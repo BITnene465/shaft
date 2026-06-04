@@ -3,9 +3,9 @@
   min-width: 0;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--composite-gap-10);
+  gap: var(--composite-gap-6);
   overflow: hidden;
-  padding: var(--composite-pad-10);
+  padding: var(--composite-pad-7);
   border-right: 1px solid var(--composite-line);
   background: var(--composite-surface);
 }
@@ -14,25 +14,29 @@
   display: grid;
   min-height: 0;
   align-content: start;
-  gap: var(--composite-gap-6);
+  gap: 0;
   overflow: auto;
+  border: 1px solid #dce5ee;
+  background: var(--composite-surface);
   scrollbar-gutter: stable;
 }
 
 .report-layer-group {
   display: grid;
-  gap: var(--composite-gap-5);
-  padding: var(--composite-pad-8);
-  border: 1px solid #dce5ee;
-  background: var(--composite-surface-muted);
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #dfe7ef;
+  background: var(--composite-surface);
 }
 
 .report-layer-group-head {
   display: grid;
   min-width: 0;
-  gap: var(--composite-gap-2);
-  padding-bottom: 5px;
-  border-bottom: 1px solid #e4ebf2;
+  gap: 1px;
+  padding: var(--composite-pad-5) var(--composite-pad-6);
+  border-bottom: 1px solid #e7edf4;
+  background: #f7f9fc;
 }
 
 .report-layer-group-head strong,
@@ -44,7 +48,7 @@
 
 .report-layer-group-head strong {
   color: var(--composite-ink);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 .report-layer-group-head span {
@@ -54,10 +58,10 @@
 
 .report-layer-row {
   display: grid;
-  grid-template-columns: 4px minmax(0, 1fr) auto;
-  gap: var(--composite-gap-8);
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+  gap: var(--composite-gap-6);
   min-width: 0;
-  padding: var(--composite-pad-7) 0;
+  padding: var(--composite-pad-5) var(--composite-pad-5);
   box-shadow: inset 0 -1px 0 #e6edf4;
 }
 
@@ -70,14 +74,14 @@
 }
 
 .report-layer-row > i {
-  width: 4px;
+  width: 3px;
   min-height: 100%;
 }
 
 .report-layer-row-main {
   display: grid;
   min-width: 0;
-  gap: var(--composite-gap-7);
+  gap: var(--composite-gap-5);
 }
 
 .report-layer-name {
@@ -96,11 +100,11 @@
 .report-layer-name input {
   min-width: 0;
   width: 100%;
-  padding: var(--composite-pad-6) var(--composite-pad-8);
+  padding: var(--composite-pad-4) var(--composite-pad-6);
   border: 1px solid #d7e1eb;
   background: var(--composite-surface);
   color: var(--composite-ink);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   outline: 0;
 }
 
@@ -117,9 +121,7 @@
 
 .report-layer-run strong,
 .report-layer-run span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .report-layer-run strong {

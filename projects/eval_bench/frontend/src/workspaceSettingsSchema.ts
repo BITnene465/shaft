@@ -35,13 +35,14 @@ export type NumberSettingControl<Key extends string> = {
   max: number;
   step: number;
   scale?: number;
+  precision?: number;
 };
 
 export const DEFAULT_OVERLAY_STYLE: OverlayStyle = {
   boxStrokeWidth: 3,
   lineStrokeWidth: 4,
   pointRadius: 4,
-  labelFontSize: 10,
+  labelFontSize: 8,
   labelStrokeWidth: 0.45,
   labelBackgroundOpacity: 0.82,
   boxFillOpacity: 0.06,
@@ -52,16 +53,16 @@ export const DEFAULT_OVERLAY_STYLE: OverlayStyle = {
 };
 
 export const OVERLAY_STYLE_CONTROLS = [
-  { key: "boxStrokeWidth", label: "框线宽", min: 1, max: 10, step: 0.5 },
-  { key: "lineStrokeWidth", label: "骨架线宽", min: 1, max: 12, step: 0.5 },
-  { key: "pointRadius", label: "点半径", min: 1, max: 12, step: 0.5 },
-  { key: "labelFontSize", label: "标签字号", min: 7, max: 18, step: 1 },
-  { key: "labelStrokeWidth", label: "标签描边", min: 0, max: 2, step: 0.05 },
-  { key: "boxFillOpacity", label: "框填充", min: 0, max: 0.5, step: 0.02 },
-  { key: "labelBackgroundOpacity", label: "标签底色", min: 0, max: 1, step: 0.05 },
-  { key: "directionHeadScale", label: "箭头大小", min: 0.5, max: 2.5, step: 0.05 },
-  { key: "opacity", label: "整体透明度", min: 0.2, max: 1, step: 0.05 },
-  { key: "activeStrokeWidth", label: "高亮线宽", min: 2, max: 16, step: 0.5 }
+  { key: "boxStrokeWidth", label: "框线宽", min: 1, max: 10, step: 1, precision: 0 },
+  { key: "lineStrokeWidth", label: "骨架线宽", min: 1, max: 12, step: 1, precision: 0 },
+  { key: "pointRadius", label: "点半径", min: 1, max: 12, step: 1, precision: 0 },
+  { key: "labelFontSize", label: "标签字号", min: 6, max: 14, step: 1 },
+  { key: "labelStrokeWidth", label: "标签描边", min: 0, max: 2, step: 0.05, precision: 2 },
+  { key: "boxFillOpacity", label: "框填充", min: 0, max: 0.5, step: 0.02, precision: 2 },
+  { key: "labelBackgroundOpacity", label: "标签底色", min: 0, max: 1, step: 0.05, precision: 2 },
+  { key: "directionHeadScale", label: "箭头大小", min: 0.5, max: 2.5, step: 0.05, precision: 2 },
+  { key: "opacity", label: "整体透明度", min: 0.2, max: 1, step: 0.05, precision: 2 },
+  { key: "activeStrokeWidth", label: "高亮线宽", min: 2, max: 16, step: 1, precision: 0 }
 ] as const satisfies readonly NumberSettingControl<OverlayStyleNumberKey>[];
 
 export const PRED_LINE_STYLE_OPTIONS = [
@@ -99,11 +100,12 @@ export const INTERACTION_SETTING_CONTROLS = [
     min: 0.00005,
     max: 0.003,
     step: 0.00001,
-    scale: 100000
+    scale: 100000,
+    precision: 0
   },
-  { key: "panSensitivity", label: "拖拽平移灵敏度", min: 0.2, max: 3, step: 0.05 },
-  { key: "minZoom", label: "最小缩放", min: 0.1, max: 1, step: 0.05 },
-  { key: "maxZoom", label: "最大缩放", min: 1, max: 20, step: 0.25 }
+  { key: "panSensitivity", label: "拖拽平移灵敏度", min: 0.2, max: 3, step: 0.05, precision: 2 },
+  { key: "minZoom", label: "最小缩放", min: 0.1, max: 1, step: 0.05, precision: 2 },
+  { key: "maxZoom", label: "最大缩放", min: 1, max: 20, step: 0.25, precision: 2 }
 ] as const satisfies readonly NumberSettingControl<InteractionSettingKey>[];
 
 export const SHORTCUT_ACTIONS = [

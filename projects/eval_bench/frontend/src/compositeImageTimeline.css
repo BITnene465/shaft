@@ -1,26 +1,25 @@
 .image-navigator-timeline {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(160px, 1.1fr) minmax(240px, auto);
-  gap: var(--composite-gap-8);
+  grid-area: timeline;
+  display: flex;
   align-items: center;
+  justify-content: flex-start;
   min-width: 0;
 }
 
 @media (max-width: 1280px) {
   .image-navigator-timeline {
-    grid-template-columns: 1fr;
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 760px) {
   .image-navigator-timeline {
-    grid-template-columns: 1fr;
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 940px) and (max-height: 680px) {
   .image-navigator-timeline {
-    grid-template-columns: 1fr;
-    gap: var(--composite-gap-6);
+    justify-content: flex-start;
   }
 }

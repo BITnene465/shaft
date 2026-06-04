@@ -87,15 +87,16 @@
 @media (max-width: 940px) and (max-height: 680px) {
   .composite-report-page {
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: hidden;
     scroll-padding-top: var(--composite-shell-short-scroll-padding);
   }
 
   .composite-report-shell,
   .composite-report-shell.sidebar-collapsed,
   .composite-report-shell.sidebar-open {
-    min-height: var(--composite-shell-mobile-min-height);
-    flex: 0 0 auto;
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
     grid-template-rows: minmax(0, 1fr);
   }
 

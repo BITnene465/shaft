@@ -53,9 +53,8 @@ export function CompositeLayerCanvas({
       className={["composite-workbench-canvas", className].filter(Boolean).join(" ")}
       data-object-wheel-cruise={onObjectWheel ? "modified" : undefined}
       data-overlay-surface-pan="modified"
-      data-pointer-reticle={pointer.pointerActive ? "active" : undefined}
       onWheelCapture={onObjectWheel}
-      style={{ ...canvas.overlayVars, ...pointer.pointerVars }}
+      style={canvas.overlayVars}
       {...pointer.pointerHandlers}
     >
       <CanvasStage
@@ -94,7 +93,7 @@ export function CompositeLayerCanvas({
         surfacePan
         contextMenu={Boolean(onObjectContextMenu)}
       />
-      <CompositeCanvasPointerReticle pointer={pointer.pointer} />
+      <CompositeCanvasPointerReticle coordinateRef={pointer.coordinateRef} />
     </div>
   );
 }

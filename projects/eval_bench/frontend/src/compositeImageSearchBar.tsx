@@ -1,4 +1,6 @@
 import { LocateFixed, Search, X } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 
 import type { ImageJumpItem, ImageMapBin } from "./compositeImageNavigationModel";
 import { CompositeImageSearchPopover } from "./compositeImageSearchPopover";
@@ -50,8 +52,10 @@ export function CompositeImageSearchBar({
   onJump: (index: number) => void;
   onLocateActive: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const placement = useImageSearchPlacement(rootRef, searchOpen);
   return (
-    <div className="image-navigator-search-row">
+    <div ref={rootRef} className="image-navigator-search-row">
       <SearchInputControl
         className="image-navigator-search"
         icon={<Search size={14} />}
@@ -101,6 +105,7 @@ export function CompositeImageSearchBar({
       </span>
       {searchOpen ? (
         <CompositeImageSearchPopover
+          placement={placement}
           imageIndex={imageIndex}
           imageKey={imageKey}
           filteredCount={filteredCount}
@@ -119,4 +124,38 @@ export function CompositeImageSearchBar({
       ) : null}
     </div>
   );
+}
+
+function useImageSearchPlacement(
+  rootRef: RefObject<HTMLDivElement | null>,
+  open: boolean
+) {
+  const [placement, setPlacement] = useState<"top" | "bottom">("bottom");
+  useLayoutEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    function updatePlacement() {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const viewportHeight = window.innerHeight;
+      const availableBelow = viewportHeight - rect.bottom;
+      const availableAbove = rect.top;
+      setPlacement(availableBelow < 260 && availableAbove > availableBelow ? "top" : "bottom");
+    }
+    updatePlacement();
+    window.addEventListener("resize", updatePlacement);
+    window.addEventListener("scroll", updatePlacement, true);
+    window.visualViewport?.addEventListener("resize", updatePlacement);
+    window.visualViewport?.addEventListener("scroll", updatePlacement);
+    return () => {
+      window.removeEventListener("resize", updatePlacement);
+      window.removeEventListener("scroll", updatePlacement, true);
+      window.visualViewport?.removeEventListener("resize", updatePlacement);
+      window.visualViewport?.removeEventListener("scroll", updatePlacement);
+    };
+  }, [open, rootRef]);
+  return placement;
 }

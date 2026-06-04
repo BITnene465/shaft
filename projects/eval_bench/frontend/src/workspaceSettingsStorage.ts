@@ -51,11 +51,11 @@ export function explicitLabelColor(
 }
 
 export function settingControlValue(value: number, control: NumberSettingControl<string>) {
-  return value * (control.scale ?? 1);
+  return roundNumber(value * (control.scale ?? 1), control.precision ?? precisionFromStep(control.step * (control.scale ?? 1)));
 }
 
 export function settingValueFromControl(value: number, control: NumberSettingControl<string>) {
-  return value / (control.scale ?? 1);
+  return roundToStep(value / (control.scale ?? 1), control.step);
 }
 
 export function loadSplitSize(storageKey: string, fallback: number, min: number, max: number) {
@@ -203,7 +203,15 @@ export function migrateLegacyOverlayLabelStyle(
     raw.labelFontSize === 11 &&
     raw.labelStrokeWidth === 0.9 &&
     raw.labelBackgroundOpacity === 0.64;
-  if (!usedLegacyLabelDefaults && !usedPreviousCompactLabelDefaults) {
+  const usedPreviousLightLabelDefaults =
+    raw.labelFontSize === 10 &&
+    raw.labelStrokeWidth === 0.45 &&
+    raw.labelBackgroundOpacity === 0.82;
+  if (
+    !usedLegacyLabelDefaults &&
+    !usedPreviousCompactLabelDefaults &&
+    !usedPreviousLightLabelDefaults
+  ) {
     return normalized;
   }
   return {
@@ -230,17 +238,32 @@ export function normalizeInteractionSettings(value: Partial<InteractionSettings>
 
 function overlayStyleNumber(value: unknown, key: OverlayStyleNumberKey) {
   const control = OVERLAY_STYLE_CONTROL_MAP[key];
-  return workspaceNumber(value, control.min, control.max, DEFAULT_OVERLAY_STYLE[key]);
+  return workspaceNumber(value, control.min, control.max, DEFAULT_OVERLAY_STYLE[key], control.step);
 }
 
 function interactionNumber(value: unknown, key: InteractionSettingKey) {
   const control = INTERACTION_SETTING_CONTROL_MAP[key];
-  return workspaceNumber(value, control.min, control.max, DEFAULT_INTERACTION_SETTINGS[key]);
+  return workspaceNumber(value, control.min, control.max, DEFAULT_INTERACTION_SETTINGS[key], control.step);
 }
 
-function workspaceNumber(value: unknown, min: number, max: number, fallback: number) {
+function workspaceNumber(value: unknown, min: number, max: number, fallback: number, step: number) {
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? clampNumber(numeric, min, max) : fallback;
+  return Number.isFinite(numeric) ? roundToStep(clampNumber(numeric, min, max), step) : fallback;
+}
+
+function roundToStep(value: number, step: number) {
+  const rounded = Math.round(value / step) * step;
+  return roundNumber(rounded, precisionFromStep(step));
+}
+
+function roundNumber(value: number, precision: number) {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
+
+function precisionFromStep(step: number) {
+  const [, fraction = ""] = String(step).split(".");
+  return Math.min(6, fraction.length);
 }
 
 function isHexColor(value: string) {

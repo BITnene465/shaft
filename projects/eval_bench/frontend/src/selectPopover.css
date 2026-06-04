@@ -99,6 +99,10 @@
   box-shadow: 0 14px 30px rgb(15 23 42 / 16%);
 }
 
+.select-popover-menu[data-placement="top"] {
+  box-shadow: 0 -14px 30px rgb(15 23 42 / 16%);
+}
+
 .select-popover-search {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

@@ -1,6 +1,5 @@
 export const IMAGE_RESULT_LIMIT = 18;
 export const IMAGE_MAP_BIN_COUNT = 48;
-export const NEIGHBOR_RADIUS = 3;
 
 export type ImageJumpItem = {
   image: string;
@@ -52,15 +51,6 @@ export function filterImageKeys(imageKeys: string[], query: string): ImageJumpIt
         String(item.index + 1).includes(normalized)
       );
     });
-}
-
-export function nearbyImageKeys(imageKeys: string[], activeIndex: number): ImageJumpItem[] {
-  const start = Math.max(0, activeIndex - NEIGHBOR_RADIUS);
-  const end = Math.min(imageKeys.length, activeIndex + NEIGHBOR_RADIUS + 1);
-  return imageKeys.slice(start, end).map((image, offset) => ({
-    image,
-    index: start + offset
-  }));
 }
 
 export function imageResultWindow(

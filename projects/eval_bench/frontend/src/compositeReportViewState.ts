@@ -1,14 +1,13 @@
 import type { RunSummary } from "./api";
 import { LAYER_FILTERS } from "./compositeReportComposerModel";
 import type { LayerFilter } from "./compositeReportComposerModel";
-import { STAGE_MODES, defaultLayerSlots } from "./compositeReportModel";
-import type { LayerSlot, StageMode } from "./compositeReportModel";
+import { defaultLayerSlots } from "./compositeReportModel";
+import type { LayerSlot } from "./compositeReportModel";
 
 const COMPOSITE_REPORT_VIEW_STATE_KEY = "eval_bench_composite_report_view";
 const DEFAULT_COMPOSITE_REPORT_VIEW_STATE: CompositeReportViewState = {
   slots: [],
   sampleIndex: 0,
-  stageMode: "both",
   focusedLayerKey: null,
   query: "",
   layerFilter: "all",
@@ -18,7 +17,6 @@ const DEFAULT_COMPOSITE_REPORT_VIEW_STATE: CompositeReportViewState = {
 export type CompositeReportViewState = {
   slots: LayerSlot[];
   sampleIndex: number;
-  stageMode: StageMode;
   focusedLayerKey: string | null;
   query: string;
   layerFilter: LayerFilter;
@@ -50,7 +48,6 @@ export function normalizeCompositeReportViewState(
   return {
     slots: normalizeLayerSlots(value.slots),
     sampleIndex: normalizeSampleIndex(value.sampleIndex),
-    stageMode: normalizeStageMode(value.stageMode),
     focusedLayerKey: normalizeNullableString(value.focusedLayerKey),
     query: normalizeText(value.query, 180),
     layerFilter: normalizeLayerFilter(value.layerFilter),
@@ -106,10 +103,6 @@ function normalizeLayerSlot(value: unknown, index: number): LayerSlot | null {
 function normalizeSampleIndex(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
-}
-
-function normalizeStageMode(value: unknown): StageMode {
-  return STAGE_MODES.some((mode) => mode.value === value) ? (value as StageMode) : "both";
 }
 
 function normalizeLayerFilter(value: unknown): LayerFilter {

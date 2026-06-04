@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import type { WheelEvent } from "react";
 
 import type { CompositeLayerStatus, CompositeSampleLayer } from "./api";
@@ -26,7 +27,9 @@ export function OverlayStage({
   onObjectLock,
   onObjectInspect,
   onObjectWheel,
-  onObjectContextMenu
+  onObjectContextMenu,
+  statusBar,
+  navigator
 }: {
   layers: CompositeSampleLayer[];
   statuses: CompositeLayerStatus[];
@@ -39,6 +42,8 @@ export function OverlayStage({
   onObjectInspect: (objectKey: string | null) => void;
   onObjectWheel: (event: WheelEvent<HTMLElement>) => void;
   onObjectContextMenu: (request: { objectKey: string; clientX: number; clientY: number }) => void;
+  statusBar?: ReactNode;
+  navigator?: ReactNode;
 }) {
   const baseLayer = layers[0];
   const sample = baseLayer?.sample;
@@ -64,6 +69,7 @@ export function OverlayStage({
   }
   return (
     <div className="composite-overlay-stage">
+      {statusBar}
       {sample ? (
         <CompositeLayerCanvas
           sample={sample}
@@ -90,6 +96,7 @@ export function OverlayStage({
           }}
         />
       ) : null}
+      {navigator}
       <LayerLegend layers={layers} statuses={statuses} />
     </div>
   );

@@ -39,9 +39,9 @@ await expectPreviewColor(page, "rgb(35, 196, 131)", "default GT role color is no
 
 await page.getByRole("button", { name: /标签颜色/ }).click();
 await page.locator(".label-color-add-row input:not([type='color'])").fill(firstLabel.toUpperCase());
-await page.locator(".label-color-add-row select").selectOption("pred");
+await selectLabelColorRole(page, "pred");
 await page.locator(".label-color-add-row input[type='color']").fill("#0000ff");
-await page.locator(".label-color-add-row button").click();
+await page.getByRole("button", { name: "添加" }).click();
 await expectPreviewColor(
   page,
   "rgb(35, 196, 131)",
@@ -49,9 +49,9 @@ await expectPreviewColor(
 );
 
 await page.locator(".label-color-add-row input:not([type='color'])").fill(firstLabel.toUpperCase());
-await page.locator(".label-color-add-row select").selectOption("gt");
+await selectLabelColorRole(page, "gt");
 await page.locator(".label-color-add-row input[type='color']").fill("#00ff00");
-await page.locator(".label-color-add-row button").click();
+await page.getByRole("button", { name: "添加" }).click();
 await expectPreviewColor(
   page,
   "rgb(0, 255, 0)",
@@ -88,7 +88,7 @@ async function expectPreviewColor(page, expected, message) {
     await page.waitForFunction(
       ({ expectedColor }) => {
         const node =
-          document.querySelector(".settings-preview-stage .overlay-instance rect") ??
+          document.querySelector(".settings-preview-stage .overlay-instance .overlay-box") ??
           document.querySelector(".settings-preview-stage .overlay-instance polyline") ??
           document.querySelector(".settings-preview-stage .overlay-instance circle");
         if (!node) {
@@ -105,10 +105,17 @@ async function expectPreviewColor(page, expected, message) {
   }
 }
 
+async function selectLabelColorRole(page, value) {
+  await page.locator(".label-color-add-row .select-popover-trigger").click();
+  await page
+    .locator(`[data-select-popover-menu="true"] [data-select-value="${value}"]`)
+    .click();
+}
+
 async function previewStrokeSnapshot(page) {
   return page.evaluate(() => {
     const node =
-      document.querySelector(".settings-preview-stage .overlay-instance rect") ??
+      document.querySelector(".settings-preview-stage .overlay-instance .overlay-box") ??
       document.querySelector(".settings-preview-stage .overlay-instance polyline") ??
       document.querySelector(".settings-preview-stage .overlay-instance circle");
     if (!node) {
@@ -123,7 +130,7 @@ async function expectPreviewStrokeWidth(page, expected, message) {
   try {
     await page.waitForFunction(
       ({ expectedWidth }) => {
-        const node = document.querySelector(".settings-preview-stage .overlay-instance rect");
+        const node = document.querySelector(".settings-preview-stage .overlay-instance .overlay-box");
         if (!node) {
           return false;
         }
@@ -139,7 +146,7 @@ async function expectPreviewStrokeWidth(page, expected, message) {
 
 async function previewStrokeWidthSnapshot(page) {
   return page.evaluate(() => {
-    const node = document.querySelector(".settings-preview-stage .overlay-instance rect");
+    const node = document.querySelector(".settings-preview-stage .overlay-instance .overlay-box");
     return node ? getComputedStyle(node).strokeWidth : "<missing>";
   });
 }

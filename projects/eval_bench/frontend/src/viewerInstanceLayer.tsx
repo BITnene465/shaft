@@ -13,7 +13,6 @@ import { recordViewerRenderMetric } from "./viewerRenderMetrics";
 import { DEFAULT_OVERLAY_STYLE } from "./workspaceSettings";
 import type { LabelColors, OverlayColors, OverlayStyle } from "./workspaceSettings";
 
-const LABEL_MAX_CHARS = 24;
 const LABEL_MIN_WIDTH = 18;
 const LABEL_RADIUS = 3;
 const LABEL_OFFSET_X = 2;
@@ -21,6 +20,11 @@ const LABEL_OFFSET_Y = 4;
 const LABEL_PAD_X = 4;
 const LABEL_PAD_Y = 2;
 const LABEL_CHAR_WIDTH_RATIO = 0.52;
+const LABEL_MIN_FONT_SIZE = 6;
+const LABEL_MAX_BOX_RATIO = 0.86;
+const LABEL_MAX_WIDTH_FACTOR = 14;
+const LABEL_MIN_WIDTH_FACTOR = 4.5;
+type OverlayObjectStatus = "match" | "neutral" | "fn" | "fp";
 
 export type CanvasObjectContextMenuRequest = {
   objectId: string;
@@ -30,10 +34,7 @@ export type CanvasObjectContextMenuRequest = {
 
 export function compactOverlayLabel(label: string) {
   const normalized = label.trim();
-  if (normalized.length <= LABEL_MAX_CHARS) {
-    return normalized;
-  }
-  return `${normalized.slice(0, LABEL_MAX_CHARS - 1)}…`;
+  return normalized;
 }
 
 export function overlayLabelBounds({
@@ -45,21 +46,75 @@ export function overlayLabelBounds({
   label: string;
   fontSize: number;
 }) {
+  const fitted = fitOverlayLabel({
+    anchorBox,
+    fontSize,
+    label
+  });
   const width = Math.max(
     LABEL_MIN_WIDTH,
-    label.length * fontSize * LABEL_CHAR_WIDTH_RATIO + LABEL_PAD_X * 2
+    fitted.label.length * fitted.fontSize * LABEL_CHAR_WIDTH_RATIO + LABEL_PAD_X * 2
   );
-  const height = fontSize + LABEL_PAD_Y * 2;
+  const height = fitted.fontSize + LABEL_PAD_Y * 2;
   const textX = anchorBox[0] + LABEL_OFFSET_X + LABEL_PAD_X;
-  const textY = Math.max(fontSize + LABEL_PAD_Y + LABEL_OFFSET_Y, anchorBox[1] - LABEL_OFFSET_Y);
+  const textY = Math.max(
+    fitted.fontSize + LABEL_PAD_Y + LABEL_OFFSET_Y,
+    anchorBox[1] - LABEL_OFFSET_Y
+  );
   return {
+    fontSize: fitted.fontSize,
     height,
+    label: fitted.label,
     radius: LABEL_RADIUS,
     textX,
     textY,
     width,
     x: textX - LABEL_PAD_X,
     y: textY - fontSize - LABEL_PAD_Y
+  };
+}
+
+function fitOverlayLabel({
+  anchorBox,
+  fontSize,
+  label
+}: {
+  anchorBox: [number, number, number, number];
+  fontSize: number;
+  label: string;
+}) {
+  const normalized = compactOverlayLabel(label);
+  const boxWidth = Math.max(1, anchorBox[2] - anchorBox[0]);
+  const maxWidth = Math.max(
+    fontSize * LABEL_MIN_WIDTH_FACTOR,
+    Math.min(boxWidth * LABEL_MAX_BOX_RATIO, fontSize * LABEL_MAX_WIDTH_FACTOR)
+  );
+  const fullWidth = normalized.length * fontSize * LABEL_CHAR_WIDTH_RATIO + LABEL_PAD_X * 2;
+  const fittedFontSize =
+    fullWidth <= maxWidth
+      ? fontSize
+      : Math.max(
+          LABEL_MIN_FONT_SIZE,
+          Math.min(fontSize, (maxWidth - LABEL_PAD_X * 2) / Math.max(1, normalized.length * LABEL_CHAR_WIDTH_RATIO))
+        );
+  const characterBudget = Math.floor(
+    (maxWidth - LABEL_PAD_X * 2) / Math.max(1, fittedFontSize * LABEL_CHAR_WIDTH_RATIO)
+  );
+  if (normalized.length <= characterBudget) {
+    return {
+      fontSize: fittedFontSize,
+      label: normalized
+    };
+  }
+  if (characterBudget <= 1) {
+    return {
+      fontSize: fittedFontSize,
+      label: normalized.slice(0, 1)
+    };
+  }
+  return {
+    fontSize: fittedFontSize,
+    label: `${normalized.slice(0, characterBudget - 1)}…`
   };
 }
 
@@ -72,7 +127,6 @@ function InstanceLayer({
   showLines = true,
   showKeypoints = true,
   activeObjectId = null,
-  relatedObjectIds,
   overlayColors,
   overlayStyle = DEFAULT_OVERLAY_STYLE,
   labelColors,
@@ -105,24 +159,51 @@ function InstanceLayer({
   const errorItems =
     kind === "gt" ? diagnostics?.false_negatives ?? [] : diagnostics?.false_positives ?? [];
   const errors = new Set(errorItems.map((item) => item.index));
+  const renderItems = instances
+    .map((instance, index) => {
+      if (visibleLabels && !visibleLabels.has(instance.label)) {
+        return null;
+      }
+      const bbox = normalizeBbox((instance as { bbox?: unknown }).bbox);
+      const linePoints = normalizePointList(
+        (instance as { linestrip?: unknown; line_strip?: unknown; points?: unknown }).linestrip ??
+          (instance as { line_strip?: unknown }).line_strip
+      );
+      const keypoints = normalizePointList((instance as { keypoints?: unknown }).keypoints);
+      const anchorBox = bbox ?? boundsFromPoints(linePoints ?? keypoints);
+      if (
+        !anchorBox ||
+        (!bbox && (!linePoints || linePoints.length === 0) && (!keypoints || keypoints.length === 0))
+      ) {
+        return null;
+      }
+      const area =
+        Math.max(1, anchorBox[2] - anchorBox[0]) * Math.max(1, anchorBox[3] - anchorBox[1]);
+      return {
+        anchorBox,
+        area,
+        bbox,
+        index,
+        instance,
+        keypoints,
+        linePoints,
+        objectId: `${kind}:${index}`
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((left, right) => right.area - left.area || left.index - right.index);
   return (
     <>
-      {instances.map((instance, index) => {
-        if (visibleLabels && !visibleLabels.has(instance.label)) {
-          return null;
-        }
-        const objectId = `${kind}:${index}`;
-        const bbox = normalizeBbox((instance as { bbox?: unknown }).bbox);
-        const linePoints = normalizePointList(
-          (instance as { linestrip?: unknown; line_strip?: unknown; points?: unknown }).linestrip ??
-            (instance as { line_strip?: unknown }).line_strip
-        );
-        const keypoints = normalizePointList((instance as { keypoints?: unknown }).keypoints);
-        const anchorBox = bbox ?? boundsFromPoints(linePoints ?? keypoints);
-        if (!bbox && (!linePoints || linePoints.length === 0) && (!keypoints || keypoints.length === 0)) {
-          return null;
-        }
-        const status = errors.has(index)
+      {renderItems.map(({
+        anchorBox,
+        bbox,
+        index,
+        instance,
+        keypoints,
+        linePoints,
+        objectId
+      }) => {
+        const status: OverlayObjectStatus = errors.has(index)
           ? kind === "gt"
             ? "fn"
             : "fp"
@@ -139,22 +220,19 @@ function InstanceLayer({
               )
             : null;
         const lineRadius = Math.max(overlayStyle.pointRadius, overlayStyle.lineStrokeWidth * 0.75);
-        const label = compactOverlayLabel(instance.label);
         const labelBounds = anchorBox
           ? overlayLabelBounds({
               anchorBox,
-              label,
+              label: instance.label,
               fontSize: overlayStyle.labelFontSize
             })
           : null;
         const active = objectId === activeObjectId;
-        const related = !active && Boolean(relatedObjectIds?.has(objectId));
         const className = [
           "overlay-instance",
           kind,
           status,
-          active ? "active" : "",
-          related ? "related" : ""
+          active ? "active" : ""
         ]
           .filter(Boolean)
           .join(" ");
@@ -163,8 +241,6 @@ function InstanceLayer({
             key={objectId}
             className={className}
             style={{ "--instance-color": color } as React.CSSProperties}
-            onPointerEnter={() => onHover?.(objectId)}
-            onPointerLeave={() => onHover?.(null)}
             onClick={(event) => {
               event.stopPropagation();
               onLock?.(objectId);
@@ -199,10 +275,20 @@ function InstanceLayer({
               />
             ) : null}
             {showBoxes && bbox ? (
-              <rect x={bbox[0]} y={bbox[1]} width={bbox[2] - bbox[0]} height={bbox[3] - bbox[1]} />
+              <rect
+                className="overlay-box"
+                x={bbox[0]}
+                y={bbox[1]}
+                width={bbox[2] - bbox[0]}
+                height={bbox[3] - bbox[1]}
+              />
             ) : null}
             {showBoxes && labelBounds ? (
-              <g className="overlay-label">
+              <g
+                className="overlay-label"
+                onPointerEnter={() => onHover?.(objectId)}
+                onPointerLeave={() => onHover?.(null)}
+              >
                 <title>{instance.label}</title>
                 <rect
                   className="label-backplate"
@@ -212,8 +298,12 @@ function InstanceLayer({
                   height={labelBounds.height}
                   rx={labelBounds.radius}
                 />
-                <text x={labelBounds.textX} y={labelBounds.textY}>
-                  {label}
+                <text
+                  x={labelBounds.textX}
+                  y={labelBounds.textY}
+                  fontSize={labelBounds.fontSize}
+                >
+                  {labelBounds.label}
                 </text>
               </g>
             ) : null}

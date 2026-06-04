@@ -1,4 +1,5 @@
 import { Trash2, X } from "lucide-react";
+import type { CSSProperties } from "react";
 
 import type { JobSummary } from "./api";
 import {
@@ -176,10 +177,14 @@ function JobProgressInline({ job }: { job: JobSummary }) {
     return null;
   }
   const progress = jobProgress(job);
+  const percent = progress.percent ?? (job.status === "succeeded" ? 100 : 0);
   return (
-    <div className="job-progress-inline">
-      <div className="job-progress-mini">
-        <span style={{ width: `${progress.percent ?? (job.status === "succeeded" ? 100 : 0)}%` }} />
+    <div
+      className="job-progress-inline"
+      style={{ "--job-progress": (percent / 100).toFixed(4) } as CSSProperties}
+    >
+      <div className="job-progress-mini" aria-hidden="true">
+        <span />
       </div>
       <small>{progress.text}</small>
     </div>

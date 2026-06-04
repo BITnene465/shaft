@@ -40,6 +40,15 @@ export function useCompositeObjectInteraction({
     [activeObjectKey, layers]
   );
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const previewObject = useCallback(
+    (objectKey: string | null) => {
+      if (lockedObjectKey) {
+        return;
+      }
+      setHoveredObjectKey((current) => (current === objectKey ? current : objectKey));
+    },
+    [lockedObjectKey]
+  );
 
   useEffect(() => {
     setHoveredObjectKey(null);
@@ -123,7 +132,7 @@ export function useCompositeObjectInteraction({
     objectCount: objectRefs.length,
     onObjectWheel: handleObjectWheel,
     relatedObjectKeys,
-    setHoveredObjectKey,
+    setHoveredObjectKey: previewObject,
     toggleObjectLock
   };
 }

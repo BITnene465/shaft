@@ -15,7 +15,6 @@ export function CompositeInspector({
   statuses,
   layerConfigs,
   focusedLayerKey,
-  onFocusedLayerChange,
   activeObjectKey,
   relatedObjectKeys,
   lockedObjectKey,
@@ -28,7 +27,6 @@ export function CompositeInspector({
   statuses: CompositeLayerStatus[];
   layerConfigs: ActiveLayerConfig[];
   focusedLayerKey: string | null;
-  onFocusedLayerChange: (layer: string | null) => void;
   activeObjectKey: string | null;
   relatedObjectKeys: Set<string>;
   lockedObjectKey: string | null;
@@ -68,34 +66,17 @@ export function CompositeInspector({
                 .filter(Boolean)
                 .join(" ")}
               key={status.layer}
-              onClick={() =>
-                status.available &&
-                onFocusedLayerChange(focusedLayerKey === status.layer ? null : status.layer)
-              }
+              title={`${status.layer}: ${status.run_id}`}
             >
               <i style={{ background: layerAvailabilityColor(index, status.available) }} />
               <div>
                 <strong>{status.layer}</strong>
                 <span title={status.run_id}>{status.run_id}</span>
+                <small>
+                  {config?.showGt === false ? "GT hidden" : "GT"} /{" "}
+                  {config?.showPred === false ? "Pred hidden" : "Pred"}
+                </small>
               </div>
-              <div className="layer-report-flags">
-                <em className={config?.showGt === false ? "off" : ""}>GT</em>
-                <em className={config?.showPred === false ? "off" : ""}>Pred</em>
-              </div>
-              <dl>
-                <div>
-                  <dt>M</dt>
-                  <dd>{status.diagnostic_summary.matched_count}</dd>
-                </div>
-                <div>
-                  <dt>FP</dt>
-                  <dd>{status.diagnostic_summary.false_positive_count}</dd>
-                </div>
-                <div>
-                  <dt>FN</dt>
-                  <dd>{status.diagnostic_summary.false_negative_count}</dd>
-                </div>
-              </dl>
               <LayerObjectStrip
                 objects={objectsByLayer.get(status.layer) ?? []}
                 activeObjectKey={activeObjectKey}

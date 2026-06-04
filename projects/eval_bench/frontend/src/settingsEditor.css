@@ -135,6 +135,7 @@
 
 .settings-editor-pane .number-setting-control input[type="number"] {
   height: 28px;
+  max-width: 100%;
 }
 
 .settings-editor-pane .compact-select {

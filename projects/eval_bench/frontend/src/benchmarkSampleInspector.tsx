@@ -23,6 +23,9 @@ import { EmptyState, SectionHeader, SelectableRowButton } from "./ui";
 import { CanvasStage } from "./viewerCanvas";
 import { displayImageUrl, preloadSampleImages } from "./viewerGeometry";
 import { InstanceStats } from "./viewerPanels";
+import { VisualStatusBar } from "./visualStatusBar";
+import type { VisualStatusItem } from "./visualStatusBar";
+import { ViewerPointerSurface } from "./viewerPointerSurface";
 import { ResizableSplit } from "./workspaceLayout";
 import { useWorkspaceSettings, useWorkspaceShortcuts } from "./workspaceSettings";
 
@@ -319,47 +322,49 @@ function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
   );
   const { overlayColors, overlayStyle, labelColors, interactionSettings, overlayVars } =
     useWorkspaceSettings(labels);
+  const statusItems: VisualStatusItem[] = [
+    { label: "Sample", value: `#${detail.sample.index + 1}` },
+    { label: "GT", value: detail.sample.instance_count.toLocaleString(), tone: "good" },
+    { label: "Labels", value: String(detail.sample.labels.length) },
+    { label: "Image", value: `${width}x${height}`, title: detail.sample.image }
+  ];
 
   return (
     <div className="viewer-stack" style={overlayVars}>
-      <div className="viewer-toolbar">
-        <div>
-          <h2>{basename(detail.sample.image)}</h2>
-          <p>{detail.sample.image}</p>
-        </div>
-        <div className="legend-row">
-          <span className="legend-item gt">真值</span>
-        </div>
+      <div className="viewer-stage-shell benchmark-stage">
+        <VisualStatusBar
+          className="viewer-visual-status"
+          title={basename(detail.sample.image)}
+          subtitle={detail.sample.labels.join(", ") || detail.sample.image}
+          items={statusItems}
+        />
+        <ViewerPointerSurface>
+          <CanvasStage
+            width={width}
+            height={height}
+            imageUrl={displayImageUrl(detail.sample)}
+            imageAlt={detail.sample.image}
+            imageTileUrlTemplate={detail.sample.image_tile_url_template}
+            imageTileSize={detail.sample.image_tile_size}
+            gtInstances={detail.gt_instances}
+            predInstances={[]}
+            diagnostics={null}
+            visibleLabels={new Set(labels)}
+            showGt={true}
+            showPred={false}
+            showBoxes={true}
+            showLines={true}
+            showKeypoints={true}
+            overlayColors={overlayColors}
+            overlayStyle={overlayStyle}
+            labelColors={labelColors}
+            interactionSettings={interactionSettings}
+          />
+        </ViewerPointerSurface>
       </div>
-      <div className="diagnostic-strip">
-        <span>实例 {detail.sample.instance_count.toLocaleString()}</span>
-        <span>标签 {detail.sample.labels.join(", ") || "-"}</span>
-      </div>
-      <CanvasStage
-        width={width}
-        height={height}
-        imageUrl={displayImageUrl(detail.sample)}
-        imageAlt={detail.sample.image}
-        imageTileUrlTemplate={detail.sample.image_tile_url_template}
-        imageTileSize={detail.sample.image_tile_size}
-        gtInstances={detail.gt_instances}
-        predInstances={[]}
-        diagnostics={null}
-        visibleLabels={new Set(labels)}
-        showGt={true}
-        showPred={false}
-        showBoxes={true}
-        showLines={true}
-        showKeypoints={true}
-        overlayColors={overlayColors}
-        overlayStyle={overlayStyle}
-        labelColors={labelColors}
-        interactionSettings={interactionSettings}
-      />
       <div className="instance-summary">
         <InstanceStats title="真值实例" instances={detail.gt_instances} />
       </div>
     </div>
   );
 }
-

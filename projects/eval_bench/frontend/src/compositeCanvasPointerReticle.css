@@ -1,5 +1,13 @@
 .composite-canvas-pointer-reticle {
   z-index: var(--composite-pointer-reticle-z);
+  opacity: 0;
+  transition: opacity 60ms linear;
+  will-change: opacity;
+}
+
+.composite-workbench-canvas[data-pointer-reticle="active"] .composite-canvas-pointer-reticle,
+.viewer-pointer-surface[data-pointer-reticle="active"] .composite-canvas-pointer-reticle {
+  opacity: 1;
 }
 
 .composite-canvas-pointer-reticle .axis-x,
@@ -7,6 +15,7 @@
   position: absolute;
   background: var(--composite-pointer-axis-color);
   opacity: var(--composite-pointer-axis-opacity);
+  will-change: transform;
 }
 
 .composite-canvas-pointer-reticle .axis-x {
