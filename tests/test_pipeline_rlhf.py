@@ -16,6 +16,18 @@ from shaft.pipeline.training_args import build_hf_training_args
 from shaft.template import build_template
 
 
+def _fsdp_enabled(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return bool(value)
+
+
+def _fsdp_option_values(value) -> list[str]:
+    if isinstance(value, bool):
+        return []
+    return [getattr(option, "value", str(option)) for option in value]
+
+
 class _FakeTokenizer:
     eos_token_id = 2
     pad_token_id = 0
@@ -315,7 +327,10 @@ def test_grpo_trl_config_preserves_fsdp_args(tmp_path: Path) -> None:
     train_args = build_hf_training_args(cfg)
     grpo_args = build_trl_grpo_config(train_args=train_args, rlhf_config=cfg.rlhf.grpo)
 
-    assert grpo_args.fsdp == ["full_shard"]
+    assert _fsdp_enabled(grpo_args.fsdp) is True
+    option_values = _fsdp_option_values(grpo_args.fsdp)
+    if option_values:
+        assert option_values == ["full_shard"]
     assert grpo_args.fsdp_config["activation_checkpointing"] is True
 
 

@@ -77,6 +77,44 @@
 
 约束：
 
+- `model_type=qwen3vl` 适用于当前 Qwen3-VL 系列，例如 `Qwen3-VL-4B-Instruct`、
+  `Qwen3-VL-32B-Instruct` 和 `Qwen3-VL-30B-A3B-Instruct`。
+- `model_type=qwen35vl` / `qwen36vl` 适用于 Qwen3.5 / Qwen3.6 新一代 VLM。两者共享
+  同一套 loader、processor policy 和模板默认值；`qwen36vl` 是为了让训练配置保留 3.6 口径。
+- Qwen3.5 / Qwen3.6 需要安装支持 `qwen3_5` / `qwen3_5_moe` 架构的 Transformers。当前
+  `qwen35vl` meta 会在运行前检查 `transformers>=5.10.1` 以及
+  `transformers.models.qwen3_5` 模块是否存在；MoE 模型还会检查
+  `transformers.models.qwen3_5_moe`。如果当前 PyPI release 尚未包含该模型，应安装
+  Transformers 主分支或项目确认过的内部 wheel。
+- 仓库基础依赖允许 Transformers 4.x/5.x；不安装 `serve` 时，当前 lock 会解析到
+  `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 的 HF 本地训练与推理。
+  `qwen-next` extra 用于显式固定新一代 Qwen 训练口径。当前 `serve` extra 里的
+  `vllm==0.19.0` 仍要求 `transformers<5`，因此 `qwen-next` 与 `serve` 在
+  `tool.uv.conflicts` 中显式互斥。vLLM 评测服务应使用已经支持 `qwen3_5` 架构的独立服务镜像
+  或外部服务。对本地 HF 训练环境，推荐执行：
+
+  ```bash
+  uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
+  ```
+
+  该环境中不要同时安装 `.[serve]`；如果需要启动 vLLM 0.19 服务，应切回不带 `qwen-next`
+  的 serve 环境或使用外部 vLLM endpoint。
+- `qwen35vl` / `qwen36vl` 默认使用 `template=qwen35vl`，该模板会在 generation prompt 中关闭
+  thinking，避免结构化 JSON 任务无意训练或生成 `<think>` 内容。确实需要 CoT 数据时，显式设置
+  `model.template: qwen35vl_thinking`。
+- 从 Qwen3-VL 切换到 Qwen3.6-VL 训练时，核心差异应只落在模型字段，例如：
+  `model_type: qwen36vl`、`model_name_or_path: models/Qwen3.6-27B`、必要时把
+  `train.distributed.strategy` 切到 `fsdp` 或 `deepspeed`。`data`、`algorithm`、SFT target
+  格式和 Qwen3-VL 主链保持一致。
+- Shaft 会对本地 `config.json` 的 HF `model_type` 做早期校验：`qwen3vl` 期望
+  `qwen3_vl`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或 `qwen3_5_moe`。这能在模型加载前
+  发现 `model.model_type` 与权重目录不匹配的问题。
+- `configs/train/qwen36_sft_27b_fsdp_example.yaml` 是最小 SFT/FSDP 训练示例；其中
+  `transformer_layer_cls_to_wrap: ["auto"]` 会按 `qwen36vl` 模型族解析为 Qwen3.5/3.6 的 dense
+  decoder 与 vision block 类名。
+- 对本地 HF sharded checkpoint，Shaft 会在模型装配前读取 `model.safetensors.index.json` 或
+  `pytorch_model.bin.index.json`，确认索引引用的 shard 文件都已存在。半下载目录会在进入
+  `from_pretrained` 前直接报出缺失 shard，避免把下载不完整误判为模型架构或训练配置问题。
 - `target_modules=["auto"]` 表示交给模型族 `peft policy` 自动解析。
 - `freeze.groups` 当前只允许：
   - `language_model`
@@ -302,6 +340,12 @@ data:
 - `distributed.fsdp.transformer_layer_cls_to_wrap=["auto"]` 会按模型族默认解析。Qwen3VL 当前解析为：
   - `Qwen3VLTextDecoderLayer`
   - `Qwen3VLVisionBlock`
+- Qwen3.5 / Qwen3.6 dense 默认解析为：
+  - `Qwen3_5DecoderLayer`
+  - `Qwen3_5VisionBlock`
+- Qwen3.5 / Qwen3.6 MoE 默认解析为：
+  - `Qwen3_5MoeDecoderLayer`
+  - `Qwen3_5MoeVisionBlock`
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
   `config_path` 的相对路径按训练 YAML 所在目录解析。Shaft 只负责保存和校验配置真源，不在
   `config` 层展开 DeepSpeed 运行时细节。

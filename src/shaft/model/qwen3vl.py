@@ -4,7 +4,12 @@ import importlib.util
 import warnings
 
 import torch
-from transformers import AutoModelForImageTextToText, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
+from transformers import AutoModelForImageTextToText, AutoProcessor, AutoTokenizer
+
+try:
+    from transformers import AutoModelForVision2Seq
+except ImportError:  # Transformers 5.x removed this deprecated alias.
+    AutoModelForVision2Seq = None  # type: ignore[assignment]
 
 from shaft.config import RuntimeConfig
 
@@ -54,6 +59,7 @@ QWEN3VL_META = ModelMeta(
     model_type="qwen3vl",
     family="qwen",
     default_template="qwen3vl",
+    hf_model_types=("qwen3_vl",),
     model_groups=default_model_groups("qwen3-vl-4b-instruct", "qwen3-vl", template="qwen3vl"),
     capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
     module_groups=ModelModuleGroups(
@@ -103,7 +109,10 @@ class Qwen3VLLoader(ModelLoader):
 
         last_err: Exception | None = None
         model = None
-        for cls in (AutoModelForImageTextToText, AutoModelForVision2Seq):
+        model_classes = [AutoModelForImageTextToText]
+        if AutoModelForVision2Seq is not None:
+            model_classes.append(AutoModelForVision2Seq)
+        for cls in model_classes:
             try:
                 model = cls.from_pretrained(model_name, **common_kwargs)
                 break
@@ -112,7 +121,7 @@ class Qwen3VLLoader(ModelLoader):
         if model is None:
             assert last_err is not None
             raise RuntimeError(
-                f"Failed to load qwen3vl model from {model_name!r}. "
+                f"Failed to load {model_meta.model_type} model from {model_name!r}. "
                 "Please verify model path and transformers version."
             ) from last_err
 

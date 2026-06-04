@@ -562,6 +562,14 @@ def test_preflight_rejects_unwired_preannotate_job(tmp_path: Path) -> None:
                     "output_root": str(tmp_path / "preannotations"),
                     "task": "detection",
                     "prompt_id": "grounding_layout.test.main",
+                    "inference_extra": {
+                        "extra_body": {
+                            "chat_template_kwargs": {
+                                "enable_thinking": False,
+                                "preserve_thinking": False,
+                            }
+                        }
+                    },
                 },
             }
         },
@@ -569,4 +577,12 @@ def test_preflight_rejects_unwired_preannotate_job(tmp_path: Path) -> None:
     )
 
     assert result["ok"] is False
+    assert result["resolved_payload"]["inference_extra"] == {
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+                "preserve_thinking": False,
+            }
+        }
+    }
     assert any("preannotate execution is not wired" in error for error in result["errors"])

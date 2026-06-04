@@ -598,6 +598,12 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
             assert kwargs["user_prompt"] == "detect icons"
             assert kwargs["max_tokens"] == 4096
             assert kwargs["max_pixels"] == 1048576
+            assert kwargs["extra_body"] == {
+                "chat_template_kwargs": {
+                    "enable_thinking": False,
+                    "preserve_thinking": False,
+                }
+            }
             return GeneratedText(
                 text='[{"label":"icon","bbox_2d":[0,0,1000,1000]}]',
                 latency_ms=12.5,
@@ -634,21 +640,30 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
         },
     )
     database = EvalBenchDatabase(tmp_path)
+    payload = _eval_job_payload(
+        model_id="model-a",
+        model_path="outputs/model-a/best",
+        served_model_name="served-model",
+        benchmark_id="bench1",
+        task="detection",
+        prompt_id="grounding_layout.test.main",
+        prompt_text="detect icons",
+        backend="vllm_openai",
+        endpoint="http://127.0.0.1:8000",
+        max_tokens=4096,
+        max_pixels=1048576,
+    )
+    payload["manifest"]["eval"]["inference_extra"] = {
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+                "preserve_thinking": False,
+            }
+        }
+    }
     job = database.create_job(
         kind="eval",
-        payload=_eval_job_payload(
-            model_id="model-a",
-            model_path="outputs/model-a/best",
-            served_model_name="served-model",
-            benchmark_id="bench1",
-            task="detection",
-            prompt_id="grounding_layout.test.main",
-            prompt_text="detect icons",
-            backend="vllm_openai",
-            endpoint="http://127.0.0.1:8000",
-            max_tokens=4096,
-            max_pixels=1048576,
-        ),
+        payload=payload,
     )
 
     processed = EvalBenchWorker(tmp_path).process_next()
@@ -665,6 +680,12 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
     assert prediction["instances"][0]["bbox"] == [0.0, 0.0, 100.0, 50.0]
     assert prediction["metadata"]["latency_ms"] == 12.5
     assert prediction["metadata"]["inference_params"]["max_pixels"] == 1048576
+    assert prediction["metadata"]["inference_params"]["extra"]["extra_body"] == {
+        "chat_template_kwargs": {
+            "enable_thinking": False,
+            "preserve_thinking": False,
+        }
+    }
     assert prediction["metadata"]["inference_params"]["image_request"]["resized"] is False
     assert (tmp_path / "runs" / job.job_id / "raw_outputs" / "part1" / "txt" / "a.txt").exists()
     report = json.loads(

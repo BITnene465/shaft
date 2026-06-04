@@ -1,0 +1,21 @@
+engines:
+  qwen36_vllm:
+    backend: vllm_openai
+    model_type: qwen36vl
+    model_name_or_path: models/Qwen3.6-27B
+    served_model_name: qwen3_6_27b
+    endpoint: http://127.0.0.1:8000/v1
+    request_timeout_seconds: 600
+    generation:
+      max_new_tokens: 4096
+      do_sample: false
+      temperature: 0.0
+
+stages:
+  - name: detect
+    engine: qwen36_vllm
+    output_key: detection
+    user_prompt_template: "Locate the requested objects and output JSON only."
+    codec: json_any
+    max_pixels: 1000000
+    max_retries: 1

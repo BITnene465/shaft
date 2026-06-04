@@ -11,14 +11,15 @@ requires-python = ">=3.11,<3.12"
 license = "MIT"
 dependencies = [
   "cairosvg>=2.8",
-  "numpy>=1.26",
+  "numpy==2.2.6",
+  "packaging>=24.0",
   "pillow>=10.0",
   "pyyaml>=6.0",
   "safetensors>=0.5.0",
-  "torch>=2.3",
-  "torchvision>=0.18",
+  "torch==2.10.0",
+  "torchvision==0.25.0",
   "tqdm>=4.66",
-  "transformers==4.57.6",
+  "transformers>=4.57.6,<6",
   "peft>=0.14.0",
   "wandb>=0.19.0",
   "fastapi>=0.116.0",
@@ -53,6 +54,9 @@ rlhf = [
 serve = [
   "vllm==0.19.0; sys_platform == 'linux'",
 ]
+qwen-next = [
+  "transformers==5.10.1",
+]
 distributed = [
   "deepspeed>=0.16.0; sys_platform == 'linux'",
   "ninja>=1.11.0; sys_platform == 'linux'",
@@ -65,6 +69,14 @@ eval-bench = [
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch"]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "qwen-next" },
+    { extra = "serve" },
+  ],
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

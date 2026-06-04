@@ -141,6 +141,7 @@
 - `src/shaft/model/sharding.py`
 - `src/shaft/model/finetune.py`
 - `src/shaft/model/qwen3vl.py`
+- `src/shaft/model/qwen35vl.py`
 
 ### 职能
 
@@ -152,6 +153,8 @@
 ### 关键类
 
 - `ModelMeta`
+  - `hf_model_types` 是本地 HF `config.json:model_type` 兼容性校验的真源，用于在真正加载
+    checkpoint 前拦截 `model.model_type` 与权重目录不匹配的问题。
 - `ModelGroup`
 - `ModelModuleGroups`
 - `ShaftModelAdapter`
@@ -162,6 +165,8 @@
 - `PeftPolicy`
 - `ModelShardingPolicy`
 - `Qwen3VLLoader`
+- `Qwen35VLLoader`
+- `Qwen36VLLoader`
 
 ### 关键函数
 
@@ -214,6 +219,7 @@
 - `src/shaft/template/base.py`
 - `src/shaft/template/registry.py`
 - `src/shaft/template/qwen3vl.py`
+- `src/shaft/template/qwen35vl.py`
 
 ### 职能
 
@@ -230,6 +236,8 @@
 - `ShaftTemplateSupervisionPlan`
 - `ShaftTemplateSupervisedRow`
 - `Qwen3VLTemplate`
+- `Qwen35VLTemplate`
+- `Qwen35VLThinkingTemplate`
 
 ### 关键函数
 
@@ -239,6 +247,15 @@
 - `register_template()`
 - `build_supervision_plan()`
 - `build_supervised_row()`
+
+### Qwen3.5 / Qwen3.6 thinking 策略
+
+- `qwen35vl` 是默认模板，会向上游 chat template 传入 `enable_thinking=False` 和
+  `preserve_thinking=False`。结构化标注、JSON grounding、point 等任务应默认使用该模板。
+- `qwen35vl_thinking` 是显式 CoT 模板，会传入 `enable_thinking=True` 和
+  `preserve_thinking=True`。只有当训练数据 target 本身包含可监督 reasoning 内容时才应启用。
+- 模型注册项 `qwen35vl` / `qwen36vl` 默认都解析到 `qwen35vl`，防止新一代 Qwen chat template
+  默认打开 `<think>` 后污染结构化输出。
 
 ### 开发边界
 
@@ -442,6 +459,10 @@
   - `strategy=deepspeed` 透传 `TrainingArguments.deepspeed`
   - Qwen3VL 的 FSDP `transformer_layer_cls_to_wrap=["auto"]` 会解析为
     `Qwen3VLTextDecoderLayer` 与 `Qwen3VLVisionBlock`
+  - Qwen3.5 / Qwen3.6 dense 会解析为 `Qwen3_5DecoderLayer` 与
+    `Qwen3_5VisionBlock`
+  - Qwen3.5 / Qwen3.6 MoE 会解析为 `Qwen3_5MoeDecoderLayer` 与
+    `Qwen3_5MoeVisionBlock`
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`

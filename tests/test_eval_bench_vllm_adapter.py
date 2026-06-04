@@ -67,3 +67,59 @@ def test_vllm_adapter_enforces_qwen_pixel_budget_before_request(
     assert result.image_request["target_height"] == 800
     assert result.image_request["target_pixels"] <= 1_000_000
     assert result.image_request["resized"] is True
+
+
+def test_vllm_adapter_accepts_extra_body_without_overriding_core_fields(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image_path)
+    captured: dict[str, object] = {}
+
+    class _DummyHTTPResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode("utf-8")
+
+    def _fake_urlopen(req, timeout=0):  # noqa: ANN001
+        captured["body"] = json.loads((req.data or b"{}").decode("utf-8"))
+        return _DummyHTTPResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    adapter = OpenAICompatibleVLLMAdapter(
+        endpoint="http://127.0.0.1:8000",
+        served_model_name="banana",
+    )
+    _ = adapter.generate(
+        image_path=image_path,
+        system_prompt="system",
+        user_prompt="user",
+        max_tokens=128,
+        temperature=0.0,
+        top_p=1.0,
+        extra_body={
+            "max_tokens": 999,
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+                "preserve_thinking": False,
+            },
+            "seed": 42,
+        },
+    )
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["max_tokens"] == 128
+    assert body["seed"] == 42
+    assert body["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }

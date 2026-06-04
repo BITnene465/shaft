@@ -209,6 +209,8 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         *,
         endpoint: str,
         model_name: str,
+        model_type: str = "",
+        template_type: str | None = None,
         api_key: str | None = None,
         timeout_seconds: float = 60.0,
         default_generation: InferGenerationConfig | None = None,
@@ -222,6 +224,8 @@ class VLLMOpenAIInferAdapter(InferAdapter):
         self.endpoint = endpoint_value.rstrip("/")
         self.chat_completions_url = self._resolve_chat_completions_url(self.endpoint)
         self.model_name = model_name_value
+        self.model_type = str(model_type).strip().lower()
+        self.template_type = str(template_type).strip().lower() if template_type else None
         self.api_key = str(api_key).strip() if api_key is not None else None
         self.timeout_seconds = float(timeout_seconds)
         self.default_generation = default_generation or InferGenerationConfig()
@@ -305,6 +309,14 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             return "".join(parts).strip()
         return str(content).strip()
 
+    def _default_chat_template_kwargs(self) -> dict[str, Any]:
+        if self.model_type not in {"qwen35vl", "qwen36vl"}:
+            return {}
+        template_type = self.template_type or "qwen35vl"
+        if template_type == "qwen35vl_thinking":
+            return {"enable_thinking": True, "preserve_thinking": True}
+        return {"enable_thinking": False, "preserve_thinking": False}
+
     def run(self, request: ShaftInferRequest) -> ShaftInferResponse:
         t0 = time.perf_counter()
         generation = request.generation or self.default_generation
@@ -324,10 +336,16 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             "max_tokens": int(generation.max_new_tokens),
             "repetition_penalty": float(generation.repetition_penalty),
         }
+        default_chat_template_kwargs = self._default_chat_template_kwargs()
+        if default_chat_template_kwargs:
+            payload["chat_template_kwargs"] = default_chat_template_kwargs
 
         if request.backend_options:
             _validate_no_pixel_budget_backend_options(request.backend_options)
             for key, value in request.backend_options.items():
+                if str(key) == "chat_template_kwargs":
+                    payload["chat_template_kwargs"] = value
+                    continue
                 if key in payload:
                     continue
                 payload[str(key)] = value
@@ -427,6 +445,8 @@ class ShaftInferEngine:
             adapter: InferAdapter = VLLMOpenAIInferAdapter(
                 endpoint=str(config.endpoint or "").strip(),
                 model_name=model_name,
+                model_type=config.model_type,
+                template_type=config.template,
                 api_key=config.api_key,
                 timeout_seconds=float(config.request_timeout_seconds),
                 default_generation=config.generation,

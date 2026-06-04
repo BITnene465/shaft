@@ -1,3 +1,4 @@
+from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
 from .registry import (

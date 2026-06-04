@@ -359,6 +359,9 @@ def _resolve_eval_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "min_pixels": _first_value(data.get("min_pixels"), data.get("min-pixels")),
         "max_pixels": _first_value(data.get("max_pixels"), data.get("max-pixels")),
         "batch_size": _first_value(data.get("batch_size"), data.get("batch-size"), 1),
+        "inference_extra": eval_config.get("inference_extra")
+        if isinstance(eval_config.get("inference_extra"), dict)
+        else {},
         "metadata": manifest.get("metadata") if isinstance(manifest.get("metadata"), dict) else {},
         "api_key": _first_string(runtime.get("api_key")),
         "api_key_env": _first_string(runtime.get("api_key_env")),
@@ -384,6 +387,7 @@ def _resolve_preannotate_payload(manifest: dict[str, Any]) -> dict[str, Any]:
                 "prompt_path": config.get("prompt_path"),
                 "system_prompt": config.get("system_prompt"),
                 "prompt_text": config.get("prompt_text"),
+                "inference_extra": config.get("inference_extra"),
                 "generation": config.get("generation"),
                 "data": config.get("data"),
             },

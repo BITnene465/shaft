@@ -4,8 +4,10 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import importlib.util
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
 import torch
 
 from .sharding import ModelShardingPolicy
@@ -26,9 +28,34 @@ def _matches_group_prefix(name: str, prefix: str) -> bool:
 def _missing_requires(requires: tuple[str, ...]) -> list[str]:
     missing: list[str] = []
     for requirement in requires:
-        package = requirement.split(">=", 1)[0].split("==", 1)[0].strip()
+        if requirement.startswith("module:"):
+            module_name = requirement.removeprefix("module:").strip()
+            if not module_name or importlib.util.find_spec(module_name) is None:
+                missing.append(requirement)
+            continue
+        operator = ""
+        package = requirement
+        expected_version = ""
+        for candidate in (">=", "=="):
+            if candidate in requirement:
+                package, expected_version = requirement.split(candidate, 1)
+                operator = candidate
+                break
+        package = package.strip()
         if package and importlib.util.find_spec(package) is None:
             missing.append(requirement)
+            continue
+        if package and operator and expected_version:
+            try:
+                installed = Version(version(package))
+                expected = Version(expected_version.strip())
+            except (InvalidVersion, PackageNotFoundError):
+                missing.append(requirement)
+                continue
+            if operator == ">=" and installed < expected:
+                missing.append(requirement)
+            elif operator == "==" and installed != expected:
+                missing.append(requirement)
     return missing
 
 
@@ -206,6 +233,7 @@ class ModelMeta:
     model_type: str
     family: str
     default_template: str
+    hf_model_types: tuple[str, ...] = ()
     model_groups: tuple[ModelGroup, ...] = ()
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     module_groups: ModelModuleGroups = field(default_factory=ModelModuleGroups)
@@ -221,6 +249,7 @@ class ModelMeta:
             model_type=self.model_type,
             family=self.family,
             default_template=self.default_template,
+            hf_model_types=self.hf_model_types,
             model_groups=self.model_groups,
             capabilities=self.capabilities,
             module_groups=self.module_groups,

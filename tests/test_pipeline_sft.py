@@ -21,6 +21,18 @@ from shaft.template import build_template
 from shaft.training.topology import validate_training_topology
 
 
+def _fsdp_enabled(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return bool(value)
+
+
+def _fsdp_option_values(value) -> list[str]:
+    if isinstance(value, bool):
+        return []
+    return [getattr(option, "value", str(option)) for option in value]
+
+
 class _FakeTokenizer:
     eos_token_id = 2
     pad_token_id = 0
@@ -226,13 +238,47 @@ def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:
 
     args = build_hf_training_args(config)
 
-    assert [option.value for option in args.fsdp] == ["full_shard", "auto_wrap"]
+    assert _fsdp_enabled(args.fsdp) is True
+    option_values = _fsdp_option_values(args.fsdp)
+    if option_values:
+        assert option_values == ["full_shard", "auto_wrap"]
     assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
         "Qwen3VLTextDecoderLayer",
         "Qwen3VLVisionBlock",
     ]
     assert args.fsdp_config["activation_checkpointing"] is True
     assert args.fsdp_config["state_dict_type"] == "full_state_dict"
+
+
+def test_build_hf_training_args_resolves_qwen36vl_fsdp_auto_layers(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.model.model_type = "qwen36vl"
+    config.model.model_name_or_path = "models/Qwen3.6-27B"
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+
+    args = build_hf_training_args(config)
+
+    assert _fsdp_enabled(args.fsdp) is True
+    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
+        "Qwen3_5DecoderLayer",
+        "Qwen3_5VisionBlock",
+    ]
+
+
+def test_qwen36_sft_27b_fsdp_example_config_loads() -> None:
+    config = load_config(Path("configs/train/qwen36_sft_27b_fsdp_example.yaml"))
+
+    assert config.model.model_type == "qwen36vl"
+    assert config.model.template == "qwen35vl"
+    assert config.train.distributed.strategy == "fsdp"
+
+    args = build_hf_training_args(config)
+    assert _fsdp_enabled(args.fsdp) is True
+    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
+        "Qwen3_5DecoderLayer",
+        "Qwen3_5VisionBlock",
+    ]
 
 
 def test_fsdp_auto_layers_require_model_default(tmp_path: Path) -> None:
@@ -284,7 +330,7 @@ def test_build_hf_training_args_supports_deepspeed_strategy(tmp_path: Path) -> N
 
     assert args.deepspeed == config.train.distributed.deepspeed.config
     assert getattr(args, "hf_deepspeed_config", None) is not None
-    assert args.fsdp == []
+    assert _fsdp_enabled(args.fsdp) is False
 
 
 def test_build_hf_training_args_resets_deepspeed_state_for_non_deepspeed(tmp_path: Path) -> None:

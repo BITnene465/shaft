@@ -44,6 +44,7 @@ class OpenAICompatibleVLLMAdapter:
         top_k: int | None = None,
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> GeneratedText:
         image_data_url, image_budget = image_to_data_url_with_qwen_pixel_budget(
             image_path,
@@ -68,6 +69,15 @@ class OpenAICompatibleVLLMAdapter:
         }
         if top_k is not None:
             payload["top_k"] = int(top_k)
+        if extra_body:
+            for key, value in extra_body.items():
+                normalized_key = str(key)
+                if normalized_key == "chat_template_kwargs":
+                    payload[normalized_key] = value
+                    continue
+                if normalized_key in payload:
+                    continue
+                payload[normalized_key] = value
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:

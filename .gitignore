@@ -49,6 +49,7 @@ configs/train/*.yaml
 !configs/train/dpo_4b.yaml
 !configs/train/ppo_4b.yaml
 !configs/train/grpo_4b.yaml
+!configs/train/qwen36_sft_27b_fsdp_example.yaml
 experimental/
 /scripts/acc_exp/
 /deployment/

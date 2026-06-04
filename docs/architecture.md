@@ -8,7 +8,7 @@
 
 - 以 `Hugging Face` 生态为唯一主干。
 - 围绕多模态模型训练与推理构建稳定框架。
-- 优先打磨 `Qwen3VL + SFT` 主路径。
+- 优先打磨 `Qwen3VL / Qwen3.5-VL / Qwen3.6-VL + SFT` 主路径。
 - 通过注册表和适配层支持后续模型族、算法和推理后端扩展。
 - 保持训练、保存、续训、导出都兼容 HF / PEFT / TRL 标准能力。
 
@@ -375,7 +375,8 @@ flowchart LR
 ## 11. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
-- 当前只有 `qwen3vl` 是正式模型族实现，`smoke_vlm` 仅用于测试。
+- 当前正式 Qwen 多模态模型族包括 `qwen3vl` 与新一代兼容注册项 `qwen35vl`/`qwen36vl`；
+  `smoke_vlm` 仅用于测试。
 - 结构化任务评估已支持轻量在线 metric；离线 Eval Bench 已具备 benchmark copy、benchmark inspector、持久化 job、vLLM OpenAI worker、metric report、画布优先 run inspector、leaderboard、pairwise comparison 和基础任务管理能力。后续重点是继续扩展真实生产 run 的长期归档、更多任务 metric profile 和更丰富的批量筛查工具。
 - 发布到 Hub 的工具链尚未开始。
 

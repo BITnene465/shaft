@@ -685,6 +685,7 @@ def _generate_vllm_sample_prediction(
         top_k=top_k,
         min_pixels=_optional_int(inference, "min_pixels"),
         max_pixels=_optional_int(inference, "max_pixels"),
+        extra_body=_vllm_extra_body(inference),
     )
     inference_metadata = dict(inference)
     inference_metadata["request_concurrency"] = request_concurrency
@@ -718,6 +719,16 @@ def _generate_vllm_sample_prediction(
         text=result.text,
         prediction=prediction,
     )
+
+
+def _vllm_extra_body(inference: dict[str, Any]) -> dict[str, Any] | None:
+    extra = inference.get("extra")
+    if not isinstance(extra, dict):
+        return None
+    extra_body = extra.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return None
+    return dict(extra_body)
 
 
 def _load_benchmark_payload(root: Path, benchmark_id: str) -> dict[str, Any]:

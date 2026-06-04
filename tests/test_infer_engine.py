@@ -202,6 +202,107 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
     assert body["messages"][1]["content"][0]["type"] == "image_url"
 
 
+def test_vllm_openai_qwen35vl_disables_thinking_by_default(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    captured: dict[str, object] = {}
+
+    class _DummyHTTPResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"choices": [{"message": {"role": "assistant", "content": "{}"}}]},
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _DummyHTTPResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen36vl",
+            model_name_or_path="models/Qwen3.6-27B",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+        )
+    )
+    _ = engine.run(ShaftInferRequest(image_path=str(image), user_prompt="return json"))
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+
+
+def test_vllm_openai_qwen35vl_allows_chat_template_kwargs_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    captured: dict[str, object] = {}
+
+    class _DummyHTTPResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"choices": [{"message": {"role": "assistant", "content": "{}"}}]},
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _DummyHTTPResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen36vl",
+            model_name_or_path="models/Qwen3.6-27B",
+            template="qwen35vl_thinking",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+        )
+    )
+    _ = engine.run(
+        ShaftInferRequest(
+            image_path=str(image),
+            user_prompt="return json",
+            backend_options={
+                "chat_template_kwargs": {
+                    "enable_thinking": False,
+                    "preserve_thinking": False,
+                }
+            },
+        )
+    )
+
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+
+
 def test_vllm_openai_engine_resizes_image_before_request(monkeypatch, tmp_path: Path) -> None:
     image = tmp_path / "large.jpg"
     Image.new("RGB", (4096, 2748), color=(255, 255, 255)).save(image)
