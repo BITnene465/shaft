@@ -12,7 +12,7 @@ from transformers import PreTrainedModel, PretrainedConfig
 from transformers.processing_utils import ProcessorMixin
 from transformers.modeling_outputs import CausalLMOutput
 
-from shaft.config import RuntimeConfig
+from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 from .finetune import apply_resolved_finetune_plan
 from .finetune_plan import build_resolved_finetune_plan
@@ -247,7 +247,7 @@ class SmokeVLMLoader(ModelLoader):
             model,
             finetune_plan,
             finetune=config.model.finetune,
-            gradient_checkpointing=bool(config.train.gradient_checkpointing),
+            gradient_checkpointing=resolve_effective_gradient_checkpointing(config),
         )
         setattr(model, "_shaft_finetune_plan", finetune_plan)
         tokenizer = SmokeTokenizer()

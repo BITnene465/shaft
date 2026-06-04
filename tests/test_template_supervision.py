@@ -47,6 +47,17 @@ class _FakeProcessor:
         }
 
 
+class _StrictUserQueryProcessor(_FakeProcessor):
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        if not any(str(message.get("role", "")).strip().lower() == "user" for message in messages):
+            raise RuntimeError("No user query found in messages.")
+        return super().apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
+        )
+
+
 def _build_item():
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     return {
@@ -175,3 +186,52 @@ def test_template_build_supervised_row_controls_prefix_supervision() -> None:
     assert last_round_prefix_supervised == 0
     assert all_prefix_supervised == 3
     assert int(default_row.labels[-1].item()) == tokenizer.eos_token_id
+
+
+def test_template_prefix_loss_scale_skips_system_only_prefix() -> None:
+    template = build_template("smoke_vlm")
+    processor = _StrictUserQueryProcessor()
+    tokenizer = _FakeTokenizer()
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    item = {
+        "dataset_name": "demo",
+        "sample_id": "sample-2",
+        "image_path": "/tmp/demo.png",
+        "image": image,
+        "target_text": "{\"ok\":true}",
+        "system_prompt": "Return compact JSON.",
+        "user_prompt": "Locate the object.",
+        "extra": {},
+    }
+
+    plan = template.build_supervision_plan(
+        item=item,
+        target_text=item["target_text"],
+        processor=processor,
+        tokenizer=tokenizer,
+        loss_scale_name="default",
+    )
+    prefix_batch = model_adapter.build_processor_inputs(
+        processor=processor,
+        prompt_texts=[plan.prompt_text],
+        images=[image],
+        min_pixels=None,
+        max_pixels=None,
+    )
+    row = template.build_supervised_row(
+        plan=plan,
+        model_adapter=model_adapter,
+        processor=processor,
+        tokenizer=tokenizer,
+        image=image,
+        prefix_batch=prefix_batch,
+        row_index=0,
+        min_pixels=None,
+        max_pixels=None,
+        add_eos_token=True,
+        ignore_index=-100,
+        include_targets_in_inputs=True,
+    )
+
+    assert row.input_ids.shape[0] == row.labels.shape[0]

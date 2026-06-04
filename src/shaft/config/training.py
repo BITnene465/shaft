@@ -112,3 +112,15 @@ class EvalConfig:
     datasets: dict[str, EvalDatasetPolicyConfig] = field(default_factory=dict)
     metric_for_best_model: str = "eval_loss"
     greater_is_better: bool = False
+
+
+def resolve_effective_gradient_checkpointing(config: Any) -> bool:
+    train_cfg = config.train
+    distributed = train_cfg.distributed
+    if (
+        distributed.strategy == "fsdp"
+        and bool(distributed.fsdp.activation_checkpointing)
+        and bool(train_cfg.gradient_checkpointing)
+    ):
+        return False
+    return bool(train_cfg.gradient_checkpointing)

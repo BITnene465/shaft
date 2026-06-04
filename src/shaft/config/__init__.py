@@ -22,6 +22,7 @@ from .training import (
     TrainDistributedConfig,
     TrainFSDPConfig,
     TrainConfig,
+    resolve_effective_gradient_checkpointing,
 )
 
 __all__ = [
@@ -55,4 +56,5 @@ __all__ = [
     "load_config",
     "load_config_from_payload",
     "load_config_from_text",
+    "resolve_effective_gradient_checkpointing",
 ]

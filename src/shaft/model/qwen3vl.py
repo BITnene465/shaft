@@ -11,7 +11,7 @@ try:
 except ImportError:  # Transformers 5.x removed this deprecated alias.
     AutoModelForVision2Seq = None  # type: ignore[assignment]
 
-from shaft.config import RuntimeConfig
+from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
 from .finetune_plan import build_resolved_finetune_plan
@@ -144,7 +144,7 @@ class Qwen3VLLoader(ModelLoader):
             model,
             finetune_plan,
             finetune=finetune,
-            gradient_checkpointing=bool(config.train.gradient_checkpointing),
+            gradient_checkpointing=resolve_effective_gradient_checkpointing(config),
         )
         setattr(model, "_shaft_finetune_plan", finetune_plan)
         model_info = model_adapter.build_model_info(

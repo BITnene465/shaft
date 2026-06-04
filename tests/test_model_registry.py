@@ -90,6 +90,18 @@ def test_smoke_artifacts_expose_meta_and_template() -> None:
     assert artifacts.template.template_meta.template_type == "smoke_vlm"
 
 
+def test_model_loader_uses_effective_gradient_checkpointing_for_fsdp() -> None:
+    cfg = RuntimeConfig()
+    cfg.model.model_type = "smoke_vlm"
+    cfg.train.gradient_checkpointing = True
+    cfg.train.distributed.strategy = "fsdp"
+    cfg.train.distributed.fsdp.activation_checkpointing = True
+
+    artifacts = build_model_tokenizer_processor(cfg)
+
+    assert getattr(artifacts.model.config, "use_cache", True) is True
+
+
 def test_qwen3vl_meta_exposes_family_and_policies() -> None:
     model_meta = build_model_meta("qwen3vl")
     assert model_meta.family == "qwen"
@@ -336,8 +348,9 @@ def test_processor_policy_controls_pixel_budget_forwarding() -> None:
         min_pixels=16,
         max_pixels=32,
     )
-    assert captured["min_pixels"] == 16
-    assert captured["max_pixels"] == 32
+    assert "min_pixels" not in captured
+    assert "max_pixels" not in captured
+    assert captured["images_kwargs"] == {"min_pixels": 16, "max_pixels": 32}
 
 
 def test_processor_policy_can_disable_pixel_budget() -> None:
@@ -358,6 +371,7 @@ def test_processor_policy_can_disable_pixel_budget() -> None:
     )
     assert "min_pixels" not in captured
     assert "max_pixels" not in captured
+    assert "images_kwargs" not in captured
 
 
 def test_processor_policy_temporarily_controls_padding_side() -> None:

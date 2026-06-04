@@ -448,8 +448,11 @@
     - `shaft_optimizer_summary.json`
     - 供 CLI 日志和 Web UI 回看 resolved optimizer groups
 - `gradient checkpointing` 当前通过两层接通：
+  - `src/shaft/config/training.py`
+    - `resolve_effective_gradient_checkpointing()` 是实际运行时开关真源
+    - FSDP activation checkpointing 启用时会关闭 Trainer/model 侧 gradient checkpointing，避免双重 checkpoint
   - `src/shaft/pipeline/training_args.py`
-    - 负责把 `train.gradient_checkpointing` 传给 `TrainingArguments`
+    - 负责把 effective gradient checkpointing 传给 `TrainingArguments`
   - `src/shaft/model/finetune.py`
     - 负责在训练态关闭 `use_cache`
     - `qlora` 路径会把该开关传给 `prepare_model_for_kbit_training`
@@ -463,6 +466,8 @@
     `Qwen3_5VisionBlock`
   - Qwen3.5 / Qwen3.6 MoE 会解析为 `Qwen3_5MoeDecoderLayer` 与
     `Qwen3_5MoeVisionBlock`
+  - Qwen3.6 当前推荐关闭 FSDP activation checkpointing，使用 Trainer/model gradient checkpointing；
+    full-parameter AdamW 训练还需要 ZeRO-3/offload/低内存 optimizer 或更高显存预算。
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
 
 ## 9. `codec`

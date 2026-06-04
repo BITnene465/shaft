@@ -1,10 +1,10 @@
-# Qwen3.6-27B SFT example.
+# Qwen3.6-27B SFT FSDP+LoRA example.
 # Requires the qwen-next extra for Transformers 5.10.1 / qwen3_5 support:
 #   uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
 # Do not combine qwen-next with the serve extra; vLLM 0.19 still requires Transformers <5.
 experiment:
-  name: qwen36vl-sft-27b-fsdp-example
-  output_dir: outputs/qwen36vl-sft/27b/example
+  name: qwen36vl-sft-27b-fsdp-lora-example
+  output_dir: outputs/qwen36vl-sft/27b/lora-example
   seed: 42
 
 model:
@@ -15,7 +15,7 @@ model:
   attn_implementation:
   torch_dtype: bfloat16
   finetune:
-    mode: full
+    mode: lora
     target_modules: ["auto"]
     lora_r: 16
     lora_alpha: 32
@@ -79,7 +79,10 @@ train:
       sharding_strategy: full_shard
       auto_wrap_policy: transformer
       transformer_layer_cls_to_wrap: ["auto"]
-      activation_checkpointing: true
+      # Qwen3.6 linear-attention layers are not stable with the FSDP activation
+      # checkpoint wrapper in the current Transformers 5.10 / PyTorch 2.10 stack.
+      # Keep FSDP sharding and use Trainer/model gradient checkpointing instead.
+      activation_checkpointing: false
       state_dict_type: full_state_dict
       use_orig_params: true
       limit_all_gathers: true

@@ -45,6 +45,8 @@ gpu = [
 ]
 gpu-kernels = [
   "flash-attn==2.8.3",
+  "flash-linear-attention>=0.5.0",
+  "causal-conv1d>=1.6.2",
 ]
 rlhf = [
   "trl>=0.19.0,<1.0.0",

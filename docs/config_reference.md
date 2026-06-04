@@ -109,9 +109,14 @@
 - Shaft 会对本地 `config.json` 的 HF `model_type` 做早期校验：`qwen3vl` 期望
   `qwen3_vl`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或 `qwen3_5_moe`。这能在模型加载前
   发现 `model.model_type` 与权重目录不匹配的问题。
-- `configs/train/qwen36_sft_27b_fsdp_example.yaml` 是最小 SFT/FSDP 训练示例；其中
+- `configs/train/qwen36_sft_27b_fsdp_example.yaml` 是最小 SFT/FSDP+LoRA 训练示例；其中
   `transformer_layer_cls_to_wrap: ["auto"]` 会按 `qwen36vl` 模型族解析为 Qwen3.5/3.6 的 dense
-  decoder 与 vision block 类名。
+  decoder 与 vision block 类名。当前 Qwen3.6 / Transformers 5.10 / PyTorch 2.10 组合下，
+  `distributed.fsdp.activation_checkpointing` 默认关闭，保留 `train.gradient_checkpointing` 走模型侧
+  checkpointing；FSDP activation wrapper 在 Qwen3.6 linear-attention 层上会触发 recompute tensor
+  数量不一致。
+- 8x80GB 上 Qwen3.6-27B full-parameter FSDP + AdamW 会在 optimizer step 触达显存上限；默认示例
+  使用 LoRA。full fine-tune 应使用 DeepSpeed ZeRO-3、CPU offload、低精度/8-bit optimizer 或更多显存资源。
 - 对本地 HF sharded checkpoint，Shaft 会在模型装配前读取 `model.safetensors.index.json` 或
   `pytorch_model.bin.index.json`，确认索引引用的 shard 文件都已存在。半下载目录会在进入
   `from_pretrained` 前直接报出缺失 shard，避免把下载不完整误判为模型架构或训练配置问题。

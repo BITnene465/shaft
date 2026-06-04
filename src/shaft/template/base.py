@@ -152,6 +152,12 @@ class ShaftChatTemplate(Template):
         weights = torch.zeros((prefix_length,), dtype=torch.float32)
         previous_length = 0
         for idx, message_plan in enumerate(plan.message_plans):
+            partial_messages = plan.messages[: idx + 1]
+            if not any(
+                str(message.get("role", "")).strip().lower() == "user"
+                for message in partial_messages
+            ):
+                continue
             is_final_prompt = (
                 idx == len(plan.message_plans) - 1
                 and str(message_plan.message.get("role", "")).strip().lower() != "assistant"
@@ -159,7 +165,7 @@ class ShaftChatTemplate(Template):
             rendered = self.apply_chat_template(
                 processor=processor,
                 tokenizer=tokenizer,
-                messages=plan.messages[: idx + 1],
+                messages=partial_messages,
                 add_generation_prompt=is_final_prompt,
             )
             partial_batch = model_adapter.build_processor_inputs(

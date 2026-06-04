@@ -250,6 +250,21 @@ def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:
     assert args.fsdp_config["state_dict_type"] == "full_state_dict"
 
 
+def test_fsdp_activation_checkpointing_disables_trainer_gradient_checkpointing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.gradient_checkpointing = True
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.activation_checkpointing = True
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+
+    args = build_hf_training_args(config)
+
+    assert args.gradient_checkpointing is False
+    assert args.fsdp_config["activation_checkpointing"] is True
+
+
 def test_build_hf_training_args_resolves_qwen36vl_fsdp_auto_layers(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.model.model_type = "qwen36vl"
@@ -271,10 +286,13 @@ def test_qwen36_sft_27b_fsdp_example_config_loads() -> None:
 
     assert config.model.model_type == "qwen36vl"
     assert config.model.template == "qwen35vl"
+    assert config.model.finetune.mode == "lora"
     assert config.train.distributed.strategy == "fsdp"
 
     args = build_hf_training_args(config)
     assert _fsdp_enabled(args.fsdp) is True
+    assert args.fsdp_config["activation_checkpointing"] is False
+    assert args.gradient_checkpointing is True
     assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
         "Qwen3_5DecoderLayer",
         "Qwen3_5VisionBlock",

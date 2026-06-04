@@ -160,10 +160,13 @@ class ProcessorPolicy:
             "return_tensors": "pt",
         }
         if self.supports_pixel_budget:
+            images_kwargs: dict[str, Any] = {}
             if min_pixels is not None:
-                kwargs["min_pixels"] = int(min_pixels)
+                images_kwargs["min_pixels"] = int(min_pixels)
             if max_pixels is not None:
-                kwargs["max_pixels"] = int(max_pixels)
+                images_kwargs["max_pixels"] = int(max_pixels)
+            if images_kwargs:
+                kwargs["images_kwargs"] = images_kwargs
         with _temporary_processor_padding_side(
             tokenizer=tokenizer,
             processor=processor,

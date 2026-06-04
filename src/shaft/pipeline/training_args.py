@@ -7,7 +7,7 @@ from typing import Any
 import torch
 from transformers import TrainingArguments
 
-from shaft.config import RuntimeConfig
+from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 
 def _resolve_fsdp_transformer_layers(config: RuntimeConfig) -> list[str]:
@@ -91,6 +91,7 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     dataloader_num_workers = int(config.data.num_workers)
     fsdp, fsdp_config = _build_fsdp_args(config)
     deepspeed = _build_deepspeed_arg(config)
+    gradient_checkpointing = resolve_effective_gradient_checkpointing(config)
     if deepspeed is None:
         _reset_deepspeed_runtime_state()
     return TrainingArguments(
@@ -101,7 +102,7 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         per_device_train_batch_size=int(train_cfg.per_device_train_batch_size),
         per_device_eval_batch_size=int(eval_cfg.per_device_eval_batch_size),
         gradient_accumulation_steps=int(train_cfg.gradient_accumulation_steps),
-        gradient_checkpointing=bool(train_cfg.gradient_checkpointing),
+        gradient_checkpointing=gradient_checkpointing,
         learning_rate=float(train_cfg.learning_rate),
         weight_decay=float(train_cfg.weight_decay),
         warmup_ratio=float(train_cfg.warmup_ratio),

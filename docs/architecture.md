@@ -169,6 +169,9 @@ sequenceDiagram
   ZeRO-3 的 HF runtime config 能在 `from_pretrained` 前生效，避免大模型先按每 rank 完整模型加载。
 - 当 `strategy` 不是 `deepspeed` 时，`pipeline/training_args.py` 会清理 HF/Accelerate 的
   DeepSpeed 全局状态，避免同一 Python 进程内先后运行不同训练策略时串配置。
+- `train.gradient_checkpointing` 的实际运行时值由 `resolve_effective_gradient_checkpointing()` 统一解析。
+  当 FSDP activation checkpointing 打开时，Trainer/model 侧 gradient checkpointing 会自动关闭，
+  避免同一层被双重 checkpoint。
 - 模型族只提供必要的结构默认值，例如 Qwen3VL 的 FSDP transformer layer class names。
 - `data`、`template`、`codec` 和任务 prompt 不允许根据分片策略分叉。
 - SFT 已接入 FSDP 与 DeepSpeed；DPO/PPO/GRPO 后续必须复用同一配置语义，不新增平行字段。
