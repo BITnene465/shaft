@@ -5,7 +5,8 @@ from typing import Any
 
 from transformers import TrainingArguments
 
-from shaft.algorithms import ALGORITHM_REGISTRY, AlgorithmContext
+from shaft.algorithms.base import AlgorithmContext
+from shaft.algorithms.registry import ALGORITHM_REGISTRY
 from shaft.algorithms import dpo as _dpo  # noqa: F401
 from shaft.algorithms import grpo as _grpo  # noqa: F401
 from shaft.algorithms import ppo as _ppo  # noqa: F401
@@ -28,7 +29,8 @@ from shaft.plugins import (
     build_hook_manager,
     build_interceptor_manager,
 )
-from shaft.training import ShaftOnlineEvalRunner, ShaftProgressCallback
+from shaft.training.online_eval import ShaftOnlineEvalRunner
+from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,

@@ -6,7 +6,6 @@ from typing import Any
 
 from shaft.config import RuntimeConfig, load_config
 from shaft.observability import bind_log_context, configure_logging, set_log_context
-from shaft.pipeline import run_rlhf, run_sft
 from shaft.training.distributed import destroy_process_group_if_initialized
 
 
@@ -148,8 +147,12 @@ def run_from_args(
         with bind_log_context(algorithm=config.algorithm.name):
             logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
             if config.algorithm.name == "sft":
+                from shaft.pipeline import run_sft
+
                 metrics = run_sft(config)
             elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
+                from shaft.pipeline import run_rlhf
+
                 metrics = run_rlhf(config)
             else:
                 raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")

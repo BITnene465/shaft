@@ -5,7 +5,8 @@ from typing import Any
 
 from transformers import TrainingArguments
 
-from shaft.algorithms import ALGORITHM_REGISTRY, AlgorithmContext
+from shaft.algorithms.base import AlgorithmContext
+from shaft.algorithms.registry import ALGORITHM_REGISTRY
 from shaft.algorithms import sft as _sft  # noqa: F401
 from shaft.config import RuntimeConfig
 from shaft.data import (
@@ -22,9 +23,9 @@ from shaft.plugins import (
     build_hook_manager,
     build_interceptor_manager,
 )
-from shaft.training import ShaftProgressCallback
-from shaft.training import ShaftEpochIntervalCallback
+from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
+from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,

@@ -1,9 +1,5 @@
 from .base import Algorithm, AlgorithmContext
-from .dpo import DPOAlgorithm
-from .grpo import GRPOAlgorithm
-from .ppo import PPOAlgorithm
 from .registry import ALGORITHM_REGISTRY
-from .sft import SFTAlgorithm
 
 __all__ = [
     "ALGORITHM_REGISTRY",
@@ -14,3 +10,23 @@ __all__ = [
     "PPOAlgorithm",
     "SFTAlgorithm",
 ]
+
+
+def __getattr__(name: str):
+    if name == "SFTAlgorithm":
+        from .sft import SFTAlgorithm
+
+        return SFTAlgorithm
+    if name == "DPOAlgorithm":
+        from .dpo import DPOAlgorithm
+
+        return DPOAlgorithm
+    if name == "GRPOAlgorithm":
+        from .grpo import GRPOAlgorithm
+
+        return GRPOAlgorithm
+    if name == "PPOAlgorithm":
+        from .ppo import PPOAlgorithm
+
+        return PPOAlgorithm
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

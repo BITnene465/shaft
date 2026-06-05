@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from peft import PeftModel
+import torch
 
 from shaft.config import FinetuneConfig
 from shaft.model import build_model_meta
@@ -68,6 +70,9 @@ def test_qlora_mode_trainable_for_smoke_model() -> None:
 def test_gradient_checkpointing_disables_use_cache_for_full_mode() -> None:
     model = _build_model()
     model.config.use_cache = True
+    model.model = SimpleNamespace(
+        language_model=SimpleNamespace(config=SimpleNamespace(use_cache=True))
+    )
     model = apply_finetune_strategy(
         model,
         FinetuneConfig(mode="full"),
@@ -75,6 +80,20 @@ def test_gradient_checkpointing_disables_use_cache_for_full_mode() -> None:
         gradient_checkpointing=True,
     )
     assert model.config.use_cache is False
+    assert model.model.language_model.config.use_cache is False
+
+
+def test_finetune_summary_uses_deepspeed_global_parameter_counts() -> None:
+    model = torch.nn.Module()
+    model.weight = torch.nn.Parameter(torch.empty(0), requires_grad=True)
+    model.weight.ds_numel = 16
+    model.frozen = torch.nn.Parameter(torch.empty(0), requires_grad=False)
+    model.frozen.ds_shape = (2, 3)
+
+    summary = summarize_finetune(model, "full")
+
+    assert summary.total_params == 22
+    assert summary.trainable_params == 16
 
 
 def test_qlora_gradient_checkpointing_is_forwarded_to_prepare_model_for_kbit_training() -> None:

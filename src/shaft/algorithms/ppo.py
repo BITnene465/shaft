@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.config import PPOConfig, TrainConfig
-from shaft.training import ShaftPPOTrainer
+from shaft.training.trl_trainers import ShaftPPOTrainer
 
 from .base import AlgorithmContext
 from .rlhf_utils import (

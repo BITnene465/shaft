@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.config import TrainConfig
-from shaft.training import ShaftSFTTrainer
+from shaft.training.sft_trainer import ShaftSFTTrainer
 
 from .base import AlgorithmContext
 from .registry import register_algorithm

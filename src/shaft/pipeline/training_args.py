@@ -29,14 +29,34 @@ def _resolve_fsdp_transformer_layers(config: RuntimeConfig) -> list[str]:
     return model_adapter.resolve_fsdp_transformer_layer_cls_to_wrap(configured)
 
 
-def _build_fsdp_args(config: RuntimeConfig) -> tuple[str | None, dict[str, Any] | None]:
+def _resolve_fsdp_auto_wrap_policy(policy: str) -> str:
+    normalized = str(policy).strip().lower()
+    if normalized == "transformer":
+        return "TRANSFORMER_BASED_WRAP"
+    if normalized == "size":
+        return "SIZE_BASED_WRAP"
+    if normalized in {"none", "no_wrap"}:
+        return "NO_WRAP"
+    return str(policy)
+
+
+def _resolve_fsdp_reshard_after_forward(sharding_strategy: str) -> bool | str:
+    normalized = str(sharding_strategy).strip().lower()
+    if normalized == "full_shard":
+        return True
+    if normalized in {"no_shard", "none"}:
+        return False
+    return normalized
+
+
+def _build_fsdp_args(config: RuntimeConfig) -> tuple[bool | None, dict[str, Any] | None]:
     distributed = config.train.distributed
     if distributed.strategy != "fsdp":
         return None, None
 
     fsdp_cfg = distributed.fsdp
-    fsdp_options = [str(fsdp_cfg.sharding_strategy)]
     fsdp_config: dict[str, Any] = {
+        "version": 2,
         "activation_checkpointing": bool(fsdp_cfg.activation_checkpointing),
         "cpu_offload": bool(fsdp_cfg.cpu_offload),
         "use_orig_params": bool(fsdp_cfg.use_orig_params),
@@ -44,18 +64,18 @@ def _build_fsdp_args(config: RuntimeConfig) -> tuple[str | None, dict[str, Any] 
         "limit_all_gathers": bool(fsdp_cfg.limit_all_gathers),
         "state_dict_type": str(fsdp_cfg.state_dict_type),
         "sync_module_states": bool(fsdp_cfg.sync_module_states),
+        "reshard_after_forward": _resolve_fsdp_reshard_after_forward(fsdp_cfg.sharding_strategy),
+        "auto_wrap_policy": _resolve_fsdp_auto_wrap_policy(fsdp_cfg.auto_wrap_policy),
     }
     if fsdp_cfg.backward_prefetch is not None:
         fsdp_config["backward_prefetch"] = str(fsdp_cfg.backward_prefetch)
 
     if fsdp_cfg.auto_wrap_policy == "transformer":
-        fsdp_options.append("auto_wrap")
         fsdp_config["transformer_layer_cls_to_wrap"] = _resolve_fsdp_transformer_layers(config)
     elif fsdp_cfg.auto_wrap_policy == "size":
-        fsdp_options.append("auto_wrap")
         fsdp_config["min_num_params"] = int(fsdp_cfg.min_num_params)
 
-    return " ".join(fsdp_options), fsdp_config
+    return True, fsdp_config
 
 
 def _build_deepspeed_arg(config: RuntimeConfig) -> dict[str, Any] | str | None:
@@ -83,6 +103,16 @@ def _reset_deepspeed_runtime_state() -> None:
     unset_hf_deepspeed_config()
 
 
+def _build_warmup_kwargs(train_cfg) -> dict[str, float | int]:
+    warmup_ratio = float(train_cfg.warmup_ratio)
+    if warmup_ratio <= 0:
+        return {"warmup_steps": 0}
+    max_steps = int(train_cfg.max_steps)
+    if max_steps > 0:
+        return {"warmup_steps": max(1, int(round(max_steps * warmup_ratio)))}
+    return {"warmup_ratio": warmup_ratio}
+
+
 def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     train_cfg = config.train
     eval_cfg = config.eval
@@ -92,6 +122,7 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     fsdp, fsdp_config = _build_fsdp_args(config)
     deepspeed = _build_deepspeed_arg(config)
     gradient_checkpointing = resolve_effective_gradient_checkpointing(config)
+    warmup_kwargs = _build_warmup_kwargs(train_cfg)
     if deepspeed is None:
         _reset_deepspeed_runtime_state()
     return TrainingArguments(
@@ -105,7 +136,6 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         gradient_checkpointing=gradient_checkpointing,
         learning_rate=float(train_cfg.learning_rate),
         weight_decay=float(train_cfg.weight_decay),
-        warmup_ratio=float(train_cfg.warmup_ratio),
         lr_scheduler_type=str(train_cfg.lr_scheduler_type),
         max_grad_norm=float(train_cfg.max_grad_norm),
         bf16=use_bf16,
@@ -131,4 +161,5 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         dataloader_persistent_workers=bool(config.data.persistent_workers and dataloader_num_workers > 0),
         disable_tqdm=True,
         remove_unused_columns=False,
+        **warmup_kwargs,
     )

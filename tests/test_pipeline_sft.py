@@ -36,6 +36,7 @@ def _fsdp_option_values(value) -> list[str]:
 class _FakeTokenizer:
     eos_token_id = 2
     pad_token_id = 0
+    bos_token_id = None
     eos_token = "</s>"
 
     def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
@@ -62,7 +63,13 @@ class _FakeProcessor:
 class _FakeModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.config = SimpleNamespace(use_cache=False)
+        self.config = SimpleNamespace(
+            use_cache=False,
+            eos_token_id=99,
+            bos_token_id=98,
+            pad_token_id=97,
+            text_config=SimpleNamespace(eos_token_id=99, bos_token_id=98, pad_token_id=97),
+        )
         self.generation_config = SimpleNamespace(
             use_cache=False,
             max_new_tokens=32,
@@ -71,6 +78,9 @@ class _FakeModel(torch.nn.Module):
             top_p=0.8,
             top_k=20,
             repetition_penalty=1.0,
+            eos_token_id=99,
+            bos_token_id=98,
+            pad_token_id=97,
         )
 
     def forward(self, **kwargs):
@@ -184,6 +194,15 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
     assert fake_model.generation_config.temperature == 1.0
     assert fake_model.generation_config.top_p == 1.0
     assert fake_model.generation_config.top_k == 50
+    assert fake_model.generation_config.eos_token_id == [2, 99]
+    assert fake_model.generation_config.bos_token_id is None
+    assert fake_model.generation_config.pad_token_id == 0
+    assert fake_model.config.eos_token_id == 2
+    assert fake_model.config.bos_token_id is None
+    assert fake_model.config.pad_token_id == 0
+    assert fake_model.config.text_config.eos_token_id == 99
+    assert fake_model.config.text_config.bos_token_id == 98
+    assert fake_model.config.text_config.pad_token_id == 97
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
 
 
@@ -229,6 +248,28 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
     args = build_hf_training_args(config)
 
     assert args.gradient_checkpointing is True
+
+
+def test_build_hf_training_args_uses_warmup_steps_ratio(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.warmup_ratio = 0.03
+    config.train.max_steps = 10000
+
+    args = build_hf_training_args(config)
+
+    assert args.warmup_ratio is None
+    assert args.warmup_steps == 300
+
+
+def test_build_hf_training_args_keeps_warmup_ratio_when_max_steps_unknown(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.warmup_ratio = 0.03
+    config.train.max_steps = -1
+
+    args = build_hf_training_args(config)
+
+    assert args.warmup_ratio == 0.03
+    assert args.warmup_steps == 0.03
 
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:

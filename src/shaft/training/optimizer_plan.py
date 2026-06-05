@@ -126,7 +126,7 @@ def _is_no_decay_parameter(
     no_decay_name_patterns: list[str] | None = None,
 ) -> bool:
     return (
-        parameter.ndim <= 1
+        _parameter_ndim(parameter) <= 1
         or str(name).endswith(".bias")
         or _matches_no_decay_name_pattern(name, no_decay_name_patterns)
     )
@@ -207,7 +207,7 @@ def summarize_resolved_optimizer_plan(
     group_summaries: list[ShaftResolvedOptimizerGroupSummary] = []
     total_trainable_params = 0
     for group in plan.groups:
-        num_parameters = sum(int(parameter.numel()) for parameter in group.parameters)
+        num_parameters = sum(_parameter_numel(parameter) for parameter in group.parameters)
         total_trainable_params += num_parameters
         group_summaries.append(
             ShaftResolvedOptimizerGroupSummary(
@@ -225,6 +225,26 @@ def summarize_resolved_optimizer_plan(
         group_count=len(group_summaries),
         groups=tuple(group_summaries),
     )
+
+
+def _parameter_numel(parameter: torch.nn.Parameter) -> int:
+    deepspeed_numel = getattr(parameter, "ds_numel", None)
+    if deepspeed_numel is not None:
+        return int(deepspeed_numel)
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        total = 1
+        for dim in deepspeed_shape:
+            total *= int(dim)
+        return int(total)
+    return int(parameter.numel())
+
+
+def _parameter_ndim(parameter: torch.nn.Parameter) -> int:
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        return len(tuple(deepspeed_shape))
+    return int(parameter.ndim)
 
 
 def resolved_optimizer_summary_path(output_dir: str | Path) -> Path:

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.config import GRPOConfig, TrainConfig
-from shaft.training import ShaftGRPOTrainer
+from shaft.training.trl_trainers import ShaftGRPOTrainer
 
 from .base import AlgorithmContext
 from .grpo_rewards import build_grpo_reward_functions

@@ -9,6 +9,7 @@ from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_tr
 from shaft.config import FinetuneConfig
 
 from .finetune_plan import ShaftResolvedFinetunePlan, build_resolved_finetune_plan
+from .generation import set_model_use_cache
 from .types import ShaftModelAdapter
 
 
@@ -23,11 +24,24 @@ def _count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = 0
     trainable = 0
     for parameter in model.parameters():
-        count = int(parameter.numel())
+        count = _parameter_numel(parameter)
         total += count
         if parameter.requires_grad:
             trainable += count
     return total, trainable
+
+
+def _parameter_numel(parameter: torch.nn.Parameter) -> int:
+    deepspeed_numel = getattr(parameter, "ds_numel", None)
+    if deepspeed_numel is not None:
+        return int(deepspeed_numel)
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        total = 1
+        for dim in deepspeed_shape:
+            total *= int(dim)
+        return int(total)
+    return int(parameter.numel())
 
 
 def summarize_finetune(model: torch.nn.Module, mode: str) -> FinetuneSummary:
@@ -42,16 +56,8 @@ def apply_resolved_finetune_plan(
     finetune: FinetuneConfig,
     gradient_checkpointing: bool = False,
 ) -> torch.nn.Module:
-    if gradient_checkpointing and getattr(model, "config", None) is not None:
-        try:
-            model.config.use_cache = False
-        except Exception:  # noqa: BLE001
-            pass
-    if gradient_checkpointing and getattr(model, "generation_config", None) is not None:
-        try:
-            model.generation_config.use_cache = False
-        except Exception:  # noqa: BLE001
-            pass
+    if gradient_checkpointing:
+        _ = set_model_use_cache(model, enabled=False)
 
     if plan.mode == "full":
         trainable_names = set(plan.parameter_plan.trainable_parameter_names)

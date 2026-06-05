@@ -111,11 +111,24 @@ def _count_parameters(model: torch.nn.Module) -> tuple[int, int]:
     total = 0
     trainable = 0
     for parameter in model.parameters():
-        count = int(parameter.numel())
+        count = _parameter_numel(parameter)
         total += count
         if parameter.requires_grad:
             trainable += count
     return total, trainable
+
+
+def _parameter_numel(parameter: torch.nn.Parameter) -> int:
+    deepspeed_numel = getattr(parameter, "ds_numel", None)
+    if deepspeed_numel is not None:
+        return int(deepspeed_numel)
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        total = 1
+        for dim in deepspeed_shape:
+            total *= int(dim)
+        return int(total)
+    return int(parameter.numel())
 
 
 def build_freeze_preview(

@@ -36,7 +36,12 @@ from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from shaft.training import ShaftEpochIntervalCallback
-from shaft.training.optimizer_plan import build_resolved_optimizer_plan, summarize_resolved_optimizer_plan
+from shaft.training.optimizer_plan import (
+    ShaftOptimizerParamGroup,
+    ShaftResolvedOptimizerPlan,
+    build_resolved_optimizer_plan,
+    summarize_resolved_optimizer_plan,
+)
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
 from shaft.training.sft_trainer import ShaftSFTTrainer
 
@@ -347,6 +352,56 @@ def test_optimizer_summary_reports_grouped_learning_rates() -> None:
         group.logical_group == "modules_to_save" and group.lr == pytest.approx(2e-4)
         for group in summary.groups
     )
+
+
+def test_optimizer_summary_uses_deepspeed_global_parameter_counts() -> None:
+    ds_numel_param = torch.nn.Parameter(torch.empty(0), requires_grad=True)
+    ds_numel_param.ds_numel = 13
+    ds_shape_param = torch.nn.Parameter(torch.empty(0), requires_grad=True)
+    ds_shape_param.ds_shape = (2, 3, 5)
+    plan = ShaftResolvedOptimizerPlan(
+        groups=(
+            ShaftOptimizerParamGroup(
+                logical_group="language_model",
+                decay=True,
+                lr=1e-5,
+                weight_decay=0.03,
+                parameter_names=("layer.ds_numel", "layer.ds_shape"),
+                parameters=(ds_numel_param, ds_shape_param),
+            ),
+        )
+    )
+
+    summary = summarize_resolved_optimizer_plan(plan)
+
+    assert summary.total_trainable_params == 43
+    assert summary.groups[0].num_parameters == 43
+    assert summary.groups[0].num_tensors == 2
+
+
+def test_optimizer_grouping_uses_deepspeed_global_parameter_ndim() -> None:
+    model = torch.nn.Module()
+    model.weight = torch.nn.Parameter(torch.empty(0), requires_grad=True)
+    model.weight.ds_shape = (4, 4)
+    model.bias = torch.nn.Parameter(torch.empty(0), requires_grad=True)
+    model.bias.ds_shape = (4,)
+    args = TrainingArguments(
+        output_dir="/tmp/shaft_optimizer_deepspeed_ndim",
+        learning_rate=1e-3,
+        per_device_train_batch_size=1,
+        use_cpu=True,
+        report_to=[],
+        weight_decay=0.03,
+    )
+
+    resolved = build_resolved_optimizer_plan(model=model, args=args)
+
+    groups_by_decay = {group.decay: group for group in resolved.groups}
+    assert set(groups_by_decay) == {False, True}
+    assert groups_by_decay[True].parameter_names == ("weight",)
+    assert groups_by_decay[True].to_optimizer_group()["weight_decay"] == pytest.approx(0.03)
+    assert groups_by_decay[False].parameter_names == ("bias",)
+    assert groups_by_decay[False].to_optimizer_group()["weight_decay"] == pytest.approx(0.0)
 
 
 def test_shaft_trainer_uses_custom_components() -> None:

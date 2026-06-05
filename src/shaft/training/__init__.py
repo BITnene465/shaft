@@ -29,7 +29,6 @@ from .online_eval import ShaftOnlineEvalRunner
 from .epoch_interval_callback import ShaftEpochIntervalCallback
 from .eval_policy import aggregate_weighted_dataset_values
 from .progress_callback import ShaftProgressCallback
-from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .sft_trainer import ShaftSFTTrainer
 
@@ -72,3 +71,15 @@ __all__ = [
     "validate_training_state_policy",
     "write_resolved_optimizer_summary",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"ShaftDPOTrainer", "ShaftGRPOTrainer", "ShaftPPOTrainer"}:
+        from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
+
+        return {
+            "ShaftDPOTrainer": ShaftDPOTrainer,
+            "ShaftGRPOTrainer": ShaftGRPOTrainer,
+            "ShaftPPOTrainer": ShaftPPOTrainer,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
