@@ -20,6 +20,26 @@
   box-shadow: var(--control-indicator-shadow-hover);
 }
 
+.status-pill.online {
+  color: var(--control-status-success-ink);
+  background: var(--control-status-success-bg);
+  border-color: var(--control-status-success-line);
+}
+
+.status-pill.online:hover {
+  border-color: var(--control-status-success-line-hover);
+}
+
+.status-pill.loading {
+  color: var(--control-status-warning-ink);
+  background: var(--control-status-warning-bg);
+  border-color: var(--control-status-warning-line);
+}
+
+.status-pill.loading:hover {
+  border-color: var(--control-status-warning-line-hover);
+}
+
 .status-pill.danger {
   color: var(--control-status-danger-ink);
   background: var(--control-status-danger-bg);

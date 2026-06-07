@@ -57,15 +57,10 @@
   font-weight: 680;
   font-variant-numeric: tabular-nums;
   transition:
-    transform 130ms ease,
     border-color 130ms ease,
     background 130ms ease,
     color 130ms ease,
     box-shadow 130ms ease;
-}
-
-.label-chip:hover {
-  transform: none;
 }
 
 .muted-line {

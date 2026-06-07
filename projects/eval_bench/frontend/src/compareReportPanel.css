@@ -372,16 +372,10 @@
 .summary-pill,
 .sample-count-chip {
   transition:
-    transform 130ms ease,
     border-color 130ms ease,
     background 130ms ease,
     color 130ms ease,
     box-shadow 130ms ease;
-}
-
-.summary-pill:hover,
-.sample-count-chip:hover {
-  transform: none;
 }
 
 @media (max-width: 900px) {

@@ -10,20 +10,12 @@
   scrollbar-color: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line)) transparent;
 }
 
-:root[data-theme="dark"] * {
-  scrollbar-color: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line)) transparent;
-}
-
 :root[data-theme="dark"] :is(
   .dashboard-home.overview-home-v18,
   .rank-mode-switch,
   .rank-filter-tray,
   .rank-board-table-card,
   .rank-facet-rail,
-  .advanced-filter-bar,
-  .advanced-filter-popover,
-  .advanced-filter-directory,
-  .advanced-filter-group,
   .scheduler-strip,
   .run-config-panel,
   .run-note-editor,
@@ -58,12 +50,6 @@
 }
 
 :root[data-theme="dark"] :is(
-  .advanced-filter-head,
-  .advanced-filter-token,
-  .advanced-filter-trigger-icon,
-  .advanced-filter-search-control,
-  .advanced-filter-field-card,
-  .advanced-filter-group-card,
   .rank-sort-button,
   .rank-primary-score,
   .rank-metric-badge,
@@ -89,8 +75,6 @@
 }
 
 :root[data-theme="dark"] :is(
-  .advanced-filter-head.active,
-  .advanced-filter-token:hover,
   .rank-sort-button.active,
   .rank-facet-chip.active,
   .settings-section-button.active,
@@ -102,9 +86,6 @@
 }
 
 :root[data-theme="dark"] :is(
-  .advanced-filter-head span,
-  .advanced-filter-hint,
-  .advanced-filter-token.muted,
   .rank-board-pager,
   .rank-empty-note,
   .rank-facet-count,
@@ -130,10 +111,6 @@
 }
 
 :root[data-theme="dark"] :is(
-  .advanced-filter-controls input,
-  .advanced-filter-controls textarea,
-  .advanced-filter-number-control input,
-  .advanced-filter-search input,
   .filter-search-input,
   .settings-search-box input,
   .run-note-editor textarea,
@@ -145,9 +122,6 @@
 }
 
 :root[data-theme="dark"] :is(
-  .advanced-filter-controls input:focus,
-  .advanced-filter-controls textarea:focus,
-  .advanced-filter-number-control input:focus,
   .settings-search-box:focus-within,
   .run-note-editor textarea:focus
 ) {
@@ -192,7 +166,6 @@
 
 :root[data-theme="dark"] :is(
   .rank-board-table-toolbar,
-  .advanced-filter-popover-head,
   .run-config-panel[open] summary,
   .run-note-editor,
   .settings-command-bar,
@@ -230,14 +203,14 @@
   border-color: var(--bench-line);
 }
 
-:root :is(.rank-board-table-toolbar, .advanced-filter-compact, .settings-command-bar) {
+:root :is(.rank-board-table-toolbar, .settings-command-bar) {
   min-height: 34px;
 }
 
-:root :is(.advanced-filter-bar, .rank-mode-switch, .run-config-panel) {
+:root :is(.rank-mode-switch, .run-config-panel) {
   border-radius: 6px;
 }
 
-:root :is(.advanced-filter-token, .rank-sort-button, .settings-section-button) {
+:root :is(.rank-sort-button, .settings-section-button) {
   min-height: 26px;
 }

@@ -72,6 +72,10 @@
   --control-status-success-bg: #e6f6ef;
   --control-status-success-line: #b8e5d0;
   --control-status-success-line-hover: #91d6bb;
+  --control-status-warning-ink: #7a4512;
+  --control-status-warning-bg: #fff1d6;
+  --control-status-warning-line: #f7d596;
+  --control-status-warning-line-hover: #e9c372;
   --control-status-danger-ink: #8a1c28;
   --control-status-danger-bg: #fdecef;
   --control-status-danger-line: #f1b7bf;
@@ -143,6 +147,14 @@
   --control-status-success-line-hover: color-mix(
     in srgb,
     var(--bench-status-success) 44%,
+    var(--bench-line)
+  );
+  --control-status-warning-ink: var(--bench-status-warning);
+  --control-status-warning-bg: var(--bench-status-warning-soft);
+  --control-status-warning-line: color-mix(in srgb, var(--bench-status-warning) 38%, var(--bench-line));
+  --control-status-warning-line-hover: color-mix(
+    in srgb,
+    var(--bench-status-warning) 50%,
     var(--bench-line)
   );
   --control-status-danger-ink: #ffb4c1;

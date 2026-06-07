@@ -17,24 +17,6 @@
     box-shadow 140ms ease;
 }
 
-.primary-button:hover,
-.secondary-button:hover,
-.mini-button:hover,
-.mini-link:hover,
-.icon-button:hover,
-.selectable-card-button:hover,
-.panel-toggle-button:hover,
-.query-chip:hover,
-.badge:hover,
-.nav-item:hover,
-.primary-button:active,
-.secondary-button:active,
-.mini-button:active,
-.mini-link:active,
-.icon-button:active {
-  transform: none;
-}
-
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .mini-button:focus-visible,
@@ -53,7 +35,6 @@
 .secondary-button:disabled,
 .mini-button:disabled,
 .icon-button:disabled {
-  transform: none;
   opacity: 0.52;
   cursor: not-allowed;
 }
@@ -91,9 +72,7 @@
   .query-chip svg,
   .selectable-card-button svg,
   .panel-toggle-button svg {
-    transition:
-      transform 160ms ease,
-      filter 160ms ease;
+    transition: filter 160ms ease;
   }
 
   .nav-item:hover .app-icon,
@@ -104,7 +83,6 @@
   .query-chip:hover svg,
   .selectable-card-button:hover svg,
   .panel-toggle-button:hover svg {
-    transform: none;
     filter: none;
   }
 

@@ -107,7 +107,6 @@
   z-index: 1;
   border-color: var(--composite-ink);
   background: var(--composite-atlas-bin-hover);
-  transform: translateY(-2px);
 }
 
 .image-map-bin.hovered::after {

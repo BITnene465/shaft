@@ -39,7 +39,6 @@
 .rank-facet-group:hover {
   border-color: var(--rank-facet-group-hover-line);
   box-shadow: none;
-  transform: none;
 }
 
 .rank-facet-group > span {
@@ -92,8 +91,7 @@
     background-color 150ms ease,
     border-color 150ms ease,
     box-shadow 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
+    color 150ms ease;
 }
 
 .rank-facet-button:hover,
@@ -102,7 +100,6 @@
   background: var(--rank-facet-chip-active-bg);
   border-color: var(--rank-facet-chip-active-line);
   box-shadow: none;
-  transform: none;
 }
 
 .rank-facet-button.active {
@@ -127,8 +124,7 @@
     background-color 150ms ease,
     border-color 150ms ease,
     box-shadow 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
+    color 150ms ease;
 }
 
 .rank-facet-toggle:hover,
@@ -137,7 +133,6 @@
   background: var(--rank-facet-toggle-active-bg);
   border-color: var(--rank-facet-toggle-active-line);
   box-shadow: none;
-  transform: none;
 }
 
 .rank-facet-button span {
@@ -165,7 +160,6 @@
 
 .rank-board-page .rank-facet-group:hover {
   box-shadow: none;
-  transform: none;
 }
 
 .rank-board-page .rank-facet-button,
@@ -240,7 +234,6 @@
 .rank-board-page .rank-facet-toggle:hover,
 .rank-board-page .rank-facet-toggle.active {
   box-shadow: none;
-  transform: none;
 }
 
 @media (max-width: 1280px) {

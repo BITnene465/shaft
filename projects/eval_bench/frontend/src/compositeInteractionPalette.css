@@ -33,8 +33,7 @@
   transition:
     border-color 120ms ease,
     color 120ms ease,
-    background 120ms ease,
-    transform 120ms ease;
+    background 120ms ease;
 }
 
 .interaction-palette-tool.icon-button:hover,
@@ -44,7 +43,6 @@
   border-color: #aebfd4;
   color: var(--composite-ink);
   background: #f8fbff;
-  transform: translateY(-1px);
 }
 
 .interaction-palette-tool.icon-button:disabled {
@@ -52,7 +50,6 @@
   background: var(--composite-surface-quiet);
   border-color: #e1e7ee;
   cursor: not-allowed;
-  transform: none;
 }
 
 .interaction-palette-tool[data-tool="reset"] {

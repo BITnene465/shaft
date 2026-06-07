@@ -344,6 +344,8 @@ assert(
     interactionFeedbackStyleSource.includes("border-color: var(--control-focus-line)") &&
     !interactionFeedbackStyleSource.includes(".primary-button {\n  background:") &&
     !interactionFeedbackStyleSource.includes(".primary-button:hover {\n  background:") &&
+    !interactionFeedbackStyleSource.includes("transform 160ms ease") &&
+    !interactionFeedbackStyleSource.includes("transform: none") &&
     interactionFeedbackStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
     interactionFeedbackStyleSource.includes(".search-box:focus-within") &&
     appTypographyStyleSource.includes("--text-3xs") &&
@@ -385,7 +387,13 @@ assert(
     !appChromeVisualStyleSource.includes("padding: 10px 18px") &&
     appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
     !appChromeVisualStyleSource.includes(".user-profile-chip") &&
-    appChromeVisualStyleSource.includes(".status-pill:hover") &&
+    appChromeVisualStyleSource.includes(".topbar .status-pill {\n  position: relative;\n  overflow: hidden;") &&
+    appChromeVisualStyleSource.includes(".topbar .status-pill::before") &&
+    !appChromeVisualStyleSource.includes(".topbar .status-pill:hover") &&
+    !appChromeVisualStyleSource.includes(".status-pill.online") &&
+    !appChromeVisualStyleSource.includes(".status-pill.loading") &&
+    !appChromeVisualStyleSource.includes("var(--bench-status-success-soft)") &&
+    !appChromeVisualStyleSource.includes("var(--bench-status-warning-soft)") &&
     !appChromeStyleSource.includes("translateX(") &&
     !appChromeVisualStyleSource.includes("translateX(") &&
     !appChromeStyleSource.includes("transform 150ms ease") &&
@@ -690,6 +698,8 @@ assert(
     !sharedIndicatorsStyleSource.includes("transform 140ms ease") &&
     !sharedIndicatorsStyleSource.includes("transform 150ms ease") &&
     sharedIndicatorsStyleSource.includes("var(--control-status-success-ink)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-status-warning-bg)") &&
+    sharedIndicatorsStyleSource.includes(".status-pill.loading") &&
     sharedIndicatorsStyleSource.includes("var(--control-status-danger-bg)") &&
     sharedIndicatorsStyleSource.includes("var(--control-badge-warning-bg)") &&
     sharedIndicatorsStyleSource.includes("var(--control-query-chip-bg)") &&
@@ -863,6 +873,14 @@ assert(
     selectPopoverControl.includes("const active = absoluteIndex === activeOptionIndex") &&
     selectPopoverControl.includes("onMouseEnter={() => {") &&
     selectPopoverStyleSource.includes(".select-popover-control") &&
+    selectPopoverStyleSource.includes("--select-popover-menu-bg: #ffffff") &&
+    selectPopoverStyleSource.includes("--select-popover-trigger-bg: #ffffff") &&
+    selectPopoverStyleSource.includes("--select-popover-menu-shadow: 0 8px 18px") &&
+    selectPopoverStyleSource.includes("--select-popover-menu-shadow-top: 0 -8px 18px") &&
+    selectPopoverStyleSource.includes(':root[data-theme="dark"]') &&
+    selectPopoverStyleSource.includes("--select-popover-menu-bg: var(--bench-surface-raised)") &&
+    selectPopoverStyleSource.includes("--select-popover-menu-shadow: 0 10px 22px") &&
+    selectPopoverStyleSource.includes("--select-popover-trigger-hover-ink: var(--bench-cyan-strong)") &&
     selectPopoverStyleSource.includes(".select-popover-filter.compact {\n  width: 100%;") &&
     selectPopoverStyleSource.includes("max-width: 100%;") &&
     !selectPopoverStyleSource.includes("width: min(150px, 18vw)") &&
@@ -877,8 +895,15 @@ assert(
     selectPopoverStyleSource.includes('.select-popover-menu[data-placement="top"]') &&
     selectPopoverStyleSource.includes(".select-popover-filter .select-popover-trigger") &&
     selectPopoverStyleSource.includes("max-height: var(--select-menu-max-height") &&
-    selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-menu') &&
-    selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-option.selected') &&
+    selectPopoverStyleSource.includes("background: var(--select-popover-menu-bg);") &&
+    selectPopoverStyleSource.includes("box-shadow: var(--select-popover-menu-shadow);") &&
+    selectPopoverStyleSource.includes("color: var(--select-popover-option-selected-ink);") &&
+    !selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-menu') &&
+    !selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-option.selected') &&
+    !selectPopoverStyleSource.includes("0 14px 30px") &&
+    !selectPopoverStyleSource.includes("background: #ffffff;") &&
+    !selectPopoverStyleSource.includes("color: #1d2a38;") &&
+    !selectPopoverStyleSource.includes("rgba(99, 127, 149") &&
     !appThemeStyleSource.includes(".select-popover-menu") &&
     !designSource.includes(".select-popover-menu"),
   "select popover styles must stay colocated with selectPopoverControl instead of shared theme files",
@@ -1180,10 +1205,13 @@ assert(
       mainEntry.indexOf('import "./pageCommand.css";') &&
     themeSurfaceOverridesStyleSource.includes(':root[data-theme="dark"]') &&
     themeSurfaceOverridesStyleSource.includes("scrollbar-color:") &&
+    !themeSurfaceOverridesStyleSource.includes(':root[data-theme="dark"] *') &&
     themeSurfaceOverridesStyleSource.includes(".dashboard-home.overview-home-v18") &&
-    themeSurfaceOverridesStyleSource.includes(".advanced-filter-bar") &&
-    themeSurfaceOverridesStyleSource.includes(".advanced-filter-directory") &&
-    themeSurfaceOverridesStyleSource.includes(".advanced-filter-search-control") &&
+    !themeSurfaceOverridesStyleSource.includes(".advanced-filter-bar") &&
+    !themeSurfaceOverridesStyleSource.includes(".advanced-filter-directory") &&
+    !themeSurfaceOverridesStyleSource.includes(".advanced-filter-search-control") &&
+    !themeSurfaceOverridesStyleSource.includes(".advanced-filter-popover") &&
+    !themeSurfaceOverridesStyleSource.includes(".advanced-filter-token") &&
     themeSurfaceOverridesStyleSource.includes(".rank-board-table-card") &&
     themeSurfaceOverridesStyleSource.includes(".scheduler-strip") &&
     themeSurfaceOverridesStyleSource.includes(".compare-run-rail") &&
@@ -1234,6 +1262,7 @@ assert(
     pageCommandStyleSource.includes(".command-button") &&
     pageCommandStyleSource.includes(".compact-form-card") &&
     pageCommandStyleSource.includes("var(--workspace-command-button-height)") &&
+    !pageCommandStyleSource.includes("transform: none") &&
     !appThemeStyleSource.includes(".workspace-card") &&
     !appThemeStyleSource.includes(".workspace-tabs") &&
     !appThemeStyleSource.includes(".action-panel") &&
@@ -1260,6 +1289,10 @@ assert(
     jobsManifestStyleSource.includes(".manifest-toolbar") &&
     jobsQueueStyleSource.includes(".queue-stack") &&
     jobsRecentRunsStyleSource.includes(".recent-run-card") &&
+    !jobsRecentRunsStyleSource.includes("transform 160ms ease") &&
+    !jobsRecentRunsStyleSource.includes("translateY(") &&
+    !jobsRecentRunsStyleSource.includes("0 14px 28px") &&
+    jobsRecentRunsStyleSource.includes("box-shadow: inset 3px 0 0 #2e9dc0") &&
     jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
     jobsDetailStyleSource.includes(".job-detail-panel") &&
     jobsManifestStyleSource.includes(".prompt-template-panel") &&
@@ -2241,7 +2274,12 @@ assert(
     appChromeVisualStyleSource.includes("content: none") &&
     !appChromeVisualStyleSource.includes("translateX(") &&
     !appChromeVisualStyleSource.includes(".user-profile-chip") &&
-    appChromeVisualStyleSource.includes(".status-pill:hover"),
+    appChromeVisualStyleSource.includes(".topbar .status-pill {\n  position: relative;\n  overflow: hidden;") &&
+    !appChromeVisualStyleSource.includes(".topbar .status-pill:hover") &&
+    !appChromeVisualStyleSource.includes("@keyframes status-breathe") &&
+    !appChromeVisualStyleSource.includes("@keyframes status-online-breathe") &&
+    !appChromeVisualStyleSource.includes(".status-pill.online") &&
+    !appChromeVisualStyleSource.includes(".status-pill.loading"),
   "overview and shared controls must keep focused layout while suppressing decorative motion",
 );
 assert(
@@ -2830,6 +2868,8 @@ assert(
     compareReportPanelStyleSource.includes(".compare-page .comparison-outcome-band,") &&
     compareReportPanelStyleSource.includes(".compare-page .sample-count-chip,") &&
     compareReportPanelStyleSource.includes(".compare-page .label-delta-card") &&
+    !compareReportPanelStyleSource.includes("transform 130ms ease") &&
+    !compareReportPanelStyleSource.includes("transform: none") &&
     styleSource.includes(".compare-run-rail,\n.compare-report-pane,\n.compare-context-pane {\n  min-height: 0;\n  overflow: auto;\n  background: #ffffff;\n  border: 0;") &&
     styleSource.includes(".compare-context-card {\n  display: grid;") &&
     styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid #dbe5ee;") &&
@@ -2855,6 +2895,9 @@ assert(
     comparisonSampleStyleSource.includes("var(--viewer-gap-8)") &&
     comparisonSampleStyleSource.includes("var(--viewer-text-small)") &&
     comparisonSampleStyleSource.includes("var(--viewer-radius-control)") &&
+    !comparisonSampleStyleSource.includes("transform 140ms ease") &&
+    !comparisonSampleStyleSource.includes("translateX(") &&
+    comparisonSampleStyleSource.includes("box-shadow: inset 3px 0 0 #2e9dc0") &&
     !rawVisualPageControlGeometryPattern.test(comparisonSampleStyleSource) &&
     !compareStyleSource.includes(".comparison-sample-row") &&
     !compareStyleSource.includes(".comparison-run-panel") &&
@@ -2923,6 +2966,9 @@ assert(
     rankBoardPageStyleSource.includes("--rank-toolbar-line") &&
     rankBoardPageStyleSource.includes(':root[data-theme="dark"] .rank-board-page') &&
     rankBoardFacetsStyleSource.includes("var(--rank-radius-pill)") &&
+    !rankBoardFacetsStyleSource.includes("transform 150ms ease") &&
+    !rankBoardFacetsStyleSource.includes("transform: none") &&
+    !rankBoardFacetsStyleSource.includes("translateY(") &&
     rankBoardSummaryStyleSource.includes("var(--rank-text-caption)") &&
     rankBoardSummaryStyleSource.includes("--rank-summary-title-ink") &&
     rankBoardSummaryStyleSource.includes(':root[data-theme="dark"] .rank-board-summary') &&
@@ -3093,6 +3139,8 @@ assert(
     rankBoardFacetsStyleSource.includes("--rank-facet-chip-bg") &&
     rankBoardFacetsStyleSource.includes("--rank-facet-toggle-bg") &&
     rankBoardFacetsStyleSource.includes(':root[data-theme="dark"] .rank-board-page .rank-facet-group') &&
+    !rankBoardFacetsStyleSource.includes("transform 150ms ease") &&
+    !rankBoardFacetsStyleSource.includes("transform: none") &&
     rankBoardSummaryStyleSource.includes(".rank-board-summary") &&
     rankBoardTablesStyleSource.includes(".rank-primary-score") &&
     rankBoardTablesStyleSource.includes("--rank-score-bg") &&
@@ -3523,6 +3571,8 @@ assert(
     viewerInspectorStyleSource.includes(".object-row") &&
     viewerInspectorStyleSource.includes(".instance-card") &&
     viewerInspectorStyleSource.includes(".label-chip") &&
+    !viewerInspectorStyleSource.includes("transform 130ms ease") &&
+    !viewerInspectorStyleSource.includes("transform: none") &&
     !viewerCanvasStyleSource.includes(".viewer-side-panel") &&
     !viewerCanvasStyleSource.includes(".object-row") &&
     !viewerCanvasStyleSource.includes(".instance-card"),
@@ -4657,6 +4707,11 @@ assert(
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button") &&
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button:disabled") &&
     compositeInteractionPaletteStyleSource.includes('.interaction-palette-tool[data-tool="reset"]') &&
+    !compositeInteractionPaletteStyleSource.includes("transform 120ms ease") &&
+    !compositeInteractionPaletteStyleSource.includes("translateY(") &&
+    compositeComposerDockPreviewStyleSource.includes(".composer-dock-preview") &&
+    !compositeComposerDockPreviewStyleSource.includes("transform 120ms ease") &&
+    !compositeComposerDockPreviewStyleSource.includes("translateX(") &&
     !compositeInteractionPaletteStyleSource.includes("display: none") &&
     !compositeImageNavigatorStyleSource.includes("image-nearby") &&
     !compositeImageTimelineStyleSource.includes("image-nearby") &&
@@ -4729,6 +4784,7 @@ assert(
     compositeImageAtlasStyleSource.includes(".image-jump-map") &&
     compositeImageAtlasStyleSource.includes(".image-map-bin") &&
     compositeImageAtlasStyleSource.includes("--match-density") &&
+    !compositeImageAtlasStyleSource.includes("translateY(") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-result,") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-result-position") &&
     !compositeImageSearchResultsStyleSource.includes("--image-result-position") &&

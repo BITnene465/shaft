@@ -75,13 +75,11 @@
   text-decoration: none;
   border-bottom: 1px solid #e7edf4;
   transition:
-    transform 140ms ease,
     background 140ms ease,
     box-shadow 140ms ease;
 }
 
 .comparison-sample-row:hover {
-  transform: translateX(2px);
   background: #f6fbff;
   box-shadow: inset 3px 0 0 #2e9dc0;
 }

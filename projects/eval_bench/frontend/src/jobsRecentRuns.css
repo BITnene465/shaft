@@ -17,9 +17,8 @@
   background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #d8e2eb;
   border-radius: 4px;
-  box-shadow: 0 6px 14px rgb(28 57 83 / 5%);
+  box-shadow: none;
   transition:
-    transform 160ms ease,
     border-color 160ms ease,
     background 160ms ease,
     box-shadow 160ms ease;
@@ -36,10 +35,9 @@
 }
 
 .recent-run-card:hover {
-  transform: translateY(-3px);
   background: #ffffff;
   border-color: #9ed0e4;
-  box-shadow: 0 14px 28px rgb(28 57 83 / 10%);
+  box-shadow: inset 3px 0 0 #2e9dc0;
 }
 
 .recent-run-head {

@@ -13,14 +13,12 @@
   box-shadow: 0 18px 42px rgb(15 23 42 / 18%);
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-4px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition: opacity 120ms ease;
 }
 
 .composite-composer-dock:hover .composer-dock-preview,
 .composite-composer-dock:focus-within .composer-dock-preview {
   opacity: 1;
-  transform: translateX(0);
 }
 
 .composer-dock-preview-head {
