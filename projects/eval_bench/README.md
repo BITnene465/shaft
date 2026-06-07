@@ -842,6 +842,7 @@ cd projects/eval_bench/frontend
 npm run test:metrics
 npm run test:status-model
 npm run test:workspace-settings
+npm run test:select-popover
 npm run test:ui-contracts
 npm run test:shortcuts
 npm run test:composite-report
@@ -866,6 +867,10 @@ Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-fir
 
 `test:workspace-settings` 会检查 viewer/settings 共享配置 schema，确保数值配置项、UI number input 范围、
 归一化范围和显示缩放系数来自同一份定义，避免配置层级再次分叉。
+
+`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`），覆盖 80 项渲染窗口、
+hiddenBefore / hiddenAfter、disabled option 跳过、PageUp / PageDown 和 all-disabled 边界，避免高级检索
+或设置页出现几百项选项时退回全量渲染或窗口内循环。
 
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /
 `useWorkspaceShortcuts`，并用自定义 keymap 在 benchmark、run、compare 和 settings 页面真实触发

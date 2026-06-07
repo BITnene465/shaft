@@ -106,6 +106,8 @@ const workspaceSettingsStorageSource = await readSource("src/workspaceSettingsSt
 const typographySettingsSource = await readSource("src/typographySettings.ts");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const selectPopoverControl = await readSource("src/selectPopoverControl.tsx");
+const selectPopoverModelSource = await readSource("src/selectPopoverModel.ts");
+const selectPopoverModelCheckSource = await readSource("scripts/test-select-popover-model.mjs");
 const useDebouncedValueSource = await readSource("src/useDebouncedValue.ts");
 const themeToggleCheckSource = await readSource("scripts/theme-toggle-check.mjs");
 const rankBoardViewStateSource = await readSource("src/rankBoardViewState.ts");
@@ -614,6 +616,85 @@ assert(
     selectPopoverControl.includes("data-placement={menuPlacement}") &&
     selectPopoverControl.includes("useDeferredValue") &&
     selectPopoverControl.includes("indexedOptions") &&
+    selectPopoverControl.includes('} from "./selectPopoverModel";') &&
+    selectPopoverControl.includes('export type { SelectOption } from "./selectPopoverModel";') &&
+    selectPopoverModelSource.includes("export type VisibleSelectWindow =") &&
+    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverModelSource.includes("export function selectVisibleWindow(") &&
+    selectPopoverModelSource.includes("export function clampSelectWindowStart(") &&
+    selectPopoverModelSource.includes("export function enabledIndexNear(") &&
+    selectPopoverModelSource.includes("export function pagedEnabledIndex(") &&
+    selectPopoverModelSource.includes("export function centeredSelectWindowStart(") &&
+    selectPopoverModelSource.includes("export function selectWindowStartForActiveIndex(") &&
+    selectPopoverModelSource.includes("activeIndex < currentStart") &&
+    selectPopoverModelSource.includes("activeIndex >= currentStart + SELECT_VISIBLE_LIMIT") &&
+    selectPopoverModelSource.includes("activeIndex - SELECT_VISIBLE_LIMIT + 1") &&
+    !selectPopoverControl.includes("function selectVisibleWindow(") &&
+    !selectPopoverControl.includes("function enabledIndexNear(") &&
+    !selectPopoverControl.includes("function selectWindowStartForActiveIndex(") &&
+    selectPopoverControl.includes("const [windowStart, setWindowStart] = useState(0);") &&
+    selectPopoverControl.includes("selectVisibleWindow(filteredOptions, windowStart)") &&
+    selectPopoverControl.includes("centeredSelectWindowStart(Math.max(nextActiveIndex, 0), filteredOptions.length)") &&
+    selectPopoverControl.includes("function focusTrigger()") &&
+    selectPopoverControl.includes('querySelector<HTMLButtonElement>(".select-popover-trigger")') &&
+    selectPopoverControl.includes("focus({ preventScroll: true })") &&
+    selectPopoverControl.includes("function focusSearchInput()") &&
+    selectPopoverControl.includes("searchRef.current?.focus({ preventScroll: true })") &&
+    selectPopoverControl.includes("function clearSearch()") &&
+    selectPopoverControl.includes("onClick={clearSearch}") &&
+    selectPopoverControl.includes("function closePopover({ restoreFocus = false }") &&
+    selectPopoverControl.includes("closePopover({ restoreFocus: true })") &&
+    selectPopoverControl.includes("function togglePopover()") &&
+    selectPopoverControl.includes("onClick={togglePopover}") &&
+    selectPopoverControl.includes("closePopover();") &&
+    selectPopoverControl.includes("const activeOptionInVisibleWindow =") &&
+    selectPopoverControl.includes("activeOptionIndex >= visibleWindow.start") &&
+    selectPopoverControl.includes("activeOptionIndex < visibleWindow.start + visibleOptions.length") &&
+    selectPopoverControl.includes("&& activeOptionInVisibleWindow") &&
+    selectPopoverControl.includes("const activeOptionId =") &&
+    selectPopoverControl.includes("`${listboxId}-option-${activeOptionIndex + 1}`") &&
+    selectPopoverModelSource.includes("hiddenBefore: start") &&
+    selectPopoverModelSource.includes("hiddenAfter: Math.max(options.length - start - visibleOptions.length, 0)") &&
+    selectPopoverControl.includes("data-select-window-start={visibleWindow.start}") &&
+    selectPopoverControl.includes("aria-activedescendant={activeOptionId}") &&
+    selectPopoverControl.includes("id={`${listboxId}-option-${absoluteIndex + 1}`}") &&
+    selectPopoverControl.includes('aria-autocomplete="list"') &&
+    selectPopoverControl.includes("aria-controls={listboxId}") &&
+    selectPopoverControl.includes("aria-posinset={absoluteIndex + 1}") &&
+    selectPopoverControl.includes("aria-setsize={filteredOptions.length}") &&
+    selectPopoverControl.includes("data-select-window-index={absoluteIndex + 1}") &&
+    selectPopoverControl.includes("activeOptionIndex") &&
+    selectPopoverControl.includes("nextEnabledIndex(filteredOptions, activeOptionIndex, step)") &&
+    selectPopoverControl.includes("function pageActive(direction: 1 | -1)") &&
+    selectPopoverControl.includes("pagedEnabledIndex(filteredOptions, activeOptionIndex, direction)") &&
+    selectPopoverControl.includes("function isSearchInputEvent(event: ReactKeyboardEvent<HTMLDivElement>)") &&
+    selectPopoverControl.includes("return event.target === searchRef.current;") &&
+    selectPopoverControl.includes('isSearchInputEvent(event) && (event.key === "Home" || event.key === "End")') &&
+    !selectPopoverControl.includes("currentIndex + direction * (SELECT_VISIBLE_LIMIT - 1)") &&
+    selectPopoverModelSource.includes("activeIndex + direction * (SELECT_VISIBLE_LIMIT - 1)") &&
+    selectPopoverModelCheckSource.includes("SELECT_VISIBLE_LIMIT") &&
+    selectPopoverModelCheckSource.includes("selectVisibleWindow(options, centeredStart)") &&
+    selectPopoverModelCheckSource.includes("selectVisibleWindow(shortOptions, 99)") &&
+    selectPopoverModelCheckSource.includes("selectVisibleWindow(options, -40)") &&
+    selectPopoverModelCheckSource.includes("selectVisibleWindow(options, 999)") &&
+    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(80, 120, options.length)") &&
+    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(80, -1, options.length)") &&
+    selectPopoverModelCheckSource.includes("nextEnabledIndex(options, 78, 1)") &&
+    selectPopoverModelCheckSource.includes("enabledIndexNear(options, 79, 1)") &&
+    selectPopoverModelCheckSource.includes("pagedEnabledIndex(options, 0, 1)") &&
+    selectPopoverModelCheckSource.includes("pagedEnabledIndex(options, 120, -1)") &&
+    selectPopoverModelCheckSource.includes("pagedEnabledIndex(allDisabled, -1, 1)") &&
+    selectPopoverControl.includes('event.key === "PageDown"') &&
+    selectPopoverControl.includes("pageActive(1)") &&
+    selectPopoverControl.includes('event.key === "PageUp"') &&
+    selectPopoverControl.includes("pageActive(-1)") &&
+    selectPopoverControl.includes("selectWindowStartForActiveIndex(currentStart, nextIndex, filteredOptions.length)") &&
+    selectPopoverControl.includes("selectWindowStartForActiveIndex(0, nextIndex, filteredOptions.length)") &&
+    selectPopoverControl.includes("selectWindowStartForActiveIndex(windowStart, index, filteredOptions.length)") &&
+    selectPopoverControl.includes("for (let index = filteredOptions.length - 1; index >= 0; index -= 1)") &&
+    selectPopoverControl.includes("const activeOption = filteredOptions[activeOptionIndex]") &&
+    selectPopoverControl.includes("const active = absoluteIndex === activeOptionIndex") &&
+    selectPopoverControl.includes("onMouseEnter={() => {") &&
     selectPopoverStyleSource.includes(".select-popover-control") &&
     selectPopoverStyleSource.includes(".select-popover-filter.compact {\n  width: 100%;") &&
     selectPopoverStyleSource.includes("max-width: 100%;") &&
@@ -622,6 +703,10 @@ assert(
     selectPopoverStyleSource.includes("position: fixed;") &&
     selectPopoverStyleSource.includes("z-index: 260;") &&
     selectPopoverStyleSource.includes(".select-popover-list") &&
+    selectPopoverStyleSource.includes("contain: layout paint;") &&
+    selectPopoverStyleSource.includes("overscroll-behavior: contain;") &&
+    selectPopoverStyleSource.includes("scrollbar-gutter: stable;") &&
+    selectPopoverStyleSource.includes(".select-popover-window-note") &&
     selectPopoverStyleSource.includes('.select-popover-menu[data-placement="top"]') &&
     selectPopoverStyleSource.includes(".select-popover-filter .select-popover-trigger") &&
     selectPopoverStyleSource.includes("max-height: var(--select-menu-max-height") &&
@@ -1035,12 +1120,20 @@ assert(
   controlPrimitives.includes('} from "./selectPopoverControl";') &&
     !controlPrimitives.includes("function SelectPopoverControl(") &&
     selectPopoverControl.includes("function SelectPopoverControl(") &&
-    selectPopoverControl.includes("SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverControl.includes("selectVisibleWindow") &&
+    selectPopoverControl.includes("pagedEnabledIndex") &&
+    !selectPopoverControl.includes("const SELECT_VISIBLE_LIMIT") &&
     selectPopoverControl.includes("deferredQuery") &&
     selectPopoverControl.includes('role="listbox"') &&
     selectPopoverControl.includes('role="option"') &&
     selectPopoverControl.includes('placeholder="搜索选项"') &&
-    selectPopoverControl.includes("visibleOptions = useMemo(") &&
+    selectPopoverControl.includes("visibleWindow = useMemo(") &&
+    selectPopoverControl.includes("const visibleOptions = visibleWindow.options") &&
+    selectPopoverControl.includes("const options = useMemo(\n    () =>\n      values.map((item) => ({") &&
+    selectPopoverControl.includes("[labels, values]") &&
+    !selectPopoverControl.includes("nextEnabledIndex(visibleOptions") &&
+    !selectPopoverControl.includes("const activeOption = visibleOptions[activeIndex]") &&
     !/<select\b/.test(controlPrimitives) &&
     !/<select\b/.test(selectPopoverControl),
   "select primitives must render a searchable bounded custom popover instead of native browser selects",
@@ -1353,6 +1446,9 @@ assert(
 );
 assert(
   packageJsonSource.includes('"test:composite-report": "node scripts/composite-report-smoke-check.mjs"') &&
+    packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
+    readmeSource.includes("npm run test:select-popover") &&
+    readmeSource.includes("`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`）") &&
     compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
     compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
     compositeReportSmokeSource.includes('{ name: "desktop-narrow", width: 1180, height: 760 }') &&
