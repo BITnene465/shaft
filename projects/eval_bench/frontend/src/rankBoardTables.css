@@ -1,23 +1,32 @@
 .rank-index {
   display: inline-flex;
   min-width: 44px;
-  color: #174d65;
+  color: var(--rank-table-index-ink, #174d65);
   font-weight: 820;
   font-variant-numeric: tabular-nums;
 }
 
 .rank-primary-score {
+  --rank-score-ink: #0b3d54;
+  --rank-score-bg: #e9f7fb;
+  --rank-score-line: #bfe1eb;
   display: inline-flex;
   min-width: 64px;
   align-items: center;
   justify-content: flex-end;
   padding: var(--rank-pad-2) var(--rank-pad-8);
-  color: #0b3d54;
-  background: #e9f7fb;
-  border: 1px solid #bfe1eb;
+  color: var(--rank-score-ink);
+  background: var(--rank-score-bg);
+  border: 1px solid var(--rank-score-line);
   border-radius: var(--rank-radius-pill);
   font-weight: 860;
   font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="dark"] .rank-primary-score {
+  --rank-score-ink: var(--bench-cyan-strong);
+  --rank-score-bg: color-mix(in srgb, var(--bench-action-soft) 74%, var(--bench-surface));
+  --rank-score-line: color-mix(in srgb, var(--bench-cyan) 38%, var(--bench-line));
 }
 
 .rank-sort-header {
@@ -45,40 +54,43 @@
 
 .rank-sort-header svg {
   flex: 0 0 auto;
-  color: #9aa8b6;
+  color: var(--rank-sort-icon, #9aa8b6);
 }
 
 .rank-sort-header.active {
-  color: #0b3d54;
+  color: var(--rank-sort-active-ink, #0b3d54);
 }
 
 .rank-sort-header.active svg {
-  color: #0b5f7c;
+  color: var(--rank-sort-active-icon, #0b5f7c);
 }
 
 .table-shell th.rank-sort-active-cell {
-  color: #0b3d54;
-  background: #ecf7fb;
-  border-bottom-color: #b7dce8;
+  color: var(--rank-sort-active-ink, #0b3d54);
+  background: var(--rank-sort-active-head-bg, #ecf7fb);
+  border-bottom-color: var(--rank-sort-active-line, #b7dce8);
 }
 
 .table-shell td.rank-sort-active-cell {
-  background: #f6fbfd;
+  background: var(--rank-sort-active-cell-bg, #f6fbfd);
 }
 
 tbody tr:hover td.rank-sort-active-cell {
-  background: #eef8fc;
+  background: var(--rank-sort-active-hover-bg, #eef8fc);
 }
 
 .rank-score-delta {
+  --rank-delta-ink: #536b7b;
+  --rank-delta-bg: #f3f8fb;
+  --rank-delta-line: #d7e7ef;
   display: inline-flex;
   min-width: 68px;
   align-items: center;
   justify-content: center;
   padding: var(--rank-pad-2) var(--rank-pad-8);
-  color: #536b7b;
-  background: #f3f8fb;
-  border: 1px solid #d7e7ef;
+  color: var(--rank-delta-ink);
+  background: var(--rank-delta-bg);
+  border: 1px solid var(--rank-delta-line);
   border-radius: var(--rank-radius-pill);
   font-size: var(--rank-text-caption);
   font-weight: 840;
@@ -87,20 +99,20 @@ tbody tr:hover td.rank-sort-active-cell {
 
 .rank-score-delta.negative,
 .rank-score-delta.positive {
-  color: #5f5961;
-  background: #f8f4f0;
-  border-color: #e4d6cb;
+  --rank-delta-ink: #5f5961;
+  --rank-delta-bg: #f8f4f0;
+  --rank-delta-line: #e4d6cb;
 }
 
 .rank-score-delta.neutral {
-  color: #0b6f90;
-  background: #e9f7fb;
-  border-color: #bfe1eb;
+  --rank-delta-ink: #0b6f90;
+  --rank-delta-bg: #e9f7fb;
+  --rank-delta-line: #bfe1eb;
 }
 
 .suite-rank-model {
   overflow-wrap: anywhere;
-  color: #101828;
+  color: var(--rank-suite-model-ink, #101828);
   font-weight: 760;
 }
 
@@ -111,18 +123,59 @@ tbody tr:hover td.rank-sort-active-cell {
 }
 
 .suite-rank-splits span {
+  --rank-suite-split-ink: #43566a;
+  --rank-suite-split-bg: #f3f7fa;
+  --rank-suite-split-line: #dce7ef;
   display: inline-flex;
   max-width: 100%;
   align-items: center;
   gap: var(--rank-gap-6);
   padding: var(--rank-pad-3) var(--rank-pad-6);
-  color: #43566a;
-  background: #f3f7fa;
-  border: 1px solid #dce7ef;
+  color: var(--rank-suite-split-ink);
+  background: var(--rank-suite-split-bg);
+  border: 1px solid var(--rank-suite-split-line);
   font-size: var(--rank-text-caption);
 }
 
 .suite-rank-splits strong {
-  color: #0f5d83;
+  color: var(--rank-suite-split-value-ink, #0f5d83);
   font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="dark"] .rank-board-page {
+  --rank-table-index-ink: var(--bench-cyan-strong);
+  --rank-sort-icon: var(--bench-ink-muted);
+  --rank-sort-active-ink: var(--bench-cyan-strong);
+  --rank-sort-active-icon: var(--bench-cyan-strong);
+  --rank-sort-active-head-bg: color-mix(in srgb, var(--bench-action-soft) 62%, var(--bench-surface));
+  --rank-sort-active-cell-bg: color-mix(in srgb, var(--bench-action-soft) 44%, transparent);
+  --rank-sort-active-hover-bg: color-mix(in srgb, var(--bench-action-soft) 58%, var(--bench-surface));
+  --rank-sort-active-line: color-mix(in srgb, var(--bench-cyan) 38%, var(--bench-line));
+  --rank-suite-model-ink: var(--bench-ink);
+  --rank-suite-split-value-ink: var(--bench-cyan-strong);
+}
+
+:root[data-theme="dark"] .rank-score-delta {
+  --rank-delta-ink: var(--bench-ink-muted);
+  --rank-delta-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --rank-delta-line: var(--bench-line);
+}
+
+:root[data-theme="dark"] .rank-score-delta.negative,
+:root[data-theme="dark"] .rank-score-delta.positive {
+  --rank-delta-ink: #ffd38a;
+  --rank-delta-bg: color-mix(in srgb, #ffb545 13%, var(--bench-surface));
+  --rank-delta-line: color-mix(in srgb, #ffb545 34%, var(--bench-line));
+}
+
+:root[data-theme="dark"] .rank-score-delta.neutral {
+  --rank-delta-ink: var(--bench-cyan-strong);
+  --rank-delta-bg: color-mix(in srgb, var(--bench-action-soft) 70%, var(--bench-surface));
+  --rank-delta-line: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line));
+}
+
+:root[data-theme="dark"] .suite-rank-splits span {
+  --rank-suite-split-ink: var(--bench-ink-muted);
+  --rank-suite-split-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --rank-suite-split-line: var(--bench-line);
 }

@@ -1,4 +1,7 @@
 .rank-board-summary {
+  --rank-summary-title-ink: #101925;
+  --rank-summary-meta-ink: #536475;
+  --rank-summary-separator-ink: #c5d0da;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -7,9 +10,15 @@
   line-height: 1;
 }
 
+:root[data-theme="dark"] .rank-board-summary {
+  --rank-summary-title-ink: var(--bench-ink);
+  --rank-summary-meta-ink: var(--bench-ink-muted);
+  --rank-summary-separator-ink: var(--bench-line-strong);
+}
+
 .rank-board-summary strong {
   flex: 0 0 auto;
-  color: #101925;
+  color: var(--rank-summary-title-ink);
   font-size: var(--rank-text-title);
   font-weight: 860;
   line-height: 1;
@@ -17,7 +26,7 @@
 
 .rank-board-summary span {
   flex: 0 0 auto;
-  color: #536475;
+  color: var(--rank-summary-meta-ink);
   font-family: var(--mono-font);
   font-size: var(--rank-text-caption);
   line-height: 1;
@@ -26,7 +35,7 @@
 
 .rank-board-summary span:not(:last-child)::after {
   margin-left: 8px;
-  color: #c5d0da;
+  color: var(--rank-summary-separator-ink);
   content: "/";
 }
 

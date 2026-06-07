@@ -148,14 +148,12 @@ async function assertDarkRouteSurface(page, pathname, selectors) {
   }, selectors);
   assert(snapshots.length > 0, `${pathname} must expose a themed surface`);
   for (const snapshot of snapshots) {
-    assert.notEqual(
-      snapshot.background,
-      "rgb(255, 255, 255)",
+    assert(
+      !isNearWhite(snapshot.background),
       `${pathname} ${snapshot.selector} dark surface is still pure white`
     );
-    assert.notEqual(
-      snapshot.color,
-      "rgb(17, 24, 39)",
+    assert(
+      !isLightThemeInk(snapshot.color),
       `${pathname} ${snapshot.selector} dark text is still light-theme ink`
     );
   }
@@ -172,8 +170,8 @@ async function assertDarkSelectPopover(page, pathname) {
     background: getComputedStyle(element).backgroundColor,
     color: getComputedStyle(element).color
   }));
-  assert.notEqual(snapshot.background, "rgb(255, 255, 255)", `${pathname} dark select menu is still pure white`);
-  assert.notEqual(snapshot.color, "rgb(17, 24, 39)", `${pathname} dark select menu text is still light-theme ink`);
+  assert(!isNearWhite(snapshot.background), `${pathname} dark select menu is still pure white`);
+  assert(!isLightThemeInk(snapshot.color), `${pathname} dark select menu text is still light-theme ink`);
 }
 
 async function assertNoBrightDarkSurfaces(page) {
@@ -196,10 +194,6 @@ async function assertNoBrightDarkSurfaces(page) {
             continue;
           }
           const background = getComputedStyle(element).backgroundColor;
-          const parsed = parseCssRgb(background);
-          if (!parsed || parsed.alpha <= 0.2 || parsed.lightness <= 225) {
-            continue;
-          }
           items.push({
             pathname,
             tag: element.tagName.toLowerCase(),
@@ -210,27 +204,24 @@ async function assertNoBrightDarkSurfaces(page) {
           });
         }
         return items;
-        function parseCssRgb(value) {
-          const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?/);
-          if (!match) {
-            return null;
-          }
-          const red = Number(match[1]);
-          const green = Number(match[2]);
-          const blue = Number(match[3]);
-          const alpha = match[4] === undefined ? 1 : Number(match[4]);
-          return { alpha, lightness: (red + green + blue) / 3 };
-        }
       },
       { selector: darkSurfaceCandidateSelector, pathname }
     );
-    findings.push(...routeFindings);
+    findings.push(...routeFindings.filter(isBrightSurfaceFinding));
   }
   assert.equal(
     findings.length,
     0,
     `dark theme still exposes bright surfaces: ${JSON.stringify(findings.slice(0, 20))}`
   );
+}
+
+function isBrightSurfaceFinding(finding) {
+  const parsed = parseCssColor(finding.background);
+  if (!parsed || parsed.alpha <= 0.2) {
+    return false;
+  }
+  return (parsed.red + parsed.green + parsed.blue) / 3 > 225;
 }
 
 async function assertTopbarDensity(page) {
@@ -293,19 +284,83 @@ async function assertDarkMicroInteractions(page) {
   });
   assert.notEqual(snapshot.scrollbarColor, "auto", "dark theme must define non-native scrollbar colors");
   assert(!isBrightRgb(snapshot.statusBackground), `dark status pill is too bright: ${snapshot.statusBackground}`);
-  assert.notEqual(snapshot.statusColor, "rgb(21, 84, 60)", "dark status pill still uses light success ink");
-  assert.notEqual(snapshot.focusOutlineColor, "rgba(99, 127, 149, 0.12)", "dark focus ring is still light-theme neutral");
+  assert(!isLightSuccessInk(snapshot.statusColor), "dark status pill still uses light success ink");
+  assert(!isLightNeutralFocus(snapshot.focusOutlineColor), "dark focus ring is still light-theme neutral");
   assert.notEqual(snapshot.focusBoxShadow, "none", "dark focus state must expose a visible focus ring");
 }
 
 function isBrightRgb(value) {
-  const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?/);
+  const parsed = parseCssColor(value);
+  if (!parsed || parsed.alpha <= 0.2) {
+    return false;
+  }
+  return (parsed.red + parsed.green + parsed.blue) / 3 > 190;
+}
+
+function isNearWhite(value) {
+  const parsed = parseCssColor(value);
+  if (!parsed || parsed.alpha <= 0.2) {
+    return false;
+  }
+  return parsed.red > 245 && parsed.green > 245 && parsed.blue > 245;
+}
+
+function isLightThemeInk(value) {
+  return isNearCssColor(value, { red: 17, green: 24, blue: 39 }, 2);
+}
+
+function isLightSuccessInk(value) {
+  return isNearCssColor(value, { red: 21, green: 84, blue: 60 }, 2);
+}
+
+function isLightNeutralFocus(value) {
+  return isNearCssColor(value, { red: 99, green: 127, blue: 149 }, 2, 0.12);
+}
+
+function isNearCssColor(value, expected, channelTolerance, expectedAlpha = 1) {
+  const parsed = parseCssColor(value);
+  if (!parsed) {
+    return false;
+  }
+  return (
+    Math.abs(parsed.red - expected.red) <= channelTolerance &&
+    Math.abs(parsed.green - expected.green) <= channelTolerance &&
+    Math.abs(parsed.blue - expected.blue) <= channelTolerance &&
+    Math.abs(parsed.alpha - expectedAlpha) <= 0.02
+  );
+}
+
+function parseCssColor(value) {
+  const srgbMatch = value.match(/color\(srgb\s+([^)]+)\)/);
+  if (srgbMatch) {
+    const parts = srgbMatch[1]
+      .split(/\s+/)
+      .map((part) => Number(part))
+      .filter((part) => Number.isFinite(part));
+    if (parts.length >= 3) {
+      return {
+        red: parts[0] * 255,
+        green: parts[1] * 255,
+        blue: parts[2] * 255,
+        alpha: parts[3] === undefined ? 1 : parts[3]
+      };
+    }
+  }
+  const match = value.match(/rgba?\(([^)]+)\)/);
   if (!match) {
-    return false;
+    return null;
   }
-  const alpha = match[4] === undefined ? 1 : Number(match[4]);
-  if (alpha <= 0.2) {
-    return false;
+  const parts = match[1]
+    .split(/[,\s/]+/)
+    .map((part) => Number(part))
+    .filter((part) => Number.isFinite(part));
+  if (parts.length < 3) {
+    return null;
   }
-  return (Number(match[1]) + Number(match[2]) + Number(match[3])) / 3 > 190;
+  return {
+    red: parts[0],
+    green: parts[1],
+    blue: parts[2],
+    alpha: parts[3] === undefined ? 1 : parts[3]
+  };
 }

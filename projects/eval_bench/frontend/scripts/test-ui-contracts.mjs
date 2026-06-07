@@ -899,6 +899,12 @@ assert(
     dataTableStyleSource.includes("background: transparent;") &&
     dataTableStyleSource.includes(".table-shell.refreshing::after") &&
     dataTableStyleSource.includes(".table-shell.table-loading") &&
+    dataTableStyleSource.includes("--table-loading-glint") &&
+    dataTableStyleSource.includes("--table-hover-border") &&
+    dataTableStyleSource.includes("--table-checkbox-bg") &&
+    dataTableStyleSource.includes("--table-checkbox-check-ring") &&
+    dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell.table-loading') &&
+    dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell') &&
     dataTableStyleSource.includes("@keyframes table-skeleton-sheen") &&
     dataTableStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
     dataTableStyleSource.includes(".table-shell.refreshing::after,\n  .table-skeleton-line") &&
@@ -1655,6 +1661,25 @@ assert(
     loadingStateSmokeSource.includes("await page.emulateMedia({ reducedMotion: \"reduce\" })") &&
     loadingStateSmokeSource.includes("reduced-motion loading skeleton must not animate") &&
     loadingStateSmokeSource.includes("reduced-motion table refresh line must not animate") &&
+    loadingStateSmokeSource.includes("async function assertDarkThemeLoadingState()") &&
+    loadingStateSmokeSource.includes("dark loading table shell must not fall back to a bright surface") &&
+    loadingStateSmokeSource.includes("dark loading skeleton glint must not use white shimmer") &&
+    loadingStateSmokeSource.includes("dark loading indicator must not use a bright pill surface") &&
+    loadingStateSmokeSource.includes("dark run note preview must not use a bright filled surface") &&
+    loadingStateSmokeSource.includes("dark empty run note preview must not use a bright empty surface") &&
+    loadingStateSmokeSource.includes("dark row selection checkbox must not use a bright native surface") &&
+    loadingStateSmokeSource.includes("async function assertDarkRankBoardTableControls()") &&
+    loadingStateSmokeSource.includes("dark rank primary score must not use a bright score pill") &&
+    loadingStateSmokeSource.includes("dark rank delta must not use a bright delta pill") &&
+    loadingStateSmokeSource.includes("dark rank active metric cell must not use a bright active background") &&
+    loadingStateSmokeSource.includes("dark rank mode switch must not use a bright switch surface") &&
+    loadingStateSmokeSource.includes("dark rank summary title must not use light-theme dark ink") &&
+    loadingStateSmokeSource.includes("dark rank facet group must not use a bright group surface") &&
+    loadingStateSmokeSource.includes("dark rank facet chip must not use a bright chip surface") &&
+    loadingStateSmokeSource.includes("dark rank facet toggle must not use a bright toggle surface") &&
+    loadingStateSmokeSource.includes("function sampleRankEntries()") &&
+    loadingStateSmokeSource.includes("function sampleRankFacets()") &&
+    loadingStateSmokeSource.includes("function sampleRuns()") &&
     loadingStateSmokeSource.includes("must not use a full-page empty panel for first load") &&
     packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
     packageJsonSource.includes('"test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs"') &&
@@ -2431,6 +2456,9 @@ assert(
     runTables.includes("<FileText size={14} />") &&
     runTables.includes("<FileX size={14} />") &&
     runTablesStyleSource.includes(".run-note-preview") &&
+    runTablesStyleSource.includes("--run-note-preview-bg") &&
+    runTablesStyleSource.includes("--run-note-preview-empty-bg") &&
+    runTablesStyleSource.includes(':root[data-theme="dark"] .run-note-preview') &&
     runTablesStyleSource.includes(".run-table-stack") &&
     runTablesStyleSource.includes(".workspace-card.fill .run-table-stack") &&
     !appThemeStyleSource.includes(".run-note-preview") &&
@@ -2795,8 +2823,13 @@ assert(
       rankBoardTablesStyleSource
     ].every((source) => !rawRankBoardGeometryPattern.test(source)) &&
     rankBoardPageStyleSource.includes("var(--rank-gap-8)") &&
+    rankBoardPageStyleSource.includes("--rank-mode-switch-bg") &&
+    rankBoardPageStyleSource.includes("--rank-toolbar-line") &&
+    rankBoardPageStyleSource.includes(':root[data-theme="dark"] .rank-board-page') &&
     rankBoardFacetsStyleSource.includes("var(--rank-radius-pill)") &&
     rankBoardSummaryStyleSource.includes("var(--rank-text-caption)") &&
+    rankBoardSummaryStyleSource.includes("--rank-summary-title-ink") &&
+    rankBoardSummaryStyleSource.includes(':root[data-theme="dark"] .rank-board-summary') &&
     rankBoardTablesStyleSource.includes("var(--rank-radius-pill)") &&
     rankBoardControllerSource.includes("RANK_PAGE_SIZE") &&
     rankBoardControllerSource.includes("RANK_SORTABLE_FIELDS") &&
@@ -2960,8 +2993,17 @@ assert(
     !rankBoardPageStyleSource.includes(".rank-primary-score") &&
     !rankBoardPageStyleSource.includes(".rank-board-summary") &&
     rankBoardFacetsStyleSource.includes(".rank-facet-group.expanded > div") &&
+    rankBoardFacetsStyleSource.includes("--rank-facet-group-bg") &&
+    rankBoardFacetsStyleSource.includes("--rank-facet-chip-bg") &&
+    rankBoardFacetsStyleSource.includes("--rank-facet-toggle-bg") &&
+    rankBoardFacetsStyleSource.includes(':root[data-theme="dark"] .rank-board-page .rank-facet-group') &&
     rankBoardSummaryStyleSource.includes(".rank-board-summary") &&
     rankBoardTablesStyleSource.includes(".rank-primary-score") &&
+    rankBoardTablesStyleSource.includes("--rank-score-bg") &&
+    rankBoardTablesStyleSource.includes("--rank-sort-active-cell-bg") &&
+    rankBoardTablesStyleSource.includes("--rank-delta-bg") &&
+    rankBoardTablesStyleSource.includes(':root[data-theme="dark"] .rank-board-page') &&
+    rankBoardTablesStyleSource.includes(':root[data-theme="dark"] .rank-score-delta.neutral') &&
     rankBoardTablesStyleSource.includes(".rank-sort-header"),
   "rank board styles must keep page frame, summary, facets, and table concerns in separate CSS modules",
 );
@@ -3304,7 +3346,14 @@ assert(
     themeToggleCheckSource.includes('"/suite-report"') &&
     themeToggleCheckSource.includes("function assertNoBrightDarkSurfaces") &&
     themeToggleCheckSource.includes("darkSurfaceCandidateSelector") &&
-    themeToggleCheckSource.includes("parseCssRgb") &&
+    themeToggleCheckSource.includes("function isBrightSurfaceFinding(finding)") &&
+    themeToggleCheckSource.includes("routeFindings.filter(isBrightSurfaceFinding)") &&
+    themeToggleCheckSource.includes("color\\(srgb") &&
+    themeToggleCheckSource.includes("function parseCssColor(value)") &&
+    themeToggleCheckSource.includes("function isNearWhite(value)") &&
+    themeToggleCheckSource.includes("function isLightThemeInk(value)") &&
+    themeToggleCheckSource.includes("function isLightNeutralFocus(value)") &&
+    !themeToggleCheckSource.includes('assert.notEqual(snapshot.background, "rgb(255, 255, 255)"') &&
     themeToggleCheckSource.includes("parsed.alpha <= 0.2") &&
     themeToggleCheckSource.includes("const TOPBAR_MAX_HEIGHT = 56;") &&
     themeToggleCheckSource.includes("stored dark theme must survive reload") &&
