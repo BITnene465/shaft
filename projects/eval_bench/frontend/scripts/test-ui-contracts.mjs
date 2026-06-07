@@ -66,6 +66,7 @@ const compareRunRailComponentsSource = await readSource("src/compareRunRailCompo
 const suiteReportPage = await readSource("src/suiteReportPage.tsx");
 const overviewPage = await readSource("src/overviewPage.tsx");
 const overviewModelSource = await readSource("src/overviewModel.ts");
+const dashboardStateSource = await readSource("src/dashboardState.ts");
 const rankBoardPage = await readSource("src/rankBoardPage.tsx");
 const rankThemeStyleSource = await readSource("src/rankTheme.css");
 const rankBoardPageStyleSource = await readSource("src/rankBoardPage.css");
@@ -131,6 +132,7 @@ const controlPrimitiveStyleSource = await readSource("src/controlPrimitiveStyles
 const selectPopoverStyleSource = await readSource("src/selectPopover.css");
 const labelColorControlsStyleSource = await readSource("src/labelColorControls.css");
 const appThemeStyleSource = await readSource("src/appTheme.css");
+const themeSurfaceOverridesStyleSource = await readSource("src/themeSurfaceOverrides.css");
 const adaptiveContentStyleSource = await readSource("src/adaptiveContent.css");
 const dataTableStyleSource = await readSource("src/dataTable.css");
 const runTablesStyleSource = await readSource("src/runTables.css");
@@ -410,6 +412,22 @@ assert(
     !appThemeStyleSource.includes(".user-profile-chip") &&
     !appThemeStyleSource.includes(".sr-only"),
   "base reset, app chrome, and app theme styles must live in explicit CSS modules",
+);
+assert(
+  !mainEntry.includes("refetchInterval: 10_000") &&
+    mainEntry.includes("staleTime: 15_000") &&
+    mainEntry.includes("refetchOnWindowFocus: false") &&
+    dashboardStateSource.includes('queryKey: ["dashboard-state"]') &&
+    dashboardStateSource.includes("refetchInterval: 10_000") &&
+    appShellSource.includes('preload="intent"') &&
+    appShellSource.includes("preloadDelay={80}") &&
+    overviewModelSource.includes("const OVERVIEW_QUEUE_REFRESH_MS = 5_000;") &&
+    overviewModelSource.includes("const OVERVIEW_SERVICE_REFRESH_MS = 10_000;") &&
+    jobsQueuePanelSource.includes("const JOB_QUEUE_REFRESH_MS = 4_000;") &&
+    jobsQueuePanelSource.includes("refetchInterval: JOB_QUEUE_REFRESH_MS") &&
+    !overviewModelSource.includes("refetchInterval: 2_000") &&
+    !jobsQueuePanelSource.includes("refetchInterval: 2_000"),
+  "query refresh policy must avoid global polling while preserving explicit live dashboard refresh and nav preloading",
 );
 assert(
   adaptiveContentStyleSource.includes("td,\ntbody td") &&
@@ -741,6 +759,7 @@ assert(
     filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
     jobsPage.includes('import "./jobsPage.css";') &&
     mainEntry.includes('import "./formControls.css";') &&
+    mainEntry.includes('import "./themeSurfaceOverrides.css";') &&
     mainEntry.includes('import "./workspaceTheme.css";') &&
     mainEntry.includes('import "./workspaceShell.css";') &&
     mainEntry.includes('import "./workspaceDialog.css";') &&
@@ -751,6 +770,15 @@ assert(
       mainEntry.indexOf('import "./workspaceDialog.css";') &&
     mainEntry.indexOf('import "./workspaceDialog.css";') <
       mainEntry.indexOf('import "./pageCommand.css";') &&
+    mainEntry.indexOf('import "./formControls.css";') <
+      mainEntry.indexOf('import "./themeSurfaceOverrides.css";') &&
+    themeSurfaceOverridesStyleSource.includes(':root[data-theme="dark"]') &&
+    themeSurfaceOverridesStyleSource.includes(".advanced-filter-bar") &&
+    themeSurfaceOverridesStyleSource.includes(".rank-board-table-card") &&
+    themeSurfaceOverridesStyleSource.includes(".settings-workbench-shell") &&
+    themeSurfaceOverridesStyleSource.includes(".run-config-panel") &&
+    !themeSurfaceOverridesStyleSource.includes(".app-shell") &&
+    !themeSurfaceOverridesStyleSource.includes("@keyframes") &&
     workspaceThemeStyleSource.includes("--workspace-tab-height") &&
     workspaceThemeStyleSource.includes("--workspace-dialog-head-height") &&
     workspaceThemeStyleSource.includes("--workspace-radius-panel") &&
@@ -2804,7 +2832,18 @@ assert(
     workspaceSettingsSchemaSource.includes('{ key: "boxStrokeWidth", label: "框线宽", min: 1, max: 10, step: 1, precision: 0 }') &&
     workspaceSettingsSchemaSource.includes('{ key: "activeStrokeWidth", label: "高亮线宽", min: 2, max: 16, step: 1, precision: 0 }') &&
     workspaceSettingsSchemaSource.includes('{ key: "labelFontSize", label: "标签字号", min: 6, max: 14') &&
+    workspaceSettingsSchemaSource.includes('themeMode: "eval_bench_theme_mode"') &&
+    workspaceSettingsSchemaSource.includes("export const THEME_MODES") &&
     workspaceSettingsSchemaSource.includes("export const SHORTCUT_ACTIONS") &&
+    workspaceSettingsSource.includes("export function bootstrapThemePreference") &&
+    workspaceSettingsSource.includes("export function useThemePreference") &&
+    workspaceSettingsStorageSource.includes("export function loadThemeMode") &&
+    workspaceSettingsStorageSource.includes("export function applyThemeMode") &&
+    workspaceSettingsStorageSource.includes("document.documentElement.dataset.theme") &&
+    workspaceSettingsStorageSource.includes("document.documentElement.style.colorScheme") &&
+    appShellSource.includes("bootstrapThemePreference();") &&
+    appShellSource.includes("useThemePreference()") &&
+    appShellSource.includes('className="theme-toggle"') &&
     workspaceSettingsStorageSource.includes("export function loadOverlayStyle") &&
     workspaceSettingsStorageSource.includes("export function normalizeShortcutBinding") &&
     workspaceSettingsStorageSource.includes("export function visibleViewerLabels") &&

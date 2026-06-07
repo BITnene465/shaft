@@ -43,12 +43,13 @@ import "./pageCommand.css";
 import "./dataTable.css";
 import "./runTables.css";
 import "./formControls.css";
+import "./themeSurfaceOverrides.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 10_000,
-      staleTime: 5_000,
+      staleTime: 15_000,
+      refetchOnWindowFocus: false,
       retry: 1
     }
   }

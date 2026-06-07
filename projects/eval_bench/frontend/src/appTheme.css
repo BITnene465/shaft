@@ -1,12 +1,12 @@
 /* Eval Bench application theme overrides. */
 :root {
-  color: #111827;
-  background: #0a0f16;
+  color: var(--bench-ink);
+  background: var(--bench-bg);
   font-family: var(--app-font-family);
   font-size: var(--app-base-font-size);
 }
 
 body {
-  background: #0a0f16;
+  background: var(--bench-bg);
   font-size: var(--app-base-font-size);
 }

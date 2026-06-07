@@ -21,7 +21,8 @@ import type {
   OverlayStyle,
   OverlayStyleNumberKey,
   ShortcutBindings,
-  ShortcutKeyboardEvent
+  ShortcutKeyboardEvent,
+  ThemeMode
 } from "./workspaceSettingsSchema";
 
 const OVERLAY_STYLE_CONTROL_MAP = Object.fromEntries(
@@ -138,6 +139,16 @@ export function loadShortcutBindings(): ShortcutBindings {
 
 export function loadSidebarCollapsed() {
   return localStorage.getItem(STORAGE_KEYS.sidebarCollapsed) === "1";
+}
+
+export function loadThemeMode(): ThemeMode {
+  const value = localStorage.getItem(STORAGE_KEYS.themeMode);
+  return value === "dark" ? "dark" : "light";
+}
+
+export function applyThemeMode(themeMode: ThemeMode) {
+  document.documentElement.dataset.theme = themeMode;
+  document.documentElement.style.colorScheme = themeMode;
 }
 
 export function loadBooleanPreference(key: string, fallback: boolean) {

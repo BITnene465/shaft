@@ -140,6 +140,7 @@ export const FALLBACK_LABEL_PALETTE = [
 ];
 
 export const STORAGE_KEYS = {
+  themeMode: "eval_bench_theme_mode",
   overlayStyle: "eval_bench_overlay_style",
   labelColors: "eval_bench_label_colors",
   interaction: "eval_bench_interaction_settings",
@@ -152,6 +153,13 @@ export const STORAGE_KEYS = {
   viewerShowLines: "evalBench.viewer.layers.showLines",
   viewerShowKeypoints: "evalBench.viewer.layers.showKeypoints"
 };
+
+export const THEME_MODES = [
+  { value: "light", label: "日间" },
+  { value: "dark", label: "夜间" }
+] as const;
+
+export type ThemeMode = (typeof THEME_MODES)[number]["value"];
 
 export const DEFAULT_SHORTCUT_BINDINGS = Object.fromEntries(
   SHORTCUT_ACTIONS.map((action) => [action.id, action.defaultBinding])

@@ -2,13 +2,13 @@
   display: flex;
   gap: var(--control-gap-2);
   padding: var(--control-pad-8);
-  border-bottom: 1px solid #e2e8ef;
+  border-bottom: 1px solid var(--bench-line);
 }
 
 .tabs-list button {
   min-height: var(--control-status-height);
   padding: 0 var(--control-pad-12);
-  color: #4e5d6e;
+  color: var(--bench-ink-muted);
   background: transparent;
   border: 0;
   border-radius: var(--control-radius-tight);
@@ -17,8 +17,8 @@
 }
 
 .tabs-list button[data-state="active"] {
-  color: #151b23;
-  background: #edf2f7;
+  color: var(--bench-ink);
+  background: var(--bench-surface-muted);
 }
 
 .section-header {
@@ -31,7 +31,7 @@
 .section-header p {
   display: none;
   margin-top: 6px;
-  color: #647487;
+  color: var(--bench-ink-muted);
   font-size: var(--control-text-section);
 }
 
@@ -44,13 +44,13 @@
 }
 
 .config-item span {
-  color: #718294;
+  color: var(--bench-ink-muted);
   font-size: var(--control-text-small);
 }
 
 .config-item strong {
   overflow: hidden;
-  color: #1d2733;
+  color: var(--bench-ink);
   font-size: var(--control-text-small);
   font-weight: 700;
   text-overflow: ellipsis;

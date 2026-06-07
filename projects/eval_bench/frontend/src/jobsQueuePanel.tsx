@@ -34,6 +34,7 @@ import {
 } from "./ui";
 
 const JOB_PAGE_SIZE = 80;
+const JOB_QUEUE_REFRESH_MS = 4_000;
 
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
@@ -71,13 +72,15 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const { data, isLoading, isPlaceholderData, error } = useQuery({
     queryKey: ["jobs", jobFilters],
     queryFn: () => fetchJobs(jobFilters),
-    refetchInterval: 2_000,
+    refetchInterval: JOB_QUEUE_REFRESH_MS,
+    staleTime: 1_500,
     placeholderData: (previousData) => previousData
   });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],
     queryFn: fetchSchedulerStatus,
-    refetchInterval: 2_000
+    refetchInterval: JOB_QUEUE_REFRESH_MS,
+    staleTime: 1_500
   });
   const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
   const facets = data?.facets;

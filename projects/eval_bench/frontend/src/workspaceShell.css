@@ -56,7 +56,7 @@
 .tab-block,
 .empty-panel,
 .action-panel {
-  background: color-mix(in srgb, var(--bench-surface) 94%, white);
+  background: color-mix(in srgb, var(--bench-surface) 94%, var(--bench-surface-raised));
   border: 1px solid var(--bench-line);
   border-radius: var(--workspace-radius-panel);
   box-shadow: var(--bench-shadow-tight);
@@ -90,16 +90,14 @@
   gap: var(--workspace-gap-2);
   min-height: var(--workspace-tab-height);
   padding: 0 var(--workspace-pad-10);
-  background:
-    linear-gradient(180deg, #ffffff 0%, #f3f8fb 100%),
-    var(--bench-surface);
+  background: var(--bench-surface-raised);
   border-bottom: 1px solid var(--bench-line);
 }
 
 .workspace-tab-list button {
   min-width: 104px;
   padding: 0 var(--workspace-pad-12);
-  color: #516475;
+  color: var(--bench-ink-muted);
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -112,12 +110,12 @@
 
 .workspace-tab-list button:hover {
   color: var(--bench-ink);
-  background: #eef5f9;
+  background: var(--bench-surface-muted);
 }
 
 .workspace-tab-list button[data-state="active"] {
   color: var(--bench-cyan-strong);
-  background: #ffffff;
+  background: var(--bench-surface);
   border-bottom-color: var(--bench-cyan);
   box-shadow: inset 0 -1px 0 var(--bench-cyan);
 }
@@ -146,8 +144,8 @@
   justify-content: space-between;
   min-height: var(--workspace-tab-height);
   padding: 0 var(--workspace-pad-12);
-  background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
-  border-bottom: 1px solid #dce7ef;
+  background: var(--bench-surface-raised);
+  border-bottom: 1px solid var(--bench-line);
 }
 
 .panel-title strong {
@@ -172,7 +170,7 @@
   min-height: 180px;
   place-items: center;
   padding: 34px var(--workspace-pad-18);
-  color: #667085;
+  color: var(--bench-ink-muted);
   font-size: var(--workspace-text-body);
   text-align: center;
 }
@@ -188,11 +186,9 @@
   align-items: center;
   min-height: var(--workspace-action-height);
   padding: 0 var(--workspace-pad-12);
-  color: #4f6071;
+  color: var(--bench-ink-muted);
   cursor: pointer;
-  background:
-    linear-gradient(180deg, #ffffff 0%, #f5f9fc 100%),
-    #ffffff;
+  background: var(--bench-surface-raised);
   border-bottom: 1px solid transparent;
   font-size: var(--workspace-text-body);
   font-weight: 760;
@@ -207,7 +203,7 @@
 
 .action-panel summary::after {
   min-width: 44px;
-  color: #506779;
+  color: var(--bench-ink-muted);
   content: "Open";
   font-size: var(--workspace-text-caption);
   font-weight: 780;
@@ -241,7 +237,7 @@
 }
 
 .action-panel[open] summary {
-  border-bottom-color: #dce7ef;
+  border-bottom-color: var(--bench-line);
 }
 
 @media (prefers-reduced-motion: no-preference) {

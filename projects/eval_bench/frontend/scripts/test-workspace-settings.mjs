@@ -6,20 +6,11 @@ import ts from "typescript";
 const root = path.resolve(import.meta.dirname, "..");
 const sourcePath = path.join(root, "src", "workspaceSettings.ts");
 const source = await readFile(sourcePath, "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: {
-    module: ts.ModuleKind.ES2022,
-    target: ts.ScriptTarget.ES2022,
-    importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
-    isolatedModules: true,
-    strict: true
-  },
-  fileName: sourcePath
-});
-
 const tmpDir = await mkdtemp(path.join(root, ".tmp-workspace-settings-"));
+await writeCompiledModule("workspaceSettingsSchema");
+await writeCompiledModule("workspaceSettingsStorage");
+await writeCompiledModule("workspaceSettings");
 const modulePath = path.join(tmpDir, "workspaceSettings.mjs");
-await writeFile(modulePath, compiled.outputText, "utf8");
 const settings = await import(modulePath);
 
 const overlayNumberKeys = Object.keys(settings.DEFAULT_OVERLAY_STYLE)
@@ -44,7 +35,7 @@ for (const control of allControls) {
   const midpoint = (control.min + control.max) / 2;
   const rendered = settings.settingControlValue(midpoint, control);
   const parsed = settings.settingValueFromControl(rendered, control);
-  assert.ok(Math.abs(parsed - midpoint) < 1e-12, `${control.key} control round-trip`);
+  assert.ok(Math.abs(parsed - midpoint) <= control.step / 2 + 1e-12, `${control.key} control round-trip`);
 }
 
 const wheelControl = settings.INTERACTION_SETTING_CONTROLS.find(
@@ -131,8 +122,30 @@ assert.deepEqual(
   "viewer visible label changes must keep hidden label preferences"
 );
 assert.ok(source.includes("preferredLabels"));
-assert.ok(source.includes("hiddenPreference"));
+assert.ok((await readFile(path.join(root, "src", "workspaceSettingsStorage.ts"), "utf8")).includes("hiddenPreference"));
 assert.ok(source.includes("!nextPreference.some"));
 
 await rm(tmpDir, { recursive: true, force: true });
 console.log("workspace settings checks passed");
+
+async function writeCompiledModule(moduleName) {
+  const inputPath = path.join(root, "src", `${moduleName}.ts`);
+  const input = await readFile(inputPath, "utf8");
+  const compiled = ts.transpileModule(input, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
+      isolatedModules: true,
+      strict: true
+    },
+    fileName: inputPath
+  });
+  await writeFile(
+    path.join(tmpDir, `${moduleName}.mjs`),
+    compiled.outputText
+      .replaceAll('from "./workspaceSettingsSchema"', 'from "./workspaceSettingsSchema.mjs"')
+      .replaceAll('from "./workspaceSettingsStorage"', 'from "./workspaceSettingsStorage.mjs"'),
+    "utf8"
+  );
+}

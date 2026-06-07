@@ -3,8 +3,8 @@
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono-font: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
   --app-base-font-size: 12px;
-  color: #18202a;
-  background: #0e151d;
+  color: var(--bench-ink, #18202a);
+  background: var(--bench-bg, #0e151d);
   font-family: var(--app-font-family);
   font-size: var(--app-base-font-size);
   font-synthesis: none;
@@ -42,13 +42,13 @@ p {
 }
 
 h1 {
-  color: #151b23;
+  color: var(--bench-ink, #151b23);
   font-size: var(--text-xl, 17.4px);
   line-height: 1.12;
 }
 
 h2 {
-  color: #151b23;
+  color: var(--bench-ink, #151b23);
   font-size: var(--text-lg, 15px);
   line-height: 1.2;
 }

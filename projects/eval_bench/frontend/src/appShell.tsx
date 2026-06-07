@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Moon, PanelLeftClose, PanelLeftOpen, Sun, X } from "lucide-react";
 
 import { resetCompareViewState } from "./compareViewState";
 import { useDashboardState } from "./dashboardState";
@@ -11,9 +11,14 @@ import { resetRankBoardViewState } from "./rankBoardViewState";
 import { resetRunsViewState } from "./runsViewState";
 import { bootstrapTypographySettings, useTypographySettings } from "./typographySettings";
 import { ActionButton, IconActionButton } from "./ui";
-import { useSidebarPreference } from "./workspaceSettings";
+import {
+  bootstrapThemePreference,
+  useSidebarPreference,
+  useThemePreference
+} from "./workspaceSettings";
 
 bootstrapTypographySettings();
+bootstrapThemePreference();
 
 export class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,6 +61,7 @@ export function AppShell() {
   const location = useLocation();
   const pageTitle = getShellTitle(location.pathname);
   const { sidebarCollapsed, setSidebarCollapsed } = useSidebarPreference();
+  const { themeMode, toggleThemeMode } = useThemePreference();
   useTypographySettings();
 
   return (
@@ -126,6 +132,12 @@ export function AppShell() {
             <h1>{pageTitle.title}</h1>
           </div>
           <div className="topbar-actions">
+            <IconActionButton
+              className="theme-toggle"
+              title={themeMode === "dark" ? "切换到日间主题" : "切换到夜间主题"}
+              icon={themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+              onClick={toggleThemeMode}
+            />
             <div className="user-profile-chip" title="当前版本使用浏览器本地 profile 保存偏好">
               <span>Profile</span>
               <strong>local</strong>
@@ -225,6 +237,8 @@ function NavItem({
       to={to}
       className="nav-item"
       activeProps={{ className: "nav-item active" }}
+      preload="intent"
+      preloadDelay={80}
       title={label}
       onClick={onNavigate}
     >

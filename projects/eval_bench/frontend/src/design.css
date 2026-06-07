@@ -1,9 +1,16 @@
 /* Eval Bench design tokens. Component geometry and page styles live in focused modules. */
 :root {
-  --bench-bg: #081018;
+  --bench-bg: #edf3f7;
   --bench-bg-soft: #edf3f7;
-  --bench-rail: #0a131d;
+  --bench-rail: #0b1520;
   --bench-rail-2: #101b29;
+  --bench-sidebar-bg: linear-gradient(180deg, #0c1621 0%, #07101a 100%);
+  --bench-sidebar-line: rgb(255 255 255 / 8%);
+  --bench-sidebar-ink: #f9fbfd;
+  --bench-sidebar-muted: #92a7ba;
+  --bench-sidebar-item: #a9b8c7;
+  --bench-sidebar-hover: rgb(255 255 255 / 7%);
+  --bench-sidebar-active: linear-gradient(90deg, rgb(27 132 165 / 34%) 0%, rgb(27 132 165 / 8%) 100%), #0e1b2a;
   --bench-surface: #fbfdff;
   --bench-surface-raised: #ffffff;
   --bench-surface-muted: #f4f8fb;
@@ -29,6 +36,51 @@
   --bench-purple: #a93488;
   --bench-shadow: 0 10px 26px rgb(18 32 46 / 7%);
   --bench-shadow-tight: 0 4px 14px rgb(18 32 46 / 6%);
+  --bench-topbar-bg: #ffffff;
+  --bench-topbar-border: #d7e1e9;
+  --bench-table-head: #f4f8fb;
+  --bench-table-row-hover: #f8fbfd;
+  --bench-table-row-selected: #edf6fb;
   color: var(--bench-ink);
   background: var(--bench-bg);
+}
+
+:root[data-theme="dark"] {
+  --bench-bg: #071019;
+  --bench-bg-soft: #0b1520;
+  --bench-rail: #071019;
+  --bench-rail-2: #0e1a27;
+  --bench-sidebar-bg: linear-gradient(180deg, #08121d 0%, #050b12 100%);
+  --bench-sidebar-line: rgb(113 208 235 / 12%);
+  --bench-sidebar-ink: #eff7fb;
+  --bench-sidebar-muted: #8da2b4;
+  --bench-sidebar-item: #9fb2c2;
+  --bench-sidebar-hover: rgb(113 208 235 / 8%);
+  --bench-sidebar-active: linear-gradient(90deg, rgb(55 178 213 / 30%) 0%, rgb(55 178 213 / 8%) 100%), #0b1b29;
+  --bench-surface: #101b27;
+  --bench-surface-raised: #152232;
+  --bench-surface-muted: #0d1824;
+  --bench-line: #243647;
+  --bench-line-strong: #365064;
+  --bench-ink: #e6edf3;
+  --bench-ink-muted: #97a9b8;
+  --bench-cyan: #4fc9e8;
+  --bench-cyan-strong: #7bdcf1;
+  --bench-action: #52c3df;
+  --bench-action-soft: #0e2a36;
+  --bench-metric: #c8d7ff;
+  --bench-metric-soft: #142036;
+  --bench-status-success: #55d89f;
+  --bench-status-success-soft: #0f2b24;
+  --bench-status-warning: #f0c65f;
+  --bench-status-warning-soft: #2a230e;
+  --bench-status-danger: #ff6b7a;
+  --bench-status-danger-soft: #35151b;
+  --bench-shadow: 0 14px 34px rgb(0 0 0 / 26%);
+  --bench-shadow-tight: 0 6px 18px rgb(0 0 0 / 22%);
+  --bench-topbar-bg: #101b27;
+  --bench-topbar-border: #243647;
+  --bench-table-head: #0e1a27;
+  --bench-table-row-hover: #132231;
+  --bench-table-row-selected: #122b38;
 }

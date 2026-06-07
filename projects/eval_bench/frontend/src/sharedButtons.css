@@ -3,9 +3,9 @@
   place-items: center;
   width: var(--control-icon-size);
   height: var(--control-icon-size);
-  color: #394756;
-  background: #ffffff;
-  border: 1px solid #d8e0e8;
+  color: var(--bench-ink-muted);
+  background: var(--bench-surface-raised);
+  border: 1px solid var(--bench-line);
   border-radius: var(--control-radius-icon);
   cursor: pointer;
   transition:
@@ -17,8 +17,8 @@
 
 .icon-button:hover {
   transform: translateY(-1px);
-  background: #f8fafc;
-  border-color: #bcd2df;
+  background: var(--bench-surface-muted);
+  border-color: color-mix(in srgb, var(--bench-cyan) 32%, var(--bench-line));
   box-shadow: 0 10px 22px rgb(20 38 55 / 10%);
 }
 
@@ -68,9 +68,9 @@
 .secondary-button {
   min-height: var(--control-secondary-height);
   padding: 0 var(--control-pad-12);
-  color: #155f84;
-  background: #f4f9fc;
-  border: 1px solid #c8e1ed;
+  color: var(--bench-action);
+  background: var(--bench-action-soft);
+  border: 1px solid color-mix(in srgb, var(--bench-cyan) 24%, var(--bench-line));
   border-radius: var(--control-radius-tight);
   cursor: pointer;
   font-weight: 720;
@@ -78,7 +78,7 @@
 
 .secondary-button:hover {
   transform: translateY(-1px);
-  background: #dff0f7;
+  background: color-mix(in srgb, var(--bench-action-soft) 76%, var(--bench-cyan));
   box-shadow: 0 10px 22px rgb(23 77 101 / 10%);
 }
 
@@ -91,9 +91,9 @@
 .mini-button {
   min-height: var(--control-mini-height);
   padding: 0 var(--control-pad-8);
-  color: #155f84;
-  background: #f4f9fc;
-  border: 1px solid #c8e1ed;
+  color: var(--bench-action);
+  background: var(--bench-action-soft);
+  border: 1px solid color-mix(in srgb, var(--bench-cyan) 22%, var(--bench-line));
   border-radius: var(--control-radius-tight);
   cursor: pointer;
   font-size: var(--control-text-small);
@@ -102,7 +102,7 @@
 
 .mini-button:hover {
   transform: translateY(-1px);
-  background: #e3f2f8;
+  background: color-mix(in srgb, var(--bench-action-soft) 78%, var(--bench-cyan));
   box-shadow: 0 8px 18px rgb(23 77 101 / 10%);
 }
 
@@ -129,10 +129,10 @@
   gap: var(--control-gap-4);
   min-height: var(--control-mini-height);
   padding: 0 var(--control-pad-8);
-  color: #155f84;
+  color: var(--bench-action);
   text-decoration: none;
-  background: #f6fafc;
-  border: 1px solid #cfe1eb;
+  background: var(--bench-action-soft);
+  border: 1px solid color-mix(in srgb, var(--bench-cyan) 22%, var(--bench-line));
   border-radius: var(--control-radius-tight);
   cursor: pointer;
   font-size: var(--control-text-small);
@@ -140,7 +140,7 @@
 }
 
 .mini-link:hover {
-  background: #e3f2f8;
+  background: color-mix(in srgb, var(--bench-action-soft) 78%, var(--bench-cyan));
 }
 
 .mini-link.disabled {

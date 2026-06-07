@@ -3,5 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchState } from "./api";
 
 export function useDashboardState() {
-  return useQuery({ queryKey: ["dashboard-state"], queryFn: fetchState });
+  return useQuery({
+    queryKey: ["dashboard-state"],
+    queryFn: fetchState,
+    refetchInterval: 10_000,
+    staleTime: 5_000
+  });
 }

@@ -15,6 +15,7 @@
     "test:ui-contracts": "node scripts/test-ui-contracts.mjs",
     "test:viewer-performance": "node scripts/viewer-performance-check.mjs",
     "test:settings-preview": "node scripts/settings-preview-check.mjs",
+    "test:theme": "node scripts/theme-toggle-check.mjs",
     "test:dialogs": "node scripts/dialog-smoke-check.mjs",
     "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
     "test:composite-report": "node scripts/composite-report-smoke-check.mjs",

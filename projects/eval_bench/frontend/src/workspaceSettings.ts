@@ -22,6 +22,7 @@ import type {
   ShortcutBindings
 } from "./workspaceSettingsSchema";
 import {
+  applyThemeMode,
   applyViewerVisibleLabelSelection,
   hasStoredActiveLabelPreference,
   labelColorKey,
@@ -32,6 +33,7 @@ import {
   loadOverlayStyle,
   loadShortcutBindings,
   loadSidebarCollapsed,
+  loadThemeMode,
   loadSplitSize,
   normalizeInteractionSettings,
   normalizeOverlayStyle,
@@ -156,6 +158,24 @@ export function useSidebarPreference() {
   }, [sidebarCollapsed]);
 
   return { sidebarCollapsed, setSidebarCollapsed };
+}
+
+export function bootstrapThemePreference() {
+  applyThemeMode(loadThemeMode());
+}
+
+export function useThemePreference() {
+  const [themeMode, setThemeMode] = useState(() => loadThemeMode());
+
+  useEffect(() => {
+    applyThemeMode(themeMode);
+    localStorage.setItem(STORAGE_KEYS.themeMode, themeMode);
+  }, [themeMode]);
+
+  return {
+    themeMode,
+    toggleThemeMode: () => setThemeMode((current) => (current === "dark" ? "light" : "dark"))
+  };
 }
 
 export function useViewerLayerPreferences(labels: string[]) {

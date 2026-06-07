@@ -6,6 +6,9 @@ import { useDashboardState } from "./dashboardState";
 import { formatMetric, runF1Score } from "./formatters";
 import { recentRunsByCreatedAt } from "./runArtifactSignals";
 
+const OVERVIEW_QUEUE_REFRESH_MS = 5_000;
+const OVERVIEW_SERVICE_REFRESH_MS = 10_000;
+
 export type OverviewRoute =
   | "/"
   | "/rank-board"
@@ -42,37 +45,44 @@ export function useOverviewModel() {
   const jobTotalQuery = useQuery({
     queryKey: ["overview-jobs-total"],
     queryFn: () => fetchJobs({ limit: 1 }),
-    refetchInterval: 2_000
+    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    staleTime: 2_500
   });
   const queuedJobsQuery = useQuery({
     queryKey: ["overview-jobs-queued"],
     queryFn: () => fetchJobs({ status: "queued", limit: 1 }),
-    refetchInterval: 2_000
+    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    staleTime: 2_500
   });
   const runningJobsQuery = useQuery({
     queryKey: ["overview-jobs-running"],
     queryFn: () => fetchJobs({ status: "running", limit: 1 }),
-    refetchInterval: 2_000
+    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    staleTime: 2_500
   });
   const failedJobsQuery = useQuery({
     queryKey: ["overview-jobs-failed"],
     queryFn: () => fetchJobs({ status: "failed", limit: 1 }),
-    refetchInterval: 2_000
+    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    staleTime: 2_500
   });
   const serviceTotalQuery = useQuery({
     queryKey: ["overview-services-total"],
     queryFn: () => fetchServices({ limit: 1 }),
-    refetchInterval: 5_000
+    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
+    staleTime: 5_000
   });
   const runningServicesQuery = useQuery({
     queryKey: ["overview-services-running"],
     queryFn: () => fetchServices({ status: "running", limit: 1 }),
-    refetchInterval: 5_000
+    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
+    staleTime: 5_000
   });
   const schedulerQuery = useQuery({
     queryKey: ["overview-scheduler"],
     queryFn: fetchSchedulerStatus,
-    refetchInterval: 2_000
+    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    staleTime: 2_500
   });
   const data = stateQuery.data;
   const queuedJobs = jobPageTotal(queuedJobsQuery.data);
