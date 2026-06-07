@@ -27,6 +27,7 @@ import type {
   RankFacetFilterHandlers,
   RankFacetFilterValues
 } from "./rankBoardFacets";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 export function useRankBoardController() {
   const dashboardQuery = useDashboardState();
@@ -57,6 +58,7 @@ export function useRankBoardController() {
   const [pageOffset, setPageOffset] = useState(initialViewState.pageOffset);
   const [suiteSortBy, setSuiteSortBy] = useState("aggregate_score");
   const [suiteSortOrder, setSuiteSortOrder] = useState<"asc" | "desc">("desc");
+  const debouncedSearch = useDebouncedValueState(searchText);
 
   const resetViewState = useCallback(() => {
     setBoardMode(DEFAULT_RANK_BOARD_VIEW_STATE.boardMode);
@@ -80,7 +82,7 @@ export function useRankBoardController() {
   const boardQuery = useQuery({
     queryKey: [
       "rank-board",
-      searchText,
+      debouncedSearch.value,
       taskFilter,
       benchmarkFilter,
       benchmarkSplitFilter,
@@ -98,7 +100,7 @@ export function useRankBoardController() {
       fetchRankBoard({
         offset: pageOffset,
         limit: RANK_PAGE_SIZE,
-        query: searchText,
+        query: debouncedSearch.value,
         task: taskFilter,
         benchmarkId: benchmarkFilter,
         benchmarkSplit: benchmarkSplitFilter,
@@ -265,7 +267,7 @@ export function useRankBoardController() {
     ]
   );
   const entries = board?.entries ?? [];
-  const handleSortChange = (value: string) => {
+  const handleSortChange = useCallback((value: string) => {
     if (!RANK_SORTABLE_FIELDS.includes(value)) {
       return;
     }
@@ -277,14 +279,22 @@ export function useRankBoardController() {
       setSortOrder(nextOrder);
     }
     setPageOffset(0);
-  };
-  const handleSuiteSortChange = (value: string) => {
+  }, [sortBy, sortOrder]);
+  const handleSuiteSortChange = useCallback((value: string) => {
     const nextOrder =
       suiteSortBy === value ? toggleSortOrder(suiteSortOrder) : defaultSuiteSortOrder(value);
     setSuiteSortBy(value);
     setSuiteSortOrder(nextOrder);
     setPageOffset(0);
-  };
+  }, [suiteSortBy, suiteSortOrder]);
+  const setRunMode = useCallback(() => {
+    setBoardMode("run");
+    setPageOffset(0);
+  }, []);
+  const setSuiteMode = useCallback(() => {
+    setBoardMode("suite");
+    setPageOffset(0);
+  }, []);
 
   useEffect(() => {
     const total = boardMode === "suite" ? suiteBoard?.total : board?.total;
@@ -351,14 +361,8 @@ export function useRankBoardController() {
 
   return {
     boardMode,
-    setRunMode: () => {
-      setBoardMode("run");
-      setPageOffset(0);
-    },
-    setSuiteMode: () => {
-      setBoardMode("suite");
-      setPageOffset(0);
-    },
+    setRunMode,
+    setSuiteMode,
     runs,
     board,
     suiteBoard,
@@ -374,7 +378,7 @@ export function useRankBoardController() {
     sortOrder,
     suiteSortBy,
     suiteSortOrder,
-    tableRefreshing: boardQuery.isPlaceholderData && Boolean(board),
+    tableRefreshing: (boardQuery.isPlaceholderData && Boolean(board)) || debouncedSearch.pending,
     suiteTableRefreshing: suiteRankQuery.isPlaceholderData && Boolean(suiteBoard),
     setPageOffset,
     handleSortChange,

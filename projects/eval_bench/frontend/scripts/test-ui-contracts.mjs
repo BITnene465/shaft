@@ -37,6 +37,7 @@ for (const filePath of sourceFiles) {
   assertNoRawSelectOutsidePrimitives(source, relativePath);
   assertNoRawTextareaOutsidePrimitives(source, relativePath);
   assertNoRawDisclosureElement(source, relativePath);
+  assertQueryFnsUseAbortSignal(source, relativePath);
 }
 
 for (const filePath of styleFiles) {
@@ -105,6 +106,7 @@ const workspaceSettingsStorageSource = await readSource("src/workspaceSettingsSt
 const typographySettingsSource = await readSource("src/typographySettings.ts");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const selectPopoverControl = await readSource("src/selectPopoverControl.tsx");
+const useDebouncedValueSource = await readSource("src/useDebouncedValue.ts");
 const themeToggleCheckSource = await readSource("scripts/theme-toggle-check.mjs");
 const rankBoardViewStateSource = await readSource("src/rankBoardViewState.ts");
 const rankBoardModelSource = await readSource("src/rankBoardModel.ts");
@@ -429,13 +431,67 @@ assert(
     overviewModelSource.includes("refetchInterval: OVERVIEW_SERVICE_REFRESH_MS") &&
     apiSource.includes("type FetchRequestOptions = {") &&
     apiSource.includes("signal?: AbortSignal") &&
+    apiSource.includes("fetchTargetLabelResolution(\n  options: TargetLabelResolutionParams = {},\n  request: FetchRequestOptions = {}") &&
+    apiSource.includes("export function fetchSuites(options: FetchRequestOptions = {})") &&
+    apiSource.includes("export function fetchSuite(\n  suiteId: string,\n  options: FetchRequestOptions = {}") &&
+    apiSource.includes("export function fetchCampaigns(\n  options: FetchRequestOptions = {}") &&
+    apiSource.includes("export function fetchCampaign(\n  campaignId: string,\n  options: FetchRequestOptions = {}") &&
+    apiSource.includes("export function fetchRunNote(\n  runId: string,\n  options: FetchRequestOptions = {}") &&
     dashboardStateSource.includes("queryFn: ({ signal }) => fetchState({ signal })") &&
     overviewModelSource.includes("queryFn: ({ signal }) => fetchJobs({ limit: 1 }, { signal })") &&
     overviewModelSource.includes("queryFn: ({ signal }) => fetchServices({ limit: 1 }, { signal })") &&
     overviewModelSource.includes("queryFn: ({ signal }) => fetchSchedulerStatus({ signal })") &&
+    jobsCreatePanelSource.includes("queryFn: ({ signal }) => fetchJobTemplates({ signal })") &&
+    jobsCreatePanelSource.includes("queryFn: ({ signal }) => fetchPromptTemplates({ signal })") &&
     jobsQueuePanelSource.includes("queryFn: ({ signal }) => fetchJobs(jobFilters, { signal })") &&
+    jobsQueuePanelSource.includes("queryFn: ({ signal }) => fetchJobLogs(selectedJob?.job_id ?? \"\", 0, { signal })") &&
+    servicesGridSource.includes("queryFn: ({ signal }) => fetchServiceLogs(service.service_id, { signal })") &&
     rankBoardControllerSource.includes("queryFn: ({ signal }) =>") &&
     rankBoardControllerSource.includes("{ signal }") &&
+    useDebouncedValueSource.includes("export function useDebouncedValue<T>") &&
+    useDebouncedValueSource.includes("export function useDebouncedValueState<T>") &&
+    useDebouncedValueSource.includes("pending: debouncedValue !== value") &&
+    useDebouncedValueSource.includes("window.setTimeout") &&
+    [
+      runsPage,
+      benchmarksPage,
+      servicesPage,
+      jobsQueuePanelSource,
+      rankBoardControllerSource,
+      compareControllerSource
+    ].every((source) => source.includes("useDebouncedValueState(searchText)")) &&
+    [
+      runsPage,
+      benchmarksPage,
+      servicesPage,
+      jobsQueuePanelSource,
+      rankBoardControllerSource,
+      compareControllerSource
+    ].every((source) => source.includes("debouncedSearch.pending")) &&
+    runsPage.includes("refreshing={runsQuery.isPlaceholderData || debouncedSearch.pending}") &&
+    benchmarksPage.includes("refreshing={benchmarksQuery.isPlaceholderData || debouncedSearch.pending}") &&
+    servicesPage.includes("refreshing={servicesQuery.isPlaceholderData || debouncedSearch.pending}") &&
+    jobsQueuePanelSource.includes("const queueRefreshing = Boolean((isPlaceholderData && data) || debouncedSearch.pending)") &&
+    jobsQueuePanelSource.includes("refreshing={queueRefreshing}") &&
+    rankBoardControllerSource.includes("tableRefreshing: (boardQuery.isPlaceholderData && Boolean(board)) || debouncedSearch.pending") &&
+    comparePage.includes("runsRefreshing ?") &&
+    comparePage.includes("refreshing={comparisonHistoryRefreshing}") &&
+    compareRunRailComponentsSource.includes("refreshing?: boolean;") &&
+    compareRunRailComponentsSource.includes("refreshing={refreshing}") &&
+    rankBoardControllerSource.includes("query: debouncedSearch.value") &&
+    rankBoardControllerSource.includes("writeRankBoardViewState({\n      boardMode,\n      searchText,") &&
+    rankBoardControllerSource.includes("const filterValues = useMemo<RankBoardFilterValues>(\n    () => ({\n      searchText,") &&
+    compareControllerSource.includes("query: debouncedSearch.value.trim() || undefined") &&
+    compareControllerSource.includes("writeCompareViewState({\n      searchText,") &&
+    compareControllerSource.includes("const filterValues = useMemo<CompareFilterValues>(\n    () => ({\n      searchText,") &&
+    ![
+      runsPage,
+      benchmarksPage,
+      servicesPage,
+      jobsQueuePanelSource,
+      rankBoardControllerSource,
+      compareControllerSource
+    ].some((source) => source.includes("query: searchText")),
     overviewModelSource.includes("function facetCount(") &&
     overviewModelSource.includes("jobTotalQuery.data?.facets?.statuses") &&
     !overviewModelSource.includes("overview-jobs-queued") &&
@@ -612,18 +668,43 @@ assert(
 assert(
     uiSource.includes('export * from "./uiDataTable";') &&
     uiDataTableSource.includes("export type TableColumnWidth =") &&
+    uiDataTableSource.includes("export function TableEmptyState(") &&
     uiDataTableSource.includes("declare module \"@tanstack/react-table\"") &&
     uiDataTableSource.includes("export function tableColumnClassName(") &&
     uiDataTableSource.includes("data-table-cell") &&
+    uiDataTableSource.includes('"table-shell",\n        "empty"') &&
+    uiDataTableSource.includes("refreshing && \"refreshing\"") &&
+    uiDataTableSource.includes("<div className=\"empty-panel\">{emptyText}</div>") &&
     mainEntry.includes('import "./dataTable.css";') &&
     dataTableStyleSource.includes(".table-shell .table-col-id") &&
     dataTableStyleSource.includes(".table-shell .table-col-metric") &&
     dataTableStyleSource.includes(".table-shell .table-wrap-wrap") &&
+    dataTableStyleSource.includes(".table-shell.empty .empty-panel") &&
+    dataTableStyleSource.includes("background: transparent;") &&
     dataTableStyleSource.includes(".table-shell.refreshing::after") &&
     dataTableStyleSource.includes(".table-refresh-indicator") &&
     dataTableStyleSource.includes(".row-select-checkbox") &&
     dataTableStyleSource.includes(".selectable-row") &&
     dataTableStyleSource.includes("@keyframes table-region-refresh") &&
+    runTables.includes('import { useCallback, useMemo, useState } from "react";') &&
+    runTables.includes("const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [") &&
+    runTables.includes("columns={BENCHMARK_TABLE_COLUMNS}") &&
+    runTables.includes("const toggleRunSelection = useCallback((runId: string) => {") &&
+    runTables.includes("const columns = useMemo<ColumnDef<RunSummary>[]>(\n    () => [") &&
+    runTables.includes("const { mutate: evaluateRunMutate, isPending: evaluatePending } = evaluateMutation;") &&
+    runTables.includes("const { mutate: archiveRunMutate, isPending: archivePending } = archiveMutation;") &&
+    runTables.includes("const { isPending: deletePending } = deleteMutation;") &&
+    compareRunRailComponentsSource.includes("const COMPARISON_HISTORY_COLUMNS: ColumnDef<ComparisonSummary>[] = [") &&
+    compareRunRailComponentsSource.includes("columns={COMPARISON_HISTORY_COLUMNS}") &&
+    !compareRunRailComponentsSource.includes("const columns: ColumnDef<ComparisonSummary>[] = [") &&
+    servicesGridSource.includes("TableEmptyState") &&
+    servicesGridSource.includes('emptyText="没有符合高级检索条件的模型服务。"') &&
+    servicesGridSource.includes('refreshLabel="服务列表更新中"') &&
+    !servicesGridSource.includes("return <EmptyState title=\"没有符合高级检索条件的模型服务。\" />") &&
+    jobsQueuePanelSource.includes("TableEmptyState") &&
+    jobsQueuePanelSource.includes('emptyText="没有符合高级检索条件的任务。"') &&
+    jobsQueuePanelSource.includes('refreshLabel="队列更新中"') &&
+    !jobsQueuePanelSource.includes('<div className="empty-panel">没有符合高级检索条件的任务。</div>') &&
     runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
     rankBoardTablesSource.includes('meta: { width: "metric", align: "end" }') &&
     compareRunRailComponentsSource.includes('meta: { width: "date" }') &&
@@ -2179,7 +2260,7 @@ assert(
     servicesGridSource.includes("checkServiceHealth(service.service_id)") &&
     servicesGridSource.includes("stopService(service.service_id)") &&
     servicesGridSource.includes("deleteService(service.service_id)") &&
-    servicesGridSource.includes("fetchServiceLogs(service.service_id)") &&
+    servicesGridSource.includes("fetchServiceLogs(service.service_id, { signal })") &&
     !servicesPage.includes("function ServiceCard(") &&
     !servicesPage.includes("function ServiceLogPanel("),
   "services page must delegate service cards, runtime actions, and logs to the service grid module",
@@ -2413,7 +2494,13 @@ assert(
   "rank board page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-    rankBoardControllerSource.includes("const handleSortChange = (value: string) => {") &&
+    rankBoardControllerSource.includes("const handleSortChange = useCallback((value: string) => {") &&
+    rankBoardControllerSource.includes("}, [sortBy, sortOrder]);") &&
+    rankBoardControllerSource.includes("const handleSuiteSortChange = useCallback((value: string) => {") &&
+    rankBoardControllerSource.includes("}, [suiteSortBy, suiteSortOrder]);") &&
+    rankBoardControllerSource.includes("const setRunMode = useCallback(() => {") &&
+    rankBoardControllerSource.includes("const setSuiteMode = useCallback(() => {") &&
+    rankBoardControllerSource.includes("setRunMode,\n    setSuiteMode,") &&
     rankBoardControllerSource.includes("setPageOffset(0);") &&
     rankBoardModelSource.includes("export function defaultRankSortOrder(") &&
     rankBoardModelSource.includes("export function toggleSortOrder(") &&
@@ -2446,7 +2533,7 @@ assert(
   "rank board must preserve table/filter state across detail back-navigation and reset only from the main nav item",
 );
 assert(
-  rankBoardControllerSource.includes("tableRefreshing: boardQuery.isPlaceholderData && Boolean(board)") &&
+  rankBoardControllerSource.includes("tableRefreshing: (boardQuery.isPlaceholderData && Boolean(board)) || debouncedSearch.pending") &&
     rankBoardPage.includes('className="rank-board-table-toolbar"') &&
     rankBoardPage.includes("refreshing={tableRefreshing}") &&
     !rankBoardPage.includes("rank-board-table-card refreshing") &&
@@ -2497,8 +2584,13 @@ assert(
 );
 assert(
   rankBoardTablesSource.includes("function SortableHeader(") &&
+    rankBoardTablesSource.includes('import { useMemo } from "react";') &&
     rankBoardTablesSource.includes('import "./rankBoardTables.css";') &&
     rankBoardTablesSource.includes("const RANK_METRIC_COLUMNS") &&
+    rankBoardTablesSource.includes("const columns = useMemo<ColumnDef<SuiteRankEntry>[]>(() => {") &&
+    rankBoardTablesSource.includes("const columns = useMemo<ColumnDef<RankBoardEntry>[]>(() => {") &&
+    rankBoardTablesSource.includes("}, [onSortChange, sortBy, sortOrder]);") &&
+    rankBoardTablesSource.includes("}, [onSortChange, primaryMetric, sortBy, sortOrder]);") &&
     rankBoardTablesSource.includes('id: `metric_${metric.id}`') &&
     rankBoardTablesSource.includes('id: "created_at"') &&
     rankBoardTablesSource.includes('header: () => auxiliaryHeader("Run", "run_id")') &&
@@ -4728,6 +4820,17 @@ function assertNoRawDisclosureElement(source, relativePath) {
     return;
   }
   assert(!/<(?:details|summary)\b/.test(source), `${relativePath}: disclosures must use DisclosurePanel`);
+}
+
+function assertQueryFnsUseAbortSignal(source, relativePath) {
+  const queryFnMatches = source.matchAll(/\bqueryFn\s*:/g);
+  for (const match of queryFnMatches) {
+    const snippet = source.slice(match.index, match.index + 80);
+    assert(
+      snippet.includes("queryFn: ({ signal })"),
+      `${relativePath}: React Query queryFn must receive AbortSignal and pass it to GET APIs`,
+    );
+  }
 }
 
 function mainEntryHasSettingsImplementation(source) {

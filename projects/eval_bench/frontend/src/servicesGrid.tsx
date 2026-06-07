@@ -29,8 +29,8 @@ import {
   Badge,
   ConfigItem,
   DangerConfirmDialog,
-  EmptyState,
-  IconActionButton
+  IconActionButton,
+  TableEmptyState
 } from "./ui";
 
 export function ServiceGrid({
@@ -41,7 +41,13 @@ export function ServiceGrid({
   refreshing?: boolean;
 }) {
   if (services.length === 0) {
-    return <EmptyState title="没有符合高级检索条件的模型服务。" />;
+    return (
+      <TableEmptyState
+        emptyText="没有符合高级检索条件的模型服务。"
+        refreshing={refreshing}
+        refreshLabel="服务列表更新中"
+      />
+    );
   }
   return (
     <div className={refreshing ? "service-grid refreshing" : "service-grid"}>
@@ -88,7 +94,7 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
   });
   const logQuery = useQuery({
     queryKey: ["service-log", service.service_id],
-    queryFn: () => fetchServiceLogs(service.service_id),
+    queryFn: ({ signal }) => fetchServiceLogs(service.service_id, { signal }),
     enabled: showLog
   });
   const command = Array.isArray(service.runtime.command)

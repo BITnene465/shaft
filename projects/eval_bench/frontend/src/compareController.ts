@@ -15,6 +15,7 @@ import type {
   CompareFilterSetters,
   CompareFilterValues
 } from "./compareFilters";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 export const COMPARE_RUN_PAGE_SIZE = 80;
 export const COMPARISON_HISTORY_PAGE_SIZE = 50;
@@ -50,6 +51,7 @@ export function useCompareController() {
   const [baselineRunId, setBaselineRunId] = useState(initialViewState.baselineRunId);
   const [candidateRunId, setCandidateRunId] = useState(initialViewState.candidateRunId);
   const [activeLabel, setActiveLabel] = useState(initialViewState.activeLabel);
+  const debouncedSearch = useDebouncedValueState(searchText);
 
   function resetViewState() {
     setSearchText(DEFAULT_COMPARE_VIEW_STATE.searchText);
@@ -77,7 +79,7 @@ export function useCompareController() {
       baselineRunId: historyBaselineFilter.trim() || undefined,
       candidateRunId: historyCandidateFilter.trim() || undefined,
       label: labelFilter === "all" ? undefined : labelFilter,
-      query: searchText.trim() || undefined,
+      query: debouncedSearch.value.trim() || undefined,
       offset: historyOffset,
       limit: COMPARISON_HISTORY_PAGE_SIZE
     }),
@@ -88,7 +90,7 @@ export function useCompareController() {
       historyCandidateFilter,
       historyOffset,
       labelFilter,
-      searchText,
+      debouncedSearch.value,
       taskFilter
     ]
   );
@@ -112,7 +114,7 @@ export function useCompareController() {
       label: labelFilter !== "all" ? labelFilter : undefined,
       modelId: modelFilter !== "all" ? modelFilter : undefined,
       promptId: promptFilter !== "all" ? promptFilter : undefined,
-      query: searchText.trim() || undefined
+      query: debouncedSearch.value.trim() || undefined
     }),
     [
       benchmarkFilter,
@@ -121,7 +123,7 @@ export function useCompareController() {
       modelFilter,
       pageOffset,
       promptFilter,
-      searchText,
+      debouncedSearch.value,
       statusFilter,
       taskFilter
     ]
@@ -307,6 +309,9 @@ export function useCompareController() {
     comparisonReport,
     comparisonReportRefreshing,
     comparisonList: comparisonListQuery.data?.comparisons ?? [],
+    runsRefreshing: runsQuery.isPlaceholderData || debouncedSearch.pending,
+    comparisonHistoryRefreshing:
+      comparisonListQuery.isPlaceholderData || debouncedSearch.pending,
     runsLoading: runsQuery.isLoading,
     runsErrorTitle:
       runsQuery.error || !runsQuery.data

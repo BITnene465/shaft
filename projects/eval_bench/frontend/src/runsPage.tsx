@@ -19,6 +19,7 @@ import {
   updatePagedFilterValue
 } from "./samplePager";
 import { CommandButton, EmptyState, WorkspaceDialog } from "./ui";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 import "./runsPage.css";
 
@@ -44,6 +45,7 @@ export function RunsPage() {
     initialViewState.metricProfileFilter
   );
   const [pageOffset, setPageOffset] = useState(initialViewState.pageOffset);
+  const debouncedSearch = useDebouncedValueState(searchText);
   function resetViewState() {
     setImportOpen(false);
     setSearchText(DEFAULT_RUNS_VIEW_STATE.searchText);
@@ -69,7 +71,7 @@ export function RunsPage() {
       modelId: modelFilter !== "all" ? modelFilter : undefined,
       promptId: promptFilter !== "all" ? promptFilter : undefined,
       metricProfile: metricProfileFilter !== "all" ? metricProfileFilter : undefined,
-      query: searchText.trim() || undefined
+      query: debouncedSearch.value.trim() || undefined
     }),
     [
       benchmarkFilter,
@@ -79,7 +81,7 @@ export function RunsPage() {
       modelFilter,
       pageOffset,
       promptFilter,
-      searchText,
+      debouncedSearch.value,
       statusFilter,
       taskFilter
     ]
@@ -168,7 +170,7 @@ export function RunsPage() {
       <div className="workspace-card fill run-table-card">
         <RunTable
           runs={runs}
-          refreshing={runsQuery.isPlaceholderData}
+          refreshing={runsQuery.isPlaceholderData || debouncedSearch.pending}
           filterMeta={`${runs.length.toLocaleString()} / ${totalRuns.toLocaleString()} 条 run`}
           filterControls={[
             {

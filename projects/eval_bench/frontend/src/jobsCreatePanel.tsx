@@ -34,10 +34,13 @@ import { ResizableSplit } from "./workspaceLayout";
 
 export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSummary[]; bare?: boolean }) {
   const queryClient = useQueryClient();
-  const templatesQuery = useQuery({ queryKey: ["job-templates"], queryFn: fetchJobTemplates });
+  const templatesQuery = useQuery({
+    queryKey: ["job-templates"],
+    queryFn: ({ signal }) => fetchJobTemplates({ signal })
+  });
   const promptTemplatesQuery = useQuery({
     queryKey: ["prompt-templates"],
-    queryFn: fetchPromptTemplates
+    queryFn: ({ signal }) => fetchPromptTemplates({ signal })
   });
   const templates = templatesQuery.data?.templates ?? {};
   const promptTemplates = promptTemplatesQuery.data?.templates ?? [];

@@ -30,8 +30,10 @@ import { jobProgress, progressPhaseText } from "./statusModel";
 import {
   Badge,
   DangerConfirmDialog,
-  InlineNavLink
+  InlineNavLink,
+  TableEmptyState
 } from "./ui";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 const JOB_PAGE_SIZE = 80;
 const JOB_QUEUE_REFRESH_MS = 4_000;
@@ -49,6 +51,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   );
   const [kindFilter, setKindFilter] = useState(compact ? "all" : initialViewState.kindFilter);
   const [pageOffset, setPageOffset] = useState(compact ? 0 : initialViewState.pageOffset);
+  const debouncedSearch = useDebouncedValueState(searchText);
   function resetViewState() {
     if (compact) {
       return;
@@ -65,9 +68,9 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       limit: compact ? 12 : JOB_PAGE_SIZE,
       status: !compact && statusFilter !== "all" ? statusFilter : undefined,
       kind: !compact && kindFilter !== "all" ? kindFilter : undefined,
-      query: !compact && searchText.trim() ? searchText.trim() : undefined
+      query: !compact && debouncedSearch.value.trim() ? debouncedSearch.value.trim() : undefined
     }),
-    [compact, kindFilter, pageOffset, searchText, statusFilter]
+    [compact, debouncedSearch.value, kindFilter, pageOffset, statusFilter]
   );
   const { data, isLoading, isPlaceholderData, error } = useQuery({
     queryKey: ["jobs", jobFilters],
@@ -105,7 +108,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       : "";
   const jobLogsQuery = useQuery({
     queryKey: ["job-logs", selectedJob?.job_id ?? ""],
-    queryFn: () => fetchJobLogs(selectedJob?.job_id ?? "", 0),
+    queryFn: ({ signal }) => fetchJobLogs(selectedJob?.job_id ?? "", 0, { signal }),
     enabled: Boolean(selectedJob?.job_id && selectedRuntimeLogPath),
     refetchInterval: selectedJob?.status === "running" ? 3_000 : false
   });
@@ -124,6 +127,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     }
   });
+  const queueRefreshing = Boolean((isPlaceholderData && data) || debouncedSearch.pending);
   useEffect(() => {
     if (compact) {
       return;
@@ -207,15 +211,25 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
         />
       ) : null}
       {totalJobs === 0 ? (
-        <div className="empty-panel">当前没有任务。</div>
+        <TableEmptyState
+          compact={compact}
+          emptyText="当前没有任务。"
+          refreshing={queueRefreshing}
+          refreshLabel="队列更新中"
+        />
       ) : filteredJobs.length === 0 ? (
-        <div className="empty-panel">没有符合高级检索条件的任务。</div>
+        <TableEmptyState
+          compact={compact}
+          emptyText="没有符合高级检索条件的任务。"
+          refreshing={queueRefreshing}
+          refreshLabel="队列更新中"
+        />
       ) : (
         <JobQueueTable
           jobs={filteredJobs}
           selectedJobId={selectedJob?.job_id ?? ""}
           compact={compact}
-          refreshing={Boolean(isPlaceholderData && data)}
+          refreshing={queueRefreshing}
           cancelPending={cancelMutation.isPending}
           deletePending={deleteMutation.isPending}
           onSelectJob={setSelectedJobId}

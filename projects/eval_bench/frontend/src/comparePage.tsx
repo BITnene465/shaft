@@ -33,6 +33,8 @@ export function ComparePage() {
     comparisonReport,
     comparisonReportRefreshing,
     comparisonList,
+    runsRefreshing,
+    comparisonHistoryRefreshing,
     runsLoading,
     runsErrorTitle,
     comparisonLoading,
@@ -76,6 +78,9 @@ export function ComparePage() {
         maxSize={680}
         first={
           <aside className="compare-run-rail">
+            {runsRefreshing ? (
+              <div className="viewer-fetch-chip">正在更新 run 列表</div>
+            ) : null}
             <RunSelectRail
               title="基线"
               value={effectiveBaseline}
@@ -109,6 +114,7 @@ export function ComparePage() {
               offset={comparisonHistoryOffset}
               limit={comparisonHistoryLimit}
               active={hasComparisonHistoryFilters}
+              refreshing={comparisonHistoryRefreshing}
               onPageChange={setHistoryOffset}
             />
           </aside>

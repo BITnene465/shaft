@@ -18,6 +18,7 @@ import {
   EmptyState,
   WorkspaceDialog
 } from "./ui";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 export { BenchmarkDetailPage } from "./benchmarkSampleInspector";
 
@@ -30,6 +31,7 @@ export function BenchmarksPage() {
   const [layerFilter, setLayerFilter] = useState("all");
   const [splitFilter, setSplitFilter] = useState("all");
   const [pageOffset, setPageOffset] = useState(0);
+  const debouncedSearch = useDebouncedValueState(searchText);
   const benchmarkFilters = useMemo(
     () => ({
       offset: pageOffset,
@@ -37,9 +39,9 @@ export function BenchmarksPage() {
       task: taskFilter !== "all" ? taskFilter : undefined,
       layer: layerFilter !== "all" ? layerFilter : undefined,
       split: splitFilter !== "all" ? splitFilter : undefined,
-      query: searchText.trim() || undefined
+      query: debouncedSearch.value.trim() || undefined
     }),
-    [layerFilter, pageOffset, searchText, splitFilter, taskFilter]
+    [debouncedSearch.value, layerFilter, pageOffset, splitFilter, taskFilter]
   );
   const benchmarksQuery = useQuery({
     queryKey: ["benchmarks", benchmarkFilters],
@@ -124,7 +126,10 @@ export function BenchmarksPage() {
         ]}
       />
       <div className="workspace-card fill">
-        <BenchmarkTable benchmarks={benchmarks} refreshing={benchmarksQuery.isPlaceholderData} />
+        <BenchmarkTable
+          benchmarks={benchmarks}
+          refreshing={benchmarksQuery.isPlaceholderData || debouncedSearch.pending}
+        />
         <PagerControl
           className="rank-board-pager benchmark-list-pager"
           offset={benchmarksQuery.data.offset ?? pageOffset}

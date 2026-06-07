@@ -23,6 +23,13 @@
   border-radius: 0 0 8px 8px;
 }
 
+.table-shell.empty .empty-panel {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .workspace-card.fill .table-shell,
 .workspace-card .table-shell,
 .suite-rank-card .table-shell {

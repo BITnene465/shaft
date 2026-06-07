@@ -13,6 +13,53 @@ import {
 import { PagerControl } from "./samplePager";
 import { Badge, DataTable } from "./ui";
 
+const COMPARISON_HISTORY_COLUMNS: ColumnDef<ComparisonSummary>[] = [
+  { header: "对比记录", accessorKey: "comparison_id", meta: { width: "id" } },
+  { header: "任务", accessorKey: "task", meta: { width: "compact" } },
+  { header: "基准集", accessorKey: "benchmark_id", meta: { width: "id" } },
+  { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
+  {
+    header: "Label",
+    meta: { width: "wide", wrap: "wrap" },
+    cell: ({ row }) => row.original.target_labels?.join(", ") || "all"
+  },
+  {
+    header: "风险",
+    meta: { width: "compact" },
+    cell: ({ row }) => {
+      const warnings = row.original.warnings ?? [];
+      return warnings.length ? (
+        <span className="badge warning" title={warnings.join("\n")}>
+          {warnings.length} warning
+        </span>
+      ) : (
+        <span className="muted-text">-</span>
+      );
+    }
+  },
+  {
+    header: "样本数",
+    meta: { width: "number", align: "end" },
+    cell: ({ row }) => row.original.sample_count.toLocaleString()
+  },
+  {
+    header: "Delta R",
+    meta: { width: "metric", align: "end" },
+    cell: ({ row }) => formatSignedMetric(row.original.delta.recall_iou50)
+  },
+  {
+    header: "提升",
+    meta: { width: "number", align: "end" },
+    cell: ({ row }) => row.original.summary.improved_samples.toLocaleString()
+  },
+  {
+    header: "退化",
+    meta: { width: "number", align: "end" },
+    cell: ({ row }) => row.original.summary.regressed_samples.toLocaleString()
+  },
+  { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) }
+];
+
 export function RunSelectRail({
   title,
   value,
@@ -77,6 +124,7 @@ export function ComparisonHistoryPanel({
   offset,
   limit,
   active = false,
+  refreshing = false,
   onPageChange
 }: {
   comparisons: ComparisonSummary[];
@@ -84,57 +132,12 @@ export function ComparisonHistoryPanel({
   offset: number;
   limit: number;
   active?: boolean;
+  refreshing?: boolean;
   onPageChange: (offset: number) => void;
 }) {
   if (comparisons.length === 0 && !active) {
     return null;
   }
-  const columns: ColumnDef<ComparisonSummary>[] = [
-    { header: "对比记录", accessorKey: "comparison_id", meta: { width: "id" } },
-    { header: "任务", accessorKey: "task", meta: { width: "compact" } },
-    { header: "基准集", accessorKey: "benchmark_id", meta: { width: "id" } },
-    { header: "Split", accessorKey: "benchmark_split", meta: { width: "id" } },
-    {
-      header: "Label",
-      meta: { width: "wide", wrap: "wrap" },
-      cell: ({ row }) => row.original.target_labels?.join(", ") || "all"
-    },
-    {
-      header: "风险",
-      meta: { width: "compact" },
-      cell: ({ row }) => {
-        const warnings = row.original.warnings ?? [];
-        return warnings.length ? (
-          <span className="badge warning" title={warnings.join("\n")}>
-            {warnings.length} warning
-          </span>
-        ) : (
-          <span className="muted-text">-</span>
-        );
-      }
-    },
-    {
-      header: "样本数",
-      meta: { width: "number", align: "end" },
-      cell: ({ row }) => row.original.sample_count.toLocaleString()
-    },
-    {
-      header: "Delta R",
-      meta: { width: "metric", align: "end" },
-      cell: ({ row }) => formatSignedMetric(row.original.delta.recall_iou50)
-    },
-    {
-      header: "提升",
-      meta: { width: "number", align: "end" },
-      cell: ({ row }) => row.original.summary.improved_samples.toLocaleString()
-    },
-    {
-      header: "退化",
-      meta: { width: "number", align: "end" },
-      cell: ({ row }) => row.original.summary.regressed_samples.toLocaleString()
-    },
-    { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) }
-  ];
   return (
     <div className="history-block">
       <div className="comparison-sample-title">
@@ -142,9 +145,10 @@ export function ComparisonHistoryPanel({
         {typeof total === "number" ? <span>{total.toLocaleString()} 条</span> : null}
       </div>
       <DataTable
-        columns={columns}
+        columns={COMPARISON_HISTORY_COLUMNS}
         data={comparisons}
         emptyText="暂无历史对比。"
+        refreshing={refreshing}
         compact
       />
       <PagerControl

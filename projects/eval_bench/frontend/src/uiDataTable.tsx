@@ -60,7 +60,14 @@ export function DataTable<T>({
 }) {
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
   if (data.length === 0) {
-    return <div className="empty-panel">{emptyText}</div>;
+    return (
+      <TableEmptyState
+        emptyText={emptyText}
+        compact={compact}
+        refreshing={refreshing}
+        refreshLabel={refreshLabel}
+      />
+    );
   }
   return (
     <div className={joinClassNames("table-shell", compact && "compact", refreshing && "refreshing")}>
@@ -99,3 +106,32 @@ export function DataTable<T>({
   );
 }
 
+export function TableEmptyState({
+  emptyText,
+  compact,
+  refreshing = false,
+  refreshLabel = "表格更新中"
+}: {
+  emptyText: string;
+  compact?: boolean;
+  refreshing?: boolean;
+  refreshLabel?: string;
+}) {
+  return (
+    <div
+      className={joinClassNames(
+        "table-shell",
+        "empty",
+        compact && "compact",
+        refreshing && "refreshing"
+      )}
+    >
+      {refreshing ? (
+        <span className="table-refresh-indicator" aria-live="polite">
+          {refreshLabel}
+        </span>
+      ) : null}
+      <div className="empty-panel">{emptyText}</div>
+    </div>
+  );
+}

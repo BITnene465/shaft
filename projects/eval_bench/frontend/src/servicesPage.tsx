@@ -13,6 +13,7 @@ import {
   EmptyState,
   WorkspaceDialog
 } from "./ui";
+import { useDebouncedValueState } from "./useDebouncedValue";
 
 import "./servicesPage.css";
 
@@ -24,15 +25,16 @@ export function ServicesPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all");
   const [pageOffset, setPageOffset] = useState(0);
+  const debouncedSearch = useDebouncedValueState(searchText);
   const serviceFilters = useMemo(
     () => ({
       offset: pageOffset,
       limit: SERVICE_PAGE_SIZE,
       status: statusFilter !== "all" ? statusFilter : undefined,
       kind: kindFilter !== "all" ? kindFilter : undefined,
-      query: searchText.trim() || undefined
+      query: debouncedSearch.value.trim() || undefined
     }),
-    [kindFilter, pageOffset, searchText, statusFilter]
+    [debouncedSearch.value, kindFilter, pageOffset, statusFilter]
   );
   const servicesQuery = useQuery({
     queryKey: ["services", serviceFilters],
@@ -116,7 +118,10 @@ export function ServicesPage() {
               }
             ]}
           />
-          <ServiceGrid services={services} refreshing={servicesQuery.isPlaceholderData} />
+          <ServiceGrid
+            services={services}
+            refreshing={servicesQuery.isPlaceholderData || debouncedSearch.pending}
+          />
           <PagerControl
             className="rank-board-pager service-list-pager"
             offset={servicesQuery.data.offset ?? pageOffset}

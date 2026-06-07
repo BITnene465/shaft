@@ -325,16 +325,23 @@ export function fetchSchedulerStatus(
   return fetchJson<SchedulerStatus>("/api/scheduler/status", { signal: options.signal });
 }
 
-export function fetchJobTemplates(): Promise<JobTemplatesResponse> {
-  return fetchJson<JobTemplatesResponse>("/api/job-templates");
+export function fetchJobTemplates(
+  options: FetchRequestOptions = {}
+): Promise<JobTemplatesResponse> {
+  return fetchJson<JobTemplatesResponse>("/api/job-templates", { signal: options.signal });
 }
 
-export function fetchPromptTemplates(): Promise<PromptTemplatesResponse> {
-  return fetchJson<PromptTemplatesResponse>("/api/prompt-templates");
+export function fetchPromptTemplates(
+  options: FetchRequestOptions = {}
+): Promise<PromptTemplatesResponse> {
+  return fetchJson<PromptTemplatesResponse>("/api/prompt-templates", {
+    signal: options.signal
+  });
 }
 
 export function fetchTargetLabelResolution(
-  options: TargetLabelResolutionParams = {}
+  options: TargetLabelResolutionParams = {},
+  request: FetchRequestOptions = {}
 ): Promise<TargetLabelResolution> {
   const params = new URLSearchParams();
   if (options.benchmarkId?.trim()) {
@@ -353,7 +360,9 @@ export function fetchTargetLabelResolution(
     }
   }
   const query = params.toString();
-  return fetchJson<TargetLabelResolution>(`/api/target-labels${query ? `?${query}` : ""}`);
+  return fetchJson<TargetLabelResolution>(`/api/target-labels${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
 export function upsertPromptTemplate(payload: Partial<PromptTemplate>): Promise<PromptTemplate> {
@@ -406,20 +415,33 @@ export function fetchBenchmark(
   );
 }
 
-export function fetchSuites(): Promise<SuiteListResponse> {
-  return fetchJson<SuiteListResponse>("/api/suites");
+export function fetchSuites(options: FetchRequestOptions = {}): Promise<SuiteListResponse> {
+  return fetchJson<SuiteListResponse>("/api/suites", { signal: options.signal });
 }
 
-export function fetchSuite(suiteId: string): Promise<SuiteDetailResponse> {
-  return fetchJson<SuiteDetailResponse>(`/api/suites/${encodeURIComponent(suiteId)}`);
+export function fetchSuite(
+  suiteId: string,
+  options: FetchRequestOptions = {}
+): Promise<SuiteDetailResponse> {
+  return fetchJson<SuiteDetailResponse>(`/api/suites/${encodeURIComponent(suiteId)}`, {
+    signal: options.signal
+  });
 }
 
-export function fetchCampaigns(): Promise<CampaignListResponse> {
-  return fetchJson<CampaignListResponse>("/api/campaigns");
+export function fetchCampaigns(
+  options: FetchRequestOptions = {}
+): Promise<CampaignListResponse> {
+  return fetchJson<CampaignListResponse>("/api/campaigns", { signal: options.signal });
 }
 
-export function fetchCampaign(campaignId: string): Promise<CampaignDetailResponse> {
-  return fetchJson<CampaignDetailResponse>(`/api/campaigns/${encodeURIComponent(campaignId)}`);
+export function fetchCampaign(
+  campaignId: string,
+  options: FetchRequestOptions = {}
+): Promise<CampaignDetailResponse> {
+  return fetchJson<CampaignDetailResponse>(
+    `/api/campaigns/${encodeURIComponent(campaignId)}`,
+    { signal: options.signal }
+  );
 }
 
 export function createBenchmark(payload: CreateBenchmarkPayload): Promise<BenchmarkManifest> {
@@ -450,8 +472,13 @@ export function checkServiceHealth(serviceId: string): Promise<ServiceSummary> {
   });
 }
 
-export function fetchServiceLogs(serviceId: string): Promise<ServiceLog> {
-  return fetchJson<ServiceLog>(`/api/services/${encodeURIComponent(serviceId)}/logs`);
+export function fetchServiceLogs(
+  serviceId: string,
+  options: FetchRequestOptions = {}
+): Promise<ServiceLog> {
+  return fetchJson<ServiceLog>(`/api/services/${encodeURIComponent(serviceId)}/logs`, {
+    signal: options.signal
+  });
 }
 
 export function stopService(serviceId: string): Promise<ServiceSummary> {
@@ -505,9 +532,15 @@ export function cancelJob(jobId: string): Promise<JobSummary> {
   });
 }
 
-export function fetchJobLogs(jobId: string, maxLines = 200): Promise<JobLog> {
+export function fetchJobLogs(
+  jobId: string,
+  maxLines = 200,
+  options: FetchRequestOptions = {}
+): Promise<JobLog> {
   const params = new URLSearchParams({ max_lines: String(maxLines) });
-  return fetchJson<JobLog>(`/api/jobs/${encodeURIComponent(jobId)}/logs?${params.toString()}`);
+  return fetchJson<JobLog>(`/api/jobs/${encodeURIComponent(jobId)}/logs?${params.toString()}`, {
+    signal: options.signal
+  });
 }
 
 export function deleteJob(jobId: string): Promise<DeleteJobResult> {
@@ -582,8 +615,13 @@ export function deleteRun(runId: string): Promise<DeleteResult & { run_id: strin
   });
 }
 
-export function fetchRunNote(runId: string): Promise<RunNote> {
-  return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`);
+export function fetchRunNote(
+  runId: string,
+  options: FetchRequestOptions = {}
+): Promise<RunNote> {
+  return fetchJson<RunNote>(`/api/runs/${encodeURIComponent(runId)}/note`, {
+    signal: options.signal
+  });
 }
 
 export function updateRunNote(
