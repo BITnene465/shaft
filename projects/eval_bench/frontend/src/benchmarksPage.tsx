@@ -17,6 +17,7 @@ import {
   CommandButton,
   EmptyState
 } from "./ui";
+import { TableLoadingState } from "./uiDataTable";
 import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
@@ -61,7 +62,33 @@ export function BenchmarksPage() {
     }
   }, [pageOffset, totalBenchmarks]);
   if (benchmarksQuery.isLoading) {
-    return <EmptyState title="正在加载基准集" />;
+    return (
+      <section className="page-stack density-page">
+        <div className="page-command-row">
+          <div>
+            <h2>基准集目录</h2>
+            <span>正在同步 benchmark 索引</span>
+          </div>
+          <CommandButton
+            icon={<AppIcon name="createBenchmark" size={17} />}
+            onClick={() => setCreateOpen(true)}
+          >
+            创建副本
+          </CommandButton>
+        </div>
+        <div className="workspace-card fill">
+          <TableLoadingState label="正在加载基准集" columns={7} />
+        </div>
+        <WorkspaceDialog
+          open={createOpen}
+          title="创建 benchmark 副本"
+          meta="从 raw_data split 复制不可变 test/val 集"
+          onClose={() => setCreateOpen(false)}
+        >
+          <BenchmarkCreatePanel bare />
+        </WorkspaceDialog>
+      </section>
+    );
   }
   if (benchmarksQuery.error || !benchmarksQuery.data) {
     return <EmptyState title={`基准集加载失败：${errorMessage(benchmarksQuery.error)}`} tone="danger" />;

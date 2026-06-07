@@ -3,12 +3,14 @@ import { chromium } from "@playwright/test";
 
 const baseUrl = (process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/").replace(/\/+$/, "");
 const expectedRouteChunks = [
+  "benchmarksPage",
   "rankBoardPage",
   "runsPage",
   "jobsPage",
   "suiteReportPage",
   "comparePage",
-  "servicesPage"
+  "servicesPage",
+  "settingsPage"
 ];
 
 const browser = await chromium.launch({ headless: true });

@@ -14,12 +14,14 @@ type SaveDataNavigator = Navigator & {
 };
 
 const WARMUP_CORE_ROUTE_MODULES = [
+  () => import("./benchmarksPage"),
   () => import("./rankBoardPage"),
   () => import("./runsPage"),
   () => import("./jobsPage"),
   () => import("./suiteReportPage"),
   () => import("./comparePage"),
-  () => import("./servicesPage")
+  () => import("./servicesPage"),
+  () => import("./settingsPage")
 ];
 
 let routeWarmupCompleted = false;

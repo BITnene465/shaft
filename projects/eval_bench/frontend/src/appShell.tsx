@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Moon, PanelLeftClose, PanelLeftOpen, Sun, X } from "lucide-react";
 
@@ -8,6 +9,7 @@ import { errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { resetJobsViewState } from "./jobsViewState";
 import { resetRankBoardViewState } from "./rankBoardViewState";
+import { prefetchEvalBenchRouteData } from "./routePrefetch";
 import { warmupEvalBenchRoutes } from "./routeWarmup";
 import { resetRunsViewState } from "./runsViewState";
 import { bootstrapTypographySettings, useTypographySettings } from "./typographySettings";
@@ -66,6 +68,7 @@ export class AppErrorBoundary extends React.Component<
 }
 
 export function AppShell() {
+  const queryClient = useQueryClient();
   const stateQuery = useDashboardState();
   const state = stateQuery.data;
   const location = useLocation();
@@ -93,42 +96,63 @@ export function AppShell() {
           />
         </div>
         <nav className="nav-list">
-          <NavItem to="/" icon={<AppIcon name="overview" size={21} />} label="总览" />
-          <NavItem to="/benchmarks" icon={<AppIcon name="benchmark" size={21} />} label="基准集" />
-          <NavItem to="/services" icon={<AppIcon name="service" size={21} />} label="模型服务" />
+          <NavItem
+            to="/"
+            icon={<AppIcon name="overview" size={21} />}
+            label="总览"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
+          />
+          <NavItem
+            to="/benchmarks"
+            icon={<AppIcon name="benchmark" size={21} />}
+            label="基准集"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
+          />
+          <NavItem
+            to="/services"
+            icon={<AppIcon name="service" size={21} />}
+            label="模型服务"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
+          />
           <NavItem
             to="/jobs"
             icon={<AppIcon name="evalJob" size={21} />}
             label="评测中心"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
             onNavigate={resetJobsViewState}
           />
           <NavItem
             to="/runs"
             icon={<AppIcon name="runResults" size={21} />}
             label="结果库"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
             onNavigate={resetRunsViewState}
           />
           <NavItem
             to="/rank-board"
             icon={<AppIcon name="rankBoard" size={21} />}
             label="排行榜"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
             onNavigate={resetRankBoardViewState}
           />
           <NavItem
             to="/suite-report"
             icon={<AppIcon name="diagnostics" size={21} />}
             label="组合报告"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
           />
           <NavItem
             to="/compare"
             icon={<AppIcon name="compareAnalysis" size={21} />}
             label="对比分析"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
             onNavigate={resetCompareViewState}
           />
           <NavItem
             to="/settings"
             icon={<AppIcon name="workspaceSettings" size={21} />}
             label="工作台设置"
+            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
           />
         </nav>
         <div className="store-chip">
@@ -259,13 +283,18 @@ function NavItem({
   to,
   icon,
   label,
+  onIntent,
   onNavigate
 }: {
   to: string;
   icon: React.ReactNode;
   label: string;
+  onIntent?: (pathname: string) => void;
   onNavigate?: () => void;
 }) {
+  function handleIntent() {
+    onIntent?.(to);
+  }
   return (
     <Link
       to={to}
@@ -274,6 +303,9 @@ function NavItem({
       preload="intent"
       preloadDelay={80}
       title={label}
+      onMouseEnter={handleIntent}
+      onFocus={handleIntent}
+      onTouchStart={handleIntent}
       onClick={onNavigate}
     >
       {icon}

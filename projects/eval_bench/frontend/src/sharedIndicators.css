@@ -130,3 +130,11 @@
     transform: scale(1);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .badge.live::before {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

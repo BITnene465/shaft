@@ -10,6 +10,7 @@ import {
 } from "./rankBoardFacets";
 import { RankBoardTable, SuiteRankBoardTable } from "./rankBoardTables";
 import { EmptyState, OptionChipButton } from "./ui";
+import { TableLoadingState } from "./uiDataTable";
 
 import "./rankTheme.css";
 import "./rankBoardPage.css";
@@ -43,7 +44,25 @@ export function RankBoardPage() {
   } = controller;
 
   if (loading) {
-    return <EmptyState title="正在加载排行榜" />;
+    return (
+      <section className="page-stack density-page rank-board-page">
+        <div className="rank-mode-switch" aria-label="排行榜模式">
+          <OptionChipButton active={boardMode === "run"} title="单任务 run 排名" onClick={setRunMode}>
+            Single task
+          </OptionChipButton>
+          <OptionChipButton
+            active={boardMode === "suite"}
+            title="Suite aggregate 排名"
+            onClick={setSuiteMode}
+          >
+            Suite aggregate
+          </OptionChipButton>
+        </div>
+        <div className="workspace-card fill rank-board-table-card">
+          <TableLoadingState label="正在加载排行榜" columns={8} />
+        </div>
+      </section>
+    );
   }
   if (errorTitle) {
     return <EmptyState title={errorTitle} tone="danger" />;

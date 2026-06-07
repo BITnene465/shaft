@@ -19,6 +19,7 @@ import {
   updatePagedFilterValue
 } from "./samplePager";
 import { CommandButton, EmptyState } from "./ui";
+import { TableLoadingState } from "./uiDataTable";
 import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
@@ -111,6 +112,7 @@ export function RunsPage() {
     runs.map((run) => run.metric_profile)
   );
   const totalRuns = runsQuery.data?.total ?? runs.length;
+  const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
   useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalRuns, RUN_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
@@ -147,12 +149,38 @@ export function RunsPage() {
     return () => window.removeEventListener(RUNS_VIEW_STATE_RESET_EVENT, resetViewState);
   }, []);
   if (runsQuery.isLoading || dashboardQuery.isLoading) {
-    return <EmptyState title="正在加载评测记录" />;
+    return (
+      <section className="page-stack density-page">
+        <div className="page-command-row">
+          <div>
+            <h2>评测记录库</h2>
+            <span>正在同步 run snapshot</span>
+          </div>
+          <CommandButton
+            variant="secondary"
+            icon={<AppIcon name="importPrediction" size={17} />}
+            onClick={() => setImportOpen(true)}
+          >
+            导入预测
+          </CommandButton>
+        </div>
+        <div className="workspace-card fill run-table-card">
+          <TableLoadingState label="正在加载评测记录" columns={9} />
+        </div>
+        <WorkspaceDialog
+          open={importOpen}
+          title="导入预测快照"
+          meta="把外部预测目录导入为 run，并和 GT 对比"
+          onClose={() => setImportOpen(false)}
+        >
+          <ImportPredictionsPanel benchmarks={benchmarkOptions} bare />
+        </WorkspaceDialog>
+      </section>
+    );
   }
   if (runsQuery.error || !runsQuery.data) {
     return <EmptyState title={`评测记录加载失败：${errorMessage(runsQuery.error)}`} tone="danger" />;
   }
-  const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];
   return (
     <section className="page-stack density-page">
       <div className="page-command-row">

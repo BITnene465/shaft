@@ -4,6 +4,7 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import type { ColumnDef, RowData } from "@tanstack/react-table";
+import type { CSSProperties } from "react";
 
 import { joinClassNames } from "./uiActions";
 import "./dataTable.css";
@@ -133,6 +134,57 @@ export function TableEmptyState({
         </span>
       ) : null}
       <div className="empty-panel">{emptyText}</div>
+    </div>
+  );
+}
+
+export function TableLoadingState({
+  label,
+  rows = 7,
+  columns = 6,
+  compact = false
+}: {
+  label: string;
+  rows?: number;
+  columns?: number;
+  compact?: boolean;
+}) {
+  const safeRows = Math.max(3, Math.min(rows, 12));
+  const safeColumns = Math.max(3, Math.min(columns, 10));
+  return (
+    <div className={joinClassNames("table-shell", "table-loading", compact && "compact")}>
+      <span className="table-refresh-indicator" aria-live="polite">
+        {label}
+      </span>
+      <table aria-hidden="true">
+        <thead>
+          <tr>
+            {Array.from({ length: safeColumns }).map((_, index) => (
+              <th key={index}>
+                <span className="table-skeleton-line header" />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: safeRows }).map((_, rowIndex) => (
+            <tr key={rowIndex}>
+              {Array.from({ length: safeColumns }).map((_, columnIndex) => (
+                <td key={columnIndex}>
+                  <span
+                    className="table-skeleton-line"
+                    style={
+                      {
+                        "--skeleton-offset": `${(rowIndex + columnIndex) % 4}`
+                      } as CSSProperties
+                    }
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

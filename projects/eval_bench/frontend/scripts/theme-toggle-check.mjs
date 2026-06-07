@@ -81,6 +81,12 @@ await assertDarkRouteSurface(page, "/settings", [
   ".settings-preference-drawer",
   ".settings-drawer-head"
 ]);
+await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+const reloadedDark = await themeSnapshot(page);
+assert.equal(reloadedDark.theme, "dark", "stored dark theme must survive reload");
+assert.equal(reloadedDark.storage, "dark", "stored dark theme must remain in localStorage after reload");
 await assertNoBrightDarkSurfaces(page);
 await assertTopbarDensity(page);
 await assertDarkMicroInteractions(page);
@@ -90,6 +96,11 @@ await page.waitForFunction(() => document.documentElement.dataset.theme === "lig
 const light = await themeSnapshot(page);
 assert.equal(light.theme, "light", "theme button must switch back to light");
 assert.equal(light.storage, "light", "light theme must persist to localStorage");
+await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 });
+await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+const reloadedLight = await themeSnapshot(page);
+assert.equal(reloadedLight.theme, "light", "stored light theme must survive reload");
+assert.equal(reloadedLight.storage, "light", "stored light theme must remain in localStorage after reload");
 
 await browser.close();
 
@@ -119,6 +130,7 @@ async function assertDarkRouteSurface(page, pathname, selectors) {
   await page.goto(nextUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
   await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
   await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+  await page.locator(selectors.join(",")).first().waitFor({ timeout: 10_000 });
   const snapshots = await page.evaluate((surfaceSelectors) => {
     const items = [];
     for (const selector of surfaceSelectors) {

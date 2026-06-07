@@ -31,7 +31,7 @@ import {
   Badge,
   InlineNavLink
 } from "./ui";
-import { TableEmptyState } from "./uiDataTable";
+import { TableEmptyState, TableLoadingState } from "./uiDataTable";
 import { DangerConfirmDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
@@ -162,7 +162,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
     return () => window.removeEventListener(JOBS_VIEW_STATE_RESET_EVENT, resetViewState);
   }, [compact]);
   if (isLoading) {
-    return <div className="empty-panel">正在加载队列状态</div>;
+    return <TableLoadingState compact={compact} label="正在加载队列状态" columns={compact ? 4 : 7} />;
   }
   if (error || !data) {
     return <div className="empty-panel danger-text">队列状态加载失败：{errorMessage(error)}</div>;

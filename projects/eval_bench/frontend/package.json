@@ -21,6 +21,8 @@
     "test:dialogs": "node scripts/dialog-smoke-check.mjs",
     "test:toast": "node scripts/toast-smoke-check.mjs",
     "test:route-warmup": "node scripts/route-warmup-check.mjs",
+    "test:nav-prefetch": "node scripts/nav-prefetch-check.mjs",
+    "test:loading-state": "node scripts/loading-state-check.mjs",
     "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
     "test:composite-report": "node scripts/composite-report-smoke-check.mjs",
     "test:layout": "node scripts/layout-smoke-check.mjs",

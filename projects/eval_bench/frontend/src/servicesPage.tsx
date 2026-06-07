@@ -12,6 +12,7 @@ import {
   CommandButton,
   EmptyState
 } from "./ui";
+import { TableLoadingState } from "./uiDataTable";
 import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
@@ -78,7 +79,9 @@ export function ServicesPage() {
         </CommandButton>
       </div>
       {servicesQuery.isLoading ? (
-        <EmptyState title="正在加载服务" />
+        <div className="workspace-card fill">
+          <TableLoadingState label="正在加载服务" columns={6} />
+        </div>
       ) : servicesQuery.error || !servicesQuery.data ? (
         <EmptyState title={`服务加载失败：${errorMessage(servicesQuery.error)}`} tone="danger" />
       ) : (

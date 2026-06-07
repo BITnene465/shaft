@@ -82,6 +82,7 @@ const servicesCreatePanelSource = await readSource("src/servicesCreatePanel.tsx"
 const servicesGridSource = await readSource("src/servicesGrid.tsx");
 const mainEntry = await readSource("src/main.tsx");
 const appShellSource = await readSource("src/appShell.tsx");
+const routePrefetchSource = await readSource("src/routePrefetch.ts");
 const routeWarmupSource = await readSource("src/routeWarmup.ts");
 const runTables = await readSource("src/runTables.tsx");
 const runsImportPanelSource = await readSource("src/runsImportPanel.tsx");
@@ -253,6 +254,8 @@ const viewerPerformanceSource = await readProjectFile("scripts/viewer-performanc
 const dialogSmokeSource = await readProjectFile("scripts/dialog-smoke-check.mjs");
 const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
 const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
+const navPrefetchSmokeSource = await readProjectFile("scripts/nav-prefetch-check.mjs");
+const loadingStateSmokeSource = await readProjectFile("scripts/loading-state-check.mjs");
 const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
@@ -464,6 +467,35 @@ assert(
     appShellSource.includes("window.setTimeout(() => setDelayedValue(true), delayMs)") &&
     appShellSource.includes("window.clearTimeout(timeout)") &&
     !appShellSource.includes('className={loading ? "status-pill loading" : "status-pill online"}') &&
+    appShellSource.includes('import { prefetchEvalBenchRouteData } from "./routePrefetch";') &&
+    appShellSource.includes("const queryClient = useQueryClient();") &&
+    appShellSource.includes("onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}") &&
+    appShellSource.includes("onMouseEnter={handleIntent}") &&
+    appShellSource.includes("onFocus={handleIntent}") &&
+    appShellSource.includes("onTouchStart={handleIntent}") &&
+    routePrefetchSource.includes("const ROUTE_PREFETCH_STALE_MS = 15_000;") &&
+    routePrefetchSource.includes("type SaveDataNavigator = Navigator &") &&
+    routePrefetchSource.includes("const prefetchInFlightPathnames = new Set<string>();") &&
+    routePrefetchSource.includes("export function prefetchEvalBenchRouteData") &&
+    routePrefetchSource.includes("if (shouldSkipRoutePrefetch())") &&
+    routePrefetchSource.includes("connection?.saveData") &&
+    routePrefetchSource.includes("prefetchInFlightPathnames.has(normalizedPathname)") &&
+    routePrefetchSource.includes("const prefetchQueries = prefetchQueriesForPathname(queryClient, normalizedPathname)") &&
+    routePrefetchSource.includes("void Promise.allSettled(prefetchQueries).finally") &&
+    routePrefetchSource.includes("prefetchInFlightPathnames.delete(normalizedPathname)") &&
+    routePrefetchSource.includes("silent: true") &&
+    apiSource.includes("silent?: boolean;") &&
+    apiSource.includes("if (!silent)") &&
+    apiSource.includes("notifyApiError(error.message)") &&
+    routePrefetchSource.includes('"rank-board",') &&
+    routePrefetchSource.includes('queryKey: ["runs", filters]') &&
+    routePrefetchSource.includes('queryKey: ["jobs", filters]') &&
+    routePrefetchSource.includes('queryKey: ["scheduler-status"]') &&
+    routePrefetchSource.includes('queryKey: ["services", filters]') &&
+    routePrefetchSource.includes('queryKey: ["benchmarks", filters]') &&
+    routePrefetchSource.includes('queryKey: ["runs", "compare", runFilters]') &&
+    routePrefetchSource.includes('queryKey: ["comparisons", comparisonFilters]') &&
+    routePrefetchSource.includes('queryKey: ["settings-preview-sample"]') &&
     appShellSource.includes('import { warmupEvalBenchRoutes } from "./routeWarmup";') &&
     appShellSource.includes("useEffect(() => warmupEvalBenchRoutes(), []);") &&
     routeWarmupSource.includes("const ROUTE_WARMUP_TIMEOUT_MS = 2_500;") &&
@@ -474,12 +506,14 @@ assert(
     routeWarmupSource.includes("Promise.allSettled") &&
     routeWarmupSource.includes("WARMUP_CORE_ROUTE_MODULES.map((loadRouteModule) => loadRouteModule())") &&
     !routeWarmupSource.includes("for (const loadRouteModule of WARMUP_CORE_ROUTE_MODULES)") &&
+    routeWarmupSource.includes('() => import("./benchmarksPage")') &&
     routeWarmupSource.includes('() => import("./rankBoardPage")') &&
     routeWarmupSource.includes('() => import("./runsPage")') &&
     routeWarmupSource.includes('() => import("./jobsPage")') &&
     routeWarmupSource.includes('() => import("./suiteReportPage")') &&
     routeWarmupSource.includes('() => import("./comparePage")') &&
     routeWarmupSource.includes('() => import("./servicesPage")') &&
+    routeWarmupSource.includes('() => import("./settingsPage")') &&
     appShellSource.includes('preload="intent"') &&
     appShellSource.includes("preloadDelay={80}") &&
     mainEntry.includes('lazyRouteComponent(() => import("./jobsPage"), "JobsPage")') &&
@@ -843,6 +877,8 @@ assert(
     uiDataTableSource.includes("export type TableColumnWidth =") &&
     uiDataTableSource.includes('import "./dataTable.css";') &&
     uiDataTableSource.includes("export function TableEmptyState(") &&
+    uiDataTableSource.includes("export function TableLoadingState(") &&
+    uiDataTableSource.includes("table-skeleton-line") &&
     uiDataTableSource.includes("declare module \"@tanstack/react-table\"") &&
     uiDataTableSource.includes("export function tableColumnClassName(") &&
     uiDataTableSource.includes("data-table-cell") &&
@@ -853,7 +889,7 @@ assert(
     runTables.includes('import { DataTable } from "./uiDataTable";') &&
     rankBoardTablesSource.includes('import { DataTable } from "./uiDataTable";') &&
     compareRunRailComponentsSource.includes('import { DataTable } from "./uiDataTable";') &&
-    jobsQueuePanelSource.includes('import { TableEmptyState } from "./uiDataTable";') &&
+    jobsQueuePanelSource.includes("TableEmptyState") &&
     servicesGridSource.includes('import { TableEmptyState } from "./uiDataTable";') &&
     jobsQueueTableSource.includes('import { tableColumnClassName } from "./uiDataTable";') &&
     dataTableStyleSource.includes(".table-shell .table-col-id") &&
@@ -862,6 +898,10 @@ assert(
     dataTableStyleSource.includes(".table-shell.empty .empty-panel") &&
     dataTableStyleSource.includes("background: transparent;") &&
     dataTableStyleSource.includes(".table-shell.refreshing::after") &&
+    dataTableStyleSource.includes(".table-shell.table-loading") &&
+    dataTableStyleSource.includes("@keyframes table-skeleton-sheen") &&
+    dataTableStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
+    dataTableStyleSource.includes(".table-shell.refreshing::after,\n  .table-skeleton-line") &&
     dataTableStyleSource.includes(".table-refresh-indicator") &&
     dataTableStyleSource.includes(".row-select-checkbox") &&
     dataTableStyleSource.includes(".selectable-row") &&
@@ -885,6 +925,16 @@ assert(
     jobsQueuePanelSource.includes('emptyText="没有符合高级检索条件的任务。"') &&
     jobsQueuePanelSource.includes('refreshLabel="队列更新中"') &&
     !jobsQueuePanelSource.includes('<div className="empty-panel">没有符合高级检索条件的任务。</div>') &&
+    benchmarksPage.includes("<TableLoadingState label=\"正在加载基准集\"") &&
+    runsPage.includes("<TableLoadingState label=\"正在加载评测记录\"") &&
+    rankBoardPage.includes("<TableLoadingState label=\"正在加载排行榜\"") &&
+    servicesPage.includes("<TableLoadingState label=\"正在加载服务\"") &&
+    jobsQueuePanelSource.includes("<TableLoadingState") &&
+    !benchmarksPage.includes('<EmptyState title="正在加载基准集"') &&
+    !runsPage.includes('<EmptyState title="正在加载评测记录"') &&
+    !rankBoardPage.includes('<EmptyState title="正在加载排行榜"') &&
+    !servicesPage.includes('<EmptyState title="正在加载服务"') &&
+    !jobsQueuePanelSource.includes('className="empty-panel">正在加载队列状态') &&
     runTables.includes('meta: { width: "id", wrap: "wrap" }') &&
     rankBoardTablesSource.includes('meta: { width: "metric", align: "end" }') &&
     compareRunRailComponentsSource.includes('meta: { width: "date" }') &&
@@ -1556,6 +1606,8 @@ assert(
     packageJsonSource.includes('"test:dialogs": "node scripts/dialog-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:toast": "node scripts/toast-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:route-warmup": "node scripts/route-warmup-check.mjs"') &&
+    packageJsonSource.includes('"test:nav-prefetch": "node scripts/nav-prefetch-check.mjs"') &&
+    packageJsonSource.includes('"test:loading-state": "node scripts/loading-state-check.mjs"') &&
     dialogSmokeSource.includes('!text.includes("/api/")') &&
     dialogSmokeSource.includes('!text.includes("Failed to load resource")') &&
     toastSmokeSource.includes('new CustomEvent("eval-bench-api-error"') &&
@@ -1569,27 +1621,54 @@ assert(
     toastSmokeSource.includes("toast stack should keep only the latest three distinct API errors") &&
     toastSmokeSource.includes('"422 Unprocessable Entity: manifest invalid"') &&
     toastSmokeSource.includes('getByRole("button", { name: "关闭提醒" })') &&
+    routeWarmupSmokeSource.includes('"benchmarksPage"') &&
     routeWarmupSmokeSource.includes('"rankBoardPage"') &&
     routeWarmupSmokeSource.includes('"runsPage"') &&
     routeWarmupSmokeSource.includes('"jobsPage"') &&
     routeWarmupSmokeSource.includes('"suiteReportPage"') &&
     routeWarmupSmokeSource.includes('"comparePage"') &&
     routeWarmupSmokeSource.includes('"servicesPage"') &&
+    routeWarmupSmokeSource.includes('"settingsPage"') &&
     routeWarmupSmokeSource.includes('performance.getEntriesByType("resource")') &&
     routeWarmupSmokeSource.includes("core route chunks must warm up after idle") &&
     routeWarmupSmokeSource.includes('Object.defineProperty(navigator, "connection"') &&
     routeWarmupSmokeSource.includes("saveData: true") &&
     routeWarmupSmokeSource.includes("route warmup must not fetch core chunks when navigator.connection.saveData is true") &&
     routeWarmupSmokeSource.includes('!text.includes("/api/")') &&
+    navPrefetchSmokeSource.includes('const expectedPrefetches = [') &&
+    navPrefetchSmokeSource.includes('{ label: "评测中心", pathPrefix: "/api/jobs", query: "limit=80" }') &&
+    navPrefetchSmokeSource.includes('{ label: "排行榜", pathPrefix: "/api/rank-board", query: "sort_by=f1_iou50" }') &&
+    navPrefetchSmokeSource.includes("async function waitForApiRequest(prefetch)") &&
+    navPrefetchSmokeSource.includes("async function assertPrefetchFailureStaysSilent()") &&
+    navPrefetchSmokeSource.includes("prefetch failure must not show toast") &&
+    navPrefetchSmokeSource.includes("failed route prefetch should retry on the next intent") &&
+    navPrefetchSmokeSource.includes("async function waitForPrefetchCount") &&
+    navPrefetchSmokeSource.includes("async function assertSaveDataSkipsPrefetch()") &&
+    navPrefetchSmokeSource.includes("nav prefetch must not fetch API data when navigator.connection.saveData is true") &&
+    navPrefetchSmokeSource.includes("runs endpoint should be prefetched once for results and once for compare, not once per hover") &&
+    loadingStateSmokeSource.includes('delayedApi: "/api/benchmarks", label: "正在加载基准集"') &&
+    loadingStateSmokeSource.includes('delayedApi: "/api/runs", label: "正在加载评测记录"') &&
+    loadingStateSmokeSource.includes('delayedApi: "/api/rank-board", label: "正在加载排行榜"') &&
+    loadingStateSmokeSource.includes('delayedApi: "/api/jobs", label: "正在加载队列状态"') &&
+    loadingStateSmokeSource.includes('delayedApi: "/api/services", label: "正在加载服务"') &&
+    loadingStateSmokeSource.includes(".table-loading .table-refresh-indicator") &&
+    loadingStateSmokeSource.includes("await page.emulateMedia({ reducedMotion: \"reduce\" })") &&
+    loadingStateSmokeSource.includes("reduced-motion loading skeleton must not animate") &&
+    loadingStateSmokeSource.includes("reduced-motion table refresh line must not animate") &&
+    loadingStateSmokeSource.includes("must not use a full-page empty panel for first load") &&
     packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
     packageJsonSource.includes('"test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs"') &&
     readmeSource.includes("npm run test:select-popover") &&
     readmeSource.includes("npm run test:select-popover-ui") &&
     readmeSource.includes("npm run test:route-warmup") &&
+    readmeSource.includes("npm run test:nav-prefetch") &&
+    readmeSource.includes("npm run test:loading-state") &&
     readmeSource.includes("npm run test:toast") &&
     readmeSource.includes("`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`）") &&
     readmeSource.includes("`test:select-popover-ui` 是共享下拉控件的浏览器 smoke") &&
     readmeSource.includes("`test:route-warmup` 是首屏后路由预热 smoke") &&
+    readmeSource.includes("`test:nav-prefetch` 是主导航意图预取 smoke") &&
+    readmeSource.includes("`test:loading-state` 是列表首屏加载态 smoke") &&
     readmeSource.includes("`test:toast` 是 API 错误提示 smoke") &&
     compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
     compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
@@ -3228,6 +3307,8 @@ assert(
     themeToggleCheckSource.includes("parseCssRgb") &&
     themeToggleCheckSource.includes("parsed.alpha <= 0.2") &&
     themeToggleCheckSource.includes("const TOPBAR_MAX_HEIGHT = 56;") &&
+    themeToggleCheckSource.includes("stored dark theme must survive reload") &&
+    themeToggleCheckSource.includes("stored light theme must survive reload") &&
     themeToggleCheckSource.includes("function assertTopbarDensity") &&
     themeToggleCheckSource.includes("topbar density regressed") &&
     themeToggleCheckSource.includes('document.querySelector(".user-profile-chip")') &&

@@ -98,16 +98,21 @@ export class ApiError extends Error {
 
 type FetchRequestOptions = {
   signal?: AbortSignal;
+  silent?: boolean;
 };
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit & { silent?: boolean }
+): Promise<T> {
+  const { silent = false, ...fetchInit } = init ?? {};
   const response = await fetch(path, {
-    ...init,
-    headers: { Accept: "application/json", ...(init?.headers ?? {}) }
+    ...fetchInit,
+    headers: { Accept: "application/json", ...(fetchInit.headers ?? {}) }
   });
   if (!response.ok) {
     let detail = "";
@@ -125,7 +130,9 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
       detail,
       requestId
     });
-    notifyApiError(error.message);
+    if (!silent) {
+      notifyApiError(error.message);
+    }
     throw error;
   }
   return (await response.json()) as T;
@@ -266,7 +273,8 @@ export function fetchRankBoard(options: {
     params.set("query", options.query.trim());
   }
   return fetchJson<RankBoard>(`/api/rank-board?${params.toString()}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
@@ -299,7 +307,8 @@ export function fetchSuiteRankBoard(options: {
     params.set("sort_order", options.sortOrder);
   }
   return fetchJson<SuiteRankBoard>(`/api/suite-rank-board?${params.toString()}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
@@ -315,14 +324,18 @@ export function fetchJobs(
   });
   const query = params.toString();
   return fetchJson<JobListResponse>(`/api/jobs${query ? `?${query}` : ""}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
 export function fetchSchedulerStatus(
   options: FetchRequestOptions = {}
 ): Promise<SchedulerStatus> {
-  return fetchJson<SchedulerStatus>("/api/scheduler/status", { signal: options.signal });
+  return fetchJson<SchedulerStatus>("/api/scheduler/status", {
+    signal: options.signal,
+    silent: options.silent
+  });
 }
 
 export function fetchJobTemplates(
@@ -385,7 +398,8 @@ export function fetchServices(
   });
   const query = params.toString();
   return fetchJson<ServiceListResponse>(`/api/services${query ? `?${query}` : ""}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
@@ -401,7 +415,8 @@ export function fetchBenchmarks(
   });
   const query = params.toString();
   return fetchJson<BenchmarkListResponse>(`/api/benchmarks${query ? `?${query}` : ""}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
@@ -589,7 +604,8 @@ export function fetchRuns(
   }
   const query = params.toString();
   return fetchJson<RunListResponse>(`/api/runs${query ? `?${query}` : ""}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
@@ -771,7 +787,8 @@ export function fetchSettingsPreviewSample(
   options: FetchRequestOptions = {}
 ): Promise<BenchmarkSampleDetail> {
   return fetchJson<BenchmarkSampleDetail>("/api/settings/preview-sample", {
-    signal: options.signal
+    signal: options.signal,
+    silent: options.silent
   });
 }
 
@@ -836,7 +853,8 @@ export function fetchComparisons(
     limit?: number;
     filters?: Record<string, string>;
   }>(`/api/comparisons${query ? `?${query}` : ""}`, {
-    signal: request.signal
+    signal: request.signal,
+    silent: request.silent
   });
 }
 
