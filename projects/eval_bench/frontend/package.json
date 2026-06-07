@@ -13,6 +13,7 @@
     "test:workspace-settings": "node scripts/test-workspace-settings.mjs",
     "test:run-artifacts": "node scripts/test-run-artifact-signals.mjs",
     "test:select-popover": "node scripts/test-select-popover-model.mjs",
+    "test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs",
     "test:ui-contracts": "node scripts/test-ui-contracts.mjs",
     "test:viewer-performance": "node scripts/viewer-performance-check.mjs",
     "test:settings-preview": "node scripts/settings-preview-check.mjs",

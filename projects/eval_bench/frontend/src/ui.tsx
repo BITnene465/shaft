@@ -3,8 +3,6 @@ import type { DetailsHTMLAttributes, ReactNode } from "react";
 import { statusClassName, statusInfo } from "./statusModel";
 import type { StatusDomain } from "./statusModel";
 export * from "./uiActions";
-export * from "./uiDataTable";
-export * from "./uiDialog";
 
 export function MetricCard({
   icon,

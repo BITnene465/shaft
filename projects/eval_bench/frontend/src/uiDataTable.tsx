@@ -6,6 +6,7 @@ import {
 import type { ColumnDef, RowData } from "@tanstack/react-table";
 
 import { joinClassNames } from "./uiActions";
+import "./dataTable.css";
 
 export type TableColumnWidth =
   | "select"

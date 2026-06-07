@@ -12,9 +12,9 @@ import { canCancelJob, canDeleteJob, jobProgress } from "./statusModel";
 import {
   Badge,
   IconActionButton,
-  SelectableTableRow,
-  tableColumnClassName
+  SelectableTableRow
 } from "./ui";
+import { tableColumnClassName } from "./uiDataTable";
 
 export const JOB_QUEUE_COLUMN_CLASS_NAMES = {
   identity: tableColumnClassName({ width: "id", wrap: "wrap" }),

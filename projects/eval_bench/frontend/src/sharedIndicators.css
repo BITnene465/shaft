@@ -10,14 +10,12 @@
   font-size: var(--control-text-body);
   font-weight: 650;
   transition:
-    transform 150ms ease,
     border-color 150ms ease,
     box-shadow 150ms ease,
     background 150ms ease;
 }
 
 .status-pill:hover {
-  transform: translateY(-1px);
   border-color: #91d6bb;
   box-shadow: 0 12px 24px rgb(21 84 60 / 12%);
 }
@@ -41,13 +39,12 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   transition:
-    transform 140ms ease,
     border-color 140ms ease,
     background 140ms ease;
 }
 
 .badge:hover {
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 .badge.success {

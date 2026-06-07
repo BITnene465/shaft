@@ -843,6 +843,7 @@ npm run test:metrics
 npm run test:status-model
 npm run test:workspace-settings
 npm run test:select-popover
+npm run test:select-popover-ui
 npm run test:ui-contracts
 npm run test:shortcuts
 npm run test:composite-report
@@ -871,6 +872,9 @@ Overview 的静态契约也由这里锁住：源码必须使用 v17 decision-fir
 `test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`），覆盖 80 项渲染窗口、
 hiddenBefore / hiddenAfter、disabled option 跳过、PageUp / PageDown 和 all-disabled 边界，避免高级检索
 或设置页出现几百项选项时退回全量渲染或窗口内循环。
+
+`test:select-popover-ui` 是共享下拉控件的浏览器 smoke，会在真实页面打开高级检索里的自定义下拉，检查
+listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active descendant 和 Escape 后焦点回到触发器。
 
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /
 `useWorkspaceShortcuts`，并用自定义 keymap 在 benchmark、run、compare 和 settings 页面真实触发

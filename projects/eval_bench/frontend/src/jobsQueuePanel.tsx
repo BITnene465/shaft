@@ -29,10 +29,10 @@ import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./sam
 import { jobProgress, progressPhaseText } from "./statusModel";
 import {
   Badge,
-  DangerConfirmDialog,
-  InlineNavLink,
-  TableEmptyState
+  InlineNavLink
 } from "./ui";
+import { TableEmptyState } from "./uiDataTable";
+import { DangerConfirmDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
 const JOB_PAGE_SIZE = 80;

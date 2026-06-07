@@ -14,13 +14,13 @@ import { formatDate, formatMetric, runF1Score } from "./formatters";
 import { canArchiveRun, canDeleteRun, canEvaluateRun } from "./statusModel";
 import {
   Badge,
-  DangerConfirmDialog,
-  DataTable,
   IconActionButton,
   IconNavLink,
   InlineAnchor,
   InlineNavLink
 } from "./ui";
+import { DataTable } from "./uiDataTable";
+import { DangerConfirmDialog } from "./uiDialog";
 
 const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [
   {

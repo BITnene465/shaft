@@ -9,6 +9,7 @@ import { errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { parseBenchmarkSlices } from "./benchmarkModel";
 import { ActionButton } from "./ui";
+import "./formControls.css";
 
 export function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
   const queryClient = useQueryClient();
@@ -143,4 +144,3 @@ export function BenchmarkCreatePanel({ bare }: { bare?: boolean }) {
   );
   return bare ? content : <div className="workspace-card compact-form-card">{content}</div>;
 }
-

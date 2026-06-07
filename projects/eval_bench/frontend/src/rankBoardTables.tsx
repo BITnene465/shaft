@@ -6,7 +6,8 @@ import { useMemo } from "react";
 import type { RankBoardEntry, SuiteRankEntry } from "./api";
 import { f1Score, formatDate, formatMetric } from "./formatters";
 import { RANK_PRIMARY_METRICS } from "./rankBoardModel";
-import { ActionButton, Badge, DataTable } from "./ui";
+import { ActionButton, Badge } from "./ui";
+import { DataTable } from "./uiDataTable";
 
 import "./rankBoardTables.css";
 

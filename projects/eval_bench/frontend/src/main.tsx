@@ -13,10 +13,7 @@ import {
 } from "@tanstack/react-router";
 
 import { AppErrorBoundary, AppShell } from "./appShell";
-import { JobsPage } from "./jobsPage";
 import { OverviewPage } from "./overviewPage";
-import { ServicesPage } from "./servicesPage";
-import { SettingsPage } from "./settingsPage";
 import "./appBase.css";
 import "./appChrome.css";
 import "./sharedControlsTheme.css";
@@ -38,11 +35,8 @@ import "./compositeTheme.css";
 import "./adaptiveContent.css";
 import "./workspaceTheme.css";
 import "./workspaceShell.css";
-import "./workspaceDialog.css";
 import "./pageCommand.css";
-import "./dataTable.css";
 import "./runTables.css";
-import "./formControls.css";
 import "./themeSurfaceOverrides.css";
 
 const queryClient = new QueryClient({
@@ -74,12 +68,12 @@ const benchmarkDetailRoute = createRoute({
 const jobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/jobs",
-  component: JobsPage
+  component: lazyRouteComponent(() => import("./jobsPage"), "JobsPage")
 });
 const servicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/services",
-  component: ServicesPage
+  component: lazyRouteComponent(() => import("./servicesPage"), "ServicesPage")
 });
 const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -114,7 +108,7 @@ const comparisonSampleRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  component: SettingsPage
+  component: lazyRouteComponent(() => import("./settingsPage"), "SettingsPage")
 });
 
 const routeTree = rootRoute.addChildren([

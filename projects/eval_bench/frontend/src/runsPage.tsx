@@ -18,7 +18,8 @@ import {
   clampListPageOffset,
   updatePagedFilterValue
 } from "./samplePager";
-import { CommandButton, EmptyState, WorkspaceDialog } from "./ui";
+import { CommandButton, EmptyState } from "./ui";
+import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
 import "./runsPage.css";

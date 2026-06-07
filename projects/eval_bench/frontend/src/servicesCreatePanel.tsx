@@ -7,6 +7,7 @@ import { FormSelectControl, NumberInputControl, TextInputControl } from "./contr
 import { errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { ActionButton } from "./ui";
+import "./formControls.css";
 
 export function ServiceCreatePanel({ bare }: { bare?: boolean }) {
   const queryClient = useQueryClient();

@@ -14,6 +14,7 @@ import { errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { DetectionLabelSubtaskPanel } from "./labelSubtaskControls";
 import { ActionButton } from "./ui";
+import "./formControls.css";
 
 export function ImportPredictionsPanel({
   benchmarks,

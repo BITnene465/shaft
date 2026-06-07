@@ -28,10 +28,11 @@ import {
   ActionButton,
   Badge,
   ConfigItem,
-  DangerConfirmDialog,
-  IconActionButton,
-  TableEmptyState
+  IconActionButton
 } from "./ui";
+import { TableEmptyState } from "./uiDataTable";
+import { DangerConfirmDialog } from "./uiDialog";
+import "./formControls.css";
 
 export function ServiceGrid({
   services,

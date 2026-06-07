@@ -108,6 +108,7 @@ const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const selectPopoverControl = await readSource("src/selectPopoverControl.tsx");
 const selectPopoverModelSource = await readSource("src/selectPopoverModel.ts");
 const selectPopoverModelCheckSource = await readSource("scripts/test-select-popover-model.mjs");
+const selectPopoverSmokeSource = await readSource("scripts/select-popover-smoke-check.mjs");
 const useDebouncedValueSource = await readSource("src/useDebouncedValue.ts");
 const themeToggleCheckSource = await readSource("scripts/theme-toggle-check.mjs");
 const rankBoardViewStateSource = await readSource("src/rankBoardViewState.ts");
@@ -248,6 +249,7 @@ const readRepoFile = (relativePath) => readFile(path.join(root, "..", "..", ".."
 const packageJsonSource = await readProjectFile("package.json");
 const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
 const viewerPerformanceSource = await readProjectFile("scripts/viewer-performance-check.mjs");
+const dialogSmokeSource = await readProjectFile("scripts/dialog-smoke-check.mjs");
 const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
@@ -425,8 +427,20 @@ assert(
     dashboardStateSource.includes('queryKey: ["dashboard-state"]') &&
     dashboardStateSource.includes("refetchInterval = false") &&
     !dashboardStateSource.includes("refetchInterval: 10_000") &&
+    appShellSource.includes("const STATUS_SYNC_DELAY_MS = 450;") &&
+    appShellSource.includes("function useDelayedTruthy(value: boolean, delayMs: number)") &&
+    appShellSource.includes("const delayedLoading = useDelayedTruthy(loading, STATUS_SYNC_DELAY_MS);") &&
+    appShellSource.includes("window.setTimeout(() => setDelayedValue(true), delayMs)") &&
+    appShellSource.includes("window.clearTimeout(timeout)") &&
+    !appShellSource.includes('className={loading ? "status-pill loading" : "status-pill online"}') &&
     appShellSource.includes('preload="intent"') &&
     appShellSource.includes("preloadDelay={80}") &&
+    mainEntry.includes('lazyRouteComponent(() => import("./jobsPage"), "JobsPage")') &&
+    mainEntry.includes('lazyRouteComponent(() => import("./servicesPage"), "ServicesPage")') &&
+    mainEntry.includes('lazyRouteComponent(() => import("./settingsPage"), "SettingsPage")') &&
+    !mainEntry.includes('import { JobsPage } from "./jobsPage";') &&
+    !mainEntry.includes('import { ServicesPage } from "./servicesPage";') &&
+    !mainEntry.includes('import { SettingsPage } from "./settingsPage";') &&
     overviewModelSource.includes("const OVERVIEW_QUEUE_REFRESH_MS = 5_000;") &&
     overviewModelSource.includes("const OVERVIEW_SERVICE_REFRESH_MS = 10_000;") &&
     overviewModelSource.includes("useDashboardState({") &&
@@ -552,11 +566,18 @@ assert(
     sharedButtonsStyleSource.includes(".mini-button") &&
     sharedButtonsStyleSource.includes(".icon-button") &&
     sharedButtonsStyleSource.includes(".mini-link.compare-ready") &&
+    !/translateY\(/.test(sharedButtonsStyleSource) &&
+    !sharedButtonsStyleSource.includes("transform 140ms ease") &&
+    sharedButtonsStyleSource.includes("box-shadow: inset 0 0 0 1px color-mix") &&
     sharedIndicatorsStyleSource.includes("var(--control-chip-height)") &&
     sharedIndicatorsStyleSource.includes(".status-pill") &&
     sharedIndicatorsStyleSource.includes(".query-chip") &&
     sharedIndicatorsStyleSource.includes(".badge.live::before") &&
     sharedIndicatorsStyleSource.includes("@keyframes badge-live-pulse") &&
+    !/translateY\(/.test(sharedIndicatorsStyleSource) &&
+    !sharedIndicatorsStyleSource.includes("transform 140ms ease") &&
+    !sharedIndicatorsStyleSource.includes("transform 150ms ease") &&
+    sharedIndicatorsStyleSource.includes("border-color: color-mix(in srgb, currentColor 20%, transparent);") &&
     sharedMetricsStyleSource.includes("var(--control-metric-value-size)") &&
     sharedMetricsStyleSource.includes(".summary-grid") &&
     sharedMetricsStyleSource.includes(".metric-card") &&
@@ -670,6 +691,8 @@ assert(
     selectPopoverControl.includes("function isSearchInputEvent(event: ReactKeyboardEvent<HTMLDivElement>)") &&
     selectPopoverControl.includes("return event.target === searchRef.current;") &&
     selectPopoverControl.includes('isSearchInputEvent(event) && (event.key === "Home" || event.key === "End")') &&
+    selectPopoverControl.includes("event.stopPropagation();") &&
+    selectPopoverControl.includes("event.nativeEvent.stopImmediatePropagation?.();") &&
     !selectPopoverControl.includes("currentIndex + direction * (SELECT_VISIBLE_LIMIT - 1)") &&
     selectPopoverModelSource.includes("activeIndex + direction * (SELECT_VISIBLE_LIMIT - 1)") &&
     selectPopoverModelCheckSource.includes("SELECT_VISIBLE_LIMIT") &&
@@ -684,6 +707,24 @@ assert(
     selectPopoverModelCheckSource.includes("pagedEnabledIndex(options, 0, 1)") &&
     selectPopoverModelCheckSource.includes("pagedEnabledIndex(options, 120, -1)") &&
     selectPopoverModelCheckSource.includes("pagedEnabledIndex(allDisabled, -1, 1)") &&
+    selectPopoverSmokeSource.includes('const candidateRoutes = ["/rank-board", "/runs", "/jobs", "/benchmarks", "/services", "/compare"]') &&
+    selectPopoverSmokeSource.includes("async function openFirstAdvancedFilterWithSelect(page)") &&
+    selectPopoverSmokeSource.includes('".advanced-filter-controls .select-popover-trigger"') &&
+    selectPopoverSmokeSource.includes('data-select-popover-menu="true"') &&
+    selectPopoverSmokeSource.includes("async function assertSelectStructure(page, scope)") &&
+    selectPopoverSmokeSource.includes('trigger?.getAttribute("aria-controls")') &&
+    selectPopoverSmokeSource.includes('listbox?.getAttribute("role")') &&
+    selectPopoverSmokeSource.includes('searchInput?.getAttribute("aria-controls")') &&
+    selectPopoverSmokeSource.includes('searchInput?.getAttribute("aria-autocomplete")') &&
+    selectPopoverSmokeSource.includes("async function assertSearchClearKeepsInputFocus(page)") &&
+    selectPopoverSmokeSource.includes('page.getByRole("button", { name: "清空搜索" })') &&
+    selectPopoverSmokeSource.includes("async function assertKeyboardActiveDescendant(page)") &&
+    selectPopoverSmokeSource.includes('page.keyboard.press("PageDown")') &&
+    selectPopoverSmokeSource.includes('document.getElementById(activeId)') &&
+    selectPopoverSmokeSource.includes('activeNode?.getAttribute("data-select-window-index")') &&
+    selectPopoverSmokeSource.includes("async function assertEscapeRestoresTriggerFocus(page)") &&
+    selectPopoverSmokeSource.includes('page.keyboard.press("Escape")') &&
+    selectPopoverSmokeSource.includes('classList.contains("select-popover-trigger")') &&
     selectPopoverControl.includes('event.key === "PageDown"') &&
     selectPopoverControl.includes("pageActive(1)") &&
     selectPopoverControl.includes('event.key === "PageUp"') &&
@@ -751,8 +792,9 @@ assert(
   "paged list controls must share PagerControl, clampListPageOffset, and filter offset reset semantics",
 );
 assert(
-    uiSource.includes('export * from "./uiDataTable";') &&
+    !uiSource.includes('export * from "./uiDataTable";') &&
     uiDataTableSource.includes("export type TableColumnWidth =") &&
+    uiDataTableSource.includes('import "./dataTable.css";') &&
     uiDataTableSource.includes("export function TableEmptyState(") &&
     uiDataTableSource.includes("declare module \"@tanstack/react-table\"") &&
     uiDataTableSource.includes("export function tableColumnClassName(") &&
@@ -760,7 +802,13 @@ assert(
     uiDataTableSource.includes('"table-shell",\n        "empty"') &&
     uiDataTableSource.includes("refreshing && \"refreshing\"") &&
     uiDataTableSource.includes("<div className=\"empty-panel\">{emptyText}</div>") &&
-    mainEntry.includes('import "./dataTable.css";') &&
+    !mainEntry.includes('import "./dataTable.css";') &&
+    runTables.includes('import { DataTable } from "./uiDataTable";') &&
+    rankBoardTablesSource.includes('import { DataTable } from "./uiDataTable";') &&
+    compareRunRailComponentsSource.includes('import { DataTable } from "./uiDataTable";') &&
+    jobsQueuePanelSource.includes('import { TableEmptyState } from "./uiDataTable";') &&
+    servicesGridSource.includes('import { TableEmptyState } from "./uiDataTable";') &&
+    jobsQueueTableSource.includes('import { tableColumnClassName } from "./uiDataTable";') &&
     dataTableStyleSource.includes(".table-shell .table-col-id") &&
     dataTableStyleSource.includes(".table-shell .table-col-metric") &&
     dataTableStyleSource.includes(".table-shell .table-wrap-wrap") &&
@@ -826,7 +874,8 @@ assert(
     advancedFilterFieldsSource.includes("FilterSelectControl") &&
     advancedFilterFieldsSource.includes("SearchInputControl") &&
     advancedFilterFieldsSource.includes("TextInputControl") &&
-    filterControls.includes('import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";') &&
+    filterControls.includes('import { ActionButton, PanelToggleButton } from "./ui";') &&
+    filterControls.includes('import { DIALOG_FOCUSABLE_SELECTOR } from "./uiDialog";') &&
     advancedFilterFieldsSource.includes("<FilterSelectControl") &&
     advancedFilterFieldsSource.includes("<SearchInputControl") &&
     advancedFilterFieldsSource.includes("<TextInputControl") &&
@@ -947,20 +996,22 @@ assert(
     styleSource.includes(".service-form") &&
     filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
     jobsPage.includes('import "./jobsPage.css";') &&
-    mainEntry.includes('import "./formControls.css";') &&
+    !mainEntry.includes('import "./formControls.css";') &&
+    benchmarkCreatePanelSource.includes('import "./formControls.css";') &&
+    servicesCreatePanelSource.includes('import "./formControls.css";') &&
+    servicesGridSource.includes('import "./formControls.css";') &&
+    runsImportPanelSource.includes('import "./formControls.css";') &&
+    jobsCreatePanelSource.includes('import "./formControls.css";') &&
     mainEntry.includes('import "./themeSurfaceOverrides.css";') &&
     mainEntry.includes('import "./workspaceTheme.css";') &&
     mainEntry.includes('import "./workspaceShell.css";') &&
-    mainEntry.includes('import "./workspaceDialog.css";') &&
+    !mainEntry.includes('import "./workspaceDialog.css";') &&
+    uiDialogSource.includes('import "./workspaceDialog.css";') &&
     mainEntry.includes('import "./pageCommand.css";') &&
     mainEntry.indexOf('import "./workspaceTheme.css";') <
       mainEntry.indexOf('import "./workspaceShell.css";') &&
     mainEntry.indexOf('import "./workspaceShell.css";') <
-      mainEntry.indexOf('import "./workspaceDialog.css";') &&
-    mainEntry.indexOf('import "./workspaceDialog.css";') <
       mainEntry.indexOf('import "./pageCommand.css";') &&
-    mainEntry.indexOf('import "./formControls.css";') <
-      mainEntry.indexOf('import "./themeSurfaceOverrides.css";') &&
     themeSurfaceOverridesStyleSource.includes(':root[data-theme="dark"]') &&
     themeSurfaceOverridesStyleSource.includes("scrollbar-color:") &&
     themeSurfaceOverridesStyleSource.includes(".dashboard-home.overview-home-v18") &&
@@ -1215,8 +1266,17 @@ assert(
   "query chip selection must be centralized in OptionChipButton",
 );
 assert(
-  uiSource.includes('export * from "./uiDialog";') &&
+  !uiSource.includes('export * from "./uiDialog";') &&
     uiDialogSource.includes("export const DIALOG_FOCUSABLE_SELECTOR =") &&
+    uiDialogSource.includes('import "./workspaceDialog.css";') &&
+    filterControls.includes('import { DIALOG_FOCUSABLE_SELECTOR } from "./uiDialog";') &&
+    runsPage.includes('import { WorkspaceDialog } from "./uiDialog";') &&
+    benchmarksPage.includes('import { WorkspaceDialog } from "./uiDialog";') &&
+    jobsPage.includes('import { WorkspaceDialog } from "./uiDialog";') &&
+    servicesPage.includes('import { WorkspaceDialog } from "./uiDialog";') &&
+    runTables.includes('import { DangerConfirmDialog } from "./uiDialog";') &&
+    jobsQueuePanelSource.includes('import { DangerConfirmDialog } from "./uiDialog";') &&
+    servicesGridSource.includes('import { DangerConfirmDialog } from "./uiDialog";') &&
     uiDialogSource.includes("document.body.style.overflow = \"hidden\"") &&
     uiDialogSource.includes("previouslyFocused?.focus()") &&
     uiDialogSource.includes("tabIndex={-1}") &&
@@ -1446,9 +1506,15 @@ assert(
 );
 assert(
   packageJsonSource.includes('"test:composite-report": "node scripts/composite-report-smoke-check.mjs"') &&
+    packageJsonSource.includes('"test:dialogs": "node scripts/dialog-smoke-check.mjs"') &&
+    dialogSmokeSource.includes('!text.includes("/api/")') &&
+    dialogSmokeSource.includes('!text.includes("Failed to load resource")') &&
     packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
+    packageJsonSource.includes('"test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs"') &&
     readmeSource.includes("npm run test:select-popover") &&
+    readmeSource.includes("npm run test:select-popover-ui") &&
     readmeSource.includes("`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`）") &&
+    readmeSource.includes("`test:select-popover-ui` 是共享下拉控件的浏览器 smoke") &&
     compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
     compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
     compositeReportSmokeSource.includes('{ name: "desktop-narrow", width: 1180, height: 760 }') &&

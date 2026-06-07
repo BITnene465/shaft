@@ -10,9 +10,9 @@ import { ServiceCreatePanel } from "./servicesCreatePanel";
 import { ServiceGrid } from "./servicesGrid";
 import {
   CommandButton,
-  EmptyState,
-  WorkspaceDialog
+  EmptyState
 } from "./ui";
+import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
 import "./servicesPage.css";

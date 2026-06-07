@@ -20,6 +20,8 @@ import {
 bootstrapTypographySettings();
 bootstrapThemePreference();
 
+const STATUS_SYNC_DELAY_MS = 450;
+
 export class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: string | null }
@@ -249,12 +251,26 @@ function NavItem({
 }
 
 function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
+  const delayedLoading = useDelayedTruthy(loading, STATUS_SYNC_DELAY_MS);
   if (error) {
     return <div className="status-pill danger">接口异常</div>;
   }
   return (
-    <div className={loading ? "status-pill loading" : "status-pill online"}>
-      {loading ? "同步中" : "在线"}
+    <div className={delayedLoading ? "status-pill loading" : "status-pill online"}>
+      {delayedLoading ? "同步中" : "在线"}
     </div>
   );
+}
+
+function useDelayedTruthy(value: boolean, delayMs: number) {
+  const [delayedValue, setDelayedValue] = useState(false);
+  useEffect(() => {
+    if (!value) {
+      setDelayedValue(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setDelayedValue(true), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, value]);
+  return delayedValue;
 }

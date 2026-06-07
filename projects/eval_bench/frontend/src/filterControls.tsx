@@ -21,7 +21,8 @@ import {
   writeAdvancedFilterDraftValues,
   writeAdvancedFilterOpenState
 } from "./advancedFilterStorage";
-import { ActionButton, DIALOG_FOCUSABLE_SELECTOR, PanelToggleButton } from "./ui";
+import { ActionButton, PanelToggleButton } from "./ui";
+import { DIALOG_FOCUSABLE_SELECTOR } from "./uiDialog";
 export type { AdvancedFilterControl } from "./advancedFilterTypes";
 export { FilterSelect } from "./advancedFilterFields";
 

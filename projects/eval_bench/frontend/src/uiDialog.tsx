@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import { ActionButton, IconActionButton } from "./uiActions";
+import "./workspaceDialog.css";
 
 export const DIALOG_FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -163,4 +164,3 @@ export function DangerConfirmDialog({
     </WorkspaceDialog>
   );
 }
-

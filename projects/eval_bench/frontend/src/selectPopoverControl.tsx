@@ -299,6 +299,8 @@ function SelectPopoverControl({
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
+      event.nativeEvent.stopImmediatePropagation?.();
       closePopover({ restoreFocus: true });
       return;
     }

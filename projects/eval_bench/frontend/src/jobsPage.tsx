@@ -7,7 +7,8 @@ import { AppIcon } from "./iconLibrary";
 import { JobCreatePanel } from "./jobsCreatePanel";
 import { JobQueuePanel } from "./jobsQueuePanel";
 import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";
-import { Badge, CommandButton, PanelTitle, WorkspaceDialog } from "./ui";
+import { Badge, CommandButton, PanelTitle } from "./ui";
+import { WorkspaceDialog } from "./uiDialog";
 
 import "./jobsPage.css";
 

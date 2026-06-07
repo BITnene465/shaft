@@ -31,6 +31,7 @@ import {
 } from "./manifestTools";
 import { ActionButton, Badge, DisclosurePanel, PanelTitle } from "./ui";
 import { ResizableSplit } from "./workspaceLayout";
+import "./formControls.css";
 
 export function JobCreatePanel({ benchmarks, bare }: { benchmarks: BenchmarkSummary[]; bare?: boolean }) {
   const queryClient = useQueryClient();

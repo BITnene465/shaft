@@ -11,7 +11,8 @@ import {
   runIdExists
 } from "./formatters";
 import { PagerControl } from "./samplePager";
-import { Badge, DataTable } from "./ui";
+import { Badge } from "./ui";
+import { DataTable } from "./uiDataTable";
 
 const COMPARISON_HISTORY_COLUMNS: ColumnDef<ComparisonSummary>[] = [
   { header: "对比记录", accessorKey: "comparison_id", meta: { width: "id" } },

@@ -15,9 +15,9 @@ import {
 } from "./samplePager";
 import {
   CommandButton,
-  EmptyState,
-  WorkspaceDialog
+  EmptyState
 } from "./ui";
+import { WorkspaceDialog } from "./uiDialog";
 import { useDebouncedValueState } from "./useDebouncedValue";
 
 export { BenchmarkDetailPage } from "./benchmarkSampleInspector";
