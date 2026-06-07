@@ -73,6 +73,7 @@ class BuildConfig:
     candidate_count: int
     negative_candidate_count: int
     negative_ratio: float
+    density_crop_ratio: float
     full_blur_ratio: float
 
 
@@ -527,30 +528,15 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     rng = random.Random(f"{config.seed}:{config.task_name}:{config.split}:{json_rel}")
 
     full_rows: list[dict[str, Any]] = []
-    use_full_blur = _use_full_blur_augmentation(
-        rng,
-        split=config.split,
-        ratio=config.full_blur_ratio,
-    )
-    full_aug = (
-        _choose_full_blur_augmentation(
-            rng,
-            image_width=image_width,
-            image_height=image_height,
-        )
-        if use_full_blur
-        else {"name": "none"}
-    )
-    full_view_type = "full_image_blur" if use_full_blur else "full_image"
-    full_suffix = "full_blur" if use_full_blur else "full"
-    full_output_name = f"{rel_id}__{full_suffix}.png"
+    full_aug = {"name": "none"}
+    full_output_name = f"{rel_id}__full.png"
     full_output_path = config.image_output_dir / full_output_name
     _save_generated_image(image, full_output_path, full_aug)
     full_rows.append(
         _build_row(
             task_name=spec.name,
             split=config.split,
-            sample_id=f"{rel_id}__{full_suffix}",
+            sample_id=f"{rel_id}__full",
             image_path=f"../images/{config.split}/{full_output_name}",
             image_width=image_width,
             image_height=image_height,
@@ -558,12 +544,43 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
             raw_record=raw_record,
             json_rel=json_rel,
             target_labels=spec.labels,
-            view_type=full_view_type,
+            view_type="full_image",
             crop_box=(0, 0, image_width, image_height),
             source_instance_indices=[instance.index for instance in instances],
             pixel_augmentation=full_aug,
         )
     )
+    if _use_full_blur_augmentation(
+        rng,
+        split=config.split,
+        ratio=config.full_blur_ratio,
+    ):
+        blur_aug = _choose_full_blur_augmentation(
+            rng,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        blur_output_name = f"{rel_id}__full_blur.png"
+        blur_output_path = config.image_output_dir / blur_output_name
+        _save_generated_image(image, blur_output_path, blur_aug)
+        full_rows.append(
+            _build_row(
+                task_name=spec.name,
+                split=config.split,
+                sample_id=f"{rel_id}__full_blur",
+                image_path=f"../images/{config.split}/{blur_output_name}",
+                image_width=image_width,
+                image_height=image_height,
+                instances=_full_instances(instances),
+                raw_record=raw_record,
+                json_rel=json_rel,
+                target_labels=spec.labels,
+                view_type="full_image_blur",
+                crop_box=(0, 0, image_width, image_height),
+                source_instance_indices=[instance.index for instance in instances],
+                pixel_augmentation=blur_aug,
+            )
+        )
 
     positive_rows: list[dict[str, Any]] = []
     negative_rows: list[dict[str, Any]] = []

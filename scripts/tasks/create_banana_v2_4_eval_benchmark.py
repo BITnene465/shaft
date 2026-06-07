@@ -101,6 +101,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--store-root", default="eval_bench_store")
     parser.add_argument("--benchmark-id", default="banana_v2_4_val")
     parser.add_argument("--point-arrow-structured", default="data/point_arrow/structured/val.jsonl")
+    parser.add_argument(
+        "--include-point-arrow",
+        action="store_true",
+        help=(
+            "Also add the crop-level point_arrow keypoint split. The default benchmark only "
+            "contains full-image detection splits."
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -273,11 +281,12 @@ def main() -> None:
             "source_splits": {"grounding": str(split_root / "grounding_val.txt")},
         },
     )
-    manifest = add_point_arrow_crop_split(
-        store_root=args.store_root,
-        benchmark_id=args.benchmark_id,
-        structured_path=args.point_arrow_structured,
-    )
+    if args.include_point_arrow:
+        manifest = add_point_arrow_crop_split(
+            store_root=args.store_root,
+            benchmark_id=args.benchmark_id,
+            structured_path=args.point_arrow_structured,
+        )
     print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
 
 

@@ -11,6 +11,13 @@ export const VIEW_MODES = [
 
 export type ViewMode = (typeof VIEW_MODES)[number]["value"];
 
+export const STAGE_MODES = [
+  { value: "composite", label: "Composite" },
+  { value: "split", label: "Split" }
+] as const;
+
+export type StageMode = (typeof STAGE_MODES)[number]["value"];
+
 export type LayerSlot = {
   id: string;
   layer: string;

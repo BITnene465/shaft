@@ -31,6 +31,7 @@ old/
 /wandb/
 /eval_bench_store/
 /temp/
+/subTasks/
 /runs/
 
 docs/development_log.md
