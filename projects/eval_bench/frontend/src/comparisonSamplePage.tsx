@@ -30,11 +30,11 @@ export function ComparisonSamplePage() {
       baselineIndex,
       candidateIndex
     ],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchComparisonSample(baselineRunId, candidateRunId, numericIndex, {
         baselineIndex,
         candidateIndex
-      }),
+      }, { signal }),
     enabled: validIndex
   });
 

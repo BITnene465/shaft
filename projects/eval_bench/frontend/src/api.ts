@@ -96,6 +96,10 @@ export class ApiError extends Error {
   }
 }
 
+type FetchRequestOptions = {
+  signal?: AbortSignal;
+};
+
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
@@ -201,8 +205,8 @@ function notifyApiError(message: string) {
   );
 }
 
-export function fetchState(): Promise<DashboardState> {
-  return fetchJson<DashboardState>("/api/state");
+export function fetchState(options: FetchRequestOptions = {}): Promise<DashboardState> {
+  return fetchJson<DashboardState>("/api/state", { signal: options.signal });
 }
 
 export function fetchRankBoard(options: {
@@ -220,7 +224,7 @@ export function fetchRankBoard(options: {
   sortBy?: string;
   sortOrder?: string;
   query?: string;
-}): Promise<RankBoard> {
+}, request: FetchRequestOptions = {}): Promise<RankBoard> {
   const params = new URLSearchParams({
     offset: String(options.offset),
     limit: String(options.limit)
@@ -261,7 +265,9 @@ export function fetchRankBoard(options: {
   if (options.query?.trim()) {
     params.set("query", options.query.trim());
   }
-  return fetchJson<RankBoard>(`/api/rank-board?${params.toString()}`);
+  return fetchJson<RankBoard>(`/api/rank-board?${params.toString()}`, {
+    signal: request.signal
+  });
 }
 
 export function fetchSuiteRankBoard(options: {
@@ -272,7 +278,7 @@ export function fetchSuiteRankBoard(options: {
   promptId?: string;
   sortBy?: string;
   sortOrder?: string;
-}): Promise<SuiteRankBoard> {
+}, request: FetchRequestOptions = {}): Promise<SuiteRankBoard> {
   const params = new URLSearchParams({
     offset: String(options.offset),
     limit: String(options.limit)
@@ -292,10 +298,15 @@ export function fetchSuiteRankBoard(options: {
   if (options.sortOrder) {
     params.set("sort_order", options.sortOrder);
   }
-  return fetchJson<SuiteRankBoard>(`/api/suite-rank-board?${params.toString()}`);
+  return fetchJson<SuiteRankBoard>(`/api/suite-rank-board?${params.toString()}`, {
+    signal: request.signal
+  });
 }
 
-export function fetchJobs(filters: JobListFilters = {}): Promise<JobListResponse> {
+export function fetchJobs(
+  filters: JobListFilters = {},
+  request: FetchRequestOptions = {}
+): Promise<JobListResponse> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && String(value).trim() !== "") {
@@ -303,11 +314,15 @@ export function fetchJobs(filters: JobListFilters = {}): Promise<JobListResponse
     }
   });
   const query = params.toString();
-  return fetchJson<JobListResponse>(`/api/jobs${query ? `?${query}` : ""}`);
+  return fetchJson<JobListResponse>(`/api/jobs${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
-export function fetchSchedulerStatus(): Promise<SchedulerStatus> {
-  return fetchJson<SchedulerStatus>("/api/scheduler/status");
+export function fetchSchedulerStatus(
+  options: FetchRequestOptions = {}
+): Promise<SchedulerStatus> {
+  return fetchJson<SchedulerStatus>("/api/scheduler/status", { signal: options.signal });
 }
 
 export function fetchJobTemplates(): Promise<JobTemplatesResponse> {
@@ -349,7 +364,10 @@ export function upsertPromptTemplate(payload: Partial<PromptTemplate>): Promise<
   });
 }
 
-export function fetchServices(filters: ServiceListFilters = {}): Promise<ServiceListResponse> {
+export function fetchServices(
+  filters: ServiceListFilters = {},
+  request: FetchRequestOptions = {}
+): Promise<ServiceListResponse> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && String(value).trim() !== "") {
@@ -357,11 +375,14 @@ export function fetchServices(filters: ServiceListFilters = {}): Promise<Service
     }
   });
   const query = params.toString();
-  return fetchJson<ServiceListResponse>(`/api/services${query ? `?${query}` : ""}`);
+  return fetchJson<ServiceListResponse>(`/api/services${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
 export function fetchBenchmarks(
-  filters: BenchmarkListFilters = {}
+  filters: BenchmarkListFilters = {},
+  request: FetchRequestOptions = {}
 ): Promise<BenchmarkListResponse> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -370,11 +391,19 @@ export function fetchBenchmarks(
     }
   });
   const query = params.toString();
-  return fetchJson<BenchmarkListResponse>(`/api/benchmarks${query ? `?${query}` : ""}`);
+  return fetchJson<BenchmarkListResponse>(`/api/benchmarks${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
-export function fetchBenchmark(benchmarkId: string): Promise<BenchmarkDetailResponse> {
-  return fetchJson<BenchmarkDetailResponse>(`/api/benchmarks/${encodeURIComponent(benchmarkId)}`);
+export function fetchBenchmark(
+  benchmarkId: string,
+  request: FetchRequestOptions = {}
+): Promise<BenchmarkDetailResponse> {
+  return fetchJson<BenchmarkDetailResponse>(
+    `/api/benchmarks/${encodeURIComponent(benchmarkId)}`,
+    { signal: request.signal }
+  );
 }
 
 export function fetchSuites(): Promise<SuiteListResponse> {
@@ -487,7 +516,10 @@ export function deleteJob(jobId: string): Promise<DeleteJobResult> {
   });
 }
 
-export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse> {
+export function fetchRuns(
+  filters: RunListFilters = {},
+  request: FetchRequestOptions = {}
+): Promise<RunListResponse> {
   const params = new URLSearchParams();
   if (filters.offset !== undefined) {
     params.set("offset", String(filters.offset));
@@ -523,7 +555,9 @@ export function fetchRuns(filters: RunListFilters = {}): Promise<RunListResponse
     params.set("query", filters.query.trim());
   }
   const query = params.toString();
-  return fetchJson<RunListResponse>(`/api/runs${query ? `?${query}` : ""}`);
+  return fetchJson<RunListResponse>(`/api/runs${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
 export function evaluateRun(
@@ -596,7 +630,8 @@ export function importPredictions(
 
 export function fetchRunSamples(
   runId: string,
-  options: { offset: number; limit: number; label?: string; errorFilter?: string }
+  options: { offset: number; limit: number; label?: string; errorFilter?: string },
+  request: FetchRequestOptions = {}
 ): Promise<SamplePage<RunSampleSummary>> {
   const params = new URLSearchParams({
     offset: String(options.offset),
@@ -609,12 +644,20 @@ export function fetchRunSamples(
     params.set("error_filter", options.errorFilter);
   }
   return fetchJson<SamplePage<RunSampleSummary>>(
-    `/api/runs/${encodeURIComponent(runId)}/samples?${params.toString()}`
+    `/api/runs/${encodeURIComponent(runId)}/samples?${params.toString()}`,
+    { signal: request.signal }
   );
 }
 
-export function fetchRunSampleDetail(runId: string, index: number): Promise<RunSampleDetail> {
-  return fetchJson<RunSampleDetail>(`/api/runs/${encodeURIComponent(runId)}/samples/${index}`);
+export function fetchRunSampleDetail(
+  runId: string,
+  index: number,
+  request: FetchRequestOptions = {}
+): Promise<RunSampleDetail> {
+  return fetchJson<RunSampleDetail>(
+    `/api/runs/${encodeURIComponent(runId)}/samples/${index}`,
+    { signal: request.signal }
+  );
 }
 
 export function fetchCompositeSample(options: {
@@ -624,7 +667,7 @@ export function fetchCompositeSample(options: {
   arrowRunId?: string;
   shapeRunId?: string;
   iconRunId?: string;
-}): Promise<CompositeSampleView> {
+}, request: FetchRequestOptions = {}): Promise<CompositeSampleView> {
   const params = new URLSearchParams({ sample_index: String(options.sampleIndex) });
   Object.entries(options.layerRuns ?? {}).forEach(([layer, runId]) => {
     if (layer && runId) {
@@ -643,12 +686,15 @@ export function fetchCompositeSample(options: {
   if (options.iconRunId) {
     params.set("icon_run_id", options.iconRunId);
   }
-  return fetchJson<CompositeSampleView>(`/api/composite-samples?${params.toString()}`);
+  return fetchJson<CompositeSampleView>(`/api/composite-samples?${params.toString()}`, {
+    signal: request.signal
+  });
 }
 
 export function fetchBenchmarkSamples(
   benchmarkId: string,
-  options: { offset: number; limit: number; label?: string; split?: string }
+  options: { offset: number; limit: number; label?: string; split?: string },
+  request: FetchRequestOptions = {}
 ): Promise<SamplePage<BenchmarkSampleSummary>> {
   const params = new URLSearchParams({
     offset: String(options.offset),
@@ -661,14 +707,16 @@ export function fetchBenchmarkSamples(
     params.set("split", options.split);
   }
   return fetchJson<SamplePage<BenchmarkSampleSummary>>(
-    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples?${params.toString()}`
+    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples?${params.toString()}`,
+    { signal: request.signal }
   );
 }
 
 export function fetchBenchmarkSampleDetail(
   benchmarkId: string,
   index: number,
-  options: { split?: string } = {}
+  options: { split?: string } = {},
+  request: FetchRequestOptions = {}
 ): Promise<BenchmarkSampleDetail> {
   const params = new URLSearchParams();
   if (options.split && options.split !== "all") {
@@ -676,27 +724,36 @@ export function fetchBenchmarkSampleDetail(
   }
   const query = params.toString();
   return fetchJson<BenchmarkSampleDetail>(
-    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples/${index}${query ? `?${query}` : ""}`
+    `/api/benchmarks/${encodeURIComponent(benchmarkId)}/samples/${index}${query ? `?${query}` : ""}`,
+    { signal: request.signal }
   );
 }
 
-export function fetchSettingsPreviewSample(): Promise<BenchmarkSampleDetail> {
-  return fetchJson<BenchmarkSampleDetail>("/api/settings/preview-sample");
+export function fetchSettingsPreviewSample(
+  options: FetchRequestOptions = {}
+): Promise<BenchmarkSampleDetail> {
+  return fetchJson<BenchmarkSampleDetail>("/api/settings/preview-sample", {
+    signal: options.signal
+  });
 }
 
 export function fetchComparison(
   baselineRunId: string,
-  candidateRunId: string
+  candidateRunId: string,
+  request: FetchRequestOptions = {}
 ): Promise<ComparisonReport> {
   const params = new URLSearchParams({
     baseline_run_id: baselineRunId,
     candidate_run_id: candidateRunId
   });
-  return fetchJson<ComparisonReport>(`/api/comparisons?${params.toString()}`);
+  return fetchJson<ComparisonReport>(`/api/comparisons?${params.toString()}`, {
+    signal: request.signal
+  });
 }
 
 export function fetchComparisons(
-  filters: ComparisonListFilters = {}
+  filters: ComparisonListFilters = {},
+  request: FetchRequestOptions = {}
 ): Promise<{
   comparisons: ComparisonSummary[];
   total?: number;
@@ -740,14 +797,17 @@ export function fetchComparisons(
     offset?: number;
     limit?: number;
     filters?: Record<string, string>;
-  }>(`/api/comparisons${query ? `?${query}` : ""}`);
+  }>(`/api/comparisons${query ? `?${query}` : ""}`, {
+    signal: request.signal
+  });
 }
 
 export function fetchComparisonSample(
   baselineRunId: string,
   candidateRunId: string,
   sampleIndex: number,
-  indexes: { baselineIndex?: number | null; candidateIndex?: number | null } = {}
+  indexes: { baselineIndex?: number | null; candidateIndex?: number | null } = {},
+  request: FetchRequestOptions = {}
 ): Promise<ComparisonSampleDetail> {
   const params = new URLSearchParams({
     baseline_run_id: baselineRunId,
@@ -760,5 +820,7 @@ export function fetchComparisonSample(
   if (indexes.candidateIndex !== undefined && indexes.candidateIndex !== null) {
     params.set("candidate_index", String(indexes.candidateIndex));
   }
-  return fetchJson<ComparisonSampleDetail>(`/api/comparisons/sample?${params.toString()}`);
+  return fetchJson<ComparisonSampleDetail>(`/api/comparisons/sample?${params.toString()}`, {
+    signal: request.signal
+  });
 }

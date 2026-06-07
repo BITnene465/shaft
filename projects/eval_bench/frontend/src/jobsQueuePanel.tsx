@@ -71,14 +71,14 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   );
   const { data, isLoading, isPlaceholderData, error } = useQuery({
     queryKey: ["jobs", jobFilters],
-    queryFn: () => fetchJobs(jobFilters),
+    queryFn: ({ signal }) => fetchJobs(jobFilters, { signal }),
     refetchInterval: JOB_QUEUE_REFRESH_MS,
     staleTime: 1_500,
     placeholderData: (previousData) => previousData
   });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],
-    queryFn: fetchSchedulerStatus,
+    queryFn: ({ signal }) => fetchSchedulerStatus({ signal }),
     refetchInterval: JOB_QUEUE_REFRESH_MS,
     staleTime: 1_500
   });

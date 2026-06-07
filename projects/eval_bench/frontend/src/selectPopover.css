@@ -200,3 +200,64 @@
   font-size: var(--control-text-small);
   text-align: center;
 }
+
+:root[data-theme="dark"] .select-popover-label {
+  color: var(--bench-ink-muted);
+}
+
+:root[data-theme="dark"] .select-popover-trigger {
+  color: var(--bench-ink);
+  background: var(--bench-surface);
+  border-color: var(--bench-line);
+}
+
+:root[data-theme="dark"] .select-popover-trigger:hover,
+:root[data-theme="dark"] .select-popover-control[data-select-open="true"] .select-popover-trigger {
+  color: var(--bench-cyan-strong);
+  background: var(--bench-surface-muted);
+  border-color: color-mix(in srgb, var(--bench-cyan) 42%, var(--bench-line));
+}
+
+:root[data-theme="dark"] .select-popover-menu {
+  color: var(--bench-ink);
+  background: var(--bench-surface-raised);
+  border-color: var(--bench-line);
+  box-shadow: 0 14px 30px rgb(0 0 0 / 38%);
+}
+
+:root[data-theme="dark"] .select-popover-menu[data-placement="top"] {
+  box-shadow: 0 -14px 30px rgb(0 0 0 / 38%);
+}
+
+:root[data-theme="dark"] .select-popover-search {
+  color: var(--bench-ink-muted);
+  background: var(--bench-surface);
+  border-color: var(--bench-line);
+}
+
+:root[data-theme="dark"] .select-popover-search input {
+  color: var(--bench-ink);
+}
+
+:root[data-theme="dark"] .select-popover-meta,
+:root[data-theme="dark"] .select-popover-meta strong,
+:root[data-theme="dark"] .select-popover-empty {
+  color: var(--bench-ink-muted);
+}
+
+:root[data-theme="dark"] .select-popover-option {
+  color: var(--bench-ink);
+}
+
+:root[data-theme="dark"] .select-popover-option:hover,
+:root[data-theme="dark"] .select-popover-option.active {
+  color: var(--bench-cyan-strong);
+  background: var(--bench-action-soft);
+  border-color: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line));
+}
+
+:root[data-theme="dark"] .select-popover-option.selected {
+  color: var(--bench-cyan-strong);
+  background: color-mix(in srgb, var(--bench-action-soft) 72%, var(--bench-surface-raised));
+  border-color: color-mix(in srgb, var(--bench-cyan) 46%, var(--bench-line));
+}

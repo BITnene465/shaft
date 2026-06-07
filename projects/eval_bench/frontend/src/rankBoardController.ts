@@ -94,7 +94,7 @@ export function useRankBoardController() {
       sortOrder,
       pageOffset
     ],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchRankBoard({
         offset: pageOffset,
         limit: RANK_PAGE_SIZE,
@@ -110,18 +110,18 @@ export function useRankBoardController() {
         minScore: minScoreFilter,
         sortBy,
         sortOrder
-      }),
+      }, { signal }),
     placeholderData: (previousData) => previousData
   });
   const suiteRankQuery = useQuery({
     queryKey: ["suite-rank-board", suiteSortBy, suiteSortOrder, pageOffset],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchSuiteRankBoard({
         offset: pageOffset,
         limit: RANK_PAGE_SIZE,
         sortBy: suiteSortBy,
         sortOrder: suiteSortOrder
-      }),
+      }, { signal }),
     enabled: suiteApiReady,
     placeholderData: (previousData) => previousData
   });
@@ -381,4 +381,3 @@ export function useRankBoardController() {
     handleSuiteSortChange
   };
 }
-

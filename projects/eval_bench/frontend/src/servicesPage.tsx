@@ -36,7 +36,7 @@ export function ServicesPage() {
   );
   const servicesQuery = useQuery({
     queryKey: ["services", serviceFilters],
-    queryFn: () => fetchServices(serviceFilters),
+    queryFn: ({ signal }) => fetchServices(serviceFilters, { signal }),
     placeholderData: (previousData) => previousData
   });
   const services = servicesQuery.data?.services ?? [];

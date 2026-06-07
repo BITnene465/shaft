@@ -86,7 +86,7 @@ export function RunsPage() {
   );
   const runsQuery = useQuery({
     queryKey: ["runs", runFilters],
-    queryFn: () => fetchRuns(runFilters),
+    queryFn: ({ signal }) => fetchRuns(runFilters, { signal }),
     placeholderData: (previousData) => previousData
   });
   const runs = runsQuery.data?.runs ?? [];

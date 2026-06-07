@@ -204,3 +204,48 @@
   --composite-radius-control: 2px;
   --composite-radius-pill: 999px;
 }
+
+:root[data-theme="dark"] {
+  --composite-surface: var(--bench-surface-raised);
+  --composite-surface-muted: var(--bench-surface-muted);
+  --composite-surface-subtle: var(--bench-surface);
+  --composite-surface-quiet: var(--bench-bg-soft);
+  --composite-page-surface: var(--bench-bg-soft);
+  --composite-line: var(--bench-line);
+  --composite-line-soft: color-mix(in srgb, var(--bench-line) 78%, transparent);
+  --composite-line-muted: var(--bench-line);
+  --composite-line-control: var(--bench-line);
+  --composite-shell-line: var(--bench-line);
+  --composite-ink: var(--bench-ink);
+  --composite-ink-strong: var(--bench-cyan-strong);
+  --composite-ink-deep: var(--bench-ink-strong);
+  --composite-muted: var(--bench-ink-muted);
+  --composite-muted-alt: var(--bench-ink-muted);
+  --composite-accent: var(--bench-cyan);
+  --composite-accent-strong: var(--bench-cyan-strong);
+  --composite-focus: var(--bench-cyan-strong);
+  --composite-interaction-wash: color-mix(in srgb, var(--bench-cyan) 13%, transparent);
+  --composite-interaction-wash-alt: color-mix(in srgb, var(--bench-action) 12%, transparent);
+  --composite-rail-card: color-mix(in srgb, var(--bench-surface-raised) 84%, transparent);
+  --composite-rail-card-strong: color-mix(in srgb, var(--bench-surface-raised) 94%, transparent);
+  --composite-rail-card-hover: var(--bench-surface-muted);
+  --composite-rail-card-active: var(--bench-action-soft);
+  --composite-rail-text: var(--bench-ink);
+  --composite-rail-muted: var(--bench-ink-muted);
+  --composite-sidebar-backdrop: linear-gradient(
+      90deg,
+      rgb(0 0 0 / 34%),
+      rgb(0 0 0 / 10%) 34%,
+      transparent
+    ),
+    rgb(11 21 32 / 42%);
+  --composite-sidebar-backdrop-hover: linear-gradient(
+      90deg,
+      rgb(0 0 0 / 42%),
+      rgb(0 0 0 / 14%) 34%,
+      transparent
+    ),
+    rgb(11 21 32 / 48%);
+  --composite-canvas-overlay-surface: color-mix(in srgb, var(--bench-surface-raised) 88%, transparent);
+  --composite-canvas-coordinate-surface: color-mix(in srgb, var(--bench-surface-raised) 90%, transparent);
+}

@@ -33,7 +33,7 @@ const SETTINGS_PREVIEW_LABELS = ["arrow", "icon"];
 export function SettingsPage() {
   const previewQuery = useQuery({
     queryKey: ["settings-preview-sample"],
-    queryFn: fetchSettingsPreviewSample,
+    queryFn: ({ signal }) => fetchSettingsPreviewSample({ signal }),
     retry: false,
     staleTime: 60_000
   });

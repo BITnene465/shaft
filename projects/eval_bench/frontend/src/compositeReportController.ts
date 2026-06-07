@@ -78,7 +78,7 @@ export function useCompositeReportController() {
   const compositeEnabled = Object.keys(layerRuns).length >= 2;
   const compositeQuery = useQuery({
     queryKey: ["composite-report-sample", layerRuns, sampleIndex],
-    queryFn: () => fetchCompositeSample({ sampleIndex, layerRuns }),
+    queryFn: ({ signal }) => fetchCompositeSample({ sampleIndex, layerRuns }, { signal }),
     enabled: compositeEnabled,
     placeholderData: (previousData) => previousData
   });

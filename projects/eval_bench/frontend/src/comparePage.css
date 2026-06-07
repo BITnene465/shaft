@@ -273,3 +273,33 @@
     transition-duration: 180ms;
   }
 }
+
+:root[data-theme="dark"] .compare-page .compare-run-rail,
+:root[data-theme="dark"] .compare-page .compare-report-pane,
+:root[data-theme="dark"] .compare-page .compare-context-pane,
+:root[data-theme="dark"] .comparison-card {
+  color: var(--bench-ink);
+  background: var(--bench-surface-raised);
+  border-color: var(--bench-line);
+}
+
+:root[data-theme="dark"] .compare-topbar {
+  color: var(--bench-ink);
+  background: color-mix(in srgb, var(--bench-surface-raised) 92%, transparent);
+  border-color: var(--bench-line);
+}
+
+:root[data-theme="dark"] .compare-title span,
+:root[data-theme="dark"] .compare-context-card strong {
+  color: var(--bench-cyan-strong);
+}
+
+:root[data-theme="dark"] .compare-title strong,
+:root[data-theme="dark"] .compare-context-card span,
+:root[data-theme="dark"] .compare-context-card em {
+  color: var(--bench-ink-muted);
+}
+
+:root[data-theme="dark"] .compare-context-card {
+  border-color: var(--bench-line);
+}

@@ -105,6 +105,7 @@ const workspaceSettingsStorageSource = await readSource("src/workspaceSettingsSt
 const typographySettingsSource = await readSource("src/typographySettings.ts");
 const controlPrimitives = await readSource("src/controlPrimitives.tsx");
 const selectPopoverControl = await readSource("src/selectPopoverControl.tsx");
+const themeToggleCheckSource = await readSource("scripts/theme-toggle-check.mjs");
 const rankBoardViewStateSource = await readSource("src/rankBoardViewState.ts");
 const rankBoardModelSource = await readSource("src/rankBoardModel.ts");
 const rankBoardTablesSource = await readSource("src/rankBoardTables.tsx");
@@ -418,11 +419,29 @@ assert(
     mainEntry.includes("staleTime: 15_000") &&
     mainEntry.includes("refetchOnWindowFocus: false") &&
     dashboardStateSource.includes('queryKey: ["dashboard-state"]') &&
-    dashboardStateSource.includes("refetchInterval: 10_000") &&
+    dashboardStateSource.includes("refetchInterval = false") &&
+    !dashboardStateSource.includes("refetchInterval: 10_000") &&
     appShellSource.includes('preload="intent"') &&
     appShellSource.includes("preloadDelay={80}") &&
     overviewModelSource.includes("const OVERVIEW_QUEUE_REFRESH_MS = 5_000;") &&
     overviewModelSource.includes("const OVERVIEW_SERVICE_REFRESH_MS = 10_000;") &&
+    overviewModelSource.includes("useDashboardState({") &&
+    overviewModelSource.includes("refetchInterval: OVERVIEW_SERVICE_REFRESH_MS") &&
+    apiSource.includes("type FetchRequestOptions = {") &&
+    apiSource.includes("signal?: AbortSignal") &&
+    dashboardStateSource.includes("queryFn: ({ signal }) => fetchState({ signal })") &&
+    overviewModelSource.includes("queryFn: ({ signal }) => fetchJobs({ limit: 1 }, { signal })") &&
+    overviewModelSource.includes("queryFn: ({ signal }) => fetchServices({ limit: 1 }, { signal })") &&
+    overviewModelSource.includes("queryFn: ({ signal }) => fetchSchedulerStatus({ signal })") &&
+    jobsQueuePanelSource.includes("queryFn: ({ signal }) => fetchJobs(jobFilters, { signal })") &&
+    rankBoardControllerSource.includes("queryFn: ({ signal }) =>") &&
+    rankBoardControllerSource.includes("{ signal }") &&
+    overviewModelSource.includes("function facetCount(") &&
+    overviewModelSource.includes("jobTotalQuery.data?.facets?.statuses") &&
+    !overviewModelSource.includes("overview-jobs-queued") &&
+    !overviewModelSource.includes("overview-jobs-running") &&
+    !overviewModelSource.includes("overview-jobs-failed") &&
+    !overviewModelSource.includes("overview-services-running") &&
     jobsQueuePanelSource.includes("const JOB_QUEUE_REFRESH_MS = 4_000;") &&
     jobsQueuePanelSource.includes("refetchInterval: JOB_QUEUE_REFRESH_MS") &&
     !overviewModelSource.includes("refetchInterval: 2_000") &&
@@ -537,6 +556,8 @@ assert(
     selectPopoverControl.includes("availableBelow") &&
     selectPopoverControl.includes("availableAbove") &&
     selectPopoverControl.includes("data-placement={menuPlacement}") &&
+    selectPopoverControl.includes("useDeferredValue") &&
+    selectPopoverControl.includes("indexedOptions") &&
     selectPopoverStyleSource.includes(".select-popover-control") &&
     selectPopoverStyleSource.includes(".select-popover-filter.compact {\n  width: 100%;") &&
     selectPopoverStyleSource.includes("max-width: 100%;") &&
@@ -548,6 +569,8 @@ assert(
     selectPopoverStyleSource.includes('.select-popover-menu[data-placement="top"]') &&
     selectPopoverStyleSource.includes(".select-popover-filter .select-popover-trigger") &&
     selectPopoverStyleSource.includes("max-height: var(--select-menu-max-height") &&
+    selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-menu') &&
+    selectPopoverStyleSource.includes(':root[data-theme="dark"] .select-popover-option.selected') &&
     !appThemeStyleSource.includes(".select-popover-menu") &&
     !designSource.includes(".select-popover-menu"),
   "select popover styles must stay colocated with selectPopoverControl instead of shared theme files",
@@ -773,9 +796,26 @@ assert(
     mainEntry.indexOf('import "./formControls.css";') <
       mainEntry.indexOf('import "./themeSurfaceOverrides.css";') &&
     themeSurfaceOverridesStyleSource.includes(':root[data-theme="dark"]') &&
+    themeSurfaceOverridesStyleSource.includes("scrollbar-color:") &&
+    themeSurfaceOverridesStyleSource.includes(".dashboard-home.overview-home-v18") &&
     themeSurfaceOverridesStyleSource.includes(".advanced-filter-bar") &&
+    themeSurfaceOverridesStyleSource.includes(".advanced-filter-directory") &&
+    themeSurfaceOverridesStyleSource.includes(".advanced-filter-search-control") &&
     themeSurfaceOverridesStyleSource.includes(".rank-board-table-card") &&
+    themeSurfaceOverridesStyleSource.includes(".scheduler-strip") &&
+    themeSurfaceOverridesStyleSource.includes(".compare-run-rail") &&
+    themeSurfaceOverridesStyleSource.includes(".compare-report-pane") &&
+    themeSurfaceOverridesStyleSource.includes(".compare-context-pane") &&
+    themeSurfaceOverridesStyleSource.includes(".composite-report-shell") &&
+    themeSurfaceOverridesStyleSource.includes(".composite-composer-dock") &&
+    themeSurfaceOverridesStyleSource.includes(".composite-stage-region") &&
     themeSurfaceOverridesStyleSource.includes(".settings-workbench-shell") &&
+    themeSurfaceOverridesStyleSource.includes(".settings-preference-drawer") &&
+    themeSurfaceOverridesStyleSource.includes(".settings-drawer-head") &&
+    themeSurfaceOverridesStyleSource.includes(".status-pill") &&
+    themeSurfaceOverridesStyleSource.includes(".badge") &&
+    themeSurfaceOverridesStyleSource.includes(".query-chip") &&
+    themeSurfaceOverridesStyleSource.includes(".icon-button:focus-visible") &&
     themeSurfaceOverridesStyleSource.includes(".run-config-panel") &&
     !themeSurfaceOverridesStyleSource.includes(".app-shell") &&
     !themeSurfaceOverridesStyleSource.includes("@keyframes") &&
@@ -915,7 +955,7 @@ assert(
     !controlPrimitives.includes("function SelectPopoverControl(") &&
     selectPopoverControl.includes("function SelectPopoverControl(") &&
     selectPopoverControl.includes("SELECT_VISIBLE_LIMIT = 80") &&
-    selectPopoverControl.includes("selectOptionMatches(") &&
+    selectPopoverControl.includes("deferredQuery") &&
     selectPopoverControl.includes('role="listbox"') &&
     selectPopoverControl.includes('role="option"') &&
     selectPopoverControl.includes('placeholder="搜索选项"') &&
@@ -1499,22 +1539,20 @@ assert(
   "overview page module must export OverviewPage",
 );
 assert(
-  overviewModelSource.includes("export function useOverviewModel()") &&
+    overviewModelSource.includes("export function useOverviewModel()") &&
     overviewPage.includes("const overview = useOverviewModel();") &&
     overviewModelSource.includes('queryKey: ["overview-jobs-total"]') &&
-    overviewModelSource.includes('queryFn: () => fetchJobs({ limit: 1 })') &&
-    overviewModelSource.includes('queryKey: ["overview-jobs-queued"]') &&
-    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "queued", limit: 1 })') &&
-    overviewModelSource.includes('queryKey: ["overview-jobs-running"]') &&
-    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "running", limit: 1 })') &&
-    overviewModelSource.includes('queryKey: ["overview-jobs-failed"]') &&
-    overviewModelSource.includes('queryFn: () => fetchJobs({ status: "failed", limit: 1 })') &&
+    overviewModelSource.includes("queryFn: ({ signal }) => fetchJobs({ limit: 1 }, { signal })") &&
     overviewModelSource.includes('queryKey: ["overview-services-total"]') &&
-    overviewModelSource.includes('queryFn: () => fetchServices({ limit: 1 })') &&
-    overviewModelSource.includes('queryKey: ["overview-services-running"]') &&
-    overviewModelSource.includes('queryFn: () => fetchServices({ status: "running", limit: 1 })') &&
+    overviewModelSource.includes("queryFn: ({ signal }) => fetchServices({ limit: 1 }, { signal })") &&
+    overviewModelSource.includes("const jobStatusFacets = jobTotalQuery.data?.facets?.statuses") &&
+    overviewModelSource.includes('facetCount(jobStatusFacets, "queued")') &&
+    overviewModelSource.includes('facetCount(jobStatusFacets, "running")') &&
+    overviewModelSource.includes('facetCount(jobStatusFacets, "failed")') &&
+    overviewModelSource.includes('facetCount(serviceTotalQuery.data?.facets?.statuses, "running")') &&
     overviewModelSource.includes("function jobPageTotal(") &&
     overviewModelSource.includes("function servicePageTotal(") &&
+    overviewModelSource.includes("function facetCount(") &&
     overviewModelSource.includes("const totalJobs = Math.max(") &&
     overviewModelSource.includes("const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices)") &&
     !overviewPage.includes("useQuery(") &&
@@ -1525,12 +1563,16 @@ assert(
     !overviewPage.includes("function bestF1Run(") &&
     !overviewModelSource.includes('fetchJobs({ limit: 500 })') &&
     !overviewPage.includes('fetchServices({ limit: 500 })') &&
+    !overviewModelSource.includes('fetchJobs({ status: "queued", limit: 1 })') &&
+    !overviewModelSource.includes('fetchJobs({ status: "running", limit: 1 })') &&
+    !overviewModelSource.includes('fetchJobs({ status: "failed", limit: 1 })') &&
+    !overviewModelSource.includes('fetchServices({ status: "running", limit: 1 })') &&
     !overviewPage.includes('jobs.filter((job) => job.status === "queued").length') &&
     !overviewPage.includes('services.filter((service) => service.status === "running").length') &&
     !overviewPage.includes("serviceCount: services.length") &&
     !overviewPage.includes("Math.max(jobs.length, 1)") &&
     !overviewPage.includes("Math.max(services.length, 1)"),
-  "overview job/service runtime counts must use filtered backend totals instead of first-page list estimates",
+  "overview job/service runtime counts must use backend facet totals instead of repeated filtered requests or first-page list estimates",
 );
 assert(
   overviewPage.includes("overview-home-v18") &&
@@ -2276,6 +2318,9 @@ assert(
     compareStyleSource.includes(".compare-page .compare-run-rail,") &&
     compareStyleSource.includes("border: 0;\n  border-top: 1px solid var(--bench-line);") &&
     compareStyleSource.includes("animation: none;\n  transition: none;") &&
+    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-run-rail') &&
+    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-report-pane') &&
+    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-context-pane') &&
     !compareStyleSource.includes(".comparison-metric-table table") &&
     !compareStyleSource.includes(".label-delta-card {\n  display: grid;") &&
     !compareStyleSource.includes(".compare-run-card {\n  display: grid;") &&
@@ -2844,6 +2889,16 @@ assert(
     appShellSource.includes("bootstrapThemePreference();") &&
     appShellSource.includes("useThemePreference()") &&
     appShellSource.includes('className="theme-toggle"') &&
+    themeToggleCheckSource.includes("const darkSurfaceRoutes = [") &&
+    themeToggleCheckSource.includes('"/benchmarks"') &&
+    themeToggleCheckSource.includes('"/suite-report"') &&
+    themeToggleCheckSource.includes("function assertNoBrightDarkSurfaces") &&
+    themeToggleCheckSource.includes("darkSurfaceCandidateSelector") &&
+    themeToggleCheckSource.includes("parseCssRgb") &&
+    themeToggleCheckSource.includes("parsed.alpha <= 0.2") &&
+    themeToggleCheckSource.includes("function assertDarkMicroInteractions") &&
+    themeToggleCheckSource.includes("scrollbarColor") &&
+    themeToggleCheckSource.includes("focusBoxShadow") &&
     workspaceSettingsStorageSource.includes("export function loadOverlayStyle") &&
     workspaceSettingsStorageSource.includes("export function normalizeShortcutBinding") &&
     workspaceSettingsStorageSource.includes("export function visibleViewerLabels") &&
@@ -3008,7 +3063,7 @@ assert(
     compositeReportControllerSource.includes("export function useCompositeReportController") &&
     compositeReportControllerSource.includes("export type CompositeReportController = ReturnType<typeof useCompositeReportController>;") &&
     compositeReportControllerSource.includes('queryKey: ["composite-report-sample", layerRuns, sampleIndex]') &&
-    compositeReportControllerSource.includes("fetchCompositeSample({ sampleIndex, layerRuns })") &&
+    compositeReportControllerSource.includes("fetchCompositeSample({ sampleIndex, layerRuns }, { signal })") &&
     compositeReportControllerSource.includes("const initialViewState = useMemo(() => loadCompositeReportViewState(), []);") &&
     compositeReportControllerSource.includes("useState<LayerSlot[]>(initialViewState.slots)") &&
     !compositeReportControllerSource.includes("StageMode") &&
@@ -4397,6 +4452,11 @@ assert(
     compositeThemeStyleSource.includes("--composite-line: #d8e1ea") &&
     compositeThemeStyleSource.includes("--composite-ink: #172033") &&
     compositeThemeStyleSource.includes("--composite-accent: #2248c5") &&
+    compositeThemeStyleSource.includes(':root[data-theme="dark"]') &&
+    compositeThemeStyleSource.includes("--composite-surface: var(--bench-surface-raised)") &&
+    compositeThemeStyleSource.includes("--composite-page-surface: var(--bench-bg-soft)") &&
+    compositeThemeStyleSource.includes("--composite-line: var(--bench-line)") &&
+    compositeThemeStyleSource.includes("--composite-ink: var(--bench-ink)") &&
     compositeThemeStyleSource.includes("--composite-gap-2: 2px") &&
     compositeThemeStyleSource.includes("--composite-gap-12: 12px") &&
     compositeThemeStyleSource.includes("--composite-pad-2: 2px") &&

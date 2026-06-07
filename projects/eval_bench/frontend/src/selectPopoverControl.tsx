@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
@@ -39,17 +47,6 @@ function normalizedSelectText(value: string) {
   return value.trim().toLocaleLowerCase();
 }
 
-function selectOptionMatches(option: SelectOption, query: string) {
-  const normalizedQuery = normalizedSelectText(query);
-  if (!normalizedQuery) {
-    return true;
-  }
-  return (
-    normalizedSelectText(option.label).includes(normalizedQuery) ||
-    normalizedSelectText(option.value).includes(normalizedQuery)
-  );
-}
-
 function nextEnabledIndex(options: ReadonlyArray<SelectOption>, startIndex: number, step: 1 | -1) {
   if (options.length === 0) {
     return -1;
@@ -87,6 +84,7 @@ function SelectPopoverControl({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuStyle, setMenuStyle] = useState<Record<string, string>>({});
   const [menuPlacement, setMenuPlacement] = useState<"top" | "bottom">("bottom");
@@ -94,10 +92,23 @@ function SelectPopoverControl({
     () => options.find((option) => option.value === value),
     [options, value]
   );
-  const filteredOptions = useMemo(
-    () => options.filter((option) => selectOptionMatches(option, query)),
-    [options, query]
+  const indexedOptions = useMemo(
+    () =>
+      options.map((option) => ({
+        option,
+        searchText: `${normalizedSelectText(option.label)} ${normalizedSelectText(option.value)}`
+      })),
+    [options]
   );
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = normalizedSelectText(deferredQuery);
+    if (!normalizedQuery) {
+      return options;
+    }
+    return indexedOptions
+      .filter((item) => item.searchText.includes(normalizedQuery))
+      .map((item) => item.option);
+  }, [deferredQuery, indexedOptions, options]);
   const visibleOptions = useMemo(
     () => filteredOptions.slice(0, SELECT_VISIBLE_LIMIT),
     [filteredOptions]

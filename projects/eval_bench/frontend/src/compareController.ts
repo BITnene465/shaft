@@ -128,12 +128,12 @@ export function useCompareController() {
   );
   const comparisonListQuery = useQuery({
     queryKey: ["comparisons", comparisonFilters],
-    queryFn: () => fetchComparisons(comparisonFilters),
+    queryFn: ({ signal }) => fetchComparisons(comparisonFilters, { signal }),
     placeholderData: (previousData) => previousData
   });
   const runsQuery = useQuery({
     queryKey: ["runs", "compare", runFilters],
-    queryFn: () => fetchRuns(runFilters),
+    queryFn: ({ signal }) => fetchRuns(runFilters, { signal }),
     placeholderData: (previousData) => previousData
   });
   const runs = runsQuery.data?.runs ?? [];
@@ -168,7 +168,7 @@ export function useCompareController() {
       : candidateFallback;
   const comparisonQuery = useQuery({
     queryKey: ["comparison", effectiveBaseline, effectiveCandidate],
-    queryFn: () => fetchComparison(effectiveBaseline, effectiveCandidate),
+    queryFn: ({ signal }) => fetchComparison(effectiveBaseline, effectiveCandidate, { signal }),
     enabled: Boolean(effectiveBaseline && effectiveCandidate && effectiveBaseline !== effectiveCandidate),
     placeholderData: (previousData) => previousData
   });

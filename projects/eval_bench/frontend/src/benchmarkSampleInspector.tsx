@@ -40,20 +40,20 @@ export function BenchmarkDetailPage() {
   const [splitFilter, setSplitFilter] = useState("all");
   const benchmarkQuery = useQuery({
     queryKey: ["benchmark", benchmarkId],
-    queryFn: () => fetchBenchmark(benchmarkId),
+    queryFn: ({ signal }) => fetchBenchmark(benchmarkId, { signal }),
     staleTime: 30_000
   });
   const benchmark = benchmarkQuery.data?.benchmark;
   const splitOptions = useMemo(() => benchmarkSplitValues(benchmark), [benchmark]);
   const samplesQuery = useQuery({
     queryKey: ["benchmark-samples", benchmarkId, pageOffset, labelFilter, splitFilter],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchBenchmarkSamples(benchmarkId, {
         offset: pageOffset,
         limit: SAMPLE_PAGE_SIZE,
         label: labelFilter,
         split: splitFilter
-      }),
+      }, { signal }),
     placeholderData: (previousData) => previousData
   });
   const page = samplesQuery.data;
@@ -65,7 +65,8 @@ export function BenchmarkDetailPage() {
   const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["benchmark-sample-detail", benchmarkId, activeIndex, splitFilter],
-    queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, activeIndex, { split: splitFilter }),
+    queryFn: ({ signal }) =>
+      fetchBenchmarkSampleDetail(benchmarkId, activeIndex, { split: splitFilter }, { signal }),
     enabled: Boolean(activeSample),
     placeholderData: (previousData) =>
       previousData?.benchmark_id === benchmarkId ? previousData : undefined,
@@ -154,7 +155,8 @@ export function BenchmarkDetailPage() {
     preload.forEach((sample) => {
       void queryClient.prefetchQuery({
         queryKey: ["benchmark-sample-detail", benchmarkId, sample.index, splitFilter],
-        queryFn: () => fetchBenchmarkSampleDetail(benchmarkId, sample.index, { split: splitFilter }),
+        queryFn: ({ signal }) =>
+          fetchBenchmarkSampleDetail(benchmarkId, sample.index, { split: splitFilter }, { signal }),
         staleTime: 30_000
       });
     });

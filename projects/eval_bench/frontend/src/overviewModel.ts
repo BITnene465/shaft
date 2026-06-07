@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import type { JobListResponse, RunSummary, ServiceListResponse } from "./api";
+import type { FacetBucket, JobListResponse, RunSummary, ServiceListResponse } from "./api";
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { formatMetric, runF1Score } from "./formatters";
@@ -41,55 +41,35 @@ type OverviewSignalNode = {
 };
 
 export function useOverviewModel() {
-  const stateQuery = useDashboardState();
+  const stateQuery = useDashboardState({
+    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
+    staleTime: 5_000
+  });
   const jobTotalQuery = useQuery({
     queryKey: ["overview-jobs-total"],
-    queryFn: () => fetchJobs({ limit: 1 }),
-    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
-    staleTime: 2_500
-  });
-  const queuedJobsQuery = useQuery({
-    queryKey: ["overview-jobs-queued"],
-    queryFn: () => fetchJobs({ status: "queued", limit: 1 }),
-    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
-    staleTime: 2_500
-  });
-  const runningJobsQuery = useQuery({
-    queryKey: ["overview-jobs-running"],
-    queryFn: () => fetchJobs({ status: "running", limit: 1 }),
-    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
-    staleTime: 2_500
-  });
-  const failedJobsQuery = useQuery({
-    queryKey: ["overview-jobs-failed"],
-    queryFn: () => fetchJobs({ status: "failed", limit: 1 }),
+    queryFn: ({ signal }) => fetchJobs({ limit: 1 }, { signal }),
     refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
     staleTime: 2_500
   });
   const serviceTotalQuery = useQuery({
     queryKey: ["overview-services-total"],
-    queryFn: () => fetchServices({ limit: 1 }),
-    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
-    staleTime: 5_000
-  });
-  const runningServicesQuery = useQuery({
-    queryKey: ["overview-services-running"],
-    queryFn: () => fetchServices({ status: "running", limit: 1 }),
+    queryFn: ({ signal }) => fetchServices({ limit: 1 }, { signal }),
     refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
     staleTime: 5_000
   });
   const schedulerQuery = useQuery({
     queryKey: ["overview-scheduler"],
-    queryFn: fetchSchedulerStatus,
+    queryFn: ({ signal }) => fetchSchedulerStatus({ signal }),
     refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
     staleTime: 2_500
   });
   const data = stateQuery.data;
-  const queuedJobs = jobPageTotal(queuedJobsQuery.data);
-  const runningJobs = jobPageTotal(runningJobsQuery.data);
-  const failedJobs = jobPageTotal(failedJobsQuery.data);
+  const jobStatusFacets = jobTotalQuery.data?.facets?.statuses;
+  const queuedJobs = facetCount(jobStatusFacets, "queued");
+  const runningJobs = facetCount(jobStatusFacets, "running");
+  const failedJobs = facetCount(jobStatusFacets, "failed");
   const totalJobs = Math.max(jobPageTotal(jobTotalQuery.data), queuedJobs + runningJobs + failedJobs);
-  const liveServices = servicePageTotal(runningServicesQuery.data);
+  const liveServices = facetCount(serviceTotalQuery.data?.facets?.statuses, "running");
   const serviceCount = Math.max(servicePageTotal(serviceTotalQuery.data), liveServices);
   const activeQueue = queuedJobs + runningJobs;
   const evaluatedRuns = data?.runs.filter((run) => run.report_path || run.report_count > 0).length ?? 0;
@@ -282,6 +262,10 @@ function jobPageTotal(page?: JobListResponse) {
 
 function servicePageTotal(page?: ServiceListResponse) {
   return page?.total ?? page?.services.length ?? 0;
+}
+
+function facetCount(bucket: FacetBucket | undefined, value: string) {
+  return bucket?.find((item) => item.value === value)?.count ?? 0;
 }
 
 function overviewNextAction({

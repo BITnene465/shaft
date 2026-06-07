@@ -35,13 +35,13 @@ export function RunDetailPage() {
   const [labelFilter, setLabelFilter] = useState("all");
   const samplesQuery = useQuery({
     queryKey: ["run-samples", runId, pageOffset, errorFilter, labelFilter],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchRunSamples(runId, {
         offset: pageOffset,
         limit: SAMPLE_PAGE_SIZE,
         label: labelFilter,
         errorFilter
-      }),
+      }, { signal }),
     placeholderData: (previousData) => previousData
   });
   const page = samplesQuery.data;
@@ -53,7 +53,7 @@ export function RunDetailPage() {
   const { actionForEvent } = useWorkspaceShortcuts();
   const detailQuery = useQuery({
     queryKey: ["run-sample-detail", runId, activeIndex],
-    queryFn: () => fetchRunSampleDetail(runId, activeIndex),
+    queryFn: ({ signal }) => fetchRunSampleDetail(runId, activeIndex, { signal }),
     enabled: Boolean(activeSample),
     placeholderData: (previousData) => (previousData?.run_id === runId ? previousData : undefined),
     staleTime: 30_000
@@ -136,7 +136,7 @@ export function RunDetailPage() {
     preload.forEach((sample) => {
       void queryClient.prefetchQuery({
         queryKey: ["run-sample-detail", runId, sample.index],
-        queryFn: () => fetchRunSampleDetail(runId, sample.index),
+        queryFn: ({ signal }) => fetchRunSampleDetail(runId, sample.index, { signal }),
         staleTime: 30_000
       });
     });

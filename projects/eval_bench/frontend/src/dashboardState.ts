@@ -2,11 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchState } from "./api";
 
-export function useDashboardState() {
+export function useDashboardState({
+  refetchInterval = false,
+  staleTime = 15_000
+}: {
+  refetchInterval?: number | false;
+  staleTime?: number;
+} = {}) {
   return useQuery({
     queryKey: ["dashboard-state"],
-    queryFn: fetchState,
-    refetchInterval: 10_000,
-    staleTime: 5_000
+    queryFn: ({ signal }) => fetchState({ signal }),
+    refetchInterval,
+    staleTime
   });
 }
