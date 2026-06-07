@@ -31,10 +31,14 @@ body,
   font-family: var(--app-font-family);
 }
 
-h1,
-.topbar h1 {
+h1 {
   font-size: var(--text-xl);
   line-height: 1.12;
+}
+
+.topbar h1 {
+  font-size: var(--text-lg);
+  line-height: 1.1;
 }
 
 h2,

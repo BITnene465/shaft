@@ -82,6 +82,7 @@ const servicesCreatePanelSource = await readSource("src/servicesCreatePanel.tsx"
 const servicesGridSource = await readSource("src/servicesGrid.tsx");
 const mainEntry = await readSource("src/main.tsx");
 const appShellSource = await readSource("src/appShell.tsx");
+const routeWarmupSource = await readSource("src/routeWarmup.ts");
 const runTables = await readSource("src/runTables.tsx");
 const runsImportPanelSource = await readSource("src/runsImportPanel.tsx");
 const runConfigPanelSource = await readSource("src/runConfigPanel.tsx");
@@ -250,6 +251,8 @@ const packageJsonSource = await readProjectFile("package.json");
 const shortcutCoverageSource = await readProjectFile("scripts/shortcut-coverage-check.mjs");
 const viewerPerformanceSource = await readProjectFile("scripts/viewer-performance-check.mjs");
 const dialogSmokeSource = await readProjectFile("scripts/dialog-smoke-check.mjs");
+const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
+const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
 const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
@@ -340,6 +343,9 @@ assert(
     appTypographyStyleSource.includes("--text-xs") &&
     appTypographyStyleSource.includes("--metric-display-size") &&
     appTypographyStyleSource.includes("font-family: var(--app-font-family)") &&
+    appTypographyStyleSource.includes("h1 {\n  font-size: var(--text-xl);") &&
+    appTypographyStyleSource.includes(".topbar h1 {\n  font-size: var(--text-lg);") &&
+    !appTypographyStyleSource.includes("h1,\n.topbar h1") &&
     appTypographyStyleSource.includes(".table-shell th") &&
     appTypographyStyleSource.includes(".table-shell td") &&
     appTypographyStyleSource.includes(".job-form input") &&
@@ -353,7 +359,11 @@ assert(
     appChromeStyleSource.includes(".toast-stack") &&
     appChromeStyleSource.includes(".sidebar") &&
     appChromeStyleSource.includes(".topbar") &&
-    appChromeStyleSource.includes(".user-profile-chip") &&
+    !appShellSource.includes("user-profile-chip") &&
+    !appShellSource.includes("Profile</span>") &&
+    !appChromeStyleSource.includes(".user-profile-chip") &&
+    appChromeStyleSource.includes("min-height: 40px") &&
+    appChromeStyleSource.includes("padding-bottom: 8px") &&
     appChromeStyleSource.includes("grid-template-columns: 232px minmax(0, 1fr)") &&
     appChromeStyleSource.includes("gap: 14px") &&
     appChromeStyleSource.includes("padding: 16px 12px") &&
@@ -362,9 +372,18 @@ assert(
     appChromeStyleSource.includes("text-transform: uppercase") &&
     appChromeVisualStyleSource.includes(".sidebar::after") &&
     appChromeVisualStyleSource.includes(".content::before") &&
+    appChromeVisualStyleSource.includes("min-height: 50px") &&
+    appChromeVisualStyleSource.includes("padding: 8px 16px") &&
+    !appChromeVisualStyleSource.includes("min-height: 58px") &&
+    !appChromeVisualStyleSource.includes("padding: 10px 18px") &&
     appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
-    appChromeVisualStyleSource.includes(".user-profile-chip:hover") &&
+    !appChromeVisualStyleSource.includes(".user-profile-chip") &&
     appChromeVisualStyleSource.includes(".status-pill:hover") &&
+    !appChromeStyleSource.includes("translateX(") &&
+    !appChromeVisualStyleSource.includes("translateX(") &&
+    !appChromeStyleSource.includes("transform 150ms ease") &&
+    !appChromeVisualStyleSource.includes("transform 150ms ease") &&
+    !appChromeVisualStyleSource.includes("transform 140ms ease") &&
     !appChromeVisualStyleSource.includes(".sidebar.collapsed") &&
     !designSource.includes(".primary-button") &&
     !designSource.includes(".secondary-button") &&
@@ -428,11 +447,39 @@ assert(
     dashboardStateSource.includes("refetchInterval = false") &&
     !dashboardStateSource.includes("refetchInterval: 10_000") &&
     appShellSource.includes("const STATUS_SYNC_DELAY_MS = 450;") &&
+    appShellSource.includes("const TOAST_AUTO_DISMISS_MS = 8_000;") &&
+    appShellSource.includes("const TOAST_MAX_ITEMS = 3;") &&
+    appShellSource.includes("__EVAL_BENCH_TOAST_AUTO_DISMISS_MS__?: number;") &&
+    appShellSource.includes("function toastAutoDismissMs()") &&
+    appShellSource.includes("? override") &&
+    appShellSource.includes("dismissTimersRef") &&
+    appShellSource.includes("current.findIndex((item) => item.message === message)") &&
+    appShellSource.includes("{ ...item, count: item.count + 1 }") &&
+    appShellSource.includes("window.clearTimeout(dismissTimersRef.current[message])") &&
+    appShellSource.includes("current.slice(-(TOAST_MAX_ITEMS - 1))") &&
+    appShellSource.includes("`操作失败 x${item.count}`") &&
+    !appShellSource.includes("current.slice(-3), { id, message, tone: \"danger\" }") &&
     appShellSource.includes("function useDelayedTruthy(value: boolean, delayMs: number)") &&
     appShellSource.includes("const delayedLoading = useDelayedTruthy(loading, STATUS_SYNC_DELAY_MS);") &&
     appShellSource.includes("window.setTimeout(() => setDelayedValue(true), delayMs)") &&
     appShellSource.includes("window.clearTimeout(timeout)") &&
     !appShellSource.includes('className={loading ? "status-pill loading" : "status-pill online"}') &&
+    appShellSource.includes('import { warmupEvalBenchRoutes } from "./routeWarmup";') &&
+    appShellSource.includes("useEffect(() => warmupEvalBenchRoutes(), []);") &&
+    routeWarmupSource.includes("const ROUTE_WARMUP_TIMEOUT_MS = 2_500;") &&
+    routeWarmupSource.includes("const ROUTE_WARMUP_FALLBACK_DELAY_MS = 1_200;") &&
+    routeWarmupSource.includes("requestIdleCallback") &&
+    routeWarmupSource.includes("cancelIdleCallback") &&
+    routeWarmupSource.includes("connection?.saveData") &&
+    routeWarmupSource.includes("Promise.allSettled") &&
+    routeWarmupSource.includes("WARMUP_CORE_ROUTE_MODULES.map((loadRouteModule) => loadRouteModule())") &&
+    !routeWarmupSource.includes("for (const loadRouteModule of WARMUP_CORE_ROUTE_MODULES)") &&
+    routeWarmupSource.includes('() => import("./rankBoardPage")') &&
+    routeWarmupSource.includes('() => import("./runsPage")') &&
+    routeWarmupSource.includes('() => import("./jobsPage")') &&
+    routeWarmupSource.includes('() => import("./suiteReportPage")') &&
+    routeWarmupSource.includes('() => import("./comparePage")') &&
+    routeWarmupSource.includes('() => import("./servicesPage")') &&
     appShellSource.includes('preload="intent"') &&
     appShellSource.includes("preloadDelay={80}") &&
     mainEntry.includes('lazyRouteComponent(() => import("./jobsPage"), "JobsPage")') &&
@@ -1507,14 +1554,43 @@ assert(
 assert(
   packageJsonSource.includes('"test:composite-report": "node scripts/composite-report-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:dialogs": "node scripts/dialog-smoke-check.mjs"') &&
+    packageJsonSource.includes('"test:toast": "node scripts/toast-smoke-check.mjs"') &&
+    packageJsonSource.includes('"test:route-warmup": "node scripts/route-warmup-check.mjs"') &&
     dialogSmokeSource.includes('!text.includes("/api/")') &&
     dialogSmokeSource.includes('!text.includes("Failed to load resource")') &&
+    toastSmokeSource.includes('new CustomEvent("eval-bench-api-error"') &&
+    toastSmokeSource.includes("window.__EVAL_BENCH_TOAST_AUTO_DISMISS_MS__ = 600;") &&
+    toastSmokeSource.includes("duplicate API errors should coalesce into one toast") &&
+    toastSmokeSource.includes("操作失败 x3") &&
+    toastSmokeSource.includes("duplicate API error should refresh the auto-dismiss timer") &&
+    toastSmokeSource.includes("操作失败 x4") &&
+    toastSmokeSource.includes("different API errors should remain separately visible") &&
+    toastSmokeSource.includes("manual close should remove only the selected toast") &&
+    toastSmokeSource.includes("toast stack should keep only the latest three distinct API errors") &&
+    toastSmokeSource.includes('"422 Unprocessable Entity: manifest invalid"') &&
+    toastSmokeSource.includes('getByRole("button", { name: "关闭提醒" })') &&
+    routeWarmupSmokeSource.includes('"rankBoardPage"') &&
+    routeWarmupSmokeSource.includes('"runsPage"') &&
+    routeWarmupSmokeSource.includes('"jobsPage"') &&
+    routeWarmupSmokeSource.includes('"suiteReportPage"') &&
+    routeWarmupSmokeSource.includes('"comparePage"') &&
+    routeWarmupSmokeSource.includes('"servicesPage"') &&
+    routeWarmupSmokeSource.includes('performance.getEntriesByType("resource")') &&
+    routeWarmupSmokeSource.includes("core route chunks must warm up after idle") &&
+    routeWarmupSmokeSource.includes('Object.defineProperty(navigator, "connection"') &&
+    routeWarmupSmokeSource.includes("saveData: true") &&
+    routeWarmupSmokeSource.includes("route warmup must not fetch core chunks when navigator.connection.saveData is true") &&
+    routeWarmupSmokeSource.includes('!text.includes("/api/")') &&
     packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
     packageJsonSource.includes('"test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs"') &&
     readmeSource.includes("npm run test:select-popover") &&
     readmeSource.includes("npm run test:select-popover-ui") &&
+    readmeSource.includes("npm run test:route-warmup") &&
+    readmeSource.includes("npm run test:toast") &&
     readmeSource.includes("`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`）") &&
     readmeSource.includes("`test:select-popover-ui` 是共享下拉控件的浏览器 smoke") &&
+    readmeSource.includes("`test:route-warmup` 是首屏后路由预热 smoke") &&
+    readmeSource.includes("`test:toast` 是 API 错误提示 smoke") &&
     compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
     compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
     compositeReportSmokeSource.includes('{ name: "desktop-narrow", width: 1180, height: 760 }') &&
@@ -1963,7 +2039,8 @@ assert(
     appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
     appChromeVisualStyleSource.includes(".nav-item::after") &&
     appChromeVisualStyleSource.includes("content: none") &&
-    appChromeVisualStyleSource.includes(".user-profile-chip:hover") &&
+    !appChromeVisualStyleSource.includes("translateX(") &&
+    !appChromeVisualStyleSource.includes(".user-profile-chip") &&
     appChromeVisualStyleSource.includes(".status-pill:hover"),
   "overview and shared controls must keep focused layout while suppressing decorative motion",
 );
@@ -3150,6 +3227,11 @@ assert(
     themeToggleCheckSource.includes("darkSurfaceCandidateSelector") &&
     themeToggleCheckSource.includes("parseCssRgb") &&
     themeToggleCheckSource.includes("parsed.alpha <= 0.2") &&
+    themeToggleCheckSource.includes("const TOPBAR_MAX_HEIGHT = 56;") &&
+    themeToggleCheckSource.includes("function assertTopbarDensity") &&
+    themeToggleCheckSource.includes("topbar density regressed") &&
+    themeToggleCheckSource.includes('document.querySelector(".user-profile-chip")') &&
+    themeToggleCheckSource.includes("snapshot.actionCount !== 2") &&
     themeToggleCheckSource.includes("function assertDarkMicroInteractions") &&
     themeToggleCheckSource.includes("scrollbarColor") &&
     themeToggleCheckSource.includes("focusBoxShadow") &&

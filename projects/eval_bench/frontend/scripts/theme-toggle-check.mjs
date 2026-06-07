@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { chromium } from "@playwright/test";
 
 const url = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/";
+const TOPBAR_MAX_HEIGHT = 56;
 const darkSurfaceRoutes = [
   "/",
   "/benchmarks",
@@ -81,6 +82,7 @@ await assertDarkRouteSurface(page, "/settings", [
   ".settings-drawer-head"
 ]);
 await assertNoBrightDarkSurfaces(page);
+await assertTopbarDensity(page);
 await assertDarkMicroInteractions(page);
 
 await page.getByRole("button", { name: "切换到日间主题" }).click();
@@ -216,6 +218,47 @@ async function assertNoBrightDarkSurfaces(page) {
     findings.length,
     0,
     `dark theme still exposes bright surfaces: ${JSON.stringify(findings.slice(0, 20))}`
+  );
+}
+
+async function assertTopbarDensity(page) {
+  const findings = [];
+  for (const pathname of darkSurfaceRoutes) {
+    const nextUrl = new URL(pathname, url).toString();
+    await page.goto(nextUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
+    await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+    await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+    const snapshot = await page.evaluate(() => {
+      const topbar = document.querySelector(".topbar");
+      const title = topbar?.querySelector("h1");
+      const actions = topbar?.querySelector(".topbar-actions");
+      const rect = topbar?.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect();
+      return {
+        height: rect ? Math.round(rect.height) : 0,
+        titleHeight: titleRect ? Math.round(titleRect.height) : 0,
+        hasProfileChip: Boolean(document.querySelector(".user-profile-chip")),
+        hasThemeToggle: Boolean(topbar?.querySelector(".theme-toggle")),
+        hasStatusPill: Boolean(topbar?.querySelector(".status-pill")),
+        actionCount: actions?.children.length ?? 0
+      };
+    });
+    if (
+      snapshot.height === 0 ||
+      snapshot.height > TOPBAR_MAX_HEIGHT ||
+      snapshot.titleHeight > 24 ||
+      snapshot.hasProfileChip ||
+      !snapshot.hasThemeToggle ||
+      !snapshot.hasStatusPill ||
+      snapshot.actionCount !== 2
+    ) {
+      findings.push({ pathname, ...snapshot });
+    }
+  }
+  assert.equal(
+    findings.length,
+    0,
+    `topbar density regressed: ${JSON.stringify(findings)}`
   );
 }
 

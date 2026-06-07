@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Moon, PanelLeftClose, PanelLeftOpen, Sun, X } from "lucide-react";
 
@@ -8,6 +8,7 @@ import { errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { resetJobsViewState } from "./jobsViewState";
 import { resetRankBoardViewState } from "./rankBoardViewState";
+import { warmupEvalBenchRoutes } from "./routeWarmup";
 import { resetRunsViewState } from "./runsViewState";
 import { bootstrapTypographySettings, useTypographySettings } from "./typographySettings";
 import { ActionButton, IconActionButton } from "./ui";
@@ -21,6 +22,13 @@ bootstrapTypographySettings();
 bootstrapThemePreference();
 
 const STATUS_SYNC_DELAY_MS = 450;
+const TOAST_AUTO_DISMISS_MS = 8_000;
+const TOAST_MAX_ITEMS = 3;
+
+type EvalBenchTestWindow = Window &
+  typeof globalThis & {
+    __EVAL_BENCH_TOAST_AUTO_DISMISS_MS__?: number;
+  };
 
 export class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -65,6 +73,7 @@ export function AppShell() {
   const { sidebarCollapsed, setSidebarCollapsed } = useSidebarPreference();
   const { themeMode, toggleThemeMode } = useThemePreference();
   useTypographySettings();
+  useEffect(() => warmupEvalBenchRoutes(), []);
 
   return (
     <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
@@ -140,10 +149,6 @@ export function AppShell() {
               icon={themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
               onClick={toggleThemeMode}
             />
-            <div className="user-profile-chip" title="当前版本使用浏览器本地 profile 保存偏好">
-              <span>Profile</span>
-              <strong>local</strong>
-            </div>
             <StatusPill loading={stateQuery.isFetching} error={stateQuery.isError} />
           </div>
         </header>
@@ -158,22 +163,38 @@ type ToastMessage = {
   id: string;
   message: string;
   tone: "danger" | "info";
+  count: number;
 };
 
 function ToastHub() {
   const [items, setItems] = useState<ToastMessage[]>([]);
+  const dismissTimersRef = useRef<Record<string, number>>({});
   useEffect(() => {
     function handleError(event: Event) {
       const detail = (event as CustomEvent<{ message?: string }>).detail;
       const message = detail?.message || "请求失败。";
       const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-      setItems((current) => [...current.slice(-3), { id, message, tone: "danger" }]);
-      window.setTimeout(() => {
-        setItems((current) => current.filter((item) => item.id !== id));
-      }, 8000);
+      setItems((current) => {
+        const existingIndex = current.findIndex((item) => item.message === message);
+        if (existingIndex >= 0) {
+          return current.map((item, index) =>
+            index === existingIndex ? { ...item, count: item.count + 1 } : item
+          );
+        }
+        return [...current.slice(-(TOAST_MAX_ITEMS - 1)), { id, message, tone: "danger", count: 1 }];
+      });
+      window.clearTimeout(dismissTimersRef.current[message]);
+      dismissTimersRef.current[message] = window.setTimeout(() => {
+        setItems((current) => current.filter((item) => item.message !== message));
+        delete dismissTimersRef.current[message];
+      }, toastAutoDismissMs());
     }
     window.addEventListener("eval-bench-api-error", handleError);
-    return () => window.removeEventListener("eval-bench-api-error", handleError);
+    return () => {
+      window.removeEventListener("eval-bench-api-error", handleError);
+      Object.values(dismissTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+      dismissTimersRef.current = {};
+    };
   }, []);
   if (items.length === 0) {
     return null;
@@ -182,17 +203,28 @@ function ToastHub() {
     <div className="toast-stack" role="status" aria-live="polite">
       {items.map((item) => (
         <div className={`toast-message ${item.tone}`} key={item.id}>
-          <strong>操作失败</strong>
+          <strong>{item.count > 1 ? `操作失败 x${item.count}` : "操作失败"}</strong>
           <span>{item.message}</span>
           <IconActionButton
             icon={<X size={13} />}
             title="关闭提醒"
-            onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))}
+            onClick={() => {
+              window.clearTimeout(dismissTimersRef.current[item.message]);
+              delete dismissTimersRef.current[item.message];
+              setItems((current) => current.filter((entry) => entry.id !== item.id));
+            }}
           />
         </div>
       ))}
     </div>
   );
+}
+
+function toastAutoDismissMs() {
+  const override = (window as EvalBenchTestWindow).__EVAL_BENCH_TOAST_AUTO_DISMISS_MS__;
+  return typeof override === "number" && Number.isFinite(override) && override > 0
+    ? override
+    : TOAST_AUTO_DISMISS_MS;
 }
 
 function getShellTitle(pathname: string) {

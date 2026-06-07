@@ -844,6 +844,8 @@ npm run test:status-model
 npm run test:workspace-settings
 npm run test:select-popover
 npm run test:select-popover-ui
+npm run test:route-warmup
+npm run test:toast
 npm run test:ui-contracts
 npm run test:shortcuts
 npm run test:composite-report
@@ -875,6 +877,12 @@ hiddenBefore / hiddenAfter、disabled option 跳过、PageUp / PageDown 和 all-
 
 `test:select-popover-ui` 是共享下拉控件的浏览器 smoke，会在真实页面打开高级检索里的自定义下拉，检查
 listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active descendant 和 Escape 后焦点回到触发器。
+
+`test:route-warmup` 是首屏后路由预热 smoke，会在生产预览首页等待浏览器 idle 后检查排行榜、结果库、
+评测中心、组合报告、对比分析和模型服务 chunk 是否被预热，避免核心工作台首次导航再次出现明显等待。
+
+`test:toast` 是 API 错误提示 smoke，会直接派发重复错误事件，检查相同错误合并计数、不同错误独立保留、
+手动关闭只移除目标 toast，避免轮询失败时提示堆叠刷屏。
 
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /
 `useWorkspaceShortcuts`，并用自定义 keymap 在 benchmark、run、compare 和 settings 页面真实触发
