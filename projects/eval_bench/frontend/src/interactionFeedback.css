@@ -45,7 +45,7 @@
 .panel-toggle-button:focus-visible,
 .query-chip:focus-visible,
 .rank-sort-header:focus-visible {
-  outline: 2px solid rgb(99 127 149 / 12%);
+  outline: 2px solid var(--control-focus-outline);
   outline-offset: 2px;
 }
 
@@ -71,30 +71,15 @@
   content: none;
 }
 
-.primary-button:hover,
-.secondary-button:hover,
-.mini-button:hover,
-.mini-link:hover,
-.icon-button:hover,
 .nav-item.active {
   box-shadow: inset 3px 0 0 var(--bench-action);
-}
-
-.primary-button {
-  background: var(--bench-action);
-  border-color: color-mix(in srgb, var(--bench-action) 82%, black);
-}
-
-.primary-button:hover {
-  background: color-mix(in srgb, var(--bench-action) 88%, black);
-  border-color: color-mix(in srgb, var(--bench-action) 78%, black);
 }
 
 .search-box:focus-within,
 .filter-select:focus-within,
 .select-popover-control:focus-within .select-popover-trigger {
-  outline: 2px solid rgb(99 127 149 / 12%);
-  border-color: #637f95;
+  outline: 2px solid var(--control-focus-outline);
+  border-color: var(--control-focus-line);
 }
 
 @media (prefers-reduced-motion: no-preference) {

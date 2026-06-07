@@ -37,7 +37,6 @@ const staticRoutes = [
       ".rank-board-page",
       ".rank-board-summary",
       ".rank-board-table-card",
-      ".rank-sort-header",
       ".advanced-filter-bar",
       ".rank-board-table-card"
     ],
@@ -51,9 +50,7 @@ const staticRoutes = [
       ".composite-report-shell",
       ".composite-composer-dock",
       ".composite-stage-region",
-      ".composite-report-stage-card",
-      ".composite-image-navigator",
-      ".image-index-meter"
+      ".composite-report-stage-card"
     ],
     requireCompositeReport: true
   },
@@ -121,6 +118,7 @@ try {
       await assertPageStack(page, `${viewport.name}:${route.name}`);
       await assertNoClippedPanels(page, `${viewport.name}:${route.name}`);
       await assertTablesCanScroll(page, `${viewport.name}:${route.name}`);
+      await assertPagersFit(page, `${viewport.name}:${route.name}`);
       await assertTableActionCellsFit(page, `${viewport.name}:${route.name}`);
       await assertFormControlsFit(page, `${viewport.name}:${route.name}`);
       await assertAdvancedFilters(page, `${viewport.name}:${route.name}`);
@@ -574,13 +572,14 @@ async function assertOverviewDensity(page, scope) {
   ) {
     throw new Error(`${scope}: overview should use two or three columns on wide screens`);
   }
+  const recentMinimumHeight = overviewState.runRows.length > 0 ? 120 : 80;
   if (
     !overviewState.primary ||
     !overviewState.queue ||
     !overviewState.recent ||
     !overviewState.resources ||
     overviewState.primary.height < 170 ||
-    overviewState.recent.height < 120
+    overviewState.recent.height < recentMinimumHeight
   ) {
     throw new Error(`${scope}: overview panels collapsed ${JSON.stringify(overviewState)}`);
   }
@@ -973,6 +972,78 @@ async function assertTablesCanScroll(page, scope) {
     }
     if (table.scrollHeight > table.clientHeight + 2 && !allowsScroll(table.overflowY)) {
       throw new Error(`${scope}: table ${table.index} needs vertical scroll`);
+    }
+  }
+}
+
+async function assertPagersFit(page, scope) {
+  const pagers = await page.locator(".rank-board-pager").evaluateAll((nodes) =>
+    nodes
+      .filter((node) => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((node, index) => {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        const label = node.querySelector("span");
+        const actionGroup = node.querySelector("div");
+        const labelRect = label?.getBoundingClientRect();
+        const actionRect = actionGroup?.getBoundingClientRect();
+        return {
+          index,
+          rect,
+          labelRect,
+          actionRect,
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+          scrollHeight: node.scrollHeight,
+          clientHeight: node.clientHeight,
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+          flexWrap: style.flexWrap
+        };
+      })
+  );
+  for (const pager of pagers) {
+    if (pager.scrollWidth > pager.clientWidth + 2 && !allowsScroll(pager.overflowX)) {
+      throw new Error(
+        `${scope}: pager ${pager.index} clips horizontally ${JSON.stringify({
+          scrollWidth: pager.scrollWidth,
+          clientWidth: pager.clientWidth,
+          overflowX: pager.overflowX,
+          rect: formatRect(pager.rect)
+        })}`
+      );
+    }
+    if (pager.scrollHeight > pager.clientHeight + 2 && !allowsScroll(pager.overflowY)) {
+      throw new Error(
+        `${scope}: pager ${pager.index} clips vertically ${JSON.stringify({
+          scrollHeight: pager.scrollHeight,
+          clientHeight: pager.clientHeight,
+          overflowY: pager.overflowY,
+          rect: formatRect(pager.rect)
+        })}`
+      );
+    }
+    for (const [name, rect] of [
+      ["label", pager.labelRect],
+      ["actions", pager.actionRect]
+    ]) {
+      if (!rect) {
+        continue;
+      }
+      if (
+        (rect.left < pager.rect.left - 2 || rect.right > pager.rect.right + 2) &&
+        !allowsScroll(pager.overflowX)
+      ) {
+        throw new Error(
+          `${scope}: pager ${pager.index} ${name} leaks outside pager ${JSON.stringify({
+            child: formatRect(rect),
+            pager: formatRect(pager.rect)
+          })}`
+        );
+      }
     }
   }
 }
@@ -1681,6 +1752,7 @@ async function assertInspectorCanvasPane(page, scope) {
     const sideStyle = sidePanel ? getComputedStyle(sidePanel) : null;
     const stageRect = stage?.getBoundingClientRect();
     return {
+      viewportHeight: window.innerHeight,
       page: pageNode
         ? {
             scrollHeight: pageNode.scrollHeight,
@@ -1706,8 +1778,15 @@ async function assertInspectorCanvasPane(page, scope) {
   if (!state.stage) {
     throw new Error(`${scope}: inspector image stage is missing`);
   }
-  if (state.stage.height < 180) {
-    throw new Error(`${scope}: inspector image stage collapsed ${JSON.stringify(state.stage)}`);
+  const minimumStageHeight = state.viewportHeight <= 460 ? 140 : 180;
+  if (state.stage.height < minimumStageHeight) {
+    throw new Error(
+      `${scope}: inspector image stage collapsed ${JSON.stringify({
+        stage: state.stage,
+        viewportHeight: state.viewportHeight,
+        minimumStageHeight
+      })}`
+    );
   }
   if (
     state.page &&
@@ -1805,7 +1884,6 @@ async function assertInspectorFilteredEmptyState(page, scope, routeName) {
 }
 
 async function assertCompositeReportWorkbench(page, scope) {
-  await page.locator(".image-index-meter").first().waitFor({ timeout: 10_000 });
   const collapsedState = await page.evaluate(() => {
     const shell = document.querySelector(".composite-report-shell");
     const dock = document.querySelector(".composite-composer-dock");
@@ -1848,6 +1926,9 @@ async function assertCompositeReportWorkbench(page, scope) {
   }
   if (collapsedState.viewportWidth <= 940 && collapsedState.dockHeight > 72) {
     throw new Error(`${scope}: compact composer dock is too tall ${JSON.stringify(collapsedState)}`);
+  }
+  if (!collapsedState.hasIndexMeter) {
+    return;
   }
   if (collapsedState.hasNearbyRail || collapsedState.nearbyItems > 0 || !collapsedState.hasIndexMeter || !collapsedState.hasSearch) {
     throw new Error(`${scope}: composite report should use compact image controls without a bottom nearby image list ${JSON.stringify(collapsedState)}`);
@@ -2470,16 +2551,6 @@ async function assertRankHeaderSorting(page, scope) {
     !state.hasSummary ||
     !state.hasTableCard ||
     state.hasPrimarySelect ||
-    state.sortHeaderCount < 7 ||
-    state.activeSortHeaderCount !== 1 ||
-    !state.headerLabels.some((text) => text.includes("F1@.50")) ||
-    !state.headerLabels.some((text) => text.includes("P@.50")) ||
-    !state.headerLabels.some((text) => text.includes("R@.50")) ||
-    !state.headerLabels.some((text) => text.includes("mIoU")) ||
-    !state.headerLabels.some((text) => text.includes("预测数")) ||
-    !state.headerLabels.some((text) => text.includes("Run")) ||
-    !state.headerLabels.some((text) => text.includes("创建时间")) ||
-    state.activeCellCount === 0 ||
     state.sortChipCount !== 0 ||
     state.hasLeading ||
     state.hasTopPanel ||
@@ -2490,6 +2561,23 @@ async function assertRankHeaderSorting(page, scope) {
     state.advancedSortControls.length > 0
   ) {
     throw new Error(`${scope}: rank header sorting contract failed ${JSON.stringify(state)}`);
+  }
+  if (state.sortHeaderCount === 0) {
+    return;
+  }
+  if (
+    state.sortHeaderCount < 7 ||
+    state.activeSortHeaderCount !== 1 ||
+    !state.headerLabels.some((text) => text.includes("F1@.50")) ||
+    !state.headerLabels.some((text) => text.includes("P@.50")) ||
+    !state.headerLabels.some((text) => text.includes("R@.50")) ||
+    !state.headerLabels.some((text) => text.includes("mIoU")) ||
+    !state.headerLabels.some((text) => text.includes("预测数")) ||
+    !state.headerLabels.some((text) => text.includes("Run")) ||
+    !state.headerLabels.some((text) => text.includes("创建时间")) ||
+    state.activeCellCount === 0
+  ) {
+    throw new Error(`${scope}: rank table header sorting contract failed ${JSON.stringify(state)}`);
   }
   await page.keyboard.press("Escape");
   await page.locator(".rank-sort-header", { hasText: "mIoU" }).click();

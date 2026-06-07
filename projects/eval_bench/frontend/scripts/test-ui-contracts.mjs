@@ -256,6 +256,7 @@ const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
 const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
 const navPrefetchSmokeSource = await readProjectFile("scripts/nav-prefetch-check.mjs");
 const loadingStateSmokeSource = await readProjectFile("scripts/loading-state-check.mjs");
+const layoutSmokeSource = await readProjectFile("scripts/layout-smoke-check.mjs");
 const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
 const scriptsDocSource = await readRepoFile("docs/scripts.md");
@@ -339,7 +340,10 @@ assert(
     designSource.includes("--bench-bg") &&
     designSource.includes("--bench-action") &&
     designSource.includes("--bench-shadow-tight") &&
-    interactionFeedbackStyleSource.includes("outline: 2px solid rgb(99 127 149 / 12%)") &&
+    interactionFeedbackStyleSource.includes("outline: 2px solid var(--control-focus-outline)") &&
+    interactionFeedbackStyleSource.includes("border-color: var(--control-focus-line)") &&
+    !interactionFeedbackStyleSource.includes(".primary-button {\n  background:") &&
+    !interactionFeedbackStyleSource.includes(".primary-button:hover {\n  background:") &&
     interactionFeedbackStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
     interactionFeedbackStyleSource.includes(".search-box:focus-within") &&
     appTypographyStyleSource.includes("--text-3xs") &&
@@ -636,6 +640,22 @@ assert(
     sharedControlsThemeStyleSource.includes("--control-icon-dense-size") &&
     sharedControlsThemeStyleSource.includes("--control-chip-height") &&
     sharedControlsThemeStyleSource.includes("--control-metric-value-size") &&
+    sharedControlsThemeStyleSource.includes("--control-button-primary-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-button-secondary-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-button-danger-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-button-shadow-hover: 0 4px 10px") &&
+    sharedControlsThemeStyleSource.includes("--control-status-success-ink:") &&
+    sharedControlsThemeStyleSource.includes("--control-badge-warning-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-query-chip-active-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-pager-bg:") &&
+    sharedControlsThemeStyleSource.includes("--control-pager-line:") &&
+    sharedControlsThemeStyleSource.includes("--control-focus-outline:") &&
+    sharedControlsThemeStyleSource.includes(':root[data-theme="dark"]') &&
+    sharedControlsThemeStyleSource.includes("--control-button-primary-bg: color-mix") &&
+    sharedControlsThemeStyleSource.includes("--control-button-secondary-ink: var(--bench-cyan-strong)") &&
+    sharedControlsThemeStyleSource.includes("--control-status-success-ink: var(--bench-status-success)") &&
+    sharedControlsThemeStyleSource.includes("--control-query-chip-bg: var(--bench-surface-raised)") &&
+    sharedControlsThemeStyleSource.includes("--control-pager-bg: var(--bench-surface-raised)") &&
     !rawSharedControlsGeometryPattern.test(sharedControlsStyleSource) &&
     sharedControlsStyleSource.includes(".section-header") &&
     sharedControlsStyleSource.includes(".config-item") &&
@@ -647,9 +667,20 @@ assert(
     sharedButtonsStyleSource.includes(".mini-button") &&
     sharedButtonsStyleSource.includes(".icon-button") &&
     sharedButtonsStyleSource.includes(".mini-link.compare-ready") &&
+    sharedButtonsStyleSource.includes("var(--control-button-primary-bg)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-secondary-bg)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-icon-bg)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-danger-bg)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-disabled-bg)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-shadow-hover)") &&
+    sharedButtonsStyleSource.includes("var(--control-button-shadow-active)") &&
+    !sharedButtonsStyleSource.includes("box-shadow: 0 10px 22px") &&
+    !sharedButtonsStyleSource.includes("box-shadow: 0 8px 18px") &&
+    !sharedButtonsStyleSource.includes("background: #0b5f82") &&
+    !sharedButtonsStyleSource.includes("background: #155f84") &&
+    !sharedButtonsStyleSource.includes("background: #9f2532") &&
     !/translateY\(/.test(sharedButtonsStyleSource) &&
     !sharedButtonsStyleSource.includes("transform 140ms ease") &&
-    sharedButtonsStyleSource.includes("box-shadow: inset 0 0 0 1px color-mix") &&
     sharedIndicatorsStyleSource.includes("var(--control-chip-height)") &&
     sharedIndicatorsStyleSource.includes(".status-pill") &&
     sharedIndicatorsStyleSource.includes(".query-chip") &&
@@ -658,12 +689,26 @@ assert(
     !/translateY\(/.test(sharedIndicatorsStyleSource) &&
     !sharedIndicatorsStyleSource.includes("transform 140ms ease") &&
     !sharedIndicatorsStyleSource.includes("transform 150ms ease") &&
+    sharedIndicatorsStyleSource.includes("var(--control-status-success-ink)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-status-danger-bg)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-badge-warning-bg)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-query-chip-bg)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-query-chip-active-bg)") &&
+    sharedIndicatorsStyleSource.includes("var(--control-indicator-shadow-hover)") &&
+    !sharedIndicatorsStyleSource.includes("box-shadow: 0 12px 24px") &&
+    !sharedIndicatorsStyleSource.includes("background: #f7f9fb") &&
+    !sharedIndicatorsStyleSource.includes("background: #235a78") &&
     sharedIndicatorsStyleSource.includes("border-color: color-mix(in srgb, currentColor 20%, transparent);") &&
     sharedMetricsStyleSource.includes("var(--control-metric-value-size)") &&
     sharedMetricsStyleSource.includes(".summary-grid") &&
     sharedMetricsStyleSource.includes(".metric-card") &&
     sharedMetricsStyleSource.includes(".metric-icon") &&
     sharedPagerStyleSource.includes(".rank-board-pager") &&
+    sharedPagerStyleSource.includes("var(--control-pager-bg)") &&
+    sharedPagerStyleSource.includes("var(--control-pager-line)") &&
+    sharedPagerStyleSource.includes("var(--control-pager-ink)") &&
+    !sharedPagerStyleSource.includes("background: #ffffff") &&
+    !sharedPagerStyleSource.includes("border-bottom: 1px solid #e5ebf1") &&
     sharedSplitStyleSource.includes(".resizable-split") &&
     sharedSplitStyleSource.includes(".split-resizer") &&
     controlPrimitives.includes('import "./controlPrimitiveStyles.css";') &&
@@ -901,8 +946,13 @@ assert(
     dataTableStyleSource.includes(".table-shell.table-loading") &&
     dataTableStyleSource.includes("--table-loading-glint") &&
     dataTableStyleSource.includes("--table-hover-border") &&
+    dataTableStyleSource.includes("--table-hover-shadow: 0 4px 10px") &&
     dataTableStyleSource.includes("--table-checkbox-bg") &&
     dataTableStyleSource.includes("--table-checkbox-check-ring") &&
+    dataTableStyleSource.includes("contain: layout;") &&
+    dataTableStyleSource.includes("outline: 2px solid var(--control-focus-outline)") &&
+    !dataTableStyleSource.includes("transform 150ms ease") &&
+    !dataTableStyleSource.includes("0 16px 34px") &&
     dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell.table-loading') &&
     dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell') &&
     dataTableStyleSource.includes("@keyframes table-skeleton-sheen") &&
@@ -1061,9 +1111,22 @@ assert(
     filterThemeStyleSource.includes("--filter-head-min: 30px") &&
     filterThemeStyleSource.includes("--filter-text-input: var(--text-sm)") &&
     filterThemeStyleSource.includes("--filter-radius-control: 2px") &&
+    filterThemeStyleSource.includes("--filter-surface: #ffffff") &&
+    filterThemeStyleSource.includes("--filter-field-bg: #ffffff") &&
+    filterThemeStyleSource.includes("--filter-popover-shadow:") &&
+    filterThemeStyleSource.includes(':root[data-theme="dark"]') &&
+    filterThemeStyleSource.includes("--filter-surface: var(--bench-surface)") &&
+    filterThemeStyleSource.includes("--filter-focus: var(--bench-cyan)") &&
     filterControlsStyleSource.includes("var(--filter-control-min)") &&
     filterControlsStyleSource.includes("var(--filter-text-label)") &&
     filterControlsStyleSource.includes("var(--filter-radius-control)") &&
+    filterControlsStyleSource.includes("background: var(--filter-surface);") &&
+    filterControlsStyleSource.includes("background: var(--filter-field-bg);") &&
+    filterControlsStyleSource.includes("border-color: var(--filter-field-line-strong);") &&
+    filterControlsStyleSource.includes("box-shadow: var(--filter-popover-shadow);") &&
+    !filterControlsStyleSource.includes("background: #ffffff;") &&
+    !filterControlsStyleSource.includes("color: #101828;") &&
+    !filterControlsStyleSource.includes("rgba(99, 127, 149") &&
     !rawAdvancedFilterGeometryPattern.test(filterControlsStyleSource) &&
     !styleSource.includes(".advanced-search-box") &&
     !styleSource.includes(".advanced-number-box") &&
@@ -1132,11 +1195,17 @@ assert(
     themeSurfaceOverridesStyleSource.includes(".settings-workbench-shell") &&
     themeSurfaceOverridesStyleSource.includes(".settings-preference-drawer") &&
     themeSurfaceOverridesStyleSource.includes(".settings-drawer-head") &&
-    themeSurfaceOverridesStyleSource.includes(".status-pill") &&
-    themeSurfaceOverridesStyleSource.includes(".badge") &&
-    themeSurfaceOverridesStyleSource.includes(".query-chip") &&
     themeSurfaceOverridesStyleSource.includes(".icon-button:focus-visible") &&
     themeSurfaceOverridesStyleSource.includes(".run-config-panel") &&
+    !themeSurfaceOverridesStyleSource.includes(".badge.success") &&
+    !themeSurfaceOverridesStyleSource.includes(".badge.warning") &&
+    !themeSurfaceOverridesStyleSource.includes(".badge.danger") &&
+    !themeSurfaceOverridesStyleSource.includes(".badge.info") &&
+    !themeSurfaceOverridesStyleSource.includes(".status-pill.online") &&
+    !themeSurfaceOverridesStyleSource.includes(".status-pill.loading") &&
+    !themeSurfaceOverridesStyleSource.includes(".status-pill.danger") &&
+    !themeSurfaceOverridesStyleSource.includes(".rank-mode-switch .query-chip") &&
+    !themeSurfaceOverridesStyleSource.includes(".query-chip.active") &&
     !themeSurfaceOverridesStyleSource.includes(".app-shell") &&
     !themeSurfaceOverridesStyleSource.includes("@keyframes") &&
     workspaceThemeStyleSource.includes("--workspace-tab-height") &&
@@ -1316,7 +1385,7 @@ assert(
     !styleSource.includes("@keyframes advanced-filter-enter") &&
     !appThemeStyleSource.includes(".advanced-filter-bar {\n  position: relative;") &&
     !designSource.includes(".advanced-filter-bar {\n  position: relative;") &&
-    interactionFeedbackStyleSource.includes("outline: 2px solid rgb(99 127 149 / 12%)"),
+    interactionFeedbackStyleSource.includes("outline: 2px solid var(--control-focus-outline)"),
   "filter and select controls must stay compact, neutral, and free of decorative open animations",
 );
 assert(
@@ -1583,11 +1652,18 @@ assert(
 assert(
   shortcutCoverageSource.includes("async function discoverShortcutTargets(") &&
     shortcutCoverageSource.includes('fetch(`${rootUrl}/api/state`)') &&
+    shortcutCoverageSource.includes('path.join(root, "src", "workspaceSettingsSchema.ts")') &&
     shortcutCoverageSource.includes("process.env.EVAL_BENCH_BENCHMARK_ID ?? shortcutTargets.benchmarkId") &&
     shortcutCoverageSource.includes("process.env.EVAL_BENCH_RUN_ID ?? shortcutTargets.runId") &&
+    shortcutCoverageSource.includes("shortcut dynamic benchmark checks skipped") &&
+    shortcutCoverageSource.includes("shortcut dynamic run checks skipped") &&
+    shortcutCoverageSource.includes("benchmarkSampleInspector.tsx") &&
+    shortcutCoverageSource.includes("runDetailPage.tsx") &&
+    shortcutCoverageSource.includes("viewerViewportController.ts") &&
+    !shortcutCoverageSource.includes('throw new Error("shortcut coverage requires') &&
     !shortcutCoverageSource.includes('?? "multitask_val_v1"') &&
     !shortcutCoverageSource.includes('?? "config_smoke_prompt_params"'),
-  "shortcut coverage must discover current store benchmark/run targets instead of hard-coding old fixtures",
+  "shortcut coverage must discover current store targets and skip data-dependent checks cleanly when fixtures are absent",
 );
 assert(
   shortcutCoverageSource.includes("appUrl(`/benchmarks/${encodeURIComponent(benchmarkId)}?sample=0`)") &&
@@ -1601,6 +1677,8 @@ assert(
     viewerPerformanceSource.includes("async function resolveViewerPerformanceUrl(") &&
     viewerPerformanceSource.includes('fetch(new URL("/api/state", parsed.origin))') &&
     viewerPerformanceSource.includes('new URL(`/runs/${encodeURIComponent(run.run_id)}`, parsed.origin)') &&
+    viewerPerformanceSource.includes("viewer performance check skipped: no evaluated run with sample detail") &&
+    viewerPerformanceSource.includes("process.exit(0)") &&
     viewerPerformanceSource.includes('.viewer-pointer-surface[data-pointer-reticle="active"]') &&
     viewerPerformanceSource.includes(".viewer-pointer-surface .composite-canvas-pointer-reticle") &&
     viewerPerformanceSource.includes(".viewer-pointer-surface .composite-canvas-coordinate-tag") &&
@@ -1673,6 +1751,8 @@ assert(
     loadingStateSmokeSource.includes("dark rank delta must not use a bright delta pill") &&
     loadingStateSmokeSource.includes("dark rank active metric cell must not use a bright active background") &&
     loadingStateSmokeSource.includes("dark rank mode switch must not use a bright switch surface") &&
+    loadingStateSmokeSource.includes("dark rank pager must not use a bright pagination surface") &&
+    loadingStateSmokeSource.includes("dark rank pager text must stay readable") &&
     loadingStateSmokeSource.includes("dark rank summary title must not use light-theme dark ink") &&
     loadingStateSmokeSource.includes("dark rank facet group must not use a bright group surface") &&
     loadingStateSmokeSource.includes("dark rank facet chip must not use a bright chip surface") &&
@@ -1681,6 +1761,20 @@ assert(
     loadingStateSmokeSource.includes("function sampleRankFacets()") &&
     loadingStateSmokeSource.includes("function sampleRuns()") &&
     loadingStateSmokeSource.includes("must not use a full-page empty panel for first load") &&
+    layoutSmokeSource.includes('{ name: "wide", width: 1920, height: 1080 }') &&
+    layoutSmokeSource.includes('{ name: "compact", width: 1024, height: 760 }') &&
+    layoutSmokeSource.includes('{ name: "landscape", width: 900, height: 430 }') &&
+    layoutSmokeSource.includes("await assertPagersFit(page") &&
+    layoutSmokeSource.includes("async function assertPagersFit(page, scope)") &&
+    layoutSmokeSource.includes('page.locator(".rank-board-pager")') &&
+    layoutSmokeSource.includes("pager ${pager.index} clips horizontally") &&
+    layoutSmokeSource.includes("${name} leaks outside pager") &&
+    layoutSmokeSource.includes("if (state.sortHeaderCount === 0)") &&
+    layoutSmokeSource.includes("rank table header sorting contract failed") &&
+    layoutSmokeSource.includes("if (!collapsedState.hasIndexMeter)") &&
+    layoutSmokeSource.includes("composite report visual stage did not render") &&
+    layoutSmokeSource.includes("const recentMinimumHeight = overviewState.runRows.length > 0 ? 120 : 80") &&
+    layoutSmokeSource.includes("const minimumStageHeight = state.viewportHeight <= 460 ? 140 : 180") &&
     packageJsonSource.includes('"test:select-popover": "node scripts/test-select-popover-model.mjs"') &&
     packageJsonSource.includes('"test:select-popover-ui": "node scripts/select-popover-smoke-check.mjs"') &&
     readmeSource.includes("npm run test:select-popover") &&
@@ -1703,6 +1797,8 @@ assert(
     compositeReportSmokeSource.includes("composite-composer-dock.collapsed") &&
     compositeReportSmokeSource.includes("composite-sidebar-drawer") &&
     compositeReportSmokeSource.includes("composite-sidebar-backdrop") &&
+    compositeReportSmokeSource.includes("const hasImageNavigator =") &&
+    compositeReportSmokeSource.includes("if (!hasImageNavigator)") &&
     compositeReportSmokeSource.includes("image-navigator-search input") &&
     compositeReportSmokeSource.includes("image-jump-popover") &&
     compositeReportSmokeSource.includes("image-jump-result") &&
@@ -3346,6 +3442,7 @@ assert(
     themeToggleCheckSource.includes('"/suite-report"') &&
     themeToggleCheckSource.includes("function assertNoBrightDarkSurfaces") &&
     themeToggleCheckSource.includes("darkSurfaceCandidateSelector") &&
+    themeToggleCheckSource.includes('[class*="pager"]') &&
     themeToggleCheckSource.includes("function isBrightSurfaceFinding(finding)") &&
     themeToggleCheckSource.includes("routeFindings.filter(isBrightSurfaceFinding)") &&
     themeToggleCheckSource.includes("color\\(srgb") &&

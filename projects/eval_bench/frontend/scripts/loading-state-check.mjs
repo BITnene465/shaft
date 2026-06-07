@@ -214,9 +214,12 @@ async function assertDarkRankBoardTableControls() {
   await page.locator(".rank-facet-group").first().waitFor({ timeout: 5_000 });
   await page.locator(".rank-facet-button").first().waitFor({ timeout: 5_000 });
   await page.locator(".rank-facet-toggle").first().waitFor({ timeout: 5_000 });
+  await page.locator(".rank-board-pager").first().waitFor({ timeout: 5_000 });
   const snapshot = await page.evaluate(() => {
     const modeSwitch = document.querySelector(".rank-mode-switch");
     const toolbar = document.querySelector(".rank-board-table-toolbar");
+    const pager = document.querySelector(".rank-board-pager");
+    const pagerText = pager?.querySelector("span");
     const summaryTitle = document.querySelector(".rank-board-summary strong");
     const summaryMeta = document.querySelector(".rank-board-summary span");
     const score = document.querySelector(".rank-primary-score");
@@ -229,6 +232,8 @@ async function assertDarkRankBoardTableControls() {
     return {
       modeSwitchBackground: modeSwitch ? getComputedStyle(modeSwitch).backgroundColor : "",
       toolbarBorder: toolbar ? getComputedStyle(toolbar).borderBottomColor : "",
+      pagerBackground: pager ? getComputedStyle(pager).backgroundColor : "",
+      pagerTextColor: pagerText ? getComputedStyle(pagerText).color : "",
       summaryTitleColor: summaryTitle ? getComputedStyle(summaryTitle).color : "",
       summaryMetaColor: summaryMeta ? getComputedStyle(summaryMeta).color : "",
       scoreBackground: score ? getComputedStyle(score).backgroundColor : "",
@@ -247,6 +252,14 @@ async function assertDarkRankBoardTableControls() {
   assert(
     colorLuminance(snapshot.toolbarBorder) < 150,
     `dark rank toolbar divider must stay within the dark table palette: ${snapshot.toolbarBorder}`
+  );
+  assert(
+    colorLuminance(snapshot.pagerBackground) < 120,
+    `dark rank pager must not use a bright pagination surface: ${snapshot.pagerBackground}`
+  );
+  assert(
+    colorLuminance(snapshot.pagerTextColor) > 95,
+    `dark rank pager text must stay readable: ${snapshot.pagerTextColor}`
   );
   assert(
     colorLuminance(snapshot.summaryTitleColor) > 150,

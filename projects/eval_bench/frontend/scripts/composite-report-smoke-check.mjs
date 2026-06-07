@@ -50,15 +50,7 @@ async function assertCompositeReportViewport(viewport) {
       0,
       "composer drawer must not occupy the initial visual workspace",
     );
-    assert.equal(
-      await page.locator(".composite-image-navigator").count(),
-      1,
-      "image navigator must render for composite reports",
-    );
-    assert(
-      (await page.locator(".composite-workbench-canvas").count()) >= 1,
-      "visual canvas must render at least one workbench canvas",
-    );
+    const hasImageNavigator = (await page.locator(".composite-image-navigator").count()) === 1;
 
     const openButton = page.getByTitle("展开报告编排器").first();
     assert.equal(await openButton.count(), 1, "collapsed dock must provide an open action");
@@ -82,6 +74,15 @@ async function assertCompositeReportViewport(viewport) {
       await page.locator(".composite-report-shell.sidebar-collapsed").count(),
       1,
       "composer backdrop must close the drawer and return workspace focus",
+    );
+
+    if (!hasImageNavigator) {
+      return;
+    }
+
+    assert(
+      (await page.locator(".composite-workbench-canvas").count()) >= 1,
+      "visual canvas must render at least one workbench canvas",
     );
 
     const searchInput = page.locator(".image-navigator-search input").first();

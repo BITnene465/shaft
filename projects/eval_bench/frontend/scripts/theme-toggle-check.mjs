@@ -24,6 +24,7 @@ const darkSurfaceCandidateSelector = [
   '[class*="bar"]',
   '[class*="table"]',
   '[class*="filter"]',
+  '[class*="pager"]',
   '[class*="drawer"]',
   '[class*="dock"]',
   '[class*="stage"]',

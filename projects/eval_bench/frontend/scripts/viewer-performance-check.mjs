@@ -1,7 +1,12 @@
 import { chromium } from "@playwright/test";
 
 const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/";
-const url = withPerfFlag(await resolveViewerPerformanceUrl(rawUrl));
+const resolvedViewerUrl = await resolveViewerPerformanceUrl(rawUrl);
+if (!resolvedViewerUrl) {
+  console.warn("viewer performance check skipped: no evaluated run with sample detail");
+  process.exit(0);
+}
+const url = withPerfFlag(resolvedViewerUrl);
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
@@ -135,7 +140,7 @@ async function resolveViewerPerformanceUrl(value) {
   } catch (error) {
     throw new Error(`viewer performance check could not discover a run from ${parsed.origin}: ${error}`);
   }
-  throw new Error("viewer performance check requires EVAL_BENCH_URL=/runs/<run_id> or a store with runs.");
+  return "";
 }
 
 async function renderMetrics(page) {

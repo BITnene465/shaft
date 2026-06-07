@@ -3,9 +3,9 @@
   align-items: center;
   min-height: var(--control-status-height);
   padding: 0 var(--control-pad-11);
-  color: #15543c;
-  background: #e6f6ef;
-  border: 1px solid #b8e5d0;
+  color: var(--control-status-success-ink);
+  background: var(--control-status-success-bg);
+  border: 1px solid var(--control-status-success-line);
   border-radius: var(--control-radius-pill);
   font-size: var(--control-text-body);
   font-weight: 650;
@@ -16,14 +16,14 @@
 }
 
 .status-pill:hover {
-  border-color: #91d6bb;
-  box-shadow: 0 12px 24px rgb(21 84 60 / 12%);
+  border-color: var(--control-status-success-line-hover);
+  box-shadow: var(--control-indicator-shadow-hover);
 }
 
 .status-pill.danger {
-  color: #8a1c28;
-  background: #fdecef;
-  border-color: #f1b7bf;
+  color: var(--control-status-danger-ink);
+  background: var(--control-status-danger-bg);
+  border-color: var(--control-status-danger-line);
 }
 
 .badge {
@@ -48,39 +48,39 @@
 }
 
 .badge.success {
-  color: #15543c;
-  background: #dff3ea;
-  border-color: #b8e5d3;
+  color: var(--control-status-success-ink);
+  background: var(--control-badge-success-bg);
+  border-color: var(--control-badge-success-line);
 }
 
 .badge.danger {
-  color: #8a1c28;
-  background: #fde5e9;
-  border-color: #f8c7cf;
+  color: var(--control-status-danger-ink);
+  background: var(--control-badge-danger-bg);
+  border-color: var(--control-badge-danger-line);
 }
 
 .badge.warning {
-  color: #7a4512;
-  background: #fff1d6;
-  border-color: #f7d596;
+  color: var(--control-badge-warning-ink);
+  background: var(--control-badge-warning-bg);
+  border-color: var(--control-badge-warning-line);
 }
 
 .badge.info {
-  color: #0f4d67;
-  background: #dff5fb;
-  border-color: #b8e5f1;
+  color: var(--control-badge-info-ink);
+  background: var(--control-badge-info-bg);
+  border-color: var(--control-badge-info-line);
 }
 
 .badge.neutral {
-  color: #4b5866;
-  background: #edf1f5;
-  border-color: #d9e2ea;
+  color: var(--control-badge-neutral-ink);
+  background: var(--control-badge-neutral-bg);
+  border-color: var(--control-badge-neutral-line);
 }
 
 .badge.muted {
-  color: #697586;
-  background: #f3f5f7;
-  border-color: #e0e5eb;
+  color: var(--control-badge-muted-ink);
+  background: var(--control-badge-muted-bg);
+  border-color: var(--control-badge-muted-line);
 }
 
 .badge.live::before {
@@ -97,11 +97,11 @@
   min-height: var(--control-chip-height);
   padding: 2px var(--control-pad-8);
   overflow: hidden;
-  color: #405162;
+  color: var(--control-query-chip-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: #f7f9fb;
-  border: 1px solid #d4dee8;
+  background: var(--control-query-chip-bg);
+  border: 1px solid var(--control-query-chip-line);
   border-radius: var(--control-radius-icon);
   cursor: pointer;
   font-size: var(--control-text-small);
@@ -109,13 +109,13 @@
 }
 
 .query-chip:hover {
-  background: #edf3f8;
+  background: var(--control-query-chip-bg-hover);
 }
 
 .query-chip.active {
-  color: #ffffff;
-  background: #235a78;
-  border-color: #235a78;
+  color: var(--control-query-chip-active-ink);
+  background: var(--control-query-chip-active-bg);
+  border-color: var(--control-query-chip-active-line);
 }
 
 @keyframes badge-live-pulse {

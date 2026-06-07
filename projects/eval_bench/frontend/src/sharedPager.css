@@ -7,13 +7,13 @@
   min-height: var(--control-pager-height);
   padding: 7px var(--control-pad-10);
   background:
-    linear-gradient(90deg, rgb(23 77 101 / 5%), transparent 52%),
-    #ffffff;
-  border-bottom: 1px solid #e5ebf1;
+    linear-gradient(90deg, var(--control-pager-accent-bg), transparent 52%),
+    var(--control-pager-bg);
+  border-bottom: 1px solid var(--control-pager-line);
 }
 
 .rank-board-pager > span {
-  color: #445466;
+  color: var(--control-pager-ink);
   font-family: var(--mono-font);
   font-size: var(--control-text-caption);
   font-weight: 760;
