@@ -5008,6 +5008,12 @@ assert(
     compositeImageJumpItemStyleSource.includes(".image-jump-identity") &&
     compositeImageJumpItemStyleSource.includes(".image-jump-identity-main") &&
     compositeImageJumpItemStyleSource.includes(".image-jump-position") &&
+    compositeImageJumpItemStyleSource.includes("--image-jump-position-min") &&
+    compositeImageJumpItemStyleSource.includes("--image-jump-index-width") &&
+    compositeImageJumpItemStyleSource.includes("--image-jump-index-width-compact") &&
+    compositeImageJumpItemStyleSource.includes("--image-jump-position-marker-inset") &&
+    compositeImageJumpItemStyleSource.includes("minmax(var(--image-jump-position-min), var(--image-jump-position-fr))") &&
+    compositeImageJumpItemStyleSource.includes("grid-template-columns: var(--image-jump-index-width) minmax(0, 1fr)") &&
     compositeImageJumpItemStyleSource.includes("--image-result-position") &&
     compositeImageJumpItemStyleSource.includes(".image-jump-delta") &&
     compositeImageSearchResultItemStyleSource.includes(".image-jump-result") &&

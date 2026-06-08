@@ -1,4 +1,13 @@
 .image-jump-summary {
+  --image-jump-position-min: 72px;
+  --image-jump-position-fr: 0.34fr;
+  --image-jump-index-width: 52px;
+  --image-jump-index-width-compact: 48px;
+  --image-jump-index-width-mobile: 46px;
+  --image-jump-index-width-compact-mobile: 42px;
+  --image-jump-position-axis-height: 1px;
+  --image-jump-position-marker-inset: var(--composite-pad-2);
+
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
@@ -7,7 +16,7 @@
 }
 
 .image-jump-summary.with-position.with-delta {
-  grid-template-columns: minmax(0, 1fr) minmax(72px, 0.34fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--image-jump-position-min), var(--image-jump-position-fr)) auto;
 }
 
 .image-jump-summary.compact {
@@ -17,13 +26,13 @@
 .image-jump-identity {
   display: grid;
   min-width: 0;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: var(--image-jump-index-width) minmax(0, 1fr);
   gap: var(--composite-gap-8);
   align-items: center;
 }
 
 .image-jump-identity.compact {
-  grid-template-columns: auto 48px minmax(0, 1fr);
+  grid-template-columns: auto var(--image-jump-index-width-compact) minmax(0, 1fr);
   gap: var(--composite-gap-9);
 }
 
@@ -104,15 +113,15 @@
 .image-jump-position::before {
   position: absolute;
   inset: 50% var(--composite-pad-4) auto;
-  height: 1px;
+  height: var(--image-jump-position-axis-height);
   background: var(--composite-line);
   content: "";
 }
 
 .image-jump-position b {
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: var(--image-jump-position-marker-inset);
+  bottom: var(--image-jump-position-marker-inset);
   left: var(--image-result-position);
   width: var(--composite-position-marker-width);
   background: var(--composite-accent);
@@ -126,11 +135,11 @@
   }
 
   .image-jump-identity {
-    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-columns: var(--image-jump-index-width-mobile) minmax(0, 1fr);
   }
 
   .image-jump-identity.compact {
-    grid-template-columns: auto 42px minmax(0, 1fr);
+    grid-template-columns: auto var(--image-jump-index-width-compact-mobile) minmax(0, 1fr);
   }
 
   .image-jump-position,
