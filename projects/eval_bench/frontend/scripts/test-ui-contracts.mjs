@@ -2388,6 +2388,10 @@ assert(
     overviewShellStyleSource.includes("background: var(--overview-home-bg)") &&
     overviewPrimaryStyleSource.includes(".overview-v18-flow-item:hover") &&
     overviewPrimaryStyleSource.includes(".overview-v18-score:hover") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-headline-size: clamp(36px, 4vw, 46px)") &&
+    overviewPrimaryStyleSource.includes("font-size: var(--overview-primary-headline-size)") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-score-value-size: clamp(22px, 2.4vw, 27px)") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-flow-icon-size: 28px") &&
     overviewPrimaryStyleSource.includes("color: var(--overview-tile-strong)") &&
     overviewPrimaryStyleSource.includes("background: var(--overview-tile-bg)") &&
     overviewPrimaryStyleSource.includes("box-shadow: none") &&
@@ -2402,14 +2406,23 @@ assert(
     overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&
     overviewOperationsStyleSource.includes(".overview-v18-run-list") &&
     overviewOperationsStyleSource.includes(".overview-v18-service-line") &&
+    overviewOperationsStyleSource.includes("font-size: var(--overview-ops-number-size, clamp(30px, 3.1vw, 40px))") &&
+    overviewOperationsStyleSource.includes("--overview-run-row-min: 52px") &&
+    overviewOperationsStyleSource.includes("--overview-run-row-pad: var(--space-1) var(--space-2) var(--space-1) var(--space-3)") &&
+    overviewOperationsStyleSource.includes("font-size: var(--overview-service-number-size, clamp(24px, 2.4vw, 30px))") &&
+    overviewOperationsStyleSource.includes("min-height: var(--control-secondary-height)") &&
     overviewOperationsStyleSource.includes("background: var(--overview-tile-bg)") &&
     overviewOperationsStyleSource.includes("background: var(--overview-meter-fill)") &&
     overviewOperationsStyleSource.includes("content-visibility: auto;") &&
     overviewOperationsStyleSource.includes("contain-intrinsic-size: auto 58px;") &&
     !overviewPrimaryStyleSource.includes("color: #111827") &&
+    !overviewPrimaryStyleSource.includes("font-size: 58px") &&
+    !overviewPrimaryStyleSource.includes("font-size: 31px") &&
     !overviewPrimaryStyleSource.includes("background: #f8fafb") &&
     !overviewOperationsStyleSource.includes("background: #f8fafb") &&
     !overviewOperationsStyleSource.includes("color: #111827") &&
+    !overviewOperationsStyleSource.includes("font-size: 50px") &&
+    !overviewOperationsStyleSource.includes("font-size: 34px") &&
     overviewResponsiveStyleSource.includes("@media (min-width: 1320px)") &&
     appChromeVisualStyleSource.includes(".content::before") &&
     appChromeVisualStyleSource.includes("display: none") &&
