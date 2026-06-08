@@ -13,6 +13,7 @@ import { Check, ChevronDown, Search, X } from "lucide-react";
 
 import { ActionButton } from "./ui";
 import {
+  SELECT_VISIBLE_LIMIT,
   centeredSelectWindowStart,
   firstEnabledIndex,
   nextEnabledIndex,
@@ -30,8 +31,20 @@ const SELECT_MENU_VIEWPORT_GAP = 8;
 const SELECT_MENU_MAX_WIDTH = 340;
 const SELECT_MENU_MIN_HEIGHT = 140;
 const SELECT_MENU_MAX_HEIGHT = 300;
+const SELECT_MENU_STYLE_KEYS = [
+  "--select-menu-left",
+  "--select-menu-top",
+  "--select-menu-width",
+  "--select-menu-max-height"
+] as const;
+const SELECT_WINDOW_SCROLL_LISTENER_OPTIONS: AddEventListenerOptions = {
+  capture: true,
+  passive: true
+};
+const SELECT_PASSIVE_LISTENER_OPTIONS: AddEventListenerOptions = { passive: true };
 
 type SelectPopoverKind = "form" | "compact" | "filter";
+type SelectMenuPlacement = "top" | "bottom";
 
 type SelectPopoverControlProps = {
   label: string;
@@ -49,6 +62,10 @@ type SelectPopoverControlProps = {
 
 function normalizedSelectText(value: string) {
   return value.trim().toLocaleLowerCase();
+}
+
+function selectMenuStyleChanged(current: Record<string, string>, next: Record<string, string>) {
+  return SELECT_MENU_STYLE_KEYS.some((key) => current[key] !== next[key]);
 }
 
 function SelectPopoverControl({
@@ -74,35 +91,41 @@ function SelectPopoverControl({
   const [activeOptionIndex, setActiveOptionIndex] = useState(-1);
   const [windowStart, setWindowStart] = useState(0);
   const [menuStyle, setMenuStyle] = useState<Record<string, string>>({});
-  const [menuPlacement, setMenuPlacement] = useState<"top" | "bottom">("bottom");
+  const [menuPlacement, setMenuPlacement] = useState<SelectMenuPlacement>("bottom");
+  const menuStyleRef = useRef<Record<string, string>>({});
+  const menuPlacementRef = useRef<SelectMenuPlacement>("bottom");
+  const searchable = options.length >= SELECT_SEARCH_THRESHOLD;
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
   );
   const indexedOptions = useMemo(
-    () =>
-      options.map((option) => ({
+    () => {
+      if (!open || !searchable) {
+        return [];
+      }
+      return options.map((option) => ({
         option,
         searchText: `${normalizedSelectText(option.label)} ${normalizedSelectText(option.value)}`
-      })),
-    [options]
+      }));
+    },
+    [open, options, searchable]
   );
   const filteredOptions = useMemo(() => {
     const normalizedQuery = normalizedSelectText(deferredQuery);
-    if (!normalizedQuery) {
+    if (!open || !searchable || !normalizedQuery) {
       return options;
     }
     return indexedOptions
       .filter((item) => item.searchText.includes(normalizedQuery))
       .map((item) => item.option);
-  }, [deferredQuery, indexedOptions, options]);
+  }, [deferredQuery, indexedOptions, open, options, searchable]);
   const visibleWindow = useMemo(
     () => selectVisibleWindow(filteredOptions, windowStart),
     [filteredOptions, windowStart]
   );
   const visibleOptions = visibleWindow.options;
   const hiddenResultCount = visibleWindow.hiddenBefore + visibleWindow.hiddenAfter;
-  const searchable = options.length >= SELECT_SEARCH_THRESHOLD;
   const selectLabelId = `${id}-label`;
   const listboxId = `${id}-listbox`;
   const activeOptionInVisibleWindow =
@@ -160,6 +183,7 @@ function SelectPopoverControl({
     if (!open) {
       return;
     }
+    let positionFrame = 0;
     function updateMenuPosition() {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) {
@@ -192,24 +216,60 @@ function SelectPopoverControl({
       const menuTop = openUp
         ? Math.max(safeTop, rect.top - menuMaxHeight - 2)
         : Math.min(rect.bottom + 2, safeBottom - menuMaxHeight);
-      setMenuPlacement(openUp ? "top" : "bottom");
-      setMenuStyle({
+      const nextPlacement = openUp ? "top" : "bottom";
+      const nextMenuStyle = {
         "--select-menu-left": `${menuLeft}px`,
         "--select-menu-top": `${Math.max(safeTop, menuTop)}px`,
         "--select-menu-width": `${menuWidth}px`,
         "--select-menu-max-height": `${menuMaxHeight}px`
+      };
+      if (menuPlacementRef.current !== nextPlacement) {
+        menuPlacementRef.current = nextPlacement;
+        setMenuPlacement(nextPlacement);
+      }
+      if (selectMenuStyleChanged(menuStyleRef.current, nextMenuStyle)) {
+        menuStyleRef.current = nextMenuStyle;
+        setMenuStyle(nextMenuStyle);
+      }
+    }
+    function scheduleMenuPositionUpdate() {
+      if (positionFrame !== 0) {
+        return;
+      }
+      positionFrame = window.requestAnimationFrame(() => {
+        positionFrame = 0;
+        updateMenuPosition();
       });
     }
     updateMenuPosition();
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    window.visualViewport?.addEventListener("resize", updateMenuPosition);
-    window.visualViewport?.addEventListener("scroll", updateMenuPosition);
+    window.addEventListener("resize", scheduleMenuPositionUpdate);
+    window.addEventListener(
+      "scroll",
+      scheduleMenuPositionUpdate,
+      SELECT_WINDOW_SCROLL_LISTENER_OPTIONS
+    );
+    window.visualViewport?.addEventListener("resize", scheduleMenuPositionUpdate);
+    window.visualViewport?.addEventListener(
+      "scroll",
+      scheduleMenuPositionUpdate,
+      SELECT_PASSIVE_LISTENER_OPTIONS
+    );
     return () => {
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-      window.visualViewport?.removeEventListener("resize", updateMenuPosition);
-      window.visualViewport?.removeEventListener("scroll", updateMenuPosition);
+      if (positionFrame !== 0) {
+        window.cancelAnimationFrame(positionFrame);
+      }
+      window.removeEventListener("resize", scheduleMenuPositionUpdate);
+      window.removeEventListener(
+        "scroll",
+        scheduleMenuPositionUpdate,
+        SELECT_WINDOW_SCROLL_LISTENER_OPTIONS
+      );
+      window.visualViewport?.removeEventListener("resize", scheduleMenuPositionUpdate);
+      window.visualViewport?.removeEventListener(
+        "scroll",
+        scheduleMenuPositionUpdate,
+        SELECT_PASSIVE_LISTENER_OPTIONS
+      );
     };
   }, [open]);
 
@@ -434,6 +494,7 @@ function SelectPopoverControl({
             role="listbox"
             aria-labelledby={selectLabelId}
             aria-activedescendant={activeOptionId}
+            data-select-visible-limit={SELECT_VISIBLE_LIMIT}
             data-select-window-start={visibleWindow.start}
           >
             {visibleOptions.length === 0 ? (

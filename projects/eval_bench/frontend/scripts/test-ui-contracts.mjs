@@ -80,6 +80,7 @@ const rankBoardFacetsSource = await readSource("src/rankBoardFacets.tsx");
 const servicesPage = await readSource("src/servicesPage.tsx");
 const servicesCreatePanelSource = await readSource("src/servicesCreatePanel.tsx");
 const servicesGridSource = await readSource("src/servicesGrid.tsx");
+const indexHtmlSource = await readSource("index.html");
 const mainEntry = await readSource("src/main.tsx");
 const appShellSource = await readSource("src/appShell.tsx");
 const routePrefetchSource = await readSource("src/routePrefetch.ts");
@@ -493,7 +494,15 @@ assert(
     routePrefetchSource.includes("export function prefetchEvalBenchRouteData") &&
     routePrefetchSource.includes("if (shouldSkipRoutePrefetch())") &&
     routePrefetchSource.includes("connection?.saveData") &&
+    routePrefetchSource.includes("const ROUTE_PREFETCH_INTENT_DELAY_MS = 80;") &&
     routePrefetchSource.includes("prefetchInFlightPathnames.has(normalizedPathname)") &&
+    routePrefetchSource.includes("pendingPrefetchTimers.has(normalizedPathname)") &&
+    routePrefetchSource.includes("clearPendingRoutePrefetchesExcept(normalizedPathname)") &&
+    routePrefetchSource.includes("window.setTimeout(() =>") &&
+    routePrefetchSource.includes("runRouteDataPrefetch(queryClient, normalizedPathname)") &&
+    routePrefetchSource.includes("function runRouteDataPrefetch(queryClient: QueryClient, normalizedPathname: string)") &&
+    routePrefetchSource.includes("function clearPendingRoutePrefetchesExcept(pathname: string)") &&
+    routePrefetchSource.includes("window.clearTimeout(timeoutHandle)") &&
     routePrefetchSource.includes("const prefetchQueries = prefetchQueriesForPathname(queryClient, normalizedPathname)") &&
     routePrefetchSource.includes("void Promise.allSettled(prefetchQueries).finally") &&
     routePrefetchSource.includes("prefetchInFlightPathnames.delete(normalizedPathname)") &&
@@ -514,12 +523,35 @@ assert(
     appShellSource.includes("useEffect(() => warmupEvalBenchRoutes(), []);") &&
     routeWarmupSource.includes("const ROUTE_WARMUP_TIMEOUT_MS = 2_500;") &&
     routeWarmupSource.includes("const ROUTE_WARMUP_FALLBACK_DELAY_MS = 1_200;") &&
+    routeWarmupSource.includes("const ROUTE_WARMUP_BATCH_SIZE = 3;") &&
+    routeWarmupSource.includes("const ROUTE_WARMUP_BATCH_GAP_MS = 120;") &&
     routeWarmupSource.includes("requestIdleCallback") &&
     routeWarmupSource.includes("cancelIdleCallback") &&
     routeWarmupSource.includes("connection?.saveData") &&
+    routeWarmupSource.includes("let routeWarmupInProgress = false;") &&
+    routeWarmupSource.includes("let routeWarmupSubscribers = 0;") &&
+    routeWarmupSource.includes("routeWarmupSubscribers += 1;") &&
+    routeWarmupSource.includes("if (routeWarmupInProgress)") &&
+    routeWarmupSource.includes("return releaseRouteWarmupSubscriber;") &&
+    routeWarmupSource.includes("!hasRouteWarmupSubscribers() || routeWarmupCompleted || routeWarmupInProgress") &&
+    routeWarmupSource.includes("routeWarmupInProgress = true;") &&
+    routeWarmupSource.includes("warmupRouteModules(hasRouteWarmupSubscribers).then((completed)") &&
+    routeWarmupSource.includes("routeWarmupCompleted = completed;") &&
+    routeWarmupSource.includes("routeWarmupInProgress = false;") &&
+    routeWarmupSource.includes("function hasRouteWarmupSubscribers()") &&
+    routeWarmupSource.includes("return routeWarmupSubscribers > 0;") &&
+    routeWarmupSource.includes("function releaseRouteWarmupSubscriber()") &&
+    routeWarmupSource.includes("Math.max(0, routeWarmupSubscribers - 1)") &&
+    routeWarmupSource.includes("async function warmupRouteModules(shouldContinue: () => boolean)") &&
+    routeWarmupSource.includes("if (!shouldContinue()) {\n      return false;\n    }") &&
     routeWarmupSource.includes("Promise.allSettled") &&
-    routeWarmupSource.includes("WARMUP_CORE_ROUTE_MODULES.map((loadRouteModule) => loadRouteModule())") &&
-    !routeWarmupSource.includes("for (const loadRouteModule of WARMUP_CORE_ROUTE_MODULES)") &&
+    routeWarmupSource.includes("WARMUP_CORE_ROUTE_MODULES.slice(") &&
+    routeWarmupSource.includes("routeModuleBatch.map((loadRouteModule) => loadRouteModule())") &&
+    routeWarmupSource.includes("function waitForWarmupBatchGap()") &&
+    routeWarmupSource.includes("if (idleWindow.requestIdleCallback)") &&
+    routeWarmupSource.includes("idleWindow.requestIdleCallback(() => resolve(undefined),") &&
+    routeWarmupSource.includes("timeout: ROUTE_WARMUP_BATCH_GAP_MS") &&
+    routeWarmupSource.includes("window.setTimeout(resolve, ROUTE_WARMUP_BATCH_GAP_MS)") &&
     routeWarmupSource.includes('() => import("./benchmarksPage")') &&
     routeWarmupSource.includes('() => import("./rankBoardPage")') &&
     routeWarmupSource.includes('() => import("./runsPage")') &&
@@ -775,18 +807,41 @@ assert(
     selectPopoverControl.includes('import { createPortal } from "react-dom";') &&
     selectPopoverControl.includes('data-select-popover-menu="true"') &&
     selectPopoverControl.includes("SELECT_MENU_MAX_HEIGHT") &&
+    selectPopoverControl.includes("SELECT_MENU_STYLE_KEYS") &&
+    selectPopoverControl.includes("SELECT_WINDOW_SCROLL_LISTENER_OPTIONS") &&
+    selectPopoverControl.includes("const SELECT_WINDOW_SCROLL_LISTENER_OPTIONS: AddEventListenerOptions") &&
+    selectPopoverControl.includes("capture: true,\n  passive: true") &&
+    selectPopoverControl.includes("SELECT_PASSIVE_LISTENER_OPTIONS") &&
+    selectPopoverControl.includes("const SELECT_PASSIVE_LISTENER_OPTIONS: AddEventListenerOptions") &&
+    selectPopoverControl.includes("function selectMenuStyleChanged(") &&
     selectPopoverControl.includes('closest(\'[role="dialog"], .settings-drawer-scroll\')') &&
     selectPopoverControl.includes("safeTop") &&
     selectPopoverControl.includes("safeBottom") &&
     selectPopoverControl.includes("availableBelow") &&
     selectPopoverControl.includes("availableAbove") &&
+    selectPopoverControl.includes("const menuStyleRef = useRef<Record<string, string>>({});") &&
+    selectPopoverControl.includes("const menuPlacementRef = useRef<SelectMenuPlacement>(\"bottom\");") &&
+    selectPopoverControl.includes("if (menuPlacementRef.current !== nextPlacement)") &&
+    selectPopoverControl.includes("if (selectMenuStyleChanged(menuStyleRef.current, nextMenuStyle))") &&
+    selectPopoverControl.includes("let positionFrame = 0;") &&
+    selectPopoverControl.includes("function scheduleMenuPositionUpdate()") &&
+    selectPopoverControl.includes("positionFrame = window.requestAnimationFrame(() =>") &&
+    selectPopoverControl.includes("window.cancelAnimationFrame(positionFrame)") &&
+    selectPopoverControl.includes("SELECT_WINDOW_SCROLL_LISTENER_OPTIONS") &&
+    !selectPopoverControl.includes('window.addEventListener("scroll", scheduleMenuPositionUpdate, true)') &&
     selectPopoverControl.includes("data-placement={menuPlacement}") &&
     selectPopoverControl.includes("useDeferredValue") &&
+    selectPopoverControl.includes("const searchable = options.length >= SELECT_SEARCH_THRESHOLD;") &&
     selectPopoverControl.includes("indexedOptions") &&
+    selectPopoverControl.includes("if (!open || !searchable) {\n        return [];\n      }") &&
+    selectPopoverControl.includes("if (!open || !searchable || !normalizedQuery) {\n      return options;\n    }") &&
+    selectPopoverControl.includes("[open, options, searchable]") &&
+    selectPopoverControl.includes("[deferredQuery, indexedOptions, open, options, searchable]") &&
     selectPopoverControl.includes('} from "./selectPopoverModel";') &&
     selectPopoverControl.includes('export type { SelectOption } from "./selectPopoverModel";') &&
     selectPopoverModelSource.includes("export type VisibleSelectWindow =") &&
-    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 36") &&
+    selectPopoverControl.includes("SELECT_VISIBLE_LIMIT,") &&
     selectPopoverModelSource.includes("export function selectVisibleWindow(") &&
     selectPopoverModelSource.includes("export function clampSelectWindowStart(") &&
     selectPopoverModelSource.includes("export function enabledIndexNear(") &&
@@ -823,6 +878,7 @@ assert(
     selectPopoverModelSource.includes("hiddenBefore: start") &&
     selectPopoverModelSource.includes("hiddenAfter: Math.max(options.length - start - visibleOptions.length, 0)") &&
     selectPopoverControl.includes("data-select-window-start={visibleWindow.start}") &&
+    selectPopoverControl.includes("data-select-visible-limit={SELECT_VISIBLE_LIMIT}") &&
     selectPopoverControl.includes("aria-activedescendant={activeOptionId}") &&
     selectPopoverControl.includes("id={`${listboxId}-option-${absoluteIndex + 1}`}") &&
     selectPopoverControl.includes('aria-autocomplete="list"') &&
@@ -846,8 +902,8 @@ assert(
     selectPopoverModelCheckSource.includes("selectVisibleWindow(shortOptions, 99)") &&
     selectPopoverModelCheckSource.includes("selectVisibleWindow(options, -40)") &&
     selectPopoverModelCheckSource.includes("selectVisibleWindow(options, 999)") &&
-    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(80, 120, options.length)") &&
-    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(80, -1, options.length)") &&
+    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(102, 120, options.length)") &&
+    selectPopoverModelCheckSource.includes("selectWindowStartForActiveIndex(102, -1, options.length)") &&
     selectPopoverModelCheckSource.includes("nextEnabledIndex(options, 78, 1)") &&
     selectPopoverModelCheckSource.includes("enabledIndexNear(options, 79, 1)") &&
     selectPopoverModelCheckSource.includes("pagedEnabledIndex(options, 0, 1)") &&
@@ -863,11 +919,17 @@ assert(
     selectPopoverSmokeSource.includes('searchInput?.getAttribute("aria-controls")') &&
     selectPopoverSmokeSource.includes('searchInput?.getAttribute("aria-autocomplete")') &&
     selectPopoverSmokeSource.includes("async function assertSearchClearKeepsInputFocus(page)") &&
+    selectPopoverSmokeSource.includes("async function assertSearchResultsStayVirtualized(page)") &&
+    selectPopoverSmokeSource.includes("await assertSearchResultsStayVirtualized(page)") &&
+    selectPopoverSmokeSource.includes("searched select popover must stay inside its virtual render window") &&
     selectPopoverSmokeSource.includes('page.getByRole("button", { name: "清空搜索" })') &&
     selectPopoverSmokeSource.includes("async function assertKeyboardActiveDescendant(page)") &&
     selectPopoverSmokeSource.includes('page.keyboard.press("PageDown")') &&
     selectPopoverSmokeSource.includes('document.getElementById(activeId)') &&
     selectPopoverSmokeSource.includes('activeNode?.getAttribute("data-select-window-index")') &&
+    selectPopoverSmokeSource.includes('listbox?.getAttribute("data-select-visible-limit")') &&
+    selectPopoverSmokeSource.includes("Number(snapshot.visibleLimit), 36") &&
+    selectPopoverSmokeSource.includes("snapshot.optionCount <= Number(snapshot.visibleLimit)") &&
     selectPopoverSmokeSource.includes("async function assertEscapeRestoresTriggerFocus(page)") &&
     selectPopoverSmokeSource.includes('page.keyboard.press("Escape")') &&
     selectPopoverSmokeSource.includes('classList.contains("select-popover-trigger")') &&
@@ -1459,7 +1521,7 @@ assert(
   controlPrimitives.includes('} from "./selectPopoverControl";') &&
     !controlPrimitives.includes("function SelectPopoverControl(") &&
     selectPopoverControl.includes("function SelectPopoverControl(") &&
-    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 80") &&
+    selectPopoverModelSource.includes("export const SELECT_VISIBLE_LIMIT = 36") &&
     selectPopoverControl.includes("selectVisibleWindow") &&
     selectPopoverControl.includes("pagedEnabledIndex") &&
     !selectPopoverControl.includes("const SELECT_VISIBLE_LIMIT") &&
@@ -1851,6 +1913,10 @@ assert(
     navPrefetchSmokeSource.includes("async function waitForPrefetchCount") &&
     navPrefetchSmokeSource.includes("async function assertSaveDataSkipsPrefetch()") &&
     navPrefetchSmokeSource.includes("nav prefetch must not fetch API data when navigator.connection.saveData is true") &&
+    navPrefetchSmokeSource.includes("await assertRapidIntentKeepsOnlyLatestPrefetch();") &&
+    navPrefetchSmokeSource.includes("async function assertRapidIntentKeepsOnlyLatestPrefetch()") &&
+    navPrefetchSmokeSource.includes("rapid nav intent should prefetch the latest hovered route") &&
+    navPrefetchSmokeSource.includes("rapid nav intent should cancel stale pending prefetches") &&
     navPrefetchSmokeSource.includes("runs endpoint should be prefetched once for results and once for compare, not once per hover") &&
     loadingStateSmokeSource.includes('delayedApi: "/api/benchmarks", label: "正在加载基准集"') &&
     loadingStateSmokeSource.includes('delayedApi: "/api/runs", label: "正在加载评测记录"') &&
@@ -3731,11 +3797,23 @@ assert(
     workspaceSettingsStorageSource.includes("export function applyThemeMode") &&
     workspaceSettingsStorageSource.includes("document.documentElement.dataset.theme") &&
     workspaceSettingsStorageSource.includes("document.documentElement.style.colorScheme") &&
+    indexHtmlSource.includes('<meta name="color-scheme" content="light dark" />') &&
+    indexHtmlSource.includes('localStorage.getItem("eval_bench_theme_mode")') &&
+    indexHtmlSource.includes("document.documentElement.dataset.theme = themeMode") &&
+    indexHtmlSource.includes("document.documentElement.style.colorScheme = themeMode") &&
+    indexHtmlSource.indexOf('name="color-scheme"') <
+      indexHtmlSource.indexOf("eval_bench_theme_mode") &&
+    indexHtmlSource.indexOf("eval_bench_theme_mode") < indexHtmlSource.indexOf("/src/main.tsx") &&
     appShellSource.includes("bootstrapThemePreference();") &&
     appShellSource.includes("useThemePreference()") &&
     appShellSource.includes('className="theme-toggle"') &&
     appShellSource.includes('aria-pressed={themeMode === "dark"}') &&
     themeToggleCheckSource.includes('themeToggle?.getAttribute("aria-pressed")') &&
+    themeToggleCheckSource.includes("async function assertStoredDarkThemePrebootsBeforeApp(browser)") &&
+    themeToggleCheckSource.includes('localStorage.setItem("eval_bench_theme_mode", "dark")') &&
+    themeToggleCheckSource.includes('route.request().resourceType() === "script"') &&
+    themeToggleCheckSource.includes("stored dark theme must preboot before app bundle") &&
+    themeToggleCheckSource.includes("preboot check must run without the React app bundle") &&
     themeToggleCheckSource.includes('light theme toggle must expose aria-pressed=false') &&
     themeToggleCheckSource.includes('dark theme toggle must expose aria-pressed=true') &&
     themeToggleCheckSource.includes("const darkSurfaceRoutes = [") &&

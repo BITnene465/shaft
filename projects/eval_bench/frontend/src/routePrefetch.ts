@@ -15,6 +15,7 @@ import { RANK_PAGE_SIZE } from "./rankBoardModel";
 const DEFAULT_LIST_PAGE_SIZE = 80;
 const DEFAULT_COMPARISON_HISTORY_PAGE_SIZE = 50;
 const ROUTE_PREFETCH_STALE_MS = 15_000;
+const ROUTE_PREFETCH_INTENT_DELAY_MS = 80;
 
 type SaveDataNavigator = Navigator & {
   connection?: {
@@ -23,12 +24,28 @@ type SaveDataNavigator = Navigator & {
 };
 
 const prefetchInFlightPathnames = new Set<string>();
+const pendingPrefetchTimers = new Map<string, number>();
 
 export function prefetchEvalBenchRouteData(queryClient: QueryClient, pathname: string) {
   if (shouldSkipRoutePrefetch()) {
     return;
   }
   const normalizedPathname = routeRootPathname(pathname);
+  if (
+    prefetchInFlightPathnames.has(normalizedPathname) ||
+    pendingPrefetchTimers.has(normalizedPathname)
+  ) {
+    return;
+  }
+  clearPendingRoutePrefetchesExcept(normalizedPathname);
+  const timeoutHandle = window.setTimeout(() => {
+    pendingPrefetchTimers.delete(normalizedPathname);
+    runRouteDataPrefetch(queryClient, normalizedPathname);
+  }, ROUTE_PREFETCH_INTENT_DELAY_MS);
+  pendingPrefetchTimers.set(normalizedPathname, timeoutHandle);
+}
+
+function runRouteDataPrefetch(queryClient: QueryClient, normalizedPathname: string) {
   if (prefetchInFlightPathnames.has(normalizedPathname)) {
     return;
   }
@@ -40,6 +57,16 @@ export function prefetchEvalBenchRouteData(queryClient: QueryClient, pathname: s
   void Promise.allSettled(prefetchQueries).finally(() => {
     prefetchInFlightPathnames.delete(normalizedPathname);
   });
+}
+
+function clearPendingRoutePrefetchesExcept(pathname: string) {
+  for (const [pendingPathname, timeoutHandle] of pendingPrefetchTimers) {
+    if (pendingPathname === pathname) {
+      continue;
+    }
+    window.clearTimeout(timeoutHandle);
+    pendingPrefetchTimers.delete(pendingPathname);
+  }
 }
 
 function routeRootPathname(pathname: string) {

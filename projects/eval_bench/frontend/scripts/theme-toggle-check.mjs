@@ -31,6 +31,7 @@ const darkSurfaceCandidateSelector = [
   '[class*="workspace"]'
 ].join(",");
 const browser = await chromium.launch({ headless: true });
+await assertStoredDarkThemePrebootsBeforeApp(browser);
 const page = await browser.newPage({ viewport: { width: 1360, height: 820 } });
 const errors = [];
 
@@ -113,6 +114,31 @@ if (errors.length > 0) {
 }
 
 console.log(`theme toggle check passed ${url}`);
+
+async function assertStoredDarkThemePrebootsBeforeApp(browser) {
+  const context = await browser.newContext({ viewport: { width: 1360, height: 820 } });
+  const prebootPage = await context.newPage();
+  await prebootPage.addInitScript(() => {
+    localStorage.setItem("eval_bench_theme_mode", "dark");
+  });
+  await prebootPage.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") {
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
+  await prebootPage.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+  const snapshot = await prebootPage.evaluate(() => ({
+    theme: document.documentElement.dataset.theme,
+    colorScheme: document.documentElement.style.colorScheme,
+    appRendered: Boolean(document.querySelector(".app-shell"))
+  }));
+  assert.equal(snapshot.theme, "dark", "stored dark theme must preboot before app bundle");
+  assert.equal(snapshot.colorScheme, "dark", "stored dark color-scheme must preboot before app bundle");
+  assert.equal(snapshot.appRendered, false, "preboot check must run without the React app bundle");
+  await context.close();
+}
 
 async function themeSnapshot(page) {
   return page.evaluate(() => {

@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      (() => {
+        try {
+          const themeMode = localStorage.getItem("eval_bench_theme_mode") === "dark" ? "dark" : "light";
+          document.documentElement.dataset.theme = themeMode;
+          document.documentElement.style.colorScheme = themeMode;
+        } catch {
+          document.documentElement.dataset.theme = "light";
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
     <title>Shaft Eval Bench</title>
   </head>
   <body>

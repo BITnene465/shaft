@@ -11,7 +11,7 @@ export type VisibleSelectWindow = {
   hiddenAfter: number;
 };
 
-export const SELECT_VISIBLE_LIMIT = 80;
+export const SELECT_VISIBLE_LIMIT = 36;
 
 export function nextEnabledIndex(
   options: ReadonlyArray<SelectOption>,

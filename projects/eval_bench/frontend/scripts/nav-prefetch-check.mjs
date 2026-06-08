@@ -71,6 +71,7 @@ for (const prefetch of expectedPrefetches) {
 
 await assertPrefetchFailureStaysSilent();
 await assertSaveDataSkipsPrefetch();
+await assertRapidIntentKeepsOnlyLatestPrefetch();
 await browser.close();
 
 console.log(`nav prefetch check passed on ${baseUrl}`);
@@ -179,6 +180,55 @@ async function assertSaveDataSkipsPrefetch() {
   await saveDataPage.close();
 }
 
+async function assertRapidIntentKeepsOnlyLatestPrefetch() {
+  const sweepPage = await browser.newPage({ viewport: { width: 1360, height: 820 } });
+  const sweepRequests = [];
+  const sweepErrors = [];
+  sweepPage.on("pageerror", (error) => sweepErrors.push(error.message));
+  sweepPage.on("console", (message) => {
+    if (message.type() === "error") {
+      const text = message.text();
+      if (!text.includes("/api/") && !text.includes("Failed to load resource")) {
+        sweepErrors.push(text);
+      }
+    }
+  });
+  await sweepPage.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    sweepRequests.push(`${url.pathname}${url.search}`);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(responseForApiPath(url))
+    });
+  });
+  await sweepPage.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+  await sweepPage.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+  const requestsBeforeHover = sweepRequests.length;
+  const servicesRequestsBeforeHover = countRequests(sweepRequests, "/api/services");
+  await sweepPage.getByTitle("基准集").hover();
+  await sweepPage.getByTitle("模型服务").hover();
+  await waitForPrefetchCount(
+    sweepPage,
+    sweepRequests,
+    "/api/services",
+    servicesRequestsBeforeHover + 1
+  );
+  const hoverRequests = sweepRequests.slice(requestsBeforeHover);
+  assert(
+    hoverRequests.some((value) => value.startsWith("/api/services")),
+    "rapid nav intent should prefetch the latest hovered route"
+  );
+  assert(
+    hoverRequests.every((value) => !value.startsWith("/api/benchmarks")),
+    "rapid nav intent should cancel stale pending prefetches"
+  );
+  if (sweepErrors.length > 0) {
+    throw new Error(`rapid nav intent browser errors: ${sweepErrors.join(" | ")}`);
+  }
+  await sweepPage.close();
+}
+
 async function waitForApiRequest(prefetch) {
   const deadline = Date.now() + 6_000;
   while (Date.now() < deadline) {
@@ -204,13 +254,17 @@ async function waitForPrefetchUrl(targetPage, urls, pathPrefix) {
 async function waitForPrefetchCount(targetPage, urls, pathPrefix, expectedCount) {
   const deadline = Date.now() + 6_000;
   while (Date.now() < deadline) {
-    const count = urls.filter((value) => value.startsWith(pathPrefix)).length;
+    const count = countRequests(urls, pathPrefix);
     if (count >= expectedCount) {
       return;
     }
     await targetPage.waitForTimeout(80);
   }
   throw new Error(`did not prefetch ${pathPrefix} ${expectedCount} times`);
+}
+
+function countRequests(urls, pathPrefix) {
+  return urls.filter((value) => value.startsWith(pathPrefix)).length;
 }
 
 function hasMatchingRequest({ pathPrefix, query }) {

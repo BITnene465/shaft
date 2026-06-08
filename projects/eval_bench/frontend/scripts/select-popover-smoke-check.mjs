@@ -79,6 +79,7 @@ async function assertSelectStructure(page, scope) {
       menuPlacement: menu?.getAttribute("data-placement") ?? "",
       listboxId: listbox?.id ?? "",
       listboxRole: listbox?.getAttribute("role") ?? "",
+      visibleLimit: listbox?.getAttribute("data-select-visible-limit") ?? "",
       optionCount: options.length,
       firstOptionPos: options[0]?.getAttribute("aria-posinset") ?? "",
       firstOptionSetSize: options[0]?.getAttribute("aria-setsize") ?? "",
@@ -91,6 +92,12 @@ async function assertSelectStructure(page, scope) {
   assert.equal(snapshot.triggerControls, snapshot.listboxId, `${scope}: trigger controls must match listbox id`);
   assert.equal(snapshot.listboxRole, "listbox", `${scope}: menu must contain a listbox`);
   assert(snapshot.optionCount > 0, `${scope}: select popover must render options`);
+  assert(snapshot.visibleLimit, `${scope}: listbox must expose its virtual render limit`);
+  assert.equal(Number(snapshot.visibleLimit), 36, `${scope}: virtual render limit must stay compact`);
+  assert(
+    snapshot.optionCount <= Number(snapshot.visibleLimit),
+    `${scope}: select popover must not render beyond its virtual window`
+  );
   assert.equal(snapshot.firstOptionPos, "1", `${scope}: options must expose aria-posinset`);
   assert(snapshot.firstOptionSetSize, `${scope}: options must expose aria-setsize`);
   assert(
@@ -120,11 +127,28 @@ async function assertSearchClearKeepsInputFocus(page) {
     .trim()
     .slice(0, 1);
   await searchInput.fill(firstOptionLabel || "a");
+  await assertSearchResultsStayVirtualized(page);
   await page.getByRole("button", { name: "清空搜索" }).click();
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-select-popover-menu="true"] input[type="search"]');
     return document.activeElement === input && input?.value === "";
   });
+}
+
+async function assertSearchResultsStayVirtualized(page) {
+  const snapshot = await page.evaluate(() => {
+    const listbox = document.querySelector('[data-select-popover-menu="true"] [role="listbox"]');
+    const options = Array.from(listbox?.querySelectorAll('[role="option"]') ?? []);
+    return {
+      optionCount: options.length,
+      visibleLimit: listbox?.getAttribute("data-select-visible-limit") ?? ""
+    };
+  });
+  assert(snapshot.visibleLimit, "searched select listbox must expose its virtual render limit");
+  assert(
+    snapshot.optionCount <= Number(snapshot.visibleLimit),
+    "searched select popover must stay inside its virtual render window"
+  );
 }
 
 async function assertKeyboardActiveDescendant(page) {
