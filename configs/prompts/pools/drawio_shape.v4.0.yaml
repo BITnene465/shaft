@@ -1,0 +1,57 @@
+metadata:
+  id: shaft.drawio_shape.prompt_pool.v4.0
+  version: v4.0
+  name: draw.io shape prompt pool
+  task: drawio_shape
+  subtask: drawio_shape
+  target_labels: [shape]
+
+prompts:
+  - id: main
+    system_prompt: >
+      You are a visual annotation assistant for draw.io shape reconstruction.
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, evidence, or surrounding text.
+    user_prompt: |
+      The image is a tight crop around one primary shape.
+      Identify only the outermost primary visible shape for draw.io reconstruction.
+      Ignore internal text, icons, arrows, nested boxes, decorations, and background elements.
+      Prefer the contour near the crop boundary when the shape touches or nearly touches the crop edge.
+
+      Return exactly one JSON object with these fields:
+      {"label":"shape","shape_type":"rectangle|rounded_rectangle|ellipse|circle|parallelogram|hexagon|triangle|cylinder|cloud|cube|trapezoid|oval_callout|unknown","shape_orientation":"default|up|down|left|right|left_slant|right_slant|top_narrow|bottom_narrow|flat_top|point_top|vertical|horizontal|unknown","stroke_visible":true|false,"fill_visible":true|false,"stroke_style":"solid|dashed|dotted|double|none|unknown","fill_style":"solid|none|unknown","stroke_color":"#RRGGBB|none|unknown","fill_color":"#RRGGBB|none|unknown"}
+
+      Use "unknown" only when the outer shape is not sufficiently visible.
+      Use uppercase six-digit hex colors. Use "none" when that paint channel is visibly absent.
+      Do not output bbox, coordinates, size values, radius, stroke width, confidence, abstain_reason, evidence, or any extra fields.
+
+  - id: outer_shape_business
+    system_prompt: >
+      Output compact valid JSON only. No markdown, no comments, no evidence,
+      no explanations, and no surrounding text.
+    user_prompt: |
+      Classify the business shape represented by this crop.
+      Focus on the outer boundary of the main visible shape, not on content inside it.
+      Internal labels, glyphs, small embedded shapes, connectors, and nearby background structures must not change the answer.
+      If the main outer contour is incomplete or ambiguous, set shape_type to "unknown".
+
+      Output exactly:
+      {"label":"shape","shape_type":"rectangle|rounded_rectangle|ellipse|circle|parallelogram|hexagon|triangle|cylinder|cloud|cube|trapezoid|oval_callout|unknown","shape_orientation":"default|up|down|left|right|left_slant|right_slant|top_narrow|bottom_narrow|flat_top|point_top|vertical|horizontal|unknown","stroke_visible":true|false,"fill_visible":true|false,"stroke_style":"solid|dashed|dotted|double|none|unknown","fill_style":"solid|none|unknown","stroke_color":"#RRGGBB|none|unknown","fill_color":"#RRGGBB|none|unknown"}
+
+      The output is for draw.io reconstruction, so keep only these business fields.
+      Use uppercase "#RRGGBB" colors, or "none" / "unknown".
+      Do not include evidence, confidence, abstain_reason, bbox, points, or geometry measurements.
+
+  - id: compact_schema
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown or explanatory text.
+    user_prompt: |
+      This crop should contain one main draw.io-like shape.
+      Report the outermost primary visible shape only.
+      Ignore text and graphics inside the shape and ignore neighboring objects introduced by the crop.
+
+      Required JSON schema:
+      {"label":"shape","shape_type":"rectangle|rounded_rectangle|ellipse|circle|parallelogram|hexagon|triangle|cylinder|cloud|cube|trapezoid|oval_callout|unknown","shape_orientation":"default|up|down|left|right|left_slant|right_slant|top_narrow|bottom_narrow|flat_top|point_top|vertical|horizontal|unknown","stroke_visible":true|false,"fill_visible":true|false,"stroke_style":"solid|dashed|dotted|double|none|unknown","fill_style":"solid|none|unknown","stroke_color":"#RRGGBB|none|unknown","fill_color":"#RRGGBB|none|unknown"}
+
+      Return one JSON object and no other text.
+      Do not output evidence, confidence, abstain_reason, bbox, coordinates, continuous sizes, radius, or stroke width.

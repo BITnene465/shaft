@@ -1,0 +1,95 @@
+# Banana v4.1-beta SFT dataset catalog.
+# v4.1-beta is a 4B SFT from-scratch run that increases training duration /
+# optimization strength and rebalances data after v4.0-beta underperformed on
+# the main detection tasks. It still trains draw.io shape reconstruction fields
+# from weak labels, but main-task retention is the priority.
+#
+# Mix with mix_strategy=interleave_over and current local row counts:
+# - grounding_arrow:        ~31%
+# - grounding_layout:       ~26%
+# - real shape/icon-image:  ~16%
+# - point_arrow:            ~8%
+# - lin_point_arrow_style:  ~10%
+# - drawio_shape:           ~10%
+# With max_steps=16000 and global batch size 32, only the beginning of this
+# oversized mixed epoch is consumed. This preserves the target ratio, but
+# materializes a much larger index than interleave_under because the synthetic
+# style dataset is the largest source.
+#
+# Rationale:
+# - v4.0-beta had arrow/layout retention below v2.5 and v3.0-beta.
+# - layout label-level eval was especially weak on icon/image, so
+#   grounding_icon_image is kept slightly higher than grounding_shape.
+# - point_arrow_style and drawio_shape are business tasks. v4.0-beta previews
+#   were usable, but they need a stronger training signal in v4.1-beta.
+# - weak/synthetic business tasks stay train-only and below the main detection
+#   objectives, but they are no longer treated as very low-ratio replay.
+datasets:
+  grounding_arrow:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_arrow/sft/train.jsonl
+    val_path: ../../data/grounding_arrow/sft/val.jsonl
+    weight: 12.0
+    enabled: true
+    use_for_eval: true
+    help: banana v4.1-beta / real grounding_arrow SFT; primary replay task
+    tags: [banana, v4.1-beta, arrow, grounding, real, sft]
+
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout/sft/train.jsonl
+    val_path: ../../data/grounding_layout/sft/val.jsonl
+    weight: 10.0
+    enabled: true
+    use_for_eval: true
+    help: banana v4.1-beta / real grounding_layout SFT; primary replay task
+    tags: [banana, v4.1-beta, layout, grounding, real, sft]
+
+  grounding_shape:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_shape/sft/train.jsonl
+    val_path: ../../data/grounding_shape/sft/val.jsonl
+    weight: 2.5
+    enabled: true
+    use_for_eval: true
+    help: banana v4.1-beta / real grounding_shape auxiliary replay
+    tags: [banana, v4.1-beta, shape, grounding, real, auxiliary, sft]
+
+  grounding_icon_image:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_icon_image/sft/train.jsonl
+    val_path: ../../data/grounding_icon_image/sft/val.jsonl
+    weight: 3.5
+    enabled: true
+    use_for_eval: true
+    help: banana v4.1-beta / real grounding_icon_image auxiliary replay
+    tags: [banana, v4.1-beta, icon, image, grounding, real, auxiliary, sft]
+
+  point_arrow:
+    source_type: jsonl_sft
+    train_path: ../../data/point_arrow/sft/train.jsonl
+    val_path: ../../data/point_arrow/sft/val.jsonl
+    weight: 3.0
+    enabled: true
+    use_for_eval: true
+    help: banana v4.1-beta / real point_arrow replay
+    tags: [banana, v4.1-beta, arrow, point, keypoint, real, sft]
+
+  lin_point_arrow_style:
+    source_type: jsonl_sft
+    train_path: ../../data/lin_point_arrow_style/sft/train.jsonl
+    val_path: ../../data/lin_point_arrow_style/sft/val.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v4.1-beta / synthetic point_arrow_style auxiliary replay
+    tags: [banana, v4.1-beta, lin, synthetic, arrow, point, style, sft]
+
+  drawio_shape:
+    source_type: jsonl_sft
+    train_path: ../../data/drawio_shape/sft/train.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v4.1-beta / weak-supervised draw.io shape business fields
+    tags: [banana, v4.1-beta, drawio, shape, weak, sft]

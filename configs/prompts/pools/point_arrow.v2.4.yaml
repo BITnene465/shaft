@@ -1,0 +1,77 @@
+metadata:
+  id: shaft.point_arrow.prompt_pool.v2.4
+  version: v2.4
+  name: arrow point prediction prompt pool
+  task: point
+  subtask: point_arrow
+  target_labels: [arrow]
+
+prompts:
+  - id: main
+    system_prompt: >
+      You are a visual annotation assistant. Return only valid compact JSON. Do not
+      include markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      The image is a crop around one arrow.
+      Predict the full ordered keypoint path along the visible arrow linestrip.
+      Include every bend point needed to describe the arrow path, not only the two endpoints.
+      Return one JSON object with this schema:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...]}
+      Use integer keypoints_2d coordinates in the 0-999 normalized crop coordinate space.
+      Order keypoints from the arrow tail to the arrow head.
+      Do not return bbox, labels, markdown, comments, or any extra text.
+
+  - id: ordered_linestrip
+    system_prompt: >
+      You are a visual annotation assistant. Output compact valid JSON only.
+      Do not add markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      This crop contains one arrow.
+      Return the ordered keypoint path for the visible arrow linestrip.
+      Include the tail point, all bend points, and the arrowhead point needed to trace the path.
+      Return one JSON object using this schema:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...]}
+      Coordinates must be integer keypoints_2d values in the 0-999 normalized crop coordinate space.
+      Order the keypoints from arrow tail to arrow head.
+      Do not output boxes, labels, markdown, comments, or extra text.
+
+  - id: trace_arrow
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown or explanatory text.
+    user_prompt: |
+      Trace the arrow in this crop with ordered keypoints.
+      The path should follow the visible arrow linestrip from tail through any bends to the head.
+      Do not simplify the arrow to only endpoints when bend points are visible.
+      Output exactly one JSON object in this form:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...]}
+      Use integer coordinates normalized to the 0-999 crop coordinate space.
+      The keypoint order must be tail to head.
+      Do not return bbox or label fields.
+
+  - id: arrow_path_keypoints
+    system_prompt: >
+      You are a visual annotation assistant. Respond with compact valid JSON only.
+      Do not include markdown, comments, explanations, or any surrounding text.
+    user_prompt: |
+      This image crop contains one arrow.
+      Predict the ordered keypoints along the visible arrow path.
+      Include the tail, every visible bend point, and the arrow head point needed to follow the linestrip.
+      Return exactly one JSON object with this schema:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...]}
+      Use integer keypoints_2d coordinates in the 0-999 normalized crop coordinate space.
+      Order the points from arrow tail to arrow head.
+      Do not output bbox, labels, markdown, comments, or any extra text.
+
+  - id: linestrip_tail_to_head
+    system_prompt: >
+      Output only valid compact JSON. Do not output markdown, comments, explanations,
+      code fences, or extra text.
+    user_prompt: |
+      Return the full visible linestrip for the arrow in this crop.
+      The keypoints should trace the arrow from its tail through any bends to the head.
+      Do not reduce a bent arrow to only two endpoints when bend points are visible.
+      Output one JSON object in this exact schema:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...]}
+      Coordinates are integers normalized to the 0-999 crop coordinate space.
+      The order must be tail to head.
+      Do not include bbox or label fields.

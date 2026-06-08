@@ -432,11 +432,10 @@ def _use_full_blur_augmentation(
     split: str,
     ratio: float,
 ) -> bool:
+    del rng
     if split != "train" or ratio <= 0:
         return False
-    if ratio >= 1:
-        return True
-    return rng.random() < ratio
+    return True
 
 
 def _apply_pixel_augmentation(image: Image.Image, augmentation: dict[str, Any]) -> Image.Image:
@@ -688,6 +687,61 @@ def _select_negative_rows(
     return sorted(selected[:target_count], key=lambda row: str(row["sample_id"]))
 
 
+def _select_positive_rows(
+    rows: list[dict[str, Any]],
+    *,
+    base_count: int,
+    ratio: float,
+) -> list[dict[str, Any]]:
+    if not rows or ratio <= 0:
+        return []
+    target_count = min(len(rows), int(round(base_count * ratio)))
+    ranked = sorted(
+        rows,
+        key=lambda row: (
+            -len((row.get("extra") or {}).get("source_instance_indices") or []),
+            str((row.get("extra") or {}).get("source_json") or ""),
+            str(row.get("sample_id") or ""),
+        ),
+    )
+    return sorted(
+        ranked[:target_count],
+        key=lambda row: (
+            str((row.get("extra") or {}).get("source_json") or ""),
+            str(row.get("sample_id") or ""),
+        ),
+    )
+
+
+def _select_full_rows(
+    rows: list[dict[str, Any]],
+    *,
+    base_count: int,
+    blur_ratio: float,
+) -> list[dict[str, Any]]:
+    clean_rows: list[dict[str, Any]] = []
+    blur_rows: list[dict[str, Any]] = []
+    other_rows: list[dict[str, Any]] = []
+    for row in rows:
+        view_type = str((row.get("extra") or {}).get("view_type") or "")
+        if view_type == "full_image":
+            clean_rows.append(row)
+        elif view_type == "full_image_blur":
+            blur_rows.append(row)
+        else:
+            other_rows.append(row)
+
+    target_blur = min(len(blur_rows), int(round(base_count * blur_ratio)))
+    selected_blur = sorted(
+        blur_rows,
+        key=lambda row: (
+            str((row.get("extra") or {}).get("source_json") or ""),
+            str(row.get("sample_id") or ""),
+        ),
+    )[:target_blur]
+    return clean_rows + selected_blur + other_rows
+
+
 def _cleanup_unreferenced_images(rows: list[dict[str, Any]], image_dir: Path) -> int:
     if not image_dir.exists():
         return 0
@@ -760,15 +814,16 @@ Generated from `data/raw_data` for grounding detection.
 - Workers: `{args.workers}`
 - Seed: `{args.seed}`
 - Density crop candidates per source: `{args.candidate_count}`
+- Density crop global ratio cap: `{args.density_crop_ratio}`
 - Max positive crops per source: `{spec.max_positive_crops}`
 - Min positive crop instances: `{spec.min_positive_instances}`
 - Hard negative ratio target: `{args.negative_ratio}`
 - Full-image blur ratio target: `{args.full_blur_ratio}`
 - Images: all rows reference task-local images under `images/<split>/`; raw images are copied,
   not referenced directly.
-- Full-image blur: each train source contributes one full-image row total. A deterministic
-  subset is written as `full_image_blur`; the rest stays clean `full_image`. Validation, density
-  crops, and hard negatives stay clean.
+- Full-image blur: each train source contributes one clean `full_image` row. A deterministic
+  subset additionally contributes one `full_image_blur` row. Validation, density crops, and hard
+  negatives stay clean.
 
 ## Counts
 
@@ -816,6 +871,16 @@ def _build_task_split(
         full_rows.extend(result.full_rows)
         positive_rows.extend(result.positive_rows)
         negative_candidates.extend(result.negative_rows)
+    full_rows = _select_full_rows(
+        full_rows,
+        base_count=len(covered_results),
+        blur_ratio=config.full_blur_ratio,
+    )
+    positive_rows = _select_positive_rows(
+        positive_rows,
+        base_count=len(covered_results),
+        ratio=config.density_crop_ratio,
+    )
     negative_rows = _select_negative_rows(
         negative_candidates,
         base_count=len(full_rows) + len(positive_rows),
@@ -862,6 +927,7 @@ def main() -> None:
     parser.add_argument("--candidate-count", type=int, default=32)
     parser.add_argument("--negative-candidate-count", type=int, default=48)
     parser.add_argument("--negative-ratio", type=float, default=0.008)
+    parser.add_argument("--density-crop-ratio", type=float, default=0.5)
     parser.add_argument("--full-blur-ratio", type=float, default=0.5)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
@@ -872,6 +938,8 @@ def main() -> None:
         raise FileNotFoundError(raw_root)
     if not 0 <= float(args.full_blur_ratio) <= 1:
         raise ValueError("--full-blur-ratio must be in [0, 1].")
+    if float(args.density_crop_ratio) < 0:
+        raise ValueError("--density-crop-ratio must be >= 0.")
 
     summaries: dict[str, Any] = {}
     for spec in _task_by_name(args.task):
@@ -893,6 +961,7 @@ def main() -> None:
             candidate_count=int(args.candidate_count),
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=float(args.negative_ratio),
+            density_crop_ratio=float(args.density_crop_ratio),
             full_blur_ratio=float(args.full_blur_ratio),
         )
         val_config = BuildConfig(
@@ -905,6 +974,7 @@ def main() -> None:
             candidate_count=int(args.candidate_count),
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=0.0,
+            density_crop_ratio=0.0,
             full_blur_ratio=0.0,
         )
         train_rows, covered_train, _ = _build_task_split(

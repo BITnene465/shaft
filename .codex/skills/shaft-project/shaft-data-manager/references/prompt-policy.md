@@ -10,6 +10,8 @@ small, task-scoped, and model-output-oriented.
 - `configs/prompts/pools/grounding_shape.v2.4.yaml`
 - `configs/prompts/pools/grounding_icon_image.v2.4.yaml`
 - `configs/prompts/pools/point_arrow.v2.4.yaml`
+- `configs/prompts/pools/point_arrow_style.v2.4.yaml`
+- `configs/prompts/pools/drawio_shape.v4.0.yaml`
 
 Do not keep legacy duplicate prompt files such as `keypoint_arrow.yaml`; the maintained point
 task name is `point_arrow`.
@@ -37,6 +39,13 @@ task name is `point_arrow`.
 - `point_arrow` should predict the full ordered arrow `linestrip`, including bend points, ordered
   from arrow tail to arrow head. Do not collapse this task to two endpoints unless the structured
   and SFT targets are changed together.
+- `drawio_shape` prompts must focus on the outermost primary visible shape in the crop for
+  draw.io reconstruction. They should ignore internal text/icons/arrows/nested boxes and output
+  only business fields such as shape type, orientation, stroke/fill visibility, stroke/fill style,
+  and hex colors.
+- Do not ask business-task models to emit weak-label audit fields. For `drawio_shape`, fields such
+  as `evidence`, `confidence`, and `abstain_reason` are weak-label process metadata, not SFT
+  targets.
 - Avoid examples beyond the minimal schema shape; examples can accidentally become style anchors.
 - Update SFT conversion, eval prompt seeding, and prelabeling references together when a prompt
   file is renamed or removed.
@@ -45,3 +54,6 @@ task name is `point_arrow`.
 
 Generated structured/SFT data stays ignored. For data catalog examples, keep only
 `configs/data/example.yaml` tracked; local project-specific catalogs should remain untracked.
+Prompt pool YAMLs under `configs/prompts/` are also ignored by default in this repository. When a
+new prompt pool becomes part of a reproducible training run, call out whether it should stay local
+or be force-added intentionally.

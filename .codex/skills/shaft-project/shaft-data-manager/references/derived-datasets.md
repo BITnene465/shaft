@@ -9,6 +9,9 @@ The maintained model-task taxonomy is:
   `shape`. This task may consume bbox-only arrow annotations.
 - `point_arrow`: arrow crop/point prediction. This task must consume only arrow instances with a
   valid raw `linestrip`; currently that means the `part1` subset.
+- `drawio_shape`: crop-level outer-shape classification/style fields for draw.io reconstruction.
+  Current `drawio_shape.v4.0` is weak-supervised train-only data generated from VLM labels, not raw
+  truth and not an eval source.
 
 Raw annotation layers such as `layout` and `arrow` are schema concepts, not separate train/eval
 task families.
@@ -28,10 +31,10 @@ task families.
   independently from the same grounding split source using each subtask's coverage and label
   filters.
 - Grounding structured rows should reference task-local images, not raw-data image paths. Each
-  covered train source contributes one full-image row total: either clean `full_image` or
-  degraded `full_image_blur`. JPEG blur plus resize blur should be a bounded replacement subset,
-  defaulting to at most half of covered train sources, not an additional duplicate full-image
-  copy.
+  covered train source contributes one clean `full_image` row. JPEG blur plus resize blur are a
+  bounded additional `full_image_blur` subset, defaulting to at most half of covered train
+  sources. Density crops are also bounded and should not exceed half of covered train sources
+  unless explicitly requested.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced
@@ -40,6 +43,16 @@ task families.
 - Do not duplicate raw `extra` / `subattr` into structured or SFT rows. Raw data is the metadata
   truth; derived rows should carry only the model-facing target plus minimal traceability fields
   such as source id / source image when needed.
+- For weak-supervised business tasks such as `drawio_shape`, keep model-facing training targets
+  limited to business fields. Process fields such as `evidence`, `confidence`, and
+  `abstain_reason` may be kept only in `extra` for audit/filtering and must not appear in
+  `target_text`.
+- Weak-label derived datasets should default to train-only. Do not invent a validation split from
+  weak labels unless the user explicitly wants weak validation; prefer keeping formal eval on
+  human-maintained benchmark/validation data.
+- When a weak-label source is heavily imbalanced, filter low-quality rows first, then cap dominant
+  classes and keep rare classes. Record source counts, clean counts, caps, selected counts, and
+  final label distribution in the dataset README / summary.
 - Before long multimodal SFT runs, profile train-only sequence tails with the training tokenizer.
   Filter only pathological outliers that harm DDP balance; keep validation unchanged unless
   explicitly requested. For Banana v2.1, use the looser grounding guard
@@ -66,3 +79,4 @@ task families.
   minimum crop dimensions for point/crop tasks.
 - Rich details remain in raw `extra` / `subattr`, not duplicated into derived JSONL.
 - README or a short summary records row counts, split policy, and generation settings.
+- Weak-label datasets explicitly document that they are derived training artifacts, not raw truth.

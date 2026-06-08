@@ -23,7 +23,7 @@ Never train on clipped partial GT boxes.
 ## Train Views
 
 - `full_image`
-- `full_image_blur` as a bounded replacement subset of full-image train rows
+- `full_image_blur` as a bounded additional subset of full-image train rows
 - `density_crop`
 - controlled `hard_negative_crop`
 - local task-owned image copies for every row
@@ -68,11 +68,12 @@ of mechanically cropping every image:
 - Keep the full-image row for every train sample.
 - Do not reference raw images directly from structured rows. Copy or render every row image under
   the task dataset directory, for example `data/grounding_arrow/images/train/`.
-- For train, each covered source image contributes one full-image row total: either clean
-  `full_image` or degraded `full_image_blur`. Clean full and blur full counts should add up to
-  approximately the original source full-image count. Blur is a bounded replacement subset, not a
-  duplicate row for every clean full-image row.
+- For train, each covered source image contributes one clean `full_image` row.
+- A deterministic subset of covered train sources additionally contributes one degraded
+  `full_image_blur` row. Blur is bounded augmentation, not a replacement for high-quality full
+  rows.
 - Keep positive crop volume controlled by task so local views do not dominate full-image rows.
+- Keep total `density_crop` rows capped, defaulting to at most half of covered clean full rows.
 - Candidate crops should be random but density-biased, not fixed-size tiles. Sample crop width
   and height from image-relative ranges so the view scale follows the source image size. Use a
   wider crop-ratio range for large images and reject crops that are effectively full-image
@@ -93,8 +94,8 @@ of mechanically cropping every image:
 
 ## Full-Image Blur Rows
 
-Grounding may use light pixel degradation as a train full-image replacement subset. Do not double
-the full-image portion by adding a blur copy for every clean full-image row.
+Grounding may use light pixel degradation as an additional train full-image subset. Do not replace
+clean full-image rows with blur rows.
 
 - Apply only to train full-image blur rows.
 - Do not apply to density crops or hard negatives by default.
@@ -146,8 +147,10 @@ After a grounding rebuild, check:
 - No structured row image path points into `data/raw_data`.
 - Number of files in `images/train` equals `structured/train.jsonl` rows.
 - Number of files in `images/val` equals `structured/val.jsonl` rows.
-- Train `full_image + full_image_blur` row count equals the covered train source count.
+- Train `full_image` row count equals the covered train source count.
 - Train `full_image_blur` row count is no more than half of covered train sources unless the user
   explicitly asks for a stress dataset.
+- Train `density_crop` row count is no more than half of covered train sources unless the user
+  explicitly asks for a crop-heavy stress dataset.
 - Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
 - All bboxes are positive-area and inside the row image dimensions.

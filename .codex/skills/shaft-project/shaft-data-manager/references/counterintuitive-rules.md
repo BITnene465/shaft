@@ -79,12 +79,13 @@ and deterministic, even if train gets crops, hard negatives, or blur.
 Exception: `point_arrow` validation is crop-level by task definition. It should be deterministic
 arrow crops, not raw full images.
 
-## Blur Is Not A Full-Image Multiplier
+## Clean Full Images Are The Grounding Backbone
 
-For grounding train data, blur full-image rows are a bounded replacement subset of full-image
-rows. Do not keep every clean full-image row and then add a blur copy for every one of them. Clean
-full and blur full counts together should approximately equal the source full-image count; by
-default, JPEG blur plus resize blur should be at most half of covered train sources.
+For grounding train data, every covered source image should keep one clean `full_image` row. Blur
+full-image rows are an additional bounded augmentation subset, not a replacement for clean full
+rows. By default, JPEG blur plus resize blur should be at most half of covered train sources.
+Density crops are also a bounded supplement; they should not exceed half of covered clean full
+rows unless the user explicitly asks for a crop-heavy stress dataset.
 
 ## JPEG Is Not a Default Grounding Augmentation
 
@@ -114,6 +115,22 @@ Do not copy raw `extra`, `subattr`, importer fields, or audit details into struc
 just because the information might be useful later. Raw data is the source of truth for rich
 metadata. Derived data should be a small rebuildable training artifact: image reference, minimal
 source id, and model-facing target fields.
+
+For weak-label datasets, this is still true even if there is no human raw truth yet. Keep
+weak-label audit information such as `evidence`, `confidence`, `abstain_reason`, source model,
+and source job id out of `target_text`; store only minimal traceability in `extra`.
+
+## Weak Labels Are Training Hints, Not Evaluation Truth
+
+Do not silently turn model-generated weak labels into validation or benchmark data. They can be
+useful for beta training, but formal eval should remain on human-maintained validation/benchmark
+sources unless the user explicitly requests a weak-label eval experiment.
+
+## Small Datasets Can Cap Interleave Sampling
+
+With `mix_strategy=interleave_under`, the smallest dataset relative to its configured weight can
+limit the whole mixed epoch. Do not judge a new task's effect from YAML weights alone; compute the
+actual mixed quotas from current row counts before deciding whether the ratio is reasonable.
 
 ## Preview Is Inspection, Not Data
 
