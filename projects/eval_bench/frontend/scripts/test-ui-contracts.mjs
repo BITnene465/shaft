@@ -2042,6 +2042,11 @@ assert(
     !settingsWorkbenchStyleSource.includes("linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%)") &&
     settingsPreviewStyleSource.includes("var(--settings-preview-foot-min)") &&
     settingsDrawerStyleSource.includes("var(--settings-drawer-head-min)") &&
+    settingsDrawerStyleSource.includes(':root[data-theme="dark"] .settings-preference-drawer') &&
+    settingsDrawerStyleSource.includes("--settings-drawer-bg") &&
+    settingsDrawerStyleSource.includes("scrollbar-gutter: stable") &&
+    !settingsDrawerStyleSource.includes("background: #ffffff") &&
+    !settingsDrawerStyleSource.includes("color: #162536") &&
     !rawSettingsEditorGeometryPattern.test(settingsEditorStyleSource),
   "settings workbench styles must use the shared settings theme tokens instead of repeated editor geometry literals",
 );
