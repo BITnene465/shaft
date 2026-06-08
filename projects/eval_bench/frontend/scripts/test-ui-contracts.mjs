@@ -2950,6 +2950,11 @@ assert(
     compareReportPanelStyleSource.includes(".comparison-report-tabs") &&
     compareReportPanelStyleSource.includes(".comparison-metric-table table") &&
     compareReportPanelStyleSource.includes(".comparison-outcome-band") &&
+    compareReportPanelStyleSource.includes(':root[data-theme="dark"] .comparison-panel') &&
+    compareReportPanelStyleSource.includes("--compare-report-active") &&
+    compareReportPanelStyleSource.includes("--compare-report-warning-bg") &&
+    compareReportPanelStyleSource.includes("color: var(--compare-report-ink)") &&
+    compareReportPanelStyleSource.includes("border-bottom: 1px solid var(--compare-report-label-line)") &&
     compareReportPanelStyleSource.includes("var(--compare-tab-min)") &&
     compareReportPanelStyleSource.includes("var(--compare-text-small)") &&
     compareReportPanelStyleSource.includes("var(--compare-radius-control)") &&
@@ -2964,7 +2969,9 @@ assert(
     styleSource.includes(".compare-context-card {\n  display: grid;") &&
     styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid #dbe5ee;") &&
     compareReportPanelStyleSource.includes(".label-delta-card {\n  display: grid;") &&
-    compareReportPanelStyleSource.includes("border-bottom: 1px solid #d8e2eb;") &&
+    !compareReportPanelStyleSource.includes("border-bottom: 1px solid #d8e2eb;") &&
+    !compareReportPanelStyleSource.includes("color: #607080") &&
+    !compareReportPanelStyleSource.includes("background: #fff7e6") &&
     compareRunRailStyleSource.includes(".compare-run-select") &&
     compareRunRailStyleSource.includes(".compare-run-card") &&
     compareRunRailStyleSource.includes(".history-block") &&

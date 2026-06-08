@@ -1,4 +1,38 @@
 .comparison-panel {
+  --compare-report-line: #dce4ec;
+  --compare-report-line-soft: #e3e9ef;
+  --compare-report-line-muted: #dbe3ec;
+  --compare-report-tab-ink: #536477;
+  --compare-report-active: #174d65;
+  --compare-report-strong: #1c2835;
+  --compare-report-muted: #748294;
+  --compare-report-ink: #223344;
+  --compare-report-first-col: #445466;
+  --compare-report-head: #6a7787;
+  --compare-report-positive: #176044;
+  --compare-report-negative: #9d2632;
+  --compare-report-subtle: #657386;
+  --compare-report-chip-ink: #243243;
+  --compare-report-chip-subtle: #315266;
+  --compare-report-chip-subtle-line: #b9dcec;
+  --compare-report-card-line: #e2e8ef;
+  --compare-report-positive-line: #bbe5d0;
+  --compare-report-negative-line: #efc0c7;
+  --compare-report-summary-ink: #334457;
+  --compare-report-summary-positive-line: #b8e5d0;
+  --compare-report-summary-negative-line: #f1b7bf;
+  --compare-report-warning-ink: #8a4b06;
+  --compare-report-warning-bg: #fff7e6;
+  --compare-report-warning-line: #f1d5a7;
+  --compare-report-label-line: #d8e2eb;
+  --compare-report-label-ink: #1f2d3d;
+  --compare-report-label-value: #34495d;
+  --compare-report-label-muted: #64748b;
+  --compare-report-label-positive-line: #cfe6d7;
+  --compare-report-label-positive: #14723a;
+  --compare-report-label-negative-line: #efc9cf;
+  --compare-report-label-negative: #b42335;
+
   display: flex;
   flex-direction: column;
   gap: var(--compare-gap-10);
@@ -6,6 +40,42 @@
   min-height: 100%;
   overflow-x: hidden;
   padding: var(--compare-pad-12);
+}
+
+:root[data-theme="dark"] .comparison-panel {
+  --compare-report-line: #2a3849;
+  --compare-report-line-soft: #314255;
+  --compare-report-line-muted: #2d3c4e;
+  --compare-report-tab-ink: #9dafc2;
+  --compare-report-active: #bce9ff;
+  --compare-report-strong: #eef5fb;
+  --compare-report-muted: #9dafc2;
+  --compare-report-ink: #dce7f2;
+  --compare-report-first-col: #b8c5d3;
+  --compare-report-head: #9dafc2;
+  --compare-report-positive: #8ce3bb;
+  --compare-report-negative: #ffb6c0;
+  --compare-report-subtle: #9dafc2;
+  --compare-report-chip-ink: #dce7f2;
+  --compare-report-chip-subtle: #a6ddf5;
+  --compare-report-chip-subtle-line: #3d6279;
+  --compare-report-card-line: #314255;
+  --compare-report-positive-line: #2f634f;
+  --compare-report-negative-line: #70404a;
+  --compare-report-summary-ink: #dce7f2;
+  --compare-report-summary-positive-line: #2f634f;
+  --compare-report-summary-negative-line: #70404a;
+  --compare-report-warning-ink: #ffd58d;
+  --compare-report-warning-bg: #352717;
+  --compare-report-warning-line: #725326;
+  --compare-report-label-line: #314255;
+  --compare-report-label-ink: #e2ebf4;
+  --compare-report-label-value: #f0f6fb;
+  --compare-report-label-muted: #a5b5c5;
+  --compare-report-label-positive-line: #2f634f;
+  --compare-report-label-positive: #8ce3bb;
+  --compare-report-label-negative-line: #70404a;
+  --compare-report-label-negative: #ffb6c0;
 }
 
 .comparison-title-row {
@@ -27,13 +97,13 @@
   align-items: center;
   min-height: var(--compare-tab-min);
   overflow: auto hidden;
-  border-bottom: 1px solid #dce4ec;
+  border-bottom: 1px solid var(--compare-report-line);
 }
 
 .comparison-report-tabs span {
   flex: 0 0 auto;
   height: var(--compare-tab-min);
-  color: #536477;
+  color: var(--compare-report-tab-ink);
   font-size: var(--compare-text-small);
   font-weight: 720;
   line-height: var(--compare-tab-min);
@@ -41,8 +111,8 @@
 }
 
 .comparison-report-tabs span.active {
-  color: #174d65;
-  box-shadow: inset 0 -2px 0 #174d65;
+  color: var(--compare-report-active);
+  box-shadow: inset 0 -2px 0 var(--compare-report-active);
 }
 
 .comparison-section-title {
@@ -54,13 +124,13 @@
 }
 
 .comparison-section-title strong {
-  color: #1c2835;
+  color: var(--compare-report-strong);
   font-size: var(--compare-text-body);
   font-weight: 780;
 }
 
 .comparison-section-title span {
-  color: #748294;
+  color: var(--compare-report-muted);
   font-size: var(--compare-text-caption);
   font-weight: 680;
 }
@@ -70,7 +140,7 @@
   gap: var(--compare-gap-6);
   min-width: 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid #dce4ec;
+  border-bottom: 1px solid var(--compare-report-line);
 }
 
 .comparison-metric-table table {
@@ -84,8 +154,8 @@
   height: var(--compare-section-min);
   padding: 0 var(--compare-pad-8);
   overflow: hidden;
-  color: #223344;
-  border-bottom: 1px solid #e3e9ef;
+  color: var(--compare-report-ink);
+  border-bottom: 1px solid var(--compare-report-line-soft);
   font-size: var(--compare-text-small);
   text-align: right;
   text-overflow: ellipsis;
@@ -96,23 +166,23 @@
 .comparison-metric-table td:first-child {
   width: 42%;
   padding-left: 0;
-  color: #445466;
+  color: var(--compare-report-first-col);
   text-align: left;
 }
 
 .comparison-metric-table th {
-  color: #6a7787;
+  color: var(--compare-report-head);
   font-size: var(--compare-text-caption);
   font-weight: 760;
 }
 
 .comparison-metric-table td.positive {
-  color: #176044;
+  color: var(--compare-report-positive);
   font-weight: 760;
 }
 
 .comparison-metric-table td.negative {
-  color: #9d2632;
+  color: var(--compare-report-negative);
   font-weight: 760;
 }
 
@@ -120,7 +190,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
   gap: 0;
-  border-bottom: 1px solid #dce4ec;
+  border-bottom: 1px solid var(--compare-report-line);
 }
 
 .comparison-outcome-band span {
@@ -128,7 +198,7 @@
   gap: var(--compare-gap-3);
   min-height: var(--compare-outcome-min);
   padding: var(--compare-pad-7) var(--compare-pad-10) var(--compare-pad-8) 0;
-  border-right: 1px solid #e3e9ef;
+  border-right: 1px solid var(--compare-report-line-soft);
 }
 
 .comparison-outcome-band span:last-child {
@@ -136,33 +206,33 @@
 }
 
 .comparison-outcome-band em {
-  color: #657386;
+  color: var(--compare-report-subtle);
   font-size: var(--compare-text-caption);
   font-style: normal;
   font-weight: 700;
 }
 
 .comparison-outcome-band strong {
-  color: #223344;
+  color: var(--compare-report-ink);
   font-size: var(--compare-text-title);
   font-variant-numeric: tabular-nums;
 }
 
 .comparison-outcome-band .positive strong {
-  color: #176044;
+  color: var(--compare-report-positive);
 }
 
 .comparison-outcome-band .negative strong {
-  color: #9d2632;
+  color: var(--compare-report-negative);
 }
 
 .sample-count-chip {
   min-height: var(--compare-section-min);
   padding: var(--compare-pad-4) 0;
-  color: #243243;
+  color: var(--compare-report-chip-ink);
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #dbe3ec;
+  border-bottom: 1px solid var(--compare-report-line-muted);
   border-radius: var(--compare-radius-control);
   font-size: var(--compare-text-small);
   font-weight: 740;
@@ -170,9 +240,9 @@
 }
 
 .sample-count-chip.subtle {
-  color: #315266;
+  color: var(--compare-report-chip-subtle);
   background: transparent;
-  border-color: #b9dcec;
+  border-color: var(--compare-report-chip-subtle-line);
 }
 
 .comparison-delta-grid {
@@ -186,13 +256,13 @@
   padding: var(--compare-pad-7) 0;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #e2e8ef;
+  border-bottom: 1px solid var(--compare-report-card-line);
   border-radius: var(--compare-radius-control);
 }
 
 .delta-card span {
   display: block;
-  color: #607080;
+  color: var(--compare-report-subtle);
   font-size: var(--compare-text-caption);
   font-weight: 760;
   text-transform: uppercase;
@@ -201,27 +271,27 @@
 .delta-card strong {
   display: block;
   margin-top: 8px;
-  color: #243243;
+  color: var(--compare-report-chip-ink);
   font-size: var(--compare-text-compact-value);
   line-height: 1;
 }
 
 .delta-card.positive {
   background: transparent;
-  border-color: #bbe5d0;
+  border-color: var(--compare-report-positive-line);
 }
 
 .delta-card.positive strong {
-  color: #176044;
+  color: var(--compare-report-positive);
 }
 
 .delta-card.negative {
   background: transparent;
-  border-color: #efc0c7;
+  border-color: var(--compare-report-negative-line);
 }
 
 .delta-card.negative strong {
-  color: #9d2632;
+  color: var(--compare-report-negative);
 }
 
 .comparison-summary-row {
@@ -236,15 +306,15 @@
   gap: var(--compare-gap-8);
   min-height: var(--compare-chip-min);
   padding: var(--compare-pad-3) 0;
-  color: #334457;
+  color: var(--compare-report-summary-ink);
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #dbe3ec;
+  border-bottom: 1px solid var(--compare-report-line-muted);
   border-radius: var(--compare-radius-control);
 }
 
 .summary-pill span {
-  color: #607080;
+  color: var(--compare-report-subtle);
   font-size: var(--compare-text-small);
   font-weight: 720;
 }
@@ -254,13 +324,13 @@
 }
 
 .summary-pill.positive {
-  color: #176044;
-  border-color: #b8e5d0;
+  color: var(--compare-report-positive);
+  border-color: var(--compare-report-summary-positive-line);
 }
 
 .summary-pill.negative {
-  color: #9d2632;
-  border-color: #f1b7bf;
+  color: var(--compare-report-negative);
+  border-color: var(--compare-report-summary-negative-line);
 }
 
 .comparison-columns {
@@ -280,9 +350,9 @@
 
 .comparison-warning-strip span {
   padding: var(--compare-pad-4) var(--compare-pad-7);
-  color: #8a4b06;
-  background: #fff7e6;
-  border: 1px solid #f1d5a7;
+  color: var(--compare-report-warning-ink);
+  background: var(--compare-report-warning-bg);
+  border: 1px solid var(--compare-report-warning-line);
   border-radius: var(--compare-radius-control);
   font-size: var(--compare-text-small);
   font-weight: 720;
@@ -313,7 +383,7 @@
   padding: var(--compare-pad-7) 0;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid #d8e2eb;
+  border-bottom: 1px solid var(--compare-report-label-line);
   border-radius: var(--compare-radius-control);
   cursor: pointer;
 }
@@ -326,19 +396,19 @@
 
 .label-delta-card span {
   overflow-wrap: anywhere;
-  color: #1f2d3d;
+  color: var(--compare-report-label-ink);
   font-size: var(--compare-text-small);
   font-weight: 780;
 }
 
 .label-delta-card strong {
-  color: #34495d;
+  color: var(--compare-report-label-value);
   font-size: var(--compare-text-value);
   line-height: 1;
 }
 
 .label-delta-card em {
-  color: #64748b;
+  color: var(--compare-report-label-muted);
   font-size: var(--compare-text-caption);
   font-style: normal;
   font-weight: 680;
@@ -346,20 +416,20 @@
 
 .label-delta-card.positive {
   background: transparent;
-  border-color: #cfe6d7;
+  border-color: var(--compare-report-label-positive-line);
 }
 
 .label-delta-card.positive strong {
-  color: #14723a;
+  color: var(--compare-report-label-positive);
 }
 
 .label-delta-card.negative {
   background: transparent;
-  border-color: #efc9cf;
+  border-color: var(--compare-report-label-negative-line);
 }
 
 .label-delta-card.negative strong {
-  color: #b42335;
+  color: var(--compare-report-label-negative);
 }
 
 .compare-page .comparison-metric-table,
