@@ -3,6 +3,7 @@
   --composite-surface-muted: #fbfcfd;
   --composite-surface-subtle: #f8fafc;
   --composite-surface-quiet: #f3f6f9;
+  --composite-surface-glass: rgb(255 255 255 / 96%);
   --composite-page-surface: #edf1f5;
   --composite-line: #d8e1ea;
   --composite-line-soft: #e2eaf2;
@@ -14,6 +15,7 @@
   --composite-ink-deep: #111827;
   --composite-muted: #66778c;
   --composite-muted-alt: #66768a;
+  --composite-muted-strong: #243243;
   --composite-accent: #2248c5;
   --composite-accent-strong: #2149c8;
   --composite-focus: #1f5eff;
@@ -29,6 +31,10 @@
   --composite-overlay-line: rgb(255 255 255 / 16%);
   --composite-overlay-shadow: 0 8px 22px rgb(15 23 42 / 22%);
   --composite-overlay-shadow-strong: 0 10px 26px rgb(15 23 42 / 26%);
+  --composite-drawer-shadow: 8px 0 20px rgb(15 23 42 / 12%);
+  --composite-drawer-shadow-mobile: 0 10px 24px rgb(15 23 42 / 14%);
+  --composite-popover-shadow: 0 10px 24px rgb(15 23 42 / 12%);
+  --composite-popover-shadow-top: 0 -10px 24px rgb(15 23 42 / 12%);
   --composite-scrub-tick: rgba(100, 116, 139, 0.16);
   --composite-scrub-tooltip-accent: #9ccaf5;
   --composite-rail-axis: #cbd5e1;
@@ -210,6 +216,7 @@
   --composite-surface-muted: var(--bench-surface-muted);
   --composite-surface-subtle: var(--bench-surface);
   --composite-surface-quiet: var(--bench-bg-soft);
+  --composite-surface-glass: color-mix(in srgb, var(--bench-surface-raised) 96%, transparent);
   --composite-page-surface: var(--bench-bg-soft);
   --composite-line: var(--bench-line);
   --composite-line-soft: color-mix(in srgb, var(--bench-line) 78%, transparent);
@@ -221,11 +228,16 @@
   --composite-ink-deep: var(--bench-ink-strong);
   --composite-muted: var(--bench-ink-muted);
   --composite-muted-alt: var(--bench-ink-muted);
+  --composite-muted-strong: var(--bench-ink);
   --composite-accent: var(--bench-cyan);
   --composite-accent-strong: var(--bench-cyan-strong);
   --composite-focus: var(--bench-cyan-strong);
   --composite-interaction-wash: color-mix(in srgb, var(--bench-cyan) 13%, transparent);
   --composite-interaction-wash-alt: color-mix(in srgb, var(--bench-action) 12%, transparent);
+  --composite-drawer-shadow: 8px 0 20px rgb(0 0 0 / 22%);
+  --composite-drawer-shadow-mobile: 0 10px 24px rgb(0 0 0 / 24%);
+  --composite-popover-shadow: 0 10px 24px rgb(0 0 0 / 24%);
+  --composite-popover-shadow-top: 0 -10px 24px rgb(0 0 0 / 24%);
   --composite-rail-card: color-mix(in srgb, var(--bench-surface-raised) 84%, transparent);
   --composite-rail-card-strong: color-mix(in srgb, var(--bench-surface-raised) 94%, transparent);
   --composite-rail-card-hover: var(--bench-surface-muted);

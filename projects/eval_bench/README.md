@@ -848,6 +848,9 @@ npm run test:route-warmup
 npm run test:nav-prefetch
 npm run test:loading-state
 npm run test:toast
+npm run test:dialogs
+npm run test:settings-preview
+npm run test:smoke
 npm run test:ui-contracts
 npm run test:shortcuts
 npm run test:composite-report
@@ -881,8 +884,8 @@ hiddenBefore / hiddenAfter、disabled option 跳过、PageUp / PageDown 和 all-
 listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active descendant 和 Escape 后焦点回到触发器。
 
 `test:route-warmup` 是首屏后路由预热 smoke，会在生产预览首页等待浏览器 idle 后检查基准集、排行榜、
-结果库、评测中心、组合报告、对比分析、模型服务和工作台设置 chunk 是否被预热，避免核心工作台首次导航
-再次出现明显等待。
+结果库、评测中心、组合报告、对比分析、对比样本、模型服务和工作台设置 chunk 是否被预热，避免核心工作台
+首次导航再次出现明显等待。
 
 `test:nav-prefetch` 是主导航意图预取 smoke，会在 hover 主导航时拦截 API 请求，检查结果库、评测中心、
 排行榜、服务、基准集、对比分析和设置页的轻量入口数据进入 react-query 缓存，降低首次进入页面的等待；
@@ -893,6 +896,10 @@ listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active 
 
 `test:toast` 是 API 错误提示 smoke，会直接派发重复错误事件，检查相同错误合并计数、不同错误独立保留、
 手动关闭只移除目标 toast，避免轮询失败时提示堆叠刷屏。
+
+`test:smoke` 是生产预览下的轻量浏览器回归聚合入口，会串起 theme、route warmup、nav prefetch、
+loading state、toast、dialogs、settings preview 和 select popover UI smoke；改主题、导航预取、弹层、
+设置预览或加载反馈时优先跑这一组。
 
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /
 `useWorkspaceShortcuts`，并用自定义 keymap 在 benchmark、run、compare 和 settings 页面真实触发

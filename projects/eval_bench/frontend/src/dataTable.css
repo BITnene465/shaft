@@ -87,11 +87,9 @@
   left: 0;
   z-index: 5;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--bench-cyan), transparent);
+  background: linear-gradient(90deg, var(--bench-cyan), color-mix(in srgb, var(--bench-cyan) 28%, transparent));
   content: "";
   pointer-events: none;
-  transform: translateX(-70%);
-  animation: table-region-refresh 1.1s ease-in-out infinite;
 }
 
 .table-refresh-indicator {
@@ -340,20 +338,6 @@
   outline-offset: 2px;
 }
 
-@keyframes table-region-refresh {
-  0% {
-    transform: translateX(-70%);
-  }
-
-  50% {
-    transform: translateX(70%);
-  }
-
-  100% {
-    transform: translateX(130%);
-  }
-}
-
 @keyframes table-skeleton-sheen {
   0% {
     background-position: -160% 0, 0 0;
@@ -365,13 +349,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .table-shell.refreshing::after,
   .table-skeleton-line {
     animation: none;
-  }
-
-  .table-shell.refreshing::after {
-    transform: none;
   }
 
   .table-skeleton-line {

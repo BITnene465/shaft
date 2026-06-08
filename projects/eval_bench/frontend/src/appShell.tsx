@@ -170,6 +170,8 @@ export function AppShell() {
             <IconActionButton
               className="theme-toggle"
               title={themeMode === "dark" ? "切换到日间主题" : "切换到夜间主题"}
+              aria-label={themeMode === "dark" ? "切换到日间主题" : "切换到夜间主题"}
+              aria-pressed={themeMode === "dark"}
               icon={themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
               onClick={toggleThemeMode}
             />

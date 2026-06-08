@@ -23,6 +23,7 @@
     "test:route-warmup": "node scripts/route-warmup-check.mjs",
     "test:nav-prefetch": "node scripts/nav-prefetch-check.mjs",
     "test:loading-state": "node scripts/loading-state-check.mjs",
+    "test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui",
     "test:shortcuts": "node scripts/shortcut-coverage-check.mjs",
     "test:composite-report": "node scripts/composite-report-smoke-check.mjs",
     "test:layout": "node scripts/layout-smoke-check.mjs",

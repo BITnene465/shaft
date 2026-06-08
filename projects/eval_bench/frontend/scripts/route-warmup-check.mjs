@@ -9,6 +9,7 @@ const expectedRouteChunks = [
   "jobsPage",
   "suiteReportPage",
   "comparePage",
+  "comparisonSamplePage",
   "servicesPage",
   "settingsPage"
 ];

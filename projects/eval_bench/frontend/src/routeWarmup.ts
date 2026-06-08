@@ -20,6 +20,7 @@ const WARMUP_CORE_ROUTE_MODULES = [
   () => import("./jobsPage"),
   () => import("./suiteReportPage"),
   () => import("./comparePage"),
+  () => import("./comparisonSamplePage"),
   () => import("./servicesPage"),
   () => import("./settingsPage")
 ];

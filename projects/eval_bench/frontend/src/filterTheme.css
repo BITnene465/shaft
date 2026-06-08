@@ -36,7 +36,7 @@
   --filter-focus: #637f95;
   --filter-focus-ring: rgb(99 127 149 / 12%);
   --filter-shadow: 0 6px 14px rgb(15 23 42 / 8%);
-  --filter-popover-shadow: 0 10px 22px rgb(15 23 42 / 10%);
+  --filter-popover-shadow: 0 8px 18px rgb(15 23 42 / 10%);
 }
 
 :root[data-theme="dark"] {
@@ -57,6 +57,6 @@
   --filter-action: var(--bench-cyan-strong);
   --filter-focus: var(--bench-cyan);
   --filter-focus-ring: color-mix(in srgb, var(--bench-cyan) 22%, transparent);
-  --filter-shadow: 0 8px 18px rgb(0 0 0 / 22%);
-  --filter-popover-shadow: 0 14px 30px rgb(0 0 0 / 28%);
+  --filter-shadow: 0 6px 14px rgb(0 0 0 / 18%);
+  --filter-popover-shadow: 0 10px 22px rgb(0 0 0 / 24%);
 }

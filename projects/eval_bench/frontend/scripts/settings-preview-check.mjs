@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 
-const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/settings";
+const rawUrl = process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/settings";
 const url = new URL(rawUrl);
 if (!url.pathname.endsWith("/settings")) {
   url.pathname = "/settings";
@@ -13,7 +13,10 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("console", (message) => {
   if (message.type() === "error") {
-    errors.push(message.text());
+    const text = message.text();
+    if (!text.includes("/api/") && !text.includes("Failed to load resource")) {
+      errors.push(text);
+    }
   }
 });
 

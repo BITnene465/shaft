@@ -6,9 +6,8 @@
   place-items: center;
   padding: var(--workspace-pad-24);
   background:
-    linear-gradient(180deg, rgb(8 15 24 / 70%), rgb(8 15 24 / 84%)),
-    repeating-linear-gradient(90deg, rgb(148 163 184 / 8%) 0 1px, transparent 1px 36px);
-  backdrop-filter: blur(4px);
+    linear-gradient(180deg, rgb(8 15 24 / 76%), rgb(8 15 24 / 88%)),
+    repeating-linear-gradient(90deg, rgb(148 163 184 / 7%) 0 1px, transparent 1px 36px);
 }
 
 .workspace-dialog {
@@ -21,7 +20,7 @@
   background: #ffffff;
   border: 1px solid #9fb4c8;
   border-radius: var(--workspace-radius-control);
-  box-shadow: 0 26px 70px rgb(5 10 18 / 38%);
+  box-shadow: 0 16px 36px rgb(5 10 18 / 28%);
 }
 
 .workspace-dialog.wide {

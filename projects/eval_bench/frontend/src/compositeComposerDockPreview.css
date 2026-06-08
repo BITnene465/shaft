@@ -8,9 +8,9 @@
   gap: var(--composite-gap-8);
   padding: var(--composite-pad-10);
   color: var(--composite-ink);
-  background: rgb(255 255 255 / 96%);
-  border: 1px solid #cfdae6;
-  box-shadow: 0 18px 42px rgb(15 23 42 / 18%);
+  background: var(--composite-surface-glass);
+  border: 1px solid var(--composite-line);
+  box-shadow: var(--composite-popover-shadow);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -29,7 +29,7 @@
 }
 
 .composer-dock-preview-head span {
-  color: #6d7c8f;
+  color: var(--composite-muted-alt);
   font-size: var(--text-2xs);
   font-weight: 820;
   letter-spacing: 0;
@@ -54,7 +54,7 @@
   align-items: center;
   min-width: 0;
   padding-bottom: var(--composite-pad-5);
-  border-bottom: 1px solid #e4ebf2;
+  border-bottom: 1px solid var(--composite-line-soft);
 }
 
 .composer-dock-preview-list > span:last-child {
@@ -76,14 +76,14 @@
 }
 
 .composer-dock-preview-list strong {
-  color: #243243;
+  color: var(--composite-muted-strong);
   font-size: var(--text-xs);
   font-weight: 780;
 }
 
 .composer-dock-preview-list em,
 .composer-dock-preview-empty {
-  color: #728195;
+  color: var(--composite-muted);
   font-size: var(--text-2xs);
   font-style: normal;
   font-weight: 700;

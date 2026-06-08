@@ -57,6 +57,7 @@ await page.locator(".app-shell").first().waitFor({ timeout: 10_000 });
 const initial = await themeSnapshot(page);
 assert.equal(initial.theme, "light", "theme must default to light");
 assert.equal(initial.colorScheme, "light", "light theme must set color-scheme");
+assert.equal(initial.themeTogglePressed, "false", "light theme toggle must expose aria-pressed=false");
 assert(initial.topbarBackground !== initial.sidebarBackground, "shell must retain B-side rail contrast");
 
 await page.getByRole("button", { name: "切换到夜间主题" }).click();
@@ -65,6 +66,7 @@ const dark = await themeSnapshot(page);
 assert.equal(dark.theme, "dark", "theme button must switch to dark");
 assert.equal(dark.storage, "dark", "dark theme must persist to localStorage");
 assert.equal(dark.colorScheme, "dark", "dark theme must set color-scheme");
+assert.equal(dark.themeTogglePressed, "true", "dark theme toggle must expose aria-pressed=true");
 assert.notEqual(dark.topbarBackground, initial.topbarBackground, "topbar token must react to dark theme");
 await assertDarkRouteSurface(page, "/", [".overview-home-v18", ".overview-v18-card", ".overview-v18-console"]);
 await assertDarkRouteSurface(page, "/rank-board", [".rank-board-page .workspace-card", ".rank-board-table-card"]);
@@ -88,6 +90,7 @@ await page.waitForFunction(() => document.documentElement.dataset.theme === "dar
 const reloadedDark = await themeSnapshot(page);
 assert.equal(reloadedDark.theme, "dark", "stored dark theme must survive reload");
 assert.equal(reloadedDark.storage, "dark", "stored dark theme must remain in localStorage after reload");
+assert.equal(reloadedDark.themeTogglePressed, "true", "stored dark theme toggle state must remain pressed");
 await assertNoBrightDarkSurfaces(page);
 await assertTopbarDensity(page);
 await assertDarkMicroInteractions(page);
@@ -116,10 +119,12 @@ async function themeSnapshot(page) {
     const root = document.documentElement;
     const topbar = document.querySelector(".topbar");
     const sidebar = document.querySelector(".sidebar");
+    const themeToggle = document.querySelector(".theme-toggle");
     return {
       theme: root.dataset.theme,
       storage: localStorage.getItem("eval_bench_theme_mode"),
       colorScheme: root.style.colorScheme,
+      themeTogglePressed: themeToggle?.getAttribute("aria-pressed") ?? "",
       topbarBackground: topbar ? getComputedStyle(topbar).backgroundColor : "",
       sidebarBackground: sidebar ? getComputedStyle(sidebar).backgroundImage : ""
     };

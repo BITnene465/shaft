@@ -9,15 +9,15 @@
   max-height: min(430px, 58vh);
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid #ccd7e4;
+  border: 1px solid var(--composite-line);
   background: var(--composite-surface);
-  box-shadow: 0 18px 44px rgb(15 23 42 / 18%);
+  box-shadow: var(--composite-popover-shadow);
 }
 
 .image-jump-popover[data-placement="top"] {
   top: auto;
   bottom: calc(100% + 6px);
-  box-shadow: 0 -18px 44px rgb(15 23 42 / 18%);
+  box-shadow: var(--composite-popover-shadow-top);
 }
 
 .image-jump-atlas-panel {

@@ -10,9 +10,9 @@
   overflow: hidden;
   border-right: 1px solid var(--composite-line);
   background:
-    linear-gradient(90deg, #f7f9fc, var(--composite-surface) 42%),
+    linear-gradient(90deg, var(--composite-surface-subtle), var(--composite-surface) 42%),
     var(--composite-surface);
-  box-shadow: 14px 0 32px rgb(15 23 42 / 14%);
+  box-shadow: var(--composite-drawer-shadow);
 }
 
 .composite-sidebar-head {
@@ -24,7 +24,7 @@
   min-height: 38px;
   padding: var(--composite-pad-6) var(--composite-pad-8);
   border-bottom: 1px solid var(--composite-line);
-  background: #f4f7fa;
+  background: var(--composite-surface-quiet);
 }
 
 .composite-sidebar-head > div {
@@ -75,8 +75,8 @@
     width: auto;
     height: min(520px, calc(100% - 42px));
     border-right: 0;
-    border-bottom: 1px solid #cbd7e4;
-    box-shadow: 0 18px 40px rgb(15 23 42 / 18%);
+    border-bottom: 1px solid var(--composite-line);
+    box-shadow: var(--composite-drawer-shadow-mobile);
   }
 
   .composite-sidebar-grid {

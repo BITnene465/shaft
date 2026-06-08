@@ -38,9 +38,8 @@
   right: 0;
   left: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--bench-cyan), transparent);
+  background: linear-gradient(90deg, var(--bench-cyan), color-mix(in srgb, var(--bench-cyan) 28%, transparent));
   content: "";
-  animation: table-region-refresh 1.05s ease-in-out infinite;
 }
 
 .service-card {

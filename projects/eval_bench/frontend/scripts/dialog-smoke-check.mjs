@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 
-const baseUrl = (process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:8765/").replace(/\/+$/, "");
+const baseUrl = (process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/").replace(/\/+$/, "");
 
 const cases = [
   { path: "/jobs", button: "新建评测", form: ".manifest-job-form" },

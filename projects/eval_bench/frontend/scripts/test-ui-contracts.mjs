@@ -256,6 +256,7 @@ const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
 const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
 const navPrefetchSmokeSource = await readProjectFile("scripts/nav-prefetch-check.mjs");
 const loadingStateSmokeSource = await readProjectFile("scripts/loading-state-check.mjs");
+const settingsPreviewSmokeSource = await readProjectFile("scripts/settings-preview-check.mjs");
 const layoutSmokeSource = await readProjectFile("scripts/layout-smoke-check.mjs");
 const compositeReportSmokeSource = await readProjectFile("scripts/composite-report-smoke-check.mjs");
 const readmeSource = await readProjectFile("../README.md");
@@ -524,11 +525,15 @@ assert(
     routeWarmupSource.includes('() => import("./jobsPage")') &&
     routeWarmupSource.includes('() => import("./suiteReportPage")') &&
     routeWarmupSource.includes('() => import("./comparePage")') &&
+    routeWarmupSource.includes('() => import("./comparisonSamplePage")') &&
     routeWarmupSource.includes('() => import("./servicesPage")') &&
     routeWarmupSource.includes('() => import("./settingsPage")') &&
     appShellSource.includes('preload="intent"') &&
     appShellSource.includes("preloadDelay={80}") &&
     mainEntry.includes('lazyRouteComponent(() => import("./jobsPage"), "JobsPage")') &&
+    mainEntry.includes(
+      'lazyRouteComponent(() => import("./comparisonSamplePage"), "ComparisonSamplePage")',
+    ) &&
     mainEntry.includes('lazyRouteComponent(() => import("./servicesPage"), "ServicesPage")') &&
     mainEntry.includes('lazyRouteComponent(() => import("./settingsPage"), "SettingsPage")') &&
     !mainEntry.includes('import { JobsPage } from "./jobsPage";') &&
@@ -977,16 +982,18 @@ assert(
     dataTableStyleSource.includes("contain: layout;") &&
     dataTableStyleSource.includes("outline: 2px solid var(--control-focus-outline)") &&
     !dataTableStyleSource.includes("transform 150ms ease") &&
+    !dataTableStyleSource.includes("animation: table-region-refresh") &&
+    !dataTableStyleSource.includes("@keyframes table-region-refresh") &&
+    !dataTableStyleSource.includes("translateX(-70%)") &&
     !dataTableStyleSource.includes("0 16px 34px") &&
     dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell.table-loading') &&
     dataTableStyleSource.includes(':root[data-theme="dark"] .table-shell') &&
     dataTableStyleSource.includes("@keyframes table-skeleton-sheen") &&
     dataTableStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
-    dataTableStyleSource.includes(".table-shell.refreshing::after,\n  .table-skeleton-line") &&
+    !dataTableStyleSource.includes(".table-shell.refreshing::after,\n  .table-skeleton-line") &&
     dataTableStyleSource.includes(".table-refresh-indicator") &&
     dataTableStyleSource.includes(".row-select-checkbox") &&
     dataTableStyleSource.includes(".selectable-row") &&
-    dataTableStyleSource.includes("@keyframes table-region-refresh") &&
     runTables.includes('import { useCallback, useMemo, useState } from "react";') &&
     runTables.includes("const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [") &&
     runTables.includes("columns={BENCHMARK_TABLE_COLUMNS}") &&
@@ -1001,6 +1008,8 @@ assert(
     servicesGridSource.includes("TableEmptyState") &&
     servicesGridSource.includes('emptyText="没有符合高级检索条件的模型服务。"') &&
     servicesGridSource.includes('refreshLabel="服务列表更新中"') &&
+    !styleSource.includes("animation: table-region-refresh") &&
+    !styleSource.includes("@keyframes table-region-refresh") &&
     !servicesGridSource.includes("return <EmptyState title=\"没有符合高级检索条件的模型服务。\" />") &&
     jobsQueuePanelSource.includes("TableEmptyState") &&
     jobsQueuePanelSource.includes('emptyText="没有符合高级检索条件的任务。"') &&
@@ -1138,10 +1147,12 @@ assert(
     filterThemeStyleSource.includes("--filter-radius-control: 2px") &&
     filterThemeStyleSource.includes("--filter-surface: #ffffff") &&
     filterThemeStyleSource.includes("--filter-field-bg: #ffffff") &&
-    filterThemeStyleSource.includes("--filter-popover-shadow:") &&
+    filterThemeStyleSource.includes("--filter-popover-shadow: 0 8px 18px") &&
     filterThemeStyleSource.includes(':root[data-theme="dark"]') &&
     filterThemeStyleSource.includes("--filter-surface: var(--bench-surface)") &&
     filterThemeStyleSource.includes("--filter-focus: var(--bench-cyan)") &&
+    filterThemeStyleSource.includes("--filter-shadow: 0 6px 14px rgb(0 0 0 / 18%)") &&
+    filterThemeStyleSource.includes("--filter-popover-shadow: 0 10px 22px rgb(0 0 0 / 24%)") &&
     filterControlsStyleSource.includes("var(--filter-control-min)") &&
     filterControlsStyleSource.includes("var(--filter-text-label)") &&
     filterControlsStyleSource.includes("var(--filter-radius-control)") &&
@@ -1152,6 +1163,7 @@ assert(
     !filterControlsStyleSource.includes("background: #ffffff;") &&
     !filterControlsStyleSource.includes("color: #101828;") &&
     !filterControlsStyleSource.includes("rgba(99, 127, 149") &&
+    !filterThemeStyleSource.includes("0 14px 30px") &&
     !rawAdvancedFilterGeometryPattern.test(filterControlsStyleSource) &&
     !styleSource.includes(".advanced-search-box") &&
     !styleSource.includes(".advanced-number-box") &&
@@ -1257,6 +1269,9 @@ assert(
     workspaceDialogStyleSource.includes("var(--workspace-dialog-head-height)") &&
     workspaceDialogStyleSource.includes("var(--workspace-text-caption)") &&
     workspaceDialogStyleSource.includes(".danger-confirm-panel") &&
+    workspaceDialogStyleSource.includes("box-shadow: 0 16px 36px") &&
+    !workspaceDialogStyleSource.includes("backdrop-filter") &&
+    !workspaceDialogStyleSource.includes("0 26px 70px") &&
     pageCommandStyleSource.includes(".density-page") &&
     pageCommandStyleSource.includes(".page-command-row") &&
     pageCommandStyleSource.includes(".command-button") &&
@@ -1725,6 +1740,11 @@ assert(
     packageJsonSource.includes('"test:route-warmup": "node scripts/route-warmup-check.mjs"') &&
     packageJsonSource.includes('"test:nav-prefetch": "node scripts/nav-prefetch-check.mjs"') &&
     packageJsonSource.includes('"test:loading-state": "node scripts/loading-state-check.mjs"') &&
+    packageJsonSource.includes('"test:settings-preview": "node scripts/settings-preview-check.mjs"') &&
+    packageJsonSource.includes(
+      '"test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui"',
+    ) &&
+    dialogSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/"') &&
     dialogSmokeSource.includes('!text.includes("/api/")') &&
     dialogSmokeSource.includes('!text.includes("Failed to load resource")') &&
     toastSmokeSource.includes('new CustomEvent("eval-bench-api-error"') &&
@@ -1744,6 +1764,7 @@ assert(
     routeWarmupSmokeSource.includes('"jobsPage"') &&
     routeWarmupSmokeSource.includes('"suiteReportPage"') &&
     routeWarmupSmokeSource.includes('"comparePage"') &&
+    routeWarmupSmokeSource.includes('"comparisonSamplePage"') &&
     routeWarmupSmokeSource.includes('"servicesPage"') &&
     routeWarmupSmokeSource.includes('"settingsPage"') &&
     routeWarmupSmokeSource.includes('performance.getEntriesByType("resource")') &&
@@ -1816,12 +1837,16 @@ assert(
     readmeSource.includes("npm run test:nav-prefetch") &&
     readmeSource.includes("npm run test:loading-state") &&
     readmeSource.includes("npm run test:toast") &&
+    readmeSource.includes("npm run test:dialogs") &&
+    readmeSource.includes("npm run test:settings-preview") &&
+    readmeSource.includes("npm run test:smoke") &&
     readmeSource.includes("`test:select-popover` 会检查共享下拉控件的窗口化渲染和键盘导航 model（`src/selectPopoverModel.ts`）") &&
     readmeSource.includes("`test:select-popover-ui` 是共享下拉控件的浏览器 smoke") &&
     readmeSource.includes("`test:route-warmup` 是首屏后路由预热 smoke") &&
     readmeSource.includes("`test:nav-prefetch` 是主导航意图预取 smoke") &&
     readmeSource.includes("`test:loading-state` 是列表首屏加载态 smoke") &&
     readmeSource.includes("`test:toast` 是 API 错误提示 smoke") &&
+    readmeSource.includes("settings preview 和 select popover UI smoke") &&
     compositeReportSmokeSource.includes('const url = new URL("/suite-report", baseUrl).toString();') &&
     compositeReportSmokeSource.includes('{ name: "wide", width: 1440, height: 900 }') &&
     compositeReportSmokeSource.includes('{ name: "desktop-narrow", width: 1180, height: 760 }') &&
@@ -1990,6 +2015,11 @@ assert(
     settingsWorkbenchStyleSource.includes(".settings-search-box") &&
     settingsPreviewStyleSource.includes(".settings-preview-pane") &&
     settingsPreviewStyleSource.includes(".settings-preview-stage") &&
+    !settingsPreviewStyleSource.includes("backdrop-filter") &&
+    !settingsPreviewStyleSource.includes("rgb(7 13 20 / 76%)") &&
+    settingsPreviewSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/settings"') &&
+    settingsPreviewSmokeSource.includes('!text.includes("/api/")') &&
+    settingsPreviewSmokeSource.includes('!text.includes("Failed to load resource")') &&
     settingsDrawerStyleSource.includes(".settings-preference-drawer") &&
     settingsDrawerStyleSource.includes(".settings-drawer-head") &&
     settingsLabelsStyleSource.includes(".settings-label-row") &&
@@ -3485,6 +3515,10 @@ assert(
     appShellSource.includes("bootstrapThemePreference();") &&
     appShellSource.includes("useThemePreference()") &&
     appShellSource.includes('className="theme-toggle"') &&
+    appShellSource.includes('aria-pressed={themeMode === "dark"}') &&
+    themeToggleCheckSource.includes('themeToggle?.getAttribute("aria-pressed")') &&
+    themeToggleCheckSource.includes('light theme toggle must expose aria-pressed=false') &&
+    themeToggleCheckSource.includes('dark theme toggle must expose aria-pressed=true') &&
     themeToggleCheckSource.includes("const darkSurfaceRoutes = [") &&
     themeToggleCheckSource.includes('"/benchmarks"') &&
     themeToggleCheckSource.includes('"/suite-report"') &&
@@ -4898,9 +4932,13 @@ assert(
     compositeReportStyleSource.includes(".composite-report-shell.sidebar-collapsed") &&
     compositeReportStyleSource.includes(".composite-sidebar-backdrop") &&
     compositeThemeStyleSource.includes("--composite-page-surface") &&
+    compositeThemeStyleSource.includes("--composite-surface-glass") &&
+    compositeThemeStyleSource.includes("--composite-muted-strong") &&
     compositeThemeStyleSource.includes("--composite-shell-line") &&
     compositeThemeStyleSource.includes("--composite-sidebar-backdrop-z") &&
     compositeThemeStyleSource.includes("--composite-sidebar-backdrop-hover") &&
+    compositeThemeStyleSource.includes("--composite-drawer-shadow: 8px 0 20px") &&
+    compositeThemeStyleSource.includes("--composite-popover-shadow: 0 10px 24px") &&
     compositeThemeStyleSource.includes("--composite-shell-mobile-min-height") &&
     compositeReportStyleSource.includes("z-index: var(--composite-sidebar-backdrop-z)") &&
     compositeReportStyleSource.includes("background: var(--composite-page-surface)") &&
@@ -4922,7 +4960,27 @@ assert(
     compositeThemeStyleSource.includes("--composite-dock-rail-size") &&
     compositeThemeStyleSource.includes("--composite-drawer-width") &&
     !compositeComposerDrawerStyleSource.includes("calc(100% - 48px)") &&
-    compositeComposerDrawerStyleSource.includes("box-shadow: 14px 0 32px") &&
+    compositeComposerDrawerStyleSource.includes("box-shadow: var(--composite-drawer-shadow)") &&
+    compositeComposerDrawerStyleSource.includes("box-shadow: var(--composite-drawer-shadow-mobile)") &&
+    compositeComposerDrawerStyleSource.includes("background: var(--composite-surface-quiet)") &&
+    compositeComposerDockPreviewStyleSource.includes("box-shadow: var(--composite-popover-shadow)") &&
+    compositeComposerDockPreviewStyleSource.includes("background: var(--composite-surface-glass)") &&
+    compositeComposerDockPreviewStyleSource.includes("color: var(--composite-muted-strong)") &&
+    compositeImageSearchPopoverStyleSource.includes("box-shadow: var(--composite-popover-shadow)") &&
+    compositeImageSearchPopoverStyleSource.includes("box-shadow: var(--composite-popover-shadow-top)") &&
+    compositeImageSearchPopoverStyleSource.includes("border: 1px solid var(--composite-line)") &&
+    !compositeComposerDrawerStyleSource.includes("14px 0 32px") &&
+    !compositeComposerDrawerStyleSource.includes("0 18px 40px") &&
+    !compositeComposerDrawerStyleSource.includes("#f7f9fc") &&
+    !compositeComposerDrawerStyleSource.includes("#f4f7fa") &&
+    !compositeComposerDrawerStyleSource.includes("#cbd7e4") &&
+    !compositeComposerDockPreviewStyleSource.includes("rgb(255 255 255 / 96%)") &&
+    !compositeComposerDockPreviewStyleSource.includes("#cfdae6") &&
+    !compositeComposerDockPreviewStyleSource.includes("#e4ebf2") &&
+    !compositeComposerDockPreviewStyleSource.includes("#243243") &&
+    !compositeImageSearchPopoverStyleSource.includes("#ccd7e4") &&
+    !compositeComposerDockPreviewStyleSource.includes("0 18px 42px") &&
+    !compositeImageSearchPopoverStyleSource.includes("0 18px 44px") &&
     !appThemeStyleSource.includes(".suite-report-page") &&
     !appThemeStyleSource.includes(".suite-report-grid") &&
     !appThemeStyleSource.includes(".suite-panel") &&
@@ -4956,6 +5014,12 @@ assert(
     compositeMicroMeterStyleSource.includes("--composite-meter-progress") &&
     compositeMicroMeterStyleSource.includes("conic-gradient") &&
     compositeMicroMeterStyleSource.includes("composite-meter-sweep") &&
+    compositeMicroMeterStyleSource.includes(
+      ".composite-micro-meter.idle .composite-meter-ring::before",
+    ) &&
+    compositeMicroMeterStyleSource.includes(
+      ".composite-micro-meter.idle .composite-meter-ring::before {\n  animation: none;",
+    ) &&
     !compositeMicroMeterStyleSource.includes("width: calc(var(--composite-meter-progress) * 100%)") &&
     compositeObjectContextMenuStyleSource.includes(".composite-object-context-menu") &&
     compositeObjectContextMenuStyleSource.includes(".object-context-actions") &&

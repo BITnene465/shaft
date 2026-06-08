@@ -96,9 +96,8 @@
   max-width: min(520px, 55vw);
   padding: var(--settings-pad-7) var(--settings-pad-9);
   color: #d8e5ef;
-  background: rgb(7 13 20 / 76%);
+  background: rgb(7 13 20 / 88%);
   border: 1px solid rgb(125 160 190 / 28%);
-  backdrop-filter: blur(8px);
 }
 
 .settings-preview-dock span {
@@ -127,12 +126,11 @@
   gap: var(--settings-gap-12);
   padding: var(--settings-pad-7) var(--settings-pad-9);
   color: #b9c8d3;
-  background: rgb(7 13 20 / 76%);
+  background: rgb(7 13 20 / 90%);
   border: 1px solid rgb(125 160 190 / 28%);
   border-top: 1px solid rgb(255 255 255 / 10%);
   font-size: var(--settings-text-caption);
   font-weight: 720;
-  backdrop-filter: blur(8px);
 }
 
 @media (max-height: 640px) {

@@ -89,6 +89,10 @@
   opacity: 0;
 }
 
+.composite-micro-meter.idle .composite-meter-ring::before {
+  animation: none;
+}
+
 @keyframes composite-meter-sweep {
   to {
     transform: rotate(1turn);
