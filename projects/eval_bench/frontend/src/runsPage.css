@@ -73,7 +73,7 @@
   gap: 10px;
   align-items: center;
   min-height: 34px;
-  padding: 7px 11px;
+  padding: 9px 14px;
   color: var(--run-config-summary-ink);
   cursor: pointer;
   font-size: var(--text-xs);
@@ -240,7 +240,7 @@
 
 .config-block {
   min-width: 0;
-  padding: 12px;
+  padding: 14px 16px;
   background: var(--run-config-block-bg);
 }
 
@@ -264,7 +264,7 @@
 
 .prompt-details summary {
   min-height: 38px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   color: var(--run-prompt-link-ink);
   cursor: pointer;
   font-size: var(--text-xs);
@@ -274,12 +274,12 @@
 .prompt-details pre {
   overflow: auto;
   max-height: 260px;
-  margin: 0 12px 12px;
-  padding: 12px;
+  margin: 0 14px 14px;
+  padding: 14px;
   color: var(--run-prompt-code-ink);
   background: var(--run-prompt-code-bg);
   border: 1px solid var(--run-prompt-code-line);
-  border-radius: 2px;
+  border-radius: 4px;
   font-size: var(--text-xs);
   line-height: 1.45;
   white-space: pre-wrap;

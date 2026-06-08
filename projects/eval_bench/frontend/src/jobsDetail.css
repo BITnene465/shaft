@@ -2,7 +2,7 @@
   --job-detail-gap: clamp(7px, 1.2vw, 10px);
   --job-detail-pad: clamp(9px, 1.4vw, 12px);
   --job-detail-flow-gap: clamp(5px, 0.9vw, 8px);
-  --job-detail-log-max: clamp(180px, 30vh, 340px);
+  --job-detail-log-max: clamp(280px, 48vh, 620px);
   --job-detail-progress-size: clamp(22px, 2.2vw, 26px);
   --job-detail-label-min: 72px;
   --job-detail-bg: #f7fbff;
@@ -28,6 +28,15 @@
   border: 1px solid var(--job-detail-line);
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;
+}
+
+.job-detail-sidebar .job-detail-panel {
+  position: sticky;
+  top: var(--workspace-pad-12);
+  max-height: calc(100vh - (var(--workspace-pad-12) * 2));
+  overflow: auto;
+  border-radius: var(--control-radius);
+  box-shadow: var(--bench-shadow-tight);
 }
 
 :root[data-theme="dark"] .job-detail-panel {
@@ -183,6 +192,10 @@
   font-size: var(--text-2xs);
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.job-detail-sidebar .job-log-tail {
+  max-height: min(62vh, 720px);
 }
 
 .job-log-empty {

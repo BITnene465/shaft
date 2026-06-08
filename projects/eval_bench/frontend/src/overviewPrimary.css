@@ -1,11 +1,11 @@
 .overview-v18-primary-body {
-  --overview-primary-gap: var(--space-3);
-  --overview-primary-headline-size: clamp(36px, 4vw, 46px);
+  --overview-primary-gap: clamp(16px, 1.4vw, 22px);
+  --overview-primary-headline-size: clamp(30px, 3.2vw, 40px);
   --overview-primary-body-size: var(--text-sm);
-  --overview-primary-score-pad: var(--space-2);
-  --overview-primary-score-value-size: clamp(22px, 2.4vw, 27px);
-  --overview-primary-tile-pad: var(--space-2);
-  --overview-primary-flow-icon-size: 28px;
+  --overview-primary-score-pad: clamp(12px, 1vw, 15px);
+  --overview-primary-score-value-size: clamp(20px, 2vw, 25px);
+  --overview-primary-tile-pad: clamp(12px, 1vw, 14px);
+  --overview-primary-flow-icon-size: 30px;
   --overview-primary-flow-value-size: var(--text-sm);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(150px, 190px);
@@ -17,7 +17,8 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
+  padding-inline-start: 2px;
 }
 
 .overview-v18-action-copy strong,
@@ -31,6 +32,7 @@
 
 .overview-v18-action-copy strong {
   font-size: var(--overview-primary-headline-size);
+  line-height: 1.04;
 }
 
 .overview-v18-action-copy p {
@@ -57,7 +59,7 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 12px;
   padding: var(--overview-primary-score-pad);
   color: var(--overview-score-ink);
   background: var(--overview-link-bg);
@@ -113,16 +115,18 @@
 .overview-v18-flow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
+  gap: clamp(10px, 1vw, 14px);
 }
 
 .overview-v18-flow-item {
   display: grid;
   min-width: 0;
-  grid-template-columns: var(--overview-primary-flow-icon-size) minmax(0, 1fr);
-  gap: var(--space-half) var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
   align-items: center;
+  justify-items: center;
   padding: var(--overview-primary-tile-pad);
+  text-align: center;
   color: var(--overview-card-ink);
   background: var(--overview-tile-bg);
   border: 1px solid var(--overview-tile-line);
@@ -131,7 +135,6 @@
 }
 
 .overview-v18-flow-item span {
-  grid-row: span 3;
   display: inline-flex;
   width: var(--overview-primary-flow-icon-size);
   height: var(--overview-primary-flow-icon-size);
@@ -146,6 +149,7 @@
 .overview-v18-flow-item em,
 .overview-v18-flow-item small,
 .overview-v18-run-list strong {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

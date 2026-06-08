@@ -32,6 +32,7 @@ const darkSurfaceCandidateSelector = [
 ].join(",");
 const browser = await chromium.launch({ headless: true });
 await assertStoredDarkThemePrebootsBeforeApp(browser);
+await assertReducedMotionThemeToggle(browser);
 const page = await browser.newPage({ viewport: { width: 1360, height: 820 } });
 const errors = [];
 
@@ -60,9 +61,12 @@ assert.equal(initial.theme, "light", "theme must default to light");
 assert.equal(initial.colorScheme, "light", "light theme must set color-scheme");
 assert.equal(initial.themeTogglePressed, "false", "light theme toggle must expose aria-pressed=false");
 assert(initial.topbarBackground !== initial.sidebarBackground, "shell must retain B-side rail contrast");
+await waitForThemeToggleIconState(page, "light");
+await assertThemeToggleLightBand(page);
 
 await page.getByRole("button", { name: "切换到夜间主题" }).click();
 await page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+await waitForThemeToggleIconState(page, "dark");
 const dark = await themeSnapshot(page);
 assert.equal(dark.theme, "dark", "theme button must switch to dark");
 assert.equal(dark.storage, "dark", "dark theme must persist to localStorage");
@@ -98,6 +102,7 @@ await assertDarkMicroInteractions(page);
 
 await page.getByRole("button", { name: "切换到日间主题" }).click();
 await page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+await waitForThemeToggleIconState(page, "light");
 const light = await themeSnapshot(page);
 assert.equal(light.theme, "light", "theme button must switch back to light");
 assert.equal(light.storage, "light", "light theme must persist to localStorage");
@@ -155,6 +160,125 @@ async function themeSnapshot(page) {
       sidebarBackground: sidebar ? getComputedStyle(sidebar).backgroundImage : ""
     };
   });
+}
+
+async function waitForThemeToggleIconState(page, mode) {
+  await page.waitForFunction(
+    (expectedMode) => {
+      const toggle = document.querySelector(".theme-toggle");
+      const stack = toggle?.querySelector(".theme-toggle-icon-stack");
+      const moon = toggle?.querySelector(".theme-toggle-icon.moon");
+      const sun = toggle?.querySelector(".theme-toggle-icon.sun");
+      if (!toggle || !stack || !moon || !sun) {
+        return false;
+      }
+      const moonOpacity = Number(getComputedStyle(moon).opacity);
+      const sunOpacity = Number(getComputedStyle(sun).opacity);
+      const pressed = toggle.getAttribute("aria-pressed") === "true";
+      return expectedMode === "dark"
+        ? pressed && moonOpacity < 0.2 && sunOpacity > 0.8
+        : !pressed && moonOpacity > 0.8 && sunOpacity < 0.2;
+    },
+    mode,
+    { timeout: 2_000 }
+  );
+  const snapshot = await page.locator(".theme-toggle").evaluate((toggle) => {
+    const stack = toggle.querySelector(".theme-toggle-icon-stack");
+    const moon = toggle.querySelector(".theme-toggle-icon.moon");
+    const sun = toggle.querySelector(".theme-toggle-icon.sun");
+    return {
+      pressed: toggle.getAttribute("aria-pressed"),
+      hasStack: Boolean(stack),
+      moonOpacity: moon ? Number(getComputedStyle(moon).opacity) : Number.NaN,
+      sunOpacity: sun ? Number(getComputedStyle(sun).opacity) : Number.NaN
+    };
+  });
+  assert.equal(snapshot.hasStack, true, "theme toggle must keep both icons mounted for animated swaps");
+  if (mode === "dark") {
+    assert.equal(snapshot.pressed, "true", "dark theme toggle must be pressed");
+    assert(snapshot.moonOpacity < 0.2, "dark theme must fade moon icon out");
+    assert(snapshot.sunOpacity > 0.8, "dark theme must fade sun icon in");
+    return;
+  }
+  assert.equal(snapshot.pressed, "false", "light theme toggle must not be pressed");
+  assert(snapshot.moonOpacity > 0.8, "light theme must fade moon icon in");
+  assert(snapshot.sunOpacity < 0.2, "light theme must fade sun icon out");
+}
+
+async function assertThemeToggleLightBand(page) {
+  const snapshot = await page.locator(".theme-toggle").evaluate((toggle) => {
+    const before = getComputedStyle(toggle, "::before");
+    const stack = toggle.querySelector(".theme-toggle-icon-stack");
+    return {
+      beforeBackground: before.backgroundImage,
+      beforeContent: before.content,
+      beforeOpacity: Number(before.opacity),
+      beforeZIndex: before.zIndex,
+      stackZIndex: stack ? getComputedStyle(stack).zIndex : ""
+    };
+  });
+  assert.notEqual(snapshot.beforeContent, "none", "theme toggle light band must render a pseudo element");
+  assert(
+    snapshot.beforeBackground.includes("radial-gradient"),
+    `theme toggle light band must use visible radial gradients, got ${snapshot.beforeBackground}`
+  );
+  assert(snapshot.beforeOpacity > 0.5, "theme toggle light band must be visible");
+  assert.equal(snapshot.beforeZIndex, "0", "theme toggle light band must sit inside the button surface");
+  assert.equal(snapshot.stackZIndex, "1", "theme toggle icons must stay above the light band");
+}
+
+async function assertReducedMotionThemeToggle(browser) {
+  const reducedPage = await browser.newPage({ viewport: { width: 1360, height: 820 } });
+  await reducedPage.emulateMedia({ reducedMotion: "reduce" });
+  await reducedPage.addInitScript(() => {
+    localStorage.removeItem("eval_bench_theme_mode");
+  });
+  await reducedPage.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+  await reducedPage.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+  await waitForThemeToggleIconState(reducedPage, "light");
+  await assertThemeToggleReducedMotionTiming(reducedPage);
+  await reducedPage.getByRole("button", { name: "切换到夜间主题" }).click();
+  await reducedPage.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+  await waitForThemeToggleIconState(reducedPage, "dark");
+  await assertThemeToggleReducedMotionTiming(reducedPage);
+  await reducedPage.close();
+}
+
+async function assertThemeToggleReducedMotionTiming(page) {
+  const snapshot = await page.locator(".theme-toggle").evaluate((toggle) => {
+    const icon = toggle.querySelector(".theme-toggle-icon");
+    return {
+      buttonDuration: getComputedStyle(toggle).transitionDuration,
+      beforeDuration: getComputedStyle(toggle, "::before").transitionDuration,
+      iconDuration: icon ? getComputedStyle(icon).transitionDuration : ""
+    };
+  });
+  for (const [label, value] of Object.entries(snapshot)) {
+    assert(
+      maxTransitionDurationMs(value) <= 20,
+      `reduced-motion theme toggle ${label} must use near-instant transitions, got ${value}`
+    );
+  }
+}
+
+function maxTransitionDurationMs(value) {
+  return Math.max(
+    0,
+    ...String(value)
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        if (item.endsWith("ms")) {
+          return Number.parseFloat(item);
+        }
+        if (item.endsWith("s")) {
+          return Number.parseFloat(item) * 1_000;
+        }
+        return Number.parseFloat(item);
+      })
+      .filter((duration) => Number.isFinite(duration))
+  );
 }
 
 async function assertDarkRouteSurface(page, pathname, selectors) {

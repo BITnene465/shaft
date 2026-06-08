@@ -7,18 +7,20 @@
   --job-status-live: #16a06d;
   --job-status-live-ring: rgb(22 160 109 / 14%);
   --job-note-ink: #69798a;
+  --job-detail-sidebar-min: 360px;
+  --job-detail-sidebar-width: minmax(var(--job-detail-sidebar-min), 34vw);
   --job-eval-strong-ink: #17202b;
   --job-eval-muted-ink: #6a7a8b;
   --job-target-danger-ink: #9d2632;
   --job-target-muted-ink: #66788a;
   --job-progress-label-ink: #526579;
-  --job-activity-side-min: 320px;
   --job-queue-gap: var(--space-2);
-  --job-strip-gap: var(--space-3);
-  --job-strip-pad-x: var(--space-2);
-  --job-cell-gap: var(--space-1);
+  --job-strip-gap: clamp(9px, 1.1vw, 14px);
+  --job-strip-pad-x: clamp(10px, 1vw, 13px);
+  --job-strip-pad-y: 7px;
+  --job-cell-gap: 6px;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(min(100%, var(--job-activity-side-min)), 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: var(--job-queue-gap);
   min-height: min(420px, 100%);
@@ -47,15 +49,38 @@
   contain-intrinsic-size: auto 360px;
 }
 
-.queue-stack {
-  display: flex;
-  min-height: min(48vh, 360px);
-  flex-direction: column;
-  gap: var(--job-queue-gap);
+.job-activity-grid > .workspace-card.fill.job-queue-card {
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
-.workspace-card.fill .queue-stack {
-  min-height: min(48vh, 360px);
+.job-queue-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--job-queue-gap);
+  min-height: 0;
+  transition: grid-template-columns 180ms ease;
+}
+
+.job-queue-workbench.detail-open {
+  grid-template-columns: minmax(0, 1fr) var(--job-detail-sidebar-width);
+}
+
+.job-queue-main {
+  min-width: 0;
+}
+
+.job-detail-sidebar {
+  min-width: 0;
+  animation: job-detail-sidebar-in 180ms ease-out;
+}
+
+.queue-stack {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--job-queue-gap);
 }
 
 .queue-stack > .table-shell {
@@ -77,31 +102,54 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   min-height: var(--control-compact-height);
-  gap: var(--space-1) var(--job-strip-gap);
-  padding: var(--space-1) var(--job-strip-pad-x);
+  gap: 7px var(--job-strip-gap);
+  padding: var(--job-strip-pad-y) var(--job-strip-pad-x);
   overflow: hidden;
+  text-align: center;
   color: var(--job-strip-ink);
   background: var(--job-strip-bg);
   border: 1px solid var(--job-strip-line);
+  border-radius: var(--control-radius);
   font-size: var(--text-xs);
 }
 
 .scheduler-strip > div {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 14px minmax(0, max-content);
   align-items: center;
-  gap: var(--job-cell-gap);
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
   color: var(--job-strip-strong-ink);
 }
 
+.scheduler-strip > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  min-width: 0;
+  padding: 0 6px;
+  border-radius: var(--control-radius-tight);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
 .scheduler-strip strong {
+  min-width: 0;
   font-size: var(--text-xs);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .status-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  justify-self: center;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
   border-radius: 999px;
   background: var(--job-status-dot);
 }
@@ -189,5 +237,31 @@
 @media (max-width: 1180px) {
   .job-activity-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .job-queue-workbench.detail-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-queue-workbench,
+  .job-detail-sidebar {
+    animation: none;
+    transition: none;
+  }
+}
+
+@keyframes job-detail-sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }

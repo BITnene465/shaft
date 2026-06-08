@@ -44,6 +44,21 @@ await saveDataPage.locator(".app-shell").first().waitFor({ timeout: 10_000 });
 await saveDataPage.waitForTimeout(3_200);
 const saveDataRouteChunks = await saveDataPage.evaluate(loadedRouteChunks, expectedRouteChunks);
 
+const constrainedNetworkPage = await newCheckedPage();
+await constrainedNetworkPage.addInitScript(() => {
+  Object.defineProperty(navigator, "connection", {
+    configurable: true,
+    value: { effectiveType: "2g" }
+  });
+});
+await constrainedNetworkPage.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+await constrainedNetworkPage.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+await constrainedNetworkPage.waitForTimeout(3_200);
+const constrainedNetworkRouteChunks = await constrainedNetworkPage.evaluate(
+  loadedRouteChunks,
+  expectedRouteChunks
+);
+
 await browser.close();
 
 if (errors.length > 0) {
@@ -55,6 +70,11 @@ assert.deepEqual(
   saveDataRouteChunks,
   [],
   "route warmup must not fetch core chunks when navigator.connection.saveData is true"
+);
+assert.deepEqual(
+  constrainedNetworkRouteChunks,
+  [],
+  "route warmup must not fetch core chunks on constrained effective network types"
 );
 
 console.log(`route warmup check passed on ${baseUrl}`);

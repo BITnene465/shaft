@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Moon, PanelLeftClose, PanelLeftOpen, Sun, X } from "lucide-react";
@@ -12,7 +12,7 @@ import { resetRankBoardViewState } from "./rankBoardViewState";
 import { prefetchEvalBenchRouteData } from "./routePrefetch";
 import { warmupEvalBenchRoutes } from "./routeWarmup";
 import { resetRunsViewState } from "./runsViewState";
-import { bootstrapTypographySettings, useTypographySettings } from "./typographySettings";
+import { bootstrapTypographySettings, useTypographyPreferenceSync } from "./typographySettings";
 import { ActionButton, IconActionButton } from "./ui";
 import {
   bootstrapThemePreference,
@@ -75,7 +75,78 @@ export function AppShell() {
   const pageTitle = getShellTitle(location.pathname);
   const { sidebarCollapsed, setSidebarCollapsed } = useSidebarPreference();
   const { themeMode, toggleThemeMode } = useThemePreference();
-  useTypographySettings();
+  const handleSidebarToggle = useCallback(
+    () => setSidebarCollapsed((value) => !value),
+    [setSidebarCollapsed]
+  );
+  const handleRouteIntent = useCallback(
+    (pathname: string) => prefetchEvalBenchRouteData(queryClient, pathname),
+    [queryClient]
+  );
+  const navigationItems = useMemo<NavItemConfig[]>(
+    () => [
+      {
+        to: "/",
+        icon: <AppIcon name="overview" size={21} />,
+        label: "总览",
+        onIntent: handleRouteIntent
+      },
+      {
+        to: "/benchmarks",
+        icon: <AppIcon name="benchmark" size={21} />,
+        label: "基准集",
+        onIntent: handleRouteIntent
+      },
+      {
+        to: "/services",
+        icon: <AppIcon name="service" size={21} />,
+        label: "模型服务",
+        onIntent: handleRouteIntent
+      },
+      {
+        to: "/jobs",
+        icon: <AppIcon name="evalJob" size={21} />,
+        label: "评测中心",
+        onIntent: handleRouteIntent,
+        onNavigate: resetJobsViewState
+      },
+      {
+        to: "/runs",
+        icon: <AppIcon name="runResults" size={21} />,
+        label: "结果库",
+        onIntent: handleRouteIntent,
+        onNavigate: resetRunsViewState
+      },
+      {
+        to: "/rank-board",
+        icon: <AppIcon name="rankBoard" size={21} />,
+        label: "排行榜",
+        onIntent: handleRouteIntent,
+        onNavigate: resetRankBoardViewState
+      },
+      {
+        to: "/suite-report",
+        icon: <AppIcon name="diagnostics" size={21} />,
+        label: "组合报告",
+        onIntent: handleRouteIntent
+      },
+      {
+        to: "/compare",
+        icon: <AppIcon name="compareAnalysis" size={21} />,
+        label: "对比分析",
+        onIntent: handleRouteIntent,
+        onNavigate: resetCompareViewState
+      },
+      {
+        to: "/settings",
+        icon: <AppIcon name="workspaceSettings" size={21} />,
+        label: "工作台设置",
+        onIntent: handleRouteIntent
+      }
+    ],
+    [handleRouteIntent]
+  );
+  useTypographyPreferenceSync();
   useEffect(() => warmupEvalBenchRoutes(), []);
 
   return (
@@ -92,68 +163,13 @@ export function AppShell() {
             title={sidebarCollapsed ? "展开导航栏" : "收起导航栏"}
             dense={false}
             icon={sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            onClick={() => setSidebarCollapsed((value) => !value)}
+            onClick={handleSidebarToggle}
           />
         </div>
         <nav className="nav-list">
-          <NavItem
-            to="/"
-            icon={<AppIcon name="overview" size={21} />}
-            label="总览"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-          />
-          <NavItem
-            to="/benchmarks"
-            icon={<AppIcon name="benchmark" size={21} />}
-            label="基准集"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-          />
-          <NavItem
-            to="/services"
-            icon={<AppIcon name="service" size={21} />}
-            label="模型服务"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-          />
-          <NavItem
-            to="/jobs"
-            icon={<AppIcon name="evalJob" size={21} />}
-            label="评测中心"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-            onNavigate={resetJobsViewState}
-          />
-          <NavItem
-            to="/runs"
-            icon={<AppIcon name="runResults" size={21} />}
-            label="结果库"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-            onNavigate={resetRunsViewState}
-          />
-          <NavItem
-            to="/rank-board"
-            icon={<AppIcon name="rankBoard" size={21} />}
-            label="排行榜"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-            onNavigate={resetRankBoardViewState}
-          />
-          <NavItem
-            to="/suite-report"
-            icon={<AppIcon name="diagnostics" size={21} />}
-            label="组合报告"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-          />
-          <NavItem
-            to="/compare"
-            icon={<AppIcon name="compareAnalysis" size={21} />}
-            label="对比分析"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-            onNavigate={resetCompareViewState}
-          />
-          <NavItem
-            to="/settings"
-            icon={<AppIcon name="workspaceSettings" size={21} />}
-            label="工作台设置"
-            onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}
-          />
+          {navigationItems.map((item) => (
+            <NavItem key={item.to} {...item} />
+          ))}
         </nav>
         <div className="store-chip">
           <span>数据目录</span>
@@ -172,7 +188,12 @@ export function AppShell() {
               title={themeMode === "dark" ? "切换到日间主题" : "切换到夜间主题"}
               aria-label={themeMode === "dark" ? "切换到日间主题" : "切换到夜间主题"}
               aria-pressed={themeMode === "dark"}
-              icon={themeMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+              icon={
+                <span className="theme-toggle-icon-stack" aria-hidden="true">
+                  <Moon className="theme-toggle-icon moon" size={15} />
+                  <Sun className="theme-toggle-icon sun" size={15} />
+                </span>
+              }
               onClick={toggleThemeMode}
             />
             <StatusPill loading={stateQuery.isFetching} error={stateQuery.isError} />
@@ -192,7 +213,15 @@ type ToastMessage = {
   count: number;
 };
 
-function ToastHub() {
+type NavItemConfig = {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  onIntent?: (pathname: string) => void;
+  onNavigate?: () => void;
+};
+
+const ToastHub = memo(function ToastHub() {
   const [items, setItems] = useState<ToastMessage[]>([]);
   const dismissTimersRef = useRef<Record<string, number>>({});
   useEffect(() => {
@@ -244,7 +273,7 @@ function ToastHub() {
       ))}
     </div>
   );
-}
+});
 
 function toastAutoDismissMs() {
   const override = (window as EvalBenchTestWindow).__EVAL_BENCH_TOAST_AUTO_DISMISS_MS__;
@@ -281,19 +310,13 @@ function getShellTitle(pathname: string) {
   return { kicker: "评测运营台", title: "总览" };
 }
 
-function NavItem({
+const NavItem = memo(function NavItem({
   to,
   icon,
   label,
   onIntent,
   onNavigate
-}: {
-  to: string;
-  icon: React.ReactNode;
-  label: string;
-  onIntent?: (pathname: string) => void;
-  onNavigate?: () => void;
-}) {
+}: NavItemConfig) {
   function handleIntent() {
     onIntent?.(to);
   }
@@ -314,9 +337,9 @@ function NavItem({
       <span>{label}</span>
     </Link>
   );
-}
+});
 
-function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
+const StatusPill = memo(function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
   const delayedLoading = useDelayedTruthy(loading, STATUS_SYNC_DELAY_MS);
   if (error) {
     return <div className="status-pill danger">接口异常</div>;
@@ -326,7 +349,7 @@ function StatusPill({ loading, error }: { loading: boolean; error: boolean }) {
       {delayedLoading ? "同步中" : "在线"}
     </div>
   );
-}
+});
 
 function useDelayedTruthy(value: boolean, delayMs: number) {
   const [delayedValue, setDelayedValue] = useState(false);

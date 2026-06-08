@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 const TYPOGRAPHY_STORAGE_KEY = "eval_bench_typography_settings";
@@ -89,21 +89,10 @@ export function bootstrapTypographySettings() {
   applyTypographySettings(loadTypographySettings());
 }
 
-export function useTypographySettings() {
+function useSyncedTypographySettingsState() {
   const [typographySettings, setTypographySettings] = useState<TypographySettings>(() =>
     loadTypographySettings()
   );
-  const typographyVars = useMemo(
-    () => typographyStyleVars(typographySettings),
-    [typographySettings]
-  );
-
-  useEffect(() => {
-    applyTypographySettings(typographySettings);
-    localStorage.setItem(TYPOGRAPHY_STORAGE_KEY, JSON.stringify(typographySettings));
-    localStorage.setItem(TYPOGRAPHY_STORAGE_VERSION_KEY, CURRENT_TYPOGRAPHY_STORAGE_VERSION);
-    window.dispatchEvent(new CustomEvent(TYPOGRAPHY_CHANGED_EVENT));
-  }, [typographySettings]);
 
   useEffect(() => {
     function syncTypographySettings() {
@@ -120,20 +109,48 @@ export function useTypographySettings() {
     };
   }, []);
 
-  function updateTypographySettings(patch: Partial<TypographySettings>) {
+  return [typographySettings, setTypographySettings] as const;
+}
+
+export function useTypographyPreferenceSync() {
+  const [typographySettings] = useSyncedTypographySettingsState();
+
+  useEffect(() => {
+    applyTypographySettings(typographySettings);
+  }, [typographySettings]);
+}
+
+export function useTypographySettings() {
+  const [typographySettings, setTypographySettings] = useSyncedTypographySettingsState();
+  const typographyVars = useMemo(
+    () => typographyStyleVars(typographySettings),
+    [typographySettings]
+  );
+
+  useEffect(() => {
+    applyTypographySettings(typographySettings);
+    localStorage.setItem(TYPOGRAPHY_STORAGE_KEY, JSON.stringify(typographySettings));
+    localStorage.setItem(TYPOGRAPHY_STORAGE_VERSION_KEY, CURRENT_TYPOGRAPHY_STORAGE_VERSION);
+    window.dispatchEvent(new CustomEvent(TYPOGRAPHY_CHANGED_EVENT));
+  }, [typographySettings]);
+
+  const updateTypographySettings = useCallback((patch: Partial<TypographySettings>) => {
     setTypographySettings((current) => normalizeTypographySettings({ ...current, ...patch }));
-  }
+  }, []);
 
-  function resetTypographySettings() {
+  const resetTypographySettings = useCallback(() => {
     setTypographySettings(DEFAULT_TYPOGRAPHY_SETTINGS);
-  }
+  }, []);
 
-  return {
-    typographySettings,
-    typographyVars,
-    updateTypographySettings,
-    resetTypographySettings
-  };
+  return useMemo(
+    () => ({
+      typographySettings,
+      typographyVars,
+      updateTypographySettings,
+      resetTypographySettings
+    }),
+    [typographySettings, typographyVars, updateTypographySettings, resetTypographySettings]
+  );
 }
 
 export function applyTypographySettings(settings: TypographySettings) {
@@ -277,7 +294,7 @@ function updateCustomFontFaceStyle(settings: TypographySettings) {
   }
   const style = existing ?? document.createElement("style");
   style.id = CUSTOM_FONT_FACE_STYLE_ID;
-  style.textContent = `@font-face{font-family:"${settings.customFontName}";src:url("${settings.customFontFileUrl}");font-display:swap;}`;
+  style.textContent = `@font-face{font-family:"${settings.customFontName}";src:url("${settings.customFontFileUrl}");font-display:swap;unicode-range:U+0000-024F,U+2000-206F,U+20A0-22FF,U+2460-24FF,U+25A0-25FF;}`;
   if (!existing) {
     document.head.appendChild(style);
   }

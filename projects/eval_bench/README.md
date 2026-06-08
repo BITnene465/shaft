@@ -846,6 +846,7 @@ npm run test:select-popover
 npm run test:select-popover-ui
 npm run test:route-warmup
 npm run test:nav-prefetch
+npm run test:refresh-policy
 npm run test:loading-state
 npm run test:toast
 npm run test:dialogs
@@ -889,7 +890,10 @@ listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active 
 
 `test:nav-prefetch` 是主导航意图预取 smoke，会在 hover 主导航时拦截 API 请求，检查结果库、评测中心、
 排行榜、服务、基准集、对比分析和设置页的轻量入口数据进入 react-query 缓存，降低首次进入页面的等待；
-同时会确认浏览器开启 save-data 时不触发这些机会性预取。
+同时会确认浏览器开启 save-data 或处于慢速网络时不触发这些机会性预取。
+
+`test:refresh-policy` 是自动刷新策略 smoke，会在生产预览首页和评测中心拦截轮询接口，确认普通网络下
+关键列表会继续自动刷新，而 save-data / 慢速网络下不会沿用正常 4s-5s 的高频轮询。
 
 `test:loading-state` 是列表首屏加载态 smoke，会延迟基准集、结果库、排行榜、评测中心和模型服务接口，
 检查页面保持原布局并显示表格骨架，而不是退化成整页空态。
@@ -898,7 +902,7 @@ listbox / option ARIA、搜索清空后的焦点保留、键盘导航的 active 
 手动关闭只移除目标 toast，避免轮询失败时提示堆叠刷屏。
 
 `test:smoke` 是生产预览下的轻量浏览器回归聚合入口，会串起 theme、route warmup、nav prefetch、
-loading state、toast、dialogs、settings preview 和 select popover UI smoke；改主题、导航预取、弹层、
+refresh policy、loading state、toast、dialogs、settings preview 和 select popover UI smoke；改主题、导航预取、弹层、
 设置预览或加载反馈时优先跑这一组。
 
 `test:shortcuts` 会做两层覆盖：静态扫描所有全局 `keydown` 入口必须经由 `SHORTCUT_ACTIONS` /

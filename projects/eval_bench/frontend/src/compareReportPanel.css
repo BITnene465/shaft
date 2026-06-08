@@ -257,7 +257,7 @@
 
 .delta-card {
   min-height: var(--compare-delta-min);
-  padding: var(--compare-pad-7) 0;
+  padding: var(--compare-pad-7) var(--compare-pad-8);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--compare-report-card-line);
@@ -309,7 +309,7 @@
   align-items: center;
   gap: var(--compare-gap-8);
   min-height: var(--compare-chip-min);
-  padding: var(--compare-pad-3) 0;
+  padding: var(--compare-pad-4) var(--compare-pad-8);
   color: var(--compare-report-summary-ink);
   background: transparent;
   border: 0;
@@ -384,7 +384,7 @@
   gap: var(--compare-gap-4);
   min-width: 0;
   overflow: hidden;
-  padding: var(--compare-pad-7) 0;
+  padding: var(--compare-pad-7) var(--compare-pad-8);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--compare-report-label-line);
@@ -440,7 +440,7 @@
 .compare-page .comparison-outcome-band,
 .compare-page .sample-count-chip,
 .compare-page .label-delta-card {
-  border-radius: 0;
+  border-radius: var(--compare-radius-control);
 }
 
 .summary-pill,

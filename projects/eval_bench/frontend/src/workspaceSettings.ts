@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
 
 import {
@@ -157,7 +157,10 @@ export function useSidebarPreference() {
     localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
   }, [sidebarCollapsed]);
 
-  return { sidebarCollapsed, setSidebarCollapsed };
+  return useMemo(
+    () => ({ sidebarCollapsed, setSidebarCollapsed }),
+    [sidebarCollapsed, setSidebarCollapsed]
+  );
 }
 
 export function bootstrapThemePreference() {
@@ -166,16 +169,17 @@ export function bootstrapThemePreference() {
 
 export function useThemePreference() {
   const [themeMode, setThemeMode] = useState(() => loadThemeMode());
+  const toggleThemeMode = useCallback(
+    () => setThemeMode((current) => (current === "dark" ? "light" : "dark")),
+    []
+  );
 
   useEffect(() => {
     applyThemeMode(themeMode);
     localStorage.setItem(STORAGE_KEYS.themeMode, themeMode);
   }, [themeMode]);
 
-  return {
-    themeMode,
-    toggleThemeMode: () => setThemeMode((current) => (current === "dark" ? "light" : "dark"))
-  };
+  return useMemo(() => ({ themeMode, toggleThemeMode }), [themeMode, toggleThemeMode]);
 }
 
 export function useViewerLayerPreferences(labels: string[]) {

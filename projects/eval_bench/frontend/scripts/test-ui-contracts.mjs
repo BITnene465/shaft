@@ -85,6 +85,8 @@ const mainEntry = await readSource("src/main.tsx");
 const appShellSource = await readSource("src/appShell.tsx");
 const routePrefetchSource = await readSource("src/routePrefetch.ts");
 const routeWarmupSource = await readSource("src/routeWarmup.ts");
+const networkHintsSource = await readSource("src/networkHints.ts");
+const refreshPolicySource = await readSource("src/refreshPolicy.ts");
 const runTables = await readSource("src/runTables.tsx");
 const runsImportPanelSource = await readSource("src/runsImportPanel.tsx");
 const runConfigPanelSource = await readSource("src/runConfigPanel.tsx");
@@ -149,7 +151,6 @@ const runsStyleSource = await readSource("src/runsPage.css");
 const servicesPageStyleSource = await readSource("src/servicesPage.css");
 const jobsStyleSource = await readSource("src/jobsPage.css");
 const jobsQueueStyleSource = await readSource("src/jobsQueue.css");
-const jobsRecentRunsStyleSource = await readSource("src/jobsRecentRuns.css");
 const jobsDetailStyleSource = await readSource("src/jobsDetail.css");
 const jobsManifestStyleSource = await readSource("src/jobsManifest.css");
 const formControlsStyleSource = await readSource("src/formControls.css");
@@ -257,6 +258,7 @@ const dialogSmokeSource = await readProjectFile("scripts/dialog-smoke-check.mjs"
 const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
 const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
 const navPrefetchSmokeSource = await readProjectFile("scripts/nav-prefetch-check.mjs");
+const refreshPolicySmokeSource = await readProjectFile("scripts/refresh-policy-check.mjs");
 const advancedFilterSmokeSource = await readProjectFile("scripts/advanced-filter-smoke-check.mjs");
 const loadingStateSmokeSource = await readProjectFile("scripts/loading-state-check.mjs");
 const settingsPreviewSmokeSource = await readProjectFile("scripts/settings-preview-check.mjs");
@@ -308,7 +310,8 @@ assert(
     mainEntry.includes('import "./compositeTheme.css";') &&
     mainEntry.includes('import { AppErrorBoundary, AppShell } from "./appShell";') &&
     appShellSource.includes("bootstrapTypographySettings") &&
-    appShellSource.includes("useTypographySettings();") &&
+    appShellSource.includes("useTypographyPreferenceSync();") &&
+    !appShellSource.includes("useTypographySettings();") &&
     appShellSource.includes("bootstrapTypographySettings();") &&
     mainEntry.includes('import "./adaptiveContent.css";') &&
     mainEntry.indexOf('import "./appBase.css";') < mainEntry.indexOf('import "./appTheme.css";') &&
@@ -399,7 +402,7 @@ assert(
     !appChromeVisualStyleSource.includes("var(--bench-status-success-soft)") &&
     !appChromeVisualStyleSource.includes("var(--bench-status-warning-soft)") &&
     !appChromeStyleSource.includes("translateX(") &&
-    !appChromeVisualStyleSource.includes("translateX(") &&
+    !appChromeVisualStyleSource.includes(".nav-item {\n  transform") &&
     !appChromeStyleSource.includes("transform 150ms ease") &&
     !appChromeVisualStyleSource.includes("transform 150ms ease") &&
     !appChromeVisualStyleSource.includes("transform 140ms ease") &&
@@ -461,10 +464,25 @@ assert(
 assert(
   !mainEntry.includes("refetchInterval: 10_000") &&
     mainEntry.includes("staleTime: 15_000") &&
+    mainEntry.includes("refetchIntervalInBackground: false") &&
     mainEntry.includes("refetchOnWindowFocus: false") &&
     dashboardStateSource.includes('queryKey: ["dashboard-state"]') &&
     dashboardStateSource.includes("refetchInterval = false") &&
     !dashboardStateSource.includes("refetchInterval: 10_000") &&
+    refreshPolicySource.includes('import { isConstrainedNetworkMode } from "./networkHints";') &&
+    refreshPolicySource.includes("CONSTRAINED_REFRESH_MULTIPLIER = 3") &&
+    refreshPolicySource.includes("CONSTRAINED_REFRESH_MIN_MS = 15_000") &&
+    refreshPolicySource.includes("export function adaptiveRefreshInterval(baseIntervalMs: number | false)") &&
+    refreshPolicySource.includes("if (baseIntervalMs === false)") &&
+    refreshPolicySource.includes("if (!isConstrainedNetworkMode())") &&
+    overviewModelSource.includes('import { adaptiveRefreshInterval } from "./refreshPolicy";') &&
+    overviewModelSource.includes("const queueRefreshInterval = adaptiveRefreshInterval(OVERVIEW_QUEUE_REFRESH_MS);") &&
+    overviewModelSource.includes("const serviceRefreshInterval = adaptiveRefreshInterval(OVERVIEW_SERVICE_REFRESH_MS);") &&
+    overviewModelSource.includes("refetchInterval: queueRefreshInterval") &&
+    overviewModelSource.includes("refetchInterval: serviceRefreshInterval") &&
+    jobsQueuePanelSource.includes('import { adaptiveRefreshInterval } from "./refreshPolicy";') &&
+    jobsQueuePanelSource.includes("const queueRefreshInterval = adaptiveRefreshInterval(JOB_QUEUE_REFRESH_MS);") &&
+    jobsQueuePanelSource.includes("refetchInterval: queueRefreshInterval") &&
     appShellSource.includes("const STATUS_SYNC_DELAY_MS = 450;") &&
     appShellSource.includes("const TOAST_AUTO_DISMISS_MS = 8_000;") &&
     appShellSource.includes("const TOAST_MAX_ITEMS = 3;") &&
@@ -483,18 +501,35 @@ assert(
     appShellSource.includes("window.setTimeout(() => setDelayedValue(true), delayMs)") &&
     appShellSource.includes("window.clearTimeout(timeout)") &&
     !appShellSource.includes('className={loading ? "status-pill loading" : "status-pill online"}') &&
+    appShellSource.includes('import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";') &&
     appShellSource.includes('import { prefetchEvalBenchRouteData } from "./routePrefetch";') &&
     appShellSource.includes("const queryClient = useQueryClient();") &&
-    appShellSource.includes("onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}") &&
+    appShellSource.includes("const handleSidebarToggle = useCallback(") &&
+    appShellSource.includes("const handleRouteIntent = useCallback(") &&
+    appShellSource.includes("const navigationItems = useMemo<NavItemConfig[]>(") &&
+    appShellSource.includes("<NavItem key={item.to} {...item} />") &&
+    appShellSource.includes("const NavItem = memo(function NavItem") &&
+    appShellSource.includes("const ToastHub = memo(function ToastHub") &&
+    appShellSource.includes("const StatusPill = memo(function StatusPill") &&
+    appShellSource.includes("onClick={handleSidebarToggle}") &&
+    !appShellSource.includes("onIntent={(pathname) => prefetchEvalBenchRouteData(queryClient, pathname)}") &&
     appShellSource.includes("onMouseEnter={handleIntent}") &&
     appShellSource.includes("onFocus={handleIntent}") &&
     appShellSource.includes("onTouchStart={handleIntent}") &&
+    networkHintsSource.includes("export function isConstrainedNetworkMode()") &&
+    networkHintsSource.includes("export function shouldAvoidSpeculativeNetworkWork()") &&
+    networkHintsSource.includes("return isConstrainedNetworkMode();") &&
+    networkHintsSource.includes('new Set(["slow-2g", "2g"])') &&
+    networkHintsSource.includes("connection?.saveData") &&
+    networkHintsSource.includes("connection?.effectiveType") &&
+    networkHintsSource.includes("connection.effectiveType.toLowerCase()") &&
     routePrefetchSource.includes("const ROUTE_PREFETCH_STALE_MS = 15_000;") &&
-    routePrefetchSource.includes("type SaveDataNavigator = Navigator &") &&
+    routePrefetchSource.includes('import { shouldAvoidSpeculativeNetworkWork } from "./networkHints";') &&
+    !routePrefetchSource.includes("type SaveDataNavigator = Navigator &") &&
     routePrefetchSource.includes("const prefetchInFlightPathnames = new Set<string>();") &&
     routePrefetchSource.includes("export function prefetchEvalBenchRouteData") &&
     routePrefetchSource.includes("if (shouldSkipRoutePrefetch())") &&
-    routePrefetchSource.includes("connection?.saveData") &&
+    routePrefetchSource.includes("return shouldAvoidSpeculativeNetworkWork();") &&
     routePrefetchSource.includes("const ROUTE_PREFETCH_INTENT_DELAY_MS = 80;") &&
     routePrefetchSource.includes("prefetchInFlightPathnames.has(normalizedPathname)") &&
     routePrefetchSource.includes("pendingPrefetchTimers.has(normalizedPathname)") &&
@@ -526,9 +561,10 @@ assert(
     routeWarmupSource.includes("const ROUTE_WARMUP_FALLBACK_DELAY_MS = 1_200;") &&
     routeWarmupSource.includes("const ROUTE_WARMUP_BATCH_SIZE = 3;") &&
     routeWarmupSource.includes("const ROUTE_WARMUP_BATCH_GAP_MS = 120;") &&
+    routeWarmupSource.includes('import { shouldAvoidSpeculativeNetworkWork } from "./networkHints";') &&
     routeWarmupSource.includes("requestIdleCallback") &&
     routeWarmupSource.includes("cancelIdleCallback") &&
-    routeWarmupSource.includes("connection?.saveData") &&
+    routeWarmupSource.includes("return shouldAvoidSpeculativeNetworkWork();") &&
     routeWarmupSource.includes("let routeWarmupInProgress = false;") &&
     routeWarmupSource.includes("let routeWarmupSubscribers = 0;") &&
     routeWarmupSource.includes("routeWarmupSubscribers += 1;") &&
@@ -576,7 +612,7 @@ assert(
     overviewModelSource.includes("const OVERVIEW_QUEUE_REFRESH_MS = 5_000;") &&
     overviewModelSource.includes("const OVERVIEW_SERVICE_REFRESH_MS = 10_000;") &&
     overviewModelSource.includes("useDashboardState({") &&
-    overviewModelSource.includes("refetchInterval: OVERVIEW_SERVICE_REFRESH_MS") &&
+    overviewModelSource.includes("refetchInterval: serviceRefreshInterval") &&
     apiSource.includes("type FetchRequestOptions = {") &&
     apiSource.includes("signal?: AbortSignal") &&
     apiSource.includes("fetchTargetLabelResolution(\n  options: TargetLabelResolutionParams = {},\n  request: FetchRequestOptions = {}") &&
@@ -1437,34 +1473,44 @@ assert(
     formControlsStyleSource.includes("color: var(--control-status-danger-ink)") &&
     !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(formControlsStyleSource) &&
     jobsStyleSource.includes('@import "./jobsQueue.css";') &&
-    jobsStyleSource.includes('@import "./jobsRecentRuns.css";') &&
+    !jobsStyleSource.includes('@import "./jobsRecentRuns.css";') &&
     jobsStyleSource.includes('@import "./jobsDetail.css";') &&
     jobsStyleSource.includes('@import "./jobsManifest.css";') &&
+    jobsPage.includes('className="workspace-card fill job-queue-card"') &&
+    !jobsPage.includes("RecentRunList") &&
+    !jobsPage.includes("recent-run-card") &&
+    !jobsPage.includes("最近结果") &&
     jobsManifestStyleSource.includes(".manifest-job-form label") &&
     jobsManifestStyleSource.includes(".manifest-toolbar") &&
+    jobsQueuePanelSource.includes("job-queue-workbench detail-open") &&
+    jobsQueuePanelSource.includes('className="job-detail-sidebar"') &&
+    jobsQueuePanelSource.includes('aria-label="任务日志侧栏"') &&
+    jobsQueuePanelSource.includes('title="收起日志侧栏"') &&
     jobsQueueStyleSource.includes(".queue-stack") &&
-    jobsRecentRunsStyleSource.includes(".recent-run-card") &&
-    !jobsRecentRunsStyleSource.includes("transform 160ms ease") &&
-    !jobsRecentRunsStyleSource.includes("translateY(") &&
-    !jobsRecentRunsStyleSource.includes("0 14px 28px") &&
-    jobsRecentRunsStyleSource.includes(':root[data-theme="dark"] .recent-run-list') &&
-    jobsRecentRunsStyleSource.includes("--recent-run-card-accent") &&
-    jobsRecentRunsStyleSource.includes("--recent-run-artifact-gradient") &&
-    jobsRecentRunsStyleSource.includes("content-visibility: auto;") &&
-    jobsRecentRunsStyleSource.includes("contain-intrinsic-size: auto 58px;") &&
-    jobsRecentRunsStyleSource.includes("box-shadow: inset 3px 0 0 var(--recent-run-card-accent)") &&
-    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(jobsRecentRunsStyleSource) &&
+    jobsQueueStyleSource.includes(".job-activity-grid > .workspace-card.fill.job-queue-card") &&
+    jobsQueueStyleSource.includes("overflow: visible;") &&
+    jobsQueueStyleSource.includes(".job-queue-workbench.detail-open") &&
+    jobsQueueStyleSource.includes("grid-template-columns: minmax(0, 1fr) var(--job-detail-sidebar-width)") &&
+    jobsQueueStyleSource.includes("@keyframes job-detail-sidebar-in") &&
     jobsQueueStyleSource.includes(':root[data-theme="dark"] .job-activity-grid') &&
     jobsQueueStyleSource.includes("--job-strip-bg") &&
     jobsQueueStyleSource.includes("--job-eval-strong-ink") &&
     jobsQueueStyleSource.includes("box-shadow: 0 0 0 3px var(--job-status-live-ring)") &&
-    jobsQueueStyleSource.includes("grid-template-columns: minmax(0, 1.45fr) minmax(min(100%, var(--job-activity-side-min)), 0.85fr)") &&
+    jobsQueueStyleSource.includes("grid-template-columns: minmax(0, 1fr);") &&
     jobsQueueStyleSource.includes("flex-wrap: wrap;") &&
+    jobsQueueStyleSource.includes("justify-content: center;") &&
+    jobsQueueStyleSource.includes("grid-template-columns: 14px minmax(0, max-content)") &&
+    jobsQueueStyleSource.includes("flex: 0 0 auto;") &&
+    jobsQueueStyleSource.includes("overflow-wrap: anywhere;") &&
     jobsQueueStyleSource.includes("content-visibility: auto;") &&
     jobsQueueStyleSource.includes("contain-intrinsic-size: auto 360px;") &&
     jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
     jobsDetailStyleSource.includes(".job-detail-panel") &&
+    jobsDetailStyleSource.includes(".job-detail-sidebar .job-detail-panel") &&
+    jobsDetailStyleSource.includes("max-height: calc(100vh - (var(--workspace-pad-12) * 2))") &&
+    jobsDetailStyleSource.includes(".job-detail-sidebar .job-log-tail") &&
     jobsDetailStyleSource.includes(':root[data-theme="dark"] .job-detail-panel') &&
+    jobsDetailStyleSource.includes("--job-detail-log-max: clamp(280px, 48vh, 620px)") &&
     jobsDetailStyleSource.includes("--job-progress-start") &&
     jobsDetailStyleSource.includes("content-visibility: auto;") &&
     jobsDetailStyleSource.includes("contain-intrinsic-size: auto 420px;") &&
@@ -1745,7 +1791,7 @@ assert(
     jobsViewStateSource.includes("selectedJobId") &&
     jobsViewStateSource.includes("window.sessionStorage") &&
     appShellSource.includes('import { resetJobsViewState } from "./jobsViewState";') &&
-    appShellSource.includes("onNavigate={resetJobsViewState}") &&
+    appShellSource.includes("onNavigate: resetJobsViewState") &&
     !jobsQueuePanelSource.includes("controls={[\n            {\n              type: \"search\"") &&
     !jobsQueuePanelSource.includes("useEffect(() => {\n    if (!compact) {\n      setPageOffset(0);"),
   "jobs queue must preserve filters, paging, and selected job across back-navigation and reset from main nav",
@@ -1865,14 +1911,15 @@ assert(
   "jobs prompt template panel and manifest editor must use shared disclosure/textarea controls",
 );
 assert(
-  jobsPage.includes('import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";') &&
-    jobsPage.includes("recent-run-artifacts") &&
+  !jobsPage.includes('import { recentRunsByCreatedAt, runArtifactReadiness } from "./runArtifactSignals";') &&
+    !jobsPage.includes("recent-run-artifacts") &&
+    !jobsPage.includes("RecentRunList") &&
     !jobsPage.includes("recent-run-metrics") &&
     !jobsPage.includes("formatMetric") &&
     !jobsPage.includes("precision_iou50") &&
     !jobsPage.includes("recall_iou50") &&
     !jobsPage.includes("mean_iou"),
-  "jobs recent results must stay a compact artifact stream, not a fine metric panel",
+  "jobs page must not maintain a recent-results module; runtime logs live in the right detail sidebar",
 );
 
 const settingsControls = await readSource("src/settingsControls.tsx");
@@ -1940,12 +1987,13 @@ assert(
     packageJsonSource.includes('"test:toast": "node scripts/toast-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:route-warmup": "node scripts/route-warmup-check.mjs"') &&
     packageJsonSource.includes('"test:nav-prefetch": "node scripts/nav-prefetch-check.mjs"') &&
+    packageJsonSource.includes('"test:refresh-policy": "node scripts/refresh-policy-check.mjs"') &&
     packageJsonSource.includes('"test:advanced-filter": "node scripts/advanced-filter-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:loading-state": "node scripts/loading-state-check.mjs"') &&
     packageJsonSource.includes('"test:settings-preview": "node scripts/settings-preview-check.mjs"') &&
     packageJsonSource.includes("npm run test:advanced-filter") &&
     packageJsonSource.includes(
-      '"test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:advanced-filter && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui"',
+      '"test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:refresh-policy && npm run test:advanced-filter && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui"',
     ) &&
     dialogSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/"') &&
     dialogSmokeSource.includes('!text.includes("/api/")') &&
@@ -1975,6 +2023,8 @@ assert(
     routeWarmupSmokeSource.includes('Object.defineProperty(navigator, "connection"') &&
     routeWarmupSmokeSource.includes("saveData: true") &&
     routeWarmupSmokeSource.includes("route warmup must not fetch core chunks when navigator.connection.saveData is true") &&
+    routeWarmupSmokeSource.includes('value: { effectiveType: "2g" }') &&
+    routeWarmupSmokeSource.includes("route warmup must not fetch core chunks on constrained effective network types") &&
     routeWarmupSmokeSource.includes('!text.includes("/api/")') &&
     navPrefetchSmokeSource.includes('const expectedPrefetches = [') &&
     navPrefetchSmokeSource.includes('{ label: "评测中心", pathPrefix: "/api/jobs", query: "limit=80" }') &&
@@ -1986,11 +2036,23 @@ assert(
     navPrefetchSmokeSource.includes("async function waitForPrefetchCount") &&
     navPrefetchSmokeSource.includes("async function assertSaveDataSkipsPrefetch()") &&
     navPrefetchSmokeSource.includes("nav prefetch must not fetch API data when navigator.connection.saveData is true") &&
+    navPrefetchSmokeSource.includes("async function assertConstrainedNetworkSkipsPrefetch()") &&
+    navPrefetchSmokeSource.includes('value: { effectiveType: "slow-2g" }') &&
+    navPrefetchSmokeSource.includes("nav prefetch must not fetch API data on constrained effective network types") &&
+    navPrefetchSmokeSource.includes("await assertConstrainedNetworkSkipsPrefetch();") &&
     navPrefetchSmokeSource.includes("await assertRapidIntentKeepsOnlyLatestPrefetch();") &&
     navPrefetchSmokeSource.includes("async function assertRapidIntentKeepsOnlyLatestPrefetch()") &&
     navPrefetchSmokeSource.includes("rapid nav intent should prefetch the latest hovered route") &&
     navPrefetchSmokeSource.includes("rapid nav intent should cancel stale pending prefetches") &&
     navPrefetchSmokeSource.includes("runs endpoint should be prefetched once for results and once for compare, not once per hover") &&
+    refreshPolicySmokeSource.includes("async function assertNormalOverviewRefreshes()") &&
+    refreshPolicySmokeSource.includes("async function assertConstrainedOverviewDoesNotFastPoll()") &&
+    refreshPolicySmokeSource.includes("async function assertConstrainedJobsDoesNotFastPoll()") &&
+    refreshPolicySmokeSource.includes('connection: { effectiveType: "slow-2g" }') &&
+    refreshPolicySmokeSource.includes("connection: { saveData: true }") &&
+    refreshPolicySmokeSource.includes("constrained overview refresh must not keep polling jobs at the normal 5s cadence") &&
+    refreshPolicySmokeSource.includes("constrained jobs page must not keep polling queue at the normal 4s cadence") &&
+    refreshPolicySmokeSource.includes("await browser.close();") &&
     advancedFilterSmokeSource.includes('page.getByRole("button", { name: /结果高级检索/ })') &&
     advancedFilterSmokeSource.includes('page.getByRole("searchbox", { name: "全文检索" })') &&
     advancedFilterSmokeSource.includes("advanced filter draft typing must not refresh results before apply") &&
@@ -2049,6 +2111,7 @@ assert(
     readmeSource.includes("npm run test:select-popover-ui") &&
     readmeSource.includes("npm run test:route-warmup") &&
     readmeSource.includes("npm run test:nav-prefetch") &&
+    readmeSource.includes("npm run test:refresh-policy") &&
     readmeSource.includes("npm run test:loading-state") &&
     readmeSource.includes("npm run test:toast") &&
     readmeSource.includes("npm run test:dialogs") &&
@@ -2058,6 +2121,7 @@ assert(
     readmeSource.includes("`test:select-popover-ui` 是共享下拉控件的浏览器 smoke") &&
     readmeSource.includes("`test:route-warmup` 是首屏后路由预热 smoke") &&
     readmeSource.includes("`test:nav-prefetch` 是主导航意图预取 smoke") &&
+    readmeSource.includes("`test:refresh-policy` 是自动刷新策略 smoke") &&
     readmeSource.includes("`test:loading-state` 是列表首屏加载态 smoke") &&
     readmeSource.includes("`test:toast` 是 API 错误提示 smoke") &&
     readmeSource.includes("settings preview 和 select popover UI smoke") &&
@@ -2135,6 +2199,7 @@ assert(
 );
 assert(
   typographySettingsSource.includes("export type TypographySettings") &&
+    typographySettingsSource.includes('import { useCallback, useEffect, useMemo, useState } from "react";') &&
     typographySettingsSource.includes("export const DEFAULT_TYPOGRAPHY_SETTINGS") &&
     typographySettingsSource.includes("export const TYPOGRAPHY_PRESETS") &&
     typographySettingsSource.includes("export function bootstrapTypographySettings") &&
@@ -2159,9 +2224,18 @@ assert(
     typographySettingsSource.includes("applyTypographySettings") &&
     typographySettingsSource.includes("updateCustomFontLink") &&
     typographySettingsSource.includes("updateCustomFontFaceStyle") &&
+    typographySettingsSource.includes("unicode-range:U+0000-024F") &&
     typographySettingsSource.includes("effectiveFontFamily") &&
     typographySettingsSource.includes("TYPOGRAPHY_CHANGED_EVENT") &&
     typographySettingsSource.includes("sameTypographySettings") &&
+    typographySettingsSource.includes("function useSyncedTypographySettingsState()") &&
+    typographySettingsSource.includes("export function useTypographyPreferenceSync()") &&
+    typographySettingsSource.includes("const [typographySettings] = useSyncedTypographySettingsState();") &&
+    typographySettingsSource.includes("applyTypographySettings(typographySettings);\n  }, [typographySettings]);\n}") &&
+    typographySettingsSource.includes("const [typographySettings, setTypographySettings] = useSyncedTypographySettingsState();") &&
+    typographySettingsSource.includes("const updateTypographySettings = useCallback") &&
+    typographySettingsSource.includes("const resetTypographySettings = useCallback") &&
+    typographySettingsSource.includes("return useMemo(\n    () => ({\n      typographySettings,") &&
     settingsPage.includes('id: "typography"') &&
     settingsPage.includes("typographySettings.baseFontSize") &&
     settingsPreferenceDrawer.includes("TYPOGRAPHY_PRESETS.map") &&
@@ -2270,6 +2344,18 @@ assert(
     settingsPreviewSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/settings"') &&
     settingsPreviewSmokeSource.includes('!text.includes("/api/")') &&
     settingsPreviewSmokeSource.includes('!text.includes("Failed to load resource")') &&
+    settingsPreviewSmokeSource.includes("async function expectTypographySettings(page)") &&
+    settingsPreviewSmokeSource.includes('localStorage.removeItem("eval_bench_typography_settings")') &&
+    settingsPreviewSmokeSource.includes('await page.getByRole("button", { name: /字体/ }).click();') &&
+    settingsPreviewSmokeSource.includes('await page.getByLabel("基础字号").fill("13.5");') &&
+    settingsPreviewSmokeSource.includes('document.getElementById("eval-bench-custom-font")') &&
+    settingsPreviewSmokeSource.includes('document.getElementById("eval-bench-custom-font-face")') &&
+    settingsPreviewSmokeSource.includes('rootStyle.getPropertyValue("--app-base-font-size").trim() === "13.5px"') &&
+    settingsPreviewSmokeSource.includes("typography_settings_realtime: true") &&
+    settingsPreviewSmokeSource.includes("async function expectTypographySettingsOnAppShell(page)") &&
+    settingsPreviewSmokeSource.includes('await page.goto(overviewUrl.toString(), { waitUntil: "domcontentloaded" });') &&
+    settingsPreviewSmokeSource.includes('document.querySelector(".topbar h1")') &&
+    settingsPreviewSmokeSource.includes("typography_app_shell_sync: true") &&
     settingsDrawerStyleSource.includes(".settings-preference-drawer") &&
     settingsDrawerStyleSource.includes(".settings-drawer-head") &&
     settingsLabelsStyleSource.includes(".settings-label-row") &&
@@ -2543,23 +2629,40 @@ assert(
     overviewShellStyleSource.includes(".overview-v18-recent") &&
     overviewShellStyleSource.includes(".overview-v18-card::before") &&
     overviewShellStyleSource.includes(".overview-v18-icon-link:hover") &&
-    overviewShellStyleSource.includes("--overview-home-bg: #f4f7f9") &&
+    overviewShellStyleSource.includes("--overview-home-bg: linear-gradient(180deg, #f7f9fb 0%, #eef3f6 100%)") &&
+    overviewShellStyleSource.includes("--overview-page-pad: clamp(14px, 1.4vw, 20px)") &&
+    overviewShellStyleSource.includes("--overview-card-pad: clamp(18px, 1.6vw, 22px)") &&
+    overviewShellStyleSource.includes("padding: var(--overview-card-pad)") &&
+    overviewShellStyleSource.includes("inset: 0 auto 0 0") &&
     overviewShellStyleSource.includes(':root[data-theme="dark"] .dashboard-home.overview-home-v18') &&
     overviewShellStyleSource.includes("background: var(--overview-home-bg)") &&
     overviewPrimaryStyleSource.includes(".overview-v18-flow-item:hover") &&
     overviewPrimaryStyleSource.includes(".overview-v18-score:hover") &&
-    overviewPrimaryStyleSource.includes("--overview-primary-headline-size: clamp(36px, 4vw, 46px)") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-headline-size: clamp(30px, 3.2vw, 40px)") &&
     overviewPrimaryStyleSource.includes("font-size: var(--overview-primary-headline-size)") &&
-    overviewPrimaryStyleSource.includes("--overview-primary-score-value-size: clamp(22px, 2.4vw, 27px)") &&
-    overviewPrimaryStyleSource.includes("--overview-primary-flow-icon-size: 28px") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-score-pad: clamp(12px, 1vw, 15px)") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-score-value-size: clamp(20px, 2vw, 25px)") &&
+    overviewPrimaryStyleSource.includes("--overview-primary-flow-icon-size: 30px") &&
+    overviewPrimaryStyleSource.includes("gap: clamp(10px, 1vw, 14px)") &&
+    overviewPrimaryStyleSource.includes("grid-template-columns: minmax(0, 1fr)") &&
+    overviewPrimaryStyleSource.includes("justify-items: center;") &&
+    overviewPrimaryStyleSource.includes("text-align: center;") &&
     overviewPrimaryStyleSource.includes("color: var(--overview-tile-strong)") &&
     overviewPrimaryStyleSource.includes("background: var(--overview-tile-bg)") &&
     overviewPrimaryStyleSource.includes("box-shadow: none") &&
     overviewConsoleStyleSource.includes(".overview-v18-console") &&
     overviewConsoleStyleSource.includes("--overview-console-bg") &&
-    overviewConsoleStyleSource.includes("--overview-console-node-min: clamp(92px, 18vh, 112px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-gap: clamp(12px, 1vw, 14px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-pad: clamp(12px, 1vw, 16px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-node-min: clamp(104px, 18vh, 120px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-node-pad: clamp(12px, 1vw, 14px)") &&
     overviewConsoleStyleSource.includes("--overview-console-node-value-size: clamp(20px, 2.2vw, 24px)") &&
     overviewConsoleStyleSource.includes("--overview-console-inspector-value-size: clamp(22px, 2.4vw, 26px)") &&
+    overviewConsoleStyleSource.includes(".overview-v18-surface-tab.query-chip") &&
+    overviewConsoleStyleSource.includes(".overview-v18-signal-node.query-chip") &&
+    overviewConsoleStyleSource.includes("max-width: none") &&
+    overviewConsoleStyleSource.includes("padding: var(--overview-console-node-pad)") &&
+    overviewConsoleStyleSource.includes("white-space: normal") &&
     overviewConsoleStyleSource.includes("min-height: var(--overview-console-node-min)") &&
     overviewConsoleStyleSource.includes("font-size: var(--overview-console-node-value-size)") &&
     overviewConsoleStyleSource.includes("contain-intrinsic-size: auto 104px;") &&
@@ -2572,13 +2675,14 @@ assert(
     !overviewConsoleStyleSource.includes("font-size: 26px") &&
     !overviewConsoleStyleSource.includes("font-size: 30px") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-map") &&
-    overviewConsoleStyleSource.includes(".overview-v18-signal-node.active") &&
+    overviewConsoleStyleSource.includes(".overview-v18-signal-node.query-chip.active") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&
     overviewOperationsStyleSource.includes(".overview-v18-run-list") &&
     overviewOperationsStyleSource.includes(".overview-v18-service-line") &&
-    overviewOperationsStyleSource.includes("font-size: var(--overview-ops-number-size, clamp(30px, 3.1vw, 40px))") &&
+    overviewOperationsStyleSource.includes("font-size: var(--overview-ops-number-size, clamp(28px, 2.8vw, 36px))") &&
     overviewOperationsStyleSource.includes("--overview-run-row-min: 52px") &&
-    overviewOperationsStyleSource.includes("--overview-run-row-pad: var(--space-1) var(--space-2) var(--space-1) var(--space-3)") &&
+    overviewOperationsStyleSource.includes("--overview-run-row-pad: 9px 12px 9px 16px") &&
+    overviewOperationsStyleSource.includes("padding: clamp(12px, 1vw, 15px)") &&
     overviewOperationsStyleSource.includes("font-size: var(--overview-service-number-size, clamp(24px, 2.4vw, 30px))") &&
     overviewOperationsStyleSource.includes("min-height: var(--control-secondary-height)") &&
     overviewOperationsStyleSource.includes("background: var(--overview-tile-bg)") &&
@@ -2594,13 +2698,15 @@ assert(
     !overviewOperationsStyleSource.includes("font-size: 50px") &&
     !overviewOperationsStyleSource.includes("font-size: 34px") &&
     overviewResponsiveStyleSource.includes("@media (min-width: 1320px)") &&
+    overviewResponsiveStyleSource.includes("--overview-card-pad: 14px") &&
+    overviewResponsiveStyleSource.includes("font-size: clamp(28px, 10vw, 34px)") &&
     appChromeVisualStyleSource.includes(".content::before") &&
     appChromeVisualStyleSource.includes("display: none") &&
     workspaceShellStyleSource.includes(".workspace-card:not(.fill):hover") &&
     appChromeVisualStyleSource.includes(".nav-item:hover .app-icon") &&
     appChromeVisualStyleSource.includes(".nav-item::after") &&
     appChromeVisualStyleSource.includes("content: none") &&
-    !appChromeVisualStyleSource.includes("translateX(") &&
+    !appChromeVisualStyleSource.includes(".nav-item {\n  transform") &&
     !appChromeVisualStyleSource.includes(".user-profile-chip") &&
     appChromeVisualStyleSource.includes(".topbar .status-pill {\n  position: relative;\n  overflow: hidden;") &&
     !appChromeVisualStyleSource.includes(".topbar .status-pill:hover") &&
@@ -2866,7 +2972,7 @@ assert(
     runsViewStateSource.includes("export const RUNS_VIEW_STATE_RESET_EVENT") &&
     runsViewStateSource.includes("window.sessionStorage") &&
     appShellSource.includes('import { resetRunsViewState } from "./runsViewState";') &&
-    appShellSource.includes("onNavigate={resetRunsViewState}"),
+    appShellSource.includes("onNavigate: resetRunsViewState"),
   "runs page must preserve filters and paging across run-detail back-navigation and reset from main nav",
 );
 assert(
@@ -3173,7 +3279,7 @@ assert(
     comparePage.includes("activeLabel={activeLabel}") &&
     comparePage.includes("onActiveLabelChange={setActiveLabel}") &&
     appShellSource.includes('import { resetCompareViewState } from "./compareViewState";') &&
-    appShellSource.includes("onNavigate={resetCompareViewState}"),
+    appShellSource.includes("onNavigate: resetCompareViewState"),
   "compare page must preserve filters, selected runs, offsets, and active label across back-navigation and reset from main nav",
 );
 assert(
@@ -3451,7 +3557,7 @@ assert(
     !rankBoardPage.includes("readRankBoardViewState") &&
     !rankBoardPage.includes("writeRankBoardViewState") &&
     appShellSource.includes('import { resetRankBoardViewState } from "./rankBoardViewState";') &&
-    appShellSource.includes("onNavigate={resetRankBoardViewState}"),
+    appShellSource.includes("onNavigate: resetRankBoardViewState"),
   "rank board must preserve table/filter state across detail back-navigation and reset only from the main nav item",
 );
 assert(
@@ -3937,7 +4043,11 @@ assert(
     workspaceSettingsSchemaSource.includes("export const THEME_MODES") &&
     workspaceSettingsSchemaSource.includes("export const SHORTCUT_ACTIONS") &&
     workspaceSettingsSource.includes("export function bootstrapThemePreference") &&
+    workspaceSettingsSource.includes("export function useSidebarPreference") &&
+    workspaceSettingsSource.includes("return useMemo(\n    () => ({ sidebarCollapsed, setSidebarCollapsed }),") &&
     workspaceSettingsSource.includes("export function useThemePreference") &&
+    workspaceSettingsSource.includes("const toggleThemeMode = useCallback") &&
+    workspaceSettingsSource.includes("return useMemo(() => ({ themeMode, toggleThemeMode })") &&
     workspaceSettingsStorageSource.includes("export function loadThemeMode") &&
     workspaceSettingsStorageSource.includes("export function applyThemeMode") &&
     workspaceSettingsStorageSource.includes("document.documentElement.dataset.theme") &&
@@ -3952,8 +4062,37 @@ assert(
     appShellSource.includes("bootstrapThemePreference();") &&
     appShellSource.includes("useThemePreference()") &&
     appShellSource.includes('className="theme-toggle"') &&
+    appShellSource.includes('className="theme-toggle-icon-stack"') &&
+    appShellSource.includes('className="theme-toggle-icon moon"') &&
+    appShellSource.includes('className="theme-toggle-icon sun"') &&
+    !appShellSource.includes('icon={themeMode === "dark"') &&
     appShellSource.includes('aria-pressed={themeMode === "dark"}') &&
+    appChromeVisualStyleSource.includes("--theme-toggle-fast: 180ms;") &&
+    appChromeVisualStyleSource.includes("--theme-toggle-glide: 220ms;") &&
+    appChromeVisualStyleSource.includes(".theme-toggle::before") &&
+    appChromeVisualStyleSource.includes("z-index: 0;") &&
+    !appChromeVisualStyleSource.includes("z-index: -1;") &&
+    appChromeVisualStyleSource.includes(".theme-toggle-icon-stack") &&
+    appChromeVisualStyleSource.includes(".theme-toggle-icon.moon") &&
+    appChromeVisualStyleSource.includes(".theme-toggle-icon.sun") &&
+    appChromeVisualStyleSource.includes('.theme-toggle[aria-pressed="true"] .theme-toggle-icon.moon') &&
+    appChromeVisualStyleSource.includes('.theme-toggle[aria-pressed="true"] .theme-toggle-icon.sun') &&
+    appChromeVisualStyleSource.includes('.theme-toggle[aria-pressed="true"]') &&
+    appChromeVisualStyleSource.includes("transform: translateX(7px) rotate(12deg) scale(0.9);") &&
+    appChromeVisualStyleSource.includes("@media (prefers-reduced-motion: reduce)") &&
     themeToggleCheckSource.includes('themeToggle?.getAttribute("aria-pressed")') &&
+    themeToggleCheckSource.includes("async function assertThemeToggleLightBand(page)") &&
+    themeToggleCheckSource.includes('getComputedStyle(toggle, "::before")') &&
+    themeToggleCheckSource.includes('snapshot.beforeBackground.includes("radial-gradient")') &&
+    themeToggleCheckSource.includes('assert.equal(snapshot.beforeZIndex, "0"') &&
+    themeToggleCheckSource.includes("async function waitForThemeToggleIconState(page, mode)") &&
+    themeToggleCheckSource.includes('querySelector(".theme-toggle-icon-stack")') &&
+    themeToggleCheckSource.includes("moonOpacity < 0.2 && sunOpacity > 0.8") &&
+    themeToggleCheckSource.includes("moonOpacity > 0.8 && sunOpacity < 0.2") &&
+    themeToggleCheckSource.includes("async function assertReducedMotionThemeToggle(browser)") &&
+    themeToggleCheckSource.includes('await reducedPage.emulateMedia({ reducedMotion: "reduce" });') &&
+    themeToggleCheckSource.includes("async function assertThemeToggleReducedMotionTiming(page)") &&
+    themeToggleCheckSource.includes("maxTransitionDurationMs(value) <= 20") &&
     themeToggleCheckSource.includes("async function assertStoredDarkThemePrebootsBeforeApp(browser)") &&
     themeToggleCheckSource.includes('localStorage.setItem("eval_bench_theme_mode", "dark")') &&
     themeToggleCheckSource.includes('route.request().resourceType() === "script"') &&

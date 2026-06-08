@@ -71,6 +71,7 @@ for (const prefetch of expectedPrefetches) {
 
 await assertPrefetchFailureStaysSilent();
 await assertSaveDataSkipsPrefetch();
+await assertConstrainedNetworkSkipsPrefetch();
 await assertRapidIntentKeepsOnlyLatestPrefetch();
 await browser.close();
 
@@ -178,6 +179,51 @@ async function assertSaveDataSkipsPrefetch() {
     throw new Error(`save-data prefetch browser errors: ${saveDataErrors.join(" | ")}`);
   }
   await saveDataPage.close();
+}
+
+async function assertConstrainedNetworkSkipsPrefetch() {
+  const constrainedPage = await browser.newPage({ viewport: { width: 1360, height: 820 } });
+  const constrainedRequests = [];
+  const constrainedErrors = [];
+  constrainedPage.on("pageerror", (error) => constrainedErrors.push(error.message));
+  constrainedPage.on("console", (message) => {
+    if (message.type() === "error") {
+      const text = message.text();
+      if (!text.includes("/api/") && !text.includes("Failed to load resource")) {
+        constrainedErrors.push(text);
+      }
+    }
+  });
+  await constrainedPage.addInitScript(() => {
+    Object.defineProperty(navigator, "connection", {
+      configurable: true,
+      value: { effectiveType: "slow-2g" }
+    });
+  });
+  await constrainedPage.route("**/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    constrainedRequests.push(`${url.pathname}${url.search}`);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(responseForApiPath(url))
+    });
+  });
+  await constrainedPage.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+  await constrainedPage.locator(".app-shell").first().waitFor({ timeout: 10_000 });
+  const requestsBeforeHover = constrainedRequests.length;
+  await constrainedPage.getByTitle("排行榜").hover();
+  await constrainedPage.getByTitle("结果库").hover();
+  await constrainedPage.waitForTimeout(600);
+  assert.deepEqual(
+    constrainedRequests.slice(requestsBeforeHover),
+    [],
+    "nav prefetch must not fetch API data on constrained effective network types"
+  );
+  if (constrainedErrors.length > 0) {
+    throw new Error(`constrained-network prefetch browser errors: ${constrainedErrors.join(" | ")}`);
+  }
+  await constrainedPage.close();
 }
 
 async function assertRapidIntentKeepsOnlyLatestPrefetch() {

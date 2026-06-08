@@ -1,3 +1,5 @@
+import { shouldAvoidSpeculativeNetworkWork } from "./networkHints";
+
 const ROUTE_WARMUP_TIMEOUT_MS = 2_500;
 const ROUTE_WARMUP_FALLBACK_DELAY_MS = 1_200;
 const ROUTE_WARMUP_BATCH_SIZE = 3;
@@ -8,12 +10,6 @@ type IdleWindow = Window &
     requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
     cancelIdleCallback?: (handle: number) => void;
   };
-
-type SaveDataNavigator = Navigator & {
-  connection?: {
-    saveData?: boolean;
-  };
-};
 
 const WARMUP_CORE_ROUTE_MODULES = [
   () => import("./benchmarksPage"),
@@ -87,7 +83,7 @@ async function warmupRouteModules(shouldContinue: () => boolean) {
 }
 
 function shouldSkipRouteWarmup() {
-  return Boolean((navigator as SaveDataNavigator).connection?.saveData);
+  return shouldAvoidSpeculativeNetworkWork();
 }
 
 function hasRouteWarmupSubscribers() {

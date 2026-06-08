@@ -4,6 +4,7 @@ import type { FacetBucket, JobListResponse, RunSummary, ServiceListResponse } fr
 import { fetchJobs, fetchSchedulerStatus, fetchServices } from "./api";
 import { useDashboardState } from "./dashboardState";
 import { formatMetric, runF1Score } from "./formatters";
+import { adaptiveRefreshInterval } from "./refreshPolicy";
 import { recentRunsByCreatedAt } from "./runArtifactSignals";
 
 const OVERVIEW_QUEUE_REFRESH_MS = 5_000;
@@ -41,26 +42,28 @@ type OverviewSignalNode = {
 };
 
 export function useOverviewModel() {
+  const queueRefreshInterval = adaptiveRefreshInterval(OVERVIEW_QUEUE_REFRESH_MS);
+  const serviceRefreshInterval = adaptiveRefreshInterval(OVERVIEW_SERVICE_REFRESH_MS);
   const stateQuery = useDashboardState({
-    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
+    refetchInterval: serviceRefreshInterval,
     staleTime: 5_000
   });
   const jobTotalQuery = useQuery({
     queryKey: ["overview-jobs-total"],
     queryFn: ({ signal }) => fetchJobs({ limit: 1 }, { signal }),
-    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    refetchInterval: queueRefreshInterval,
     staleTime: 2_500
   });
   const serviceTotalQuery = useQuery({
     queryKey: ["overview-services-total"],
     queryFn: ({ signal }) => fetchServices({ limit: 1 }, { signal }),
-    refetchInterval: OVERVIEW_SERVICE_REFRESH_MS,
+    refetchInterval: serviceRefreshInterval,
     staleTime: 5_000
   });
   const schedulerQuery = useQuery({
     queryKey: ["overview-scheduler"],
     queryFn: ({ signal }) => fetchSchedulerStatus({ signal }),
-    refetchInterval: OVERVIEW_QUEUE_REFRESH_MS,
+    refetchInterval: queueRefreshInterval,
     staleTime: 2_500
   });
   const data = stateQuery.data;

@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,9 +27,11 @@ import {
   writeJobsViewState
 } from "./jobsViewState";
 import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
+import { adaptiveRefreshInterval } from "./refreshPolicy";
 import { jobProgress, progressPhaseText } from "./statusModel";
 import {
   Badge,
+  IconActionButton,
   InlineNavLink
 } from "./ui";
 import { TableEmptyState, TableLoadingState } from "./uiDataTable";
@@ -40,6 +43,7 @@ const JOB_QUEUE_REFRESH_MS = 4_000;
 
 export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
+  const queueRefreshInterval = adaptiveRefreshInterval(JOB_QUEUE_REFRESH_MS);
   const [initialViewState] = useState(readJobsViewState);
   const [selectedJobId, setSelectedJobId] = useState<string>(
     compact ? "" : initialViewState.selectedJobId
@@ -75,14 +79,14 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const { data, isLoading, isPlaceholderData, error } = useQuery({
     queryKey: ["jobs", jobFilters],
     queryFn: ({ signal }) => fetchJobs(jobFilters, { signal }),
-    refetchInterval: JOB_QUEUE_REFRESH_MS,
+    refetchInterval: queueRefreshInterval,
     staleTime: 1_500,
     placeholderData: (previousData) => previousData
   });
   const schedulerQuery = useQuery({
     queryKey: ["scheduler-status"],
     queryFn: ({ signal }) => fetchSchedulerStatus({ signal }),
-    refetchInterval: JOB_QUEUE_REFRESH_MS,
+    refetchInterval: queueRefreshInterval,
     staleTime: 1_500
   });
   const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
@@ -213,8 +217,8 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   if (error || !data) {
     return <div className="empty-panel danger-text">队列状态加载失败：{errorMessage(error)}</div>;
   }
-  return (
-    <div className={compact ? "queue-stack compact" : "queue-stack"}>
+  const queueContent = (
+    <>
       <SchedulerStrip
         statusFacets={facets?.statuses ?? []}
         scheduler={schedulerQuery.data ?? { enabled: false }}
@@ -262,14 +266,41 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           onPageChange={setPageOffset}
         />
       ) : null}
-      {selectedJob ? <JobDetailPanel job={selectedJob} logs={jobLogsQuery.data ?? null} /> : null}
-      <DangerConfirmDialog
-        open={Boolean(deleteJobTarget)}
-        title="删除任务记录"
-        subject={deleteJobTarget?.job_id ?? ""}
-        description="任务记录会移入回收站，队列页、运行日志入口和任务详情面板会同步移除。"
-        confirmLabel="删除记录"
-        pending={deleteMutation.isPending}
+    </>
+  );
+  if (compact) {
+    return (
+      <div className="queue-stack compact">
+        {queueContent}
+        {selectedJob ? <JobDetailPanel job={selectedJob} logs={jobLogsQuery.data ?? null} /> : null}
+        <DeleteJobDialog
+          deleteJobTarget={deleteJobTarget}
+          deletePending={deleteMutation.isPending}
+          onCancel={() => setDeleteJobTarget(null)}
+          onConfirm={() => {
+            if (deleteJobTarget) {
+              deleteMutation.mutate(deleteJobTarget.job_id);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className={selectedJob ? "job-queue-workbench detail-open" : "job-queue-workbench"}>
+      <div className="queue-stack job-queue-main">{queueContent}</div>
+      {selectedJob ? (
+        <aside className="job-detail-sidebar" aria-label="任务日志侧栏">
+          <JobDetailPanel
+            job={selectedJob}
+            logs={jobLogsQuery.data ?? null}
+            onClose={() => setSelectedJobId("")}
+          />
+        </aside>
+      ) : null}
+      <DeleteJobDialog
+        deleteJobTarget={deleteJobTarget}
+        deletePending={deleteMutation.isPending}
         onCancel={() => setDeleteJobTarget(null)}
         onConfirm={() => {
           if (deleteJobTarget) {
@@ -278,6 +309,31 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
         }}
       />
     </div>
+  );
+}
+
+function DeleteJobDialog({
+  deleteJobTarget,
+  deletePending,
+  onCancel,
+  onConfirm
+}: {
+  deleteJobTarget: JobSummary | null;
+  deletePending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <DangerConfirmDialog
+      open={Boolean(deleteJobTarget)}
+      title="删除任务记录"
+      subject={deleteJobTarget?.job_id ?? ""}
+      description="任务记录会移入回收站，队列页、运行日志入口和任务详情面板会同步移除。"
+      confirmLabel="删除记录"
+      pending={deletePending}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -313,7 +369,15 @@ function facetCount(facets: FacetBucket, value: string) {
   return facets.find((item) => item.value === value)?.count ?? 0;
 }
 
-function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null }) {
+function JobDetailPanel({
+  job,
+  logs,
+  onClose
+}: {
+  job: JobSummary;
+  logs: JobLog | null;
+  onClose?: () => void;
+}) {
   const progress = jobProgress(job);
   const lines = logs?.lines ?? [];
   const linkedRunId = stringValue(job.metadata.run_manifest_path) ? jobRunId(job) : "";
@@ -332,6 +396,7 @@ function JobDetailPanel({ job, logs }: { job: JobSummary; logs: JobLog | null })
             </InlineNavLink>
           ) : null}
           <Badge value={job.status} domain="job" />
+          {onClose ? <IconActionButton icon={<X size={14} />} title="收起日志侧栏" onClick={onClose} /> : null}
         </div>
       </div>
       <div

@@ -1,8 +1,8 @@
 .table-shell {
-  --table-cell-pad-y: clamp(6px, 0.72vw, 8px);
-  --table-cell-pad-x: clamp(8px, 0.9vw, 11px);
+  --table-cell-pad-y: clamp(7px, 0.76vw, 9px);
+  --table-cell-pad-x: clamp(10px, 0.95vw, 13px);
   --table-cell-pad-y-compact: clamp(4px, 0.58vw, 6px);
-  --table-cell-pad-x-compact: clamp(7px, 0.78vw, 9px);
+  --table-cell-pad-x-compact: clamp(8px, 0.82vw, 10px);
   --table-cell-max: clamp(96px, 18vw, 320px);
   --table-head-height: clamp(27px, 2.9vw, 30px);
   --table-row-height: clamp(31px, 3.2vw, 34px);

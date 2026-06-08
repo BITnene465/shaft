@@ -1,5 +1,5 @@
 .overview-v18-big-number {
-  font-size: var(--overview-ops-number-size, clamp(30px, 3.1vw, 40px));
+  font-size: var(--overview-ops-number-size, clamp(28px, 2.8vw, 36px));
 }
 
 .overview-v18-meter {
@@ -20,13 +20,13 @@
 .overview-v18-pairs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--overview-ops-gap, var(--space-2));
+  gap: var(--overview-ops-gap, clamp(10px, 1vw, 14px));
   margin: 0;
 }
 
 .overview-v18-pairs div {
   min-width: 0;
-  padding: var(--overview-ops-tile-pad, var(--space-2));
+  padding: var(--overview-ops-tile-pad, clamp(11px, 1vw, 14px));
   background: var(--overview-tile-bg);
   border: 1px solid var(--overview-tile-line);
   border-radius: var(--control-radius);
@@ -52,8 +52,8 @@
 .overview-v18-run-list {
   --overview-run-row-min: 52px;
   --overview-run-row-max: 68px;
-  --overview-run-row-pad: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
-  --overview-run-row-gap: var(--space-1);
+  --overview-run-row-pad: 9px 12px 9px 16px;
+  --overview-run-row-gap: 8px;
   display: flex;
   flex-direction: column;
   gap: var(--overview-run-row-gap);
@@ -154,8 +154,8 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: 12px;
+  padding: clamp(12px, 1vw, 15px);
   background: var(--overview-link-bg);
   border: 1px solid var(--overview-link-line);
   border-radius: var(--control-radius);
@@ -177,6 +177,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
+  padding-inline: 12px;
   color: var(--overview-muted);
   background: var(--overview-tile-bg);
   border: 1px solid var(--overview-tile-line);

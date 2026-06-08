@@ -10,18 +10,13 @@ import {
   fetchServices,
   fetchSettingsPreviewSample
 } from "./api";
+import { shouldAvoidSpeculativeNetworkWork } from "./networkHints";
 import { RANK_PAGE_SIZE } from "./rankBoardModel";
 
 const DEFAULT_LIST_PAGE_SIZE = 80;
 const DEFAULT_COMPARISON_HISTORY_PAGE_SIZE = 50;
 const ROUTE_PREFETCH_STALE_MS = 15_000;
 const ROUTE_PREFETCH_INTENT_DELAY_MS = 80;
-
-type SaveDataNavigator = Navigator & {
-  connection?: {
-    saveData?: boolean;
-  };
-};
 
 const prefetchInFlightPathnames = new Set<string>();
 const pendingPrefetchTimers = new Map<string, number>();
@@ -213,8 +208,5 @@ function prefetchQueriesForPathname(queryClient: QueryClient, pathname: string) 
 }
 
 function shouldSkipRoutePrefetch() {
-  return (
-    typeof navigator !== "undefined" &&
-    Boolean((navigator as SaveDataNavigator).connection?.saveData)
-  );
+  return shouldAvoidSpeculativeNetworkWork();
 }

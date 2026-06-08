@@ -1,52 +1,55 @@
 /* Overview v18: compact operator workspace with two-column fallbacks and three-column desktop layout. */
 .dashboard-home.overview-home-v18 {
-  --overview-home-bg: #f4f7f9;
-  --overview-card-ink: #17202a;
-  --overview-card-bg: #ffffff;
-  --overview-card-line: #d9e1e7;
-  --overview-card-shadow: 0 4px 14px rgb(16 24 40 / 5%);
-  --overview-muted: #65717d;
-  --overview-strong: #111827;
-  --overview-accent: #247a8f;
-  --overview-good: #16835f;
-  --overview-warm: #c28718;
-  --overview-danger: #c84545;
-  --overview-link-ink: #0f4d5c;
-  --overview-link-bg: #eef7f7;
-  --overview-link-line: #d5e7e7;
+  --overview-home-bg: linear-gradient(180deg, #f7f9fb 0%, #eef3f6 100%);
+  --overview-card-ink: #1d2936;
+  --overview-card-bg: color-mix(in srgb, #ffffff 94%, #e7eef4);
+  --overview-card-line: #d5dee7;
+  --overview-card-shadow: 0 12px 28px rgb(16 24 40 / 7%);
+  --overview-muted: #647487;
+  --overview-strong: #0f1724;
+  --overview-accent: #1d7791;
+  --overview-good: #188460;
+  --overview-warm: #b47616;
+  --overview-danger: #bd3d42;
+  --overview-link-ink: #14576b;
+  --overview-link-bg: #edf7f9;
+  --overview-link-line: #cde4ea;
   --overview-link-hover-ink: #ffffff;
-  --overview-link-hover-bg: #155e75;
+  --overview-link-hover-bg: #17667d;
   --overview-focus-outline: rgb(21 94 117 / 70%);
-  --overview-tile-bg: #f8fafb;
-  --overview-tile-line: #e1e7ec;
-  --overview-tile-hover-line: #9dc8d0;
-  --overview-tile-strong: #111827;
-  --overview-tile-body: #2b3a45;
-  --overview-tile-soft: #667480;
-  --overview-tile-meta: #3d4d58;
-  --overview-meter-track: #dde7e8;
-  --overview-meter-fill: linear-gradient(90deg, #155e75, #16835f);
-  --overview-score-ink: #102a35;
-  --overview-run-score-ink: #31414d;
-  --overview-live-ink: #145c43;
-  --overview-live-bg: #e8f6ef;
-  --overview-live-line: #c6e7d6;
+  --overview-tile-bg: #f7fafc;
+  --overview-tile-line: #dae4ec;
+  --overview-tile-hover-line: #9ec7d0;
+  --overview-tile-strong: #111a27;
+  --overview-tile-body: #324251;
+  --overview-tile-soft: #6b7b8d;
+  --overview-tile-meta: #435465;
+  --overview-meter-track: #dde8ed;
+  --overview-meter-fill: linear-gradient(90deg, #17667d, #1c8b69);
+  --overview-score-ink: #12313e;
+  --overview-run-score-ink: #344657;
+  --overview-live-ink: #145f46;
+  --overview-live-bg: #e7f6ef;
+  --overview-live-line: #bee2d1;
+  --overview-page-pad: clamp(14px, 1.4vw, 20px);
+  --overview-grid-gap: clamp(14px, 1.3vw, 18px);
+  --overview-card-pad: clamp(18px, 1.6vw, 22px);
 
-  gap: 12px;
+  gap: var(--overview-grid-gap);
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 12px;
+  padding: var(--overview-page-pad);
   background: var(--overview-home-bg);
   scrollbar-width: thin;
 }
 
 :root[data-theme="dark"] .dashboard-home.overview-home-v18 {
-  --overview-home-bg: #0f1721;
+  --overview-home-bg: linear-gradient(180deg, #0f1721 0%, #0b1119 100%);
   --overview-card-ink: #dfe8f2;
-  --overview-card-bg: #131d28;
-  --overview-card-line: #2a3849;
-  --overview-card-shadow: 0 4px 14px rgb(0 0 0 / 18%);
+  --overview-card-bg: color-mix(in srgb, #172231 88%, #0b1119);
+  --overview-card-line: #2d3d50;
+  --overview-card-shadow: 0 14px 30px rgb(0 0 0 / 24%);
   --overview-muted: #93a6b8;
   --overview-strong: #f1f6fb;
   --overview-accent: #55b9d3;
@@ -59,8 +62,8 @@
   --overview-link-hover-ink: #f1fbff;
   --overview-link-hover-bg: #1c6686;
   --overview-focus-outline: rgb(94 190 225 / 72%);
-  --overview-tile-bg: #101923;
-  --overview-tile-line: #2a3849;
+  --overview-tile-bg: color-mix(in srgb, #111c29 90%, #0b1119);
+  --overview-tile-line: #2d3b4d;
   --overview-tile-hover-line: #4a7188;
   --overview-tile-strong: #f1f6fb;
   --overview-tile-body: #d7e2ec;
@@ -102,7 +105,7 @@
 .overview-v18-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(290px, 0.75fr);
-  gap: 12px;
+  gap: var(--overview-grid-gap);
   align-items: stretch;
 }
 
@@ -111,9 +114,9 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 14px;
+  gap: clamp(14px, 1.2vw, 18px);
   overflow: hidden;
-  padding: 16px;
+  padding: var(--overview-card-pad);
   color: var(--overview-card-ink);
   background: var(--overview-card-bg);
   border: 1px solid var(--overview-card-line);
@@ -128,8 +131,8 @@
 
 .overview-v18-card::before {
   position: absolute;
-  inset: 0 0 auto;
-  height: 3px;
+  inset: 0 auto 0 0;
+  width: 4px;
   content: "";
   background: var(--overview-accent);
 }
@@ -156,7 +159,8 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: clamp(12px, 1vw, 16px);
+  min-width: 0;
 }
 
 .overview-v18-icon-link {

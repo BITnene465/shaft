@@ -1,10 +1,10 @@
 .overview-v18-console {
-  --overview-console-bg: #f8fafb;
-  --overview-console-line: #e1e7ec;
+  --overview-console-bg: color-mix(in srgb, var(--overview-tile-bg) 78%, #ffffff);
+  --overview-console-line: #d8e4ec;
   --overview-console-tab-ink: #586774;
   --overview-console-tab-active-ink: #0f4d5c;
-  --overview-console-tab-active-bg: #e9f4f5;
-  --overview-console-tab-active-line: #cfe2e5;
+  --overview-console-tab-active-bg: #e7f3f6;
+  --overview-console-tab-active-line: #c7dfe6;
   --overview-console-node-bg: #ffffff;
   --overview-console-node-line: #dde6ec;
   --overview-console-node-hover-bg: #fbfdff;
@@ -15,12 +15,12 @@
   --overview-console-inspector-bg: #ffffff;
   --overview-console-inspector-line: #d7e3e8;
   --overview-console-inspector-text: #33424d;
-  --overview-console-gap: var(--space-2);
-  --overview-console-pad: var(--space-2);
+  --overview-console-gap: clamp(12px, 1vw, 14px);
+  --overview-console-pad: clamp(12px, 1vw, 16px);
   --overview-console-tab-min: var(--control-mini-height);
-  --overview-console-node-min: clamp(92px, 18vh, 112px);
-  --overview-console-node-pad: var(--space-2);
-  --overview-console-node-gap: var(--space-1);
+  --overview-console-node-min: clamp(104px, 18vh, 120px);
+  --overview-console-node-pad: clamp(12px, 1vw, 14px);
+  --overview-console-node-gap: 7px;
   --overview-console-node-value-size: clamp(20px, 2.2vw, 24px);
   --overview-console-node-rule-width: 28px;
   --overview-console-inspector-value-size: clamp(22px, 2.4vw, 26px);
@@ -35,7 +35,7 @@
 }
 
 :root[data-theme="dark"] .overview-v18-console {
-  --overview-console-bg: #101923;
+  --overview-console-bg: color-mix(in srgb, #101923 82%, #172231);
   --overview-console-line: #2a3849;
   --overview-console-tab-ink: #9dafc2;
   --overview-console-tab-active-ink: #bce9ff;
@@ -59,6 +59,7 @@
   justify-content: space-between;
   gap: var(--overview-console-gap);
   min-width: 0;
+  padding-inline: 2px;
 }
 
 .overview-v18-console-head > span {
@@ -75,10 +76,14 @@
   gap: var(--space-half);
 }
 
-.overview-v18-surface-tab {
+.overview-v18-surface-tab.query-chip {
+  max-width: none;
   min-height: var(--overview-console-tab-min);
-  padding: 0 9px;
+  padding: 0 10px;
   color: var(--overview-console-tab-ink);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
   background: transparent;
   border-color: transparent;
   border-radius: var(--control-radius-tight);
@@ -86,8 +91,8 @@
   box-shadow: none;
 }
 
-.overview-v18-surface-tab:hover,
-.overview-v18-surface-tab.active {
+.overview-v18-surface-tab.query-chip:hover,
+.overview-v18-surface-tab.query-chip.active {
   color: var(--overview-console-tab-active-ink);
   background: var(--overview-console-tab-active-bg);
   border-color: var(--overview-console-tab-active-line);
@@ -115,15 +120,19 @@
   content: none;
 }
 
-.overview-v18-signal-node {
+.overview-v18-signal-node.query-chip {
   position: relative;
   display: grid;
+  max-width: none;
   min-width: 0;
   gap: var(--overview-console-node-gap);
   align-content: start;
   min-height: var(--overview-console-node-min);
   padding: var(--overview-console-node-pad);
+  overflow: hidden;
   color: var(--overview-console-node-text);
+  text-overflow: clip;
+  white-space: normal;
   background: var(--overview-console-node-bg);
   border: 1px solid var(--overview-console-node-line);
   border-radius: var(--control-radius);
@@ -136,8 +145,8 @@
     border-color 150ms ease;
 }
 
-.overview-v18-signal-node:hover,
-.overview-v18-signal-node.active {
+.overview-v18-signal-node.query-chip:hover,
+.overview-v18-signal-node.query-chip.active {
   color: var(--overview-console-node-text);
   background: var(--overview-console-node-hover-bg);
   border-color: var(--overview-console-node-hover-line);
@@ -145,7 +154,7 @@
   transform: none;
 }
 
-.overview-v18-signal-node::before {
+.overview-v18-signal-node.query-chip::before {
   width: var(--overview-console-node-rule-width);
   height: 3px;
   margin-bottom: 3px;
@@ -154,15 +163,15 @@
   border-radius: 999px;
 }
 
-.overview-v18-signal-node.good::before {
+.overview-v18-signal-node.query-chip.good::before {
   background: var(--overview-good);
 }
 
-.overview-v18-signal-node.warm::before {
+.overview-v18-signal-node.query-chip.warm::before {
   background: var(--overview-warm);
 }
 
-.overview-v18-signal-node.danger::before {
+.overview-v18-signal-node.query-chip.danger::before {
   background: var(--overview-danger);
 }
 
@@ -205,7 +214,7 @@
   min-width: 0;
   align-content: start;
   gap: var(--overview-console-gap);
-  padding: var(--overview-console-pad);
+  padding: clamp(14px, 1.2vw, 18px);
   background: var(--overview-console-inspector-bg);
   border: 1px solid var(--overview-console-inspector-line);
   border-radius: var(--control-radius);

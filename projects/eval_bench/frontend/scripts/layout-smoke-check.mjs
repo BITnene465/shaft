@@ -131,7 +131,7 @@ try {
         await assertOverviewDensity(page, `${viewport.name}:${route.name}`);
       }
       if (route.name === "jobs") {
-        await assertJobsRecentRuns(page, `${viewport.name}:${route.name}`);
+        await assertJobsDetailSidebar(page, `${viewport.name}:${route.name}`);
       }
       if (route.requireInspectorFilters) {
         await assertInspectorFilters(page, `${viewport.name}:${route.name}`);
@@ -912,37 +912,56 @@ async function assertOverviewPointerField(page, scope) {
   }
 }
 
-async function assertJobsRecentRuns(page, scope) {
-  const state = await page.evaluate(() => {
-    const cards = Array.from(document.querySelectorAll(".recent-run-card")).map((node) => {
-      const rect = node.getBoundingClientRect();
-      return {
-        height: Math.round(rect.height),
-        text: node.textContent ?? "",
-        artifactRails: node.querySelectorAll(".recent-run-artifacts i b").length,
-        statusBadges: node.querySelectorAll(".badge").length
-      };
-    });
+async function assertJobsDetailSidebar(page, scope) {
+  const before = await page.evaluate(() => ({
+    recentCards: document.querySelectorAll(".recent-run-card").length,
+    sidebarCount: document.querySelectorAll(".job-detail-sidebar").length,
+    mainWidth: Math.round(document.querySelector(".job-queue-main")?.getBoundingClientRect().width ?? 0),
+    rowCount: document.querySelectorAll(".queue-stack tbody tr").length
+  }));
+  if (before.recentCards !== 0) {
+    throw new Error(`${scope}: jobs page must not render recent result cards`);
+  }
+  if (before.sidebarCount !== 0) {
+    throw new Error(`${scope}: jobs detail sidebar should be hidden before selecting a job`);
+  }
+  if (before.rowCount === 0) {
+    return;
+  }
+  await page.locator(".queue-stack tbody tr").first().click();
+  await page.waitForTimeout(220);
+  const after = await page.evaluate(() => {
+    const sidebar = document.querySelector(".job-detail-sidebar");
+    const main = document.querySelector(".job-queue-main");
+    const workbench = document.querySelector(".job-queue-workbench");
+    const log = document.querySelector(".job-log-tail, .job-log-empty");
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const mainRect = main?.getBoundingClientRect();
+    const logRect = log?.getBoundingClientRect();
     return {
-      cards,
-      metricBlocks: document.querySelectorAll(".recent-run-metrics").length
+      sidebarCount: document.querySelectorAll(".job-detail-sidebar").length,
+      workbenchClass: workbench?.className ?? "",
+      mainWidth: Math.round(mainRect?.width ?? 0),
+      sidebarWidth: Math.round(sidebarRect?.width ?? 0),
+      sidebarLeft: Math.round(sidebarRect?.left ?? 0),
+      mainRight: Math.round(mainRect?.right ?? 0),
+      logHeight: Math.round(logRect?.height ?? 0)
     };
   });
-  if (state.metricBlocks !== 0) {
-    throw new Error(`${scope}: jobs recent results should not render fine metric blocks`);
+  if (after.sidebarCount !== 1 || !after.workbenchClass.includes("detail-open")) {
+    throw new Error(`${scope}: selecting a job should open the right detail sidebar ${JSON.stringify(after)}`);
   }
-  for (const [index, card] of state.cards.entries()) {
-    if (card.height > 132) {
-      throw new Error(`${scope}: jobs recent result card ${index} is too tall ${card.height}`);
-    }
-    if (/\b(P@|R@|precision|recall|iou|miou)\b/i.test(card.text)) {
-      throw new Error(`${scope}: jobs recent result card ${index} exposes fine metrics`);
-    }
-    if (card.artifactRails !== 1 || card.statusBadges !== 1) {
-      throw new Error(
-        `${scope}: jobs recent result card ${index} is missing artifact rail or status badge ${JSON.stringify(card)}`
-      );
-    }
+  if (!scope.startsWith("narrow") && after.sidebarWidth < 320) {
+    throw new Error(`${scope}: jobs detail sidebar is too narrow ${JSON.stringify(after)}`);
+  }
+  if (!scope.startsWith("narrow") && after.mainWidth >= before.mainWidth - 24) {
+    throw new Error(`${scope}: jobs main panel did not shrink for the detail sidebar ${JSON.stringify({ before, after })}`);
+  }
+  if (!scope.startsWith("narrow") && after.sidebarLeft < after.mainRight - 2) {
+    throw new Error(`${scope}: jobs detail sidebar is not placed to the right ${JSON.stringify(after)}`);
+  }
+  if (after.logHeight < 32) {
+    throw new Error(`${scope}: jobs detail sidebar log area is not visible ${JSON.stringify(after)}`);
   }
 }
 
