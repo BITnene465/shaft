@@ -726,6 +726,10 @@ assert(
     !sharedPagerStyleSource.includes("border-bottom: 1px solid #e5ebf1") &&
     sharedSplitStyleSource.includes(".resizable-split") &&
     sharedSplitStyleSource.includes(".split-resizer") &&
+    sharedSplitStyleSource.includes("--split-resizer-bg") &&
+    sharedSplitStyleSource.includes("--split-resizer-active-bg") &&
+    sharedSplitStyleSource.includes(':root[data-theme="dark"] .resizable-split') &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(sharedSplitStyleSource) &&
     controlPrimitives.includes('import "./controlPrimitiveStyles.css";') &&
     controlPrimitiveStyleSource.includes(".number-setting-control") &&
     controlPrimitiveStyleSource.includes(".compact-select") &&

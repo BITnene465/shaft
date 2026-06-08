@@ -1,5 +1,12 @@
 .resizable-split {
+  --split-resizer-bg: color-mix(in srgb, var(--bench-line) 88%, transparent);
+  --split-resizer-active-bg: color-mix(in srgb, var(--bench-cyan) 58%, var(--bench-line));
   gap: 0;
+}
+
+:root[data-theme="dark"] .resizable-split {
+  --split-resizer-bg: color-mix(in srgb, var(--bench-line) 76%, transparent);
+  --split-resizer-active-bg: color-mix(in srgb, var(--bench-cyan) 64%, var(--bench-line));
 }
 
 .resizable-split > :first-child,
@@ -21,12 +28,12 @@
   bottom: 8px;
   left: 3px;
   width: 2px;
-  background: #d6e0ea;
+  background: var(--split-resizer-bg);
   border-radius: var(--control-radius-tight);
   content: "";
 }
 
 .split-resizer:hover::before,
 .split-resizer:focus-visible::before {
-  background: #6aa6bf;
+  background: var(--split-resizer-active-bg);
 }
