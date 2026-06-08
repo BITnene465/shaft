@@ -4965,6 +4965,13 @@ assert(
     compositeImageJumpControlStyleSource.includes(".image-jump-step-group") &&
     compositeImageJumpControlStyleSource.includes(".image-jump-step.icon-button") &&
     compositeImageJumpControlStyleSource.includes(".image-jump-field") &&
+    compositeImageJumpControlStyleSource.includes("--image-jump-button-size") &&
+    compositeImageJumpControlStyleSource.includes("--image-jump-field-min") &&
+    compositeImageJumpControlStyleSource.includes("--image-jump-line") &&
+    compositeImageJumpControlStyleSource.includes("grid-template-columns: auto minmax(var(--image-jump-field-min), var(--image-jump-field-max)) auto") &&
+    compositeImageJumpControlStyleSource.includes("width: var(--image-jump-button-size)") &&
+    compositeImageJumpControlStyleSource.includes("box-shadow: var(--image-jump-shadow)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeImageJumpControlStyleSource) &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-search-row") &&
     compositeImageSearchBarStyleSource.includes("overflow: visible") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-search") &&
