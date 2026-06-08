@@ -2067,6 +2067,15 @@ assert(
     !settingsWorkbenchStyleSource.includes("0 22px 54px") &&
     !settingsWorkbenchStyleSource.includes("linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%)") &&
     settingsPreviewStyleSource.includes("var(--settings-preview-foot-min)") &&
+    settingsPreviewStyleSource.includes("--settings-preview-pane-bg") &&
+    settingsPreviewStyleSource.includes("--settings-preview-overlay-bg") &&
+    settingsPreviewStyleSource.includes("--settings-preview-region-min") &&
+    settingsPreviewStyleSource.includes("var(--settings-preview-region-check-a)") &&
+    settingsPreviewStyleSource.includes("var(--settings-preview-stage-check-a)") &&
+    settingsPreviewStyleSource.includes("var(--settings-preview-overlay-line)") &&
+    settingsPreviewStyleSource.includes("--settings-preview-dock-inset: var(--settings-pad-8)") &&
+    !settingsPreviewStyleSource.includes("background: #0f1720") &&
+    !settingsPreviewStyleSource.includes("border-left: 1px solid #cfd8e3") &&
     settingsDrawerStyleSource.includes("var(--settings-drawer-head-min)") &&
     settingsDrawerStyleSource.includes(':root[data-theme="dark"] .settings-preference-drawer') &&
     settingsDrawerStyleSource.includes("--settings-drawer-bg") &&
@@ -2098,6 +2107,9 @@ assert(
     settingsPreviewStyleSource.includes(".settings-preview-stage") &&
     !settingsPreviewStyleSource.includes("backdrop-filter") &&
     !settingsPreviewStyleSource.includes("rgb(7 13 20 / 76%)") &&
+    !settingsPreviewStyleSource.includes("color: #dce8ef") &&
+    !settingsPreviewStyleSource.includes("color: #8da4b5") &&
+    !settingsPreviewStyleSource.includes("border: 1px solid #172536") &&
     settingsPreviewSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/settings"') &&
     settingsPreviewSmokeSource.includes('!text.includes("/api/")') &&
     settingsPreviewSmokeSource.includes('!text.includes("Failed to load resource")') &&

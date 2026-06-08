@@ -1,11 +1,39 @@
 .settings-visual-region {
+  --settings-preview-region-check-a: #0d1520;
+  --settings-preview-region-check-b: #111c2a;
+  --settings-preview-pane-bg: #0f1720;
+  --settings-preview-pane-line: #cfd8e3;
+  --settings-preview-head-ink: #dce8ef;
+  --settings-preview-head-line: rgb(255 255 255 / 10%);
+  --settings-preview-accent: #7fc5e4;
+  --settings-preview-accent-muted: #4b7890;
+  --settings-preview-muted: #8da4b5;
+  --settings-preview-stage-check-a: #081019;
+  --settings-preview-stage-check-b: #0d1824;
+  --settings-preview-stage-glow: rgb(255 255 255 / 5%);
+  --settings-preview-stage-line: #172536;
+  --settings-preview-overlay-bg: rgb(7 13 20 / 88%);
+  --settings-preview-overlay-line: rgb(125 160 190 / 28%);
+  --settings-preview-overlay-ink: #d8e5ef;
+  --settings-preview-strong: #f3f7fb;
+  --settings-preview-foot-bg: rgb(7 13 20 / 90%);
+  --settings-preview-foot-ink: #b9c8d3;
+  --settings-preview-region-min: 120px;
+  --settings-preview-stage-margin: var(--settings-pad-10);
+  --settings-preview-dock-inset: var(--settings-pad-14);
   position: relative;
   display: grid;
   min-width: 0;
-  min-height: 120px;
+  min-height: var(--settings-preview-region-min);
   overflow: hidden;
   background:
-    linear-gradient(45deg, #0d1520 25%, #111c2a 25% 50%, #0d1520 50% 75%, #111c2a 75%);
+    linear-gradient(
+      45deg,
+      var(--settings-preview-region-check-a) 25%,
+      var(--settings-preview-region-check-b) 25% 50%,
+      var(--settings-preview-region-check-a) 50% 75%,
+      var(--settings-preview-region-check-b) 75%
+    );
   background-size: 34px 34px;
 }
 
@@ -15,8 +43,8 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #0f1720;
-  border-left: 1px solid #cfd8e3;
+  background: var(--settings-preview-pane-bg);
+  border-left: 1px solid var(--settings-preview-pane-line);
 }
 
 .settings-preview-head {
@@ -26,12 +54,12 @@
   justify-content: space-between;
   gap: var(--settings-gap-14);
   padding: var(--settings-pad-12) var(--settings-pad-14) var(--settings-pad-10);
-  color: #dce8ef;
-  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  color: var(--settings-preview-head-ink);
+  border-bottom: 1px solid var(--settings-preview-head-line);
 }
 
 .settings-preview-head span {
-  color: #4b7890;
+  color: var(--settings-preview-accent-muted);
   font-size: var(--settings-text-caption);
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -47,7 +75,7 @@
 .settings-preview-head small {
   min-width: 0;
   overflow: visible;
-  color: #8da4b5;
+  color: var(--settings-preview-muted);
   font-size: var(--settings-text-caption);
   text-align: right;
   text-overflow: clip;
@@ -59,13 +87,19 @@
   position: relative;
   display: block;
   min-height: 0;
-  margin: 10px;
+  margin: var(--settings-preview-stage-margin);
   overflow: auto;
   background:
-    radial-gradient(circle at 50% 50%, rgb(255 255 255 / 5%), transparent 42%),
-    linear-gradient(45deg, #081019 25%, #0d1824 25% 50%, #081019 50% 75%, #0d1824 75%);
+    radial-gradient(circle at 50% 50%, var(--settings-preview-stage-glow), transparent 42%),
+    linear-gradient(
+      45deg,
+      var(--settings-preview-stage-check-a) 25%,
+      var(--settings-preview-stage-check-b) 25% 50%,
+      var(--settings-preview-stage-check-a) 50% 75%,
+      var(--settings-preview-stage-check-b) 75%
+    );
   background-size: auto, 28px 28px;
-  border: 1px solid #172536;
+  border: 1px solid var(--settings-preview-stage-line);
 }
 
 .settings-visual-region .settings-preview-stage {
@@ -81,9 +115,9 @@
 
 .settings-preview-dock {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  left: 14px;
+  right: var(--settings-preview-dock-inset);
+  bottom: var(--settings-preview-dock-inset);
+  left: var(--settings-preview-dock-inset);
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -95,13 +129,13 @@
   min-width: 0;
   max-width: min(520px, 55vw);
   padding: var(--settings-pad-7) var(--settings-pad-9);
-  color: #d8e5ef;
-  background: rgb(7 13 20 / 88%);
-  border: 1px solid rgb(125 160 190 / 28%);
+  color: var(--settings-preview-overlay-ink);
+  background: var(--settings-preview-overlay-bg);
+  border: 1px solid var(--settings-preview-overlay-line);
 }
 
 .settings-preview-dock span {
-  color: #7fc5e4;
+  color: var(--settings-preview-accent);
   font-size: var(--settings-text-micro);
   font-weight: 820;
   letter-spacing: 0.08em;
@@ -112,7 +146,7 @@
   display: block;
   overflow: visible;
   margin-top: 2px;
-  color: #f3f7fb;
+  color: var(--settings-preview-strong);
   font-size: var(--settings-text-small);
   text-overflow: clip;
   white-space: normal;
@@ -125,22 +159,20 @@
   align-items: center;
   gap: var(--settings-gap-12);
   padding: var(--settings-pad-7) var(--settings-pad-9);
-  color: #b9c8d3;
-  background: rgb(7 13 20 / 90%);
-  border: 1px solid rgb(125 160 190 / 28%);
-  border-top: 1px solid rgb(255 255 255 / 10%);
+  color: var(--settings-preview-foot-ink);
+  background: var(--settings-preview-foot-bg);
+  border: 1px solid var(--settings-preview-overlay-line);
+  border-top: 1px solid var(--settings-preview-head-line);
   font-size: var(--settings-text-caption);
   font-weight: 720;
 }
 
 @media (max-height: 640px) {
   .settings-visual-region {
-    min-height: 118px;
+    --settings-preview-region-min: 118px;
   }
 
   .settings-preview-dock {
-    right: 8px;
-    bottom: 8px;
-    left: 8px;
+    --settings-preview-dock-inset: var(--settings-pad-8);
   }
 }
