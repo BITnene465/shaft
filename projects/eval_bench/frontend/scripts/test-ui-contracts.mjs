@@ -3678,6 +3678,12 @@ assert(
     viewerInspectorStyleSource.includes(".object-row") &&
     viewerInspectorStyleSource.includes(".instance-card") &&
     viewerInspectorStyleSource.includes(".label-chip") &&
+    viewerInspectorStyleSource.includes(':root[data-theme="dark"] .viewer-side-panel') &&
+    viewerInspectorStyleSource.includes("--viewer-object-row-bg") &&
+    viewerInspectorStyleSource.includes("--viewer-status-good-bg") &&
+    viewerInspectorStyleSource.includes("content-visibility: auto;") &&
+    viewerInspectorStyleSource.includes("contain-intrinsic-size: auto 44px;") &&
+    !viewerInspectorStyleSource.includes("box-shadow: inset 3px 0 0 #32a7d8") &&
     !viewerInspectorStyleSource.includes("transform 130ms ease") &&
     !viewerInspectorStyleSource.includes("transform: none") &&
     !viewerCanvasStyleSource.includes(".viewer-side-panel") &&
