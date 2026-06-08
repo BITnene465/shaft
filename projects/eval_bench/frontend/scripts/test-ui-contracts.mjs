@@ -3101,6 +3101,8 @@ assert(
     rankThemeStyleSource.includes("--rank-gap-10: 10px") &&
     rankThemeStyleSource.includes("--rank-radius-pill: 999px") &&
     rankThemeStyleSource.includes("--rank-toolbar-min: 46px") &&
+    rankThemeStyleSource.includes("--rank-facet-board-column-min: 118px") &&
+    rankThemeStyleSource.includes("--rank-facet-expanded-max: 112px") &&
     rankThemeStyleSource.includes("--rank-text-title: var(--text-md)") &&
     [
       rankBoardPageStyleSource,
@@ -3115,8 +3117,11 @@ assert(
     rankBoardPageStyleSource.includes("contain: layout paint;") &&
     rankBoardPageStyleSource.includes("scrollbar-gutter: stable both-edges;") &&
     rankBoardFacetsStyleSource.includes("var(--rank-radius-pill)") &&
+    rankBoardFacetsStyleSource.includes("repeat(auto-fit, minmax(min(100%, var(--rank-facet-board-column-min)), 1fr))") &&
+    rankBoardFacetsStyleSource.includes("grid-auto-flow: column;") &&
     rankBoardFacetsStyleSource.includes("content-visibility: auto;") &&
     rankBoardFacetsStyleSource.includes("contain-intrinsic-size: auto 76px;") &&
+    !rankBoardFacetsStyleSource.includes("repeat(7, minmax(0, 1fr))") &&
     !rankBoardFacetsStyleSource.includes("transform 150ms ease") &&
     !rankBoardFacetsStyleSource.includes("transform: none") &&
     !rankBoardFacetsStyleSource.includes("translateY(") &&
@@ -3221,8 +3226,8 @@ assert(
 );
 assert(
   styleSource.includes(".rank-facet-group.expanded > div") &&
-    styleSource.includes("max-height: 126px") &&
-    styleSource.includes("flex-wrap: wrap") &&
+    styleSource.includes("max-height: var(--rank-facet-expanded-max)") &&
+    styleSource.includes("grid-auto-flow: row") &&
     styleSource.includes("overflow: auto"),
   "expanded rank board facets must wrap inside a bounded scroll pane instead of stretching the page",
 );

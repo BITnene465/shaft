@@ -20,6 +20,11 @@
   --rank-filter-min: 38px;
   --rank-pager-min: 32px;
   --rank-toolbar-min: 46px;
+  --rank-facet-column-min: 132px;
+  --rank-facet-board-column-min: 118px;
+  --rank-facet-label-column-min: 44px;
+  --rank-facet-chip-column-min: 82px;
+  --rank-facet-expanded-max: 112px;
   --rank-text-tiny: var(--text-3xs);
   --rank-text-caption: var(--text-2xs);
   --rank-text-small: var(--text-xs);
