@@ -12,9 +12,15 @@
   --job-target-danger-ink: #9d2632;
   --job-target-muted-ink: #66788a;
   --job-progress-label-ink: #526579;
+  --job-activity-side-min: 320px;
+  --job-queue-gap: var(--space-2);
+  --job-strip-gap: var(--space-3);
+  --job-strip-pad-x: var(--space-2);
+  --job-cell-gap: var(--space-1);
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(360px, 0.8fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(min(100%, var(--job-activity-side-min)), 0.85fr);
+  align-items: start;
+  gap: var(--job-queue-gap);
   min-height: min(420px, 100%);
 }
 
@@ -35,19 +41,21 @@
 }
 
 .job-activity-grid > .workspace-card.fill {
-  min-height: 220px;
+  min-height: min(52vh, 420px);
   overflow: auto;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
 }
 
 .queue-stack {
   display: flex;
-  min-height: 160px;
+  min-height: min(48vh, 360px);
   flex-direction: column;
-  gap: 10px;
+  gap: var(--job-queue-gap);
 }
 
 .workspace-card.fill .queue-stack {
-  min-height: 160px;
+  min-height: min(48vh, 360px);
 }
 
 .queue-stack > .table-shell {
@@ -67,10 +75,12 @@
 
 .scheduler-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  min-height: 34px;
-  gap: 14px;
-  padding: 0 10px;
+  min-height: var(--control-compact-height);
+  gap: var(--space-1) var(--job-strip-gap);
+  padding: var(--space-1) var(--job-strip-pad-x);
+  overflow: hidden;
   color: var(--job-strip-ink);
   background: var(--job-strip-bg);
   border: 1px solid var(--job-strip-line);
@@ -80,7 +90,7 @@
 .scheduler-strip > div {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--job-cell-gap);
   color: var(--job-strip-strong-ink);
 }
 
@@ -110,7 +120,7 @@
 .job-eval-cell {
   display: grid;
   min-width: 0;
-  gap: 3px;
+  gap: var(--job-cell-gap);
 }
 
 .job-eval-cell strong,
@@ -160,9 +170,9 @@
   display: inline-grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: var(--job-cell-gap);
   min-width: 0;
-  margin-top: 5px;
+  margin-top: var(--space-1);
 }
 
 .job-progress-inline small {

@@ -1332,6 +1332,10 @@ assert(
     jobsQueueStyleSource.includes("--job-strip-bg") &&
     jobsQueueStyleSource.includes("--job-eval-strong-ink") &&
     jobsQueueStyleSource.includes("box-shadow: 0 0 0 3px var(--job-status-live-ring)") &&
+    jobsQueueStyleSource.includes("grid-template-columns: minmax(0, 1.45fr) minmax(min(100%, var(--job-activity-side-min)), 0.85fr)") &&
+    jobsQueueStyleSource.includes("flex-wrap: wrap;") &&
+    jobsQueueStyleSource.includes("content-visibility: auto;") &&
+    jobsQueueStyleSource.includes("contain-intrinsic-size: auto 360px;") &&
     jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
     jobsDetailStyleSource.includes(".job-detail-panel") &&
     jobsDetailStyleSource.includes(':root[data-theme="dark"] .job-detail-panel') &&
