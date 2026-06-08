@@ -2406,10 +2406,20 @@ assert(
     overviewPrimaryStyleSource.includes("box-shadow: none") &&
     overviewConsoleStyleSource.includes(".overview-v18-console") &&
     overviewConsoleStyleSource.includes("--overview-console-bg") &&
+    overviewConsoleStyleSource.includes("--overview-console-node-min: clamp(92px, 18vh, 112px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-node-value-size: clamp(20px, 2.2vw, 24px)") &&
+    overviewConsoleStyleSource.includes("--overview-console-inspector-value-size: clamp(22px, 2.4vw, 26px)") &&
+    overviewConsoleStyleSource.includes("min-height: var(--overview-console-node-min)") &&
+    overviewConsoleStyleSource.includes("font-size: var(--overview-console-node-value-size)") &&
+    overviewConsoleStyleSource.includes("contain-intrinsic-size: auto 104px;") &&
+    overviewConsoleStyleSource.includes("min-height: var(--control-secondary-height)") &&
     overviewConsoleStyleSource.includes(':root[data-theme="dark"] .overview-v18-console') &&
     overviewConsoleStyleSource.includes("background: var(--overview-console-bg)") &&
     !overviewConsoleStyleSource.includes("background: #f8fafb") &&
     !overviewConsoleStyleSource.includes("background: #ffffff") &&
+    !overviewConsoleStyleSource.includes("min-height: 124px") &&
+    !overviewConsoleStyleSource.includes("font-size: 26px") &&
+    !overviewConsoleStyleSource.includes("font-size: 30px") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-map") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-node.active") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&

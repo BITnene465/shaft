@@ -15,13 +15,23 @@
   --overview-console-inspector-bg: #ffffff;
   --overview-console-inspector-line: #d7e3e8;
   --overview-console-inspector-text: #33424d;
+  --overview-console-gap: var(--space-2);
+  --overview-console-pad: var(--space-2);
+  --overview-console-tab-min: var(--control-mini-height);
+  --overview-console-node-min: clamp(92px, 18vh, 112px);
+  --overview-console-node-pad: var(--space-2);
+  --overview-console-node-gap: var(--space-1);
+  --overview-console-node-value-size: clamp(20px, 2.2vw, 24px);
+  --overview-console-node-rule-width: 28px;
+  --overview-console-inspector-value-size: clamp(22px, 2.4vw, 26px);
+  --overview-console-inspector-copy-min: clamp(30px, 6vh, 38px);
 
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: var(--overview-console-gap);
+  padding: var(--overview-console-pad);
   background: var(--overview-console-bg);
   border: 1px solid var(--overview-console-line);
-  border-radius: 7px;
+  border-radius: var(--control-radius);
 }
 
 :root[data-theme="dark"] .overview-v18-console {
@@ -47,7 +57,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--overview-console-gap);
   min-width: 0;
 }
 
@@ -62,16 +72,16 @@
 .overview-v18-console-head > div {
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 4px;
+  gap: var(--space-half);
 }
 
 .overview-v18-surface-tab {
-  min-height: 25px;
+  min-height: var(--overview-console-tab-min);
   padding: 0 9px;
   color: var(--overview-console-tab-ink);
   background: transparent;
   border-color: transparent;
-  border-radius: 3px;
+  border-radius: var(--control-radius-tight);
   font-size: var(--text-2xs);
   box-shadow: none;
 }
@@ -88,7 +98,7 @@
 .overview-v18-surface-body {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.55fr);
-  gap: 10px;
+  gap: var(--overview-console-gap);
   align-items: stretch;
 }
 
@@ -96,7 +106,7 @@
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--overview-console-gap);
   min-width: 0;
 }
 
@@ -109,16 +119,18 @@
   position: relative;
   display: grid;
   min-width: 0;
-  gap: 5px;
+  gap: var(--overview-console-node-gap);
   align-content: start;
-  min-height: 124px;
-  padding: 10px;
+  min-height: var(--overview-console-node-min);
+  padding: var(--overview-console-node-pad);
   color: var(--overview-console-node-text);
   background: var(--overview-console-node-bg);
   border: 1px solid var(--overview-console-node-line);
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   text-align: left;
   box-shadow: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 104px;
   transition:
     background 150ms ease,
     border-color 150ms ease;
@@ -134,7 +146,7 @@
 }
 
 .overview-v18-signal-node::before {
-  width: 30px;
+  width: var(--overview-console-node-rule-width);
   height: 3px;
   margin-bottom: 3px;
   content: "";
@@ -172,7 +184,7 @@
 
 .overview-v18-signal-node > strong {
   color: var(--overview-strong);
-  font-size: 26px;
+  font-size: var(--overview-console-node-value-size);
   font-weight: 920;
   line-height: 1;
 }
@@ -192,11 +204,11 @@
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--overview-console-gap);
+  padding: var(--overview-console-pad);
   background: var(--overview-console-inspector-bg);
   border: 1px solid var(--overview-console-inspector-line);
-  border-radius: 6px;
+  border-radius: var(--control-radius);
 }
 
 .overview-v18-signal-inspector > span {
@@ -209,13 +221,13 @@
 
 .overview-v18-signal-inspector > strong {
   color: var(--overview-strong);
-  font-size: 30px;
+  font-size: var(--overview-console-inspector-value-size);
   font-weight: 920;
   line-height: 1;
 }
 
 .overview-v18-signal-inspector p {
-  min-height: 40px;
+  min-height: var(--overview-console-inspector-copy-min);
   margin: 0;
   color: var(--overview-console-inspector-text);
   font-size: var(--text-xs);
@@ -226,14 +238,14 @@
 .overview-v18-signal-inspector a {
   display: inline-flex;
   width: max-content;
-  min-height: 30px;
+  min-height: var(--control-secondary-height);
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
   color: var(--overview-link-ink);
   background: var(--overview-link-bg);
   border: 1px solid var(--overview-link-line);
-  border-radius: 4px;
+  border-radius: var(--control-radius-tight);
   font-size: var(--text-xs);
   font-weight: 820;
   text-decoration: none;
