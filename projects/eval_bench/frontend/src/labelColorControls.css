@@ -1,4 +1,10 @@
 .label-color-add-row {
+  --label-color-add-text-col: minmax(min(100%, 150px), 1fr);
+  --label-color-add-swatch-col: clamp(28px, 3vw, 34px);
+  --label-color-add-role-col: minmax(68px, 0.35fr);
+  --label-color-row-name-col: minmax(min(100%, 86px), 0.34fr);
+  --label-color-role-col: minmax(58px, 1fr);
+  --label-color-role-swatch-col: clamp(22px, 2.8vw, 26px);
   --label-color-line: #e3e9ef;
   --label-color-line-soft: #edf1f5;
   --label-color-field-ink: #172536;
@@ -7,9 +13,13 @@
   --label-color-muted: #708093;
   --label-color-name-ink: #243143;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px 70px auto;
-  gap: 6px;
-  padding: 7px;
+  grid-template-columns:
+    var(--label-color-add-text-col)
+    var(--label-color-add-swatch-col)
+    var(--label-color-add-role-col)
+    max-content;
+  gap: var(--settings-gap-6, 6px);
+  padding: var(--settings-pad-7, 7px);
   border-top: 1px solid var(--label-color-line);
 }
 
@@ -60,8 +70,8 @@
 }
 
 .label-color-add-row input[type="color"] {
-  width: 34px;
-  padding: 2px;
+  width: var(--label-color-add-swatch-col);
+  padding: var(--settings-pad-2, 2px);
 }
 
 .secondary-button.dense {
@@ -87,10 +97,10 @@
 
 .label-color-row {
   display: grid;
-  grid-template-columns: minmax(72px, 0.45fr) minmax(0, 1fr) 24px;
-  gap: 6px;
+  grid-template-columns: var(--label-color-row-name-col) minmax(0, 1fr) max-content;
+  gap: var(--settings-gap-6, 6px);
   align-items: end;
-  padding: 5px 0;
+  padding: var(--settings-pad-5, 5px) 0;
   border-top: 1px solid var(--label-color-line-soft);
 }
 
@@ -110,17 +120,38 @@
 
 .label-color-role-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(54px, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(auto-fit, var(--label-color-role-col));
+  gap: var(--settings-gap-4, 4px);
 }
 
 .label-color-role-grid .color-control {
-  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr) var(--label-color-role-swatch-col);
   min-height: 26px;
-  padding: 0 5px;
+  padding: 0 var(--settings-pad-5, 5px);
 }
 
 .label-color-role-grid .color-control input {
-  width: 24px;
+  width: var(--label-color-role-swatch-col);
   height: 20px;
+}
+
+@media (max-width: 760px) {
+  .label-color-add-row {
+    grid-template-columns:
+      minmax(0, 1fr)
+      var(--label-color-add-swatch-col)
+      var(--label-color-add-role-col);
+  }
+
+  .label-color-add-row .secondary-button {
+    grid-column: 1 / -1;
+  }
+
+  .label-color-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .label-color-role-grid {
+    grid-column: 1 / -1;
+  }
 }

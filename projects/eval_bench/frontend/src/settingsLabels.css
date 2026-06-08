@@ -1,10 +1,14 @@
 .settings-label-add-row {
-  max-width: 420px;
+  max-width: min(100%, 520px);
   padding: 0;
   border-top: 0;
 }
 
 .settings-label-table {
+  --settings-label-name-col: minmax(min(100%, 104px), 0.24fr);
+  --settings-label-action-col: minmax(44px, max-content);
+  --settings-label-role-col: minmax(58px, 1fr);
+  --settings-label-color-size: clamp(22px, 3vw, 26px);
   --settings-label-line: #dbe3ec;
   --settings-label-line-soft: #edf1f5;
   --settings-label-ink: #243143;
@@ -12,7 +16,7 @@
   --settings-label-field-line: #cfd9e4;
   --settings-label-danger: #9d2632;
   display: grid;
-  max-height: 280px;
+  max-height: clamp(172px, 32vh, 300px);
   overflow: auto;
   border: 1px solid var(--settings-label-line);
   scrollbar-gutter: stable;
@@ -29,7 +33,7 @@
 
 .settings-label-row {
   display: grid;
-  grid-template-columns: minmax(92px, 0.22fr) minmax(0, 1fr) 54px;
+  grid-template-columns: var(--settings-label-name-col) minmax(0, 1fr) var(--settings-label-action-col);
   gap: var(--settings-gap-8);
   align-items: center;
   min-height: var(--settings-label-row-min);
@@ -55,21 +59,21 @@
 }
 
 .settings-label-row input[type="color"] {
-  width: 38px;
-  height: 24px;
+  width: var(--settings-label-color-size);
+  height: var(--settings-label-color-size);
   padding: var(--settings-pad-1);
   border: 1px solid var(--settings-label-field-line);
 }
 
 .settings-label-role-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(52px, 1fr));
+  grid-template-columns: repeat(auto-fit, var(--settings-label-role-col));
   gap: var(--settings-gap-6);
 }
 
 .settings-label-role-grid label {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) var(--settings-label-color-size);
   align-items: center;
   gap: var(--settings-gap-4);
 }
@@ -91,4 +95,19 @@
 
 .settings-label-clear-action:hover {
   color: var(--settings-label-danger);
+}
+
+@media (max-width: 760px) {
+  .settings-label-table {
+    --settings-label-name-col: minmax(0, 1fr);
+    --settings-label-role-col: minmax(64px, 1fr);
+  }
+
+  .settings-label-row {
+    grid-template-columns: minmax(0, 1fr) var(--settings-label-action-col);
+  }
+
+  .settings-label-role-grid {
+    grid-column: 1 / -1;
+  }
 }
