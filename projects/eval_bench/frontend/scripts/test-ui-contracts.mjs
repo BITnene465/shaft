@@ -979,7 +979,9 @@ assert(
     dataTableStyleSource.includes(".table-shell.table-loading") &&
     dataTableStyleSource.includes("--table-loading-glint") &&
     dataTableStyleSource.includes("--table-hover-border") &&
-    dataTableStyleSource.includes("--table-hover-shadow: 0 4px 10px") &&
+    dataTableStyleSource.includes("--table-hover-shadow: var(--bench-shadow-tight)") &&
+    dataTableStyleSource.includes("--table-row-hover-rail") &&
+    dataTableStyleSource.includes("--table-row-selected-rail") &&
     dataTableStyleSource.includes("--table-checkbox-bg") &&
     dataTableStyleSource.includes("--table-checkbox-check-ring") &&
     dataTableStyleSource.includes("contain: layout;") &&
@@ -997,6 +999,7 @@ assert(
     dataTableStyleSource.includes(".table-refresh-indicator") &&
     dataTableStyleSource.includes(".row-select-checkbox") &&
     dataTableStyleSource.includes(".selectable-row") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(dataTableStyleSource) &&
     runTables.includes('import { useCallback, useMemo, useState } from "react";') &&
     runTables.includes("const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [") &&
     runTables.includes("columns={BENCHMARK_TABLE_COLUMNS}") &&

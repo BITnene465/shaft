@@ -1,10 +1,12 @@
 .table-shell {
   --table-hover-border: color-mix(in srgb, var(--bench-action) 18%, var(--bench-line));
-  --table-hover-shadow: 0 4px 10px rgb(18 45 65 / 6%);
-  --table-checkbox-bg: #ffffff;
-  --table-checkbox-border: #b9c6d2;
-  --table-checkbox-checked-bg: #155f84;
-  --table-checkbox-check-ring: #ffffff;
+  --table-hover-shadow: var(--bench-shadow-tight);
+  --table-row-hover-rail: color-mix(in srgb, var(--bench-action) 34%, transparent);
+  --table-row-selected-rail: var(--bench-cyan);
+  --table-checkbox-bg: var(--bench-surface-raised);
+  --table-checkbox-border: color-mix(in srgb, var(--bench-line-strong) 78%, var(--bench-line));
+  --table-checkbox-checked-bg: var(--bench-action);
+  --table-checkbox-check-ring: var(--bench-surface-raised);
   min-height: 0;
   max-width: 100%;
   contain: layout;
@@ -26,11 +28,12 @@
 
 :root[data-theme="dark"] .table-shell {
   --table-hover-border: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line));
-  --table-hover-shadow: 0 5px 12px rgb(0 0 0 / 16%);
-  --table-checkbox-bg: color-mix(in srgb, var(--bench-surface) 86%, black);
+  --table-hover-shadow: var(--bench-shadow-tight);
+  --table-row-hover-rail: color-mix(in srgb, var(--bench-cyan) 34%, transparent);
+  --table-checkbox-bg: color-mix(in srgb, var(--bench-surface) 86%, var(--bench-bg));
   --table-checkbox-border: color-mix(in srgb, var(--bench-line-strong) 76%, var(--bench-cyan));
-  --table-checkbox-checked-bg: color-mix(in srgb, var(--bench-cyan) 72%, #0e7490);
-  --table-checkbox-check-ring: color-mix(in srgb, var(--bench-surface-raised) 82%, black);
+  --table-checkbox-checked-bg: color-mix(in srgb, var(--bench-cyan) 72%, var(--bench-action));
+  --table-checkbox-check-ring: color-mix(in srgb, var(--bench-surface-raised) 82%, var(--bench-bg));
 }
 
 .table-shell.compact {
@@ -64,20 +67,20 @@
 }
 
 .table-shell.table-loading {
-  --table-loading-glint: rgb(255 255 255 / 38%);
+  --table-loading-glint: color-mix(in srgb, var(--bench-surface-raised) 44%, transparent);
   --table-loading-base: color-mix(in srgb, var(--bench-line) 72%, var(--bench-surface-raised));
-  --table-loading-indicator-bg: color-mix(in srgb, var(--bench-surface) 88%, white);
-  --table-loading-indicator-ink: #416273;
+  --table-loading-indicator-bg: color-mix(in srgb, var(--bench-surface) 88%, var(--bench-surface-raised));
+  --table-loading-indicator-ink: var(--bench-action);
   position: relative;
   min-height: 280px;
   pointer-events: none;
 }
 
 :root[data-theme="dark"] .table-shell.table-loading {
-  --table-loading-glint: rgb(103 232 249 / 16%);
+  --table-loading-glint: color-mix(in srgb, var(--bench-cyan) 20%, transparent);
   --table-loading-base: color-mix(in srgb, var(--bench-line) 48%, var(--bench-surface-raised));
-  --table-loading-indicator-bg: color-mix(in srgb, var(--bench-surface-raised) 92%, #0e7490);
-  --table-loading-indicator-ink: color-mix(in srgb, var(--bench-ink-muted) 72%, #a5f3fc);
+  --table-loading-indicator-bg: color-mix(in srgb, var(--bench-surface-raised) 92%, var(--bench-cyan));
+  --table-loading-indicator-ink: color-mix(in srgb, var(--bench-ink-muted) 72%, var(--bench-cyan-strong));
 }
 
 .table-shell.refreshing::after {
@@ -188,7 +191,7 @@
 }
 
 .table-shell tbody tr:hover {
-  box-shadow: inset 3px 0 0 rgb(21 94 117 / 34%);
+  box-shadow: inset 3px 0 0 var(--table-row-hover-rail);
 }
 
 .table-shell tbody tr:hover td {
@@ -213,7 +216,7 @@
 }
 
 .selectable-row.selected td:first-child {
-  box-shadow: inset 3px 0 0 #2e9dc0;
+  box-shadow: inset 3px 0 0 var(--table-row-selected-rail);
 }
 
 .table-shell td > :where(a, span, strong, em, small, code, div),
