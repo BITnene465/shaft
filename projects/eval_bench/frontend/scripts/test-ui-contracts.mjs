@@ -1194,7 +1194,9 @@ assert(
     dataTableStyleSource.includes(".table-shell td:has(.row-actions)") &&
     dataTableStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
+    jobsManifestStyleSource.includes("--manifest-toolbar-min: 160px") &&
+    jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--manifest-toolbar-min)), 1fr))") &&
+    !jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
     filterControls.includes('data-filter-group={group.id}') &&
     styleSource.includes("grid-template-columns: minmax(74px, max-content) minmax(0, 1fr)") &&
     advancedFilterModelSource.includes('{ id: "search", title: "搜索"') &&
@@ -1350,11 +1352,18 @@ assert(
     jobsManifestStyleSource.includes(':root[data-theme="dark"] .manifest-card') &&
     jobsManifestStyleSource.includes("--manifest-surface") &&
     jobsManifestStyleSource.includes("--manifest-code-bg") &&
+    jobsManifestStyleSource.includes("--manifest-toolbar-min: 160px") &&
+    jobsManifestStyleSource.includes("--manifest-placeholder-min: clamp(92px, 18vh, 118px)") &&
+    jobsManifestStyleSource.includes("--manifest-preflight-log-max: clamp(120px, 24vh, 180px)") &&
+    jobsManifestStyleSource.includes("--manifest-template-text-max: clamp(68px, 14vh, 94px)") &&
     jobsManifestStyleSource.includes("background: var(--manifest-surface)") &&
     jobsManifestStyleSource.includes("content-visibility: auto;") &&
     jobsManifestStyleSource.includes("contain-intrinsic-size: auto 180px;") &&
+    jobsManifestStyleSource.includes("scrollbar-gutter: stable both-edges;") &&
     !jobsManifestStyleSource.includes("background: #ffffff") &&
     !jobsManifestStyleSource.includes("color: #607080") &&
+    !jobsManifestStyleSource.includes("min-height: 126px") &&
+    !jobsManifestStyleSource.includes("font-size: 13px") &&
     !appThemeStyleSource.includes(".manifest-toolbar") &&
     !appThemeStyleSource.includes(".recent-run-card") &&
     !appThemeStyleSource.includes(".job-eval-cell") &&
@@ -1395,7 +1404,7 @@ assert(
     !servicesPageStyleSource.includes("box-shadow 150ms ease") &&
     !servicesPageStyleSource.includes("minmax(min(100%, 430px), 1fr)") &&
     !designSource.includes(".service-card") &&
-    jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
+    jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--manifest-toolbar-min)), 1fr))") &&
     adaptiveContentStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
     filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
     !designSource.includes(".advanced-filter-bar.dirty") &&
