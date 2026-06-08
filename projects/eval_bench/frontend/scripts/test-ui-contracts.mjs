@@ -3531,6 +3531,15 @@ assert(
     viewerThemeStyleSource.includes("--viewer-text-caption: var(--text-2xs)") &&
     viewerCanvasStyleSource.includes("var(--viewer-gap-8)") &&
     viewerCanvasStyleSource.includes("var(--viewer-text-small)") &&
+    viewerCanvasStyleSource.includes(':root[data-theme="dark"] .viewer-panel') &&
+    viewerCanvasStyleSource.includes("--viewer-fetch-bg") &&
+    viewerCanvasStyleSource.includes("--viewer-control-bg") &&
+    viewerCanvasStyleSource.includes("--viewer-label-chip-active-bg") &&
+    viewerCanvasStyleSource.includes("background: var(--viewer-control-bg)") &&
+    !viewerCanvasStyleSource.includes("background: rgba(255, 255, 255, 0.86)") &&
+    !viewerCanvasStyleSource.includes("color: #607080") &&
+    !viewerCanvasStyleSource.includes("border: 1px solid #dbe3ec") &&
+    !viewerCanvasStyleSource.includes("background: #ffffff;") &&
     viewerInspectorStyleSource.includes("var(--viewer-object-row-min)") &&
     viewerOverlayCanvasStyleSource.includes("var(--viewer-radius-control)") &&
     viewerComponentStyleSources.every(
