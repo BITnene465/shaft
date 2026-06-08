@@ -1,7 +1,50 @@
 .typography-preset-grid {
+  --settings-typography-card-ink: #334155;
+  --settings-typography-card-bg: linear-gradient(
+    180deg,
+    var(--bench-surface-raised) 0%,
+    color-mix(in srgb, var(--bench-surface-muted) 88%, var(--bench-surface-raised)) 100%
+  );
+  --settings-typography-card-line: #d7e2ea;
+  --settings-typography-card-hover-line: #a8cfe0;
+  --settings-typography-card-hover-bg: #f1f8fb;
+  --settings-typography-card-active-ink: #0b3d55;
+  --settings-typography-card-active-bg: var(--bench-surface-raised);
+  --settings-typography-card-active-line: #7fc1da;
+  --settings-typography-card-active-shadow: inset 0 -2px 0 rgb(22 132 173 / 28%);
+  --settings-typography-muted-ink: #627386;
+  --settings-typography-label-ink: #415366;
+  --settings-typography-field-ink: #162231;
+  --settings-typography-field-bg: #f8fafc;
+  --settings-typography-field-line: #d8e2ec;
+  --settings-typography-preview-bg: #f8fafc;
+  --settings-typography-preview-line: #d8e2ec;
+  --settings-typography-preview-title: #152033;
+  --settings-typography-preview-code: #2f6480;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--settings-gap-6);
+}
+
+:root[data-theme="dark"] .typography-preset-grid {
+  --settings-typography-card-ink: var(--bench-ink);
+  --settings-typography-card-bg: color-mix(in srgb, var(--bench-surface-raised) 90%, black);
+  --settings-typography-card-line: var(--bench-line);
+  --settings-typography-card-hover-line: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line));
+  --settings-typography-card-hover-bg: color-mix(in srgb, var(--bench-action-soft) 46%, var(--bench-surface));
+  --settings-typography-card-active-ink: var(--bench-cyan-strong);
+  --settings-typography-card-active-bg: color-mix(in srgb, var(--bench-action-soft) 68%, var(--bench-surface));
+  --settings-typography-card-active-line: color-mix(in srgb, var(--bench-cyan) 48%, var(--bench-line));
+  --settings-typography-card-active-shadow: inset 0 -2px 0 var(--bench-cyan);
+  --settings-typography-muted-ink: var(--bench-ink-muted);
+  --settings-typography-label-ink: var(--bench-ink-muted);
+  --settings-typography-field-ink: var(--bench-ink);
+  --settings-typography-field-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --settings-typography-field-line: var(--bench-line);
+  --settings-typography-preview-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --settings-typography-preview-line: var(--bench-line);
+  --settings-typography-preview-title: var(--bench-ink);
+  --settings-typography-preview-code: var(--bench-cyan-strong);
 }
 
 .typography-preset-card {
@@ -10,25 +53,25 @@
   min-height: var(--settings-preset-min);
   gap: var(--settings-gap-3);
   padding: var(--settings-pad-8) var(--settings-pad-10);
-  color: #334155;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f9fc 100%);
-  border: 1px solid #d7e2ea;
-  border-left: 3px solid #d7e2ea;
+  color: var(--settings-typography-card-ink);
+  background: var(--settings-typography-card-bg);
+  border: 1px solid var(--settings-typography-card-line);
+  border-left: 3px solid var(--settings-typography-card-line);
   cursor: pointer;
   text-align: left;
 }
 
 .typography-preset-card:hover {
-  border-color: #a8cfe0;
-  background: #f1f8fb;
+  background: var(--settings-typography-card-hover-bg);
+  border-color: var(--settings-typography-card-hover-line);
 }
 
 .typography-preset-card.active {
-  color: #0b3d55;
-  background: #ffffff;
-  border-color: #7fc1da;
+  color: var(--settings-typography-card-active-ink);
+  background: var(--settings-typography-card-active-bg);
+  border-color: var(--settings-typography-card-active-line);
   border-left-color: var(--bench-cyan);
-  box-shadow: inset 0 -2px 0 rgb(22 132 173 / 28%);
+  box-shadow: var(--settings-typography-card-active-shadow);
 }
 
 .typography-preset-card span {
@@ -40,7 +83,7 @@
 
 .typography-preset-card small {
   min-width: 0;
-  color: #627386;
+  color: var(--settings-typography-muted-ink);
   font-size: var(--settings-text-micro);
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -64,7 +107,7 @@
 }
 
 .settings-text-control span {
-  color: #415366;
+  color: var(--settings-typography-label-ink);
   font-size: var(--settings-text-caption);
   font-weight: 720;
 }
@@ -74,9 +117,9 @@
   height: 30px;
   min-width: 0;
   padding: 0 var(--settings-pad-9);
-  color: #162231;
-  background: #f8fafc;
-  border: 1px solid #d8e2ec;
+  color: var(--settings-typography-field-ink);
+  background: var(--settings-typography-field-bg);
+  border: 1px solid var(--settings-typography-field-line);
   border-radius: var(--settings-radius-control);
   font-size: var(--settings-text-small);
 }
@@ -86,25 +129,25 @@
   gap: var(--settings-gap-3);
   max-width: 540px;
   padding: var(--settings-pad-9) var(--settings-pad-10);
-  background: #f8fafc;
-  border: 1px solid #d8e2ec;
+  background: var(--settings-typography-preview-bg);
+  border: 1px solid var(--settings-typography-preview-line);
   border-radius: var(--settings-radius-control);
   font-family: var(--app-font-family);
 }
 
 .typography-preview-strip strong {
-  color: #152033;
+  color: var(--settings-typography-preview-title);
   font-size: var(--settings-text-body);
   font-weight: 780;
 }
 
 .typography-preview-strip span {
-  color: #5d6f83;
+  color: var(--settings-typography-muted-ink);
   font-size: var(--settings-text-caption);
 }
 
 .typography-preview-strip code {
-  color: #2f6480;
+  color: var(--settings-typography-preview-code);
   font-family: var(--mono-font);
   font-size: var(--settings-text-micro);
 }

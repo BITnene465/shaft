@@ -1,4 +1,23 @@
 .visual-status-bar {
+  --visual-status-line: rgb(255 255 255 / 18%);
+  --visual-status-bg: rgb(9 15 22 / 82%);
+  --visual-status-shadow: 0 8px 18px rgb(0 0 0 / 20%);
+  --visual-status-refresh: #70c2ff;
+  --visual-status-ink: #e8eef5;
+  --visual-status-strong: #ffffff;
+  --visual-status-muted: #aab8c7;
+  --visual-status-muted-strong: #9fb0c1;
+  --visual-status-item-line: rgb(255 255 255 / 12%);
+  --visual-status-item-bg: rgb(255 255 255 / 8%);
+  --visual-status-good-line: rgb(68 214 148 / 32%);
+  --visual-status-good-bg: rgb(15 118 88 / 28%);
+  --visual-status-warn-line: rgb(246 184 93 / 34%);
+  --visual-status-warn-bg: rgb(146 84 13 / 28%);
+  --visual-status-bad-line: rgb(248 113 113 / 34%);
+  --visual-status-bad-bg: rgb(153 27 27 / 28%);
+  --visual-status-action-ink: #eef6ff;
+  --visual-status-action-bg: rgb(255 255 255 / 10%);
+  --visual-status-action-line: rgb(255 255 255 / 18%);
   position: absolute;
   z-index: 8;
   top: 10px;
@@ -11,17 +30,17 @@
   min-height: 34px;
   padding: 4px 6px;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 18%);
-  background: rgb(9 15 22 / 82%);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 24%);
-  color: #e8eef5;
+  color: var(--visual-status-ink);
+  background: var(--visual-status-bg);
+  border: 1px solid var(--visual-status-line);
+  box-shadow: var(--visual-status-shadow);
   pointer-events: auto;
 }
 
 .visual-status-bar[data-refreshing="true"] {
   box-shadow:
-    inset 3px 0 0 #70c2ff,
-    0 10px 24px rgb(0 0 0 / 24%);
+    inset 3px 0 0 var(--visual-status-refresh),
+    var(--visual-status-shadow);
 }
 
 .visual-status-identity {
@@ -40,13 +59,13 @@
 }
 
 .visual-status-identity strong {
-  color: #ffffff;
+  color: var(--visual-status-strong);
   font-size: var(--text-xs);
   line-height: 1.1;
 }
 
 .visual-status-identity span {
-  color: #aab8c7;
+  color: var(--visual-status-muted);
   font-size: var(--text-2xs);
 }
 
@@ -63,27 +82,27 @@
   min-height: 24px;
   align-content: center;
   padding: 2px 5px;
-  border: 1px solid rgb(255 255 255 / 12%);
-  background: rgb(255 255 255 / 8%);
+  background: var(--visual-status-item-bg);
+  border: 1px solid var(--visual-status-item-line);
 }
 
 .visual-status-items span.good {
-  border-color: rgb(68 214 148 / 32%);
-  background: rgb(15 118 88 / 28%);
+  background: var(--visual-status-good-bg);
+  border-color: var(--visual-status-good-line);
 }
 
 .visual-status-items span.warn {
-  border-color: rgb(246 184 93 / 34%);
-  background: rgb(146 84 13 / 28%);
+  background: var(--visual-status-warn-bg);
+  border-color: var(--visual-status-warn-line);
 }
 
 .visual-status-items span.bad {
-  border-color: rgb(248 113 113 / 34%);
-  background: rgb(153 27 27 / 28%);
+  background: var(--visual-status-bad-bg);
+  border-color: var(--visual-status-bad-line);
 }
 
 .visual-status-items em {
-  color: #9fb0c1;
+  color: var(--visual-status-muted-strong);
   font-size: var(--text-3xs);
   font-style: normal;
   font-weight: 820;
@@ -92,7 +111,7 @@
 }
 
 .visual-status-items b {
-  color: #ffffff;
+  color: var(--visual-status-strong);
   font-size: var(--text-2xs);
   font-weight: 780;
   line-height: 1.15;
@@ -109,9 +128,9 @@
 .visual-status-actions .query-chip {
   min-height: 24px;
   padding: 0 7px;
-  color: #eef6ff;
-  background: rgb(255 255 255 / 10%);
-  border-color: rgb(255 255 255 / 18%);
+  color: var(--visual-status-action-ink);
+  background: var(--visual-status-action-bg);
+  border-color: var(--visual-status-action-line);
 }
 
 @media (max-width: 900px) {

@@ -1,6 +1,63 @@
 .comparison-sample-page {
+  --comparison-sample-line: #dbe3ec;
+  --comparison-sample-line-soft: #e7edf4;
+  --comparison-sample-positive-line: #cfe6d7;
+  --comparison-sample-negative-line: #efc9cf;
+  --comparison-sample-title-ink: #3f5062;
+  --comparison-sample-muted-ink: #6b7a90;
+  --comparison-sample-row-hover-bg: #f6fbff;
+  --comparison-sample-row-accent: #2e9dc0;
+  --comparison-sample-row-disabled-ink: #7b8797;
+  --comparison-sample-icon-ink: #0f6f8e;
+  --comparison-sample-strong-ink: #102033;
+  --comparison-sample-chip-ink: #526274;
+  --comparison-sample-chip-line: #d8e1eb;
+  --comparison-sample-label-ink: #355167;
+  --comparison-sample-label-bg: #eef6fa;
+  --comparison-sample-label-line: #c7dde8;
+  --comparison-metric-bg: #f7fafc;
+  --comparison-metric-line: #e1e8f0;
+  --comparison-metric-label-ink: #6a788a;
+  --comparison-metric-value-ink: #243449;
+  --comparison-metric-positive-bg: #eefbf3;
+  --comparison-metric-positive-line: #bde8cc;
+  --comparison-metric-positive-ink: #04703b;
+  --comparison-metric-negative-bg: #fff4f2;
+  --comparison-metric-negative-line: #f1cbc8;
+  --comparison-metric-negative-ink: #b12f28;
+  --comparison-run-panel-bg: #ffffff;
   gap: var(--viewer-gap-8);
   overflow: hidden;
+}
+
+:root[data-theme="dark"] .comparison-sample-page {
+  --comparison-sample-line: var(--bench-line);
+  --comparison-sample-line-soft: color-mix(in srgb, var(--bench-line) 72%, transparent);
+  --comparison-sample-positive-line: color-mix(in srgb, #22a66c 28%, var(--bench-line));
+  --comparison-sample-negative-line: color-mix(in srgb, #ef4444 28%, var(--bench-line));
+  --comparison-sample-title-ink: var(--bench-ink-muted);
+  --comparison-sample-muted-ink: var(--bench-ink-muted);
+  --comparison-sample-row-hover-bg: color-mix(in srgb, var(--bench-action-soft) 46%, transparent);
+  --comparison-sample-row-accent: var(--bench-cyan);
+  --comparison-sample-row-disabled-ink: color-mix(in srgb, var(--bench-ink-muted) 72%, black);
+  --comparison-sample-icon-ink: var(--bench-cyan-strong);
+  --comparison-sample-strong-ink: var(--bench-ink);
+  --comparison-sample-chip-ink: var(--bench-ink-muted);
+  --comparison-sample-chip-line: var(--bench-line);
+  --comparison-sample-label-ink: var(--bench-cyan-strong);
+  --comparison-sample-label-bg: color-mix(in srgb, var(--bench-action-soft) 64%, var(--bench-surface));
+  --comparison-sample-label-line: color-mix(in srgb, var(--bench-cyan) 34%, var(--bench-line));
+  --comparison-metric-bg: color-mix(in srgb, var(--bench-surface) 86%, black);
+  --comparison-metric-line: var(--bench-line);
+  --comparison-metric-label-ink: var(--bench-ink-muted);
+  --comparison-metric-value-ink: var(--bench-ink);
+  --comparison-metric-positive-bg: color-mix(in srgb, #22a66c 12%, var(--bench-surface));
+  --comparison-metric-positive-line: color-mix(in srgb, #22a66c 28%, var(--bench-line));
+  --comparison-metric-positive-ink: #7ee7a8;
+  --comparison-metric-negative-bg: color-mix(in srgb, #ef4444 12%, var(--bench-surface));
+  --comparison-metric-negative-line: color-mix(in srgb, #ef4444 28%, var(--bench-line));
+  --comparison-metric-negative-ink: #fca5a5;
+  --comparison-run-panel-bg: var(--bench-surface-raised);
 }
 
 .comparison-sample-detail {
@@ -27,23 +84,23 @@
   flex-direction: column;
   overflow: hidden;
   border: 0;
-  border-top: 1px solid #dbe3ec;
+  border-top: 1px solid var(--comparison-sample-line);
   border-radius: 0;
 }
 
 .comparison-sample-block.positive {
-  border-color: #cfe6d7;
+  border-color: var(--comparison-sample-positive-line);
 }
 
 .comparison-sample-block.negative {
-  border-color: #efc9cf;
+  border-color: var(--comparison-sample-negative-line);
 }
 
 .comparison-sample-title {
   padding: var(--viewer-pad-9) 0;
-  color: #3f5062;
+  color: var(--comparison-sample-title-ink);
   background: transparent;
-  border-bottom: 1px solid #e3e9ef;
+  border-bottom: 1px solid var(--comparison-sample-line-soft);
   font-size: var(--viewer-text-small);
   font-weight: 760;
   text-transform: uppercase;
@@ -51,7 +108,7 @@
 
 .comparison-sample-empty {
   padding: var(--viewer-pad-14) var(--viewer-pad-10);
-  color: #6b7a90;
+  color: var(--comparison-sample-muted-ink);
   font-size: var(--viewer-text-small);
 }
 
@@ -73,25 +130,27 @@
   padding: var(--viewer-pad-8) var(--viewer-pad-10);
   color: inherit;
   text-decoration: none;
-  border-bottom: 1px solid #e7edf4;
+  border-bottom: 1px solid var(--comparison-sample-line-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 92px;
   transition:
     background 140ms ease,
     box-shadow 140ms ease;
 }
 
 .comparison-sample-row:hover {
-  background: #f6fbff;
-  box-shadow: inset 3px 0 0 #2e9dc0;
+  background: var(--comparison-sample-row-hover-bg);
+  box-shadow: inset 3px 0 0 var(--comparison-sample-row-accent);
 }
 
 .comparison-sample-row.disabled {
-  color: #7b8797;
+  color: var(--comparison-sample-row-disabled-ink);
 }
 
 .comparison-sample-row > svg {
   grid-column: 2;
   grid-row: 1;
-  color: #0f6f8e;
+  color: var(--comparison-sample-icon-ink);
 }
 
 .comparison-sample-row-head {
@@ -106,7 +165,7 @@
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: #102033;
+  color: var(--comparison-sample-strong-ink);
   font-size: var(--viewer-text-small);
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
@@ -117,10 +176,10 @@
 .comparison-sample-row-head span {
   flex: 0 0 auto;
   padding: var(--viewer-pad-1) var(--viewer-pad-5);
-  color: #526274;
+  color: var(--comparison-sample-chip-ink);
   font-size: var(--viewer-text-caption);
   font-style: normal;
-  border: 1px solid #d8e1eb;
+  border: 1px solid var(--comparison-sample-chip-line);
   border-radius: var(--viewer-radius-control);
 }
 
@@ -140,9 +199,9 @@
 
 .comparison-sample-labels em {
   padding: var(--viewer-pad-1) var(--viewer-pad-5);
-  color: #355167;
-  background: #eef6fa;
-  border: 1px solid #c7dde8;
+  color: var(--comparison-sample-label-ink);
+  background: var(--comparison-sample-label-bg);
+  border: 1px solid var(--comparison-sample-label-line);
   border-radius: var(--viewer-radius-control);
   font-size: var(--viewer-text-caption);
   font-style: normal;
@@ -154,41 +213,41 @@
   min-width: 0;
   flex-direction: column;
   padding: var(--viewer-pad-4) var(--viewer-pad-5);
-  background: #f7fafc;
-  border: 1px solid #e1e8f0;
+  background: var(--comparison-metric-bg);
+  border: 1px solid var(--comparison-metric-line);
   border-radius: var(--viewer-radius-control);
 }
 
 .metric-delta em {
-  color: #6a788a;
+  color: var(--comparison-metric-label-ink);
   font-size: var(--viewer-text-tiny);
   font-style: normal;
 }
 
 .metric-delta strong {
   overflow: hidden;
-  color: #243449;
+  color: var(--comparison-metric-value-ink);
   font-size: var(--viewer-text-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .metric-delta.positive {
-  background: #eefbf3;
-  border-color: #bde8cc;
+  background: var(--comparison-metric-positive-bg);
+  border-color: var(--comparison-metric-positive-line);
 }
 
 .metric-delta.positive strong {
-  color: #04703b;
+  color: var(--comparison-metric-positive-ink);
 }
 
 .metric-delta.negative {
-  background: #fff4f2;
-  border-color: #f1cbc8;
+  background: var(--comparison-metric-negative-bg);
+  border-color: var(--comparison-metric-negative-line);
 }
 
 .metric-delta.negative strong {
-  color: #b12f28;
+  color: var(--comparison-metric-negative-ink);
 }
 
 .comparison-run-panel {
@@ -199,8 +258,8 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: var(--viewer-pad-8);
-  background: #ffffff;
-  border: 1px solid #dbe3ec;
+  background: var(--comparison-run-panel-bg);
+  border: 1px solid var(--comparison-sample-line);
   border-radius: var(--viewer-radius-panel);
 }
 

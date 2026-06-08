@@ -1,9 +1,27 @@
 .label-color-add-row {
+  --label-color-line: #e3e9ef;
+  --label-color-line-soft: #edf1f5;
+  --label-color-field-ink: #172536;
+  --label-color-field-bg: #ffffff;
+  --label-color-field-line: #cfd9e4;
+  --label-color-muted: #708093;
+  --label-color-name-ink: #243143;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px 70px auto;
   gap: 6px;
   padding: 7px;
-  border-top: 1px solid #e3e9ef;
+  border-top: 1px solid var(--label-color-line);
+}
+
+:root[data-theme="dark"] .label-color-add-row,
+:root[data-theme="dark"] .label-color-grid {
+  --label-color-line: var(--bench-line);
+  --label-color-line-soft: color-mix(in srgb, var(--bench-line) 70%, transparent);
+  --label-color-field-ink: var(--bench-ink);
+  --label-color-field-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --label-color-field-line: var(--bench-line);
+  --label-color-muted: var(--bench-ink-muted);
+  --label-color-name-ink: var(--bench-ink);
 }
 
 .label-color-add-row input[type="text"],
@@ -14,9 +32,9 @@
 .label-color-add-row input,
 .label-color-add-row select {
   min-height: 26px;
-  color: #172536;
-  background: #ffffff;
-  border: 1px solid #cfd9e4;
+  color: var(--label-color-field-ink);
+  background: var(--label-color-field-bg);
+  border: 1px solid var(--label-color-field-line);
   border-radius: 2px;
   font-size: var(--text-xs);
 }
@@ -53,12 +71,16 @@
 }
 
 .label-color-grid {
+  --label-color-line: #e3e9ef;
+  --label-color-line-soft: #edf1f5;
+  --label-color-muted: #708093;
+  --label-color-name-ink: #243143;
   padding: 0 7px 7px;
 }
 
 .label-color-grid .muted-line {
   grid-column: 1 / -1;
-  color: #708093;
+  color: var(--label-color-muted);
   font-size: var(--text-xs);
   line-height: 1.45;
 }
@@ -69,7 +91,7 @@
   gap: 6px;
   align-items: end;
   padding: 5px 0;
-  border-top: 1px solid #edf1f5;
+  border-top: 1px solid var(--label-color-line-soft);
 }
 
 .label-color-row:first-of-type {
@@ -79,7 +101,7 @@
 .label-color-name {
   min-width: 0;
   overflow: hidden;
-  color: #243143;
+  color: var(--label-color-name-ink);
   font-size: var(--text-xs);
   font-weight: 720;
   text-overflow: ellipsis;

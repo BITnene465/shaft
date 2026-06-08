@@ -5,10 +5,26 @@
 }
 
 .settings-label-table {
+  --settings-label-line: #dbe3ec;
+  --settings-label-line-soft: #edf1f5;
+  --settings-label-ink: #243143;
+  --settings-label-muted: #617286;
+  --settings-label-field-line: #cfd9e4;
+  --settings-label-danger: #9d2632;
   display: grid;
   max-height: 280px;
   overflow: auto;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--settings-label-line);
+  scrollbar-gutter: stable;
+}
+
+:root[data-theme="dark"] .settings-label-table {
+  --settings-label-line: var(--bench-line);
+  --settings-label-line-soft: color-mix(in srgb, var(--bench-line) 70%, transparent);
+  --settings-label-ink: var(--bench-ink);
+  --settings-label-muted: var(--bench-ink-muted);
+  --settings-label-field-line: var(--bench-line);
+  --settings-label-danger: #fca5a5;
 }
 
 .settings-label-row {
@@ -18,7 +34,9 @@
   align-items: center;
   min-height: var(--settings-label-row-min);
   padding: var(--settings-pad-6) var(--settings-pad-8);
-  border-bottom: 1px solid #edf1f5;
+  border-bottom: 1px solid var(--settings-label-line-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 42px;
 }
 
 .settings-label-row:last-child {
@@ -28,7 +46,7 @@
 .settings-label-row span {
   min-width: 0;
   overflow: visible;
-  color: #243143;
+  color: var(--settings-label-ink);
   font-size: var(--settings-text-small);
   font-weight: 720;
   text-overflow: clip;
@@ -40,7 +58,7 @@
   width: 38px;
   height: 24px;
   padding: var(--settings-pad-1);
-  border: 1px solid #cfd9e4;
+  border: 1px solid var(--settings-label-field-line);
 }
 
 .settings-label-role-grid {
@@ -57,14 +75,14 @@
 }
 
 .settings-label-role-grid small {
-  color: #617286;
+  color: var(--settings-label-muted);
   font-size: var(--settings-text-micro);
   font-weight: 760;
 }
 
 .settings-label-clear-action {
   min-height: var(--settings-control-min);
-  color: #617286;
+  color: var(--settings-label-muted);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -72,5 +90,5 @@
 }
 
 .settings-label-clear-action:hover {
-  color: #9d2632;
+  color: var(--settings-label-danger);
 }

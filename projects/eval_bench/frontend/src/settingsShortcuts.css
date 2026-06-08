@@ -1,7 +1,32 @@
 .shortcut-map-table {
+  --shortcut-map-line: #dbe3ec;
+  --shortcut-map-line-soft: #edf1f5;
+  --shortcut-map-conflict-bg: #fff7ed;
+  --shortcut-map-eyebrow: #4b7890;
+  --shortcut-map-strong: #1e2937;
+  --shortcut-map-muted: #617286;
+  --shortcut-map-button-ink: #255267;
+  --shortcut-map-button-bg: #f8fafc;
+  --shortcut-map-button-line: #cfd9e4;
+  --shortcut-map-conflict-ink: #9a3412;
+  --shortcut-map-conflict-line: #fdba74;
   display: grid;
   gap: 0;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--shortcut-map-line);
+}
+
+:root[data-theme="dark"] .shortcut-map-table {
+  --shortcut-map-line: var(--bench-line);
+  --shortcut-map-line-soft: color-mix(in srgb, var(--bench-line) 70%, transparent);
+  --shortcut-map-conflict-bg: color-mix(in srgb, #f97316 12%, var(--bench-surface));
+  --shortcut-map-eyebrow: var(--bench-cyan-strong);
+  --shortcut-map-strong: var(--bench-ink);
+  --shortcut-map-muted: var(--bench-ink-muted);
+  --shortcut-map-button-ink: var(--bench-cyan-strong);
+  --shortcut-map-button-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --shortcut-map-button-line: var(--bench-line);
+  --shortcut-map-conflict-ink: #fdba74;
+  --shortcut-map-conflict-line: color-mix(in srgb, #fdba74 42%, var(--bench-line));
 }
 
 .shortcut-map-row {
@@ -11,7 +36,9 @@
   align-items: center;
   min-height: var(--settings-shortcut-row-min);
   padding: var(--settings-pad-7) var(--settings-pad-8);
-  border-top: 1px solid #edf1f5;
+  border-top: 1px solid var(--shortcut-map-line-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
 }
 
 .shortcut-map-row:first-child {
@@ -19,7 +46,7 @@
 }
 
 .shortcut-map-row.conflict {
-  background: #fff7ed;
+  background: var(--shortcut-map-conflict-bg);
 }
 
 .shortcut-map-row div {
@@ -29,7 +56,7 @@
 }
 
 .shortcut-map-row span {
-  color: #4b7890;
+  color: var(--shortcut-map-eyebrow);
   font-size: var(--settings-text-micro);
   font-weight: 820;
   letter-spacing: 0.06em;
@@ -45,27 +72,27 @@
 }
 
 .shortcut-map-row strong {
-  color: #1e2937;
+  color: var(--shortcut-map-strong);
   font-size: var(--settings-text-small);
 }
 
 .shortcut-map-row code {
-  color: #617286;
+  color: var(--shortcut-map-muted);
   font-size: var(--settings-text-micro);
 }
 
 .shortcut-map-row button {
   min-height: var(--settings-button-min);
-  color: #255267;
-  background: #f8fafc;
-  border: 1px solid #cfd9e4;
+  color: var(--shortcut-map-button-ink);
+  background: var(--shortcut-map-button-bg);
+  border: 1px solid var(--shortcut-map-button-line);
   cursor: pointer;
   font-size: var(--settings-text-caption);
 }
 
 .shortcut-map-row.conflict .shortcut-capture {
-  color: #9a3412;
-  border-color: #fdba74;
+  color: var(--shortcut-map-conflict-ink);
+  border-color: var(--shortcut-map-conflict-line);
 }
 
 .shortcut-capture {

@@ -920,6 +920,9 @@ assert(
     labelColorControlsStyleSource.includes(".label-color-grid") &&
     labelColorControlsStyleSource.includes(".label-color-row") &&
     labelColorControlsStyleSource.includes(".label-color-role-grid") &&
+    labelColorControlsStyleSource.includes(':root[data-theme="dark"] .label-color-add-row') &&
+    labelColorControlsStyleSource.includes("--label-color-field-bg") &&
+    labelColorControlsStyleSource.includes("--label-color-name-ink") &&
     !appThemeStyleSource.includes(".label-color-add-row") &&
     !appThemeStyleSource.includes(".inline-select-control") &&
     !appThemeStyleSource.includes(".select-control-label-hidden > span") &&
@@ -1307,9 +1310,23 @@ assert(
     !jobsRecentRunsStyleSource.includes("transform 160ms ease") &&
     !jobsRecentRunsStyleSource.includes("translateY(") &&
     !jobsRecentRunsStyleSource.includes("0 14px 28px") &&
-    jobsRecentRunsStyleSource.includes("box-shadow: inset 3px 0 0 #2e9dc0") &&
+    jobsRecentRunsStyleSource.includes(':root[data-theme="dark"] .recent-run-list') &&
+    jobsRecentRunsStyleSource.includes("--recent-run-card-accent") &&
+    jobsRecentRunsStyleSource.includes("content-visibility: auto;") &&
+    jobsRecentRunsStyleSource.includes("contain-intrinsic-size: auto 58px;") &&
+    jobsRecentRunsStyleSource.includes("box-shadow: inset 3px 0 0 var(--recent-run-card-accent)") &&
+    jobsQueueStyleSource.includes(':root[data-theme="dark"] .job-activity-grid') &&
+    jobsQueueStyleSource.includes("--job-strip-bg") &&
+    jobsQueueStyleSource.includes("--job-eval-strong-ink") &&
+    jobsQueueStyleSource.includes("box-shadow: 0 0 0 3px var(--job-status-live-ring)") &&
     jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
     jobsDetailStyleSource.includes(".job-detail-panel") &&
+    jobsDetailStyleSource.includes(':root[data-theme="dark"] .job-detail-panel') &&
+    jobsDetailStyleSource.includes("--job-progress-start") &&
+    jobsDetailStyleSource.includes("content-visibility: auto;") &&
+    jobsDetailStyleSource.includes("contain-intrinsic-size: auto 420px;") &&
+    jobsDetailStyleSource.includes("font-size: var(--text-xs);") &&
+    !jobsDetailStyleSource.includes("font-size: 13px") &&
     jobsManifestStyleSource.includes(".prompt-template-panel") &&
     !appThemeStyleSource.includes(".manifest-toolbar") &&
     !appThemeStyleSource.includes(".recent-run-card") &&
@@ -1337,6 +1354,12 @@ assert(
     !styleSource.includes("minmax(430px, 1fr)") &&
     !styleSource.includes("minmax(360px, 1fr)") &&
     styleSource.includes(".service-card") &&
+    styleSource.includes(':root[data-theme="dark"] .service-grid') &&
+    styleSource.includes("--service-card-bg") &&
+    styleSource.includes("--service-code-bg") &&
+    styleSource.includes("content-visibility: auto;") &&
+    styleSource.includes("contain-intrinsic-size: auto 360px;") &&
+    !styleSource.includes("box-shadow: 0 12px 30px rgb(15 23 42 / 5%)") &&
     !designSource.includes(".service-card") &&
     jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
     adaptiveContentStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
@@ -1968,6 +1991,11 @@ assert(
     settingsTypographyStyleSource.includes(".typography-preset-card") &&
     settingsTypographyStyleSource.includes(".settings-typography-grid") &&
     settingsTypographyStyleSource.includes(".typography-preview-strip") &&
+    settingsTypographyStyleSource.includes(':root[data-theme="dark"] .typography-preset-grid') &&
+    settingsTypographyStyleSource.includes("--settings-typography-card-bg") &&
+    settingsTypographyStyleSource.includes("--settings-typography-preview-code") &&
+    settingsTypographyStyleSource.includes("box-shadow: var(--settings-typography-card-active-shadow)") &&
+    !settingsTypographyStyleSource.includes("linear-gradient(180deg, #ffffff 0%, #f5f9fc 100%)") &&
     settingsTypographyStyleSource.includes("font-family: var(--app-font-family)") &&
     settingsTypographyStyleSource.includes("font-family: var(--mono-font)") &&
     !settingsEditorStyleSource.includes(".typography-preset-grid") &&
@@ -1988,8 +2016,22 @@ assert(
     settingsThemeStyleSource.includes("--settings-preview-foot-min") &&
     settingsEditorStyleSource.includes("var(--settings-text-caption)") &&
     settingsEditorStyleSource.includes("var(--settings-editor-head-min)") &&
+    settingsEditorStyleSource.includes(':root[data-theme="dark"] .settings-editor-pane') &&
+    settingsEditorStyleSource.includes("--settings-editor-bg") &&
+    settingsEditorStyleSource.includes("--settings-inline-action-bg") &&
+    !settingsEditorStyleSource.includes("linear-gradient(180deg, #ffffff 0%, #ecf6fa 100%)") &&
     settingsShortcutsStyleSource.includes("var(--settings-shortcut-row-min)") &&
+    settingsShortcutsStyleSource.includes(':root[data-theme="dark"] .shortcut-map-table') &&
+    settingsShortcutsStyleSource.includes("--shortcut-map-button-bg") &&
+    settingsShortcutsStyleSource.includes("content-visibility: auto;") &&
+    settingsShortcutsStyleSource.includes("contain-intrinsic-size: auto 48px;") &&
     settingsWorkbenchStyleSource.includes("var(--settings-preset-min)") &&
+    settingsWorkbenchStyleSource.includes(':root[data-theme="dark"] .settings-workbench-shell') &&
+    settingsWorkbenchStyleSource.includes("--settings-command-bg") &&
+    settingsWorkbenchStyleSource.includes("--settings-section-active-shadow") &&
+    settingsWorkbenchStyleSource.includes("box-shadow: var(--settings-shell-shadow)") &&
+    !settingsWorkbenchStyleSource.includes("0 22px 54px") &&
+    !settingsWorkbenchStyleSource.includes("linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%)") &&
     settingsPreviewStyleSource.includes("var(--settings-preview-foot-min)") &&
     settingsDrawerStyleSource.includes("var(--settings-drawer-head-min)") &&
     !rawSettingsEditorGeometryPattern.test(settingsEditorStyleSource),
@@ -2024,8 +2066,13 @@ assert(
     settingsDrawerStyleSource.includes(".settings-drawer-head") &&
     settingsLabelsStyleSource.includes(".settings-label-row") &&
     settingsLabelsStyleSource.includes(".settings-label-role-grid") &&
+    settingsLabelsStyleSource.includes(':root[data-theme="dark"] .settings-label-table') &&
+    settingsLabelsStyleSource.includes("--settings-label-ink") &&
+    settingsLabelsStyleSource.includes("content-visibility: auto;") &&
+    settingsLabelsStyleSource.includes("contain-intrinsic-size: auto 42px;") &&
     settingsShortcutsStyleSource.includes(".shortcut-map-row") &&
     settingsShortcutsStyleSource.includes(".shortcut-capture") &&
+    settingsShortcutsStyleSource.includes("--shortcut-map-conflict-bg") &&
     settingsEditorStyleSource.includes(".settings-inline-action .app-icon") &&
     settingsEditorStyleSource.includes(".settings-preference-row") &&
     !settingsWorkbenchStyleSource.includes(".settings-preview-pane") &&
@@ -2590,6 +2637,12 @@ assert(
     runConfigPanelSource.includes('className="run-config-panel"') &&
     runConfigPanelSource.includes('className="prompt-details"') &&
     runsStyleSource.includes(".run-config-panel") &&
+    runsStyleSource.includes(':root[data-theme="dark"] .run-config-panel') &&
+    runsStyleSource.includes("--run-config-bg") &&
+    runsStyleSource.includes("--run-note-editor-bg") &&
+    runsStyleSource.includes("--run-prompt-code-bg") &&
+    runsStyleSource.includes("box-shadow: 0 0 0 3px var(--run-note-field-focus-ring)") &&
+    !runsStyleSource.includes("rgba(27, 94, 122, 0.06)") &&
     runsStyleSource.includes(".run-note-editor") &&
     runsStyleSource.includes(".run-note-template-bar") &&
     runsStyleSource.includes(".run-note-append-panel") &&
@@ -2927,7 +2980,10 @@ assert(
     comparisonSampleStyleSource.includes("var(--viewer-radius-control)") &&
     !comparisonSampleStyleSource.includes("transform 140ms ease") &&
     !comparisonSampleStyleSource.includes("translateX(") &&
-    comparisonSampleStyleSource.includes("box-shadow: inset 3px 0 0 #2e9dc0") &&
+    comparisonSampleStyleSource.includes(':root[data-theme="dark"] .comparison-sample-page') &&
+    comparisonSampleStyleSource.includes("--comparison-sample-row-accent") &&
+    comparisonSampleStyleSource.includes("contain-intrinsic-size: auto 92px;") &&
+    comparisonSampleStyleSource.includes("box-shadow: inset 3px 0 0 var(--comparison-sample-row-accent)") &&
     !rawVisualPageControlGeometryPattern.test(comparisonSampleStyleSource) &&
     !compareStyleSource.includes(".comparison-sample-row") &&
     !compareStyleSource.includes(".comparison-run-panel") &&
@@ -2995,7 +3051,11 @@ assert(
     rankBoardPageStyleSource.includes("--rank-mode-switch-bg") &&
     rankBoardPageStyleSource.includes("--rank-toolbar-line") &&
     rankBoardPageStyleSource.includes(':root[data-theme="dark"] .rank-board-page') &&
+    rankBoardPageStyleSource.includes("contain: layout paint;") &&
+    rankBoardPageStyleSource.includes("scrollbar-gutter: stable both-edges;") &&
     rankBoardFacetsStyleSource.includes("var(--rank-radius-pill)") &&
+    rankBoardFacetsStyleSource.includes("content-visibility: auto;") &&
+    rankBoardFacetsStyleSource.includes("contain-intrinsic-size: auto 76px;") &&
     !rankBoardFacetsStyleSource.includes("transform 150ms ease") &&
     !rankBoardFacetsStyleSource.includes("transform: none") &&
     !rankBoardFacetsStyleSource.includes("translateY(") &&
@@ -3169,6 +3229,7 @@ assert(
     rankBoardFacetsStyleSource.includes("--rank-facet-chip-bg") &&
     rankBoardFacetsStyleSource.includes("--rank-facet-toggle-bg") &&
     rankBoardFacetsStyleSource.includes(':root[data-theme="dark"] .rank-board-page .rank-facet-group') &&
+    rankBoardFacetsStyleSource.includes("content-visibility: auto;") &&
     !rankBoardFacetsStyleSource.includes("transform 150ms ease") &&
     !rankBoardFacetsStyleSource.includes("transform: none") &&
     rankBoardSummaryStyleSource.includes(".rank-board-summary") &&
@@ -3215,7 +3276,11 @@ assert(
     visualStatusBarStyleSource.includes(".visual-status-bar.composite-visual-status") &&
     visualStatusBarStyleSource.includes(".visual-status-bar.viewer-visual-status") &&
     visualStatusBarStyleSource.includes('data-refreshing="true"') &&
-    visualStatusBarStyleSource.includes("position: absolute"),
+    visualStatusBarStyleSource.includes("position: absolute") &&
+    visualStatusBarStyleSource.includes("--visual-status-bg") &&
+    visualStatusBarStyleSource.includes("--visual-status-good-bg") &&
+    visualStatusBarStyleSource.includes("box-shadow: var(--visual-status-shadow)") &&
+    !visualStatusBarStyleSource.includes("0 10px 24px rgb(0 0 0 / 24%)"),
   "sample viewers must use the shared in-canvas visual status bar instead of a layout-consuming toolbar",
 );
 assert(
@@ -3472,6 +3537,8 @@ assert(
       (source) => !rawViewerControlGeometryPattern.test(source),
     ) &&
     viewerOverlayCanvasStyleSource.includes(".image-stage") &&
+    viewerOverlayCanvasStyleSource.includes("--image-stage-checker-a") &&
+    viewerOverlayCanvasStyleSource.includes("border-color: var(--image-stage-checker-line)") &&
     viewerOverlayCanvasStyleSource.includes(".image-zoom-layer") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-svg.interactive") &&
     viewerOverlayCanvasStyleSource.includes("pointer-events: visiblePainted") &&
@@ -3485,6 +3552,9 @@ assert(
     !viewerInstanceLayer.includes('related ? "related"') &&
     !viewerOverlayCanvasStyleSource.includes(".overlay-instance.related") &&
     viewerOverlayCanvasStyleSource.includes(".canvas-hud") &&
+    viewerOverlayCanvasStyleSource.includes("--canvas-hud-bg") &&
+    viewerOverlayCanvasStyleSource.includes("--canvas-hud-button-hover-bg") &&
+    viewerOverlayCanvasStyleSource.includes("background: var(--canvas-hud-bg)") &&
     !viewerCanvasStyleSource.includes(".image-zoom-layer") &&
     !viewerCanvasStyleSource.includes(".overlay-instance") &&
     !viewerCanvasStyleSource.includes(".canvas-hud"),
@@ -3576,7 +3646,8 @@ assert(
     viewerCanvas.includes("fitSize.width") &&
     viewerInstanceLayer.includes("<title>{instance.label}</title>") &&
     !viewerInstanceLayer.includes("instance.label.length * overlayStyle.labelFontSize * 0.58 + 8") &&
-    viewerOverlayCanvasStyleSource.includes("fill: #fffffe;") &&
+    viewerOverlayCanvasStyleSource.includes("--overlay-label-backplate: #fffffe;") &&
+    viewerOverlayCanvasStyleSource.includes("fill: var(--overlay-label-backplate);") &&
     viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 8px);") &&
     viewerOverlayCanvasStyleSource.includes("stroke-width: var(--overlay-label-stroke, 0.45px);") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-instance .overlay-label") &&
@@ -3586,12 +3657,14 @@ assert(
     viewerOverlayCanvasStyleSource.includes("stroke-opacity: 0.86;") &&
     viewerOverlayCanvasStyleSource.includes("font-weight: 760;") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-instance.gt.match .overlay-label text") &&
-    viewerOverlayCanvasStyleSource.includes("fill: #172033;") &&
+    viewerOverlayCanvasStyleSource.includes("--overlay-label-text: #172033;") &&
+    viewerOverlayCanvasStyleSource.includes("fill: var(--overlay-label-text);") &&
     viewerOverlayCanvasStyleSource.includes(".overlay-instance.active .label-backplate") &&
     !viewerOverlayCanvasStyleSource.includes("font-size: calc(var(--overlay-label-size") &&
-    viewerOverlayCanvasStyleSource.includes("fill: #f7fffb;") &&
-    viewerOverlayCanvasStyleSource.includes("fill: #fffaf3;") &&
-    viewerOverlayCanvasStyleSource.includes("fill: #fff8fa;") &&
+    viewerOverlayCanvasStyleSource.includes("--overlay-label-gt-backplate: #f7fffb;") &&
+    viewerOverlayCanvasStyleSource.includes("--overlay-label-pred-backplate: #fffaf3;") &&
+    viewerOverlayCanvasStyleSource.includes("--overlay-label-fn-backplate: #fff8fa;") &&
+    viewerOverlayCanvasStyleSource.includes("fill: var(--overlay-label-gt-backplate);") &&
     !viewerOverlayCanvasStyleSource.includes("fill: #0b1118;\n  fill-opacity: var(--overlay-label-bg-opacity, 0.86)") &&
     !viewerOverlayCanvasStyleSource.includes("fill: #0b1118;\n  fill-opacity: var(--overlay-label-bg-opacity, 0.64)") &&
     !viewerOverlayCanvasStyleSource.includes("font-size: var(--overlay-label-size, 11px);") &&
@@ -4916,6 +4989,12 @@ assert(
     compositeReportRunPoolStyleSource.includes(".report-run-pool") &&
     compositeReportRunPoolStyleSource.includes(".report-run-card") &&
     compositeReportRunPoolStyleSource.includes(".report-run-filter-tabs") &&
+    compositeReportRunPoolStyleSource.includes("--report-run-pool-bg") &&
+    compositeReportRunPoolStyleSource.includes("--report-run-card-divider") &&
+    compositeReportRunPoolStyleSource.includes("content-visibility: auto;") &&
+    compositeReportRunPoolStyleSource.includes("contain-intrinsic-size: auto 56px;") &&
+    !compositeReportRunPoolStyleSource.includes("#f7f9fc") &&
+    !compositeReportRunPoolStyleSource.includes("#e7edf4") &&
     !compositeReportRunPoolStyleSource.includes(".report-layer-tabs") &&
     compositeReportLayerPlanStyleSource.includes(".report-layer-plan") &&
     compositeReportLayerPlanStyleSource.includes(".report-layer-row") &&

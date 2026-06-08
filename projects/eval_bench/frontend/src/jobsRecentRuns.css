@@ -1,4 +1,19 @@
 .recent-run-list {
+  --recent-run-card-ink: #182838;
+  --recent-run-card-bg: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  --recent-run-card-line: #d8e2eb;
+  --recent-run-card-ready-bg: linear-gradient(135deg, #ffffff 0%, #fffaf0 100%);
+  --recent-run-card-ready-line: #ded6b7;
+  --recent-run-card-complete-bg: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%);
+  --recent-run-card-complete-line: #c8e3da;
+  --recent-run-card-hover-bg: #ffffff;
+  --recent-run-card-hover-line: #9ed0e4;
+  --recent-run-card-accent: #2e9dc0;
+  --recent-run-meta-ink: #607080;
+  --recent-run-artifact-track: #e2ebef;
+  --recent-run-artifact-ink: #274253;
+  --recent-run-artifact-bg: #ffffff;
+  --recent-run-artifact-line: #d7e2eb;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -7,17 +22,37 @@
   padding: 6px;
 }
 
+:root[data-theme="dark"] .recent-run-list {
+  --recent-run-card-ink: var(--bench-ink);
+  --recent-run-card-bg: color-mix(in srgb, var(--bench-surface-raised) 88%, black);
+  --recent-run-card-line: var(--bench-line);
+  --recent-run-card-ready-bg: color-mix(in srgb, #f7c948 9%, var(--bench-surface-raised));
+  --recent-run-card-ready-line: color-mix(in srgb, #f7c948 26%, var(--bench-line));
+  --recent-run-card-complete-bg: color-mix(in srgb, #22a66c 9%, var(--bench-surface-raised));
+  --recent-run-card-complete-line: color-mix(in srgb, #22a66c 24%, var(--bench-line));
+  --recent-run-card-hover-bg: color-mix(in srgb, var(--bench-action-soft) 54%, var(--bench-surface-raised));
+  --recent-run-card-hover-line: color-mix(in srgb, var(--bench-cyan) 38%, var(--bench-line));
+  --recent-run-card-accent: var(--bench-cyan);
+  --recent-run-meta-ink: var(--bench-ink-muted);
+  --recent-run-artifact-track: color-mix(in srgb, var(--bench-line) 72%, transparent);
+  --recent-run-artifact-ink: var(--bench-ink-muted);
+  --recent-run-artifact-bg: color-mix(in srgb, var(--bench-surface) 86%, black);
+  --recent-run-artifact-line: var(--bench-line);
+}
+
 .recent-run-card {
   display: grid;
   gap: 3px;
   min-width: 0;
   padding: 5px 7px;
-  color: #182838;
+  color: var(--recent-run-card-ink);
   text-decoration: none;
-  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  border: 1px solid #d8e2eb;
+  background: var(--recent-run-card-bg);
+  border: 1px solid var(--recent-run-card-line);
   border-radius: 4px;
   box-shadow: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 58px;
   transition:
     border-color 160ms ease,
     background 160ms ease,
@@ -25,19 +60,19 @@
 }
 
 .recent-run-card.ready {
-  border-color: #ded6b7;
-  background: linear-gradient(135deg, #ffffff 0%, #fffaf0 100%);
+  background: var(--recent-run-card-ready-bg);
+  border-color: var(--recent-run-card-ready-line);
 }
 
 .recent-run-card.complete {
-  border-color: #c8e3da;
-  background: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%);
+  background: var(--recent-run-card-complete-bg);
+  border-color: var(--recent-run-card-complete-line);
 }
 
 .recent-run-card:hover {
-  background: #ffffff;
-  border-color: #9ed0e4;
-  box-shadow: inset 3px 0 0 #2e9dc0;
+  background: var(--recent-run-card-hover-bg);
+  border-color: var(--recent-run-card-hover-line);
+  box-shadow: inset 3px 0 0 var(--recent-run-card-accent);
 }
 
 .recent-run-head {
@@ -78,7 +113,7 @@
 }
 
 .recent-run-meta {
-  color: #607080;
+  color: var(--recent-run-meta-ink);
   font-size: var(--text-2xs);
   font-weight: 680;
   line-height: 1.08;
@@ -93,7 +128,7 @@
 .recent-run-artifacts > i {
   overflow: hidden;
   height: 4px;
-  background: #e2ebef;
+  background: var(--recent-run-artifact-track);
   border-radius: 999px;
 }
 
@@ -113,9 +148,9 @@
 
 .recent-run-artifacts em {
   padding: 0 4px;
-  color: #274253;
-  background: #ffffff;
-  border: 1px solid #d7e2eb;
+  color: var(--recent-run-artifact-ink);
+  background: var(--recent-run-artifact-bg);
+  border: 1px solid var(--recent-run-artifact-line);
   border-radius: 2px;
   font-size: var(--text-3xs);
   font-style: normal;

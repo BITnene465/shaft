@@ -25,10 +25,59 @@
 }
 
 .service-grid {
+  --service-card-bg: color-mix(in srgb, var(--bench-surface) 94%, white);
+  --service-card-line: #dce3ea;
+  --service-card-shadow: 0 8px 18px rgb(15 23 42 / 4%);
+  --service-card-hover-line: #a9cfde;
+  --service-card-head-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --service-card-head-line: #e5ebf1;
+  --service-card-muted-ink: #607080;
+  --service-config-bg: #f8fafc;
+  --service-code-ink: #dce8f5;
+  --service-code-bg: #101820;
+  --service-code-line: #263545;
+  --service-health-ink: #8a1c28;
+  --service-health-bg: #fff4f5;
+  --service-health-line: #f1c3ca;
+  --service-health-ok-ink: #15543c;
+  --service-health-ok-bg: #ecf8f2;
+  --service-health-ok-line: #bbe5d0;
+  --service-health-chip-bg: #ffffff;
+  --service-log-line: #dbe3ec;
+  --service-log-head-ink: #607080;
+  --service-log-head-bg: #f7f9fb;
+  --service-log-head-line: #e3e9ef;
+  --service-log-head-strong: #263545;
   position: relative;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
   gap: 12px;
+}
+
+:root[data-theme="dark"] .service-grid {
+  --service-card-bg: color-mix(in srgb, var(--bench-surface-raised) 90%, black);
+  --service-card-line: var(--bench-line);
+  --service-card-shadow: 0 8px 18px rgb(0 0 0 / 14%);
+  --service-card-hover-line: color-mix(in srgb, var(--bench-cyan) 36%, var(--bench-line));
+  --service-card-head-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --service-card-head-line: var(--bench-line);
+  --service-card-muted-ink: var(--bench-ink-muted);
+  --service-config-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --service-code-ink: color-mix(in srgb, var(--bench-cyan-strong) 34%, #dce8f5);
+  --service-code-bg: #07111f;
+  --service-code-line: color-mix(in srgb, var(--bench-cyan) 22%, var(--bench-line));
+  --service-health-ink: #fca5a5;
+  --service-health-bg: color-mix(in srgb, #ef4444 11%, var(--bench-surface));
+  --service-health-line: color-mix(in srgb, #ef4444 30%, var(--bench-line));
+  --service-health-ok-ink: #7ee7a8;
+  --service-health-ok-bg: color-mix(in srgb, #22a66c 12%, var(--bench-surface));
+  --service-health-ok-line: color-mix(in srgb, #22a66c 30%, var(--bench-line));
+  --service-health-chip-bg: color-mix(in srgb, var(--bench-surface-raised) 86%, black);
+  --service-log-line: var(--bench-line);
+  --service-log-head-ink: var(--bench-ink-muted);
+  --service-log-head-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --service-log-head-line: var(--bench-line);
+  --service-log-head-strong: var(--bench-ink);
 }
 
 .service-grid.refreshing::after {
@@ -48,10 +97,12 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  background: color-mix(in srgb, var(--bench-surface) 94%, white);
-  border: 1px solid #dce3ea;
+  background: var(--service-card-bg);
+  border: 1px solid var(--service-card-line);
   border-radius: 2px;
-  box-shadow: 0 12px 30px rgb(15 23 42 / 5%);
+  box-shadow: var(--service-card-shadow);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease,
@@ -59,7 +110,7 @@
 }
 
 .service-card:hover {
-  border-color: #a9cfde;
+  border-color: var(--service-card-hover-line);
   box-shadow: var(--bench-shadow-tight);
 }
 
@@ -70,8 +121,8 @@
   gap: 12px;
   min-height: 48px;
   padding: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  border-bottom: 1px solid #e5ebf1;
+  background: var(--service-card-head-bg);
+  border-bottom: 1px solid var(--service-card-head-line);
 }
 
 .service-card-heading h2 {
@@ -84,7 +135,7 @@
   margin-top: 4px;
   max-width: 62ch;
   overflow: hidden;
-  color: #607080;
+  color: var(--service-card-muted-ink);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -95,7 +146,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 12px;
   padding: 10px;
-  background: #f8fafc;
+  background: var(--service-config-bg);
 }
 
 .service-command {
@@ -103,9 +154,9 @@
   max-height: 120px;
   margin: 0;
   padding: 10px;
-  color: #dce8f5;
-  background: #101820;
-  border: 1px solid #263545;
+  color: var(--service-code-ink);
+  background: var(--service-code-bg);
+  border: 1px solid var(--service-code-line);
   border-radius: 2px;
   font-size: var(--text-sm);
   line-height: 1.45;
@@ -119,22 +170,22 @@
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
-  color: #8a1c28;
-  background: #fff4f5;
-  border: 1px solid #f1c3ca;
+  color: var(--service-health-ink);
+  background: var(--service-health-bg);
+  border: 1px solid var(--service-health-line);
   border-radius: 3px;
 }
 
 .service-health.ok {
-  color: #15543c;
-  background: #ecf8f2;
-  border-color: #bbe5d0;
+  color: var(--service-health-ok-ink);
+  background: var(--service-health-ok-bg);
+  border-color: var(--service-health-ok-line);
 }
 
 .service-health span {
   min-height: 20px;
   padding: 2px 7px;
-  background: #ffffff;
+  background: var(--service-health-chip-bg);
   border-radius: 2px;
   font-size: var(--text-2xs);
   font-weight: 780;
@@ -151,7 +202,7 @@
 
 .service-log-panel {
   overflow: hidden;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--service-log-line);
   border-radius: 3px;
 }
 
@@ -162,9 +213,9 @@
   gap: 8px;
   align-items: center;
   padding: 7px 10px;
-  color: #607080;
-  background: #f7f9fb;
-  border-bottom: 1px solid #e3e9ef;
+  color: var(--service-log-head-ink);
+  background: var(--service-log-head-bg);
+  border-bottom: 1px solid var(--service-log-head-line);
   font-size: var(--text-2xs);
   font-weight: 740;
   text-transform: uppercase;
@@ -172,7 +223,7 @@
 
 .service-log-heading strong {
   overflow: hidden;
-  color: #263545;
+  color: var(--service-log-head-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -182,8 +233,8 @@
   max-height: 220px;
   margin: 0;
   padding: 10px;
-  color: #dce8f5;
-  background: #101820;
+  color: var(--service-code-ink);
+  background: var(--service-code-bg);
   font-size: var(--text-sm);
   line-height: 1.45;
 }

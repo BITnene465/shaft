@@ -1,11 +1,22 @@
 .image-stage {
+  --image-stage-bg: #0b1118;
+  --image-stage-line: #111a25;
+  --image-stage-checker-a: #0d1520;
+  --image-stage-checker-b: #101a27;
+  --image-stage-checker-line: #1e2a3a;
+  --overlay-label-backplate: #fffffe;
+  --overlay-label-text: #172033;
+  --overlay-label-text-stroke: rgb(255 255 255 / 52%);
+  --overlay-label-fn-backplate: #fff8fa;
+  --overlay-label-pred-backplate: #fffaf3;
+  --overlay-label-gt-backplate: #f7fffb;
   position: relative;
   overflow: hidden;
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: #0b1118;
-  border: 1px solid #111a25;
+  background: var(--image-stage-bg);
+  border: 1px solid var(--image-stage-line);
   border-radius: var(--viewer-radius-control);
   contain: layout paint;
   isolation: isolate;
@@ -42,6 +53,13 @@
 }
 
 .canvas-hud {
+  --canvas-hud-ink: #e8eef5;
+  --canvas-hud-bg: rgb(9 15 22 / 78%);
+  --canvas-hud-line: rgb(255 255 255 / 18%);
+  --canvas-hud-button-ink: #ffffff;
+  --canvas-hud-button-bg: rgb(255 255 255 / 12%);
+  --canvas-hud-button-line: rgb(255 255 255 / 22%);
+  --canvas-hud-button-hover-bg: rgb(255 255 255 / 18%);
   position: absolute;
   right: 10px;
   bottom: 10px;
@@ -49,9 +67,9 @@
   gap: var(--viewer-gap-6);
   align-items: center;
   padding: var(--viewer-pad-5) var(--viewer-pad-7);
-  color: #e8eef5;
-  background: rgb(9 15 22 / 78%);
-  border: 1px solid rgb(255 255 255 / 18%);
+  color: var(--canvas-hud-ink);
+  background: var(--canvas-hud-bg);
+  border: 1px solid var(--canvas-hud-line);
   border-radius: var(--viewer-radius-control);
   font-size: var(--viewer-text-small);
   font-weight: 740;
@@ -61,9 +79,9 @@
 .canvas-hud button {
   min-height: var(--viewer-filter-chip-min);
   padding: 0 var(--viewer-pad-7);
-  color: #ffffff;
-  background: rgb(255 255 255 / 12%);
-  border: 1px solid rgb(255 255 255 / 22%);
+  color: var(--canvas-hud-button-ink);
+  background: var(--canvas-hud-button-bg);
+  border: 1px solid var(--canvas-hud-button-line);
   border-radius: var(--viewer-radius-control);
   cursor: pointer;
   font-size: var(--viewer-text-small);
@@ -71,7 +89,7 @@
 }
 
 .canvas-hud button:hover {
-  background: rgb(255 255 255 / 18%);
+  background: var(--canvas-hud-button-hover-bg);
 }
 
 .image-zoom-layer img {
@@ -254,7 +272,7 @@
 }
 
 .overlay-instance .label-backplate {
-  fill: #fffffe;
+  fill: var(--overlay-label-backplate);
   fill-opacity: var(--overlay-label-bg-opacity, 0.74);
   stroke: var(--instance-color, var(--overlay-gt, #23c483));
   stroke-opacity: 0.38;
@@ -268,23 +286,23 @@
 .overlay-instance.pred.match .overlay-label text,
 .overlay-instance.pred.neutral .overlay-label text,
 .overlay-instance.pred.fp .overlay-label text {
-  fill: #172033;
-  stroke: rgb(255 255 255 / 52%);
+  fill: var(--overlay-label-text);
+  stroke: var(--overlay-label-text-stroke);
 }
 
 .overlay-instance.gt.fn .label-backplate,
 .overlay-instance.pred.fp .label-backplate {
-  fill: #fff8fa;
+  fill: var(--overlay-label-fn-backplate);
 }
 
 .overlay-instance.pred.match .label-backplate,
 .overlay-instance.pred.neutral .label-backplate {
-  fill: #fffaf3;
+  fill: var(--overlay-label-pred-backplate);
 }
 
 .overlay-instance.gt.match .label-backplate,
 .overlay-instance.gt.neutral .label-backplate {
-  fill: #f7fffb;
+  fill: var(--overlay-label-gt-backplate);
 }
 
 .overlay-instance circle {
@@ -345,9 +363,15 @@
 
 .image-stage {
   background:
-    linear-gradient(45deg, #0d1520 25%, #101a27 25% 50%, #0d1520 50% 75%, #101a27 75%);
+    linear-gradient(
+      45deg,
+      var(--image-stage-checker-a) 25%,
+      var(--image-stage-checker-b) 25% 50%,
+      var(--image-stage-checker-a) 50% 75%,
+      var(--image-stage-checker-b) 75%
+    );
   background-size: 28px 28px;
-  border-color: #1e2a3a;
+  border-color: var(--image-stage-checker-line);
 }
 
 @media (max-width: 900px) {

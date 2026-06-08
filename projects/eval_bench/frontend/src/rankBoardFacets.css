@@ -31,6 +31,8 @@
   border: 1px solid var(--rank-facet-group-line);
   border-radius: var(--rank-radius-control);
   box-shadow: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
   transition:
     border-color 160ms ease,
     background 160ms ease;

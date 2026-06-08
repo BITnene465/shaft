@@ -46,6 +46,7 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--rank-radius-card);
+  contain: layout paint;
 }
 
 .rank-board-table-toolbar {
@@ -72,6 +73,7 @@
   border: 0;
   border-radius: 0;
   box-shadow: none;
+  scrollbar-gutter: stable both-edges;
 }
 
 .rank-board-page .advanced-filter-bar {

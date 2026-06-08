@@ -4,6 +4,36 @@
 }
 
 .settings-workbench-shell {
+  --settings-shell-ink: #1f2933;
+  --settings-shell-bg: #0e1824;
+  --settings-shell-shadow: 0 14px 32px rgb(20 37 52 / 7%);
+  --settings-console-line: #b9c7d6;
+  --settings-command-bg: linear-gradient(
+      180deg,
+      var(--bench-surface-raised) 0%,
+      color-mix(in srgb, var(--bench-surface-muted) 86%, var(--bench-surface-raised)) 100%
+    ),
+    linear-gradient(90deg, rgb(22 132 173 / 10%), transparent);
+  --settings-command-line: #cfd8e3;
+  --settings-accent-ink: #2f6f8d;
+  --settings-muted-ink: #607080;
+  --settings-profile-ink: #415366;
+  --settings-profile-bg: #eef5f8;
+  --settings-profile-line: #c9dae5;
+  --settings-profile-strong-ink: #172435;
+  --settings-activity-bg: #eef3f7;
+  --settings-search-ink: #536171;
+  --settings-search-bg: #ffffff;
+  --settings-search-line: #c8d3de;
+  --settings-search-input-ink: #152334;
+  --settings-section-ink: #344456;
+  --settings-section-bg: #edf3f7;
+  --settings-section-line: #d5e0ea;
+  --settings-section-hover-bg: #e3ebf2;
+  --settings-section-active-ink: #073f5c;
+  --settings-section-active-bg: #ffffff;
+  --settings-section-active-line: #82c5de;
+  --settings-section-active-shadow: inset 0 -2px 0 #1684ad;
   display: grid;
   grid-template-columns: 1fr;
   grid-template-rows: auto minmax(150px, 1fr) minmax(170px, 32vh);
@@ -13,14 +43,47 @@
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  color: #1f2933;
-  background: #0e1824;
+  color: var(--settings-shell-ink);
+  background: var(--settings-shell-bg);
   border: 1px solid var(--bench-line);
-  box-shadow: 0 22px 54px rgb(20 37 52 / 9%);
+  box-shadow: var(--settings-shell-shadow);
+}
+
+:root[data-theme="dark"] .settings-workbench-shell {
+  --settings-shell-ink: var(--bench-ink);
+  --settings-shell-bg: var(--bench-bg-soft);
+  --settings-shell-shadow: 0 10px 24px rgb(0 0 0 / 18%);
+  --settings-console-line: var(--bench-line);
+  --settings-command-bg: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bench-surface-raised) 92%, black),
+      color-mix(in srgb, var(--bench-surface) 92%, black)
+    ),
+    linear-gradient(90deg, color-mix(in srgb, var(--bench-cyan) 12%, transparent), transparent);
+  --settings-command-line: var(--bench-line);
+  --settings-accent-ink: var(--bench-cyan-strong);
+  --settings-muted-ink: var(--bench-ink-muted);
+  --settings-profile-ink: var(--bench-ink-muted);
+  --settings-profile-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --settings-profile-line: var(--bench-line);
+  --settings-profile-strong-ink: var(--bench-ink);
+  --settings-activity-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --settings-search-ink: var(--bench-ink-muted);
+  --settings-search-bg: color-mix(in srgb, var(--bench-surface-raised) 86%, black);
+  --settings-search-line: var(--bench-line);
+  --settings-search-input-ink: var(--bench-ink);
+  --settings-section-ink: var(--bench-ink);
+  --settings-section-bg: color-mix(in srgb, var(--bench-surface) 88%, black);
+  --settings-section-line: var(--bench-line);
+  --settings-section-hover-bg: color-mix(in srgb, var(--bench-action-soft) 48%, var(--bench-surface));
+  --settings-section-active-ink: var(--bench-cyan-strong);
+  --settings-section-active-bg: color-mix(in srgb, var(--bench-action-soft) 70%, var(--bench-surface));
+  --settings-section-active-line: color-mix(in srgb, var(--bench-cyan) 44%, var(--bench-line));
+  --settings-section-active-shadow: inset 0 -2px 0 var(--bench-cyan);
 }
 
 .settings-console-shell {
-  border-color: #b9c7d6;
+  border-color: var(--settings-console-line);
 }
 
 .settings-command-bar {
@@ -30,10 +93,8 @@
   align-items: center;
   min-height: var(--settings-preset-min);
   padding: var(--settings-pad-8) var(--settings-pad-12);
-  background:
-    linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%),
-    linear-gradient(90deg, rgb(22 132 173 / 10%), transparent);
-  border-bottom: 1px solid #cfd8e3;
+  background: var(--settings-command-bg);
+  border-bottom: 1px solid var(--settings-command-line);
 }
 
 .settings-command-title {
@@ -44,7 +105,7 @@
 }
 
 .settings-command-title span {
-  color: #2f6f8d;
+  color: var(--settings-accent-ink);
   font-size: var(--settings-text-caption);
   font-weight: 820;
   letter-spacing: 0.08em;
@@ -60,7 +121,7 @@
 .settings-command-title p {
   display: none;
   max-width: 240px;
-  color: #607080;
+  color: var(--settings-muted-ink);
   font-size: var(--settings-text-small);
   line-height: 1.35;
 }
@@ -80,13 +141,13 @@
   gap: var(--settings-gap-2);
   width: min(100%, 172px);
   padding: var(--settings-pad-7) var(--settings-pad-9);
-  color: #415366;
-  background: #eef5f8;
-  border: 1px solid #c9dae5;
+  color: var(--settings-profile-ink);
+  background: var(--settings-profile-bg);
+  border: 1px solid var(--settings-profile-line);
 }
 
 .settings-profile-strip span {
-  color: #437086;
+  color: var(--settings-accent-ink);
   font-size: var(--settings-text-micro);
   font-weight: 820;
   letter-spacing: 0.08em;
@@ -102,12 +163,12 @@
 }
 
 .settings-profile-strip strong {
-  color: #172435;
+  color: var(--settings-profile-strong-ink);
   font-size: var(--settings-text-small);
 }
 
 .settings-profile-strip small {
-  color: #63758a;
+  color: var(--settings-muted-ink);
   font-size: var(--settings-text-caption);
 }
 
@@ -118,9 +179,10 @@
   flex-direction: column;
   gap: var(--settings-gap-12);
   padding: 12px;
-  background: #eef3f7;
-  border-right: 1px solid #cfd8e3;
-  scrollbar-color: #a7c6d4 transparent;
+  background: var(--settings-activity-bg);
+  border-right: 1px solid var(--settings-command-line);
+  scrollbar-color: color-mix(in srgb, var(--settings-accent-ink) 38%, var(--settings-command-line))
+    transparent;
 }
 
 .settings-search-box {
@@ -129,14 +191,14 @@
   align-items: center;
   min-height: var(--settings-row-min);
   padding: 0 var(--settings-pad-7);
-  color: #536171;
-  background: #ffffff;
-  border: 1px solid #c8d3de;
+  color: var(--settings-search-ink);
+  background: var(--settings-search-bg);
+  border: 1px solid var(--settings-search-line);
 }
 
 .settings-search-box input {
   min-width: 0;
-  color: #152334;
+  color: var(--settings-search-input-ink);
   background: transparent;
   border: 0;
   outline: none;
@@ -148,7 +210,7 @@
   width: 20px;
   height: 20px;
   place-items: center;
-  color: #607080;
+  color: var(--settings-muted-ink);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -168,24 +230,24 @@
   gap: var(--settings-gap-1);
   min-height: var(--settings-row-min);
   padding: var(--settings-pad-4) var(--settings-pad-8);
-  color: #344456;
-  background: #edf3f7;
-  border: 1px solid #d5e0ea;
+  color: var(--settings-section-ink);
+  background: var(--settings-section-bg);
+  border: 1px solid var(--settings-section-line);
   cursor: pointer;
   font: inherit;
   text-align: left;
 }
 
 .settings-section-button:hover {
-  background: #e3ebf2;
+  background: var(--settings-section-hover-bg);
 }
 
 .settings-section-button.active {
-  color: #073f5c;
-  background: #ffffff;
-  border-color: #82c5de;
+  color: var(--settings-section-active-ink);
+  background: var(--settings-section-active-bg);
+  border-color: var(--settings-section-active-line);
   border-left-color: var(--bench-cyan);
-  box-shadow: inset 0 -2px 0 #1684ad;
+  box-shadow: var(--settings-section-active-shadow);
 }
 
 .settings-section-button span {
@@ -195,7 +257,7 @@
 
 .settings-section-button small {
   overflow: visible;
-  color: #64758a;
+  color: var(--settings-muted-ink);
   font-size: var(--settings-text-micro);
   text-overflow: clip;
   white-space: normal;
