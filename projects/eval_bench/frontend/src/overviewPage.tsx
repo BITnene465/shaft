@@ -109,25 +109,48 @@ function OverviewPrimaryCard({
     ? `当前最佳 ${bestRun.run.run_id}，F1 ${formatMetric(bestRun.f1)}。`
     : "还没有可用 F1 报告。";
   const [lens, setLens] = React.useState<OverviewLens>("health");
-  const signalNodes = overviewSignalNodes({
-    lens,
-    action,
-    bestRun,
-    benchmarkCount,
-    benchmarkSamples,
-    predictionCount,
-    evaluatedRuns,
-    reportCoverage,
-    queuedJobs,
-    runningJobs,
-    failedJobs,
-    activeQueue,
-    liveServices,
-    serviceCount,
-    schedulerLive
-  });
+  const signalNodes = React.useMemo(
+    () =>
+      overviewSignalNodes({
+        lens,
+        action,
+        bestRun,
+        benchmarkCount,
+        benchmarkSamples,
+        predictionCount,
+        evaluatedRuns,
+        reportCoverage,
+        queuedJobs,
+        runningJobs,
+        failedJobs,
+        activeQueue,
+        liveServices,
+        serviceCount,
+        schedulerLive
+      }),
+    [
+      action,
+      activeQueue,
+      benchmarkCount,
+      benchmarkSamples,
+      bestRun,
+      evaluatedRuns,
+      failedJobs,
+      lens,
+      liveServices,
+      predictionCount,
+      queuedJobs,
+      reportCoverage,
+      runningJobs,
+      schedulerLive,
+      serviceCount
+    ]
+  );
   const [selectedSignalId, setSelectedSignalId] = React.useState(signalNodes[0]?.id ?? "");
-  const selectedSignal = signalNodes.find((node) => node.id === selectedSignalId) ?? signalNodes[0];
+  const selectedSignal = React.useMemo(
+    () => signalNodes.find((node) => node.id === selectedSignalId) ?? signalNodes[0],
+    [selectedSignalId, signalNodes]
+  );
   React.useEffect(() => {
     if (!signalNodes.some((node) => node.id === selectedSignalId)) {
       setSelectedSignalId(signalNodes[0]?.id ?? "");

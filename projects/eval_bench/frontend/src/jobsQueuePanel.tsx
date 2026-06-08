@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -10,7 +10,7 @@ import {
   fetchJobs,
   fetchSchedulerStatus
 } from "./api";
-import { AdvancedFilterBar } from "./filterControls";
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import {
   errorMessage,
   facetValues,
@@ -88,19 +88,27 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
   const selectedJob = data?.jobs.find((job) => job.job_id === selectedJobId) ?? null;
   const facets = data?.facets;
   const filteredJobs = data?.jobs ?? [];
-  const statuses = facetValues(facets, "statuses", [
-    "queued",
-    "running",
-    "succeeded",
-    "failed",
-    "cancelled",
-    ...filteredJobs.map((job) => job.status)
-  ]);
-  const kinds = facetValues(facets, "kinds", [
-    "eval",
-    "preannotate",
-    ...filteredJobs.map((job) => job.kind)
-  ]);
+  const statuses = useMemo(
+    () =>
+      facetValues(facets, "statuses", [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        ...filteredJobs.map((job) => job.status)
+      ]),
+    [facets, filteredJobs]
+  );
+  const kinds = useMemo(
+    () =>
+      facetValues(facets, "kinds", [
+        "eval",
+        "preannotate",
+        ...filteredJobs.map((job) => job.kind)
+      ]),
+    [facets, filteredJobs]
+  );
   const totalJobs = data?.total ?? filteredJobs.length;
   const selectedRuntimeLogPath =
     selectedJob && typeof selectedJob.metadata.runtime_log_path === "string"
@@ -127,7 +135,45 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     }
   });
+  const handleCancelJob = useCallback(
+    (jobId: string) => cancelMutation.mutate(jobId),
+    [cancelMutation.mutate]
+  );
   const queueRefreshing = Boolean((isPlaceholderData && data) || debouncedSearch.pending);
+  const jobFilterControls = useMemo<AdvancedFilterControl[]>(
+    () => [
+      {
+        type: "search",
+        id: "job-query",
+        label: "全文检索",
+        value: searchText,
+        onChange: (value) =>
+          updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
+        placeholder: "搜索 job、模型、benchmark、错误、日志"
+      },
+      {
+        type: "select",
+        id: "job-status",
+        label: "状态",
+        value: statusFilter,
+        values: ["all", ...statuses],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
+      },
+      {
+        type: "select",
+        id: "job-kind",
+        label: "类型",
+        value: kindFilter,
+        values: ["all", ...kinds],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)
+      }
+    ],
+    [kindFilter, kinds, searchText, statusFilter, statuses]
+  );
   useEffect(() => {
     if (compact) {
       return;
@@ -177,37 +223,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
         <AdvancedFilterBar
           title="任务高级检索"
           meta={`${filteredJobs.length.toLocaleString()} / ${totalJobs.toLocaleString()} 条 job`}
-          controls={[
-            {
-              type: "search",
-              id: "job-query",
-              label: "全文检索",
-              value: searchText,
-              onChange: (value) =>
-                updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
-              placeholder: "搜索 job、模型、benchmark、错误、日志"
-            },
-            {
-              type: "select",
-              id: "job-status",
-              label: "状态",
-              value: statusFilter,
-              values: ["all", ...statuses],
-              labels: { all: "全部" },
-              onChange: (value) =>
-                updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
-            },
-            {
-              type: "select",
-              id: "job-kind",
-              label: "类型",
-              value: kindFilter,
-              values: ["all", ...kinds],
-              labels: { all: "全部" },
-              onChange: (value) =>
-                updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)
-            }
-          ]}
+          controls={jobFilterControls}
         />
       ) : null}
       {totalJobs === 0 ? (
@@ -233,7 +249,7 @@ export function JobQueuePanel({ compact = false }: { compact?: boolean }) {
           cancelPending={cancelMutation.isPending}
           deletePending={deleteMutation.isPending}
           onSelectJob={setSelectedJobId}
-          onCancelJob={(jobId) => cancelMutation.mutate(jobId)}
+          onCancelJob={handleCancelJob}
           onDeleteJob={setDeleteJobTarget}
         />
       )}

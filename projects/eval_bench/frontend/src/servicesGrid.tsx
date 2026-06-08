@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
@@ -64,7 +64,7 @@ export function ServiceGrid({
   );
 }
 
-function ServiceCard({ service }: { service: ServiceSummary }) {
+const ServiceCard = memo(function ServiceCard({ service }: { service: ServiceSummary }) {
   const queryClient = useQueryClient();
   const [showLog, setShowLog] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -178,7 +178,7 @@ function ServiceCard({ service }: { service: ServiceSummary }) {
       />
     </div>
   );
-}
+});
 
 function ServiceLogPanel({
   query

@@ -1,4 +1,6 @@
-import { AdvancedFilterBar } from "./filterControls";
+import { useMemo } from "react";
+
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { updatePagedFilterValue } from "./samplePager";
 
 export type RankBoardFilterValues = {
@@ -48,164 +50,167 @@ export function RankBoardFilterBar({
   options: RankBoardFilterOptions;
   setters: RankBoardFilterSetters;
 }) {
+  const rankFilterControls = useMemo<AdvancedFilterControl[]>(
+    () => [
+      {
+        type: "search",
+        id: "rank-query",
+        label: "全文检索",
+        value: values.searchText,
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.searchText,
+            value,
+            setters.setSearchText,
+            setters.setPageOffset
+          ),
+        placeholder: "搜索 run、模型、prompt、备注"
+      },
+      {
+        type: "select",
+        id: "rank-task",
+        label: "任务",
+        value: values.taskFilter,
+        values: ["all", ...options.tasks],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.taskFilter,
+            value,
+            setters.setTaskFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-benchmark",
+        label: "基准集",
+        value: values.benchmarkFilter,
+        values: ["all", ...options.benchmarks],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.benchmarkFilter,
+            value,
+            setters.setBenchmarkFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-benchmark-split",
+        label: "Split",
+        value: values.benchmarkSplitFilter,
+        values: ["all", ...options.benchmarkSplits],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.benchmarkSplitFilter,
+            value,
+            setters.setBenchmarkSplitFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-status",
+        label: "状态",
+        value: values.statusFilter,
+        values: ["all", ...options.statuses],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.statusFilter,
+            value,
+            setters.setStatusFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-label",
+        label: "标签",
+        value: values.labelFilter,
+        values: ["all", ...options.labels],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.labelFilter,
+            value,
+            setters.setLabelFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-model",
+        label: "模型",
+        value: values.modelFilter,
+        values: ["all", ...options.models],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.modelFilter,
+            value,
+            setters.setModelFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-prompt",
+        label: "Prompt",
+        value: values.promptFilter,
+        values: ["all", ...options.prompts],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.promptFilter,
+            value,
+            setters.setPromptFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "rank-metric",
+        label: "Metric",
+        value: values.metricProfileFilter,
+        values: ["all", ...options.metricProfiles],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.metricProfileFilter,
+            value,
+            setters.setMetricProfileFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "number",
+        id: "rank-min-score",
+        label: "最低分",
+        value: values.minScoreFilter,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        placeholder: "0.70",
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.minScoreFilter,
+            value,
+            setters.setMinScoreFilter,
+            setters.setPageOffset
+          )
+      }
+    ],
+    [options, setters, values]
+  );
   return (
     <AdvancedFilterBar
       title="筛选"
       meta="任务、基准集、状态、标签、模型、Prompt、Metric 与最低分"
-      controls={[
-        {
-          type: "search",
-          id: "rank-query",
-          label: "全文检索",
-          value: values.searchText,
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.searchText,
-              value,
-              setters.setSearchText,
-              setters.setPageOffset
-            ),
-          placeholder: "搜索 run、模型、prompt、备注"
-        },
-        {
-          type: "select",
-          id: "rank-task",
-          label: "任务",
-          value: values.taskFilter,
-          values: ["all", ...options.tasks],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.taskFilter,
-              value,
-              setters.setTaskFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-benchmark",
-          label: "基准集",
-          value: values.benchmarkFilter,
-          values: ["all", ...options.benchmarks],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.benchmarkFilter,
-              value,
-              setters.setBenchmarkFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-benchmark-split",
-          label: "Split",
-          value: values.benchmarkSplitFilter,
-          values: ["all", ...options.benchmarkSplits],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.benchmarkSplitFilter,
-              value,
-              setters.setBenchmarkSplitFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-status",
-          label: "状态",
-          value: values.statusFilter,
-          values: ["all", ...options.statuses],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.statusFilter,
-              value,
-              setters.setStatusFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-label",
-          label: "标签",
-          value: values.labelFilter,
-          values: ["all", ...options.labels],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.labelFilter,
-              value,
-              setters.setLabelFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-model",
-          label: "模型",
-          value: values.modelFilter,
-          values: ["all", ...options.models],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.modelFilter,
-              value,
-              setters.setModelFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-prompt",
-          label: "Prompt",
-          value: values.promptFilter,
-          values: ["all", ...options.prompts],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.promptFilter,
-              value,
-              setters.setPromptFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "rank-metric",
-          label: "Metric",
-          value: values.metricProfileFilter,
-          values: ["all", ...options.metricProfiles],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.metricProfileFilter,
-              value,
-              setters.setMetricProfileFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "number",
-          id: "rank-min-score",
-          label: "最低分",
-          value: values.minScoreFilter,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          placeholder: "0.70",
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.minScoreFilter,
-              value,
-              setters.setMinScoreFilter,
-              setters.setPageOffset
-            )
-        }
-      ]}
+      controls={rankFilterControls}
     />
   );
 }
-

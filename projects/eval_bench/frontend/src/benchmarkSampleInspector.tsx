@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 
@@ -8,7 +8,7 @@ import {
   fetchBenchmarkSampleDetail,
   fetchBenchmarkSamples
 } from "./api";
-import { AdvancedFilterBar } from "./filterControls";
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { basename, errorMessage, isTextInputTarget, unique } from "./formatters";
 import { benchmarkSplitValues } from "./benchmarkModel";
 import {
@@ -245,30 +245,34 @@ function BenchmarkSampleFilters({
   onLabelFilterChange: (value: string) => void;
   onSplitFilterChange: (value: string) => void;
 }) {
+  const benchmarkSampleFilterControls = useMemo<AdvancedFilterControl[]>(() => {
+    const controls: AdvancedFilterControl[] = [
+      {
+        type: "select",
+        id: "split",
+        label: "分片",
+        value: splitFilter,
+        values: ["all", ...splits],
+        labels: { all: "默认" },
+        onChange: onSplitFilterChange
+      },
+      {
+        type: "select",
+        id: "label",
+        label: "标签",
+        value: labelFilter,
+        values: ["all", ...labels],
+        labels: { all: "全部" },
+        onChange: onLabelFilterChange
+      }
+    ];
+    return controls;
+  }, [labelFilter, labels, onLabelFilterChange, onSplitFilterChange, splitFilter, splits]);
   return (
     <AdvancedFilterBar
       title="样本检索"
       meta={`${splits.length.toLocaleString()} splits / ${labels.length.toLocaleString()} labels`}
-      controls={[
-        {
-          type: "select",
-          id: "split",
-          label: "分片",
-          value: splitFilter,
-          values: ["all", ...splits],
-          labels: { all: "默认" },
-          onChange: onSplitFilterChange
-        },
-        {
-          type: "select",
-          id: "label",
-          label: "标签",
-          value: labelFilter,
-          values: ["all", ...labels],
-          labels: { all: "全部" },
-          onChange: onLabelFilterChange
-        }
-      ]}
+      controls={benchmarkSampleFilterControls}
     />
   );
 }
@@ -297,23 +301,39 @@ function BenchmarkSampleList({
         </span>
       ) : null}
       {samples.map((sample) => (
-        <SelectableRowButton
+        <BenchmarkSampleListRow
           key={sample.index}
+          sample={sample}
           selected={sample.index === selectedIndex}
-          onClick={() => onSelect(sample.index)}
-        >
-          <span className="sample-row-main">
-            <strong>{sample.index + 1}</strong>
-            <span title={sample.image}>{basename(sample.image)}</span>
-          </span>
-          <span className="sample-row-meta">
-            真值 {sample.instance_count.toLocaleString()} / 标签 {sample.labels.join(", ") || "-"}
-          </span>
-        </SelectableRowButton>
+          onSelect={onSelect}
+        />
       ))}
     </div>
   );
 }
+
+const BenchmarkSampleListRow = memo(function BenchmarkSampleListRow({
+  sample,
+  selected,
+  onSelect
+}: {
+  sample: BenchmarkSampleSummary;
+  selected: boolean;
+  onSelect: (index: number) => void;
+}) {
+  const handleSelect = useCallback(() => onSelect(sample.index), [onSelect, sample.index]);
+  return (
+    <SelectableRowButton selected={selected} onClick={handleSelect}>
+      <span className="sample-row-main">
+        <strong>{sample.index + 1}</strong>
+        <span title={sample.image}>{basename(sample.image)}</span>
+      </span>
+      <span className="sample-row-meta">
+        真值 {sample.instance_count.toLocaleString()} / 标签 {sample.labels.join(", ") || "-"}
+      </span>
+    </SelectableRowButton>
+  );
+});
 
 function BenchmarkSampleViewer({ detail }: { detail: BenchmarkSampleDetail }) {
   const width = detail.sample.image_width ?? 1000;

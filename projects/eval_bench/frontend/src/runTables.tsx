@@ -111,12 +111,12 @@ export function RunTable({
   const queryClient = useQueryClient();
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const [deleteRunTarget, setDeleteRunTarget] = useState<RunSummary | null>(null);
-  const refreshRunViews = () => {
+  const refreshRunViews = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["dashboard-state"] });
     void queryClient.invalidateQueries({ queryKey: ["runs"] });
     void queryClient.invalidateQueries({ queryKey: ["rank-board"] });
     void queryClient.invalidateQueries({ queryKey: ["comparisons"] });
-  };
+  }, [queryClient]);
   const evaluateMutation = useMutation({ mutationFn: evaluateRun, onSuccess: refreshRunViews });
   const archiveMutation = useMutation({ mutationFn: archiveRun, onSuccess: refreshRunViews });
   const deleteMutation = useMutation({
@@ -131,13 +131,16 @@ export function RunTable({
   const { mutate: archiveRunMutate, isPending: archivePending } = archiveMutation;
   const { isPending: deletePending } = deleteMutation;
   const filteredRuns = runs;
-  const comparableSelection = selectedRunIds.slice(0, 2);
-  const compareHref =
-    comparableSelection.length === 2
-      ? `/compare?baseline=${encodeURIComponent(comparableSelection[0])}&candidate=${encodeURIComponent(
-          comparableSelection[1]
-        )}`
-      : "/compare";
+  const comparableSelection = useMemo(() => selectedRunIds.slice(0, 2), [selectedRunIds]);
+  const compareHref = useMemo(
+    () =>
+      comparableSelection.length === 2
+        ? `/compare?baseline=${encodeURIComponent(comparableSelection[0])}&candidate=${encodeURIComponent(
+            comparableSelection[1]
+          )}`
+        : "/compare",
+    [comparableSelection]
+  );
   const toggleRunSelection = useCallback((runId: string) => {
     setSelectedRunIds((current) => {
       if (current.includes(runId)) {
@@ -146,6 +149,15 @@ export function RunTable({
       return [...current, runId].slice(-2);
     });
   }, []);
+  const handleEvaluateRun = useCallback(
+    (runId: string) => evaluateRunMutate(runId),
+    [evaluateRunMutate]
+  );
+  const handleArchiveRun = useCallback(
+    (runId: string) => archiveRunMutate(runId),
+    [archiveRunMutate]
+  );
+  const handleDeleteRun = useCallback((run: RunSummary) => setDeleteRunTarget(run), []);
   const columns = useMemo<ColumnDef<RunSummary>[]>(
     () => [
       ...(compact
@@ -244,7 +256,7 @@ export function RunTable({
             />
             <IconActionButton
               icon={<RotateCw size={13} />}
-              onClick={() => evaluateRunMutate(row.original.run_id)}
+              onClick={() => handleEvaluateRun(row.original.run_id)}
               disabled={!canEvaluateRun(row.original) || evaluatePending}
               title="计算预测指标"
             />
@@ -252,14 +264,14 @@ export function RunTable({
               <>
                 <IconActionButton
                   icon={<Archive size={14} />}
-                  onClick={() => archiveRunMutate(row.original.run_id)}
+                  onClick={() => handleArchiveRun(row.original.run_id)}
                   disabled={!canArchiveRun(row.original) || archivePending}
                   title="归档 run"
                 />
                 <IconActionButton
                   icon={<Trash2 size={14} />}
                   danger
-                  onClick={() => setDeleteRunTarget(row.original)}
+                  onClick={() => handleDeleteRun(row.original)}
                   disabled={!canDeleteRun(row.original) || deletePending}
                   title="删除 run"
                 />
@@ -271,11 +283,12 @@ export function RunTable({
     ],
     [
       archivePending,
-      archiveRunMutate,
       compact,
       deletePending,
       evaluatePending,
-      evaluateRunMutate,
+      handleArchiveRun,
+      handleDeleteRun,
+      handleEvaluateRun,
       selectedRunIds,
       toggleRunSelection
     ]

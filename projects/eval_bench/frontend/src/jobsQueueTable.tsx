@@ -1,5 +1,6 @@
 import { Trash2, X } from "lucide-react";
-import type { CSSProperties } from "react";
+import { memo, useCallback } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 
 import type { JobSummary } from "./api";
 import {
@@ -89,7 +90,7 @@ export function JobQueueTable({
   );
 }
 
-function JobQueueRow({
+const JobQueueRow = memo(function JobQueueRow({
   job,
   selected,
   cancelPending,
@@ -107,10 +108,25 @@ function JobQueueRow({
   onDeleteJob: (job: JobSummary) => void;
 }) {
   const runId = jobRunId(job);
+  const handleSelectJob = useCallback(() => onSelectJob(job.job_id), [job.job_id, onSelectJob]);
+  const handleCancelJob = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      onCancelJob(job.job_id);
+    },
+    [job.job_id, onCancelJob]
+  );
+  const handleDeleteJob = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      onDeleteJob(job);
+    },
+    [job, onDeleteJob]
+  );
   return (
     <SelectableTableRow
       selected={selected}
-      onClick={() => onSelectJob(job.job_id)}
+      onClick={handleSelectJob}
     >
       <td className={JOB_QUEUE_COLUMN_CLASS_NAMES.identity}>
         <div className="job-eval-cell">
@@ -147,26 +163,20 @@ function JobQueueRow({
             icon={<X size={14} />}
             disabled={!canCancelJob(job) || cancelPending}
             title={job.status === "running" ? "终止运行中评测" : "取消排队任务"}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCancelJob(job.job_id);
-            }}
+            onClick={handleCancelJob}
           />
           <IconActionButton
             icon={<Trash2 size={14} />}
             danger
             disabled={!canDeleteJob(job) || deletePending}
             title="删除任务记录"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteJob(job);
-            }}
+            onClick={handleDeleteJob}
           />
         </div>
       </td>
     </SelectableTableRow>
   );
-}
+});
 
 export function jobRunId(job: JobSummary) {
   return job.run_id || stringValue(job.metadata.run_id) || stringValue(job.payload.run_id);

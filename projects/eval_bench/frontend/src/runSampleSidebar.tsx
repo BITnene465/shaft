@@ -1,5 +1,7 @@
+import { memo, useCallback, useMemo } from "react";
+
 import type { RunSampleSummary } from "./api";
-import { AdvancedFilterBar } from "./filterControls";
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { basename } from "./formatters";
 import { SelectableRowButton } from "./ui";
 
@@ -16,11 +18,9 @@ export function SampleFilters({
   onErrorFilterChange: (value: string) => void;
   onLabelFilterChange: (value: string) => void;
 }) {
-  return (
-    <AdvancedFilterBar
-      title="样本检索"
-      meta={`${labels.length.toLocaleString()} labels`}
-      controls={[
+  const sampleFilterControls = useMemo<AdvancedFilterControl[]>(
+    () => {
+      const controls: AdvancedFilterControl[] = [
         {
           type: "select",
           id: "error",
@@ -39,7 +39,16 @@ export function SampleFilters({
           labels: { all: "全部" },
           onChange: onLabelFilterChange
         }
-      ]}
+      ];
+      return controls;
+    },
+    [errorFilter, labelFilter, labels, onErrorFilterChange, onLabelFilterChange]
+  );
+  return (
+    <AdvancedFilterBar
+      title="样本检索"
+      meta={`${labels.length.toLocaleString()} labels`}
+      controls={sampleFilterControls}
     />
   );
 }
@@ -68,24 +77,40 @@ export function SampleList({
         </span>
       ) : null}
       {samples.map((sample) => (
-        <SelectableRowButton
+        <RunSampleListRow
           key={sample.index}
+          sample={sample}
           selected={sample.index === selectedIndex}
-          onClick={() => onSelect(sample.index)}
-        >
-          <span className="sample-row-main">
-            <strong>{sample.index + 1}</strong>
-            <span title={sample.image}>{basename(sample.image)}</span>
-          </span>
-          <span className="sample-row-meta">
-            真实 {sample.gt_instance_count.toLocaleString()} / 预测{" "}
-            {sample.pred_instance_count.toLocaleString()}
-          </span>
-          <span className={sample.has_prediction ? "sample-status ok" : "sample-status missing"}>
-            {sample.has_prediction ? "已预测" : "缺预测"}
-          </span>
-        </SelectableRowButton>
+          onSelect={onSelect}
+        />
       ))}
     </div>
   );
 }
+
+const RunSampleListRow = memo(function RunSampleListRow({
+  sample,
+  selected,
+  onSelect
+}: {
+  sample: RunSampleSummary;
+  selected: boolean;
+  onSelect: (index: number) => void;
+}) {
+  const handleSelect = useCallback(() => onSelect(sample.index), [onSelect, sample.index]);
+  return (
+    <SelectableRowButton selected={selected} onClick={handleSelect}>
+      <span className="sample-row-main">
+        <strong>{sample.index + 1}</strong>
+        <span title={sample.image}>{basename(sample.image)}</span>
+      </span>
+      <span className="sample-row-meta">
+        真实 {sample.gt_instance_count.toLocaleString()} / 预测{" "}
+        {sample.pred_instance_count.toLocaleString()}
+      </span>
+      <span className={sample.has_prediction ? "sample-status ok" : "sample-status missing"}>
+        {sample.has_prediction ? "已预测" : "缺预测"}
+      </span>
+    </SelectableRowButton>
+  );
+});

@@ -1066,9 +1066,12 @@ assert(
     dataTableStyleSource.includes("--table-hover-shadow: var(--bench-shadow-tight)") &&
     dataTableStyleSource.includes("--table-row-hover-rail") &&
     dataTableStyleSource.includes("--table-row-selected-rail") &&
+    dataTableStyleSource.includes("--table-row-estimate: var(--table-row-height)") &&
     dataTableStyleSource.includes("--table-checkbox-bg") &&
     dataTableStyleSource.includes("--table-checkbox-check-ring") &&
     dataTableStyleSource.includes("contain: layout;") &&
+    dataTableStyleSource.includes(".table-shell tbody tr {\n  content-visibility: auto;") &&
+    dataTableStyleSource.includes("contain-intrinsic-size: auto var(--table-row-estimate);") &&
     dataTableStyleSource.includes("outline: 2px solid var(--control-focus-outline)") &&
     !dataTableStyleSource.includes("transform 150ms ease") &&
     !dataTableStyleSource.includes("animation: table-region-refresh") &&
@@ -1087,7 +1090,13 @@ assert(
     runTables.includes('import { useCallback, useMemo, useState } from "react";') &&
     runTables.includes("const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [") &&
     runTables.includes("columns={BENCHMARK_TABLE_COLUMNS}") &&
+    runTables.includes("const refreshRunViews = useCallback(() => {") &&
     runTables.includes("const toggleRunSelection = useCallback((runId: string) => {") &&
+    runTables.includes("const comparableSelection = useMemo(() => selectedRunIds.slice(0, 2), [selectedRunIds]);") &&
+    runTables.includes("const compareHref = useMemo(") &&
+    runTables.includes("const handleEvaluateRun = useCallback(") &&
+    runTables.includes("const handleArchiveRun = useCallback(") &&
+    runTables.includes("const handleDeleteRun = useCallback(") &&
     runTables.includes("const columns = useMemo<ColumnDef<RunSummary>[]>(\n    () => [") &&
     runTables.includes("const { mutate: evaluateRunMutate, isPending: evaluatePending } = evaluateMutation;") &&
     runTables.includes("const { mutate: archiveRunMutate, isPending: archivePending } = archiveMutation;") &&
@@ -1556,10 +1565,17 @@ assert(
     jobsQueuePanelSource.includes("function SchedulerStrip(") &&
     jobsQueuePanelSource.includes("function JobDetailPanel(") &&
     !jobsQueuePanelSource.includes("function JobProgressInline(") &&
+    jobsQueuePanelSource.includes('import { useCallback, useEffect, useMemo, useState } from "react";') &&
+    jobsQueuePanelSource.includes("const handleCancelJob = useCallback(") &&
+    jobsQueuePanelSource.includes("onCancelJob={handleCancelJob}") &&
     jobsQueuePanelSource.includes('import { JobQueueTable, jobRunId } from "./jobsQueueTable";') &&
     jobsQueuePanelSource.includes("<JobQueueTable") &&
+    jobsQueueTableSource.includes('import { memo, useCallback } from "react";') &&
     jobsQueueTableSource.includes("export function JobQueueTable(") &&
-    jobsQueueTableSource.includes("function JobQueueRow(") &&
+    jobsQueueTableSource.includes("const JobQueueRow = memo(function JobQueueRow(") &&
+    jobsQueueTableSource.includes("const handleSelectJob = useCallback(") &&
+    jobsQueueTableSource.includes("const handleCancelJob = useCallback(") &&
+    jobsQueueTableSource.includes("const handleDeleteJob = useCallback(") &&
     jobsQueueTableSource.includes("function JobProgressInline(") &&
     jobsCreatePanelSource.includes("export function JobCreatePanel(") &&
     jobsCreatePanelSource.includes("function PromptTemplatePanel(") &&
@@ -1716,6 +1732,11 @@ assert(
   jobsQueuePanelSource.includes("readJobsViewState") &&
     jobsQueuePanelSource.includes("writeJobsViewState") &&
     jobsQueuePanelSource.includes("JOBS_VIEW_STATE_RESET_EVENT") &&
+    jobsQueuePanelSource.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    jobsQueuePanelSource.includes("const statuses = useMemo(") &&
+    jobsQueuePanelSource.includes("const kinds = useMemo(") &&
+    jobsQueuePanelSource.includes("const jobFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    jobsQueuePanelSource.includes("controls={jobFilterControls}") &&
     jobsQueuePanelSource.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     jobsQueuePanelSource.includes("updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)") &&
     jobsQueuePanelSource.includes("updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)") &&
@@ -1725,6 +1746,7 @@ assert(
     jobsViewStateSource.includes("window.sessionStorage") &&
     appShellSource.includes('import { resetJobsViewState } from "./jobsViewState";') &&
     appShellSource.includes("onNavigate={resetJobsViewState}") &&
+    !jobsQueuePanelSource.includes("controls={[\n            {\n              type: \"search\"") &&
     !jobsQueuePanelSource.includes("useEffect(() => {\n    if (!compact) {\n      setPageOffset(0);"),
   "jobs queue must preserve filters, paging, and selected job across back-navigation and reset from main nav",
 );
@@ -2409,6 +2431,9 @@ assert(
     overviewPage.includes("overview-v18-signal-map") &&
     overviewPage.includes("overview-v18-signal-node") &&
     overviewPage.includes("overview-v18-signal-inspector") &&
+    overviewPage.includes("const signalNodes = React.useMemo(") &&
+    overviewPage.includes("const selectedSignal = React.useMemo(") &&
+    !overviewPage.includes("const signalNodes = overviewSignalNodes({") &&
     overviewPage.includes("overviewSignalNodes") &&
     overviewPage.includes("function overviewActionIcon(") &&
     overviewPage.includes("OptionChipButton") &&
@@ -2730,11 +2755,15 @@ assert(
   "benchmarks page must use paged API requests instead of a fixed 200-row slice",
 );
 assert(
-  benchmarksPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
+    benchmarksPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
     benchmarksPage.includes("updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)") &&
+    benchmarkSampleInspectorSource.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    benchmarkSampleInspectorSource.includes("const benchmarkSampleFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    benchmarkSampleInspectorSource.includes("controls={benchmarkSampleFilterControls}") &&
     benchmarkSampleInspectorSource.includes("updatePagedFilterValue(labelFilter, value, setLabelFilter, setPageOffset)") &&
     benchmarkSampleInspectorSource.includes("updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)") &&
     !benchmarksPage.includes("function updateBenchmarkFilter(") &&
+    !benchmarkSampleInspectorSource.includes("controls={[\n        {\n          type: \"select\"") &&
     !benchmarkSampleInspectorSource.includes("setLabelFilter(value);\n    setPageOffset(0);") &&
     !benchmarkSampleInspectorSource.includes("setSplitFilter(value);\n    setPageOffset(0);") &&
     !benchmarkSampleInspectorSource.includes("useEffect(() => {\n    setPageOffset(0);"),
@@ -2742,8 +2771,12 @@ assert(
 );
 assert(
   benchmarkSampleInspectorSource.includes("SelectableRowButton") &&
+    benchmarkSampleInspectorSource.includes('import { memo, useCallback, useEffect, useMemo, useState } from "react";') &&
+    benchmarkSampleInspectorSource.includes("const BenchmarkSampleListRow = memo(function BenchmarkSampleListRow(") &&
+    benchmarkSampleInspectorSource.includes("const handleSelect = useCallback(() => onSelect(sample.index), [onSelect, sample.index]);") &&
+    benchmarkSampleInspectorSource.includes("<BenchmarkSampleListRow") &&
     !benchmarkSampleInspectorSource.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
-  "benchmark sample list rows must use SelectableRowButton",
+  "benchmark sample list rows must use memoized SelectableRowButton rows",
 );
 assert(
   benchmarksPage.includes("errorMessage(benchmarksQuery.error)") &&
@@ -2803,9 +2836,16 @@ assert(
     runsPage.includes("benchmarkSplitFilter") &&
     runsPage.includes("benchmarkSplit: benchmarkSplitFilter") &&
     runsPage.includes('id: "run-benchmark-split"') &&
+    runsPage.includes("const runs = useMemo(() => runsQuery.data?.runs ?? [], [runsQuery.data?.runs]);") &&
+    runsPage.includes("const tasks = useMemo(") &&
+    runsPage.includes("const benchmarks = useMemo(") &&
+    runsPage.includes("const benchmarkSplits = useMemo(") &&
+    runsPage.includes("const statuses = useMemo(") &&
+    runsPage.includes("const labels = useMemo(") &&
+    runsPage.includes("const metricProfiles = useMemo(") &&
     !runsPage.includes("function RunListPager(") &&
     !runsPage.includes("limit: 200"),
-  "runs page must use paged API requests instead of a fixed 200-row slice",
+  "runs page must use paged API requests and memoized facets instead of a fixed 200-row slice",
 );
 assert(
   runsPage.includes("updatePagedFilterValue(searchText, value, setSearchText, setPageOffset)") &&
@@ -2831,8 +2871,16 @@ assert(
 );
 assert(
   runSampleSidebarSource.includes("SelectableRowButton") &&
+    runSampleSidebarSource.includes('import { memo, useCallback, useMemo } from "react";') &&
+    runSampleSidebarSource.includes("const RunSampleListRow = memo(function RunSampleListRow(") &&
+    runSampleSidebarSource.includes("const handleSelect = useCallback(() => onSelect(sample.index), [onSelect, sample.index]);") &&
+    runSampleSidebarSource.includes("<RunSampleListRow") &&
+    runSampleSidebarSource.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    runSampleSidebarSource.includes("const sampleFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    runSampleSidebarSource.includes("controls={sampleFilterControls}") &&
+    !runSampleSidebarSource.includes("controls={[\n        {\n          type: \"select\"") &&
     !runSampleSidebarSource.includes('className={sample.index === selectedIndex ? "sample-row selected" : "sample-row"}'),
-  "run sample list rows must use SelectableRowButton",
+  "run sample filters must keep stable controls and sample rows must use SelectableRowButton",
 );
 assert(
   runsPage.includes("errorMessage(runsQuery.error)") &&
@@ -3055,8 +3103,9 @@ assert(
 assert(
   servicesPage.includes('import { ServiceGrid } from "./servicesGrid";') &&
     servicesPage.includes("<ServiceGrid") &&
+    servicesGridSource.includes('import { memo, useState } from "react";') &&
     servicesGridSource.includes("export function ServiceGrid(") &&
-    servicesGridSource.includes("function ServiceCard(") &&
+    servicesGridSource.includes("const ServiceCard = memo(function ServiceCard(") &&
     servicesGridSource.includes("function ServiceLogPanel(") &&
     servicesGridSource.includes("startService(service.service_id)") &&
     servicesGridSource.includes("checkServiceHealth(service.service_id)") &&
@@ -3065,7 +3114,7 @@ assert(
     servicesGridSource.includes("fetchServiceLogs(service.service_id, { signal })") &&
     !servicesPage.includes("function ServiceCard(") &&
     !servicesPage.includes("function ServiceLogPanel("),
-  "services page must delegate service cards, runtime actions, and logs to the service grid module",
+  "services page must delegate memoized service cards, runtime actions, and logs to the service grid module",
 );
 assertNoRawSelectElement(comparePage, "comparePage.tsx");
 assert(
@@ -3076,6 +3125,13 @@ assert(
     comparePage.includes('className="rank-board-pager compare-run-pager"') &&
     compareControllerSource.includes("offset: pageOffset") &&
     compareControllerSource.includes("limit: COMPARE_RUN_PAGE_SIZE") &&
+    compareControllerSource.includes("const runs = useMemo(() => runsQuery.data?.runs ?? [], [runsQuery.data?.runs]);") &&
+    compareControllerSource.includes("const statuses = useMemo(") &&
+    compareControllerSource.includes("const tasks = useMemo(") &&
+    compareControllerSource.includes("const benchmarks = useMemo(") &&
+    compareControllerSource.includes("const benchmarkSplits = useMemo(") &&
+    compareControllerSource.includes("const labels = useMemo(") &&
+    compareControllerSource.includes("const comparableRuns = useMemo(") &&
     compareRunRailComponentsSource.includes("已选择；当前页未加载该 run") &&
     comparePage.includes('import { ComparisonHistoryPanel, RunSelectRail } from "./compareRunRailComponents";') &&
     !comparePage.includes("function RunSelectRail(") &&
@@ -3086,10 +3142,14 @@ assert(
 );
 assert(
   compareFiltersSource.includes("setters.setSearchText") &&
+    compareFiltersSource.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    compareFiltersSource.includes("const compareFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    compareFiltersSource.includes("controls={compareFilterControls}") &&
     compareFiltersSource.includes("setters.setPageOffset") &&
     compareFiltersSource.includes("setters.setHistoryOffset") &&
     compareFiltersSource.includes("historyBaselineFilter") &&
     compareFiltersSource.includes("setters.setHistoryBaselineFilter") &&
+    !compareFiltersSource.includes("controls={[\n        {\n          type: \"search\"") &&
     !comparePage.includes("function updateCompareRunFilter(") &&
     !comparePage.includes("function updateCompareSharedFilter(") &&
     !comparePage.includes("function updateComparisonHistoryFilter(") &&
@@ -3339,10 +3399,17 @@ assert(
     rankBoardPage.includes('className="rank-board-pager"') &&
     rankBoardControllerSource.includes("offset: pageOffset") &&
     rankBoardControllerSource.includes("limit: RANK_PAGE_SIZE") &&
+    rankBoardControllerSource.includes("const runs = useMemo(() => dashboardQuery.data?.runs ?? [], [dashboardQuery.data?.runs]);") &&
+    rankBoardControllerSource.includes("const tasks = useMemo(") &&
+    rankBoardControllerSource.includes("const benchmarks = useMemo(") &&
+    rankBoardControllerSource.includes("const benchmarkSplits = useMemo(") &&
+    rankBoardControllerSource.includes("const statuses = useMemo(") &&
+    rankBoardControllerSource.includes("const labels = useMemo(") &&
+    rankBoardControllerSource.includes("const metricProfiles = useMemo(") &&
     rankBoardPage.includes("useRankBoardController") &&
     !rankBoardPage.includes("function RankBoardPager(") &&
     !rankBoardPage.includes("limit: 200"),
-  "rank board page must use paged API requests instead of a fixed 200-row slice",
+  "rank board page must use paged API requests and memoized facets instead of a fixed 200-row slice",
 );
 assert(
     rankBoardControllerSource.includes("const handleSortChange = useCallback((value: string) => {") &&
@@ -3357,10 +3424,14 @@ assert(
     rankBoardModelSource.includes("export function toggleSortOrder(") &&
     rankBoardControllerSource.includes("defaultRankSortOrder(value)") &&
     rankBoardControllerSource.includes("toggleSortOrder(sortOrder)") &&
+    rankBoardFiltersSource.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    rankBoardFiltersSource.includes("const rankFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    rankBoardFiltersSource.includes("controls={rankFilterControls}") &&
     rankBoardFiltersSource.includes("updatePagedFilterValue(") &&
     rankBoardFiltersSource.includes("values.searchText") &&
     rankBoardFiltersSource.includes("setters.setSearchText") &&
     rankBoardPage.includes("<RankBoardFilterBar") &&
+    !rankBoardFiltersSource.includes("controls={[\n        {\n          type: \"search\"") &&
     !rankBoardPage.includes("function updateRankFilter(") &&
     !rankBoardPage.includes('id: "rank-query"') &&
     !rankBoardPage.includes("useEffect(() => {\n    setPageOffset(0);"),
@@ -3603,6 +3674,9 @@ assert(
     inspectorPageStyleSource.includes(".visual-inspector-page") &&
     inspectorPageStyleSource.includes(".sample-row") &&
     inspectorPageStyleSource.includes("var(--viewer-sample-row-min)") &&
+    inspectorPageStyleSource.includes("content-visibility: auto;") &&
+    inspectorPageStyleSource.includes("contain-intrinsic-size: auto var(--viewer-sample-row-min);") &&
+    inspectorPageStyleSource.includes("contain: layout paint;") &&
     inspectorPageStyleSource.includes("var(--viewer-filter-min)") &&
     inspectorPageStyleSource.includes("var(--viewer-radius-control)") &&
     !rawVisualPageControlGeometryPattern.test(inspectorPageStyleSource),

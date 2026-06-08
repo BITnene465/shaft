@@ -31,7 +31,7 @@ import { useDebouncedValueState } from "./useDebouncedValue";
 
 export function useRankBoardController() {
   const dashboardQuery = useDashboardState();
-  const runs = dashboardQuery.data?.runs ?? [];
+  const runs = useMemo(() => dashboardQuery.data?.runs ?? [], [dashboardQuery.data?.runs]);
   const suiteApiReady = typeof dashboardQuery.data?.suite_count === "number";
   const [initialViewState] = useState(readRankBoardViewState);
   const [boardMode, setBoardMode] = useState<"run" | "suite">(initialViewState.boardMode);
@@ -130,25 +130,47 @@ export function useRankBoardController() {
 
   const board = boardQuery.data;
   const suiteBoard = suiteRankQuery.data;
-  const tasks = facetValues(board?.facets, "tasks", runs.map((run) => run.spec_task));
-  const benchmarks = facetValues(
-    board?.facets,
-    "benchmarks",
-    runs.map((run) => run.benchmark_id)
+  const tasks = useMemo(
+    () => facetValues(board?.facets, "tasks", runs.map((run) => run.spec_task)),
+    [board?.facets, runs]
   );
-  const benchmarkSplits = facetValues(
-    board?.facets,
-    "splits",
-    runs.map((run) => run.benchmark_split)
+  const benchmarks = useMemo(
+    () => facetValues(board?.facets, "benchmarks", runs.map((run) => run.benchmark_id)),
+    [board?.facets, runs]
   );
-  const statuses = facetValues(board?.facets, "statuses", runs.map((run) => run.status));
-  const labels = facetValues(board?.facets, "labels", runs.flatMap((run) => run.target_labels));
-  const models = facetValues(board?.facets, "models", runs.map((run) => run.model_id));
-  const prompts = facetValues(board?.facets, "prompts", runs.map((run) => run.prompt_id));
-  const metricProfiles = facetValues(
-    board?.facets,
-    "metric_profiles",
-    runs.map((run) => run.metric_profile)
+  const benchmarkSplits = useMemo(
+    () =>
+      facetValues(
+        board?.facets,
+        "splits",
+        runs.map((run) => run.benchmark_split)
+      ),
+    [board?.facets, runs]
+  );
+  const statuses = useMemo(
+    () => facetValues(board?.facets, "statuses", runs.map((run) => run.status)),
+    [board?.facets, runs]
+  );
+  const labels = useMemo(
+    () => facetValues(board?.facets, "labels", runs.flatMap((run) => run.target_labels)),
+    [board?.facets, runs]
+  );
+  const models = useMemo(
+    () => facetValues(board?.facets, "models", runs.map((run) => run.model_id)),
+    [board?.facets, runs]
+  );
+  const prompts = useMemo(
+    () => facetValues(board?.facets, "prompts", runs.map((run) => run.prompt_id)),
+    [board?.facets, runs]
+  );
+  const metricProfiles = useMemo(
+    () =>
+      facetValues(
+        board?.facets,
+        "metric_profiles",
+        runs.map((run) => run.metric_profile)
+      ),
+    [board?.facets, runs]
   );
   const filterValues = useMemo<RankBoardFilterValues>(
     () => ({

@@ -93,23 +93,49 @@ export function RunsPage() {
     queryFn: ({ signal }) => fetchRuns(runFilters, { signal }),
     placeholderData: (previousData) => previousData
   });
-  const runs = runsQuery.data?.runs ?? [];
+  const runs = useMemo(() => runsQuery.data?.runs ?? [], [runsQuery.data?.runs]);
   const facets = runsQuery.data?.facets;
-  const tasks = facetValues(facets, "tasks", runs.map((run) => run.spec_task));
-  const benchmarks = facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id));
-  const benchmarkSplits = facetValues(
-    facets,
-    "splits",
-    runs.map((run) => run.benchmark_split)
+  const tasks = useMemo(
+    () => facetValues(facets, "tasks", runs.map((run) => run.spec_task)),
+    [facets, runs]
   );
-  const statuses = facetValues(facets, "statuses", runs.map((run) => run.status));
-  const labels = facetValues(facets, "labels", runs.flatMap((run) => run.target_labels));
-  const models = facetValues(facets, "models", runs.map((run) => run.model_id));
-  const prompts = facetValues(facets, "prompts", runs.map((run) => run.prompt_id));
-  const metricProfiles = facetValues(
-    facets,
-    "metric_profiles",
-    runs.map((run) => run.metric_profile)
+  const benchmarks = useMemo(
+    () => facetValues(facets, "benchmarks", runs.map((run) => run.benchmark_id)),
+    [facets, runs]
+  );
+  const benchmarkSplits = useMemo(
+    () =>
+      facetValues(
+        facets,
+        "splits",
+        runs.map((run) => run.benchmark_split)
+      ),
+    [facets, runs]
+  );
+  const statuses = useMemo(
+    () => facetValues(facets, "statuses", runs.map((run) => run.status)),
+    [facets, runs]
+  );
+  const labels = useMemo(
+    () => facetValues(facets, "labels", runs.flatMap((run) => run.target_labels)),
+    [facets, runs]
+  );
+  const models = useMemo(
+    () => facetValues(facets, "models", runs.map((run) => run.model_id)),
+    [facets, runs]
+  );
+  const prompts = useMemo(
+    () => facetValues(facets, "prompts", runs.map((run) => run.prompt_id)),
+    [facets, runs]
+  );
+  const metricProfiles = useMemo(
+    () =>
+      facetValues(
+        facets,
+        "metric_profiles",
+        runs.map((run) => run.metric_profile)
+      ),
+    [facets, runs]
   );
   const totalRuns = runsQuery.data?.total ?? runs.length;
   const benchmarkOptions = dashboardQuery.data?.benchmarks ?? [];

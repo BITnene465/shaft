@@ -1,4 +1,6 @@
-import { AdvancedFilterBar } from "./filterControls";
+import { useMemo } from "react";
+
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { updatePagedFilterValue } from "./samplePager";
 
 export type CompareFilterValues = {
@@ -48,165 +50,168 @@ export function CompareFilterBar({
   options: CompareFilterOptions;
   setters: CompareFilterSetters;
 }) {
+  const compareFilterControls = useMemo<AdvancedFilterControl[]>(() => {
+    const controls: AdvancedFilterControl[] = [
+      {
+        type: "search",
+        id: "compare-query",
+        label: "全文检索",
+        value: values.searchText,
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.searchText,
+            value,
+            setters.setSearchText,
+            setters.setPageOffset,
+            setters.setHistoryOffset
+          ),
+        placeholder: "搜索 run、模型、prompt、备注"
+      },
+      {
+        type: "select",
+        id: "compare-status",
+        label: "状态",
+        value: values.statusFilter,
+        values: ["all", ...options.statuses],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.statusFilter,
+            value,
+            setters.setStatusFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-task",
+        label: "任务",
+        value: values.taskFilter,
+        values: ["all", ...options.tasks],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.taskFilter,
+            value,
+            setters.setTaskFilter,
+            setters.setPageOffset,
+            setters.setHistoryOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-benchmark",
+        label: "基准集",
+        value: values.benchmarkFilter,
+        values: ["all", ...options.benchmarks],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.benchmarkFilter,
+            value,
+            setters.setBenchmarkFilter,
+            setters.setPageOffset,
+            setters.setHistoryOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-benchmark-split",
+        label: "Split",
+        value: values.benchmarkSplitFilter,
+        values: ["all", ...options.benchmarkSplits],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.benchmarkSplitFilter,
+            value,
+            setters.setBenchmarkSplitFilter,
+            setters.setPageOffset,
+            setters.setHistoryOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-label",
+        label: "标签",
+        value: values.labelFilter,
+        values: ["all", ...options.labels],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.labelFilter,
+            value,
+            setters.setLabelFilter,
+            setters.setPageOffset,
+            setters.setHistoryOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-model",
+        label: "模型",
+        value: values.modelFilter,
+        values: ["all", ...options.models],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.modelFilter,
+            value,
+            setters.setModelFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "select",
+        id: "compare-prompt",
+        label: "Prompt",
+        value: values.promptFilter,
+        values: ["all", ...options.prompts],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.promptFilter,
+            value,
+            setters.setPromptFilter,
+            setters.setPageOffset
+          )
+      },
+      {
+        type: "text",
+        id: "compare-history-baseline",
+        label: "历史基线",
+        value: values.historyBaselineFilter,
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.historyBaselineFilter,
+            value,
+            setters.setHistoryBaselineFilter,
+            setters.setHistoryOffset
+          ),
+        placeholder: "baseline run id"
+      },
+      {
+        type: "text",
+        id: "compare-history-candidate",
+        label: "历史候选",
+        value: values.historyCandidateFilter,
+        onChange: (value) =>
+          updatePagedFilterValue(
+            values.historyCandidateFilter,
+            value,
+            setters.setHistoryCandidateFilter,
+            setters.setHistoryOffset
+          ),
+        placeholder: "candidate run id"
+      }
+    ];
+    return controls;
+  }, [options, setters, values]);
   return (
     <AdvancedFilterBar
       title="对比高级检索"
       meta="筛选候选 run：状态、任务、基准集、label、模型、prompt 和备注全文"
-      controls={[
-        {
-          type: "search",
-          id: "compare-query",
-          label: "全文检索",
-          value: values.searchText,
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.searchText,
-              value,
-              setters.setSearchText,
-              setters.setPageOffset,
-              setters.setHistoryOffset
-            ),
-          placeholder: "搜索 run、模型、prompt、备注"
-        },
-        {
-          type: "select",
-          id: "compare-status",
-          label: "状态",
-          value: values.statusFilter,
-          values: ["all", ...options.statuses],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.statusFilter,
-              value,
-              setters.setStatusFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-task",
-          label: "任务",
-          value: values.taskFilter,
-          values: ["all", ...options.tasks],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.taskFilter,
-              value,
-              setters.setTaskFilter,
-              setters.setPageOffset,
-              setters.setHistoryOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-benchmark",
-          label: "基准集",
-          value: values.benchmarkFilter,
-          values: ["all", ...options.benchmarks],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.benchmarkFilter,
-              value,
-              setters.setBenchmarkFilter,
-              setters.setPageOffset,
-              setters.setHistoryOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-benchmark-split",
-          label: "Split",
-          value: values.benchmarkSplitFilter,
-          values: ["all", ...options.benchmarkSplits],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.benchmarkSplitFilter,
-              value,
-              setters.setBenchmarkSplitFilter,
-              setters.setPageOffset,
-              setters.setHistoryOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-label",
-          label: "标签",
-          value: values.labelFilter,
-          values: ["all", ...options.labels],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.labelFilter,
-              value,
-              setters.setLabelFilter,
-              setters.setPageOffset,
-              setters.setHistoryOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-model",
-          label: "模型",
-          value: values.modelFilter,
-          values: ["all", ...options.models],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.modelFilter,
-              value,
-              setters.setModelFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "select",
-          id: "compare-prompt",
-          label: "Prompt",
-          value: values.promptFilter,
-          values: ["all", ...options.prompts],
-          labels: { all: "全部" },
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.promptFilter,
-              value,
-              setters.setPromptFilter,
-              setters.setPageOffset
-            )
-        },
-        {
-          type: "text",
-          id: "compare-history-baseline",
-          label: "历史基线",
-          value: values.historyBaselineFilter,
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.historyBaselineFilter,
-              value,
-              setters.setHistoryBaselineFilter,
-              setters.setHistoryOffset
-            ),
-          placeholder: "baseline run id"
-        },
-        {
-          type: "text",
-          id: "compare-history-candidate",
-          label: "历史候选",
-          value: values.historyCandidateFilter,
-          onChange: (value) =>
-            updatePagedFilterValue(
-              values.historyCandidateFilter,
-              value,
-              setters.setHistoryCandidateFilter,
-              setters.setHistoryOffset
-            ),
-          placeholder: "candidate run id"
-        }
-      ]}
+      controls={compareFilterControls}
     />
   );
 }
-

@@ -6,6 +6,7 @@
   --table-cell-max: clamp(96px, 18vw, 320px);
   --table-head-height: clamp(27px, 2.9vw, 30px);
   --table-row-height: clamp(31px, 3.2vw, 34px);
+  --table-row-estimate: var(--table-row-height);
   --table-loading-min: clamp(180px, 32vh, 280px);
   --table-refresh-top: clamp(5px, 0.8vw, 7px);
   --table-refresh-right: clamp(7px, 0.9vw, 9px);
@@ -221,6 +222,8 @@
 }
 
 .table-shell tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--table-row-estimate);
   transition: background 120ms ease;
 }
 
