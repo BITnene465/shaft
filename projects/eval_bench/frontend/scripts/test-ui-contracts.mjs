@@ -3372,7 +3372,8 @@ assert(
     rankBoardTablesStyleSource.includes(':root[data-theme="dark"] .rank-score-delta.neutral') &&
     rankBoardTablesStyleSource.includes(".rank-board-table-card tbody tr") &&
     rankBoardTablesStyleSource.includes("content-visibility: auto;") &&
-    rankBoardTablesStyleSource.includes("contain-intrinsic-size: auto 46px;") &&
+    rankBoardTablesStyleSource.includes("--rank-row-estimate: 46px;") &&
+    rankBoardTablesStyleSource.includes("contain-intrinsic-size: auto var(--rank-row-estimate);") &&
     !rankBoardTablesStyleSource.includes("var(--rank-table-index-ink, #174d65)") &&
     !rankBoardTablesStyleSource.includes("var(--rank-sort-active-head-bg, #ecf7fb)") &&
     rankBoardTablesStyleSource.includes(".rank-sort-header"),

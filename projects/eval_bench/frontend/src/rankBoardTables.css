@@ -1,4 +1,12 @@
 .rank-board-page {
+  --rank-index-min: clamp(38px, 3.8vw, 44px);
+  --rank-score-min: clamp(58px, 5.8vw, 64px);
+  --rank-delta-min: clamp(62px, 6.2vw, 68px);
+  --rank-metric-pad-x: clamp(var(--rank-pad-6), 0.8vw, var(--rank-pad-8));
+  --rank-row-estimate: 46px;
+  --rank-delta-alert-ink: var(--control-badge-warning-ink);
+  --rank-delta-alert-bg: var(--control-badge-warning-bg);
+  --rank-delta-alert-line: var(--control-badge-warning-line);
   --rank-table-index-ink: #174d65;
   --rank-sort-icon: #9aa8b6;
   --rank-sort-active-ink: #0b3d54;
@@ -13,12 +21,12 @@
 
 .rank-board-table-card tbody tr {
   content-visibility: auto;
-  contain-intrinsic-size: auto 46px;
+  contain-intrinsic-size: auto var(--rank-row-estimate);
 }
 
 .rank-index {
   display: inline-flex;
-  min-width: 44px;
+  min-width: var(--rank-index-min);
   color: var(--rank-table-index-ink);
   font-weight: 820;
   font-variant-numeric: tabular-nums;
@@ -29,10 +37,10 @@
   --rank-score-bg: #e9f7fb;
   --rank-score-line: #bfe1eb;
   display: inline-flex;
-  min-width: 64px;
+  min-width: var(--rank-score-min);
   align-items: center;
   justify-content: flex-end;
-  padding: var(--rank-pad-2) var(--rank-pad-8);
+  padding: var(--rank-pad-2) var(--rank-metric-pad-x);
   color: var(--rank-score-ink);
   background: var(--rank-score-bg);
   border: 1px solid var(--rank-score-line);
@@ -102,10 +110,10 @@ tbody tr:hover td.rank-sort-active-cell {
   --rank-delta-bg: #f3f8fb;
   --rank-delta-line: #d7e7ef;
   display: inline-flex;
-  min-width: 68px;
+  min-width: var(--rank-delta-min);
   align-items: center;
   justify-content: center;
-  padding: var(--rank-pad-2) var(--rank-pad-8);
+  padding: var(--rank-pad-2) var(--rank-metric-pad-x);
   color: var(--rank-delta-ink);
   background: var(--rank-delta-bg);
   border: 1px solid var(--rank-delta-line);
@@ -181,9 +189,9 @@ tbody tr:hover td.rank-sort-active-cell {
 
 :root[data-theme="dark"] .rank-score-delta.negative,
 :root[data-theme="dark"] .rank-score-delta.positive {
-  --rank-delta-ink: #ffd38a;
-  --rank-delta-bg: color-mix(in srgb, #ffb545 13%, var(--bench-surface));
-  --rank-delta-line: color-mix(in srgb, #ffb545 34%, var(--bench-line));
+  --rank-delta-ink: var(--rank-delta-alert-ink);
+  --rank-delta-bg: var(--rank-delta-alert-bg);
+  --rank-delta-line: var(--rank-delta-alert-line);
 }
 
 :root[data-theme="dark"] .rank-score-delta.neutral {
