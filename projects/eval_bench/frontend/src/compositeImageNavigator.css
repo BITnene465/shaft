@@ -1,19 +1,26 @@
 .composite-image-navigator {
+  --image-navigator-inset: var(--composite-pad-10);
+  --image-navigator-inset-compact: var(--composite-pad-4);
+  --image-navigator-primary-min: minmax(min(100%, 260px), max-content);
+  --image-navigator-search-min: minmax(18ch, 0.46fr);
+  --image-navigator-search-compact: minmax(16ch, 0.55fr);
+  --image-navigator-min: var(--composite-hud-min);
+  --image-navigator-short-min: calc(var(--composite-control-min) + var(--composite-pad-4));
   position: absolute;
   z-index: 80;
-  right: 10px;
-  bottom: 10px;
-  left: 10px;
+  right: var(--image-navigator-inset);
+  bottom: var(--image-navigator-inset);
+  left: var(--image-navigator-inset);
   display: grid;
   grid-template-areas: "primary timeline search actions";
   grid-template-columns:
-    minmax(260px, max-content)
+    var(--image-navigator-primary-min)
     max-content
-    minmax(18ch, 0.46fr)
+    var(--image-navigator-search-min)
     max-content;
   gap: var(--composite-gap-7);
   align-items: center;
-  min-height: 42px;
+  min-height: var(--image-navigator-min);
   padding: var(--composite-pad-5) var(--composite-pad-8);
   border: 1px solid var(--composite-canvas-overlay-line);
   background: var(--composite-canvas-overlay-surface);
@@ -139,12 +146,12 @@
 @media (max-width: 940px) and (max-height: 680px) {
   .composite-image-navigator {
     grid-template-areas: "timeline search actions";
-    grid-template-columns: minmax(0, 0.9fr) minmax(16ch, 0.55fr) max-content;
+    grid-template-columns: minmax(0, 0.9fr) var(--image-navigator-search-compact) max-content;
     gap: var(--composite-gap-4) var(--composite-gap-6);
-    right: 4px;
-    bottom: 4px;
-    left: 4px;
-    min-height: 34px;
+    right: var(--image-navigator-inset-compact);
+    bottom: var(--image-navigator-inset-compact);
+    left: var(--image-navigator-inset-compact);
+    min-height: var(--image-navigator-short-min);
     padding: var(--composite-pad-3) var(--composite-pad-5);
   }
 
