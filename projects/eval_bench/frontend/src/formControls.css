@@ -36,8 +36,8 @@
 .job-form .select-popover-control:focus-within .select-popover-trigger,
 .job-form select:focus,
 .job-form textarea:focus {
-  border-color: #637f95;
-  outline: 2px solid rgb(99 127 149 / 12%);
+  border-color: var(--control-focus-line);
+  outline: 2px solid var(--control-focus-outline);
 }
 
 .job-form textarea {
@@ -103,7 +103,7 @@
 
 .form-result.error,
 .form-error {
-  color: #9d2632;
+  color: var(--control-status-danger-ink);
 }
 
 .form-error {

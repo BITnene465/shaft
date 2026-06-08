@@ -1306,6 +1306,10 @@ assert(
     formControlsStyleSource.includes(".form-result") &&
     formControlsStyleSource.includes(".form-error") &&
     formControlsStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
+    formControlsStyleSource.includes("border-color: var(--control-focus-line)") &&
+    formControlsStyleSource.includes("outline: 2px solid var(--control-focus-outline)") &&
+    formControlsStyleSource.includes("color: var(--control-status-danger-ink)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(formControlsStyleSource) &&
     jobsStyleSource.includes('@import "./jobsQueue.css";') &&
     jobsStyleSource.includes('@import "./jobsRecentRuns.css";') &&
     jobsStyleSource.includes('@import "./jobsDetail.css";') &&
