@@ -1,10 +1,46 @@
 .overview-v18-console {
+  --overview-console-bg: #f8fafb;
+  --overview-console-line: #e1e7ec;
+  --overview-console-tab-ink: #586774;
+  --overview-console-tab-active-ink: #0f4d5c;
+  --overview-console-tab-active-bg: #e9f4f5;
+  --overview-console-tab-active-line: #cfe2e5;
+  --overview-console-node-bg: #ffffff;
+  --overview-console-node-line: #dde6ec;
+  --overview-console-node-hover-bg: #fbfdff;
+  --overview-console-node-hover-line: #a8cbd3;
+  --overview-console-node-text: #17202a;
+  --overview-console-node-muted: #536270;
+  --overview-console-node-soft: #667480;
+  --overview-console-inspector-bg: #ffffff;
+  --overview-console-inspector-line: #d7e3e8;
+  --overview-console-inspector-text: #33424d;
+
   display: grid;
   gap: 8px;
   padding: 10px;
-  background: #f8fafb;
-  border: 1px solid #e1e7ec;
+  background: var(--overview-console-bg);
+  border: 1px solid var(--overview-console-line);
   border-radius: 7px;
+}
+
+:root[data-theme="dark"] .overview-v18-console {
+  --overview-console-bg: #101923;
+  --overview-console-line: #2a3849;
+  --overview-console-tab-ink: #9dafc2;
+  --overview-console-tab-active-ink: #bce9ff;
+  --overview-console-tab-active-bg: #153244;
+  --overview-console-tab-active-line: #355e73;
+  --overview-console-node-bg: #131d28;
+  --overview-console-node-line: #2d3c4e;
+  --overview-console-node-hover-bg: #172636;
+  --overview-console-node-hover-line: #4a7188;
+  --overview-console-node-text: #e4edf5;
+  --overview-console-node-muted: #95a8ba;
+  --overview-console-node-soft: #a5b5c5;
+  --overview-console-inspector-bg: #131d28;
+  --overview-console-inspector-line: #2d3c4e;
+  --overview-console-inspector-text: #c7d3df;
 }
 
 .overview-v18-console-head {
@@ -16,7 +52,7 @@
 }
 
 .overview-v18-console-head > span {
-  color: #5d6975;
+  color: var(--overview-muted);
   font-family: var(--mono-font);
   font-size: var(--text-3xs);
   font-weight: 850;
@@ -32,7 +68,7 @@
 .overview-v18-surface-tab {
   min-height: 25px;
   padding: 0 9px;
-  color: #586774;
+  color: var(--overview-console-tab-ink);
   background: transparent;
   border-color: transparent;
   border-radius: 3px;
@@ -42,9 +78,9 @@
 
 .overview-v18-surface-tab:hover,
 .overview-v18-surface-tab.active {
-  color: #0f4d5c;
-  background: #e9f4f5;
-  border-color: #cfe2e5;
+  color: var(--overview-console-tab-active-ink);
+  background: var(--overview-console-tab-active-bg);
+  border-color: var(--overview-console-tab-active-line);
   box-shadow: none;
   transform: none;
 }
@@ -77,9 +113,9 @@
   align-content: start;
   min-height: 124px;
   padding: 10px;
-  color: #17202a;
-  background: #ffffff;
-  border: 1px solid #dde6ec;
+  color: var(--overview-console-node-text);
+  background: var(--overview-console-node-bg);
+  border: 1px solid var(--overview-console-node-line);
   border-radius: 6px;
   text-align: left;
   box-shadow: none;
@@ -90,9 +126,9 @@
 
 .overview-v18-signal-node:hover,
 .overview-v18-signal-node.active {
-  color: #17202a;
-  background: #fbfdff;
-  border-color: #a8cbd3;
+  color: var(--overview-console-node-text);
+  background: var(--overview-console-node-hover-bg);
+  border-color: var(--overview-console-node-hover-line);
   box-shadow: none;
   transform: none;
 }
@@ -102,20 +138,20 @@
   height: 3px;
   margin-bottom: 3px;
   content: "";
-  background: #155e75;
+  background: var(--overview-accent);
   border-radius: 999px;
 }
 
 .overview-v18-signal-node.good::before {
-  background: #16835f;
+  background: var(--overview-good);
 }
 
 .overview-v18-signal-node.warm::before {
-  background: #c28718;
+  background: var(--overview-warm);
 }
 
 .overview-v18-signal-node.danger::before {
-  background: #c84545;
+  background: var(--overview-danger);
 }
 
 .overview-v18-signal-node > span,
@@ -128,21 +164,21 @@
 }
 
 .overview-v18-signal-node > span {
-  color: #536270;
+  color: var(--overview-console-node-muted);
   font-size: var(--text-3xs);
   font-weight: 850;
   text-transform: uppercase;
 }
 
 .overview-v18-signal-node > strong {
-  color: #111827;
+  color: var(--overview-strong);
   font-size: 26px;
   font-weight: 920;
   line-height: 1;
 }
 
 .overview-v18-signal-node > em {
-  color: #667480;
+  color: var(--overview-console-node-soft);
   font-size: var(--text-2xs);
   font-style: normal;
   font-weight: 720;
@@ -158,13 +194,13 @@
   align-content: start;
   gap: 8px;
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #d7e3e8;
+  background: var(--overview-console-inspector-bg);
+  border: 1px solid var(--overview-console-inspector-line);
   border-radius: 6px;
 }
 
 .overview-v18-signal-inspector > span {
-  color: #536270;
+  color: var(--overview-console-node-muted);
   font-family: var(--mono-font);
   font-size: var(--text-3xs);
   font-weight: 850;
@@ -172,7 +208,7 @@
 }
 
 .overview-v18-signal-inspector > strong {
-  color: #111827;
+  color: var(--overview-strong);
   font-size: 30px;
   font-weight: 920;
   line-height: 1;
@@ -181,7 +217,7 @@
 .overview-v18-signal-inspector p {
   min-height: 40px;
   margin: 0;
-  color: #33424d;
+  color: var(--overview-console-inspector-text);
   font-size: var(--text-xs);
   font-weight: 680;
   line-height: 1.45;
@@ -194,9 +230,9 @@
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  color: #0f4d5c;
-  background: #e9f4f5;
-  border: 1px solid #cfe2e5;
+  color: var(--overview-link-ink);
+  background: var(--overview-link-bg);
+  border: 1px solid var(--overview-link-line);
   border-radius: 4px;
   font-size: var(--text-xs);
   font-weight: 820;
@@ -204,23 +240,23 @@
 }
 
 .overview-v18-signal-inspector a:hover {
-  color: #ffffff;
-  background: #155e75;
-  border-color: #155e75;
+  color: var(--overview-link-hover-ink);
+  background: var(--overview-link-hover-bg);
+  border-color: var(--overview-link-hover-bg);
 }
 
 .overview-v18-signal-inspector.good > strong {
-  color: #16835f;
+  color: var(--overview-good);
 }
 
 .overview-v18-signal-inspector.live > strong {
-  color: #155e75;
+  color: var(--overview-accent);
 }
 
 .overview-v18-signal-inspector.warm > strong {
-  color: #9a650e;
+  color: var(--overview-warm);
 }
 
 .overview-v18-signal-inspector.danger > strong {
-  color: #b83636;
+  color: var(--overview-danger);
 }

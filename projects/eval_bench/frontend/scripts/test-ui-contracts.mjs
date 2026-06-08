@@ -2332,11 +2332,18 @@ assert(
     overviewShellStyleSource.includes(".overview-v18-recent") &&
     overviewShellStyleSource.includes(".overview-v18-card::before") &&
     overviewShellStyleSource.includes(".overview-v18-icon-link:hover") &&
-    overviewShellStyleSource.includes("background: #f4f7f9") &&
+    overviewShellStyleSource.includes("--overview-home-bg: #f4f7f9") &&
+    overviewShellStyleSource.includes(':root[data-theme="dark"] .dashboard-home.overview-home-v18') &&
+    overviewShellStyleSource.includes("background: var(--overview-home-bg)") &&
     overviewPrimaryStyleSource.includes(".overview-v18-flow-item:hover") &&
     overviewPrimaryStyleSource.includes(".overview-v18-score:hover") &&
     overviewPrimaryStyleSource.includes("box-shadow: none") &&
     overviewConsoleStyleSource.includes(".overview-v18-console") &&
+    overviewConsoleStyleSource.includes("--overview-console-bg") &&
+    overviewConsoleStyleSource.includes(':root[data-theme="dark"] .overview-v18-console') &&
+    overviewConsoleStyleSource.includes("background: var(--overview-console-bg)") &&
+    !overviewConsoleStyleSource.includes("background: #f8fafb") &&
+    !overviewConsoleStyleSource.includes("background: #ffffff") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-map") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-node.active") &&
     overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&
