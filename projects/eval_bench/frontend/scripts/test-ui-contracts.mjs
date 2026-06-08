@@ -5058,6 +5058,12 @@ assert(
     compositeImageSearchStatusStyleSource.includes(".image-jump-search-window") &&
     compositeImageSearchStatusStyleSource.includes(".image-jump-search-window-meter") &&
     compositeImageSearchStatusStyleSource.includes(".image-jump-search-window-meter.after i") &&
+    compositeImageSearchStatusStyleSource.includes("--image-search-window-min") &&
+    compositeImageSearchStatusStyleSource.includes("--image-search-gesture-min") &&
+    compositeImageSearchStatusStyleSource.includes("--image-search-more-min") &&
+    compositeImageSearchStatusStyleSource.includes("--image-search-drag-bg") &&
+    compositeImageSearchStatusStyleSource.includes("minmax(var(--image-search-window-min), var(--image-search-window-fr))") &&
+    compositeImageSearchStatusStyleSource.includes("min-width: var(--image-search-more-min)") &&
     !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window span") &&
     !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window strong") &&
     !compositeImageSearchStatusStyleSource.includes(".image-jump-search-window b") &&

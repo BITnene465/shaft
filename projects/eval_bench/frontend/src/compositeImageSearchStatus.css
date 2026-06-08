@@ -1,4 +1,15 @@
 .image-jump-search-status {
+  --image-search-window-min: 150px;
+  --image-search-window-fr: 0.92fr;
+  --image-search-gesture-min: 120px;
+  --image-search-more-min: 180px;
+  --image-search-drag-bg: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--composite-accent) 13%, transparent),
+      transparent
+    ),
+    var(--composite-surface);
+
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
@@ -7,7 +18,7 @@
 }
 
 .image-jump-search-status[data-clipped="true"] {
-  grid-template-columns: minmax(150px, 0.92fr) minmax(120px, 1fr);
+  grid-template-columns: minmax(var(--image-search-window-min), var(--image-search-window-fr)) minmax(var(--image-search-gesture-min), 1fr);
 }
 
 .image-jump-search-window {
@@ -49,9 +60,7 @@
 
 .image-jump-search-status[data-dragging="true"] .image-jump-search-gesture {
   color: var(--composite-accent);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--composite-accent) 13%, transparent), transparent),
-    var(--composite-surface);
+  background: var(--image-search-drag-bg);
 }
 
 .image-jump-search-gesture span {
@@ -72,7 +81,7 @@
 
 .image-jump-search-more {
   display: grid;
-  min-width: 180px;
+  min-width: var(--image-search-more-min);
   place-items: center;
   padding: var(--composite-pad-8);
   border: 1px dashed var(--composite-line-soft);
