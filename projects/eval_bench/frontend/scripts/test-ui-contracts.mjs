@@ -145,6 +145,7 @@ const adaptiveContentStyleSource = await readSource("src/adaptiveContent.css");
 const dataTableStyleSource = await readSource("src/dataTable.css");
 const runTablesStyleSource = await readSource("src/runTables.css");
 const runsStyleSource = await readSource("src/runsPage.css");
+const servicesPageStyleSource = await readSource("src/servicesPage.css");
 const jobsStyleSource = await readSource("src/jobsPage.css");
 const jobsQueueStyleSource = await readSource("src/jobsQueue.css");
 const jobsRecentRunsStyleSource = await readSource("src/jobsRecentRuns.css");
@@ -1204,8 +1205,9 @@ assert(
     styleSource.includes('.advanced-filter-group[data-filter-group="search"] .advanced-filter-group-title') &&
     styleSource.includes('.advanced-filter-group[data-filter-group="tune"] .advanced-filter-controls') &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
-    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
+    styleSource.includes("--service-card-column-min: 360px") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--service-card-column-min)), 1fr))") &&
+    !styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr))") &&
     styleSource.includes(".service-form") &&
     filterControlsStyleSource.includes(".advanced-filter-bar.dirty .advanced-filter-head") &&
     jobsPage.includes('import "./jobsPage.css";') &&
@@ -1381,10 +1383,17 @@ assert(
     styleSource.includes(".service-card") &&
     styleSource.includes(':root[data-theme="dark"] .service-grid') &&
     styleSource.includes("--service-card-bg") &&
+    styleSource.includes("--service-card-column-min: 360px") &&
     styleSource.includes("--service-code-bg") &&
+    styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--service-card-column-min)), 1fr))") &&
+    styleSource.includes("max-height: var(--service-command-max)") &&
+    styleSource.includes("max-height: var(--service-log-max)") &&
+    styleSource.includes("scrollbar-gutter: stable both-edges;") &&
     styleSource.includes("content-visibility: auto;") &&
     styleSource.includes("contain-intrinsic-size: auto 360px;") &&
     !styleSource.includes("box-shadow: 0 12px 30px rgb(15 23 42 / 5%)") &&
+    !servicesPageStyleSource.includes("box-shadow 150ms ease") &&
+    !servicesPageStyleSource.includes("minmax(min(100%, 430px), 1fr)") &&
     !designSource.includes(".service-card") &&
     jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))") &&
     adaptiveContentStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
