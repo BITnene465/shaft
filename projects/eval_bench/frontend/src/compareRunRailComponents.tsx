@@ -61,6 +61,8 @@ const COMPARISON_HISTORY_COLUMNS: ColumnDef<ComparisonSummary>[] = [
   { header: "创建时间", meta: { width: "date" }, cell: ({ row }) => formatDate(row.original.created_at) }
 ];
 
+const comparisonHistoryRowId = (comparison: ComparisonSummary) => comparison.comparison_id;
+
 export function RunSelectRail({
   title,
   value,
@@ -151,6 +153,7 @@ export function ComparisonHistoryPanel({
         emptyText="暂无历史对比。"
         refreshing={refreshing}
         compact
+        getRowId={comparisonHistoryRowId}
       />
       <PagerControl
         className="rank-board-pager compare-history-pager"

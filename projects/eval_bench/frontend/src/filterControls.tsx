@@ -35,6 +35,13 @@ const ADVANCED_FILTER_CONTROL_FOCUS_SELECTOR = [
   ".advanced-filter-controls textarea:not([disabled])",
   ".advanced-filter-controls button:not([disabled])"
 ].join(",");
+const ADVANCED_FILTER_DRAFT_PERSIST_DELAY_MS = 180;
+
+type AdvancedFilterDraftPersistTask = {
+  key: string;
+  values: Record<string, string>;
+  dirtyControlIds: ReadonlySet<string>;
+};
 
 export function AdvancedFilterBar({
   title,
@@ -47,8 +54,8 @@ export function AdvancedFilterBar({
   controls: AdvancedFilterControl[];
   actions?: ReactNode;
 }) {
-  const openStateKey = advancedFilterOpenStateKey(title, controls);
-  const draftStateKey = `${openStateKey}:draft`;
+  const openStateKey = useMemo(() => advancedFilterOpenStateKey(title, controls), [controls, title]);
+  const draftStateKey = useMemo(() => `${openStateKey}:draft`, [openStateKey]);
   const [open, setOpen] = useState(() => readAdvancedFilterOpenState(openStateKey));
   const [draftValues, setDraftValues] = useState<Record<string, string>>(() =>
     readAdvancedFilterDraftValues(draftStateKey, controls)
@@ -61,20 +68,29 @@ export function AdvancedFilterBar({
   const dirtyControlIdsRef = useRef<Set<string>>(
     advancedFilterDirtyControlIds(controls, draftValues)
   );
-  const activeCount = controls.filter((control) => {
-    return control.value.trim() !== defaultFilterValue(control);
-  }).length;
-  const activeFilters = controls
-    .filter((control) => control.value.trim() !== defaultFilterValue(control))
-    .map((control) => ({ control, value: displayFilterValue(control) }));
+  const draftPersistTimeoutRef = useRef<number | null>(null);
+  const pendingDraftPersistRef = useRef<AdvancedFilterDraftPersistTask | null>(null);
+  const activeFilters = useMemo(
+    () =>
+      controls
+        .filter((control) => control.value.trim() !== defaultFilterValue(control))
+        .map((control) => ({ control, value: displayFilterValue(control) })),
+    [controls]
+  );
+  const activeCount = activeFilters.length;
   const controlGroups = useMemo(() => groupAdvancedControls(controls), [controls]);
   const summary = activeCount > 0 ? `${activeCount} 个条件生效` : "未设条件";
-  const appliedValuesKey = advancedFilterValuesKey(controls);
-  const hasDraftChanges = controls.some((control) => draftValueFor(control) !== control.value);
+  const appliedValuesKey = useMemo(() => advancedFilterValuesKey(controls), [controls]);
+  const controlIds = useMemo(() => new Set(controls.map((control) => control.id)), [openStateKey]);
+  const hasDraftChanges = useMemo(
+    () => controls.some((control) => (draftValues[control.id] ?? control.value) !== control.value),
+    [controls, draftValues]
+  );
   useEffect(() => {
     setOpen(readAdvancedFilterOpenState(openStateKey));
   }, [openStateKey]);
   useEffect(() => {
+    flushAdvancedFilterDraftPersist();
     const nextDraftValues = readAdvancedFilterDraftValues(draftStateKey, controls);
     dirtyControlIdsRef.current = advancedFilterDirtyControlIds(controls, nextDraftValues);
     latestDraftValuesRef.current = nextDraftValues;
@@ -83,8 +99,8 @@ export function AdvancedFilterBar({
   useEffect(() => {
     writeAdvancedFilterOpenState(openStateKey, open);
   }, [openStateKey, open]);
+  useEffect(() => () => flushAdvancedFilterDraftPersist(), [draftStateKey]);
   useEffect(() => {
-    const controlIds = new Set(controls.map((control) => control.id));
     for (const id of dirtyControlIdsRef.current) {
       if (!controlIds.has(id)) {
         dirtyControlIdsRef.current.delete(id);
@@ -97,8 +113,8 @@ export function AdvancedFilterBar({
     );
     latestDraftValuesRef.current = nextDraftValues;
     setDraftValues(nextDraftValues);
-    writeAdvancedFilterDraftValues(draftStateKey, nextDraftValues, dirtyControlIdsRef.current);
-  }, [appliedValuesKey, openStateKey]);
+    persistAdvancedFilterDraftNow(draftStateKey, nextDraftValues, dirtyControlIdsRef.current);
+  }, [appliedValuesKey, controlIds, draftStateKey]);
   useEffect(() => {
     if (!open) {
       return;
@@ -151,6 +167,51 @@ export function AdvancedFilterBar({
       document.removeEventListener("click", onDocumentClick);
     };
   }, [open]);
+  function persistAdvancedFilterDraftNow(
+    key: string,
+    values: Record<string, string>,
+    dirtyControlIds: ReadonlySet<string>
+  ) {
+    if (draftPersistTimeoutRef.current !== null) {
+      window.clearTimeout(draftPersistTimeoutRef.current);
+      draftPersistTimeoutRef.current = null;
+    }
+    pendingDraftPersistRef.current = null;
+    writeAdvancedFilterDraftValues(key, values, dirtyControlIds);
+  }
+  function scheduleAdvancedFilterDraftPersist(
+    values: Record<string, string>,
+    dirtyControlIds: ReadonlySet<string>
+  ) {
+    pendingDraftPersistRef.current = {
+      key: draftStateKey,
+      values,
+      dirtyControlIds: new Set(dirtyControlIds)
+    };
+    if (draftPersistTimeoutRef.current !== null) {
+      return;
+    }
+    draftPersistTimeoutRef.current = window.setTimeout(() => {
+      draftPersistTimeoutRef.current = null;
+      flushAdvancedFilterDraftPersist();
+    }, ADVANCED_FILTER_DRAFT_PERSIST_DELAY_MS);
+  }
+  function flushAdvancedFilterDraftPersist() {
+    if (draftPersistTimeoutRef.current !== null) {
+      window.clearTimeout(draftPersistTimeoutRef.current);
+      draftPersistTimeoutRef.current = null;
+    }
+    const pendingDraftPersist = pendingDraftPersistRef.current;
+    if (!pendingDraftPersist) {
+      return;
+    }
+    pendingDraftPersistRef.current = null;
+    writeAdvancedFilterDraftValues(
+      pendingDraftPersist.key,
+      pendingDraftPersist.values,
+      pendingDraftPersist.dirtyControlIds
+    );
+  }
   function openAdvancedFilter() {
     previouslyFocusedRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -158,6 +219,7 @@ export function AdvancedFilterBar({
     setOpen(true);
   }
   function closeAdvancedFilter({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {
+    flushAdvancedFilterDraftPersist();
     setOpen(false);
     if (restoreFocus) {
       window.setTimeout(() => {
@@ -179,7 +241,7 @@ export function AdvancedFilterBar({
     }
     dirtyControlIdsRef.current.clear();
     latestDraftValuesRef.current = nextValues;
-    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    persistAdvancedFilterDraftNow(draftStateKey, nextValues, dirtyControlIdsRef.current);
     setDraftValues(nextValues);
     applyAdvancedFilterValues(controls, nextValues);
   }
@@ -188,7 +250,7 @@ export function AdvancedFilterBar({
     dirtyControlIdsRef.current.delete(control.id);
     const nextValues = { ...latestDraftValuesRef.current, [control.id]: nextValue };
     latestDraftValuesRef.current = nextValues;
-    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    persistAdvancedFilterDraftNow(draftStateKey, nextValues, dirtyControlIdsRef.current);
     setDraftValues(nextValues);
     resetAdvancedFilter(control);
   }
@@ -200,7 +262,7 @@ export function AdvancedFilterBar({
     }
     const nextValues = { ...latestDraftValuesRef.current, [control.id]: value };
     latestDraftValuesRef.current = nextValues;
-    writeAdvancedFilterDraftValues(draftStateKey, nextValues, dirtyControlIdsRef.current);
+    scheduleAdvancedFilterDraftPersist(nextValues, dirtyControlIdsRef.current);
     setDraftValues(nextValues);
   }
   function draftValueFor(control: AdvancedFilterControl) {
@@ -208,7 +270,7 @@ export function AdvancedFilterBar({
   }
   function applyDraftFilters() {
     dirtyControlIdsRef.current.clear();
-    writeAdvancedFilterDraftValues(
+    persistAdvancedFilterDraftNow(
       draftStateKey,
       latestDraftValuesRef.current,
       dirtyControlIdsRef.current

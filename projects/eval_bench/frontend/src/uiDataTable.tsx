@@ -4,6 +4,7 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import type { ColumnDef, RowData } from "@tanstack/react-table";
+import { useMemo } from "react";
 import type { CSSProperties } from "react";
 
 import { joinClassNames } from "./uiActions";
@@ -51,7 +52,8 @@ export function DataTable<T>({
   emptyText,
   compact,
   refreshing = false,
-  refreshLabel = "表格更新中"
+  refreshLabel = "表格更新中",
+  getRowId
 }: {
   columns: ColumnDef<T>[];
   data: T[];
@@ -59,8 +61,10 @@ export function DataTable<T>({
   compact?: boolean;
   refreshing?: boolean;
   refreshLabel?: string;
+  getRowId?: (row: T, index: number) => string;
 }) {
-  const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
+  const coreRowModel = useMemo(() => getCoreRowModel<T>(), []);
+  const table = useReactTable({ data, columns, getCoreRowModel: coreRowModel, getRowId });
   if (data.length === 0) {
     return (
       <TableEmptyState
@@ -151,6 +155,8 @@ export function TableLoadingState({
 }) {
   const safeRows = Math.max(3, Math.min(rows, 12));
   const safeColumns = Math.max(3, Math.min(columns, 10));
+  const skeletonRows = useMemo(() => Array.from({ length: safeRows }), [safeRows]);
+  const skeletonColumns = useMemo(() => Array.from({ length: safeColumns }), [safeColumns]);
   return (
     <div className={joinClassNames("table-shell", "table-loading", compact && "compact")}>
       <span className="table-refresh-indicator" aria-live="polite">
@@ -159,7 +165,7 @@ export function TableLoadingState({
       <table aria-hidden="true">
         <thead>
           <tr>
-            {Array.from({ length: safeColumns }).map((_, index) => (
+            {skeletonColumns.map((_, index) => (
               <th key={index}>
                 <span className="table-skeleton-line header" />
               </th>
@@ -167,9 +173,9 @@ export function TableLoadingState({
           </tr>
         </thead>
         <tbody>
-          {Array.from({ length: safeRows }).map((_, rowIndex) => (
+          {skeletonRows.map((_, rowIndex) => (
             <tr key={rowIndex}>
-              {Array.from({ length: safeColumns }).map((_, columnIndex) => (
+              {skeletonColumns.map((_, columnIndex) => (
                 <td key={columnIndex}>
                   <span
                     className="table-skeleton-line"

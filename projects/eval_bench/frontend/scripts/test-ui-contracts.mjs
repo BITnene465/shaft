@@ -257,6 +257,7 @@ const dialogSmokeSource = await readProjectFile("scripts/dialog-smoke-check.mjs"
 const toastSmokeSource = await readProjectFile("scripts/toast-smoke-check.mjs");
 const routeWarmupSmokeSource = await readProjectFile("scripts/route-warmup-check.mjs");
 const navPrefetchSmokeSource = await readProjectFile("scripts/nav-prefetch-check.mjs");
+const advancedFilterSmokeSource = await readProjectFile("scripts/advanced-filter-smoke-check.mjs");
 const loadingStateSmokeSource = await readProjectFile("scripts/loading-state-check.mjs");
 const settingsPreviewSmokeSource = await readProjectFile("scripts/settings-preview-check.mjs");
 const layoutSmokeSource = await readProjectFile("scripts/layout-smoke-check.mjs");
@@ -1020,20 +1021,36 @@ assert(
 assert(
     !uiSource.includes('export * from "./uiDataTable";') &&
     uiDataTableSource.includes("export type TableColumnWidth =") &&
+    uiDataTableSource.includes('import { useMemo } from "react";') &&
     uiDataTableSource.includes('import "./dataTable.css";') &&
     uiDataTableSource.includes("export function TableEmptyState(") &&
     uiDataTableSource.includes("export function TableLoadingState(") &&
     uiDataTableSource.includes("table-skeleton-line") &&
     uiDataTableSource.includes("declare module \"@tanstack/react-table\"") &&
     uiDataTableSource.includes("export function tableColumnClassName(") &&
+    uiDataTableSource.includes("getRowId?: (row: T, index: number) => string;") &&
+    uiDataTableSource.includes("const coreRowModel = useMemo(() => getCoreRowModel<T>(), []);") &&
+    uiDataTableSource.includes("useReactTable({ data, columns, getCoreRowModel: coreRowModel, getRowId })") &&
+    uiDataTableSource.includes("const skeletonRows = useMemo(() => Array.from({ length: safeRows }), [safeRows]);") &&
+    uiDataTableSource.includes("const skeletonColumns = useMemo(() => Array.from({ length: safeColumns }), [safeColumns]);") &&
     uiDataTableSource.includes("data-table-cell") &&
     uiDataTableSource.includes('"table-shell",\n        "empty"') &&
     uiDataTableSource.includes("refreshing && \"refreshing\"") &&
     uiDataTableSource.includes("<div className=\"empty-panel\">{emptyText}</div>") &&
     !mainEntry.includes('import "./dataTable.css";') &&
     runTables.includes('import { DataTable } from "./uiDataTable";') &&
+    runTables.includes("const benchmarkTableRowId = (benchmark: BenchmarkSummary) => benchmark.benchmark_id;") &&
+    runTables.includes("const runTableRowId = (run: RunSummary) => run.run_id;") &&
+    runTables.includes("getRowId={benchmarkTableRowId}") &&
+    runTables.includes("getRowId={runTableRowId}") &&
     rankBoardTablesSource.includes('import { DataTable } from "./uiDataTable";') &&
+    rankBoardTablesSource.includes("const suiteRankTableRowId = (entry: SuiteRankEntry) => entry.campaign_id;") &&
+    rankBoardTablesSource.includes("const rankBoardTableRowId = (entry: RankBoardEntry) => entry.run_id;") &&
+    rankBoardTablesSource.includes("getRowId={suiteRankTableRowId}") &&
+    rankBoardTablesSource.includes("getRowId={rankBoardTableRowId}") &&
     compareRunRailComponentsSource.includes('import { DataTable } from "./uiDataTable";') &&
+    compareRunRailComponentsSource.includes("const comparisonHistoryRowId = (comparison: ComparisonSummary) => comparison.comparison_id;") &&
+    compareRunRailComponentsSource.includes("getRowId={comparisonHistoryRowId}") &&
     jobsQueuePanelSource.includes("TableEmptyState") &&
     servicesGridSource.includes('import { TableEmptyState } from "./uiDataTable";') &&
     jobsQueueTableSource.includes('import { tableColumnClassName } from "./uiDataTable";') &&
@@ -1160,11 +1177,33 @@ assert(
     advancedFilterModelSource.includes("export function advancedFilterDirtyControlIds(") &&
     advancedFilterStorageSource.includes("window.sessionStorage") &&
     filterControls.includes("event.composedPath().includes(rootRef.current)") &&
+    filterControls.includes(
+      "const openStateKey = useMemo(() => advancedFilterOpenStateKey(title, controls), [controls, title]);"
+    ) &&
+    filterControls.includes('const draftStateKey = useMemo(() => `${openStateKey}:draft`, [openStateKey]);') &&
+    filterControls.includes("const appliedValuesKey = useMemo(() => advancedFilterValuesKey(controls), [controls]);") &&
+    filterControls.includes("const controlIds = useMemo(() => new Set(controls.map((control) => control.id)), [openStateKey]);") &&
     filterControls.includes("const latestDraftValuesRef = useRef<Record<string, string>>(draftValues);") &&
     filterControls.includes("const dirtyControlIdsRef = useRef<Set<string>>(") &&
+    filterControls.includes("const activeFilters = useMemo(") &&
+    filterControls.includes("const activeCount = activeFilters.length;") &&
+    filterControls.includes("const hasDraftChanges = useMemo(") &&
+    filterControls.includes("[controls, draftValues]") &&
+    filterControls.includes("const ADVANCED_FILTER_DRAFT_PERSIST_DELAY_MS = 180;") &&
+    filterControls.includes("type AdvancedFilterDraftPersistTask =") &&
+    filterControls.includes("const draftPersistTimeoutRef = useRef<number | null>(null);") &&
+    filterControls.includes("const pendingDraftPersistRef = useRef<AdvancedFilterDraftPersistTask | null>(null);") &&
+    filterControls.includes("function persistAdvancedFilterDraftNow(") &&
+    filterControls.includes("function scheduleAdvancedFilterDraftPersist(") &&
+    filterControls.includes("function flushAdvancedFilterDraftPersist()") &&
+    filterControls.includes("flushAdvancedFilterDraftPersist();\n    const nextDraftValues = readAdvancedFilterDraftValues") &&
+    filterControls.includes("useEffect(() => () => flushAdvancedFilterDraftPersist(), [draftStateKey]);") &&
+    filterControls.includes("function closeAdvancedFilter(") &&
+    filterControls.includes("flushAdvancedFilterDraftPersist();\n    setOpen(false);") &&
+    filterControls.includes("window.setTimeout(() =>") &&
+    filterControls.includes("scheduleAdvancedFilterDraftPersist(nextValues, dirtyControlIdsRef.current)") &&
     advancedFilterModelSource.includes("export function syncDraftValuesWithApplied(") &&
     filterControls.includes("function openAdvancedFilter()") &&
-    filterControls.includes("function closeAdvancedFilter(") &&
     filterControls.includes("function toggleAdvancedFilter()") &&
     advancedFilterModelSource.includes("export function defaultFilterValue(") &&
     advancedFilterModelSource.includes("export function displayFilterValue(") &&
@@ -1869,10 +1908,12 @@ assert(
     packageJsonSource.includes('"test:toast": "node scripts/toast-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:route-warmup": "node scripts/route-warmup-check.mjs"') &&
     packageJsonSource.includes('"test:nav-prefetch": "node scripts/nav-prefetch-check.mjs"') &&
+    packageJsonSource.includes('"test:advanced-filter": "node scripts/advanced-filter-smoke-check.mjs"') &&
     packageJsonSource.includes('"test:loading-state": "node scripts/loading-state-check.mjs"') &&
     packageJsonSource.includes('"test:settings-preview": "node scripts/settings-preview-check.mjs"') &&
+    packageJsonSource.includes("npm run test:advanced-filter") &&
     packageJsonSource.includes(
-      '"test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui"',
+      '"test:smoke": "npm run test:theme && npm run test:route-warmup && npm run test:nav-prefetch && npm run test:advanced-filter && npm run test:loading-state && npm run test:toast && npm run test:dialogs && npm run test:settings-preview && npm run test:select-popover-ui"',
     ) &&
     dialogSmokeSource.includes('process.env.EVAL_BENCH_URL ?? "http://127.0.0.1:4173/"') &&
     dialogSmokeSource.includes('!text.includes("/api/")') &&
@@ -1918,6 +1959,13 @@ assert(
     navPrefetchSmokeSource.includes("rapid nav intent should prefetch the latest hovered route") &&
     navPrefetchSmokeSource.includes("rapid nav intent should cancel stale pending prefetches") &&
     navPrefetchSmokeSource.includes("runs endpoint should be prefetched once for results and once for compare, not once per hover") &&
+    advancedFilterSmokeSource.includes('page.getByRole("button", { name: /结果高级检索/ })') &&
+    advancedFilterSmokeSource.includes('page.getByRole("searchbox", { name: "全文检索" })') &&
+    advancedFilterSmokeSource.includes("advanced filter draft typing must not refresh results before apply") &&
+    advancedFilterSmokeSource.includes("advanced filter popover must stay open while editing a draft") &&
+    advancedFilterSmokeSource.includes("advanced filter draft must survive immediate close and reopen") &&
+    advancedFilterSmokeSource.includes("advanced filter draft persistence must not refresh results while reopening") &&
+    advancedFilterSmokeSource.includes("advanced filter apply must refresh results with the applied draft query") &&
     loadingStateSmokeSource.includes('delayedApi: "/api/benchmarks", label: "正在加载基准集"') &&
     loadingStateSmokeSource.includes('delayedApi: "/api/runs", label: "正在加载评测记录"') &&
     loadingStateSmokeSource.includes('delayedApi: "/api/rank-board", label: "正在加载排行榜"') &&

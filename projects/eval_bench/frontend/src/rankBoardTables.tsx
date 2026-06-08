@@ -45,6 +45,9 @@ const RANK_METRIC_COLUMNS: Array<{
   }
 ];
 
+const suiteRankTableRowId = (entry: SuiteRankEntry) => entry.campaign_id;
+const rankBoardTableRowId = (entry: RankBoardEntry) => entry.run_id;
+
 export function SuiteRankBoardTable({
   entries,
   sortBy,
@@ -159,6 +162,7 @@ export function SuiteRankBoardTable({
       emptyText="暂无 official suite aggregate 排名。"
       refreshing={refreshing}
       refreshLabel="Suite ranking 更新中"
+      getRowId={suiteRankTableRowId}
     />
   );
 }
@@ -301,6 +305,7 @@ export function RankBoardTable({
       data={entries}
       emptyText="没有符合高级检索条件的 run。"
       refreshing={refreshing}
+      getRowId={rankBoardTableRowId}
     />
   );
 }

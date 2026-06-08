@@ -67,6 +67,9 @@ const BENCHMARK_TABLE_COLUMNS: ColumnDef<BenchmarkSummary>[] = [
   }
 ];
 
+const benchmarkTableRowId = (benchmark: BenchmarkSummary) => benchmark.benchmark_id;
+const runTableRowId = (run: RunSummary) => run.run_id;
+
 export function BenchmarkTable({
   benchmarks,
   compact = false,
@@ -83,6 +86,7 @@ export function BenchmarkTable({
       emptyText="还没有登记基准集。"
       compact={compact}
       refreshing={refreshing}
+      getRowId={benchmarkTableRowId}
     />
   );
 }
@@ -302,6 +306,7 @@ export function RunTable({
         emptyText="还没有评测记录。"
         compact={compact}
         refreshing={refreshing}
+        getRowId={runTableRowId}
       />
       {footer}
       <DangerConfirmDialog
