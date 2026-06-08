@@ -5180,9 +5180,10 @@ assert(
     compositeReportLayerPlanStyleSource.includes(':root[data-theme="dark"] .report-layer-plan') &&
     compositeReportLayerPlanStyleSource.includes("--report-layer-head-bg") &&
     compositeReportLayerPlanStyleSource.includes("content-visibility: auto;") &&
-    compositeReportLayerPlanStyleSource.includes("contain-intrinsic-size: auto 74px;") &&
-    !compositeReportLayerPlanStyleSource.includes("background: #f7f9fc") &&
-    !compositeReportLayerPlanStyleSource.includes("border-bottom: 1px solid #e7edf4") &&
+    compositeReportLayerPlanStyleSource.includes("--report-layer-row-estimate: 74px;") &&
+    compositeReportLayerPlanStyleSource.includes("contain-intrinsic-size: auto var(--report-layer-row-estimate);") &&
+    !compositeReportLayerPlanStyleSource.includes("#f7f9fc") &&
+    !compositeReportLayerPlanStyleSource.includes("#e7edf4") &&
     !compositeReportLayerPlanStyleSource.includes("rgba(34, 72, 197, 0.12)") &&
     !compositeComposerDockStyleSource.includes(".report-run-pool") &&
     !compositeComposerDrawerStyleSource.includes(".report-run-card") &&
