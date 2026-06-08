@@ -1312,9 +1312,11 @@ assert(
     !jobsRecentRunsStyleSource.includes("0 14px 28px") &&
     jobsRecentRunsStyleSource.includes(':root[data-theme="dark"] .recent-run-list') &&
     jobsRecentRunsStyleSource.includes("--recent-run-card-accent") &&
+    jobsRecentRunsStyleSource.includes("--recent-run-artifact-gradient") &&
     jobsRecentRunsStyleSource.includes("content-visibility: auto;") &&
     jobsRecentRunsStyleSource.includes("contain-intrinsic-size: auto 58px;") &&
     jobsRecentRunsStyleSource.includes("box-shadow: inset 3px 0 0 var(--recent-run-card-accent)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(jobsRecentRunsStyleSource) &&
     jobsQueueStyleSource.includes(':root[data-theme="dark"] .job-activity-grid') &&
     jobsQueueStyleSource.includes("--job-strip-bg") &&
     jobsQueueStyleSource.includes("--job-eval-strong-ink") &&

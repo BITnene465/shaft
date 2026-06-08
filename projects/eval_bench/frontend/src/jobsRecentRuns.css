@@ -1,19 +1,33 @@
 .recent-run-list {
-  --recent-run-card-ink: #182838;
-  --recent-run-card-bg: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  --recent-run-card-line: #d8e2eb;
-  --recent-run-card-ready-bg: linear-gradient(135deg, #ffffff 0%, #fffaf0 100%);
-  --recent-run-card-ready-line: #ded6b7;
-  --recent-run-card-complete-bg: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%);
-  --recent-run-card-complete-line: #c8e3da;
-  --recent-run-card-hover-bg: #ffffff;
-  --recent-run-card-hover-line: #9ed0e4;
-  --recent-run-card-accent: #2e9dc0;
-  --recent-run-meta-ink: #607080;
-  --recent-run-artifact-track: #e2ebef;
-  --recent-run-artifact-ink: #274253;
-  --recent-run-artifact-bg: #ffffff;
-  --recent-run-artifact-line: #d7e2eb;
+  --recent-run-card-ink: var(--bench-ink);
+  --recent-run-card-bg: linear-gradient(135deg, var(--bench-surface-raised) 0%, var(--bench-surface-muted) 100%);
+  --recent-run-card-line: var(--bench-line);
+  --recent-run-card-ready-bg: color-mix(
+    in srgb,
+    var(--bench-status-warning-soft) 82%,
+    var(--bench-surface-raised)
+  );
+  --recent-run-card-ready-line: color-mix(in srgb, var(--bench-status-warning) 30%, var(--bench-line));
+  --recent-run-card-complete-bg: color-mix(
+    in srgb,
+    var(--bench-status-success-soft) 78%,
+    var(--bench-surface-raised)
+  );
+  --recent-run-card-complete-line: color-mix(in srgb, var(--bench-status-success) 28%, var(--bench-line));
+  --recent-run-card-hover-bg: var(--bench-surface-raised);
+  --recent-run-card-hover-line: color-mix(in srgb, var(--bench-cyan) 32%, var(--bench-line));
+  --recent-run-card-accent: var(--bench-cyan);
+  --recent-run-meta-ink: var(--bench-ink-muted);
+  --recent-run-artifact-track: color-mix(in srgb, var(--bench-line) 68%, transparent);
+  --recent-run-artifact-ink: var(--bench-ink-muted);
+  --recent-run-artifact-bg: var(--bench-surface-raised);
+  --recent-run-artifact-line: var(--bench-line);
+  --recent-run-artifact-gradient: linear-gradient(
+    90deg,
+    var(--bench-cyan),
+    var(--bench-status-success),
+    var(--bench-status-warning)
+  );
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -23,21 +37,23 @@
 }
 
 :root[data-theme="dark"] .recent-run-list {
-  --recent-run-card-ink: var(--bench-ink);
-  --recent-run-card-bg: color-mix(in srgb, var(--bench-surface-raised) 88%, black);
-  --recent-run-card-line: var(--bench-line);
-  --recent-run-card-ready-bg: color-mix(in srgb, #f7c948 9%, var(--bench-surface-raised));
-  --recent-run-card-ready-line: color-mix(in srgb, #f7c948 26%, var(--bench-line));
-  --recent-run-card-complete-bg: color-mix(in srgb, #22a66c 9%, var(--bench-surface-raised));
-  --recent-run-card-complete-line: color-mix(in srgb, #22a66c 24%, var(--bench-line));
+  --recent-run-card-bg: color-mix(in srgb, var(--bench-surface-raised) 88%, var(--bench-bg));
+  --recent-run-card-ready-bg: color-mix(
+    in srgb,
+    var(--bench-status-warning-soft) 46%,
+    var(--bench-surface-raised)
+  );
+  --recent-run-card-ready-line: color-mix(in srgb, var(--bench-status-warning) 34%, var(--bench-line));
+  --recent-run-card-complete-bg: color-mix(
+    in srgb,
+    var(--bench-status-success-soft) 46%,
+    var(--bench-surface-raised)
+  );
+  --recent-run-card-complete-line: color-mix(in srgb, var(--bench-status-success) 32%, var(--bench-line));
   --recent-run-card-hover-bg: color-mix(in srgb, var(--bench-action-soft) 54%, var(--bench-surface-raised));
   --recent-run-card-hover-line: color-mix(in srgb, var(--bench-cyan) 38%, var(--bench-line));
-  --recent-run-card-accent: var(--bench-cyan);
-  --recent-run-meta-ink: var(--bench-ink-muted);
   --recent-run-artifact-track: color-mix(in srgb, var(--bench-line) 72%, transparent);
-  --recent-run-artifact-ink: var(--bench-ink-muted);
-  --recent-run-artifact-bg: color-mix(in srgb, var(--bench-surface) 86%, black);
-  --recent-run-artifact-line: var(--bench-line);
+  --recent-run-artifact-bg: color-mix(in srgb, var(--bench-surface) 86%, var(--bench-bg));
 }
 
 .recent-run-card {
@@ -135,7 +151,7 @@
 .recent-run-artifacts > i > b {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #078aa9, #22a66c, #e0a437);
+  background: var(--recent-run-artifact-gradient);
   border-radius: inherit;
   transition: width 220ms ease;
 }
