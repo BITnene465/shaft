@@ -2337,6 +2337,8 @@ assert(
     overviewShellStyleSource.includes("background: var(--overview-home-bg)") &&
     overviewPrimaryStyleSource.includes(".overview-v18-flow-item:hover") &&
     overviewPrimaryStyleSource.includes(".overview-v18-score:hover") &&
+    overviewPrimaryStyleSource.includes("color: var(--overview-tile-strong)") &&
+    overviewPrimaryStyleSource.includes("background: var(--overview-tile-bg)") &&
     overviewPrimaryStyleSource.includes("box-shadow: none") &&
     overviewConsoleStyleSource.includes(".overview-v18-console") &&
     overviewConsoleStyleSource.includes("--overview-console-bg") &&
@@ -2349,6 +2351,14 @@ assert(
     overviewConsoleStyleSource.includes(".overview-v18-signal-inspector") &&
     overviewOperationsStyleSource.includes(".overview-v18-run-list") &&
     overviewOperationsStyleSource.includes(".overview-v18-service-line") &&
+    overviewOperationsStyleSource.includes("background: var(--overview-tile-bg)") &&
+    overviewOperationsStyleSource.includes("background: var(--overview-meter-fill)") &&
+    overviewOperationsStyleSource.includes("content-visibility: auto;") &&
+    overviewOperationsStyleSource.includes("contain-intrinsic-size: auto 58px;") &&
+    !overviewPrimaryStyleSource.includes("color: #111827") &&
+    !overviewPrimaryStyleSource.includes("background: #f8fafb") &&
+    !overviewOperationsStyleSource.includes("background: #f8fafb") &&
+    !overviewOperationsStyleSource.includes("color: #111827") &&
     overviewResponsiveStyleSource.includes("@media (min-width: 1320px)") &&
     appChromeVisualStyleSource.includes(".content::before") &&
     appChromeVisualStyleSource.includes("display: none") &&

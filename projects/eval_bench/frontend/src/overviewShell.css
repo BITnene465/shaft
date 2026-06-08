@@ -17,6 +17,20 @@
   --overview-link-hover-ink: #ffffff;
   --overview-link-hover-bg: #155e75;
   --overview-focus-outline: rgb(21 94 117 / 70%);
+  --overview-tile-bg: #f8fafb;
+  --overview-tile-line: #e1e7ec;
+  --overview-tile-hover-line: #9dc8d0;
+  --overview-tile-strong: #111827;
+  --overview-tile-body: #2b3a45;
+  --overview-tile-soft: #667480;
+  --overview-tile-meta: #3d4d58;
+  --overview-meter-track: #dde7e8;
+  --overview-meter-fill: linear-gradient(90deg, #155e75, #16835f);
+  --overview-score-ink: #102a35;
+  --overview-run-score-ink: #31414d;
+  --overview-live-ink: #145c43;
+  --overview-live-bg: #e8f6ef;
+  --overview-live-line: #c6e7d6;
 
   gap: 12px;
   min-height: 0;
@@ -45,6 +59,20 @@
   --overview-link-hover-ink: #f1fbff;
   --overview-link-hover-bg: #1c6686;
   --overview-focus-outline: rgb(94 190 225 / 72%);
+  --overview-tile-bg: #101923;
+  --overview-tile-line: #2a3849;
+  --overview-tile-hover-line: #4a7188;
+  --overview-tile-strong: #f1f6fb;
+  --overview-tile-body: #d7e2ec;
+  --overview-tile-soft: #9dafc2;
+  --overview-tile-meta: #c3d0dc;
+  --overview-meter-track: #263747;
+  --overview-meter-fill: linear-gradient(90deg, #55b9d3, #58d69a);
+  --overview-score-ink: #dff7ff;
+  --overview-run-score-ink: #cfe0ef;
+  --overview-live-ink: #8ce3bb;
+  --overview-live-bg: #12392d;
+  --overview-live-line: #2f634f;
 }
 
 .overview-v18-card-head div,
