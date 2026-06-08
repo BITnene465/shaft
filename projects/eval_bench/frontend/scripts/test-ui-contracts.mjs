@@ -5046,6 +5046,12 @@ assert(
     compositeImageSearchResultsStyleSource.includes("cursor: grab") &&
     compositeImageSearchResultsStyleSource.includes("cursor: grabbing") &&
     compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview") &&
+    compositeImageSearchPreviewStyleSource.includes("--image-preview-bg") &&
+    compositeImageSearchPreviewStyleSource.includes("--image-preview-hover-bg") &&
+    compositeImageSearchPreviewStyleSource.includes("--image-preview-line") &&
+    compositeImageSearchPreviewStyleSource.includes("background: var(--image-preview-bg)") &&
+    compositeImageSearchPreviewStyleSource.includes("background: var(--image-preview-hover-bg)") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(compositeImageSearchPreviewStyleSource) &&
     !compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview > strong") &&
     !compositeImageSearchPreviewStyleSource.includes(".image-jump-active-preview b") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-result-index") &&
