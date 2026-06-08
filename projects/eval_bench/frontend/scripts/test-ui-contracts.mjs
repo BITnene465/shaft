@@ -2968,6 +2968,13 @@ assert(
     compareRunRailStyleSource.includes(".compare-run-select") &&
     compareRunRailStyleSource.includes(".compare-run-card") &&
     compareRunRailStyleSource.includes(".history-block") &&
+    compareRunRailStyleSource.includes(':root[data-theme="dark"] .compare-run-rail') &&
+    compareRunRailStyleSource.includes("--compare-rail-card-bg") &&
+    compareRunRailStyleSource.includes("scrollbar-gutter: stable") &&
+    compareRunRailStyleSource.includes("content-visibility: auto;") &&
+    compareRunRailStyleSource.includes("contain-intrinsic-size: auto 56px;") &&
+    !compareRunRailStyleSource.includes("background: #ffffff") &&
+    !compareRunRailStyleSource.includes("color: #607080") &&
     compareStyleSource.includes(".compare-page .compare-run-rail,") &&
     compareStyleSource.includes("border: 0;\n  border-top: 1px solid var(--bench-line);") &&
     compareStyleSource.includes("animation: none;\n  transition: none;") &&
