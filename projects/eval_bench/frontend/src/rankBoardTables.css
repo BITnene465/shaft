@@ -1,7 +1,25 @@
+.rank-board-page {
+  --rank-table-index-ink: #174d65;
+  --rank-sort-icon: #9aa8b6;
+  --rank-sort-active-ink: #0b3d54;
+  --rank-sort-active-icon: #0b5f7c;
+  --rank-sort-active-head-bg: #ecf7fb;
+  --rank-sort-active-cell-bg: #f6fbfd;
+  --rank-sort-active-hover-bg: #eef8fc;
+  --rank-sort-active-line: #b7dce8;
+  --rank-suite-model-ink: #101828;
+  --rank-suite-split-value-ink: #0f5d83;
+}
+
+.rank-board-table-card tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 46px;
+}
+
 .rank-index {
   display: inline-flex;
   min-width: 44px;
-  color: var(--rank-table-index-ink, #174d65);
+  color: var(--rank-table-index-ink);
   font-weight: 820;
   font-variant-numeric: tabular-nums;
 }
@@ -54,29 +72,29 @@
 
 .rank-sort-header svg {
   flex: 0 0 auto;
-  color: var(--rank-sort-icon, #9aa8b6);
+  color: var(--rank-sort-icon);
 }
 
 .rank-sort-header.active {
-  color: var(--rank-sort-active-ink, #0b3d54);
+  color: var(--rank-sort-active-ink);
 }
 
 .rank-sort-header.active svg {
-  color: var(--rank-sort-active-icon, #0b5f7c);
+  color: var(--rank-sort-active-icon);
 }
 
 .table-shell th.rank-sort-active-cell {
-  color: var(--rank-sort-active-ink, #0b3d54);
-  background: var(--rank-sort-active-head-bg, #ecf7fb);
-  border-bottom-color: var(--rank-sort-active-line, #b7dce8);
+  color: var(--rank-sort-active-ink);
+  background: var(--rank-sort-active-head-bg);
+  border-bottom-color: var(--rank-sort-active-line);
 }
 
 .table-shell td.rank-sort-active-cell {
-  background: var(--rank-sort-active-cell-bg, #f6fbfd);
+  background: var(--rank-sort-active-cell-bg);
 }
 
 tbody tr:hover td.rank-sort-active-cell {
-  background: var(--rank-sort-active-hover-bg, #eef8fc);
+  background: var(--rank-sort-active-hover-bg);
 }
 
 .rank-score-delta {
@@ -112,7 +130,7 @@ tbody tr:hover td.rank-sort-active-cell {
 
 .suite-rank-model {
   overflow-wrap: anywhere;
-  color: var(--rank-suite-model-ink, #101828);
+  color: var(--rank-suite-model-ink);
   font-weight: 760;
 }
 
@@ -138,7 +156,7 @@ tbody tr:hover td.rank-sort-active-cell {
 }
 
 .suite-rank-splits strong {
-  color: var(--rank-suite-split-value-ink, #0f5d83);
+  color: var(--rank-suite-split-value-ink);
   font-variant-numeric: tabular-nums;
 }
 

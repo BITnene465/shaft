@@ -3287,6 +3287,11 @@ assert(
     rankBoardTablesStyleSource.includes("--rank-delta-bg") &&
     rankBoardTablesStyleSource.includes(':root[data-theme="dark"] .rank-board-page') &&
     rankBoardTablesStyleSource.includes(':root[data-theme="dark"] .rank-score-delta.neutral') &&
+    rankBoardTablesStyleSource.includes(".rank-board-table-card tbody tr") &&
+    rankBoardTablesStyleSource.includes("content-visibility: auto;") &&
+    rankBoardTablesStyleSource.includes("contain-intrinsic-size: auto 46px;") &&
+    !rankBoardTablesStyleSource.includes("var(--rank-table-index-ink, #174d65)") &&
+    !rankBoardTablesStyleSource.includes("var(--rank-sort-active-head-bg, #ecf7fb)") &&
     rankBoardTablesStyleSource.includes(".rank-sort-header"),
   "rank board styles must keep page frame, summary, facets, and table concerns in separate CSS modules",
 );
