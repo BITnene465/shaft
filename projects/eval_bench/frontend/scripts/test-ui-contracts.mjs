@@ -4882,11 +4882,19 @@ assert(
     compositeImageSearchBarStyleSource.includes("overflow: visible") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-search") &&
     compositeImageSearchBarStyleSource.includes(".image-navigator-count") &&
+    compositeImageSearchBarStyleSource.includes("var(--composite-navigator-search-line)") &&
+    compositeImageSearchBarStyleSource.includes("var(--composite-navigator-search-ink)") &&
+    compositeImageSearchBarStyleSource.includes("var(--composite-navigator-count-ink)") &&
+    compositeImageNavigatorStyleSource.includes("var(--composite-navigator-copy-subtle)") &&
     compositeInteractionPaletteStyleSource.includes(".composite-interaction-palette") &&
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool") &&
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button") &&
     compositeInteractionPaletteStyleSource.includes(".interaction-palette-tool.icon-button:disabled") &&
     compositeInteractionPaletteStyleSource.includes('.interaction-palette-tool[data-tool="reset"]') &&
+    compositeInteractionPaletteStyleSource.includes("var(--composite-tool-line)") &&
+    compositeInteractionPaletteStyleSource.includes("var(--composite-tool-anchor-surface)") &&
+    compositeInteractionPaletteStyleSource.includes("var(--composite-tool-hover-surface)") &&
+    compositeInteractionPaletteStyleSource.includes("var(--composite-tool-disabled-ink)") &&
     !compositeInteractionPaletteStyleSource.includes("transform 120ms ease") &&
     !compositeInteractionPaletteStyleSource.includes("translateY(") &&
     compositeComposerDockPreviewStyleSource.includes(".composer-dock-preview") &&
@@ -4999,6 +5007,10 @@ assert(
     compositeThemeStyleSource.includes("--composite-position-wash") &&
     compositeThemeStyleSource.includes("--composite-position-glow") &&
     compositeThemeStyleSource.includes("--composite-position-track-height") &&
+    compositeThemeStyleSource.includes("--composite-navigator-search-line") &&
+    compositeThemeStyleSource.includes("--composite-navigator-copy-subtle") &&
+    compositeThemeStyleSource.includes("--composite-tool-anchor-surface") &&
+    compositeThemeStyleSource.includes("--composite-tool-disabled-ink") &&
     compositeImageAtlasStyleSource.includes("background: var(--composite-atlas-background)") &&
     compositeImageAtlasStyleSource.includes(
       "grid-template-columns: repeat(auto-fit, minmax(var(--composite-atlas-bin-min), 1fr))",
@@ -5014,6 +5026,11 @@ assert(
     compositeImageNavigationInteractionStyles.every(
       (source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source),
     ) &&
+    [
+      compositeImageNavigatorStyleSource,
+      compositeImageSearchBarStyleSource,
+      compositeInteractionPaletteStyleSource
+    ].every((source) => !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(source)) &&
     !compositeImageTimelineStyleSource.includes(".image-scrub-track") &&
     !compositeImageTimelineStyleSource.includes(".image-scrub-preview") &&
     [
