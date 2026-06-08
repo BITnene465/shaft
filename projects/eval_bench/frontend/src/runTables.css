@@ -1,4 +1,7 @@
 .run-note-preview {
+  --run-note-preview-size: clamp(22px, 2.3vw, 24px);
+  --run-note-preview-height: clamp(20px, 2.2vw, 22px);
+  --run-note-preview-transition: 120ms ease;
   --run-note-preview-ink: #294454;
   --run-note-preview-icon: #1d5d7a;
   --run-note-preview-bg: #f3f9fc;
@@ -10,9 +13,9 @@
   --run-note-preview-empty-bg: #f7fafc;
   --run-note-preview-empty-line: #e2e9ef;
   display: inline-flex;
-  width: 24px;
-  min-width: 24px;
-  height: 22px;
+  width: var(--run-note-preview-size);
+  min-width: var(--run-note-preview-size);
+  height: var(--run-note-preview-height);
   justify-content: center;
   align-items: center;
   padding: 0;
@@ -23,10 +26,9 @@
   font-size: var(--text-xs);
   text-decoration: none;
   transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    box-shadow 140ms ease;
+    background var(--run-note-preview-transition),
+    border-color var(--run-note-preview-transition),
+    color var(--run-note-preview-transition);
 }
 
 :root[data-theme="dark"] .run-note-preview {
@@ -79,15 +81,19 @@
 
 .table-shell .run-id-link {
   display: inline;
-  color: #1c4e64;
+  color: var(--bench-action);
 }
 
 .run-table-stack {
+  --run-table-stack-gap: clamp(6px, 0.9vw, 8px);
+  --run-table-select-col: clamp(31px, 3vw, 34px);
+  --run-table-select-pad-end: clamp(4px, 0.7vw, 6px);
+  --run-table-actions-width: clamp(108px, 13vw, 170px);
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--run-table-stack-gap);
 }
 
 .run-table-stack > .table-shell {
@@ -96,14 +102,14 @@
 
 .run-table-stack:not(.compact) th:first-child,
 .run-table-stack:not(.compact) td:first-child {
-  width: 34px;
-  padding-right: 6px;
+  width: var(--run-table-select-col);
+  padding-right: var(--run-table-select-pad-end);
   text-align: center;
 }
 
 .run-table-stack:not(.compact) th:last-child,
 .run-table-stack:not(.compact) td:last-child {
-  width: clamp(112px, 14vw, 178px);
+  width: var(--run-table-actions-width);
   overflow: visible;
 }
 
