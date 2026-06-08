@@ -3332,7 +3332,10 @@ assert(
     visualStatusBarStyleSource.includes("position: absolute") &&
     visualStatusBarStyleSource.includes("--visual-status-bg") &&
     visualStatusBarStyleSource.includes("--visual-status-good-bg") &&
+    visualStatusBarStyleSource.includes(':root[data-theme="dark"]') &&
     visualStatusBarStyleSource.includes("box-shadow: var(--visual-status-shadow)") &&
+    visualStatusBarStyleSource.includes("contain: layout paint style") &&
+    !/(#[0-9a-f]{3,8}\b|rgba?\()/i.test(visualStatusBarStyleSource) &&
     !visualStatusBarStyleSource.includes("0 10px 24px rgb(0 0 0 / 24%)"),
   "sample viewers must use the shared in-canvas visual status bar instead of a layout-consuming toolbar",
 );

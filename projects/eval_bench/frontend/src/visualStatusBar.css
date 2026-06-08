@@ -1,23 +1,44 @@
+:root {
+  --visual-status-line: color-mix(in srgb, var(--bench-line) 82%, transparent);
+  --visual-status-bg: color-mix(in srgb, var(--bench-surface-raised) 90%, transparent);
+  --visual-status-shadow: var(--bench-shadow-tight);
+  --visual-status-refresh: var(--bench-cyan);
+  --visual-status-ink: var(--bench-ink);
+  --visual-status-strong: var(--bench-ink);
+  --visual-status-muted: var(--bench-ink-muted);
+  --visual-status-muted-strong: var(--bench-ink-muted);
+  --visual-status-item-line: var(--bench-line);
+  --visual-status-item-bg: color-mix(in srgb, var(--bench-surface-muted) 78%, transparent);
+  --visual-status-good-line: color-mix(in srgb, var(--bench-status-success) 28%, var(--bench-line));
+  --visual-status-good-bg: color-mix(in srgb, var(--bench-status-success-soft) 74%, var(--bench-surface-raised));
+  --visual-status-warn-line: color-mix(in srgb, var(--bench-status-warning) 28%, var(--bench-line));
+  --visual-status-warn-bg: color-mix(in srgb, var(--bench-status-warning-soft) 76%, var(--bench-surface-raised));
+  --visual-status-bad-line: color-mix(in srgb, var(--bench-status-danger) 28%, var(--bench-line));
+  --visual-status-bad-bg: color-mix(in srgb, var(--bench-status-danger-soft) 76%, var(--bench-surface-raised));
+  --visual-status-action-ink: var(--bench-action);
+  --visual-status-action-bg: var(--bench-action-soft);
+  --visual-status-action-line: color-mix(in srgb, var(--bench-action) 24%, var(--bench-line));
+}
+
+:root[data-theme="dark"] {
+  --visual-status-line: color-mix(in srgb, var(--bench-cyan) 18%, var(--bench-line));
+  --visual-status-bg: color-mix(in srgb, var(--bench-surface-raised) 86%, transparent);
+  --visual-status-refresh: var(--bench-cyan-strong);
+  --visual-status-strong: var(--bench-ink);
+  --visual-status-item-line: color-mix(in srgb, var(--bench-cyan) 10%, var(--bench-line));
+  --visual-status-item-bg: color-mix(in srgb, var(--bench-surface-muted) 74%, transparent);
+  --visual-status-good-line: color-mix(in srgb, var(--bench-status-success) 34%, var(--bench-line));
+  --visual-status-good-bg: color-mix(in srgb, var(--bench-status-success-soft) 56%, transparent);
+  --visual-status-warn-line: color-mix(in srgb, var(--bench-status-warning) 34%, var(--bench-line));
+  --visual-status-warn-bg: color-mix(in srgb, var(--bench-status-warning-soft) 58%, transparent);
+  --visual-status-bad-line: color-mix(in srgb, var(--bench-status-danger) 34%, var(--bench-line));
+  --visual-status-bad-bg: color-mix(in srgb, var(--bench-status-danger-soft) 58%, transparent);
+  --visual-status-action-ink: var(--bench-cyan-strong);
+  --visual-status-action-bg: color-mix(in srgb, var(--bench-action-soft) 82%, transparent);
+  --visual-status-action-line: color-mix(in srgb, var(--bench-cyan) 28%, var(--bench-line));
+}
+
 .visual-status-bar {
-  --visual-status-line: rgb(255 255 255 / 18%);
-  --visual-status-bg: rgb(9 15 22 / 82%);
-  --visual-status-shadow: 0 8px 18px rgb(0 0 0 / 20%);
-  --visual-status-refresh: #70c2ff;
-  --visual-status-ink: #e8eef5;
-  --visual-status-strong: #ffffff;
-  --visual-status-muted: #aab8c7;
-  --visual-status-muted-strong: #9fb0c1;
-  --visual-status-item-line: rgb(255 255 255 / 12%);
-  --visual-status-item-bg: rgb(255 255 255 / 8%);
-  --visual-status-good-line: rgb(68 214 148 / 32%);
-  --visual-status-good-bg: rgb(15 118 88 / 28%);
-  --visual-status-warn-line: rgb(246 184 93 / 34%);
-  --visual-status-warn-bg: rgb(146 84 13 / 28%);
-  --visual-status-bad-line: rgb(248 113 113 / 34%);
-  --visual-status-bad-bg: rgb(153 27 27 / 28%);
-  --visual-status-action-ink: #eef6ff;
-  --visual-status-action-bg: rgb(255 255 255 / 10%);
-  --visual-status-action-line: rgb(255 255 255 / 18%);
   position: absolute;
   z-index: 8;
   top: 10px;
@@ -34,6 +55,8 @@
   background: var(--visual-status-bg);
   border: 1px solid var(--visual-status-line);
   box-shadow: var(--visual-status-shadow);
+  backdrop-filter: blur(10px);
+  contain: layout paint style;
   pointer-events: auto;
 }
 
