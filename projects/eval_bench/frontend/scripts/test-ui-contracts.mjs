@@ -5026,6 +5026,13 @@ assert(
     !compositeImageSearchResultsStyleSource.includes(".image-jump-results-head") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-window-meter") &&
     !compositeImageSearchResultsStyleSource.includes(".image-jump-drag-hint") &&
+    compositeImageSearchResultsStyleSource.includes("--image-results-pad") &&
+    compositeImageSearchResultsStyleSource.includes("--image-scan-rail-width") &&
+    compositeImageSearchResultsStyleSource.includes("--image-scan-thumb-width") &&
+    compositeImageSearchResultsStyleSource.includes("--image-result-empty-min") &&
+    compositeImageSearchResultsStyleSource.includes("width: var(--image-scan-rail-width)") &&
+    compositeImageSearchResultsStyleSource.includes("height: var(--image-scan-thumb-height)") &&
+    compositeImageSearchResultsStyleSource.includes("min-width: var(--image-result-empty-min)") &&
     compositeImageSearchResultsStyleSource.includes("overscroll-behavior: contain") &&
     compositeImageSearchResultsStyleSource.includes("scrollbar-width: thin") &&
     compositeImageSearchResultsStyleSource.includes(".image-jump-scan-rail") &&

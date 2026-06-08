@@ -1,4 +1,13 @@
 .image-jump-results-panel {
+  --image-results-pad: var(--composite-pad-5);
+  --image-result-empty-min: 180px;
+  --image-scan-rail-width: 64px;
+  --image-scan-thumb-width: 4px;
+  --image-scan-thumb-height: 34px;
+  --image-scan-label-offset: 11px;
+  --image-scan-ring-size: var(--composite-pad-4);
+  --image-scan-label-fade: 140ms ease;
+
   display: grid;
   min-width: 0;
   min-height: 0;
@@ -13,7 +22,7 @@
   align-content: start;
   overscroll-behavior: contain;
   overflow: auto;
-  padding: var(--composite-pad-5);
+  padding: var(--image-results-pad);
   cursor: grab;
   scrollbar-width: thin;
   user-select: none;
@@ -22,9 +31,9 @@
 .image-jump-scan-rail {
   position: absolute;
   z-index: 2;
-  inset: var(--composite-pad-5) auto var(--composite-pad-5) var(--composite-pad-5);
+  inset: var(--image-results-pad) auto var(--image-results-pad) var(--image-results-pad);
   display: grid;
-  width: 64px;
+  width: var(--image-scan-rail-width);
   pointer-events: none;
 }
 
@@ -32,18 +41,18 @@
   position: absolute;
   top: var(--image-result-scan-top, 50%);
   left: 0;
-  width: 4px;
-  height: 34px;
+  width: var(--image-scan-thumb-width);
+  height: var(--image-scan-thumb-height);
   border-radius: var(--composite-radius-pill);
   background: var(--image-result-scan-color, var(--composite-accent));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 12%, transparent);
+  box-shadow: 0 0 0 var(--image-scan-ring-size) color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 12%, transparent);
   transform: translateY(-50%);
 }
 
 .image-jump-scan-rail span {
   position: absolute;
   top: var(--image-result-scan-top, 50%);
-  left: 11px;
+  left: var(--image-scan-label-offset);
   padding: var(--composite-pad-2) var(--composite-pad-5);
   border: 1px solid color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 28%, var(--composite-line-soft));
   background: color-mix(in srgb, var(--image-result-scan-color, var(--composite-accent)) 12%, var(--composite-surface));
@@ -53,7 +62,7 @@
   font-variant-numeric: tabular-nums;
   opacity: 0;
   transform: translateY(-50%);
-  transition: opacity 140ms ease;
+  transition: opacity var(--image-scan-label-fade);
 }
 
 .image-jump-results:hover .image-jump-scan-rail span,
@@ -83,7 +92,7 @@
 
 .image-jump-empty {
   display: grid;
-  min-width: 180px;
+  min-width: var(--image-result-empty-min);
   place-items: center;
   padding: var(--composite-pad-8);
   border: 1px dashed var(--composite-line-soft);
