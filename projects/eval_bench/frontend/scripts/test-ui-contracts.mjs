@@ -3927,6 +3927,11 @@ assert(
     !compositeReportComposerDock.includes('from "./compositeReportComposerDockPreview"') &&
     compositeComposerDockStyleSource.includes("position: relative") &&
     compositeComposerDockStyleSource.includes(".composite-composer-dock.collapsed") &&
+    compositeComposerDockStyleSource.includes(':root[data-theme="dark"] .composite-composer-dock') &&
+    compositeComposerDockStyleSource.includes("--composer-dock-grip-bg") &&
+    compositeComposerDockStyleSource.includes("scrollbar-gutter: stable") &&
+    !compositeComposerDockStyleSource.includes("background: #f4f8ff") &&
+    !compositeComposerDockStyleSource.includes("border: 1px solid #cad7e5") &&
     compositeComposerDockStyleSource.includes(".composer-dock-grip") &&
     compositeComposerDockStyleSource.includes("writing-mode: vertical-rl") &&
     !compositeComposerDockStyleSource.includes(".composer-dock-stats") &&

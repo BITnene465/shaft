@@ -1,4 +1,9 @@
 .composite-composer-dock {
+  --composer-dock-bg: linear-gradient(180deg, #f9fbfd, #eef3f8), var(--composite-surface-subtle);
+  --composer-dock-grip-bg: linear-gradient(180deg, rgb(255 255 255 / 96%), rgb(235 244 255 / 92%)), var(--composite-surface);
+  --composer-dock-grip-line: #cad7e5;
+  --composer-dock-grip-hover-bg: #f4f8ff;
+
   position: relative;
   display: grid;
   min-height: 0;
@@ -8,9 +13,14 @@
   width: var(--composite-dock-rail-size);
   padding: var(--composite-pad-7) var(--composite-pad-4);
   border-right: 1px solid var(--composite-line);
-  background:
-    linear-gradient(180deg, #f9fbfd, #eef3f8),
-    var(--composite-surface-subtle);
+  background: var(--composer-dock-bg);
+}
+
+:root[data-theme="dark"] .composite-composer-dock {
+  --composer-dock-bg: linear-gradient(180deg, var(--composite-surface), color-mix(in srgb, var(--composite-surface) 88%, black)), var(--composite-surface-subtle);
+  --composer-dock-grip-bg: linear-gradient(180deg, color-mix(in srgb, var(--composite-surface-muted) 94%, white), var(--composite-surface)), var(--composite-surface);
+  --composer-dock-grip-line: var(--composite-line);
+  --composer-dock-grip-hover-bg: color-mix(in srgb, var(--composite-accent) 10%, var(--composite-surface));
 }
 
 .composite-composer-dock.open {
@@ -29,16 +39,14 @@
   gap: var(--composite-gap-4);
   padding: var(--composite-pad-5) 0;
   color: var(--composite-accent);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 96%), rgb(235 244 255 / 92%)),
-    var(--composite-surface);
-  border: 1px solid #cad7e5;
+  background: var(--composer-dock-grip-bg);
+  border: 1px solid var(--composer-dock-grip-line);
   border-radius: var(--composite-radius-control);
   cursor: pointer;
 }
 
 .composer-dock-grip:hover {
-  background: #f4f8ff;
+  background: var(--composer-dock-grip-hover-bg);
   border-color: color-mix(in srgb, var(--composite-accent) 42%, var(--composite-line));
 }
 
@@ -67,6 +75,7 @@
     align-items: center;
     justify-content: flex-start;
     overflow-x: auto;
+    scrollbar-gutter: stable;
     padding: var(--composite-pad-6) var(--composite-pad-8);
     border-right: 0;
     border-bottom: 1px solid var(--composite-line);
