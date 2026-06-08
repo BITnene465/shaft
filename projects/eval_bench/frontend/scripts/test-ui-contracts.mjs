@@ -5116,6 +5116,12 @@ assert(
     compositeImageScrubTrackStyleSource.includes(".image-scrub-track") &&
     compositeImageScrubTrackStyleSource.includes(".image-scrub-preview") &&
     compositeImageScrubTrackStyleSource.includes(".image-scrub-preview em") &&
+    compositeImageScrubTrackStyleSource.includes("--image-scrub-preview-min") &&
+    compositeImageScrubTrackStyleSource.includes("--image-scrub-preview-caret-size") &&
+    compositeImageScrubTrackStyleSource.includes("--image-scrub-scroll-margin-top") &&
+    compositeImageScrubTrackStyleSource.includes("min-width: var(--image-scrub-preview-min)") &&
+    compositeImageScrubTrackStyleSource.includes("width: var(--image-scrub-preview-caret-size)") &&
+    compositeImageScrubTrackStyleSource.includes("scroll-margin-top: var(--image-scrub-scroll-margin-top)") &&
     compositeThemeStyleSource.includes("--composite-interaction-wash") &&
     compositeThemeStyleSource.includes("--composite-overlay-line") &&
     compositeThemeStyleSource.includes("--composite-overlay-shadow") &&

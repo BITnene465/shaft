@@ -1,4 +1,12 @@
 .image-scrub-track {
+  --image-scrub-preview-offset: var(--composite-gap-6);
+  --image-scrub-preview-min: 104px;
+  --image-scrub-preview-max: min(240px, 42vw);
+  --image-scrub-preview-caret-size: 7px;
+  --image-scrub-thumb-border-width: var(--composite-pad-2);
+  --image-scrub-scroll-margin-top: var(--composite-shell-scroll-padding);
+  --image-scrub-scroll-margin-top-short: var(--composite-shell-short-scroll-padding);
+
   position: relative;
   height: var(--composite-scrub-track-height);
   min-width: 0;
@@ -43,7 +51,7 @@
   top: 50%;
   width: var(--composite-scrub-thumb-width);
   height: var(--composite-scrub-thumb-height);
-  border: 2px solid var(--composite-surface);
+  border: var(--image-scrub-thumb-border-width) solid var(--composite-surface);
   background: var(--composite-ink);
   box-shadow: var(--composite-overlay-shadow);
   transform: translate(-50%, -50%);
@@ -57,10 +65,10 @@
 .image-scrub-preview {
   position: absolute;
   z-index: 4;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + var(--image-scrub-preview-offset));
   display: grid;
-  min-width: 104px;
-  max-width: min(240px, 42vw);
+  min-width: var(--image-scrub-preview-min);
+  max-width: var(--image-scrub-preview-max);
   gap: var(--composite-gap-2);
   padding: var(--composite-pad-6) var(--composite-pad-8);
   color: var(--composite-surface-subtle);
@@ -75,8 +83,8 @@
   position: absolute;
   top: 100%;
   left: 50%;
-  width: 7px;
-  height: 7px;
+  width: var(--image-scrub-preview-caret-size);
+  height: var(--image-scrub-preview-caret-size);
   background: var(--composite-ink-deep);
   border-right: 1px solid var(--composite-overlay-line);
   border-bottom: 1px solid var(--composite-overlay-line);
@@ -113,12 +121,12 @@
 
 @media (max-width: 940px) {
   .image-scrub-track {
-    scroll-margin-top: 128px;
+    scroll-margin-top: var(--image-scrub-scroll-margin-top);
   }
 }
 
 @media (max-width: 940px) and (max-height: 680px) {
   .image-scrub-track {
-    scroll-margin-top: 96px;
+    scroll-margin-top: var(--image-scrub-scroll-margin-top-short);
   }
 }
