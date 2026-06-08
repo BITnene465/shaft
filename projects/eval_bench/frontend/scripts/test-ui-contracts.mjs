@@ -2965,9 +2965,12 @@ assert(
     compareReportPanelStyleSource.includes(".compare-page .label-delta-card") &&
     !compareReportPanelStyleSource.includes("transform 130ms ease") &&
     !compareReportPanelStyleSource.includes("transform: none") &&
-    styleSource.includes(".compare-run-rail,\n.compare-report-pane,\n.compare-context-pane {\n  min-height: 0;\n  overflow: auto;\n  background: #ffffff;\n  border: 0;") &&
+    styleSource.includes("--compare-shell-surface: #ffffff") &&
+    styleSource.includes(':root[data-theme="dark"] .compare-page') &&
+    styleSource.includes("background: var(--compare-shell-surface)") &&
+    styleSource.includes(".compare-run-rail,\n.compare-report-pane,\n.compare-context-pane {\n  min-height: 0;\n  overflow: auto;\n  background: var(--compare-shell-surface);\n  border: 0;") &&
     styleSource.includes(".compare-context-card {\n  display: grid;") &&
-    styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid #dbe5ee;") &&
+    styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid var(--compare-shell-line-soft);") &&
     compareReportPanelStyleSource.includes(".label-delta-card {\n  display: grid;") &&
     !compareReportPanelStyleSource.includes("border-bottom: 1px solid #d8e2eb;") &&
     !compareReportPanelStyleSource.includes("color: #607080") &&
@@ -2985,9 +2988,10 @@ assert(
     compareStyleSource.includes(".compare-page .compare-run-rail,") &&
     compareStyleSource.includes("border: 0;\n  border-top: 1px solid var(--bench-line);") &&
     compareStyleSource.includes("animation: none;\n  transition: none;") &&
-    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-run-rail') &&
-    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-report-pane') &&
-    compareStyleSource.includes(':root[data-theme="dark"] .compare-page .compare-context-pane') &&
+    compareStyleSource.includes("--compare-shell-topbar-bg") &&
+    !compareStyleSource.includes("background: #ffffff") &&
+    !compareStyleSource.includes("background: rgb(255 255 255 / 92%)") &&
+    !compareStyleSource.includes("color: #637486") &&
     !compareStyleSource.includes(".comparison-metric-table table") &&
     !compareStyleSource.includes(".label-delta-card {\n  display: grid;") &&
     !compareStyleSource.includes(".compare-run-card {\n  display: grid;") &&
