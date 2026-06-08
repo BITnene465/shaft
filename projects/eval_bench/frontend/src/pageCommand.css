@@ -3,7 +3,8 @@
 }
 
 .page-command-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
@@ -84,9 +85,18 @@
 }
 
 @media (max-width: 900px) {
-  .page-command-row,
   .page-command-row > div {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .page-command-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-command-row .command-button {
+    justify-self: start;
   }
 }

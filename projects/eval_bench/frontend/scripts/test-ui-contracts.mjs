@@ -1375,6 +1375,12 @@ assert(
     workspaceShellStyleSource.includes("var(--workspace-text-caption)") &&
     !rawWorkspaceShellGeometryPattern.test(workspaceShellStyleSource) &&
     !rawWorkspaceShellGeometryPattern.test(workspaceDialogStyleSource) &&
+    workspaceShellStyleSource.includes(".page-stack") &&
+    workspaceShellStyleSource.includes("contain: layout style;") &&
+    workspaceShellStyleSource.includes("contain: layout paint;") &&
+    workspaceShellStyleSource.includes("contain: layout;") &&
+    workspaceShellStyleSource.includes("overscroll-behavior: contain;") &&
+    workspaceShellStyleSource.includes("scrollbar-gutter: stable;") &&
     workspaceShellStyleSource.includes(".workspace-card") &&
     workspaceShellStyleSource.includes(".workspace-tabs") &&
     workspaceShellStyleSource.includes(".action-panel") &&
@@ -1391,6 +1397,10 @@ assert(
     !workspaceDialogStyleSource.includes("0 26px 70px") &&
     pageCommandStyleSource.includes(".density-page") &&
     pageCommandStyleSource.includes(".page-command-row") &&
+    pageCommandStyleSource.includes("grid-template-columns: minmax(0, 1fr) auto;") &&
+    pageCommandStyleSource.includes("@media (max-width: 620px)") &&
+    pageCommandStyleSource.includes(".page-command-row .command-button") &&
+    !pageCommandStyleSource.includes(".page-command-row,\n  .page-command-row > div") &&
     pageCommandStyleSource.includes(".command-button") &&
     pageCommandStyleSource.includes(".compact-form-card") &&
     pageCommandStyleSource.includes("var(--workspace-command-button-height)") &&
@@ -2664,6 +2674,13 @@ assert(
     benchmarksPage.includes('export { BenchmarkDetailPage } from "./benchmarkSampleInspector";') &&
     benchmarksPage.includes('import { BenchmarkCreatePanel } from "./benchmarkCreatePanel";') &&
     benchmarksPage.includes('import { benchmarkSplitValues } from "./benchmarkModel";') &&
+    benchmarksPage.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
+    benchmarksPage.includes("const tasks = useMemo(") &&
+    benchmarksPage.includes("const layers = useMemo(") &&
+    benchmarksPage.includes("const splits = useMemo(") &&
+    benchmarksPage.includes("const benchmarkFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    benchmarksPage.includes("controls={benchmarkFilterControls}") &&
+    !benchmarksPage.includes("controls={[\n          {\n            type: \"search\"") &&
     !benchmarksPage.includes("function BenchmarkCreatePanel(") &&
     !benchmarksPage.includes("function BenchmarkSampleViewer(") &&
     !benchmarksPage.includes("function parseBenchmarkSlices("),
@@ -2985,9 +3002,15 @@ assert(
 );
 assert(
   servicesPage.includes("const SERVICE_PAGE_SIZE = 80;") &&
+    servicesPage.includes('import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";') &&
     servicesPage.includes("PagerControl") &&
     servicesPage.includes("clampListPageOffset") &&
     servicesPage.includes("updatePagedFilterValue") &&
+    servicesPage.includes("const statuses = useMemo(") &&
+    servicesPage.includes("const kinds = useMemo(") &&
+    servicesPage.includes("const serviceFilterControls = useMemo<AdvancedFilterControl[]>(") &&
+    servicesPage.includes("controls={serviceFilterControls}") &&
+    !servicesPage.includes("controls={[\n              {\n                type: \"search\"") &&
     servicesPage.includes('className="rank-board-pager service-list-pager"') &&
     servicesPage.includes("offset: pageOffset") &&
     servicesPage.includes("limit: SERVICE_PAGE_SIZE") &&

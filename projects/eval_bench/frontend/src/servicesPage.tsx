@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchServices } from "./api";
 import { PagerControl, clampListPageOffset, updatePagedFilterValue } from "./samplePager";
 import { errorMessage, facetValues } from "./formatters";
-import { AdvancedFilterBar } from "./filterControls";
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { AppIcon } from "./iconLibrary";
 import { ServiceCreatePanel } from "./servicesCreatePanel";
 import { ServiceGrid } from "./servicesGrid";
@@ -45,19 +45,60 @@ export function ServicesPage() {
   const services = servicesQuery.data?.services ?? [];
   const totalServices = servicesQuery.data?.total ?? services.length;
   const facets = servicesQuery.data?.facets;
-  const statuses = facetValues(facets, "statuses", [
-    "registered",
-    "starting",
-    "running",
-    "stopped",
-    "failed",
-    ...services.map((service) => service.status)
-  ]);
-  const kinds = facetValues(facets, "kinds", [
-    "local_vllm",
-    "external_vllm",
-    ...services.map((service) => service.kind)
-  ]);
+  const statuses = useMemo(
+    () =>
+      facetValues(facets, "statuses", [
+        "registered",
+        "starting",
+        "running",
+        "stopped",
+        "failed",
+        ...services.map((service) => service.status)
+      ]),
+    [facets, services]
+  );
+  const kinds = useMemo(
+    () =>
+      facetValues(facets, "kinds", [
+        "local_vllm",
+        "external_vllm",
+        ...services.map((service) => service.kind)
+      ]),
+    [facets, services]
+  );
+  const serviceFilterControls = useMemo<AdvancedFilterControl[]>(
+    () => [
+      {
+        type: "search",
+        id: "service-query",
+        label: "全文检索",
+        value: searchText,
+        onChange: (value) =>
+          updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
+        placeholder: "搜索服务、模型、endpoint、CUDA、健康状态"
+      },
+      {
+        type: "select",
+        id: "service-status",
+        label: "状态",
+        value: statusFilter,
+        values: ["all", ...statuses],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
+      },
+      {
+        type: "select",
+        id: "service-kind",
+        label: "类型",
+        value: kindFilter,
+        values: ["all", ...kinds],
+        labels: { all: "全部" },
+        onChange: (value) => updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)
+      }
+    ],
+    [kindFilter, kinds, searchText, statusFilter, statuses]
+  );
   useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalServices, SERVICE_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
@@ -89,37 +130,7 @@ export function ServicesPage() {
           <AdvancedFilterBar
             title="服务高级检索"
             meta={`${services.length.toLocaleString()} / ${totalServices.toLocaleString()} 个服务`}
-            controls={[
-              {
-                type: "search",
-                id: "service-query",
-                label: "全文检索",
-                value: searchText,
-                onChange: (value) =>
-                  updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
-                placeholder: "搜索服务、模型、endpoint、CUDA、健康状态"
-              },
-              {
-                type: "select",
-                id: "service-status",
-                label: "状态",
-                value: statusFilter,
-                values: ["all", ...statuses],
-                labels: { all: "全部" },
-                onChange: (value) =>
-                  updatePagedFilterValue(statusFilter, value, setStatusFilter, setPageOffset)
-              },
-              {
-                type: "select",
-                id: "service-kind",
-                label: "类型",
-                value: kindFilter,
-                values: ["all", ...kinds],
-                labels: { all: "全部" },
-                onChange: (value) =>
-                  updatePagedFilterValue(kindFilter, value, setKindFilter, setPageOffset)
-              }
-            ]}
+            controls={serviceFilterControls}
           />
           <ServiceGrid
             services={services}

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchBenchmarks } from "./api";
 import { BenchmarkCreatePanel } from "./benchmarkCreatePanel";
 import { benchmarkSplitValues } from "./benchmarkModel";
-import { AdvancedFilterBar } from "./filterControls";
+import { AdvancedFilterBar, type AdvancedFilterControl } from "./filterControls";
 import { errorMessage, facetValues } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { BenchmarkTable } from "./runTables";
@@ -51,10 +51,63 @@ export function BenchmarksPage() {
   });
   const benchmarks = benchmarksQuery.data?.benchmarks ?? [];
   const facets = benchmarksQuery.data?.facets;
-  const tasks = facetValues(facets, "tasks", benchmarks.flatMap((benchmark) => benchmark.tasks));
-  const layers = facetValues(facets, "layers", benchmarks.flatMap((benchmark) => benchmark.layers));
-  const splits = facetValues(facets, "splits", benchmarks.flatMap(benchmarkSplitValues));
+  const tasks = useMemo(
+    () => facetValues(facets, "tasks", benchmarks.flatMap((benchmark) => benchmark.tasks)),
+    [benchmarks, facets]
+  );
+  const layers = useMemo(
+    () => facetValues(facets, "layers", benchmarks.flatMap((benchmark) => benchmark.layers)),
+    [benchmarks, facets]
+  );
+  const splits = useMemo(
+    () => facetValues(facets, "splits", benchmarks.flatMap(benchmarkSplitValues)),
+    [benchmarks, facets]
+  );
   const totalBenchmarks = benchmarksQuery.data?.total ?? benchmarks.length;
+  const benchmarkFilterControls = useMemo<AdvancedFilterControl[]>(
+    () => [
+      {
+        type: "search",
+        id: "benchmark-query",
+        label: "全文检索",
+        value: searchText,
+        onChange: (value) =>
+          updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
+        placeholder: "搜索 benchmark、manifest、root、来源"
+      },
+      {
+        type: "select",
+        id: "benchmark-task",
+        label: "任务",
+        value: taskFilter,
+        values: ["all", ...tasks],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)
+      },
+      {
+        type: "select",
+        id: "benchmark-layer",
+        label: "标注层",
+        value: layerFilter,
+        values: ["all", ...layers],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(layerFilter, value, setLayerFilter, setPageOffset)
+      },
+      {
+        type: "select",
+        id: "benchmark-split",
+        label: "Split",
+        value: splitFilter,
+        values: ["all", ...splits],
+        labels: { all: "全部" },
+        onChange: (value) =>
+          updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)
+      }
+    ],
+    [layerFilter, layers, searchText, splitFilter, splits, taskFilter, tasks]
+  );
   useEffect(() => {
     const nextOffset = clampListPageOffset(pageOffset, totalBenchmarks, BENCHMARK_PAGE_SIZE);
     if (nextOffset !== pageOffset) {
@@ -110,47 +163,7 @@ export function BenchmarksPage() {
       <AdvancedFilterBar
         title="基准集高级检索"
         meta={`${benchmarks.length.toLocaleString()} / ${totalBenchmarks.toLocaleString()} 个 benchmark`}
-        controls={[
-          {
-            type: "search",
-            id: "benchmark-query",
-            label: "全文检索",
-            value: searchText,
-            onChange: (value) =>
-              updatePagedFilterValue(searchText, value, setSearchText, setPageOffset),
-            placeholder: "搜索 benchmark、manifest、root、来源"
-          },
-          {
-            type: "select",
-            id: "benchmark-task",
-            label: "任务",
-            value: taskFilter,
-            values: ["all", ...tasks],
-            labels: { all: "全部" },
-            onChange: (value) =>
-              updatePagedFilterValue(taskFilter, value, setTaskFilter, setPageOffset)
-          },
-          {
-            type: "select",
-            id: "benchmark-layer",
-            label: "标注层",
-            value: layerFilter,
-            values: ["all", ...layers],
-            labels: { all: "全部" },
-            onChange: (value) =>
-              updatePagedFilterValue(layerFilter, value, setLayerFilter, setPageOffset)
-          },
-          {
-            type: "select",
-            id: "benchmark-split",
-            label: "Split",
-            value: splitFilter,
-            values: ["all", ...splits],
-            labels: { all: "全部" },
-            onChange: (value) =>
-              updatePagedFilterValue(splitFilter, value, setSplitFilter, setPageOffset)
-          }
-        ]}
+        controls={benchmarkFilterControls}
       />
       <div className="workspace-card fill">
         <BenchmarkTable
