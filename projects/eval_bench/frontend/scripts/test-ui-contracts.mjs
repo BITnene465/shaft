@@ -1189,10 +1189,12 @@ assert(
 assert(
     styleSource.includes("scrollbar-gutter: stable") &&
     styleSource.includes("table-layout: auto") &&
-    styleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    styleSource.includes("--table-cell-max: clamp(96px, 18vw, 320px)") &&
+    styleSource.includes("max-width: var(--table-cell-max)") &&
     styleSource.includes("overflow-wrap: anywhere") &&
     dataTableStyleSource.includes(".table-shell td:has(.row-actions)") &&
-    dataTableStyleSource.includes("max-width: clamp(96px, 18vw, 320px)") &&
+    dataTableStyleSource.includes("--table-cell-max: clamp(96px, 18vw, 320px)") &&
+    dataTableStyleSource.includes("max-width: var(--table-cell-max)") &&
     styleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr))") &&
     jobsManifestStyleSource.includes("--manifest-toolbar-min: 160px") &&
     jobsManifestStyleSource.includes("grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--manifest-toolbar-min)), 1fr))") &&

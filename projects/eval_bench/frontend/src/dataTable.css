@@ -1,4 +1,40 @@
 .table-shell {
+  --table-cell-pad-y: clamp(6px, 0.72vw, 8px);
+  --table-cell-pad-x: clamp(8px, 0.9vw, 11px);
+  --table-cell-pad-y-compact: clamp(4px, 0.58vw, 6px);
+  --table-cell-pad-x-compact: clamp(7px, 0.78vw, 9px);
+  --table-cell-max: clamp(96px, 18vw, 320px);
+  --table-head-height: clamp(27px, 2.9vw, 30px);
+  --table-row-height: clamp(31px, 3.2vw, 34px);
+  --table-loading-min: clamp(180px, 32vh, 280px);
+  --table-refresh-top: clamp(5px, 0.8vw, 7px);
+  --table-refresh-right: clamp(7px, 0.9vw, 9px);
+  --table-refresh-pad-y: 3px;
+  --table-refresh-pad-x: clamp(6px, 0.85vw, 8px);
+  --table-skeleton-row: clamp(7px, 0.86vw, 9px);
+  --table-skeleton-head: clamp(6px, 0.72vw, 7px);
+  --table-row-rail-width: 3px;
+  --table-checkbox-size: 15px;
+  --table-checkbox-ring: 3px;
+  --table-col-select-min: 34px;
+  --table-col-select-max: 42px;
+  --table-col-select-width: 38px;
+  --table-col-actions-min: 96px;
+  --table-col-actions-max: 150px;
+  --table-col-status-min: 82px;
+  --table-col-status-max: 112px;
+  --table-col-metric-min: 72px;
+  --table-col-metric-max: 104px;
+  --table-col-date-min: 132px;
+  --table-col-date-max: 178px;
+  --table-col-id-min: 150px;
+  --table-col-id-max: 260px;
+  --table-col-compact-min: 74px;
+  --table-col-compact-max: 132px;
+  --table-col-text-min: 96px;
+  --table-col-text-max: 260px;
+  --table-col-wide-min: 220px;
+  --table-col-wide-max: 420px;
   --table-hover-border: color-mix(in srgb, var(--bench-action) 18%, var(--bench-line));
   --table-hover-shadow: var(--bench-shadow-tight);
   --table-row-hover-rail: color-mix(in srgb, var(--bench-action) 34%, transparent);
@@ -72,7 +108,7 @@
   --table-loading-indicator-bg: color-mix(in srgb, var(--bench-surface) 88%, var(--bench-surface-raised));
   --table-loading-indicator-ink: var(--bench-action);
   position: relative;
-  min-height: 280px;
+  min-height: var(--table-loading-min);
   pointer-events: none;
 }
 
@@ -97,10 +133,10 @@
 
 .table-refresh-indicator {
   position: absolute;
-  top: 7px;
-  right: 9px;
+  top: var(--table-refresh-top);
+  right: var(--table-refresh-right);
   z-index: 6;
-  padding: 3px 8px;
+  padding: var(--table-refresh-pad-y) var(--table-refresh-pad-x);
   color: var(--table-loading-indicator-ink);
   background: var(--table-loading-indicator-bg);
   border: 1px solid color-mix(in srgb, var(--bench-cyan) 24%, var(--bench-line));
@@ -116,7 +152,7 @@
   display: block;
   width: calc(42% + (var(--skeleton-offset, 0) * 13%));
   max-width: 100%;
-  height: 9px;
+  height: var(--table-skeleton-row);
   background:
     linear-gradient(90deg, transparent, var(--table-loading-glint), transparent),
     var(--table-loading-base);
@@ -127,7 +163,7 @@
 
 .table-skeleton-line.header {
   width: 64%;
-  height: 7px;
+  height: var(--table-skeleton-head);
 }
 
 .table-shell table {
@@ -142,8 +178,8 @@
 .table-shell td {
   overflow: hidden;
   min-width: 0;
-  max-width: clamp(96px, 18vw, 320px);
-  padding: 8px 11px;
+  max-width: var(--table-cell-max);
+  padding: var(--table-cell-pad-y) var(--table-cell-pad-x);
   border-bottom: 1px solid var(--bench-line);
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -157,7 +193,7 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  height: 30px;
+  height: var(--table-head-height);
   color: var(--bench-ink-muted);
   background: var(--bench-table-head);
   border-bottom: 1px solid var(--bench-line);
@@ -169,7 +205,7 @@
 }
 
 .table-shell td {
-  height: 34px;
+  height: var(--table-row-height);
   color: var(--bench-ink);
   border-bottom: 1px solid var(--bench-line);
   font-size: var(--text-xs);
@@ -177,7 +213,7 @@
 
 .table-shell.compact th,
 .table-shell.compact td {
-  padding: 6px 9px;
+  padding: var(--table-cell-pad-y-compact) var(--table-cell-pad-x-compact);
 }
 
 .table-shell tbody tr:last-child td {
@@ -185,13 +221,11 @@
 }
 
 .table-shell tbody tr {
-  transition:
-    background 120ms ease,
-    box-shadow 120ms ease;
+  transition: background 120ms ease;
 }
 
-.table-shell tbody tr:hover {
-  box-shadow: inset 3px 0 0 var(--table-row-hover-rail);
+.table-shell tbody tr:hover td:first-child {
+  box-shadow: inset var(--table-row-rail-width) 0 0 var(--table-row-hover-rail);
 }
 
 .table-shell tbody tr:hover td {
@@ -216,7 +250,7 @@
 }
 
 .selectable-row.selected td:first-child {
-  box-shadow: inset 3px 0 0 var(--table-row-selected-rail);
+  box-shadow: inset var(--table-row-rail-width) 0 0 var(--table-row-selected-rail);
 }
 
 .table-shell td > :where(a, span, strong, em, small, code, div),
@@ -251,50 +285,50 @@
 }
 
 .table-shell .table-col-select {
-  --table-col-min: 34px;
-  --table-col-max: 42px;
-  width: 38px;
+  --table-col-min: var(--table-col-select-min);
+  --table-col-max: var(--table-col-select-max);
+  width: var(--table-col-select-width);
 }
 
 .table-shell .table-col-actions {
-  --table-col-min: 96px;
-  --table-col-max: 150px;
+  --table-col-min: var(--table-col-actions-min);
+  --table-col-max: var(--table-col-actions-max);
 }
 
 .table-shell .table-col-status {
-  --table-col-min: 82px;
-  --table-col-max: 112px;
+  --table-col-min: var(--table-col-status-min);
+  --table-col-max: var(--table-col-status-max);
 }
 
 .table-shell .table-col-metric,
 .table-shell .table-col-number {
-  --table-col-min: 72px;
-  --table-col-max: 104px;
+  --table-col-min: var(--table-col-metric-min);
+  --table-col-max: var(--table-col-metric-max);
 }
 
 .table-shell .table-col-date {
-  --table-col-min: 132px;
-  --table-col-max: 178px;
+  --table-col-min: var(--table-col-date-min);
+  --table-col-max: var(--table-col-date-max);
 }
 
 .table-shell .table-col-id {
-  --table-col-min: 150px;
-  --table-col-max: 260px;
+  --table-col-min: var(--table-col-id-min);
+  --table-col-max: var(--table-col-id-max);
 }
 
 .table-shell .table-col-compact {
-  --table-col-min: 74px;
-  --table-col-max: 132px;
+  --table-col-min: var(--table-col-compact-min);
+  --table-col-max: var(--table-col-compact-max);
 }
 
 .table-shell .table-col-text {
-  --table-col-min: 96px;
-  --table-col-max: 260px;
+  --table-col-min: var(--table-col-text-min);
+  --table-col-max: var(--table-col-text-max);
 }
 
 .table-shell .table-col-wide {
-  --table-col-min: 220px;
-  --table-col-max: 420px;
+  --table-col-min: var(--table-col-wide-min);
+  --table-col-max: var(--table-col-wide-max);
 }
 
 .table-shell .table-wrap-nowrap,
@@ -318,8 +352,8 @@
 
 .row-select-checkbox {
   display: inline-grid;
-  width: 15px;
-  height: 15px;
+  width: var(--table-checkbox-size);
+  height: var(--table-checkbox-size);
   margin: 0;
   place-content: center;
   appearance: none;
@@ -333,7 +367,7 @@
 .row-select-checkbox:checked {
   background: var(--table-checkbox-checked-bg);
   border-color: var(--table-checkbox-checked-bg);
-  box-shadow: inset 0 0 0 3px var(--table-checkbox-check-ring);
+  box-shadow: inset 0 0 0 var(--table-checkbox-ring) var(--table-checkbox-check-ring);
 }
 
 .row-select-checkbox:focus-visible {
