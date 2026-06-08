@@ -1,4 +1,11 @@
 .report-run-pool {
+  --report-run-search-min: var(--composite-chip-min);
+  --report-run-tab-scroll-pad: calc(var(--composite-pad-2) / 2);
+  --report-run-rail-width: 3px;
+  --report-run-card-estimate: 56px;
+  --report-run-meta-max: min(100%, 120px);
+  --report-run-pool-pad: var(--composite-pad-7);
+  --report-run-pool-pad-compact: var(--composite-pad-6);
   --report-run-pool-bg: var(--composite-surface-muted);
   --report-run-list-line: var(--composite-line-soft);
   --report-run-card-divider: var(--composite-line-soft);
@@ -12,7 +19,7 @@
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: var(--composite-gap-6);
   overflow: hidden;
-  padding: var(--composite-pad-7);
+  padding: var(--report-run-pool-pad);
   border-right: 1px solid var(--composite-line);
   background: var(--report-run-pool-bg);
 }
@@ -23,7 +30,7 @@
   gap: var(--composite-gap-6);
   align-items: center;
   min-width: 0;
-  min-height: 28px;
+  min-height: var(--report-run-search-min);
   padding: 0 var(--composite-pad-7);
   border: 1px solid var(--composite-line-control);
   background: var(--composite-surface);
@@ -43,7 +50,7 @@
   display: flex;
   gap: var(--composite-gap-3);
   overflow-x: auto;
-  padding-bottom: 1px;
+  padding-bottom: var(--report-run-tab-scroll-pad);
   scrollbar-gutter: stable;
 }
 
@@ -64,7 +71,7 @@
 
 .report-run-card {
   display: grid;
-  grid-template-columns: 3px minmax(0, 1fr) auto;
+  grid-template-columns: var(--report-run-rail-width) minmax(0, 1fr) auto;
   gap: var(--composite-gap-6);
   align-items: stretch;
   min-width: 0;
@@ -73,7 +80,7 @@
   background: transparent;
   box-shadow: inset 0 -1px 0 var(--report-run-card-divider);
   content-visibility: auto;
-  contain-intrinsic-size: auto 56px;
+  contain-intrinsic-size: auto var(--report-run-card-estimate);
 }
 
 .report-run-card:hover,
@@ -84,12 +91,12 @@
 
 .report-run-card.selected {
   box-shadow:
-    inset 2px 0 0 var(--composite-accent),
+    inset var(--report-run-rail-width) 0 0 var(--composite-accent),
     inset 0 -1px 0 var(--report-run-card-selected-divider);
 }
 
 .report-run-color {
-  width: 3px;
+  width: var(--report-run-rail-width);
   min-height: 100%;
 }
 
@@ -127,7 +134,7 @@
 }
 
 .report-run-meta em {
-  max-width: 120px;
+  max-width: var(--report-run-meta-max);
   color: var(--report-run-subtle);
   font-size: var(--text-3xs);
   font-style: normal;
@@ -142,6 +149,6 @@
 
 @media (max-height: 640px) and (min-width: 941px) {
   .report-run-pool {
-    padding: var(--composite-pad-8);
+    padding: var(--report-run-pool-pad-compact);
   }
 }

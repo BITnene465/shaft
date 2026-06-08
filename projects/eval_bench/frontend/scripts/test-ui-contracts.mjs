@@ -5169,7 +5169,8 @@ assert(
     compositeReportRunPoolStyleSource.includes("--report-run-pool-bg") &&
     compositeReportRunPoolStyleSource.includes("--report-run-card-divider") &&
     compositeReportRunPoolStyleSource.includes("content-visibility: auto;") &&
-    compositeReportRunPoolStyleSource.includes("contain-intrinsic-size: auto 56px;") &&
+    compositeReportRunPoolStyleSource.includes("--report-run-card-estimate: 56px;") &&
+    compositeReportRunPoolStyleSource.includes("contain-intrinsic-size: auto var(--report-run-card-estimate);") &&
     !compositeReportRunPoolStyleSource.includes("#f7f9fc") &&
     !compositeReportRunPoolStyleSource.includes("#e7edf4") &&
     !compositeReportRunPoolStyleSource.includes(".report-layer-tabs") &&
