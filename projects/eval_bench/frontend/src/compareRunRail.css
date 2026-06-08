@@ -11,11 +11,16 @@
   --compare-rail-primary: #0b6b5e;
   --compare-rail-divider: #e3e9ef;
   --compare-rail-history-line: #dbe3ec;
+  --compare-rail-gap: var(--space-2);
+  --compare-rail-card-gap: var(--space-1);
+  --compare-rail-pad: var(--space-2);
+  --compare-rail-card-pad-y: var(--space-1);
+  --compare-rail-card-line-width: 3px;
 
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  gap: var(--compare-rail-gap);
+  padding: var(--compare-rail-pad);
   scrollbar-gutter: stable;
 }
 
@@ -36,12 +41,12 @@
 
 .compare-run-select {
   display: grid;
-  gap: 6px;
+  gap: var(--compare-rail-gap);
 }
 
 .compare-run-select label {
   display: grid;
-  gap: 4px;
+  gap: var(--compare-rail-card-gap);
 }
 
 .compare-run-select label span {
@@ -51,34 +56,23 @@
   text-transform: uppercase;
 }
 
-.compare-run-select select {
-  width: 100%;
-  min-height: 30px;
-  padding: 0 8px;
-  color: var(--compare-rail-strong);
-  background: var(--compare-rail-field-bg);
-  border: 1px solid var(--compare-rail-field-line);
-  border-radius: 2px;
-  font-size: var(--text-xs);
-  font-weight: 680;
-}
-
 .compare-run-card {
   display: grid;
-  gap: 5px;
-  padding: 4px 0 8px;
+  gap: var(--compare-rail-card-gap);
+  padding: var(--compare-rail-card-pad-y) 0 var(--compare-rail-gap);
   background: var(--compare-rail-card-bg);
   border: 0;
   border-color: var(--bench-line);
+  border-left: var(--compare-rail-card-line-width) solid transparent;
   border-bottom: 1px solid var(--compare-rail-card-line);
-  border-radius: 2px;
+  border-radius: var(--control-radius-tight);
   content-visibility: auto;
   contain-intrinsic-size: auto 56px;
 }
 
 .compare-run-card:hover {
   border-color: var(--compare-rail-card-hover-line);
-  box-shadow: inset 3px 0 0 var(--bench-cyan);
+  border-left-color: var(--bench-cyan);
 }
 
 .compare-run-card strong,
@@ -102,7 +96,7 @@
 .compare-run-card div {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--compare-rail-card-gap);
   align-items: center;
 }
 
@@ -122,8 +116,8 @@
 }
 
 .compare-run-pager {
-  min-height: 38px;
-  padding: 6px 0 2px;
+  min-height: var(--control-secondary-height);
+  padding: var(--space-1) 0 var(--space-half);
   background: transparent;
   border: 0;
   border-top: 1px solid var(--compare-rail-divider);

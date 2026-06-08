@@ -3029,9 +3029,15 @@ assert(
     compareRunRailStyleSource.includes(".history-block") &&
     compareRunRailStyleSource.includes(':root[data-theme="dark"] .compare-run-rail') &&
     compareRunRailStyleSource.includes("--compare-rail-card-bg") &&
+    compareRunRailStyleSource.includes("--compare-rail-gap: var(--space-2)") &&
+    compareRunRailStyleSource.includes("border-left: var(--compare-rail-card-line-width) solid transparent") &&
+    compareRunRailStyleSource.includes("border-left-color: var(--bench-cyan)") &&
+    compareRunRailStyleSource.includes("min-height: var(--control-secondary-height)") &&
     compareRunRailStyleSource.includes("scrollbar-gutter: stable") &&
     compareRunRailStyleSource.includes("content-visibility: auto;") &&
     compareRunRailStyleSource.includes("contain-intrinsic-size: auto 56px;") &&
+    !compareRunRailStyleSource.includes(".compare-run-select select") &&
+    !compareRunRailStyleSource.includes("box-shadow: inset 3px 0 0 var(--bench-cyan)") &&
     !compareRunRailStyleSource.includes("background: #ffffff") &&
     !compareRunRailStyleSource.includes("color: #607080") &&
     compareStyleSource.includes(".compare-page .compare-run-rail,") &&
