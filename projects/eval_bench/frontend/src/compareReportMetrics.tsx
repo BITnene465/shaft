@@ -5,10 +5,6 @@ export function ComparisonReportTabs() {
   return (
     <div className="comparison-report-tabs" aria-label="对比报告视图">
       <span className="active">Overview</span>
-      <span>Metrics</span>
-      <span>Samples</span>
-      <span>Error Analysis</span>
-      <span>Labels</span>
     </div>
   );
 }
@@ -118,8 +114,8 @@ export function ComparisonMetricTable({
   return (
     <section className="comparison-metric-table" aria-label="Overall Summary">
       <div className="comparison-section-title">
-        <strong>Overall Summary</strong>
-        <span>{rows.length.toLocaleString()} metrics shown</span>
+        <strong>Metrics</strong>
+        <span>{rows.length.toLocaleString()}</span>
       </div>
       <table>
         <thead>
@@ -149,12 +145,12 @@ export function ComparisonMetricTable({
 
 export function ComparisonOutcomeBand({ summary }: { summary: ComparisonReport["summary"] }) {
   const items = [
-    { label: "Improved", value: summary.improved_samples, tone: "positive" },
-    { label: "Regressed", value: summary.regressed_samples, tone: "negative" },
+    { label: "Up", value: summary.improved_samples, tone: "positive" },
+    { label: "Down", value: summary.regressed_samples, tone: "negative" },
     { label: "Changed", value: summary.changed_samples },
-    { label: "Unchanged", value: summary.unchanged_samples },
-    { label: "Missing baseline", value: summary.missing_in_baseline },
-    { label: "Missing candidate", value: summary.missing_in_candidate }
+    { label: "Same", value: summary.unchanged_samples },
+    { label: "Base -", value: summary.missing_in_baseline },
+    { label: "Cand -", value: summary.missing_in_candidate }
   ];
   return (
     <div className="comparison-outcome-band">

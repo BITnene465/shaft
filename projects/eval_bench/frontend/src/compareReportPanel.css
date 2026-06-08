@@ -84,33 +84,55 @@
 
 .comparison-title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--compare-gap-16);
+  gap: var(--compare-gap-12);
 }
 
 .comparison-title-row h2 {
-  max-width: 82ch;
-  overflow-wrap: anywhere;
+  display: flex;
+  max-width: min(100%, 62ch);
+  align-items: center;
+  gap: var(--compare-gap-6);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--compare-report-strong);
+  font-size: var(--compare-text-title);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.comparison-title-row h2 span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.comparison-title-row h2 em {
+  flex: 0 0 auto;
+  color: var(--compare-report-muted);
+  font-size: var(--compare-text-caption);
+  font-style: normal;
+  text-transform: uppercase;
 }
 
 .comparison-report-tabs {
   display: flex;
   min-width: 0;
-  gap: var(--compare-gap-18);
+  gap: var(--compare-gap-8);
   align-items: center;
-  min-height: var(--compare-tab-min);
+  min-height: 22px;
   overflow: auto hidden;
   border-bottom: 1px solid var(--compare-report-line);
 }
 
 .comparison-report-tabs span {
   flex: 0 0 auto;
-  height: var(--compare-tab-min);
+  height: 22px;
   color: var(--compare-report-tab-ink);
-  font-size: var(--compare-text-small);
+  font-size: var(--compare-text-caption);
   font-weight: 720;
-  line-height: var(--compare-tab-min);
+  line-height: 22px;
   white-space: nowrap;
 }
 
@@ -192,7 +214,7 @@
 
 .comparison-outcome-band {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 86px), 1fr));
   gap: 0;
   border-bottom: 1px solid var(--compare-report-line);
 }
@@ -200,8 +222,8 @@
 .comparison-outcome-band span {
   display: grid;
   gap: var(--compare-gap-3);
-  min-height: var(--compare-outcome-min);
-  padding: var(--compare-pad-7) var(--compare-pad-10) var(--compare-pad-8) 0;
+  min-height: 38px;
+  padding: var(--compare-pad-4) var(--compare-pad-8) var(--compare-pad-4) 0;
   border-right: 1px solid var(--compare-report-line-soft);
 }
 
@@ -231,8 +253,8 @@
 }
 
 .sample-count-chip {
-  min-height: var(--compare-section-min);
-  padding: var(--compare-pad-4) 0;
+  min-height: 24px;
+  padding: 2px 0;
   color: var(--compare-report-chip-ink);
   background: transparent;
   border: 0;
@@ -245,7 +267,6 @@
 
 .sample-count-chip.subtle {
   color: var(--compare-report-chip-subtle);
-  background: transparent;
   border-color: var(--compare-report-chip-subtle-line);
 }
 
@@ -281,7 +302,6 @@
 }
 
 .delta-card.positive {
-  background: transparent;
   border-color: var(--compare-report-positive-line);
 }
 
@@ -290,7 +310,6 @@
 }
 
 .delta-card.negative {
-  background: transparent;
   border-color: var(--compare-report-negative-line);
 }
 
@@ -365,26 +384,26 @@
 .comparison-label-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, var(--compare-report-label-col));
-  gap: var(--compare-gap-8);
+  gap: var(--compare-gap-6);
   min-width: 0;
-  margin-bottom: var(--compare-gap-12);
+  margin-bottom: var(--compare-gap-8);
 }
 
 .comparison-quick-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--compare-gap-8);
-  margin-bottom: var(--compare-gap-10);
+  gap: var(--compare-gap-6);
+  margin-bottom: var(--compare-gap-6);
 }
 
 .label-delta-card {
   display: grid;
   color: inherit;
   text-align: left;
-  gap: var(--compare-gap-4);
+  gap: 2px;
   min-width: 0;
   overflow: hidden;
-  padding: var(--compare-pad-7) var(--compare-pad-8);
+  padding: var(--compare-pad-4) var(--compare-pad-7);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--compare-report-label-line);
@@ -399,15 +418,17 @@
 }
 
 .label-delta-card span {
-  overflow-wrap: anywhere;
+  overflow: hidden;
   color: var(--compare-report-label-ink);
-  font-size: var(--compare-text-small);
+  font-size: var(--compare-text-caption);
   font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .label-delta-card strong {
   color: var(--compare-report-label-value);
-  font-size: var(--compare-text-value);
+  font-size: var(--compare-text-title);
   line-height: 1;
 }
 
@@ -419,7 +440,6 @@
 }
 
 .label-delta-card.positive {
-  background: transparent;
   border-color: var(--compare-report-label-positive-line);
 }
 
@@ -428,7 +448,6 @@
 }
 
 .label-delta-card.negative {
-  background: transparent;
   border-color: var(--compare-report-label-negative-line);
 }
 

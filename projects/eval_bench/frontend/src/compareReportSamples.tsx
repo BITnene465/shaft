@@ -41,8 +41,8 @@ export function ComparisonQuickActions({
               candidateIndex: firstRegression.candidate_index
             }
           )}
-        >
-          看首个退化样本
+      >
+          首个退化
         </InlineAnchor>
       ) : null}
       {firstImprovement ? (
@@ -58,8 +58,8 @@ export function ComparisonQuickActions({
               candidateIndex: firstImprovement.candidate_index
             }
           )}
-        >
-          看首个提升样本
+      >
+          首个提升
         </InlineAnchor>
       ) : null}
     </div>
@@ -88,7 +88,7 @@ export function ComparisonLabelDeltaStrip({
       >
         <span>全部标签</span>
         <strong>All</strong>
-        <em>查看全量变化样本</em>
+        <em>全量</em>
       </SelectableCardButton>
       {visible.map((item) => {
         const tone =
@@ -107,8 +107,8 @@ export function ComparisonLabelDeltaStrip({
                 : `R ${formatSignedMetric(item.delta.recall_iou50)}`}
             </strong>
             <em>
-              TP {formatSignedInteger(item.delta.matched_count)} · FP{" "}
-              {formatSignedInteger(item.delta.false_positive_count)} · FN{" "}
+              TP {formatSignedInteger(item.delta.matched_count)} / FP{" "}
+              {formatSignedInteger(item.delta.false_positive_count)} / FN{" "}
               {formatSignedInteger(item.delta.false_negative_count)}
             </em>
           </SelectableCardButton>
@@ -149,7 +149,7 @@ export function ComparisonSampleTable({
     <div className={`comparison-sample-block ${tone}`}>
       <div className="comparison-sample-title">{title}</div>
       {samples.length === 0 ? (
-        <div className="comparison-sample-empty">没有变化样本。</div>
+        <div className="comparison-sample-empty">无变化</div>
       ) : (
         <div className="comparison-sample-list">
           {samples.map((sample) => (
@@ -180,7 +180,7 @@ function ComparisonSampleRow({
       ? sample.candidate_index
       : null;
   const name = basename(sample.image ?? sample.key);
-  const sampleLabels = Object.keys(sample.labels ?? {}).slice(0, 4);
+  const sampleLabels = Object.keys(sample.labels ?? {}).slice(0, 2);
   const content = (
     <>
       <span className="comparison-sample-row-head">
@@ -200,13 +200,6 @@ function ComparisonSampleRow({
         <MetricDelta label="TP" value={sample.delta.matched_count} integer />
         <MetricDelta label="FP" value={sample.delta.false_positive_count} integer inverted />
         <MetricDelta label="FN" value={sample.delta.false_negative_count} integer inverted />
-        <MetricDelta label="IoU" value={sample.delta.mean_iou} />
-        {sample.delta.keypoint_pair_count !== 0 || sample.delta.mean_keypoint_distance !== 0 ? (
-          <>
-            <MetricDelta label="D" value={sample.delta.mean_keypoint_distance} inverted />
-            <MetricDelta label="Pts" value={sample.delta.keypoint_pair_count} integer />
-          </>
-        ) : null}
       </span>
     </>
   );

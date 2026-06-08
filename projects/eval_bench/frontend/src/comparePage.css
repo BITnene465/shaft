@@ -112,8 +112,8 @@
 
 .compare-context-stack {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .compare-context-grid {
@@ -124,19 +124,19 @@
 
 .compare-context-card {
   display: grid;
-  gap: 3px;
-  padding: 0 0 8px;
+  place-items: center;
+  gap: 2px;
+  min-height: 54px;
+  padding: 7px 6px;
+  text-align: center;
   background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--compare-shell-line-soft);
-  border-radius: 0;
+  border: 1px solid var(--compare-shell-line-soft);
+  border-radius: var(--control-radius-tight);
 }
 
-.compare-context-card span,
-.compare-context-card em {
+.compare-context-card span {
   color: var(--compare-shell-context-label);
   font-size: var(--text-2xs);
-  font-style: normal;
   font-weight: 760;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -144,7 +144,7 @@
 
 .compare-context-card strong {
   color: var(--compare-shell-context-strong);
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -171,21 +171,39 @@
 
 .compare-context-links {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .compare-context-links a {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
   overflow: hidden;
-  padding: 6px 0;
+  padding: 0 6px;
   color: var(--compare-shell-link);
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
   background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--compare-shell-link-line);
+  border: 1px solid var(--compare-shell-link-line);
+  border-radius: var(--control-radius-tight);
   font-size: var(--text-xs);
   font-weight: 760;
+}
+
+.compare-context-links a span {
+  color: var(--compare-shell-context-label);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+}
+
+.compare-context-links a strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
 }
 
 .compare-context-links a:hover {

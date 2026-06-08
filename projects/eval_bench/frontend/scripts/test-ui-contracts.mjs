@@ -3238,7 +3238,8 @@ assert(
     compareControllerSource.includes("const benchmarkSplits = useMemo(") &&
     compareControllerSource.includes("const labels = useMemo(") &&
     compareControllerSource.includes("const comparableRuns = useMemo(") &&
-    compareRunRailComponentsSource.includes("已选择；当前页未加载该 run") &&
+    compareRunRailComponentsSource.includes("未在当前页") &&
+    compareRunRailComponentsSource.includes("已锁定") &&
     comparePage.includes('import { ComparisonHistoryPanel, RunSelectRail } from "./compareRunRailComponents";') &&
     !comparePage.includes("function RunSelectRail(") &&
     !comparePage.includes("function ComparisonHistoryPanel(") &&
@@ -3353,8 +3354,8 @@ assert(
     compareReportPanelStyleSource.includes("--compare-report-warning-bg") &&
     compareReportPanelStyleSource.includes("color: var(--compare-report-ink)") &&
     compareReportPanelStyleSource.includes("border-bottom: 1px solid var(--compare-report-label-line)") &&
-    compareReportPanelStyleSource.includes("var(--compare-tab-min)") &&
-    compareReportPanelStyleSource.includes("var(--compare-text-small)") &&
+    compareReportPanelStyleSource.includes("height: 22px;") &&
+    compareReportPanelStyleSource.includes("var(--compare-text-caption)") &&
     compareReportPanelStyleSource.includes("var(--compare-radius-control)") &&
     !rawCompareReportGeometryPattern.test(compareReportPanelStyleSource) &&
     compareReportPanelStyleSource.includes(".compare-page .comparison-metric-table,") &&
@@ -3368,7 +3369,9 @@ assert(
     styleSource.includes("background: var(--compare-shell-surface)") &&
     styleSource.includes(".compare-run-rail,\n.compare-report-pane,\n.compare-context-pane {\n  min-height: 0;\n  overflow: auto;\n  background: var(--compare-shell-surface);\n  border: 0;") &&
     styleSource.includes(".compare-context-card {\n  display: grid;") &&
-    styleSource.includes("background: transparent;\n  border: 0;\n  border-bottom: 1px solid var(--compare-shell-line-soft);") &&
+    styleSource.includes("place-items: center;") &&
+    styleSource.includes("border: 1px solid var(--compare-shell-line-soft);") &&
+    styleSource.includes(".compare-context-links a strong") &&
     compareReportPanelStyleSource.includes(".label-delta-card {\n  display: grid;") &&
     !compareReportPanelStyleSource.includes("border-bottom: 1px solid #d8e2eb;") &&
     !compareReportPanelStyleSource.includes("color: #607080") &&
@@ -3411,7 +3414,7 @@ assert(
     !comparisonSampleStyleSource.includes("translateX(") &&
     comparisonSampleStyleSource.includes(':root[data-theme="dark"] .comparison-sample-page') &&
     comparisonSampleStyleSource.includes("--comparison-sample-row-accent") &&
-    comparisonSampleStyleSource.includes("contain-intrinsic-size: auto 92px;") &&
+    comparisonSampleStyleSource.includes("contain-intrinsic-size: auto 68px;") &&
     comparisonSampleStyleSource.includes("box-shadow: inset 3px 0 0 var(--comparison-sample-row-accent)") &&
     !rawVisualPageControlGeometryPattern.test(comparisonSampleStyleSource) &&
     !compareStyleSource.includes(".comparison-sample-row") &&

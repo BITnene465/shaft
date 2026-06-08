@@ -4,7 +4,7 @@ import { useCompareController } from "./compareController";
 import { CompareFilterBar } from "./compareFilters";
 import { ComparisonPanel } from "./compareReportComponents";
 import { ComparisonHistoryPanel, RunSelectRail } from "./compareRunRailComponents";
-import { errorMessage } from "./formatters";
+import { compactIdentifier, errorMessage } from "./formatters";
 import { AppIcon } from "./iconLibrary";
 import { PagerControl } from "./samplePager";
 import { EmptyState, InlineNavLink } from "./ui";
@@ -155,7 +155,6 @@ export function ComparePage() {
             }
             second={
               <aside className="compare-context-pane">
-                <div className="comparison-sample-title">对比上下文</div>
                 <CompareContextPanel
                   filteredCount={filteredCount}
                   comparableCount={comparableRuns.length}
@@ -186,35 +185,35 @@ function CompareContextPanel({
     <div className="compare-context-stack">
       <div className="compare-context-grid">
         <div className="compare-context-card">
-          <span>过滤后</span>
+          <span>Runs</span>
           <strong>{filteredCount.toLocaleString()}</strong>
-          <em>run</em>
         </div>
         <div className="compare-context-card">
-          <span>可对比</span>
+          <span>Reports</span>
           <strong>{comparableCount.toLocaleString()}</strong>
-          <em>report</em>
         </div>
+      </div>
+      <div className="compare-context-links">
+        {baselineRunId ? (
+          <Link to="/runs/$runId" params={{ runId: baselineRunId }} title={baselineRunId}>
+            <span>Base</span>
+            <strong>{compactIdentifier(baselineRunId, 16, 8)}</strong>
+          </Link>
+        ) : null}
+        {candidateRunId ? (
+          <Link to="/runs/$runId" params={{ runId: candidateRunId }} title={candidateRunId}>
+            <span>Cand</span>
+            <strong>{compactIdentifier(candidateRunId, 16, 8)}</strong>
+          </Link>
+        ) : null}
       </div>
       <InlineNavLink
         className="compare-ready compare-rank-link"
         icon={<AppIcon name="rankBoard" size={13} />}
         to="/rank-board"
       >
-        打开独立排行榜
+        排行榜
       </InlineNavLink>
-      <div className="compare-context-links">
-        {baselineRunId ? (
-          <Link to="/runs/$runId" params={{ runId: baselineRunId }}>
-            基线 {baselineRunId}
-          </Link>
-        ) : null}
-        {candidateRunId ? (
-          <Link to="/runs/$runId" params={{ runId: candidateRunId }}>
-            候选 {candidateRunId}
-          </Link>
-        ) : null}
-      </div>
     </div>
   );
 }

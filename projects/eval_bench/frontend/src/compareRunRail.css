@@ -58,13 +58,11 @@
 
 .compare-run-card {
   display: grid;
-  gap: var(--compare-rail-card-gap);
-  padding: var(--compare-rail-card-pad-y) 0 var(--compare-rail-gap);
+  gap: 4px;
+  padding: 7px 8px;
   background: var(--compare-rail-card-bg);
-  border: 0;
-  border-color: var(--bench-line);
+  border: 1px solid var(--compare-rail-card-line);
   border-left: var(--compare-rail-card-line-width) solid transparent;
-  border-bottom: 1px solid var(--compare-rail-card-line);
   border-radius: var(--control-radius-tight);
   content-visibility: auto;
   contain-intrinsic-size: auto 56px;
@@ -77,10 +75,10 @@
 
 .compare-run-card strong,
 .compare-run-card span {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compare-run-card strong {
@@ -95,12 +93,15 @@
 
 .compare-run-card div {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--compare-rail-card-gap);
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .compare-run-card em {
+  flex: 0 0 auto;
   color: var(--compare-rail-meta);
   font-size: var(--text-2xs);
   font-style: normal;

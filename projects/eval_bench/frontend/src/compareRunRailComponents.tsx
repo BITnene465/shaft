@@ -3,6 +3,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { ComparisonSummary, RunSummary } from "./api";
 import { FormSelectControl } from "./controlPrimitives";
 import {
+  compactIdentifier,
   formatDate,
   formatMetric,
   formatRunOption,
@@ -99,8 +100,8 @@ export function RunSelectRail({
       />
       {selected ? (
         <div className="compare-run-card">
-          <strong title={selected.run_id}>{selected.run_id}</strong>
-          <span>{selected.model_id}</span>
+          <strong title={selected.run_id}>{compactIdentifier(selected.run_id, 18, 8)}</strong>
+          <span title={selected.model_id}>{compactIdentifier(selected.model_id || "model", 18, 8)}</span>
           <div>
             <Badge value={selected.status} domain="run" />
             <em className="compare-run-primary-metric">F1 {formatMetric(runF1Score(selected))}</em>
@@ -110,10 +111,10 @@ export function RunSelectRail({
         </div>
       ) : value && !disabled ? (
         <div className="compare-run-card">
-          <strong title={value}>{value}</strong>
-          <span>已选择；当前页未加载该 run</span>
+          <strong title={value}>{compactIdentifier(value, 18, 8)}</strong>
+          <span>未在当前页</span>
           <div>
-            <em>翻页不会清空当前对比</em>
+            <em>已锁定</em>
           </div>
         </div>
       ) : null}

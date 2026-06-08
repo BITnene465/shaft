@@ -13,6 +13,7 @@ import {
   filterComparisonSamplesByLabel,
   firstComparableSample
 } from "./compareReportSamples";
+import { compactIdentifier } from "./formatters";
 
 export function ComparisonPanel({
   report,
@@ -50,13 +51,17 @@ export function ComparisonPanel({
         <div>
           <div className="eyebrow">双模型对比报告</div>
           <h2>
-            {report.baseline_run_id} vs {report.candidate_run_id}
+            <span title={report.baseline_run_id}>{compactIdentifier(report.baseline_run_id, 20, 8)}</span>
+            <em>vs</em>
+            <span title={report.candidate_run_id}>{compactIdentifier(report.candidate_run_id, 20, 8)}</span>
           </h2>
         </div>
         <div className="compare-title-meta">
-          <div className="sample-count-chip">{report.sample_count.toLocaleString()} 个样本</div>
+          <div className="sample-count-chip">{report.sample_count.toLocaleString()} samples</div>
           {report.target_labels?.length ? (
-            <div className="sample-count-chip subtle">{report.target_labels.join(" / ")}</div>
+            <div className="sample-count-chip subtle" title={report.target_labels.join(" / ")}>
+              {report.target_labels.length.toLocaleString()} labels
+            </div>
           ) : null}
         </div>
       </div>

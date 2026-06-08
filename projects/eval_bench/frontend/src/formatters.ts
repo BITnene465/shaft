@@ -64,6 +64,13 @@ export function basename(path: string) {
   return parts[parts.length - 1] || path;
 }
 
+export function compactIdentifier(value: string, head = 18, tail = 8) {
+  if (value.length <= head + tail + 1) {
+    return value;
+  }
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
 export function unique(values: string[]) {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
 }
