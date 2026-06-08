@@ -1,4 +1,8 @@
 .comparison-panel {
+  --compare-report-delta-col: minmax(min(100%, 104px), 1fr);
+  --compare-report-column-col: minmax(min(100%, 300px), 1fr);
+  --compare-report-label-col: minmax(min(100%, 122px), 1fr);
+  --compare-report-table-first: clamp(160px, 34%, 320px);
   --compare-report-line: #dce4ec;
   --compare-report-line-soft: #e3e9ef;
   --compare-report-line-muted: #dbe3ec;
@@ -139,7 +143,7 @@
   display: grid;
   gap: var(--compare-gap-6);
   min-width: 0;
-  padding-bottom: 8px;
+  padding-bottom: var(--compare-pad-8);
   border-bottom: 1px solid var(--compare-report-line);
 }
 
@@ -164,7 +168,7 @@
 
 .comparison-metric-table th:first-child,
 .comparison-metric-table td:first-child {
-  width: 42%;
+  width: var(--compare-report-table-first);
   padding-left: 0;
   color: var(--compare-report-first-col);
   text-align: left;
@@ -247,7 +251,7 @@
 
 .comparison-delta-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, var(--compare-report-delta-col));
   gap: var(--compare-gap-6);
 }
 
@@ -270,7 +274,7 @@
 
 .delta-card strong {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--compare-gap-8);
   color: var(--compare-report-chip-ink);
   font-size: var(--compare-text-compact-value);
   line-height: 1;
@@ -335,7 +339,7 @@
 
 .comparison-columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, var(--compare-report-column-col));
   gap: var(--compare-gap-8);
   min-height: 0;
   flex: 1;
@@ -345,7 +349,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--compare-gap-6);
-  margin-bottom: 10px;
+  margin-bottom: var(--compare-gap-10);
 }
 
 .comparison-warning-strip span {
@@ -360,17 +364,17 @@
 
 .comparison-label-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  grid-template-columns: repeat(auto-fit, var(--compare-report-label-col));
   gap: var(--compare-gap-8);
   min-width: 0;
-  margin-bottom: 12px;
+  margin-bottom: var(--compare-gap-12);
 }
 
 .comparison-quick-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--compare-gap-8);
-  margin-bottom: 10px;
+  margin-bottom: var(--compare-gap-10);
 }
 
 .label-delta-card {
@@ -448,18 +452,9 @@
     box-shadow 130ms ease;
 }
 
-@media (max-width: 900px) {
-  .comparison-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .comparison-delta-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 760px) {
-  .comparison-delta-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .comparison-panel {
+    --compare-report-delta-col: minmax(min(100%, 132px), 1fr);
+    --compare-report-table-first: 42%;
   }
 }
