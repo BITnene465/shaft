@@ -1,8 +1,56 @@
 .manifest-card {
+  --manifest-surface: #ffffff;
+  --manifest-surface-muted: #f8fafc;
+  --manifest-toolbar-bg: rgb(255 255 255 / 92%);
+  --manifest-line: #dbe3ec;
+  --manifest-line-soft: #dce7ef;
+  --manifest-line-hover: #c7d5e3;
+  --manifest-muted: #607080;
+  --manifest-note: #5f6f80;
+  --manifest-ink: #172536;
+  --manifest-template-ink: #233143;
+  --manifest-code-ink: #dce8f5;
+  --manifest-code-bg: #101820;
+  --manifest-code-line: #263545;
+  --manifest-focus-line: #4d93bc;
+  --manifest-focus-outline: #c9e6f7;
+  --manifest-placeholder-line: #cbd7e4;
+  --manifest-preflight-line: #d6e0ea;
+  --manifest-ok-bg: #effaf4;
+  --manifest-ok-line: #b8e2ca;
+  --manifest-failed-bg: #fff4f5;
+  --manifest-failed-line: #e7b4bc;
+  --manifest-template-meta: #617286;
+
   overflow: hidden;
-  background: #ffffff;
-  border: 1px solid #dbe3ec;
+  background: var(--manifest-surface);
+  border: 1px solid var(--manifest-line);
   border-radius: 3px;
+}
+
+:root[data-theme="dark"] .manifest-card {
+  --manifest-surface: var(--bench-surface-raised);
+  --manifest-surface-muted: color-mix(in srgb, var(--bench-surface-raised) 88%, black);
+  --manifest-toolbar-bg: color-mix(in srgb, var(--bench-surface-raised) 92%, transparent);
+  --manifest-line: var(--bench-line);
+  --manifest-line-soft: var(--bench-line);
+  --manifest-line-hover: color-mix(in srgb, var(--bench-cyan-strong) 28%, var(--bench-line));
+  --manifest-muted: var(--bench-ink-muted);
+  --manifest-note: var(--bench-ink-muted);
+  --manifest-ink: var(--bench-ink);
+  --manifest-template-ink: var(--bench-ink);
+  --manifest-code-ink: #dce8f5;
+  --manifest-code-bg: #07111f;
+  --manifest-code-line: #243346;
+  --manifest-focus-line: var(--bench-cyan-strong);
+  --manifest-focus-outline: color-mix(in srgb, var(--bench-cyan-strong) 24%, transparent);
+  --manifest-placeholder-line: #3a4c5f;
+  --manifest-preflight-line: var(--bench-line);
+  --manifest-ok-bg: color-mix(in srgb, #22a66c 11%, var(--bench-surface-raised));
+  --manifest-ok-line: color-mix(in srgb, #22a66c 30%, var(--bench-line));
+  --manifest-failed-bg: color-mix(in srgb, #ef4444 11%, var(--bench-surface-raised));
+  --manifest-failed-line: color-mix(in srgb, #ef4444 30%, var(--bench-line));
+  --manifest-template-meta: var(--bench-ink-muted);
 }
 
 .manifest-card.bare,
@@ -14,7 +62,7 @@
 }
 
 .manifest-card:hover {
-  border-color: #c7d5e3;
+  border-color: var(--manifest-line-hover);
 }
 
 .manifest-job-form {
@@ -22,7 +70,7 @@
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  background: #ffffff;
+  background: var(--manifest-surface);
 }
 
 .workspace-dialog .manifest-job-form {
@@ -58,14 +106,14 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 8px;
   align-items: start;
-  background: rgb(255 255 255 / 92%);
+  background: var(--manifest-toolbar-bg);
   border-color: var(--bench-line);
   box-shadow: var(--bench-shadow-tight);
 }
 
 .workspace-dialog .manifest-toolbar {
   border: 0;
-  border-bottom: 1px solid #dce7ef;
+  border-bottom: 1px solid var(--manifest-line-soft);
 }
 
 .manifest-toolbar .filter-select {
@@ -82,7 +130,7 @@
 }
 
 .manifest-toolbar .select-popover-trigger {
-  background: #ffffff;
+  background: var(--manifest-surface);
   border-color: var(--bench-line);
   border-radius: 2px;
 }
@@ -90,7 +138,7 @@
 .manifest-template-note {
   margin: 0;
   padding: 10px 12px 0;
-  color: #5f6f80;
+  color: var(--manifest-note);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -101,7 +149,7 @@
   min-height: min(58vh, 620px);
   flex: 1;
   overflow: hidden;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--manifest-line);
 }
 
 .workspace-dialog .manifest-split {
@@ -118,7 +166,7 @@
 }
 
 .manifest-editor-pane {
-  background: #ffffff;
+  background: var(--manifest-surface);
 }
 
 .manifest-editor-field {
@@ -131,7 +179,7 @@
 }
 
 .manifest-editor-field span {
-  color: #607080;
+  color: var(--manifest-muted);
   font-size: var(--text-xs);
   font-weight: 760;
   text-transform: uppercase;
@@ -142,9 +190,9 @@
   width: 100%;
   min-height: 0;
   padding: 12px;
-  color: #dce8f5;
-  background: #101820;
-  border: 1px solid #263545;
+  color: var(--manifest-code-ink);
+  background: var(--manifest-code-bg);
+  border: 1px solid var(--manifest-code-line);
   border-radius: 2px;
   font-family: "SFMono-Regular", "Cascadia Mono", "Liberation Mono", monospace;
   font-size: var(--text-xs);
@@ -153,15 +201,15 @@
 }
 
 .manifest-editor-field textarea:focus {
-  border-color: #4d93bc;
-  outline: 2px solid #c9e6f7;
+  border-color: var(--manifest-focus-line);
+  outline: 2px solid var(--manifest-focus-outline);
 }
 
 .manifest-result-pane {
   gap: 10px;
   padding: 10px;
   overflow: auto;
-  background: #f8fafc;
+  background: var(--manifest-surface-muted);
 }
 
 .manifest-placeholder {
@@ -169,9 +217,9 @@
   min-height: 126px;
   place-items: center;
   padding: 16px;
-  color: #607080;
-  background: #ffffff;
-  border: 1px dashed #cbd7e4;
+  color: var(--manifest-muted);
+  background: var(--manifest-surface);
+  border: 1px dashed var(--manifest-placeholder-line);
   font-size: 13px;
   line-height: 1.55;
   text-align: center;
@@ -179,19 +227,19 @@
 
 .preflight-panel {
   padding: 10px 12px;
-  border: 1px solid #d6e0ea;
+  border: 1px solid var(--manifest-preflight-line);
   border-radius: 2px;
   font-size: 13px;
 }
 
 .preflight-panel.ok {
-  background: #effaf4;
-  border-color: #b8e2ca;
+  background: var(--manifest-ok-bg);
+  border-color: var(--manifest-ok-line);
 }
 
 .preflight-panel.failed {
-  background: #fff4f5;
-  border-color: #e7b4bc;
+  background: var(--manifest-failed-bg);
+  border-color: var(--manifest-failed-line);
 }
 
 .preflight-heading {
@@ -202,7 +250,7 @@
 }
 
 .preflight-heading span {
-  color: #607080;
+  color: var(--manifest-muted);
   font-size: var(--text-xs);
   font-weight: 720;
 }
@@ -217,18 +265,20 @@
   max-height: 180px;
   margin: 10px 0 0;
   padding: 10px;
-  color: #dce8f5;
-  background: #101820;
-  border: 1px solid #263545;
+  color: var(--manifest-code-ink);
+  background: var(--manifest-code-bg);
+  border: 1px solid var(--manifest-code-line);
   border-radius: 2px;
   white-space: pre-wrap;
 }
 
 .prompt-template-panel {
-  color: #172536;
-  background: #ffffff;
-  border: 1px solid #dbe3ec;
+  color: var(--manifest-ink);
+  background: var(--manifest-surface);
+  border: 1px solid var(--manifest-line);
   border-radius: 3px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 
 .prompt-template-panel summary {
@@ -248,7 +298,7 @@
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 10px 0;
-  color: #617286;
+  color: var(--manifest-template-meta);
   font-size: var(--text-2xs);
 }
 
@@ -264,7 +314,7 @@
   display: grid;
   gap: 4px;
   padding: 9px 10px;
-  color: #233143;
+  color: var(--manifest-template-ink);
   font-size: var(--text-xs);
   line-height: 1.45;
 }

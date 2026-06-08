@@ -1328,6 +1328,14 @@ assert(
     jobsDetailStyleSource.includes("font-size: var(--text-xs);") &&
     !jobsDetailStyleSource.includes("font-size: 13px") &&
     jobsManifestStyleSource.includes(".prompt-template-panel") &&
+    jobsManifestStyleSource.includes(':root[data-theme="dark"] .manifest-card') &&
+    jobsManifestStyleSource.includes("--manifest-surface") &&
+    jobsManifestStyleSource.includes("--manifest-code-bg") &&
+    jobsManifestStyleSource.includes("background: var(--manifest-surface)") &&
+    jobsManifestStyleSource.includes("content-visibility: auto;") &&
+    jobsManifestStyleSource.includes("contain-intrinsic-size: auto 180px;") &&
+    !jobsManifestStyleSource.includes("background: #ffffff") &&
+    !jobsManifestStyleSource.includes("color: #607080") &&
     !appThemeStyleSource.includes(".manifest-toolbar") &&
     !appThemeStyleSource.includes(".recent-run-card") &&
     !appThemeStyleSource.includes(".job-eval-cell") &&
