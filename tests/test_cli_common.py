@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-import argparse
 from unittest.mock import patch
 
 import pytest
 
 from shaft.cli.common import apply_common_overrides, run_from_args
 from shaft.config import RuntimeConfig
+from tests.support.cli import build_common_train_args
+
+
+pytestmark = pytest.mark.component
 
 
 def test_apply_common_overrides() -> None:
     cfg = RuntimeConfig()
-    args = argparse.Namespace(
+    args = build_common_train_args(
         run_id="rid-1",
         seed=7,
         epochs=3,
@@ -60,39 +63,8 @@ def test_apply_common_overrides() -> None:
     assert out.train.resume_from_checkpoint == "ckpt-a"
 
 
-def _build_min_args(**kwargs):
-    base = dict(
-        config="dummy.yaml",
-        run_id=None,
-        seed=None,
-        epochs=None,
-        max_steps=None,
-        learning_rate=None,
-        train_batch_size=None,
-        eval_batch_size=None,
-        mix_strategy=None,
-        optimizer_name=None,
-        scheduler_name=None,
-        scheduler_num_cycles=None,
-        scheduler_power=None,
-        loss_name=None,
-        loss_scale=None,
-        finetune_mode=None,
-        lora_r=None,
-        lora_alpha=None,
-        lora_dropout=None,
-        qlora_load_in_4bit=None,
-        use_cpu=None,
-        init_from=None,
-        resume_from=None,
-        algorithm=None,
-    )
-    base.update(kwargs)
-    return argparse.Namespace(**base)
-
-
 def test_run_from_args_forced_algorithm() -> None:
-    args = _build_min_args()
+    args = build_common_train_args()
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_sft", return_value={"train_loss": 0.1}) as mocked:
@@ -102,7 +74,7 @@ def test_run_from_args_forced_algorithm() -> None:
 
 
 def test_run_from_args_allowed_algorithms() -> None:
-    args = _build_min_args(algorithm="ppo")
+    args = build_common_train_args(algorithm="ppo")
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
@@ -112,7 +84,7 @@ def test_run_from_args_allowed_algorithms() -> None:
 
 
 def test_run_from_args_supports_grpo() -> None:
-    args = _build_min_args(algorithm="grpo")
+    args = build_common_train_args(algorithm="grpo")
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
@@ -122,7 +94,7 @@ def test_run_from_args_supports_grpo() -> None:
 
 
 def test_run_from_args_rejects_disallowed_algorithm() -> None:
-    args = _build_min_args(algorithm="sft")
+    args = build_common_train_args(algorithm="sft")
     cfg = RuntimeConfig()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with pytest.raises(ValueError):

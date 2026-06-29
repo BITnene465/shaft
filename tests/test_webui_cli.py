@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from shaft.cli.web import main
+
+
+pytestmark = pytest.mark.contract
 
 
 def test_webui_cli_forwards_arguments() -> None:
@@ -32,7 +37,7 @@ def test_webui_cli_uses_auto_port_by_default() -> None:
     mocked_launch.assert_called_once_with(
         host="127.0.0.1",
         port=None,
-        base_config_path="configs/train/train_sft_4b.yaml",
+        base_config_path="configs/train/sft_4b.yaml",
         share=False,
     )
 

@@ -72,9 +72,9 @@
   - HF 导出、validate、merge-peft
 
 - [testing.md](testing.md)
-  - 测试层级
-  - 推荐命令
-  - 变更类型与必跑清单
+  - unit / component / contract / smoke / integration / manual 分层
+  - 默认快速回归与显式 smoke 命令
+  - 测试 support 层、真实文件依赖规则和变更必跑清单
 
 ## 4. 待办与限制
 

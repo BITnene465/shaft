@@ -7,6 +7,9 @@ import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
 
+pytestmark = [pytest.mark.smoke, pytest.mark.manual]
+
+
 def _require_flash_attn_cuda() -> None:
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available in the current environment.")
@@ -17,7 +20,6 @@ def _require_flash_attn_cuda() -> None:
         pytest.skip("FlashAttention 2 requires an Ampere-or-newer CUDA device.")
 
 
-@pytest.mark.manual
 def test_flash_attn_cuda_kernel_smoke() -> None:
     _require_flash_attn_cuda()
     from flash_attn import flash_attn_func
@@ -36,7 +38,6 @@ def test_flash_attn_cuda_kernel_smoke() -> None:
     assert torch.isfinite(q.grad).all()
 
 
-@pytest.mark.manual
 def test_transformers_flash_attention_2_smoke() -> None:
     _require_flash_attn_cuda()
 

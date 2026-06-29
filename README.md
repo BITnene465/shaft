@@ -194,19 +194,25 @@ data:
 快速回归：
 
 ```bash
-pytest -q
+uv run pytest -q
+```
+
+主链 smoke：
+
+```bash
+uv run pytest -q -m "smoke and not manual"
 ```
 
 只跑 integration：
 
 ```bash
-pytest -q -m integration
+uv run pytest -q -m integration
 ```
 
 只跑 manual：
 
 ```bash
-pytest -q -m manual
+uv run pytest -q -m manual
 ```
 
 更多测试规范见 [docs/testing.md](docs/testing.md)。
