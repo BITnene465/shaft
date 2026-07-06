@@ -273,6 +273,7 @@
 
 @media (max-height: 720px) {
   .jobs-page {
+    --job-queue-gap: 4px;
     gap: 6px;
     padding: 6px;
   }
