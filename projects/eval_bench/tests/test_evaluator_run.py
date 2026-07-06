@@ -17,8 +17,8 @@ from eval_bench.schema import (
     PromptRef,
 )
 from eval_bench.store import EvalBenchStore
-from projects.eval_bench.tests.support.evaluator import write_eval_run
-from projects.eval_bench.tests.support.files import write_json
+from support.evaluator import write_eval_run
+from support.files import write_json
 
 
 def test_evaluate_run_writes_detection_metrics(tmp_path: Path) -> None:

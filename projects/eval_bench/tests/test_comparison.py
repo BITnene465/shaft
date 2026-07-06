@@ -19,8 +19,8 @@ from eval_bench.schema import (
     PredictionInstance,
     PromptRef,
 )
-from projects.eval_bench.tests.support.evaluator import write_eval_run
-from projects.eval_bench.tests.support.files import write_json
+from support.evaluator import write_eval_run
+from support.files import write_json
 
 
 def test_comparison_sample_detail_uses_side_specific_indices(tmp_path: Path) -> None:

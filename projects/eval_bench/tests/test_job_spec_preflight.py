@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from eval_bench.job_spec import job_templates, preflight_job_payload
-from projects.eval_bench.tests.support.files import write_json
+from support.files import write_json
 
 
 def test_preflight_checks_benchmark_model_and_command(tmp_path: Path) -> None:
