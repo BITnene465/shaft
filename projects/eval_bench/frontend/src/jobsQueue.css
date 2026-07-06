@@ -102,7 +102,7 @@
   overflow: hidden;
 }
 
-.queue-stack > .table-shell {
+.jobs-page .queue-stack > .table-shell {
   flex: 1 1 auto;
   min-height: 120px;
   overflow: auto;
@@ -323,7 +323,7 @@
     padding-block: 1px;
   }
 
-  .queue-stack > .table-shell {
+  .jobs-page .queue-stack > .table-shell {
     min-height: 120px;
   }
 }
