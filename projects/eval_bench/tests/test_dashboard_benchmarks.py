@@ -234,6 +234,23 @@ def test_dashboard_exposes_benchmark_sample_detail_and_image(tmp_path: Path) -> 
     assert preview["gt_instances"][0]["label"] == "icon"
 
 
+def test_settings_preview_sample_falls_back_when_store_has_no_benchmark(tmp_path: Path) -> None:
+    app = create_app(store_root=tmp_path / "store", frontend_dist=tmp_path / "dist")
+    client = TestClient(app)
+
+    response = client.get("/api/settings/preview-sample")
+
+    assert response.status_code == 200
+    preview = response.json()
+    assert preview["benchmark_id"] == "settings_preview"
+    assert preview["sample"]["image_url"] == "/static/settings_preview.svg"
+    assert preview["sample"]["image_width"] == 960
+    assert preview["sample"]["image_height"] == 600
+    assert preview["sample"]["labels"] == ["arrow", "icon"]
+    assert [item["label"] for item in preview["gt_instances"]] == ["arrow", "icon"]
+    assert preview["raw_payload"]["source"] == "settings_preview_fallback"
+
+
 def test_dashboard_uses_named_benchmark_split_for_samples_and_facets(tmp_path: Path) -> None:
     data_root = tmp_path / "benchmarks" / "suite_bench" / "data"
     split_dir = tmp_path / "benchmarks" / "suite_bench" / "splits"

@@ -55,6 +55,21 @@ IMAGE_PREVIEW_MAX_SIDE = 1800
 IMAGE_PREVIEW_QUALITY = 82
 IMAGE_TILE_SIZE = 512
 IMAGE_TILE_QUALITY = 86
+SETTINGS_PREVIEW_WIDTH = 960
+SETTINGS_PREVIEW_HEIGHT = 600
+SETTINGS_PREVIEW_IMAGE_URL = "/static/settings_preview.svg"
+SETTINGS_PREVIEW_GT_INSTANCES = [
+    {
+        "label": "arrow",
+        "bbox": [174, 246, 796, 450],
+        "linestrip": [[196, 422], [438, 270], [760, 292]],
+    },
+    {
+        "label": "icon",
+        "bbox": [118, 122, 180, 184],
+        "keypoints": [[146, 144], [132, 168], [160, 168]],
+    },
+]
 
 
 def _run_sample_detail_payload(run_id: str, detail: Any) -> dict[str, Any]:
@@ -81,6 +96,31 @@ def _sample_image_urls(
         "image_preview_url": f"{image_url}/preview{query}{preview_sep}max_side={IMAGE_PREVIEW_MAX_SIDE}",
         "image_tile_url_template": f"{image_url}/tiles/{{level}}/{{x}}/{{y}}{query}",
         "image_tile_size": IMAGE_TILE_SIZE,
+    }
+
+
+def _settings_preview_fallback_payload() -> dict[str, Any]:
+    return {
+        "benchmark_id": "settings_preview",
+        "sample": {
+            "index": 0,
+            "image": SETTINGS_PREVIEW_IMAGE_URL,
+            "json_path": "",
+            "image_width": SETTINGS_PREVIEW_WIDTH,
+            "image_height": SETTINGS_PREVIEW_HEIGHT,
+            "instance_count": len(SETTINGS_PREVIEW_GT_INSTANCES),
+            "labels": ["arrow", "icon"],
+            "image_url": SETTINGS_PREVIEW_IMAGE_URL,
+            "image_preview_url": SETTINGS_PREVIEW_IMAGE_URL,
+        },
+        "gt_instances": SETTINGS_PREVIEW_GT_INSTANCES,
+        "raw_payload": {
+            "image_path": SETTINGS_PREVIEW_IMAGE_URL,
+            "image_width": SETTINGS_PREVIEW_WIDTH,
+            "image_height": SETTINGS_PREVIEW_HEIGHT,
+            "instances": SETTINGS_PREVIEW_GT_INSTANCES,
+            "source": "settings_preview_fallback",
+        },
     }
 
 
@@ -839,6 +879,8 @@ def create_app(
                 benchmark_id=benchmark_id,
             )
         except FileNotFoundError as exc:
+            if benchmark_id is None:
+                return JSONResponse(_settings_preview_fallback_payload())
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return JSONResponse(
             {
