@@ -86,10 +86,25 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/eval_bench/eval_semantics.py`
   - 统一解析 run spec 的 `task`、`metric_profile`、`target_labels` 和 `target_labels_source`。
 - `projects/eval_bench/eval_bench/metric_profiles.py`
-  - 维护 `detection_iou_v1`、`keypoint_endpoint_v1` 等 metric profile。
+  - 维护 `detection_iou_v1`、`detection_iou_maxmatch_v2`、`keypoint_endpoint_v1` 等 metric profile。
+    `detection_iou_v1` 是 per-label bbox IoU 贪心匹配；`detection_iou_maxmatch_v2` 是 per-label
+    最大基数二分匹配，并以匹配 IoU 总和作为次级目标。历史 run 不能跨 profile 直接排名。
 - `projects/eval_bench/eval_bench/metrics/`
   - 维护 profile-driven matcher、geometry primitive、sample diagnostic 和 label aggregation。
+  - `bbox_iou_maxmatch` 使用精确二分分配，不用局部贪心近似；新增匹配器必须把主优化目标和
+    tie-break 规则写进 profile，而不是藏在 evaluator 调用点。
   - `keypoint_endpoint_v1` 使用 ordered endpoint distance matcher，不再用 bbox IoU 决定 TP/FP/FN。
+- `projects/eval_bench/eval_bench/prediction_parser.py`
+  - 维护模型文本到 prediction document 的解析入口；JSON 解析必须走共享
+    `shaft.codec.decode_with_codec("json_any")`，不能在 Eval Bench 内再写一套 JSON 修复器。
+  - parser metadata 必须记录 `parser.decode_valid`、`parser.decode_partial`、decode error 类型和空数组修复信号，
+    供 report 汇总模型输出质量，而不是把解析失败静默折叠成空预测。
+- `projects/eval_bench/eval_bench/evaluator.py`
+  - 维护 `metrics.json` 和轻量 `summary.json` 的生成；summary 除主指标外，还要汇总
+    `finish_reason_counts`、`truncated_prediction_count`、`partial_decode_count`、
+    `decode_empty_repair_count` 和 `decode_error_count`。
+  - 这些字段是 eval/codec/worker 质量信号，不等同于模型能力分数；报告解读时必须先区分输出被截断、
+    parser 部分修复和真实检测漏召。
 - `projects/eval_bench/eval_bench/label_policy.py`
   - 维护目标 label scope，返回 `explicit`、`prompt_metadata`、`suite_default`、
     `task_default` 或 `unscoped` 来源；`suite_default` 只匹配 Eval Bench 维护的内置 suite 命名族
@@ -113,6 +128,12 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     benchmark 内部的任务或切分维度。
 - `projects/eval_bench/eval_bench/job_lifecycle.py`
   - 维护 job terminal/active/cancelled-resource lease 语义。
+- `projects/eval_bench/eval_bench/worker.py`
+  - 维护 job 执行和 prediction snapshot 写入；vLLM OpenAI 返回的 `finish_reason`、usage token
+    计数和 `truncated_by_max_tokens` 必须进入 prediction metadata。
+  - `manifest.eval.inference_extra.extra_body` 只用于 OpenAI/vLLM 请求体扩展，不能携带
+    `min_pixels`、`max_pixels`、`mm_processor_kwargs` 等图像预算键。Qwen pixel budget 必须在请求前由
+    Eval Bench/Shaft 侧处理，避免不同 vLLM 版本的 processor 口径漂移。
 - `projects/eval_bench/eval_bench/database.py`
   - 维护 job/service/prompt template registry；job/service 列表过滤和分页由 `job_page` /
     `service_page` 提供，CLI/API/Jobs/Services 页面不能各自复制高级检索语义。
@@ -132,9 +153,9 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
     任务创建 UI 和 agent CLI 只能消费这个 store 字段，不能自行扫描 benchmark artifact。
   - 维护 run note 的读、覆盖写、追加写、列表摘要和长度校验；dashboard/API/CLI 复用 store，
     不直接改 `note.json`。
-  - 维护 rank board 的过滤、facet 计数、F1 默认主指标、非加权主指标切换、列表排序维度和分页输出；
-    Compare 页不能再作为排行榜真源。`score` 在非加权模式下镜像当前主指标，显式 weighted scheme
-    下才代表加权分。
+  - 维护 rank board 的过滤、facet 计数、F1 默认主指标、主指标切换、辅助排序维度和分页输出；
+    Compare 页不能再作为排行榜真源。`score_label` 是当前分数列展示标签，`score` 始终镜像当前主指标；
+    加权排行不再作为 Eval Bench 内置能力维护。
 - `projects/eval_bench/eval_bench/comparison.py`
   - 维护 pairwise comparison 报告生成、已保存 report 读取、成对样本详情 payload、历史摘要和
     task/label/query 过滤；API/CLI/前端不各自复制 comparison 历史检索或样本 payload 语义。
@@ -167,6 +188,8 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - `projects/eval_bench/frontend/src/jobsPage.tsx`
   - 维护评测中心、job 队列、高级检索、新建 job 弹窗和最近结果产物流；最近结果只展示
     benchmark/model、prediction/report/note 产物信号和状态，不常驻 P/R/IoU 细指标。
+  - Jobs 页布局必须由 `.jobs-page` 承载；页面外层不创建全局滚动，队列表格是自己的滚动容器，
+    detail sidebar 在桌面保持 full-height panel。小高度视口下只能压缩内部区域，不能让日志或详情把页面撑出主工作区。
 - `projects/eval_bench/frontend/src/labelSubtaskControls.tsx`
   - 维护 detection label 子任务 chip、默认策略和全部候选选择；Jobs 和 Runs import prediction
     只能复用该组件，不暴露自由文本 label 追加路径，keypoint 不暴露 label 子任务 UI。
@@ -174,7 +197,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   - 维护 Run Inspector 与成对样本对比共享的 GT / Prediction 叠图、对象检查器和 viewer 偏好状态。
 - `projects/eval_bench/frontend/src/rankBoardPage.tsx`
   - 维护独立排行榜工作台页面；作为懒加载路由拆分，承载可见的主指标切换、升降序、Top contenders、score spread、
-    facet rail、weighted scheme 和分页表格，避免继续把核心工作台堆进 `main.tsx` 或藏进 Compare。
+    facet rail 和分页表格，避免继续把核心工作台堆进 `main.tsx` 或藏进 Compare。
 - `projects/eval_bench/frontend/src/comparePage.tsx`
   - 维护成对 run 对比工作台页面；只展示 comparison 报告、历史对比和上下文入口，不再维护排行榜语义。
 - `projects/eval_bench/frontend/src/comparisonSamplePage.tsx`
@@ -197,6 +220,12 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 
 - 新增任务类型：先加 schema task，再加 prompt template、parser、metric profile、viewer capability。
 - 新增 metric：先加 `metric_profiles.py` registry，再在 `metrics/` 中实现 profile matcher 和聚合。
+  如果改变匹配算法，必须新增 profile 版本并在报告中保留 `metric_profile`；不能修改历史默认 profile
+  让旧 run 被重新解释。全局最优或最大匹配算法要有构造性反例测试，证明它与旧贪心口径的差异。
+- 新增 parser/codec 行为：必须优先扩展共享 `shaft.codec`，Eval Bench 只消费解析结果和 metadata。
+  解析失败、partial decode、空数组修复和非 JSON 输出必须进入 prediction/report 质量信号，不能只在日志里出现。
+- 新增 worker 请求扩展：`extra_body` 只能表达 vLLM/OpenAI 请求扩展。pixel budget、prompt、generation
+  和 parser 语义必须由 run manifest 和 Shaft/Eval Bench 真源控制；新增禁止透传字段时要补 worker contract 测试。
 - 新增 target label scope：先加 prompt metadata 或显式 spec 字段，不允许通过 UI 默认值悄悄覆盖。
   前端可以提供 target labels 输入，但留空语义必须交给 `label_policy.py` 解析，不能在页面里复制
   layout/arrow 的默认 label policy。agent 查询 target label 作用域必须走 CLI
@@ -241,7 +270,7 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   Shaft/Transformers 这类重运行时必须在具体命令或 route 内懒加载，保证 `list-*`、`rank-board`、
   run note 等 agent-safe 入口可以快速 import。
 - 新增或改动 agent 关键命令：不能只依赖自然语言 help。Rank Board 这类核心只读命令的 JSON schema
-  必须描述分页、filters、facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary/weighted
+  必须描述分页、filters、facets、primary metric、entry 字段和 `sort_by` 的 primary/auxiliary
   语义；run note 与 label policy 命令必须描述 note/concurrency 字段和 detection/keypoint label 子任务字段；
   run/sample inspection 命令必须描述 summary、payload、diagnostics 和 scoped label 字段，样本列表还必须回显
   `filters`；job/service/comparison 查询命令必须描述 record、runtime、delta 和成对样本详情字段。
@@ -298,18 +327,14 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
   本身，避免 wrapper 承担状态语义。
 - 新增 dashboard icon：先在 `iconLibrary.tsx` 定义语义 key，再替换调用点；排行榜入口、入榜状态、已评估状态
   这类不同 UI 语义不能复用同一个通用 metrics icon。
-- 新增加权排行：必须作为显式 `rank_scheme` / `rank_profile` 配置进入 store/API/CLI，权重项至少包含
-  `benchmark_id`、`metric`、`weight` 和缺失指标处理规则；前端必须标明当前使用的是 weighted scheme。
-  默认 Rank Board 始终以 `f1_iou50` 作为主指标；用户切换到 precision、recall、mIoU 或预测数时，
-  store/API/CLI 必须同步更新 `primary_metric`、`primary_metric_label` 和 entry `score`。不能把加权结果
-  重新命名成默认分数；显式 weighted
-  scheme 的输出必须包含 `weighted_score`、原始 `rank_scheme` 和 entry-level `score_components`。
+- 新增排行榜排序字段：默认 Rank Board 始终以 `f1_iou50` 作为主指标；用户切换到 precision、
+  recall、mIoU 或预测数时，store/API/CLI 必须同步更新 `primary_metric`、
+  `primary_metric_label`、`score_label` 和 entry `score`。加权排行是伪需求，不进入
+  Eval Bench 内置 store/API/CLI contract，也不能在前端临时计算后伪装成默认分数。
   前端 Rank Board 的首层 controls 必须把 F1、precision、recall、mIoU 和预测数归为“主指标”，把
   `created_at` / `run_id` 归为“辅助排序”；不能把时间或字符串排序混入主指标拨盘。
   Rank Board entry 必须同时输出 `score_delta`，以当前完整排序的第一名为基准计算主分数差值；分页后的
   entry 不能改用当前页第一名作为基准，避免人类和 agent 误判 leader gap。
-  前端 Rank Board 只能把 weighted scheme 作为折叠式显式面板传给 `/api/rank-board`，不能在浏览器端另写
-  一套加权计算；后端拒绝 scheme 时必须在面板内显示错误，不允许整页退化为加载失败。
 - 新增页面标准动作：先复用 `ActionButton`、`CommandButton`、`IconActionButton` 或 `PanelToggleButton`；只有画布
   HUD 这类低层交互允许保留专用样式。样本行必须通过
   `SelectableRowButton` 维护 selected / aria-current 语义，query/label chip 必须通过
@@ -332,17 +357,25 @@ Evaluator/Comparison/Import -> Evaluation Semantics -> Artifact
 - 新增 inspector / viewer 响应式布局：桌面优先保持工作区一屏内分栏；compact / narrow 视口下 split
   堆叠时，`.visual-inspector-page` 必须允许局部滚动，`.image-stage` 必须保留可操作高度，对象检查器继续
   在自己的面板内滚动；不能用外层 `overflow: hidden` 把画布压成不可见。
+- 新增 Jobs 页面布局：`.jobs-page` 是页面滚动边界真源；job table、detail sidebar 和 log panel
+  必须各自承担局部滚动。布局 smoke 要覆盖 desktop、compact、small-height 视口，避免队列表格或日志回流成全局滚动。
 - 新增目录分页页面：只允许复用 `PagerControl` 和 `clampListPageOffset`；页面可以定义 page size、
   API filter 和业务 className，但不能复制 pager range、上一页/下一页禁用和 offset clamp 逻辑。
 - 新增可视化检查器主视图统计：外层 `VisibleMetricStrip` 只展示真实/预测数量；viewer side panel
   不常驻渲染 per-label TP、FP、FN、IoU、P/R 指标表，`VisibleMetrics` 类型本身也只能包含
   `gtCount` / `predCount`，不能保留未展示的精细计数字段。精细指标必须留在 metric report、对象诊断、
   排行榜或对比页中。
+- 新增业务推理环境：`docker/inference/` 是当前推理镜像和契约 smoke 真源。CI 默认不 build
+  Docker、不启动真实 vLLM；依赖版本、prompt hash、pixel budget、generation、finish reason、
+  shared codec parser 状态和 token usage 由 `shaft-contract-smoke` 做 integration/manual 验收。
 
 ## Tests Required By Layer
 
 - Evaluation semantics: `projects/eval_bench/tests/test_eval_semantics.py`
 - Evaluator/report/comparison: `projects/eval_bench/tests/test_evaluator.py`
+- Prediction parser: `projects/eval_bench/tests/test_prediction_parser.py`
+- Worker/inference contract: `projects/eval_bench/tests/test_worker.py`、
+  `projects/eval_bench/tests/test_inference_docker_contract.py`
 - Prediction import: `projects/eval_bench/tests/test_prediction_import.py`
 - Job lifecycle/scheduler: `projects/eval_bench/tests/test_orchestrator.py`
 - Dashboard API lifecycle: `projects/eval_bench/tests/test_dashboard.py`

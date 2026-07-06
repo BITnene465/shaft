@@ -1050,7 +1050,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "primary_metric_label",
             "sort_by",
             "sort_order",
-            "score_formula",
+            "score_label",
             "facets",
             "entries",
         ],
@@ -1062,7 +1062,7 @@ CLI_JSON_OUTPUT_SCHEMAS: dict[str, dict[str, object]] = {
             "primary_metric_label": {"type": "str"},
             "sort_by": {"type": "str"},
             "sort_order": {"type": "str"},
-            "score_formula": {"type": "str"},
+            "score_label": {"type": "str"},
             "facets": RUN_FACET_OUTPUT_SCHEMA,
             "entries": {
                 "type": "array",

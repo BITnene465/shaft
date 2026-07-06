@@ -21,9 +21,22 @@
   --job-cell-gap: 6px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: var(--job-queue-gap);
   min-height: min(420px, 100%);
+}
+
+.jobs-page {
+  overflow: hidden;
+}
+
+.jobs-page .job-activity-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.jobs-page .job-activity-grid > .workspace-card.fill {
+  min-height: 0;
 }
 
 :root[data-theme="dark"] .job-activity-grid {
@@ -50,16 +63,19 @@
 }
 
 .job-activity-grid > .workspace-card.fill.job-queue-card {
-  overflow: visible;
-  scrollbar-gutter: auto;
+  overflow: hidden;
+  scrollbar-gutter: stable;
 }
 
 .job-queue-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: var(--job-queue-gap);
+  height: 100%;
   min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   transition: grid-template-columns 180ms ease;
 }
 
@@ -72,7 +88,9 @@
 }
 
 .job-detail-sidebar {
+  height: 100%;
   min-width: 0;
+  overflow: hidden;
   animation: job-detail-sidebar-in 180ms ease-out;
 }
 
@@ -81,10 +99,17 @@
   min-height: 0;
   flex-direction: column;
   gap: var(--job-queue-gap);
+  overflow: hidden;
 }
 
 .queue-stack > .table-shell {
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+}
+
+.queue-stack > :not(.table-shell) {
+  flex: 0 0 auto;
 }
 
 .queue-stack th:last-child,
@@ -243,6 +268,62 @@
 @media (max-width: 820px) {
   .job-queue-workbench.detail-open {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 720px) {
+  .jobs-page {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .jobs-page .page-command-row {
+    min-height: 28px;
+  }
+
+  .jobs-page .page-command-row > div > span,
+  .jobs-page .panel-title span {
+    display: none;
+  }
+
+  .jobs-page .panel-title {
+    min-height: 24px;
+    padding-block: 0;
+  }
+
+  .jobs-page .job-activity-grid {
+    gap: 0;
+  }
+
+  .jobs-page .scheduler-strip {
+    min-height: 26px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    padding: 2px 8px;
+    overflow: auto hidden;
+    scrollbar-width: none;
+  }
+
+  .jobs-page .scheduler-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .jobs-page .advanced-filter-bar {
+    padding: 1px;
+  }
+
+  .jobs-page .advanced-filter-compact,
+  .jobs-page .advanced-filter-head {
+    min-height: 26px;
+  }
+
+  .jobs-page .job-list-pager {
+    min-height: 28px;
+    padding-block: 1px;
+  }
+
+  .queue-stack > .table-shell {
+    min-height: 120px;
   }
 }
 

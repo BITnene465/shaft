@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 import socket
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -16,7 +14,7 @@ from shaft.webui.services import ShaftRunStore, ShaftSFTTrainService, ShaftWebUI
 from shaft.webui.theme import static_dir, templates_dir
 
 
-DEFAULT_SFT_CONFIG = "configs/train/banana_sft_4b.yaml"
+DEFAULT_SFT_CONFIG = "configs/train/sft_4b.yaml"
 
 
 def _find_free_port(host: str) -> int:

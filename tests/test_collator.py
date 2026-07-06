@@ -215,6 +215,50 @@ def test_sft_collator_truncates_target_tokens_without_eos_when_over_max_length()
     assert int(torch.sum(out["labels"][0].ne(-100)).item()) == 3
 
 
+def test_sft_collator_uses_per_row_dynamic_prefix_length_for_target_budget() -> None:
+    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    collator = SFTCollator(
+        model_adapter=model_adapter,
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        max_length=5,
+    )
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    batch = [
+        {
+            "dataset_name": "a",
+            "sample_id": "short-prefix",
+            "image_path": "/tmp/a.png",
+            "image": image,
+            "target_text": "one two three four five",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "short",
+            "extra": {},
+        },
+        {
+            "dataset_name": "b",
+            "sample_id": "long-prefix",
+            "image_path": "/tmp/b.png",
+            "image": image,
+            "target_text": "one two three four five",
+            "messages": None,
+            "system_prompt": "",
+            "user_prompt": "alpha beta gamma delta",
+            "extra": {},
+        },
+    ]
+
+    out = collator(batch)
+
+    supervised_counts = [int(row.ne(-100).sum().item()) for row in out["labels"]]
+    assert supervised_counts == [4, 1]
+    assert out["input_ids"].shape == torch.Size([2, 5])
+    assert int(out["labels"][0, -1].item()) != _FakeTokenizer.eos_token_id
+    assert int(out["labels"][1, -1].item()) != _FakeTokenizer.eos_token_id
+
+
 def test_sft_collator_default_supervises_previous_assistant_rounds() -> None:
     model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))

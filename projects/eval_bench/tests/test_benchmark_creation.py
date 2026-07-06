@@ -57,6 +57,64 @@ def test_create_benchmark_copies_raw_data_validation_subset(tmp_path: Path) -> N
     assert benchmark_payload["labels"] == ["icon"]
 
 
+def test_create_benchmark_accepts_vlm_json_split_manifest(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    (raw_root / "images").mkdir(parents=True)
+    (raw_root / "json").mkdir(parents=True)
+    (raw_root / "images" / "sample_a.png").write_bytes(b"fake-image")
+    (raw_root / "json" / "sample_a.json").write_text(
+        json.dumps(
+            {
+                "schema": "shaft.raw_data.v1",
+                "image_path": "images/sample_a.png",
+                "image_width": 10,
+                "image_height": 10,
+                "instances": [{"label": "shape", "bbox": [1, 2, 3, 4]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    split_path = raw_root / "splits" / "vlm.test.json"
+    split_path.parent.mkdir()
+    split_path.write_text(
+        json.dumps(
+            {
+                "schema": "vlm_data.test_split.v2",
+                "name": "vlm.test",
+                "task": "vlm",
+                "split": "test",
+                "total_items": 1,
+                "items": [
+                    {
+                        "id": "sample_a",
+                        "category": "unit",
+                        "image_path": "images/sample_a.png",
+                        "width": 10,
+                        "height": 10,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = create_benchmark_from_raw_data(
+        store_root=tmp_path / "store",
+        benchmark_id="vlm_test",
+        tasks=["detection"],
+        source_root=raw_root,
+        source_manifest=split_path,
+        split="test",
+        layers=["layout", "arrow"],
+    )
+
+    artifacts = BenchmarkArtifacts(tmp_path / "store", "vlm_test")
+    assert manifest.sample_count == 1
+    assert artifacts.split_path("test").read_text(encoding="utf-8") == "json/sample_a.json\n"
+    assert (artifacts.data_dir / "json" / "sample_a.json").exists()
+    assert (artifacts.data_dir / "images" / "sample_a.png").exists()
+
+
 def test_create_benchmark_suite_writes_named_splits(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw_data"
     (raw_root / "part1" / "images").mkdir(parents=True)

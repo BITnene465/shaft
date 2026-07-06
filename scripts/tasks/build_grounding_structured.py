@@ -28,6 +28,7 @@ class GroundingTaskSpec:
     required_layers: tuple[str, ...]
     max_positive_crops: int
     min_positive_instances: int
+    source_label_map: tuple[tuple[str, str], ...] = ()
 
 
 TASKS: tuple[GroundingTaskSpec, ...] = (
@@ -40,10 +41,17 @@ TASKS: tuple[GroundingTaskSpec, ...] = (
     ),
     GroundingTaskSpec(
         name="grounding_layout",
-        labels=("icon", "image", "shape"),
-        required_layers=("layout",),
+        labels=("icon", "image", "shape", "line"),
+        required_layers=("layout", "arrow"),
         max_positive_crops=2,
         min_positive_instances=4,
+        source_label_map=(
+            ("icon", "icon"),
+            ("image", "image"),
+            ("shape", "shape"),
+            ("arrow", "line"),
+            ("line", "line"),
+        ),
     ),
     GroundingTaskSpec(
         name="grounding_shape",
@@ -60,6 +68,8 @@ TASKS: tuple[GroundingTaskSpec, ...] = (
         min_positive_instances=2,
     ),
 )
+
+DEFAULT_TASK_NAMES: tuple[str, ...] = ("grounding_layout",)
 
 
 @dataclass(frozen=True)
@@ -125,11 +135,45 @@ def _write_jsonl_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _read_split(path: Path) -> list[str]:
+    if path.suffix.lower() == ".json":
+        return _read_json_split(path)
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _read_json_split(path: Path) -> list[str]:
+    payload = _load_json(path)
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise ValueError(f"JSON split manifest must contain an items list: {path}")
+    entries: list[str] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"JSON split manifest item {index} must be an object: {path}")
+        explicit_json_path = item.get("json_path") or item.get("annotation_path")
+        if isinstance(explicit_json_path, str) and explicit_json_path.strip():
+            entries.append(explicit_json_path.strip())
+            continue
+        sample_id = str(item.get("id") or "").strip()
+        if not sample_id:
+            image_path = str(item.get("image_path") or "").strip()
+            sample_id = Path(image_path).stem
+        if not sample_id:
+            raise ValueError(
+                f"JSON split manifest item {index} needs json_path, annotation_path, id, "
+                f"or image_path: {path}"
+            )
+        entries.append(str(Path("json") / f"{sample_id}.json"))
+    return entries
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _source_label_map(spec: GroundingTaskSpec) -> dict[str, str]:
+    if spec.source_label_map:
+        return dict(spec.source_label_map)
+    return {label: label for label in spec.labels}
 
 
 def _rel_id(json_rel: str) -> str:
@@ -185,15 +229,16 @@ def _clean_bbox(
 
 def _extract_instances(
     raw_record: dict[str, Any],
-    labels: set[str],
+    label_map: dict[str, str],
     *,
     image_width: int,
     image_height: int,
 ) -> list[SourceInstance]:
     result: list[SourceInstance] = []
     for index, instance in enumerate(raw_record.get("instances") or []):
-        label = str(instance.get("label"))
-        if label not in labels:
+        source_label = str(instance.get("label"))
+        target_label = label_map.get(source_label)
+        if target_label is None:
             continue
         bbox = _clean_bbox(
             instance.get("bbox"),
@@ -202,7 +247,7 @@ def _extract_instances(
         )
         if bbox is None:
             continue
-        result.append(SourceInstance(index=index, label=label, bbox=bbox))
+        result.append(SourceInstance(index=index, label=target_label, bbox=bbox))
     return result
 
 
@@ -519,7 +564,7 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     image_width, image_height = image.size
     instances = _extract_instances(
         raw_record,
-        set(spec.labels),
+        _source_label_map(spec),
         image_width=image_width,
         image_height=image_height,
     )
@@ -805,9 +850,10 @@ def _write_readme(
     )
     content = f"""# {spec.name} structured
 
-Generated from `data/raw_data` for grounding detection.
+Generated from raw annotations for grounding detection.
 
 - Target labels: `{", ".join(spec.labels)}`
+- Source label map: `{json.dumps(dict(_source_label_map(spec)), ensure_ascii=False, sort_keys=True)}`
 - Required raw coverage: `{", ".join(spec.required_layers)}`
 - Train split source: `{args.train_split}`
 - Val split source: `{args.val_split}`
@@ -856,6 +902,15 @@ def _build_task_split(
     workers: int,
 ) -> tuple[list[dict[str, Any]], int, list[SourceResult]]:
     entries = _read_split(split_path)
+    missing_entries = [entry for entry in entries if not (config.raw_root / entry).exists()]
+    if missing_entries:
+        examples = ", ".join(missing_entries[:5])
+        raise FileNotFoundError(
+            f"Split {split_path} contains {len(missing_entries)} entries without GT JSON under "
+            f"{config.raw_root}. Examples: {examples}. Image-level manifests such as "
+            f"vlm.test.json may include image-only items; filter to entries with GT JSON before "
+            f"building structured data or metric benchmarks."
+        )
     work_items = [(entry, spec, config) for entry in entries]
     if workers <= 1:
         results = [_process_source(item) for item in work_items]
@@ -906,9 +961,9 @@ def _clean_task_output(task_root: Path) -> None:
 
 
 def _task_by_name(names: list[str] | None) -> list[GroundingTaskSpec]:
-    if not names:
-        return list(TASKS)
     task_map = {task.name: task for task in TASKS}
+    if not names:
+        return [task_map[name] for name in DEFAULT_TASK_NAMES]
     missing = sorted(set(names) - set(task_map))
     if missing:
         raise ValueError(f"Unknown grounding task(s): {', '.join(missing)}")
@@ -917,10 +972,10 @@ def _task_by_name(names: list[str] | None) -> list[GroundingTaskSpec]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build grounding structured datasets.")
-    parser.add_argument("--raw-root", default="data/raw_data")
+    parser.add_argument("--raw-root", default="data/raw")
     parser.add_argument("--output-root", default="data")
-    parser.add_argument("--train-split", default="data/raw_data/splits/grounding_train.txt")
-    parser.add_argument("--val-split", default="data/raw_data/splits/grounding_val.txt")
+    parser.add_argument("--train-split", required=True)
+    parser.add_argument("--val-split", required=True)
     parser.add_argument("--task", action="append", choices=[task.name for task in TASKS])
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)

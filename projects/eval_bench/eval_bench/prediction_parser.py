@@ -7,6 +7,7 @@ from shaft.codec import decode_with_codec
 from .schema import PredictionDocument, PredictionInstance, TaskKind
 
 NUM_BINS = 1000
+GROUPED_DETECTION_LABEL_ORDER = ("shape", "icon", "image", "line", "arrow")
 
 
 def parse_prediction_text(
@@ -19,7 +20,9 @@ def parse_prediction_text(
     metadata: dict[str, Any],
     dedupe_iou_threshold: float = 0.95,
 ) -> PredictionDocument:
-    parsed = _parse_json_any(text)
+    decoded = decode_with_codec("json_any", str(text or ""))
+    _record_decode_metadata(metadata, decoded=decoded, text=text)
+    parsed = decoded.parsed if decoded.valid else None
     if task == "keypoint":
         instances = _parse_keypoint_instances(parsed, image_width=image_width, image_height=image_height)
     else:
@@ -33,11 +36,24 @@ def parse_prediction_text(
     return document
 
 
-def _parse_json_any(text: str) -> Any:
-    decoded = decode_with_codec("json_any", str(text or ""))
-    if decoded.valid:
-        return decoded.parsed
-    return None
+def _record_decode_metadata(metadata: dict[str, Any], *, decoded: Any, text: str) -> None:
+    parser_metadata = metadata.get("parser")
+    if not isinstance(parser_metadata, dict):
+        parser_metadata = {}
+    parser_metadata["decode_valid"] = bool(decoded.valid)
+    parser_metadata["decode_partial"] = bool(decoded.partial)
+    if decoded.error_type:
+        parser_metadata["decode_error_type"] = decoded.error_type
+    if decoded.error:
+        parser_metadata["decode_error"] = decoded.error
+    parser_metadata["decode_empty_repair"] = (
+        bool(decoded.valid)
+        and bool(decoded.partial)
+        and decoded.parsed == []
+        and str(text or "").lstrip().startswith("[")
+        and len(str(text or "").strip()) > 2
+    )
+    metadata["parser"] = parser_metadata
 
 
 def _parse_detection_instances(
@@ -69,6 +85,12 @@ def _parse_keypoint_instances(
     image_width: int,
     image_height: int,
 ) -> list[PredictionInstance]:
+    if isinstance(payload, dict) and "points_2d" in payload:
+        label = _label_text(payload.get("label")) or "line"
+        points = _points_from_value(payload.get("points_2d"), image_width, image_height)
+        bbox = _bbox_from_points(points, image_width=image_width, image_height=image_height)
+        return [PredictionInstance(label=label, bbox=bbox, keypoints=points)] if bbox else []
+
     if isinstance(payload, dict) and "keypoints_2d" in payload:
         points = _points_from_value(payload.get("keypoints_2d"), image_width, image_height)
         bbox = _bbox_from_points(points, image_width=image_width, image_height=image_height)
@@ -81,7 +103,10 @@ def _parse_keypoint_instances(
         label = str(item.get("label") or "arrow").strip().lower() or "arrow"
         bbox = _bbox_from_item(item, image_width=image_width, image_height=image_height)
         points = _points_from_value(
-            item.get("keypoints_2d") or item.get("keypoints") or item.get("linestrip"),
+            item.get("points_2d")
+            or item.get("keypoints_2d")
+            or item.get("keypoints")
+            or item.get("linestrip"),
             image_width,
             image_height,
         )
@@ -97,6 +122,9 @@ def _items_from_payload(payload: Any) -> list[Any]:
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
+        grouped_items = _items_from_grouped_detection_payload(payload)
+        if grouped_items:
+            return grouped_items
         for key in ("detections", "instances", "objects", "items", "result"):
             value = payload.get(key)
             if isinstance(value, list):
@@ -106,13 +134,27 @@ def _items_from_payload(payload: Any) -> list[Any]:
     return []
 
 
+def _items_from_grouped_detection_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for label in GROUPED_DETECTION_LABEL_ORDER:
+        raw_boxes = payload.get(label)
+        if raw_boxes is None:
+            continue
+        if not isinstance(raw_boxes, list):
+            continue
+        for raw_box in raw_boxes:
+            if isinstance(raw_box, list) and len(raw_box) >= 4:
+                items.append({"label": label, "bbox_2d": raw_box})
+    return items
+
+
 def _normalize_detection_label(value: Any) -> str | None:
     label = _label_text(value)
     if label == "shape_combination":
         label = "icon"
     if label in {"single_arrow", "double_arrow", "arrow_instance", "arrows"}:
         label = "arrow"
-    if label in {"icon", "image", "shape", "arrow"}:
+    if label in {"icon", "image", "shape", "line", "arrow"}:
         return label
     return None
 

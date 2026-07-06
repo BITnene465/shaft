@@ -690,6 +690,10 @@ def _generate_vllm_sample_prediction(
     inference_metadata = dict(inference)
     inference_metadata["request_concurrency"] = request_concurrency
     inference_metadata["image_request"] = result.image_request
+    usage = result.usage or {}
+    completion_tokens = _optional_int(usage, "completion_tokens")
+    prompt_tokens = _optional_int(usage, "prompt_tokens")
+    total_tokens = _optional_int(usage, "total_tokens")
     prediction = parse_prediction_text(
         text=result.text,
         task=task,
@@ -705,6 +709,15 @@ def _generate_vllm_sample_prediction(
             "latency_ms": result.latency_ms,
             "output_char_count": len(result.text),
             "output_token_count": _approx_output_token_count(result.text),
+            "finish_reason": result.finish_reason,
+            "usage": usage,
+            "completion_tokens": completion_tokens,
+            "prompt_tokens": prompt_tokens,
+            "total_tokens": total_tokens,
+            "truncated_by_max_tokens": (
+                result.finish_reason == "length"
+                or (completion_tokens is not None and completion_tokens >= max_tokens)
+            ),
             "inference_params": inference_metadata,
             "parser": {
                 "name": "eval_bench.prediction_parser",
@@ -728,7 +741,27 @@ def _vllm_extra_body(inference: dict[str, Any]) -> dict[str, Any] | None:
     extra_body = extra.get("extra_body")
     if not isinstance(extra_body, dict):
         return None
+    _validate_no_request_pixel_budget_extra(extra_body)
     return dict(extra_body)
+
+
+def _validate_no_request_pixel_budget_extra(extra_body: dict[str, Any]) -> None:
+    blocked = {
+        "min_pixels",
+        "min-pixels",
+        "max_pixels",
+        "max-pixels",
+        "mm_processor_kwargs",
+        "mm-processor-kwargs",
+    }
+    for key, value in extra_body.items():
+        if value is None or value == "" or value is False:
+            continue
+        if str(key).strip().lower() in blocked:
+            raise ValueError(
+                f"inference.extra.extra_body must not set {key!r}; pixel budget is applied "
+                "by eval-bench before each request."
+            )
 
 
 def _load_benchmark_payload(root: Path, benchmark_id: str) -> dict[str, Any]:

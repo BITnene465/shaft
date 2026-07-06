@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from shaft.webui import main as launch_webui
+from shaft.webui.app import DEFAULT_SFT_CONFIG
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -14,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional fixed port. Omit to let the server choose an available port.",
     )
-    parser.add_argument("--base-config", default="configs/train/banana_sft_4b.yaml")
+    parser.add_argument("--base-config", default=DEFAULT_SFT_CONFIG)
     parser.add_argument(
         "--share",
         action="store_true",

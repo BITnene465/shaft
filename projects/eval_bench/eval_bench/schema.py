@@ -7,11 +7,11 @@ from typing import Any, Literal
 
 
 TaskKind = Literal["detection", "keypoint"]
-BenchmarkType = Literal["official", "diagnostic", "temporary", "prelabel"]
+BenchmarkType = Literal["official", "diagnostic", "temporary"]
 RunStatus = Literal["created", "queued", "running", "succeeded", "failed", "cancelled"]
 PredictionStatus = Literal["predicted", "failed", "skipped"]
 SUPPORTED_TASKS: set[str] = {"detection", "keypoint"}
-SUPPORTED_BENCHMARK_TYPES: set[str] = {"official", "diagnostic", "temporary", "prelabel"}
+SUPPORTED_BENCHMARK_TYPES: set[str] = {"official", "diagnostic", "temporary"}
 
 
 def utc_now_iso() -> str:

@@ -406,8 +406,8 @@ class KeypointPCKMetric(ShaftEvalMetric):
             self.values.append(0.0)
             return
 
-        pred_kpts = _coerce_keypoints(pred_data.get("keypoints_2d"))
-        tgt_kpts = _coerce_keypoints(tgt_data.get("keypoints_2d"))
+        pred_kpts = _coerce_keypoints(pred_data.get("points_2d") or pred_data.get("keypoints_2d"))
+        tgt_kpts = _coerce_keypoints(tgt_data.get("points_2d") or tgt_data.get("keypoints_2d"))
         if pred_kpts is None or tgt_kpts is None or len(pred_kpts) != len(tgt_kpts):
             self.values.append(0.0)
             return
@@ -441,7 +441,15 @@ class KeypointPCKMetric(ShaftEvalMetric):
         sample_meta: dict[str, Any],
     ) -> float:
         coordinate_space = str(self.params.get("coordinate_space", "normalized_1000")).strip().lower()
-        if coordinate_space in {"normalized", "normalized_1000", "bbox_2d", "bins", "quantized"}:
+        if coordinate_space in {
+            "normalized",
+            "normalized_1000",
+            "bbox_2d",
+            "keypoints_2d",
+            "points_2d",
+            "bins",
+            "quantized",
+        }:
             return float(self.params.get("coordinate_scale", self.params.get("num_bins", 1000)))
         if coordinate_space != "image":
             raise ValueError(f"Unsupported keypoint_pck coordinate_space={coordinate_space!r}.")

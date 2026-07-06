@@ -22,6 +22,16 @@ METRIC_PROFILES: dict[str, MetricProfile] = {
         primary_score="f1_iou50",
         description="Box detection profile using per-label greedy IoU matching.",
     ),
+    "detection_iou_maxmatch_v2": MetricProfile(
+        profile_id="detection_iou_maxmatch_v2",
+        task="detection",
+        matcher="bbox_iou_maxmatch",
+        primary_score="f1_iou50",
+        description=(
+            "Box detection profile using per-label maximum-cardinality IoU matching, "
+            "with IoU sum as the secondary objective."
+        ),
+    ),
     "keypoint_endpoint_v1": MetricProfile(
         profile_id="keypoint_endpoint_v1",
         task="keypoint",

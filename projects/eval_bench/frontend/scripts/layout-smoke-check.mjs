@@ -913,14 +913,34 @@ async function assertOverviewPointerField(page, scope) {
 }
 
 async function assertJobsDetailSidebar(page, scope) {
-  const before = await page.evaluate(() => ({
-    recentCards: document.querySelectorAll(".recent-run-card").length,
-    sidebarCount: document.querySelectorAll(".job-detail-sidebar").length,
-    mainWidth: Math.round(document.querySelector(".job-queue-main")?.getBoundingClientRect().width ?? 0),
-    rowCount: document.querySelectorAll(".queue-stack tbody tr").length
-  }));
+  const before = await page.evaluate(() => {
+    const stack = document.querySelector(".jobs-page");
+    const queueCard = document.querySelector(".job-queue-card");
+    const table = document.querySelector(".queue-stack > .table-shell");
+    const stackStyle = stack ? getComputedStyle(stack) : null;
+    const queueStyle = queueCard ? getComputedStyle(queueCard) : null;
+    const tableStyle = table ? getComputedStyle(table) : null;
+    return {
+      recentCards: document.querySelectorAll(".recent-run-card").length,
+      sidebarCount: document.querySelectorAll(".job-detail-sidebar").length,
+      mainWidth: Math.round(document.querySelector(".job-queue-main")?.getBoundingClientRect().width ?? 0),
+      rowCount: document.querySelectorAll(".queue-stack tbody tr").length,
+      stackOverflowY: stackStyle?.overflowY ?? "",
+      stackScrollHeight: stack?.scrollHeight ?? 0,
+      stackClientHeight: stack?.clientHeight ?? 0,
+      queueOverflowY: queueStyle?.overflowY ?? "",
+      tableOverflowY: tableStyle?.overflowY ?? "",
+      tableHeight: Math.round(table?.getBoundingClientRect().height ?? 0)
+    };
+  });
   if (before.recentCards !== 0) {
     throw new Error(`${scope}: jobs page must not render recent result cards`);
+  }
+  if (before.stackOverflowY !== "hidden" || before.stackScrollHeight > before.stackClientHeight + 2) {
+    throw new Error(`${scope}: jobs outer page must not scroll ${JSON.stringify(before)}`);
+  }
+  if (before.queueOverflowY !== "hidden" || before.tableOverflowY !== "auto" || before.tableHeight < 120) {
+    throw new Error(`${scope}: jobs queue table must be the scroll container ${JSON.stringify(before)}`);
   }
   if (before.sidebarCount !== 0) {
     throw new Error(`${scope}: jobs detail sidebar should be hidden before selecting a job`);
@@ -2484,7 +2504,9 @@ async function assertRankFacetExpansion(page, scope) {
       expanded: Boolean(group),
       rect,
       paneRect,
+      display: style?.display ?? "",
       flexWrap: style?.flexWrap ?? "",
+      gridTemplateColumns: style?.gridTemplateColumns ?? "",
       overflowX: style?.overflowX ?? "",
       overflowY: style?.overflowY ?? "",
       scrollWidth: chipPane?.scrollWidth ?? 0,
@@ -2496,8 +2518,17 @@ async function assertRankFacetExpansion(page, scope) {
   if (!state.expanded || !state.rect || !state.paneRect) {
     throw new Error(`${scope}: rank facet toggle did not expand a facet group`);
   }
-  if (state.flexWrap !== "wrap") {
-    throw new Error(`${scope}: expanded rank facet chips should wrap, got ${state.flexWrap}`);
+  const wrapsExpandedChips =
+    state.flexWrap === "wrap" ||
+    (state.display === "grid" && state.gridTemplateColumns && state.gridTemplateColumns !== "none");
+  if (!wrapsExpandedChips) {
+    throw new Error(
+      `${scope}: expanded rank facet chips should wrap, got ${JSON.stringify({
+        display: state.display,
+        flexWrap: state.flexWrap,
+        gridTemplateColumns: state.gridTemplateColumns
+      })}`
+    );
   }
   if (state.rect.height > 182) {
     throw new Error(

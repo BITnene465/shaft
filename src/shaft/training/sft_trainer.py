@@ -137,7 +137,8 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             eval_dataloader = hf_trainer_module.tpu_spmd_dataloader(eval_dataloader)
 
         start_time = time.time()
-        eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
+        use_legacy_prediction_loop = bool(getattr(self.args, "use_legacy_prediction_loop", False))
+        eval_loop = self.prediction_loop if use_legacy_prediction_loop else self.evaluation_loop
         output = eval_loop(
             eval_dataloader,
             description="Evaluation",

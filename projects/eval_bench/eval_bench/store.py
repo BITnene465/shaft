@@ -184,7 +184,7 @@ class RankBoard:
     primary_metric_label: str
     sort_by: str
     sort_order: str
-    score_formula: str
+    score_label: str
     facets: dict[str, list[dict[str, Any]]]
     entries: list[RankBoardEntry]
 
@@ -974,7 +974,7 @@ class EvalBenchStore:
             primary_metric_label=_rank_metric_label(primary_metric),
             sort_by=resolved_sort_by,
             sort_order=resolved_sort_order,
-            score_formula=_rank_metric_label(primary_metric),
+            score_label=_rank_metric_label(primary_metric),
             facets=facets,
             entries=ranked[start : start + page_limit],
         )

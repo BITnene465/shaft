@@ -31,6 +31,11 @@ class EvalReport:
     pred_gt_ratio: float = 0.0
     output_char_length: dict[str, Any] = field(default_factory=dict)
     output_token_length: dict[str, Any] = field(default_factory=dict)
+    finish_reason_counts: dict[str, int] = field(default_factory=dict)
+    truncated_prediction_count: int = 0
+    partial_decode_count: int = 0
+    decode_empty_repair_count: int = 0
+    decode_error_count: int = 0
     dense_sample_buckets: list[dict[str, Any]] = field(default_factory=list)
     keypoint_pair_count: int = 0
     mean_keypoint_distance: float | None = None
@@ -93,6 +98,11 @@ def evaluate_manifest(
     prediction_file_count = 0
     output_char_lengths: list[int] = []
     output_token_lengths: list[int] = []
+    finish_reason_counts: dict[str, int] = {}
+    truncated_prediction_count = 0
+    partial_decode_count = 0
+    decode_empty_repair_count = 0
+    decode_error_count = 0
 
     for sample_index, json_relative in enumerate(sample_entries):
         gt_doc = _load_json(benchmark_root / json_relative)
@@ -113,6 +123,14 @@ def evaluate_manifest(
             output_char_lengths.append(char_count)
         if token_count is not None:
             output_token_lengths.append(token_count)
+        signals = _prediction_quality_signals(pred_doc)
+        finish_reason = signals.get("finish_reason")
+        if finish_reason:
+            finish_reason_counts[finish_reason] = finish_reason_counts.get(finish_reason, 0) + 1
+        truncated_prediction_count += int(bool(signals.get("truncated_by_max_tokens")))
+        partial_decode_count += int(bool(signals.get("decode_partial")))
+        decode_empty_repair_count += int(bool(signals.get("decode_empty_repair")))
+        decode_error_count += int(bool(signals.get("decode_error")))
         gt_instances = [
             item
             for item in (_normalize_instance(instance) for instance in gt_doc.get("instances") or [])
@@ -156,6 +174,11 @@ def evaluate_manifest(
         pred_gt_ratio=_safe_div(metrics.pred_instance_count, metrics.gt_instance_count),
         output_char_length=_length_distribution(output_char_lengths),
         output_token_length=_length_distribution(output_token_lengths),
+        finish_reason_counts=finish_reason_counts,
+        truncated_prediction_count=truncated_prediction_count,
+        partial_decode_count=partial_decode_count,
+        decode_empty_repair_count=decode_empty_repair_count,
+        decode_error_count=decode_error_count,
         dense_sample_buckets=_dense_sample_buckets(metrics.samples),
         keypoint_pair_count=metrics.keypoint_pair_count,
         mean_keypoint_distance=metrics.mean_keypoint_distance,
@@ -186,6 +209,11 @@ def _report_summary(report: EvalReport) -> dict[str, Any]:
         "pred_gt_ratio": report.pred_gt_ratio,
         "output_char_length": report.output_char_length,
         "output_token_length": report.output_token_length,
+        "finish_reason_counts": report.finish_reason_counts,
+        "truncated_prediction_count": report.truncated_prediction_count,
+        "partial_decode_count": report.partial_decode_count,
+        "decode_empty_repair_count": report.decode_empty_repair_count,
+        "decode_error_count": report.decode_error_count,
         "dense_sample_buckets": report.dense_sample_buckets,
         "keypoint_pair_count": report.keypoint_pair_count,
         "mean_keypoint_distance": report.mean_keypoint_distance,
@@ -246,6 +274,23 @@ def _prediction_output_lengths(
         char_count = len(text)
         token_count = token_count if token_count is not None else _approx_token_count(text)
     return char_count, token_count
+
+
+def _prediction_quality_signals(prediction: dict[str, Any]) -> dict[str, Any]:
+    metadata = prediction.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    parser = metadata.get("parser")
+    if not isinstance(parser, dict):
+        parser = {}
+    finish_reason = metadata.get("finish_reason")
+    return {
+        "finish_reason": str(finish_reason) if finish_reason not in (None, "") else None,
+        "truncated_by_max_tokens": bool(metadata.get("truncated_by_max_tokens")),
+        "decode_partial": bool(parser.get("decode_partial")),
+        "decode_empty_repair": bool(parser.get("decode_empty_repair")),
+        "decode_error": parser.get("decode_valid") is False,
+    }
 
 
 def _raw_output_path(raw_outputs_dir: Path, *, image: Path) -> Path:

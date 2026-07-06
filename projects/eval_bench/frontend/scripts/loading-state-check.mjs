@@ -370,7 +370,7 @@ function responseForApiPath(url) {
       primary_metric_label: "F1@.50",
       sort_by: "f1_iou50",
       sort_order: "desc",
-      score_formula: "f1_iou50",
+      score_label: "F1@.50",
       facets: sampleRankFacets(),
       entries: sampleRankEntries()
     };

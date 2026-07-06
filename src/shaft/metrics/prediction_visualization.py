@@ -54,7 +54,7 @@ def render_prediction_visualization(
                 )
             )
     elif isinstance(payload, dict):
-        raw_points = _coerce_keypoints(payload.get("keypoints_2d"))
+        raw_points = _coerce_keypoints(payload.get("points_2d") or payload.get("keypoints_2d"))
         if raw_points is not None:
             keypoint_points: list[ShaftVisualPoint] = []
             for idx, (x, y) in enumerate(raw_points, start=1):

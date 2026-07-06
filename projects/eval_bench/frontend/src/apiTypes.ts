@@ -151,7 +151,7 @@ export type RankBoard = {
   primary_metric_label: string;
   sort_by: string;
   sort_order: string;
-  score_formula: string;
+  score_label: string;
   facets: FacetBuckets;
   entries: RankBoardEntry[];
 };
@@ -743,4 +743,3 @@ export type JobPreflightResult = {
   resolved_payload?: Record<string, unknown>;
   runtime_command?: string[] | null;
 };
-

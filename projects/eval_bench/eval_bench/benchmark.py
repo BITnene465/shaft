@@ -23,12 +23,42 @@ class BenchmarkSliceSpec:
 
 
 def _read_manifest_entries(path: Path) -> list[str]:
+    if path.suffix.lower() == ".json":
+        return _read_json_manifest_entries(path)
     entries: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         item = line.strip()
         if not item or item.startswith("#"):
             continue
         entries.append(item)
+    return entries
+
+
+def _read_json_manifest_entries(path: Path) -> list[str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON split manifest must be an object: {path}")
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise ValueError(f"JSON split manifest must contain an items list: {path}")
+    entries: list[str] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"JSON split manifest item {index} must be an object: {path}")
+        explicit_json_path = item.get("json_path") or item.get("annotation_path")
+        if isinstance(explicit_json_path, str) and explicit_json_path.strip():
+            entries.append(explicit_json_path.strip())
+            continue
+        sample_id = str(item.get("id") or "").strip()
+        if not sample_id:
+            image_path = str(item.get("image_path") or "").strip()
+            sample_id = Path(image_path).stem
+        if not sample_id:
+            raise ValueError(
+                f"JSON split manifest item {index} needs json_path, annotation_path, id, "
+                f"or image_path: {path}"
+            )
+        entries.append(str(Path("json") / f"{sample_id}.json"))
     return entries
 
 

@@ -16,6 +16,8 @@ class GeneratedText:
     latency_ms: float
     raw_response: dict[str, Any]
     image_request: dict[str, Any]
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 class OpenAICompatibleVLLMAdapter:
@@ -92,6 +94,8 @@ class OpenAICompatibleVLLMAdapter:
             latency_ms=latency_ms,
             raw_response=raw_response,
             image_request=image_budget.to_dict(),
+            finish_reason=_extract_finish_reason(raw_response),
+            usage=_extract_usage(raw_response),
         )
 
 
@@ -124,3 +128,19 @@ def _extract_text(payload: dict[str, Any]) -> str:
             return "".join(chunks)
     text = first.get("text")
     return text if isinstance(text, str) else ""
+
+
+def _extract_finish_reason(payload: dict[str, Any]) -> str | None:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None
+    value = first.get("finish_reason")
+    return value if isinstance(value, str) else None
+
+
+def _extract_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
+    usage = payload.get("usage")
+    return dict(usage) if isinstance(usage, dict) else None

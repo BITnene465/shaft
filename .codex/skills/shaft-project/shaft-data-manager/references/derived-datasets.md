@@ -3,15 +3,13 @@
 Derived datasets include `grounding`, `point_arrow`, `structured`, and `sft` artifacts. They
 should be rebuildable from raw data plus config.
 
-The maintained model-task taxonomy is:
+The maintained v5.0 model-task taxonomy is:
 
-- `grounding`: full-image detection over model-facing labels `arrow`, `icon`, `image`, and
-  `shape`. This task may consume bbox-only arrow annotations.
-- `point_arrow`: arrow crop/point prediction. This task must consume only arrow instances with a
-  valid raw `linestrip`; currently that means the `part1` subset.
-- `drawio_shape`: crop-level outer-shape classification/style fields for draw.io reconstruction.
-  Current `drawio_shape.v4.0` is weak-supervised train-only data generated from VLM labels, not raw
-  truth and not an eval source.
+- `grounding_layout`: full-image detection over model-facing labels `shape`, `icon`, `image`,
+  and `line`. Raw `arrow` and raw `line` instances are both normalized to `label: "line"` in this
+  unified detection target.
+- `point_line`: line crop/point prediction. This task must consume only line/arrow instances with
+  a valid raw `linestrip`.
 
 Raw annotation layers such as `layout` and `arrow` are schema concepts, not separate train/eval
 task families.
@@ -23,13 +21,30 @@ task families.
 - Rebuild into a clean output directory or explicitly remove stale derived images before writing.
 - Keep train and eval outputs separate.
 - Keep validation augmentation-free unless requested.
-- Use `data/raw_data/splits/grounding_train.txt` and `grounding_val.txt` as the image-level
-  source of truth for grounding. Derive point-arrow train rows by filtering `grounding_train.txt`
-  to `part1` arrow instances with `linestrip`; use `point_arrow_val.txt` for point validation.
-- Current grounding structured subtasks are `grounding_arrow`, `grounding_layout`,
-  `grounding_shape`, and `grounding_icon_image`. Generate them
-  independently from the same grounding split source using each subtask's coverage and label
-  filters.
+- Use explicit split manifests as the source of truth. For the current `data/raw` layout,
+  `data/raw/splits/vlm.test.json` is the canonical VLM test/hand-off manifest. It is image-level,
+  may include items without GT JSON, and must not be used as a train source. Training derived data
+  should come from GT JSON not present in this test manifest unless the user explicitly defines a
+  different split.
+- Current v5.0 grounding structured data is the unified `grounding_layout` task. Historical
+  `grounding_arrow`, standalone `grounding_line`, `grounding_shape`, and `grounding_icon_image`
+  outputs should not be used for new v5.0 training.
+- Current v5.0 SFT conversion emits `grounding_layout` targets as Qwen-style object arrays with
+  `bbox_2d` and `label`, not grouped label arrays. `point_line` targets use
+  `{"label":"line","points_2d":[...]}`.
+- Current v5.0 crop reconstruction targets such as `shape_reconstruction` and
+  `line_reconstruction` must also use Qwen-style integer `0..999` coordinates inside the crop for
+  all model-facing geometry fields, including `corners`, `body_corners`, `body_bbox`,
+  `tail.points`, and line `points`. Do not leave target geometry as crop-local pixels; variable
+  crop sizes make that harder for the model to learn and inconsistent with Qwen grounding
+  pretraining.
+- `grounding_layout` SFT canonical order is visual row-major across all labels:
+  `row_bucket(y_center) -> x1 -> y1 -> y2 -> x2 -> label`. Do not group by label and do not force
+  `line` to the end; doing so makes truncation label-biased and reintroduces grouped-output
+  behavior.
+- `point_line` SFT canonical order preserves the source `linestrip` point order. Directionless
+  line metric policy can be revisited later, but the training target should not reorder points
+  unless raw/source semantics are changed together.
 - Grounding structured rows should reference task-local images, not raw-data image paths. Each
   covered train source contributes one clean `full_image` row. JPEG blur plus resize blur are a
   bounded additional `full_image_blur` subset, defaulting to at most half of covered train
@@ -38,7 +53,8 @@ task families.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced
-  generated images after hard-negative sampling.
+  generated images after hard-negative sampling. Pass `--train-split` and `--val-split`
+  explicitly; the script intentionally has no stale default split files.
 - If SFT conversion is requested, preserve the same split and source ids from structured data.
 - Do not duplicate raw `extra` / `subattr` into structured or SFT rows. Raw data is the metadata
   truth; derived rows should carry only the model-facing target plus minimal traceability fields
@@ -58,13 +74,19 @@ task families.
   explicitly requested. For Banana v2.1, use the looser grounding guard
   `target_tokens > 4000` or `instances > 160`; tighter bounds are only temporary debugging
   tools and should be reverted after diagnosis.
-- For point/crop tasks, filter degenerate crops such as `extra.image_width < 4` or
-  `extra.image_height < 4`.
-- For `point_arrow`, use `scripts/tasks/build_point_arrow_structured.py` to build
-  `data/point_arrow/structured/{train,val}.jsonl` and crop images under
-  `data/point_arrow/images/{train,val}`. The maintained method is one padded crop per valid arrow
-  linestrip, randomized train padding, stable validation padding, and no jitter row doubling
-  unless explicitly requested.
+- For point/crop/reconstruction tasks, filter degenerate crops such as
+  `extra.image_width < 4` or `extra.image_height < 4`.
+- For Qwen VL training, do not emit extreme-aspect crop images. The HF Qwen image processor
+  rejects crops whose absolute aspect ratio is `>= 200`, and one crashing DataLoader worker can
+  surface as a later NCCL timeout on the other ranks. Prefer expanding the shorter crop side to
+  add context and keep real thin line samples, using a conservative cap such as `60`, then verify
+  max aspect ratio before launching a long SFT run.
+- For `point_line`, use `scripts/tasks/build_point_line_structured.py` to build
+  `data/point_line/structured/{train,val}.jsonl` and crop images under
+  `data/point_line/images/{train,val}`. The maintained method is one padded crop per valid raw
+  `arrow` or raw `line` instance with a `linestrip`; output label is always model-facing `line`.
+  Train padding is deterministic-random within the configured range, while validation padding is
+  fixed. Do not apply pixel augmentation or jitter row doubling unless explicitly requested.
 - When filtering SFT rows, create a timestamped `.bak_*`, report counts, and verify no matching
   rows remain.
 

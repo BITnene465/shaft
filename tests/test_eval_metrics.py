@@ -70,3 +70,20 @@ def test_keypoint_pck_uses_normalized_coordinate_scale_by_default() -> None:
     )
 
     assert metric.compute() == pytest.approx(1.0)
+
+
+def test_keypoint_pck_accepts_points_2d_alias() -> None:
+    metric = build_eval_metric("keypoint_pck", params={"coordinate_space": "points_2d"})
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed={"label": "line", "points_2d": [[228, 492], [810, 492]]},
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    target = {"label": "line", "points_2d": [[228, 492], [810, 492]]}
+
+    metric.update(prediction=prediction, target=target, sample_meta={})
+
+    assert metric.compute() == pytest.approx(1.0)

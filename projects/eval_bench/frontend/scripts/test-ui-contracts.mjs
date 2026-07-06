@@ -1480,6 +1480,7 @@ assert(
     !jobsPage.includes("RecentRunList") &&
     !jobsPage.includes("recent-run-card") &&
     !jobsPage.includes("最近结果") &&
+    jobsPage.includes('className="page-stack density-page jobs-page"') &&
     jobsManifestStyleSource.includes(".manifest-job-form label") &&
     jobsManifestStyleSource.includes(".manifest-toolbar") &&
     jobsQueuePanelSource.includes("job-queue-workbench detail-open") &&
@@ -1488,7 +1489,10 @@ assert(
     jobsQueuePanelSource.includes('title="收起日志侧栏"') &&
     jobsQueueStyleSource.includes(".queue-stack") &&
     jobsQueueStyleSource.includes(".job-activity-grid > .workspace-card.fill.job-queue-card") &&
-    jobsQueueStyleSource.includes("overflow: visible;") &&
+    jobsQueueStyleSource.includes(".jobs-page {\n  overflow: hidden;") &&
+    jobsQueueStyleSource.includes(".queue-stack > .table-shell") &&
+    jobsQueueStyleSource.includes("flex: 1 1 auto;") &&
+    jobsQueueStyleSource.includes("min-height: 120px;") &&
     jobsQueueStyleSource.includes(".job-queue-workbench.detail-open") &&
     jobsQueueStyleSource.includes("grid-template-columns: minmax(0, 1fr) var(--job-detail-sidebar-width)") &&
     jobsQueueStyleSource.includes("@keyframes job-detail-sidebar-in") &&
@@ -1507,7 +1511,8 @@ assert(
     jobsQueueStyleSource.includes(".job-eval-cell .run-id-text") &&
     jobsDetailStyleSource.includes(".job-detail-panel") &&
     jobsDetailStyleSource.includes(".job-detail-sidebar .job-detail-panel") &&
-    jobsDetailStyleSource.includes("max-height: calc(100vh - (var(--workspace-pad-12) * 2))") &&
+    jobsDetailStyleSource.includes("height: 100%;") &&
+    jobsDetailStyleSource.includes("max-height: none;") &&
     jobsDetailStyleSource.includes(".job-detail-sidebar .job-log-tail") &&
     jobsDetailStyleSource.includes(':root[data-theme="dark"] .job-detail-panel') &&
     jobsDetailStyleSource.includes("--job-detail-log-max: clamp(280px, 48vh, 620px)") &&
@@ -3462,6 +3467,14 @@ assert(
       compareReportSamplesSource,
     ),
   "compare sample navigation rows must use shared navigation card primitives",
+);
+assert(
+  apiTypesSource.includes("score_label: string;") &&
+    !apiTypesSource.includes("score_formula") &&
+    !navPrefetchSmokeSource.includes("score_formula") &&
+    !refreshPolicySmokeSource.includes("score_formula") &&
+    !loadingStateSmokeSource.includes("score_formula"),
+  "rank board API contract must expose score_label instead of the removed score_formula field",
 );
 assert(
   rankBoardModelSource.includes("export const RANK_PAGE_SIZE = 80;") &&

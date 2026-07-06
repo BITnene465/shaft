@@ -86,19 +86,20 @@
   `transformers.models.qwen3_5` 模块是否存在；MoE 模型还会检查
   `transformers.models.qwen3_5_moe`。如果当前 PyPI release 尚未包含该模型，应安装
   Transformers 主分支或项目确认过的内部 wheel。
-- 仓库基础依赖允许 Transformers 4.x/5.x；不安装 `serve` 时，当前 lock 会解析到
+- 仓库基础依赖允许 Transformers 4.x/5.x；当前验证过的 lock 口径固定为
   `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 的 HF 本地训练与推理。
-  `qwen-next` extra 用于显式固定新一代 Qwen 训练口径。当前 `serve` extra 里的
-  `vllm==0.19.0` 仍要求 `transformers<5`，因此 `qwen-next` 与 `serve` 在
-  `tool.uv.conflicts` 中显式互斥。vLLM 评测服务应使用已经支持 `qwen3_5` 架构的独立服务镜像
-  或外部服务。对本地 HF 训练环境，推荐执行：
+  `qwen-next` extra 用于显式固定新一代 Qwen 口径；业务 vLLM 推理镜像使用同一份
+  `uv.lock`，当前标准为 `vllm==0.19.1` + `transformers==5.10.1`。对本地 HF 训练环境，
+  推荐执行：
 
   ```bash
   uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
   ```
 
-  该环境中不要同时安装 `.[serve]`；如果需要启动 vLLM 0.19 服务，应切回不带 `qwen-next`
-  的 serve 环境或使用外部 vLLM endpoint。
+  业务推理环境不要自行拼装依赖版本，应使用 `docker/inference/` 中的推理镜像或用同一份
+  `uv.lock` 构建。推理效果对 prompt、pixel budget、generation 参数和 JSON 解析都敏感，
+  不能只对齐模型权重；镜像构建和 `shaft-contract-smoke` 验收见
+  `docker/inference/README.md`。
 - `qwen35vl` / `qwen36vl` 默认使用 `template=qwen35vl`，该模板会在 generation prompt 中关闭
   thinking，避免结构化 JSON 任务无意训练或生成 `<think>` 内容。确实需要 CoT 数据时，显式设置
   `model.template: qwen35vl_thinking`。

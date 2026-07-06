@@ -3,32 +3,28 @@
 Raw directories are the source of truth. Derived datasets should be rebuilt from raw data, not
 patched directly unless the user explicitly asks for a temporary experiment.
 
-The day-to-day raw data entrypoint in this repo is `data/raw_data`. It should normally be a symlink
-to the shared managed root `/mnt/data/shared_data/vlm_data/raw_data`, so repo-relative operations on
-`data/raw_data` directly affect the shared dataset. Legacy `raw_layout` and `raw_arrow` directories
-were merged into this unified source; do not start new maintenance work from the legacy split
+The day-to-day raw data entrypoint in this repo is `data/raw`. Legacy `raw_layout`, `raw_arrow`,
+and `raw_data` directories are historical; do not start new maintenance work from the legacy split
 directories.
 
-Do not use broad destructive commands such as `rm -rf data/raw_data`, `rm -rf data/raw_data/*`, or
-unchecked bulk deletes. Because `data/raw_data` points at the shared managed dataset, do not plan
-routine `rsync` synchronization. For large replacements or reorganizations, operate directly through
-`data/raw_data`, state that it updates the shared dataset, and verify file counts, active image/json
-coverage, and split summaries afterward.
+Do not use broad destructive commands such as `rm -rf data/raw`, `rm -rf data/raw/*`, or unchecked
+bulk deletes. For large replacements or reorganizations, operate directly through `data/raw`,
+state the scope, and verify file counts, active image/json coverage, and split summaries afterward.
 
 ## Directory Rules
 
-- Current maintained `raw_data` is partitioned by annotation stage:
-  - `part1/images` and `part1/json` contain samples with non-empty maintained instances.
-  - `part2/images` and `part2/json` contain unannotated inventory samples with
-    `annotation.layers=[]`, `annotation.status={}`, and `instances=[]`.
-- JSON `image_path` is always relative to the `raw_data` root, for example
-  `part1/images/00001.png` or `part2/images/pic_1001.png`.
-- Split files stay task-named by model task, not raw layer. Current maintained task splits are
-  `grounding_train.txt`, `grounding_val.txt`, and `point_arrow_val.txt`. Each non-empty line is a
-  JSON path relative to `raw_data`, for example `part1/json/00001.json`, not a bare sample stem.
-- Keep annotations and images in predictable sibling directories inside each part. If an imported
-  source uses another name such as `figure`, normalize it before treating the raw directory as
-  maintained.
+- Current maintained `raw` is flat:
+  - `images/` contains source images.
+  - `json/` contains maintained GT annotation JSON for the labeled subset.
+  - Many images may not have JSON and are image-only inventory/test items.
+- JSON `image_path` is always relative to the `raw` root, for example `images/prod_000995.png`.
+- Current maintained split manifests live under `data/raw/splits/`. `vlm.test.json` is the
+  canonical VLM test/hand-off split. It is an image-level JSON manifest with `items[].image_path`
+  and optional `items[].id`; it is not a train split and must not be silently mixed into training.
+  Tools that need GT may resolve each item to `json/<id>.json` or `json/<image_stem>.json`, but
+  missing JSON means the item is image-only and cannot contribute to metric computation.
+- Keep annotations and images in predictable sibling directories. If an imported source uses
+  another name such as `figure`, normalize it before treating the raw directory as maintained.
 - Count labeled samples by JSON coverage. Extra images without JSON are unlabeled unless the
   user says otherwise.
 - Maintain a short `README.md` inside each raw directory. It should describe current schema,
@@ -49,9 +45,8 @@ Raw JSON files should be maintained in a normalized schema, not in importer-nati
 - layout instance: `label`, two-corner `bbox: [x1, y1, x2, y2]`, `extra`
 - arrow instance: `label`, two-corner `bbox`, `linestrip`, `subattr`, `extra`
 
-Empty inventory samples are valid in unified raw data and should live in `part2`:
-`annotation.layers=[]`, `annotation.status={}`, and `instances=[]`. They are future annotation
-inventory and must not be treated as negative samples for any task.
+Image-only inventory/test samples are valid in unified raw data. They are future annotation
+inventory or hand-off inputs and must not be treated as negative samples for any task.
 
 Do not keep `points`, `shape_type`, `group_id`, or `flags` as live instance fields. Preserve
 source-only details inside `extra` only when they are needed for traceability. This prevents

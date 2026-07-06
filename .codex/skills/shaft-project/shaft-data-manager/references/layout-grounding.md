@@ -1,12 +1,11 @@
 # Layout Grounding
 
-Use this for layout raw layers inside unified `raw_data` when deriving the unified `grounding`
+Use this for layout raw layers inside unified `data/raw` when deriving the unified `grounding`
 task.
 
 ## Raw Input
 
-- Typical maintained layout input is `data/raw_data/part1/json` plus
-  `data/raw_data/part1/images`.
+- Typical maintained layout input is `data/raw/json` plus `data/raw/images`.
 - Layout-labeled samples are JSON entries whose `annotation.layers` include `layout`.
 - Current maintained layout labels are `icon`, `image`, and `shape`.
 - Current maintained raw schema is `shaft.raw_data.v1`.
@@ -24,9 +23,10 @@ task.
 
 ## Derived Grounding Policy
 
-- Split before augmentation. Prefer `data/raw_data/splits/grounding_train.txt` and
-  `data/raw_data/splits/grounding_val.txt` for grounding derivation. Split entries are
-  raw-data-relative JSON paths such as `part1/json/gemini_0001.json`, not bare stems.
+- Split before augmentation. Current VLM test/hand-off split is
+  `data/raw/splits/vlm.test.json`; do not include those test items in train-derived grounding
+  data. For GT-based structured/eval data, resolve image-level split items to raw-relative JSON
+  paths such as `json/gemini_0001.json` only when the JSON exists.
 - Validation uses full-image only.
 - Train keeps full images and may add random image-relative density crops plus controlled hard
   negatives.

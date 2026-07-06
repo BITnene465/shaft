@@ -68,6 +68,10 @@
   - 推理子系统设计
   - stage / engine 边界
 
+- [../docker/inference/README.md](../docker/inference/README.md)
+  - 业务推理镜像构建与 vLLM 启动
+  - `shaft-contract-smoke` 推理契约验收
+
 - [export.md](export.md)
   - HF 导出、validate、merge-peft
 

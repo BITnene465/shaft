@@ -77,6 +77,15 @@ def test_metric_profile_default_follows_task() -> None:
     assert keypoint.endpoint_threshold_px == 20.0
 
 
+def test_metric_profile_supports_detection_maxmatch_v2() -> None:
+    detection = resolve_metric_profile("detection_iou_maxmatch_v2", task="detection")
+
+    assert detection.profile_id == "detection_iou_maxmatch_v2"
+    assert detection.matcher == "bbox_iou_maxmatch"
+    assert detection.primary_score == "f1_iou50"
+    assert detection.iou_threshold == 0.5
+
+
 def test_metric_profile_rejects_cross_task_profile() -> None:
     with pytest.raises(ValueError, match="is for task='detection'"):
         resolve_metric_profile("detection_iou_v1", task="keypoint")

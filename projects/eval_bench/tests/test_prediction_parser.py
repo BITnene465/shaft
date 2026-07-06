@@ -50,6 +50,30 @@ def test_detection_parser_normalizes_arrow_subclasses_to_arrow() -> None:
     assert doc.instances[1].extra["source_label_before_normalization"] == "double_arrow"
 
 
+def test_detection_parser_accepts_grouped_bbox_payload_and_returns_instances() -> None:
+    doc = parse_prediction_text(
+        text=json.dumps(
+            {
+                "shape": [[100, 100, 300, 300]],
+                "icon": [],
+                "image": [[500, 500, 750, 750]],
+                "line": [[0, 100, 1000, 120]],
+            }
+        ),
+        task="detection",
+        image="part3/images/grouped.png",
+        image_width=2000,
+        image_height=1000,
+        metadata={"model_id": "unit"},
+    )
+
+    assert [instance.label for instance in doc.instances] == ["shape", "image", "line"]
+    assert doc.instances[0].bbox == [200.0, 100.0, 600.0, 300.0]
+    assert doc.instances[1].bbox == [1000.0, 500.0, 1500.0, 750.0]
+    assert doc.instances[2].bbox == [0.0, 100.0, 2000.0, 120.0]
+    assert doc.to_dict(task="detection")["instances"][0]["label"] == "shape"
+
+
 def test_keypoint_parser_accepts_top_level_keypoints_and_clips_bbox() -> None:
     doc = parse_prediction_text(
         text=json.dumps({"keypoints_2d": [[0, 0], [1000, 1000]]}),
@@ -65,6 +89,23 @@ def test_keypoint_parser_accepts_top_level_keypoints_and_clips_bbox() -> None:
     assert instance.label == "arrow"
     assert instance.keypoints == [[0.0, 0.0], [1200.0, 800.0]]
     assert instance.bbox == [0.0, 0.0, 1200.0, 800.0]
+
+
+def test_keypoint_parser_accepts_top_level_points_2d_for_line() -> None:
+    doc = parse_prediction_text(
+        text=json.dumps({"label": "line", "points_2d": [[228, 492], [810, 492]]}),
+        task="keypoint",
+        image="part1/images/line.png",
+        image_width=1000,
+        image_height=500,
+        metadata={"model_id": "unit"},
+    )
+
+    assert len(doc.instances) == 1
+    instance = doc.instances[0]
+    assert instance.label == "line"
+    assert instance.keypoints == [[228.0, 246.0], [810.0, 246.0]]
+    assert instance.bbox == [228.0, 245.0, 810.0, 247.0]
 
 
 def test_keypoint_parser_derives_valid_bbox_for_single_edge_point() -> None:
@@ -93,3 +134,21 @@ def test_parser_returns_empty_document_for_malformed_text() -> None:
     )
 
     assert doc.instances == []
+    assert doc.metadata["parser"]["decode_valid"] is False
+    assert doc.metadata["parser"]["decode_partial"] is False
+
+
+def test_parser_records_partial_empty_repair_for_malformed_json_array() -> None:
+    doc = parse_prediction_text(
+        text='[{"label":"arrow","bbox_2d":[0,0,100,100]},{"label":"bbox_2d":[200,200,300,300]}]',
+        task="detection",
+        image="part1/images/a.png",
+        image_width=100,
+        image_height=100,
+        metadata={"model_id": "unit"},
+    )
+
+    assert doc.instances == []
+    assert doc.metadata["parser"]["decode_valid"] is True
+    assert doc.metadata["parser"]["decode_partial"] is True
+    assert doc.metadata["parser"]["decode_empty_repair"] is True

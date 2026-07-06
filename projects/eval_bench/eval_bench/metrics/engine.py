@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,15 @@ class _CandidateMatch:
     pred_index: int
     sort_key: tuple[float, float]
     payload: dict[str, Any]
+
+
+@dataclass
+class _FlowEdge:
+    to: int
+    rev: int
+    cap: int
+    cost: int
+    candidate: _CandidateMatch | None = None
 
 
 @dataclass
@@ -224,15 +233,19 @@ def _match_label_instances(
 ) -> list[_CandidateMatch]:
     if profile.matcher == "bbox_iou":
         candidates = _bbox_iou_candidates(gt_instances, pred_instances, iou_threshold=iou_threshold)
+        return _greedy_assign(candidates)
+    if profile.matcher == "bbox_iou_maxmatch":
+        candidates = _bbox_iou_candidates(gt_instances, pred_instances, iou_threshold=iou_threshold)
+        return _max_cardinality_max_iou_assign(candidates)
     elif profile.matcher == "ordered_endpoint_distance":
         candidates = _endpoint_distance_candidates(
             gt_instances,
             pred_instances,
             endpoint_threshold_px=profile.endpoint_threshold_px,
         )
+        return _greedy_assign(candidates)
     else:
         raise ValueError(f"unsupported metric matcher: {profile.matcher!r}")
-    return _greedy_assign(candidates)
 
 
 def _bbox_iou_candidates(
@@ -293,6 +306,90 @@ def _greedy_assign(candidates: list[_CandidateMatch]) -> list[_CandidateMatch]:
         used_pred.add(candidate.pred_index)
         matches.append(candidate)
     return matches
+
+
+def _max_cardinality_max_iou_assign(candidates: list[_CandidateMatch]) -> list[_CandidateMatch]:
+    """Exact bipartite assignment: maximize match count, then matched IoU sum."""
+    if not candidates:
+        return []
+
+    gt_ids = sorted({candidate.gt_index for candidate in candidates})
+    pred_ids = sorted({candidate.pred_index for candidate in candidates})
+    gt_to_local = {gt_index: index for index, gt_index in enumerate(gt_ids)}
+    pred_to_local = {pred_index: index for index, pred_index in enumerate(pred_ids)}
+
+    source = 0
+    gt_offset = 1
+    pred_offset = gt_offset + len(gt_ids)
+    sink = pred_offset + len(pred_ids)
+    graph: list[list[_FlowEdge]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(frm: int, to: int, cap: int, cost: int, candidate: _CandidateMatch | None = None) -> None:
+        forward = _FlowEdge(to=to, rev=len(graph[to]), cap=cap, cost=cost, candidate=candidate)
+        backward = _FlowEdge(to=frm, rev=len(graph[frm]), cap=0, cost=-cost)
+        graph[frm].append(forward)
+        graph[to].append(backward)
+
+    for gt_local in range(len(gt_ids)):
+        add_edge(source, gt_offset + gt_local, 1, 0)
+    for pred_local in range(len(pred_ids)):
+        add_edge(pred_offset + pred_local, sink, 1, 0)
+    for candidate in candidates:
+        gt_node = gt_offset + gt_to_local[candidate.gt_index]
+        pred_node = pred_offset + pred_to_local[candidate.pred_index]
+        iou_cost = -int(round(float(candidate.payload.get("iou") or 0.0) * 1_000_000))
+        add_edge(gt_node, pred_node, 1, iou_cost, candidate)
+
+    while _augment_shortest_path(graph, source=source, sink=sink):
+        pass
+
+    matches: list[_CandidateMatch] = []
+    for gt_local in range(len(gt_ids)):
+        gt_node = gt_offset + gt_local
+        for edge in graph[gt_node]:
+            if edge.candidate is not None and edge.cap == 0:
+                matches.append(edge.candidate)
+    return sorted(matches, key=lambda item: (item.gt_index, item.pred_index))
+
+
+def _augment_shortest_path(graph: list[list[_FlowEdge]], *, source: int, sink: int) -> bool:
+    inf = 10**18
+    dist = [inf] * len(graph)
+    in_queue = [False] * len(graph)
+    prev_node = [-1] * len(graph)
+    prev_edge = [-1] * len(graph)
+    dist[source] = 0
+    queue: deque[int] = deque([source])
+    in_queue[source] = True
+
+    while queue:
+        node = queue.popleft()
+        in_queue[node] = False
+        for edge_index, edge in enumerate(graph[node]):
+            if edge.cap <= 0:
+                continue
+            next_dist = dist[node] + edge.cost
+            if next_dist >= dist[edge.to]:
+                continue
+            dist[edge.to] = next_dist
+            prev_node[edge.to] = node
+            prev_edge[edge.to] = edge_index
+            if not in_queue[edge.to]:
+                queue.append(edge.to)
+                in_queue[edge.to] = True
+
+    if prev_node[sink] < 0:
+        return False
+
+    node = sink
+    while node != source:
+        parent = prev_node[node]
+        edge_index = prev_edge[node]
+        edge = graph[parent][edge_index]
+        edge.cap -= 1
+        graph[node][edge.rev].cap += 1
+        node = parent
+    return True
 
 
 def _instance_reference(*, index: int, instance: dict[str, Any]) -> dict[str, Any]:

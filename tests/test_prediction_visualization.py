@@ -210,3 +210,41 @@ def test_prediction_visualization_keypoint_uses_line_strip(tmp_path: Path, monke
     assert isinstance(line_strips, list)
     assert len(line_strips) == 1
     assert len(line_strips[0].points) == 3
+
+
+def test_prediction_visualization_points_2d_uses_line_strip(tmp_path: Path, monkeypatch) -> None:
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (200, 160), "white").save(image_path)
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed={"label": "line", "points_2d": [[100, 100], [900, 100]]},
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_save_labeled_visualization(**kwargs) -> str:
+        captured.update(kwargs)
+        return str(tmp_path / "predictions" / "sample.jpg")
+
+    monkeypatch.setattr(
+        prediction_visualization,
+        "save_labeled_visualization",
+        fake_save_labeled_visualization,
+    )
+
+    output = prediction_visualization.render_prediction_visualization(
+        image_path=str(image_path),
+        sample_id="sample",
+        sample_index=1,
+        prediction=prediction,
+        out_dir=tmp_path,
+    )
+
+    assert output is not None
+    line_strips = captured["line_strips"]
+    assert isinstance(line_strips, list)
+    assert len(line_strips) == 1
+    assert len(line_strips[0].points) == 2

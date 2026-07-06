@@ -9,6 +9,18 @@ from shaft.observability import bind_log_context, configure_logging, set_log_con
 from shaft.training.distributed import destroy_process_group_if_initialized
 
 
+def run_sft(config: RuntimeConfig) -> dict[str, Any]:
+    from shaft.pipeline import run_sft as _run_sft
+
+    return _run_sft(config)
+
+
+def run_rlhf(config: RuntimeConfig) -> dict[str, Any]:
+    from shaft.pipeline import run_rlhf as _run_rlhf
+
+    return _run_rlhf(config)
+
+
 def _as_bool(text: str) -> bool:
     normalized = str(text).strip().lower()
     if normalized in {"1", "true", "yes", "y", "on"}:
@@ -147,12 +159,8 @@ def run_from_args(
         with bind_log_context(algorithm=config.algorithm.name):
             logger.info("[startup] start training (algorithm=%s)...", config.algorithm.name)
             if config.algorithm.name == "sft":
-                from shaft.pipeline import run_sft
-
                 metrics = run_sft(config)
             elif config.algorithm.name in {"dpo", "ppo", "grpo"}:
-                from shaft.pipeline import run_rlhf
-
                 metrics = run_rlhf(config)
             else:
                 raise ValueError(f"Unsupported algorithm={config.algorithm.name!r}.")

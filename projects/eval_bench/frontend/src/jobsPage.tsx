@@ -13,7 +13,7 @@ export function JobsPage() {
   const { data } = useDashboardState();
   const [createOpen, setCreateOpen] = useState(false);
   return (
-    <section className="page-stack density-page">
+    <section className="page-stack density-page jobs-page">
       <div className="page-command-row">
         <div>
           <h2>评测中心</h2>

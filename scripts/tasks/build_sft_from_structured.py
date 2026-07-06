@@ -28,6 +28,7 @@ class PromptConfig:
     prompt_id: str
     system_prompt: str
     user_prompt: str
+    metadata: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -41,15 +42,18 @@ class ConvertConfig:
 
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec("grounding_arrow", "grounding", "configs/prompts/pools/grounding_arrow.v2.4.yaml"),
-    TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v2.4.yaml"),
+    TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v5.0.yaml"),
     TaskSpec("grounding_shape", "grounding", "configs/prompts/pools/grounding_shape.v2.4.yaml"),
     TaskSpec(
         "grounding_icon_image",
         "grounding",
         "configs/prompts/pools/grounding_icon_image.v2.4.yaml",
     ),
-    TaskSpec("point_arrow", "point", "configs/prompts/pools/point_arrow.v2.4.yaml"),
+    TaskSpec("point_arrow", "point_arrow", "configs/prompts/pools/point_arrow.v2.4.yaml"),
+    TaskSpec("point_line", "point_line", "configs/prompts/pools/point_line.v5.0.yaml"),
 )
+
+DEFAULT_TASK_NAMES: tuple[str, ...] = ("grounding_layout", "point_line")
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -76,6 +80,7 @@ def _load_prompt_config(path: Path) -> PromptConfig:
         prompt_id=prompt.prompt_id,
         system_prompt=prompt.system_prompt,
         user_prompt=prompt.user_prompt,
+        metadata=dict(prompt.metadata),
     )
 
 
@@ -216,8 +221,8 @@ def _build_grounding_target(
     )
     target = [
         {
-            "label": str(instance["label"]),
             "bbox_2d": list(instance["bbox_2d"]),
+            "label": str(instance["label"]),
         }
         for instance in sorted_instances
     ]
@@ -256,6 +261,31 @@ def _build_point_target(
     return {"keypoints_2d": keypoints}
 
 
+def _build_point_line_target(
+    instances: list[dict[str, Any]],
+    *,
+    image_width: int,
+    image_height: int,
+    num_bins: int,
+) -> dict[str, Any]:
+    if len(instances) != 1:
+        raise ValueError(f"point_line expects one line instance, got {len(instances)}")
+    linestrip = instances[0].get("linestrip")
+    if not isinstance(linestrip, list) or len(linestrip) < 2:
+        raise ValueError("point_line requires a linestrip with at least two points.")
+    points: list[list[int]] = []
+    for point in linestrip:
+        if not isinstance(point, list | tuple) or len(point) != 2:
+            raise ValueError(f"Invalid linestrip point: {point!r}")
+        points.append(
+            [
+                _quantize_coord(float(point[0]), image_width, num_bins),
+                _quantize_coord(float(point[1]), image_height, num_bins),
+            ]
+        )
+    return {"label": "line", "points_2d": points}
+
+
 def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
     line_no, line, config = item
     record = json.loads(line)
@@ -277,7 +307,9 @@ def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
         )
         target_text = json.dumps(target, ensure_ascii=False, separators=(",", ":"))
         task_extra: dict[str, Any] = {"sort_policy": sort_policy}
-    elif config.task.kind == "point":
+        if config.prompt.metadata.get("output_schema"):
+            task_extra["output_schema"] = str(config.prompt.metadata["output_schema"])
+    elif config.task.kind == "point_arrow":
         target_text = json.dumps(
             _build_point_target(
                 instances,
@@ -293,6 +325,24 @@ def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
                 "type": "full_ordered_linestrip",
                 "coordinate_space": "keypoints_2d",
                 "order": "arrow_tail_to_head",
+            }
+        }
+    elif config.task.kind == "point_line":
+        target_text = json.dumps(
+            _build_point_line_target(
+                instances,
+                image_width=image_width,
+                image_height=image_height,
+                num_bins=config.num_bins,
+            ),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        task_extra = {
+            "target_policy": {
+                "type": "line_points_2d",
+                "coordinate_space": "points_2d",
+                "order": "source_linestrip_order",
             }
         }
     else:
@@ -312,7 +362,7 @@ def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
         "image_path": _normalize_output_image_path(image_path, output_path=config.output_path),
         "sample_id": str(record["sample_id"]),
         "dataset_name": config.task.name,
-        "system_prompt": config.prompt.system_prompt,
+        "system_prompt": "",
         "user_prompt": "",
         "target_text": target_text,
         "extra": extra,
@@ -358,19 +408,60 @@ def _convert_split(
         with ProcessPoolExecutor(max_workers=workers) as executor:
             rows = list(executor.map(_build_output_row, work_items, chunksize=256))
     _write_jsonl_atomic(output_path, rows)
-    _write_readme(task_root / "sft" / "README.md", task=task, prompt=prompt, rows=rows)
+    _write_readme(task_root / "sft" / "README.md", task=task, prompt=prompt, rows=rows, split=split)
     return len(rows)
 
 
-def _write_readme(path: Path, *, task: TaskSpec, prompt: PromptConfig, rows: list[dict[str, Any]]) -> None:
+def _count_jsonl_rows(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with path.open("r", encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def _target_contract_summary(task: TaskSpec) -> str:
+    if task.kind == "grounding":
+        return (
+            "- Target schema: JSON array of `{bbox_2d, label}` objects.\n"
+            "- Canonical order: `row_bucket(y_center) -> x1 -> y1 -> y2 -> x2 -> label`; "
+            "labels are mixed in visual order, and `line` is not forced to the end.\n"
+        )
+    if task.kind == "point_line":
+        return (
+            "- Target schema: `{\"label\":\"line\",\"points_2d\":[...]}`.\n"
+            "- Canonical order: `points_2d` preserves the source `linestrip` order.\n"
+        )
+    if task.kind == "point_arrow":
+        return (
+            "- Target schema: `{\"keypoints_2d\":[...]}`.\n"
+            "- Canonical order: arrow tail to arrow head.\n"
+        )
+    return ""
+
+
+def _write_readme(
+    path: Path,
+    *,
+    task: TaskSpec,
+    prompt: PromptConfig,
+    rows: list[dict[str, Any]],
+    split: str,
+) -> None:
     split_counts = Counter(str(row["extra"]["structured_extra"].get("split", "")) for row in rows)
+    current_file_counts = {
+        jsonl_path.stem: _count_jsonl_rows(jsonl_path)
+        for jsonl_path in sorted(path.parent.glob("*.jsonl"))
+    }
     content = (
         f"# {task.name} SFT\n\n"
         f"- Task kind: `{task.kind}`\n"
         f"- Prompt id: `{prompt.prompt_id}`\n"
-        "- `user_prompt` is intentionally empty; runtime prompt pools are the train prompt source.\n"
-        f"- Rows in last converted split: `{len(rows)}`\n"
+        "- `system_prompt` and `user_prompt` are intentionally empty; runtime prompt pools are "
+        "the train prompt source.\n"
+        f"- Last converted split: `{split}` (`{len(rows)}` row(s))\n"
+        f"- Current SFT split files: `{current_file_counts}`\n"
         f"- Last converted split counts from structured extra: `{dict(split_counts)}`\n"
+        f"{_target_contract_summary(task)}"
         "- Coordinate bins: `1000`\n"
         "- Image paths are relative to this `sft/` directory and point back to task-local images.\n"
     )
@@ -386,9 +477,9 @@ def _clean_outputs(tasks: list[TaskSpec], data_root: Path) -> None:
 
 
 def _task_by_name(names: list[str] | None) -> list[TaskSpec]:
-    if not names:
-        return list(TASKS)
     task_map = {task.name: task for task in TASKS}
+    if not names:
+        return [task_map[name] for name in DEFAULT_TASK_NAMES]
     missing = sorted(set(names) - set(task_map))
     if missing:
         raise ValueError(f"Unknown task(s): {', '.join(missing)}")
