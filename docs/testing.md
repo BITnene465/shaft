@@ -129,13 +129,13 @@ uv run pytest -q -m integration
 uv run pytest -q -m manual
 ```
 
-Eval Bench 后端 focused 回归暂时显式执行，直到其大文件测试拆分并完成分层标记：
+Eval Bench 后端 focused 回归：
 
 ```bash
-uv run pytest -q projects/eval_bench/tests
+uv run pytest -q projects/eval_bench/tests -m "not smoke and not integration and not manual"
 ```
 
-Eval Bench 前端：
+Eval Bench 前端按需人工执行，不作为训练框架 CI 门槛：
 
 ```bash
 cd projects/eval_bench/frontend
@@ -363,19 +363,38 @@ Eval Bench 后续按需补充：
 - CLI/API contract。
 - 前端 UI contract 或 layout smoke，只覆盖真实用户可见行为。
 
-## 11. Eval Bench CI Gate
+## 11. GitHub CI Gate
 
-Eval Bench 的基础设施回归由 `.github/workflows/eval-bench.yml` 维护，分成两个 focused gate：
+GitHub Actions 按职责拆分为两个 focused gate，避免 eval-bench 前端或浏览器环境阻塞训练框架合并：
 
-- `backend-contract`：安装 `dev + eval-bench` extras，运行
-  `uv run pytest -q projects/eval_bench/tests -m "not smoke and not integration and not manual"`。
-- `frontend-contract`：构建 Vite 前端，启动本地 dashboard，然后运行
-  `npm run test:ui-contracts` 和 `npm run test:layout`。
+- `.github/workflows/framework-ci.yml`
+  - 主门禁。
+  - 触发范围：`src/shaft/**`、`tests/**`、训练/推理/导出薄入口、`configs/**`、依赖文件和自身 workflow。
+  - 安装 `dev` extra。
+  - 运行 `uv run python -m compileall src/shaft tests`。
+  - 运行 `uv run pytest -q tests -m "not smoke and not integration and not manual"`。
+- `.github/workflows/eval-bench-backend.yml`
+  - Eval Bench 后端 focused 门禁。
+  - 触发范围：`projects/eval_bench/eval_bench/**`、`projects/eval_bench/tests/**`、
+    `scripts/eval_bench.py`、共享 codec / pixel budget、依赖文件和自身 workflow。
+  - 安装 `dev + eval-bench` extras。
+  - 运行
+    `uv run pytest -q projects/eval_bench/tests -m "not smoke and not integration and not manual"`。
 
-这套 gate 只覆盖不依赖真实模型服务的 contract、schema、dashboard API 和多视口前端布局。
-真实 vLLM、GPU、长推理和 Docker build 仍属于 integration/manual 验收；业务推理环境一致性用
-`docker/inference/` 中的 `shaft-contract-smoke` 记录 prompt hash、pixel budget、generation、
-finish reason、shared codec parser 状态和 token usage。
+Eval Bench 前端构建、UI contract、Playwright layout smoke 不进入默认 GitHub CI。它们用于 dashboard
+前端专项 review 或发布前人工验收：
+
+```bash
+cd projects/eval_bench/frontend
+npm ci
+npm run build
+npm run test:ui-contracts
+npm run test:layout
+```
+
+真实 vLLM、GPU、长推理、Docker build 和浏览器多视口布局都属于 integration/manual 验收；业务推理环境一致性用
+`docker/inference/` 中的 `shaft-contract-smoke` 记录 prompt hash、pixel budget、generation、finish reason、
+shared codec parser 状态和 token usage。
 
 ## 12. 当前重构计划
 
@@ -404,5 +423,5 @@ finish reason、shared codec parser 状态和 token usage。
 阶段 4：质量门收口。
 
 - 默认 `pytest -q` 只保留稳定核心回归。
-- CI / 本地推荐命令明确区分 core、smoke、eval-bench、frontend。
+- CI / 本地推荐命令明确区分 framework、smoke、eval-bench backend、frontend manual。
 - 文档、AGENTS 和开发日志保持一致。

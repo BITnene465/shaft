@@ -1,0 +1,66 @@
+name: eval-bench-backend
+
+"on":
+  pull_request:
+    paths:
+      - ".github/workflows/eval-bench-backend.yml"
+      - "projects/eval_bench/eval_bench/**"
+      - "projects/eval_bench/tests/**"
+      - "scripts/eval_bench.py"
+      - "src/shaft/codec/**"
+      - "src/shaft/utils/qwen_pixel_budget.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches:
+      - main
+      - "feat/**"
+    paths:
+      - ".github/workflows/eval-bench-backend.yml"
+      - "projects/eval_bench/eval_bench/**"
+      - "projects/eval_bench/tests/**"
+      - "scripts/eval_bench.py"
+      - "src/shaft/codec/**"
+      - "src/shaft/utils/qwen_pixel_budget.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install eval-bench backend test environment
+        run: uv sync --frozen --extra dev --extra eval-bench
+
+      - name: Run eval-bench backend tests
+        run: |
+          set +e
+          uv run pytest -q projects/eval_bench/tests \
+            -m "not smoke and not integration and not manual" \
+            2>&1 | tee "$RUNNER_TEMP/eval-bench-backend.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 80 "$RUNNER_TEMP/eval-bench-backend.log" | while IFS= read -r line; do
+              line="${line//'%'/'%25'}"
+              line="${line//$'\r'/'%0D'}"
+              echo "::error title=eval-bench-backend::$line"
+            done
+          fi
+          exit "$status"

@@ -1,0 +1,71 @@
+name: framework-ci
+
+"on":
+  pull_request:
+    paths:
+      - ".github/workflows/framework-ci.yml"
+      - "configs/**"
+      - "scripts/train.py"
+      - "scripts/infer.py"
+      - "scripts/export.py"
+      - "src/shaft/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches:
+      - main
+      - "feat/**"
+    paths:
+      - ".github/workflows/framework-ci.yml"
+      - "configs/**"
+      - "scripts/train.py"
+      - "scripts/infer.py"
+      - "scripts/export.py"
+      - "src/shaft/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  framework-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install framework test environment
+        run: uv sync --frozen --extra dev
+
+      - name: Compile framework sources
+        run: uv run python -m compileall src/shaft tests
+
+      - name: Run framework tests
+        run: |
+          set +e
+          uv run pytest -q tests \
+            -m "not smoke and not integration and not manual" \
+            2>&1 | tee "$RUNNER_TEMP/framework-tests.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 80 "$RUNNER_TEMP/framework-tests.log" | while IFS= read -r line; do
+              line="${line//'%'/'%25'}"
+              line="${line//$'\r'/'%0D'}"
+              echo "::error title=framework-contract::$line"
+            done
+          fi
+          exit "$status"
