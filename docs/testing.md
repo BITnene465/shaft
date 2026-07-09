@@ -367,6 +367,11 @@ Eval Bench 后续按需补充：
 
 GitHub Actions 按职责拆分为两个 focused gate，避免 eval-bench 前端或浏览器环境阻塞训练框架合并：
 
+- `.github/workflows/eval-bench.yml`
+  - 兼容旧 required check 的轻量门禁，保留旧 workflow 名 `eval-bench` 和旧 job context。
+  - `backend-contract` 安装 `dev + eval-bench` extras 并运行 Eval Bench 后端测试。
+  - `frontend-contract` 是 no-op 成功，用于明确前端 build / UI contract / Playwright layout smoke
+    已迁到 manual gate。
 - `.github/workflows/framework-ci.yml`
   - 主门禁。
   - 触发范围：`src/shaft/**`、`tests/**`、训练/推理/导出薄入口、`configs/**`、依赖文件和自身 workflow。
