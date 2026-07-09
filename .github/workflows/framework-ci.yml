@@ -49,7 +49,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install framework test environment
-        run: uv sync --frozen --extra dev --extra train --extra rlhf
+        run: uv sync --frozen --extra dev --extra train --extra rlhf --extra distributed
 
       - name: Compile framework sources
         run: uv run python -m compileall src/shaft tests
