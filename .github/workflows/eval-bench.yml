@@ -2,60 +2,74 @@ name: eval-bench
 
 "on":
   pull_request:
+    paths:
+      - ".github/workflows/eval-bench.yml"
+      - "projects/eval_bench/eval_bench/**"
+      - "projects/eval_bench/tests/**"
+      - "scripts/eval_bench.py"
+      - "src/shaft/codec/**"
+      - "src/shaft/utils/qwen_pixel_budget.py"
+      - "pyproject.toml"
+      - "uv.lock"
   push:
     branches:
       - main
-      - "feat/**"
+    paths:
+      - ".github/workflows/eval-bench.yml"
+      - "projects/eval_bench/eval_bench/**"
+      - "projects/eval_bench/tests/**"
+      - "scripts/eval_bench.py"
+      - "src/shaft/codec/**"
+      - "src/shaft/utils/qwen_pixel_budget.py"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  backend-contract:
+  backend:
+    name: backend
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.11
 
-      - name: Install eval-bench backend test environment
-        run: uv sync --frozen --extra dev --extra eval-bench
+      - name: Verify dependency lock
+        run: uv lock --check
 
-      - name: Run eval-bench backend tests
-        run: |
-          set +e
-          uv run pytest -q projects/eval_bench/tests \
-            -m "not smoke and not integration and not manual" \
-            2>&1 | tee "$RUNNER_TEMP/eval-bench-backend.log"
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            tail -n 80 "$RUNNER_TEMP/eval-bench-backend.log" | while IFS= read -r line; do
-              line="${line//'%'/'%25'}"
-              line="${line//$'\r'/'%0D'}"
-              echo "::error title=backend-contract::$line"
-            done
-          fi
-          exit "$status"
+      - name: Install Eval Bench test environment
+        run: uv sync --locked --extra dev --extra eval-bench
 
-  frontend-contract:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Frontend contract moved to manual review
+      - name: Run static checks
         run: |
-          echo "Eval Bench frontend build, UI contracts, and Playwright layout smoke are manual gates."
-          echo "Run them locally before frontend-focused releases:"
-          echo "  cd projects/eval_bench/frontend"
-          echo "  npm ci"
-          echo "  npm run build"
-          echo "  npm run test:ui-contracts"
-          echo "  npm run test:layout"
+          uv run --locked ruff check projects/eval_bench/eval_bench projects/eval_bench/tests
+          uv run --locked python -m compileall -q \
+            projects/eval_bench/eval_bench projects/eval_bench/tests
+
+      - name: Run Eval Bench backend suite
+        run: |
+          mkdir -p "$RUNNER_TEMP/eval-bench-test-results"
+          uv run --locked pytest projects/eval_bench/tests --eval-bench-suite backend \
+            --junitxml="$RUNNER_TEMP/eval-bench-test-results/backend.xml"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: eval-bench-test-results
+          path: ${{ runner.temp }}/eval-bench-test-results
+          if-no-files-found: warn
+          retention-days: 14

@@ -166,16 +166,28 @@ python scripts/web.py
 pytest -q
 ```
 
+只跑 CPU smoke：
+
+```bash
+pytest -q tests --suite smoke
+```
+
+只跑 distributed：
+
+```bash
+pytest -q tests --suite distributed
+```
+
 只跑 integration：
 
 ```bash
-pytest -q -m integration
+pytest -q tests --suite integration
 ```
 
-只跑 manual：
+只跑 GPU runtime：
 
 ```bash
-pytest -q -m manual
+pytest -q tests --suite gpu
 ```
 
 必要时做编译级检查：
@@ -329,6 +341,9 @@ python3 -m compileall src/shaft tests
   - 真实模型 / 真实推理后端
 - Manual 测试
   - 人工触发、重型、耗时
+
+测试文件的默认执行范围由 `tests/conftest.py` suite manifest 显式管理。新增 `test_*.py` 必须恰好
+登记到一个 suite；marker 只描述测试属性，不能代替 suite membership。
 
 ### 7.3 变更类型与最低测试责任
 
