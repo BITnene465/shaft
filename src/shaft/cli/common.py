@@ -34,13 +34,14 @@ def add_common_train_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", required=True, help="Path to YAML train config.")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--max-steps", type=int, default=None)
+    duration_group = parser.add_mutually_exclusive_group()
+    duration_group.add_argument("--epochs", type=float, default=None)
+    duration_group.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--gradient-checkpointing", type=_as_bool, default=None)
     parser.add_argument("--learning-rate", "--lr", dest="learning_rate", type=float, default=None)
     parser.add_argument("--train-batch-size", type=int, default=None)
     parser.add_argument("--eval-batch-size", type=int, default=None)
-    parser.add_argument("--mix-strategy", choices=["concat", "interleave_under", "interleave_over"], default=None)
+    parser.add_argument("--mix-strategy", choices=["concat", "weighted"], default=None)
     parser.add_argument("--optimizer", dest="optimizer_name", default=None)
     parser.add_argument("--scheduler", dest="scheduler_name", default=None)
     parser.add_argument("--scheduler-num-cycles", type=float, default=None)
@@ -88,10 +89,18 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
         config.experiment.run_id = str(run_id)
     if seed is not None:
         config.experiment.seed = int(seed)
+    if epochs is not None and max_steps is not None:
+        raise ValueError("--epochs and --max-steps are mutually exclusive duration overrides.")
     if epochs is not None:
-        train_config.epochs = int(epochs)
+        if float(epochs) <= 0:
+            raise ValueError("--epochs must be > 0.")
+        train_config.duration.unit = "epochs"
+        train_config.duration.value = float(epochs)
     if max_steps is not None:
-        train_config.max_steps = int(max_steps)
+        if int(max_steps) <= 0:
+            raise ValueError("--max-steps must be > 0.")
+        train_config.duration.unit = "steps"
+        train_config.duration.value = float(max_steps)
     if gradient_checkpointing is not None:
         train_config.gradient_checkpointing = bool(gradient_checkpointing)
     if learning_rate is not None:

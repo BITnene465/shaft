@@ -104,8 +104,9 @@ def _sft_train_block(*, online_eval: bool) -> str:
     )
     return f"""
 train:
-  epochs: 1
-  max_steps: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-3

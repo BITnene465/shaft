@@ -34,7 +34,7 @@ algorithm:
 data:
   catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
-  mix_strategy: interleave_under
+  mix_strategy: weighted
   num_workers: 8
   pin_memory: true
   persistent_workers: true
@@ -45,8 +45,9 @@ data:
   shuffle: true
 
 train:
-  epochs: 1
-  max_steps: -1
+  duration:
+    unit: epochs
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   gradient_checkpointing: true

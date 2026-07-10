@@ -4,12 +4,17 @@ import json
 from pathlib import Path
 
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from shaft.config import DatasetSourceConfig, PromptSamplingConfig, RuntimeConfig
-from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftMixedIndexSampler
+from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftSampleSampler
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
 _MARK_DATASET_TRANSFORM = "mark_dataset_for_data_center_tests"
+
+
+def _first_sample(batch):
+    return batch[0]
 
 
 if not ONLINE_TRANSFORM_REGISTRY.has(_MARK_DATASET_TRANSFORM):
@@ -125,8 +130,7 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert sample_b["dataset_name"] == "ds_b"
     assert "marked_dataset" not in sample_b["extra"]
     assert isinstance(train_dataset.records, dict)
-    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
-    assert dataset_bundle.train_sampler.refresh_mode == "static"
+    assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
 
 
 def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> None:
@@ -187,11 +191,13 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
     assert train_sample["system_prompt"] in {"system a", "system b"}
     assert train_sample["extra"]["runtime_prompt_id"] in {"prompt.pool.a", "prompt.pool.b"}
     assert train_sample["extra"]["runtime_prompt_version"] == "test-version"
-    assert train_sample["extra"]["runtime_prompt_epoch"] == 0
+    assert train_sample["extra"]["runtime_prompt_draw_id"] == 0
 
+    assert dataset_bundle.train_sampler is not None
     dataset_bundle.train_sampler.set_epoch(3)
-    epoch_sample = dataset_bundle.train_dataset[0]
-    assert epoch_sample["extra"]["runtime_prompt_epoch"] == 3
+    refreshed_ref = next(iter(dataset_bundle.train_sampler))
+    refreshed_sample = dataset_bundle.train_dataset[refreshed_ref]
+    assert refreshed_sample["extra"]["runtime_prompt_draw_id"] == 3
 
     val_sample = dataset_bundle.eval_dataset[0]
     assert val_sample["user_prompt"] == "canonical user"
@@ -294,7 +300,7 @@ def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     assert val_dataset[0]["dataset_name"] == "eval_ds"
 
 
-def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
+def test_data_center_sampler_passes_plan_cycle_in_sample_ref(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
@@ -316,7 +322,6 @@ def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
     config = RuntimeConfig()
     config.experiment.seed = 5
     config.data.mix_strategy = "concat"
-    config.data.mix_refresh = "epoch_refresh"
     config.data.shuffle = True
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
@@ -327,15 +332,53 @@ def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
     dataset_bundle = center.build_dataset_bundle(SFTDataset)
     train_dataset = dataset_bundle.train_dataset
 
-    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
-    assert dataset_bundle.train_sampler.refresh_mode == "epoch_refresh"
-    first = list(dataset_bundle.train_sampler.current_indices)
-    first_sample = train_dataset[0]["sample_id"]
+    assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
+    first = list(dataset_bundle.train_sampler)
+    first_sample = train_dataset[first[0]]
     dataset_bundle.train_sampler.set_epoch(1)
-    second = list(dataset_bundle.train_sampler.current_indices)
-    second_sample = train_dataset[0]["sample_id"]
+    second = list(dataset_bundle.train_sampler)
+    second_sample = train_dataset[second[0]]
     assert first != second
-    assert first_sample != second_sample
+    assert first_sample["_sample_context"]["draw_id"] == 0
+    assert second_sample["_sample_context"]["draw_id"] == len(train_dataset)
+
+
+def test_sample_context_crosses_persistent_worker_boundary(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {"image_path": str(image), "target_text": "{}", "sample_id": f"s{i}"}
+            for i in range(2)
+        ],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.mix_strategy = "concat"
+    config.data.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+    bundle = ShaftDataCenter(config.data, seed=13).build_dataset_bundle(SFTDataset)
+    assert bundle.train_sampler is not None
+    loader = DataLoader(
+        bundle.train_dataset,
+        batch_size=1,
+        sampler=bundle.train_sampler,
+        num_workers=1,
+        persistent_workers=True,
+        collate_fn=_first_sample,
+    )
+
+    first = next(iter(loader))
+    bundle.train_sampler.set_epoch(1)
+    second = next(iter(loader))
+
+    assert first["_sample_context"]["draw_id"] == 0
+    assert second["_sample_context"]["draw_id"] == len(bundle.train_dataset)
 
 
 def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
@@ -378,3 +421,29 @@ def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
     assert len(dataset_bundle.train_dataset) == 16
     assert dataset_bundle.train_sampler.rank == 0
     assert dataset_bundle.train_sampler.world_size == 1
+
+
+def test_data_center_applies_step_sample_budget_to_plan(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "s"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+
+    bundle = ShaftDataCenter(
+        config.data,
+        seed=3,
+        train_sample_budget=17,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert len(bundle.train_dataset) == 17
+    assert bundle.train_sampler is not None
+    assert len(bundle.train_sampler) == 17

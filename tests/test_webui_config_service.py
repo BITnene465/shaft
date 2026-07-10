@@ -40,6 +40,8 @@ eval:
         yaml_text=yaml_text,
         overrides=ShaftSFTWebUIOverrides(
             run_id="web-run",
+            duration_unit="steps",
+            duration_value=25,
             learning_rate=2e-5,
             loss_scale="all",
             freeze_groups="vision_tower,aligner",
@@ -49,6 +51,8 @@ eval:
     assert config.algorithm.name == "sft"
     assert config.experiment.run_id == "web-run"
     assert config.train.learning_rate == pytest.approx(2e-5)
+    assert config.train.duration.unit == "steps"
+    assert config.train.duration.value == 25
     assert config.train.loss_scale == "all"
     assert config.train.use_cpu is True
     assert config.model.finetune.freeze.groups == ["vision_tower", "aligner"]

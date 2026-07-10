@@ -34,11 +34,13 @@ class DataConfig:
     catalog_names: list[str] = field(default_factory=list)
     datasets: list[DatasetSourceConfig] = field(default_factory=list)
     prompt_sampling: PromptSamplingConfig = field(default_factory=PromptSamplingConfig)
-    mix_strategy: str = "interleave_under"
-    mix_refresh: str = "static"
+    mix_strategy: str = "weighted"
     num_workers: int = 4
+    prefetch_factor: int | None = 2
     pin_memory: bool = True
     persistent_workers: bool = True
+    record_cache_dir: str | None = None
+    image_cache_size: int = 0
     min_pixels: int | None = 200704
     max_pixels: int | None = 1048576
     max_length: int | None = None

@@ -6,6 +6,8 @@ from typing import Any
 from transformers import Trainer as HFTrainer
 
 from shaft.config.training import EvalConfig
+from shaft.data.mixing import ShaftSamplePlan
+from shaft.data.sampler import ShaftGroupedSampleSampler
 
 from .distributed import barrier_if_distributed
 from .optimizer_mixin import ShaftOptimizerMixin
@@ -50,7 +52,7 @@ class ShaftDPOTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, _TRLDPOTraine
         super().__init__(*args, **kwargs)
 
 
-class ShaftPPOTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, _TRLPPOTrainer):
+class ShaftPPOTrainer(ShaftOptimizerMixin, _TRLPPOTrainer):
     """TRL PPOTrainer wrapper with Shaft naming."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -67,6 +69,7 @@ class ShaftGRPOTrainer(ShaftOptimizerMixin, _TRLGRPOTrainer):
     def __init__(
         self,
         *args: Any,
+        sample_plan: ShaftSamplePlan | None = None,
         online_eval_runner: ShaftOnlineEvalRunner | None = None,
         eval_config: EvalConfig | None = None,
         **kwargs: Any,
@@ -75,9 +78,22 @@ class ShaftGRPOTrainer(ShaftOptimizerMixin, _TRLGRPOTrainer):
             raise ImportError(
                 "TRL GRPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
             ) from _GRPO_IMPORT_ERROR
+        self.sample_plan = sample_plan
         super().__init__(*args, **kwargs)
         self.online_eval_runner = online_eval_runner
         self.eval_config = eval_config
+
+    def _get_train_sampler(self, dataset=None):
+        if self.sample_plan is None:
+            return super()._get_train_sampler(dataset)
+        return ShaftGroupedSampleSampler(
+            self.sample_plan,
+            mini_repeat_count=self.num_generations,
+            batch_size=self.args.generation_batch_size // self.num_generations,
+            repeat_count=self.num_iterations * self.args.steps_per_generation,
+            shuffle=self.shuffle_dataset,
+            seed=self.args.seed,
+        )
 
     def prepare_online_eval_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
         return HFTrainer._prepare_inputs(self, inputs)

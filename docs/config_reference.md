@@ -181,10 +181,12 @@
 - `datasets`
 - `prompt_sampling`
 - `mix_strategy`
-- `mix_refresh`
 - `num_workers`
+- `prefetch_factor`
 - `pin_memory`
 - `persistent_workers`
+- `record_cache_dir`
+- `image_cache_size`
 - `min_pixels`
 - `max_pixels`
 - `max_length`
@@ -219,11 +221,17 @@
 - `DatasetSourceConfig` 只描述配置输入；进入数据主链前，会先被解析成 `ShaftDatasetMeta`。
 - `use_for_eval=false` 表示该数据集只参与训练 mixing，不参与验证集构建，也不要求提供 `val_path/val_paths`。
 - 当 `eval.enabled=true` 时，至少要有一个 `enabled=true` 且 `use_for_eval=true` 的数据集。
-- `mix_refresh` 当前支持：
-  - `static`
-  - `epoch_refresh`
-- `static` 会在训练启动前构建一次 train sampler，整个 run 复用同一份混合索引。
-- `epoch_refresh` 会在每个 epoch 通过 train sampler 重建训练集 mixing 索引；验证集仍保持静态 concat。
+- `mix_strategy` 当前支持：
+  - `concat`：覆盖全部有效行；开启 `shuffle` 时每轮使用无额外索引内存的可复现置换。
+  - `weighted`：以 `DatasetSourceConfig.weight` 归一化为数据源概率，并按 logical sample draw
+    有放回抽样。step 模式下 plan 长度直接等于训练所需全局样本预算。
+- `weight=0` 会禁用该 source 的 train split 加载与抽样；若 `use_for_eval=true`，val split 仍可参与评估。
+- `num_workers` 是每个 rank 的 worker 数。例如 8 rank × 4 worker 会产生 32 个读取进程。
+- `prefetch_factor` 是每个 worker 预取 batch 数，仅在 `num_workers>0` 时传给 HF DataLoader。
+- JSONL 首次加载时会规范化到 source snapshot 指纹化的 Arrow cache；`record_cache_dir` 可覆盖默认的
+  `~/.cache/shaft/records`。后续 rank/worker 使用只读 mmap，不再各自保留完整 Python record list。
+- `image_cache_size` 是每个 worker 的解码后 PIL 图像 LRU 容量，默认 `0`（关闭）。多 rank/worker
+  环境应按总内存预算谨慎开启。
 - `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
   `max_length` / `cutoff_len`。当 `prefix_tokens + target_tokens + eos > max_length` 时，SFT 会按剩余
   token budget 截断 assistant target；被截断的 target 不会补 EOS，避免把半截 JSON 教成合法结束。
@@ -254,15 +262,36 @@ data:
       point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
 ```
 
+Prompt pool 示例：
+
+```yaml
+metadata:
+  id: shaft.example.prompt_pool.v1
+  version: v1
+prompts:
+  - id: canonical
+    sampling_weight: 3.0
+    user_prompt: Return the requested JSON.
+  - id: concise
+    sampling_weight: 1.0
+    user_prompt: JSON only.
+```
+
 约束：
 
 - prompt pool 路径相对训练 YAML 所在目录解析；一个数据集只能指向一个 pool 文件。
 - pool 只按 `dataset_name` 匹配，不能跨任务复用不同 label scope 的 prompt。
 - 每个 pool YAML 必须包含 `metadata.id`、版本信息和非空 `prompts` 列表；每个 prompt variant 必须包含
   `id` 和 `user_prompt`。
-- 启用后，所有 `enabled=true` 的训练数据集都必须有对应 pool；SFT 行里的 `user_prompt` 不再作为 prompt
-  真源。
-- 采样键包含 `seed + epoch + dataset_name + sample_id`，同一 epoch 内可复现，不同 epoch 可能切换。
+- variant 可配置非负 `sampling_weight`；运行时会归一化为概率。省略时默认为 `1.0`，因此整个 pool
+  省略该字段就是等概率。至少一个 variant 的 weight 必须大于 0。
+- 启用后，所有正权重 train source 都必须有对应 pool；当 `train_only=false` 时，启用的 eval source
+  也必须有 pool。`weight=0` 且不需要 eval prompt 的 source 不要求配置。SFT 行里的 `user_prompt` 不再
+  作为 prompt 真源。
+- 采样单位是 logical sample draw，采样键包含 prompt seed、sample ref 的 transform seed、
+  `dataset_name + sample_id + draw_id`。同一个
+  GRPO grouped-generation 位置保持同一 prompt；同一 source row 被再次抽到时可随 draw_id 轮换，且
+  在 resume、多 worker 和分布式场景下仍可复现。
 - 当前实现只替换 `system_prompt/user_prompt` 形式的样本；如果样本已经提供多轮 `messages`，会跳过采样并在
   `extra.prompt_sampling_skipped` 里记录原因。
 
@@ -291,8 +320,7 @@ data:
 
 关键字段：
 
-- `epochs`
-- `max_steps`
+- `duration`
 - `per_device_train_batch_size`
 - `gradient_accumulation_steps`
 - `gradient_checkpointing`
@@ -321,6 +349,22 @@ data:
 - `resume_from_checkpoint`
 - `distributed`
 
+### `train.duration`
+
+训练时长只有一个真源：
+
+```yaml
+train:
+  duration:
+    unit: steps
+    value: 10000
+```
+
+- `unit=steps` 是主路径，`value` 必须为正整数。Shaft 会把它映射到 HF `max_steps`，并据全局 batch
+  计算准确的 sample plan budget。
+- `unit=epochs` 用于有限数据兼容，`value` 可为正浮点数。Shaft 会映射到 HF
+  `num_train_epochs`；一个 epoch 的 plan 长度默认为所有有效 source 行数之和。
+- YAML 不再同时维护 `epochs` 与 `max_steps`。CLI 仍提供互斥的 `--epochs` / `--max-steps` 便捷覆写。
 说明：
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。
@@ -579,6 +623,8 @@ eval:
 说明：
 
 - PPO 仍是受限能力，文档与实现均不应把它表述为已完成生产方案。
+- 当前 PPO rollout 明确是 text-only：`jsonl_ppo` 的 `image_path` 可省略，即使提供也不会在
+  `PPODataset` 中打开/解码；messages 中的 image chunk 会在 PPO collator 中移除。
 
 ### `rlhf.grpo`
 
@@ -638,9 +684,8 @@ eval:
   - `params`
 - `codec` 复用共享 `codec` 注册表，当前可以直接使用 `json_any / json_object / json_list / text`
 - Shaft 会自动解析 `steps_per_generation`，保证 TRL 的 `generation_batch_size` 与 `num_generations` 整除约束成立。
-- 当前 GRPO 明确要求 `data.mix_refresh=static`。
-  - 原因是 TRL GRPOTrainer 内部使用自己的 prompt-repeat sampler 来实现 grouped generation
-  - 这与 Shaft 的 `epoch_refresh` train sampler 语义冲突
+- GRPO 通过 `ShaftGroupedSampleSampler` 保留 TRL grouped-generation 的 mini-repeat/repeat-count
+  结构，同时按 HF epoch 设置确定性 plan cycle；因此 grouped prompt 一致且多 epoch resume 可复现。
 
 ## 9. `plugins`
 
@@ -670,6 +715,7 @@ eval:
 
 - `run-id`
 - `seed`
+- `max-steps`
 - `epochs`
 - `lr`
 - `resume-from`
@@ -679,3 +725,5 @@ eval:
 
 - 用 CLI 直接拼装复杂 `datasets` 列表
 - 用 CLI 覆盖多层嵌套且语义不清的配置对象
+
+`--max-steps` 与 `--epochs` 互斥；任一参数都会完整替换 `train.duration` 的 unit/value。

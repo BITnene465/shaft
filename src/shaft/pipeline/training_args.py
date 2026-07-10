@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -103,11 +104,45 @@ def _reset_deepspeed_runtime_state() -> None:
     unset_hf_deepspeed_config()
 
 
-def _build_warmup_kwargs(train_cfg) -> dict[str, float | int]:
+def resolve_hf_train_duration(train_cfg: Any) -> tuple[float, int]:
+    """Resolve Shaft's single duration value into the two HF compatibility fields."""
+
+    unit = str(train_cfg.duration.unit).strip().lower()
+    value = float(train_cfg.duration.value)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("train.duration.value must be finite and > 0.")
+    if unit == "steps":
+        if not value.is_integer():
+            raise ValueError("train.duration.value must be an integer when unit='steps'.")
+        return 1.0, int(value)
+    if unit == "epochs":
+        return value, -1
+    raise ValueError(f"Unsupported train duration unit: {unit!r}.")
+
+
+def resolve_step_sample_budget(
+    config: RuntimeConfig,
+    *,
+    world_size: int,
+) -> int | None:
+    """Return the global sample plan size for a step-bounded run."""
+
+    _, max_steps = resolve_hf_train_duration(config.train)
+    if max_steps < 0:
+        return None
+    return (
+        max_steps
+        * int(config.train.per_device_train_batch_size)
+        * int(config.train.gradient_accumulation_steps)
+        * max(int(world_size), 1)
+    )
+
+
+def _build_warmup_kwargs(train_cfg: Any) -> dict[str, float | int]:
     warmup_ratio = float(train_cfg.warmup_ratio)
     if warmup_ratio <= 0:
         return {"warmup_steps": 0}
-    max_steps = int(train_cfg.max_steps)
+    _, max_steps = resolve_hf_train_duration(train_cfg)
     if max_steps > 0:
         return {"warmup_steps": max(1, int(round(max_steps * warmup_ratio)))}
     return {"warmup_ratio": warmup_ratio}
@@ -123,13 +158,14 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
     deepspeed = _build_deepspeed_arg(config)
     gradient_checkpointing = resolve_effective_gradient_checkpointing(config)
     warmup_kwargs = _build_warmup_kwargs(train_cfg)
+    num_train_epochs, max_steps = resolve_hf_train_duration(train_cfg)
     if deepspeed is None:
         _reset_deepspeed_runtime_state()
     return TrainingArguments(
         output_dir=str(Path(config.experiment.output_dir)),
         run_name=config.experiment.run_id or config.experiment.name,
-        num_train_epochs=float(train_cfg.epochs),
-        max_steps=int(train_cfg.max_steps),
+        num_train_epochs=num_train_epochs,
+        max_steps=max_steps,
         per_device_train_batch_size=int(train_cfg.per_device_train_batch_size),
         per_device_eval_batch_size=int(eval_cfg.per_device_eval_batch_size),
         gradient_accumulation_steps=int(train_cfg.gradient_accumulation_steps),
@@ -157,6 +193,11 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         log_on_each_node=False,
         report_to=list(train_cfg.report_to),
         dataloader_num_workers=dataloader_num_workers,
+        dataloader_prefetch_factor=(
+            int(config.data.prefetch_factor)
+            if dataloader_num_workers > 0 and config.data.prefetch_factor is not None
+            else None
+        ),
         dataloader_pin_memory=bool(config.data.pin_memory),
         dataloader_persistent_workers=bool(config.data.persistent_workers and dataloader_num_workers > 0),
         disable_tqdm=True,

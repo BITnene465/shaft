@@ -28,24 +28,6 @@ data:
         load_config(config_path)
 
 
-def test_grpo_requires_static_mix_refresh(tmp_path: Path) -> None:
-    payload = """
-algorithm:
-  name: grpo
-data:
-  mix_refresh: epoch_refresh
-  datasets:
-    - dataset_name: ds1
-      source_type: jsonl_sft
-      train_path: train.jsonl
-      val_path: val.jsonl
-"""
-    config_path = write_config_yaml(tmp_path, payload)
-
-    with pytest.raises(ValueError, match="GRPO currently requires data.mix_refresh='static'"):
-        load_config(config_path)
-
-
 def test_rlhf_numeric_validation_raises(tmp_path: Path) -> None:
     payload = """
 algorithm:

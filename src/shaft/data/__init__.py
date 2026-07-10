@@ -10,9 +10,10 @@ from .dataset import (
     SFTRecord,
 )
 from .meta import ShaftDatasetMeta, build_dataset_metas
-from .mixing import MixedDatasetBuilder
-from .sampler import ShaftMixedIndexSampler
-from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
+from .mixing import ShaftSampleContext, ShaftSamplePlan, ShaftSampleRef
+from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
+from .sampler import ShaftGroupedSampleSampler, ShaftSampleSampler
+from .registry import DATA_SOURCE_REGISTRY
 from .sources import (
     build_data_source,
     load_jsonl_dpo_records,
@@ -27,7 +28,6 @@ from .transforms import (
 )
 
 __all__ = [
-    "MixedDatasetBuilder",
     "OFFLINE_TRANSFORM_REGISTRY",
     "ONLINE_TRANSFORM_REGISTRY",
     "DPOCollator",
@@ -48,9 +48,15 @@ __all__ = [
     "build_data_source",
     "build_dataset_metas",
     "DATA_SOURCE_REGISTRY",
-    "MIX_STRATEGY_REGISTRY",
     "ShaftDataCenter",
-    "ShaftMixedIndexSampler",
+    "ShaftArrowRecordStore",
+    "ShaftConcatRecordStore",
+    "ShaftRecordSubset",
+    "ShaftSampleContext",
+    "ShaftGroupedSampleSampler",
+    "ShaftSamplePlan",
+    "ShaftSampleRef",
+    "ShaftSampleSampler",
     "ShaftPreparedRecords",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",

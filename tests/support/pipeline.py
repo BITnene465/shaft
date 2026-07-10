@@ -60,7 +60,9 @@ algorithm:
 plugins:
 {hooks_yaml if hooks_yaml else '  hooks: []'}
 train:
-  epochs: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5

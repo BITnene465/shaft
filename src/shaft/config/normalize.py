@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import math
 import re
 
 from .runtime import RuntimeConfig
 
-_MIX_STRATEGIES = {"concat", "interleave_under", "interleave_over"}
-_MIX_REFRESH_MODES = {"static", "epoch_refresh"}
+_MIX_STRATEGIES = {"concat", "weighted"}
+_TRAIN_DURATION_UNITS = {"steps", "epochs"}
 _ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
 _LOSS_NAMES = {"auto", "causal_lm"}
@@ -55,14 +56,18 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
         raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
-    config.data.mix_refresh = str(config.data.mix_refresh).strip().lower()
-    if config.data.mix_refresh not in _MIX_REFRESH_MODES:
-        raise ValueError(f"Unsupported data.mix_refresh={config.data.mix_refresh!r}.")
-    if config.algorithm.name == "grpo" and config.data.mix_refresh != "static":
-        raise ValueError(
-            "GRPO currently requires data.mix_refresh='static' because TRL GRPO uses its own repeated "
-            "train sampler for grouped generations."
-        )
+    config.data.num_workers = int(config.data.num_workers)
+    if config.data.num_workers < 0:
+        raise ValueError("data.num_workers must be >= 0.")
+    if config.data.prefetch_factor is not None:
+        config.data.prefetch_factor = int(config.data.prefetch_factor)
+        if config.data.prefetch_factor <= 0:
+            raise ValueError("data.prefetch_factor must be > 0 when set.")
+    config.data.image_cache_size = int(config.data.image_cache_size)
+    if config.data.image_cache_size < 0:
+        raise ValueError("data.image_cache_size must be >= 0.")
+    if config.data.record_cache_dir is not None:
+        config.data.record_cache_dir = str(config.data.record_cache_dir).strip() or None
     if config.data.max_length is not None:
         config.data.max_length = int(config.data.max_length)
         if config.data.max_length <= 0:
@@ -124,6 +129,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         dataset.source_type = str(dataset.source_type).strip().lower()
         dataset.enabled = bool(dataset.enabled)
         dataset.use_for_eval = bool(dataset.use_for_eval)
+        dataset.weight = float(dataset.weight)
+        if not math.isfinite(dataset.weight) or dataset.weight < 0:
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}].weight must be finite and >= 0."
+            )
         dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
         dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
         dataset.offline_transforms = _normalize_string_list(dataset.offline_transforms)
@@ -157,15 +167,25 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                 "GRPO currently expects jsonl_sft data."
             )
 
+    if not any(dataset.enabled and dataset.weight > 0 for dataset in config.data.datasets):
+        raise ValueError("data.datasets requires at least one enabled dataset with weight > 0.")
+
     if prompt_sampling.enabled:
         missing_prompt_pools = [
             dataset.dataset_name
             for dataset in config.data.datasets
-            if dataset.enabled and dataset.dataset_name not in prompt_sampling.pools
+            if (
+                dataset.enabled
+                and (
+                    dataset.weight > 0
+                    or (not prompt_sampling.train_only and dataset.use_for_eval)
+                )
+                and dataset.dataset_name not in prompt_sampling.pools
+            )
         ]
         if missing_prompt_pools:
             raise ValueError(
-                "data.prompt_sampling.enabled=true requires prompt pools for all enabled datasets. "
+                "data.prompt_sampling.enabled=true requires prompt pools for all active train/eval datasets. "
                 f"Missing: {missing_prompt_pools}"
             )
 
@@ -202,10 +222,23 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
     if int(train.save_epoch_interval) <= 0:
         raise ValueError("train.save_epoch_interval must be > 0.")
-    if int(train.epochs) <= 0:
-        raise ValueError("train.epochs must be > 0.")
-    if int(train.max_steps) == 0:
-        raise ValueError("train.max_steps cannot be 0. Use -1 or >0.")
+    train.duration.unit = str(train.duration.unit).strip().lower()
+    if train.duration.unit not in _TRAIN_DURATION_UNITS:
+        raise ValueError(
+            f"Unsupported train.duration.unit={train.duration.unit!r}. "
+            f"Expected one of {_TRAIN_DURATION_UNITS}."
+        )
+    train.duration.value = float(train.duration.value)
+    if not math.isfinite(train.duration.value) or train.duration.value <= 0:
+        raise ValueError("train.duration.value must be finite and > 0.")
+    if train.duration.unit == "steps" and not train.duration.value.is_integer():
+        raise ValueError("train.duration.value must be an integer when unit='steps'.")
+    train.per_device_train_batch_size = int(train.per_device_train_batch_size)
+    if train.per_device_train_batch_size <= 0:
+        raise ValueError("train.per_device_train_batch_size must be > 0.")
+    train.gradient_accumulation_steps = int(train.gradient_accumulation_steps)
+    if train.gradient_accumulation_steps <= 0:
+        raise ValueError("train.gradient_accumulation_steps must be > 0.")
     if float(train.scheduler_num_cycles) <= 0:
         raise ValueError("train.scheduler_num_cycles must be > 0.")
     if float(train.scheduler_power) <= 0:

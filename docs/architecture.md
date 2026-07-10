@@ -390,10 +390,15 @@ flowchart LR
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
 - 通过 `ShaftDatasetMeta -> BaseDataSource -> ShaftDataCenter` 统一多数据源、元信息、增强和 mixing。
-- train split 的 mixing 当前支持两种刷新语义：
-  - `static`
-  - `epoch_refresh`
-- train split 的 mixing 通过 `ShaftMixedIndexSampler` 在 sampler 层执行；`epoch_refresh` 通过 sampler 的 `set_epoch()` 在 epoch 边界重建混合索引。
+- train split 由不可变 source snapshot、`ShaftSamplePlan` 与 `ShaftSampleRef` 三层组成：
+  - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
+  - `concat` 表示覆盖式计划；`weighted` 表示按 dataset weight 的可复现有放回概率抽样。
+  - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
+- `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
+- GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地
+  generator 在多 epoch resume 时回到 epoch 0 排列。
+- step duration 会按 `steps × per-device batch × gradient accumulation × world size` 生成全局 sample
+  budget；epoch 只作为 HF 有限时长兼容单位，不再控制 prompt 或 transform 刷新。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 

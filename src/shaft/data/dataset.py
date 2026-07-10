@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from bisect import bisect_right
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +11,8 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from shaft.utils.qwen_pixel_budget import apply_qwen_pixel_budget
+
+from .mixing import ShaftSamplePlan, ShaftSampleRef
 
 
 @dataclass
@@ -38,7 +42,7 @@ class DPORecord:
 
 @dataclass
 class PPORecord:
-    image_path: str
+    image_path: str | None = None
     dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
@@ -48,47 +52,79 @@ class PPORecord:
 
 
 class _BaseVisionDataset(Dataset):
-    def __init__(self, *, online_transforms: list[Any] | None = None, split: str = "train") -> None:
+    def __init__(
+        self,
+        records: Sequence[Any] | dict[str, Sequence[Any]],
+        *,
+        online_transforms: list[Any] | None = None,
+        split: str = "train",
+        sample_plan: ShaftSamplePlan | None = None,
+        image_cache_size: int = 0,
+    ) -> None:
+        self.records = records
         self.online_transforms = list(online_transforms or [])
         self.split = str(split).strip() or "train"
+        self.sample_plan = sample_plan
+        self.image_cache_size = max(int(image_cache_size), 0)
+        self._image_cache: OrderedDict[str, Image.Image] = OrderedDict()
 
-    def _runtime_context(self, train_sampler: Any | None) -> dict[str, Any]:
-        return {
-            "_split": self.split,
-            "_epoch": int(getattr(train_sampler, "epoch", 0) or 0),
-        }
+    def __len__(self) -> int:
+        if self.sample_plan is not None:
+            return len(self.sample_plan)
+        if isinstance(self.records, dict):
+            return sum(len(records) for records in self.records.values())
+        return len(self.records)
+
+    def _runtime_context(self, sample_ref: ShaftSampleRef | None) -> dict[str, Any]:
+        context: dict[str, Any] = {"_split": self.split}
+        if sample_ref is not None:
+            context["_sample_context"] = sample_ref.context.to_dict()
+        return context
 
     def _load_image(self, image_path: str):
-        return Image.open(image_path).convert("RGB")
+        cached = self._image_cache.get(image_path)
+        if cached is not None:
+            self._image_cache.move_to_end(image_path)
+            return cached.copy()
+        with Image.open(image_path) as image:
+            decoded = image.convert("RGB")
+        if self.image_cache_size > 0:
+            self._image_cache[image_path] = decoded.copy()
+            self._image_cache.move_to_end(image_path)
+            while len(self._image_cache) > self.image_cache_size:
+                self._image_cache.popitem(last=False)
+        return decoded
 
     def _apply_online_transforms(self, sample: dict[str, Any]) -> dict[str, Any]:
         for transform in self.online_transforms:
             sample = transform(sample)
         return sample
 
-    @staticmethod
-    def _build_flat_indices(records: dict[str, list[Any]]) -> list[tuple[str, int]]:
-        indices: list[tuple[str, int]] = []
-        for dataset_name in sorted(records):
-            indices.extend((dataset_name, row_index) for row_index in range(len(records[dataset_name])))
-        return indices
-
     def _resolve_record(
         self,
-        records: Sequence[Any] | dict[str, list[Any]],
-        index: int | tuple[str, int],
-        *,
-        mixed_indices: Sequence[tuple[str, int]] | None = None,
-    ) -> Any:
+        records: Sequence[Any] | dict[str, Sequence[Any]],
+        index: int | ShaftSampleRef,
+    ) -> tuple[Any, ShaftSampleRef | None]:
         if isinstance(records, dict):
-            if isinstance(index, tuple):
-                dataset_name, row_index = index
-                return records[dataset_name][row_index]
-            if mixed_indices is None:
-                mixed_indices = self._build_flat_indices(records)
-            dataset_name, row_index = mixed_indices[int(index)]
-            return records[dataset_name][row_index]
-        return records[int(index)]
+            if isinstance(index, ShaftSampleRef):
+                sample_ref = index
+            elif self.sample_plan is not None:
+                sample_ref = self.sample_plan.ref_at(int(index))
+            else:
+                position = int(index)
+                names = sorted(records)
+                ends: list[int] = []
+                total = 0
+                for name in names:
+                    total += len(records[name])
+                    ends.append(total)
+                source_index = bisect_right(ends, position)
+                if position < 0 or source_index >= len(names):
+                    raise IndexError(position)
+                start = 0 if source_index == 0 else ends[source_index - 1]
+                return records[names[source_index]][position - start], None
+            return records[sample_ref.dataset_name][sample_ref.row_index], sample_ref
+        return records[int(index)], None
 
 
 def _fit_image_to_pixel_budget(
@@ -112,32 +148,23 @@ def _fit_image_to_pixel_budget(
 class SFTDataset(_BaseVisionDataset):
     def __init__(
         self,
-        records: Sequence[SFTRecord] | dict[str, list[SFTRecord]],
+        records: Sequence[SFTRecord] | dict[str, Sequence[SFTRecord]],
         *,
         online_transforms: list[Any] | None = None,
         split: str = "train",
-        mixed_length: int | None = None,
-        mixed_indices: Sequence[tuple[str, int]] | None = None,
-        train_sampler: Any | None = None,
+        sample_plan: ShaftSamplePlan | None = None,
+        image_cache_size: int = 0,
     ) -> None:
-        super().__init__(online_transforms=online_transforms, split=split)
-        self.records = records
-        self.mixed_length = int(mixed_length) if mixed_length is not None else None
-        self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
-        self.train_sampler = train_sampler
+        super().__init__(
+            records,
+            online_transforms=online_transforms,
+            split=split,
+            sample_plan=sample_plan,
+            image_cache_size=image_cache_size,
+        )
 
-    def __len__(self) -> int:
-        if self.mixed_length is not None:
-            return self.mixed_length
-        if isinstance(self.records, dict):
-            return sum(len(records) for records in self.records.values())
-        return len(self.records)
-
-    def __getitem__(self, index: int | tuple[str, int]) -> dict[str, Any]:
-        mixed_indices = getattr(self.train_sampler, "current_indices", None)
-        if mixed_indices is None:
-            mixed_indices = self.mixed_indices
-        record = self._resolve_record(self.records, index, mixed_indices=mixed_indices)
+    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+        record, sample_ref = self._resolve_record(self.records, index)
         image = self._load_image(record.image_path)
         sample = {
             "dataset_name": record.dataset_name,
@@ -149,7 +176,7 @@ class SFTDataset(_BaseVisionDataset):
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
             "extra": dict(record.extra),
-            **self._runtime_context(self.train_sampler),
+            **self._runtime_context(sample_ref),
         }
         return self._apply_online_transforms(sample)
 
@@ -171,7 +198,7 @@ class GRPODataset(Dataset):
     def __len__(self) -> int:
         return len(self.dataset)
 
-    def __getitem__(self, index: int | tuple[str, int]) -> dict[str, Any]:
+    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
         item = self.dataset[index]
         image = _fit_image_to_pixel_budget(
             item.get("image"),
@@ -196,32 +223,23 @@ class GRPODataset(Dataset):
 class DPODataset(_BaseVisionDataset):
     def __init__(
         self,
-        records: Sequence[DPORecord] | dict[str, list[DPORecord]],
+        records: Sequence[DPORecord] | dict[str, Sequence[DPORecord]],
         *,
         online_transforms: list[Any] | None = None,
         split: str = "train",
-        mixed_length: int | None = None,
-        mixed_indices: Sequence[tuple[str, int]] | None = None,
-        train_sampler: Any | None = None,
+        sample_plan: ShaftSamplePlan | None = None,
+        image_cache_size: int = 0,
     ) -> None:
-        super().__init__(online_transforms=online_transforms, split=split)
-        self.records = records
-        self.mixed_length = int(mixed_length) if mixed_length is not None else None
-        self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
-        self.train_sampler = train_sampler
+        super().__init__(
+            records,
+            online_transforms=online_transforms,
+            split=split,
+            sample_plan=sample_plan,
+            image_cache_size=image_cache_size,
+        )
 
-    def __len__(self) -> int:
-        if self.mixed_length is not None:
-            return self.mixed_length
-        if isinstance(self.records, dict):
-            return sum(len(records) for records in self.records.values())
-        return len(self.records)
-
-    def __getitem__(self, index: int | tuple[str, int]) -> dict[str, Any]:
-        mixed_indices = getattr(self.train_sampler, "current_indices", None)
-        if mixed_indices is None:
-            mixed_indices = self.mixed_indices
-        record = self._resolve_record(self.records, index, mixed_indices=mixed_indices)
+    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+        record, sample_ref = self._resolve_record(self.records, index)
         image = self._load_image(record.image_path)
         sample = {
             "dataset_name": record.dataset_name,
@@ -234,7 +252,7 @@ class DPODataset(_BaseVisionDataset):
             "chosen_text": record.chosen_text,
             "rejected_text": record.rejected_text,
             "extra": dict(record.extra),
-            **self._runtime_context(self.train_sampler),
+            **self._runtime_context(sample_ref),
         }
         return self._apply_online_transforms(sample)
 
@@ -242,42 +260,35 @@ class DPODataset(_BaseVisionDataset):
 class PPODataset(_BaseVisionDataset):
     def __init__(
         self,
-        records: Sequence[PPORecord] | dict[str, list[PPORecord]],
+        records: Sequence[PPORecord] | dict[str, Sequence[PPORecord]],
         *,
         online_transforms: list[Any] | None = None,
         split: str = "train",
-        mixed_length: int | None = None,
-        mixed_indices: Sequence[tuple[str, int]] | None = None,
-        train_sampler: Any | None = None,
+        sample_plan: ShaftSamplePlan | None = None,
+        image_cache_size: int = 0,
     ) -> None:
-        super().__init__(online_transforms=online_transforms, split=split)
-        self.records = records
-        self.mixed_length = int(mixed_length) if mixed_length is not None else None
-        self.mixed_indices = list(mixed_indices) if mixed_indices is not None else None
-        self.train_sampler = train_sampler
+        super().__init__(
+            records,
+            online_transforms=online_transforms,
+            split=split,
+            sample_plan=sample_plan,
+            image_cache_size=image_cache_size,
+        )
 
-    def __len__(self) -> int:
-        if self.mixed_length is not None:
-            return self.mixed_length
-        if isinstance(self.records, dict):
-            return sum(len(records) for records in self.records.values())
-        return len(self.records)
-
-    def __getitem__(self, index: int | tuple[str, int]) -> dict[str, Any]:
-        mixed_indices = getattr(self.train_sampler, "current_indices", None)
-        if mixed_indices is None:
-            mixed_indices = self.mixed_indices
-        record = self._resolve_record(self.records, index, mixed_indices=mixed_indices)
-        image = self._load_image(record.image_path)
+    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+        record, sample_ref = self._resolve_record(self.records, index)
         sample = {
             "dataset_name": record.dataset_name,
-            "sample_id": record.sample_id or Path(record.image_path).stem,
+            "sample_id": record.sample_id or (
+                Path(record.image_path).stem
+                if record.image_path
+                else f"row-{sample_ref.row_index if sample_ref is not None else int(index)}"
+            ),
             "image_path": record.image_path,
-            "image": image,
             "messages": record.messages,
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
             "extra": dict(record.extra),
-            **self._runtime_context(self.train_sampler),
+            **self._runtime_context(sample_ref),
         }
         return self._apply_online_transforms(sample)

@@ -24,8 +24,7 @@ algorithm:
 data:
   catalog_path: ../data/example.yaml
   catalog_names: [grpo_prompt_target]
-  mix_strategy: interleave_under
-  mix_refresh: static
+  mix_strategy: weighted
   num_workers: 16
   pin_memory: true
   persistent_workers: true
@@ -33,8 +32,9 @@ data:
   max_pixels: 1048576
 
 train:
-  epochs: 1
-  max_steps: -1
+  duration:
+    unit: epochs
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5

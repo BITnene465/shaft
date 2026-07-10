@@ -8,6 +8,7 @@ metadata:
 
 prompts:
   - id: main
+    sampling_weight: 1.0
     system_prompt: >
       You are a visual annotation assistant. Return only valid compact JSON. Do not
       include markdown, comments, explanations, or surrounding text.
@@ -19,6 +20,7 @@ prompts:
       Return [] when no target object is visible.
 
   - id: variant
+    sampling_weight: 1.0
     system_prompt: >
       Output only valid compact JSON. Do not include markdown, comments,
       explanations, or extra text.

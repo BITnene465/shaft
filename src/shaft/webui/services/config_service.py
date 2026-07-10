@@ -77,11 +77,23 @@ class ShaftWebUIConfigService:
 
     @staticmethod
     def _build_override_namespace(overrides: ShaftSFTWebUIOverrides) -> argparse.Namespace:
+        duration_unit = str(overrides.duration_unit or "").strip().lower()
+        duration_value = overrides.duration_value
+        if (not duration_unit) != (duration_value is None):
+            raise ValueError("duration_unit and duration_value must be provided together.")
+        if duration_unit not in {"", "steps", "epochs"}:
+            raise ValueError("duration_unit must be 'steps' or 'epochs'.")
+        if duration_unit == "steps" and duration_value is not None and not float(duration_value).is_integer():
+            raise ValueError("duration_value must be an integer when duration_unit='steps'.")
         return argparse.Namespace(
             run_id=overrides.run_id,
             seed=overrides.seed,
-            epochs=overrides.epochs,
-            max_steps=overrides.max_steps,
+            epochs=duration_value if duration_unit == "epochs" else None,
+            max_steps=(
+                int(duration_value)
+                if duration_unit == "steps" and duration_value is not None
+                else None
+            ),
             learning_rate=overrides.learning_rate,
             train_batch_size=overrides.train_batch_size,
             eval_batch_size=overrides.eval_batch_size,

@@ -37,8 +37,8 @@ def test_normalization(tmp_path: Path) -> None:
 algorithm:
   name: SFT
 data:
-  mix_strategy: INTERLEAVE_OVER
-  mix_refresh: EPOCH_REFRESH
+  mix_strategy: WEIGHTED
+  record_cache_dir: .cache/records
   max_length: 4096
   datasets:
     - dataset_name: ds1
@@ -73,8 +73,8 @@ model:
 """
     cfg = load_config_from_yaml(tmp_path, payload)
     assert cfg.algorithm.name == "sft"
-    assert cfg.data.mix_strategy == "interleave_over"
-    assert cfg.data.mix_refresh == "epoch_refresh"
+    assert cfg.data.mix_strategy == "weighted"
+    assert cfg.data.record_cache_dir == str((tmp_path / ".cache/records").resolve())
     assert cfg.data.max_length == 4096
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"

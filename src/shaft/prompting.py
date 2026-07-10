@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ class ShaftPromptTemplate:
     source_path: str
     variant_id: str | None = None
     version: str | None = None
+    sampling_weight: float = 1.0
 
 
 def load_prompt_template(path: str | Path, *, variant_id: str = "main") -> ShaftPromptTemplate:
@@ -134,6 +136,8 @@ def _load_pool_prompts(
                 variant_id=variant_id,
             )
         )
+    if not any(prompt.sampling_weight > 0 for prompt in variants):
+        raise ValueError(f"Prompt pool must have at least one positive sampling_weight: {prompt_path}")
     return variants
 
 
@@ -146,6 +150,17 @@ def _load_pool_prompt_item(
     version: str,
     variant_id: str,
 ) -> ShaftPromptTemplate:
+    try:
+        sampling_weight = float(item.get("sampling_weight", 1.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Prompt pool variant {variant_id!r} has invalid sampling_weight in {prompt_path}."
+        ) from exc
+    if not math.isfinite(sampling_weight) or sampling_weight < 0:
+        raise ValueError(
+            f"Prompt pool variant {variant_id!r} sampling_weight must be finite and >= 0 "
+            f"in {prompt_path}."
+        )
     system_prompt = str(item.get("system_prompt") or "").strip()
     user_prompt = str(item.get("user_prompt") or "").strip()
     if not user_prompt:
@@ -162,4 +177,5 @@ def _load_pool_prompt_item(
         source_path=f"{prompt_path}#{variant_id}",
         variant_id=variant_id,
         version=version,
+        sampling_weight=sampling_weight,
     )

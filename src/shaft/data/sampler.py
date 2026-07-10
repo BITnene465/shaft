@@ -1,84 +1,98 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator
-from typing import Any
+import math
 
 from torch.utils.data import Sampler
 
 from shaft.utils.distributed import get_rank, get_world_size
 
-from .mixing import MixedDatasetBuilder
+from .mixing import ShaftSamplePlan, ShaftSampleRef, _affine_permute, _splitmix64
 
 
-class ShaftMixedIndexSampler(Sampler[tuple[str, int]]):
+class ShaftSampleSampler(Sampler[ShaftSampleRef]):
+    """Lazily emit immutable refs; no Python tuple plan is materialized or copied."""
+
     def __init__(
         self,
-        records_by_dataset: dict[str, list[Any]],
-        dataset_weights: dict[str, float],
+        plan: ShaftSamplePlan,
         *,
-        strategy: str = "interleave_under",
-        refresh_mode: str = "static",
-        shuffle: bool = True,
-        seed: int = 42,
         rank: int | None = None,
         world_size: int | None = None,
         drop_last: bool = False,
     ) -> None:
-        self.records_by_dataset = {str(name): list(records) for name, records in records_by_dataset.items()}
-        self.dataset_weights = {str(name): float(weight) for name, weight in dataset_weights.items()}
-        self.strategy = str(strategy).strip().lower()
-        self.refresh_mode = str(refresh_mode).strip().lower()
-        self.shuffle = bool(shuffle)
-        self.seed = int(seed)
+        self.plan = plan
         self.rank = int(get_rank() if rank is None else rank)
         self.world_size = int(get_world_size() if world_size is None else world_size)
         self.drop_last = bool(drop_last)
-        self.epoch = 0
-        self.refresh_count = 0
-        self.global_indices: list[tuple[str, int]] = []
-        self.current_indices: list[tuple[str, int]] = []
-        self._rebuild(epoch=0)
+        self.plan_cycle = 0
+        if self.rank < 0 or self.rank >= self.world_size:
+            raise ValueError(f"Invalid sampler rank/world_size: {self.rank}/{self.world_size}.")
 
-    def __iter__(self) -> Iterator[tuple[str, int]]:
-        return iter(list(self.current_indices))
+    def __iter__(self) -> Iterator[ShaftSampleRef]:
+        total_size = len(self.plan)
+        if self.drop_last:
+            total_size -= total_size % self.world_size
+        for position in range(self.rank, total_size, self.world_size):
+            yield self.plan.ref_at(position, plan_cycle=self.plan_cycle)
 
     def __len__(self) -> int:
-        return len(self.current_indices)
+        total_size = len(self.plan)
+        if self.drop_last:
+            return total_size // self.world_size
+        if total_size <= self.rank:
+            return 0
+        return int(math.ceil((total_size - self.rank) / self.world_size))
 
     def set_epoch(self, epoch: int) -> None:
-        epoch_value = int(epoch)
-        if self.refresh_mode == "epoch_refresh":
-            if epoch_value != self.epoch:
-                self._rebuild(epoch=epoch_value)
-            return
-        self.epoch = epoch_value
+        self.plan_cycle = int(epoch)
 
-    def _rebuild(self, *, epoch: int) -> None:
-        builder = MixedDatasetBuilder(seed=self.seed + int(epoch))
-        global_indices = builder.build_indices(
-            self.records_by_dataset,
-            self.dataset_weights,
-            strategy=self.strategy,
-            shuffle=self.shuffle,
-        )
-        self.global_indices = list(global_indices)
-        self.current_indices = self._shard_indices(self.global_indices)
-        self.epoch = int(epoch)
-        self.refresh_count += 1
 
-    def _shard_indices(self, global_indices: list[tuple[str, int]]) -> list[tuple[str, int]]:
-        if self.world_size <= 1:
-            return list(global_indices)
-        if not global_indices:
-            return []
-        if self.drop_last:
-            total_size = len(global_indices) - (len(global_indices) % self.world_size)
-            sharded = global_indices[:total_size]
-        else:
-            total_size = int(math.ceil(len(global_indices) / self.world_size) * self.world_size)
-            padding = total_size - len(global_indices)
-            sharded = list(global_indices)
-            if padding > 0:
-                sharded.extend(global_indices[:padding])
-        return list(sharded[self.rank:total_size:self.world_size])
+class ShaftGroupedSampleSampler(Sampler[ShaftSampleRef]):
+    """GRPO-compatible grouped repeats with deterministic, resumable plan cycles."""
+
+    def __init__(
+        self,
+        plan: ShaftSamplePlan,
+        *,
+        mini_repeat_count: int,
+        batch_size: int,
+        repeat_count: int,
+        shuffle: bool,
+        seed: int,
+    ) -> None:
+        self.plan = plan
+        self.mini_repeat_count = int(mini_repeat_count)
+        self.batch_size = int(batch_size)
+        self.repeat_count = int(repeat_count)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.plan_cycle = 0
+        if min(self.mini_repeat_count, self.batch_size, self.repeat_count) <= 0:
+            raise ValueError("Grouped sampler repeat counts and batch_size must be > 0.")
+
+    def __iter__(self) -> Iterator[ShaftSampleRef]:
+        usable_size = (len(self.plan) // self.batch_size) * self.batch_size
+        permutation_seed = _splitmix64(self.seed ^ self.plan_cycle)
+        for chunk_start in range(0, usable_size, self.batch_size):
+            chunk: list[ShaftSampleRef] = []
+            for offset in range(self.batch_size):
+                position = chunk_start + offset
+                if self.shuffle:
+                    position = _affine_permute(
+                        position,
+                        len(self.plan),
+                        seed=permutation_seed,
+                    )
+                chunk.append(self.plan.ref_at(position, plan_cycle=self.plan_cycle))
+            for _ in range(self.repeat_count):
+                for sample_ref in chunk:
+                    for _ in range(self.mini_repeat_count):
+                        yield sample_ref
+
+    def __len__(self) -> int:
+        usable_size = (len(self.plan) // self.batch_size) * self.batch_size
+        return usable_size * self.mini_repeat_count * self.repeat_count
+
+    def set_epoch(self, epoch: int) -> None:
+        self.plan_cycle = int(epoch)

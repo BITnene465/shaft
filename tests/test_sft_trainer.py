@@ -10,7 +10,7 @@ from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.trainer_utils import IntervalStrategy, SaveStrategy
 
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
-from shaft.data import SFTDataset, SFTRecord, ShaftMixedIndexSampler
+from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSampler
 from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
@@ -117,19 +117,15 @@ def test_shaft_trainer_uses_custom_train_sampler() -> None:
             SFTRecord(image_path="/tmp/b.png", target_text="{}", dataset_name="b", sample_id="b0")
         ],
     }
-    sampler = ShaftMixedIndexSampler(
-        records,
+    plan = ShaftSamplePlan(
+        {name: len(rows) for name, rows in records.items()},
         {"a": 1.0, "b": 1.0},
         strategy="concat",
-        refresh_mode="epoch_refresh",
         shuffle=False,
         seed=3,
-        rank=0,
-        world_size=1,
     )
-    train_dataset = SFTDataset(
-        records, mixed_length=len(sampler), mixed_indices=sampler.current_indices
-    )
+    sampler = ShaftSampleSampler(plan, rank=0, world_size=1)
+    train_dataset = SFTDataset(records, sample_plan=plan)
     trainer = ShaftSFTTrainer(
         model=model,
         args=args,

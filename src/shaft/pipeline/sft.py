@@ -39,7 +39,7 @@ from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import build_hf_training_args
+from .training_args import build_hf_training_args, resolve_step_sample_budget
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,14 @@ class ShaftSFTPipeline:
             if is_rank_zero():
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+        data_center = ShaftDataCenter(
+            config.data,
+            seed=config.experiment.seed,
+            train_sample_budget=resolve_step_sample_budget(
+                config,
+                world_size=training_args.world_size,
+            ),
+        )
         dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
         eval_dataset: Any = dataset_bundle.eval_dataset
@@ -140,6 +147,7 @@ class ShaftSFTPipeline:
             max_length=config.data.max_length,
             add_eos_token=config.data.add_eos_token,
             include_targets_in_inputs=True,
+            include_metadata=False,
             loss_scale_name=config.train.loss_scale,
         )
         online_eval_runner = None
@@ -156,6 +164,7 @@ class ShaftSFTPipeline:
                     max_length=config.data.max_length,
                     add_eos_token=config.data.add_eos_token,
                     include_targets_in_inputs=False,
+                    include_metadata=True,
                     padding_side="left",
                 ),
                 progress_enabled=config.progress.enabled,

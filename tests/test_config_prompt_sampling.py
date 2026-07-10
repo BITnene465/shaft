@@ -39,7 +39,7 @@ data:
     assert cfg.data.prompt_sampling.pools == {"ds1": str((prompt_dir / "pool.yaml").resolve())}
 
 
-def test_prompt_sampling_requires_pool_for_every_enabled_dataset(tmp_path: Path) -> None:
+def test_prompt_sampling_requires_pool_for_every_active_dataset(tmp_path: Path) -> None:
     prompt_path = tmp_path / "prompt.yaml"
     prompt_path.write_text(
         "metadata:\n  id: p\n  version: test-version\nprompts:\n  - id: main\n    user_prompt: p\n",
@@ -61,5 +61,34 @@ data:
 """
     config_path = write_config_yaml(tmp_path, payload)
 
-    with pytest.raises(ValueError, match="requires prompt pools for all enabled datasets"):
+    with pytest.raises(ValueError, match="requires prompt pools for all active train/eval datasets"):
         load_config(config_path)
+
+
+def test_prompt_sampling_does_not_require_pool_for_zero_weight_train_source(
+    tmp_path: Path,
+) -> None:
+    prompt_path = tmp_path / "prompt.yaml"
+    prompt_path.write_text(
+        "metadata:\n  id: p\n  version: test-version\nprompts:\n  - id: main\n    user_prompt: p\n",
+        encoding="utf-8",
+    )
+    payload = f"""
+data:
+  prompt_sampling:
+    enabled: true
+    pools:
+      ds1: {prompt_path}
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+    - dataset_name: disabled_train
+      train_path: unused.jsonl
+      weight: 0
+      use_for_eval: false
+"""
+
+    config = load_config(write_config_yaml(tmp_path, payload))
+
+    assert config.data.datasets[1].weight == 0

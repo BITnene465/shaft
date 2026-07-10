@@ -50,8 +50,9 @@ data:
   min_pixels:
   max_pixels:
 train:
-  epochs: 1
-  max_steps: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-3
@@ -115,8 +116,9 @@ data:
   min_pixels:
   max_pixels:
 train:
-  epochs: 1
-  max_steps: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-3
@@ -180,15 +182,15 @@ data:
       source_type: jsonl_sft
       train_path: {train_jsonl}
       val_path: {val_jsonl}
-  mix_refresh: static
   num_workers: 0
   persistent_workers: false
   pin_memory: false
   min_pixels:
   max_pixels:
 train:
-  epochs: 1
-  max_steps: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-3

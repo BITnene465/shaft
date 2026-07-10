@@ -133,6 +133,20 @@ data:
 - 仓库内置的 [`configs/data/example.yaml`](configs/data/example.yaml) 当前只是示例文件，里面的路径默认不保证存在。
 - 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
 
+训练时长使用单一真源，step 是主路径：
+
+```yaml
+data:
+  mix_strategy: weighted
+train:
+  duration:
+    unit: steps
+    value: 10000
+```
+
+`weighted` 会把各数据源 `weight` 归一化为 sample draw 概率；epoch 模式仅用于有限时长兼容，写成
+`duration: {unit: epochs, value: 1}`。
+
 ## 当前能力
 
 ### 训练
@@ -140,7 +154,8 @@ data:
 - `SFT`
 - `DPO`
 - `PPO`（受限能力，非完整生产功能）
-- `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据，并要求 `data.mix_refresh=static`）
+- `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据；数据计划可与 TRL grouped-generation sampler
+  通过无状态位置索引组合）
 
 ### 推理
 

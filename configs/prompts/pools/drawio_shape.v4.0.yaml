@@ -8,6 +8,7 @@ metadata:
 
 prompts:
   - id: main
+    sampling_weight: 1.0
     system_prompt: >
       You are a visual annotation assistant for draw.io shape reconstruction.
       Return only valid compact JSON. Do not include markdown, comments,
@@ -26,6 +27,7 @@ prompts:
       Do not output bbox, coordinates, size values, radius, stroke width, confidence, abstain_reason, evidence, or any extra fields.
 
   - id: outer_shape_business
+    sampling_weight: 1.0
     system_prompt: >
       Output compact valid JSON only. No markdown, no comments, no evidence,
       no explanations, and no surrounding text.
@@ -43,6 +45,7 @@ prompts:
       Do not include evidence, confidence, abstain_reason, bbox, points, or geometry measurements.
 
   - id: compact_schema
+    sampling_weight: 1.0
     system_prompt: >
       Return only valid compact JSON. Do not include markdown or explanatory text.
     user_prompt: |

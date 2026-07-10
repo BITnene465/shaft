@@ -27,6 +27,7 @@ class _FakeProcessor:
 
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
         _ = tokenize, add_generation_prompt
+        self.last_messages = messages
         return " ".join(chunk.get("text", "") for m in messages for chunk in m.get("content", []))
 
     def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
@@ -95,7 +96,17 @@ def test_sft_collator_builds_labels() -> None:
     assert "labels" in out
     assert out["input_ids"].shape[0] == 2
     assert out["labels"].shape[0] == 2
-    assert "dataset_name" in out["meta"]
+    assert "meta" not in out
+
+    eval_collator = SFTCollator(
+        model_adapter=model_adapter,
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        include_metadata=True,
+    )
+    eval_out = eval_collator(batch)
+    assert "dataset_name" in eval_out["meta"]
 
 
 def test_sft_collator_loss_scale_all_supervises_prefix_tokens() -> None:
@@ -345,19 +356,18 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
 
 def test_ppo_collator_builds_query_only_batch() -> None:
     model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    processor = _FakeProcessor()
     collator = PPOCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
-        processor=_FakeProcessor(),
+        processor=processor,
         tokenizer=_FakeTokenizer(),
     )
-    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {
             "dataset_name": "a",
             "sample_id": "a1",
             "image_path": "/tmp/a.png",
-            "image": image,
             "messages": None,
             "system_prompt": "",
             "user_prompt": "Locate.",
@@ -367,7 +377,6 @@ def test_ppo_collator_builds_query_only_batch() -> None:
             "dataset_name": "a",
             "sample_id": "a2",
             "image_path": "/tmp/a2.png",
-            "image": image,
             "messages": None,
             "system_prompt": "",
             "user_prompt": "Locate.",
@@ -377,3 +386,8 @@ def test_ppo_collator_builds_query_only_batch() -> None:
     out = collator(batch)
     assert out["input_ids"].shape[0] == 2
     assert out["attention_mask"].shape == out["input_ids"].shape
+    assert all(
+        chunk.get("type") != "image"
+        for message in processor.last_messages
+        for chunk in message.get("content", [])
+    )

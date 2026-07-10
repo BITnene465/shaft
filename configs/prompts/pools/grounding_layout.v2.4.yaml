@@ -8,6 +8,7 @@ metadata:
 
 prompts:
   - id: main
+    sampling_weight: 1.0
     system_prompt: >
       You are a visual annotation assistant. Return only valid compact JSON. Do not
       include markdown, comments, explanations, or surrounding text.
@@ -26,6 +27,7 @@ prompts:
       Return [] when no target object is visible.
 
   - id: top_level_elements
+    sampling_weight: 1.0
     system_prompt: >
       You are a visual annotation assistant. Output compact valid JSON only.
       Do not add markdown, comments, explanations, or surrounding text.
@@ -43,6 +45,7 @@ prompts:
       Return [] only after checking that no icon, image, or shape-like layout target is visible.
 
   - id: layout_bbox
+    sampling_weight: 1.0
     system_prompt: >
       Return only valid compact JSON. Do not include markdown or explanatory text.
     user_prompt: |
@@ -59,6 +62,7 @@ prompts:
       Output [] only when there is truly no visible icon, image, or shape target.
 
   - id: layout_targets
+    sampling_weight: 1.0
     system_prompt: >
       You are a visual annotation assistant. Respond with compact valid JSON only.
       Do not include markdown, comments, explanations, or any surrounding text.
@@ -77,6 +81,7 @@ prompts:
       Return [] only when no icon, image, or shape target is visible.
 
   - id: page_element_boxes
+    sampling_weight: 1.0
     system_prompt: >
       Output only valid compact JSON. Do not output markdown, comments, explanations,
       code fences, or extra text.

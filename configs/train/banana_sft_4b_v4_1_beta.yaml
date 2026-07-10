@@ -51,8 +51,7 @@ data:
       point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
       lin_point_arrow_style: ../prompts/pools/point_arrow_style.v2.4.yaml
       drawio_shape: ../prompts/pools/drawio_shape.v4.0.yaml
-  mix_strategy: interleave_over
-  mix_refresh: epoch_refresh
+  mix_strategy: weighted
   num_workers: 4
   pin_memory: true
   persistent_workers: true
@@ -63,8 +62,9 @@ data:
   shuffle: true
 
 train:
-  epochs: 1000000
-  max_steps: 16000
+  duration:
+    unit: steps
+    value: 16000
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 2
   gradient_checkpointing: true

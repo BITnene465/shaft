@@ -11,8 +11,8 @@ ShaftRunStatus = Literal["idle", "validated", "running", "succeeded", "failed", 
 class ShaftSFTWebUIOverrides:
     run_id: str | None = None
     seed: int | None = None
-    epochs: int | None = None
-    max_steps: int | None = None
+    duration_unit: str | None = None
+    duration_value: float | None = None
     learning_rate: float | None = None
     train_batch_size: int | None = None
     eval_batch_size: int | None = None

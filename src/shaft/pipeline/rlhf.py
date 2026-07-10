@@ -44,7 +44,7 @@ from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import build_hf_training_args
+from .training_args import build_hf_training_args, resolve_step_sample_budget
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,14 @@ class ShaftRLHFPipeline:
             if is_rank_zero():
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        data_center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+        data_center = ShaftDataCenter(
+            config.data,
+            seed=config.experiment.seed,
+            train_sample_budget=resolve_step_sample_budget(
+                config,
+                world_size=training_args.world_size,
+            ),
+        )
         if algorithm_name == "dpo":
             dataset_cls = DPODataset
         elif algorithm_name == "ppo":
@@ -161,6 +168,7 @@ class ShaftRLHFPipeline:
                     max_length=config.data.max_length,
                     add_eos_token=config.data.add_eos_token,
                     include_targets_in_inputs=False,
+                    include_metadata=True,
                     padding_side="left",
                 ),
                 progress_enabled=config.progress.enabled,
@@ -183,14 +191,18 @@ class ShaftRLHFPipeline:
             "args": training_args,
             "train_dataset": train_dataset,
             "eval_dataset": eval_dataset if config.eval.enabled else None,
-            "train_sampler": dataset_bundle.train_sampler if algorithm_name in {"dpo", "ppo"} else None,
             "processing_class": processing_class,
             "callbacks": callbacks_or_none,
             "model_adapter": artifacts.model_adapter,
             "finetune_plan": finetune_plan,
             **algorithm_extra_kwargs,
         }
+        if algorithm_name == "dpo":
+            trainer_kwargs["train_sampler"] = dataset_bundle.train_sampler
         if algorithm_name == "grpo":
+            if dataset_bundle.train_sampler is None:
+                raise RuntimeError("GRPO requires a Shaft sample plan from the data center.")
+            trainer_kwargs["sample_plan"] = dataset_bundle.train_sampler.plan
             trainer_kwargs["online_eval_runner"] = online_eval_runner
             trainer_kwargs["eval_config"] = config.eval
         if algorithm_name != "grpo":

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pickle
 
 import pytest
 from PIL import Image
 
 from shaft.config import DatasetSourceConfig
-from shaft.data import ShaftDatasetMeta
+from shaft.data import PPODataset, PPORecord, ShaftArrowRecordStore, ShaftDatasetMeta
 from shaft.data.sources import (
     DATA_SOURCE_REGISTRY,
     build_data_source,
@@ -37,11 +38,49 @@ def test_new_message_format_extracts_target_and_drops_tail_assistant(tmp_path: P
     record = records[0]
     assert record.dataset_name == "fallback"
     assert record.extra["source_dataset_name"] == "demo"
+    assert "sample_id" not in record.extra
+    assert "dataset_name" not in record.extra
     assert record.sample_id == "s1"
     assert record.target_text == "{\"ok\":1}"
     assert Path(record.image_path).is_absolute()
     assert len(record.messages or []) == 2
     assert record.messages[-1]["role"] == "user"
+
+
+def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "samples.jsonl"
+    jsonl.write_text(
+        json.dumps({"image_path": str(image), "target_text": "{}"}) + "\n",
+        encoding="utf-8",
+    )
+    cache_dir = tmp_path / "record-cache"
+
+    first = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
+    second = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
+
+    assert isinstance(first, ShaftArrowRecordStore)
+    assert first.cache_path == second.cache_path
+    assert Path(first.cache_path).suffix == ".arrow"
+    assert first[0].target_text == "{}"
+
+    restored = pickle.loads(pickle.dumps(first))
+    assert restored[0] == first[0]
+
+    jsonl.write_text(
+        "\n".join(
+            [
+                json.dumps({"image_path": str(image), "target_text": "{}"}),
+                json.dumps({"image_path": str(image), "target_text": '{"new":1}'}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    refreshed = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
+    assert refreshed.cache_path != first.cache_path
+    assert len(refreshed) == 2
 
 
 def test_missing_target_raises(tmp_path: Path) -> None:
@@ -132,14 +171,24 @@ def test_dpo_jsonl_source_parses_pairwise_fields(tmp_path: Path) -> None:
 
 
 def test_ppo_jsonl_source_parses_prompt_fields(tmp_path: Path) -> None:
-    image = tmp_path / "img.png"
-    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
     jsonl = tmp_path / "ppo.jsonl"
     row = {
-        "image_path": str(image),
         "prompt": "detect objects",
     }
     jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     records = load_jsonl_ppo_records(jsonl, dataset_name="ppo_ds")
     assert len(records) == 1
     assert records[0].user_prompt == "detect objects"
+    assert records[0].image_path is None
+
+
+def test_ppo_dataset_does_not_decode_unused_images(tmp_path: Path) -> None:
+    missing_image = tmp_path / "does-not-exist.png"
+    dataset = PPODataset(
+        [PPORecord(image_path=str(missing_image), sample_id="p1", user_prompt="text only")]
+    )
+
+    sample = dataset[0]
+
+    assert "image" not in sample
+    assert sample["image_path"] == str(missing_image)

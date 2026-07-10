@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from shaft.config import load_config
-from shaft.pipeline.training_args import build_hf_training_args
+from shaft.pipeline.training_args import build_hf_training_args, resolve_step_sample_budget
 from tests.support.pipeline import fsdp_enabled as _fsdp_enabled
 from tests.support.pipeline import fsdp_option_values as _fsdp_option_values
 from tests.support.pipeline import write_sft_pipeline_config as _write_config
@@ -26,7 +26,8 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
 def test_build_hf_training_args_uses_warmup_steps_ratio(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.train.warmup_ratio = 0.03
-    config.train.max_steps = 10000
+    config.train.duration.unit = "steps"
+    config.train.duration.value = 10000
 
     args = build_hf_training_args(config)
 
@@ -34,17 +35,34 @@ def test_build_hf_training_args_uses_warmup_steps_ratio(tmp_path: Path) -> None:
     assert args.warmup_steps == 300
 
 
-def test_build_hf_training_args_keeps_warmup_ratio_when_max_steps_unknown(
+def test_build_hf_training_args_keeps_warmup_ratio_for_epoch_duration(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
     config.train.warmup_ratio = 0.03
-    config.train.max_steps = -1
+    config.train.duration.unit = "epochs"
+    config.train.duration.value = 3
 
     args = build_hf_training_args(config)
 
     assert args.warmup_ratio == 0.03
     assert args.warmup_steps == 0.03
+    assert args.max_steps == -1
+    assert args.num_train_epochs == 3
+
+
+def test_step_duration_resolves_exact_global_sample_budget(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.duration.unit = "steps"
+    config.train.duration.value = 10
+    config.train.per_device_train_batch_size = 2
+    config.train.gradient_accumulation_steps = 4
+
+    assert resolve_step_sample_budget(config, world_size=8) == 640
+
+    config.train.duration.unit = "epochs"
+    config.train.duration.value = 2
+    assert resolve_step_sample_budget(config, world_size=8) is None
 
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:

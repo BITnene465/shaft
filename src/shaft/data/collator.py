@@ -49,20 +49,6 @@ class _ShaftSequenceCollatorBase:
             padding_side=self.padding_side,
         )
 
-    def _apply_chat_template(
-        self,
-        item: dict[str, Any],
-        *,
-        add_generation_prompt: bool | None = None,
-    ) -> str:
-        messages = self.template.resolve_messages(item)
-        return self.template.apply_chat_template(
-            processor=self.processor,
-            tokenizer=self.tokenizer,
-            messages=messages,
-            add_generation_prompt=add_generation_prompt,
-        )
-
     def _pad_sequences(self, rows: list[torch.Tensor], *, padding_value: int) -> torch.Tensor:
         max_len = max(int(row.shape[0]) for row in rows)
         padded = []
@@ -103,6 +89,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         add_eos_token: bool = True,
         ignore_index: int = -100,
         include_targets_in_inputs: bool = True,
+        include_metadata: bool = False,
         padding_side: str = "right",
         loss_scale_name: str = "default",
     ) -> None:
@@ -120,6 +107,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             loss_scale_name=loss_scale_name,
         )
         self.include_targets_in_inputs = bool(include_targets_in_inputs)
+        self.include_metadata = bool(include_metadata)
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         plans = [
@@ -161,14 +149,15 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             "labels": self._pad_sequences([row.labels for row in rows], padding_value=self.ignore_index),
             "pixel_values": prefix_batch["pixel_values"],
             "image_grid_thw": prefix_batch.get("image_grid_thw"),
-            "meta": {
+        }
+        if self.include_metadata:
+            out["meta"] = {
                 "dataset_name": [item["dataset_name"] for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
                 "extra": [dict(item.get("extra", {})) for item in batch],
-            },
-        }
+            }
         mm_rows = [row.mm_token_type_ids for row in rows if row.mm_token_type_ids is not None]
         if mm_rows:
             out["mm_token_type_ids"] = self._pad_sequences(mm_rows, padding_value=0)
@@ -255,11 +244,6 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 [row.to(dtype=torch.long) for row in completion_rows],
                 padding_value=0,
             ),
-            "meta": {
-                "dataset_name": [item["dataset_name"] for item in batch],
-                "sample_id": [item["sample_id"] for item in batch],
-                "image_path": [item["image_path"] for item in batch],
-            },
         }
         for key in ("pixel_values", "pixel_attention_mask", "image_grid_thw", "image_sizes"):
             if key in prefix_batch:
@@ -275,8 +259,39 @@ class DPOCollator(_ShaftSequenceCollatorBase):
 
 
 class PPOCollator(_ShaftSequenceCollatorBase):
+    def _apply_text_only_chat_template(self, item: dict[str, Any]) -> str:
+        messages = item.get("messages")
+        if messages:
+            text_messages = []
+            for message in messages:
+                content = [
+                    chunk
+                    for chunk in message.get("content", [])
+                    if str(chunk.get("type", "")).strip().lower() != "image"
+                ]
+                text_messages.append({**message, "content": content})
+        else:
+            text_messages = []
+            system_prompt = str(item.get("system_prompt", "")).strip()
+            if system_prompt:
+                text_messages.append(
+                    {"role": "system", "content": [{"type": "text", "text": system_prompt}]}
+                )
+            text_messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": str(item.get("user_prompt", ""))}],
+                }
+            )
+        return self.template.apply_chat_template(
+            processor=self.processor,
+            tokenizer=self.tokenizer,
+            messages=self.template.prepare_messages(text_messages),
+            add_generation_prompt=None,
+        )
+
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
-        prompt_texts = [self._apply_chat_template(item) for item in batch]
+        prompt_texts = [self._apply_text_only_chat_template(item) for item in batch]
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
         tokenized = self.tokenizer(
@@ -290,11 +305,6 @@ class PPOCollator(_ShaftSequenceCollatorBase):
         out: dict[str, Any] = {
             "input_ids": self._pad_sequences(input_rows, padding_value=int(pad_id)),
             "attention_mask": self._pad_sequences(attention_rows, padding_value=0),
-            "meta": {
-                "dataset_name": [item["dataset_name"] for item in batch],
-                "sample_id": [item["sample_id"] for item in batch],
-                "image_path": [item["image_path"] for item in batch],
-            },
         }
         return out
 

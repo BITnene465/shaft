@@ -103,21 +103,20 @@
         </div>
         <div class="shaft-override-row">
           <div class="shaft-field-stack">
-            <label class="shaft-field-label" for="epochs">Epochs</label>
-            <input id="epochs" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
+            <label class="shaft-field-label" for="duration-unit">Duration Unit</label>
+            <select id="duration-unit" class="shaft-control shaft-input-control">
+              <option value=""></option>
+              <option value="steps">steps</option>
+              <option value="epochs">epochs</option>
+            </select>
+          </div>
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="duration-value">Duration Value</label>
+            <input id="duration-value" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
           </div>
           <div class="shaft-field-stack">
             <label class="shaft-field-label" for="learning-rate">Learning Rate</label>
             <input id="learning-rate" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
-          </div>
-          <div class="shaft-field-stack">
-            <label class="shaft-field-label" for="mix-strategy">Mix Strategy</label>
-            <select id="mix-strategy" class="shaft-control shaft-input-control">
-              <option value=""></option>
-              <option value="concat">concat</option>
-              <option value="interleave_under">interleave_under</option>
-              <option value="interleave_over">interleave_over</option>
-            </select>
           </div>
         </div>
         <div class="shaft-override-row">
@@ -128,6 +127,14 @@
           <div class="shaft-field-stack">
             <label class="shaft-field-label" for="eval-batch-size">Eval Batch Size</label>
             <input id="eval-batch-size" class="shaft-control shaft-input-control" type="text" placeholder="Optional">
+          </div>
+          <div class="shaft-field-stack">
+            <label class="shaft-field-label" for="mix-strategy">Mix Strategy</label>
+            <select id="mix-strategy" class="shaft-control shaft-input-control">
+              <option value=""></option>
+              <option value="concat">concat</option>
+              <option value="weighted">weighted</option>
+            </select>
           </div>
         </div>
         <div class="shaft-override-row">

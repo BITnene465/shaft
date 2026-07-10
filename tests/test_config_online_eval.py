@@ -63,7 +63,6 @@ data:
       source_type: jsonl_sft
       train_path: train.jsonl
       val_path: val.jsonl
-  mix_refresh: static
 train:
   load_best_model_at_end: false
 eval:

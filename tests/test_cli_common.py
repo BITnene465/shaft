@@ -17,7 +17,6 @@ def test_apply_common_overrides() -> None:
     args = build_common_train_args(
         run_id="rid-1",
         seed=7,
-        epochs=3,
         max_steps=8,
         learning_rate=2.5e-5,
         train_batch_size=2,
@@ -41,8 +40,8 @@ def test_apply_common_overrides() -> None:
     out = apply_common_overrides(cfg, args)
     assert out.experiment.run_id == "rid-1"
     assert out.experiment.seed == 7
-    assert out.train.epochs == 3
-    assert out.train.max_steps == 8
+    assert out.train.duration.unit == "steps"
+    assert out.train.duration.value == 8
     assert out.train.learning_rate == pytest.approx(2.5e-5)
     assert out.train.per_device_train_batch_size == 2
     assert out.eval.per_device_eval_batch_size == 4
@@ -61,6 +60,19 @@ def test_apply_common_overrides() -> None:
     assert out.train.use_cpu is True
     assert out.train.init_from_checkpoint == "init-ckpt-a"
     assert out.train.resume_from_checkpoint == "ckpt-a"
+
+
+def test_apply_common_overrides_rejects_two_duration_units() -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        apply_common_overrides(
+            RuntimeConfig(),
+            build_common_train_args(epochs=2, max_steps=10),
+        )
+
+
+def test_apply_common_overrides_rejects_non_positive_steps() -> None:
+    with pytest.raises(ValueError, match="--max-steps must be > 0"):
+        apply_common_overrides(RuntimeConfig(), build_common_train_args(max_steps=0))
 
 
 def test_run_from_args_forced_algorithm() -> None:

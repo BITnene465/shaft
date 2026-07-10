@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -39,13 +40,14 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     cfg = load_config(_write_dpo_config(tmp_path))
     fake_train_dataset = object()
     fake_eval_dataset = object()
-    fake_train_sampler = object()
+    fake_train_sampler = SimpleNamespace(plan=object())
     captured = {}
 
     class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
+        def __init__(self, data_config, *, seed, train_sample_budget):
             captured["data_config"] = data_config
             captured["seed"] = seed
+            captured["train_sample_budget"] = train_sample_budget
 
         def build_dataset_bundle(self, dataset_cls):
             captured["dataset_cls"] = dataset_cls
@@ -63,6 +65,7 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
 
     assert captured["data_config"] is cfg.data
     assert captured["seed"] == cfg.experiment.seed
+    assert captured["train_sample_budget"] == 1
     assert captured["dataset_cls"] is DPODataset
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
@@ -75,13 +78,14 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     fake_train_dataset = object()
     fake_eval_dataset = object()
-    fake_train_sampler = object()
+    fake_train_sampler = SimpleNamespace(plan=object())
     captured = {}
 
     class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
+        def __init__(self, data_config, *, seed, train_sample_budget):
             captured["data_config"] = data_config
             captured["seed"] = seed
+            captured["train_sample_budget"] = train_sample_budget
 
         def build_dataset_bundle(self, dataset_cls):
             captured["dataset_cls"] = dataset_cls
@@ -101,6 +105,7 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert isinstance(_FakeTrainer.last_kwargs["train_dataset"], GRPODataset)
     assert _FakeTrainer.last_kwargs["train_dataset"].dataset is fake_train_dataset
     assert "train_sampler" not in _FakeTrainer.last_kwargs
+    assert _FakeTrainer.last_kwargs["sample_plan"] is fake_train_sampler.plan
     assert "finetune_mode" not in _FakeTrainer.last_kwargs
     assert "data_collator" not in _FakeTrainer.last_kwargs
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
@@ -140,13 +145,13 @@ data:
       source_type: jsonl_sft
       train_path: {train_jsonl}
       val_path: {val_jsonl}
-  mix_refresh: static
   num_workers: 0
   persistent_workers: false
   pin_memory: false
 train:
-  epochs: 1
-  max_steps: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-3
@@ -189,8 +194,8 @@ rlhf:
     fake_eval_datasets_by_name = {"grpo_ds": fake_eval_dataset}
 
     class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
-            _ = data_config, seed
+        def __init__(self, data_config, *, seed, train_sample_budget):
+            _ = data_config, seed, train_sample_budget
 
         def build_dataset_bundle(self, dataset_cls):
             assert dataset_cls is SFTDataset
@@ -198,6 +203,7 @@ rlhf:
                 train_dataset=fake_train_dataset,
                 eval_dataset=object(),
                 eval_datasets_by_name=fake_eval_datasets_by_name,
+                train_sampler=SimpleNamespace(plan=object()),
             )
 
     with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):

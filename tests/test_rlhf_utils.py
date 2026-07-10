@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import warnings
 
 import pytest
@@ -18,6 +19,7 @@ from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
 from shaft.config import GRPORolloutConfig, GRPOVLLMConfig
+from shaft.data import ShaftGroupedSampleSampler, ShaftSamplePlan
 from shaft.model import build_model_meta
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from tests.support.training import TinyModel as _TinyModel
@@ -25,6 +27,31 @@ from tests.support.training import build_training_args
 
 
 pytestmark = pytest.mark.component
+
+
+def test_grpo_trainer_uses_epoch_resumable_grouped_sample_refs() -> None:
+    plan = ShaftSamplePlan(
+        {"ds": 8},
+        {"ds": 1.0},
+        strategy="weighted",
+        seed=3,
+    )
+    trainer = object.__new__(ShaftGRPOTrainer)
+    trainer.sample_plan = plan
+    trainer.num_generations = 2
+    trainer.num_iterations = 1
+    trainer.shuffle_dataset = True
+    trainer.args = SimpleNamespace(
+        generation_batch_size=4,
+        steps_per_generation=2,
+        seed=7,
+    )
+
+    sampler = trainer._get_train_sampler()
+    sampler.set_epoch(2)
+
+    assert isinstance(sampler, ShaftGroupedSampleSampler)
+    assert {ref.context.plan_cycle for ref in sampler} == {2}
 
 
 def test_build_trl_dpo_config_from_training_args() -> None:
@@ -91,6 +118,7 @@ def test_build_trl_grpo_config_from_training_args() -> None:
     args = build_training_args(
         output_dir="/tmp/shaft_grpo_config_smoke",
         gradient_accumulation_steps=2,
+        max_steps=7,
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -127,6 +155,7 @@ def test_build_trl_grpo_config_from_training_args() -> None:
         )
     assert all("push_to_hub_token" not in str(w.message) for w in caught)
     assert grpo_args.beta == pytest.approx(0.01)
+    assert grpo_args.max_steps == 7
     assert grpo_args.num_generations == 4
     assert grpo_args.max_completion_length == 96
     assert grpo_args.temperature == pytest.approx(0.8)

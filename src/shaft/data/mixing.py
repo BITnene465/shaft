@@ -1,152 +1,172 @@
 from __future__ import annotations
 
+from bisect import bisect_right
+from dataclasses import dataclass
+import hashlib
 import math
-import random
-from collections import defaultdict
-from typing import Any
 
-from .registry import MIX_STRATEGY_REGISTRY, register_mix_strategy
+_MASK_64 = (1 << 64) - 1
 
 
-class MixedDatasetBuilder:
-    def __init__(self, *, seed: int = 42) -> None:
-        self.seed = int(seed)
+def _splitmix64(value: int) -> int:
+    value = (int(value) + 0x9E3779B97F4A7C15) & _MASK_64
+    value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & _MASK_64
+    value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & _MASK_64
+    return (value ^ (value >> 31)) & _MASK_64
 
-    def build_indices(
+
+def _affine_permute(position: int, size: int, *, seed: int) -> int:
+    if size <= 1:
+        return 0
+    multiplier = int(_splitmix64(seed) % size) | 1
+    while math.gcd(multiplier, size) != 1:
+        multiplier = (multiplier + 2) % size
+        if multiplier == 0:
+            multiplier = 1
+    offset = int(_splitmix64(seed ^ 0xD1B54A32D192ED03) % size)
+    return (multiplier * int(position) + offset) % size
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftSampleContext:
+    draw_id: int
+    plan_cycle: int
+    transform_seed: int
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "draw_id": self.draw_id,
+            "plan_cycle": self.plan_cycle,
+            "transform_seed": self.transform_seed,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftSampleRef:
+    dataset_name: str
+    row_index: int
+    context: ShaftSampleContext
+
+
+class ShaftSamplePlan:
+    """Stateless position-to-sample plan shared by Trainer samplers and direct indexing."""
+
+    def __init__(
         self,
-        records_by_dataset: dict[str, list[Any]],
-        dataset_weights: dict[str, float],
+        source_sizes: dict[str, int],
+        source_weights: dict[str, float],
         *,
-        strategy: str = "interleave_under",
+        strategy: str = "weighted",
+        num_samples: int | None = None,
         shuffle: bool = True,
-    ) -> list[tuple[str, int]]:
-        strategy = str(strategy).strip().lower()
-        if strategy not in {"concat", "interleave_under", "interleave_over"}:
-            raise ValueError(f"Unsupported mix strategy: {strategy!r}.")
-
-        active: dict[str, list[int]] = {}
-        for dataset_name, records in records_by_dataset.items():
-            weight = float(dataset_weights.get(dataset_name, 1.0))
-            if weight <= 0.0 or not records:
-                continue
-            active[dataset_name] = list(range(len(records)))
+        seed: int = 42,
+    ) -> None:
+        self.strategy = str(strategy).strip().lower()
+        if self.strategy not in {"concat", "weighted"}:
+            raise ValueError(f"Unsupported mix strategy: {self.strategy!r}.")
+        active = [
+            (str(name), int(size), float(source_weights.get(name, 1.0)))
+            for name, size in sorted(source_sizes.items())
+            if int(size) > 0 and float(source_weights.get(name, 1.0)) > 0
+        ]
         if not active:
-            raise ValueError("No active datasets for mixing.")
+            raise ValueError("No active datasets for sample planning.")
+        self.source_names = tuple(item[0] for item in active)
+        self.source_sizes = tuple(item[1] for item in active)
+        raw_weights = tuple(item[2] for item in active)
+        max_weight = max(raw_weights)
+        scaled_weights = tuple(weight / max_weight for weight in raw_weights)
+        total_weight = sum(scaled_weights)
+        self.source_weights = tuple(weight / total_weight for weight in scaled_weights)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed) & _MASK_64
+        self.base_size = sum(self.source_sizes)
+        self.num_samples = self.base_size if num_samples is None else int(num_samples)
+        if self.num_samples <= 0:
+            raise ValueError("Sample plan num_samples must be > 0.")
 
-        rng = random.Random(self.seed)
-        if shuffle:
-            for values in active.values():
-                rng.shuffle(values)
+        total = 0
+        self._source_ends: list[int] = []
+        for size in self.source_sizes:
+            total += size
+            self._source_ends.append(total)
+        cumulative = 0.0
+        self._weight_ends: list[float] = []
+        for weight in self.source_weights:
+            cumulative += weight
+            self._weight_ends.append(cumulative)
+        self._weight_ends[-1] = 1.0
+        fingerprint_payload = (
+            self.strategy,
+            self.source_names,
+            self.source_sizes,
+            self.source_weights,
+            self.num_samples,
+            self.shuffle,
+            self.seed,
+        )
+        self.fingerprint = hashlib.sha256(repr(fingerprint_payload).encode("utf-8")).hexdigest()
 
-        normalized_weights = self._normalize_weights(active.keys(), dataset_weights)
-        strategy_fn = MIX_STRATEGY_REGISTRY.get(strategy)
-        return strategy_fn(self, active, normalized_weights, shuffle=shuffle, rng=rng)
+    def __len__(self) -> int:
+        return self.num_samples
 
-    def _normalize_weights(self, keys: list[str] | set[str], weights: dict[str, float]) -> dict[str, float]:
-        result = {k: max(float(weights.get(k, 1.0)), 0.0) for k in keys}
-        total = sum(result.values())
-        if total <= 0.0:
-            uniform = 1.0 / float(len(result))
-            return {k: uniform for k in result}
-        return {k: v / total for k, v in result.items()}
-
-    def _build_quotas(
-        self,
-        active: dict[str, list[int]],
-        normalized_weights: dict[str, float],
-        *,
-        strategy: str,
-    ) -> dict[str, int]:
-        sizes = {k: len(v) for k, v in active.items()}
-        if strategy == "interleave_under":
-            base = min(sizes[k] / max(normalized_weights[k], 1e-12) for k in sizes)
-            quotas = {k: min(sizes[k], int(math.floor(base * normalized_weights[k]))) for k in sizes}
+    def ref_at(self, position: int, *, plan_cycle: int = 0) -> ShaftSampleRef:
+        position = int(position)
+        if position < 0 or position >= self.num_samples:
+            raise IndexError(position)
+        plan_cycle = int(plan_cycle)
+        draw_id = plan_cycle * self.num_samples + position
+        if self.strategy == "concat":
+            dataset_name, row_index = self._resolve_concat(draw_id)
         else:
-            base = max(sizes[k] / max(normalized_weights[k], 1e-12) for k in sizes)
-            quotas = {k: max(sizes[k], int(math.ceil(base * normalized_weights[k]))) for k in sizes}
-        if sum(quotas.values()) <= 0:
-            return sizes
-        return quotas
+            dataset_name, row_index = self._resolve_weighted(
+                position,
+                draw_id=draw_id,
+                plan_cycle=plan_cycle,
+            )
+        return ShaftSampleRef(
+            dataset_name=dataset_name,
+            row_index=row_index,
+            context=ShaftSampleContext(
+                draw_id=draw_id,
+                plan_cycle=plan_cycle,
+                transform_seed=_splitmix64(self.seed ^ draw_id ^ 0xA0761D6478BD642F),
+            ),
+        )
 
-    def _interleave(
+    def _resolve_concat(self, draw_id: int) -> tuple[str, int]:
+        source_cycle, position = divmod(draw_id, self.base_size)
+        if self.shuffle:
+            position = _affine_permute(
+                position,
+                self.base_size,
+                seed=_splitmix64(self.seed ^ source_cycle),
+            )
+        source_index = bisect_right(self._source_ends, position)
+        source_start = 0 if source_index == 0 else self._source_ends[source_index - 1]
+        return self.source_names[source_index], position - source_start
+
+    def _resolve_weighted(
         self,
-        active: dict[str, list[int]],
-        quotas: dict[str, int],
-        normalized_weights: dict[str, float],
+        position: int,
         *,
-        shuffle: bool,
-        rng: random.Random,
-    ) -> list[tuple[str, int]]:
-        resolution = 100
-        cycle: list[str] = []
-        for dataset_name in sorted(quotas):
-            repeat = max(int(round(normalized_weights[dataset_name] * resolution)), 1)
-            cycle.extend([dataset_name] * repeat)
-        if shuffle:
-            rng.shuffle(cycle)
+        draw_id: int,
+        plan_cycle: int,
+    ) -> tuple[str, int]:
+        if self.shuffle:
+            source_random = _splitmix64(self.seed ^ (draw_id * 0xD1342543DE82EF95))
+            source_value = (source_random >> 11) / float(1 << 53)
+            source_index = bisect_right(self._weight_ends, source_value)
+            row_random = _splitmix64(source_random ^ 0xE7037ED1A0B428DB)
+            row_index = int(row_random % self.source_sizes[source_index])
+            return self.source_names[source_index], row_index
 
-        cursor = defaultdict(int)
-        output: list[tuple[str, int]] = []
-        remaining = dict(quotas)
-        while sum(remaining.values()) > 0:
-            progressed = False
-            for dataset_name in cycle:
-                if remaining.get(dataset_name, 0) <= 0:
-                    continue
-                idxs = active[dataset_name]
-                if not idxs:
-                    continue
-                pos = cursor[dataset_name] % len(idxs)
-                output.append((dataset_name, idxs[pos]))
-                cursor[dataset_name] += 1
-                remaining[dataset_name] -= 1
-                progressed = True
-                if sum(remaining.values()) <= 0:
-                    break
-            if not progressed:
-                break
-        return output
-
-
-@register_mix_strategy("concat")
-def mix_concat(
-    builder: MixedDatasetBuilder,
-    active: dict[str, list[int]],
-    normalized_weights: dict[str, float],
-    *,
-    shuffle: bool,
-    rng: random.Random,
-) -> list[tuple[str, int]]:
-    del builder, normalized_weights
-    merged = []
-    for dataset_name, indices in sorted(active.items(), key=lambda x: x[0]):
-        merged.extend((dataset_name, i) for i in indices)
-    if shuffle:
-        rng.shuffle(merged)
-    return merged
-
-
-@register_mix_strategy("interleave_under")
-def mix_interleave_under(
-    builder: MixedDatasetBuilder,
-    active: dict[str, list[int]],
-    normalized_weights: dict[str, float],
-    *,
-    shuffle: bool,
-    rng: random.Random,
-) -> list[tuple[str, int]]:
-    quotas = builder._build_quotas(active, normalized_weights, strategy="interleave_under")
-    return builder._interleave(active, quotas, normalized_weights, shuffle=shuffle, rng=rng)
-
-
-@register_mix_strategy("interleave_over")
-def mix_interleave_over(
-    builder: MixedDatasetBuilder,
-    active: dict[str, list[int]],
-    normalized_weights: dict[str, float],
-    *,
-    shuffle: bool,
-    rng: random.Random,
-) -> list[tuple[str, int]]:
-    quotas = builder._build_quotas(active, normalized_weights, strategy="interleave_over")
-    return builder._interleave(active, quotas, normalized_weights, shuffle=shuffle, rng=rng)
+        source_value = (position + 0.5) / self.num_samples
+        source_index = bisect_right(self._weight_ends, source_value)
+        source_start = 0.0 if source_index == 0 else self._weight_ends[source_index - 1]
+        local_position = max(
+            int(position - math.floor(source_start * self.num_samples)),
+            0,
+        )
+        row_index = (local_position + plan_cycle) % self.source_sizes[source_index]
+        return self.source_names[source_index], row_index

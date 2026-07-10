@@ -176,7 +176,8 @@ src/shaft/webui/
 - `run_id`
 - `seed`
 - `finetune_mode`
-- `epochs`
+- `duration_unit`
+- `duration_value`
 - `learning_rate`
 - `train_batch_size`
 - `eval_batch_size`

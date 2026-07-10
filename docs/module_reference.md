@@ -76,7 +76,8 @@
 - 读取多数据源。
 - 做离线/在线增强。
 - 做样本级 mixing。
-- 支持 train split 的 `static / epoch_refresh` sampler 刷新。
+- 把 JSONL 规范化为可复用的 Arrow mmap record store。
+- 按位置惰性解析无状态 sample plan。
 - 产出 `Dataset`、`train sampler` 和 `Collator`。
 
 ### 关键类
@@ -87,10 +88,11 @@
 - `ShaftDatasetMeta`
 - `BaseDataSource`
 - `SFTRecord` / `DPORecord` / `PPORecord`
-- `ShaftMixedIndexSampler`
+- `ShaftArrowRecordStore`
+- `ShaftSamplePlan` / `ShaftSampleRef` / `ShaftSampleContext`
+- `ShaftSampleSampler` / `ShaftGroupedSampleSampler`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
-- `MixedDatasetBuilder`
 
 ### 关键函数
 
@@ -122,13 +124,19 @@
 
 - `ShaftDatasetMeta.use_for_eval` 用于表达“该数据集是否参与验证集构建与在线 eval”。
 - `ShaftDataCenter` 会始终构建训练记录池，但只为 `use_for_eval=true` 的数据集加载 `val` split。
-- 训练集 mixing 不再在 `data center` 中物化为固定大列表，而是通过 `ShaftMixedIndexSampler` 在 train dataloader 层完成。
+- 训练集 mixing 的真源是 `ShaftSamplePlan`。`concat` 做覆盖式访问，`weighted` 按数据集权重做
+  可复现的有放回概率抽样；sampler 只惰性发出不可变 ref，不保存全量 index。
+- step duration 的 plan 长度直接等于训练所需全局样本数；epoch duration 的单轮 plan 默认等于有效
+  source 行数之和。
 - `data.prompt_sampling` 在运行时作为 train online transform 应用，按 `dataset_name` 从等价 prompt pool
-  中采样并替换 `system_prompt/user_prompt`；默认不作用于 val/eval。
+  中按 `sampling_weight` 采样并替换 `system_prompt/user_prompt`；采样键使用 sample ref 的 `draw_id`，
+  默认不作用于 val/eval。
 - GRPO 当前复用 `jsonl_sft` 数据：
   - `SFTDataset` 提供 prompt-target 样本
   - `GRPODataset` 把样本适配为 TRL GRPO 所需的 `prompt / image / target_text` 字段
   - `GRPODataset` 在交给 TRL/vLLM 前按 `data.min_pixels / data.max_pixels` 调整 PIL 图像，避免 GRPO 绕过 SFT collator 后使用原始大图撑爆 multimodal token 数
+- 当前 PPO 是受限的 text-only 路径：`PPODataset` 不做图像 I/O，PPO collator 只保留消息文本；
+  `jsonl_ppo.image_path` 仅作为可选溯源字段。
 
 ## 3. `model`
 
@@ -312,7 +320,9 @@
   - `parse_success`
   - `grounding_det_f1`
   - `grounding_iou`
-- GRPO 明确要求 `data.mix_refresh=static`，避免与 TRL GRPOTrainer 内部的 prompt-repeat sampler 冲突。
+- GRPO 使用 `ShaftGroupedSampleSampler` 保留 TRL 所需的 prompt-repeat/grouped-generation 结构，
+  但 sampler 按 HF `set_epoch()` 派生确定性 plan cycle，并直接输出共享 plan 的 sample ref。
+  同一 generation group 得到同一 prompt，多 epoch resume 也能复现对应轮次的顺序。
 
 ## 6. `pipeline`
 

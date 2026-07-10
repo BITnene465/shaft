@@ -93,9 +93,10 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
     captured = {}
 
     class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
+        def __init__(self, data_config, *, seed, train_sample_budget):
             captured["data_config"] = data_config
             captured["seed"] = seed
+            captured["train_sample_budget"] = train_sample_budget
 
         def build_dataset_bundle(self, dataset_cls):
             captured["dataset_cls"] = dataset_cls
@@ -113,6 +114,7 @@ def test_run_sft_uses_data_center(tmp_path: Path) -> None:
 
     assert captured["data_config"] is config.data
     assert captured["seed"] == config.experiment.seed
+    assert captured["train_sample_budget"] == 1
     assert captured["dataset_cls"] is SFTDataset
     assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
     assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
@@ -151,7 +153,9 @@ data:
 algorithm:
   name: sft
 train:
-  epochs: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5
@@ -225,7 +229,9 @@ data:
 algorithm:
   name: sft
 train:
-  epochs: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5
@@ -281,7 +287,9 @@ data:
 algorithm:
   name: sft
 train:
-  epochs: 1
+  duration:
+    unit: steps
+    value: 1
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-5

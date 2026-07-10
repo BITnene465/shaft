@@ -4,17 +4,15 @@
 # the main detection tasks. It still trains draw.io shape reconstruction fields
 # from weak labels, but main-task retention is the priority.
 #
-# Mix with mix_strategy=interleave_over and current local row counts:
+# Per-sample probability mix with mix_strategy=weighted:
 # - grounding_arrow:        ~31%
 # - grounding_layout:       ~26%
 # - real shape/icon-image:  ~16%
 # - point_arrow:            ~8%
 # - lin_point_arrow_style:  ~10%
 # - drawio_shape:           ~10%
-# With max_steps=16000 and global batch size 32, only the beginning of this
-# oversized mixed epoch is consumed. This preserves the target ratio, but
-# materializes a much larger index than interleave_under because the synthetic
-# style dataset is the largest source.
+# With a 16000-step duration and global batch size 32, the planner emits exactly
+# the required sample budget without materializing an oversized tuple index.
 #
 # Rationale:
 # - v4.0-beta had arrow/layout retention below v2.5 and v3.0-beta.

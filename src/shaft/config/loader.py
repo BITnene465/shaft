@@ -162,6 +162,22 @@ def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path
     return payload
 
 
+def _resolve_record_cache_dir(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
+    data_payload = payload.get("data")
+    if data_payload is None:
+        return payload
+    if not isinstance(data_payload, dict):
+        raise TypeError("Config key `data` must be a mapping.")
+    cache_dir = data_payload.get("record_cache_dir")
+    if cache_dir is None or not str(cache_dir).strip():
+        return payload
+    path = Path(str(cache_dir)).expanduser()
+    if not path.is_absolute():
+        path = (config_path.parent / path).resolve()
+    data_payload["record_cache_dir"] = str(path)
+    return payload
+
+
 def load_config(path: str | Path) -> RuntimeConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as handle:
@@ -179,6 +195,7 @@ def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
+    payload = _resolve_record_cache_dir(payload, config_path=config_path.resolve())
     payload = _resolve_deepspeed_config_path(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

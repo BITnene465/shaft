@@ -26,7 +26,8 @@ def _build_overrides(payload: dict[str, Any]) -> ShaftSFTWebUIOverrides:
     return ShaftSFTWebUIOverrides(
         run_id=_as_optional_text(payload.get("run_id")),
         seed=_as_optional_int(payload.get("seed")),
-        epochs=_as_optional_int(payload.get("epochs")),
+        duration_unit=_as_optional_text(payload.get("duration_unit")),
+        duration_value=_as_optional_float(payload.get("duration_value")),
         learning_rate=_as_optional_float(payload.get("learning_rate")),
         train_batch_size=_as_optional_int(payload.get("train_batch_size")),
         eval_batch_size=_as_optional_int(payload.get("eval_batch_size")),

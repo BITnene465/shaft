@@ -29,7 +29,6 @@ class GRPOAlgorithm:
             rlhf_config=rlhf_config,
         )
         reward_funcs = build_grpo_reward_functions(rlhf_config.reward_functions)
-        kwargs.pop("train_sampler", None)
         return ShaftGRPOTrainer(
             model=model,
             reward_funcs=reward_funcs,

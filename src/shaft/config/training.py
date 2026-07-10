@@ -34,9 +34,14 @@ class TrainDistributedConfig:
 
 
 @dataclass
+class TrainDurationConfig:
+    unit: str = "steps"  # steps | epochs
+    value: float = 1000
+
+
+@dataclass
 class TrainConfig:
-    epochs: int = 1
-    max_steps: int = -1
+    duration: TrainDurationConfig = field(default_factory=TrainDurationConfig)
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = False

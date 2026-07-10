@@ -212,7 +212,7 @@ python3 -m compileall src/shaft tests
 - 框架级抽象统一使用 `Shaft*` 命名，例如：
   - `ShaftChatTemplate`
   - `ShaftSFTTrainer`
-  - `ShaftMixedIndexSampler`
+  - `ShaftSamplePlan`
 - 模型专用实现必须带模型族/模型名，不允许使用误导为通用能力的泛名。
 - 如果一段逻辑当前只服务于 `Qwen3VL`，类名和文件名都应显式包含 `Qwen3VL`。
 - 通用基类可以放在 `base.py`，模型专用实现按模型文件拆分，例如：
@@ -267,6 +267,7 @@ python3 -m compileall src/shaft tests
 - YAML 为主，CLI 只允许无歧义覆写，例如：
   - `run-id`
   - `seed`
+  - `max-steps`
   - `epochs`
   - `lr`
   - `mix-strategy`

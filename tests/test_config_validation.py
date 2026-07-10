@@ -61,10 +61,10 @@ train:
         load_config(config_path)
 
 
-def test_invalid_mix_refresh_raises(tmp_path: Path) -> None:
+def test_invalid_mix_strategy_raises(tmp_path: Path) -> None:
     payload = """
 data:
-  mix_refresh: every_step
+  mix_strategy: interleave_over
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -72,7 +72,40 @@ data:
 """
     config_path = write_config_yaml(tmp_path, payload)
 
-    with pytest.raises(ValueError, match="Unsupported data.mix_refresh"):
+    with pytest.raises(ValueError, match="Unsupported data.mix_strategy"):
+        load_config(config_path)
+
+
+def test_step_duration_requires_integer_value(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  duration:
+    unit: steps
+    value: 1.5
+"""
+    config_path = write_config_yaml(tmp_path, payload)
+
+    with pytest.raises(ValueError, match="must be an integer"):
+        load_config(config_path)
+
+
+def test_dataset_weight_must_be_finite_and_non_negative(tmp_path: Path) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+      weight: -1
+"""
+    config_path = write_config_yaml(tmp_path, payload)
+
+    with pytest.raises(ValueError, match="weight must be finite and >= 0"):
         load_config(config_path)
 
 
