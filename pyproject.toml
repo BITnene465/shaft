@@ -85,7 +85,7 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q -m 'not smoke and not integration and not manual'"
+addopts = "-q"
 pythonpath = ["projects/eval_bench"]
 norecursedirs = [
   "old",
@@ -99,6 +99,11 @@ markers = [
   "unit: pure module-level checks with no filesystem, subprocess, model service, or heavyweight framework setup.",
   "component: checks one Shaft component through its public API using in-memory fakes or tmp_path fixtures.",
   "contract: verifies a stable CLI/API/schema contract rather than private implementation details.",
+  "slow: tests that are valid but too slow for the default developer/PR loop.",
+  "gpu: tests that require CUDA/NPU/MPS or GPU-oriented runtime assumptions.",
+  "task: tests for temporary data/review/task scripts rather than the maintained Shaft framework contract.",
+  "visual: tests for review visualization/rendering artifacts rather than training framework behavior.",
+  "perf: performance guard tests that are not deterministic enough for default CI.",
   "smoke: runs a shortest viable cross-component path and is excluded from default pytest.",
   "integration: marks tests that run integration workflow (model loading / real inference).",
   "manual: marks tests that should be executed manually only.",

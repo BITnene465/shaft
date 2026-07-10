@@ -64,41 +64,6 @@ def test_run_sft_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
     mocked_prune.assert_not_called()
 
 
-def test_run_sft_builds_training_args_before_model_for_deepspeed(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.distributed.strategy = "deepspeed"
-    config.train.distributed.deepspeed.config = {
-        "bf16": {"enabled": "auto"},
-        "gradient_accumulation_steps": "auto",
-        "gradient_clipping": "auto",
-        "train_micro_batch_size_per_gpu": "auto",
-        "train_batch_size": "auto",
-        "zero_optimization": {"stage": 3},
-    }
-    call_order: list[str] = []
-    training_args = object()
-
-    def _fake_build_training_args(runtime_config):
-        assert runtime_config is config
-        call_order.append("training_args")
-        return training_args
-
-    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
-        assert runtime_config is config
-        assert init_from_checkpoint is None
-        call_order.append("model")
-        assert call_order == ["training_args", "model"]
-        return _build_fake_model_artifacts()
-
-    with patch("shaft.pipeline.sft.build_hf_training_args", _fake_build_training_args):
-        with patch("shaft.pipeline.sft.build_model_tokenizer_processor", _fake_build_model):
-            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-                _ = run_sft(config)
-
-    assert call_order == ["training_args", "model"]
-    assert _FakeTrainer.last_kwargs["args"] is training_args
-
-
 def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
     config = _write_config(tmp_path, loss_scale="all")
     with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:

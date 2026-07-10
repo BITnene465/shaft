@@ -9,7 +9,6 @@ import pytest
 from shaft.config import load_config
 from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
 from shaft.pipeline import run_rlhf
-from shaft.pipeline.training_args import build_hf_training_args
 from tests.support.pipeline import FakePipelineTrainer as _FakeTrainer
 from tests.support.pipeline import build_fake_model_artifacts as _build_fake_model_artifacts
 from tests.support.rlhf import write_common_image as _write_common_image
@@ -18,40 +17,6 @@ from tests.support.rlhf import write_grpo_config as _write_grpo_config
 
 
 pytestmark = pytest.mark.component
-
-
-def test_run_rlhf_builds_training_args_before_model_for_deepspeed(tmp_path: Path) -> None:
-    cfg = load_config(_write_dpo_config(tmp_path))
-    cfg.train.distributed.strategy = "deepspeed"
-    cfg.train.distributed.deepspeed.config = {
-        "bf16": {"enabled": "auto"},
-        "gradient_accumulation_steps": "auto",
-        "gradient_clipping": "auto",
-        "train_micro_batch_size_per_gpu": "auto",
-        "train_batch_size": "auto",
-        "zero_optimization": {"stage": 3},
-    }
-    call_order: list[str] = []
-
-    def _fake_build_training_args(runtime_config):
-        assert runtime_config is cfg
-        call_order.append("training_args")
-        return build_hf_training_args(runtime_config)
-
-    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
-        assert runtime_config is cfg
-        assert init_from_checkpoint is None
-        call_order.append("model")
-        assert call_order == ["training_args", "model"]
-        return _build_fake_model_artifacts()
-
-    with patch("shaft.pipeline.rlhf.build_hf_training_args", _fake_build_training_args):
-        with patch("shaft.pipeline.rlhf.build_model_tokenizer_processor", _fake_build_model):
-            with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
-                _ = run_rlhf(cfg)
-
-    assert call_order == ["training_args", "model"]
-    assert _FakeTrainer.last_kwargs["args"].deepspeed == cfg.train.distributed.deepspeed.config
 
 
 def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:

@@ -1,25 +1,35 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from shaft.config import LoggingConfig
-from shaft.observability.logging import _RankFilter, configure_logging
+from shaft.observability.logging import configure_logging
 from shaft.training.distributed import barrier_if_distributed
 from shaft.training.distributed import destroy_process_group_if_initialized
 from shaft.utils import distributed as distributed_utils
 
 
-def test_rank_filter_suppresses_non_warning_logs_on_nonzero_rank() -> None:
-    rank_filter = _RankFilter(rank=1, rank_zero_only=True)
-    info_record = logging.LogRecord("x", logging.INFO, __file__, 1, "hello", (), None)
-    warning_record = logging.LogRecord("x", logging.WARNING, __file__, 1, "warn", (), None)
-    assert rank_filter.filter(info_record) is False
-    assert rank_filter.filter(warning_record) is True
+def test_configure_logging_suppresses_info_on_nonzero_rank(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    log_path = tmp_path / "rank.log"
+    monkeypatch.setattr("shaft.observability.logging.get_rank", lambda: 1)
+    configure_logging(
+        LoggingConfig(rank_zero_only=True, file_path=str(log_path)),
+        run_id="demo",
+    )
 
+    logger = logging.getLogger("shaft.test")
+    logger.info("hidden-info")
+    logger.warning("visible-warning")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
 
-def test_configure_logging_accepts_rank_zero_only_flag() -> None:
-    cfg = LoggingConfig(rank_zero_only=True)
-    configure_logging(cfg, run_id="demo")
+    content = log_path.read_text(encoding="utf-8")
+    assert "hidden-info" not in content
+    assert "visible-warning" in content
 
 
 def test_barrier_if_distributed_noop_without_dist() -> None:

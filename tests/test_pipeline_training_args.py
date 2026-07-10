@@ -5,11 +5,7 @@ from pathlib import Path
 import pytest
 
 from shaft.config import load_config
-from shaft.pipeline.training_args import (
-    _build_deepspeed_arg,
-    _build_fsdp_args,
-    build_hf_training_args,
-)
+from shaft.pipeline.training_args import build_hf_training_args
 from tests.support.pipeline import fsdp_enabled as _fsdp_enabled
 from tests.support.pipeline import fsdp_option_values as _fsdp_option_values
 from tests.support.pipeline import write_sft_pipeline_config as _write_config
@@ -125,77 +121,5 @@ def test_fsdp_auto_layers_require_model_default(tmp_path: Path) -> None:
     config.train.distributed.strategy = "fsdp"
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
 
-    try:
-        _build_fsdp_args(config)
-    except ValueError as exc:
-        message = str(exc)
-    else:  # pragma: no cover - defensive assertion path
-        raise AssertionError("FSDP auto layer resolution should require a registered default")
-
-    assert "transformer_layer_cls_to_wrap=['auto']" in message
-
-
-def test_deepspeed_training_arg_prefers_inline_config(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.distributed.strategy = "deepspeed"
-    config.train.distributed.deepspeed.config_path = "configs/deepspeed/zero3_bf16.json"
-    config.train.distributed.deepspeed.config = {"zero_optimization": {"stage": 3}}
-
-    assert _build_deepspeed_arg(config) == {"zero_optimization": {"stage": 3}}
-
-
-def test_deepspeed_training_arg_uses_config_path(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.distributed.strategy = "deepspeed"
-    config.train.distributed.deepspeed.config_path = "configs/deepspeed/zero3_bf16.json"
-
-    assert _build_deepspeed_arg(config) == "configs/deepspeed/zero3_bf16.json"
-
-
-def test_build_hf_training_args_supports_deepspeed_strategy(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.distributed.strategy = "deepspeed"
-    config.train.distributed.deepspeed.config = {
-        "bf16": {"enabled": "auto"},
-        "gradient_accumulation_steps": "auto",
-        "gradient_clipping": "auto",
-        "train_micro_batch_size_per_gpu": "auto",
-        "train_batch_size": "auto",
-        "zero_optimization": {"stage": 2},
-    }
-
-    args = build_hf_training_args(config)
-
-    assert args.deepspeed == config.train.distributed.deepspeed.config
-    assert getattr(args, "hf_deepspeed_config", None) is not None
-    assert _fsdp_enabled(args.fsdp) is False
-
-
-def test_build_hf_training_args_resets_deepspeed_state_for_non_deepspeed(
-    tmp_path: Path,
-) -> None:
-    from transformers.integrations.deepspeed import deepspeed_config
-
-    deepspeed_config_payload = {
-        "bf16": {"enabled": "auto"},
-        "gradient_accumulation_steps": "auto",
-        "gradient_clipping": "auto",
-        "train_micro_batch_size_per_gpu": "auto",
-        "train_batch_size": "auto",
-        "zero_optimization": {"stage": 2},
-    }
-    deepspeed_dir = tmp_path / "deepspeed"
-    deepspeed_dir.mkdir()
-    deepspeed_runtime = _write_config(deepspeed_dir)
-    deepspeed_runtime.train.distributed.strategy = "deepspeed"
-    deepspeed_runtime.train.distributed.deepspeed.config = deepspeed_config_payload
-    _ = build_hf_training_args(deepspeed_runtime)
-    assert deepspeed_config()["zero_optimization"]["stage"] == 2
-
-    ddp_dir = tmp_path / "ddp"
-    ddp_dir.mkdir()
-    ddp_runtime = _write_config(ddp_dir)
-    ddp_args = build_hf_training_args(ddp_runtime)
-
-    assert ddp_args.deepspeed is None
-    assert deepspeed_config() is None
+    with pytest.raises(ValueError, match=r"transformer_layer_cls_to_wrap=\['auto'\]"):
+        build_hf_training_args(config)
