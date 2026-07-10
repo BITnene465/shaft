@@ -8,6 +8,7 @@ from shaft.config import RuntimeConfig
 from shaft.model import build_model_meta
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
+    prune_root_output_layout,
     resolve_best_export_dir,
     resolve_resume_checkpoint,
     validate_resume_checkpoint,
@@ -43,6 +44,40 @@ def test_resolve_resume_checkpoint_picks_last_checkpoint(tmp_path: Path) -> None
     (ckpt2 / "trainer_state.json").write_text("{}", encoding="utf-8")
     resolved = resolve_resume_checkpoint(str(root))
     assert resolved == str(ckpt2)
+
+
+def test_resolve_resume_checkpoint_ignores_root_final_state_when_checkpoints_exist(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "run"
+    checkpoint = root / "checkpoint-2"
+    checkpoint.mkdir(parents=True)
+    (root / "trainer_state.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    assert resolve_resume_checkpoint(root) == str(checkpoint)
+
+
+def test_prune_root_output_layout_preserves_run_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "run"
+    (root / "best").mkdir(parents=True)
+    (root / "config.json").write_text("{}", encoding="utf-8")
+    (root / "model.safetensors").write_bytes(b"legacy-root-export")
+    metadata = {
+        "trainer_state.json": "{}",
+        "shaft_finetune_summary.json": "{}",
+        "shaft_optimizer_summary.json": "{}",
+    }
+    for name, payload in metadata.items():
+        (root / name).write_text(payload, encoding="utf-8")
+
+    prune_root_output_layout(root)
+
+    assert (root / "best").is_dir()
+    assert not (root / "config.json").exists()
+    assert not (root / "model.safetensors").exists()
+    for name in metadata:
+        assert (root / name).is_file()
 
 
 def test_ensure_hf_export_layout_full(tmp_path: Path) -> None:

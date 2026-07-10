@@ -352,6 +352,15 @@ prompts:
 - `resume_from_checkpoint`
 - `distributed`
 
+保存与恢复边界：
+
+- `save_final_model=true` 把部署用 HF/PEFT 导出写入 `<output_dir>/best`。
+- `save_final_state=true` 把最终 `trainer_state.json` 保留在 run 根目录；finetune/optimizer summary 也属于
+  run metadata，root layout 清理不得删除这些文件。
+- root `trainer_state.json` 只用于最终指标和 Web UI 状态展示，不等于包含 optimizer/RNG 的可恢复
+  checkpoint。`resume_from_checkpoint` 指向 run 根目录时，如果存在 `checkpoint-*`，始终优先最新
+  checkpoint；`best` 仍是部署导出，不作为精确训练恢复点。
+
 ### `train.duration`
 
 训练时长只有一个真源：

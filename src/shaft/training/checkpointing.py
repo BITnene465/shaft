@@ -8,6 +8,17 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from shaft.config import RuntimeConfig
 from shaft.model import ModelMeta, ShaftModelAdapter
+from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
+from .optimizer_plan import OPTIMIZER_SUMMARY_FILENAME
+
+
+_RUN_METADATA_FILENAMES = frozenset(
+    {
+        "trainer_state.json",
+        FINETUNE_SUMMARY_FILENAME,
+        OPTIMIZER_SUMMARY_FILENAME,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -73,11 +84,14 @@ def resolve_resume_checkpoint(path: str | Path | None) -> str | None:
     target = Path(path)
     if not target.exists():
         raise FileNotFoundError(f"resume_from checkpoint path not found: {target}")
-    if (target / "trainer_state.json").exists():
+    layout = inspect_checkpoint_layout(target)
+    if layout.has_trainer_state and layout.kind in {"full", "adapter"}:
         return str(target)
     last_checkpoint = get_last_checkpoint(str(target))
     if last_checkpoint is not None:
         return str(last_checkpoint)
+    if layout.has_trainer_state:
+        return str(target)
     raise ValueError(f"No trainer checkpoint found under: {target}")
 
 
@@ -104,6 +118,8 @@ def prune_root_output_layout(output_dir: str | Path) -> None:
 
     for item in root.iterdir():
         if item.name.startswith("."):
+            continue
+        if item.is_file() and item.name in _RUN_METADATA_FILENAMES:
             continue
         if item.is_dir() and (item.name == "best" or item.name.startswith("checkpoint-")):
             continue

@@ -457,6 +457,7 @@
 - `resolve_resume_checkpoint()`
 - `validate_resume_checkpoint()`
 - `validate_training_state_policy()`
+- `prune_root_output_layout()`
 
 ### 开发边界
 
@@ -464,6 +465,13 @@
 - 禁止：数据读取、配置加载、导出发布
 
 补充说明：
+
+- checkpoint 与 run metadata 分层：
+  - `checkpoint-*` 是包含训练状态的精确恢复点
+  - `best` 是 HF/PEFT 部署导出
+  - root `trainer_state.json`、`shaft_finetune_summary.json`、`shaft_optimizer_summary.json` 是持久化
+    运行摘要，root export 清理必须保留
+  - 从 run 根目录恢复时，最新 `checkpoint-*` 优先于 root final state
 
 - `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
   - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`
