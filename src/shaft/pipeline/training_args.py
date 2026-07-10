@@ -202,5 +202,6 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         dataloader_persistent_workers=bool(config.data.persistent_workers and dataloader_num_workers > 0),
         disable_tqdm=True,
         remove_unused_columns=False,
+        average_tokens_across_devices=True,
         **warmup_kwargs,
     )

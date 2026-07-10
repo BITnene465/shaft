@@ -36,7 +36,7 @@ def write_smoke_jsonl_dataset(
                 row = {
                     "image_path": str(image_path),
                     "sample_id": f"s{idx}",
-                    "target_text": "{\"ok\":1}",
+                    "target_text": json.dumps({"ok": idx}, separators=(",", ":")),
                     "user_prompt": "return json",
                 }
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -52,6 +52,9 @@ def write_sft_smoke_config(
     val_size: int = 1,
     online_eval: bool = False,
     distributed: bool = False,
+    cost_aware: bool = False,
+    per_device_train_batch_size: int = 1,
+    gradient_accumulation_steps: int = 1,
 ) -> Path:
     train_jsonl, val_jsonl = write_smoke_jsonl_dataset(
         base_dir,
@@ -62,6 +65,14 @@ def write_sft_smoke_config(
     train_block = _sft_train_block(online_eval=online_eval)
     eval_block = _sft_eval_block(online_eval=online_eval)
     target_modules = '    target_modules: ["all-linear"]\n' if not distributed else ""
+    batching_block = (
+        "  batching:\n"
+        "    strategy: cost_aware\n"
+        "    planning_window: 8\n"
+        "    image_size_cache_size: 8\n"
+        if cost_aware
+        else ""
+    )
     cfg.write_text(
         f"""
 experiment:
@@ -76,7 +87,7 @@ model:
 algorithm:
   name: sft
 data:
-  datasets:
+{batching_block}  datasets:
     - dataset_name: smoke_ds
       train_path: {train_jsonl}
       val_path: {val_jsonl}
@@ -85,7 +96,7 @@ data:
   pin_memory: false
   min_pixels:
   max_pixels:
-{train_block}
+{train_block.replace('  per_device_train_batch_size: 1', f'  per_device_train_batch_size: {per_device_train_batch_size}').replace('  gradient_accumulation_steps: 1', f'  gradient_accumulation_steps: {gradient_accumulation_steps}')}
 {eval_block}
 """,
         encoding="utf-8",

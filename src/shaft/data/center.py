@@ -2,17 +2,27 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+import hashlib
 import inspect
 from typing import Any, Generic, TypeVar
 
+from torch.utils.data import Sampler
+
 from shaft.config import DataConfig
 
-from .mixing import ShaftSamplePlan
+from .mixing import ShaftSamplePlan, ShaftSampleRef
 from .record_store import ShaftConcatRecordStore
 from .sampler import ShaftSampleSampler
 from .meta import build_dataset_metas
 from .sources import build_data_source
-from .transforms import build_offline_pipeline, build_online_pipeline, build_prompt_sampling_transform
+from .transforms import (
+    build_offline_pipeline,
+    build_online_pipeline,
+    build_prompt_sampling_transform,
+    is_planning_safe_online_transform,
+    planning_online_transform_fingerprint,
+    planning_safe_online_transform,
+)
 
 RecordT = TypeVar("RecordT")
 DatasetT = TypeVar("DatasetT")
@@ -66,7 +76,7 @@ class ShaftDatasetBundle(Generic[DatasetT]):
     train_dataset: DatasetT
     eval_dataset: DatasetT
     eval_datasets_by_name: dict[str, DatasetT] | None = None
-    train_sampler: ShaftSampleSampler | None = None
+    train_sampler: Sampler[ShaftSampleRef] | None = None
 
 
 class ShaftDataCenter:
@@ -127,9 +137,20 @@ class ShaftDataCenter:
         val_records = ShaftConcatRecordStore(
             [records_by_dataset_val[name] for name in sorted(records_by_dataset_val)]
         )
-        dataset_aware_transform = self._build_dataset_aware_online_transform(dataset_online_pipelines)
-        train_online_transforms = [dataset_aware_transform]
-        eval_online_transforms = [dataset_aware_transform]
+        train_dataset_aware_transform = self._build_dataset_aware_online_transform(
+            {
+                dataset_name: dataset_online_pipelines[dataset_name]
+                for dataset_name in records_by_dataset_train
+            }
+        )
+        eval_dataset_aware_transform = self._build_dataset_aware_online_transform(
+            {
+                dataset_name: dataset_online_pipelines[dataset_name]
+                for dataset_name in records_by_dataset_val
+            }
+        )
+        train_online_transforms = [train_dataset_aware_transform]
+        eval_online_transforms = [eval_dataset_aware_transform]
         prompt_sampling_transform = build_prompt_sampling_transform(
             self.data_config.prompt_sampling,
             default_seed=self.seed,
@@ -162,6 +183,26 @@ class ShaftDataCenter:
                 return sample
             return pipeline(sample)
 
+        if all(
+            is_planning_safe_online_transform(pipeline)
+            for pipeline in dataset_online_pipelines.values()
+        ):
+            fingerprint_payload = (
+                "shaft-dataset-online-pipeline-v1",
+                tuple(
+                    (
+                        dataset_name,
+                        planning_online_transform_fingerprint(pipeline),
+                    )
+                    for dataset_name, pipeline in sorted(dataset_online_pipelines.items())
+                ),
+            )
+            planning_safe_online_transform(
+                _dataset_aware_online_transform,
+                fingerprint=hashlib.sha256(
+                    repr(fingerprint_payload).encode("utf-8")
+                ).hexdigest(),
+            )
         return _dataset_aware_online_transform
 
 

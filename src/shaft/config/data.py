@@ -12,6 +12,13 @@ class PromptSamplingConfig:
 
 
 @dataclass
+class DataBatchingConfig:
+    strategy: str = "fixed"
+    planning_window: int = 512
+    image_size_cache_size: int = 8192
+
+
+@dataclass
 class DatasetSourceConfig:
     dataset_name: str
     source_type: str = "jsonl_sft"
@@ -34,6 +41,7 @@ class DataConfig:
     catalog_names: list[str] = field(default_factory=list)
     datasets: list[DatasetSourceConfig] = field(default_factory=list)
     prompt_sampling: PromptSamplingConfig = field(default_factory=PromptSamplingConfig)
+    batching: DataBatchingConfig = field(default_factory=DataBatchingConfig)
     mix_strategy: str = "weighted"
     num_workers: int = 4
     prefetch_factor: int | None = 2

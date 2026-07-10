@@ -76,3 +76,47 @@ def test_causal_lm_cross_entropy_includes_last_eos_and_shift_is_exact() -> None:
 
     assert float(perfect_loss) < 1e-3
     assert float(misaligned_loss) > 1.0
+
+
+def test_global_denominator_is_invariant_to_microbatch_split() -> None:
+    torch.manual_seed(17)
+    labels = torch.tensor(
+        [
+            [0, 1, 2, -100],
+            [0, 2, 1, 2],
+        ],
+        dtype=torch.long,
+    )
+    loss_scale = torch.tensor(
+        [
+            [0.0, 0.5, 1.0, 0.0],
+            [0.0, 1.0, 2.0, 1.0],
+        ],
+        dtype=torch.float32,
+    )
+    global_denominator = float(
+        (loss_scale[:, 1:] * labels[:, 1:].ne(-100)).sum()
+    )
+    full_logits = torch.randn(2, 4, 5, requires_grad=True)
+    split_logits = full_logits.detach().clone().requires_grad_(True)
+
+    full_loss = causal_lm_cross_entropy(
+        logits=full_logits,
+        labels=labels,
+        loss_scale=loss_scale,
+    )
+    split_loss = sum(
+        causal_lm_cross_entropy(
+            logits=split_logits[row : row + 1],
+            labels=labels[row : row + 1],
+            loss_scale=loss_scale[row : row + 1],
+            normalization_denominator=global_denominator,
+        )
+        for row in range(2)
+    )
+
+    full_loss.backward()
+    split_loss.backward()
+
+    assert split_loss.detach() == pytest.approx(float(full_loss.detach()))
+    assert torch.allclose(split_logits.grad, full_logits.grad, atol=1e-7, rtol=1e-6)

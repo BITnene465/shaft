@@ -8,6 +8,7 @@ from shaft.loss_scale import build_loss_scale
 from shaft.model.types import ShaftProcessedBatch, ShaftProcessorTokenLayout
 
 from .types import (
+    ShaftSupervisionCostEstimate,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
     Template,
@@ -160,16 +161,30 @@ class ShaftChatTemplate(Template):
     ) -> torch.Tensor:
         loss_spec = plan.loss_spec
         prefix_length = int(prefix_ids.shape[0])
-        if prefix_length <= 0:
-            return torch.zeros((0,), dtype=torch.float32)
-        if float(loss_spec.prefix_scale) <= 0:
-            return torch.zeros((prefix_length,), dtype=torch.float32)
+        weights = torch.zeros((prefix_length,), dtype=torch.float32)
+        for start, end in self._resolve_prefix_supervision_spans(
+            plan=plan,
+            prefix_length=prefix_length,
+            prefix_token_layout=prefix_token_layout,
+        ):
+            weights[start:end] = float(loss_spec.prefix_scale)
+        return weights
+
+    @staticmethod
+    def _resolve_prefix_supervision_spans(
+        *,
+        plan: ShaftTemplateSupervisionPlan,
+        prefix_length: int,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
+    ) -> tuple[tuple[int, int], ...]:
+        loss_spec = plan.loss_spec
+        prefix_length = int(prefix_length)
+        if prefix_length <= 0 or float(loss_spec.prefix_scale) <= 0:
+            return ()
         if loss_spec.base_strategy == "all":
-            return torch.full((prefix_length,), float(loss_spec.prefix_scale), dtype=torch.float32)
-        if loss_spec.base_strategy == "last_round":
-            return torch.zeros((prefix_length,), dtype=torch.float32)
-        if not plan.trainable_prefix_spans:
-            return torch.zeros((prefix_length,), dtype=torch.float32)
+            return ((0, prefix_length),)
+        if loss_spec.base_strategy == "last_round" or not plan.trainable_prefix_spans:
+            return ()
         if prefix_token_layout is None:
             raise ValueError(
                 "A processor token layout is required for segmented prefix supervision."
@@ -179,11 +194,61 @@ class ShaftChatTemplate(Template):
         if prefix_token_layout.processed_token_count != prefix_length:
             raise ValueError("Processor token layout does not match the processed prefix length.")
 
-        weights = torch.zeros((prefix_length,), dtype=torch.float32)
-        for raw_start, raw_end in plan.trainable_prefix_spans:
-            start, end = prefix_token_layout.project_span(raw_start, raw_end)
-            weights[start:end] = float(loss_spec.prefix_scale)
-        return weights
+        projected = sorted(
+            prefix_token_layout.project_span(raw_start, raw_end)
+            for raw_start, raw_end in plan.trainable_prefix_spans
+        )
+        merged: list[tuple[int, int]] = []
+        for start, end in projected:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return tuple(merged)
+
+    def estimate_supervision_cost(
+        self,
+        *,
+        plan: ShaftTemplateSupervisionPlan,
+        tokenizer: Any,
+        prefix_token_layout: ShaftProcessorTokenLayout,
+        add_eos_token: bool,
+        max_length: int | None = None,
+    ) -> ShaftSupervisionCostEstimate:
+        prefix_length = prefix_token_layout.processed_token_count
+        target_ids = self._tokenize_target(
+            tokenizer=tokenizer,
+            target_text=plan.target_text,
+        )
+        target_ids = self._truncate_target_ids(
+            target_ids,
+            prefix_length=prefix_length,
+            max_length=max_length,
+            eos_id=getattr(tokenizer, "eos_token_id", None),
+            add_eos_token=add_eos_token,
+        )
+        prefix_spans = self._resolve_prefix_supervision_spans(
+            plan=plan,
+            prefix_length=prefix_length,
+            prefix_token_layout=prefix_token_layout,
+        )
+        supervised_prefix_tokens = sum(
+            max(end - max(start, 1), 0) for start, end in prefix_spans
+        )
+        supervised_target_tokens = 0
+        if float(plan.loss_spec.target_scale) > 0:
+            supervised_target_tokens = max(
+                len(target_ids) - int(prefix_length == 0),
+                0,
+            )
+        return ShaftSupervisionCostEstimate(
+            llm_tokens=prefix_length + len(target_ids),
+            supervised_tokens=supervised_prefix_tokens + supervised_target_tokens,
+            loss_weight_sum=(
+                supervised_prefix_tokens * float(plan.loss_spec.prefix_scale)
+                + supervised_target_tokens * float(plan.loss_spec.target_scale)
+            ),
+        )
 
     def build_supervised_row(
         self,

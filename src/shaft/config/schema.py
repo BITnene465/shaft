@@ -1,6 +1,6 @@
 from .algorithm import AlgorithmConfig, DPOConfig, GRPOConfig, GRPORewardConfig, PPOConfig, RLHFConfig
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
-from .data import DataConfig, DatasetSourceConfig
+from .data import DataBatchingConfig, DataConfig, DatasetSourceConfig
 from .model import FinetuneConfig, ModelConfig
 from .runtime import RuntimeConfig
 from .training import (
@@ -13,6 +13,7 @@ from .training import (
 
 __all__ = [
     "AlgorithmConfig",
+    "DataBatchingConfig",
     "DataConfig",
     "DatasetSourceConfig",
     "DPOConfig",

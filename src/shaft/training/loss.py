@@ -58,17 +58,21 @@ def auto_loss(
     labels: torch.Tensor | None,
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
+    normalization_denominator: torch.Tensor | int | float | None = None,
     **_: Any,
 ) -> torch.Tensor:
-    if loss_scale is not None:
+    if loss_scale is not None or normalization_denominator is not None:
         logits = _extract_logits(outputs)
         if logits is None or labels is None:
-            raise ValueError("auto loss with loss_scale requires outputs.logits and labels.")
+            raise ValueError(
+                "auto loss with explicit normalization requires outputs.logits and labels."
+            )
         return causal_lm_cross_entropy(
             logits=logits,
             labels=labels,
             ignore_index=ignore_index,
             loss_scale=loss_scale,
+            normalization_denominator=normalization_denominator,
         )
     maybe_loss = _extract_loss(outputs)
     if isinstance(maybe_loss, torch.Tensor):
@@ -86,6 +90,7 @@ def causal_lm_loss(
     labels: torch.Tensor | None,
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
+    normalization_denominator: torch.Tensor | int | float | None = None,
     **_: Any,
 ) -> torch.Tensor:
     logits = _extract_logits(outputs)
@@ -96,6 +101,7 @@ def causal_lm_loss(
         labels=labels,
         ignore_index=ignore_index,
         loss_scale=loss_scale,
+        normalization_denominator=normalization_denominator,
     )
 
 
@@ -105,6 +111,7 @@ def causal_lm_cross_entropy(
     labels: torch.Tensor,
     ignore_index: int = -100,
     loss_scale: torch.Tensor | None = None,
+    normalization_denominator: torch.Tensor | int | float | None = None,
 ) -> torch.Tensor:
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
@@ -121,7 +128,16 @@ def causal_lm_cross_entropy(
     else:
         shift_loss_scale = loss_scale[..., 1:].contiguous().to(device=token_loss.device, dtype=token_loss.dtype)
         weights = shift_loss_scale * valid_mask.to(dtype=token_loss.dtype)
-    denom = weights.sum()
+    local_denominator = weights.sum()
+    denom = (
+        local_denominator
+        if normalization_denominator is None
+        else torch.as_tensor(
+            normalization_denominator,
+            device=token_loss.device,
+            dtype=token_loss.dtype,
+        )
+    )
     if float(denom.detach().item()) <= 0:
         return token_loss.sum() * 0.0
     return (token_loss * weights).sum() / denom

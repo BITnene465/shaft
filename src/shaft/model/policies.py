@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from typing import Any
 
 from shaft.plugins import Registry
 
@@ -10,12 +11,107 @@ from .types import (
     PeftPolicy,
     ProcessorPolicy,
     ShaftProcessedBatch,
+    ShaftProcessorCostEstimate,
     ShaftProcessorTokenLayout,
 )
 
 
 @dataclass(frozen=True)
 class QwenVLProcessorPolicy(ProcessorPolicy):
+    def estimate_image_cost(
+        self,
+        *,
+        processor: Any,
+        image_sizes: tuple[tuple[int, int], ...],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> ShaftProcessorCostEstimate:
+        image_processor = getattr(processor, "image_processor", None)
+        patch_size = int(getattr(image_processor, "patch_size", 0) or 0)
+        merge_size = int(getattr(image_processor, "merge_size", 0) or 0)
+        if patch_size <= 0 or merge_size <= 0:
+            raise ValueError(
+                "Qwen VL cost estimation requires processor.image_processor.patch_size "
+                "and merge_size."
+            )
+        get_number_of_image_patches = getattr(
+            image_processor,
+            "get_number_of_image_patches",
+            None,
+        )
+        if not callable(get_number_of_image_patches):
+            raise ValueError(
+                "Qwen VL exact cost estimation requires "
+                "image_processor.get_number_of_image_patches()."
+            )
+        images_kwargs: dict[str, int] = {}
+        if min_pixels is not None:
+            images_kwargs["min_pixels"] = int(min_pixels)
+        if max_pixels is not None:
+            images_kwargs["max_pixels"] = int(max_pixels)
+        vision_patches = 0
+        processed_image_tokens = 0
+        for width, height in image_sizes:
+            patches = int(
+                get_number_of_image_patches(
+                    height=int(height),
+                    width=int(width),
+                    images_kwargs=images_kwargs,
+                )
+            )
+            if patches % (merge_size * merge_size) != 0:
+                raise ValueError("Qwen VL vision patches do not align with merge_size.")
+            vision_patches += patches
+            processed_image_tokens += patches // (merge_size * merge_size)
+        return ShaftProcessorCostEstimate(
+            processed_image_tokens=processed_image_tokens,
+            vision_patches=vision_patches,
+            exact=True,
+        )
+
+    def estimate_token_layout(
+        self,
+        *,
+        processor: Any,
+        tokenizer: Any,
+        rendered_token_ids: tuple[int, ...],
+        image_costs: tuple[ShaftProcessorCostEstimate, ...],
+    ) -> ShaftProcessorTokenLayout:
+        image_token_id = getattr(processor, "image_token_id", None)
+        if image_token_id is None:
+            image_token = getattr(processor, "image_token", None)
+            if image_token is not None and hasattr(tokenizer, "convert_tokens_to_ids"):
+                image_token_id = tokenizer.convert_tokens_to_ids(image_token)
+        if image_token_id is None:
+            raise ValueError(
+                "Qwen VL token-layout estimation requires image_token_id or image_token."
+            )
+
+        processed_boundaries = [0]
+        image_index = 0
+        for token_id in rendered_token_ids:
+            increment = 1
+            if int(token_id) == int(image_token_id):
+                if image_index >= len(image_costs):
+                    raise ValueError(
+                        "Qwen VL rendered prompt has more image placeholders than image costs."
+                    )
+                increment = int(image_costs[image_index].processed_image_tokens)
+                if increment <= 0:
+                    raise ValueError(
+                        "A Qwen VL image placeholder must expand to at least one token."
+                    )
+                image_index += 1
+            processed_boundaries.append(processed_boundaries[-1] + increment)
+        if image_index != len(image_costs):
+            raise ValueError(
+                "Qwen VL image costs do not match the rendered image placeholder count: "
+                f"placeholders={image_index}, image_costs={len(image_costs)}."
+            )
+        return ShaftProcessorTokenLayout(
+            processed_boundaries=tuple(processed_boundaries)
+        )
+
     def build_token_layout(
         self,
         *,
@@ -67,6 +163,37 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
             processed_token_count=len(token_ids),
         )
 
+
+@dataclass(frozen=True)
+class SmokeVLMProcessorPolicy(ProcessorPolicy):
+    def estimate_image_cost(
+        self,
+        *,
+        processor: Any,
+        image_sizes: tuple[tuple[int, int], ...],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> ShaftProcessorCostEstimate:
+        _ = processor, min_pixels, max_pixels
+        return ShaftProcessorCostEstimate(
+            processed_image_tokens=0,
+            vision_patches=16 * len(image_sizes),
+            exact=True,
+        )
+
+    def estimate_token_layout(
+        self,
+        *,
+        processor: Any,
+        tokenizer: Any,
+        rendered_token_ids: tuple[int, ...],
+        image_costs: tuple[ShaftProcessorCostEstimate, ...],
+    ) -> ShaftProcessorTokenLayout:
+        _ = processor, tokenizer, image_costs
+        return ShaftProcessorTokenLayout(
+            processed_boundaries=tuple(range(len(rendered_token_ids) + 1))
+        )
+
 PROCESSOR_POLICY_REGISTRY: Registry[ProcessorPolicy] = Registry("model_processor_policy")
 PEFT_POLICY_REGISTRY: Registry[PeftPolicy] = Registry("model_peft_policy")
 
@@ -91,6 +218,7 @@ register_processor_policy(
     "qwen_vl",
     QwenVLProcessorPolicy(
         supports_pixel_budget=True,
+        supports_exact_image_cost=True,
         whole_batch_model_input_names=(
             "pixel_values",
             "image_grid_thw",
@@ -98,6 +226,14 @@ register_processor_policy(
             "video_grid_thw",
             "second_per_grid_ts",
         ),
+    ),
+)
+register_processor_policy(
+    "smoke_vlm",
+    SmokeVLMProcessorPolicy(
+        supports_pixel_budget=False,
+        supports_exact_image_cost=True,
+        sample_aligned_model_input_names=("pixel_values",),
     ),
 )
 register_processor_policy(

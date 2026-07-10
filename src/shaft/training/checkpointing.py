@@ -9,6 +9,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from shaft.config import RuntimeConfig
 from shaft.model import ModelMeta, ShaftModelAdapter
 from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
+from .batch_planning import BATCH_PLANNING_SIGNATURE_FILENAME
 from .optimizer_plan import OPTIMIZER_SUMMARY_FILENAME
 
 
@@ -17,6 +18,7 @@ _RUN_METADATA_FILENAMES = frozenset(
         "trainer_state.json",
         FINETUNE_SUMMARY_FILENAME,
         OPTIMIZER_SUMMARY_FILENAME,
+        BATCH_PLANNING_SIGNATURE_FILENAME,
     }
 )
 

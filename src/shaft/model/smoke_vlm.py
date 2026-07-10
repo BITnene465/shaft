@@ -227,7 +227,7 @@ SMOKE_VLM_META = ModelMeta(
         language_model=("embed_tokens", "proj"),
         generator=("lm_head",),
     ),
-    processor_policy=build_processor_policy("identity"),
+    processor_policy=build_processor_policy("smoke_vlm"),
     peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
 )

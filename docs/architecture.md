@@ -178,8 +178,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 
 ### 5.3 批次规划边界
 
-- 当前已实现的训练选择真源是 `ShaftSamplePlan`；它只决定 logical sample，不应承载长度分桶、
-  rank 平衡或 packing。
+- 训练选择真源是 `ShaftSamplePlan`；它只决定 logical sample，不承载长度分桶、rank 平衡或 packing。
 - 成本感知训练的目标链路固定为：
 
   ```text
@@ -193,10 +192,19 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - packing 只改变 local microbatch 的物理布局。segment 的 attention、position、labels/loss scale 和
   多模态 grid 必须隔离并对齐。
 - 动态 microbatch 必须使用全局 loss numerator/denominator；不能等权平均不同大小的本地 batch mean。
+- `ShaftSFTTrainer` 已基于实际 `labels/loss_scale` 落地 optimizer-batch global denominator，固定 batch 与
+  cost-aware Phase 1 共同使用；动态 batch 只需扩展 draw/microbatch plan，不能另建一套 loss 语义。
 - context parallel 是 job 级静态拓扑，不作为单个长样本的动态调度手段。
 - 该能力的完整目标契约、配置迁移与阶段验收见
-  [training_batch_planning_design.md](training_batch_planning_design.md)。当前实现仍是 fixed batch，文档中的
-  CostPlan/BatchPlan/PackPlan 尚未进入运行时。
+  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1：
+  `Qwen3VL + SFT` 可按有界 planning window 构造精确 sample cost，并在保持每卡固定样本数的前提下，
+  生成跨 DP rank 平衡的 `ShaftBatchPlan`。动态 cost-budget microbatch、`PackPlan` 和 context parallel
+  尚未进入运行时。
+- cost provider 不解释模型或监督细节：图像 resize 与 rendered/processed token layout 的估算真源是
+  `ProcessorPolicy`，target 截断、EOS、causal shift 和 loss weight 的估算真源是 `Template`。新增模型或
+  模板必须扩展对应 policy/interface，不能在 data planner 中复制一份逻辑。
+- Phase 1 resume 通过 `ShaftBatchPlanningSignature` 绑定 data/cost/planner/topology，并随 checkpoint
+  持久化；相同 horizon 可精确恢复，改变 horizon/topology 必须 fail fast。
 
 ### 5.4 分片训练边界
 

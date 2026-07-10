@@ -97,6 +97,19 @@ class ModelCapabilities:
     is_multimodal: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftProcessorCostEstimate:
+    processed_image_tokens: int = 0
+    vision_patches: int = 0
+    exact: bool = False
+
+    def __post_init__(self) -> None:
+        if int(self.processed_image_tokens) < 0:
+            raise ValueError("processed_image_tokens must be >= 0.")
+        if int(self.vision_patches) < 0:
+            raise ValueError("vision_patches must be >= 0.")
+
+
 @dataclass(frozen=True)
 class ModelModuleGroups:
     language_model: tuple[str, ...] = ()
@@ -192,6 +205,7 @@ class ShaftProcessedBatch:
 @dataclass(frozen=True)
 class ProcessorPolicy:
     supports_pixel_budget: bool = False
+    supports_exact_image_cost: bool = False
     sample_aligned_model_input_names: tuple[str, ...] = ()
     whole_batch_model_input_names: tuple[str, ...] = ()
     static_model_input_names: tuple[str, ...] = ()
@@ -272,6 +286,39 @@ class ProcessorPolicy:
         return ShaftProcessedBatch(
             model_inputs=dict(outputs),
             batch_size=len(prompt_texts),
+        )
+
+    def estimate_image_cost(
+        self,
+        *,
+        processor: Any,
+        image_sizes: tuple[tuple[int, int], ...],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> ShaftProcessorCostEstimate:
+        _ = processor, image_sizes, min_pixels, max_pixels
+        raise ValueError(
+            f"Processor policy {type(self).__name__!r} does not provide an exact image-cost "
+            "estimator; register a model-specific processor policy before enabling "
+            "cost-aware batching."
+        )
+
+    def estimate_token_layout(
+        self,
+        *,
+        processor: Any,
+        tokenizer: Any,
+        rendered_token_ids: tuple[int, ...],
+        image_costs: tuple[ShaftProcessorCostEstimate, ...],
+    ) -> ShaftProcessorTokenLayout:
+        _ = processor, tokenizer
+        if image_costs:
+            raise ValueError(
+                f"Processor policy {type(self).__name__!r} does not provide an exact "
+                "multimodal token-layout estimator."
+            )
+        return ShaftProcessorTokenLayout(
+            processed_boundaries=tuple(range(len(rendered_token_ids) + 1))
         )
 
     def build_token_layout(
@@ -689,6 +736,36 @@ class ShaftModelAdapter:
             min_pixels=min_pixels,
             max_pixels=max_pixels,
             padding_side=padding_side,
+        )
+
+    def estimate_processor_image_cost(
+        self,
+        *,
+        processor: Any,
+        image_sizes: tuple[tuple[int, int], ...],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> ShaftProcessorCostEstimate:
+        return self.processor_policy.estimate_image_cost(
+            processor=processor,
+            image_sizes=image_sizes,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+
+    def estimate_processor_token_layout(
+        self,
+        *,
+        processor: Any,
+        tokenizer: Any,
+        rendered_token_ids: tuple[int, ...],
+        image_costs: tuple[ShaftProcessorCostEstimate, ...],
+    ) -> ShaftProcessorTokenLayout:
+        return self.processor_policy.estimate_token_layout(
+            processor=processor,
+            tokenizer=tokenizer,
+            rendered_token_ids=rendered_token_ids,
+            image_costs=image_costs,
         )
 
     def build_processor_token_layout(

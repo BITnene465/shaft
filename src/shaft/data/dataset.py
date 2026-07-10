@@ -163,10 +163,14 @@ class SFTDataset(_BaseVisionDataset):
             image_cache_size=image_cache_size,
         )
 
-    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
-        record, sample_ref = self._resolve_record(self.records, index)
-        image = self._load_image(record.image_path)
-        sample = {
+    def _build_sample(
+        self,
+        record: SFTRecord,
+        *,
+        sample_ref: ShaftSampleRef | None,
+        image: Any,
+    ) -> dict[str, Any]:
+        return {
             "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or Path(record.image_path).stem,
             "image_path": record.image_path,
@@ -178,6 +182,25 @@ class SFTDataset(_BaseVisionDataset):
             "extra": dict(record.extra),
             **self._runtime_context(sample_ref),
         }
+
+    def get_planning_item(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+        """Resolve deterministic text transforms without decoding the image payload."""
+
+        record, sample_ref = self._resolve_record(self.records, index)
+        sample = self._build_sample(
+            record,
+            sample_ref=sample_ref,
+            image=None,
+        )
+        return self._apply_online_transforms(sample)
+
+    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+        record, sample_ref = self._resolve_record(self.records, index)
+        sample = self._build_sample(
+            record,
+            sample_ref=sample_ref,
+            image=self._load_image(record.image_path),
+        )
         return self._apply_online_transforms(sample)
 
 

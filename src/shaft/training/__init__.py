@@ -1,3 +1,12 @@
+from .batch_planning import (
+    BATCH_PLANNING_SIGNATURE_FILENAME,
+    ShaftBatchPlanningCallback,
+    batch_planning_signature_path,
+    load_batch_planning_signature,
+    validate_batch_planning_resume,
+    validate_batch_planning_resume_geometry,
+    write_batch_planning_signature,
+)
 from .checkpointing import (
     ensure_hf_export_layout,
     resolve_resume_checkpoint,
@@ -34,10 +43,12 @@ from .sft_trainer import ShaftSFTTrainer
 
 __all__ = [
     "LOSS_REGISTRY",
+    "BATCH_PLANNING_SIGNATURE_FILENAME",
     "OPTIMIZER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "Muon",
     "ShaftEpochIntervalCallback",
+    "ShaftBatchPlanningCallback",
     "ShaftOnlineEvalRunner",
     "ShaftOptimizerMixin",
     "ShaftProgressCallback",
@@ -49,6 +60,7 @@ __all__ = [
     "ShaftResolvedOptimizerSummary",
     "ShaftSFTTrainer",
     "barrier_if_distributed",
+    "batch_planning_signature_path",
     "destroy_process_group_if_initialized",
     "build_loss",
     "build_optimizer",
@@ -61,6 +73,7 @@ __all__ = [
     "get_world_size",
     "is_distributed",
     "is_rank_zero",
+    "load_batch_planning_signature",
     "register_optimizer",
     "register_scheduler",
     "register_loss",
@@ -68,8 +81,11 @@ __all__ = [
     "resolved_optimizer_summary_path",
     "summarize_resolved_optimizer_plan",
     "validate_resume_checkpoint",
+    "validate_batch_planning_resume",
+    "validate_batch_planning_resume_geometry",
     "validate_training_state_policy",
     "write_resolved_optimizer_summary",
+    "write_batch_planning_signature",
 ]
 
 

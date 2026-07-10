@@ -90,7 +90,10 @@
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `ShaftArrowRecordStore`
 - `ShaftSamplePlan` / `ShaftSampleRef` / `ShaftSampleContext`
-- `ShaftSampleSampler` / `ShaftGroupedSampleSampler`
+- `ShaftSampleSampler` / `ShaftGroupedSampleSampler` / `ShaftCostAwareSampler`
+- `ShaftSampleCost` / `ShaftSFTSampleCostProvider`
+- `ShaftBatchPlan` / `ShaftFixedBatchPlanner`
+- `ShaftBatchPlanningSignature`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
 
@@ -126,6 +129,19 @@
 - `ShaftDataCenter` 会始终构建训练记录池，但只为 `use_for_eval=true` 的数据集加载 `val` split。
 - 训练集 mixing 的真源是 `ShaftSamplePlan`。`concat` 做覆盖式访问，`weighted` 按数据集权重做
   可复现的有放回概率抽样；sampler 只惰性发出不可变 ref，不保存全量 index。
+- `ShaftSampleCost` 保存 processor 后 LLM token、causal shift 后的有效监督 token、loss weight 和
+  vision patch 成本。`ShaftSFTSampleCostProvider` 使用与 dataset 相同的 sample ref/draw context 解析
+  online prompt transform，只读取图片 header，不解码像素；图像 resize/token expansion 由模型
+  `ProcessorPolicy` 负责，target 截断、causal shift 与 loss weight 由 `Template` 的
+  `estimate_supervision_cost()` 负责。cost provider 不维护平行监督语义。
+- cost-aware planning 会重复重建 online transform；只有经 `planning_safe_online_transform` 声明、可由
+  logical sample context 确定性复现的 transform 才能进入该路径。未声明 transform 会 fail fast。
+- `ShaftFixedBatchPlanner` 在有界 window 内按文本/视觉成本分桶，保持 local sample count 不变，并把
+  相近成本的 local batches 组成 global microstep。`ShaftCostAwareSampler` 将该计划展平成 HF
+  `BatchSampler` 可消费的 ref 流；Accelerate 按连续 local batch 分发给各 data rank。
+- `ShaftBatchPlanningSignature` 绑定 SamplePlan/source/prompt、processor/template、planner/window、
+  fixed-batch/gradient-accumulation 与 DP topology；training callback 将其写入 run root 和 checkpoint，
+  resume 不一致时拒绝继续。
 - step duration 的 plan 长度直接等于训练所需全局样本数；epoch duration 的单轮 plan 默认等于有效
   source 行数之和。
 - `data.prompt_sampling` 在运行时作为 train online transform 应用，按 `dataset_name` 从等价 prompt pool
@@ -170,10 +186,12 @@
 - `ProcessorPolicy`
 - `ShaftProcessedBatch`
 - `ShaftProcessorTokenLayout`
+- `ShaftProcessorCostEstimate`
 
 `ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
 键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则和训练
-输入的复制/重排。内置 `identity` 要求 rendered tokens 与 processed tokens 完全一致；`qwen_vl`
+输入的复制/重排，以及是否支持精确 image-cost estimation。内置 `identity` 要求 rendered tokens 与
+processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 显式处理 `mm_token_type_ids` 标记的多模态 token run。其他模型族必须通过 registry 注册自己的 policy，
 不得让 collator 或通用 template 猜测模型字段、batch axis 或 token expansion。processor 新增
 `position_ids/token_type_ids` 等 sequence-aligned 字段时，默认策略会显式拒绝，直到模型 policy 定义
@@ -424,6 +442,7 @@
 - `src/shaft/training/optimizer.py`
 - `src/shaft/training/scheduler.py`
 - `src/shaft/training/checkpointing.py`
+- `src/shaft/training/batch_planning.py`
 - `src/shaft/training/progress_callback.py`
 - `src/shaft/training/distributed.py`
 
@@ -444,6 +463,7 @@
 - `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
 - `CheckpointLayout`
+- `ShaftBatchPlanningCallback`
 - `Muon`
 
 ### 关键函数
@@ -456,6 +476,7 @@
 - `inspect_checkpoint_layout()`
 - `resolve_resume_checkpoint()`
 - `validate_resume_checkpoint()`
+- `validate_batch_planning_resume()`
 - `validate_training_state_policy()`
 - `prune_root_output_layout()`
 
@@ -472,6 +493,12 @@
   - root `trainer_state.json`、`shaft_finetune_summary.json`、`shaft_optimizer_summary.json` 是持久化
     运行摘要，root export 清理必须保留
   - 从 run 根目录恢复时，最新 `checkpoint-*` 优先于 root final state
+  - cost-aware SFT 额外要求 `shaft_batch_planning_signature.json` 完全一致；改变 horizon/topology/data/
+    processor 必须新开 run
+
+- `ShaftSFTTrainer` 会对一个 optimizer batch 内实际 causal labels/loss weights 求 denominator，并在 data
+  ranks 间汇总；local numerator 采用同一个 global denominator，保证 gradient accumulation 与 DDP
+  分割不改变 token 权重。
 
 - `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
   - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`

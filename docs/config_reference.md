@@ -183,6 +183,7 @@
 - `catalog_names`
 - `datasets`
 - `prompt_sampling`
+- `batching`
 - `mix_strategy`
 - `num_workers`
 - `prefetch_factor`
@@ -195,6 +196,49 @@
 - `max_length`
 - `add_eos_token`
 - `shuffle`
+
+### `data.batching`
+
+Phase 1 支持以下配置：
+
+```yaml
+data:
+  batching:
+    strategy: cost_aware       # fixed | cost_aware
+    planning_window: 512
+    image_size_cache_size: 8192
+```
+
+- `strategy=fixed` 是默认值，保持原 HF Trainer batch 顺序。
+- `strategy=cost_aware` 当前只支持 `algorithm.name=sft`、`train.duration.unit=steps` 和提供精确
+  image-cost policy 的模型族；首个支持路径是 Qwen3VL。其它算法、epoch duration 或不支持的模型会在
+  启动时明确失败。
+- `planning_window` 是 planner 允许重排的最大 logical sample horizon。运行时会向下对齐到完整的
+  `per_device_train_batch_size * data_world_size`，且至少包含一个 global microstep。planner 只重排
+  `ShaftSamplePlan` 已选择的 refs，不丢弃、不复制、不修改 mixing 权重。
+- `image_size_cache_size` 是主进程 sample-cost provider 的路径 alias/fallback LRU 容量；当前 horizon
+  manifest 会为每个唯一 canonical image 保留一个宽高 tuple，避免 planning 再开 header。两者都不缓存
+  解码后图像，也不改变各 DataLoader worker 的 `image_cache_size`。
+- Phase 1 中每个 local microbatch 的样本数仍等于 `train.per_device_train_batch_size`。SFT loss 使用整个
+  optimizer batch 的实际 `labels/loss_scale` 作为 global denominator，覆盖 gradient accumulation 和
+  DDP；dynamic batching 和 sequence packing 尚无可用配置。
+- planner 会记录 planning window 的 token padding、有效监督 token、vision patches、inexact cost
+  数量、跨 rank cost skew、planning wall time 和 plan signature，并在 cycle 结束输出 aggregate。
+  Qwen VL SFT 运行时成本通过同一个 draw context 解析 prompt variant，只读取图像 header；patch 数调用
+  HF image processor 的官方估算 API，token expansion 由模型 `ProcessorPolicy` 负责。
+- cost-aware 模式会在主进程与 DataLoader worker 中分别重建 online transform 结果，因此 transform 必须
+  只依赖 logical sample/draw context 且可重复，并保持 image identity/geometry 与 media placeholders。
+  内置 identity 与 prompt sampling 已声明为 planning-safe；扩展 transform 必须使用
+  `planning_safe_online_transform` 显式声明，否则启动时拒绝。
+- cost-aware run 与每个 checkpoint 都保存 `shaft_batch_planning_signature.json`。resume 只接受相同
+  duration/sample horizon、batch、gradient accumulation、DP topology、data/prompt 和 processor/template
+  签名；改变 steps 来延长旧 run 会明确失败，应从权重启动新 run。
+- signature 的图像资产 manifest 绑定 canonical path、stat/inode 和宽高，并绑定 Transformers/patch
+  estimator 版本；同路径替换或改变宽高会使 resume 失败。manifest 只扫描当前 SamplePlan horizon
+  实际引用的唯一 canonical image，并复用读取到的尺寸；它不会逐文件计算内容 hash，因此所引用的
+  图片目录仍必须是不可变数据 snapshot。
+- 当前每个 data rank 会独立重建 global planning window。该路径适合首版 correctness/canary；百万级数据
+  或共享存储正式使用前，还需要离线/共享 mmap CostPlan，不能把 runtime header scan 视为最终方案。
 
 ### `data.datasets`
 

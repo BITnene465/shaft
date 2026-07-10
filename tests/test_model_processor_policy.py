@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 import torch
 
-from shaft.model import ProcessorPolicy, ShaftProcessedBatch, build_model_meta
+from shaft.model import (
+    ProcessorPolicy,
+    ShaftProcessedBatch,
+    ShaftProcessorCostEstimate,
+    build_model_meta,
+)
 
 
 def test_processor_policy_controls_pixel_budget_forwarding() -> None:
@@ -32,6 +38,58 @@ def test_processor_policy_controls_pixel_budget_forwarding() -> None:
     assert "min_pixels" not in captured
     assert "max_pixels" not in captured
     assert captured["images_kwargs"] == {"min_pixels": 16, "max_pixels": 32}
+
+
+def test_qwen_processor_policy_estimates_resized_image_tokens_and_patches() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    processor = SimpleNamespace(
+        image_processor=SimpleNamespace(
+            patch_size=16,
+            merge_size=2,
+            size=SimpleNamespace(shortest_edge=None, longest_edge=None),
+            get_number_of_image_patches=lambda **kwargs: 16,
+        )
+    )
+
+    estimate = model_adapter.estimate_processor_image_cost(
+        processor=processor,
+        image_sizes=((64, 64),),
+        min_pixels=None,
+        max_pixels=None,
+    )
+
+    assert estimate.processed_image_tokens == 4
+    assert estimate.vision_patches == 16
+    assert estimate.exact is True
+
+    layout = model_adapter.estimate_processor_token_layout(
+        processor=SimpleNamespace(image_token_id=99),
+        tokenizer=SimpleNamespace(),
+        rendered_token_ids=(10, 99, 11),
+        image_costs=(estimate,),
+    )
+    assert layout.processed_boundaries == (0, 1, 5, 6)
+
+
+def test_qwen_processor_policy_rejects_mismatched_image_costs() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    estimate = ShaftProcessorCostEstimate(
+        processed_image_tokens=4,
+        vision_patches=16,
+        exact=True,
+    )
+
+    with pytest.raises(ValueError, match="placeholder count"):
+        model_adapter.estimate_processor_token_layout(
+            processor=SimpleNamespace(image_token_id=99),
+            tokenizer=SimpleNamespace(),
+            rendered_token_ids=(10, 11),
+            image_costs=(estimate,),
+        )
 
 
 def test_processor_policy_can_disable_pixel_budget() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 import hashlib
 from typing import Any
 
@@ -12,9 +13,74 @@ from .record_store import ShaftRecordSubset
 
 OfflineTransform = Callable[[Sequence[Any]], Sequence[Any]]
 OnlineTransform = Callable[[dict[str, Any]], dict[str, Any]]
+_PLANNING_POLICY_ATTRIBUTE = "__shaft_planning_policy__"
 
 OFFLINE_TRANSFORM_REGISTRY: Registry[OfflineTransform] = Registry("offline_transform")
 ONLINE_TRANSFORM_REGISTRY: Registry[OnlineTransform] = Registry("online_transform")
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftOnlineTransformPlanningPolicy:
+    fingerprint: str
+    deterministic_from_context: bool = True
+    preserves_image_identity: bool = True
+    preserves_image_geometry: bool = True
+    preserves_media_placeholders: bool = True
+
+    @property
+    def planning_safe(self) -> bool:
+        return bool(
+            self.fingerprint
+            and self.deterministic_from_context
+            and self.preserves_image_identity
+            and self.preserves_image_geometry
+            and self.preserves_media_placeholders
+        )
+
+
+def planning_safe_online_transform(
+    transform: OnlineTransform | None = None,
+    *,
+    fingerprint: str | None = None,
+    deterministic_from_context: bool = True,
+    preserves_image_identity: bool = True,
+    preserves_image_geometry: bool = True,
+    preserves_media_placeholders: bool = True,
+):
+    """Declare deterministic, media-identity/geometry/placeholder preserving behavior."""
+
+    def _decorate(target: OnlineTransform) -> OnlineTransform:
+        resolved_fingerprint = str(fingerprint or "").strip() or (
+            f"{getattr(target, '__module__', '')}.{getattr(target, '__qualname__', '')}"
+        )
+        setattr(
+            target,
+            _PLANNING_POLICY_ATTRIBUTE,
+            ShaftOnlineTransformPlanningPolicy(
+                fingerprint=resolved_fingerprint,
+                deterministic_from_context=deterministic_from_context,
+                preserves_image_identity=preserves_image_identity,
+                preserves_image_geometry=preserves_image_geometry,
+                preserves_media_placeholders=preserves_media_placeholders,
+            ),
+        )
+        return target
+
+    if transform is None:
+        return _decorate
+    return _decorate(transform)
+
+
+def is_planning_safe_online_transform(transform: OnlineTransform) -> bool:
+    policy = getattr(transform, _PLANNING_POLICY_ATTRIBUTE, None)
+    return isinstance(policy, ShaftOnlineTransformPlanningPolicy) and policy.planning_safe
+
+
+def planning_online_transform_fingerprint(transform: OnlineTransform) -> str:
+    policy = getattr(transform, _PLANNING_POLICY_ATTRIBUTE, None)
+    if not isinstance(policy, ShaftOnlineTransformPlanningPolicy) or not policy.planning_safe:
+        raise ValueError("Online transform has no planning-safe policy.")
+    return policy.fingerprint
 
 
 class PromptSamplingTransform:
@@ -28,6 +94,37 @@ class PromptSamplingTransform:
     ) -> None:
         self.pools = {str(name): list(variants) for name, variants in pools.items()}
         self.seed = int(seed)
+        fingerprint_payload = (
+            "shaft-prompt-sampling-v1",
+            self.seed,
+            tuple(
+                (
+                    dataset_name,
+                    tuple(
+                        (
+                            variant.prompt_id,
+                            variant.variant_id,
+                            variant.version,
+                            variant.system_prompt,
+                            variant.user_prompt,
+                            variant.sampling_weight,
+                            variant.source_path,
+                        )
+                        for variant in variants
+                    ),
+                )
+                for dataset_name, variants in sorted(self.pools.items())
+            ),
+        )
+        setattr(
+            self,
+            _PLANNING_POLICY_ATTRIBUTE,
+            ShaftOnlineTransformPlanningPolicy(
+                fingerprint=hashlib.sha256(
+                    repr(fingerprint_payload).encode("utf-8")
+                ).hexdigest()
+            ),
+        )
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         dataset_name = str(sample.get("dataset_name", "")).strip()
@@ -96,6 +193,7 @@ def offline_dedup_image_target(records: Sequence[Any]) -> Sequence[Any]:
 
 
 @ONLINE_TRANSFORM_REGISTRY.register("identity")
+@planning_safe_online_transform(fingerprint="shaft-online-identity-v1")
 def online_identity(sample: dict[str, Any]) -> dict[str, Any]:
     return sample
 
@@ -127,6 +225,16 @@ def build_online_pipeline(transform_names: list[str]) -> OnlineTransform:
             out = fn(out)
         return out
 
+    if all(is_planning_safe_online_transform(transform) for transform in transforms):
+        component_fingerprints = tuple(
+            planning_online_transform_fingerprint(transform) for transform in transforms
+        )
+        planning_safe_online_transform(
+            _run,
+            fingerprint=hashlib.sha256(
+                repr(("shaft-online-pipeline-v1", component_fingerprints)).encode("utf-8")
+            ).hexdigest(),
+        )
     return _run
 
 

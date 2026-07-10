@@ -21,6 +21,7 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
     args = build_hf_training_args(config)
 
     assert args.gradient_checkpointing is True
+    assert args.average_tokens_across_devices is True
 
 
 def test_build_hf_training_args_uses_warmup_steps_ratio(tmp_path: Path) -> None:

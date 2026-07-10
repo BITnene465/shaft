@@ -20,6 +20,13 @@ class ShaftTemplateSupervisionPlan:
     trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftSupervisionCostEstimate:
+    llm_tokens: int
+    supervised_tokens: int
+    loss_weight_sum: float
+
+
 @dataclass(frozen=True)
 class ShaftTemplateSupervisedRow:
     input_ids: Any
@@ -84,6 +91,18 @@ class Template(ABC):
         renderer: ShaftChatRenderer,
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
+        raise NotImplementedError
+
+    @abstractmethod
+    def estimate_supervision_cost(
+        self,
+        *,
+        plan: ShaftTemplateSupervisionPlan,
+        tokenizer: Any,
+        prefix_token_layout: ShaftProcessorTokenLayout,
+        add_eos_token: bool,
+        max_length: int | None = None,
+    ) -> ShaftSupervisionCostEstimate:
         raise NotImplementedError
 
     @abstractmethod

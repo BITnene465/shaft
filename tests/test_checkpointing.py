@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from shaft.config import RuntimeConfig
+from shaft.data import ShaftBatchPlanningSignature
 from shaft.model import build_model_meta
+from shaft.training.batch_planning import (
+    BATCH_PLANNING_SIGNATURE_FILENAME,
+    ShaftBatchPlanningCallback,
+    load_batch_planning_signature,
+    validate_batch_planning_resume,
+    validate_batch_planning_resume_geometry,
+    write_batch_planning_signature,
+)
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,
@@ -67,6 +78,7 @@ def test_prune_root_output_layout_preserves_run_metadata(tmp_path: Path) -> None
         "trainer_state.json": "{}",
         "shaft_finetune_summary.json": "{}",
         "shaft_optimizer_summary.json": "{}",
+        BATCH_PLANNING_SIGNATURE_FILENAME: "{}",
     }
     for name, payload in metadata.items():
         (root / name).write_text(payload, encoding="utf-8")
@@ -78,6 +90,90 @@ def test_prune_root_output_layout_preserves_run_metadata(tmp_path: Path) -> None
     assert not (root / "model.safetensors").exists()
     for name in metadata:
         assert (root / name).is_file()
+
+
+def _batch_planning_signature() -> ShaftBatchPlanningSignature:
+    return ShaftBatchPlanningSignature(
+        planner_version="planner-v1",
+        sample_plan_fingerprint="sample-v1",
+        cost_fingerprint="cost-v1",
+        sample_count=8,
+        per_device_batch_size=2,
+        data_world_size=2,
+        gradient_accumulation_steps=1,
+        planning_window=8,
+        effective_planning_window=8,
+        seed=42,
+        drop_last=False,
+    )
+
+
+def test_batch_planning_signature_roundtrip_and_resume_validation(tmp_path: Path) -> None:
+    signature = _batch_planning_signature()
+    checkpoint = tmp_path / "run" / "checkpoint-1"
+    write_batch_planning_signature(checkpoint, signature)
+
+    assert load_batch_planning_signature(checkpoint) == signature
+    validate_batch_planning_resume(checkpoint, expected=signature)
+
+    extended_horizon = replace(signature, sample_count=12)
+    with pytest.raises(ValueError, match=r"changed fields: \['sample_count'\]"):
+        validate_batch_planning_resume(checkpoint, expected=extended_horizon)
+    with pytest.raises(ValueError, match="planning geometry changed"):
+        validate_batch_planning_resume_geometry(
+            checkpoint,
+            sample_plan_fingerprint=signature.sample_plan_fingerprint,
+            sample_count=12,
+            per_device_batch_size=signature.per_device_batch_size,
+            data_world_size=signature.data_world_size,
+            gradient_accumulation_steps=signature.gradient_accumulation_steps,
+            planning_window=signature.planning_window,
+            effective_planning_window=signature.effective_planning_window,
+            seed=signature.seed,
+            drop_last=signature.drop_last,
+        )
+
+
+def test_batch_planning_callback_persists_checkpoint_signature(tmp_path: Path) -> None:
+    signature = _batch_planning_signature()
+    callback = ShaftBatchPlanningCallback(signature)
+    checkpoint = tmp_path / "checkpoint-3"
+    checkpoint.mkdir()
+
+    control = object()
+    returned = callback.on_save(
+        SimpleNamespace(output_dir=str(tmp_path)),
+        SimpleNamespace(global_step=3, is_world_process_zero=True),
+        control,
+    )
+
+    assert returned is control
+    assert load_batch_planning_signature(checkpoint) == signature
+
+
+def test_batch_planning_resume_never_borrows_parent_signature(tmp_path: Path) -> None:
+    signature = _batch_planning_signature()
+    run_root = tmp_path / "run"
+    checkpoint = run_root / "checkpoint-1"
+    checkpoint.mkdir(parents=True)
+    write_batch_planning_signature(run_root, signature)
+
+    with pytest.raises(FileNotFoundError, match="checkpoint-1"):
+        validate_batch_planning_resume(checkpoint, expected=signature)
+
+
+def test_batch_planning_resume_from_run_root_validates_latest_checkpoint(
+    tmp_path: Path,
+) -> None:
+    signature = _batch_planning_signature()
+    run_root = tmp_path / "run"
+    checkpoint = run_root / "checkpoint-2"
+    checkpoint.mkdir(parents=True)
+    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+    write_batch_planning_signature(run_root, replace(signature, sample_count=12))
+    write_batch_planning_signature(checkpoint, signature)
+
+    validate_batch_planning_resume(run_root, expected=signature)
 
 
 def test_ensure_hf_export_layout_full(tmp_path: Path) -> None:

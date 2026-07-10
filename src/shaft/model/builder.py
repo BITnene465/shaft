@@ -12,7 +12,7 @@ from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
 from .registry import build_model_meta
-from .types import ModelArtifacts
+from .types import ModelArtifacts, ShaftModelAdapter
 
 
 def _is_adapter_checkpoint(path: Path) -> bool:
@@ -192,13 +192,27 @@ def _build_artifacts_from_runtime_config(config: RuntimeConfig, *, model_meta) -
     model_path = Path(runtime_config.model.model_name_or_path)
     _validate_hf_sharded_checkpoint_files(model_path)
     _validate_local_hf_config_model_type(model_path, model_meta=model_meta)
-    model_adapter = model_meta.resolve_adapter(
-        model_name_or_path=runtime_config.model.model_name_or_path,
-        template_type=runtime_config.model.template,
+    model_adapter = resolve_model_adapter_from_config(
+        runtime_config,
+        model_meta=model_meta,
     )
     model_adapter.check_requires()
     assert model_meta.loader is not None
     return model_meta.loader.build(runtime_config, model_meta=model_meta, model_adapter=model_adapter)
+
+
+def resolve_model_adapter_from_config(
+    config: RuntimeConfig,
+    *,
+    model_meta=None,
+) -> ShaftModelAdapter:
+    resolved_model_meta = model_meta or build_model_meta(
+        str(config.model.model_type).strip().lower()
+    )
+    return resolved_model_meta.resolve_adapter(
+        model_name_or_path=config.model.model_name_or_path,
+        template_type=config.model.template,
+    )
 
 
 def build_model_tokenizer_processor(

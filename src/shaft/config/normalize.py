@@ -6,6 +6,7 @@ import re
 from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "weighted"}
+_BATCHING_STRATEGIES = {"fixed", "cost_aware"}
 _TRAIN_DURATION_UNITS = {"steps", "epochs"}
 _ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
@@ -56,6 +57,19 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
         raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
+    batching = config.data.batching
+    batching.strategy = str(batching.strategy).strip().lower()
+    if batching.strategy not in _BATCHING_STRATEGIES:
+        raise ValueError(
+            f"Unsupported data.batching.strategy={batching.strategy!r}. "
+            f"Expected one of {_BATCHING_STRATEGIES}."
+        )
+    batching.planning_window = int(batching.planning_window)
+    if batching.planning_window <= 0:
+        raise ValueError("data.batching.planning_window must be > 0.")
+    batching.image_size_cache_size = int(batching.image_size_cache_size)
+    if batching.image_size_cache_size < 0:
+        raise ValueError("data.batching.image_size_cache_size must be >= 0.")
     config.data.num_workers = int(config.data.num_workers)
     if config.data.num_workers < 0:
         raise ValueError("data.num_workers must be >= 0.")
@@ -233,6 +247,17 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("train.duration.value must be finite and > 0.")
     if train.duration.unit == "steps" and not train.duration.value.is_integer():
         raise ValueError("train.duration.value must be an integer when unit='steps'.")
+    if batching.strategy == "cost_aware":
+        if config.algorithm.name != "sft":
+            raise ValueError(
+                "data.batching.strategy='cost_aware' currently supports "
+                "algorithm.name='sft' only."
+            )
+        if train.duration.unit != "steps":
+            raise ValueError(
+                "data.batching.strategy='cost_aware' currently requires "
+                "train.duration.unit='steps'."
+            )
     train.per_device_train_batch_size = int(train.per_device_train_batch_size)
     if train.per_device_train_batch_size <= 0:
         raise ValueError("train.per_device_train_batch_size must be > 0.")

@@ -11,10 +11,15 @@ from shaft.algorithms import sft as _sft  # noqa: F401
 from shaft.config import RuntimeConfig
 from shaft.data import (
     SFTCollator,
-    ShaftDataCenter,
     SFTDataset,
+    ShaftCostAwareSampler,
+    ShaftDataCenter,
+    ShaftSFTSampleCostProvider,
+    resolve_fixed_batch_planning_geometry,
+    validate_sft_cost_model_adapter,
+    validate_sft_cost_planning_dataset,
 )
-from shaft.model import build_model_tokenizer_processor
+from shaft.model import build_model_tokenizer_processor, resolve_model_adapter_from_config
 from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.model.generation import align_model_generation_config
 from shaft.plugins import (
@@ -24,6 +29,12 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
+from shaft.training.batch_planning import (
+    ShaftBatchPlanningCallback,
+    validate_batch_planning_resume,
+    validate_batch_planning_resume_geometry,
+    write_batch_planning_signature,
+)
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.checkpointing import (
@@ -69,6 +80,57 @@ class ShaftSFTPipeline:
         validate_training_state_policy(config)
         validate_training_topology(config)
         training_args = self.build_training_args()
+        data_center = ShaftDataCenter(
+            config.data,
+            seed=config.experiment.seed,
+            train_sample_budget=resolve_step_sample_budget(
+                config,
+                world_size=training_args.world_size,
+            ),
+        )
+        dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
+        train_dataset = dataset_bundle.train_dataset
+        train_sampler = dataset_bundle.train_sampler
+        cost_aware_batching = config.data.batching.strategy == "cost_aware"
+        planning_geometry: tuple[int, int, int] | None = None
+        if cost_aware_batching:
+            if train_sampler is None or not hasattr(train_sampler, "plan"):
+                raise TypeError(
+                    "Cost-aware SFT batching requires the Shaft sample-plan sampler."
+                )
+            planning_geometry = resolve_fixed_batch_planning_geometry(
+                sample_count=len(train_sampler.plan),
+                per_device_batch_size=training_args.per_device_train_batch_size,
+                data_world_size=training_args.world_size,
+                planning_window=config.data.batching.planning_window,
+                drop_last=False,
+            )
+            validate_sft_cost_planning_dataset(train_dataset)
+            validate_sft_cost_model_adapter(resolve_model_adapter_from_config(config))
+
+        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
+        if resume_checkpoint is not None:
+            validate_resume_checkpoint(
+                resume_checkpoint,
+                finetune_mode=config.model.finetune.mode,
+            )
+            if cost_aware_batching:
+                assert train_sampler is not None and hasattr(train_sampler, "plan")
+                assert planning_geometry is not None
+                _, usable_sample_count, effective_planning_window = planning_geometry
+                validate_batch_planning_resume_geometry(
+                    resume_checkpoint,
+                    sample_plan_fingerprint=train_sampler.plan.fingerprint,
+                    sample_count=usable_sample_count,
+                    per_device_batch_size=training_args.per_device_train_batch_size,
+                    data_world_size=training_args.world_size,
+                    gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+                    planning_window=config.data.batching.planning_window,
+                    effective_planning_window=effective_planning_window,
+                    seed=config.experiment.seed,
+                    drop_last=False,
+                )
+
         artifacts = build_model_tokenizer_processor(
             config,
             init_from_checkpoint=config.train.init_from_checkpoint,
@@ -92,16 +154,45 @@ class ShaftSFTPipeline:
             if is_rank_zero():
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        data_center = ShaftDataCenter(
-            config.data,
-            seed=config.experiment.seed,
-            train_sample_budget=resolve_step_sample_budget(
-                config,
-                world_size=training_args.world_size,
-            ),
-        )
-        dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
-        train_dataset = dataset_bundle.train_dataset
+        batch_planning_signature = None
+        if cost_aware_batching:
+            assert train_sampler is not None and hasattr(train_sampler, "plan")
+            cost_provider = ShaftSFTSampleCostProvider(
+                dataset=train_dataset,
+                model_adapter=artifacts.model_adapter,
+                template=artifacts.template,
+                processor=artifacts.processor,
+                tokenizer=artifacts.tokenizer,
+                min_pixels=config.data.min_pixels,
+                max_pixels=config.data.max_pixels,
+                max_length=config.data.max_length,
+                add_eos_token=config.data.add_eos_token,
+                loss_scale_name=config.train.loss_scale,
+                image_size_cache_size=config.data.batching.image_size_cache_size,
+            )
+            train_sampler = ShaftCostAwareSampler(
+                train_sampler.plan,
+                cost_provider=cost_provider,
+                per_device_batch_size=training_args.per_device_train_batch_size,
+                data_world_size=training_args.world_size,
+                planning_window=config.data.batching.planning_window,
+                gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+                seed=config.experiment.seed,
+            )
+            batch_planning_signature = train_sampler.signature
+
+        if resume_checkpoint is not None and batch_planning_signature is not None:
+            validate_batch_planning_resume(
+                resume_checkpoint,
+                expected=batch_planning_signature,
+            )
+        if batch_planning_signature is not None:
+            if is_rank_zero():
+                write_batch_planning_signature(
+                    config.experiment.output_dir,
+                    batch_planning_signature,
+                )
+            barrier_if_distributed()
         eval_dataset: Any = dataset_bundle.eval_dataset
         use_named_eval_datasets = bool(
             config.eval.enabled
@@ -117,6 +208,8 @@ class ShaftSFTPipeline:
             eval_dataset = dataset_bundle.eval_datasets_by_name
         hook_manager = build_hook_manager(config.plugins.hooks)
         callbacks = []
+        if batch_planning_signature is not None:
+            callbacks.append(ShaftBatchPlanningCallback(batch_planning_signature))
         if config.progress.enabled:
             callbacks.append(
                 ShaftProgressCallback(
@@ -180,7 +273,7 @@ class ShaftSFTPipeline:
             args=training_args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
-            train_sampler=dataset_bundle.train_sampler,
+            train_sampler=train_sampler,
             processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,
@@ -190,9 +283,6 @@ class ShaftSFTPipeline:
             finetune_plan=finetune_plan,
         )
 
-        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
-        if resume_checkpoint is not None:
-            validate_resume_checkpoint(resume_checkpoint, finetune_mode=config.model.finetune.mode)
         train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
         barrier_if_distributed()
         if config.train.save_final_model:

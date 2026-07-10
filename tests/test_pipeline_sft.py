@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.data import SFTDataset, ShaftDatasetBundle
+from shaft.data import SFTDataset, ShaftCostAwareSampler, ShaftDatasetBundle
 from shaft.model.finetune_plan import resolved_finetune_summary_path
 from shaft.pipeline import run_sft
+from shaft.training.batch_planning import (
+    ShaftBatchPlanningCallback,
+    load_batch_planning_signature,
+)
 from tests.support.pipeline import FakePipelineModel as _FakeModel
 from tests.support.pipeline import FakePipelineTrainer as _FakeTrainer
 from tests.support.pipeline import build_fake_model_artifacts as _build_fake_model_artifacts
@@ -72,6 +77,49 @@ def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
             _ = run_sft(config)
     collator = _FakeTrainer.last_kwargs["data_collator"]
     assert collator.loss_scale_name == "all"
+
+
+def test_run_sft_replaces_sample_sampler_with_cost_aware_plan(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.planning_window = 7
+    config.data.batching.image_size_cache_size = 3
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch("shaft.pipeline.sft.ShaftSFTSampleCostProvider") as mocked_provider:
+            mocked_provider.return_value = SimpleNamespace(
+                fingerprint="pipeline-test-cost-v1"
+            )
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_sft(config)
+
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    assert isinstance(train_sampler, ShaftCostAwareSampler)
+    assert train_sampler.planner.planning_window == 7
+    assert train_sampler.planner.data_world_size == 1
+    assert train_sampler.planner.per_device_batch_size == 1
+    provider_kwargs = mocked_provider.call_args.kwargs
+    assert provider_kwargs["dataset"] is _FakeTrainer.last_kwargs["train_dataset"]
+    assert provider_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
+    assert provider_kwargs["image_size_cache_size"] == 3
+    assert load_batch_planning_signature(config.experiment.output_dir) == train_sampler.signature
+    assert any(
+        isinstance(callback, ShaftBatchPlanningCallback)
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+    )
+
+
+def test_cost_aware_geometry_fails_before_model_loading(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.planning_window = 0
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        with pytest.raises(ValueError, match="planning_window must be > 0"):
+            run_sft(config)
+
+    mocked_builder.assert_not_called()
 
 
 def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:

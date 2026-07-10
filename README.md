@@ -147,6 +147,21 @@ train:
 `weighted` 会把各数据源 `weight` 归一化为 sample draw 概率；epoch 模式仅用于有限时长兼容，写成
 `duration: {unit: epochs, value: 1}`。
 
+Qwen VL SFT 可显式启用固定样本数的成本感知分桶：
+
+```yaml
+data:
+  batching:
+    strategy: cost_aware
+    planning_window: 512
+```
+
+该模式只在有界 window 内重排 mixer 已选样本，并保持每卡 batch cardinality；当前要求 step duration、
+exact model processor policy 和不可变数据 snapshot。checkpoint resume 还要求 planning signature 完全
+一致，不能通过修改 steps 直接延长旧 run。完整边界见
+[`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
+[`docs/config_reference.md`](docs/config_reference.md)。
+
 ## 当前能力
 
 ### 训练

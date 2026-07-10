@@ -15,7 +15,14 @@ from shaft.infer import (
     ShaftInferEngine,
     ShaftInferRequest,
 )
-from shaft.data import DPOCollator, SFTCollator
+from shaft.data import (
+    DPOCollator,
+    SFTCollator,
+    SFTDataset,
+    SFTRecord,
+    ShaftSamplePlan,
+    ShaftSFTSampleCostProvider,
+)
 from shaft.model import MODEL_REGISTRY, build_model_meta
 from shaft.template import ShaftChatRenderer, build_template
 
@@ -32,6 +39,104 @@ class _CountingProcessor:
     def __call__(self, *args, **kwargs):
         self.call_count += 1
         return self.wrapped(*args, **kwargs)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("model_type", "template_name", "model_path"),
+    [
+        ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
+        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
+    ],
+)
+def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
+    tmp_path: Path,
+    model_type: str,
+    template_name: str,
+    model_path: Path,
+) -> None:
+    if not model_path.exists():
+        pytest.skip(f"Model path not found: {model_path}")
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        fix_mistral_regex=False,
+    )
+    tokenizer = processor.tokenizer
+    model_adapter = build_model_meta(model_type).resolve_adapter(
+        model_name_or_path=str(model_path)
+    )
+    template = build_template(template_name)
+
+    for index, image_size in enumerate(((64, 64), (128, 512))):
+        image_path = tmp_path / f"cost-{index}.png"
+        Image.new("RGB", image_size, color=(index * 20, 30, 40)).save(image_path)
+        messages = None
+        if index == 1:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": "first question"},
+                    ],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "first answer"}]},
+                {"role": "user", "content": [{"type": "text", "text": "second question"}]},
+            ]
+        plan = ShaftSamplePlan(
+            {"integration": 1},
+            {"integration": 1.0},
+            strategy="concat",
+            shuffle=False,
+        )
+        dataset = SFTDataset(
+            {
+                "integration": [
+                    SFTRecord(
+                        image_path=str(image_path),
+                        target_text="one two three four",
+                        dataset_name="integration",
+                        messages=messages,
+                        user_prompt="Return a compact answer.",
+                    )
+                ]
+            },
+            sample_plan=plan,
+        )
+        ref = plan.ref_at(0)
+        common_kwargs = {
+            "model_adapter": model_adapter,
+            "template": template,
+            "processor": processor,
+            "tokenizer": tokenizer,
+            "min_pixels": 16384,
+            "max_pixels": 262144,
+            "max_length": 256,
+            "add_eos_token": True,
+            "loss_scale_name": "default",
+        }
+        estimated = ShaftSFTSampleCostProvider(
+            dataset=dataset,
+            **common_kwargs,
+        )(ref)
+        actual = SFTCollator(
+            include_targets_in_inputs=True,
+            **common_kwargs,
+        )([dataset[ref]])
+        shifted_valid = actual["labels"][:, 1:].ne(-100)
+        actual_loss_weight = (
+            float(actual["loss_scale"][:, 1:][shifted_valid].sum())
+            if "loss_scale" in actual
+            else float(shifted_valid.sum())
+        )
+
+        assert estimated.llm_tokens == int(actual["attention_mask"].sum())
+        assert estimated.supervised_tokens == int(shifted_valid.sum())
+        assert estimated.loss_weight_sum == pytest.approx(actual_loss_weight)
+        assert estimated.vision_patches == int(
+            actual["image_grid_thw"].prod(dim=-1).sum()
+        )
 
 
 @pytest.mark.integration

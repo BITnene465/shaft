@@ -51,15 +51,52 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         self.ignore_index = int(ignore_index)
         self.online_eval_runner = online_eval_runner
         self.eval_config = eval_config
+        # HF uses this flag to collect one optimizer batch before backward and pass
+        # its global normalization denominator into compute_loss.
+        self.model_accepts_loss_kwargs = True
+
+    def _get_num_items_in_batch(
+        self,
+        batch_samples: list[dict[str, Any]],
+        device: torch.device,
+    ) -> torch.Tensor | int | None:
+        if not batch_samples or "labels" not in batch_samples[0]:
+            return None
+        labels_device = batch_samples[0]["labels"].device
+        denominator = torch.zeros((), dtype=torch.float32, device=labels_device)
+        for batch in batch_samples:
+            labels = batch["labels"]
+            shifted_labels = labels[..., 1:]
+            valid = shifted_labels.ne(self.ignore_index)
+            loss_scale = batch.get("loss_scale")
+            if loss_scale is None:
+                denominator = denominator + valid.sum().to(dtype=torch.float32)
+            else:
+                shifted_scale = loss_scale[..., 1:].to(
+                    device=labels.device,
+                    dtype=torch.float32,
+                )
+                denominator = denominator + (
+                    shifted_scale * valid.to(dtype=torch.float32)
+                ).sum()
+
+        denominator = denominator.to(device)
+        if self.args.average_tokens_across_devices and self.args.world_size > 1:
+            denominator = self.accelerator.gather(denominator).sum()
+        elif self.args.n_gpu > 1:
+            denominator = denominator // self.args.n_gpu
+        parallelism_config = getattr(self.accelerator, "parallelism_config", None)
+        if parallelism_config is not None:
+            denominator = denominator // parallelism_config.non_data_parallel_size
+        return denominator
 
     def compute_loss(
         self,
         model: torch.nn.Module,
         inputs: dict[str, Any],
         return_outputs: bool = False,
-        num_items_in_batch: int | None = None,
+        num_items_in_batch: torch.Tensor | int | None = None,
     ):
-        _ = num_items_in_batch
         model_inputs = dict(inputs)
         labels = model_inputs.get("labels")
         loss_scale = model_inputs.pop("loss_scale", None)
@@ -71,7 +108,14 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             loss_scale=loss_scale,
             model=model,
             inputs=model_inputs,
+            normalization_denominator=num_items_in_batch,
         )
+        if num_items_in_batch is not None and self.args.average_tokens_across_devices:
+            data_parallel_scale = self.accelerator.num_processes
+            parallelism_config = getattr(self.accelerator, "parallelism_config", None)
+            if parallelism_config is not None:
+                data_parallel_scale //= parallelism_config.tp_size
+            loss = loss * (data_parallel_scale if self.args.n_gpu <= 1 else self.args.n_gpu)
         return (loss, outputs) if return_outputs else loss
 
     def evaluate(

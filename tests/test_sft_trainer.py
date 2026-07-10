@@ -80,6 +80,34 @@ def test_shaft_trainer_uses_custom_components() -> None:
     assert "loss_scale" not in (model.last_forward_kwargs or {})
 
 
+def test_shaft_trainer_counts_weighted_optimizer_batch_denominator() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_denominator")
+    args.average_tokens_across_devices = True
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda x: x,
+    )
+    batches = [
+        {
+            "labels": torch.tensor([[0, 1, 2, -100]], dtype=torch.long),
+            "loss_scale": torch.tensor([[0.0, 0.5, 2.0, 0.0]]),
+        },
+        {
+            "labels": torch.tensor([[0, 3, 4, 5]], dtype=torch.long),
+            "loss_scale": torch.tensor([[0.0, 1.0, 1.0, 1.0]]),
+        },
+    ]
+
+    denominator = trainer._get_num_items_in_batch(batches, torch.device("cpu"))
+
+    assert denominator is not None
+    assert float(denominator) == pytest.approx(5.5)
+
+
 def test_optimizer_summary_is_written_only_on_rank_zero(tmp_path, monkeypatch) -> None:
     model = _TinyModel()
     args = build_training_args(

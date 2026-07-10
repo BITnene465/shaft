@@ -6,8 +6,13 @@ import pytest
 import torch
 from PIL import Image
 
-from shaft.model import ShaftProcessedBatch, build_model_meta
-from shaft.template import ShaftChatRenderer, build_template
+from shaft.loss_scale import ShaftLossScaleSpec
+from shaft.model import ShaftProcessedBatch, ShaftProcessorTokenLayout, build_model_meta
+from shaft.template import (
+    ShaftChatRenderer,
+    ShaftTemplateSupervisionPlan,
+    build_template,
+)
 from shaft.template.base import ShaftChatTemplate
 from shaft.template.types import Template
 from shaft.template.types import TemplateMeta
@@ -131,6 +136,61 @@ def test_supervised_row_api_cannot_reprocess_multimodal_inputs() -> None:
     plan_parameters = set(inspect.signature(Template.build_supervision_plan).parameters)
     assert plan_parameters.isdisjoint({"processor", "tokenizer", "image"})
     assert "renderer" in plan_parameters
+
+    cost_parameters = set(inspect.signature(Template.estimate_supervision_cost).parameters)
+    assert cost_parameters.isdisjoint({"model_adapter", "processor", "image"})
+    assert "prefix_token_layout" in cost_parameters
+
+
+def test_template_cost_estimate_matches_supervised_row_and_causal_shift() -> None:
+    template = build_template("qwen3vl")
+    tokenizer = _FakeTokenizer()
+    plan = ShaftTemplateSupervisionPlan(
+        prompt_text="prompt",
+        target_text="alpha beta",
+        loss_spec=ShaftLossScaleSpec(
+            base_strategy="default",
+            prefix_scale=0.5,
+            target_scale=2.0,
+        ),
+        rendered_prefix_token_ids=(10, 99, 11, 12),
+        trainable_prefix_spans=((1, 3),),
+    )
+    prefix_layout = ShaftProcessorTokenLayout(
+        processed_boundaries=(0, 1, 5, 6, 7)
+    )
+    processed_batch = ShaftProcessedBatch(
+        model_inputs={
+            "input_ids": torch.arange(7, dtype=torch.long).unsqueeze(0),
+            "attention_mask": torch.ones((1, 7), dtype=torch.long),
+        },
+        batch_size=1,
+    )
+
+    estimate = template.estimate_supervision_cost(
+        plan=plan,
+        tokenizer=tokenizer,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+    )
+    row = template.build_supervised_row(
+        plan=plan,
+        tokenizer=tokenizer,
+        processed_batch=processed_batch,
+        row_index=0,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+        ignore_index=-100,
+        include_targets_in_inputs=True,
+    )
+    shifted_valid = row.labels[1:].ne(-100)
+
+    assert estimate.llm_tokens == int(row.attention_mask.sum()) == 10
+    assert estimate.supervised_tokens == int(shifted_valid.sum()) == 8
+    assert row.loss_scale is not None
+    assert estimate.loss_weight_sum == pytest.approx(
+        float(row.loss_scale[1:][shifted_valid].sum())
+    )
 
 
 def test_qwen_template_compiles_closed_chatml_assistant_spans() -> None:

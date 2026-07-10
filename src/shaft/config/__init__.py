@@ -10,7 +10,7 @@ from .algorithm import (
     RLHFConfig,
 )
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
-from .data import DataConfig, DatasetSourceConfig, PromptSamplingConfig
+from .data import DataBatchingConfig, DataConfig, DatasetSourceConfig, PromptSamplingConfig
 from .model import FinetuneConfig, FreezeConfig, ModelConfig
 from .runtime import RuntimeConfig
 from .training import (
@@ -28,6 +28,7 @@ from .training import (
 
 __all__ = [
     "AlgorithmConfig",
+    "DataBatchingConfig",
     "DataConfig",
     "DatasetSourceConfig",
     "DPOConfig",
