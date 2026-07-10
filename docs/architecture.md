@@ -176,7 +176,29 @@ SFT/DPO 的多模态监督采用单次 processor 契约：
 新模板必须提供基于单次完整渲染的精确 assistant-span compiler。禁止近似对齐、通用 partial-render
 fallback，也禁止按 partial message 重跑多模态 processor。
 
-### 5.3 分片训练边界
+### 5.3 批次规划边界
+
+- 当前已实现的训练选择真源是 `ShaftSamplePlan`；它只决定 logical sample，不应承载长度分桶、
+  rank 平衡或 packing。
+- 成本感知训练的目标链路固定为：
+
+  ```text
+  SamplePlan -> CostPlan -> BatchPlan -> PackPlan
+  ```
+
+- mixing 决定训练什么；BatchPlan 只能在有界 window 内重排已选样本，不得丢弃、复制或按长度修改
+  source 权重。
+- optimizer batch 可以拆成多个成本同质的 global microstep；同一 microstep 的 DP ranks 应尽量处理
+  相近成本，mixing 比例在 optimizer batch 或更长统计 horizon 收口。
+- packing 只改变 local microbatch 的物理布局。segment 的 attention、position、labels/loss scale 和
+  多模态 grid 必须隔离并对齐。
+- 动态 microbatch 必须使用全局 loss numerator/denominator；不能等权平均不同大小的本地 batch mean。
+- context parallel 是 job 级静态拓扑，不作为单个长样本的动态调度手段。
+- 该能力的完整目标契约、配置迁移与阶段验收见
+  [training_batch_planning_design.md](training_batch_planning_design.md)。当前实现仍是 fixed batch，文档中的
+  CostPlan/BatchPlan/PackPlan 尚未进入运行时。
+
+### 5.4 分片训练边界
 
 - 分片策略统一落在 `train.distributed`：
   - `ddp`: 默认 torchrun + DDP
@@ -194,7 +216,7 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - `data`、`template`、`codec` 和任务 prompt 不允许根据分片策略分叉。
 - SFT 已接入 FSDP 与 DeepSpeed；DPO/PPO/GRPO 后续必须复用同一配置语义，不新增平行字段。
 
-### 5.4 冻结边界
+### 5.5 冻结边界
 
 - 冻结规则统一落在 `model.finetune.freeze` 与 `src/shaft/model/freeze.py`。
 - `src/shaft/model/finetune_plan.py` 负责把：
@@ -436,6 +458,7 @@ flowchart LR
 - [docs/config_reference.md](config_reference.md)
 - [docs/infer.md](infer.md)
 - [docs/online_eval_design.md](online_eval_design.md)
+- [docs/training_batch_planning_design.md](training_batch_planning_design.md)
 - [docs/export.md](export.md)
 - [docs/extension_guide.md](extension_guide.md)
 - [docs/development_workflow.md](development_workflow.md)

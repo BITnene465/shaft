@@ -28,6 +28,10 @@
   - 单阶段在线 eval 设计说明
   - 多数据集、多任务、共享 codec、final score 设计
 
+- [training_batch_planning_design.md](training_batch_planning_design.md)
+  - sample-level mixing、成本感知 batching、sequence packing 与 DDP/CP 的统一顶层设计
+  - `SamplePlan -> CostPlan -> BatchPlan -> PackPlan` 真源和分阶段验收
+
 - [../projects/eval_bench/README.md](../projects/eval_bench/README.md)
   - 离线 Eval Bench 子项目说明
   - benchmark copy、prediction snapshot、run manifest、pairwise comparison、持久化目录边界
