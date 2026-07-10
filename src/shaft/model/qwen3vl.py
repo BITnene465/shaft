@@ -61,14 +61,14 @@ QWEN3VL_META = ModelMeta(
     default_template="qwen3vl",
     hf_model_types=("qwen3_vl",),
     model_groups=default_model_groups("qwen3-vl-4b-instruct", "qwen3-vl", template="qwen3vl"),
-    capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
+    capabilities=ModelCapabilities(is_multimodal=True),
     module_groups=ModelModuleGroups(
         language_model=("model",),
         vision_tower=("model.visual",),
         aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
         generator=("lm_head",),
     ),
-    processor_policy=build_processor_policy("pixel_budget"),
+    processor_policy=build_processor_policy("qwen_vl"),
     peft_policy=build_peft_policy("all_linear"),
     sharding_policy=ModelShardingPolicy(
         fsdp_transformer_layer_cls_to_wrap=("Qwen3VLTextDecoderLayer", "Qwen3VLVisionBlock"),

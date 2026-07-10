@@ -11,14 +11,14 @@ _QWEN35VL_COMMON = dict(
     family="qwen",
     default_template="qwen35vl",
     hf_model_types=("qwen3_5", "qwen3_5_moe"),
-    capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
+    capabilities=ModelCapabilities(is_multimodal=True),
     module_groups=ModelModuleGroups(
         language_model=("model.language_model",),
         vision_tower=("model.visual",),
         aligner=("model.visual.merger", "model.visual.deepstack_merger_list"),
         generator=("lm_head",),
     ),
-    processor_policy=build_processor_policy("pixel_budget"),
+    processor_policy=build_processor_policy("qwen_vl"),
     peft_policy=build_peft_policy("all_linear"),
     requires=("transformers>=5.10.1", "module:transformers.models.qwen3_5"),
 )

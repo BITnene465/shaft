@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import torch
 
-from shaft.model import ShaftModelAdapter
-from shaft.template import ShaftTemplateSupervisedRow, Template
+from shaft.model import ShaftModelAdapter, ShaftProcessedBatch, ShaftProcessorTokenLayout
+from shaft.template import (
+    ShaftChatRenderer,
+    ShaftTemplateSupervisedRow,
+    ShaftTemplateSupervisionPlan,
+    Template,
+)
 
 
 class _ShaftSequenceCollatorBase:
@@ -28,6 +34,10 @@ class _ShaftSequenceCollatorBase:
         self.template = template
         self.processor = processor
         self.tokenizer = tokenizer
+        self.chat_renderer = ShaftChatRenderer.from_components(
+            processor=processor,
+            tokenizer=tokenizer,
+        )
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.max_length = int(max_length) if max_length is not None else None
@@ -38,8 +48,8 @@ class _ShaftSequenceCollatorBase:
         if self.padding_side not in {"left", "right"}:
             raise ValueError("padding_side must be 'left' or 'right'.")
 
-    def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> dict[str, torch.Tensor]:
-        return self.model_adapter.build_processor_inputs(
+    def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> ShaftProcessedBatch:
+        return self.model_adapter.build_processor_batch(
             processor=self.processor,
             tokenizer=self.tokenizer,
             prompt_texts=prompt_texts,
@@ -63,16 +73,25 @@ class _ShaftSequenceCollatorBase:
                 padded.append(torch.cat([row, pad], dim=0))
         return torch.stack(padded, dim=0)
 
-    def _repeat_on_batch_axis(self, value: Any, *, repeats: int) -> Any:
-        if value is None:
-            return None
-        if torch.is_tensor(value):
-            return torch.cat([value] * repeats, dim=0)
-        if isinstance(value, list):
-            return value * repeats
-        if isinstance(value, tuple):
-            return value * repeats
-        return value
+    def _build_prefix_token_layouts(
+        self,
+        *,
+        plans: list[ShaftTemplateSupervisionPlan],
+        processed_batch: ShaftProcessedBatch,
+    ) -> list[ShaftProcessorTokenLayout | None]:
+        layouts: list[ShaftProcessorTokenLayout | None] = []
+        for row_index, plan in enumerate(plans):
+            if not plan.trainable_prefix_spans:
+                layouts.append(None)
+                continue
+            layouts.append(
+                self.model_adapter.build_processor_token_layout(
+                    rendered_token_ids=plan.rendered_prefix_token_ids,
+                    processed_batch=processed_batch,
+                    row_index=row_index,
+                )
+            )
+        return layouts
 
 
 class SFTCollator(_ShaftSequenceCollatorBase):
@@ -114,42 +133,58 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             self.template.build_supervision_plan(
                 item=item,
                 target_text=str(item["target_text"]),
-                processor=self.processor,
-                tokenizer=self.tokenizer,
+                renderer=self.chat_renderer,
                 loss_scale_name=self.loss_scale_name,
             )
             for item in batch
         ]
         prompt_texts = [plan.prompt_text for plan in plans]
         images = [item["image"] for item in batch]
-        prefix_batch = self._run_processor(prompt_texts, images)
+        processed_batch = self._run_processor(prompt_texts, images)
+        prefix_token_layouts = self._build_prefix_token_layouts(
+            plans=plans,
+            processed_batch=processed_batch,
+        )
         rows: list[ShaftTemplateSupervisedRow] = [
             self.template.build_supervised_row(
                 plan=plan,
-                model_adapter=self.model_adapter,
-                processor=self.processor,
                 tokenizer=self.tokenizer,
-                image=item["image"],
-                prefix_batch=prefix_batch,
+                processed_batch=processed_batch,
                 row_index=row_index,
-                min_pixels=self.min_pixels,
-                max_pixels=self.max_pixels,
+                prefix_token_layout=prefix_token_layout,
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=self.include_targets_in_inputs,
                 max_length=self.max_length,
             )
-            for row_index, (item, plan) in enumerate(zip(batch, plans))
+            for row_index, (plan, prefix_token_layout) in enumerate(
+                zip(plans, prefix_token_layouts)
+            )
         ]
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
-        out: dict[str, Any] = {
+        sequence_inputs: dict[str, Any] = {
             "input_ids": self._pad_sequences([row.input_ids for row in rows], padding_value=int(pad_id)),
             "attention_mask": self._pad_sequences([row.attention_mask for row in rows], padding_value=0),
             "labels": self._pad_sequences([row.labels for row in rows], padding_value=self.ignore_index),
-            "pixel_values": prefix_batch["pixel_values"],
-            "image_grid_thw": prefix_batch.get("image_grid_thw"),
         }
+        mm_rows = [row.mm_token_type_ids for row in rows if row.mm_token_type_ids is not None]
+        if mm_rows:
+            sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
+                mm_rows,
+                padding_value=0,
+            )
+        loss_scale_rows = [row.loss_scale for row in rows if row.loss_scale is not None]
+        if loss_scale_rows:
+            sequence_inputs["loss_scale"] = self._pad_sequences(
+                loss_scale_rows,
+                padding_value=0,
+            ).to(dtype=torch.float32)
+        out = self.model_adapter.assemble_processor_training_inputs(
+            processed_batch=processed_batch,
+            sequence_inputs=sequence_inputs,
+            row_indices=tuple(range(len(batch))),
+        )
         if self.include_metadata:
             out["meta"] = {
                 "dataset_name": [item["dataset_name"] for item in batch],
@@ -158,12 +193,6 @@ class SFTCollator(_ShaftSequenceCollatorBase):
                 "target_text": [item["target_text"] for item in batch],
                 "extra": [dict(item.get("extra", {})) for item in batch],
             }
-        mm_rows = [row.mm_token_type_ids for row in rows if row.mm_token_type_ids is not None]
-        if mm_rows:
-            out["mm_token_type_ids"] = self._pad_sequences(mm_rows, padding_value=0)
-        loss_scale_rows = [row.loss_scale for row in rows if row.loss_scale is not None]
-        if loss_scale_rows:
-            out["loss_scale"] = self._pad_sequences(loss_scale_rows, padding_value=0).to(dtype=torch.float32)
         return out
 
 
@@ -173,63 +202,56 @@ class DPOCollator(_ShaftSequenceCollatorBase):
             self.template.build_supervision_plan(
                 item=item,
                 target_text=str(item["chosen_text"]),
-                processor=self.processor,
-                tokenizer=self.tokenizer,
+                renderer=self.chat_renderer,
                 loss_scale_name=self.loss_scale_name,
             )
             for item in batch
         ]
         rejected_plans = [
-            self.template.build_supervision_plan(
-                item=item,
-                target_text=str(item["rejected_text"]),
-                processor=self.processor,
-                tokenizer=self.tokenizer,
-                loss_scale_name=self.loss_scale_name,
-            )
-            for item in batch
+            replace(plan, target_text=str(item["rejected_text"]))
+            for item, plan in zip(batch, chosen_plans)
         ]
         prompt_texts = [plan.prompt_text for plan in chosen_plans]
         images = [item["image"] for item in batch]
-        prefix_batch = self._run_processor(prompt_texts, images)
+        processed_batch = self._run_processor(prompt_texts, images)
+        prefix_token_layouts = self._build_prefix_token_layouts(
+            plans=chosen_plans,
+            processed_batch=processed_batch,
+        )
 
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
         chosen_rows = [
             self.template.build_supervised_row(
                 plan=plan,
-                model_adapter=self.model_adapter,
-                processor=self.processor,
                 tokenizer=self.tokenizer,
-                image=item["image"],
-                prefix_batch=prefix_batch,
+                processed_batch=processed_batch,
                 row_index=row_index,
-                min_pixels=self.min_pixels,
-                max_pixels=self.max_pixels,
+                prefix_token_layout=prefix_token_layout,
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=True,
                 max_length=self.max_length,
             )
-            for row_index, (item, plan) in enumerate(zip(batch, chosen_plans))
+            for row_index, (plan, prefix_token_layout) in enumerate(
+                zip(chosen_plans, prefix_token_layouts)
+            )
         ]
         rejected_rows = [
             self.template.build_supervised_row(
                 plan=plan,
-                model_adapter=self.model_adapter,
-                processor=self.processor,
                 tokenizer=self.tokenizer,
-                image=item["image"],
-                prefix_batch=prefix_batch,
+                processed_batch=processed_batch,
                 row_index=row_index,
-                min_pixels=self.min_pixels,
-                max_pixels=self.max_pixels,
+                prefix_token_layout=prefix_token_layout,
                 add_eos_token=self.add_eos_token,
                 ignore_index=self.ignore_index,
                 include_targets_in_inputs=True,
                 max_length=self.max_length,
             )
-            for row_index, (item, plan) in enumerate(zip(batch, rejected_plans))
+            for row_index, (plan, prefix_token_layout) in enumerate(
+                zip(rejected_plans, prefix_token_layouts)
+            )
         ]
         input_rows = [*(row.input_ids for row in chosen_rows), *(row.input_ids for row in rejected_rows)]
         attention_rows = [*(row.attention_mask for row in chosen_rows), *(row.attention_mask for row in rejected_rows)]
@@ -237,7 +259,7 @@ class DPOCollator(_ShaftSequenceCollatorBase):
             *(row.labels.ne(self.ignore_index) for row in chosen_rows),
             *(row.labels.ne(self.ignore_index) for row in rejected_rows),
         ]
-        out: dict[str, Any] = {
+        sequence_inputs: dict[str, Any] = {
             "input_ids": self._pad_sequences(input_rows, padding_value=int(pad_id)),
             "attention_mask": self._pad_sequences(attention_rows, padding_value=0),
             "completion_mask": self._pad_sequences(
@@ -245,17 +267,18 @@ class DPOCollator(_ShaftSequenceCollatorBase):
                 padding_value=0,
             ),
         }
-        for key in ("pixel_values", "pixel_attention_mask", "image_grid_thw", "image_sizes"):
-            if key in prefix_batch:
-                out[key] = self._repeat_on_batch_axis(prefix_batch[key], repeats=2)
         chosen_mm_rows = [row.mm_token_type_ids for row in chosen_rows if row.mm_token_type_ids is not None]
         rejected_mm_rows = [row.mm_token_type_ids for row in rejected_rows if row.mm_token_type_ids is not None]
         if chosen_mm_rows and rejected_mm_rows:
-            out["mm_token_type_ids"] = self._pad_sequences(
+            sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
                 [*chosen_mm_rows, *rejected_mm_rows],
                 padding_value=0,
             )
-        return out
+        return self.model_adapter.assemble_processor_training_inputs(
+            processed_batch=processed_batch,
+            sequence_inputs=sequence_inputs,
+            row_indices=tuple(range(len(batch))) * 2,
+        )
 
 
 class PPOCollator(_ShaftSequenceCollatorBase):
@@ -284,8 +307,7 @@ class PPOCollator(_ShaftSequenceCollatorBase):
                 }
             )
         return self.template.apply_chat_template(
-            processor=self.processor,
-            tokenizer=self.tokenizer,
+            renderer=self.chat_renderer,
             messages=self.template.prepare_messages(text_messages),
             add_generation_prompt=None,
         )

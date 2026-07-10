@@ -18,7 +18,7 @@ from shaft.template import resolve_template_meta
 def test_qwen3vl_meta_exposes_family_and_policies() -> None:
     model_meta = build_model_meta("qwen3vl")
     assert model_meta.family == "qwen"
-    assert model_meta.capabilities.supports_pixel_budget is True
+    assert model_meta.processor_policy.supports_pixel_budget is True
     assert model_meta.module_groups.language_model == ("model",)
     assert model_meta.module_groups.vision_tower == ("model.visual",)
     assert model_meta.module_groups.aligner == (
@@ -38,7 +38,7 @@ def test_qwen35vl_meta_exposes_family_and_policies() -> None:
     model_meta = build_model_meta("qwen35vl")
     assert model_meta.family == "qwen"
     assert model_meta.hf_model_types == ("qwen3_5", "qwen3_5_moe")
-    assert model_meta.capabilities.supports_pixel_budget is True
+    assert model_meta.processor_policy.supports_pixel_budget is True
     assert model_meta.module_groups.language_model == ("model.language_model",)
     assert model_meta.module_groups.vision_tower == ("model.visual",)
     assert model_meta.module_groups.aligner == (
@@ -148,16 +148,16 @@ def test_model_group_can_override_template_and_policies() -> None:
         model_type="dummy",
         family="dummy",
         default_template="smoke_vlm",
-        capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
-        processor_policy=build_processor_policy("pixel_budget"),
+        capabilities=ModelCapabilities(is_multimodal=True),
+        processor_policy=build_processor_policy("qwen_vl"),
         peft_policy=build_peft_policy("all_linear"),
         model_groups=(
             ModelGroup(
                 name="compact",
                 model_ids=("dummy-compact",),
                 template="qwen3vl",
-                capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=False),
-                processor_policy=build_processor_policy("no_pixel_budget"),
+                capabilities=ModelCapabilities(is_multimodal=False),
+                processor_policy=build_processor_policy("identity"),
                 requires=("pkg_a>=1.0",),
                 additional_saved_files=("extra.json",),
             ),
@@ -165,7 +165,7 @@ def test_model_group_can_override_template_and_policies() -> None:
     )
     adapter = model_meta.resolve_adapter(model_name_or_path="dummy-compact")
     assert adapter.template_type == "qwen3vl"
-    assert adapter.capabilities.supports_pixel_budget is False
+    assert adapter.processor_policy.supports_pixel_budget is False
     assert adapter.capabilities.is_multimodal is False
     assert adapter.requires == ("pkg_a>=1.0",)
     assert adapter.required_saved_files() == ("extra.json",)

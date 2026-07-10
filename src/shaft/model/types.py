@@ -94,7 +94,6 @@ def _temporary_processor_padding_side(
 
 @dataclass(frozen=True)
 class ModelCapabilities:
-    supports_pixel_budget: bool = True
     is_multimodal: bool = True
 
 
@@ -139,10 +138,107 @@ class ModelModuleGroups:
 
 
 @dataclass(frozen=True)
-class ProcessorPolicy:
-    supports_pixel_budget: bool = True
+class ShaftProcessorTokenLayout:
+    processed_boundaries: tuple[int, ...]
 
-    def build_inputs(
+    def __post_init__(self) -> None:
+        if not self.processed_boundaries or self.processed_boundaries[0] != 0:
+            raise ValueError("processed_boundaries must start at 0.")
+        if any(
+            current <= previous
+            for previous, current in zip(
+                self.processed_boundaries,
+                self.processed_boundaries[1:],
+            )
+        ):
+            raise ValueError("processed_boundaries must be strictly increasing.")
+
+    @property
+    def rendered_token_count(self) -> int:
+        return len(self.processed_boundaries) - 1
+
+    @property
+    def processed_token_count(self) -> int:
+        return self.processed_boundaries[-1]
+
+    def project_span(self, start: int, end: int) -> tuple[int, int]:
+        if start < 0 or end <= start or end > self.rendered_token_count:
+            raise ValueError(f"Invalid rendered token span: {(start, end)!r}.")
+        return self.processed_boundaries[start], self.processed_boundaries[end]
+
+
+@dataclass(frozen=True)
+class ShaftProcessedBatch:
+    model_inputs: dict[str, Any]
+    batch_size: int
+
+    def __post_init__(self) -> None:
+        if self.batch_size <= 0:
+            raise ValueError("ShaftProcessedBatch.batch_size must be positive.")
+        if "input_ids" not in self.model_inputs or "attention_mask" not in self.model_inputs:
+            raise ValueError(
+                "ShaftProcessedBatch requires processor input_ids and attention_mask."
+            )
+        for key in ("input_ids", "attention_mask"):
+            value = self.model_inputs[key]
+            if not torch.is_tensor(value) or value.ndim < 2:
+                raise ValueError(f"Processor output {key!r} must be a batched tensor.")
+            if int(value.shape[0]) != self.batch_size:
+                raise ValueError(
+                    f"Processor output {key!r} batch axis does not match batch_size."
+                )
+
+
+@dataclass(frozen=True)
+class ProcessorPolicy:
+    supports_pixel_budget: bool = False
+    sample_aligned_model_input_names: tuple[str, ...] = ()
+    whole_batch_model_input_names: tuple[str, ...] = ()
+    static_model_input_names: tuple[str, ...] = ()
+    assembled_sequence_input_names: tuple[str, ...] = (
+        "input_ids",
+        "attention_mask",
+        "mm_token_type_ids",
+        "labels",
+        "loss_scale",
+        "completion_mask",
+    )
+    unsupported_sequence_input_names: tuple[str, ...] = (
+        "position_ids",
+        "token_type_ids",
+    )
+
+    def __post_init__(self) -> None:
+        field_names = (
+            "sample_aligned_model_input_names",
+            "whole_batch_model_input_names",
+            "static_model_input_names",
+            "assembled_sequence_input_names",
+            "unsupported_sequence_input_names",
+        )
+        for field_name in field_names:
+            object.__setattr__(self, field_name, _dedupe_non_empty(getattr(self, field_name)))
+
+        declared_layouts: dict[str, str] = {}
+        for field_name in field_names[:3]:
+            for input_name in getattr(self, field_name):
+                previous = declared_layouts.setdefault(input_name, field_name)
+                if previous != field_name:
+                    raise ValueError(
+                        f"Processor model input {input_name!r} is declared by both "
+                        f"{previous!r} and {field_name!r}."
+                    )
+        sequence_names = set(self.assembled_sequence_input_names) | set(
+            self.unsupported_sequence_input_names
+        )
+        overlap = sorted(sequence_names & declared_layouts.keys())
+        if overlap:
+            raise ValueError(
+                "Processor model inputs cannot be both sequence-aligned and non-sequence: "
+                f"{overlap}."
+            )
+
+    def build_batch(
         self,
         *,
         processor: Any,
@@ -152,7 +248,7 @@ class ProcessorPolicy:
         min_pixels: int | None,
         max_pixels: int | None,
         padding_side: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ShaftProcessedBatch:
         kwargs: dict[str, Any] = {
             "text": prompt_texts,
             "images": images,
@@ -172,7 +268,178 @@ class ProcessorPolicy:
             processor=processor,
             padding_side=padding_side,
         ):
-            return processor(**kwargs)
+            outputs = processor(**kwargs)
+        return ShaftProcessedBatch(
+            model_inputs=dict(outputs),
+            batch_size=len(prompt_texts),
+        )
+
+    def build_token_layout(
+        self,
+        *,
+        rendered_token_ids: tuple[int, ...],
+        processed_batch: ShaftProcessedBatch,
+        row_index: int,
+    ) -> ShaftProcessorTokenLayout:
+        processed_token_ids, _ = self._extract_token_row(
+            processed_batch=processed_batch,
+            row_index=row_index,
+        )
+        token_ids = [int(value) for value in processed_token_ids.tolist()]
+        return self._finalize_token_layout(
+            rendered_token_ids=rendered_token_ids,
+            canonical_token_ids=token_ids,
+            processed_boundaries=tuple(range(len(token_ids) + 1)),
+            processed_token_count=len(token_ids),
+        )
+
+    @staticmethod
+    def _extract_token_row(
+        *,
+        processed_batch: ShaftProcessedBatch,
+        row_index: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        try:
+            attention_mask = processed_batch.model_inputs["attention_mask"][row_index].bool()
+            token_ids = processed_batch.model_inputs["input_ids"][row_index][attention_mask]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError(
+                "Processor outputs must provide aligned batched input_ids and attention_mask."
+            ) from exc
+        return token_ids, attention_mask
+
+    def assemble_training_inputs(
+        self,
+        *,
+        processed_batch: ShaftProcessedBatch,
+        sequence_inputs: dict[str, Any],
+        row_indices: tuple[int, ...],
+    ) -> dict[str, Any]:
+        if not row_indices:
+            raise ValueError("row_indices must not be empty.")
+        if any(index < 0 or index >= processed_batch.batch_size for index in row_indices):
+            raise ValueError("row_indices contains an out-of-range processor batch row.")
+        missing_sequence_inputs = [
+            key
+            for key in self.unsupported_sequence_input_names
+            if key in processed_batch.model_inputs and key not in sequence_inputs
+        ]
+        if missing_sequence_inputs:
+            raise ValueError(
+                "Processor policy must explicitly assemble sequence-aligned model inputs: "
+                f"{missing_sequence_inputs}."
+            )
+
+        assembled: dict[str, Any] = {}
+        for key, value in processed_batch.model_inputs.items():
+            if key in self.assembled_sequence_input_names or key in sequence_inputs:
+                continue
+            assembled[key] = self._select_model_input_rows(
+                name=key,
+                value=value,
+                batch_size=processed_batch.batch_size,
+                row_indices=row_indices,
+            )
+        assembled.update(sequence_inputs)
+        return assembled
+
+    def _select_model_input_rows(
+        self,
+        *,
+        name: str,
+        value: Any,
+        batch_size: int,
+        row_indices: tuple[int, ...],
+    ) -> Any:
+        identity_rows = tuple(range(batch_size))
+        if name in self.static_model_input_names:
+            return value
+
+        if name in self.whole_batch_model_input_names:
+            if row_indices == identity_rows:
+                self._validate_whole_batch_model_input(name=name, value=value)
+                return value
+            if len(row_indices) % batch_size == 0:
+                repeats = len(row_indices) // batch_size
+                if row_indices == identity_rows * repeats:
+                    return self._repeat_whole_batch_model_input(
+                        name=name,
+                        value=value,
+                        repeats=repeats,
+                    )
+            raise ValueError(
+                f"Processor policy cannot select rows from whole-batch model input {name!r}."
+            )
+
+        if name not in self.sample_aligned_model_input_names:
+            raise ValueError(
+                f"Processor policy does not declare the layout of model input {name!r}."
+            )
+        if torch.is_tensor(value) and value.ndim > 0 and int(value.shape[0]) == batch_size:
+            index = torch.tensor(row_indices, dtype=torch.long, device=value.device)
+            return value.index_select(0, index)
+        if isinstance(value, list) and len(value) == batch_size:
+            return [value[index] for index in row_indices]
+        if isinstance(value, tuple) and len(value) == batch_size:
+            return tuple(value[index] for index in row_indices)
+        raise ValueError(
+            f"Processor policy cannot select rows from model input {name!r}; register a "
+            "model-specific policy."
+        )
+
+    @staticmethod
+    def _validate_whole_batch_model_input(*, name: str, value: Any) -> None:
+        if value is None or isinstance(value, (list, tuple)):
+            return
+        if torch.is_tensor(value) and value.ndim > 0:
+            return
+        raise ValueError(
+            f"Processor whole-batch model input {name!r} has unsupported type or shape."
+        )
+
+    @staticmethod
+    def _repeat_whole_batch_model_input(
+        *,
+        name: str,
+        value: Any,
+        repeats: int,
+    ) -> Any:
+        ProcessorPolicy._validate_whole_batch_model_input(name=name, value=value)
+        if torch.is_tensor(value) and value.ndim > 0:
+            return torch.cat([value] * repeats, dim=0)
+        if isinstance(value, list):
+            return value * repeats
+        if isinstance(value, tuple):
+            return value * repeats
+        if value is None:
+            return None
+        raise ValueError(
+            f"Processor policy cannot repeat whole-batch model input {name!r} of type "
+            f"{type(value).__name__}."
+        )
+
+    def _finalize_token_layout(
+        self,
+        *,
+        rendered_token_ids: tuple[int, ...],
+        canonical_token_ids: list[int],
+        processed_boundaries: tuple[int, ...],
+        processed_token_count: int,
+    ) -> ShaftProcessorTokenLayout:
+        if tuple(canonical_token_ids) != rendered_token_ids:
+            raise ValueError(
+                "Processor token layout cannot align its output exactly with the rendered prompt "
+                f"tokens under policy {type(self).__name__!r}; register a model-specific "
+                "processor policy."
+            )
+        if len(processed_boundaries) != len(canonical_token_ids) + 1:
+            raise ValueError(
+                "Processor token layout must contain one boundary per canonical token plus the "
+                "initial boundary."
+            )
+        if processed_boundaries[-1] != int(processed_token_count):
+            raise ValueError("Processor token layout does not cover the full processed token row.")
+        return ShaftProcessorTokenLayout(processed_boundaries)
 
 
 class PeftPolicy(ABC):
@@ -403,7 +670,7 @@ class ShaftModelAdapter:
                 f"for model.model_type={self.model_type!r}. Configure explicit transformer layer class names."
             ) from exc
 
-    def build_processor_inputs(
+    def build_processor_batch(
         self,
         *,
         processor: Any,
@@ -413,8 +680,8 @@ class ShaftModelAdapter:
         min_pixels: int | None,
         max_pixels: int | None,
         padding_side: str | None = None,
-    ) -> dict[str, Any]:
-        return self.processor_policy.build_inputs(
+    ) -> ShaftProcessedBatch:
+        return self.processor_policy.build_batch(
             processor=processor,
             tokenizer=tokenizer,
             prompt_texts=prompt_texts,
@@ -422,6 +689,32 @@ class ShaftModelAdapter:
             min_pixels=min_pixels,
             max_pixels=max_pixels,
             padding_side=padding_side,
+        )
+
+    def build_processor_token_layout(
+        self,
+        *,
+        rendered_token_ids: tuple[int, ...],
+        processed_batch: ShaftProcessedBatch,
+        row_index: int,
+    ) -> ShaftProcessorTokenLayout:
+        return self.processor_policy.build_token_layout(
+            rendered_token_ids=rendered_token_ids,
+            processed_batch=processed_batch,
+            row_index=row_index,
+        )
+
+    def assemble_processor_training_inputs(
+        self,
+        *,
+        processed_batch: ShaftProcessedBatch,
+        sequence_inputs: dict[str, Any],
+        row_indices: tuple[int, ...],
+    ) -> dict[str, Any]:
+        return self.processor_policy.assemble_training_inputs(
+            processed_batch=processed_batch,
+            sequence_inputs=sequence_inputs,
+            row_indices=row_indices,
         )
 
     def required_saved_files(self) -> tuple[str, ...]:

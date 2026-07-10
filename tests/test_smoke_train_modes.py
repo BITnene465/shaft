@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from shaft.config import load_config
+from shaft.model.smoke_vlm import SmokeProcessor
 from shaft.pipeline import run_sft
 from tests.support.configs import write_sft_smoke_config
 
@@ -22,8 +23,17 @@ def _run_mode(tmp_path: Path, mode: str, *, online_eval: bool = False) -> tuple[
     return cfg_path, metrics
 
 
-def test_smoke_full(tmp_path: Path) -> None:
+def test_smoke_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    processor_batch_sizes: list[int] = []
+    original_call = SmokeProcessor.__call__
+
+    def _counting_call(self, *args, **kwargs):
+        processor_batch_sizes.append(len(kwargs["text"]))
+        return original_call(self, *args, **kwargs)
+
+    monkeypatch.setattr(SmokeProcessor, "__call__", _counting_call)
     _run_mode(tmp_path, "full")
+    assert processor_batch_sizes == [1, 1]
 
 
 def test_smoke_lora(tmp_path: Path) -> None:

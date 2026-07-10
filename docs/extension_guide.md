@@ -26,12 +26,26 @@
 3. 需要时补 `ModelGroup`
 4. 注册 `processor policy` / `peft policy`
 5. 实现模板
-6. 补模型与模板测试
+6. 为真实 processor 输出实现并验证 batch 构造、rendered-token -> processed-token layout 与训练输入装配
+7. 补模型、模板和单次 processor 契约测试
 
 补充要求：
 
 - 如果模型族有明确的 `language_model / vision_tower / aligner / generator` 分界，必须同步补充 `ModelModuleGroups`。
 - 不要把模块名前缀写死在 `freeze.py` 或 `finetune.py` 中，冻结分组必须由模型族元信息声明。
+- 多模态模型必须通过 `ProcessorPolicy` 统一声明三件事：`build_batch()` 的 processor 参数、
+  `build_token_layout()` 的精确 token 映射、`assemble_training_inputs()` 的字段复制/重排。只有 processor
+  输出与 chat template tokenizer 完全一致时才能使用 `identity`；存在图像 placeholder expansion、
+  flattened vision rows、模型专属 sequence fields 或不同 media 参数时必须注册模型专用 policy。
+- processor 的完整输出必须保留在 `ShaftProcessedBatch` 中。不要在 collator 增加
+  `pixel_values/image_grid_thw/...` 白名单，也不要假设所有 tensor 的第 0 维都是 sample batch。
+- policy 必须把 processor 的非 sequence 输出分别登记为 sample-aligned、whole-batch media 或 static；
+  未声明字段会 fail fast。模型/processor 升级后新增输出时，应先确认其轴语义再更新 policy 和 DPO 测试。
+- pixel-budget 支持只由 `ProcessorPolicy` 声明；通用 policy 默认不假设 processor 接受该参数。
+- token layout 必须做 exact validation。无法对齐时应在模型接入阶段失败，不允许改回逐 partial message
+  重跑图片 processor，也不允许用长度差做近似 span。
+- 如果新模型声称支持多图或视频，policy 与接入测试必须覆盖真实 media nesting、grid/patch 字段和 DPO
+  pair 扩展；当前单图测试不能作为多图/视频支持证明。
 
 ### 2.3 不要做的事
 
@@ -51,6 +65,13 @@
 - 模板只负责 `messages -> prompt`
 - 模板只负责 `token_ids -> text`
 - 模板元信息放在 `TemplateMeta`
+- 训练模板还负责把消息角色编译为 canonical rendered-token supervision span；processor token expansion
+  由模型 policy 映射，模板不处理图片。
+- supervision plan 只能通过 `ShaftChatRenderer` 做一次完整 chat render 和纯文本 tokenization，不能接收
+  processor/image/model adapter。HF 之外的 renderer 也应通过这两个 callable 适配，不扩宽 template API。
+- 有稳定 role/message delimiter 的模板应复用 `ShaftDelimitedChatTemplate`；其它模板必须实现自己的
+  full-render assistant-span compiler。基类在多轮 prefix supervision 下会 fail fast，不提供通用
+  partial-message fallback。
 
 禁止：
 
@@ -219,7 +240,7 @@ ShaftCodecResult(
 - `loss_scale` 负责定义“哪些区段参与 loss”，不要把这类规则直接散写在 trainer 或模型 forward 中
 - 当前 `loss_scale` 的落点是：
   - `template` 负责根据多轮消息角色生成 supervision plan，并直接产出单样本 `labels` / 可选 `loss_scale` tensor
-  - `SFTCollator` 只负责 batch 级 processor 调用、padding 与张量装配
+  - `SFTCollator` 对每个 batch 只允许一次多模态 processor 调用，并消费模型 policy 生成的 token layout
   - `ShaftSFTTrainer` 负责把 `loss_scale` 从 batch 中剥离并传给 `loss.py`
   - `training/loss.py` 负责真正的加权 next-token loss 计算
 
@@ -279,7 +300,14 @@ ShaftCodecResult(
 ### 新模型族
 
 - `tests/test_model_registry.py`
+- `tests/test_model_processor_policy.py`
 - `tests/test_template_registry.py`
+- `tests/test_template_supervision.py`
+- 必须覆盖真实或忠实 fake processor 的 image-token expansion、多轮 assistant span、无法精确对齐时失败
+- 必须覆盖左右 padding、模型专属 processor 输出字段，以及存在时的 thinking/tool messages
+- 必须断言 SFT/DPO 一个 batch 的多模态 processor 调用次数为 1，DPO chosen/rejected 复用同一份
+  processor 输出且模型字段扩展正确
+- 若声明多图/视频支持，必须增加对应真实 processor integration，不能只依赖单图 fake
 
 ### 新数据源 / mixing / collator
 

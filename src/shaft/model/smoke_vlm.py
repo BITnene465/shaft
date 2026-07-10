@@ -105,7 +105,7 @@ class SmokeTokenizer:
     eos_token: str = "</s>"
 
     def _encode(self, text: str) -> list[int]:
-        ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text[:16]]
+        ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text]
         return ids or [3]
 
     def __call__(self, texts, add_special_tokens: bool = False, return_attention_mask: bool = False):
@@ -129,7 +129,7 @@ class SmokeTokenizer:
         return [self.decode(seq, skip_special_tokens=skip_special_tokens) for seq in sequences]
 
     def apply_chat_template(self, messages: list[dict[str, Any]], tokenize: bool = False, add_generation_prompt: bool = True):
-        _ = tokenize, add_generation_prompt
+        _ = tokenize
         rendered = []
         for message in messages:
             role = str(message.get("role", "user"))
@@ -139,10 +139,13 @@ class SmokeTokenizer:
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
                         text_parts.append(str(item.get("text", "")))
-                rendered.append(f"{role}:{' '.join(text_parts)}")
+                text = " ".join(text_parts)
             else:
-                rendered.append(f"{role}:{str(content)}")
-        return "\n".join(rendered)
+                text = str(content)
+            rendered.append(f"<|smoke_start|>{role}\n{text}\n<|smoke_end|>\n")
+        if add_generation_prompt:
+            rendered.append("<|smoke_start|>assistant\n")
+        return "".join(rendered)
 
     def save_pretrained(self, output_dir: str | Path):
         target = Path(output_dir)
@@ -219,12 +222,12 @@ SMOKE_VLM_META = ModelMeta(
     family="smoke",
     default_template="smoke_vlm",
     model_groups=default_model_groups("smoke-vlm", "models/smoke-vlm", template="smoke_vlm"),
-    capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
+    capabilities=ModelCapabilities(is_multimodal=True),
     module_groups=ModelModuleGroups(
         language_model=("embed_tokens", "proj"),
         generator=("lm_head",),
     ),
-    processor_policy=build_processor_policy("no_pixel_budget"),
+    processor_policy=build_processor_policy("identity"),
     peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
 )

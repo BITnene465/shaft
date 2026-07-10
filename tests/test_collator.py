@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torch
 from PIL import Image
 
 from shaft.data import DPOCollator, PPOCollator, SFTCollator
 from shaft.loss_scale import LOSS_SCALE_REGISTRY, ShaftLossScale, ShaftLossScaleSpec, register_loss_scale
-from shaft.model import build_model_meta
+from shaft.model import ProcessorPolicy, build_model_meta
+from shaft.model.smoke_vlm import SmokeProcessor, SmokeTokenizer
 from shaft.template import build_template
 
 
@@ -25,6 +28,9 @@ class _FakeTokenizer:
 class _FakeProcessor:
     tokenizer = _FakeTokenizer()
 
+    def __init__(self) -> None:
+        self.call_count = 0
+
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
         _ = tokenize, add_generation_prompt
         self.last_messages = messages
@@ -32,6 +38,7 @@ class _FakeProcessor:
 
     def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
         _ = images, padding, return_tensors, kwargs
+        self.call_count += 1
         tokenized = self.tokenizer(text, add_special_tokens=False, return_attention_mask=False)["input_ids"]
         batch_size = len(tokenized)
         max_len = max(len(ids) for ids in tokenized)
@@ -46,7 +53,31 @@ class _FakeProcessor:
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
             "pixel_values": pixel_values,
+            "model_specific_mask": torch.arange(batch_size, dtype=torch.long).unsqueeze(1),
         }
+
+
+class _CountingSmokeProcessor(SmokeProcessor):
+    def __init__(self) -> None:
+        super().__init__(tokenizer=SmokeTokenizer())
+        self.call_count = 0
+
+    def __call__(self, *args, **kwargs):
+        self.call_count += 1
+        return super().__call__(*args, **kwargs)
+
+
+def _build_smoke_adapter():
+    adapter = build_model_meta("smoke_vlm").resolve_adapter(
+        model_name_or_path="models/Smoke-VLM"
+    )
+    return replace(
+        adapter,
+        processor_policy=ProcessorPolicy(
+            supports_pixel_budget=False,
+            sample_aligned_model_input_names=("pixel_values", "model_specific_mask"),
+        ),
+    )
 
 
 if not LOSS_SCALE_REGISTRY.has("test_weighted"):
@@ -59,12 +90,27 @@ if not LOSS_SCALE_REGISTRY.has("test_weighted"):
             return ShaftLossScaleSpec(base_strategy="all", prefix_scale=0.25, target_scale=1.0)
 
 
+if not LOSS_SCALE_REGISTRY.has("test_weighted_default"):
+    @register_loss_scale("test_weighted_default")
+    class _TestWeightedDefaultLossScale(ShaftLossScale):
+        is_binary = False
+
+        def get_loss_scale(self, item):
+            _ = item
+            return ShaftLossScaleSpec(
+                base_strategy="default",
+                prefix_scale=0.25,
+                target_scale=1.0,
+            )
+
+
 def test_sft_collator_builds_labels() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
+    processor = _FakeProcessor()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
-        processor=_FakeProcessor(),
+        processor=processor,
         tokenizer=_FakeTokenizer(),
     )
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
@@ -97,6 +143,8 @@ def test_sft_collator_builds_labels() -> None:
     assert out["input_ids"].shape[0] == 2
     assert out["labels"].shape[0] == 2
     assert "meta" not in out
+    assert processor.call_count == 1
+    assert out["model_specific_mask"].flatten().tolist() == [0, 1]
 
     eval_collator = SFTCollator(
         model_adapter=model_adapter,
@@ -110,7 +158,7 @@ def test_sft_collator_builds_labels() -> None:
 
 
 def test_sft_collator_loss_scale_all_supervises_prefix_tokens() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
@@ -139,7 +187,7 @@ def test_sft_collator_loss_scale_all_supervises_prefix_tokens() -> None:
 
 
 def test_sft_collator_emits_loss_scale_tensor_for_weighted_strategy() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
@@ -168,7 +216,7 @@ def test_sft_collator_emits_loss_scale_tensor_for_weighted_strategy() -> None:
 
 
 def test_sft_collator_appends_eos_to_inputs_and_labels() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
@@ -195,7 +243,7 @@ def test_sft_collator_appends_eos_to_inputs_and_labels() -> None:
 
 
 def test_sft_collator_truncates_target_tokens_without_eos_when_over_max_length() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
@@ -227,7 +275,7 @@ def test_sft_collator_truncates_target_tokens_without_eos_when_over_max_length()
 
 
 def test_sft_collator_uses_per_row_dynamic_prefix_length_for_target_budget() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
@@ -271,7 +319,7 @@ def test_sft_collator_uses_per_row_dynamic_prefix_length_for_target_budget() -> 
 
 
 def test_sft_collator_default_supervises_previous_assistant_rounds() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
     batch = [
         {
@@ -290,34 +338,82 @@ def test_sft_collator_default_supervises_previous_assistant_rounds() -> None:
             "extra": {},
         },
     ]
+    default_processor = _CountingSmokeProcessor()
     default_collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
-        processor=_FakeProcessor(),
-        tokenizer=_FakeTokenizer(),
+        processor=default_processor,
+        tokenizer=default_processor.tokenizer,
         loss_scale_name="default",
     )
+    last_round_processor = _CountingSmokeProcessor()
     last_round_collator = SFTCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
-        processor=_FakeProcessor(),
-        tokenizer=_FakeTokenizer(),
+        processor=last_round_processor,
+        tokenizer=last_round_processor.tokenizer,
         loss_scale_name="last_round",
     )
     default_out = default_collator(batch)
     last_round_out = last_round_collator(batch)
-    default_prefix_supervised = int(torch.sum(default_out["labels"][0, :3].ne(-100)).item())
-    last_round_prefix_supervised = int(torch.sum(last_round_out["labels"][0, :3].ne(-100)).item())
-    assert default_prefix_supervised == 1
-    assert last_round_prefix_supervised == 0
+    default_supervised = int(torch.sum(default_out["labels"][0].ne(-100)).item())
+    last_round_supervised = int(torch.sum(last_round_out["labels"][0].ne(-100)).item())
+    assert default_supervised > last_round_supervised
+    assert default_processor.call_count == 1
+    assert last_round_processor.call_count == 1
+
+
+def test_sft_collator_weighted_default_scales_historical_assistant_once() -> None:
+    model_adapter = _build_smoke_adapter()
+    processor = _CountingSmokeProcessor()
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    collator = SFTCollator(
+        model_adapter=model_adapter,
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=processor.tokenizer,
+        loss_scale_name="test_weighted_default",
+    )
+
+    out = collator(
+        [
+            {
+                "dataset_name": "a",
+                "sample_id": "a1",
+                "image_path": "/tmp/a.png",
+                "image": image,
+                "target_text": "answer two",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "image"}, {"type": "text", "text": "first"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "answer one"}],
+                    },
+                    {"role": "user", "content": [{"type": "text", "text": "second"}]},
+                ],
+                "system_prompt": "",
+                "user_prompt": "",
+                "extra": {},
+            }
+        ]
+    )
+
+    assert processor.call_count == 1
+    assert "loss_scale" in out
+    assert torch.any(torch.isclose(out["loss_scale"], torch.tensor(0.25)))
+    assert torch.any(torch.isclose(out["loss_scale"], torch.tensor(1.0)))
 
 
 def test_dpo_collator_builds_pairwise_batches() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
+    processor = _FakeProcessor()
     collator = DPOCollator(
         model_adapter=model_adapter,
         template=build_template("smoke_vlm"),
-        processor=_FakeProcessor(),
+        processor=processor,
         tokenizer=_FakeTokenizer(),
     )
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
@@ -352,10 +448,12 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
     assert out["attention_mask"].shape == out["input_ids"].shape
     assert out["completion_mask"].shape == out["input_ids"].shape
     assert out["pixel_values"].shape[0] == 4
+    assert processor.call_count == 1
+    assert out["model_specific_mask"].flatten().tolist() == [0, 1, 0, 1]
 
 
 def test_ppo_collator_builds_query_only_batch() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    model_adapter = _build_smoke_adapter()
     processor = _FakeProcessor()
     collator = PPOCollator(
         model_adapter=model_adapter,

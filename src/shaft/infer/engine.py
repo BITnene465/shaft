@@ -16,6 +16,7 @@ from shaft.config import RuntimeConfig
 from shaft.model import ShaftModelAdapter, build_model_tokenizer_processor
 from shaft.model.generation import align_model_generation_config, set_model_use_cache
 from shaft.template import Template
+from shaft.template import ShaftChatRenderer
 
 from shaft.utils.qwen_pixel_budget import image_to_data_url_with_qwen_pixel_budget
 from .schema import InferEngineConfig, InferGenerationConfig
@@ -75,6 +76,10 @@ class HFLocalInferAdapter(InferAdapter):
         self.processor = processor
         self.model_adapter = model_adapter
         self.template = template
+        self.chat_renderer = ShaftChatRenderer.from_components(
+            processor=processor,
+            tokenizer=tokenizer,
+        )
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.default_generation = default_generation or InferGenerationConfig()
@@ -129,8 +134,7 @@ class HFLocalInferAdapter(InferAdapter):
 
     def _apply_chat_template(self, messages: list[dict[str, Any]]) -> str:
         return self.template.apply_chat_template(
-            processor=self.processor,
-            tokenizer=self.tokenizer,
+            renderer=self.chat_renderer,
             messages=messages,
         )
 
@@ -142,7 +146,7 @@ class HFLocalInferAdapter(InferAdapter):
         min_pixels: int | None,
         max_pixels: int | None,
     ) -> dict[str, torch.Tensor]:
-        batch = self.model_adapter.build_processor_inputs(
+        processed_batch = self.model_adapter.build_processor_batch(
             processor=self.processor,
             tokenizer=self.tokenizer,
             prompt_texts=[prompt],
@@ -151,7 +155,7 @@ class HFLocalInferAdapter(InferAdapter):
             max_pixels=max_pixels,
             padding_side="left",
         )
-        return self._move_batch_to_device(batch)
+        return self._move_batch_to_device(processed_batch.model_inputs)
 
     def _move_batch_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
         moved: dict[str, Any] = {}

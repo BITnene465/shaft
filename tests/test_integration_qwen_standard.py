@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+import torch
 from accelerate import init_empty_weights
 from PIL import Image
 from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
@@ -14,8 +15,161 @@ from shaft.infer import (
     ShaftInferEngine,
     ShaftInferRequest,
 )
-from shaft.model import MODEL_REGISTRY
-from shaft.template import build_template
+from shaft.data import DPOCollator, SFTCollator
+from shaft.model import MODEL_REGISTRY, build_model_meta
+from shaft.template import ShaftChatRenderer, build_template
+
+
+class _CountingProcessor:
+    def __init__(self, wrapped) -> None:
+        self.wrapped = wrapped
+        self.tokenizer = wrapped.tokenizer
+        self.call_count = 0
+
+    def __getattr__(self, name):
+        return getattr(self.wrapped, name)
+
+    def __call__(self, *args, **kwargs):
+        self.call_count += 1
+        return self.wrapped(*args, **kwargs)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("model_type", "template_name", "model_path"),
+    [
+        ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
+        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
+        ("qwen36vl", "qwen35vl_thinking", Path("models/Qwen3.6-27B")),
+    ],
+)
+def test_qwen_vl_sft_multiround_supervision_uses_one_processor_call(
+    tmp_path: Path,
+    model_type: str,
+    template_name: str,
+    model_path: Path,
+) -> None:
+    if not model_path.exists():
+        pytest.skip(f"Model path not found: {model_path}")
+    if not MODEL_REGISTRY.has(model_type):
+        pytest.skip(f"Model adapter is not registered: {model_type}")
+
+    image = Image.new("RGB", (64, 64), color=(240, 240, 240))
+    base_processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        fix_mistral_regex=False,
+    )
+    model_adapter = build_model_meta(model_type).resolve_adapter(
+        model_name_or_path=str(model_path)
+    )
+    template = build_template(template_name)
+    item = {
+        "dataset_name": "integration",
+        "sample_id": "multi-round",
+        "image_path": str(tmp_path / "image.png"),
+        "image": image,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "image"}, {"type": "text", "text": "first"}],
+            },
+            {"role": "assistant", "content": [{"type": "text", "text": "answer one"}]},
+            {"role": "user", "content": [{"type": "text", "text": "second"}]},
+        ],
+        "target_text": "answer two",
+        "system_prompt": "",
+        "user_prompt": "",
+        "extra": {},
+    }
+
+    outputs = {}
+    processors = {}
+    for loss_scale_name in ("default", "last_round"):
+        processor = _CountingProcessor(base_processor)
+        processors[loss_scale_name] = processor
+        collator = SFTCollator(
+            model_adapter=model_adapter,
+            template=template,
+            processor=processor,
+            tokenizer=base_processor.tokenizer,
+            loss_scale_name=loss_scale_name,
+        )
+        outputs[loss_scale_name] = collator([item])
+
+    assert processors["default"].call_count == 1
+    assert processors["last_round"].call_count == 1
+    assert torch.equal(outputs["default"]["input_ids"], outputs["last_round"]["input_ids"])
+    assert torch.equal(outputs["default"]["pixel_values"], outputs["last_round"]["pixel_values"])
+    assert int(outputs["default"]["labels"].ne(-100).sum()) > int(
+        outputs["last_round"]["labels"].ne(-100).sum()
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("model_type", "template_name", "model_path"),
+    [
+        ("qwen3vl", "qwen3vl", Path("models/Qwen3-VL-4B-Instruct")),
+        ("qwen36vl", "qwen35vl", Path("models/Qwen3.6-27B")),
+    ],
+)
+def test_qwen_vl_dpo_reuses_one_processed_prompt_for_both_completions(
+    tmp_path: Path,
+    model_type: str,
+    template_name: str,
+    model_path: Path,
+) -> None:
+    if not model_path.exists():
+        pytest.skip(f"Model path not found: {model_path}")
+    if not MODEL_REGISTRY.has(model_type):
+        pytest.skip(f"Model adapter is not registered: {model_type}")
+
+    image = Image.new("RGB", (64, 64), color=(240, 240, 240))
+    base_processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        fix_mistral_regex=False,
+    )
+    processor = _CountingProcessor(base_processor)
+    model_adapter = build_model_meta(model_type).resolve_adapter(
+        model_name_or_path=str(model_path)
+    )
+    collator = DPOCollator(
+        model_adapter=model_adapter,
+        template=build_template(template_name),
+        processor=processor,
+        tokenizer=base_processor.tokenizer,
+    )
+    item = {
+        "dataset_name": "integration",
+        "sample_id": "dpo-multi-round",
+        "image_path": str(tmp_path / "image.png"),
+        "image": image,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "image"}, {"type": "text", "text": "first"}],
+            },
+            {"role": "assistant", "content": [{"type": "text", "text": "answer one"}]},
+            {"role": "user", "content": [{"type": "text", "text": "second"}]},
+        ],
+        "chosen_text": "preferred answer",
+        "rejected_text": "rejected answer",
+        "system_prompt": "",
+        "user_prompt": "",
+        "extra": {},
+    }
+
+    output = collator([item])
+
+    assert processor.call_count == 1
+    assert output["input_ids"].shape[0] == 2
+    assert output["completion_mask"].shape == output["input_ids"].shape
+    assert output["image_grid_thw"].shape[0] == 2
+    midpoint = output["pixel_values"].shape[0] // 2
+    assert midpoint > 0
+    assert torch.equal(output["pixel_values"][:midpoint], output["pixel_values"][midpoint:])
 
 
 @pytest.mark.integration
@@ -84,8 +238,10 @@ def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
     )
     template = build_template("qwen35vl")
     rendered = template.apply_chat_template(
-        processor=processor,
-        tokenizer=getattr(processor, "tokenizer", None),
+        renderer=ShaftChatRenderer.from_components(
+            processor=processor,
+            tokenizer=getattr(processor, "tokenizer", None),
+        ),
         messages=[
             {
                 "role": "user",

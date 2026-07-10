@@ -137,6 +137,9 @@
   - `GRPODataset` 在交给 TRL/vLLM 前按 `data.min_pixels / data.max_pixels` 调整 PIL 图像，避免 GRPO 绕过 SFT collator 后使用原始大图撑爆 multimodal token 数
 - 当前 PPO 是受限的 text-only 路径：`PPODataset` 不做图像 I/O，PPO collator 只保留消息文本；
   `jsonl_ppo.image_path` 仅作为可选溯源字段。
+- `SFTCollator` 与 `DPOCollator` 对一个 batch 只执行一次多模态 processor。多轮 assistant span 先由
+  template 编译，再由模型 `ProcessorPolicy` 生成精确 token layout；监督行构造 API 不接收图片或
+  processor，不存在逐样本重跑图片预处理的兼容分支。
 
 ## 3. `model`
 
@@ -163,6 +166,20 @@
 - `ModelMeta`
   - `hf_model_types` 是本地 HF `config.json:model_type` 兼容性校验的真源，用于在真正加载
     checkpoint 前拦截 `model.model_type` 与权重目录不匹配的问题。
+- `ShaftModelAdapter`
+- `ProcessorPolicy`
+- `ShaftProcessedBatch`
+- `ShaftProcessorTokenLayout`
+
+`ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
+键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则和训练
+输入的复制/重排。内置 `identity` 要求 rendered tokens 与 processed tokens 完全一致；`qwen_vl`
+显式处理 `mm_token_type_ids` 标记的多模态 token run。其他模型族必须通过 registry 注册自己的 policy，
+不得让 collator 或通用 template 猜测模型字段、batch axis 或 token expansion。processor 新增
+`position_ids/token_type_ids` 等 sequence-aligned 字段时，默认策略会显式拒绝，直到模型 policy 定义
+如何随 target 拼接、padding 或 DPO pair 扩展。其它字段也必须进入 policy 的
+`sample_aligned_model_input_names / whole_batch_model_input_names / static_model_input_names` 之一；未声明
+字段会在训练装配时失败，避免升级 processor 后静默误用第 0 维。
 - `ModelGroup`
 - `ModelModuleGroups`
 - `ShaftModelAdapter`
@@ -225,6 +242,9 @@
 
 - `src/shaft/template/types.py`
 - `src/shaft/template/base.py`
+- `src/shaft/template/rendering.py`
+- `src/shaft/template/delimited.py`
+- `src/shaft/template/qwen.py`
 - `src/shaft/template/registry.py`
 - `src/shaft/template/qwen3vl.py`
 - `src/shaft/template/qwen35vl.py`
@@ -235,12 +255,20 @@
 - 定义 decode 协议。
 - 通过模板元信息管理模型族模板实现。
 - 在训练路径中直接生成 supervision plan 与单样本 `labels / loss_scale / span`。
+- supervision plan 的 span 使用 chat template 渲染后的 canonical token 坐标；模型 processor expansion
+  通过 `ShaftProcessorTokenLayout` 投影，不在 template 中重复处理图片。
+- `ShaftChatRenderer` 只暴露完整 chat render 和纯 tokenizer 两个操作。supervision plan 不接收
+  processor、image 或 model adapter，因此模型切换后也不能在 template 内恢复图片预处理。
+- `ShaftDelimitedChatTemplate` 为有稳定消息分隔符的模型提供单次完整渲染 span compiler；非分隔符模板
+  必须实现自己的精确 compiler。基类没有 partial-message fallback。
 
 ### 关键类
 
 - `TemplateMeta`
 - `Template`
 - `ShaftChatTemplate`
+- `ShaftChatRenderer`
+- `ShaftDelimitedChatTemplate`
 - `ShaftTemplateSupervisionPlan`
 - `ShaftTemplateSupervisedRow`
 - `Qwen3VLTemplate`

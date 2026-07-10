@@ -41,7 +41,7 @@ def _build_adapter() -> ShaftModelAdapter:
         family="dummy",
         model_name_or_path="dummy",
         template_type="smoke_vlm",
-        capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
+        capabilities=ModelCapabilities(is_multimodal=True),
         module_groups=ModelModuleGroups(
             language_model=("language_model",),
             vision_tower=("vision_tower",),

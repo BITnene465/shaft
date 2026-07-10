@@ -2,24 +2,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from shaft.loss_scale import ShaftLossScaleSpec
 
-
-@dataclass(frozen=True)
-class ShaftTemplateMessagePlan:
-    message: dict[str, Any]
-    trainable: bool = False
+if TYPE_CHECKING:
+    from shaft.model.types import ShaftProcessedBatch, ShaftProcessorTokenLayout
+    from shaft.template.rendering import ShaftChatRenderer
 
 
 @dataclass(frozen=True)
 class ShaftTemplateSupervisionPlan:
-    messages: list[dict[str, Any]]
     prompt_text: str
     target_text: str
     loss_spec: ShaftLossScaleSpec
-    message_plans: list[ShaftTemplateMessagePlan]
+    rendered_prefix_token_ids: tuple[int, ...] = ()
+    trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,8 +65,7 @@ class Template(ABC):
     def apply_chat_template(
         self,
         *,
-        processor: Any,
-        tokenizer: Any,
+        renderer: ShaftChatRenderer,
         messages: list[dict[str, Any]],
         add_generation_prompt: bool | None = None,
     ) -> str:
@@ -84,8 +81,7 @@ class Template(ABC):
         *,
         item: dict[str, Any],
         target_text: str,
-        processor: Any,
-        tokenizer: Any,
+        renderer: ShaftChatRenderer,
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
         raise NotImplementedError
@@ -95,14 +91,10 @@ class Template(ABC):
         self,
         *,
         plan: ShaftTemplateSupervisionPlan,
-        model_adapter: Any,
-        processor: Any,
         tokenizer: Any,
-        image: Any,
-        prefix_batch: dict[str, Any],
+        processed_batch: ShaftProcessedBatch,
         row_index: int,
-        min_pixels: int | None,
-        max_pixels: int | None,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
         add_eos_token: bool,
         ignore_index: int,
         include_targets_in_inputs: bool,

@@ -158,6 +158,24 @@ sequenceDiagram
 3. `data` 只产出样本和 batch，不涉及 loss/optimizer。
 4. `model` 只负责模型族差异，不介入数据源路径和训练调度。
 
+SFT/DPO 的多模态监督采用单次 processor 契约：
+
+1. `template` 只接收窄接口 `ShaftChatRenderer`，对完整消息执行一次渲染，并把历史 assistant 编译成
+   canonical rendered-token 坐标中的监督 span。它不能取得多模态 processor 或图片。
+2. `collator` 对完整 batch 只调用一次多模态 processor，并把全部原始输出封装为
+   `ShaftProcessedBatch`；collator 不枚举某个模型的 `pixel_values/image_grid_thw/...` 字段。
+3. `ShaftModelAdapter -> ProcessorPolicy` 是 processor 差异的唯一真源，统一负责 processor 调用参数、
+   pixel budget、rendered-token 到 processed-token layout，以及 SFT/DPO 所需的模型输入复制/重排。
+   每个非 sequence 字段必须显式声明为 sample-aligned、whole-batch media 或 static；未知字段不透传。
+4. Qwen VL policy 使用 `mm_token_type_ids` 折叠图像 token expansion；identity policy 要求 processed
+   tokens 与 rendered tokens 完全一致。任何无法证明的字段重排或 token 对齐都必须 fail fast。
+5. `template` 只消费 `ShaftProcessedBatch` 与精确 layout 生成 labels/loss scale；DPO 的 chosen/rejected
+   共享同一 prompt plan、layout 和视觉处理结果。
+
+新模型族如果不能提供精确 token layout，必须在接入测试中显式失败并注册模型专用 processor policy；
+新模板必须提供基于单次完整渲染的精确 assistant-span compiler。禁止近似对齐、通用 partial-render
+fallback，也禁止按 partial message 重跑多模态 processor。
+
 ### 5.3 分片训练边界
 
 - 分片策略统一落在 `train.distributed`：

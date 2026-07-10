@@ -9,8 +9,8 @@ from .registry import (
     register_template,
     resolve_template_meta,
 )
+from .rendering import ShaftChatRenderer
 from .types import (
-    ShaftTemplateMessagePlan,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
     Template,
@@ -19,7 +19,7 @@ from .types import (
 
 __all__ = [
     "TEMPLATE_REGISTRY",
-    "ShaftTemplateMessagePlan",
+    "ShaftChatRenderer",
     "ShaftTemplateSupervisionPlan",
     "ShaftTemplateSupervisedRow",
     "Template",

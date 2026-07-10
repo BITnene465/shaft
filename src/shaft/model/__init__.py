@@ -42,6 +42,8 @@ from .types import (
     ModelModuleGroups,
     PeftPolicy,
     ProcessorPolicy,
+    ShaftProcessedBatch,
+    ShaftProcessorTokenLayout,
     ShaftModelAdapter,
 )
 
@@ -60,6 +62,8 @@ __all__ = [
     "ModelShardingPolicy",
     "PeftPolicy",
     "ProcessorPolicy",
+    "ShaftProcessedBatch",
+    "ShaftProcessorTokenLayout",
     "ShaftAdapterFinetunePlan",
     "ShaftFreezePreview",
     "ShaftFreezePlan",

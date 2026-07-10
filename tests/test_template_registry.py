@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from shaft.model import build_model_meta
-from shaft.template import TEMPLATE_REGISTRY, build_template, build_template_meta, resolve_template_meta
+from shaft.template import (
+    TEMPLATE_REGISTRY,
+    ShaftChatRenderer,
+    build_template,
+    build_template_meta,
+    resolve_template_meta,
+)
+
+
+def _renderer(tokenizer) -> ShaftChatRenderer:
+    return ShaftChatRenderer.from_components(processor=object(), tokenizer=tokenizer)
 
 
 def test_qwen3vl_template_registered() -> None:
@@ -67,7 +77,11 @@ def test_template_default_system_is_injected() -> None:
             assert messages[0]["role"] == "system"
             return "ok"
 
-    assert template.apply_chat_template(processor=object(), tokenizer=_Tokenizer(), messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}]) == "ok"
+    tokenizer = _Tokenizer()
+    assert template.apply_chat_template(
+        renderer=_renderer(tokenizer),
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+    ) == "ok"
 
 
 def test_qwen35vl_template_disables_thinking_by_default() -> None:
@@ -82,8 +96,7 @@ def test_qwen35vl_template_disables_thinking_by_default() -> None:
 
     assert (
         template.apply_chat_template(
-            processor=object(),
-            tokenizer=_Tokenizer(),
+            renderer=_renderer(_Tokenizer()),
             messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
         )
         == "ok"
@@ -105,8 +118,7 @@ def test_qwen35vl_thinking_template_enables_thinking_explicitly() -> None:
 
     assert (
         template.apply_chat_template(
-            processor=object(),
-            tokenizer=_Tokenizer(),
+            renderer=_renderer(_Tokenizer()),
             messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
         )
         == "ok"
@@ -124,4 +136,8 @@ def test_template_respects_generation_prompt_flag() -> None:
             assert add_generation_prompt is False
             return "ok"
 
-    assert template.apply_chat_template(processor=object(), tokenizer=_Tokenizer(), messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}]) == "ok"
+    tokenizer = _Tokenizer()
+    assert template.apply_chat_template(
+        renderer=_renderer(tokenizer),
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+    ) == "ok"

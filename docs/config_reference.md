@@ -103,6 +103,9 @@
 - `qwen35vl` / `qwen36vl` 默认使用 `template=qwen35vl`，该模板会在 generation prompt 中关闭
   thinking，避免结构化 JSON 任务无意训练或生成 `<think>` 内容。确实需要 CoT 数据时，显式设置
   `model.template: qwen35vl_thinking`。
+- `data.min_pixels/max_pixels` 是否以及如何传给 processor 由模型的 `ProcessorPolicy` 唯一决定；
+  `qwen_vl` 使用 `images_kwargs`，通用/identity policy 默认不假设 processor 支持 pixel budget。
+  新模型不得在 collator、template 或 pipeline 中再维护一份转发开关。
 - 从 Qwen3-VL 切换到 Qwen3.6-VL 训练时，核心差异应只落在模型字段，例如：
   `model_type: qwen36vl`、`model_name_or_path: models/Qwen3.6-27B`、必要时把
   `train.distributed.strategy` 切到 `fsdp` 或 `deepspeed`。`data`、`algorithm`、SFT target
@@ -449,8 +452,11 @@ train:
   - `all`: 同时监督 system/user/prefix 与 target/response
 - 当前 `loss_scale` 的落点在 `template -> SFTCollator -> ShaftSFTTrainer -> training/loss.py`
   这条链上：
-  - `template` 负责把多轮消息规范化为 supervision plan，并直接产出单样本 `labels / loss_scale / span`
-  - `SFTCollator` 只负责 batch 级 processor 调用、padding 与张量装配
+  - `template` 负责把多轮消息规范化为 rendered-token supervision plan，并产出单样本
+    `labels / loss_scale / span`
+  - `SFTCollator` 只执行一次 batch 级多模态 processor 调用、padding 与张量装配
+  - `ShaftModelAdapter -> ProcessorPolicy` 负责将 canonical rendered-token span 精确投影到 processor
+    展开后的 token layout；缺少模型专用映射时直接报错，不做近似对齐或 partial-image fallback
   - `training/loss.py` 负责真正的加权 next-token loss
 
 ## 7. `eval`

@@ -5,13 +5,14 @@ from typing import Any
 import torch
 
 from shaft.loss_scale import build_loss_scale
+from shaft.model.types import ShaftProcessedBatch, ShaftProcessorTokenLayout
 
 from .types import (
-    ShaftTemplateMessagePlan,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
     Template,
 )
+from .rendering import ShaftChatRenderer
 
 
 class ShaftChatTemplate(Template):
@@ -23,23 +24,24 @@ class ShaftChatTemplate(Template):
     def apply_chat_template(
         self,
         *,
-        processor: Any,
-        tokenizer: Any,
+        renderer: ShaftChatRenderer,
         messages: list[dict[str, Any]],
         add_generation_prompt: bool | None = None,
     ) -> str:
-        owner = processor if hasattr(processor, "apply_chat_template") else tokenizer
         normalized_messages = self.prepare_messages(messages)
         resolved_add_generation_prompt = (
             self.template_meta.auto_add_generation_prompt
             if add_generation_prompt is None
             else bool(add_generation_prompt)
         )
-        return owner.apply_chat_template(
-            normalized_messages,
-            tokenize=False,
+        return renderer.render(
+            messages=normalized_messages,
             add_generation_prompt=resolved_add_generation_prompt,
+            options=self._chat_template_options(),
         )
+
+    def _chat_template_options(self) -> dict[str, Any]:
+        return {}
 
     def decode(self, *, tokenizer: Any, token_ids: list[int]) -> str:
         if hasattr(tokenizer, "decode"):
@@ -55,34 +57,43 @@ class ShaftChatTemplate(Template):
         *,
         item: dict[str, Any],
         target_text: str,
-        processor: Any,
-        tokenizer: Any,
+        renderer: ShaftChatRenderer,
         loss_scale_name: str,
     ) -> ShaftTemplateSupervisionPlan:
         messages = self.prepare_messages(self.resolve_messages(item))
         prompt_text = self.apply_chat_template(
-            processor=processor,
-            tokenizer=tokenizer,
+            renderer=renderer,
             messages=messages,
         )
         loss_scale = build_loss_scale(loss_scale_name)
         loss_spec = loss_scale(item)
-        message_plans: list[ShaftTemplateMessagePlan] = []
-        for message in messages:
-            role = str(message.get("role", "")).strip().lower()
-            if loss_spec.base_strategy == "all":
-                trainable = True
-            elif loss_spec.base_strategy == "last_round":
-                trainable = False
-            else:
-                trainable = role == "assistant"
-            message_plans.append(ShaftTemplateMessagePlan(message=dict(message), trainable=trainable))
+        rendered_prefix_token_ids: tuple[int, ...] = ()
+        trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
+        if loss_spec.base_strategy == "default" and float(loss_spec.prefix_scale) > 0:
+            assistant_indices: list[int] = []
+            seen_user = False
+            for index, message in enumerate(messages):
+                role = str(message.get("role", "")).strip().lower()
+                if role == "user":
+                    seen_user = True
+                elif role == "assistant" and seen_user:
+                    assistant_indices.append(index)
+            if assistant_indices:
+                rendered_prefix_token_ids = tuple(
+                    renderer.tokenize(prompt_text)
+                )
+                trainable_prefix_spans = self._build_trainable_prefix_spans(
+                    messages=messages,
+                    assistant_indices=assistant_indices,
+                    rendered_prefix_token_ids=rendered_prefix_token_ids,
+                    renderer=renderer,
+                )
         return ShaftTemplateSupervisionPlan(
-            messages=messages,
             prompt_text=prompt_text,
             target_text=str(target_text),
             loss_spec=loss_spec,
-            message_plans=message_plans,
+            rendered_prefix_token_ids=rendered_prefix_token_ids,
+            trainable_prefix_spans=trainable_prefix_spans,
         )
 
     def _tokenize_target(self, *, tokenizer: Any, target_text: str) -> list[int]:
@@ -92,6 +103,19 @@ class ShaftChatTemplate(Template):
             return_attention_mask=False,
         )
         return list(tokenized["input_ids"][0])
+
+    def _build_trainable_prefix_spans(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        assistant_indices: list[int],
+        rendered_prefix_token_ids: tuple[int, ...],
+        renderer: ShaftChatRenderer,
+    ) -> tuple[tuple[int, int], ...]:
+        _ = messages, assistant_indices, rendered_prefix_token_ids, renderer
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement exact full-render assistant span compilation."
+        )
 
     @staticmethod
     def _truncate_target_ids(
@@ -131,15 +155,11 @@ class ShaftChatTemplate(Template):
         self,
         *,
         plan: ShaftTemplateSupervisionPlan,
-        model_adapter: Any,
-        processor: Any,
-        tokenizer: Any,
-        image: Any,
-        prefix_length: int,
-        min_pixels: int | None,
-        max_pixels: int | None,
+        prefix_ids: torch.Tensor,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
     ) -> torch.Tensor:
         loss_spec = plan.loss_spec
+        prefix_length = int(prefix_ids.shape[0])
         if prefix_length <= 0:
             return torch.zeros((0,), dtype=torch.float32)
         if float(loss_spec.prefix_scale) <= 0:
@@ -148,61 +168,41 @@ class ShaftChatTemplate(Template):
             return torch.full((prefix_length,), float(loss_spec.prefix_scale), dtype=torch.float32)
         if loss_spec.base_strategy == "last_round":
             return torch.zeros((prefix_length,), dtype=torch.float32)
+        if not plan.trainable_prefix_spans:
+            return torch.zeros((prefix_length,), dtype=torch.float32)
+        if prefix_token_layout is None:
+            raise ValueError(
+                "A processor token layout is required for segmented prefix supervision."
+            )
+        if prefix_token_layout.rendered_token_count != len(plan.rendered_prefix_token_ids):
+            raise ValueError("Processor token layout does not match the rendered prompt length.")
+        if prefix_token_layout.processed_token_count != prefix_length:
+            raise ValueError("Processor token layout does not match the processed prefix length.")
 
         weights = torch.zeros((prefix_length,), dtype=torch.float32)
-        previous_length = 0
-        for idx, message_plan in enumerate(plan.message_plans):
-            partial_messages = plan.messages[: idx + 1]
-            if not any(
-                str(message.get("role", "")).strip().lower() == "user"
-                for message in partial_messages
-            ):
-                continue
-            is_final_prompt = (
-                idx == len(plan.message_plans) - 1
-                and str(message_plan.message.get("role", "")).strip().lower() != "assistant"
-            )
-            rendered = self.apply_chat_template(
-                processor=processor,
-                tokenizer=tokenizer,
-                messages=partial_messages,
-                add_generation_prompt=is_final_prompt,
-            )
-            partial_batch = model_adapter.build_processor_inputs(
-                processor=processor,
-                prompt_texts=[rendered],
-                images=[image],
-                min_pixels=min_pixels,
-                max_pixels=max_pixels,
-            )
-            current_length = int(partial_batch["attention_mask"][0].sum().item())
-            current_length = min(current_length, prefix_length)
-            if current_length > previous_length and message_plan.trainable:
-                weights[previous_length:current_length] = float(loss_spec.prefix_scale)
-            previous_length = max(previous_length, current_length)
+        for raw_start, raw_end in plan.trainable_prefix_spans:
+            start, end = prefix_token_layout.project_span(raw_start, raw_end)
+            weights[start:end] = float(loss_spec.prefix_scale)
         return weights
 
     def build_supervised_row(
         self,
         *,
         plan: ShaftTemplateSupervisionPlan,
-        model_adapter: Any,
-        processor: Any,
         tokenizer: Any,
-        image: Any,
-        prefix_batch: dict[str, Any],
+        processed_batch: ShaftProcessedBatch,
         row_index: int,
-        min_pixels: int | None,
-        max_pixels: int | None,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
         add_eos_token: bool,
         ignore_index: int,
         include_targets_in_inputs: bool,
         max_length: int | None = None,
     ) -> ShaftTemplateSupervisedRow:
         eos_id = getattr(tokenizer, "eos_token_id", None)
-        prefix_mask = prefix_batch["attention_mask"][row_index].bool()
-        prefix_ids = prefix_batch["input_ids"][row_index][prefix_mask]
-        mm_token_ids = prefix_batch.get("mm_token_type_ids")
+        model_inputs = processed_batch.model_inputs
+        prefix_mask = model_inputs["attention_mask"][row_index].bool()
+        prefix_ids = model_inputs["input_ids"][row_index][prefix_mask]
+        mm_token_ids = model_inputs.get("mm_token_type_ids")
         prefix_mm = mm_token_ids[row_index][prefix_mask] if mm_token_ids is not None else None
 
         target_ids = self._tokenize_target(tokenizer=tokenizer, target_text=plan.target_text)
@@ -218,13 +218,8 @@ class ShaftChatTemplate(Template):
         if include_targets_in_inputs:
             prefix_loss_scale = self._compute_prefix_loss_scale(
                 plan=plan,
-                model_adapter=model_adapter,
-                processor=processor,
-                tokenizer=tokenizer,
-                image=image,
-                prefix_length=int(prefix_ids.shape[0]),
-                min_pixels=min_pixels,
-                max_pixels=max_pixels,
+                prefix_ids=prefix_ids,
+                prefix_token_layout=prefix_token_layout,
             )
             input_ids = torch.cat([prefix_ids, target_tensor], dim=0)
             prefix_labels = (

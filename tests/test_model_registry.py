@@ -23,8 +23,8 @@ def test_qwen35vl_registered() -> None:
 
 
 def test_builtin_model_policies_registered() -> None:
-    assert PROCESSOR_POLICY_REGISTRY.has("pixel_budget")
-    assert PROCESSOR_POLICY_REGISTRY.has("no_pixel_budget")
+    assert PROCESSOR_POLICY_REGISTRY.has("qwen_vl")
+    assert PROCESSOR_POLICY_REGISTRY.has("identity")
     assert PEFT_POLICY_REGISTRY.has("all_linear")
 
 
@@ -73,6 +73,6 @@ def test_smoke_artifacts_expose_meta_and_template() -> None:
     assert artifacts.model_info.model_dir == cfg.model.model_name_or_path
     assert artifacts.model_info.is_multimodal is True
     assert artifacts.model_adapter.default_target_modules() == ["all-linear"]
-    assert artifacts.model_adapter.capabilities.supports_pixel_budget is False
+    assert artifacts.model_adapter.processor_policy.supports_pixel_budget is False
     assert artifacts.template.name == "smoke_vlm"
     assert artifacts.template.template_meta.template_type == "smoke_vlm"
