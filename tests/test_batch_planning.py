@@ -15,10 +15,11 @@ from shaft.data import (
     ShaftBatchPlanningSignature,
     ShaftCostAwareSampler,
     ShaftFixedBatchPlanner,
+    ShaftFixedBatchPlanningSpec,
+    ShaftRowInvariantCostProvider,
     ShaftSampleCost,
     ShaftSamplePlan,
     ShaftSFTSampleCostProvider,
-    ShaftStaticCostProvider,
     planning_safe_online_transform,
 )
 from shaft.loss_scale import ShaftLossScaleSpec
@@ -39,8 +40,8 @@ def _build_plan(lengths: list[int]) -> ShaftSamplePlan:
     )
 
 
-def _build_cost_provider(lengths: list[int]) -> ShaftStaticCostProvider:
-    return ShaftStaticCostProvider(
+def _build_cost_provider(lengths: list[int]) -> ShaftRowInvariantCostProvider:
+    return ShaftRowInvariantCostProvider(
         {
             ("dataset", row_index): ShaftSampleCost(
                 llm_tokens=length,
@@ -51,6 +52,27 @@ def _build_cost_provider(lengths: list[int]) -> ShaftStaticCostProvider:
             for row_index, length in enumerate(lengths)
         },
         fingerprint="test-costs-v1",
+    )
+
+
+def _build_spec(
+    plan: ShaftSamplePlan,
+    *,
+    per_device_batch_size: int,
+    data_world_size: int,
+    planning_window: int,
+    gradient_accumulation_steps: int = 1,
+    seed: int = 42,
+    drop_last: bool = False,
+) -> ShaftFixedBatchPlanningSpec:
+    return ShaftFixedBatchPlanningSpec.from_plan(
+        plan,
+        per_device_batch_size=per_device_batch_size,
+        data_world_size=data_world_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        planning_window=planning_window,
+        seed=seed,
+        drop_last=drop_last,
     )
 
 
@@ -71,10 +93,13 @@ def test_fixed_batch_planner_preserves_refs_and_removes_avoidable_padding() -> N
     planner = ShaftFixedBatchPlanner(
         plan=plan,
         cost_provider=_build_cost_provider(lengths),
-        per_device_batch_size=2,
-        data_world_size=1,
-        planning_window=8,
-        seed=23,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=2,
+            data_world_size=1,
+            planning_window=8,
+            seed=23,
+        ),
     )
 
     (window_plan,) = tuple(planner.iter_window_plans())
@@ -104,13 +129,17 @@ def test_fixed_batch_planner_preserves_refs_and_removes_avoidable_padding() -> N
 
 def test_fixed_batch_planner_pairs_similar_costs_across_data_ranks() -> None:
     lengths = [8, 1, 7, 2, 8, 1, 7, 2]
+    plan = _build_plan(lengths)
     planner = ShaftFixedBatchPlanner(
-        plan=_build_plan(lengths),
+        plan=plan,
         cost_provider=_build_cost_provider(lengths),
-        per_device_batch_size=1,
-        data_world_size=2,
-        planning_window=8,
-        seed=29,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=1,
+            data_world_size=2,
+            planning_window=8,
+            seed=29,
+        ),
     )
 
     (window_plan,) = tuple(planner.iter_window_plans())
@@ -124,13 +153,17 @@ def test_fixed_batch_planner_pairs_similar_costs_across_data_ranks() -> None:
 
 def test_fixed_batch_planner_never_reorders_across_planning_windows() -> None:
     lengths = [8, 1, 8, 1, 4, 2, 4, 2]
+    plan = _build_plan(lengths)
     planner = ShaftFixedBatchPlanner(
-        plan=_build_plan(lengths),
+        plan=plan,
         cost_provider=_build_cost_provider(lengths),
-        per_device_batch_size=1,
-        data_world_size=2,
-        planning_window=4,
-        seed=31,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=1,
+            data_world_size=2,
+            planning_window=4,
+            seed=31,
+        ),
     )
 
     window_plans = tuple(planner.iter_window_plans())
@@ -144,13 +177,17 @@ def test_cost_aware_sampler_is_deterministic_and_advances_plan_cycle() -> None:
     lengths = [8, 1, 8, 1, 2, 1, 2, 1]
 
     def build_sampler() -> ShaftCostAwareSampler:
+        plan = _build_plan(lengths)
         return ShaftCostAwareSampler(
-            plan=_build_plan(lengths),
+            plan=plan,
             cost_provider=_build_cost_provider(lengths),
-            per_device_batch_size=2,
-            data_world_size=1,
-            planning_window=8,
-            seed=37,
+            spec=_build_spec(
+                plan,
+                per_device_batch_size=2,
+                data_world_size=1,
+                planning_window=8,
+                seed=37,
+            ),
         )
 
     uninterrupted = build_sampler()
@@ -174,13 +211,17 @@ def test_cost_aware_sampler_is_deterministic_and_advances_plan_cycle() -> None:
 
 def test_cost_aware_sampler_logs_multi_window_aggregate(caplog) -> None:
     lengths = [8, 1, 8, 1, 4, 2, 4, 2]
+    plan = _build_plan(lengths)
     sampler = ShaftCostAwareSampler(
-        plan=_build_plan(lengths),
+        plan=plan,
         cost_provider=_build_cost_provider(lengths),
-        per_device_batch_size=1,
-        data_world_size=2,
-        planning_window=4,
-        seed=39,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=1,
+            data_world_size=2,
+            planning_window=4,
+            seed=39,
+        ),
     )
 
     with caplog.at_level(logging.INFO, logger="shaft.data.sampler"):
@@ -203,18 +244,16 @@ def test_cost_aware_sampler_requires_complete_global_microsteps() -> None:
     provider = _build_cost_provider(lengths)
 
     with pytest.raises(ValueError, match="global microstep"):
-        ShaftCostAwareSampler(
-            plan=plan,
-            cost_provider=provider,
+        _build_spec(
+            plan,
             per_device_batch_size=2,
             data_world_size=2,
             planning_window=4,
         )
 
     with pytest.raises(ValueError, match="planning_window must contain"):
-        ShaftCostAwareSampler(
-            plan=plan,
-            cost_provider=provider,
+        _build_spec(
+            plan,
             per_device_batch_size=2,
             data_world_size=2,
             planning_window=3,
@@ -224,18 +263,20 @@ def test_cost_aware_sampler_requires_complete_global_microsteps() -> None:
     sampler = ShaftCostAwareSampler(
         plan=plan,
         cost_provider=provider,
-        per_device_batch_size=2,
-        data_world_size=2,
-        planning_window=4,
-        drop_last=True,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=2,
+            data_world_size=2,
+            planning_window=4,
+            drop_last=True,
+        ),
     )
     assert len(sampler) == 4
     assert len(list(sampler)) == 4
 
     with pytest.raises(ValueError, match="at least one complete global microstep"):
-        ShaftCostAwareSampler(
-            plan=_build_plan([1]),
-            cost_provider=_build_cost_provider([1]),
+        _build_spec(
+            _build_plan([1]),
             per_device_batch_size=2,
             data_world_size=2,
             planning_window=4,
@@ -245,13 +286,17 @@ def test_cost_aware_sampler_requires_complete_global_microsteps() -> None:
 
 def test_accelerate_shards_planned_local_batches_by_data_rank() -> None:
     lengths = [8, 1, 7, 2, 8, 1, 7, 2]
+    plan = _build_plan(lengths)
     sampler = ShaftCostAwareSampler(
-        plan=_build_plan(lengths),
+        plan=plan,
         cost_provider=_build_cost_provider(lengths),
-        per_device_batch_size=1,
-        data_world_size=2,
-        planning_window=8,
-        seed=41,
+        spec=_build_spec(
+            plan,
+            per_device_batch_size=1,
+            data_world_size=2,
+            planning_window=8,
+            seed=41,
+        ),
     )
     expected_plan = next(sampler.planner.iter_window_plans())
 
@@ -283,6 +328,7 @@ def test_accelerate_shards_planned_local_batches_by_data_rank() -> None:
 class _CostTokenizer:
     eos_token_id = 2
     name_or_path = "cost-tokenizer"
+    shaft_cost_fingerprint = "test-cost-tokenizer-v1"
 
     def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
         _ = add_special_tokens, return_attention_mask
@@ -290,6 +336,23 @@ class _CostTokenizer:
         for text in texts:
             rows.append([20, 21] if text == "target" else [10, 99, 11, 12])
         return {"input_ids": rows}
+
+
+class _SerializedTokenizerBackend:
+    def __init__(self, payload: str):
+        self.payload = payload
+
+    def to_str(self) -> str:
+        return self.payload
+
+
+class _CostTokenizerWithBackend(_CostTokenizer):
+    def __init__(self, payload: str):
+        self.backend_tokenizer = _SerializedTokenizerBackend(payload)
+
+
+class _UndeclaredCostTokenizer(_CostTokenizer):
+    shaft_cost_fingerprint = None
 
 
 class _CostProcessor:
@@ -350,7 +413,7 @@ def test_sft_cost_provider_matches_processed_and_shifted_loss_contract(tmp_path)
     Image.new("RGB", (64, 64), color=(0, 0, 0)).save(image_path)
     plan = _build_plan([1])
 
-    @planning_safe_online_transform
+    @planning_safe_online_transform(fingerprint="test-draw-prompt-v1")
     def apply_draw_prompt(item):
         resolved = dict(item)
         resolved["user_prompt"] = f"draw-{item['_sample_context']['draw_id']}"
@@ -393,6 +456,14 @@ def test_sft_cost_provider_matches_processed_and_shifted_loss_contract(tmp_path)
     assert cost.loss_weight_sum == pytest.approx(8.5)
     assert cost.exact is True
     assert provider.fingerprint
+
+
+def test_planning_safe_transform_requires_explicit_stable_fingerprint() -> None:
+    with pytest.raises(ValueError, match="explicit stable fingerprint"):
+
+        @planning_safe_online_transform
+        def implicit_fingerprint(item):
+            return item
 
 
 def test_sft_planning_item_does_not_decode_image(tmp_path) -> None:
@@ -552,6 +623,74 @@ def test_sft_cost_fingerprint_binds_source_record_content(tmp_path) -> None:
     assert build_provider("same-len-a").fingerprint != build_provider(
         "same-len-b"
     ).fingerprint
+
+
+def test_sft_cost_fingerprint_binds_serialized_tokenizer_backend(tmp_path) -> None:
+    image_path = tmp_path / "image.png"
+    Image.new("RGB", (64, 64), color=(0, 0, 0)).save(image_path)
+    plan = _build_plan([1])
+    dataset = SFTDataset(
+        {
+            "dataset": [
+                SFTRecord(
+                    image_path=str(image_path),
+                    target_text="target",
+                    dataset_name="dataset",
+                )
+            ]
+        },
+        sample_plan=plan,
+    )
+
+    def build_provider(backend_payload: str) -> ShaftSFTSampleCostProvider:
+        return ShaftSFTSampleCostProvider(
+            dataset=dataset,
+            model_adapter=_CostModelAdapter(),
+            template=_CostTemplate(),
+            processor=_CostProcessor(),
+            tokenizer=_CostTokenizerWithBackend(backend_payload),
+            min_pixels=None,
+            max_pixels=None,
+            max_length=None,
+            add_eos_token=True,
+            loss_scale_name="default",
+        )
+
+    assert build_provider("vocab-a").fingerprint != build_provider(
+        "vocab-b"
+    ).fingerprint
+
+
+def test_sft_cost_provider_rejects_unfingerprinted_slow_tokenizer(tmp_path) -> None:
+    image_path = tmp_path / "image.png"
+    Image.new("RGB", (64, 64), color=(0, 0, 0)).save(image_path)
+    plan = _build_plan([1])
+    dataset = SFTDataset(
+        {
+            "dataset": [
+                SFTRecord(
+                    image_path=str(image_path),
+                    target_text="target",
+                    dataset_name="dataset",
+                )
+            ]
+        },
+        sample_plan=plan,
+    )
+
+    with pytest.raises(ValueError, match="including merges/unigram state"):
+        ShaftSFTSampleCostProvider(
+            dataset=dataset,
+            model_adapter=_CostModelAdapter(),
+            template=_CostTemplate(),
+            processor=_CostProcessor(),
+            tokenizer=_UndeclaredCostTokenizer(),
+            min_pixels=None,
+            max_pixels=None,
+            max_length=None,
+            add_eos_token=True,
+            loss_scale_name="default",
+        )
 
 
 def test_sft_cost_fingerprint_binds_image_asset_dimensions(tmp_path) -> None:

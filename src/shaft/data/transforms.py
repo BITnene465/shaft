@@ -50,9 +50,11 @@ def planning_safe_online_transform(
     """Declare deterministic, media-identity/geometry/placeholder preserving behavior."""
 
     def _decorate(target: OnlineTransform) -> OnlineTransform:
-        resolved_fingerprint = str(fingerprint or "").strip() or (
-            f"{getattr(target, '__module__', '')}.{getattr(target, '__qualname__', '')}"
-        )
+        resolved_fingerprint = str(fingerprint or "").strip()
+        if not resolved_fingerprint:
+            raise ValueError(
+                "planning_safe_online_transform requires an explicit stable fingerprint."
+            )
         setattr(
             target,
             _PLANNING_POLICY_ATTRIBUTE,

@@ -10,7 +10,7 @@ from torch.utils.data import Sampler
 from shaft.utils.distributed import get_rank, get_world_size
 
 from .mixing import ShaftSamplePlan, ShaftSampleRef, _affine_permute, _splitmix64
-from .batching import ShaftFixedBatchPlanner
+from .batching import ShaftFixedBatchPlanner, ShaftFixedBatchPlanningSpec
 from .cost import ShaftSampleCostProvider
 
 
@@ -68,27 +68,16 @@ class ShaftCostAwareSampler(Sampler[ShaftSampleRef]):
         plan: ShaftSamplePlan,
         *,
         cost_provider: ShaftSampleCostProvider,
-        per_device_batch_size: int,
-        data_world_size: int,
-        planning_window: int,
-        gradient_accumulation_steps: int = 1,
-        seed: int = 42,
-        drop_last: bool = False,
+        spec: ShaftFixedBatchPlanningSpec,
     ) -> None:
         self.plan = plan
         self.plan_cycle = 0
         self.planner = ShaftFixedBatchPlanner(
             plan=plan,
             cost_provider=cost_provider,
-            per_device_batch_size=per_device_batch_size,
-            data_world_size=data_world_size,
-            planning_window=planning_window,
-            seed=seed,
-            drop_last=drop_last,
+            spec=spec,
         )
-        self.signature = self.planner.build_signature(
-            gradient_accumulation_steps=gradient_accumulation_steps,
-        )
+        self.signature = self.planner.build_signature()
 
     def __iter__(self) -> Iterator[ShaftSampleRef]:
         window_iterator = iter(

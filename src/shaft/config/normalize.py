@@ -70,6 +70,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     batching.image_size_cache_size = int(batching.image_size_cache_size)
     if batching.image_size_cache_size < 0:
         raise ValueError("data.batching.image_size_cache_size must be >= 0.")
+    if batching.cost_plan_cache_dir is not None:
+        batching.cost_plan_cache_dir = (
+            str(batching.cost_plan_cache_dir).strip() or None
+        )
     config.data.num_workers = int(config.data.num_workers)
     if config.data.num_workers < 0:
         raise ValueError("data.num_workers must be >= 0.")

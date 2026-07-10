@@ -91,8 +91,9 @@
 - `ShaftArrowRecordStore`
 - `ShaftSamplePlan` / `ShaftSampleRef` / `ShaftSampleContext`
 - `ShaftSampleSampler` / `ShaftGroupedSampleSampler` / `ShaftCostAwareSampler`
-- `ShaftSampleCost` / `ShaftSFTSampleCostProvider`
-- `ShaftBatchPlan` / `ShaftFixedBatchPlanner`
+- `ShaftSampleCost` / `ShaftSFTSampleCostProvider` / `ShaftRowInvariantCostProvider`
+- `ShaftCostPlanManifest` / `ShaftMMapCostPlanProvider`
+- `ShaftBatchPlan` / `ShaftFixedBatchPlanningSpec` / `ShaftFixedBatchPlanner`
 - `ShaftBatchPlanningSignature`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
@@ -107,6 +108,8 @@
 - `load_jsonl_ppo_records()`
 - `build_offline_pipeline()`
 - `build_online_pipeline()`
+- `materialize_cost_plan()`
+- `load_cost_plan_reference()` / `write_cost_plan_reference()`
 
 ### 核心接口
 
@@ -134,8 +137,21 @@
   online prompt transform，只读取图片 header，不解码像素；图像 resize/token expansion 由模型
   `ProcessorPolicy` 负责，target 截断、causal shift 与 loss weight 由 `Template` 的
   `estimate_supervision_cost()` 负责。cost provider 不维护平行监督语义。
+- `materialize_cost_plan()` 以 logical draw 为索引，把 runtime provider 输出流式写成固定宽度二进制
+  sidecar；每条记录携带 sample-ref fingerprint，不能把重复 row 的不同 prompt draw 合并。manifest
+  绑定 SamplePlan/cost fingerprint、记录数、字节数和内容 checksum，并通过文件锁与原子 rename 支持
+  并发 build-on-miss。`ShaftMMapCostPlanProvider` 是 BatchPlanner 实际消费的只读成本真源。
+- run root 的 `shaft_cost_plan_reference.json` 只保存共享 manifest 位置和签名；它与
+  `shaft_batch_planning_signature.json` 都属于运行元数据，root export 清理不得删除。cache sidecar 不复制
+  进每个 checkpoint，丢失时由 rank 0 按相同 fingerprint 重建。启动同步使用 attempt-scoped broadcast，
+  durable reference 只在全量 resume 校验成功后发布，不能把旧 run root 当 rendezvous channel。
 - cost-aware planning 会重复重建 online transform；只有经 `planning_safe_online_transform` 声明、可由
-  logical sample context 确定性复现的 transform 才能进入该路径。未声明 transform 会 fail fast。
+  logical sample context 确定性复现的 transform 才能进入该路径；声明必须携带显式版本化 fingerprint。
+  未声明或依赖 module/qualname 隐式指纹的 transform 会 fail fast。
+- `ShaftRowInvariantCostProvider` 只用于明确证明“同一 source row 在所有 draw 下成本不变”的测试/适配；
+  prompt rotation 路径必须使用 draw-indexed provider，不能让泛化类名掩盖 row-key 语义。
+- `ShaftFixedBatchPlanningSpec` 是 fixed cardinality geometry 的唯一真源；pipeline 构造一次后原样交给
+  resume preflight、planner 和 sampler，signature 也从该 spec 派生。
 - `ShaftFixedBatchPlanner` 在有界 window 内按文本/视觉成本分桶，保持 local sample count 不变，并把
   相近成本的 local batches 组成 global microstep。`ShaftCostAwareSampler` 将该计划展平成 HF
   `BatchSampler` 可消费的 ref 流；Accelerate 按连续 local batch 分发给各 data rank。

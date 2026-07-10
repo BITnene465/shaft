@@ -1,14 +1,15 @@
 # Shaft 成本感知训练批次顶层设计
 
-状态：**Phase 0/1 已实现；Phase 2-4 待实现**
+状态：**Phase 0/1 与共享 mmap CostPlan 已实现；Phase 2-4 待实现**
 
-日期：2026-07-10
+日期：2026-07-11
 
 首个落地范围：`Qwen3VL + SFT`
 
 当前运行时已落地 `ShaftSampleCost`、Qwen VL 精确 image-cost policy、有界固定样本数
-`ShaftBatchPlan`、跨 DP rank 配对和 `ShaftCostAwareSampler`。动态 microbatch、全局
-numerator/denominator loss、sequence packing 与 context parallel 仍仅保留本文档中的目标契约。
+`ShaftBatchPlan`、跨 DP rank 配对、`ShaftCostAwareSampler`、draw-indexed 共享 mmap CostPlan，以及
+optimizer-batch global numerator/denominator。动态 microbatch、sequence packing 与 context parallel
+仍仅保留本文档中的目标契约。
 运行时 cost provider 只编排数据：模型 token expansion 由 `ProcessorPolicy` 估算，target/EOS/causal
 supervision 由 `Template` 估算，避免模型或模板升级后出现第二套成本语义。
 
@@ -153,6 +154,24 @@ cost cache 必须至少绑定：
 
 prompt variant 必须在 cost planning 前确定。运行时不能先按短 prompt 估算，再由 dataset 随机换成长
 prompt。实现可以复用 draw context 选择 variant，并读取 per-variant cost metadata。
+
+当前实现使用 `ShaftCostPlanManifest + ShaftMMapCostPlanProvider`：
+
+- cache 记录按 `draw_id` 排列，而不是按 `(dataset_name, row_index)` 去重；同一 row 在不同 prompt draw
+  下可以有不同成本；
+- global rank 0 负责 image manifest 与 runtime estimator，cache miss 时流式写固定宽度记录；
+- manifest 绑定 SamplePlan/cost fingerprint、sample count、record size、内容 checksum；每条记录另带
+  sample-ref fingerprint，调用侧 ref 不一致会 fail fast；
+- 文件锁避免两个并发 job 重复构建同一 key，内容寻址 data file + 原子 manifest rename 避免读到半文件；
+- rank 0 通过 attempt-scoped broadcast 发送 manifest 路径/指纹，其它 rank mmap 后以 collective
+  acknowledgment 确认可读；run root reference 不参与 rendezvous，只在完整 resume 签名通过后发布。
+
+cache 路径是存储策略，不进入训练语义 fingerprint。多机时要求同一绝对挂载路径，并在模型加载前校验
+source fingerprint 和一次性共享文件探针；显式离线预构建 CLI、cache inventory/GC 仍是后续运维能力。
+
+fixed-cardinality geometry 由单个不可变 `ShaftFixedBatchPlanningSpec` 持有。它一次性绑定 SamplePlan
+fingerprint/source count、usable count、batch、DP world size、gradient accumulation、window、seed 和
+drop policy；resume preflight、planner、sampler 与 signature 不得分别推导这些字段。
 
 ### 4.3 `BatchPlan`：执行真源
 
@@ -442,7 +461,10 @@ window cursor 属于 Phase 2。
 为避免启动时全量读取图片字节，当前图像资产 manifest 只扫描 SamplePlan horizon 实际引用的唯一
 canonical image header，绑定 path、stat/inode、宽高以及 Transformers/patch estimator 版本，并复用
 扫描所得尺寸。它不哈希图片内容；同路径替换或改变宽高会使 resume 失败，但训练数据资产仍必须按
-不可变 snapshot 管理。多 rank 共享 sidecar/mmap 仍是百万级数据的 Phase 2 工作。
+不可变 snapshot 管理。节点本地 image replica 的内容一致性由外部 content-addressed snapshot/version
+保证，或改用共享图像目录；框架不会让每个 rank 重扫图片来互证。多 rank 共享 sidecar/mmap 已完成；
+百万级仍待补离线 prebuild/inspect/GC，避免
+首次 cache miss 占用训练作业的分布式启动时间。
 
 ## 12. 配置结构
 
@@ -454,6 +476,7 @@ data:
     strategy: cost_aware          # fixed | cost_aware
     planning_window: 512
     image_size_cache_size: 8192
+    cost_plan_cache_dir: /shared/shaft/cost_plans
 ```
 
 当前 `cost_aware` 只支持 `SFT + duration.unit=steps` 以及声明 exact image-cost 的模型 policy。生产主链
@@ -523,9 +546,16 @@ train:
 - **已实现**：确定性、mixing multiset、rank slicing、真实 2-rank Trainer/DataLoader、同 horizon
   checkpoint/resume 与 horizon-change fail-fast 测试。
 - **已实现**：SFT optimizer-batch global numerator/denominator，为固定和未来动态 microbatch 共用。
+- **已实现**：rank-zero build-on-miss + shared mmap CostPlan；cache hit 不再逐 draw 重算，其它 data rank
+  不再构建 runtime provider；rank-zero 失败广播、all-rank mmap acknowledgment、共享挂载探针和失败
+  resume 不覆盖 durable reference 均有回归测试。root signature/reference 采用 signature-first、
+  reference-last 的事务发布，失败回滚并广播，不使用裸 barrier 等待单 rank 文件写入。
+- **已验收**：CUDA 0/1 Qwen3-VL-4B LoRA DDP 的 cache miss、cache hit 与 checkpoint-2 exact resume。
+  16 条成本全部 exact，padding `37.19% -> 3.22%`；恢复后的 step 3/4 指标及最终 adapter 与 uninterrupted
+  run 完全一致，export validate 通过。
 - 当前限制：只支持单图 SFT record；模型必须声明精确 image-cost policy；step sample budget 必须形成
-  完整 global microsteps。每个 data rank 当前仍会重建整个 global CostPlan，CPU/tokenization/image-header
-  工作随 DP world size 放大；离线/mmap CostPlan 是进入百万级共享存储前的后续 P1。
+  完整 global microsteps。首次 cache miss 仍由 rank 0 扫描 horizon 图像 manifest 并计算全部 draw，尚无
+  独立离线预构建 CLI 与自动 cache GC。
 
 ### Phase 2：动态 cost-budget microbatch
 

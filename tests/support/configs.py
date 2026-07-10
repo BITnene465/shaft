@@ -70,6 +70,7 @@ def write_sft_smoke_config(
         "    strategy: cost_aware\n"
         "    planning_window: 8\n"
         "    image_size_cache_size: 8\n"
+        f"    cost_plan_cache_dir: {base_dir / 'cost_plan_cache'}\n"
         if cost_aware
         else ""
     )

@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from PIL import Image
 
 from shaft.config import load_config
-from shaft.data import SFTDataset, ShaftCostAwareSampler, ShaftDatasetBundle
+from shaft.data import (
+    SFTDataset,
+    ShaftCostAwareSampler,
+    ShaftDatasetBundle,
+    ShaftMMapCostPlanProvider,
+    ShaftRowInvariantCostProvider,
+    ShaftSampleCost,
+    cost_plan_reference_path,
+)
 from shaft.model.finetune_plan import resolved_finetune_summary_path
 from shaft.pipeline import run_sft
 from shaft.training.batch_planning import (
     ShaftBatchPlanningCallback,
+    batch_planning_signature_path,
     load_batch_planning_signature,
 )
 from tests.support.pipeline import FakePipelineModel as _FakeModel
@@ -84,12 +93,21 @@ def test_run_sft_replaces_sample_sampler_with_cost_aware_plan(tmp_path: Path) ->
     config.data.batching.strategy = "cost_aware"
     config.data.batching.planning_window = 7
     config.data.batching.image_size_cache_size = 3
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
 
     with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
         mocked_builder.return_value = _build_fake_model_artifacts()
         with patch("shaft.pipeline.sft.ShaftSFTSampleCostProvider") as mocked_provider:
-            mocked_provider.return_value = SimpleNamespace(
-                fingerprint="pipeline-test-cost-v1"
+            mocked_provider.return_value = ShaftRowInvariantCostProvider(
+                {
+                    ("ds", 0): ShaftSampleCost(
+                        llm_tokens=4,
+                        supervised_tokens=2,
+                        vision_patches=16,
+                        exact=True,
+                    )
+                },
+                fingerprint="pipeline-test-cost-v1",
             )
             with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
                 _ = run_sft(config)
@@ -99,15 +117,216 @@ def test_run_sft_replaces_sample_sampler_with_cost_aware_plan(tmp_path: Path) ->
     assert train_sampler.planner.planning_window == 7
     assert train_sampler.planner.data_world_size == 1
     assert train_sampler.planner.per_device_batch_size == 1
+    assert isinstance(train_sampler.planner.cost_provider, ShaftMMapCostPlanProvider)
+    assert train_sampler.planner.cost_provider.closed is True
     provider_kwargs = mocked_provider.call_args.kwargs
     assert provider_kwargs["dataset"] is _FakeTrainer.last_kwargs["train_dataset"]
     assert provider_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
     assert provider_kwargs["image_size_cache_size"] == 3
+    assert cost_plan_reference_path(config.experiment.output_dir).is_file()
     assert load_batch_planning_signature(config.experiment.output_dir) == train_sampler.signature
     assert any(
         isinstance(callback, ShaftBatchPlanningCallback)
         for callback in _FakeTrainer.last_kwargs["callbacks"]
     )
+
+
+def test_run_sft_closes_mmap_provider_when_trainer_raises(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+
+    class _RaisingTrainer(_FakeTrainer):
+        def train(self, resume_from_checkpoint=None):
+            _ = resume_from_checkpoint
+            raise RuntimeError("injected trainer failure")
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=ShaftRowInvariantCostProvider(
+                {
+                    ("ds", 0): ShaftSampleCost(
+                        llm_tokens=4,
+                        supervised_tokens=2,
+                        vision_patches=16,
+                        exact=True,
+                    )
+                },
+                fingerprint="trainer-failure-cost-v1",
+            ),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _RaisingTrainer):
+                with pytest.raises(RuntimeError, match="injected trainer failure"):
+                    run_sft(config)
+
+    train_sampler = _RaisingTrainer.last_kwargs["train_sampler"]
+    assert isinstance(train_sampler.planner.cost_provider, ShaftMMapCostPlanProvider)
+    assert train_sampler.planner.cost_provider.closed is True
+
+
+def test_run_sft_nonzero_rank_maps_reference_without_runtime_cost_rebuild(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+    static_provider = ShaftRowInvariantCostProvider(
+        {
+            ("ds", 0): ShaftSampleCost(
+                llm_tokens=4,
+                supervised_tokens=2,
+                vision_patches=16,
+                exact=True,
+            )
+        },
+        fingerprint="pipeline-shared-cost-v1",
+    )
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=static_provider,
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                run_sft(config)
+
+    reference = json.loads(
+        cost_plan_reference_path(config.experiment.output_dir).read_text(encoding="utf-8")
+    )
+    rendezvous = {
+        "ok": True,
+        "manifest_path": reference["manifest_path"],
+        "manifest_fingerprint": reference["manifest_fingerprint"],
+    }
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch("shaft.pipeline.sft.ShaftSFTSampleCostProvider") as mocked_provider:
+            with patch("shaft.pipeline.sft.is_rank_zero", return_value=False):
+                with patch(
+                    "shaft.pipeline.sft.broadcast_object_from_rank_zero",
+                    return_value=rendezvous,
+                ):
+                    with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                        run_sft(config)
+
+    mocked_provider.assert_not_called()
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    assert isinstance(train_sampler.planner.cost_provider, ShaftMMapCostPlanProvider)
+
+
+def test_failed_resume_does_not_replace_durable_cost_plan_reference(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+
+    def row_provider(fingerprint: str) -> ShaftRowInvariantCostProvider:
+        return ShaftRowInvariantCostProvider(
+            {
+                ("ds", 0): ShaftSampleCost(
+                    llm_tokens=4,
+                    supervised_tokens=2,
+                    vision_patches=16,
+                    exact=True,
+                )
+            },
+            fingerprint=fingerprint,
+        )
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=row_provider("resume-reference-v1"),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                run_sft(config)
+
+    reference_path = cost_plan_reference_path(config.experiment.output_dir)
+    original_reference = reference_path.read_bytes()
+    config.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    with patch(
+        "shaft.pipeline.sft.resolve_resume_checkpoint",
+        return_value=str(tmp_path / "checkpoint-1"),
+    ):
+        with patch("shaft.pipeline.sft.validate_resume_checkpoint"):
+            with patch("shaft.pipeline.sft.validate_batch_planning_resume_geometry"):
+                with patch(
+                    "shaft.pipeline.sft.build_model_tokenizer_processor"
+                ) as mocked_builder:
+                    mocked_builder.return_value = _build_fake_model_artifacts()
+                    with patch(
+                        "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+                        return_value=row_provider("resume-reference-v2"),
+                    ):
+                        with patch(
+                            "shaft.pipeline.sft.validate_batch_planning_resume",
+                            side_effect=ValueError("full planning signature changed"),
+                        ):
+                            with pytest.raises(
+                                ValueError,
+                                match="full planning signature changed",
+                            ):
+                                run_sft(config)
+
+    assert reference_path.read_bytes() == original_reference
+
+
+def test_failed_metadata_publish_rolls_back_reference_and_signature(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+
+    def row_provider(fingerprint: str) -> ShaftRowInvariantCostProvider:
+        return ShaftRowInvariantCostProvider(
+            {
+                ("ds", 0): ShaftSampleCost(
+                    llm_tokens=4,
+                    supervised_tokens=2,
+                    vision_patches=16,
+                    exact=True,
+                )
+            },
+            fingerprint=fingerprint,
+        )
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=row_provider("publish-v1"),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                run_sft(config)
+
+    reference_path = cost_plan_reference_path(config.experiment.output_dir)
+    signature_path = batch_planning_signature_path(config.experiment.output_dir)
+    original_reference = reference_path.read_bytes()
+    original_signature = signature_path.read_bytes()
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=row_provider("publish-v2"),
+        ):
+            with patch(
+                "shaft.pipeline.sft.write_cost_plan_reference",
+                side_effect=OSError("reference publish failed"),
+            ):
+                with pytest.raises(OSError, match="reference publish failed"):
+                    run_sft(config)
+
+    assert reference_path.read_bytes() == original_reference
+    assert signature_path.read_bytes() == original_signature
 
 
 def test_cost_aware_geometry_fails_before_model_loading(tmp_path: Path) -> None:
@@ -119,6 +338,37 @@ def test_cost_aware_geometry_fails_before_model_loading(tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="planning_window must be > 0"):
             run_sft(config)
 
+    mocked_builder.assert_not_called()
+
+
+def test_cost_plan_local_preflight_failure_enters_collective_before_raising(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "cost_aware"
+    gathered: list[dict] = []
+
+    def gather_status(status):
+        gathered.append(status)
+        return [status]
+
+    with patch(
+        "shaft.pipeline.sft.sft_cost_planning_source_fingerprint",
+        side_effect=OSError("source snapshot unreadable"),
+    ):
+        with patch(
+            "shaft.pipeline.sft.all_gather_objects",
+            side_effect=gather_status,
+        ):
+            with patch(
+                "shaft.pipeline.sft.build_model_tokenizer_processor"
+            ) as mocked_builder:
+                with pytest.raises(OSError, match="source snapshot unreadable"):
+                    run_sft(config)
+
+    assert gathered == [
+        {"ok": False, "error": "OSError: source snapshot unreadable"}
+    ]
     mocked_builder.assert_not_called()
 
 

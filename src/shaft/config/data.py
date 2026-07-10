@@ -16,6 +16,7 @@ class DataBatchingConfig:
     strategy: str = "fixed"
     planning_window: int = 512
     image_size_cache_size: int = 8192
+    cost_plan_cache_dir: str | None = None
 
 
 @dataclass

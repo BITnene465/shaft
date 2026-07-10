@@ -9,14 +9,14 @@ from .cost import ShaftSampleCost, ShaftSampleCostProvider
 from .mixing import ShaftSamplePlan, ShaftSampleRef, _affine_permute, _splitmix64
 
 
-_BATCH_PLAN_VERSION = "shaft-fixed-cost-batch-plan-v1"
+_BATCH_PLAN_VERSION = "shaft-fixed-cost-batch-plan-v2"
 
 
 def _log2_bucket(value: int) -> int:
     return (max(int(value), 1) - 1).bit_length()
 
 
-def resolve_fixed_batch_planning_geometry(
+def _resolve_fixed_batch_planning_geometry(
     *,
     sample_count: int,
     per_device_batch_size: int,
@@ -58,6 +58,84 @@ def resolve_fixed_batch_planning_geometry(
         planning_window // global_microstep_samples
     ) * global_microstep_samples
     return global_microstep_samples, usable_sample_count, effective_planning_window
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftFixedBatchPlanningSpec:
+    """Single immutable source of fixed-cardinality planning geometry."""
+
+    sample_plan_fingerprint: str
+    source_sample_count: int
+    usable_sample_count: int
+    per_device_batch_size: int
+    data_world_size: int
+    gradient_accumulation_steps: int
+    global_microstep_samples: int
+    planning_window: int
+    effective_planning_window: int
+    seed: int
+    drop_last: bool
+
+    def __post_init__(self) -> None:
+        if not str(self.sample_plan_fingerprint).strip():
+            raise ValueError("sample_plan_fingerprint must not be empty.")
+        if int(self.gradient_accumulation_steps) <= 0:
+            raise ValueError("gradient_accumulation_steps must be > 0.")
+        expected = _resolve_fixed_batch_planning_geometry(
+            sample_count=self.source_sample_count,
+            per_device_batch_size=self.per_device_batch_size,
+            data_world_size=self.data_world_size,
+            planning_window=self.planning_window,
+            drop_last=self.drop_last,
+        )
+        actual = (
+            int(self.global_microstep_samples),
+            int(self.usable_sample_count),
+            int(self.effective_planning_window),
+        )
+        if actual != expected:
+            raise ValueError(
+                "Fixed batch planning spec contains inconsistent derived geometry: "
+                f"actual={actual}, expected={expected}."
+            )
+
+    @classmethod
+    def from_plan(
+        cls,
+        plan: ShaftSamplePlan,
+        *,
+        per_device_batch_size: int,
+        data_world_size: int,
+        gradient_accumulation_steps: int,
+        planning_window: int,
+        seed: int = 42,
+        drop_last: bool = False,
+    ) -> ShaftFixedBatchPlanningSpec:
+        source_sample_count = len(plan)
+        (
+            global_microstep_samples,
+            usable_sample_count,
+            effective_planning_window,
+        ) = _resolve_fixed_batch_planning_geometry(
+            sample_count=source_sample_count,
+            per_device_batch_size=per_device_batch_size,
+            data_world_size=data_world_size,
+            planning_window=planning_window,
+            drop_last=drop_last,
+        )
+        return cls(
+            sample_plan_fingerprint=str(plan.fingerprint),
+            source_sample_count=source_sample_count,
+            usable_sample_count=usable_sample_count,
+            per_device_batch_size=int(per_device_batch_size),
+            data_world_size=int(data_world_size),
+            gradient_accumulation_steps=int(gradient_accumulation_steps),
+            global_microstep_samples=global_microstep_samples,
+            planning_window=int(planning_window),
+            effective_planning_window=effective_planning_window,
+            seed=int(seed),
+            drop_last=bool(drop_last),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +231,7 @@ class ShaftBatchPlanningSignature:
     planner_version: str
     sample_plan_fingerprint: str
     cost_fingerprint: str
+    source_sample_count: int
     sample_count: int
     per_device_batch_size: int
     data_world_size: int
@@ -171,6 +250,7 @@ class ShaftBatchPlanningSignature:
             if not str(getattr(self, field_name)).strip():
                 raise ValueError(f"{field_name} must not be empty.")
         for field_name in (
+            "source_sample_count",
             "sample_count",
             "per_device_batch_size",
             "data_world_size",
@@ -180,6 +260,14 @@ class ShaftBatchPlanningSignature:
         ):
             if int(getattr(self, field_name)) <= 0:
                 raise ValueError(f"{field_name} must be > 0.")
+        if int(self.sample_count) > int(self.source_sample_count):
+            raise ValueError("sample_count cannot exceed source_sample_count.")
+        if not self.drop_last and int(self.sample_count) != int(
+            self.source_sample_count
+        ):
+            raise ValueError(
+                "sample_count must equal source_sample_count when drop_last=False."
+            )
 
     @property
     def fingerprint(self) -> str:
@@ -190,6 +278,7 @@ class ShaftBatchPlanningSignature:
             self.planner_version,
             self.sample_plan_fingerprint,
             self.cost_fingerprint,
+            self.source_sample_count,
             self.sample_count,
             self.per_device_batch_size,
             self.data_world_size,
@@ -205,6 +294,7 @@ class ShaftBatchPlanningSignature:
             "planner_version": self.planner_version,
             "sample_plan_fingerprint": self.sample_plan_fingerprint,
             "cost_fingerprint": self.cost_fingerprint,
+            "source_sample_count": self.source_sample_count,
             "sample_count": self.sample_count,
             "per_device_batch_size": self.per_device_batch_size,
             "data_world_size": self.data_world_size,
@@ -223,6 +313,9 @@ class ShaftBatchPlanningSignature:
             planner_version=str(payload.get("planner_version", "")),
             sample_plan_fingerprint=str(payload.get("sample_plan_fingerprint", "")),
             cost_fingerprint=str(payload.get("cost_fingerprint", "")),
+            source_sample_count=int(
+                payload.get("source_sample_count", payload.get("sample_count", 0))
+            ),
             sample_count=int(payload.get("sample_count", 0)),
             per_device_batch_size=int(payload.get("per_device_batch_size", 0)),
             data_world_size=int(payload.get("data_world_size", 0)),
@@ -240,6 +333,28 @@ class ShaftBatchPlanningSignature:
             raise ValueError("Batch planning signature fingerprint is corrupt or stale.")
         return signature
 
+    @classmethod
+    def from_spec(
+        cls,
+        spec: ShaftFixedBatchPlanningSpec,
+        *,
+        cost_fingerprint: str,
+    ) -> ShaftBatchPlanningSignature:
+        return cls(
+            planner_version=_BATCH_PLAN_VERSION,
+            sample_plan_fingerprint=spec.sample_plan_fingerprint,
+            cost_fingerprint=str(cost_fingerprint),
+            source_sample_count=spec.source_sample_count,
+            sample_count=spec.usable_sample_count,
+            per_device_batch_size=spec.per_device_batch_size,
+            data_world_size=spec.data_world_size,
+            gradient_accumulation_steps=spec.gradient_accumulation_steps,
+            planning_window=spec.planning_window,
+            effective_planning_window=spec.effective_planning_window,
+            seed=spec.seed,
+            drop_last=spec.drop_last,
+        )
+
 
 class ShaftFixedBatchPlanner:
     """Build bounded, fixed-cardinality cost-aware batch plans.
@@ -253,51 +368,35 @@ class ShaftFixedBatchPlanner:
         *,
         plan: ShaftSamplePlan,
         cost_provider: ShaftSampleCostProvider,
-        per_device_batch_size: int,
-        data_world_size: int,
-        planning_window: int,
-        seed: int = 42,
-        drop_last: bool = False,
+        spec: ShaftFixedBatchPlanningSpec,
     ) -> None:
+        if spec.sample_plan_fingerprint != str(plan.fingerprint):
+            raise ValueError(
+                "Fixed batch planning spec does not belong to the supplied SamplePlan."
+            )
+        if spec.source_sample_count != len(plan):
+            raise ValueError(
+                "Fixed batch planning spec sample count does not match the SamplePlan."
+            )
         self.plan = plan
         self.cost_provider = cost_provider
-        self.per_device_batch_size = int(per_device_batch_size)
-        self.data_world_size = int(data_world_size)
-        self.planning_window = int(planning_window)
-        self.seed = int(seed)
-        self.drop_last = bool(drop_last)
-        (
-            self.global_microstep_samples,
-            self.usable_sample_count,
-            self.effective_planning_window,
-        ) = resolve_fixed_batch_planning_geometry(
-            sample_count=len(self.plan),
-            per_device_batch_size=self.per_device_batch_size,
-            data_world_size=self.data_world_size,
-            planning_window=self.planning_window,
-            drop_last=self.drop_last,
-        )
+        self.spec = spec
+        self.per_device_batch_size = spec.per_device_batch_size
+        self.data_world_size = spec.data_world_size
+        self.planning_window = spec.planning_window
+        self.seed = spec.seed
+        self.drop_last = spec.drop_last
+        self.global_microstep_samples = spec.global_microstep_samples
+        self.usable_sample_count = spec.usable_sample_count
+        self.effective_planning_window = spec.effective_planning_window
 
     def __len__(self) -> int:
         return self.usable_sample_count
 
-    def build_signature(
-        self,
-        *,
-        gradient_accumulation_steps: int,
-    ) -> ShaftBatchPlanningSignature:
-        return ShaftBatchPlanningSignature(
-            planner_version=_BATCH_PLAN_VERSION,
-            sample_plan_fingerprint=str(self.plan.fingerprint),
+    def build_signature(self) -> ShaftBatchPlanningSignature:
+        return ShaftBatchPlanningSignature.from_spec(
+            self.spec,
             cost_fingerprint=str(self.cost_provider.fingerprint),
-            sample_count=self.usable_sample_count,
-            per_device_batch_size=self.per_device_batch_size,
-            data_world_size=self.data_world_size,
-            gradient_accumulation_steps=int(gradient_accumulation_steps),
-            planning_window=self.planning_window,
-            effective_planning_window=self.effective_planning_window,
-            seed=self.seed,
-            drop_last=self.drop_last,
         )
 
     def iter_window_plans(self, *, plan_cycle: int = 0) -> Iterator[ShaftBatchPlan]:

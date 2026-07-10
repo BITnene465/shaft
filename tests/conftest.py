@@ -15,6 +15,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     "framework": (
         "test_checkpointing.py",
         "test_batch_planning.py",
+        "test_cost_plan_cache.py",
         "test_cli_commands.py",
         "test_cli_common.py",
         "test_codec.py",

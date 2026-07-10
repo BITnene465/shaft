@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,6 +104,19 @@ class SmokeTokenizer:
     pad_token: str = "<pad>"
     bos_token: str = "<s>"
     eos_token: str = "</s>"
+
+    def shaft_cost_fingerprint(self) -> str:
+        payload = (
+            "shaft-smoke-tokenizer-v1",
+            self.vocab_size,
+            self.pad_token_id,
+            self.bos_token_id,
+            self.eos_token_id,
+            self.pad_token,
+            self.bos_token,
+            self.eos_token,
+        )
+        return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
     def _encode(self, text: str) -> list[int]:
         ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text]

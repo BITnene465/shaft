@@ -39,6 +39,8 @@ algorithm:
 data:
   mix_strategy: WEIGHTED
   record_cache_dir: .cache/records
+  batching:
+    cost_plan_cache_dir: .cache/cost-plans
   max_length: 4096
   datasets:
     - dataset_name: ds1
@@ -75,6 +77,9 @@ model:
     assert cfg.algorithm.name == "sft"
     assert cfg.data.mix_strategy == "weighted"
     assert cfg.data.record_cache_dir == str((tmp_path / ".cache/records").resolve())
+    assert cfg.data.batching.cost_plan_cache_dir == str(
+        (tmp_path / ".cache/cost-plans").resolve()
+    )
     assert cfg.data.max_length == 4096
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"

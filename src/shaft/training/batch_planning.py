@@ -8,7 +8,10 @@ import uuid
 from transformers import TrainerCallback
 from transformers.trainer_utils import get_last_checkpoint
 
-from shaft.data.batching import ShaftBatchPlanningSignature
+from shaft.data.batching import (
+    ShaftBatchPlanningSignature,
+    ShaftFixedBatchPlanningSpec,
+)
 
 
 BATCH_PLANNING_SIGNATURE_FILENAME = "shaft_batch_planning_signature.json"
@@ -70,32 +73,25 @@ def validate_batch_planning_resume(
 def validate_batch_planning_resume_geometry(
     checkpoint_path: str | Path,
     *,
-    sample_plan_fingerprint: str,
-    sample_count: int,
-    per_device_batch_size: int,
-    data_world_size: int,
-    gradient_accumulation_steps: int,
-    planning_window: int,
-    effective_planning_window: int,
-    seed: int,
-    drop_last: bool,
+    expected: ShaftFixedBatchPlanningSpec,
 ) -> None:
     actual = _load_resume_batch_planning_signature(checkpoint_path)
-    expected = {
-        "sample_plan_fingerprint": str(sample_plan_fingerprint),
-        "sample_count": int(sample_count),
-        "per_device_batch_size": int(per_device_batch_size),
-        "data_world_size": int(data_world_size),
-        "gradient_accumulation_steps": int(gradient_accumulation_steps),
-        "planning_window": int(planning_window),
-        "effective_planning_window": int(effective_planning_window),
-        "seed": int(seed),
-        "drop_last": bool(drop_last),
+    expected_payload = {
+        "sample_plan_fingerprint": expected.sample_plan_fingerprint,
+        "source_sample_count": expected.source_sample_count,
+        "sample_count": expected.usable_sample_count,
+        "per_device_batch_size": expected.per_device_batch_size,
+        "data_world_size": expected.data_world_size,
+        "gradient_accumulation_steps": expected.gradient_accumulation_steps,
+        "planning_window": expected.planning_window,
+        "effective_planning_window": expected.effective_planning_window,
+        "seed": expected.seed,
+        "drop_last": expected.drop_last,
     }
     actual_payload = actual.to_dict()
     differences = [
         field_name
-        for field_name, expected_value in expected.items()
+        for field_name, expected_value in expected_payload.items()
         if actual_payload.get(field_name) != expected_value
     ]
     if differences:

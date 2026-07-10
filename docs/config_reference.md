@@ -207,6 +207,7 @@ data:
     strategy: cost_aware       # fixed | cost_aware
     planning_window: 512
     image_size_cache_size: 8192
+    cost_plan_cache_dir: /shared/shaft/cost_plans  # optional
 ```
 
 - `strategy=fixed` 是默认值，保持原 HF Trainer batch 顺序。
@@ -219,6 +220,11 @@ data:
 - `image_size_cache_size` 是主进程 sample-cost provider 的路径 alias/fallback LRU 容量；当前 horizon
   manifest 会为每个唯一 canonical image 保留一个宽高 tuple，避免 planning 再开 header。两者都不缓存
   解码后图像，也不改变各 DataLoader worker 的 `image_cache_size`。
+- `cost_plan_cache_dir` 保存 draw-indexed、固定宽度的 CostPlan manifest 与二进制 sidecar。未配置时优先
+  使用 `record_cache_dir/cost_plans`，其次读取 `SHAFT_COST_PLAN_CACHE_DIR`，最后回退到
+  `~/.cache/shaft/cost_plans`。目录位置不参与训练语义 fingerprint；source/image/prompt/processor/template
+  变化会生成新的 cache key。多机训练必须把该目录以相同绝对路径挂载到所有 rank；模型加载前会比对
+  source fingerprint，并由 rank 0 写入一次性探针、所有 rank 读取确认，避免同路径却是节点本地盘。
 - Phase 1 中每个 local microbatch 的样本数仍等于 `train.per_device_train_batch_size`。SFT loss 使用整个
   optimizer batch 的实际 `labels/loss_scale` 作为 global denominator，覆盖 gradient accumulation 和
   DDP；dynamic batching 和 sequence packing 尚无可用配置。
@@ -229,7 +235,10 @@ data:
 - cost-aware 模式会在主进程与 DataLoader worker 中分别重建 online transform 结果，因此 transform 必须
   只依赖 logical sample/draw context 且可重复，并保持 image identity/geometry 与 media placeholders。
   内置 identity 与 prompt sampling 已声明为 planning-safe；扩展 transform 必须使用
-  `planning_safe_online_transform` 显式声明，否则启动时拒绝。
+  `planning_safe_online_transform(fingerprint="...")` 提供显式、版本化的稳定 fingerprint，否则注册时
+  立即拒绝。cost fingerprint 还绑定 fast-tokenizer backend 的完整序列化内容；没有 serialized backend
+  的 tokenizer 必须显式提供覆盖完整 vocab 与 merges/unigram model 的 `shaft_cost_fingerprint`，否则
+  fail fast。不能只依赖 tokenizer 路径、类名和 vocab size。
 - cost-aware run 与每个 checkpoint 都保存 `shaft_batch_planning_signature.json`。resume 只接受相同
   duration/sample horizon、batch、gradient accumulation、DP topology、data/prompt 和 processor/template
   签名；改变 steps 来延长旧 run 会明确失败，应从权重启动新 run。
@@ -237,8 +246,16 @@ data:
   estimator 版本；同路径替换或改变宽高会使 resume 失败。manifest 只扫描当前 SamplePlan horizon
   实际引用的唯一 canonical image，并复用读取到的尺寸；它不会逐文件计算内容 hash，因此所引用的
   图片目录仍必须是不可变数据 snapshot。
-- 当前每个 data rank 会独立重建 global planning window。该路径适合首版 correctness/canary；百万级数据
-  或共享存储正式使用前，还需要离线/共享 mmap CostPlan，不能把 runtime header scan 视为最终方案。
+- 图像 header manifest 只由 global rank 0 扫描。多机若使用节点本地 image replica，框架不会逐节点重读
+  并比较图片；这些 replica 必须由外部 content-addressed snapshot/version 保证一致，或直接使用所有节点
+  共享的同一图像目录。
+- global rank 0 会构造 runtime provider、校验图像资产并在 cache miss 时流式生成 CostPlan；其它 rank
+  不再 tokenize prompt 或扫描图像 header，而是通过本次启动的 rank-zero rendezvous 定位并 mmap 同一
+  sidecar。所有 rank 确认 mmap 可读、完整 resume 签名通过后，rank 0 才原子更新 run root 的
+  `shaft_cost_plan_reference.json`；root planning signature 先写、reference 最后作为 commit marker，任一
+  文件失败会回滚旧 snapshot 并向所有 rank 广播。失败的 resume/metadata publish 不会污染旧 run。
+  cache hit 会跳过逐 draw cost 计算。当前仍缺独立的训练前离线预构建 CLI 和 cache GC；极大数据集应
+  预留一次 rank-zero manifest/header 校验时间。
 
 ### `data.datasets`
 

@@ -43,6 +43,90 @@ def _dataset_records_fingerprint(records: Any) -> str:
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
 
+def _stable_artifact_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return tuple(
+            (str(key), _stable_artifact_value(item))
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_stable_artifact_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        resolved = [_stable_artifact_value(item) for item in value]
+        return tuple(sorted(resolved, key=repr))
+    if hasattr(value, "content"):
+        return (
+            f"{type(value).__module__}.{type(value).__qualname__}",
+            str(getattr(value, "content", "")),
+            bool(getattr(value, "single_word", False)),
+            bool(getattr(value, "lstrip", False)),
+            bool(getattr(value, "rstrip", False)),
+            bool(getattr(value, "normalized", False)),
+            bool(getattr(value, "special", False)),
+        )
+    return f"{type(value).__module__}.{type(value).__qualname__}"
+
+
+def _tokenizer_artifact_fingerprint(tokenizer: Any) -> str:
+    """Bind token costs to tokenizer implementation and serialized vocabulary assets."""
+
+    backend = getattr(tokenizer, "backend_tokenizer", None)
+    backend_to_str = getattr(backend, "to_str", None)
+    if callable(backend_to_str):
+        artifact_kind = "backend-tokenizer-json"
+        artifact_payload = str(backend_to_str())
+    else:
+        declared = getattr(tokenizer, "shaft_cost_fingerprint", None)
+        declared = declared() if callable(declared) else declared
+        artifact_payload = str(declared or "").strip()
+        if not artifact_payload:
+            raise ValueError(
+                "Exact SFT CostPlan requires tokenizer.backend_tokenizer.to_str() "
+                "or an explicit tokenizer.shaft_cost_fingerprint covering the full "
+                "vocabulary and tokenization model (including merges/unigram state)."
+            )
+        artifact_kind = "declared-shaft-cost-fingerprint"
+
+    metadata = (
+        "shaft-tokenizer-artifact-v1",
+        artifact_kind,
+        hashlib.sha256(artifact_payload.encode("utf-8")).hexdigest(),
+        f"{type(tokenizer).__module__}.{type(tokenizer).__qualname__}",
+        str(getattr(tokenizer, "name_or_path", "")),
+        getattr(tokenizer, "vocab_size", None),
+        getattr(tokenizer, "eos_token_id", None),
+        getattr(tokenizer, "bos_token_id", None),
+        getattr(tokenizer, "pad_token_id", None),
+        getattr(tokenizer, "model_max_length", None),
+        getattr(tokenizer, "padding_side", None),
+        getattr(tokenizer, "truncation_side", None),
+        _stable_artifact_value(getattr(tokenizer, "special_tokens_map", {})),
+        _stable_artifact_value(getattr(tokenizer, "init_kwargs", {})),
+        _stable_artifact_value(getattr(tokenizer, "added_tokens_encoder", {})),
+    )
+    return hashlib.sha256(repr(metadata).encode("utf-8")).hexdigest()
+
+
+def sft_cost_planning_source_fingerprint(dataset: Any) -> str:
+    """Return a media-header-free fingerprint suitable for cross-rank preflight."""
+
+    transform_fingerprints = tuple(
+        planning_online_transform_fingerprint(transform)
+        for transform in getattr(dataset, "online_transforms", ())
+    )
+    payload = (
+        "shaft-sft-cost-planning-source-v1",
+        str(getattr(getattr(dataset, "sample_plan", None), "fingerprint", "")),
+        _dataset_records_fingerprint(getattr(dataset, "records", ())),
+        transform_fingerprints,
+    )
+    return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+
 def _iter_planned_image_paths(dataset: Any):
     records = getattr(dataset, "records", ())
     sample_plan = getattr(dataset, "sample_plan", None)
@@ -166,11 +250,12 @@ class ShaftSampleCostProvider(Protocol):
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost: ...
 
 
-class ShaftStaticCostProvider:
-    """Small immutable mapping provider used by manifests, tests and adapters.
+class ShaftRowInvariantCostProvider:
+    """Small immutable mapping for costs that cannot vary across logical draws.
 
-    Large production datasets should use a memory-mapped provider implementing the same
-    protocol rather than constructing a Python dict for every rank.
+    The key deliberately excludes draw context. Do not use this adapter for prompt
+    rotation or any transform whose cost can change for the same source row. Large
+    production plans should use a draw-indexed memory-mapped provider.
     """
 
     def __init__(
@@ -181,13 +266,17 @@ class ShaftStaticCostProvider:
     ) -> None:
         self._costs = dict(costs)
         if not self._costs:
-            raise ValueError("ShaftStaticCostProvider requires at least one sample cost.")
+            raise ValueError(
+                "ShaftRowInvariantCostProvider requires at least one sample cost."
+            )
         if fingerprint is None:
             payload = tuple(sorted(self._costs.items()))
             fingerprint = hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
         self.fingerprint = str(fingerprint).strip()
         if not self.fingerprint:
-            raise ValueError("ShaftStaticCostProvider fingerprint must not be empty.")
+            raise ValueError(
+                "ShaftRowInvariantCostProvider fingerprint must not be empty."
+            )
 
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost:
         key = (str(sample_ref.dataset_name), int(sample_ref.row_index))
@@ -251,16 +340,10 @@ class ShaftSFTSampleCostProvider:
             if callable(patch_estimator)
             else ""
         )
-        transform_fingerprints = tuple(
-            planning_online_transform_fingerprint(transform)
-            for transform in getattr(dataset, "online_transforms", ())
-        )
         fingerprint_payload = (
-            "shaft-sft-runtime-cost-v4",
-            str(getattr(getattr(dataset, "sample_plan", None), "fingerprint", "")),
-            _dataset_records_fingerprint(getattr(dataset, "records", ())),
+            "shaft-sft-runtime-cost-v5",
+            sft_cost_planning_source_fingerprint(dataset),
             image_asset_manifest,
-            transform_fingerprints,
             str(getattr(model_adapter, "model_type", "")),
             str(getattr(model_adapter, "model_name_or_path", "")),
             str(getattr(model_adapter, "template_type", "")),
@@ -275,11 +358,7 @@ class ShaftSFTSampleCostProvider:
             "hf-get-number-of-image-patches-v1",
             patch_estimator_type,
             repr(getattr(processor, "chat_template", None)),
-            str(getattr(tokenizer, "name_or_path", "")),
-            f"{type(tokenizer).__module__}.{type(tokenizer).__qualname__}",
-            getattr(tokenizer, "vocab_size", None),
-            getattr(tokenizer, "eos_token_id", None),
-            getattr(tokenizer, "pad_token_id", None),
+            _tokenizer_artifact_fingerprint(tokenizer),
             f"{type(template).__module__}.{type(template).__qualname__}",
             repr(getattr(template, "template_meta", None)),
             self.min_pixels,

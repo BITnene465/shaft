@@ -6,6 +6,8 @@ from pathlib import Path
 from shaft.config import LoggingConfig
 from shaft.observability.logging import configure_logging
 from shaft.training.distributed import barrier_if_distributed
+from shaft.training.distributed import all_gather_objects
+from shaft.training.distributed import broadcast_object_from_rank_zero
 from shaft.training.distributed import destroy_process_group_if_initialized
 from shaft.utils import distributed as distributed_utils
 
@@ -34,6 +36,16 @@ def test_configure_logging_suppresses_info_on_nonzero_rank(
 
 def test_barrier_if_distributed_noop_without_dist() -> None:
     barrier_if_distributed()
+
+
+def test_broadcast_object_noop_without_dist() -> None:
+    payload = {"ok": True}
+    assert broadcast_object_from_rank_zero(payload) is payload
+
+
+def test_object_gather_noop_without_dist() -> None:
+    payload = {"fingerprint": "same"}
+    assert all_gather_objects(payload) == [payload]
 
 
 def test_barrier_if_distributed_passes_nccl_device_ids(monkeypatch) -> None:

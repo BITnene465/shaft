@@ -194,9 +194,16 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 动态 microbatch 必须使用全局 loss numerator/denominator；不能等权平均不同大小的本地 batch mean。
 - `ShaftSFTTrainer` 已基于实际 `labels/loss_scale` 落地 optimizer-batch global denominator，固定 batch 与
   cost-aware Phase 1 共同使用；动态 batch 只需扩展 draw/microbatch plan，不能另建一套 loss 语义。
+- `CostPlan` 的持久化真源是 draw-indexed 的固定宽度 sidecar：global rank 0 在 cache miss 时调用 runtime
+  estimator 并原子写入，所有 data rank 随后通过 `ShaftMMapCostPlanProvider` 只读映射。pipeline 只负责
+  rank-zero build、attempt-scoped rendezvous、all-rank load acknowledgment 和 durable metadata 发布时序，
+  不解释 cost 字段；run root 的 reference 只定位共享 manifest，不参与启动同步，也不复制成本数组。
+- 固定 cardinality 的 geometry 只由 `ShaftFixedBatchPlanningSpec` 生成一次；resume preflight、planner、
+  sampler 和 planning signature 必须消费同一个不可变 spec，不能各自在 pipeline/training/data 重算。
 - context parallel 是 job 级静态拓扑，不作为单个长样本的动态调度手段。
 - 该能力的完整目标契约、配置迁移与阶段验收见
-  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1：
+  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1 及共享 mmap
+  CostPlan 收口：
   `Qwen3VL + SFT` 可按有界 planning window 构造精确 sample cost，并在保持每卡固定样本数的前提下，
   生成跨 DP rank 平衡的 `ShaftBatchPlan`。动态 cost-budget microbatch、`PackPlan` 和 context parallel
   尚未进入运行时。

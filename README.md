@@ -154,11 +154,14 @@ data:
   batching:
     strategy: cost_aware
     planning_window: 512
+    cost_plan_cache_dir: /shared/shaft/cost_plans
 ```
 
 该模式只在有界 window 内重排 mixer 已选样本，并保持每卡 batch cardinality；当前要求 step duration、
 exact model processor policy 和不可变数据 snapshot。checkpoint resume 还要求 planning signature 完全
-一致，不能通过修改 steps 直接延长旧 run。完整边界见
+一致，不能通过修改 steps 直接延长旧 run。CostPlan 在 global rank 0 上按 logical draw 构建或命中
+持久 cache，其余 rank 通过本次启动的 rendezvous 直接只读 mmap 同一 sidecar；多机训练时 cache 必须以
+相同绝对路径挂载到所有 rank，启动阶段会用 source fingerprint 和共享文件探针 fail fast。完整边界见
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。
 

@@ -83,6 +83,7 @@ data:
     strategy: COST_AWARE
     planning_window: 64
     image_size_cache_size: 0
+    cost_plan_cache_dir: "  /tmp/shaft-cost-plans  "
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -97,6 +98,7 @@ train:
     assert config.data.batching.strategy == "cost_aware"
     assert config.data.batching.planning_window == 64
     assert config.data.batching.image_size_cache_size == 0
+    assert config.data.batching.cost_plan_cache_dir == "/tmp/shaft-cost-plans"
 
 
 @pytest.mark.parametrize(

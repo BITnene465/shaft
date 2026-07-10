@@ -162,19 +162,28 @@ def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path
     return payload
 
 
-def _resolve_record_cache_dir(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
+def _resolve_data_cache_dirs(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
     data_payload = payload.get("data")
     if data_payload is None:
         return payload
     if not isinstance(data_payload, dict):
         raise TypeError("Config key `data` must be a mapping.")
-    cache_dir = data_payload.get("record_cache_dir")
-    if cache_dir is None or not str(cache_dir).strip():
-        return payload
-    path = Path(str(cache_dir)).expanduser()
-    if not path.is_absolute():
-        path = (config_path.parent / path).resolve()
-    data_payload["record_cache_dir"] = str(path)
+    cache_locations: list[tuple[dict[str, Any], str]] = [
+        (data_payload, "record_cache_dir"),
+    ]
+    batching_payload = data_payload.get("batching")
+    if batching_payload is not None:
+        if not isinstance(batching_payload, dict):
+            raise TypeError("Config key `data.batching` must be a mapping.")
+        cache_locations.append((batching_payload, "cost_plan_cache_dir"))
+    for container, key in cache_locations:
+        cache_dir = container.get(key)
+        if cache_dir is None or not str(cache_dir).strip():
+            continue
+        path = Path(str(cache_dir).strip()).expanduser()
+        if not path.is_absolute():
+            path = (config_path.parent / path).resolve()
+        container[key] = str(path)
     return payload
 
 
@@ -195,7 +204,7 @@ def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
-    payload = _resolve_record_cache_dir(payload, config_path=config_path.resolve())
+    payload = _resolve_data_cache_dirs(payload, config_path=config_path.resolve())
     payload = _resolve_deepspeed_config_path(payload, config_path=config_path.resolve())
     config = _build_dataclass(RuntimeConfig, payload)
     return normalize_runtime_config(config)

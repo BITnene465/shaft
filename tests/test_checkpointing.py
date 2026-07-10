@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from shaft.config import RuntimeConfig
-from shaft.data import ShaftBatchPlanningSignature
+from shaft.data import ShaftBatchPlanningSignature, ShaftFixedBatchPlanningSpec
+from shaft.data.cost_plan import COST_PLAN_REFERENCE_FILENAME
 from shaft.model import build_model_meta
 from shaft.training.batch_planning import (
     BATCH_PLANNING_SIGNATURE_FILENAME,
@@ -79,6 +80,7 @@ def test_prune_root_output_layout_preserves_run_metadata(tmp_path: Path) -> None
         "shaft_finetune_summary.json": "{}",
         "shaft_optimizer_summary.json": "{}",
         BATCH_PLANNING_SIGNATURE_FILENAME: "{}",
+        COST_PLAN_REFERENCE_FILENAME: "{}",
     }
     for name, payload in metadata.items():
         (root / name).write_text(payload, encoding="utf-8")
@@ -97,6 +99,7 @@ def _batch_planning_signature() -> ShaftBatchPlanningSignature:
         planner_version="planner-v1",
         sample_plan_fingerprint="sample-v1",
         cost_fingerprint="cost-v1",
+        source_sample_count=8,
         sample_count=8,
         per_device_batch_size=2,
         data_world_size=2,
@@ -116,21 +119,29 @@ def test_batch_planning_signature_roundtrip_and_resume_validation(tmp_path: Path
     assert load_batch_planning_signature(checkpoint) == signature
     validate_batch_planning_resume(checkpoint, expected=signature)
 
-    extended_horizon = replace(signature, sample_count=12)
-    with pytest.raises(ValueError, match=r"changed fields: \['sample_count'\]"):
+    extended_horizon = replace(
+        signature,
+        source_sample_count=12,
+        sample_count=12,
+    )
+    with pytest.raises(ValueError, match="source_sample_count.*sample_count"):
         validate_batch_planning_resume(checkpoint, expected=extended_horizon)
     with pytest.raises(ValueError, match="planning geometry changed"):
         validate_batch_planning_resume_geometry(
             checkpoint,
-            sample_plan_fingerprint=signature.sample_plan_fingerprint,
-            sample_count=12,
-            per_device_batch_size=signature.per_device_batch_size,
-            data_world_size=signature.data_world_size,
-            gradient_accumulation_steps=signature.gradient_accumulation_steps,
-            planning_window=signature.planning_window,
-            effective_planning_window=signature.effective_planning_window,
-            seed=signature.seed,
-            drop_last=signature.drop_last,
+            expected=ShaftFixedBatchPlanningSpec(
+                sample_plan_fingerprint=signature.sample_plan_fingerprint,
+                source_sample_count=12,
+                usable_sample_count=12,
+                per_device_batch_size=signature.per_device_batch_size,
+                data_world_size=signature.data_world_size,
+                gradient_accumulation_steps=signature.gradient_accumulation_steps,
+                global_microstep_samples=4,
+                planning_window=signature.planning_window,
+                effective_planning_window=signature.effective_planning_window,
+                seed=signature.seed,
+                drop_last=signature.drop_last,
+            ),
         )
 
 
@@ -170,7 +181,10 @@ def test_batch_planning_resume_from_run_root_validates_latest_checkpoint(
     checkpoint = run_root / "checkpoint-2"
     checkpoint.mkdir(parents=True)
     (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
-    write_batch_planning_signature(run_root, replace(signature, sample_count=12))
+    write_batch_planning_signature(
+        run_root,
+        replace(signature, source_sample_count=12, sample_count=12),
+    )
     write_batch_planning_signature(checkpoint, signature)
 
     validate_batch_planning_resume(run_root, expected=signature)
