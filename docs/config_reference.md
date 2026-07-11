@@ -199,24 +199,57 @@
 
 ### `data.batching`
 
-Phase 1 支持以下配置：
+固定 cardinality 成本分桶使用：
 
 ```yaml
 data:
   batching:
-    strategy: cost_aware       # fixed | cost_aware
+    strategy: cost_aware       # fixed | cost_aware | dynamic_cost_aware
     planning_window: 512
     image_size_cache_size: 8192
     cost_plan_cache_dir: /shared/shaft/cost_plans  # optional
 ```
 
+动态 local microbatch 使用：
+
+```yaml
+data:
+  batching:
+    strategy: dynamic_cost_aware
+    planning_window: 64
+    max_samples_per_microbatch: 8
+    max_padded_tokens: 8192
+    max_vision_patches: null
+    rank_balance: true
+    image_size_cache_size: 8192
+    cost_plan_cache_dir: /shared/shaft/cost_plans
+train:
+  optimizer_batch:
+    target_samples: 8
+    # target_supervised_tokens: 8192  # 与 target_samples 二选一
+```
+
 - `strategy=fixed` 是默认值，保持原 HF Trainer batch 顺序。
-- `strategy=cost_aware` 当前只支持 `algorithm.name=sft`、`train.duration.unit=steps` 和提供精确
+- `strategy=cost_aware` 与 `strategy=dynamic_cost_aware` 当前只支持 `algorithm.name=sft`、
+  `train.duration.unit=steps` 和提供精确
   image-cost policy 的模型族；首个支持路径是 Qwen3VL。其它算法、epoch duration 或不支持的模型会在
   启动时明确失败。
-- `planning_window` 是 planner 允许重排的最大 logical sample horizon。运行时会向下对齐到完整的
+- Phase 2 的 `dynamic_cost_aware` 只开放 `train.distributed.strategy=ddp`（单进程也沿用该配置）；
+  FSDP/DeepSpeed 的变长 DataLoader、梯度归一化与 checkpoint 合约完成专项验收前会在 normalize 阶段拒绝。
+- 固定 `cost_aware` 下，`planning_window` 是 planner 允许重排的最大 logical sample horizon，会向下
+  对齐到完整的
   `per_device_train_batch_size * data_world_size`，且至少包含一个 global microstep。planner 只重排
   `ShaftSamplePlan` 已选择的 refs，不丢弃、不复制、不修改 mixing 权重。
+- 动态模式以 optimizer batch 为选择边界：每一步只消费 `ShaftSamplePlan` 的连续 draw prefix，再把这些
+  refs 分配到固定数量的 `data_world_size * gradient_accumulation_steps` 个 local microbatch slot。
+  `planning_window` 是每步最多检查的 draw 数；`target_samples` 不能超过它，token target 的 draw cap 是
+  `min(planning_window, slots * max_samples_per_microbatch)`。
+- `max_samples_per_microbatch`、`max_padded_tokens` 和可选的 `max_vision_patches` 是动态模式的硬上限。
+  `max_padded_tokens` 统计 `local sample count * processor 后最长 LLM sequence`，不是原始文本字符数。
+  单样本已超限、成本不精确或选中 prefix 无法分配时，rank 0 会在 Trainer 启动前失败并广播错误。
+  这些字段不能在 `fixed/cost_aware` 下静默配置。
+- `rank_balance=true` 会把成本相近的 local batches 配成同一个 global microstep 并确定性轮换 rank；它不
+  改变 optimizer batch 的样本集合。即使关闭，硬预算仍然生效。
 - `image_size_cache_size` 是主进程 sample-cost provider 的路径 alias/fallback LRU 容量；当前 horizon
   manifest 会为每个唯一 canonical image 保留一个宽高 tuple，避免 planning 再开 header。两者都不缓存
   解码后图像，也不改变各 DataLoader worker 的 `image_cache_size`。
@@ -225,10 +258,21 @@ data:
   `~/.cache/shaft/cost_plans`。目录位置不参与训练语义 fingerprint；source/image/prompt/processor/template
   变化会生成新的 cache key。多机训练必须把该目录以相同绝对路径挂载到所有 rank；模型加载前会比对
   source fingerprint，并由 rank 0 写入一次性探针、所有 rank 读取确认，避免同路径却是节点本地盘。
-- Phase 1 中每个 local microbatch 的样本数仍等于 `train.per_device_train_batch_size`。SFT loss 使用整个
+- 固定 `cost_aware` 中每个 local microbatch 的样本数仍等于
+  `train.per_device_train_batch_size`。动态模式中该字段只作为未显式配置
+  `max_samples_per_microbatch/optimizer target` 时的兼容默认值，不再描述实际 local cardinality。
+  SFT loss 使用整个
   optimizer batch 的实际 `labels/loss_scale` 作为 global denominator，覆盖 gradient accumulation 和
-  DDP；dynamic batching 和 sequence packing 尚无可用配置。
-- planner 会记录 planning window 的 token padding、有效监督 token、vision patches、inexact cost
+  DDP；不能把不同大小 microbatch 的 mean 等权平均。sequence packing 尚未开放。
+- planner 会记录 token padding、有效监督 token、vision patches、local batch min/max、每类 local hard cap
+  的 `actual/configured`、跨 rank cost skew、
+  实际 selected samples、planning wall time 和 plan signature。sample target 的 HF sample throughput 直接
+  使用精确计划数；token target 会由 rank 0 预扫描完整计划后回填实际选中数，而不是使用最大 draw cap。
+  token target 下 HF 自带的启动行 `Total train batch size` 仍是兼容用的名义固定公式；Shaft 的
+  `[dynamic-batch-preflight] optimizer_batch_samples_min/max/avg` 才是实际 optimizer-batch cardinality。
+  从 checkpoint 恢复时，最终 train loss、steps/s 与 samples/s 只统计本次实际执行的 step/sample，不重复
+  计算 checkpoint 前的 horizon。
+  固定 planner 还会记录 planning window 的 inexact cost
   数量、跨 rank cost skew、planning wall time 和 plan signature，并在 cycle 结束输出 aggregate。
   Qwen VL SFT 运行时成本通过同一个 draw context 解析 prompt variant，只读取图像 header；patch 数调用
   HF image processor 的官方估算 API，token expansion 由模型 `ProcessorPolicy` 负责。
@@ -385,6 +429,7 @@ prompts:
 关键字段：
 
 - `duration`
+- `optimizer_batch`
 - `per_device_train_batch_size`
 - `gradient_accumulation_steps`
 - `gradient_checkpointing`
@@ -400,6 +445,7 @@ prompts:
 - `max_grad_norm`
 - `bf16`
 - `use_cpu`
+- `full_determinism`
 - `logging_steps`
 - `save_strategy`
 - `save_steps`
@@ -421,6 +467,13 @@ prompts:
 - root `trainer_state.json` 只用于最终指标和 Web UI 状态展示，不等于包含 optimizer/RNG 的可恢复
   checkpoint。`resume_from_checkpoint` 指向 run 根目录时，如果存在 `checkpoint-*`，始终优先最新
   checkpoint；`best` 仍是部署导出，不作为精确训练恢复点。
+- SFT/RLHF pipeline 总是在 dataset、base model 与 PEFT adapter 装配前使用 `experiment.seed` 初始化 Python/
+  NumPy/PyTorch 随机状态，保证 full/PEFT fresh 初始化不依赖 Trainer 创建时机。
+- `full_determinism=true` 还会在上述早期阶段调用 HF `enable_full_determinism`，并透传
+  `TrainingArguments.full_determinism`，启用 PyTorch deterministic algorithms、确定性 cuBLAS/CuDNN，
+  以及支持该能力的 FlashAttention deterministic backward。它用于 bitwise CUDA resume/fresh
+  reproduction 验收，通常会降低吞吐；默认关闭。若默认关闭，planning/data/optimizer 状态仍可精确恢复，
+  但非确定性 CUDA kernel 可能让两次运行产生正常的微小数值差异。
 
 ### `train.duration`
 
@@ -433,11 +486,33 @@ train:
     value: 10000
 ```
 
-- `unit=steps` 是主路径，`value` 必须为正整数。Shaft 会把它映射到 HF `max_steps`，并据全局 batch
-  计算准确的 sample plan budget。
+- `unit=steps` 是主路径，`value` 必须为正整数。Shaft 会把它映射到 HF `max_steps`。固定 batch 使用
+  `steps * per_device_batch * gradient_accumulation * world_size`；动态 batch 由
+  `ShaftDynamicBatchPlanningContract` 按 optimizer target 和每步 draw cap 生成 sample-plan horizon。
 - `unit=epochs` 用于有限数据兼容，`value` 可为正浮点数。Shaft 会映射到 HF
   `num_train_epochs`；一个 epoch 的 plan 长度默认为所有有效 source 行数之和。
 - YAML 不再同时维护 `epochs` 与 `max_steps`。CLI 仍提供互斥的 `--epochs` / `--max-steps` 便捷覆写。
+
+### `train.optimizer_batch`
+
+该块只在 `data.batching.strategy=dynamic_cost_aware` 下可设置：
+
+- `target_samples`：每个 optimizer step 精确选择的全局 logical sample 数。
+- `target_supervised_tokens`：按连续 draw 累加 causal-shift 后有效监督 token，达到目标后停止；为了保证
+  每个 rank/microstep 都能执行，至少会选择一个 sample 给每个 local slot。
+- 两个 target 最多显式设置一个。都未设置时，兼容默认值是
+  `per_device_train_batch_size * data_world_size * gradient_accumulation_steps`。
+- 当前 `target_supervised_tokens` 不接受 `mix_strategy=weighted + shuffle=false`：该 legacy deterministic
+  weighted 映射按最大 horizon 分块，而 token target 只消费短 prefix，会系统性偏向前序 source。请启用
+  默认的 `shuffle=true`、改用 `concat`，或使用 `target_samples`。后续若引入 horizon-independent 的低差异
+  weighted schedule，必须版本化 SamplePlan fingerprint 后再解除限制。
+- sample target 必须不小于 local slot 数，且不能超过
+  `slots * max_samples_per_microbatch` 或 `planning_window`。token target 若在 draw cap 内无法达到会启动失败。
+- target 只决定 optimizer batch 消费多少 mixer draws；scheduler、logging、save 与 resume 仍按 optimizer
+  step 计数。eval 仍使用 `per_device_eval_batch_size` 的固定 batch；训练期间的 eval 会保存并恢复进程训练
+  RNG，persistent eval workers 的创建不能改变后续训练随机序列。
+- 当前动态模式只支持 DDP。FSDP/DeepSpeed 的 fixed batch 能力不受影响，但 dynamic DataLoader 合约在
+  专项 loss/resume 验收前会被配置校验拒绝。
 说明：
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。

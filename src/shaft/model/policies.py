@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.plugins import Registry
+from transformers import __version__ as transformers_version
 
 from .types import (
     DefaultPeftPolicy,
@@ -18,14 +19,21 @@ from .types import (
 
 @dataclass(frozen=True)
 class QwenVLProcessorPolicy(ProcessorPolicy):
-    def estimate_image_cost(
+    def _validate_pixel_budget_contract(
         self,
         *,
-        processor: Any,
-        image_sizes: tuple[tuple[int, int], ...],
         min_pixels: int | None,
         max_pixels: int | None,
-    ) -> ShaftProcessorCostEstimate:
+    ) -> None:
+        if not self.supports_pixel_budget and (
+            min_pixels is not None or max_pixels is not None
+        ):
+            raise ValueError(
+                "Qwen VL exact cost estimation received a pixel budget, but its "
+                "ProcessorPolicy does not forward pixel budgets to the processor."
+            )
+
+    def _resolve_image_cost_contract(self, processor: Any) -> tuple[Any, int, int, Any]:
         image_processor = getattr(processor, "image_processor", None)
         patch_size = int(getattr(image_processor, "patch_size", 0) or 0)
         merge_size = int(getattr(image_processor, "merge_size", 0) or 0)
@@ -34,16 +42,65 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
                 "Qwen VL cost estimation requires processor.image_processor.patch_size "
                 "and merge_size."
             )
-        get_number_of_image_patches = getattr(
+        patch_estimator = getattr(
             image_processor,
             "get_number_of_image_patches",
             None,
         )
-        if not callable(get_number_of_image_patches):
+        if not callable(patch_estimator):
             raise ValueError(
                 "Qwen VL exact cost estimation requires "
                 "image_processor.get_number_of_image_patches()."
             )
+        return image_processor, patch_size, merge_size, patch_estimator
+
+    def cost_semantics_signature(
+        self,
+        *,
+        processor: Any,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> tuple[object, ...]:
+        self._validate_pixel_budget_contract(
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        image_processor, patch_size, merge_size, patch_estimator = (
+            self._resolve_image_cost_contract(processor)
+        )
+        estimator = getattr(patch_estimator, "__func__", patch_estimator)
+        return (
+            "shaft-qwen-vl-processor-cost-semantics-v1",
+            bool(self.supports_pixel_budget),
+            str(transformers_version),
+            f"{type(processor).__module__}.{type(processor).__qualname__}",
+            f"{type(image_processor).__module__}.{type(image_processor).__qualname__}",
+            f"{getattr(estimator, '__module__', '')}.{getattr(estimator, '__qualname__', '')}",
+            patch_size,
+            int(getattr(image_processor, "temporal_patch_size", 0) or 0),
+            merge_size,
+            repr(getattr(image_processor, "size", None)),
+            getattr(processor, "image_token_id", None),
+            repr(getattr(processor, "image_token", None)),
+            None if min_pixels is None else int(min_pixels),
+            None if max_pixels is None else int(max_pixels),
+        )
+
+    def estimate_image_cost(
+        self,
+        *,
+        processor: Any,
+        image_sizes: tuple[tuple[int, int], ...],
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> ShaftProcessorCostEstimate:
+        self._validate_pixel_budget_contract(
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        image_processor, _, merge_size, get_number_of_image_patches = (
+            self._resolve_image_cost_contract(processor)
+        )
         images_kwargs: dict[str, int] = {}
         if min_pixels is not None:
             images_kwargs["min_pixels"] = int(min_pixels)
@@ -166,6 +223,16 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
 
 @dataclass(frozen=True)
 class SmokeVLMProcessorPolicy(ProcessorPolicy):
+    def cost_semantics_signature(
+        self,
+        *,
+        processor: Any,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> tuple[object, ...]:
+        _ = processor, min_pixels, max_pixels
+        return ("shaft-smoke-vlm-processor-cost-semantics-v1",)
+
     def estimate_image_cost(
         self,
         *,

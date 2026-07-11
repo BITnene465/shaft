@@ -165,7 +165,8 @@ SFT/DPO 的多模态监督采用单次 processor 契约：
 2. `collator` 对完整 batch 只调用一次多模态 processor，并把全部原始输出封装为
    `ShaftProcessedBatch`；collator 不枚举某个模型的 `pixel_values/image_grid_thw/...` 字段。
 3. `ShaftModelAdapter -> ProcessorPolicy` 是 processor 差异的唯一真源，统一负责 processor 调用参数、
-   pixel budget、rendered-token 到 processed-token layout，以及 SFT/DPO 所需的模型输入复制/重排。
+   pixel budget、rendered-token 到 processed-token layout、版本化 cost-semantics signature，以及 SFT/DPO
+   所需的模型输入复制/重排。
    每个非 sequence 字段必须显式声明为 sample-aligned、whole-batch media 或 static；未知字段不透传。
 4. Qwen VL policy 使用 `mm_token_type_ids` 折叠图像 token expansion；identity policy 要求 processed
    tokens 与 rendered tokens 完全一致。任何无法证明的字段重排或 token 对齐都必须 fail fast。
@@ -192,26 +193,42 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - packing 只改变 local microbatch 的物理布局。segment 的 attention、position、labels/loss scale 和
   多模态 grid 必须隔离并对齐。
 - 动态 microbatch 必须使用全局 loss numerator/denominator；不能等权平均不同大小的本地 batch mean。
-- `ShaftSFTTrainer` 已基于实际 `labels/loss_scale` 落地 optimizer-batch global denominator，固定 batch 与
-  cost-aware Phase 1 共同使用；动态 batch 只需扩展 draw/microbatch plan，不能另建一套 loss 语义。
+- `ShaftSFTTrainer` 基于实际 `labels/loss_scale` 计算 optimizer-batch global denominator；固定与动态
+  batching 共用这一条 loss 主链，不存在动态 batch 专用 loss。
 - `CostPlan` 的持久化真源是 draw-indexed 的固定宽度 sidecar：global rank 0 在 cache miss 时调用 runtime
   estimator 并原子写入，所有 data rank 随后通过 `ShaftMMapCostPlanProvider` 只读映射。pipeline 只负责
   rank-zero build、attempt-scoped rendezvous、all-rank load acknowledgment 和 durable metadata 发布时序，
   不解释 cost 字段；run root 的 reference 只定位共享 manifest，不参与启动同步，也不复制成本数组。
+- exact-cost cache fingerprint 只消费 `ProcessorPolicy.cost_semantics_signature()`；Qwen 的 patch/merge/
+  estimator 等字段由 Qwen policy 自己绑定。data 层不得枚举模型专属 processor 参数，新模型未声明完整
+  版本化成本签名时必须 fail fast。
 - 固定 cardinality 的 geometry 只由 `ShaftFixedBatchPlanningSpec` 生成一次；resume preflight、planner、
   sampler 和 planning signature 必须消费同一个不可变 spec，不能各自在 pipeline/training/data 重算。
+- 动态 geometry 与 draw horizon 的唯一真源是 `ShaftDynamicBatchPlanningContract`；绑定 SamplePlan 后生成
+  `ShaftDynamicBatchPlanningSpec`。`ShaftDynamicBatchPlanner` 选择每个 optimizer step 的连续 draw prefix，
+  再按 sample/padded-token/vision 硬预算形成固定数量的 local slots；`ShaftDynamicBatchSampler` 只负责把
+  global local-batch 流交给 Accelerate 分片。
+- dynamic DataLoader 使用自定义 batch sampler；只在 prepare 这个 train DataLoader 时临时设置
+  `even_batches=false`，随后恢复 Accelerate 原值。这样保持 HF 的固定 optimizer-step、gradient
+  accumulation、checkpoint 与 scheduler 语义，同时 eval 继续使用 `even_batches=true` 的等步数分片，
+  避免奇数 eval 集在 collective 中死锁。
+- SFT 训练中的 eval 是 RNG observer：`ShaftSFTTrainer` 在整个评估调用外围保存并恢复 Python、NumPy、Torch
+  CPU 与当前 rank CUDA RNG。persistent eval worker 的创建时机不能改变后续训练随机序列或 checkpoint
+  RNG；需要 CUDA bitwise 对照时由 `train.full_determinism` 显式启用确定性 kernel。
+- SFT/RLHF 在构建 dataset、base model 或 PEFT adapter 前统一初始化 `experiment.seed`；
+  `full_determinism=true` 在同一早期边界启用确定性 runtime，不能等到 HF Trainer 初始化后再补 seed。
 - context parallel 是 job 级静态拓扑，不作为单个长样本的动态调度手段。
 - 该能力的完整目标契约、配置迁移与阶段验收见
-  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1 及共享 mmap
-  CostPlan 收口：
-  `Qwen3VL + SFT` 可按有界 planning window 构造精确 sample cost，并在保持每卡固定样本数的前提下，
-  生成跨 DP rank 平衡的 `ShaftBatchPlan`。动态 cost-budget microbatch、`PackPlan` 和 context parallel
-  尚未进入运行时。
+  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1、共享 mmap
+  CostPlan 与 Phase 2 动态 cost-budget microbatch。`PackPlan` 和 context parallel 尚未进入运行时。
 - cost provider 不解释模型或监督细节：图像 resize 与 rendered/processed token layout 的估算真源是
-  `ProcessorPolicy`，target 截断、EOS、causal shift 和 loss weight 的估算真源是 `Template`。新增模型或
-  模板必须扩展对应 policy/interface，不能在 data planner 中复制一份逻辑。
-- Phase 1 resume 通过 `ShaftBatchPlanningSignature` 绑定 data/cost/planner/topology，并随 checkpoint
-  持久化；相同 horizon 可精确恢复，改变 horizon/topology 必须 fail fast。
+  `ProcessorPolicy`，它也负责声明覆盖 estimator 全部依赖状态的版本化 cost signature；target 截断、EOS、
+  causal shift 和 loss weight 的估算真源是 `Template`。新增模型或模板必须扩展对应 policy/interface，
+  不能在 data planner 中复制一份逻辑。
+- fixed/dynamic resume 都通过 `ShaftBatchPlanningSignature` 绑定 strategy、data/cost/planner/target/
+  topology，并随 checkpoint 持久化；相同 horizon 可精确恢复，改变 duration、target、预算或 topology
+  必须 fail fast。动态签名还直接绑定完整 planning-spec fingerprint，避免字段映射遗漏；Phase 1 旧 fixed
+  signature 的 fingerprint 保持可读兼容。
 
 ### 5.4 分片训练边界
 
@@ -452,8 +469,9 @@ flowchart LR
 - `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
 - GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地
   generator 在多 epoch resume 时回到 epoch 0 排列。
-- step duration 会按 `steps × per-device batch × gradient accumulation × world size` 生成全局 sample
-  budget；epoch 只作为 HF 有限时长兼容单位，不再控制 prompt 或 transform 刷新。
+- step duration 在固定 batch 下按 `steps × per-device batch × gradient accumulation × world size` 生成
+  sample budget；动态 batch 由 `ShaftDynamicBatchPlanningContract` 的 optimizer target/draw cap 生成
+  horizon。epoch 只作为 HF 有限时长兼容单位，不再控制 prompt 或 transform 刷新。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 

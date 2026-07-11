@@ -20,6 +20,8 @@ from shaft.data import (
     SFTCollator,
     SFTDataset,
     SFTRecord,
+    ShaftDynamicBatchPlanner,
+    ShaftDynamicBatchPlanningSpec,
     ShaftSamplePlan,
     ShaftSFTSampleCostProvider,
 )
@@ -137,6 +139,106 @@ def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
         assert estimated.vision_patches == int(
             actual["image_grid_thw"].prod(dim=-1).sum()
         )
+
+
+@pytest.mark.integration
+def test_qwen3vl_dynamic_planner_hard_caps_match_heterogeneous_real_batches(
+    tmp_path: Path,
+) -> None:
+    model_path = Path("models/Qwen3-VL-4B-Instruct")
+    if not model_path.exists():
+        pytest.skip(f"Model path not found: {model_path}")
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        fix_mistral_regex=False,
+    )
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path=str(model_path)
+    )
+    template = build_template("qwen3vl")
+    records: list[SFTRecord] = []
+    for index, (image_size, prompt_length) in enumerate(
+        (
+            ((64, 64), 8),
+            ((128, 256), 80),
+            ((256, 128), 24),
+            ((64, 512), 160),
+        )
+    ):
+        image_path = tmp_path / f"heterogeneous-{index}.png"
+        Image.new("RGB", image_size, color=(index * 30, 40, 50)).save(image_path)
+        records.append(
+            SFTRecord(
+                image_path=str(image_path),
+                target_text=f"answer-{index}",
+                dataset_name="integration",
+                sample_id=f"sample-{index}",
+                user_prompt="x" * prompt_length,
+            )
+        )
+    plan = ShaftSamplePlan(
+        {"integration": len(records)},
+        {"integration": 1.0},
+        strategy="concat",
+        shuffle=False,
+    )
+    dataset = SFTDataset({"integration": records}, sample_plan=plan)
+    common_kwargs = {
+        "model_adapter": model_adapter,
+        "template": template,
+        "processor": processor,
+        "tokenizer": processor.tokenizer,
+        "min_pixels": 16384,
+        "max_pixels": 262144,
+        "max_length": 512,
+        "add_eos_token": True,
+        "loss_scale_name": "default",
+    }
+    cost_provider = ShaftSFTSampleCostProvider(
+        dataset=dataset,
+        **common_kwargs,
+    )
+    costs = tuple(cost_provider(plan.ref_at(index)) for index in range(len(plan)))
+    max_padded_tokens = 3 * max(cost.llm_tokens for cost in costs)
+    max_vision_patches = sum(cost.vision_patches for cost in costs)
+    planning_spec = ShaftDynamicBatchPlanningSpec.from_plan(
+        plan,
+        optimizer_step_count=1,
+        data_world_size=1,
+        gradient_accumulation_steps=2,
+        max_samples_per_microbatch=3,
+        max_padded_tokens=max_padded_tokens,
+        max_vision_patches=max_vision_patches,
+        target_samples=4,
+        target_supervised_tokens=None,
+        planning_window=4,
+        seed=7,
+        rank_balance=True,
+    )
+    planner = ShaftDynamicBatchPlanner(
+        plan=plan,
+        cost_provider=cost_provider,
+        spec=planning_spec,
+    )
+    collator = SFTCollator(include_targets_in_inputs=True, **common_kwargs)
+
+    (optimizer_batch,) = tuple(planner.iter_optimizer_steps())
+    local_batches = [
+        local_batch
+        for microstep in optimizer_batch.microsteps
+        for local_batch in microstep.rank_microbatches
+    ]
+    assert sorted(len(batch.sample_refs) for batch in local_batches) == [2, 2]
+    for local_batch in local_batches:
+        actual = collator([dataset[ref] for ref in local_batch.sample_refs])
+        assert actual["input_ids"].numel() == local_batch.padded_llm_tokens
+        assert int(actual["image_grid_thw"].prod(dim=-1).sum()) == (
+            local_batch.vision_patches
+        )
+        assert len(local_batch.sample_refs) <= planning_spec.max_samples_per_microbatch
+        assert local_batch.padded_llm_tokens <= planning_spec.max_padded_tokens
+        assert local_batch.vision_patches <= int(planning_spec.max_vision_patches)
 
 
 @pytest.mark.integration

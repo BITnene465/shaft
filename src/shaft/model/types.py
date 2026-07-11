@@ -303,6 +303,20 @@ class ProcessorPolicy:
             "cost-aware batching."
         )
 
+    def cost_semantics_signature(
+        self,
+        *,
+        processor: Any,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> tuple[object, ...]:
+        _ = processor, min_pixels, max_pixels
+        raise ValueError(
+            f"Processor policy {type(self).__name__!r} must provide a versioned "
+            "cost_semantics_signature before enabling cost-aware batching. The "
+            "signature must bind every processor field used by its exact estimator."
+        )
+
     def estimate_token_layout(
         self,
         *,
@@ -749,6 +763,19 @@ class ShaftModelAdapter:
         return self.processor_policy.estimate_image_cost(
             processor=processor,
             image_sizes=image_sizes,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+
+    def processor_cost_semantics_signature(
+        self,
+        *,
+        processor: Any,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> tuple[object, ...]:
+        return self.processor_policy.cost_semantics_signature(
+            processor=processor,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
         )

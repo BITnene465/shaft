@@ -31,6 +31,7 @@ from shaft.plugins import (
 )
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.progress_callback import ShaftProgressCallback
+from shaft.training.reproducibility import initialize_training_randomness
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,
@@ -85,6 +86,10 @@ class ShaftRLHFPipeline:
 
         validate_training_state_policy(config)
         validate_training_topology(config)
+        initialize_training_randomness(
+            seed=config.experiment.seed,
+            full_determinism=config.train.full_determinism,
+        )
         training_args = self.build_training_args()
         artifacts = build_model_tokenizer_processor(
             config,

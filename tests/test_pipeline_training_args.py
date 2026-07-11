@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+import torch
 
 from shaft.config import load_config
+from shaft.model import build_model_tokenizer_processor
 from shaft.pipeline.training_args import build_hf_training_args, resolve_step_sample_budget
+from shaft.training.reproducibility import initialize_training_randomness
 from tests.support.pipeline import fsdp_enabled as _fsdp_enabled
 from tests.support.pipeline import fsdp_option_values as _fsdp_option_values
 from tests.support.pipeline import write_sft_pipeline_config as _write_config
@@ -22,6 +26,63 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
 
     assert args.gradient_checkpointing is True
     assert args.average_tokens_across_devices is True
+
+
+def test_build_hf_training_args_exposes_full_determinism(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.full_determinism = True
+
+    args = build_hf_training_args(config)
+
+    assert args.full_determinism is True
+
+
+def test_initialize_training_randomness_dispatches_full_determinism() -> None:
+    with patch(
+        "shaft.training.reproducibility.enable_full_determinism"
+    ) as enable_determinism:
+        with patch("shaft.training.reproducibility.set_seed") as set_seed:
+            initialize_training_randomness(
+                seed=23,
+                full_determinism=True,
+            )
+    enable_determinism.assert_called_once_with(23)
+    set_seed.assert_not_called()
+
+
+@pytest.mark.parametrize("finetune_mode", ["full", "lora"])
+def test_training_seed_reproduces_fresh_smoke_model_and_adapter_initialization(
+    tmp_path: Path,
+    finetune_mode: str,
+) -> None:
+    config = _write_config(tmp_path)
+    config.model.model_type = "smoke_vlm"
+    config.model.finetune.mode = finetune_mode
+    config.model.finetune.target_modules = ["all-linear"]
+    config.experiment.seed = 29
+    training_args = build_hf_training_args(config)
+
+    initialize_training_randomness(
+        seed=training_args.seed,
+        full_determinism=training_args.full_determinism,
+    )
+    first_state = {
+        name: tensor.detach().cpu().clone()
+        for name, tensor in build_model_tokenizer_processor(config).model.state_dict().items()
+    }
+    _ = torch.rand(17)
+    initialize_training_randomness(
+        seed=training_args.seed,
+        full_determinism=training_args.full_determinism,
+    )
+    second_state = {
+        name: tensor.detach().cpu().clone()
+        for name, tensor in build_model_tokenizer_processor(config).model.state_dict().items()
+    }
+
+    assert first_state.keys() == second_state.keys()
+    for name in first_state:
+        assert torch.equal(first_state[name], second_state[name]), name
 
 
 def test_build_hf_training_args_uses_warmup_steps_ratio(tmp_path: Path) -> None:
@@ -64,6 +125,32 @@ def test_step_duration_resolves_exact_global_sample_budget(tmp_path: Path) -> No
     config.train.duration.unit = "epochs"
     config.train.duration.value = 2
     assert resolve_step_sample_budget(config, world_size=8) is None
+
+
+def test_dynamic_step_duration_uses_optimizer_batch_sample_target(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.max_samples_per_microbatch = 4
+    config.data.batching.max_padded_tokens = 512
+    config.train.duration.value = 10
+    config.train.per_device_train_batch_size = 2
+    config.train.gradient_accumulation_steps = 2
+    config.train.optimizer_batch.target_samples = 6
+
+    assert resolve_step_sample_budget(config, world_size=2) == 60
+    assert build_hf_training_args(config).accelerator_config.even_batches is True
+
+
+def test_dynamic_token_target_materializes_bounded_draw_horizon(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.max_samples_per_microbatch = 3
+    config.data.batching.max_padded_tokens = 512
+    config.train.duration.value = 10
+    config.train.gradient_accumulation_steps = 2
+    config.train.optimizer_batch.target_supervised_tokens = 100
+
+    assert resolve_step_sample_budget(config, world_size=2) == 120
 
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:

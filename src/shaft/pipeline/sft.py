@@ -19,6 +19,10 @@ from shaft.data import (
     ShaftBatchPlanningSignature,
     ShaftCostAwareSampler,
     ShaftDataCenter,
+    ShaftDynamicBatchPlanner,
+    ShaftDynamicBatchPlanningContract,
+    ShaftDynamicBatchPlanningSpec,
+    ShaftDynamicBatchSampler,
     ShaftFixedBatchPlanningSpec,
     ShaftMMapCostPlanProvider,
     ShaftSampleCostProvider,
@@ -57,6 +61,7 @@ from shaft.training.batch_planning import (
 )
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.progress_callback import ShaftProgressCallback
+from shaft.training.reproducibility import initialize_training_randomness
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
     prune_root_output_layout,
@@ -72,7 +77,11 @@ from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import build_hf_training_args, resolve_step_sample_budget
+from .training_args import (
+    build_hf_training_args,
+    resolve_dynamic_batch_planning_contract,
+    resolve_step_sample_budget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,22 +149,28 @@ def _prepare_and_validate_cost_aware_startup(
     per_device_batch_size: int,
     data_world_size: int,
     gradient_accumulation_steps: int,
-) -> tuple[ShaftFixedBatchPlanningSpec, Path]:
+    dynamic_contract: ShaftDynamicBatchPlanningContract | None,
+) -> tuple[ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec, Path]:
     """Fail before model loading when ranks do not share source/cache identity."""
 
     local_status: dict[str, Any]
-    planning_spec: ShaftFixedBatchPlanningSpec | None = None
+    planning_spec: ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec | None = None
     local_exception: Exception | None = None
     try:
-        planning_spec = ShaftFixedBatchPlanningSpec.from_plan(
-            plan,
-            per_device_batch_size=per_device_batch_size,
-            data_world_size=data_world_size,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            planning_window=config.data.batching.planning_window,
-            seed=config.experiment.seed,
-            drop_last=False,
-        )
+        if config.data.batching.strategy == "dynamic_cost_aware":
+            if dynamic_contract is None:
+                raise ValueError("Dynamic batching requires a resolved planning contract.")
+            planning_spec = dynamic_contract.build_spec(plan)
+        else:
+            planning_spec = ShaftFixedBatchPlanningSpec.from_plan(
+                plan,
+                per_device_batch_size=per_device_batch_size,
+                data_world_size=data_world_size,
+                gradient_accumulation_steps=gradient_accumulation_steps,
+                planning_window=config.data.batching.planning_window,
+                seed=config.experiment.seed,
+                drop_last=False,
+            )
         validate_sft_cost_planning_dataset(train_dataset)
         validate_sft_cost_model_adapter(resolve_model_adapter_from_config(config))
         local_status = {
@@ -187,7 +202,7 @@ def _prepare_and_validate_cost_aware_startup(
     planning_specs = {status["planning_spec"] for status in statuses}
     if len(planning_specs) != 1:
         raise ValueError(
-            "Distributed fixed batch planning spec differs across ranks: "
+            "Distributed cost-aware batch planning spec differs across ranks: "
             f"{planning_specs!r}."
         )
     source_fingerprints = {
@@ -368,6 +383,85 @@ def _build_shared_cost_plan_provider(
     return provider, materialization
 
 
+def _resolve_dynamic_planned_samples(
+    *,
+    plan: ShaftSamplePlan,
+    cost_provider: ShaftSampleCostProvider,
+    planning_spec: ShaftDynamicBatchPlanningSpec,
+) -> tuple[int, tuple[int, ...]]:
+    """Validate the full dynamic plan on rank zero before Trainer starts."""
+    local_error: Exception | None = None
+    payload: dict[str, Any] | None = None
+    if is_rank_zero():
+        try:
+            planner = ShaftDynamicBatchPlanner(
+                plan=plan,
+                cost_provider=cost_provider,
+                spec=planning_spec,
+            )
+            summary = planner.summarize()
+            logger.info(
+                "[dynamic-batch-preflight] optimizer_steps=%s draw_horizon=%s "
+                "target_samples=%s target_supervised_tokens=%s selected_samples=%s "
+                "optimizer_batch_samples_min=%s optimizer_batch_samples_max=%s "
+                "optimizer_batch_samples_avg=%.2f "
+                "useful_llm_tokens=%s padded_llm_tokens=%s supervised_tokens=%s "
+                "loss_weight_sum=%s vision_patches=%s local_batch_min=%s "
+                "local_batch_max=%s/%s local_padded_max=%s/%s "
+                "local_vision_max=%s/%s padding=%.4f rank_skew_avg=%.4f "
+                "rank_skew_max=%.4f",
+                summary.optimizer_step_count,
+                planning_spec.source_sample_count,
+                planning_spec.target_samples,
+                planning_spec.target_supervised_tokens,
+                summary.selected_sample_count,
+                min(summary.optimizer_step_sample_counts),
+                max(summary.optimizer_step_sample_counts),
+                summary.selected_sample_count / summary.optimizer_step_count,
+                summary.useful_llm_tokens,
+                summary.padded_llm_tokens,
+                summary.supervised_tokens,
+                summary.loss_weight_sum,
+                summary.vision_patches,
+                summary.min_local_batch_size,
+                summary.max_local_batch_size,
+                planning_spec.max_samples_per_microbatch,
+                summary.max_local_padded_tokens,
+                planning_spec.max_padded_tokens,
+                summary.max_local_vision_patches,
+                planning_spec.max_vision_patches,
+                summary.padding_ratio,
+                summary.average_rank_cost_skew,
+                summary.max_rank_cost_skew,
+            )
+            payload = {
+                "ok": True,
+                "selected_sample_count": summary.selected_sample_count,
+                "optimizer_step_sample_counts": list(
+                    summary.optimizer_step_sample_counts
+                ),
+            }
+        except Exception as exc:  # noqa: BLE001 - broadcast before raising
+            local_error = exc
+            payload = {
+                "ok": False,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+    payload = broadcast_object_from_rank_zero(payload)
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        if local_error is not None:
+            raise local_error
+        raise RuntimeError(
+            "Rank-zero dynamic optimizer-batch selection preflight failed: "
+            f"{payload!r}."
+        )
+    return (
+        int(payload["selected_sample_count"]),
+        tuple(int(value) for value in payload["optimizer_step_sample_counts"]),
+    )
+
+
 @register_pipeline("shaft_sft")
 class ShaftSFTPipeline:
     """HF-first SFT pipeline.
@@ -398,20 +492,44 @@ class ShaftSFTPipeline:
             )
         validate_training_state_policy(config)
         validate_training_topology(config)
+        initialize_training_randomness(
+            seed=config.experiment.seed,
+            full_determinism=config.train.full_determinism,
+        )
         training_args = self.build_training_args()
+        batching_strategy = config.data.batching.strategy
+        cost_aware_batching = batching_strategy in {
+            "cost_aware",
+            "dynamic_cost_aware",
+        }
+        dynamic_batching = batching_strategy == "dynamic_cost_aware"
+        dynamic_contract = (
+            resolve_dynamic_batch_planning_contract(
+                config,
+                world_size=training_args.world_size,
+                optimizer_step_count=training_args.max_steps,
+            )
+            if dynamic_batching
+            else None
+        )
         data_center = ShaftDataCenter(
             config.data,
             seed=config.experiment.seed,
-            train_sample_budget=resolve_step_sample_budget(
-                config,
-                world_size=training_args.world_size,
+            train_sample_budget=(
+                dynamic_contract.sample_plan_horizon
+                if dynamic_contract is not None
+                else resolve_step_sample_budget(
+                    config,
+                    world_size=training_args.world_size,
+                )
             ),
         )
         dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
         train_sampler = dataset_bundle.train_sampler
-        cost_aware_batching = config.data.batching.strategy == "cost_aware"
-        planning_spec: ShaftFixedBatchPlanningSpec | None = None
+        planning_spec: (
+            ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec | None
+        ) = None
         cost_plan_cache_dir: Path | None = None
         if cost_aware_batching:
             if train_sampler is None or not hasattr(train_sampler, "plan"):
@@ -428,6 +546,7 @@ class ShaftSFTPipeline:
                     gradient_accumulation_steps=(
                         training_args.gradient_accumulation_steps
                     ),
+                    dynamic_contract=dynamic_contract,
                 )
             )
 
@@ -469,6 +588,8 @@ class ShaftSFTPipeline:
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
         batch_planning_signature = None
+        dynamic_planned_sample_count: int | None = None
+        dynamic_optimizer_step_sample_counts: tuple[int, ...] | None = None
         cost_plan_materialization: ShaftCostPlanMaterialization | None = None
         if cost_aware_batching:
             assert train_sampler is not None and hasattr(train_sampler, "plan")
@@ -482,18 +603,54 @@ class ShaftSFTPipeline:
                 cache_dir=cost_plan_cache_dir,
             )
             self._cost_plan_provider = cost_provider
-            train_sampler = ShaftCostAwareSampler(
-                train_sampler.plan,
-                cost_provider=cost_provider,
-                spec=planning_spec,
+            batch_planning_signature = ShaftBatchPlanningSignature.from_spec(
+                planning_spec,
+                cost_fingerprint=cost_provider.fingerprint,
             )
-            batch_planning_signature = train_sampler.signature
+            if resume_checkpoint is not None:
+                validate_batch_planning_resume(
+                    resume_checkpoint,
+                    expected=batch_planning_signature,
+                )
+            if dynamic_batching:
+                assert isinstance(planning_spec, ShaftDynamicBatchPlanningSpec)
+                (
+                    dynamic_planned_sample_count,
+                    dynamic_optimizer_step_sample_counts,
+                ) = _resolve_dynamic_planned_samples(
+                    plan=train_sampler.plan,
+                    cost_provider=cost_provider,
+                    planning_spec=planning_spec,
+                )
+                train_batch_sampler = ShaftDynamicBatchSampler(
+                    train_sampler.plan,
+                    cost_provider=cost_provider,
+                    spec=planning_spec,
+                    planned_sample_count=dynamic_planned_sample_count,
+                    planned_optimizer_step_sample_counts=(
+                        dynamic_optimizer_step_sample_counts
+                    ),
+                )
+                if train_batch_sampler.signature != batch_planning_signature:
+                    raise RuntimeError(
+                        "Dynamic sampler signature drifted from the planning spec."
+                    )
+                train_sampler = None
+            else:
+                assert isinstance(planning_spec, ShaftFixedBatchPlanningSpec)
+                train_sampler = ShaftCostAwareSampler(
+                    train_sampler.plan,
+                    cost_provider=cost_provider,
+                    spec=planning_spec,
+                )
+                if train_sampler.signature != batch_planning_signature:
+                    raise RuntimeError(
+                        "Fixed sampler signature drifted from the planning spec."
+                    )
+                train_batch_sampler = None
+        else:
+            train_batch_sampler = None
 
-        if resume_checkpoint is not None and batch_planning_signature is not None:
-            validate_batch_planning_resume(
-                resume_checkpoint,
-                expected=batch_planning_signature,
-            )
         if batch_planning_signature is not None:
             publish_error: Exception | None = None
             publish_status: dict[str, Any] | None = None
@@ -602,6 +759,7 @@ class ShaftSFTPipeline:
             train_dataset=train_dataset,
             eval_dataset=eval_dataset if config.eval.enabled else None,
             train_sampler=train_sampler,
+            train_batch_sampler=train_batch_sampler,
             processing_class=artifacts.processor,
             data_collator=collator,
             callbacks=callbacks_or_none,

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
+import random
 import time
 from typing import Any
+import warnings
 
+import numpy as np
 import torch
 import transformers.trainer as hf_trainer_module
 from transformers.debug_utils import DebugOption
@@ -119,6 +123,42 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         return (loss, outputs) if return_outputs else loss
 
     def evaluate(
+        self,
+        eval_dataset: Any = None,
+        ignore_keys: list[str] | None = None,
+        metric_key_prefix: str = "eval",
+    ):
+        if not self.is_in_train:
+            return self._evaluate_impl(
+                eval_dataset=eval_dataset,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+        python_rng_state = random.getstate()
+        numpy_rng_state = np.random.get_state()
+        torch_cpu_rng_state = torch.random.get_rng_state()
+        cuda_device: int | None = None
+        cuda_rng_state: torch.Tensor | None = None
+        if torch.cuda.is_available() and torch.cuda.is_initialized():
+            cuda_device = torch.cuda.current_device()
+            cuda_rng_state = torch.cuda.get_rng_state(cuda_device)
+        try:
+            return self._evaluate_impl(
+                eval_dataset=eval_dataset,
+                ignore_keys=ignore_keys,
+                metric_key_prefix=metric_key_prefix,
+            )
+        finally:
+            # A persistent eval loader is created only on its first evaluation.
+            # Iterator construction consumes host RNG and would otherwise make a
+            # resumed run's later RNG snapshot differ from an uninterrupted run.
+            random.setstate(python_rng_state)
+            np.random.set_state(numpy_rng_state)
+            torch.random.set_rng_state(torch_cpu_rng_state)
+            if cuda_device is not None and cuda_rng_state is not None:
+                torch.cuda.set_rng_state(cuda_rng_state, cuda_device)
+
+    def _evaluate_impl(
         self,
         eval_dataset: Any = None,
         ignore_keys: list[str] | None = None,
@@ -251,6 +291,47 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         barrier_if_distributed()
         super()._save_checkpoint(model, trial)
         barrier_if_distributed()
+
+    def _load_optimizer_and_scheduler(self, checkpoint: str | None) -> None:
+        if not self._requires_cpu_distributed_state_restore(checkpoint):
+            super()._load_optimizer_and_scheduler(checkpoint)
+            return
+        assert checkpoint is not None
+        checkpoint_path = Path(checkpoint)
+        optimizer_path = checkpoint_path / hf_trainer_module.OPTIMIZER_NAME
+        if not optimizer_path.is_file():
+            optimizer_path = checkpoint_path / hf_trainer_module.OPTIMIZER_NAME_BIN
+        scheduler_path = checkpoint_path / hf_trainer_module.SCHEDULER_NAME
+        if not optimizer_path.is_file() or not scheduler_path.is_file():
+            super()._load_optimizer_and_scheduler(checkpoint)
+            return
+
+        # Transformers maps distributed optimizer state directly to args.device.
+        # torchrun CPU devices are tagged cpu:0/cpu:1, which torch.load cannot restore.
+        hf_trainer_module.check_torch_load_is_safe()
+        self.optimizer.load_state_dict(
+            torch.load(optimizer_path, map_location="cpu", weights_only=True)
+        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            hf_trainer_module.check_torch_load_is_safe()
+            self.lr_scheduler.load_state_dict(
+                torch.load(scheduler_path, map_location="cpu", weights_only=True)
+            )
+        hf_trainer_module.reissue_pt_warnings(caught_warnings)
+
+    def _requires_cpu_distributed_state_restore(
+        self,
+        checkpoint: str | None,
+    ) -> bool:
+        return bool(
+            checkpoint is not None
+            and self.args.world_size > 1
+            and self.args.device.type == "cpu"
+            and not self.is_deepspeed_enabled
+            and not self.is_fsdp_enabled
+            and not hf_trainer_module.is_torch_xla_available()
+            and not hf_trainer_module.is_sagemaker_mp_enabled()
+        )
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
         barrier_if_distributed()

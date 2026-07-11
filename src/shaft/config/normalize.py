@@ -6,7 +6,7 @@ import re
 from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "weighted"}
-_BATCHING_STRATEGIES = {"fixed", "cost_aware"}
+_BATCHING_STRATEGIES = {"fixed", "cost_aware", "dynamic_cost_aware"}
 _TRAIN_DURATION_UNITS = {"steps", "epochs"}
 _ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
@@ -74,6 +74,20 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         batching.cost_plan_cache_dir = (
             str(batching.cost_plan_cache_dir).strip() or None
         )
+    for field_name in (
+        "max_samples_per_microbatch",
+        "max_padded_tokens",
+        "max_vision_patches",
+    ):
+        value = getattr(batching, field_name)
+        if value is None:
+            continue
+        value = int(value)
+        if value <= 0:
+            raise ValueError(f"data.batching.{field_name} must be > 0 when set.")
+        setattr(batching, field_name, value)
+    if batching.rank_balance is not None:
+        batching.rank_balance = bool(batching.rank_balance)
     config.data.num_workers = int(config.data.num_workers)
     if config.data.num_workers < 0:
         raise ValueError("data.num_workers must be >= 0.")
@@ -251,15 +265,15 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("train.duration.value must be finite and > 0.")
     if train.duration.unit == "steps" and not train.duration.value.is_integer():
         raise ValueError("train.duration.value must be an integer when unit='steps'.")
-    if batching.strategy == "cost_aware":
+    if batching.strategy in {"cost_aware", "dynamic_cost_aware"}:
         if config.algorithm.name != "sft":
             raise ValueError(
-                "data.batching.strategy='cost_aware' currently supports "
+                f"data.batching.strategy={batching.strategy!r} currently supports "
                 "algorithm.name='sft' only."
             )
         if train.duration.unit != "steps":
             raise ValueError(
-                "data.batching.strategy='cost_aware' currently requires "
+                f"data.batching.strategy={batching.strategy!r} currently requires "
                 "train.duration.unit='steps'."
             )
     train.per_device_train_batch_size = int(train.per_device_train_batch_size)
@@ -268,6 +282,63 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     train.gradient_accumulation_steps = int(train.gradient_accumulation_steps)
     if train.gradient_accumulation_steps <= 0:
         raise ValueError("train.gradient_accumulation_steps must be > 0.")
+    train.full_determinism = bool(train.full_determinism)
+    optimizer_batch = train.optimizer_batch
+    for field_name in ("target_samples", "target_supervised_tokens"):
+        value = getattr(optimizer_batch, field_name)
+        if value is None:
+            continue
+        value = int(value)
+        if value <= 0:
+            raise ValueError(f"train.optimizer_batch.{field_name} must be > 0 when set.")
+        setattr(optimizer_batch, field_name, value)
+    if (
+        optimizer_batch.target_samples is not None
+        and optimizer_batch.target_supervised_tokens is not None
+    ):
+        raise ValueError(
+            "train.optimizer_batch accepts at most one of target_samples and "
+            "target_supervised_tokens."
+        )
+    if batching.strategy == "dynamic_cost_aware":
+        if batching.max_samples_per_microbatch is None:
+            batching.max_samples_per_microbatch = train.per_device_train_batch_size
+        if batching.max_padded_tokens is None:
+            raise ValueError(
+                "data.batching.max_padded_tokens is required when "
+                "strategy='dynamic_cost_aware'."
+            )
+        if batching.rank_balance is None:
+            batching.rank_balance = True
+        if (
+            optimizer_batch.target_supervised_tokens is not None
+            and config.data.mix_strategy == "weighted"
+            and not config.data.shuffle
+        ):
+            raise ValueError(
+                "Dynamic target_supervised_tokens is incompatible with "
+                "data.mix_strategy='weighted' and data.shuffle=false: the current "
+                "deterministic weighted map is horizon-dependent. Enable shuffle, "
+                "use concat, or use target_samples."
+            )
+    elif (
+        optimizer_batch.target_samples is not None
+        or optimizer_batch.target_supervised_tokens is not None
+    ):
+        raise ValueError(
+            "train.optimizer_batch targets require "
+            "data.batching.strategy='dynamic_cost_aware'."
+        )
+    elif (
+        batching.max_samples_per_microbatch is not None
+        or batching.max_padded_tokens is not None
+        or batching.max_vision_patches is not None
+        or batching.rank_balance is not None
+    ):
+        raise ValueError(
+            "Dynamic data.batching budget fields require "
+            "strategy='dynamic_cost_aware'."
+        )
     if float(train.scheduler_num_cycles) <= 0:
         raise ValueError("train.scheduler_num_cycles must be > 0.")
     if float(train.scheduler_power) <= 0:
@@ -308,6 +379,15 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
             f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
+        )
+    if (
+        batching.strategy == "dynamic_cost_aware"
+        and train.distributed.strategy != "ddp"
+    ):
+        raise ValueError(
+            "data.batching.strategy='dynamic_cost_aware' currently supports "
+            "train.distributed.strategy='ddp' only; FSDP and DeepSpeed dynamic "
+            "DataLoader contracts have not been validated yet."
         )
     fsdp_cfg = train.distributed.fsdp
     fsdp_cfg.sharding_strategy = str(fsdp_cfg.sharding_strategy).strip().lower()

@@ -17,6 +17,9 @@ description: 在 Shaft 框架中新增模型族、模板、算法能力的标准
    processor policy 必须统一声明 batch 构造、canonical rendered-token 到 processed-token 的精确 layout，
    以及 SFT/DPO 模型字段的复制/重排。完整输出经 `ShaftProcessedBatch` 传递，collator 不维护字段白名单；
    非 sequence 字段必须在 policy 中声明为 sample-aligned、whole-batch media 或 static，未知字段 fail fast。
+   若声明 `supports_exact_image_cost=true`，还必须实现版本化 `cost_semantics_signature()`，覆盖 estimator
+   读取的全部 processor 状态（如 patch/merge、tile/crop、image token、pixel budgets 和实现版本）；禁止在
+   data cost provider 增加模型专属字段。`supports_pixel_budget=false` 时收到 pixel budget 必须 fail fast。
 4. 在对应配置 schema 中新增最小必填项。
 5. 在 `src/shaft/model|template|algorithms` 新增实现。模板监督只接收 `ShaftChatRenderer`，必须使用一次
    full-render span compiler；不得取得 processor/image，也不得增加 partial-message fallback。
@@ -29,3 +32,5 @@ description: 在 Shaft 框架中新增模型族、模板、算法能力的标准
   batch 只能调用一次多模态 processor，DPO 必须正确复用/扩展全部模型专属字段。无法精确对齐或装配
   sequence-aligned 字段时应显式失败，禁止 partial-image fallback。声称支持多图/视频时必须补对应
   真实 processor integration。
+- exact-cost 模型必须补 conformance test：改变 estimator 依赖的任一 processor 参数都会改变
+  `cost_semantics_signature` 与 CostPlan fingerprint；缺少签名时启动应 fail fast。

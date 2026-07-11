@@ -68,6 +68,9 @@
 - `src/shaft/data/collator.py`
 - `src/shaft/data/mixing.py`
 - `src/shaft/data/sampler.py`
+- `src/shaft/data/batching.py`
+- `src/shaft/data/dynamic_batching.py`
+- `src/shaft/data/cost_plan.py`
 - `src/shaft/data/transforms.py`
 - `src/shaft/data/registry.py`
 
@@ -90,10 +93,13 @@
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `ShaftArrowRecordStore`
 - `ShaftSamplePlan` / `ShaftSampleRef` / `ShaftSampleContext`
-- `ShaftSampleSampler` / `ShaftGroupedSampleSampler` / `ShaftCostAwareSampler`
+- `ShaftSampleSampler` / `ShaftGroupedSampleSampler` / `ShaftCostAwareSampler` /
+  `ShaftDynamicBatchSampler`
 - `ShaftSampleCost` / `ShaftSFTSampleCostProvider` / `ShaftRowInvariantCostProvider`
 - `ShaftCostPlanManifest` / `ShaftMMapCostPlanProvider`
 - `ShaftBatchPlan` / `ShaftFixedBatchPlanningSpec` / `ShaftFixedBatchPlanner`
+- `ShaftDynamicBatchPlanningContract` / `ShaftDynamicBatchPlanningSpec` /
+  `ShaftDynamicBatchPlanner` / `ShaftOptimizerBatchPlan`
 - `ShaftBatchPlanningSignature`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
@@ -137,6 +143,9 @@
   online prompt transform，只读取图片 header，不解码像素；图像 resize/token expansion 由模型
   `ProcessorPolicy` 负责，target 截断、causal shift 与 loss weight 由 `Template` 的
   `estimate_supervision_cost()` 负责。cost provider 不维护平行监督语义。
+- CostPlan fingerprint 中的模型成本语义只来自
+  `ShaftModelAdapter.processor_cost_semantics_signature()`。每个 exact-cost `ProcessorPolicy` 必须返回
+  版本化签名并覆盖 estimator 读取的全部 processor 状态；data 层不再硬编码 Qwen patch/merge 字段。
 - `materialize_cost_plan()` 以 logical draw 为索引，把 runtime provider 输出流式写成固定宽度二进制
   sidecar；每条记录携带 sample-ref fingerprint，不能把重复 row 的不同 prompt draw 合并。manifest
   绑定 SamplePlan/cost fingerprint、记录数、字节数和内容 checksum，并通过文件锁与原子 rename 支持
@@ -155,11 +164,20 @@
 - `ShaftFixedBatchPlanner` 在有界 window 内按文本/视觉成本分桶，保持 local sample count 不变，并把
   相近成本的 local batches 组成 global microstep。`ShaftCostAwareSampler` 将该计划展平成 HF
   `BatchSampler` 可消费的 ref 流；Accelerate 按连续 local batch 分发给各 data rank。
-- `ShaftBatchPlanningSignature` 绑定 SamplePlan/source/prompt、processor/template、planner/window、
-  fixed-batch/gradient-accumulation 与 DP topology；training callback 将其写入 run root 和 checkpoint，
-  resume 不一致时拒绝继续。
-- step duration 的 plan 长度直接等于训练所需全局样本数；epoch duration 的单轮 plan 默认等于有效
-  source 行数之和。
+- `ShaftDynamicBatchPlanningContract` 统一解析 optimizer steps、DP/GA slots、兼容默认 target、每步 draw
+  cap 与完整 SamplePlan horizon；pipeline 和 `resolve_step_sample_budget()` 都消费同一 contract。
+- `ShaftDynamicBatchPlanner` 对每个 optimizer step 消费连续 draw prefix，先满足 sample 或 supervised-token
+  target，再在每个 local batch 的 sample、padded LLM token 和 vision patch 硬预算内确定性分箱。它不
+  重新抽样、不跨 optimizer-step 改变 mixing 集合。rank 0 在 Trainer 构建前流式验证完整计划。
+- `ShaftDynamicBatchSampler` 输出顺序固定为每个 global microstep 的 rank0、rank1……local batch；
+  Accelerate `BatchSamplerShard(even_batches=false)` 取得 train rank slice。该开关只在动态 train DataLoader
+  prepare 期间临时生效，eval 会恢复 `even_batches=true`。sampler 不会把全训练期 index tuple 常驻内存。
+- `ShaftBatchPlanningSignature` 绑定 SamplePlan/source/prompt、processor/template、strategy、planner/target/
+  window、batch/gradient-accumulation 与 DP topology；training callback 将其写入 run root 和 checkpoint，
+  resume 不一致时拒绝继续。读取旧 fixed Phase-1 payload 时保持原 fingerprint 兼容。
+- fixed/sample-target step duration 的 plan 长度等于训练实际选择的全局样本数；token target 的 plan
+  长度是 worst-case draw horizon，未消费的尾部 refs 不会进入训练。epoch duration 的单轮 plan 默认等于
+  有效 source 行数之和。
 - `data.prompt_sampling` 在运行时作为 train online transform 应用，按 `dataset_name` 从等价 prompt pool
   中按 `sampling_weight` 采样并替换 `system_prompt/user_prompt`；采样键使用 sample ref 的 `draw_id`，
   默认不作用于 val/eval。
@@ -205,8 +223,9 @@
 - `ShaftProcessorCostEstimate`
 
 `ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
-键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则和训练
-输入的复制/重排，以及是否支持精确 image-cost estimation。内置 `identity` 要求 rendered tokens 与
+键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则、训练
+输入的复制/重排、精确 image-cost estimation 和版本化 `cost_semantics_signature()`。该 signature 必须
+绑定 estimator 读取的全部 processor 状态；内置 `identity` 要求 rendered tokens 与
 processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 显式处理 `mm_token_type_ids` 标记的多模态 token run。其他模型族必须通过 registry 注册自己的 policy，
 不得让 collator 或通用 template 猜测模型字段、batch axis 或 token expansion。processor 新增
@@ -450,6 +469,7 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 相关文件：
 
 - `src/shaft/training/sft_trainer.py`
+- `src/shaft/training/train_sampler_mixin.py`
 - `src/shaft/training/online_eval.py`
 - `src/shaft/training/optimizer_mixin.py`
 - `src/shaft/training/optimizer_plan.py`
@@ -475,6 +495,7 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 - `ShaftDPOTrainer`
 - `ShaftPPOTrainer`
 - `ShaftOptimizerMixin`
+- `ShaftTrainSamplerMixin`
 - `ShaftResolvedOptimizerPlan`
 - `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
@@ -515,6 +536,17 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 - `ShaftSFTTrainer` 会对一个 optimizer batch 内实际 causal labels/loss weights 求 denominator，并在 data
   ranks 间汇总；local numerator 采用同一个 global denominator，保证 gradient accumulation 与 DDP
   分割不改变 token 权重。
+- `ShaftTrainSamplerMixin` 保留普通 `train_sampler` 路径，并在提供 `train_batch_sampler` 时通过 HF 明确
+  支持的 `get_train_dataloader()` 扩展点构造可变 cardinality DataLoader。它同步复用 worker seed、
+  prefetch、pin/persistent worker、MPS multiprocessing 与 Accelerate prepare 语义；动态 sample count 会
+  回填 HF throughput 统计，不改 optimizer-step 计算。resume 时使用每个 optimizer step 的实际 selected
+  sample count 计算本次 invocation 的 loss、steps/s 与 samples/s，不把已完成 horizon 重复计入。
+- `ShaftSFTTrainer.evaluate()` 在训练生命周期内把 eval 当作纯观察者：调用标准 HF evaluate 前后保存并
+  恢复 Python、NumPy、Torch CPU 与当前 rank CUDA RNG。这样 persistent eval DataLoader 的首次 iterator
+  创建不会因 uninterrupted/resume 生命周期不同而改变后续训练随机序列；独立 eval 调用保持标准行为。
+- `training/reproducibility.py` 是训练启动 seed 的共享边界。SFT/RLHF pipeline 在 dataset/model/PEFT 装配
+  前调用；普通模式使用 HF `set_seed`，full determinism 使用 `enable_full_determinism`，Trainer 后续仍
+  保持上游标准初始化。
 
 - `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
   - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`

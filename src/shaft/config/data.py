@@ -17,6 +17,10 @@ class DataBatchingConfig:
     planning_window: int = 512
     image_size_cache_size: int = 8192
     cost_plan_cache_dir: str | None = None
+    max_samples_per_microbatch: int | None = None
+    max_padded_tokens: int | None = None
+    max_vision_patches: int | None = None
+    rank_balance: bool | None = None
 
 
 @dataclass

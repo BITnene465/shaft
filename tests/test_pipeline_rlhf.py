@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import torch
 
 from shaft.config import load_config
 from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
@@ -18,6 +19,24 @@ from tests.support.rlhf import write_grpo_config as _write_grpo_config
 
 
 pytestmark = pytest.mark.component
+
+
+def test_run_rlhf_initializes_seed_before_model_and_adapter_build(tmp_path: Path) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    cfg.experiment.seed = 149
+    torch.manual_seed(cfg.experiment.seed + 1)
+
+    def build_seeded_artifacts(*args, **kwargs):
+        _ = args, kwargs
+        assert torch.initial_seed() == cfg.experiment.seed
+        return _build_fake_model_artifacts()
+
+    with patch(
+        "shaft.pipeline.rlhf.build_model_tokenizer_processor",
+        side_effect=build_seeded_artifacts,
+    ):
+        with patch("shaft.algorithms.dpo.ShaftDPOTrainer", _FakeTrainer):
+            _ = run_rlhf(cfg)
 
 
 def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:

@@ -40,8 +40,17 @@ class TrainDurationConfig:
 
 
 @dataclass
+class TrainOptimizerBatchConfig:
+    target_samples: int | None = None
+    target_supervised_tokens: int | None = None
+
+
+@dataclass
 class TrainConfig:
     duration: TrainDurationConfig = field(default_factory=TrainDurationConfig)
+    optimizer_batch: TrainOptimizerBatchConfig = field(
+        default_factory=TrainOptimizerBatchConfig
+    )
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = False
@@ -63,6 +72,7 @@ class TrainConfig:
     max_grad_norm: float = 1.0
     bf16: bool = True
     use_cpu: bool = False
+    full_determinism: bool = False
     logging_steps: int = 10
     save_strategy: str = "epoch"  # no | steps | epoch
     save_epoch_interval: int = 1

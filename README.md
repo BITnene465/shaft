@@ -165,6 +165,34 @@ exact model processor policy 和不可变数据 snapshot。checkpoint resume 还
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。
 
+需要让短样本自动合并成更大的本地 microbatch 时，使用动态硬预算模式：
+
+```yaml
+data:
+  batching:
+    strategy: dynamic_cost_aware
+    planning_window: 64
+    max_samples_per_microbatch: 8
+    max_padded_tokens: 8192
+    max_vision_patches: null
+    rank_balance: true
+train:
+  optimizer_batch:
+    target_samples: 8            # 与 target_supervised_tokens 二选一
+```
+
+动态模式仍保持固定的 optimizer step 数和 gradient accumulation microstep 数，但每个 rank 的实际样本数
+可变。planner 只消费 mixer 给出的连续 draw prefix，不按长度改样本权重；每个本地 microbatch 同时受
+sample、processor 后 padded token 和 vision patch 硬上限约束。eval 暂时保持 fixed batch，sequence
+packing 与 context parallel 仍是后续独立阶段。Phase 2 只开放 DDP；FSDP/DeepSpeed 动态批次会在配置
+校验阶段拒绝，待专项验证后再开放。
+
+Shaft 会在 dataset、base model 与 PEFT adapter 装配前初始化 `experiment.seed`。需要验证 CUDA bitwise
+resume/fresh reproduction 时，再在 `train` 下设置 `full_determinism: true`；该选项还会启用确定性
+CUDA/attention backward，通常有吞吐代价。默认关闭时，非确定性 kernel 产生的微小数值差异不等同于
+BatchPlan 或 resume cursor 错位。SFT 训练过程中的 eval 会保存并恢复主进程训练 RNG，避免 persistent
+eval workers 改变后续训练随机序列。
+
 ## 当前能力
 
 ### 训练

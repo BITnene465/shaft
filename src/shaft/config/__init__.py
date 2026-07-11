@@ -22,6 +22,7 @@ from .training import (
     TrainDurationConfig,
     TrainDistributedConfig,
     TrainFSDPConfig,
+    TrainOptimizerBatchConfig,
     TrainConfig,
     resolve_effective_gradient_checkpointing,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "TrainDurationConfig",
     "TrainDistributedConfig",
     "TrainFSDPConfig",
+    "TrainOptimizerBatchConfig",
     "TrainConfig",
     "load_config",
     "load_config_from_payload",

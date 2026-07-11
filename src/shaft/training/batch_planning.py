@@ -12,6 +12,7 @@ from shaft.data.batching import (
     ShaftBatchPlanningSignature,
     ShaftFixedBatchPlanningSpec,
 )
+from shaft.data.dynamic_batching import ShaftDynamicBatchPlanningSpec
 
 
 BATCH_PLANNING_SIGNATURE_FILENAME = "shaft_batch_planning_signature.json"
@@ -73,26 +74,20 @@ def validate_batch_planning_resume(
 def validate_batch_planning_resume_geometry(
     checkpoint_path: str | Path,
     *,
-    expected: ShaftFixedBatchPlanningSpec,
+    expected: ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec,
 ) -> None:
     actual = _load_resume_batch_planning_signature(checkpoint_path)
-    expected_payload = {
-        "sample_plan_fingerprint": expected.sample_plan_fingerprint,
-        "source_sample_count": expected.source_sample_count,
-        "sample_count": expected.usable_sample_count,
-        "per_device_batch_size": expected.per_device_batch_size,
-        "data_world_size": expected.data_world_size,
-        "gradient_accumulation_steps": expected.gradient_accumulation_steps,
-        "planning_window": expected.planning_window,
-        "effective_planning_window": expected.effective_planning_window,
-        "seed": expected.seed,
-        "drop_last": expected.drop_last,
-    }
+    expected_signature = ShaftBatchPlanningSignature.from_spec(
+        expected,
+        cost_fingerprint=actual.cost_fingerprint,
+    )
+    expected_payload = expected_signature.to_dict()
     actual_payload = actual.to_dict()
     differences = [
         field_name
         for field_name, expected_value in expected_payload.items()
-        if actual_payload.get(field_name) != expected_value
+        if field_name not in {"cost_fingerprint", "fingerprint"}
+        and actual_payload.get(field_name) != expected_value
     ]
     if differences:
         raise ValueError(

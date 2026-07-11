@@ -145,6 +145,25 @@ def test_batch_planning_signature_roundtrip_and_resume_validation(tmp_path: Path
         )
 
 
+def test_batch_planning_signature_reads_phase_one_payload_without_dynamic_fields() -> None:
+    signature = _batch_planning_signature()
+    payload = signature.to_dict()
+    for field_name in (
+        "strategy",
+        "optimizer_step_count",
+        "max_samples_per_microbatch",
+        "max_padded_tokens",
+        "max_vision_patches",
+        "target_samples",
+        "target_supervised_tokens",
+        "rank_balance",
+        "planning_spec_fingerprint",
+    ):
+        payload.pop(field_name)
+
+    assert ShaftBatchPlanningSignature.from_dict(payload) == signature
+
+
 def test_batch_planning_callback_persists_checkpoint_signature(tmp_path: Path) -> None:
     signature = _batch_planning_signature()
     callback = ShaftBatchPlanningCallback(signature)

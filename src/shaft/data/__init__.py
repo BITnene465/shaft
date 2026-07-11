@@ -40,10 +40,24 @@ from .dataset import (
     SFTDataset,
     SFTRecord,
 )
+from .dynamic_batching import (
+    ShaftDynamicBatchPlanner,
+    ShaftDynamicPartitionSearchBudgetExceeded,
+    ShaftDynamicBatchPlanningContract,
+    ShaftDynamicBatchPlanningSpec,
+    ShaftDynamicBatchPlanSummary,
+    ShaftDynamicBatchPlanStats,
+    ShaftOptimizerBatchPlan,
+)
 from .meta import ShaftDatasetMeta, build_dataset_metas
 from .mixing import ShaftSampleContext, ShaftSamplePlan, ShaftSampleRef
 from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
-from .sampler import ShaftCostAwareSampler, ShaftGroupedSampleSampler, ShaftSampleSampler
+from .sampler import (
+    ShaftCostAwareSampler,
+    ShaftDynamicBatchSampler,
+    ShaftGroupedSampleSampler,
+    ShaftSampleSampler,
+)
 from .registry import DATA_SOURCE_REGISTRY
 from .sources import (
     build_data_source,
@@ -81,11 +95,19 @@ __all__ = [
     "ShaftBatchPlanningSignature",
     "ShaftBatchPlanStats",
     "ShaftCostAwareSampler",
+    "ShaftDynamicBatchPlanner",
+    "ShaftDynamicPartitionSearchBudgetExceeded",
+    "ShaftDynamicBatchPlanningContract",
+    "ShaftDynamicBatchPlanningSpec",
+    "ShaftDynamicBatchPlanSummary",
+    "ShaftDynamicBatchPlanStats",
+    "ShaftDynamicBatchSampler",
     "COST_PLAN_REFERENCE_FILENAME",
     "ShaftCostPlanCacheError",
     "ShaftCostPlanManifest",
     "ShaftCostPlanMaterialization",
     "ShaftMMapCostPlanProvider",
+    "ShaftOptimizerBatchPlan",
     "ShaftDatasetBundle",
     "ShaftDatasetMeta",
     "build_offline_pipeline",

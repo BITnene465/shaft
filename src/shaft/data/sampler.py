@@ -12,6 +12,7 @@ from shaft.utils.distributed import get_rank, get_world_size
 from .mixing import ShaftSamplePlan, ShaftSampleRef, _affine_permute, _splitmix64
 from .batching import ShaftFixedBatchPlanner, ShaftFixedBatchPlanningSpec
 from .cost import ShaftSampleCostProvider
+from .dynamic_batching import ShaftDynamicBatchPlanner, ShaftDynamicBatchPlanningSpec
 
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,230 @@ class ShaftCostAwareSampler(Sampler[ShaftSampleRef]):
 
     def __len__(self) -> int:
         return len(self.planner)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.plan_cycle = int(epoch)
+
+
+class ShaftDynamicBatchSampler(Sampler[list[ShaftSampleRef]]):
+    """Yield global local-microbatch lists for Accelerate to shard by data rank."""
+
+    batch_size = None
+    drop_last = True
+
+    def __init__(
+        self,
+        plan: ShaftSamplePlan,
+        *,
+        cost_provider: ShaftSampleCostProvider,
+        spec: ShaftDynamicBatchPlanningSpec,
+        planned_sample_count: int | None = None,
+        planned_optimizer_step_sample_counts: tuple[int, ...] | None = None,
+    ) -> None:
+        self.plan = plan
+        self.plan_cycle = 0
+        self.planner = ShaftDynamicBatchPlanner(
+            plan=plan,
+            cost_provider=cost_provider,
+            spec=spec,
+        )
+        self.signature = self.planner.build_signature()
+        target_samples = self.planner.spec.target_samples
+        expected_sample_count = (
+            None
+            if target_samples is None
+            else int(target_samples) * self.planner.spec.optimizer_step_count
+        )
+        if (
+            planned_sample_count is not None
+            and expected_sample_count is not None
+            and int(planned_sample_count) != expected_sample_count
+        ):
+            raise ValueError(
+                "planned_sample_count does not match the fixed sample target."
+            )
+        self._planned_sample_count = (
+            expected_sample_count
+            if planned_sample_count is None
+            else int(planned_sample_count)
+        )
+        if self._planned_sample_count is not None and self._planned_sample_count <= 0:
+            raise ValueError("planned_sample_count must be > 0 when set.")
+        if planned_optimizer_step_sample_counts is None and target_samples is not None:
+            planned_optimizer_step_sample_counts = (
+                int(target_samples),
+            ) * self.planner.spec.optimizer_step_count
+        if planned_optimizer_step_sample_counts is not None:
+            planned_optimizer_step_sample_counts = tuple(
+                int(value) for value in planned_optimizer_step_sample_counts
+            )
+            if len(planned_optimizer_step_sample_counts) != int(
+                self.planner.spec.optimizer_step_count
+            ):
+                raise ValueError(
+                    "planned_optimizer_step_sample_counts must contain one value "
+                    "per optimizer step."
+                )
+            if any(value <= 0 for value in planned_optimizer_step_sample_counts):
+                raise ValueError(
+                    "planned_optimizer_step_sample_counts values must be > 0."
+                )
+            if (
+                self._planned_sample_count is not None
+                and sum(planned_optimizer_step_sample_counts)
+                != self._planned_sample_count
+            ):
+                raise ValueError(
+                    "planned optimizer-step sample counts do not sum to "
+                    "planned_sample_count."
+                )
+        self._planned_optimizer_step_sample_counts = (
+            planned_optimizer_step_sample_counts
+        )
+
+    @property
+    def sampler(self) -> ShaftDynamicBatchSampler:
+        """Expose epoch propagation through Accelerate's nested BatchSamplerShard."""
+
+        return self
+
+    def __iter__(self) -> Iterator[list[ShaftSampleRef]]:
+        optimizer_batch_iterator = iter(
+            self.planner.iter_optimizer_steps(plan_cycle=self.plan_cycle)
+        )
+        planning_seconds = 0.0
+        selected_samples = 0
+        planned_tokens = 0
+        useful_tokens = 0
+        supervised_tokens = 0
+        loss_weight_sum = 0.0
+        loss_weight_sum_known = True
+        vision_patches = 0
+        min_local_batch_size: int | None = None
+        max_local_batch_size = 0
+        max_local_padded_tokens = 0
+        max_local_vision_patches = 0
+        rank_skew_sum = 0.0
+        max_rank_skew = 0.0
+        optimizer_step_count = 0
+        try:
+            while True:
+                started = time.perf_counter()
+                try:
+                    optimizer_batch = next(optimizer_batch_iterator)
+                except StopIteration:
+                    break
+                planning_seconds += time.perf_counter() - started
+                stats = optimizer_batch.stats
+                optimizer_step_count += 1
+                selected_samples += stats.sample_count
+                planned_tokens += stats.planned_padded_llm_tokens
+                useful_tokens += stats.useful_llm_tokens
+                supervised_tokens += stats.supervised_tokens
+                if stats.loss_weight_sum is None:
+                    loss_weight_sum_known = False
+                else:
+                    loss_weight_sum += stats.loss_weight_sum
+                vision_patches += stats.vision_patches
+                min_local_batch_size = (
+                    stats.min_local_batch_size
+                    if min_local_batch_size is None
+                    else min(min_local_batch_size, stats.min_local_batch_size)
+                )
+                max_local_batch_size = max(
+                    max_local_batch_size,
+                    stats.max_local_batch_size,
+                )
+                max_local_padded_tokens = max(
+                    max_local_padded_tokens,
+                    stats.max_local_padded_tokens,
+                )
+                max_local_vision_patches = max(
+                    max_local_vision_patches,
+                    stats.max_local_vision_patches,
+                )
+                rank_skew_sum += stats.average_rank_cost_skew
+                max_rank_skew = max(max_rank_skew, stats.max_rank_cost_skew)
+                log = logger.info if optimizer_batch.optimizer_step == 0 else logger.debug
+                log(
+                    "[dynamic-batch-plan] cycle=%s optimizer_step=%s draws=%s:%s "
+                    "samples=%s local_batch_min=%s local_batch_max=%s/%s "
+                    "local_padded_max=%s/%s local_vision_max=%s/%s "
+                    "useful_llm_tokens=%s padded_llm_tokens=%s supervised_tokens=%s "
+                    "loss_weight_sum=%s vision_patches=%s padding=%.4f "
+                    "rank_skew_max=%.4f fingerprint=%s",
+                    self.plan_cycle,
+                    optimizer_batch.optimizer_step,
+                    optimizer_batch.draw_start,
+                    optimizer_batch.draw_stop,
+                    stats.sample_count,
+                    stats.min_local_batch_size,
+                    stats.max_local_batch_size,
+                    self.planner.spec.max_samples_per_microbatch,
+                    stats.max_local_padded_tokens,
+                    self.planner.spec.max_padded_tokens,
+                    stats.max_local_vision_patches,
+                    self.planner.spec.max_vision_patches,
+                    stats.useful_llm_tokens,
+                    stats.planned_padded_llm_tokens,
+                    stats.supervised_tokens,
+                    stats.loss_weight_sum,
+                    stats.vision_patches,
+                    stats.padding_ratio,
+                    stats.max_rank_cost_skew,
+                    optimizer_batch.fingerprint[:12],
+                )
+                for microstep in optimizer_batch.microsteps:
+                    for local_batch in microstep.rank_microbatches:
+                        yield list(local_batch.sample_refs)
+        finally:
+            if selected_samples:
+                logger.info(
+                    "[dynamic-batch-plan-summary] cycle=%s optimizer_steps=%s "
+                    "selected_samples=%s useful_llm_tokens=%s padded_llm_tokens=%s "
+                    "supervised_tokens=%s loss_weight_sum=%s vision_patches=%s "
+                    "local_batch_min=%s local_batch_max=%s/%s "
+                    "local_padded_max=%s/%s local_vision_max=%s/%s padding=%.4f "
+                    "rank_skew_avg=%.4f rank_skew_max=%.4f planning_seconds=%.6f",
+                    self.plan_cycle,
+                    optimizer_step_count,
+                    selected_samples,
+                    useful_tokens,
+                    planned_tokens,
+                    supervised_tokens,
+                    loss_weight_sum if loss_weight_sum_known else None,
+                    vision_patches,
+                    min_local_batch_size,
+                    max_local_batch_size,
+                    self.planner.spec.max_samples_per_microbatch,
+                    max_local_padded_tokens,
+                    self.planner.spec.max_padded_tokens,
+                    max_local_vision_patches,
+                    self.planner.spec.max_vision_patches,
+                    1.0 - useful_tokens / max(planned_tokens, 1),
+                    rank_skew_sum / max(optimizer_step_count, 1),
+                    max_rank_skew,
+                    planning_seconds,
+                )
+
+    def __len__(self) -> int:
+        return (
+            self.planner.spec.optimizer_step_count
+            * self.planner.spec.local_microbatch_slots
+        )
+
+    @property
+    def planned_sample_count(self) -> int | None:
+        return self._planned_sample_count
+
+    @property
+    def planned_optimizer_batch_samples(self) -> int | None:
+        target_samples = self.planner.spec.target_samples
+        return None if target_samples is None else int(target_samples)
+
+    @property
+    def planned_optimizer_step_sample_counts(self) -> tuple[int, ...] | None:
+        return self._planned_optimizer_step_sample_counts
 
     def set_epoch(self, epoch: int) -> None:
         self.plan_cycle = int(epoch)

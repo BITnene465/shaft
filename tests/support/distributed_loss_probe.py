@@ -36,16 +36,22 @@ def _batch(
     }
 
 
+def _stack_batches(*batches: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    return {
+        key: torch.cat([batch[key] for batch in batches], dim=0)
+        for key in ("input_ids", "labels", "loss_scale")
+    }
+
+
 def _rank_batches() -> tuple[tuple[dict[str, torch.Tensor], ...], ...]:
+    first = _batch([0, 1, 2, 3], [0, 1, 2, 3], [0.0, 0.5, 1.0, 0.0])
+    second = _batch([3, 2, 1, 0], [3, 2, 1, 0], [0.0, 1.0, 1.0, 1.0])
+    third = _batch([1, 3, 5, 0], [1, 3, 5, 0], [0.0, 2.0, 0.0, 0.0])
+    fourth = _batch([6, 4, 2, 0], [6, 4, 2, 0], [0.0, 0.25, 1.25, 2.5])
+    fifth = _batch([2, 4, 6, 1], [2, 4, 6, 1], [0.0, 1.0, 0.0, 0.5])
     return (
-        (
-            _batch([0, 1, 2, 3], [0, 1, 2, 3], [0.0, 0.5, 1.0, 0.0]),
-            _batch([3, 2, 1, 0], [3, 2, 1, 0], [0.0, 1.0, 1.0, 1.0]),
-        ),
-        (
-            _batch([1, 3, 5, 0], [1, 3, 5, 0], [0.0, 2.0, 0.0, 0.0]),
-            _batch([6, 4, 2, 0], [6, 4, 2, 0], [0.0, 0.25, 1.25, 2.5]),
-        ),
+        (first, second),
+        (_stack_batches(third, fourth), fifth),
     )
 
 
@@ -128,6 +134,10 @@ def main(output_path: str) -> None:
             json.dumps(
                 {
                     "global_denominator": float(denominator),
+                    "rank_batch_sizes": [
+                        [int(batch["input_ids"].shape[0]) for batch in rank_batches]
+                        for rank_batches in all_batches
+                    ],
                     "reference_loss": float(reference_loss.detach()),
                     "max_parameter_error": max_parameter_error,
                 },

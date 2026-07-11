@@ -36,6 +36,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_data_meta.py",
         "test_data_sources.py",
         "test_distributed_runtime.py",
+        "test_dynamic_batch_planning.py",
         "test_eval_metrics.py",
         "test_export_cli.py",
         "test_export_tools.py",

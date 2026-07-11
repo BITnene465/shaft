@@ -33,8 +33,9 @@
 
 - 如果模型族有明确的 `language_model / vision_tower / aligner / generator` 分界，必须同步补充 `ModelModuleGroups`。
 - 不要把模块名前缀写死在 `freeze.py` 或 `finetune.py` 中，冻结分组必须由模型族元信息声明。
-- 多模态模型必须通过 `ProcessorPolicy` 统一声明三件事：`build_batch()` 的 processor 参数、
-  `build_token_layout()` 的精确 token 映射、`assemble_training_inputs()` 的字段复制/重排。只有 processor
+- 多模态模型必须通过 `ProcessorPolicy` 统一声明四件事：`build_batch()` 的 processor 参数、
+  `build_token_layout()` 的精确 token 映射、`assemble_training_inputs()` 的字段复制/重排，以及
+  `cost_semantics_signature()` 的版本化成本语义。只有 processor
   输出与 chat template tokenizer 完全一致时才能使用 `identity`；存在图像 placeholder expansion、
   flattened vision rows、模型专属 sequence fields 或不同 media 参数时必须注册模型专用 policy。
 - processor 的完整输出必须保留在 `ShaftProcessedBatch` 中。不要在 collator 增加
@@ -42,6 +43,10 @@
 - policy 必须把 processor 的非 sequence 输出分别登记为 sample-aligned、whole-batch media 或 static；
   未声明字段会 fail fast。模型/processor 升级后新增输出时，应先确认其轴语义再更新 policy 和 DPO 测试。
 - pixel-budget 支持只由 `ProcessorPolicy` 声明；通用 policy 默认不假设 processor 接受该参数。
+- 声明 `supports_exact_image_cost=true` 的 policy 必须让 `cost_semantics_signature()` 覆盖 estimator 读取的
+  所有 processor 参数及实现版本，例如 patch/merge、tile/crop、image token 和 pixel budgets。改变任一
+  依赖状态必须改变 signature，并以参数化 conformance test 锁定；`supports_pixel_budget=false` 时收到
+  pixel budget 必须 fail fast。禁止在 data cost provider 追加模型专属字段。
 - token layout 必须做 exact validation。无法对齐时应在模型接入阶段失败，不允许改回逐 partial message
   重跑图片 processor，也不允许用长度差做近似 span。
 - 如果新模型声称支持多图或视频，policy 与接入测试必须覆盖真实 media nesting、grid/patch 字段和 DPO

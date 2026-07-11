@@ -369,6 +369,13 @@ class _CostModelAdapter:
     template_type = "test-template"
     processor_policy = SimpleNamespace(supports_exact_image_cost=True)
 
+    def __init__(self, cost_semantics_version: str = "v1") -> None:
+        self.cost_semantics_version = str(cost_semantics_version)
+
+    def processor_cost_semantics_signature(self, **kwargs):
+        _ = kwargs
+        return ("test-processor-cost-semantics", self.cost_semantics_version)
+
     def estimate_processor_image_cost(self, **kwargs):
         assert kwargs["image_sizes"] == ((64, 64),)
         return ShaftProcessorCostEstimate(
@@ -659,6 +666,40 @@ def test_sft_cost_fingerprint_binds_serialized_tokenizer_backend(tmp_path) -> No
     assert build_provider("vocab-a").fingerprint != build_provider(
         "vocab-b"
     ).fingerprint
+
+
+def test_sft_cost_fingerprint_binds_model_policy_cost_semantics(tmp_path) -> None:
+    image_path = tmp_path / "image.png"
+    Image.new("RGB", (64, 64), color=(0, 0, 0)).save(image_path)
+    plan = _build_plan([1])
+    dataset = SFTDataset(
+        {
+            "dataset": [
+                SFTRecord(
+                    image_path=str(image_path),
+                    target_text="target",
+                    dataset_name="dataset",
+                )
+            ]
+        },
+        sample_plan=plan,
+    )
+
+    def build_provider(cost_semantics_version: str) -> ShaftSFTSampleCostProvider:
+        return ShaftSFTSampleCostProvider(
+            dataset=dataset,
+            model_adapter=_CostModelAdapter(cost_semantics_version),
+            template=_CostTemplate(),
+            processor=_CostProcessor(),
+            tokenizer=_CostTokenizer(),
+            min_pixels=None,
+            max_pixels=None,
+            max_length=None,
+            add_eos_token=True,
+            loss_scale_name="default",
+        )
+
+    assert build_provider("v1").fingerprint != build_provider("v2").fingerprint
 
 
 def test_sft_cost_provider_rejects_unfingerprinted_slow_tokenizer(tmp_path) -> None:

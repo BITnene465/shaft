@@ -9,6 +9,7 @@ import torch
 from transformers import TrainingArguments
 
 from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
+from shaft.data import ShaftDynamicBatchPlanningContract
 
 
 def _resolve_fsdp_transformer_layers(config: RuntimeConfig) -> list[str]:
@@ -130,11 +131,51 @@ def resolve_step_sample_budget(
     _, max_steps = resolve_hf_train_duration(config.train)
     if max_steps < 0:
         return None
+    if config.data.batching.strategy == "dynamic_cost_aware":
+        return resolve_dynamic_batch_planning_contract(
+            config,
+            world_size=world_size,
+            optimizer_step_count=max_steps,
+        ).sample_plan_horizon
     return (
         max_steps
         * int(config.train.per_device_train_batch_size)
         * int(config.train.gradient_accumulation_steps)
         * max(int(world_size), 1)
+    )
+
+
+def resolve_dynamic_batch_planning_contract(
+    config: RuntimeConfig,
+    *,
+    world_size: int,
+    optimizer_step_count: int,
+) -> ShaftDynamicBatchPlanningContract:
+    max_padded_tokens = config.data.batching.max_padded_tokens
+    if max_padded_tokens is None:
+        raise ValueError(
+            "data.batching.max_padded_tokens is required for dynamic batching."
+        )
+    optimizer_batch = config.train.optimizer_batch
+    return ShaftDynamicBatchPlanningContract.resolve(
+        optimizer_step_count=optimizer_step_count,
+        per_device_train_batch_size=config.train.per_device_train_batch_size,
+        data_world_size=max(int(world_size), 1),
+        gradient_accumulation_steps=config.train.gradient_accumulation_steps,
+        max_samples_per_microbatch=(
+            config.data.batching.max_samples_per_microbatch
+        ),
+        max_padded_tokens=max_padded_tokens,
+        max_vision_patches=config.data.batching.max_vision_patches,
+        target_samples=optimizer_batch.target_samples,
+        target_supervised_tokens=optimizer_batch.target_supervised_tokens,
+        planning_window=config.data.batching.planning_window,
+        seed=config.experiment.seed,
+        rank_balance=(
+            True
+            if config.data.batching.rank_balance is None
+            else bool(config.data.batching.rank_balance)
+        ),
     )
 
 
@@ -176,6 +217,7 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         max_grad_norm=float(train_cfg.max_grad_norm),
         bf16=use_bf16,
         use_cpu=bool(train_cfg.use_cpu),
+        full_determinism=bool(train_cfg.full_determinism),
         logging_steps=int(train_cfg.logging_steps),
         save_strategy=str(train_cfg.save_strategy),
         save_steps=int(train_cfg.save_steps),
@@ -203,5 +245,6 @@ def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
         disable_tqdm=True,
         remove_unused_columns=False,
         average_tokens_across_devices=True,
+        accelerator_config={"even_batches": True},
         **warmup_kwargs,
     )

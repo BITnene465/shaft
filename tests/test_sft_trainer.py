@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import random
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import torch
 from transformers.trainer_callback import PrinterCallback
@@ -14,6 +16,7 @@ from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSample
 from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
+from shaft.training.train_sampler_mixin import ShaftTrainSamplerMixin
 from tests.support.training import StaticOnlineEvalRunner
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
@@ -168,6 +171,69 @@ def test_shaft_trainer_uses_custom_train_sampler() -> None:
     assert train_dataloader.batch_sampler.sampler is sampler
 
 
+def test_shaft_trainer_uses_variable_train_batch_sampler() -> None:
+    class _VariableBatchSampler:
+        batch_size = None
+        drop_last = True
+        planned_sample_count = 3
+        planned_optimizer_batch_samples = 3
+
+        def __iter__(self):
+            yield [0]
+            yield [1, 2]
+
+        def __len__(self):
+            return 2
+
+    model = _TinyModel()
+    args = build_training_args(
+        output_dir="/tmp/shaft_trainer_batch_sampler",
+    )
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[0, 1, 2],
+        eval_dataset=[],
+        train_batch_sampler=_VariableBatchSampler(),
+        data_collator=lambda batch: batch,
+    )
+
+    train_dataloader = trainer.get_train_dataloader()
+
+    assert list(train_dataloader) == [[0], [1, 2]]
+    assert trainer.accelerator.even_batches is True
+    initial_values = trainer.set_initial_training_values(args, train_dataloader)
+    assert initial_values[2:5] == (3, 3, 3)
+
+
+def test_variable_batch_metrics_preserve_transformers_457_tuple_layout() -> None:
+    class _LegacyTrainerBase:
+        def __init__(self, *args, **kwargs) -> None:
+            _ = args, kwargs
+
+        def set_initial_training_values(
+            self,
+            args,
+            dataloader,
+            total_train_batch_size,
+        ):
+            _ = args, dataloader, total_train_batch_size
+            return (1, 2, 30, 40, False, 6, 7)
+
+    class _LegacyTrainer(ShaftTrainSamplerMixin, _LegacyTrainerBase):
+        pass
+
+    sampler = SimpleNamespace(
+        planned_sample_count=12,
+        planned_optimizer_batch_samples=6,
+    )
+    trainer = _LegacyTrainer(train_batch_sampler=sampler)
+
+    values = trainer.set_initial_training_values(object(), object(), 8)
+
+    assert values == (1, 2, 12, 12, False, 6, 7)
+
+
 def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
     model = _TinyModel()
     args = build_training_args(
@@ -196,6 +262,78 @@ def test_shaft_trainer_evaluate_merges_online_metrics() -> None:
     assert metrics["eval_final_score"] == pytest.approx(0.8)
     assert metrics["eval_ds_a_exact_match"] == pytest.approx(0.7)
     assert logged == [{"eval_loss": 0.2, "eval_final_score": 0.8, "eval_ds_a_exact_match": 0.7}]
+
+
+def test_training_evaluation_preserves_host_rng_state() -> None:
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=build_training_args(output_dir="/tmp/shaft_trainer_eval_rng"),
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda batch: batch,
+    )
+    trainer.is_in_train = True
+
+    def _consume_rng(**kwargs):
+        _ = kwargs
+        random.random()
+        np.random.random()
+        torch.rand(())
+        return {"eval_loss": 0.0}
+
+    trainer._evaluate_impl = _consume_rng  # type: ignore[method-assign]
+    random.seed(17)
+    np.random.seed(17)
+    torch.manual_seed(17)
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+
+    assert trainer.evaluate() == {"eval_loss": 0.0}
+    assert random.getstate() == python_state
+    assert np.array_equal(np.random.get_state()[1], numpy_state[1])
+    assert torch.equal(torch.random.get_rng_state(), torch_state)
+
+
+def test_training_evaluation_restores_cuda_and_host_rng_after_exception() -> None:
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=build_training_args(output_dir="/tmp/shaft_trainer_eval_rng_error"),
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda batch: batch,
+    )
+    trainer.is_in_train = True
+
+    def _consume_rng_and_fail(**kwargs):
+        _ = kwargs
+        random.random()
+        np.random.random()
+        torch.rand(())
+        raise RuntimeError("synthetic eval failure")
+
+    trainer._evaluate_impl = _consume_rng_and_fail  # type: ignore[method-assign]
+    random.seed(19)
+    np.random.seed(19)
+    torch.manual_seed(19)
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+    cuda_state = torch.tensor([1, 2, 3], dtype=torch.uint8)
+
+    with patch("torch.cuda.is_available", return_value=True):
+        with patch("torch.cuda.is_initialized", return_value=True):
+            with patch("torch.cuda.current_device", return_value=1):
+                with patch("torch.cuda.get_rng_state", return_value=cuda_state) as get_rng:
+                    with patch("torch.cuda.set_rng_state") as set_rng:
+                        with pytest.raises(RuntimeError, match="synthetic eval failure"):
+                            trainer.evaluate()
+
+    get_rng.assert_called_once_with(1)
+    set_rng.assert_called_once_with(cuda_state, 1)
+    assert random.getstate() == python_state
+    assert np.array_equal(np.random.get_state()[1], numpy_state[1])
+    assert torch.equal(torch.random.get_rng_state(), torch_state)
 
 
 def test_shaft_trainer_evaluate_aggregates_final_loss_for_named_eval_datasets() -> None:

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import torch
 from PIL import Image
 
 from shaft.config import load_config
@@ -12,6 +13,7 @@ from shaft.data import (
     SFTDataset,
     ShaftCostAwareSampler,
     ShaftDatasetBundle,
+    ShaftDynamicBatchSampler,
     ShaftMMapCostPlanProvider,
     ShaftRowInvariantCostProvider,
     ShaftSampleCost,
@@ -58,6 +60,24 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
     assert fake_model.config.text_config.bos_token_id == 98
     assert fake_model.config.text_config.pad_token_id == 97
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
+
+
+def test_run_sft_initializes_seed_before_model_and_adapter_build(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.experiment.seed = 137
+    torch.manual_seed(config.experiment.seed + 1)
+
+    def build_seeded_artifacts(*args, **kwargs):
+        _ = args, kwargs
+        assert torch.initial_seed() == config.experiment.seed
+        return _build_fake_model_artifacts()
+
+    with patch(
+        "shaft.pipeline.sft.build_model_tokenizer_processor",
+        side_effect=build_seeded_artifacts,
+    ):
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            _ = run_sft(config)
 
 
 def test_run_sft_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
@@ -129,6 +149,119 @@ def test_run_sft_replaces_sample_sampler_with_cost_aware_plan(tmp_path: Path) ->
         isinstance(callback, ShaftBatchPlanningCallback)
         for callback in _FakeTrainer.last_kwargs["callbacks"]
     )
+
+
+def test_run_sft_wires_dynamic_cost_aware_batch_sampler(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.planning_window = 4
+    config.data.batching.max_samples_per_microbatch = 2
+    config.data.batching.max_padded_tokens = 8
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=ShaftRowInvariantCostProvider(
+                {
+                    ("ds", 0): ShaftSampleCost(
+                        llm_tokens=4,
+                        supervised_tokens=2,
+                        vision_patches=16,
+                        exact=True,
+                    )
+                },
+                fingerprint="pipeline-dynamic-cost-v1",
+            ),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_sft(config)
+
+    assert _FakeTrainer.last_kwargs["train_sampler"] is None
+    batch_sampler = _FakeTrainer.last_kwargs["train_batch_sampler"]
+    assert isinstance(batch_sampler, ShaftDynamicBatchSampler)
+    assert batch_sampler.planner.spec.target_samples == 1
+    assert batch_sampler.planner.spec.optimizer_step_count == 1
+    assert batch_sampler.signature.strategy == "dynamic_cost_aware"
+    assert isinstance(batch_sampler.planner.cost_provider, ShaftMMapCostPlanProvider)
+    assert batch_sampler.planner.cost_provider.closed is True
+    assert load_batch_planning_signature(config.experiment.output_dir) == (
+        batch_sampler.signature
+    )
+
+
+def test_run_sft_resolves_dynamic_token_target_sample_count(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.planning_window = 3
+    config.data.batching.max_samples_per_microbatch = 3
+    config.data.batching.max_padded_tokens = 12
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+    config.train.optimizer_batch.target_supervised_tokens = 3
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=ShaftRowInvariantCostProvider(
+                {
+                    ("ds", 0): ShaftSampleCost(
+                        llm_tokens=4,
+                        supervised_tokens=2,
+                        vision_patches=16,
+                        exact=True,
+                    )
+                },
+                fingerprint="pipeline-dynamic-token-target-v1",
+            ),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                _ = run_sft(config)
+
+    batch_sampler = _FakeTrainer.last_kwargs["train_batch_sampler"]
+    assert isinstance(batch_sampler, ShaftDynamicBatchSampler)
+    assert batch_sampler.planned_sample_count == 2
+    assert batch_sampler.planned_optimizer_batch_samples is None
+
+
+def test_dynamic_plan_preflight_rejects_oversize_before_trainer_and_publish(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.planning_window = 1
+    config.data.batching.max_samples_per_microbatch = 1
+    config.data.batching.max_padded_tokens = 3
+    config.data.batching.cost_plan_cache_dir = str(tmp_path / "cost-plans")
+
+    class _UnexpectedTrainer(_FakeTrainer):
+        def __init__(self, **kwargs):
+            _ = kwargs
+            raise AssertionError("trainer must not be built")
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
+        mocked_builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=ShaftRowInvariantCostProvider(
+                {
+                    ("ds", 0): ShaftSampleCost(
+                        llm_tokens=4,
+                        supervised_tokens=2,
+                        vision_patches=16,
+                        exact=True,
+                    )
+                },
+                fingerprint="pipeline-dynamic-oversize-v1",
+            ),
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _UnexpectedTrainer):
+                with pytest.raises(ValueError, match="oversize sample"):
+                    run_sft(config)
+
+    assert not cost_plan_reference_path(config.experiment.output_dir).exists()
+    assert not batch_planning_signature_path(config.experiment.output_dir).exists()
 
 
 def test_run_sft_closes_mmap_provider_when_trainer_raises(tmp_path: Path) -> None:

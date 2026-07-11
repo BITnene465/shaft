@@ -290,7 +290,7 @@ class ShaftRowInvariantCostProvider:
 
 
 class ShaftSFTSampleCostProvider:
-    """Exact Qwen-style SFT runtime estimator without image decode/processor execution.
+    """Exact policy-driven SFT runtime estimator without image decode/processor execution.
 
     Text/prompt transforms are resolved through `SFTDataset.get_planning_item`, so a
     logical draw uses the same prompt variant as the worker dataset. Image dimensions are
@@ -332,31 +332,21 @@ class ShaftSFTSampleCostProvider:
         self._image_sizes: OrderedDict[str, tuple[int, int]] = OrderedDict()
         self._manifest_image_sizes: dict[str, tuple[int, int]] = {}
         image_asset_manifest = self._build_image_asset_manifest()
-        image_processor = getattr(processor, "image_processor", None)
-        patch_estimator = getattr(image_processor, "get_number_of_image_patches", None)
-        patch_estimator_type = (
-            f"{type(image_processor).__module__}."
-            f"{type(image_processor).__qualname__}.get_number_of_image_patches"
-            if callable(patch_estimator)
-            else ""
+        processor_cost_semantics = model_adapter.processor_cost_semantics_signature(
+            processor=processor,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
         )
         fingerprint_payload = (
-            "shaft-sft-runtime-cost-v5",
+            "shaft-sft-runtime-cost-v6",
             sft_cost_planning_source_fingerprint(dataset),
             image_asset_manifest,
             str(getattr(model_adapter, "model_type", "")),
             str(getattr(model_adapter, "model_name_or_path", "")),
             str(getattr(model_adapter, "template_type", "")),
-            repr(getattr(model_adapter, "processor_policy", None)),
+            processor_cost_semantics,
             f"{type(processor).__module__}.{type(processor).__qualname__}",
-            f"{type(image_processor).__module__}.{type(image_processor).__qualname__}",
-            getattr(image_processor, "patch_size", None),
-            getattr(image_processor, "temporal_patch_size", None),
-            getattr(image_processor, "merge_size", None),
-            repr(getattr(image_processor, "size", None)),
             str(transformers_version),
-            "hf-get-number-of-image-patches-v1",
-            patch_estimator_type,
             repr(getattr(processor, "chat_template", None)),
             _tokenizer_artifact_fingerprint(tokenizer),
             f"{type(template).__module__}.{type(template).__qualname__}",
