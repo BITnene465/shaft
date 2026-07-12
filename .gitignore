@@ -42,15 +42,26 @@ docs/notes*.md
 
 configs/data/*.yaml
 !configs/data/example.yaml
+!configs/data/banana_v5_0_re.yaml
+!configs/data/banana_v5_0_re2.yaml
+!configs/data/banana_v5_1.yaml
 configs/prompts/*.yaml
 configs/prompts/**/*.yaml
 !configs/prompts/example.yaml
+!configs/prompts/pools/grounding_layout.v5.0.yaml
+!configs/prompts/pools/shape_reconstruction.v5.0.yaml
+!configs/prompts/pools/line_reconstruction.v5.0.yaml
+!configs/prompts/pools/image_reconstruction.v5.0.yaml
+!configs/prompts/pools/background.v5.0.yaml
 configs/train/*.yaml
 !configs/train/sft_4b.yaml
 !configs/train/dpo_4b.yaml
 !configs/train/ppo_4b.yaml
 !configs/train/grpo_4b.yaml
 !configs/train/qwen36_sft_27b_fsdp_example.yaml
+!configs/train/banana_sft_4b_v5_0_re.yaml
+!configs/train/banana_sft_4b_v5_0_re2.yaml
+!configs/train/banana_sft_4b_v5_1.yaml
 experimental/
 /scripts/acc_exp/
 /deployment/

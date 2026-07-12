@@ -8,8 +8,8 @@ The maintained v5.0 model-task taxonomy is:
 - `grounding_layout`: full-image detection over model-facing labels `shape`, `icon`, `image`,
   and `line`. Raw `arrow` and raw `line` instances are both normalized to `label: "line"` in this
   unified detection target.
-- `point_line`: line crop/point prediction. This task must consume only line/arrow instances with
-  a valid raw `linestrip`.
+- `point_line`: simplified line reconstruction over line crops. This task must consume only
+  line/arrow instances with a valid raw `linestrip`, including multi-segment `linestrip` values.
 
 Raw annotation layers such as `layout` and `arrow` are schema concepts, not separate train/eval
 task families.
@@ -30,26 +30,61 @@ task families.
   `grounding_arrow`, standalone `grounding_line`, `grounding_shape`, and `grounding_icon_image`
   outputs should not be used for new v5.0 training.
 - Current v5.0 SFT conversion emits `grounding_layout` targets as Qwen-style object arrays with
-  `bbox_2d` and `label`, not grouped label arrays. `point_line` targets use
-  `{"label":"line","points_2d":[...]}`.
+  `bbox_2d` and `label`, not grouped label arrays. `point_line` targets use the simplified
+  line reconstruction object:
+  `{"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}`.
 - Current v5.0 crop reconstruction targets such as `shape_reconstruction` and
   `line_reconstruction` must also use Qwen-style integer `0..999` coordinates inside the crop for
   all model-facing geometry fields, including `corners`, `body_corners`, `body_bbox`,
   `tail.points`, and line `points`. Do not leave target geometry as crop-local pixels; variable
   crop sizes make that harder for the model to learn and inconsistent with Qwen grounding
   pretraining.
-- `grounding_layout` SFT canonical order is visual row-major across all labels:
-  `row_bucket(y_center) -> x1 -> y1 -> y2 -> x2 -> label`. Do not group by label and do not force
-  `line` to the end; doing so makes truncation label-biased and reintroduces grouped-output
-  behavior.
-- `point_line` SFT canonical order preserves the source `linestrip` point order. Directionless
-  line metric policy can be revisited later, but the training target should not reorder points
-  unless raw/source semantics are changed together.
-- Grounding structured rows should reference task-local images, not raw-data image paths. Each
-  covered train source contributes one clean `full_image` row. JPEG blur plus resize blur are a
-  bounded additional `full_image_blur` subset, defaulting to at most half of covered train
-  sources. Density crops are also bounded and should not exceed half of covered train sources
-  unless explicitly requested.
+- Rebuild synthetic shape/line reconstruction data with
+  `scripts/tasks/build_reconstruction_from_gt_standard.py`. Sampling is deterministic. The current
+  on-disk v5.0-re `balanced_v2` snapshot keeps all ten non-head shape types, stratifies the
+  remaining head budget, and also contains 10,000 icon plus 10,000 image crops labeled as
+  `shape_type=other`. Post-training review showed that these cross-label negatives violate the
+  routed task contract and encourage excessive `other`; treat that profile as historical and do
+  not repeat its visual-object negatives. The next shape rebuild must sample only source
+  `label=shape`, with `other` reserved for genuine shape instances outside the current DSL, and
+  must record the resulting shape-only type distribution. `balanced_v1` is the earlier profile
+  without visual-object negatives, but its head quotas still require explicit review before reuse.
+  Line sampling keeps
+  every curved shape-style instance and stratifies the remaining budget across curved path,
+  straight shape-style, multi-segment path, and common straight path rows. Optional multi-scale
+  generation uses 70% tight, 25% medium, and 5% context padding, with bounded low-resolution
+  downsampling recorded in `extra.structured_extra.augmentation`. This changes training views,
+  not the compact target DSL.
+- Build the reviewed real-image `background` task with
+  `scripts/tasks/build_background_sft.py`. It uses one clean full-image row per reviewed annotation,
+  excludes existing `*.test.json` manifest IDs from train, and materializes task-local images with
+  hardlinks when possible. The derived target is only `{"background":true|false}`; the reviewed
+  source JSONL remains the truth for levels, reasons, and audit provenance.
+- Build real `image_reconstruction` crops with
+  `scripts/tasks/build_image_reconstruction_sft.py`. The maintained profile keeps only
+  `parameters.image_type`, excludes existing test-manifest images, and constrains each of the 13
+  classes to a configurable count band. Head classes are deterministically capped; classes below
+  the floor receive deterministic additional padding views of the same reviewed instance. The
+  default view distribution is 70% tight, 25% medium, and 5% context.
+- Use `shaft.codec.coordinates` for every pixel <-> Qwen `0..999` conversion in derived data,
+  eval parsing, and visualization. Do not reintroduce local `/1000 * width` or `int()` truncation
+  conversions.
+- Current `grounding_layout` SFT canonical order is visual row-major across all labels:
+  `row_bucket(y1, 20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`. The `-area` tie-break is weak:
+  it is applied only after row, left edge, and top edge so likely container boxes precede smaller
+  inner boxes without letting large areas dominate global reading order. Do not group by label and
+  do not force `line` to the end; doing so makes truncation label-biased and reintroduces
+  grouped-output behavior. The 2026-07-09 GT analysis that motivated this order is tracked under
+  `notes/canonical_order/`.
+- `point_line` SFT canonical order preserves the source `linestrip` segment order and each
+  segment's point order. Directionless line metric policy can be revisited later, but the
+  training target should not reorder points unless raw/source semantics are changed together.
+- Grounding structured rows should reference task-local images, not raw-data image paths. The
+  maintained default `grounding_layout` train augmentation policy is:
+  `clean full_image = 1.0x`, `density_crop ~= 0.3x` with a small minority of negative samples,
+  `blur_full + blur_crop = 1.0x` using light-to-moderate Gaussian blur / resize blur /
+  JPEG compression, and `random_padded_full = 0.2x` applied only to clean full-image rows.
+  Validation and VLM test rows remain clean full-image only.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced

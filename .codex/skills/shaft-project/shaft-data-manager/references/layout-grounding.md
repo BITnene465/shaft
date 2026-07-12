@@ -28,11 +28,16 @@ task.
   data. For GT-based structured/eval data, resolve image-level split items to raw-relative JSON
   paths such as `json/gemini_0001.json` only when the JSON exists.
 - Validation uses full-image only.
-- Train keeps full images and may add random image-relative density crops plus controlled hard
-  negatives.
+- Train keeps one clean full-image row for every covered source image.
+- Default train augmentation for `grounding_layout` is:
+  - `density_crop`: about `0.3x`, including only a small minority of negative samples.
+  - `blur_full + blur_crop`: `1.0x`, using light-to-moderate Gaussian blur, resize blur, or
+    JPEG compression.
+  - `random_padded_full`: `0.2x`, applied only to clean full-image rows.
 - Do not use fixed crop-size grids as the default. Crop size should depend on source image size
   and sampled local density.
-- Light JPEG/resize blur can be applied to train full/crop rows without creating extra rows.
+- Do not apply crop, blur, padding, or hard negatives to validation/test rows unless explicitly
+  requested.
 
 ## Structured Row
 

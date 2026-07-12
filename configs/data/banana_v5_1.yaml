@@ -1,0 +1,63 @@
+# Banana v5.1 SFT dataset catalog.
+#
+# Fresh full-model training mix from the Qwen3-VL-4B-Instruct base model.
+# Shape reconstruction uses the promoted filtered sft view:
+# - no icon/image-as-other cross-label negatives
+# - shape-only other reduced from 20096 to 10000 rows
+#
+# Per-sample probability plan with train config `mix_strategy: weighted`:
+# - grounding_layout:       8 (42.11%)
+# - shape_reconstruction:   5 (26.32%)
+# - line_reconstruction:    4 (21.05%)
+# - image_reconstruction:   1 (5.26%)
+# - background:             1 (5.26%)
+datasets:
+  grounding_layout:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout/sft/train.jsonl
+    val_path: ../../data/grounding_layout/sft/val.jsonl
+    weight: 8.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / unified layout grounding retention replay
+    tags: [banana, v5.1, grounding, layout, shape, icon, image, line, real, sft]
+
+  shape_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/shape_reconstruction/sft/train.jsonl
+    val_path: ../../data/shape_reconstruction/sft/val.jsonl
+    weight: 5.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / shape-only filtered synthetic reconstruction SFT
+    tags: [banana, v5.1, shape, reconstruction, synthetic, gt_standard, filtered, sft]
+
+  line_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/line_reconstruction/sft/train.jsonl
+    val_path: ../../data/line_reconstruction/sft/val.jsonl
+    weight: 4.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / synthetic gt_standard line reconstruction crop SFT
+    tags: [banana, v5.1, line, reconstruction, synthetic, gt_standard, sft]
+
+  image_reconstruction:
+    source_type: jsonl_sft
+    train_path: ../../data/image_reconstruction/sft/train.jsonl
+    val_path: ../../data/image_reconstruction/sft/val.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / reviewed image-type reconstruction crop SFT
+    tags: [banana, v5.1, image, reconstruction, real, reviewed, sft]
+
+  background:
+    source_type: jsonl_sft
+    train_path: ../../data/background/sft/train.jsonl
+    val_path: ../../data/background/sft/val.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / reviewed full-image background classification SFT
+    tags: [banana, v5.1, background, reconstruction, real, reviewed, sft]

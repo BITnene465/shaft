@@ -23,29 +23,23 @@ Never train on clipped partial GT boxes.
 ## Train Views
 
 - `full_image`
-- `full_image_blur` as a bounded additional subset of full-image train rows
+- `random_padded_full` as a small subset of clean full-image train rows
 - `density_crop`
+- `blur_full` and `blur_crop` as bounded robustness rows
 - controlled `hard_negative_crop`
 - local task-owned image copies for every row
 
 Validation remains full-image only. Do not apply crop, hard negative, JPEG, blur, or resize
 degradation to validation.
 
-## Maintained Grounding Subtasks
+## Maintained Grounding Task
 
-Generate structured data independently for these detection subtasks:
+For v5.0 and later, new detection training should use the unified `grounding_layout` task.
+It emits model-facing labels `shape`, `icon`, `image`, and `line`; raw `arrow` and raw `line`
+instances are both normalized to `line`.
 
-| dataset | target labels | required raw coverage |
-| --- | --- | --- |
-| `grounding_arrow` | `arrow` | `arrow` |
-| `grounding_layout` | `icon`, `image`, `shape` | `layout` |
-| `grounding_shape` | `shape` | `layout` |
-| `grounding_icon_image` | `icon`, `image` | `layout` |
-
-Use `data/raw_data/splits/grounding_train.txt` and `grounding_val.txt` as the split source.
-Filter by required raw coverage before deriving each subtask. For example, `part1` arrow-only
-samples are valid for `grounding_arrow`, but must not become layout, shape, icon/image, or
-other grounding negatives.
+Use the current raw split manifest, especially `data/raw/splits/vlm.test.json`, as the train
+exclusion source. Do not derive train rows from VLM test items.
 
 ## Maintained Generator
 
@@ -62,18 +56,21 @@ the command line in run notes or the generated README, but keep this skill focus
 
 ## Density Crop Selection
 
-For each grounding subtask, train augmentation should prefer high-density local regions instead
-of mechanically cropping every image:
+For `grounding_layout`, train augmentation should prefer high-density local regions instead of
+mechanically cropping every image:
 
 - Keep the full-image row for every train sample.
 - Do not reference raw images directly from structured rows. Copy or render every row image under
-  the task dataset directory, for example `data/grounding_arrow/images/train/`.
+  the task dataset directory, for example `data/grounding_layout/images/train/`.
 - For train, each covered source image contributes one clean `full_image` row.
-- A deterministic subset of covered train sources additionally contributes one degraded
-  `full_image_blur` row. Blur is bounded augmentation, not a replacement for high-quality full
-  rows.
-- Keep positive crop volume controlled by task so local views do not dominate full-image rows.
-- Keep total `density_crop` rows capped, defaulting to at most half of covered clean full rows.
+- Add `density_crop` rows at about `0.3x` of the clean full-image source count by default.
+  Density crops are useful for dense regions and small objects, but they are not a perfect match
+  for the full-image business standard and should remain limited.
+- Include a small controlled number of negative crop samples inside the density-crop budget.
+  Negative samples should remain a minority and should not dominate positive local views.
+- Generate hard negatives only from clean raw sources whose GT is complete for the task. A hard
+  negative is a crop with no full GT and no partial GT overlap; do not use partially annotated
+  raw JSON as a source for negative sampling.
 - Candidate crops should be random but density-biased, not fixed-size tiles. Sample crop width
   and height from image-relative ranges so the view scale follows the source image size. Use a
   wider crop-ratio range for large images and reject crops that are effectively full-image
@@ -92,26 +89,37 @@ of mechanically cropping every image:
 - Deduplicate selected crops by high overlap and identical contained instance sets.
 - Validation remains full-image only.
 
-## Full-Image Blur Rows
+## Blur Rows
 
-Grounding may use light pixel degradation as an additional train full-image subset. Do not replace
-clean full-image rows with blur rows.
+Grounding uses bounded light-to-moderate pixel degradation as additional train robustness rows.
+Do not replace clean full-image rows or clean crop rows with blur rows.
 
-- Apply only to train full-image blur rows.
-- Do not apply to density crops or hard negatives by default.
+- Apply only to train rows.
 - Do not apply to validation.
-- Use exactly one degradation per full-image blur row.
-- `jpeg_blur`: lightly round-trip through JPEG.
-- `resize_blur`: for high-resolution views only, downscale and resize back to the original view
-  size.
-- JPEG blur plus resize blur row counts should be at most half of the full-image source count by
-  default. Within blur rows, sample resize blur only when the source view is high resolution;
-  otherwise use JPEG blur.
-- Keep resize blur as a minority/high-resolution-specific degradation; non-high-resolution views
-  should fall back to JPEG-style blur.
+- Use exactly one degradation per blur row.
+- `gaussian_blur`: light-to-moderate Gaussian blur.
+- `resize_blur`: downscale and resize back to the original view size.
+- `jpeg_compression`: light-to-moderate JPEG round-trip compression.
+- The combined `blur_full + blur_crop` row count should default to `1.0x` of the clean full-image
+  source count.
+- Sample blur rows from both full-image and density-crop views. Keep the source view dimensions
+  unchanged after degradation so coordinates remain unchanged.
+- Keep degradation strength light to moderate. Do not use severe corruption as the default
+  grounding robustness policy.
 
 Record the selected degradation in structured row `extra.pixel_augmentation`. Keep coordinates
 unchanged because the output view dimensions stay unchanged.
+
+## Random Padded Full
+
+Random full-image padding is a small zoom-out augmentation, not the detection backbone.
+
+- Default row count is `0.2x` of the clean full-image source count.
+- Apply only to clean full-image train rows.
+- Do not apply to density crops, blur rows, hard negatives, validation, or test rows.
+- Sample padding ratios from `0.1` to `0.2` per side unless the task explicitly overrides this.
+- Transform `bbox` coordinates by exact padding offsets and clamp to the new padded canvas.
+- Record the padding settings in structured row `extra.spatial_augmentation`.
 
 ## Density Crop
 
@@ -123,11 +131,15 @@ unchanged because the output view dimensions stay unchanged.
 ## Hard Negatives
 
 - Use only clean empty windows with no full GT and no partial overlap.
-- Keep empty ratio controlled and small relative to positive/full rows. The maintained default
-  hard-negative sampling target is `0.008` of `full + positive crop` rows.
+- Keep empty ratio controlled and small relative to positive/full rows. For `grounding_layout`,
+  hard negatives are included as a minority part of the `density_crop` budget rather than a large
+  independent augmentation family.
 - Do not augment hard negatives with blur by default.
 - Hard negative candidates should use the same image-relative crop philosophy as positive crops,
   then be sampled down after candidates are generated.
+- Hard negative correctness depends on raw annotation completeness. If an annotation source is
+  partial, remove it from the training raw/split rather than adding visual heuristics to the
+  negative sampler.
 
 ## Deduplication
 
@@ -148,9 +160,11 @@ After a grounding rebuild, check:
 - Number of files in `images/train` equals `structured/train.jsonl` rows.
 - Number of files in `images/val` equals `structured/val.jsonl` rows.
 - Train `full_image` row count equals the covered train source count.
-- Train `full_image_blur` row count is no more than half of covered train sources unless the user
-  explicitly asks for a stress dataset.
-- Train `density_crop` row count is no more than half of covered train sources unless the user
-  explicitly asks for a crop-heavy stress dataset.
+- Train `density_crop` row count is about `0.3x` of covered train sources by default, with hard
+  negatives only as a small minority inside that budget.
+- Train `blur_full + blur_crop` row count is approximately `1.0x` of covered train sources by
+  default.
+- Train `random_padded_full` row count is approximately `0.2x` of covered train sources by
+  default.
 - Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
 - All bboxes are positive-area and inside the row image dimensions.

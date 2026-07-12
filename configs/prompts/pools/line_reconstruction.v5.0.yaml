@@ -1,0 +1,106 @@
+metadata:
+  id: shaft.line_reconstruction.prompt_pool.v5.0
+  version: v5.0
+  name: line reconstruction prompt pool
+  task: line_reconstruction
+  subtask: line_reconstruction
+  target_labels: [line]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Reconstruct the primary visible line or arrow.
+      Return exactly one JSON object with type "line" and parameters only.
+
+      Base object:
+      {"type":"line","parameters":{"line_type":"straight|curved","line_style":"path|shape","is_single":true|false,"points":[[[x1,y1],[x2,y2],...]],"begin_arrow":"none|line|stealth|triangle|pointy|tee|circle","end_arrow":"none|line|stealth|triangle|pointy|tee|circle","dash_style":"solid|dash","fill_color":"#RRGGBB"}}
+
+      Required fields:
+      - line_type: straight for straight segments or polylines, curved for curved lines.
+      - line_style: path for stroke-like lines/connectors, shape for filled arrow shapes.
+      - is_single: true for one independent segment, false for branched or multi-segment lines.
+      - points: an array of path segments under this one line bbox. Each segment is an array of
+        representative points on the visible center path, in visible path order.
+      - begin_arrow and end_arrow: none, line, stealth, triangle, pointy, tee, or circle.
+      - dash_style: solid or dash.
+      - fill_color: the line/arrow interior or stroke color, as "#RRGGBB"; use
+        ["#RRGGBB","#RRGGBB"] when gt_standard represents a two-color filled shape arrow.
+
+      Conditional fields:
+      - corner_style: "sharp" or "round" when a straight path has visible corners.
+      - For line_style "shape", include has_border true|false.
+      - If has_border is true, include border_style "solid|dash" and border_color "#RRGGBB".
+
+      Point rules:
+      - Coordinates are integer 0-999 normalized crop coordinates.
+      - Straight single line: points is [[[start_x,start_y],[end_x,end_y]]].
+      - Polyline segment: one segment has start, bend points, and end.
+      - Branched or forked line: points contains multiple segments inside the same bbox.
+      - Rounded polyline: replace each corner point with one point on the rounded corner.
+      - Curved segment: each segment has exactly four points: start, two interior points on the
+        curve, and end.
+
+  - id: visible_object
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid JSON only. No markdown or extra text.
+    user_prompt: |
+      Describe the visible connector, separator, line, or arrow for reconstruction.
+      Output one object:
+      {"type":"line","parameters":{"line_type":"straight|curved","line_style":"path|shape","is_single":true|false,"points":[[[x1,y1],[x2,y2],...]],"begin_arrow":"none|line|stealth|triangle|pointy|tee|circle","end_arrow":"none|line|stealth|triangle|pointy|tee|circle","dash_style":"solid|dash","fill_color":"#RRGGBB"}}
+      Use path for stroke-like lines and connectors. Use shape for filled arrow bodies.
+      Keep all branches or forks in one object by outputting multiple point segments in points.
+      Use tee for inhibition/T-bar endpoints and circle for circular endpoint markers.
+      fill_color may be one "#RRGGBB" string or ["#RRGGBB","#RRGGBB"] for two-color
+      filled shape arrows.
+      Add corner_style only when corners exist. Add shape-border fields only for line_style "shape".
+      Coordinates are integer 0-999 normalized crop coordinates.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only.
+    user_prompt: |
+      Return this line reconstruction schema:
+      {"type":"line","parameters":{"line_type":"straight|curved","line_style":"path|shape","is_single":true|false,"points":[[[x1,y1],[x2,y2],...]],"begin_arrow":"none|line|stealth|triangle|pointy|tee|circle","end_arrow":"none|line|stealth|triangle|pointy|tee|circle","dash_style":"solid|dash","fill_color":"#RRGGBB"}}
+
+      Optional fields: corner_style for polyline corners; has_border, border_style, and border_color
+      for bordered shape arrows.
+      Points is a list of path segments. Points must lie on the visible center path. Curved
+      segments use exactly four points.
+      Coordinates are integer 0-999 normalized crop coordinates.
+      fill_color may be one hex string or a two-color hex array.
+
+  - id: attribute_extraction
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not add explanations.
+    user_prompt: |
+      Extract line attributes into:
+      {"type":"line","parameters":{...}}
+
+      Use fields line_type, line_style, is_single, points, begin_arrow, end_arrow, dash_style,
+      and fill_color. points is a list of one or more center-path segments.
+      Arrow endpoint values: none, line, stealth, triangle, pointy, tee, circle.
+      fill_color may be one hex string or a two-color hex array.
+      For path polylines, include corner_style when visible.
+      For shape arrows, include has_border, and include border_style plus border_color only when
+      has_border is true.
+      Coordinates are integer 0-999 normalized crop coordinates.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt: |
+      Line reconstruction. Return exactly:
+      {"type":"line","parameters":{...}}
+      Required parameters: line_type, line_style, is_single, points, begin_arrow, end_arrow,
+      dash_style, fill_color. points is a list of path segments, matching gt_standard. Use tee
+      for T-bar endpoints and circle for round endpoint markers.
+      fill_color may be one hex string or a two-color hex array.
+      Coordinates are integer 0-999 normalized crop coordinates.

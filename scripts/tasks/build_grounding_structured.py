@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
@@ -42,7 +42,7 @@ TASKS: tuple[GroundingTaskSpec, ...] = (
     GroundingTaskSpec(
         name="grounding_layout",
         labels=("icon", "image", "shape", "line"),
-        required_layers=("layout", "arrow"),
+        required_layers=(),
         max_positive_crops=2,
         min_positive_instances=4,
         source_label_map=(
@@ -84,7 +84,10 @@ class BuildConfig:
     negative_candidate_count: int
     negative_ratio: float
     density_crop_ratio: float
-    full_blur_ratio: float
+    blur_ratio: float
+    padded_full_ratio: float
+    padding_min_ratio: float
+    padding_max_ratio: float
 
 
 @dataclass(frozen=True)
@@ -104,8 +107,10 @@ class CandidateCrop:
 @dataclass(frozen=True)
 class SourceResult:
     full_rows: list[dict[str, Any]]
+    padded_rows: list[dict[str, Any]]
     positive_rows: list[dict[str, Any]]
     negative_rows: list[dict[str, Any]]
+    blur_rows: list[dict[str, Any]]
     covered: bool
     source_json: str
     target_count: int
@@ -192,6 +197,12 @@ def _find_image_path(raw_root: Path, raw_record: dict[str, Any], json_rel: str) 
             return candidate
 
     json_path = Path(json_rel)
+    unified_image_dir = raw_root / "images"
+    for suffix in IMAGE_SUFFIXES:
+        candidate = unified_image_dir / f"{json_path.stem}{suffix}"
+        if candidate.exists():
+            return candidate
+
     image_dir = raw_root / json_path.parts[0] / "images"
     for suffix in IMAGE_SUFFIXES:
         candidate = image_dir / f"{json_path.stem}{suffix}"
@@ -253,6 +264,8 @@ def _extract_instances(
 
 def _has_required_coverage(raw_record: dict[str, Any], required_layers: tuple[str, ...]) -> bool:
     annotation = raw_record.get("annotation") or {}
+    if "layers" not in annotation:
+        return True
     layers = set(annotation.get("layers") or [])
     return set(required_layers).issubset(layers)
 
@@ -270,6 +283,38 @@ def _bbox_intersects(
     x1, y1, x2, y2 = bbox
     left, top, right, bottom = crop
     return min(x2, right) > max(x1, left) and min(y2, bottom) > max(y1, top)
+
+
+def _expand_crop_to_avoid_partials(
+    crop: tuple[int, int, int, int],
+    instances: list[SourceInstance],
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = crop
+    for _ in range(8):
+        changed = False
+        for instance in instances:
+            if not _bbox_intersects(instance.bbox, (left, top, right, bottom)):
+                continue
+            if _bbox_inside(instance.bbox, (left, top, right, bottom)):
+                continue
+            x1, y1, x2, y2 = instance.bbox
+            new_left = max(0, min(left, int(math.floor(x1))))
+            new_top = max(0, min(top, int(math.floor(y1))))
+            new_right = min(image_width, max(right, int(math.ceil(x2))))
+            new_bottom = min(image_height, max(bottom, int(math.ceil(y2))))
+            changed = changed or (new_left, new_top, new_right, new_bottom) != (
+                left,
+                top,
+                right,
+                bottom,
+            )
+            left, top, right, bottom = new_left, new_top, new_right, new_bottom
+        if not changed:
+            break
+    return left, top, right, bottom
 
 
 def _crop_iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
@@ -321,6 +366,12 @@ def _evaluate_positive_crop(
     image_width: int,
     image_height: int,
 ) -> CandidateCrop | None:
+    crop = _expand_crop_to_avoid_partials(
+        crop,
+        instances,
+        image_width=image_width,
+        image_height=image_height,
+    )
     crop_area_ratio = ((crop[2] - crop[0]) * (crop[3] - crop[1])) / float(
         image_width * image_height
     )
@@ -448,48 +499,103 @@ def _full_instances(instances: list[SourceInstance]) -> list[dict[str, Any]]:
     return result
 
 
+def _offset_full_instances(
+    instances: list[SourceInstance],
+    *,
+    offset_x: int,
+    offset_y: int,
+) -> list[dict[str, Any]]:
+    result = [
+        {
+            "label": instance.label,
+            "bbox": [
+                instance.bbox[0] + offset_x,
+                instance.bbox[1] + offset_y,
+                instance.bbox[2] + offset_x,
+                instance.bbox[3] + offset_y,
+            ],
+        }
+        for instance in instances
+    ]
+    result.sort(key=lambda item: (item["bbox"][1], item["bbox"][0], item["label"]))
+    return result
+
+
 def _resampling(name: str) -> int:
     resampling = getattr(Image, "Resampling", Image)
     return getattr(resampling, name)
 
 
-def _choose_full_blur_augmentation(
+def _choose_blur_augmentation(
     rng: random.Random,
     *,
     image_width: int,
     image_height: int,
 ) -> dict[str, Any]:
     high_resolution = max(image_width, image_height) >= 1500
-    if high_resolution and rng.random() < 0.5:
+    choices = ["gaussian_blur", "jpeg_compression"]
+    if high_resolution:
+        choices.append("resize_blur")
+    name = rng.choice(choices)
+    if name == "gaussian_blur":
+        return {
+            "name": "gaussian_blur",
+            "radius": round(rng.uniform(0.35, 1.25), 3),
+        }
+    if name == "resize_blur":
         return {
             "name": "resize_blur",
-            "scale_down_ratio": rng.uniform(0.5, 0.85),
+            "scale_down_ratio": round(rng.uniform(0.45, 0.8), 3),
         }
     return {
-        "name": "jpeg_blur",
-        "jpeg_quality": rng.randint(75, 95),
+        "name": "jpeg_compression",
+        "jpeg_quality": rng.randint(60, 88),
     }
 
 
-def _use_full_blur_augmentation(
+def _make_padded_full_image(
+    image: Image.Image,
     rng: random.Random,
     *,
-    split: str,
-    ratio: float,
-) -> bool:
-    del rng
-    if split != "train" or ratio <= 0:
-        return False
-    return True
+    min_ratio: float,
+    max_ratio: float,
+) -> tuple[Image.Image, dict[str, Any], tuple[int, int, int, int]]:
+    width, height = image.size
+    pads = {
+        "left": int(round(width * rng.uniform(min_ratio, max_ratio))),
+        "right": int(round(width * rng.uniform(min_ratio, max_ratio))),
+        "top": int(round(height * rng.uniform(min_ratio, max_ratio))),
+        "bottom": int(round(height * rng.uniform(min_ratio, max_ratio))),
+    }
+    padded = Image.new(
+        "RGB",
+        (width + pads["left"] + pads["right"], height + pads["top"] + pads["bottom"]),
+        (255, 255, 255),
+    )
+    padded.paste(image, (pads["left"], pads["top"]))
+    augmentation = {
+        "name": "random_padded_full",
+        "padding_ratio_range": [min_ratio, max_ratio],
+        "padding": pads,
+    }
+    content_box = (
+        pads["left"],
+        pads["top"],
+        pads["left"] + width,
+        pads["top"] + height,
+    )
+    return padded, augmentation, content_box
 
 
 def _apply_pixel_augmentation(image: Image.Image, augmentation: dict[str, Any]) -> Image.Image:
     name = augmentation.get("name")
-    if name == "jpeg_blur":
+    if name in {"jpeg_blur", "jpeg_compression"}:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=int(augmentation["jpeg_quality"]))
         buffer.seek(0)
         return Image.open(buffer).convert("RGB")
+    if name == "gaussian_blur":
+        return image.filter(ImageFilter.GaussianBlur(radius=float(augmentation["radius"])))
     if name == "resize_blur":
         ratio = float(augmentation["scale_down_ratio"])
         width, height = image.size
@@ -529,6 +635,7 @@ def _build_row(
     crop_box: tuple[int, int, int, int],
     source_instance_indices: list[int],
     pixel_augmentation: dict[str, Any],
+    spatial_augmentation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "sample_id": sample_id,
@@ -549,6 +656,7 @@ def _build_row(
             "crop_box": list(crop_box),
             "source_instance_indices": source_instance_indices,
             "pixel_augmentation": pixel_augmentation,
+            "spatial_augmentation": spatial_augmentation or {"name": "none"},
         },
     }
 
@@ -557,7 +665,7 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     json_rel, spec, config = args
     raw_record = _load_json(config.raw_root / json_rel)
     if not _has_required_coverage(raw_record, spec.required_layers):
-        return SourceResult([], [], [], False, json_rel, 0)
+        return SourceResult([], [], [], [], [], False, json_rel, 0)
 
     image_path = _find_image_path(config.raw_root, raw_record, json_rel)
     image = Image.open(image_path).convert("RGB")
@@ -572,6 +680,8 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     rng = random.Random(f"{config.seed}:{config.task_name}:{config.split}:{json_rel}")
 
     full_rows: list[dict[str, Any]] = []
+    padded_rows: list[dict[str, Any]] = []
+    blur_rows: list[dict[str, Any]] = []
     full_aug = {"name": "none"}
     full_output_name = f"{rel_id}__full.png"
     full_output_path = config.image_output_dir / full_output_name
@@ -594,35 +704,67 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
             pixel_augmentation=full_aug,
         )
     )
-    if _use_full_blur_augmentation(
-        rng,
-        split=config.split,
-        ratio=config.full_blur_ratio,
-    ):
-        blur_aug = _choose_full_blur_augmentation(
+
+    if config.split == "train":
+        padded_image, spatial_aug, content_box = _make_padded_full_image(
+            image,
+            rng,
+            min_ratio=config.padding_min_ratio,
+            max_ratio=config.padding_max_ratio,
+        )
+        padded_width, padded_height = padded_image.size
+        padded_output_name = f"{rel_id}__padded_full.png"
+        padded_output_path = config.image_output_dir / padded_output_name
+        _save_generated_image(padded_image, padded_output_path, {"name": "none"})
+        padded_image.close()
+        padded_rows.append(
+            _build_row(
+                task_name=spec.name,
+                split=config.split,
+                sample_id=f"{rel_id}__padded_full",
+                image_path=f"../images/{config.split}/{padded_output_name}",
+                image_width=padded_width,
+                image_height=padded_height,
+                instances=_offset_full_instances(
+                    instances,
+                    offset_x=content_box[0],
+                    offset_y=content_box[1],
+                ),
+                raw_record=raw_record,
+                json_rel=json_rel,
+                target_labels=spec.labels,
+                view_type="random_padded_full",
+                crop_box=content_box,
+                source_instance_indices=[instance.index for instance in instances],
+                pixel_augmentation={"name": "none"},
+                spatial_augmentation=spatial_aug,
+            )
+        )
+
+        full_blur_aug = _choose_blur_augmentation(
             rng,
             image_width=image_width,
             image_height=image_height,
         )
-        blur_output_name = f"{rel_id}__full_blur.png"
-        blur_output_path = config.image_output_dir / blur_output_name
-        _save_generated_image(image, blur_output_path, blur_aug)
-        full_rows.append(
+        full_blur_output_name = f"{rel_id}__blur_full.png"
+        full_blur_output_path = config.image_output_dir / full_blur_output_name
+        _save_generated_image(image, full_blur_output_path, full_blur_aug)
+        blur_rows.append(
             _build_row(
                 task_name=spec.name,
                 split=config.split,
-                sample_id=f"{rel_id}__full_blur",
-                image_path=f"../images/{config.split}/{blur_output_name}",
+                sample_id=f"{rel_id}__blur_full",
+                image_path=f"../images/{config.split}/{full_blur_output_name}",
                 image_width=image_width,
                 image_height=image_height,
                 instances=_full_instances(instances),
                 raw_record=raw_record,
                 json_rel=json_rel,
                 target_labels=spec.labels,
-                view_type="full_image_blur",
+                view_type="blur_full",
                 crop_box=(0, 0, image_width, image_height),
                 source_instance_indices=[instance.index for instance in instances],
-                pixel_augmentation=blur_aug,
+                pixel_augmentation=full_blur_aug,
             )
         )
 
@@ -646,7 +788,6 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
             output_name = f"{rel_id}__density_{crop_index:02d}.png"
             output_path = config.image_output_dir / output_name
             _save_generated_image(crop_image, output_path, crop_aug)
-            crop_image.close()
             positive_rows.append(
                 _build_row(
                     task_name=spec.name,
@@ -669,6 +810,37 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
                     pixel_augmentation=crop_aug,
                 )
             )
+            blur_aug = _choose_blur_augmentation(
+                rng,
+                image_width=crop_width,
+                image_height=crop_height,
+            )
+            blur_output_name = f"{rel_id}__blur_crop_{crop_index:02d}.png"
+            blur_output_path = config.image_output_dir / blur_output_name
+            _save_generated_image(crop_image, blur_output_path, blur_aug)
+            blur_rows.append(
+                _build_row(
+                    task_name=spec.name,
+                    split=config.split,
+                    sample_id=f"{rel_id}__blur_crop_{crop_index:02d}",
+                    image_path=f"../images/{config.split}/{blur_output_name}",
+                    image_width=crop_width,
+                    image_height=crop_height,
+                    instances=_translate_instances(
+                        instances,
+                        set(candidate.instance_indices),
+                        candidate.crop_box,
+                    ),
+                    raw_record=raw_record,
+                    json_rel=json_rel,
+                    target_labels=spec.labels,
+                    view_type="blur_crop",
+                    crop_box=candidate.crop_box,
+                    source_instance_indices=list(candidate.instance_indices),
+                    pixel_augmentation=blur_aug,
+                )
+            )
+            crop_image.close()
 
         negative_crop = _select_negative_crop(
             instances,
@@ -707,8 +879,10 @@ def _process_source(args: tuple[str, GroundingTaskSpec, BuildConfig]) -> SourceR
     image.close()
     return SourceResult(
         full_rows=full_rows,
+        padded_rows=padded_rows,
         positive_rows=positive_rows,
         negative_rows=negative_rows,
+        blur_rows=blur_rows,
         covered=True,
         source_json=json_rel,
         target_count=len(instances),
@@ -758,33 +932,27 @@ def _select_positive_rows(
     )
 
 
-def _select_full_rows(
+def _select_ratio_rows(
     rows: list[dict[str, Any]],
     *,
     base_count: int,
-    blur_ratio: float,
+    ratio: float,
+    seed: int,
+    namespace: str,
 ) -> list[dict[str, Any]]:
-    clean_rows: list[dict[str, Any]] = []
-    blur_rows: list[dict[str, Any]] = []
-    other_rows: list[dict[str, Any]] = []
-    for row in rows:
-        view_type = str((row.get("extra") or {}).get("view_type") or "")
-        if view_type == "full_image":
-            clean_rows.append(row)
-        elif view_type == "full_image_blur":
-            blur_rows.append(row)
-        else:
-            other_rows.append(row)
-
-    target_blur = min(len(blur_rows), int(round(base_count * blur_ratio)))
-    selected_blur = sorted(
-        blur_rows,
+    if not rows or ratio <= 0:
+        return []
+    target_count = min(len(rows), int(round(base_count * ratio)))
+    rng = random.Random(f"{seed}:{namespace}")
+    selected = list(rows)
+    rng.shuffle(selected)
+    return sorted(
+        selected[:target_count],
         key=lambda row: (
             str((row.get("extra") or {}).get("source_json") or ""),
             str(row.get("sample_id") or ""),
         ),
-    )[:target_blur]
-    return clean_rows + selected_blur + other_rows
+    )
 
 
 def _cleanup_unreferenced_images(rows: list[dict[str, Any]], image_dir: Path) -> int:
@@ -835,16 +1003,18 @@ def _write_readme(
     train_count_row = (
         f"| train | {covered_train} | {train_summary['rows']} | "
         f"{train_views.get('full_image', 0)} | "
-        f"{train_views.get('full_image_blur', 0)} | "
+        f"{train_views.get('random_padded_full', 0)} | "
         f"{train_views.get('density_crop', 0)} | "
+        f"{train_views.get('blur_full', 0) + train_views.get('blur_crop', 0)} | "
         f"{train_views.get('hard_negative_crop', 0)} | "
         f"{train_summary['empty_rows']} |"
     )
     val_count_row = (
         f"| val | {covered_val} | {val_summary['rows']} | "
         f"{val_views.get('full_image', 0)} | "
-        f"{val_views.get('full_image_blur', 0)} | "
+        f"{val_views.get('random_padded_full', 0)} | "
         f"{val_views.get('density_crop', 0)} | "
+        f"{val_views.get('blur_full', 0) + val_views.get('blur_crop', 0)} | "
         f"{val_views.get('hard_negative_crop', 0)} | "
         f"{val_summary['empty_rows']} |"
     )
@@ -854,7 +1024,7 @@ Generated from raw annotations for grounding detection.
 
 - Target labels: `{", ".join(spec.labels)}`
 - Source label map: `{json.dumps(dict(_source_label_map(spec)), ensure_ascii=False, sort_keys=True)}`
-- Required raw coverage: `{", ".join(spec.required_layers)}`
+- Required raw coverage: `{", ".join(spec.required_layers) if spec.required_layers else "none; mapped instances define coverage"}`
 - Train split source: `{args.train_split}`
 - Val split source: `{args.val_split}`
 - Workers: `{args.workers}`
@@ -863,18 +1033,24 @@ Generated from raw annotations for grounding detection.
 - Density crop global ratio cap: `{args.density_crop_ratio}`
 - Max positive crops per source: `{spec.max_positive_crops}`
 - Min positive crop instances: `{spec.min_positive_instances}`
-- Hard negative ratio target: `{args.negative_ratio}`
-- Full-image blur ratio target: `{args.full_blur_ratio}`
+- Hard negative ratio target: `{args.negative_ratio}` of covered train sources; selected inside
+  the density-crop budget.
+- Effective positive density crop target: `{max(float(args.density_crop_ratio) - float(args.negative_ratio), 0.0)}`
+- Blur full plus blur crop ratio target: `{args.blur_ratio}`
+- Random padded full ratio target: `{args.padded_full_ratio}`
+- Random padded full per-side padding ratio: `{args.padding_min_ratio}` to `{args.padding_max_ratio}`
+- Hard negative selection: bbox-disjoint crop from clean, fully annotated raw sources.
 - Images: all rows reference task-local images under `images/<split>/`; raw images are copied,
   not referenced directly.
-- Full-image blur: each train source contributes one clean `full_image` row. A deterministic
-  subset additionally contributes one `full_image_blur` row. Validation, density crops, and hard
-  negatives stay clean.
+- Grounding default train views: every covered train source contributes one clean `full_image`
+  row; density crops are density-biased local views; hard negatives are a small minority; blur
+  rows are sampled from full-image and density-crop candidates; random padded full rows are sampled
+  only from clean full-image candidates. Validation stays clean full-image only.
 
 ## Counts
 
-| split | covered json | rows | full | full blur | density crop | hard negative | empty |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| split | covered json | rows | full | padded full | density crop | blur rows | hard negative | empty |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 {train_count_row}
 {val_count_row}
 
@@ -920,31 +1096,45 @@ def _build_task_split(
 
     covered_results = [result for result in results if result.covered]
     full_rows: list[dict[str, Any]] = []
+    padded_candidates: list[dict[str, Any]] = []
     positive_rows: list[dict[str, Any]] = []
     negative_candidates: list[dict[str, Any]] = []
+    blur_candidates: list[dict[str, Any]] = []
     for result in covered_results:
         full_rows.extend(result.full_rows)
+        padded_candidates.extend(result.padded_rows)
         positive_rows.extend(result.positive_rows)
         negative_candidates.extend(result.negative_rows)
-    full_rows = _select_full_rows(
-        full_rows,
-        base_count=len(covered_results),
-        blur_ratio=config.full_blur_ratio,
-    )
-    positive_rows = _select_positive_rows(
-        positive_rows,
-        base_count=len(covered_results),
-        ratio=config.density_crop_ratio,
-    )
+        blur_candidates.extend(result.blur_rows)
+
     negative_rows = _select_negative_rows(
         negative_candidates,
-        base_count=len(full_rows) + len(positive_rows),
+        base_count=len(covered_results),
         ratio=config.negative_ratio,
         seed=config.seed,
         task_name=spec.name,
     )
+    positive_rows = _select_positive_rows(
+        positive_rows,
+        base_count=len(covered_results),
+        ratio=max(config.density_crop_ratio - config.negative_ratio, 0.0),
+    )
+    padded_rows = _select_ratio_rows(
+        padded_candidates,
+        base_count=len(covered_results),
+        ratio=config.padded_full_ratio,
+        seed=config.seed,
+        namespace=f"{spec.name}:padded_full",
+    )
+    blur_rows = _select_ratio_rows(
+        blur_candidates,
+        base_count=len(covered_results),
+        ratio=config.blur_ratio,
+        seed=config.seed,
+        namespace=f"{spec.name}:blur",
+    )
     rows = sorted(
-        full_rows + positive_rows + negative_rows,
+        full_rows + padded_rows + positive_rows + negative_rows + blur_rows,
         key=lambda row: (str(row["extra"]["source_json"]), str(row["sample_id"])),
     )
     _write_jsonl_atomic(output_path, rows)
@@ -977,13 +1167,16 @@ def main() -> None:
     parser.add_argument("--train-split", required=True)
     parser.add_argument("--val-split", required=True)
     parser.add_argument("--task", action="append", choices=[task.name for task in TASKS])
-    parser.add_argument("--workers", type=int, default=20)
+    parser.add_argument("--workers", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--candidate-count", type=int, default=32)
     parser.add_argument("--negative-candidate-count", type=int, default=48)
-    parser.add_argument("--negative-ratio", type=float, default=0.008)
-    parser.add_argument("--density-crop-ratio", type=float, default=0.5)
-    parser.add_argument("--full-blur-ratio", type=float, default=0.5)
+    parser.add_argument("--negative-ratio", type=float, default=0.05)
+    parser.add_argument("--density-crop-ratio", type=float, default=0.3)
+    parser.add_argument("--blur-ratio", type=float, default=1.0)
+    parser.add_argument("--padded-full-ratio", type=float, default=0.2)
+    parser.add_argument("--padding-min-ratio", type=float, default=0.1)
+    parser.add_argument("--padding-max-ratio", type=float, default=0.2)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
@@ -991,10 +1184,18 @@ def main() -> None:
     output_root = Path(args.output_root)
     if not raw_root.exists():
         raise FileNotFoundError(raw_root)
-    if not 0 <= float(args.full_blur_ratio) <= 1:
-        raise ValueError("--full-blur-ratio must be in [0, 1].")
+    if not 0 <= float(args.blur_ratio):
+        raise ValueError("--blur-ratio must be >= 0.")
+    if not 0 <= float(args.padded_full_ratio):
+        raise ValueError("--padded-full-ratio must be >= 0.")
+    if not 0 <= float(args.negative_ratio):
+        raise ValueError("--negative-ratio must be >= 0.")
     if float(args.density_crop_ratio) < 0:
         raise ValueError("--density-crop-ratio must be >= 0.")
+    if float(args.negative_ratio) > float(args.density_crop_ratio):
+        raise ValueError("--negative-ratio must be <= --density-crop-ratio.")
+    if not 0 <= float(args.padding_min_ratio) <= float(args.padding_max_ratio):
+        raise ValueError("--padding-min-ratio must satisfy 0 <= min <= max.")
 
     summaries: dict[str, Any] = {}
     for spec in _task_by_name(args.task):
@@ -1017,7 +1218,10 @@ def main() -> None:
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=float(args.negative_ratio),
             density_crop_ratio=float(args.density_crop_ratio),
-            full_blur_ratio=float(args.full_blur_ratio),
+            blur_ratio=float(args.blur_ratio),
+            padded_full_ratio=float(args.padded_full_ratio),
+            padding_min_ratio=float(args.padding_min_ratio),
+            padding_max_ratio=float(args.padding_max_ratio),
         )
         val_config = BuildConfig(
             raw_root=raw_root,
@@ -1030,7 +1234,10 @@ def main() -> None:
             negative_candidate_count=int(args.negative_candidate_count),
             negative_ratio=0.0,
             density_crop_ratio=0.0,
-            full_blur_ratio=0.0,
+            blur_ratio=0.0,
+            padded_full_ratio=0.0,
+            padding_min_ratio=float(args.padding_min_ratio),
+            padding_max_ratio=float(args.padding_max_ratio),
         )
         train_rows, covered_train, _ = _build_task_split(
             spec=spec,

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import random
 import shutil
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any
 
 from PIL import Image
 
+from shaft.codec.coordinates import quantize_qwen_coordinate
 from shaft.prompting import load_prompt_pool
 
 
@@ -29,6 +31,41 @@ TASK_CONFIGS = {
         "prompt": "configs/prompts/pools/line_reconstruction.v5.0.yaml",
     },
 }
+
+SHAPE_RARE_TYPES = frozenset(
+    {
+        "arrow_pentagon",
+        "diamond",
+        "other_polygon",
+        "oval",
+        "parallelogram",
+        "regular_hexagon",
+        "regular_pentagon",
+        "step",
+        "trapezoid",
+        "triangle",
+    }
+)
+SHAPE_HEAD_WEIGHTS_V1 = {"rectangle": 0.52, "other": 0.26, "callout": 0.22}
+SHAPE_HEAD_WEIGHTS_V2 = {
+    "rectangle": 40000,
+    "other": 20096,
+    "callout": 16000,
+    "icon_as_other": 10000,
+    "image_as_other": 10000,
+}
+LINE_MACRO_WEIGHTS = {
+    "curved_shape": 0.10,
+    "curved_path": 0.235,
+    "straight_shape": 0.235,
+    "straight_path_multi": 0.167,
+    "straight_path_single": 0.263,
+}
+MULTI_SCALE_BUCKETS = (
+    ("tight", 0.70, 0.08, 0.15),
+    ("medium", 0.25, 0.15, 0.25),
+    ("context", 0.05, 0.25, 0.40),
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +93,10 @@ class BuildConfig:
     min_crop_size: int
     max_aspect_ratio: float
     skip_oob_bbox: bool
+    multi_scale: bool
+    shape_low_resolution_ratio: float
+    line_low_resolution_ratio: float
+    include_visual_other_negatives: bool
     prompt_info: dict[str, PromptPoolInfo]
 
 
@@ -64,6 +105,16 @@ class WorkerResult:
     structured_rows: dict[str, list[str]]
     sft_rows: dict[str, list[str]]
     counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class Candidate:
+    stem: str
+    instance_index: int
+    task: str
+    macro: str
+    stratum: str
+    source_label: str = ""
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -86,6 +137,103 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _stable_score(*parts: Any) -> int:
+    payload = ":".join(str(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big")
+
+
+def _allocate_weighted_caps(
+    counts: dict[str, int],
+    *,
+    target: int,
+    weights: dict[str, float] | None = None,
+) -> dict[str, int]:
+    if target < 0:
+        raise ValueError("target must be non-negative")
+    available = sum(max(0, int(count)) for count in counts.values())
+    if target >= available:
+        return {key: max(0, int(value)) for key, value in counts.items()}
+    if target == 0:
+        return {key: 0 for key in counts}
+
+    allocations = {key: 0 for key in counts}
+    active = {key for key, count in counts.items() if count > 0}
+    remaining = target
+    while remaining > 0 and active:
+        raw_weights = {
+            key: max(0.0, float(weights[key]))
+            if weights and key in weights
+            else math.sqrt(counts[key])
+            for key in active
+        }
+        weight_sum = sum(raw_weights.values())
+        if weight_sum <= 0:
+            raw_weights = {key: 1.0 for key in active}
+            weight_sum = float(len(active))
+        proposals = {key: remaining * raw_weights[key] / weight_sum for key in active}
+        progressed = 0
+        for key in sorted(active):
+            capacity = counts[key] - allocations[key]
+            take = min(capacity, int(math.floor(proposals[key])))
+            if take > 0:
+                allocations[key] += take
+                remaining -= take
+                progressed += take
+        active = {key for key in active if allocations[key] < counts[key]}
+        if remaining <= 0 or not active:
+            break
+        if progressed == 0 or remaining < len(active):
+            ranked = sorted(
+                active,
+                key=lambda key: (proposals.get(key, 0.0) % 1.0, raw_weights.get(key, 0.0), key),
+                reverse=True,
+            )
+            for key in ranked:
+                if remaining <= 0:
+                    break
+                if allocations[key] < counts[key]:
+                    allocations[key] += 1
+                    remaining -= 1
+    if sum(allocations.values()) != target:
+        raise RuntimeError("failed to allocate the requested sampling target")
+    return allocations
+
+
+def _select_stratified(
+    candidates: list[Candidate],
+    *,
+    target: int,
+    seed: int,
+) -> list[Candidate]:
+    if target >= len(candidates):
+        return list(candidates)
+    by_stratum: dict[str, list[Candidate]] = defaultdict(list)
+    for candidate in candidates:
+        by_stratum[candidate.stratum].append(candidate)
+    quotas = _allocate_weighted_caps(
+        {key: len(values) for key, values in by_stratum.items()},
+        target=target,
+    )
+    selected: list[Candidate] = []
+    for stratum in sorted(by_stratum):
+        quota = quotas[stratum]
+        values = by_stratum[stratum]
+        if quota >= len(values):
+            selected.extend(values)
+            continue
+        values.sort(
+            key=lambda candidate: _stable_score(
+                seed,
+                "sample",
+                candidate.task,
+                candidate.stem,
+                candidate.instance_index,
+            )
+        )
+        selected.extend(values[:quota])
+    return selected
 
 
 def _clean_bbox(
@@ -188,12 +336,62 @@ def _aspect_ratio(width: int, height: int) -> float:
     return max(width / height, height / width)
 
 
-def _padding_ratio(config: BuildConfig, *, stem: str, instance_index: int) -> float:
-    rng = random.Random(f"{config.seed}:{stem}:{instance_index}")
-    return rng.uniform(config.padding_min, config.padding_max)
+def _padding_policy(
+    config: BuildConfig,
+    *,
+    task: str,
+    stem: str,
+    instance_index: int,
+) -> tuple[str, float]:
+    if not config.multi_scale:
+        rng = random.Random(f"{config.seed}:{stem}:{instance_index}")
+        return "default", rng.uniform(config.padding_min, config.padding_max)
+    rng = random.Random(f"{config.seed}:scale:{task}:{stem}:{instance_index}")
+    draw = rng.random()
+    cumulative = 0.0
+    for name, probability, minimum, maximum in MULTI_SCALE_BUCKETS:
+        cumulative += probability
+        if draw < cumulative:
+            return name, rng.uniform(minimum, maximum)
+    name, _, minimum, maximum = MULTI_SCALE_BUCKETS[-1]
+    return name, rng.uniform(minimum, maximum)
 
 
-def _prompt_variant(config: BuildConfig, *, task: str, stem: str, instance_index: int) -> PromptVariantInfo:
+def _low_resolution_target(
+    config: BuildConfig,
+    *,
+    task: str,
+    stem: str,
+    instance_index: int,
+    width: int,
+    height: int,
+) -> tuple[int, int] | None:
+    ratio = (
+        config.shape_low_resolution_ratio
+        if task == "shape_reconstruction"
+        else config.line_low_resolution_ratio
+    )
+    if ratio <= 0:
+        return None
+    rng = random.Random(f"{config.seed}:lowres:{task}:{stem}:{instance_index}")
+    if rng.random() >= ratio:
+        return None
+    minimum_short, maximum_short = (24, 96) if task == "shape_reconstruction" else (16, 64)
+    target_short = int(
+        round(math.exp(rng.uniform(math.log(minimum_short), math.log(maximum_short))))
+    )
+    current_short = min(width, height)
+    if current_short <= target_short:
+        return None
+    scale = target_short / current_short
+    resized_width = max(4, int(round(width * scale)))
+    resized_height = max(4, int(round(height * scale)))
+    return resized_width, resized_height
+
+
+def _prompt_variant(
+    config: BuildConfig, *, task: str, stem: str, instance_index: int
+) -> PromptVariantInfo:
     variants = config.prompt_info[task].variants
     if not variants:
         raise ValueError(f"Prompt pool for {task} is empty")
@@ -202,12 +400,8 @@ def _prompt_variant(config: BuildConfig, *, task: str, stem: str, instance_index
 
 
 def _quantize_axis(value: float, *, origin: int, size: int, num_bins: int = 1000) -> int:
-    if size <= 1:
-        return 0
     local_value = float(value) - float(origin)
-    clipped = min(max(local_value, 0.0), float(size - 1))
-    normalized = clipped / float(size - 1)
-    return int(round(normalized * float(num_bins - 1)))
+    return quantize_qwen_coordinate(local_value, size=size, num_bins=num_bins)
 
 
 def _quantize_crop_point(
@@ -413,6 +607,279 @@ def _target_parameters(
     raise ValueError(f"Unsupported reconstruction label: {label}")
 
 
+def _shape_stratum(params: dict[str, Any]) -> str:
+    border = params.get("border") if isinstance(params.get("border"), dict) else {}
+    fill = params.get("fill") if isinstance(params.get("fill"), dict) else {}
+    effect = params.get("effect") if isinstance(params.get("effect"), dict) else {}
+    return "|".join(
+        str(value)
+        for value in (
+            params.get("shape_type", "missing"),
+            border.get("type", "missing"),
+            fill.get("type", "missing"),
+            effect.get("type", "missing"),
+            params.get("body_type", "missing"),
+        )
+    )
+
+
+def _line_macro(params: dict[str, Any]) -> str:
+    line_type = str(params.get("line_type") or "missing")
+    line_style = str(params.get("line_style") or "missing")
+    points = params.get("points") if isinstance(params.get("points"), list) else []
+    is_multi = params.get("is_single") is False or len(points) > 1
+    if line_type == "curved" and line_style == "shape":
+        return "curved_shape"
+    if line_type == "curved":
+        return "curved_path"
+    if line_style == "shape":
+        return "straight_shape"
+    if is_multi:
+        return "straight_path_multi"
+    return "straight_path_single"
+
+
+def _line_stratum(params: dict[str, Any]) -> str:
+    points = params.get("points") if isinstance(params.get("points"), list) else []
+    segment_count = min(len(points), 4)
+    fill_color = params.get("fill_color")
+    fill_kind = "gradient" if isinstance(fill_color, list) else "solid"
+    return "|".join(
+        str(value)
+        for value in (
+            params.get("begin_arrow", "missing"),
+            params.get("end_arrow", "missing"),
+            params.get("dash_style", "missing"),
+            segment_count,
+            fill_kind,
+            params.get("has_border", "missing"),
+            params.get("corner_style", "missing"),
+        )
+    )
+
+
+def _candidate_for_instance(
+    *,
+    stem: str,
+    instance_index: int,
+    instance: Any,
+    image_width: int,
+    image_height: int,
+    config: BuildConfig,
+) -> Candidate | None:
+    if not isinstance(instance, dict):
+        return None
+    source_label = str(instance.get("type") or "")
+    visual_other = (
+        config.include_visual_other_negatives
+        and source_label in {"icon", "image"}
+        and "shape_reconstruction" in config.selected_tasks
+    )
+    label = "shape" if visual_other else source_label
+    task = f"{label}_reconstruction"
+    if task not in config.selected_tasks:
+        return None
+    source_params = instance.get("parameters")
+    if not visual_other and not isinstance(source_params, dict):
+        return None
+    params = {"shape_type": "other"} if visual_other else source_params
+    assert isinstance(params, dict)
+    bbox = _clean_bbox(
+        instance.get("bbox"),
+        image_width=image_width,
+        image_height=image_height,
+        skip_oob_bbox=config.skip_oob_bbox,
+    )
+    if bbox is None:
+        return None
+    _, padding_ratio = _padding_policy(
+        config,
+        task=task,
+        stem=stem,
+        instance_index=instance_index,
+    )
+    left, top, right, bottom = _crop_box(
+        bbox,
+        image_width=image_width,
+        image_height=image_height,
+        padding_ratio=padding_ratio,
+        max_aspect_ratio=config.max_aspect_ratio,
+    )
+    crop_width = right - left
+    crop_height = bottom - top
+    if crop_width < config.min_crop_size or crop_height < config.min_crop_size:
+        return None
+    try:
+        _target_parameters(
+            label,
+            params,
+            left=left,
+            top=top,
+            crop_width=crop_width,
+            crop_height=crop_height,
+        )
+    except (TypeError, ValueError):
+        return None
+    if task == "shape_reconstruction":
+        macro = (
+            f"{source_label}_as_other"
+            if visual_other
+            else str(params.get("shape_type") or "missing")
+        )
+        stratum = _shape_stratum(params)
+    else:
+        macro = _line_macro(params)
+        stratum = _line_stratum(params)
+    return Candidate(
+        stem=stem,
+        instance_index=instance_index,
+        task=task,
+        macro=macro,
+        stratum=stratum,
+        source_label=source_label,
+    )
+
+
+def _inventory_for_json(args: tuple[str, BuildConfig]) -> list[Candidate]:
+    stem, config = args
+    source_json = config.dataset_root / "gt_standard" / f"{stem}.json"
+    try:
+        obj = _load_json(source_json)
+    except Exception:
+        return []
+    source_size = obj.get("size")
+    layout = obj.get("layout")
+    if not (
+        isinstance(source_size, list)
+        and len(source_size) == 2
+        and all(_is_number(value) for value in source_size)
+        and isinstance(layout, list)
+    ):
+        return []
+    image_width, image_height = int(source_size[0]), int(source_size[1])
+    candidates: list[Candidate] = []
+    for instance_index, instance in enumerate(layout):
+        candidate = _candidate_for_instance(
+            stem=stem,
+            instance_index=instance_index,
+            instance=instance,
+            image_width=image_width,
+            image_height=image_height,
+            config=config,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _select_balanced_candidates(
+    candidates: list[Candidate],
+    *,
+    shape_target: int,
+    line_target: int,
+    seed: int,
+) -> tuple[list[Candidate], Counter[str]]:
+    by_task_macro: dict[str, dict[str, list[Candidate]]] = defaultdict(lambda: defaultdict(list))
+    for candidate in candidates:
+        by_task_macro[candidate.task][candidate.macro].append(candidate)
+    selected: list[Candidate] = []
+    counts: Counter[str] = Counter()
+
+    shape_groups = by_task_macro.get("shape_reconstruction", {})
+    for shape_type, values in shape_groups.items():
+        counts[f"available_shape_type_{shape_type}"] = len(values)
+    rare_shapes = [
+        candidate
+        for shape_type in sorted(SHAPE_RARE_TYPES)
+        for candidate in shape_groups.get(shape_type, [])
+    ]
+    if rare_shapes and len(rare_shapes) > shape_target:
+        raise ValueError(
+            f"shape target {shape_target} is smaller than {len(rare_shapes)} retained rare shapes"
+        )
+    selected.extend(rare_shapes)
+    for candidate in rare_shapes:
+        counts[f"selected_shape_type_{candidate.macro}"] += 1
+    head_target = max(0, shape_target - len(rare_shapes))
+    head_weights = (
+        SHAPE_HEAD_WEIGHTS_V2
+        if any(key in shape_groups for key in ("icon_as_other", "image_as_other"))
+        else SHAPE_HEAD_WEIGHTS_V1
+    )
+    head_counts = {key: len(shape_groups.get(key, [])) for key in head_weights}
+    head_quotas = _allocate_weighted_caps(
+        head_counts,
+        target=min(head_target, sum(head_counts.values())),
+        weights=head_weights,
+    )
+    for shape_type in sorted(head_quotas):
+        chosen = _select_stratified(
+            shape_groups.get(shape_type, []),
+            target=head_quotas[shape_type],
+            seed=seed,
+        )
+        selected.extend(chosen)
+        counts[f"selected_shape_type_{shape_type}"] += len(chosen)
+
+    line_groups = by_task_macro.get("line_reconstruction", {})
+    for macro, values in line_groups.items():
+        counts[f"available_line_macro_{macro}"] = len(values)
+    curved_shape = list(line_groups.get("curved_shape", []))
+    if len(curved_shape) > line_target:
+        raise ValueError(
+            f"line target {line_target} is smaller than {len(curved_shape)} retained curved shape lines"
+        )
+    selected.extend(curved_shape)
+    counts["selected_line_macro_curved_shape"] += len(curved_shape)
+    remaining_line_target = max(0, line_target - len(curved_shape))
+    line_counts = {
+        key: len(line_groups.get(key, [])) for key in LINE_MACRO_WEIGHTS if key != "curved_shape"
+    }
+    line_weights = {
+        key: value for key, value in LINE_MACRO_WEIGHTS.items() if key != "curved_shape"
+    }
+    line_quotas = _allocate_weighted_caps(
+        line_counts,
+        target=min(remaining_line_target, sum(line_counts.values())),
+        weights=line_weights,
+    )
+    for macro in sorted(line_quotas):
+        chosen = _select_stratified(
+            line_groups.get(macro, []),
+            target=line_quotas[macro],
+            seed=seed,
+        )
+        selected.extend(chosen)
+        counts[f"selected_line_macro_{macro}"] += len(chosen)
+
+    counts["selected_shape_reconstruction"] = sum(
+        count for key, count in counts.items() if key.startswith("selected_shape_type_")
+    )
+    counts["selected_line_reconstruction"] = sum(
+        count for key, count in counts.items() if key.startswith("selected_line_macro_")
+    )
+    selected.sort(key=lambda candidate: (candidate.stem, candidate.instance_index))
+    return selected, counts
+
+
+def _scale_local_bbox(
+    bbox: list[int | float],
+    *,
+    scale_x: float,
+    scale_y: float,
+) -> list[int | float]:
+    values = [
+        float(bbox[0]) * scale_x,
+        float(bbox[1]) * scale_y,
+        float(bbox[2]) * scale_x,
+        float(bbox[3]) * scale_y,
+    ]
+    return [
+        int(round(value)) if abs(value - round(value)) < 1e-6 else round(value, 3)
+        for value in values
+    ]
+
+
 def _shard_for_stem(stem: str) -> str:
     return stem[:2] if len(stem) >= 2 else "00"
 
@@ -425,6 +892,7 @@ def _make_rows_for_instance(
     *,
     task: str,
     label: str,
+    source_label: str,
     stem: str,
     instance_index: int,
     image: Image.Image,
@@ -435,9 +903,14 @@ def _make_rows_for_instance(
     source_bbox: tuple[float, float, float, float],
     params: dict[str, Any],
     config: BuildConfig,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str, bool]:
     image_width, image_height = int(source_size[0]), int(source_size[1])
-    padding_ratio = _padding_ratio(config, stem=stem, instance_index=instance_index)
+    scale_bucket, padding_ratio = _padding_policy(
+        config,
+        task=task,
+        stem=stem,
+        instance_index=instance_index,
+    )
     crop_box = _crop_box(
         source_bbox,
         image_width=image_width,
@@ -463,14 +936,54 @@ def _make_rows_for_instance(
     )
     target = {"type": label, "parameters": target_params}
 
-    sample_id = f"{stem}__{label}_{instance_index:04d}"
+    crop_image = image.crop(crop_box)
+    output_width, output_height = crop_width, crop_height
+    low_resolution_size = _low_resolution_target(
+        config,
+        task=task,
+        stem=stem,
+        instance_index=instance_index,
+        width=crop_width,
+        height=crop_height,
+    )
+    low_resolution_applied = low_resolution_size is not None
+    if low_resolution_size is not None:
+        output_width, output_height = low_resolution_size
+        resized_image = crop_image.resize(low_resolution_size, Image.Resampling.LANCZOS)
+        crop_image.close()
+        crop_image = resized_image
+
+    sample_id = (
+        f"{stem}__{label}_{instance_index:04d}"
+        if source_label == label
+        else f"{stem}__{source_label}_as_{label}_{instance_index:04d}"
+    )
     shard = _shard_for_stem(stem)
     filename = f"{sample_id}.png"
     image_output_path = config.output_root / task / "images" / config.split / shard / filename
     image_output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.crop(crop_box).save(image_output_path, compress_level=1)
+    crop_image.save(image_output_path, compress_level=1)
+    crop_image.close()
 
     crop_bbox = _translate_bbox(list(source_bbox), left=left, top=top)
+    if low_resolution_applied:
+        crop_bbox = _scale_local_bbox(
+            crop_bbox,
+            scale_x=output_width / crop_width,
+            scale_y=output_height / crop_height,
+        )
+    augmentation: dict[str, Any] = {
+        "name": "bbox_padding_crop",
+        "padding_ratio": padding_ratio,
+        "scale_bucket": scale_bucket,
+        "max_aspect_ratio": config.max_aspect_ratio,
+    }
+    if low_resolution_applied:
+        augmentation["low_resolution_resize"] = {
+            "source_size": [crop_width, crop_height],
+            "output_size": [output_width, output_height],
+            "resample": "lanczos",
+        }
     structured_extra = {
         "task": task,
         "split": config.split,
@@ -482,23 +995,20 @@ def _make_rows_for_instance(
         "source_image_height": image_height,
         "source_background": source_background,
         "source_instance_index": instance_index,
+        "source_label": source_label,
         "source_bbox": list(source_bbox),
         "crop_box": list(crop_box),
         "padding_ratio": padding_ratio,
         "max_aspect_ratio": config.max_aspect_ratio,
         "target_coordinate_space": "qwen_0_999_crop",
         "target_num_bins": 1000,
-        "augmentation": {
-            "name": "bbox_padding_crop",
-            "padding_ratio": padding_ratio,
-            "max_aspect_ratio": config.max_aspect_ratio,
-        },
+        "augmentation": augmentation,
     }
     structured_row = {
         "sample_id": sample_id,
         "image_path": _image_rel(config.split, shard, filename),
-        "image_width": crop_width,
-        "image_height": crop_height,
+        "image_width": output_width,
+        "image_height": output_height,
         "instances": [
             {
                 "label": label,
@@ -514,8 +1024,8 @@ def _make_rows_for_instance(
         "prompt_id": prompt_info.prompt_id,
         "source_sample_id": stem,
         "source_type": "synthetic_gt_standard",
-        "image_width": crop_width,
-        "image_height": crop_height,
+        "image_width": output_width,
+        "image_height": output_height,
         "target_coordinate_space": "qwen_0_999_crop",
         "num_bins": 1000,
         "structured_extra": structured_extra,
@@ -531,11 +1041,17 @@ def _make_rows_for_instance(
         "target_text": _json_dumps(target),
         "extra": sft_extra,
     }
-    return task, _json_dumps(structured_row), _json_dumps(sft_row)
+    return (
+        task,
+        _json_dumps(structured_row),
+        _json_dumps(sft_row),
+        scale_bucket,
+        low_resolution_applied,
+    )
 
 
-def _build_for_json(args: tuple[str, BuildConfig]) -> WorkerResult:
-    stem, config = args
+def _build_for_json(args: tuple[str, frozenset[int] | None, BuildConfig]) -> WorkerResult:
+    stem, selected_indices, config = args
     source_json = config.dataset_root / "gt_standard" / f"{stem}.json"
     image_path = config.dataset_root / "img" / f"{stem}.png"
     counts: Counter[str] = Counter()
@@ -573,17 +1089,27 @@ def _build_for_json(args: tuple[str, BuildConfig]) -> WorkerResult:
         return WorkerResult(structured_rows, sft_rows, dict(counts))
     try:
         for instance_index, instance in enumerate(layout):
+            if selected_indices is not None and instance_index not in selected_indices:
+                continue
             if not isinstance(instance, dict):
                 counts["bad_instance"] += 1
                 continue
-            label = str(instance.get("type") or "")
+            source_label = str(instance.get("type") or "")
+            visual_other = (
+                config.include_visual_other_negatives
+                and source_label in {"icon", "image"}
+                and "shape_reconstruction" in config.selected_tasks
+            )
+            label = "shape" if visual_other else source_label
             task = f"{label}_reconstruction"
             if task not in config.selected_tasks:
                 continue
-            params = instance.get("parameters")
-            if not isinstance(params, dict):
+            source_params = instance.get("parameters")
+            if not visual_other and not isinstance(source_params, dict):
                 counts[f"{task}_missing_parameters"] += 1
                 continue
+            params = {"shape_type": "other"} if visual_other else source_params
+            assert isinstance(params, dict)
             bbox = _clean_bbox(
                 instance.get("bbox"),
                 image_width=image_width,
@@ -594,19 +1120,22 @@ def _build_for_json(args: tuple[str, BuildConfig]) -> WorkerResult:
                 counts[f"{task}_bad_bbox"] += 1
                 continue
             try:
-                row_task, structured_line, sft_line = _make_rows_for_instance(
-                    task=task,
-                    label=label,
-                    stem=stem,
-                    instance_index=instance_index,
-                    image=image,
-                    source_json=source_json,
-                    source_image_rel=source_image_rel,
-                    source_size=source_size,
-                    source_background=source_background,
-                    source_bbox=bbox,
-                    params=params,
-                    config=config,
+                row_task, structured_line, sft_line, scale_bucket, low_resolution_applied = (
+                    _make_rows_for_instance(
+                        task=task,
+                        label=label,
+                        source_label=source_label,
+                        stem=stem,
+                        instance_index=instance_index,
+                        image=image,
+                        source_json=source_json,
+                        source_image_rel=source_image_rel,
+                        source_size=source_size,
+                        source_background=source_background,
+                        source_bbox=bbox,
+                        params=params,
+                        config=config,
+                    )
                 )
             except Exception:
                 counts[f"{task}_skipped"] += 1
@@ -614,6 +1143,9 @@ def _build_for_json(args: tuple[str, BuildConfig]) -> WorkerResult:
             structured_rows[row_task].append(structured_line)
             sft_rows[row_task].append(sft_line)
             counts[f"{row_task}_rows"] += 1
+            counts[f"{row_task}_scale_{scale_bucket}"] += 1
+            if low_resolution_applied:
+                counts[f"{row_task}_low_resolution"] += 1
     finally:
         image.close()
     return WorkerResult(structured_rows, sft_rows, dict(counts))
@@ -653,6 +1185,22 @@ def _write_readme(
     rows = counters.get(f"{task}_rows", 0)
     bad_bbox = counters.get(f"{task}_bad_bbox", 0)
     skipped = counters.get(f"{task}_skipped", 0)
+    if task == "shape_reconstruction":
+        available_prefix = "available_shape_type_"
+        selected_prefix = "selected_shape_type_"
+    else:
+        available_prefix = "available_line_macro_"
+        selected_prefix = "selected_line_macro_"
+    distribution_keys = sorted(
+        key.removeprefix(available_prefix) for key in counters if key.startswith(available_prefix)
+    )
+    distribution_lines = ["| Group | Available | Selected |", "|---|---:|---:|"]
+    distribution_lines.extend(
+        f"| {key} | {counters.get(f'{available_prefix}{key}', 0)} | "
+        f"{counters.get(f'{selected_prefix}{key}', 0)} |"
+        for key in distribution_keys
+    )
+    distribution_table = "\n".join(distribution_lines)
     content = f"""# {task} SFT/structured dataset
 
 Generated from synthetic `gt_standard` annotations.
@@ -663,7 +1211,10 @@ Generated from synthetic `gt_standard` annotations.
 - Split: `train` only
 - Workers: `{args.workers}`
 - Seed: `{args.seed}`
-- Padding ratio: random uniform `{args.padding_min}` to `{args.padding_max}` per instance
+- Sampling profile: `{args.sampling_profile}`
+- Requested task target: `{args.shape_target if task == "shape_reconstruction" else args.line_target}`
+- Padding policy: `{"70% tight 0.08-0.15, 25% medium 0.15-0.25, 5% context 0.25-0.40" if args.multi_scale else f"random uniform {args.padding_min} to {args.padding_max}"}`
+- Low-resolution resize ratio: `{args.shape_low_resolution_ratio if task == "shape_reconstruction" else args.line_low_resolution_ratio}`
 - Max aspect ratio: `{args.max_aspect_ratio}` before Qwen processor
 - Crop policy: one bbox-padded, aspect-capped crop per `{label}` instance
 - Coordinate policy: target geometry coordinates use Qwen-style integer `0..999` bins in the crop
@@ -676,6 +1227,14 @@ Generated from synthetic `gt_standard` annotations.
 - Rows: {rows}
 - Bad/OOB bbox skipped: {bad_bbox}
 - Target transform skipped: {skipped}
+- Tight-scale rows: {counters.get(f"{task}_scale_tight", 0)}
+- Medium-scale rows: {counters.get(f"{task}_scale_medium", 0)}
+- Context-scale rows: {counters.get(f"{task}_scale_context", 0)}
+- Low-resolution resized rows: {counters.get(f"{task}_low_resolution", 0)}
+
+## Sampling Distribution
+
+{distribution_table}
 
 Images are stored under `images/train/<shard>/`. `structured/train.jsonl` and
 `sft/train.jsonl` reference those crops with relative paths.
@@ -690,7 +1249,12 @@ def _prepare_output_dirs(output_root: Path, *, clean: bool, selected_tasks: froz
             shutil.rmtree(task_root)
         for subdir in ("structured", "sft", "images/train"):
             (task_root / subdir).mkdir(parents=True, exist_ok=True)
-        for split_file in ("structured/train.jsonl", "structured/val.jsonl", "sft/train.jsonl", "sft/val.jsonl"):
+        for split_file in (
+            "structured/train.jsonl",
+            "structured/val.jsonl",
+            "sft/train.jsonl",
+            "sft/val.jsonl",
+        ):
             path = task_root / split_file
             if path.exists():
                 path.unlink()
@@ -714,6 +1278,12 @@ def build(args: argparse.Namespace) -> Counter[str]:
         raise FileNotFoundError(dataset_root / "img")
     if args.padding_min < 0 or args.padding_max < args.padding_min:
         raise ValueError("padding range must satisfy 0 <= padding_min <= padding_max")
+    if args.shape_target < 0 or args.line_target < 0:
+        raise ValueError("sampling targets must be non-negative")
+    for name in ("shape_low_resolution_ratio", "line_low_resolution_ratio"):
+        value = float(getattr(args, name))
+        if value < 0 or value > 1:
+            raise ValueError(f"{name} must be between 0 and 1")
     selected_tasks = frozenset(str(task) for task in args.tasks)
     unknown_tasks = sorted(selected_tasks - set(TASK_CONFIGS))
     if unknown_tasks:
@@ -734,10 +1304,48 @@ def build(args: argparse.Namespace) -> Counter[str]:
         min_crop_size=int(args.min_crop_size),
         max_aspect_ratio=float(args.max_aspect_ratio),
         skip_oob_bbox=bool(args.skip_oob_bbox),
+        multi_scale=bool(args.multi_scale),
+        shape_low_resolution_ratio=float(args.shape_low_resolution_ratio),
+        line_low_resolution_ratio=float(args.line_low_resolution_ratio),
+        include_visual_other_negatives=args.sampling_profile == "balanced_v2",
         prompt_info=prompt_info,
     )
     stems = _iter_stems(dataset_root, args.limit)
     counters: Counter[str] = Counter()
+    selected_by_stem: dict[str, frozenset[int]] | None = None
+    if args.sampling_profile in {"balanced_v1", "balanced_v2"}:
+        inventory: list[Candidate] = []
+        inventory_args = [(stem, config) for stem in stems]
+        inventory_workers = min(8, max(1, int(args.workers)))
+        if inventory_workers <= 1:
+            inventory_results = map(_inventory_for_json, inventory_args)
+        else:
+            inventory_executor = ProcessPoolExecutor(max_workers=inventory_workers)
+            inventory_results = inventory_executor.map(
+                _inventory_for_json,
+                inventory_args,
+                chunksize=max(16, int(args.chunksize)),
+            )
+        try:
+            for values in inventory_results:
+                inventory.extend(values)
+        finally:
+            if inventory_workers > 1:
+                inventory_executor.shutdown(wait=True)
+        selected, selection_counts = _select_balanced_candidates(
+            inventory,
+            shape_target=int(args.shape_target),
+            line_target=int(args.line_target),
+            seed=int(args.seed),
+        )
+        counters.update(selection_counts)
+        mutable_by_stem: dict[str, set[int]] = defaultdict(set)
+        for candidate in selected:
+            mutable_by_stem[candidate.stem].add(candidate.instance_index)
+        selected_by_stem = {stem: frozenset(indices) for stem, indices in mutable_by_stem.items()}
+        stems = sorted(selected_by_stem)
+        del inventory
+        del selected
     output_handles: dict[tuple[str, str], Any] = {}
     try:
         for task in TASK_CONFIGS:
@@ -746,7 +1354,10 @@ def build(args: argparse.Namespace) -> Counter[str]:
             for kind in ("structured", "sft"):
                 path = output_root / task / kind / "train.jsonl"
                 output_handles[(task, kind)] = path.open("w", encoding="utf-8")
-        worker_args = [(stem, config) for stem in stems]
+        worker_args = [
+            (stem, selected_by_stem.get(stem) if selected_by_stem is not None else None, config)
+            for stem in stems
+        ]
         if args.workers <= 1:
             results = map(_build_for_json, worker_args)
         else:
@@ -790,6 +1401,20 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--padding-min", type=float, default=0.1)
     parser.add_argument("--padding-max", type=float, default=0.2)
+    parser.add_argument(
+        "--sampling-profile",
+        choices=("all", "balanced_v1", "balanced_v2"),
+        default="all",
+        help=(
+            "Use balanced_v1 for deterministic task-specific sampling; balanced_v2 also adds "
+            "sampled icon/image crops as shape_type=other."
+        ),
+    )
+    parser.add_argument("--shape-target", type=int, default=300000)
+    parser.add_argument("--line-target", type=int, default=300000)
+    parser.add_argument("--multi-scale", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--shape-low-resolution-ratio", type=float, default=0.20)
+    parser.add_argument("--line-low-resolution-ratio", type=float, default=0.15)
     parser.add_argument("--min-crop-size", type=int, default=4)
     parser.add_argument(
         "--max-aspect-ratio",

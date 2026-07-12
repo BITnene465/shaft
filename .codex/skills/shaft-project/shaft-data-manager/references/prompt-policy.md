@@ -15,6 +15,7 @@ Business reconstruction prompt pools:
 - `configs/prompts/pools/shape_reconstruction.v5.0.yaml`
 - `configs/prompts/pools/line_reconstruction.v5.0.yaml`
 - `configs/prompts/pools/image_reconstruction.v5.0.yaml`
+- `configs/prompts/pools/background.v5.0.yaml`
 
 Historical `arrow` annotations are normalized to the model-facing `line` label inside
 `grounding_layout`. Do not introduce new detection prompts with an `arrow` label. v5.0 has no
@@ -53,12 +54,16 @@ detection labels live in the unified `grounding_layout` task.
   the canonical instance-list document shape with `instances[].label` and `instances[].bbox`.
 - `grounding_layout` uses labels `shape`, `icon`, `image`, and `line`. Raw `arrow` and raw
   `line` instances both become model-facing `label: "line"` in this unified detection task.
-- `point_line` prompts must return a JSON object with
-  `{"label":"line","points_2d":[[x1,y1],[x2,y2],...]}`.
+- `point_line` prompts must return the simplified line reconstruction object
+  `{"type":"line","parameters":{"is_single":true|false,"points":[[[x1,y1],[x2,y2],...]]}}`.
+  It intentionally omits style, arrowhead, color, and other reconstruction attributes.
 - Shape reconstruction prompts should follow the current PDF shape DSL directly: lowercase
   `shape_type`, nested `border`, nested `fill`, `effect`, clockwise semantic `corners`, and
   callout-specific `body_type` / `body_corners` or `body_bbox` / `tail.points`. The shape
   reconstruction model output should not include `bbox`; bbox is provided by crop metadata.
+  An icon/image asset with no independent editable outer shape returns only
+  `{"shape_type":"other"}`; its rectangular bitmap boundary is not a rectangle container. A
+  distinct enclosing tile, badge, or panel is still classified by that outer geometric shape.
 - Line reconstruction prompts should follow the current PDF line DSL and the project extension
   for endpoint markers: `tee` for T-bar inhibition endpoints and `circle` for circular endpoint
   markers. `points` follows `gt_standard`: it is a list of one or more center-path segments,
@@ -69,6 +74,11 @@ detection labels live in the unified `grounding_layout` task.
   `{"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|other"}}`.
   Do not add `clip_shape`, `border`, `effect`, or corner fields until those fields are explicitly
   needed by training or downstream reconstruction.
+- Background prompts consume a clean full bitmap and return only
+  `{"background":true|false}`. The model-facing boolean means that a non-editable raster/photo/
+  texture/complex visual backing remains after editable foreground extraction. Prelabeling fields
+  such as `background_level`, reason, source model, and review status are audit metadata and must
+  not enter the SFT target.
 - Do not ask business reconstruction tasks to emit weak-label audit fields. Fields such as
   `evidence`, `confidence`, and `abstain_reason` are weak-label process metadata, not SFT targets.
 - Avoid examples beyond the minimal schema shape; examples can accidentally become style anchors.

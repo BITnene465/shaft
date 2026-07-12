@@ -145,13 +145,45 @@ def _clean_linestrip(
     *,
     image_width: int,
     image_height: int,
+) -> list[list[list[float]]]:
+    if not isinstance(linestrip, list):
+        return []
+
+    if _looks_like_flat_points(linestrip):
+        segment = _clean_segment(linestrip, image_width=image_width, image_height=image_height)
+        return [segment] if len(segment) >= 2 else []
+
+    segments: list[list[list[float]]] = []
+    for segment in linestrip:
+        if not _looks_like_flat_points(segment):
+            continue
+        cleaned_segment = _clean_segment(
+            segment,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        if len(cleaned_segment) >= 2:
+            segments.append(cleaned_segment)
+    return segments
+
+
+def _looks_like_flat_points(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) >= 2
+        and all(isinstance(point, (list, tuple)) and len(point) >= 2 for point in value)
+        and all(not isinstance(point[0], (list, tuple)) for point in value)
+    )
+
+
+def _clean_segment(
+    segment: Any,
+    *,
+    image_width: int,
+    image_height: int,
 ) -> list[list[float]]:
     points: list[list[float]] = []
-    if not isinstance(linestrip, list):
-        return points
-    for point in linestrip:
-        if not isinstance(point, (list, tuple)) or len(point) < 2:
-            continue
+    for point in segment:
         try:
             x = float(point[0])
             y = float(point[1])
@@ -166,10 +198,11 @@ def _clean_linestrip(
 
 def _line_extent(
     bbox: tuple[float, float, float, float],
-    linestrip: list[list[float]],
+    linestrip: list[list[list[float]]],
 ) -> tuple[float, float, float, float]:
-    xs = [bbox[0], bbox[2], *(point[0] for point in linestrip)]
-    ys = [bbox[1], bbox[3], *(point[1] for point in linestrip)]
+    points = [point for segment in linestrip for point in segment]
+    xs = [bbox[0], bbox[2], *(point[0] for point in points)]
+    ys = [bbox[1], bbox[3], *(point[1] for point in points)]
     return min(xs), min(ys), max(xs), max(ys)
 
 
@@ -218,15 +251,15 @@ def _translate_bbox(
 
 
 def _translate_linestrip(
-    linestrip: list[list[float]],
+    linestrip: list[list[list[float]]],
     crop_box: tuple[int, int, int, int],
-) -> list[list[float]]:
+) -> list[list[list[float]]]:
     left, top, _, _ = crop_box
-    return [[x - left, y - top] for x, y in linestrip]
+    return [[[x - left, y - top] for x, y in segment] for segment in linestrip]
 
 
-def _points_inside(points: list[list[float]], *, width: int, height: int) -> bool:
-    return all(0 <= x <= width and 0 <= y <= height for x, y in points)
+def _points_inside(linestrip: list[list[list[float]]], *, width: int, height: int) -> bool:
+    return all(0 <= x <= width and 0 <= y <= height for segment in linestrip for x, y in segment)
 
 
 def _build_rows_for_json(args: tuple[str, BuildConfig]) -> tuple[list[dict[str, Any]], int, int]:
@@ -250,7 +283,7 @@ def _build_rows_for_json(args: tuple[str, BuildConfig]) -> tuple[list[dict[str, 
             image_width=image_width,
             image_height=image_height,
         )
-        if len(linestrip) < 2:
+        if not linestrip:
             skipped += 1
             continue
         bbox = _clean_bbox(
@@ -308,6 +341,7 @@ def _build_rows_for_json(args: tuple[str, BuildConfig]) -> tuple[list[dict[str, 
                         "label": "line",
                         "bbox": crop_bbox,
                         "linestrip": crop_linestrip,
+                        "is_single": len(crop_linestrip) == 1,
                     }
                 ],
                 "extra": {
@@ -324,6 +358,7 @@ def _build_rows_for_json(args: tuple[str, BuildConfig]) -> tuple[list[dict[str, 
                     "source_label": source_label,
                     "source_bbox": list(bbox),
                     "source_linestrip": linestrip,
+                    "source_is_single": len(linestrip) == 1,
                     "crop_box": list(crop_box),
                     "padding_ratio": ratio,
                     "augmentation": {
@@ -367,7 +402,7 @@ Generated from `data/raw` arrow/line instances with valid `linestrip`.
 | val | {val_result.source_count} | {len(val_result.rows)} | {val_result.skipped_count} |
 
 Each JSONL row references a generated crop image under `images/<split>/` and stores crop-local
-`bbox` plus crop-local ordered `linestrip` in `instances[0]`.
+`bbox` plus crop-local ordered segment-list `linestrip` in `instances[0]`.
 """
     _atomic_write_text(output_root / "README.md", content)
 
@@ -419,9 +454,9 @@ def main() -> None:
     parser.add_argument("--val-split", required=True)
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--padding-min", type=float, default=0.2)
-    parser.add_argument("--padding-max", type=float, default=0.5)
-    parser.add_argument("--val-padding", type=float, default=0.35)
+    parser.add_argument("--padding-min", type=float, default=0.1)
+    parser.add_argument("--padding-max", type=float, default=0.2)
+    parser.add_argument("--val-padding", type=float, default=0.15)
     parser.add_argument("--min-crop-size", type=int, default=4)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()

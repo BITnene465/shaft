@@ -1,0 +1,109 @@
+metadata:
+  id: shaft.image_reconstruction.prompt_pool.v5.0
+  version: v5.0
+  name: image reconstruction prompt pool
+  task: image_reconstruction
+  subtask: image_reconstruction
+  target_labels: [image]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Reconstruct the primary visible image element.
+      Return exactly one JSON object with type "image" and parameters only.
+
+      Base object:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      Only output image_type. Do not output clip_shape, corners, border, effect, type-level bbox,
+      audit fields, explanations, or markdown.
+
+      Choose the category by the best downstream editable reconstruction route.
+      Priority: table/chart > document > screenshot > map > medical > microscopy > diagram >
+      infographic > rendering > photo > illustration > other.
+
+      image_type definitions:
+      - photo: camera-like natural imagery of people, animals, food, vehicles, buildings, landscapes,
+        lab scenes, real objects, or product photos. Exclude medical scans, microscopy, maps,
+        screenshots, and 3D renders.
+      - screenshot: software, web, app, operating system, code editor, dashboard, or digital UI
+        screenshots. If the crop is mainly an embedded chart or table, prefer chart/table.
+      - chart: data visualizations such as line/bar/pie/scatter/radar/box plots, heatmaps, spectra,
+        statistical curves, confusion matrices, legends, axes, or plotted data. Geographic heatmaps
+        are map; medical image heatmaps are medical; microscopy/material heatmaps are microscopy.
+      - table: row-column tables, matrices, spreadsheets, forms dominated by cells, or grid-like data.
+      - diagram: flowcharts, architecture/model diagrams, networks, circuits, mechanisms, process
+        diagrams, system structures, nodes, arrows, connectors, modules, or relationship graphs.
+      - document: scanned/report/paper/PDF pages, certificates, ID cards, receipts, forms, or
+        text-dominant page layouts. If the crop only contains a chart/table region, prefer chart/table.
+      - map: maps, routes, geographic/spatial/satellite/remote-sensing figures, traffic maps, or
+        spatial heatmaps where the meaning depends on a map or location.
+      - medical: clinical or biomedical imagery such as MRI, CT, X-ray, ultrasound, endoscopy,
+        pathology, anatomy, human organ diagrams, diagnostics, or medical heatmaps.
+      - microscopy: microscope, SEM/TEM, cellular, tissue, material microstructure, wafer, scale-bar,
+        or micrograph imagery that is not primarily clinical medical imagery.
+      - rendering: synthetic 3D/CAD/product/engineering/building/mechanical simulation renderings,
+        virtual material images, or generated 3D scenes. Structural scientific diagrams are diagram.
+      - illustration: drawn/cartoon/hand-drawn/decorative artwork or non-photographic visual assets
+        that are not technical/data/map/medical. If it has clear steps or relationships, prefer
+        diagram or infographic.
+      - infographic: designed information posters, ads, promotional panels, complex explanatory
+        cards, or mixed text/icon/image layouts. If it is a single chart/table, prefer chart/table;
+        if it is a normal page, prefer document.
+      - other: ambiguous, too small/blurry, noisy, severely occluded, or no stable reconstruction route.
+
+  - id: visible_object
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid JSON only. No markdown or extra text.
+    user_prompt: |
+      Classify the cropped primary image element by its displayed content.
+      Ignore surrounding layout, decorations, captions, and nearby objects introduced by crop relax.
+      Return one object:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      Output only parameters.image_type inside the image object. Do not output clip_shape, corners,
+      border, effect, bbox, or audit fields.
+      Prefer the route with more editable structure:
+      table/chart > document > screenshot > map > medical > microscopy > diagram > infographic >
+      rendering > photo > illustration > other.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only.
+    user_prompt: |
+      Return this image reconstruction schema:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}
+
+      Use table/chart for structured data regions; document for page-like text layouts; screenshot
+      for digital UI captures; map for geographic/spatial imagery; medical for clinical/biomedical
+      images; microscopy for micrographs; diagram for relationship/process/module structures;
+      infographic for designed explanatory posters/cards; rendering for synthetic 3D/CAD scenes;
+      photo for camera-like natural imagery; illustration for non-technical artwork; other only when
+      no stable route applies. Do not output display-shape fields.
+
+  - id: attribute_extraction
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not add explanations.
+    user_prompt: |
+      Extract reconstructable image attributes into:
+      {"type":"image","parameters":{...}}
+
+      Required parameter: image_type.
+      Allowed values: photo, screenshot, chart, table, diagram, document, map, medical, microscopy,
+      rendering, illustration, infographic, other.
+      Return only image_type under parameters; do not add clip_shape, corners, border, or effect.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt: |
+      Image reconstruction. Return exactly:
+      {"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|map|medical|microscopy|rendering|illustration|infographic|other"}}

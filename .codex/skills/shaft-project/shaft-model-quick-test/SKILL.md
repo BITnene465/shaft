@@ -30,7 +30,9 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
    - `rex-omni-test/batch_infer.py`
    - `rex-omni-test/app.py`
    - `tests/test_rex_omni_tools.py`
-3. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
+3. 如果任务是 reconstruction 结果 review、render/overlay 临时可视化，读取
+   [references/reconstruction-review.md](references/reconstruction-review.md)。
+4. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
 
 ## 固定结构
 - `<model-slug>-test/<model_slug>_tools.py`

@@ -79,28 +79,66 @@ and deterministic, even if train gets crops, hard negatives, or blur.
 Exception: `point_arrow` validation is crop-level by task definition. It should be deterministic
 arrow crops, not raw full images.
 
+## VLM Samples And Requests Are Image-First
+
+For Qwen3VL training, eval, and runtime inference, multimodal user content must be image-first:
+image content comes before the text instruction in the user message.
+
+Use this order for all model-facing paths:
+
+- HF/local chat messages: `{"type": "image"}` before `{"type": "text", "text": ...}`.
+- OpenAI/vLLM-compatible messages: `{"type": "image_url", ...}` before
+  `{"type": "text", "text": ...}`.
+- Derived SFT rows and prompt/template helpers must preserve the same semantic order.
+
+Do not switch to text-first when writing temporary eval scripts, production wrappers, or data
+conversion utilities. Message order is part of the runtime contract; results from image-first and
+text-first runs should not be treated as directly comparable unless that difference is explicitly
+being tested. New eval/review summaries should record `message_order: image_first` when they create
+model requests.
+
 ## Clean Full Images Are The Grounding Backbone
 
-For grounding train data, every covered source image should keep one clean `full_image` row. Blur
-full-image rows are an additional bounded augmentation subset, not a replacement for clean full
-rows. By default, JPEG blur plus resize blur should be at most half of covered train sources.
-Density crops are also a bounded supplement; they should not exceed half of covered clean full
-rows unless the user explicitly asks for a crop-heavy stress dataset.
+For grounding train data, every covered source image should keep one clean `full_image` row. This
+row is the detection backbone and must not be replaced by crop, blur, or padded variants.
 
-## JPEG Is Not a Default Grounding Augmentation
+The maintained default `grounding_layout` augmentation policy is:
 
-Do not add JPEG compression just because it is a common vision augmentation. For these diagram
-grounding tasks, localization errors are more likely to come from scale, dense regions, crop
-coverage, partial-object handling, and negative sampling than from JPEG artifacts. Prefer
-task-shaped views over image-degradation variants.
+- clean full images: `1.0x`
+- density crops: about `0.3x`, including only a small minority of negative samples
+- blur full plus blur crop rows: `1.0x`, using light-to-moderate Gaussian blur, resize blur, or
+  JPEG compression
+- random padded full images: `0.2x`, applied only to clean full-image views
+
+Validation and VLM test data should remain clean full-image only.
+
+## Canonical Order Needs GT Validation
+
+For detection-style SFT targets, canonical order is part of the training signal, not harmless
+formatting. Do not pick or change `grounding_layout` target order only because the rule sounds
+natural or is simple to implement.
+
+Before regenerating SFT data with a new order, analyze the current GT distribution and record the
+result. At minimum check parent-before-child behavior for large containing boxes, y-direction
+backtracking, stability under small bbox jitter, dense-sample truncation risk, and existing model
+response sortedness as a secondary diagnostic.
+
+The 2026-07-09 review found that the old `row_bucket(y_center)` order was a poor fit for business
+diagram images: large containers were often placed after their children. Keep the living analysis
+under `notes/canonical_order/`.
+
+## JPEG Is Only One Controlled Grounding Degradation
+
+JPEG compression may be used as one of the maintained light-to-moderate blur/degradation choices
+for `grounding_layout`, but it should not dominate the robustness rows. Keep it balanced with
+Gaussian blur and resize blur, and do not apply severe corruption by default.
 
 ## Zoom Out Is Different From Pixel Budget
 
 Processor pixel budget controls the final visual token budget, but it does not replace geometry
-augmentation. If a task needs more scale robustness, prefer shrink-and-pad context views over
-quality degradation. Density and sliding-window crops mostly create zoom-in views; context
-padding jitter adds controlled zoom-out views by shrinking a positive view on a same-size canvas
-and transforming `bbox` / `linestrip` coordinates exactly.
+augmentation. If a task needs more scale robustness, keep the default small `random_padded_full`
+subset bounded at about `0.2x` of clean full-image rows. Padding must transform `bbox` /
+`linestrip` coordinates exactly and should not be applied to validation/test rows.
 
 ## Rebuild Derived Data Cleanly
 
@@ -108,6 +146,17 @@ Derived image directories can contain stale files from earlier runs. Do not assu
 are referenced. When rebuilding derived datasets, either clean the derived output directory first
 or write to a fresh directory, then verify every JSONL image reference exists and every generated
 image is referenced.
+
+## Qwen 0..999 Coordinates Need One Codec
+
+Model-facing geometry coordinates use the project-standard Qwen-style integer `0..999` space.
+Do not hand-roll conversions in task scripts, eval parsers, or visualization code.
+
+Use the shared `shaft.codec.coordinates` helpers. Encoding must use nearest-integer rounding,
+not `int()` truncation. Decoding must use the same `0..999` scale. Mixing
+`pixel / (size - 1) * 999` during SFT generation with `bin / 1000 * size` during eval creates a
+small but systematic right/bottom shrink, which shows up as predicted boxes being shifted left/up
+or too tight.
 
 ## Derived Data Is Not A Metadata Backup
 
@@ -119,6 +168,50 @@ source id, and model-facing target fields.
 For weak-label datasets, this is still true even if there is no human raw truth yet. Keep
 weak-label audit information such as `evidence`, `confidence`, `abstain_reason`, source model,
 and source job id out of `target_text`; store only minimal traceability in `extra`.
+
+## Shape Attributes Follow The Editable Outer Container
+
+For shape subattribute prelabeling, classify the editable outer container or base shape, not the
+most salient semantic content inside the crop.
+
+Example: a gear icon inside a visible square/rectangular tile should be `shape_type=rectangle`,
+not `shape_type=other`. A number inside a circular badge should be `shape_type=oval`. Only use
+`other` when there is no visible geometric container or the instance is genuinely a complex
+freeform symbol/decoration.
+
+The rectangular pixel boundary of an icon or image crop is not an editable rectangle container.
+When the crop is the icon/image asset itself and no independent outer geometric container is
+visible, the shape reconstruction fallback is `shape_type=other`. If a distinct tile, badge, or
+panel encloses that asset, classify the enclosing editable shape instead.
+
+## Reconstruction Negatives Must Match The Invocation Contract
+
+Do not add raw `icon` or raw `image` crops to `shape_reconstruction` merely to teach
+`shape_type=other`. In the maintained pipeline, upstream detection chooses the task label first;
+`shape_reconstruction` is invoked on a crop already classified as `shape`. Cross-label visual
+negatives change the task into joint rejection/classification and encourage the shortcut
+"complex, low-resolution, or asset-like content => other".
+
+Within `shape_reconstruction`, reserve `other` for source instances whose label is genuinely
+`shape` but whose editable outer geometry cannot be represented by the current DSL. A visible
+rectangle/oval/callout container remains that shape even when it contains text, icons, or images.
+If robustness to upstream detection mistakes is needed, evaluate it as a separate routed-system
+experiment; do not silently change the reconstruction target distribution.
+
+The v5.0-re `balanced_v2` snapshot contains 10,000 `icon_as_other` and 10,000
+`image_as_other` rows. The 2026-07-12 checkpoint-8000 audit found this design counterproductive and
+it must not be repeated in the next shape reconstruction rebuild.
+
+## Shape Fill Means Independent Fill, Not Pixel Color
+
+For shape subattribute prelabeling, `fill` describes whether the editable shape has its own fill
+layer. If the shape interior is transparent or visually the same as the immediate background or
+parent container, use `fill.type=none` even when the pixels inside the bbox are white, gray, or
+lightly tinted.
+
+Example: a white rectangle on a white page, or a same-gray label area on a gray parent panel,
+should not be marked as `solid #FFFFFF` merely because the crop pixels are white. Treat it as
+transparent/no fill unless there is an independent visible fill different from the background.
 
 ## Weak Labels Are Training Hints, Not Evaluation Truth
 

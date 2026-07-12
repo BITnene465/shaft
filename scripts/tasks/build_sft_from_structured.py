@@ -10,10 +10,13 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from statistics import median
 from typing import Any
 
+from shaft.codec.coordinates import quantize_qwen_coordinate
 from shaft.prompting import load_prompt_template
+
+
+GROUNDING_ROW_BUCKET_SIZE_2D = 20
 
 
 @dataclass(frozen=True)
@@ -104,11 +107,7 @@ def _normalize_output_image_path(image_path: Path, output_path: Path) -> str:
 
 
 def _quantize_coord(value: float, size: int, num_bins: int) -> int:
-    if size <= 1:
-        return 0
-    clipped = min(max(float(value), 0.0), float(size - 1))
-    normalized = clipped / float(size - 1)
-    return int(round(normalized * float(num_bins - 1)))
+    return quantize_qwen_coordinate(value, size=size, num_bins=num_bins)
 
 
 def _clip_bbox(
@@ -165,35 +164,21 @@ def _prepare_grounding_instance(
         "label": str(instance["label"]),
         "bbox": list(bbox),
         "bbox_2d": bbox_2d,
-        "y_center_2d": float(bbox_2d[1] + bbox_2d[3]) / 2.0,
+        "area_2d": max(0, int(bbox_2d[2]) - int(bbox_2d[0]))
+        * max(0, int(bbox_2d[3]) - int(bbox_2d[1])),
     }
 
 
-def _resolve_row_bucket_size(prepared_instances: list[dict[str, Any]]) -> int:
-    if not prepared_instances:
-        return 8
-    heights = [
-        max(1, int(instance["bbox_2d"][3]) - int(instance["bbox_2d"][1]))
-        for instance in prepared_instances
-    ]
-    return max(8, int(round(float(median(heights)) * 0.5)))
-
-
-def _grounding_sort_key(instance: dict[str, Any], *, row_bucket_size: int) -> tuple[Any, ...]:
+def _grounding_sort_key(instance: dict[str, Any]) -> tuple[Any, ...]:
     quantized_bbox = instance["bbox_2d"]
-    x1, y1, x2, y2 = instance["bbox"]
-    y_center = instance["y_center_2d"]
-    row_bucket = int(y_center // max(1, row_bucket_size))
+    row_bucket = int(int(quantized_bbox[1]) // GROUNDING_ROW_BUCKET_SIZE_2D)
     return (
         row_bucket,
-        quantized_bbox[0],
-        quantized_bbox[1],
-        quantized_bbox[3],
-        quantized_bbox[2],
-        y1,
-        x1,
-        y2,
-        x2,
+        int(quantized_bbox[0]),
+        int(quantized_bbox[1]),
+        -int(instance["area_2d"]),
+        int(quantized_bbox[2]),
+        int(quantized_bbox[3]),
         str(instance.get("label", "")),
     )
 
@@ -214,10 +199,9 @@ def _build_grounding_target(
         )
         for instance in instances
     ]
-    row_bucket_size = _resolve_row_bucket_size(prepared_instances)
     sorted_instances = sorted(
         prepared_instances,
-        key=lambda instance: _grounding_sort_key(instance, row_bucket_size=row_bucket_size),
+        key=_grounding_sort_key,
     )
     target = [
         {
@@ -227,12 +211,12 @@ def _build_grounding_target(
         for instance in sorted_instances
     ]
     return target, {
-        "type": "row_bucket_center_v2",
+        "type": "row_bucket_top_area_v3",
         "coordinate_space": "bbox_2d",
-        "row_anchor": "y_center",
-        "row_bucket_size_2d": row_bucket_size,
-        "order": ("row_bucket", "x1", "y1", "y2", "x2", "label"),
-        "tie_break": "source_bbox_float",
+        "row_anchor": "y1",
+        "row_bucket_size_2d": GROUNDING_ROW_BUCKET_SIZE_2D,
+        "order": ("row_bucket", "x1", "y1", "-area", "x2", "y2", "label"),
+        "tie_break": "qwen_bbox_2d",
     }
 
 
@@ -271,19 +255,60 @@ def _build_point_line_target(
     if len(instances) != 1:
         raise ValueError(f"point_line expects one line instance, got {len(instances)}")
     linestrip = instances[0].get("linestrip")
-    if not isinstance(linestrip, list) or len(linestrip) < 2:
-        raise ValueError("point_line requires a linestrip with at least two points.")
-    points: list[list[int]] = []
-    for point in linestrip:
-        if not isinstance(point, list | tuple) or len(point) != 2:
-            raise ValueError(f"Invalid linestrip point: {point!r}")
-        points.append(
-            [
-                _quantize_coord(float(point[0]), image_width, num_bins),
-                _quantize_coord(float(point[1]), image_height, num_bins),
-            ]
-        )
-    return {"label": "line", "points_2d": points}
+    segments = _normalize_line_segments(linestrip)
+    if not segments:
+        raise ValueError("point_line requires at least one linestrip segment with two points.")
+    quantized_segments: list[list[list[int]]] = []
+    for segment in segments:
+        quantized_segment: list[list[int]] = []
+        for point in segment:
+            quantized_segment.append(
+                [
+                    _quantize_coord(float(point[0]), image_width, num_bins),
+                    _quantize_coord(float(point[1]), image_height, num_bins),
+                ]
+            )
+        quantized_segments.append(quantized_segment)
+    raw_is_single = instances[0].get("is_single")
+    is_single = bool(raw_is_single) if isinstance(raw_is_single, bool) else len(quantized_segments) == 1
+    return {
+        "type": "line",
+        "parameters": {
+            "is_single": is_single,
+            "points": quantized_segments,
+        },
+    }
+
+
+def _normalize_line_segments(value: Any) -> list[list[list[float]]]:
+    if not isinstance(value, list):
+        return []
+    if _is_point_list(value):
+        return [[_coerce_point(point) for point in value]]
+
+    segments: list[list[list[float]]] = []
+    for segment in value:
+        if not _is_point_list(segment):
+            continue
+        coerced_segment = [_coerce_point(point) for point in segment]
+        if len(coerced_segment) >= 2:
+            segments.append(coerced_segment)
+    return segments
+
+
+def _is_point_list(value: Any) -> bool:
+    return (
+        isinstance(value, list | tuple)
+        and len(value) >= 2
+        and all(isinstance(point, list | tuple) and len(point) == 2 for point in value)
+        and all(not isinstance(point[0], list | tuple) for point in value)
+    )
+
+
+def _coerce_point(point: Any) -> list[float]:
+    if not isinstance(point, list | tuple) or len(point) != 2:
+        raise ValueError(f"Invalid linestrip point: {point!r}")
+    return [float(point[0]), float(point[1])]
 
 
 def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
@@ -340,9 +365,9 @@ def _build_output_row(item: tuple[int, str, ConvertConfig]) -> dict[str, Any]:
         )
         task_extra = {
             "target_policy": {
-                "type": "line_points_2d",
-                "coordinate_space": "points_2d",
-                "order": "source_linestrip_order",
+                "type": "line_points_segments",
+                "coordinate_space": "parameters.points",
+                "order": "source_linestrip_segment_order",
             }
         }
     else:
@@ -423,13 +448,13 @@ def _target_contract_summary(task: TaskSpec) -> str:
     if task.kind == "grounding":
         return (
             "- Target schema: JSON array of `{bbox_2d, label}` objects.\n"
-            "- Canonical order: `row_bucket(y_center) -> x1 -> y1 -> y2 -> x2 -> label`; "
+            "- Canonical order: `row_bucket(y1, 20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`; "
             "labels are mixed in visual order, and `line` is not forced to the end.\n"
         )
     if task.kind == "point_line":
         return (
-            "- Target schema: `{\"label\":\"line\",\"points_2d\":[...]}`.\n"
-            "- Canonical order: `points_2d` preserves the source `linestrip` order.\n"
+            "- Target schema: `{\"type\":\"line\",\"parameters\":{\"is_single\":...,\"points\":[...]}}`.\n"
+            "- Canonical order: `parameters.points` preserves the source `linestrip` segment order.\n"
         )
     if task.kind == "point_arrow":
         return (
