@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+import json
 import logging
-import os
 from pathlib import Path
-import time
 from typing import Any
-import uuid
 
 from transformers import TrainingArguments
 
@@ -16,49 +15,37 @@ from shaft.config import RuntimeConfig
 from shaft.data import (
     SFTCollator,
     SFTDataset,
-    ShaftBatchPlanningSignature,
-    ShaftCostAwareSampler,
+    ShaftBoundedBatchSampler,
+    ShaftBoundedBatchPlanner,
+    ShaftBoundedBatchingSpec,
+    ShaftBoundedBatchingState,
     ShaftDataCenter,
-    ShaftDynamicBatchPlanner,
-    ShaftDynamicBatchPlanningContract,
-    ShaftDynamicBatchPlanningSpec,
-    ShaftDynamicBatchSampler,
-    ShaftFixedBatchPlanningSpec,
-    ShaftMMapCostPlanProvider,
-    ShaftSampleCostProvider,
-    ShaftSamplePlan,
     ShaftSFTSampleCostProvider,
-    ShaftCostPlanMaterialization,
-    cost_plan_reference_path,
-    load_cost_plan_manifest,
-    materialize_cost_plan,
-    resolve_cost_plan_cache_dir,
-    sft_cost_planning_source_fingerprint,
     validate_sft_cost_model_adapter,
-    validate_sft_cost_planning_dataset,
-    write_cost_plan_reference,
+    validate_sft_cost_dataset,
 )
 from shaft.model import (
-    ModelArtifacts,
     build_model_tokenizer_processor,
-    resolve_model_adapter_from_config,
+    summarize_resolved_finetune_plan,
+    write_resolved_finetune_summary,
 )
-from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.model.generation import align_model_generation_config
+from shaft.observability import build_progress_manager
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
     build_hook_manager,
     build_interceptor_manager,
 )
-from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
 from shaft.training.batch_planning import (
-    ShaftBatchPlanningCallback,
-    batch_planning_signature_path,
-    validate_batch_planning_resume,
-    validate_batch_planning_resume_geometry,
-    write_batch_planning_signature,
+    ShaftBatchingMetadataCallback,
+    ShaftBoundedBatchingCallback,
+    build_bounded_resume_contract_fingerprint,
+    build_batching_run_metadata,
+    load_bounded_batching_state,
+    publish_batching_run_metadata,
 )
+from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.reproducibility import initialize_training_randomness
@@ -70,425 +57,194 @@ from shaft.training.checkpointing import (
     validate_resume_checkpoint,
     validate_training_state_policy,
 )
-from shaft.training.distributed import barrier_if_distributed
-from shaft.training.distributed import all_gather_objects
-from shaft.training.distributed import broadcast_object_from_rank_zero
-from shaft.training.distributed import is_rank_zero
+from shaft.training.distributed import (
+    all_gather_objects,
+    barrier_if_distributed,
+    is_rank_zero,
+)
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import (
-    build_hf_training_args,
-    resolve_dynamic_batch_planning_contract,
-    resolve_step_sample_budget,
-)
+from .training_args import build_hf_training_args, resolve_step_sample_budget
+
 
 logger = logging.getLogger(__name__)
 
 
-def _restore_file_snapshot(path: Path, content: bytes | None) -> None:
-    if content is None:
-        path.unlink(missing_ok=True)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.rollback")
-    try:
-        with temporary.open("xb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+def _checkpoint_global_step(checkpoint: str | Path) -> int:
+    state_path = Path(checkpoint) / "trainer_state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"Trainer state must be a JSON object: {state_path}")
+    global_step = int(payload.get("global_step", 0))
+    if global_step < 0:
+        raise ValueError(f"Trainer global_step must be >= 0: {state_path}")
+    return global_step
 
 
-def _publish_cost_aware_run_metadata(
-    *,
-    output_dir: str | Path,
-    materialization: ShaftCostPlanMaterialization,
-    signature: ShaftBatchPlanningSignature,
-) -> None:
-    """Publish two root files transactionally, with reference as commit marker."""
-
-    signature_path = batch_planning_signature_path(output_dir)
-    reference_path = cost_plan_reference_path(output_dir)
-    previous_signature = (
-        signature_path.read_bytes() if signature_path.is_file() else None
-    )
-    previous_reference = (
-        reference_path.read_bytes() if reference_path.is_file() else None
-    )
-    try:
-        write_batch_planning_signature(output_dir, signature)
-        write_cost_plan_reference(output_dir, materialization)
-    except Exception:
-        rollback_errors: list[str] = []
-        for path, content in (
-            (reference_path, previous_reference),
-            (signature_path, previous_signature),
-        ):
-            try:
-                _restore_file_snapshot(path, content)
-            except Exception as rollback_error:  # noqa: BLE001
-                rollback_errors.append(
-                    f"{path}: {type(rollback_error).__name__}: {rollback_error}"
-                )
-        if rollback_errors:
-            raise RuntimeError(
-                "Cost-aware run metadata publish failed and rollback was incomplete: "
-                f"{rollback_errors!r}."
-            )
-        raise
-
-
-def _prepare_and_validate_cost_aware_startup(
+def _build_bounded_batch_sampler(
     *,
     config: RuntimeConfig,
-    plan: ShaftSamplePlan,
+    training_args: TrainingArguments,
     train_dataset: SFTDataset,
-    per_device_batch_size: int,
-    data_world_size: int,
-    gradient_accumulation_steps: int,
-    dynamic_contract: ShaftDynamicBatchPlanningContract | None,
-) -> tuple[ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec, Path]:
-    """Fail before model loading when ranks do not share source/cache identity."""
-
-    local_status: dict[str, Any]
-    planning_spec: ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec | None = None
-    local_exception: Exception | None = None
-    try:
-        if config.data.batching.strategy == "dynamic_cost_aware":
-            if dynamic_contract is None:
-                raise ValueError("Dynamic batching requires a resolved planning contract.")
-            planning_spec = dynamic_contract.build_spec(plan)
-        else:
-            planning_spec = ShaftFixedBatchPlanningSpec.from_plan(
-                plan,
-                per_device_batch_size=per_device_batch_size,
-                data_world_size=data_world_size,
-                gradient_accumulation_steps=gradient_accumulation_steps,
-                planning_window=config.data.batching.planning_window,
-                seed=config.experiment.seed,
-                drop_last=False,
-            )
-        validate_sft_cost_planning_dataset(train_dataset)
-        validate_sft_cost_model_adapter(resolve_model_adapter_from_config(config))
-        local_status = {
-            "ok": True,
-            "planning_spec": planning_spec,
-            "source_fingerprint": sft_cost_planning_source_fingerprint(train_dataset),
-            "cache_path": str(
-                resolve_cost_plan_cache_dir(
-                    config.data.batching.cost_plan_cache_dir,
-                    record_cache_dir=config.data.record_cache_dir,
-                ).resolve()
-            ),
-        }
-    except Exception as exc:  # noqa: BLE001 - every rank must enter the first collective
-        local_exception = exc
-        local_status = {
-            "ok": False,
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-    statuses = all_gather_objects(local_status)
-    failures = [status for status in statuses if not status.get("ok")]
-    if failures:
-        if local_exception is not None:
-            raise local_exception
-        raise RuntimeError(
-            "Distributed cost-aware preflight failed before model loading: "
-            f"{failures!r}."
-        )
-    planning_specs = {status["planning_spec"] for status in statuses}
-    if len(planning_specs) != 1:
-        raise ValueError(
-            "Distributed cost-aware batch planning spec differs across ranks: "
-            f"{planning_specs!r}."
-        )
-    source_fingerprints = {
-        str(status["source_fingerprint"]) for status in statuses
-    }
-    if len(source_fingerprints) != 1:
-        raise ValueError(
-            "Distributed SFT CostPlan source fingerprint differs across ranks: "
-            f"{sorted(source_fingerprints)!r}."
-        )
-    cache_paths = {str(status["cache_path"]) for status in statuses}
-    if len(cache_paths) != 1:
-        raise ValueError(
-            "Distributed CostPlan cache path differs across ranks: "
-            f"{sorted(cache_paths)!r}."
-        )
-    cache_dir = Path(local_status["cache_path"])
-    assert planning_spec is not None
-    if int(data_world_size) <= 1:
-        return planning_spec, cache_dir
-
-    rank_zero_error: Exception | None = None
-    rendezvous: dict[str, Any] | None = None
-    if is_rank_zero():
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            token = uuid.uuid4().hex
-            probe_path = cache_dir / f".shaft-shared-cache-probe.{token}"
-            with probe_path.open("xb") as handle:
-                handle.write(token.encode("ascii"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            rendezvous = {
-                "ok": True,
-                "probe_path": str(probe_path),
-                "token": token,
-            }
-        except Exception as exc:  # noqa: BLE001 - every rank must receive the failure
-            rank_zero_error = exc
-            rendezvous = {
-                "ok": False,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-
-    rendezvous = broadcast_object_from_rank_zero(rendezvous)
-    if not isinstance(rendezvous, dict) or not bool(rendezvous.get("ok")):
-        if rank_zero_error is not None:
-            raise rank_zero_error
-        raise RuntimeError(
-            "Rank-zero shared CostPlan cache probe failed: "
-            f"{rendezvous!r}."
-        )
-
-    local_error: str | None = None
-    try:
-        probe_path = Path(str(rendezvous["probe_path"]))
-        observed_token = probe_path.read_text(encoding="ascii")
-        if observed_token != str(rendezvous["token"]):
-            raise RuntimeError("shared cache probe token does not match")
-    except Exception as exc:  # noqa: BLE001 - acknowledge failures collectively
-        local_error = f"{type(exc).__name__}: {exc}"
-    statuses = all_gather_objects({"ok": local_error is None, "error": local_error})
-    if is_rank_zero():
-        try:
-            Path(str(rendezvous["probe_path"])).unlink(missing_ok=True)
-        except OSError:
-            logger.warning(
-                "failed to remove shared CostPlan cache probe %s",
-                rendezvous["probe_path"],
-                exc_info=True,
-            )
-    failures = [status for status in statuses if not status.get("ok")]
-    if failures:
-        raise RuntimeError(
-            "CostPlan cache is not the same readable filesystem on every rank: "
-            f"{failures!r}. Use the same absolute shared cache mount."
-        )
-    return planning_spec, cache_dir
-
-
-def _build_shared_cost_plan_provider(
-    *,
-    config: RuntimeConfig,
-    plan: ShaftSamplePlan,
-    train_dataset: SFTDataset,
-    artifacts: ModelArtifacts,
-    cache_dir: Path,
-) -> tuple[ShaftMMapCostPlanProvider, ShaftCostPlanMaterialization | None]:
-    """Materialize on global rank zero, then map the same immutable plan everywhere."""
-
-    materialization: ShaftCostPlanMaterialization | None = None
-    rank_zero_error: Exception | None = None
-    rendezvous: dict[str, Any] | None = None
-    if is_rank_zero():
-        started = time.perf_counter()
-        try:
-            runtime_provider: ShaftSampleCostProvider = ShaftSFTSampleCostProvider(
-                dataset=train_dataset,
-                model_adapter=artifacts.model_adapter,
-                template=artifacts.template,
-                processor=artifacts.processor,
-                tokenizer=artifacts.tokenizer,
-                min_pixels=config.data.min_pixels,
-                max_pixels=config.data.max_pixels,
-                max_length=config.data.max_length,
-                add_eos_token=config.data.add_eos_token,
-                loss_scale_name=config.train.loss_scale,
-                image_size_cache_size=config.data.batching.image_size_cache_size,
-            )
-            materialization = materialize_cost_plan(
-                plan,
-                cost_provider=runtime_provider,
-                cache_dir=cache_dir,
-            )
-            rendezvous = {
-                "ok": True,
-                "manifest_path": str(materialization.manifest_path),
-                "manifest_fingerprint": materialization.provider.manifest.fingerprint,
-            }
-            logger.info(
-                "[cost-plan-cache] hit=%s samples=%s bytes=%s elapsed_seconds=%.6f "
-                "materialize_seconds=%.6f manifest=%s",
-                materialization.cache_hit,
-                len(plan),
-                materialization.data_bytes,
-                time.perf_counter() - started,
-                materialization.elapsed_seconds,
-                materialization.manifest_path,
-            )
-        except Exception as exc:  # noqa: BLE001 - the failure must reach every rank
-            rank_zero_error = exc
-            rendezvous = {
-                "ok": False,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-        finally:
-            if materialization is not None:
-                materialization.provider.close()
-
-    rendezvous = broadcast_object_from_rank_zero(rendezvous)
-    if not isinstance(rendezvous, dict) or not bool(rendezvous.get("ok")):
-        if rank_zero_error is not None:
-            raise rank_zero_error
-        raise RuntimeError(
-            "Rank-zero CostPlan materialization failed: "
-            f"{rendezvous.get('error_type', 'Error') if isinstance(rendezvous, dict) else 'Error'}: "
-            f"{rendezvous.get('error', 'missing rendezvous payload') if isinstance(rendezvous, dict) else rendezvous}"
-        )
-
-    provider: ShaftMMapCostPlanProvider | None = None
-    local_error: str | None = None
-    try:
-        provider = load_cost_plan_manifest(
-            str(rendezvous["manifest_path"]),
-            plan=plan,
-            expected_manifest_fingerprint=str(rendezvous["manifest_fingerprint"]),
-            verify_checksum=False,
-        )
-    except Exception as exc:  # noqa: BLE001 - all ranks must acknowledge mmap readiness
-        local_error = f"{type(exc).__name__}: {exc}"
-    load_statuses = all_gather_objects(
-        {
-            "ok": local_error is None,
-            "error": local_error,
-        }
-    )
-    failed_statuses = [status for status in load_statuses if not status.get("ok")]
-    if failed_statuses:
-        if provider is not None:
-            provider.close()
-        raise RuntimeError(
-            "Shared CostPlan is not readable on every rank: "
-            f"{failed_statuses!r}. Use the same absolute shared cache mount."
-        )
-    assert provider is not None
-    return provider, materialization
-
-
-def _resolve_dynamic_planned_samples(
-    *,
-    plan: ShaftSamplePlan,
-    cost_provider: ShaftSampleCostProvider,
-    planning_spec: ShaftDynamicBatchPlanningSpec,
-) -> tuple[int, tuple[int, ...]]:
-    """Validate the full dynamic plan on rank zero before Trainer starts."""
+    train_schedule: Any,
+    artifacts: Any,
+    resume_checkpoint: str | None,
+) -> tuple[ShaftBoundedBatchSampler, ShaftBoundedBatchingSpec]:
     local_error: Exception | None = None
-    payload: dict[str, Any] | None = None
-    if is_rank_zero():
-        try:
-            planner = ShaftDynamicBatchPlanner(
-                plan=plan,
-                cost_provider=cost_provider,
-                spec=planning_spec,
+    provider: ShaftSFTSampleCostProvider | None = None
+    spec: ShaftBoundedBatchingSpec | None = None
+    initial_state: ShaftBoundedBatchingState | None = None
+    preflight_fingerprint: str | None = None
+    try:
+        if train_schedule is None or not hasattr(train_schedule, "ref_at"):
+            raise TypeError(
+                "bounded_cost_aware SFT requires Shaft's horizon-independent "
+                "sample schedule."
             )
-            summary = planner.summarize()
-            logger.info(
-                "[dynamic-batch-preflight] optimizer_steps=%s draw_horizon=%s "
-                "target_samples=%s target_supervised_tokens=%s selected_samples=%s "
-                "optimizer_batch_samples_min=%s optimizer_batch_samples_max=%s "
-                "optimizer_batch_samples_avg=%.2f "
-                "useful_llm_tokens=%s padded_llm_tokens=%s supervised_tokens=%s "
-                "loss_weight_sum=%s vision_patches=%s local_batch_min=%s "
-                "local_batch_max=%s/%s local_padded_max=%s/%s "
-                "local_vision_max=%s/%s padding=%.4f rank_skew_avg=%.4f "
-                "rank_skew_max=%.4f",
-                summary.optimizer_step_count,
-                planning_spec.source_sample_count,
-                planning_spec.target_samples,
-                planning_spec.target_supervised_tokens,
-                summary.selected_sample_count,
-                min(summary.optimizer_step_sample_counts),
-                max(summary.optimizer_step_sample_counts),
-                summary.selected_sample_count / summary.optimizer_step_count,
-                summary.useful_llm_tokens,
-                summary.padded_llm_tokens,
-                summary.supervised_tokens,
-                summary.loss_weight_sum,
-                summary.vision_patches,
-                summary.min_local_batch_size,
-                summary.max_local_batch_size,
-                planning_spec.max_samples_per_microbatch,
-                summary.max_local_padded_tokens,
-                planning_spec.max_padded_tokens,
-                summary.max_local_vision_patches,
-                planning_spec.max_vision_patches,
-                summary.padding_ratio,
-                summary.average_rank_cost_skew,
-                summary.max_rank_cost_skew,
+        validate_sft_cost_dataset(train_dataset)
+        validate_sft_cost_model_adapter(artifacts.model_adapter)
+        provider = ShaftSFTSampleCostProvider(
+            dataset=train_dataset,
+            model_adapter=artifacts.model_adapter,
+            template=artifacts.template,
+            processor=artifacts.processor,
+            tokenizer=artifacts.tokenizer,
+            min_pixels=config.data.min_pixels,
+            max_pixels=config.data.max_pixels,
+            max_length=config.data.max_length,
+            add_eos_token=config.data.add_eos_token,
+            loss_scale_name=config.train.loss_scale,
+            cache_size=config.data.batching.cost_cache_size,
+        )
+        max_padded_tokens = config.data.batching.max_padded_tokens
+        max_samples = config.data.batching.max_samples_per_microbatch
+        if max_padded_tokens is None or max_samples is None:
+            raise ValueError(
+                "bounded_cost_aware requires normalized max_padded_tokens and "
+                "max_samples_per_microbatch."
             )
-            payload = {
-                "ok": True,
-                "selected_sample_count": summary.selected_sample_count,
-                "optimizer_step_sample_counts": list(
-                    summary.optimizer_step_sample_counts
+        spec = ShaftBoundedBatchingSpec(
+            data_world_size=max(int(training_args.world_size), 1),
+            buffer_size=int(config.data.batching.buffer_size),
+            max_samples_per_microbatch=int(max_samples),
+            max_padded_tokens=int(max_padded_tokens),
+            max_vision_patches=config.data.batching.max_vision_patches,
+            seed=int(config.experiment.seed),
+            sample_schedule_fingerprint=str(train_schedule.fingerprint),
+            cost_fingerprint=str(provider.fingerprint),
+        )
+        if resume_checkpoint is not None:
+            resume_contract_fingerprint = build_bounded_resume_contract_fingerprint(
+                config=config,
+                training_args=training_args,
+            )
+            initial_state = load_bounded_batching_state(
+                resume_checkpoint,
+                expected_spec=spec,
+                expected_global_step=_checkpoint_global_step(resume_checkpoint),
+                gradient_accumulation_steps=int(
+                    training_args.gradient_accumulation_steps
                 ),
-            }
-        except Exception as exc:  # noqa: BLE001 - broadcast before raising
-            local_error = exc
-            payload = {
-                "ok": False,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
-    payload = broadcast_object_from_rank_zero(payload)
-    if not isinstance(payload, dict) or not payload.get("ok"):
+                expected_resume_contract_fingerprint=resume_contract_fingerprint,
+            )
+            for buffered in initial_state.buffer:
+                resolved_cost = provider(buffered.sample_ref)
+                if resolved_cost != buffered.cost:
+                    raise ValueError(
+                        "Bounded batching resume detected changed cost for buffered "
+                        f"draw_id={buffered.sample_ref.context.draw_id}; source media, "
+                        "prompt transforms, or cost semantics changed in place."
+                    )
+        if int(training_args.world_size) > 1:
+            preflight = ShaftBoundedBatchPlanner(
+                schedule=train_schedule,
+                cost_provider=provider,
+                spec=spec,
+                state=initial_state,
+            ).next_global_microbatch()
+            preflight_fingerprint = preflight.fingerprint
+    except Exception as exc:  # noqa: BLE001 - every rank must reach startup gather
+        local_error = exc
+
+    status = {
+        "ok": local_error is None,
+        "error_type": None if local_error is None else type(local_error).__name__,
+        "error": None if local_error is None else str(local_error),
+        "contract_fingerprint": None if spec is None else spec.fingerprint,
+        "preflight_fingerprint": preflight_fingerprint,
+    }
+    statuses = all_gather_objects(status)
+    failures = [item for item in statuses if not bool(item.get("ok"))]
+    if failures:
         if local_error is not None:
             raise local_error
         raise RuntimeError(
-            "Rank-zero dynamic optimizer-batch selection preflight failed: "
-            f"{payload!r}."
+            f"Bounded batching startup failed on a peer rank: {failures!r}."
         )
-    return (
-        int(payload["selected_sample_count"]),
-        tuple(int(value) for value in payload["optimizer_step_sample_counts"]),
+    contracts = {str(item["contract_fingerprint"]) for item in statuses}
+    if len(contracts) != 1:
+        raise ValueError(
+            f"Bounded batching contract differs across data ranks: {statuses!r}."
+        )
+    plans = {str(item["preflight_fingerprint"]) for item in statuses}
+    if int(training_args.world_size) > 1 and len(plans) != 1:
+        raise ValueError(
+            "Bounded batching first-buffer costs or plans differ across data ranks; "
+            "verify immutable media mounts and data snapshots."
+        )
+    assert provider is not None and spec is not None
+    if resume_checkpoint is not None:
+        # The custom sampler already starts at the committed optimizer boundary.
+        # HF must not replay its own local-batch skip on top of that state.
+        training_args.ignore_data_skip = True
+
+    sampler = ShaftBoundedBatchSampler(
+        train_schedule,
+        cost_provider=provider,
+        spec=spec,
+        global_microstep_count=(
+            int(training_args.max_steps)
+            * int(training_args.gradient_accumulation_steps)
+        ),
+        planning_frame_size=int(training_args.gradient_accumulation_steps),
+        initial_state=initial_state,
     )
+    return sampler, spec
 
 
 @register_pipeline("shaft_sft")
 class ShaftSFTPipeline:
-    """HF-first SFT pipeline.
-
-    The pipeline only coordinates modules; business semantics stay in data/model/algorithms.
-    """
+    """HF-first SFT pipeline with a bounded, lazy cost-aware data path."""
 
     def __init__(self, config: RuntimeConfig):
         self.config = config
         self.interceptor_manager = build_interceptor_manager(config.plugins.interceptors)
-        self._cost_plan_provider: ShaftMMapCostPlanProvider | None = None
+        self.progress_manager = build_progress_manager(config)
 
     def close(self) -> None:
-        if self._cost_plan_provider is not None:
-            self._cost_plan_provider.close()
-            self._cost_plan_provider = None
+        self.progress_manager.close()
 
     def build_training_args(self) -> TrainingArguments:
         return build_hf_training_args(self.config)
+
+    def _progress_phase(self, task_id: str, *, label: str, message: str):
+        if not self.progress_manager.enabled:
+            return nullcontext()
+        return self.progress_manager.start_task(
+            task_id,
+            label=label,
+            unit="phase",
+            message=message,
+        )
 
     def run(self) -> dict[str, Any]:
         config = self.config
         algorithm_name = str(config.algorithm.name).strip().lower()
         if algorithm_name != "sft":
             raise ValueError(
-                f"ShaftSFTPipeline only supports sft, got algorithm={algorithm_name!r}. "
-                "Use ShaftRLHFPipeline for dpo/ppo."
+                f"ShaftSFTPipeline only supports sft, got {algorithm_name!r}. "
+                "Use ShaftRLHFPipeline for DPO/PPO."
             )
         validate_training_state_policy(config)
         validate_training_topology(config)
@@ -497,77 +253,54 @@ class ShaftSFTPipeline:
             full_determinism=config.train.full_determinism,
         )
         training_args = self.build_training_args()
-        batching_strategy = config.data.batching.strategy
-        cost_aware_batching = batching_strategy in {
-            "cost_aware",
-            "dynamic_cost_aware",
-        }
-        dynamic_batching = batching_strategy == "dynamic_cost_aware"
-        dynamic_contract = (
-            resolve_dynamic_batch_planning_contract(
-                config,
-                world_size=training_args.world_size,
-                optimizer_step_count=training_args.max_steps,
-            )
-            if dynamic_batching
-            else None
+        bounded = config.data.batching.strategy == "bounded_cost_aware"
+        logger.info(
+            "[batching] strategy=%s buffer_size=%s cost_cache_size=%s "
+            "per_device_batch=%s data_world_size=%s gradient_accumulation=%s "
+            "max_samples=%s max_padded_tokens=%s max_vision_patches=%s "
+            "min_pixels=%s max_pixels=%s",
+            config.data.batching.strategy,
+            config.data.batching.buffer_size if bounded else None,
+            config.data.batching.cost_cache_size if bounded else None,
+            training_args.per_device_train_batch_size,
+            training_args.world_size,
+            training_args.gradient_accumulation_steps,
+            config.data.batching.max_samples_per_microbatch,
+            config.data.batching.max_padded_tokens,
+            config.data.batching.max_vision_patches,
+            config.data.min_pixels,
+            config.data.max_pixels,
         )
-        data_center = ShaftDataCenter(
-            config.data,
-            seed=config.experiment.seed,
-            train_sample_budget=(
-                dynamic_contract.sample_plan_horizon
-                if dynamic_contract is not None
-                else resolve_step_sample_budget(
+
+        with self._progress_phase("startup.data", label="data", message="loading"):
+            data_center = ShaftDataCenter(
+                config.data,
+                seed=config.experiment.seed,
+                train_sample_budget=resolve_step_sample_budget(
                     config,
                     world_size=training_args.world_size,
-                )
-            ),
-        )
-        dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
+                ),
+            )
+            dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
         train_dataset = dataset_bundle.train_dataset
         train_sampler = dataset_bundle.train_sampler
-        planning_spec: (
-            ShaftFixedBatchPlanningSpec | ShaftDynamicBatchPlanningSpec | None
-        ) = None
-        cost_plan_cache_dir: Path | None = None
-        if cost_aware_batching:
-            if train_sampler is None or not hasattr(train_sampler, "plan"):
-                raise TypeError(
-                    "Cost-aware SFT batching requires the Shaft sample-plan sampler."
-                )
-            planning_spec, cost_plan_cache_dir = (
-                _prepare_and_validate_cost_aware_startup(
-                    config=config,
-                    plan=train_sampler.plan,
-                    train_dataset=train_dataset,
-                    per_device_batch_size=training_args.per_device_train_batch_size,
-                    data_world_size=training_args.world_size,
-                    gradient_accumulation_steps=(
-                        training_args.gradient_accumulation_steps
-                    ),
-                    dynamic_contract=dynamic_contract,
-                )
-            )
+        train_schedule = dataset_bundle.train_schedule
 
-        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
+        resume_checkpoint = resolve_resume_checkpoint(
+            config.train.resume_from_checkpoint,
+            require_bounded_state=bounded,
+        )
         if resume_checkpoint is not None:
             validate_resume_checkpoint(
                 resume_checkpoint,
                 finetune_mode=config.model.finetune.mode,
             )
-            if cost_aware_batching:
-                assert train_sampler is not None and hasattr(train_sampler, "plan")
-                assert planning_spec is not None
-                validate_batch_planning_resume_geometry(
-                    resume_checkpoint,
-                    expected=planning_spec,
-                )
 
-        artifacts = build_model_tokenizer_processor(
-            config,
-            init_from_checkpoint=config.train.init_from_checkpoint,
-        )
+        with self._progress_phase("startup.model", label="model", message="loading"):
+            artifacts = build_model_tokenizer_processor(
+                config,
+                init_from_checkpoint=config.train.init_from_checkpoint,
+            )
         align_model_generation_config(
             artifacts.model,
             tokenizer=artifacts.tokenizer,
@@ -585,99 +318,33 @@ class ShaftSFTPipeline:
                 model_adapter=artifacts.model_adapter,
             )
             if is_rank_zero():
-                write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
+                write_resolved_finetune_summary(
+                    config.experiment.output_dir,
+                    freeze_summary,
+                )
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        batch_planning_signature = None
-        dynamic_planned_sample_count: int | None = None
-        dynamic_optimizer_step_sample_counts: tuple[int, ...] | None = None
-        cost_plan_materialization: ShaftCostPlanMaterialization | None = None
-        if cost_aware_batching:
-            assert train_sampler is not None and hasattr(train_sampler, "plan")
-            assert planning_spec is not None
-            assert cost_plan_cache_dir is not None
-            cost_provider, cost_plan_materialization = _build_shared_cost_plan_provider(
-                config=config,
-                plan=train_sampler.plan,
-                train_dataset=train_dataset,
-                artifacts=artifacts,
-                cache_dir=cost_plan_cache_dir,
-            )
-            self._cost_plan_provider = cost_provider
-            batch_planning_signature = ShaftBatchPlanningSignature.from_spec(
-                planning_spec,
-                cost_fingerprint=cost_provider.fingerprint,
-            )
-            if resume_checkpoint is not None:
-                validate_batch_planning_resume(
-                    resume_checkpoint,
-                    expected=batch_planning_signature,
-                )
-            if dynamic_batching:
-                assert isinstance(planning_spec, ShaftDynamicBatchPlanningSpec)
-                (
-                    dynamic_planned_sample_count,
-                    dynamic_optimizer_step_sample_counts,
-                ) = _resolve_dynamic_planned_samples(
-                    plan=train_sampler.plan,
-                    cost_provider=cost_provider,
-                    planning_spec=planning_spec,
-                )
-                train_batch_sampler = ShaftDynamicBatchSampler(
-                    train_sampler.plan,
-                    cost_provider=cost_provider,
-                    spec=planning_spec,
-                    planned_sample_count=dynamic_planned_sample_count,
-                    planned_optimizer_step_sample_counts=(
-                        dynamic_optimizer_step_sample_counts
-                    ),
-                )
-                if train_batch_sampler.signature != batch_planning_signature:
-                    raise RuntimeError(
-                        "Dynamic sampler signature drifted from the planning spec."
-                    )
-                train_sampler = None
-            else:
-                assert isinstance(planning_spec, ShaftFixedBatchPlanningSpec)
-                train_sampler = ShaftCostAwareSampler(
-                    train_sampler.plan,
-                    cost_provider=cost_provider,
-                    spec=planning_spec,
-                )
-                if train_sampler.signature != batch_planning_signature:
-                    raise RuntimeError(
-                        "Fixed sampler signature drifted from the planning spec."
-                    )
-                train_batch_sampler = None
-        else:
-            train_batch_sampler = None
 
-        if batch_planning_signature is not None:
-            publish_error: Exception | None = None
-            publish_status: dict[str, Any] | None = None
-            if is_rank_zero():
-                assert cost_plan_materialization is not None
-                try:
-                    _publish_cost_aware_run_metadata(
-                        output_dir=config.experiment.output_dir,
-                        materialization=cost_plan_materialization,
-                        signature=batch_planning_signature,
-                    )
-                    publish_status = {"ok": True}
-                except Exception as exc:  # noqa: BLE001 - broadcast before raising
-                    publish_error = exc
-                    publish_status = {
-                        "ok": False,
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    }
-            publish_status = broadcast_object_from_rank_zero(publish_status)
-            if not isinstance(publish_status, dict) or not publish_status.get("ok"):
-                if publish_error is not None:
-                    raise publish_error
-                raise RuntimeError(
-                    "Rank-zero cost-aware run metadata publish failed: "
-                    f"{publish_status!r}."
-                )
+        train_batch_sampler: ShaftBoundedBatchSampler | None = None
+        bounded_spec: ShaftBoundedBatchingSpec | None = None
+        if bounded:
+            train_batch_sampler, bounded_spec = _build_bounded_batch_sampler(
+                config=config,
+                training_args=training_args,
+                train_dataset=train_dataset,
+                train_schedule=train_schedule,
+                artifacts=artifacts,
+                resume_checkpoint=resume_checkpoint,
+            )
+            train_sampler = None
+
+        batching_metadata = build_batching_run_metadata(
+            config=config,
+            training_args=training_args,
+            bounded_spec=bounded_spec,
+        )
+        publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
+        logger.info("[batching-metadata] %s", batching_metadata.to_dict())
+
         eval_dataset: Any = dataset_bundle.eval_dataset
         use_named_eval_datasets = bool(
             config.eval.enabled
@@ -686,25 +353,41 @@ class ShaftSFTPipeline:
             and (
                 config.eval.loss_metrics_enabled
                 or config.eval.online_metrics_enabled
-                or config.eval.metric_for_best_model in {"eval_final_loss", "eval_final_score"}
+                or config.eval.metric_for_best_model
+                in {"eval_final_loss", "eval_final_score"}
             )
         )
         if use_named_eval_datasets:
             eval_dataset = dataset_bundle.eval_datasets_by_name
-        hook_manager = build_hook_manager(config.plugins.hooks)
-        callbacks = []
-        if batch_planning_signature is not None:
-            callbacks.append(ShaftBatchPlanningCallback(batch_planning_signature))
-        if config.progress.enabled:
+
+        callbacks: list[Any] = [ShaftBatchingMetadataCallback(batching_metadata)]
+        if train_batch_sampler is not None and bounded_spec is not None:
+            bounded_resume_contract = build_bounded_resume_contract_fingerprint(
+                config=config,
+                training_args=training_args,
+            )
             callbacks.append(
-                ShaftProgressCallback(
-                    leave=config.progress.leave,
-                    mininterval=config.progress.mininterval,
+                ShaftBoundedBatchingCallback(
+                    train_batch_sampler,
+                    bounded_spec,
+                    gradient_accumulation_steps=int(
+                        training_args.gradient_accumulation_steps
+                    ),
+                    resume_contract_fingerprint=bounded_resume_contract,
                 )
             )
+        if self.progress_manager.enabled:
+            callbacks.append(ShaftProgressCallback(self.progress_manager))
         if (
-            (config.eval.enabled and config.eval.eval_strategy == "epoch" and int(config.eval.epoch_interval) > 1)
-            or (config.train.save_strategy == "epoch" and int(config.train.save_epoch_interval) > 1)
+            (
+                config.eval.enabled
+                and config.eval.eval_strategy == "epoch"
+                and int(config.eval.epoch_interval) > 1
+            )
+            or (
+                config.train.save_strategy == "epoch"
+                and int(config.train.save_epoch_interval) > 1
+            )
         ):
             callbacks.append(
                 ShaftEpochIntervalCallback(
@@ -712,9 +395,10 @@ class ShaftSFTPipeline:
                     save_epoch_interval=int(config.train.save_epoch_interval),
                 )
             )
+        hook_manager = build_hook_manager(config.plugins.hooks)
         if hook_manager.hooks:
             callbacks.append(TrainerHookCallback(hook_manager))
-        callbacks_or_none = callbacks or None
+
         collator = SFTCollator(
             model_adapter=artifacts.model_adapter,
             template=artifacts.template,
@@ -745,12 +429,10 @@ class ShaftSFTPipeline:
                     include_metadata=True,
                     padding_side="left",
                 ),
-                progress_enabled=config.progress.enabled,
-                progress_leave=config.progress.leave,
-                progress_mininterval=config.progress.mininterval,
+                progress_manager=self.progress_manager,
             )
-        algorithm_cls = ALGORITHM_REGISTRY.get(algorithm_name)
-        algorithm = algorithm_cls()
+
+        algorithm = ALGORITHM_REGISTRY.get(algorithm_name)()
         trainer = algorithm.build_trainer(
             context=AlgorithmContext(params=dict(config.algorithm.params)),
             train_config=config.train,
@@ -762,7 +444,7 @@ class ShaftSFTPipeline:
             train_batch_sampler=train_batch_sampler,
             processing_class=artifacts.processor,
             data_collator=collator,
-            callbacks=callbacks_or_none,
+            callbacks=callbacks,
             online_eval_runner=online_eval_runner,
             eval_config=config.eval,
             model_adapter=artifacts.model_adapter,
@@ -798,5 +480,8 @@ def run_sft(config: RuntimeConfig) -> dict[str, Any]:
     )
     try:
         return runner()
+    except BaseException as exc:
+        pipeline.progress_manager.record_failure(str(exc) or type(exc).__name__)
+        raise
     finally:
         pipeline.close()

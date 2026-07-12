@@ -10,7 +10,12 @@ from .algorithm import (
     RLHFConfig,
 )
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
-from .data import DataBatchingConfig, DataConfig, DatasetSourceConfig, PromptSamplingConfig
+from .data import (
+    DataBatchingConfig,
+    DataConfig,
+    DatasetSourceConfig,
+    PromptSamplingConfig,
+)
 from .model import FinetuneConfig, FreezeConfig, ModelConfig
 from .runtime import RuntimeConfig
 from .training import (
@@ -22,7 +27,6 @@ from .training import (
     TrainDurationConfig,
     TrainDistributedConfig,
     TrainFSDPConfig,
-    TrainOptimizerBatchConfig,
     TrainConfig,
     resolve_effective_gradient_checkpointing,
 )
@@ -56,7 +60,6 @@ __all__ = [
     "TrainDurationConfig",
     "TrainDistributedConfig",
     "TrainFSDPConfig",
-    "TrainOptimizerBatchConfig",
     "TrainConfig",
     "load_config",
     "load_config_from_payload",

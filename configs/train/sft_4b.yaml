@@ -28,6 +28,8 @@ algorithm:
   params: {}
 
 data:
+  batching:
+    strategy: fixed
   catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
   mix_strategy: weighted
@@ -105,5 +107,9 @@ logging:
 
 progress:
   enabled: true
-  leave: false
-  mininterval: 0.2
+  display: auto
+  width: 72
+  refresh_interval: 0.5
+  log_interval: 30.0
+  leave_completed: false
+  persist: true

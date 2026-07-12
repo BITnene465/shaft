@@ -40,17 +40,8 @@ class TrainDurationConfig:
 
 
 @dataclass
-class TrainOptimizerBatchConfig:
-    target_samples: int | None = None
-    target_supervised_tokens: int | None = None
-
-
-@dataclass
 class TrainConfig:
     duration: TrainDurationConfig = field(default_factory=TrainDurationConfig)
-    optimizer_batch: TrainOptimizerBatchConfig = field(
-        default_factory=TrainOptimizerBatchConfig
-    )
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = False

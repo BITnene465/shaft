@@ -105,6 +105,9 @@ CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数，并
 
 ```yaml
 data:
+  media_snapshot_id: banana-v5.0-re2-media-v1
+  batching:
+    strategy: fixed
   catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
 ```
@@ -113,6 +116,8 @@ data:
 
 ```yaml
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: arrow_multitask
       source_type: jsonl_sft
@@ -132,6 +137,7 @@ data:
 - `use_for_eval=false` 表示该数据集只参与训练，不参与验证集构建，也不要求提供 `val_paths`。
 - 仓库内置的 [`configs/data/example.yaml`](configs/data/example.yaml) 当前只是示例文件，里面的路径默认不保证存在。
 - 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
+- 每个训练 YAML 都必须显式声明 `data.batching.strategy`；缺失策略不会静默回退。
 
 训练时长使用单一真源，step 是主路径：
 
@@ -147,45 +153,37 @@ train:
 `weighted` 会把各数据源 `weight` 归一化为 sample draw 概率；epoch 模式仅用于有限时长兼容，写成
 `duration: {unit: epochs, value: 1}`。
 
-Qwen VL SFT 可显式启用固定样本数的成本感知分桶：
+Qwen VL SFT 可启用有界、在线的成本感知批次：
 
 ```yaml
 data:
+  media_snapshot_id: banana-v5.0-re2-media-v1
   batching:
-    strategy: cost_aware
-    planning_window: 512
-    cost_plan_cache_dir: /shared/shaft/cost_plans
+    strategy: bounded_cost_aware
+    buffer_size: 64
+    cost_cache_size: 65536
+    max_samples_per_microbatch: 2
+    max_padded_tokens: 10000
+    max_vision_patches: 16384
 ```
 
-该模式只在有界 window 内重排 mixer 已选样本，并保持每卡 batch cardinality；当前要求 step duration、
-exact model processor policy 和不可变数据 snapshot。checkpoint resume 还要求 planning signature 完全
-一致，不能通过修改 steps 直接延长旧 run。CostPlan 在 global rank 0 上按 logical draw 构建或命中
-持久 cache，其余 rank 通过本次启动的 rendezvous 直接只读 mmap 同一 sidecar；多机训练时 cache 必须以
-相同绝对路径挂载到所有 rank，启动阶段会用 source fingerprint 和共享文件探针 fail fast。完整边界见
+`bounded_cost_aware` 不再维护精确的 64-sample optimizer target，也不在训练前物化完整 CostPlan。它只在
+`buffer_size` 个轻量 `SampleRef + cost` 上工作；每个 global microstep 先为每个 DP rank 取一个 FIFO anchor，
+再在 sample、padded-token、vision-patch 上限内合并兼容的短样本。mixing 的 draw multiset 不丢失、不复制，
+HF 继续负责固定 GA、optimizer、scheduler 和 checkpoint。
+
+成本按 buffer 即时估算，图像只读 header，并使用容量受限的 LRU。多 rank 启动只校验第一个 buffer；为了在
+任何 forward 前原子验证完整 GA frame，首个 forward 前的成本调用上界为
+`buffer_size + (GA - 1) * world_size * max_samples_per_microbatch`，仍与总 steps 无关。
+`media_snapshot_id` 声明外部图片是不可变快照；改变媒体必须同时改变该 id。
+
+checkpoint committed state 直接进入 HF `trainer_state.json` 的 stateful callback，在 checkpoint rotation 前
+成为成功条件；保存的是模型已完成 optimizer step 的 buffer/cursor，而不是 DataLoader 预取推进的 live
+cursor。恢复还会严格校验 duration/GA/optimizer/scheduler contract。当前该策略只开放 SFT + step duration +
+DDP，eval 保持 fixed batch。`re` 与 `re2` 都使用这一条运行时，不再存在 fixed cost-aware、dynamic
+cost-aware 两套计划器。完整边界见
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。
-
-需要让短样本自动合并成更大的本地 microbatch 时，使用动态硬预算模式：
-
-```yaml
-data:
-  batching:
-    strategy: dynamic_cost_aware
-    planning_window: 64
-    max_samples_per_microbatch: 8
-    max_padded_tokens: 8192
-    max_vision_patches: null
-    rank_balance: true
-train:
-  optimizer_batch:
-    target_samples: 8            # 与 target_supervised_tokens 二选一
-```
-
-动态模式仍保持固定的 optimizer step 数和 gradient accumulation microstep 数，但每个 rank 的实际样本数
-可变。planner 只消费 mixer 给出的连续 draw prefix，不按长度改样本权重；每个本地 microbatch 同时受
-sample、processor 后 padded token 和 vision patch 硬上限约束。eval 暂时保持 fixed batch，sequence
-packing 与 context parallel 仍是后续独立阶段。Phase 2 只开放 DDP；FSDP/DeepSpeed 动态批次会在配置
-校验阶段拒绝，待专项验证后再开放。
 
 Shaft 会在 dataset、base model 与 PEFT adapter 装配前初始化 `experiment.seed`。需要验证 CUDA bitwise
 resume/fresh reproduction 时，再在 `train` 下设置 `full_determinism: true`；该选项还会启用确定性
@@ -228,7 +226,8 @@ eval workers 改变后续训练随机序列。
 - `src/shaft/infer`：`ShaftInferEngine`、`ShaftInferPipeline`、codec
 - `src/shaft/export`：HF 兼容导出工具链
 - `src/shaft/plugins`：registry、hook、interceptor
-- `src/shaft/observability`：logging、context、events
+- `src/shaft/observability`：logging、context、events、统一 progress 状态与 terminal/plain/JSON sink；TTY
+  使用单行高分辨率进度、不会提前完成的百分比、自适应 `s/step`/`step/s`、ETA、loss 和多参数组 LR range
 - `projects/eval_bench`：离线评测工作台子项目，管理 benchmark copy、run manifest、prediction snapshot、报告、对比与可视化
 
 ## 文档

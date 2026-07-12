@@ -15,7 +15,6 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     "framework": (
         "test_checkpointing.py",
         "test_batch_planning.py",
-        "test_cost_plan_cache.py",
         "test_cli_commands.py",
         "test_cli_common.py",
         "test_codec.py",
@@ -63,6 +62,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_pipeline_sft.py",
         "test_pipeline_training_args.py",
         "test_pixel_budget.py",
+        "test_progress_system.py",
         "test_progress_callback.py",
         "test_prompting.py",
         "test_qwen_coordinates.py",
@@ -96,7 +96,10 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     ),
     "gpu": ("test_flash_attn_smoke.py",),
     "task": (
+        "test_build_background_sft.py",
         "test_build_grounding_structured.py",
+        "test_build_image_reconstruction_sft.py",
+        "test_build_reconstruction_from_gt_standard.py",
         "test_build_sft_from_structured.py",
     ),
     "visual": ("test_prediction_visualization.py",),

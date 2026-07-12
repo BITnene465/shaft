@@ -51,6 +51,8 @@ experiment:
   name: test
   output_dir: {tmp_path}/out
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: {train_jsonl}

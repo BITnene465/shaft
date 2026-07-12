@@ -23,6 +23,8 @@ algorithm:
   name: ppo
 
 data:
+  batching:
+    strategy: fixed
   catalog_path: ../data/example.yaml
   catalog_names: [ppo_rollout]
   mix_strategy: weighted

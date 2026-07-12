@@ -8,215 +8,234 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
 from safetensors.torch import load_file
-from shaft.data.cost_plan import COST_PLAN_REFERENCE_FILENAME
-from shaft.training.batch_planning import BATCH_PLANNING_SIGNATURE_FILENAME
+import torch
+
+from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
+from shaft.training.batch_planning import (
+    BATCHING_RUN_METADATA_FILENAME,
+    BOUNDED_BATCHING_CALLBACK_NAME,
+    checkpoint_has_bounded_batching_state,
+)
+from shaft.training.checkpointing import resolve_resume_checkpoint
 from tests.support.configs import write_sft_smoke_config
 
 
 pytestmark = pytest.mark.smoke
 
 
+def _run_torchrun(
+    repo_root: Path,
+    config_path: Path,
+    *extra_args: str,
+    timeout: int = 300,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "scripts/train.py",
+            "sft",
+            "--config",
+            str(config_path),
+            *extra_args,
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _assert_torchrun_succeeded(completed: subprocess.CompletedProcess[str]) -> None:
+    if completed.returncode == 0:
+        return
+    output = f"{completed.stdout}\n{completed.stderr}"
+    if "Operation not permitted" in output and "RendezvousConnectionError" in output:
+        pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
+    raise AssertionError(
+        f"torchrun failed (code={completed.returncode}).\n{output}"
+    )
+
+
+def _run_bounded_fault(
+    repo_root: Path,
+    config_path: Path,
+    mode: str,
+    *,
+    timeout: int = 180,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_bounded_fault.py",
+            str(config_path),
+            mode,
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _run_progress_console(
+    repo_root: Path,
+    sync_dir: Path,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_progress_console.py",
+            str(sync_dir),
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
-    cfg_path = write_sft_smoke_config(
+    config_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         train_size=4,
         val_size=2,
         distributed=True,
     )
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "scripts/train.py",
-        "sft",
-        "--config",
-        str(cfg_path),
-        "--max-steps",
-        "1",
-    ]
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=180,
-        check=False,
-    )
-    if completed.returncode != 0:
-        stderr = completed.stderr or ""
-        if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-            pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-        raise AssertionError(
-            f"torchrun smoke failed (code={completed.returncode}).\n"
-            f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+    completed = _run_torchrun(repo_root, config_path, "--max-steps", "1")
+    _assert_torchrun_succeeded(completed)
+
+    output = f"{completed.stdout}\n{completed.stderr}"
+    assert output.count("progress train started") == 1
+    assert "\r" not in output
+    progress = json.loads(
+        (tmp_path / "outputs" / PROGRESS_SNAPSHOT_FILENAME).read_text(
+            encoding="utf-8"
         )
+    )
+    assert progress["status"] == "succeeded"
+    assert progress["tasks"]["train"]["current"] == 1
 
 
-def test_torchrun_cost_aware_trainer_dataloader_contract(
+def test_torchrun_interactive_progress_keeps_one_rank_zero_console_line(
     tmp_path: Path,
     repo_root: Path,
 ) -> None:
-    cfg_path = write_sft_smoke_config(
+    completed = _run_progress_console(repo_root, tmp_path / "sync")
+    _assert_torchrun_succeeded(completed)
+
+    output = f"{completed.stdout}\n{completed.stderr}"
+    assert output.count("rank-zero-warning") == 1
+    assert "rank-one-warning-must-be-hidden" not in output
+    assert "0/10k 0%" in output
+    assert "1/10k 0.01%" in output
+    warning_end = output.index("rank-zero-warning") + len("rank-zero-warning")
+    assert output[warning_end:].lstrip().startswith("train")
+
+
+def test_torchrun_bounded_variable_batch_contract(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    config_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
-        train_size=8,
+        train_size=20,
         val_size=2,
         distributed=True,
-        cost_aware=True,
-        per_device_train_batch_size=2,
+        bounded_cost_aware=True,
+        bounded_max_samples_per_microbatch=4,
+        bounded_max_padded_tokens=512,
         gradient_accumulation_steps=2,
-    )
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "scripts/train.py",
-        "sft",
-        "--config",
-        str(cfg_path),
-        "--max-steps",
-        "1",
-    ]
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=180,
-        check=False,
-    )
-    if completed.returncode != 0:
-        stderr = completed.stderr or ""
-        if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-            pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-        raise AssertionError(
-            f"cost-aware torchrun smoke failed (code={completed.returncode}).\n"
-            f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
-        )
-
-    combined_output = f"{completed.stdout}\n{completed.stderr}"
-    assert "[batch-plan-summary]" in combined_output
-    assert "[cost-plan-cache]" in combined_output
-    assert "samples=8" in combined_output
-    assert (tmp_path / "outputs" / BATCH_PLANNING_SIGNATURE_FILENAME).is_file()
-    assert (tmp_path / "outputs" / COST_PLAN_REFERENCE_FILENAME).is_file()
-
-
-def test_torchrun_dynamic_cost_aware_variable_batch_contract(
-    tmp_path: Path,
-    repo_root: Path,
-) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=12,
-        val_size=3,
-        distributed=True,
-        dynamic_cost_aware=True,
-        dynamic_target_samples=12,
-        per_device_train_batch_size=3,
-        gradient_accumulation_steps=2,
+        train_steps=2,
+        save_steps=1,
     )
     train_path = tmp_path / "train.jsonl"
     rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
     rows[0]["user_prompt"] = "x" * 300
-    rows[6]["user_prompt"] = "y" * 280
+    rows[7]["user_prompt"] = "y" * 260
     train_path.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "scripts/train.py",
-        "sft",
-        "--config",
-        str(cfg_path),
-        "--max-steps",
-        "1",
-    ]
 
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=180,
-        check=False,
-    )
-    if completed.returncode != 0:
-        stderr = completed.stderr or ""
-        if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-            pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-        raise AssertionError(
-            f"dynamic cost-aware torchrun smoke failed (code={completed.returncode}).\n"
-            f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+    completed = _run_torchrun(repo_root, config_path)
+    _assert_torchrun_succeeded(completed)
+
+    output = f"{completed.stdout}\n{completed.stderr}"
+    assert "[bounded-batch]" in output
+    assert "[bounded-batch-planned-summary]" in output
+    metadata = json.loads(
+        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(
+            encoding="utf-8"
         )
-
-    combined_output = f"{completed.stdout}\n{completed.stderr}"
-    assert "[dynamic-batch-plan-summary]" in combined_output
-    assert "selected_samples=12" in combined_output
-    assert "local_batch_min=1" in combined_output
-    assert "local_batch_max=5" in combined_output
-    assert (tmp_path / "outputs" / BATCH_PLANNING_SIGNATURE_FILENAME).is_file()
-    assert (tmp_path / "outputs" / COST_PLAN_REFERENCE_FILENAME).is_file()
+    )
+    assert metadata["strategy"] == "bounded_cost_aware"
+    assert metadata["buffer_size"] == 8
+    assert _bounded_callback_payload(tmp_path / "outputs" / "checkpoint-1")
+    assert not list((tmp_path / "outputs").glob("*cost_plan*"))
 
 
-def test_torchrun_dynamic_cost_aware_exact_resume_on_cpu(
+def test_torchrun_bounded_exact_resume_with_persistent_workers(
     tmp_path: Path,
     repo_root: Path,
 ) -> None:
-    cfg_path = write_sft_smoke_config(
+    config_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         output_name="uninterrupted",
         train_size=36,
         val_size=3,
         distributed=True,
-        dynamic_cost_aware=True,
-        dynamic_target_samples=12,
-        per_device_train_batch_size=3,
+        bounded_cost_aware=True,
+        bounded_max_samples_per_microbatch=3,
+        bounded_max_padded_tokens=512,
         gradient_accumulation_steps=2,
         train_steps=3,
         save_steps=1,
     )
-    cfg_path.write_text(
-        cfg_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
         .replace("  num_workers: 0", "  num_workers: 2", 1)
         .replace("  persistent_workers: false", "  persistent_workers: true", 1)
         .replace("  save_total_limit: 2", "  save_total_limit: 3", 1),
         encoding="utf-8",
     )
     train_path = tmp_path / "train.jsonl"
-    rows = [
-        json.loads(line)
-        for line in train_path.read_text(encoding="utf-8").splitlines()
-    ]
+    rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
     for index in range(0, 36, 6):
         rows[index]["user_prompt"] = "x" * 300
     train_path.write_text(
@@ -224,235 +243,104 @@ def test_torchrun_dynamic_cost_aware_exact_resume_on_cpu(
         encoding="utf-8",
     )
 
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-
-    def run_torchrun(config_path: Path, *extra_args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "torch.distributed.run",
-                "--standalone",
-                "--nnodes=1",
-                "--nproc_per_node=2",
-                "scripts/train.py",
-                "sft",
-                "--config",
-                str(config_path),
-                *extra_args,
-            ],
-            cwd=repo_root,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=300,
-            check=False,
-        )
-
-    uninterrupted = run_torchrun(cfg_path)
-    if uninterrupted.returncode != 0:
-        stderr = uninterrupted.stderr or ""
-        if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-            pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-        raise AssertionError(
-            "uninterrupted dynamic torchrun failed "
-            f"(code={uninterrupted.returncode}).\nSTDOUT:\n{uninterrupted.stdout}\n"
-            f"STDERR:\n{uninterrupted.stderr}"
-        )
-
+    uninterrupted = _run_torchrun(repo_root, config_path)
+    _assert_torchrun_succeeded(uninterrupted)
     checkpoint_one = tmp_path / "uninterrupted" / "checkpoint-1"
-    uninterrupted_checkpoint_three = tmp_path / "uninterrupted" / "checkpoint-3"
-    resumed_output = tmp_path / "resumed-from-one"
-    resume_cfg = tmp_path / "sft_full_resume_from_one.yaml"
-    resume_cfg.write_text(
-        cfg_path.read_text(encoding="utf-8").replace(
+    expected_final = tmp_path / "uninterrupted" / "checkpoint-3"
+    assert _bounded_callback_payload(checkpoint_one)
+
+    resumed_output = tmp_path / "resumed"
+    resume_config = tmp_path / "resume.yaml"
+    resume_config.write_text(
+        config_path.read_text(encoding="utf-8").replace(
             f"output_dir: {tmp_path / 'uninterrupted'}",
             f"output_dir: {resumed_output}",
             1,
         ),
         encoding="utf-8",
     )
-    resumed = run_torchrun(
-        resume_cfg,
+    resumed = _run_torchrun(
+        repo_root,
+        resume_config,
         "--resume-from",
         str(checkpoint_one),
     )
-    if resumed.returncode != 0:
-        raise AssertionError(
-            f"resumed dynamic torchrun failed (code={resumed.returncode}).\n"
-            f"STDOUT:\n{resumed.stdout}\nSTDERR:\n{resumed.stderr}"
-        )
+    _assert_torchrun_succeeded(resumed)
 
-    def assert_exact_checkpoint(actual_checkpoint: Path) -> None:
-        expected_model = load_file(
-            str(uninterrupted_checkpoint_three / "model.safetensors")
-        )
-        actual_model = load_file(str(actual_checkpoint / "model.safetensors"))
-        assert expected_model.keys() == actual_model.keys()
-        for name in expected_model:
-            assert torch.equal(expected_model[name], actual_model[name]), name
-        for state_filename in ("optimizer.pt", "scheduler.pt"):
-            expected_state = torch.load(
-                uninterrupted_checkpoint_three / state_filename,
-                map_location="cpu",
-                weights_only=True,
-            )
-            actual_state = torch.load(
-                actual_checkpoint / state_filename,
-                map_location="cpu",
-                weights_only=True,
-            )
-            _assert_nested_state_equal(expected_state, actual_state)
-        expected_rng_paths = sorted(
-            uninterrupted_checkpoint_three.glob("rng_state*.pth")
-        )
-        actual_rng_paths = sorted(actual_checkpoint.glob("rng_state*.pth"))
-        assert [path.name for path in expected_rng_paths] == [
-            path.name for path in actual_rng_paths
-        ]
-        for expected_path, actual_path in zip(
-            expected_rng_paths,
-            actual_rng_paths,
-            strict=True,
-        ):
-            _assert_nested_state_equal(
-                torch.load(expected_path, map_location="cpu", weights_only=False),
-                torch.load(actual_path, map_location="cpu", weights_only=False),
-            )
-        resumed_state = json.loads(
-            (actual_checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-        )
-        assert int(resumed_state["global_step"]) == 3
+    _assert_exact_checkpoint(expected_final, resumed_output / "checkpoint-3")
 
-    assert_exact_checkpoint(resumed_output / "checkpoint-3")
 
-    resumed_from_two_output = tmp_path / "resumed-from-two"
-    resume_from_two_cfg = tmp_path / "sft_full_resume_from_two.yaml"
-    resume_from_two_cfg.write_text(
-        cfg_path.read_text(encoding="utf-8").replace(
-            f"output_dir: {tmp_path / 'uninterrupted'}",
-            f"output_dir: {resumed_from_two_output}",
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        (
+            "constructor_failure",
+            "synthetic rank-local provider construction failure",
+        ),
+        ("provider_failure", "synthetic rank-local media failure"),
+        ("cost_drift", "first-buffer costs or plans differ"),
+    ],
+)
+def test_torchrun_bounded_startup_faults_fail_all_ranks_without_hanging(
+    tmp_path: Path,
+    repo_root: Path,
+    mode: str,
+    message: str,
+) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        distributed=True,
+        bounded_cost_aware=True,
+        train_size=12,
+        val_size=1,
+        train_steps=1,
+    )
+
+    completed = _run_bounded_fault(repo_root, config_path, mode)
+    output = f"{completed.stdout}\n{completed.stderr}"
+
+    assert completed.returncode != 0
+    assert message in output
+
+
+def test_torchrun_bounded_checkpoint_state_failure_preserves_last_complete_resume(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        distributed=True,
+        bounded_cost_aware=True,
+        train_size=20,
+        val_size=1,
+        train_steps=2,
+        save_steps=1,
+    )
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "  save_total_limit: 2",
+            "  save_total_limit: 1",
             1,
         ),
         encoding="utf-8",
     )
-    resumed_from_two = run_torchrun(
-        resume_from_two_cfg,
-        "--resume-from",
-        str(resumed_output / "checkpoint-2"),
+
+    completed = _run_bounded_fault(
+        repo_root,
+        config_path,
+        "checkpoint_write_failure",
     )
-    if resumed_from_two.returncode != 0:
-        raise AssertionError(
-            "second-generation resumed dynamic torchrun failed "
-            f"(code={resumed_from_two.returncode}).\n"
-            f"STDOUT:\n{resumed_from_two.stdout}\nSTDERR:\n{resumed_from_two.stderr}"
-        )
-    assert not (resumed_from_two_output / "checkpoint-1").exists()
-    assert not (resumed_from_two_output / "checkpoint-2").exists()
-    assert_exact_checkpoint(resumed_from_two_output / "checkpoint-3")
+    output = f"{completed.stdout}\n{completed.stderr}"
+    run_dir = tmp_path / "outputs"
+    checkpoint_one = run_dir / "checkpoint-1"
 
-
-def test_torchrun_cost_plan_rank_zero_failure_reaches_all_ranks(
-    tmp_path: Path,
-    repo_root: Path,
-) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=8,
-        val_size=2,
-        distributed=True,
-        cost_aware=True,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=2,
-    )
-    (tmp_path / "image.png").unlink()
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "scripts/train.py",
-        "sft",
-        "--config",
-        str(cfg_path),
-        "--max-steps",
-        "1",
-    ]
-
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-
-    stderr = completed.stderr or ""
-    if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-        pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
     assert completed.returncode != 0
-    combined_output = f"{completed.stdout}\n{stderr}"
-    assert "Rank-zero CostPlan materialization failed" in combined_output
-    assert "image.png" in combined_output
-    assert not (tmp_path / "outputs" / COST_PLAN_REFERENCE_FILENAME).exists()
-
-
-def test_torchrun_cost_plan_nonzero_load_failure_reaches_all_ranks(
-    tmp_path: Path,
-    repo_root: Path,
-) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=8,
-        val_size=2,
-        distributed=True,
-        cost_aware=True,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=2,
-    )
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "tests/support/distributed_cost_plan_load_fault.py",
-        str(cfg_path),
-    ]
-
-    completed = subprocess.run(
-        command,
-        cwd=repo_root,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-
-    stderr = completed.stderr or ""
-    if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-        pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-    assert completed.returncode != 0
-    combined_output = f"{completed.stdout}\n{stderr}"
-    assert "injected nonzero-rank CostPlan mmap failure" in combined_output
-    assert "Shared CostPlan is not readable on every rank" in combined_output
-    assert not (tmp_path / "outputs" / COST_PLAN_REFERENCE_FILENAME).exists()
+    assert "synthetic bounded trainer-state write failure" in output
+    assert checkpoint_has_bounded_batching_state(checkpoint_one)
+    assert resolve_resume_checkpoint(
+        run_dir,
+        require_bounded_state=True,
+    ) == str(checkpoint_one)
 
 
 def test_torchrun_global_weighted_loss_matches_single_process_reference(
@@ -463,18 +351,17 @@ def test_torchrun_global_weighted_loss_matches_single_process_reference(
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = ""
     env["OMP_NUM_THREADS"] = "1"
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
-        "--standalone",
-        "--nnodes=1",
-        "--nproc_per_node=2",
-        "tests/support/distributed_loss_probe.py",
-        str(result_path),
-    ]
     completed = subprocess.run(
-        command,
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_loss_probe.py",
+            str(result_path),
+        ],
         cwd=repo_root,
         env=env,
         text=True,
@@ -482,20 +369,44 @@ def test_torchrun_global_weighted_loss_matches_single_process_reference(
         timeout=180,
         check=False,
     )
-    if completed.returncode != 0:
-        stderr = completed.stderr or ""
-        if "Operation not permitted" in stderr and "RendezvousConnectionError" in stderr:
-            pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-        raise AssertionError(
-            f"distributed loss probe failed (code={completed.returncode}).\n"
-            f"STDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
-        )
+    _assert_torchrun_succeeded(completed)
 
     result = json.loads(result_path.read_text(encoding="utf-8"))
     assert result["rank_batch_sizes"] == [[1, 1], [2, 1]]
     assert result["global_denominator"] == pytest.approx(12.0)
     assert result["reference_loss"] > 0
     assert result["max_parameter_error"] < 1e-7
+
+
+def _assert_exact_checkpoint(expected: Path, actual: Path) -> None:
+    expected_model = load_file(str(expected / "model.safetensors"))
+    actual_model = load_file(str(actual / "model.safetensors"))
+    assert expected_model.keys() == actual_model.keys()
+    for name in expected_model:
+        assert torch.equal(expected_model[name], actual_model[name]), name
+    for state_filename in ("optimizer.pt", "scheduler.pt"):
+        _assert_nested_state_equal(
+            torch.load(expected / state_filename, map_location="cpu", weights_only=True),
+            torch.load(actual / state_filename, map_location="cpu", weights_only=True),
+        )
+    expected_rng = sorted(expected.glob("rng_state*.pth"))
+    actual_rng = sorted(actual.glob("rng_state*.pth"))
+    assert [path.name for path in expected_rng] == [path.name for path in actual_rng]
+    for expected_path, actual_path in zip(expected_rng, actual_rng, strict=True):
+        _assert_nested_state_equal(
+            torch.load(expected_path, map_location="cpu", weights_only=False),
+            torch.load(actual_path, map_location="cpu", weights_only=False),
+        )
+    expected_bounded = _bounded_callback_payload(expected)
+    actual_bounded = _bounded_callback_payload(actual)
+    assert expected_bounded == actual_bounded
+
+
+def _bounded_callback_payload(checkpoint: Path) -> dict:
+    trainer_state = json.loads(
+        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
+    )
+    return trainer_state["stateful_callbacks"][BOUNDED_BATCHING_CALLBACK_NAME]
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

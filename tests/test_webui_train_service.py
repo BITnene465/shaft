@@ -3,9 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import json
+import pytest
 import yaml
 
 from shaft.config import RuntimeConfig
+from shaft.observability import (
+    PROGRESS_SNAPSHOT_FILENAME,
+    ShaftJsonProgressSink,
+    ShaftProgressManager,
+)
 from shaft.webui.services import ShaftRunStore, ShaftSFTTrainService
 from shaft.webui.types import ShaftRunRecord
 
@@ -132,6 +139,251 @@ def test_train_service_marks_missing_pid_run_as_failed(tmp_path: Path) -> None:
     assert refreshed.return_code == -1
 
 
+def test_train_service_reads_live_progress_snapshot_without_parsing_logs(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    output_dir = repo_root / "outputs" / "live"
+    output_dir.mkdir(parents=True)
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    record = run_store.save_record(
+        ShaftRunRecord(
+            run_id="live-run",
+            algorithm="sft",
+            status="running",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path="resolved.yaml",
+            log_path="train.log",
+            output_dir="outputs/live",
+            pid=12345,
+        )
+    )
+    manager = ShaftProgressManager(
+        run_id=record.run_id,
+        sinks=[
+            ShaftJsonProgressSink(
+                output_dir / PROGRESS_SNAPSHOT_FILENAME,
+                persist_interval=0.0,
+            )
+        ],
+    )
+    train = manager.start_task(
+        "train",
+        label="train",
+        total=10,
+        initial=3,
+        unit="step",
+        metrics={"loss": 1.25, "lr": 2e-5},
+    )
+    evaluation = manager.start_task(
+        "eval.loss",
+        label="eval",
+        total=4,
+        unit="batch",
+        parent_task_id="train",
+    )
+    evaluation.update(current=2)
+
+    with patch.object(service, "_is_pid_running", return_value=True):
+        summary = service.load_summary(record.run_id)
+
+    assert summary["status"] == "running"
+    assert summary["global_step"] == 3
+    assert summary["max_steps"] == 10
+    assert summary["progress_phase"] == "eval"
+    assert summary["progress_current"] == 2
+    assert summary["progress_total"] == 4
+    assert summary["progress_text"] == "2/4 (50%)"
+    assert summary["train_metrics"] == {"loss": 1.25, "lr": 2e-5}
+    evaluation.complete()
+    train.complete()
+    manager.close()
+
+
+def test_progress_summary_prefers_a_post_train_failure_over_completed_train(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "output"
+    manager = ShaftProgressManager(
+        run_id="failed-run",
+        sinks=[
+            ShaftJsonProgressSink(
+                output_dir / PROGRESS_SNAPSHOT_FILENAME,
+                persist_interval=0.0,
+            )
+        ],
+    )
+    train = manager.start_task("train", label="train", total=1, unit="step")
+    train.update(current=1)
+    train.complete()
+    manager.record_failure("export failed")
+    manager.close()
+
+    summary = ShaftRunStore(root_dir=tmp_path / "runs").load_progress_summary(
+        output_dir,
+        expected_run_id="failed-run",
+    )
+
+    assert summary["progress_status"] == "failed"
+    assert summary["progress_phase"] == "run"
+    assert summary["progress_message"] == "export failed"
+    assert summary["global_step"] == 1
+
+
+def test_progress_summary_never_rounds_an_incomplete_task_to_one_hundred_percent(
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "output"
+    manager = ShaftProgressManager(
+        run_id="near-complete-run",
+        sinks=[
+            ShaftJsonProgressSink(
+                output_dir / PROGRESS_SNAPSHOT_FILENAME,
+                persist_interval=0.0,
+            )
+        ],
+    )
+    train = manager.start_task("train", label="train", total=10_000, unit="step")
+    train.update(current=9_999)
+
+    summary = ShaftRunStore(root_dir=tmp_path / "runs").load_progress_summary(
+        output_dir,
+        expected_run_id="near-complete-run",
+    )
+
+    assert summary["progress_percent"] == pytest.approx(0.9999)
+    assert summary["progress_text"] == "9999/10000 (99.9%)"
+    train.complete()
+    manager.close()
+
+
+@pytest.mark.parametrize(
+    "snapshot_payload",
+    [
+        "{broken-json",
+        json.dumps({"schema_version": 2, "run_id": "current-run"}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "old-run",
+                "updated_at": "2026-07-12T10:00:00+00:00",
+                "tasks": {},
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "current-run",
+                "updated_at": "2026-07-12T09:59:59+00:00",
+                "tasks": {
+                    "train": {
+                        "task_id": "train",
+                        "label": "train",
+                        "state": "succeeded",
+                        "current": 99,
+                        "total": 100,
+                    }
+                },
+            }
+        ),
+    ],
+)
+def test_train_service_ignores_invalid_or_stale_progress_and_keeps_trainer_state(
+    tmp_path: Path,
+    snapshot_payload: str,
+) -> None:
+    repo_root = tmp_path / "repo"
+    output_dir = repo_root / "outputs" / "fallback"
+    output_dir.mkdir(parents=True)
+    (output_dir / "trainer_state.json").write_text(
+        '{"global_step":7,"epoch":1.0,"best_metric":0.5}',
+        encoding="utf-8",
+    )
+    (output_dir / PROGRESS_SNAPSHOT_FILENAME).write_text(
+        snapshot_payload,
+        encoding="utf-8",
+    )
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    run_store.save_record(
+        ShaftRunRecord(
+            run_id="current-run",
+            algorithm="sft",
+            status="succeeded",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path="resolved.yaml",
+            log_path="train.log",
+            output_dir="outputs/fallback",
+            return_code=0,
+            started_at="2026-07-12T10:00:00+00:00",
+        )
+    )
+
+    summary = service.load_summary("current-run")
+
+    assert summary["status"] == "succeeded"
+    assert summary["global_step"] == 7
+    assert summary["best_metric"] == pytest.approx(0.5)
+    assert "progress_phase" not in summary
+
+
+def test_terminal_run_status_overrides_an_unfinished_progress_snapshot(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    output_dir = repo_root / "outputs" / "stopped"
+    output_dir.mkdir(parents=True)
+    payload = {
+        "schema_version": 1,
+        "run_id": "stopped-run",
+        "attempt_id": "attempt",
+        "status": "running",
+        "active_task_id": "train",
+        "updated_at": "2026-07-12T10:00:01+00:00",
+        "tasks": {
+            "train": {
+                "task_id": "train",
+                "label": "train",
+                "state": "running",
+                "current": 3,
+                "total": 10,
+                "unit": "step",
+                "metrics": {},
+                "order": 1,
+            }
+        },
+    }
+    (output_dir / PROGRESS_SNAPSHOT_FILENAME).write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    run_store = ShaftRunStore(root_dir=tmp_path / "runs")
+    service = ShaftSFTTrainService(run_store=run_store, repo_root=repo_root)
+    run_store.save_record(
+        ShaftRunRecord(
+            run_id="stopped-run",
+            algorithm="sft",
+            status="stopped",
+            command=["python", "scripts/train.py"],
+            config_source_path="base.yaml",
+            resolved_config_path="resolved.yaml",
+            log_path="train.log",
+            output_dir="outputs/stopped",
+            return_code=-15,
+            started_at="2026-07-12T10:00:00+00:00",
+        )
+    )
+
+    summary = service.load_summary("stopped-run")
+
+    assert summary["status"] == "stopped"
+    assert summary["progress_status"] == "running"
+    assert summary["progress_stale"] is True
+
+
 def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -151,7 +403,9 @@ def test_train_service_load_run_snapshot_reads_resolved_config_and_log(tmp_path:
         )
     )
     run_store.get_run_dir(record.run_id).mkdir(parents=True, exist_ok=True)
-    run_store.get_resolved_config_path(record.run_id).write_text("experiment:\n  run_id: snapshot-run\n", encoding="utf-8")
+    run_store.get_resolved_config_path(record.run_id).write_text(
+        "experiment:\n  run_id: snapshot-run\n", encoding="utf-8"
+    )
     run_store.get_log_path(record.run_id).write_text("hello webui\n", encoding="utf-8")
     finetune_summary_path = repo_root / "outputs" / "snapshot" / "shaft_finetune_summary.json"
     finetune_summary_path.parent.mkdir(parents=True, exist_ok=True)

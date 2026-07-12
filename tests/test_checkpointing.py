@@ -1,22 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import replace
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from shaft.config import RuntimeConfig
-from shaft.data import ShaftBatchPlanningSignature, ShaftFixedBatchPlanningSpec
-from shaft.data.cost_plan import COST_PLAN_REFERENCE_FILENAME
-from shaft.model import build_model_meta
+from shaft.data import ShaftBoundedBatchingSpec, ShaftBoundedBatchingState
+from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.training.batch_planning import (
-    BATCH_PLANNING_SIGNATURE_FILENAME,
-    ShaftBatchPlanningCallback,
-    load_batch_planning_signature,
-    validate_batch_planning_resume,
-    validate_batch_planning_resume_geometry,
-    write_batch_planning_signature,
+    BATCHING_RUN_METADATA_FILENAME,
+    BOUNDED_BATCHING_CALLBACK_NAME,
+    ShaftBatchingMetadataCallback,
+    ShaftBatchingRunMetadata,
+    ShaftBoundedBatchingCallback,
+    checkpoint_has_bounded_batching_state,
+    load_batching_run_metadata,
+    load_bounded_batching_state,
+    write_batching_run_metadata,
 )
 from shaft.training.checkpointing import (
     ensure_hf_export_layout,
@@ -26,6 +28,47 @@ from shaft.training.checkpointing import (
     validate_resume_checkpoint,
     validate_training_state_policy,
 )
+
+
+def _spec(**changes) -> ShaftBoundedBatchingSpec:
+    values = {
+        "data_world_size": 2,
+        "buffer_size": 16,
+        "max_samples_per_microbatch": 4,
+        "max_padded_tokens": 1024,
+        "max_vision_patches": 2048,
+        "seed": 42,
+        "sample_schedule_fingerprint": "schedule-v1",
+        "cost_fingerprint": "cost-v1",
+    }
+    values.update(changes)
+    return ShaftBoundedBatchingSpec(**values)
+
+
+def _write_bounded_trainer_state(
+    path: Path,
+    *,
+    spec: ShaftBoundedBatchingSpec,
+    state: ShaftBoundedBatchingState,
+    resume_contract_fingerprint: str = "resume-v1",
+) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "stateful_callbacks": {
+            BOUNDED_BATCHING_CALLBACK_NAME: {
+                "args": {
+                    "spec": spec.to_dict(),
+                    "gradient_accumulation_steps": 2,
+                    "resume_contract_fingerprint": resume_contract_fingerprint,
+                },
+                "attributes": {"bounded_state": state.to_dict()},
+            }
+        }
+    }
+    (path / "trainer_state.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
 
 
 def test_validate_training_state_policy_requires_eval_for_best_model() -> None:
@@ -48,260 +91,267 @@ def test_validate_training_state_policy_requires_matching_strategies() -> None:
 
 def test_resolve_resume_checkpoint_picks_last_checkpoint(tmp_path: Path) -> None:
     root = tmp_path / "run"
-    ckpt1 = root / "checkpoint-1"
-    ckpt2 = root / "checkpoint-2"
-    ckpt1.mkdir(parents=True)
-    ckpt2.mkdir(parents=True)
-    (ckpt1 / "trainer_state.json").write_text("{}", encoding="utf-8")
-    (ckpt2 / "trainer_state.json").write_text("{}", encoding="utf-8")
-    resolved = resolve_resume_checkpoint(str(root))
-    assert resolved == str(ckpt2)
+    for step in (1, 2):
+        checkpoint = root / f"checkpoint-{step}"
+        checkpoint.mkdir(parents=True)
+        (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+    assert resolve_resume_checkpoint(root) == str(root / "checkpoint-2")
 
 
-def test_resolve_resume_checkpoint_ignores_root_final_state_when_checkpoints_exist(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "run"
-    checkpoint = root / "checkpoint-2"
-    checkpoint.mkdir(parents=True)
-    (root / "trainer_state.json").write_text("{}", encoding="utf-8")
-    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
-
-    assert resolve_resume_checkpoint(root) == str(checkpoint)
-
-
-def test_prune_root_output_layout_preserves_run_metadata(tmp_path: Path) -> None:
+def test_prune_root_output_layout_preserves_runtime_metadata(tmp_path: Path) -> None:
     root = tmp_path / "run"
     (root / "best").mkdir(parents=True)
     (root / "config.json").write_text("{}", encoding="utf-8")
-    (root / "model.safetensors").write_bytes(b"legacy-root-export")
-    metadata = {
-        "trainer_state.json": "{}",
-        "shaft_finetune_summary.json": "{}",
-        "shaft_optimizer_summary.json": "{}",
-        BATCH_PLANNING_SIGNATURE_FILENAME: "{}",
-        COST_PLAN_REFERENCE_FILENAME: "{}",
-    }
-    for name, payload in metadata.items():
-        (root / name).write_text(payload, encoding="utf-8")
+    (root / "model.safetensors").write_bytes(b"legacy")
+    names = (
+        "trainer_state.json",
+        "shaft_finetune_summary.json",
+        "shaft_optimizer_summary.json",
+        BATCHING_RUN_METADATA_FILENAME,
+        PROGRESS_SNAPSHOT_FILENAME,
+    )
+    for name in names:
+        (root / name).write_text("{}", encoding="utf-8")
 
     prune_root_output_layout(root)
 
-    assert (root / "best").is_dir()
     assert not (root / "config.json").exists()
     assert not (root / "model.safetensors").exists()
-    for name in metadata:
-        assert (root / name).is_file()
+    assert all((root / name).is_file() for name in names)
 
 
-def _batch_planning_signature() -> ShaftBatchPlanningSignature:
-    return ShaftBatchPlanningSignature(
-        planner_version="planner-v1",
-        sample_plan_fingerprint="sample-v1",
-        cost_fingerprint="cost-v1",
-        source_sample_count=8,
-        sample_count=8,
-        per_device_batch_size=2,
-        data_world_size=2,
-        gradient_accumulation_steps=1,
-        planning_window=8,
-        effective_planning_window=8,
-        seed=42,
-        drop_last=False,
+def test_bounded_state_roundtrip_and_resume_validation(tmp_path: Path) -> None:
+    spec = _spec()
+    state = ShaftBoundedBatchingState(
+        contract_fingerprint=spec.fingerprint,
+        global_microstep=6,
+        next_draw_id=20,
+        emitted_samples=20,
     )
+    _write_bounded_trainer_state(tmp_path, spec=spec, state=state)
+
+    assert load_bounded_batching_state(
+        tmp_path,
+        expected_spec=spec,
+        expected_global_step=3,
+        gradient_accumulation_steps=2,
+        expected_resume_contract_fingerprint="resume-v1",
+    ) == state
 
 
-def test_batch_planning_signature_roundtrip_and_resume_validation(tmp_path: Path) -> None:
-    signature = _batch_planning_signature()
-    checkpoint = tmp_path / "run" / "checkpoint-1"
-    write_batch_planning_signature(checkpoint, signature)
-
-    assert load_batch_planning_signature(checkpoint) == signature
-    validate_batch_planning_resume(checkpoint, expected=signature)
-
-    extended_horizon = replace(
-        signature,
-        source_sample_count=12,
-        sample_count=12,
+def test_bounded_resume_rejects_contract_or_optimizer_boundary_drift(
+    tmp_path: Path,
+) -> None:
+    spec = _spec()
+    state = ShaftBoundedBatchingState(
+        contract_fingerprint=spec.fingerprint,
+        global_microstep=4,
+        next_draw_id=10,
+        emitted_samples=10,
     )
-    with pytest.raises(ValueError, match="source_sample_count.*sample_count"):
-        validate_batch_planning_resume(checkpoint, expected=extended_horizon)
-    with pytest.raises(ValueError, match="planning geometry changed"):
-        validate_batch_planning_resume_geometry(
-            checkpoint,
-            expected=ShaftFixedBatchPlanningSpec(
-                sample_plan_fingerprint=signature.sample_plan_fingerprint,
-                source_sample_count=12,
-                usable_sample_count=12,
-                per_device_batch_size=signature.per_device_batch_size,
-                data_world_size=signature.data_world_size,
-                gradient_accumulation_steps=signature.gradient_accumulation_steps,
-                global_microstep_samples=4,
-                planning_window=signature.planning_window,
-                effective_planning_window=signature.effective_planning_window,
-                seed=signature.seed,
-                drop_last=signature.drop_last,
-            ),
+    _write_bounded_trainer_state(tmp_path, spec=spec, state=state)
+
+    with pytest.raises(ValueError, match="changed fields.*buffer_size"):
+        load_bounded_batching_state(
+            tmp_path,
+            expected_spec=_spec(buffer_size=32),
+            expected_global_step=2,
+            gradient_accumulation_steps=2,
+            expected_resume_contract_fingerprint="resume-v1",
+        )
+    with pytest.raises(ValueError, match="not aligned"):
+        load_bounded_batching_state(
+            tmp_path,
+            expected_spec=spec,
+            expected_global_step=3,
+            gradient_accumulation_steps=2,
+            expected_resume_contract_fingerprint="resume-v1",
+        )
+
+    with pytest.raises(ValueError, match="training contract changed"):
+        load_bounded_batching_state(
+            tmp_path,
+            expected_spec=spec,
+            expected_global_step=2,
+            gradient_accumulation_steps=2,
+            expected_resume_contract_fingerprint="changed-resume",
         )
 
 
-def test_batch_planning_signature_reads_phase_one_payload_without_dynamic_fields() -> None:
-    signature = _batch_planning_signature()
-    payload = signature.to_dict()
-    for field_name in (
-        "strategy",
-        "optimizer_step_count",
-        "max_samples_per_microbatch",
-        "max_padded_tokens",
-        "max_vision_patches",
-        "target_samples",
-        "target_supervised_tokens",
-        "rank_balance",
-        "planning_spec_fingerprint",
-    ):
-        payload.pop(field_name)
-
-    assert ShaftBatchPlanningSignature.from_dict(payload) == signature
-
-
-def test_batch_planning_callback_persists_checkpoint_signature(tmp_path: Path) -> None:
-    signature = _batch_planning_signature()
-    callback = ShaftBatchPlanningCallback(signature)
-    checkpoint = tmp_path / "checkpoint-3"
-    checkpoint.mkdir()
-
-    control = object()
-    returned = callback.on_save(
-        SimpleNamespace(output_dir=str(tmp_path)),
-        SimpleNamespace(global_step=3, is_world_process_zero=True),
-        control,
+def test_bounded_callback_saves_only_committed_step_state(tmp_path: Path) -> None:
+    spec = _spec()
+    committed = ShaftBoundedBatchingState(
+        contract_fingerprint=spec.fingerprint,
+        global_microstep=4,
+        next_draw_id=12,
+        emitted_samples=12,
     )
 
-    assert returned is control
-    assert load_batch_planning_signature(checkpoint) == signature
+    class _Sampler:
+        committed_state = committed
+
+        def commit_global_microstep(self, global_microstep):
+            assert global_microstep == 4
+            return self.committed_state
+
+    callback = ShaftBoundedBatchingCallback(
+        _Sampler(),
+        spec,
+        gradient_accumulation_steps=2,
+        resume_contract_fingerprint="resume-v1",
+    )
+    control = object()
+    state = SimpleNamespace(global_step=2, is_world_process_zero=True)
+    callback.on_step_end(SimpleNamespace(), state, control)
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps(
+            {
+                "stateful_callbacks": {
+                    BOUNDED_BATCHING_CALLBACK_NAME: callback.state()
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_bounded_batching_state(
+        tmp_path / "checkpoint-2",
+        expected_spec=spec,
+        expected_global_step=2,
+        gradient_accumulation_steps=2,
+        expected_resume_contract_fingerprint="resume-v1",
+    ) == committed
+    assert checkpoint_has_bounded_batching_state(checkpoint)
 
 
-def test_batch_planning_resume_never_borrows_parent_signature(tmp_path: Path) -> None:
-    signature = _batch_planning_signature()
-    run_root = tmp_path / "run"
-    checkpoint = run_root / "checkpoint-1"
-    checkpoint.mkdir(parents=True)
-    write_batch_planning_signature(run_root, signature)
+def test_batching_run_metadata_roundtrip(tmp_path: Path) -> None:
+    metadata = ShaftBatchingRunMetadata(
+        strategy="bounded_cost_aware",
+        per_device_train_batch_size=1,
+        data_world_size=2,
+        gradient_accumulation_steps=2,
+        min_pixels=200704,
+        max_pixels=2_000_000,
+        source_weights=(("a", 2.0), ("b", 1.0)),
+        media_snapshot_id="banana-media-v1",
+        buffer_size=64,
+        cost_cache_size=65536,
+        max_samples_per_microbatch=4,
+        max_padded_tokens=10000,
+        max_vision_patches=16384,
+        contract_fingerprint="contract-v1",
+    )
+    write_batching_run_metadata(tmp_path, metadata)
+    assert load_batching_run_metadata(tmp_path) == metadata
 
-    with pytest.raises(FileNotFoundError, match="checkpoint-1"):
-        validate_batch_planning_resume(checkpoint, expected=signature)
+
+def test_batching_metadata_callback_publishes_wandb_config(monkeypatch) -> None:
+    updates = []
+    run = SimpleNamespace(
+        config=SimpleNamespace(
+            update=lambda payload, allow_val_change: updates.append(
+                (payload, allow_val_change)
+            )
+        )
+    )
+    monkeypatch.setitem(__import__("sys").modules, "wandb", SimpleNamespace(run=run))
+    metadata = ShaftBatchingRunMetadata(
+        strategy="fixed",
+        per_device_train_batch_size=1,
+        data_world_size=1,
+        gradient_accumulation_steps=1,
+        min_pixels=None,
+        max_pixels=None,
+        source_weights=(("a", 1.0),),
+    )
+    callback = ShaftBatchingMetadataCallback(metadata)
+    callback.on_train_begin(
+        SimpleNamespace(report_to=["wandb"]),
+        SimpleNamespace(is_world_process_zero=True),
+        object(),
+    )
+    assert updates == [({"shaft_batching": metadata.to_dict()}, True)]
 
 
-def test_batch_planning_resume_from_run_root_validates_latest_checkpoint(
+def _write_full_checkpoint(path: Path, *, trainer_state: bool = True) -> None:
+    path.mkdir(parents=True)
+    (path / "config.json").write_text("{}", encoding="utf-8")
+    (path / "model.safetensors").write_bytes(b"model")
+    if trainer_state:
+        (path / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+
+def _write_adapter_checkpoint(path: Path, *, trainer_state: bool = True) -> None:
+    path.mkdir(parents=True)
+    (path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (path / "adapter_model.safetensors").write_bytes(b"adapter")
+    if trainer_state:
+        (path / "trainer_state.json").write_text("{}", encoding="utf-8")
+
+
+def test_bounded_resume_resolver_skips_newer_incomplete_checkpoint(
     tmp_path: Path,
 ) -> None:
-    signature = _batch_planning_signature()
-    run_root = tmp_path / "run"
-    checkpoint = run_root / "checkpoint-2"
-    checkpoint.mkdir(parents=True)
-    (checkpoint / "trainer_state.json").write_text("{}", encoding="utf-8")
-    write_batch_planning_signature(
-        run_root,
-        replace(signature, source_sample_count=12, sample_count=12),
+    root = tmp_path / "run"
+    complete = root / "checkpoint-1"
+    incomplete = root / "checkpoint-2"
+    _write_full_checkpoint(complete)
+    _write_full_checkpoint(incomplete)
+    spec = _spec()
+    _write_bounded_trainer_state(
+        complete,
+        spec=spec,
+        state=ShaftBoundedBatchingState(
+            contract_fingerprint=spec.fingerprint,
+            global_microstep=2,
+            next_draw_id=4,
+            emitted_samples=4,
+        ),
     )
-    write_batch_planning_signature(checkpoint, signature)
 
-    validate_batch_planning_resume(run_root, expected=signature)
-
-
-def test_ensure_hf_export_layout_full(tmp_path: Path) -> None:
-    export_dir = tmp_path / "full"
-    export_dir.mkdir()
-    (export_dir / "config.json").write_text("{}", encoding="utf-8")
-    (export_dir / "model.safetensors").write_bytes(b"ok")
-    ensure_hf_export_layout(export_dir, finetune_mode="full")
+    assert resolve_resume_checkpoint(
+        root,
+        require_bounded_state=True,
+    ) == str(complete)
 
 
-def test_resolve_best_export_dir(tmp_path: Path) -> None:
+def test_ensure_hf_export_layout_and_best_dir(tmp_path: Path) -> None:
+    full = tmp_path / "full"
+    _write_full_checkpoint(full, trainer_state=False)
+    ensure_hf_export_layout(full, finetune_mode="full")
     assert resolve_best_export_dir(tmp_path) == tmp_path / "best"
-    assert resolve_best_export_dir(f"{tmp_path}") == tmp_path / "best"
 
 
-def test_ensure_hf_export_layout_adapter(tmp_path: Path) -> None:
-    export_dir = tmp_path / "adapter"
-    export_dir.mkdir()
-    (export_dir / "adapter_config.json").write_text("{}", encoding="utf-8")
-    (export_dir / "adapter_model.safetensors").write_bytes(b"ok")
-    ensure_hf_export_layout(export_dir, finetune_mode="lora")
-
-
-def test_ensure_hf_export_layout_rejects_mismatched_mode(tmp_path: Path) -> None:
-    full_dir = tmp_path / "full"
-    full_dir.mkdir()
-    (full_dir / "config.json").write_text("{}", encoding="utf-8")
-    (full_dir / "model.safetensors").write_bytes(b"ok")
-    with pytest.raises(ValueError):
-        ensure_hf_export_layout(full_dir, finetune_mode="lora")
-
-    adapter_dir = tmp_path / "adapter"
-    adapter_dir.mkdir()
-    (adapter_dir / "adapter_config.json").write_text("{}", encoding="utf-8")
-    (adapter_dir / "adapter_model.safetensors").write_bytes(b"ok")
-    with pytest.raises(ValueError):
-        ensure_hf_export_layout(adapter_dir, finetune_mode="full")
-
-
-def test_ensure_hf_export_layout_validates_additional_saved_files(tmp_path: Path) -> None:
-    export_dir = tmp_path / "full"
-    export_dir.mkdir()
-    (export_dir / "config.json").write_text("{}", encoding="utf-8")
-    (export_dir / "model.safetensors").write_bytes(b"ok")
-    model_meta = build_model_meta("smoke_vlm")
-    with pytest.raises(ValueError):
-        ensure_hf_export_layout(export_dir, finetune_mode="full", model_meta=model_meta)
-    (export_dir / "smoke_tokenizer.json").write_text("{}", encoding="utf-8")
-    (export_dir / "smoke_processor.json").write_text("{}", encoding="utf-8")
-    ensure_hf_export_layout(export_dir, finetune_mode="full", model_meta=model_meta)
-
-
-def _make_full_checkpoint(path: Path, *, with_state: bool = True) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "config.json").write_text("{}", encoding="utf-8")
-    (path / "model.safetensors").write_bytes(b"ok")
-    if with_state:
-        (path / "trainer_state.json").write_text("{}", encoding="utf-8")
-    return path
-
-
-def _make_adapter_checkpoint(path: Path, *, with_state: bool = True) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "adapter_config.json").write_text("{}", encoding="utf-8")
-    (path / "adapter_model.safetensors").write_bytes(b"ok")
-    if with_state:
-        (path / "trainer_state.json").write_text("{}", encoding="utf-8")
-    return path
-
-
-def test_validate_resume_checkpoint_full_mode_accepts_full_checkpoint(tmp_path: Path) -> None:
-    ckpt = _make_full_checkpoint(tmp_path / "ckpt-full")
-    validate_resume_checkpoint(ckpt, finetune_mode="full")
-
-
-def test_validate_resume_checkpoint_full_mode_rejects_adapter_checkpoint(tmp_path: Path) -> None:
-    ckpt = _make_adapter_checkpoint(tmp_path / "ckpt-adapter")
-    with pytest.raises(ValueError):
-        validate_resume_checkpoint(ckpt, finetune_mode="full")
+def test_ensure_hf_export_layout_validates_model_specific_files(tmp_path: Path) -> None:
+    full = tmp_path / "full"
+    _write_full_checkpoint(full, trainer_state=False)
+    model_meta = SimpleNamespace(required_saved_files=lambda: ("processor_config.json",))
+    with pytest.raises(ValueError, match="Missing additional saved files"):
+        ensure_hf_export_layout(full, finetune_mode="full", model_meta=model_meta)
 
 
 @pytest.mark.parametrize("mode", ["lora", "dora", "qlora"])
-def test_validate_resume_checkpoint_adapter_modes_accept_adapter_checkpoint(tmp_path: Path, mode: str) -> None:
-    ckpt = _make_adapter_checkpoint(tmp_path / f"ckpt-{mode}")
-    validate_resume_checkpoint(ckpt, finetune_mode=mode)
+def test_validate_resume_checkpoint_accepts_matching_adapter_mode(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    checkpoint = tmp_path / mode
+    _write_adapter_checkpoint(checkpoint)
+    validate_resume_checkpoint(checkpoint, finetune_mode=mode)
 
 
-@pytest.mark.parametrize("mode", ["lora", "dora", "qlora"])
-def test_validate_resume_checkpoint_adapter_modes_reject_full_checkpoint(tmp_path: Path, mode: str) -> None:
-    ckpt = _make_full_checkpoint(tmp_path / f"ckpt-full-{mode}")
-    with pytest.raises(ValueError):
-        validate_resume_checkpoint(ckpt, finetune_mode=mode)
+def test_validate_resume_checkpoint_rejects_mismatched_or_missing_state(
+    tmp_path: Path,
+) -> None:
+    full = tmp_path / "full"
+    _write_full_checkpoint(full)
+    with pytest.raises(ValueError, match="adapter"):
+        validate_resume_checkpoint(full, finetune_mode="lora")
 
-
-def test_validate_resume_checkpoint_requires_trainer_state(tmp_path: Path) -> None:
-    ckpt = _make_full_checkpoint(tmp_path / "ckpt-no-state", with_state=False)
-    with pytest.raises(ValueError):
-        validate_resume_checkpoint(ckpt, finetune_mode="full")
+    export = tmp_path / "export"
+    _write_full_checkpoint(export, trainer_state=False)
+    with pytest.raises(ValueError, match="trainer_state"):
+        validate_resume_checkpoint(export, finetune_mode="full")

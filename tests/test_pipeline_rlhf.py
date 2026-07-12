@@ -11,6 +11,11 @@ import torch
 from shaft.config import load_config
 from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
 from shaft.pipeline import run_rlhf
+from shaft.training.batch_planning import (
+    ShaftBatchingMetadataCallback,
+    load_batching_run_metadata,
+)
+from shaft.training.progress_callback import ShaftProgressCallback
 from tests.support.pipeline import FakePipelineTrainer as _FakeTrainer
 from tests.support.pipeline import build_fake_model_artifacts as _build_fake_model_artifacts
 from tests.support.rlhf import write_common_image as _write_common_image
@@ -91,6 +96,12 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["eval_dataset"] is None
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
     assert _FakeTrainer.last_kwargs["finetune_plan"] is None
+    metadata = load_batching_run_metadata(cfg.experiment.output_dir)
+    assert metadata.strategy == "fixed"
+    assert any(
+        isinstance(callback, ShaftBatchingMetadataCallback)
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+    )
 
 
 def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
@@ -159,6 +170,8 @@ model:
 algorithm:
   name: grpo
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: grpo_ds
       source_type: jsonl_sft
@@ -235,3 +248,12 @@ rlhf:
     assert _FakeTrainer.last_kwargs["eval_dataset"] is fake_eval_datasets_by_name
     assert _FakeTrainer.last_kwargs["online_eval_runner"] is not None
     assert _FakeTrainer.last_kwargs["eval_config"] is cfg.eval
+    progress_callback = next(
+        callback
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+        if isinstance(callback, ShaftProgressCallback)
+    )
+    assert (
+        _FakeTrainer.last_kwargs["online_eval_runner"].progress_manager
+        is progress_callback.progress_manager
+    )

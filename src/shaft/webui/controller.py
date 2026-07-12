@@ -49,22 +49,32 @@ def render_status_html(
     error: str | None = None,
 ) -> str:
     summary = summary or {}
-    status = record.status if record is not None else ("failed" if error else "validated" if message else "idle")
+    status = (
+        record.status
+        if record is not None
+        else ("failed" if error else "validated" if message else "idle")
+    )
     badge_cls = f"shaft-status-badge shaft-status-{status}"
     secondary_cards = [
         ("PID", str(record.pid) if record is not None and record.pid is not None else "-"),
+        ("Phase", str(summary.get("progress_phase", "-"))),
+        ("Progress", str(summary.get("progress_text", "-"))),
         ("Global Step", str(summary.get("global_step", "-"))),
-        ("Epoch", str(summary.get("epoch", "-"))),
         ("Best Metric", str(summary.get("best_metric", "-"))),
-        ("Return Code", str(record.return_code) if record is not None and record.return_code is not None else "-"),
+        (
+            "Return Code",
+            str(record.return_code)
+            if record is not None and record.return_code is not None
+            else "-",
+        ),
     ]
     parts = [
         '<div class="shaft-card shaft-status-card">',
         '<div class="shaft-status-head">',
-        '<div>',
+        "<div>",
         '<div class="shaft-status-kicker">Run Status</div>',
         '<div class="shaft-status-title">SFT Training</div>',
-        '</div>',
+        "</div>",
         f'<span class="{badge_cls}">{escape(status)}</span>',
         "</div>",
         '<div class="shaft-status-hero-card">',
@@ -101,19 +111,20 @@ def render_status_html(
     if summary.get("best_model_checkpoint"):
         parts.append(
             '<div class="shaft-note shaft-note-neutral">'
-            f'Latest Best Checkpoint: {escape(str(summary["best_model_checkpoint"]))}</div>'
+            f"Latest Best Checkpoint: {escape(str(summary['best_model_checkpoint']))}</div>"
         )
     parts.append("</div>")
     return "".join(parts)
 
 
-def _render_freeze_items(values: list[str] | tuple[str, ...] | None, *, empty_label: str = "None") -> str:
+def _render_freeze_items(
+    values: list[str] | tuple[str, ...] | None, *, empty_label: str = "None"
+) -> str:
     normalized = [str(item).strip() for item in (values or []) if str(item).strip()]
     if not normalized:
         return f'<span class="shaft-meta-value">{escape(empty_label)}</span>'
     chips = "".join(
-        f'<span class="shaft-chip shaft-chip-compact">{escape(item)}</span>'
-        for item in normalized
+        f'<span class="shaft-chip shaft-chip-compact">{escape(item)}</span>' for item in normalized
     )
     return f'<div class="shaft-chip-row">{chips}</div>'
 
@@ -131,7 +142,7 @@ def render_freeze_preview_html(preview: dict[str, Any] | None) -> str:
     parts = [
         '<div class="shaft-card shaft-status-card">',
         '<div class="shaft-status-head">',
-        '<div>',
+        "<div>",
         '<div class="shaft-status-kicker">Freeze Configuration</div>',
         '<div class="shaft-status-title">Resolved Config Preview</div>',
         "</div>",
@@ -186,7 +197,7 @@ def render_finetune_summary_html(summary: dict[str, Any] | None) -> str:
     parts = [
         '<div class="shaft-card shaft-status-card">',
         '<div class="shaft-status-head">',
-        '<div>',
+        "<div>",
         '<div class="shaft-status-kicker">Resolved Freeze</div>',
         '<div class="shaft-status-title">Runtime Summary</div>',
         "</div>",
@@ -246,7 +257,7 @@ def render_optimizer_summary_html(summary: dict[str, Any] | None) -> str:
     parts = [
         '<div class="shaft-card shaft-status-card">',
         '<div class="shaft-status-head">',
-        '<div>',
+        "<div>",
         '<div class="shaft-status-kicker">Resolved Optimizer</div>',
         '<div class="shaft-status-title">Runtime Groups</div>',
         "</div>",
@@ -316,7 +327,9 @@ class ShaftSFTWebUIController:
                     "run_id": record.run_id,
                     "status": record.status,
                     "pid": str(record.pid or "-"),
-                    "return_code": str(record.return_code if record.return_code is not None else "-"),
+                    "return_code": str(
+                        record.return_code if record.return_code is not None else "-"
+                    ),
                     "output_dir": record.output_dir,
                     "started_at": record.started_at or "-",
                     "is_terminal": "true" if record.is_terminal else "false",
@@ -325,12 +338,16 @@ class ShaftSFTWebUIController:
         return rows
 
     @staticmethod
-    def build_run_choices(records: list[ShaftRunRecord], selected_run_id: str | None) -> tuple[list[str], str]:
+    def build_run_choices(
+        records: list[ShaftRunRecord], selected_run_id: str | None
+    ) -> tuple[list[str], str]:
         choices = [record.run_id for record in records]
         value = selected_run_id if selected_run_id in choices else (choices[0] if choices else "")
         return choices, value
 
-    def build_initial_view(self, default_config_path: str, default_yaml_text: str, default_status: str) -> dict[str, Any]:
+    def build_initial_view(
+        self, default_config_path: str, default_yaml_text: str, default_status: str
+    ) -> dict[str, Any]:
         records = self.train_service.list_runs()
         choices, selected_run = self.build_run_choices(records, None)
         freeze_preview_html = render_freeze_preview_html(None)
@@ -339,7 +356,9 @@ class ShaftSFTWebUIController:
                 config_path=default_config_path,
                 yaml_text=default_yaml_text,
             )
-            freeze_preview_html = render_freeze_preview_html(self.config_service.build_freeze_preview(config))
+            freeze_preview_html = render_freeze_preview_html(
+                self.config_service.build_freeze_preview(config)
+            )
         except Exception as exc:  # noqa: BLE001
             freeze_preview_html = (
                 '<div class="shaft-card shaft-status-card">'
@@ -374,7 +393,9 @@ class ShaftSFTWebUIController:
                 "ok": True,
                 "config_path": config_path,
                 "yaml_text": yaml_text,
-                "status_html": render_status_html(None, message=f"Loaded base config: {config_path}"),
+                "status_html": render_status_html(
+                    None, message=f"Loaded base config: {config_path}"
+                ),
                 "freeze_preview_html": render_freeze_preview_html(
                     self.config_service.build_freeze_preview(config)
                 ),
@@ -563,10 +584,14 @@ class ShaftSFTWebUIController:
         run_choices, selected_run = self.build_run_choices(records, run_id)
         return {
             "ok": True,
-            "status_html": render_status_html(record, summary=snapshot.get("summary"), message="Run stopped."),
+            "status_html": render_status_html(
+                record, summary=snapshot.get("summary"), message="Run stopped."
+            ),
             "freeze_preview_html": None,
             "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
-            "optimizer_summary_html": render_optimizer_summary_html(snapshot.get("optimizer_summary")),
+            "optimizer_summary_html": render_optimizer_summary_html(
+                snapshot.get("optimizer_summary")
+            ),
             "resolved_yaml": str(snapshot.get("resolved_config", "")),
             "log_text": str(snapshot.get("log", "")),
             "runs": self.build_runs_table(records),
@@ -616,7 +641,9 @@ class ShaftSFTWebUIController:
             "status_html": render_status_html(record, summary=snapshot["summary"]),
             "freeze_preview_html": None,
             "freeze_summary_html": render_finetune_summary_html(snapshot.get("finetune_summary")),
-            "optimizer_summary_html": render_optimizer_summary_html(snapshot.get("optimizer_summary")),
+            "optimizer_summary_html": render_optimizer_summary_html(
+                snapshot.get("optimizer_summary")
+            ),
             "resolved_yaml": str(snapshot["resolved_config"]),
             "log_text": str(snapshot["log"]),
             "runs": self.build_runs_table(records),
@@ -629,7 +656,9 @@ class ShaftSFTWebUIController:
         run_id = str(run_id or "").strip()
         records_before = self.train_service.list_runs()
         if not run_id:
-            run_choices, selected_run = self.build_run_choices(records_before, current_run_id or None)
+            run_choices, selected_run = self.build_run_choices(
+                records_before, current_run_id or None
+            )
             return {
                 "ok": False,
                 "status_html": render_status_html(None, error="No run is selected for deletion."),
@@ -639,7 +668,9 @@ class ShaftSFTWebUIController:
                 "runs": self.build_runs_table(records_before),
                 "run_choices": run_choices,
                 "selected_run": selected_run,
-                "current_run_id": current_run_id if current_run_id and current_run_id != run_id else "",
+                "current_run_id": current_run_id
+                if current_run_id and current_run_id != run_id
+                else "",
             }
         try:
             deleted = self.train_service.delete_run(run_id)
@@ -674,10 +705,16 @@ class ShaftSFTWebUIController:
             }
         return {
             "ok": True,
-            "status_html": render_status_html(None, message=f"Deleted local Web UI run entry: {run_id}"),
+            "status_html": render_status_html(
+                None, message=f"Deleted local Web UI run entry: {run_id}"
+            ),
             "freeze_preview_html": None,
-            "freeze_summary_html": render_finetune_summary_html(None) if current_run_id == run_id else None,
-            "optimizer_summary_html": render_optimizer_summary_html(None) if current_run_id == run_id else None,
+            "freeze_summary_html": render_finetune_summary_html(None)
+            if current_run_id == run_id
+            else None,
+            "optimizer_summary_html": render_optimizer_summary_html(None)
+            if current_run_id == run_id
+            else None,
             "resolved_yaml": "" if current_run_id == run_id else None,
             "log_text": "" if current_run_id == run_id else None,
             "runs": self.build_runs_table(records),

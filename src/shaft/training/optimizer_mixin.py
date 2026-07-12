@@ -56,7 +56,7 @@ class ShaftOptimizerMixin:
         self.resolved_optimizer_plan = None
         self.resolved_optimizer_summary = None
         super().__init__(*args, **kwargs)
-        # Shaft uses a custom tqdm callback; the default HF PrinterCallback only
+        # Shaft uses a progress adapter; the default HF PrinterCallback only
         # duplicates step logs and breaks progress-bar readability.
         self.remove_callback(PrinterCallback)
 

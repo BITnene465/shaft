@@ -4,13 +4,26 @@ import json
 from pathlib import Path
 
 from PIL import Image
+import yaml
 
 from shaft.config import RuntimeConfig, load_config
 
 
-def write_config_yaml(base_dir: Path, payload: str, *, filename: str = "config.yaml") -> Path:
+def write_config_yaml(
+    base_dir: Path,
+    payload: str,
+    *,
+    filename: str = "config.yaml",
+    ensure_explicit_batching: bool = True,
+) -> Path:
     config_path = base_dir / filename
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    if ensure_explicit_batching:
+        parsed = yaml.safe_load(payload) or {}
+        data = parsed.setdefault("data", {})
+        batching = data.setdefault("batching", {})
+        batching.setdefault("strategy", "fixed")
+        payload = yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True)
     config_path.write_text(payload, encoding="utf-8")
     return config_path
 
@@ -52,24 +65,14 @@ def write_sft_smoke_config(
     val_size: int = 1,
     online_eval: bool = False,
     distributed: bool = False,
-    cost_aware: bool = False,
-    dynamic_cost_aware: bool = False,
-    dynamic_target_samples: int | None = None,
-    dynamic_target_supervised_tokens: int | None = None,
-    dynamic_max_samples_per_microbatch: int = 5,
-    dynamic_max_padded_tokens: int = 512,
+    bounded_cost_aware: bool = False,
+    bounded_max_samples_per_microbatch: int = 5,
+    bounded_max_padded_tokens: int = 512,
     per_device_train_batch_size: int = 1,
     gradient_accumulation_steps: int = 1,
     train_steps: int = 1,
     save_steps: int | None = None,
 ) -> Path:
-    if cost_aware and dynamic_cost_aware:
-        raise ValueError("Smoke config cannot enable both fixed and dynamic cost-aware batching.")
-    if (
-        dynamic_target_samples is not None
-        and dynamic_target_supervised_tokens is not None
-    ):
-        raise ValueError("Dynamic smoke config accepts only one optimizer target.")
     train_jsonl, val_jsonl = write_smoke_jsonl_dataset(
         base_dir,
         train_size=train_size,
@@ -83,59 +86,23 @@ def write_sft_smoke_config(
     )
     eval_block = _sft_eval_block(online_eval=online_eval)
     target_modules = '    target_modules: ["all-linear"]\n' if not distributed else ""
-    if dynamic_cost_aware:
-        if dynamic_target_supervised_tokens is not None:
-            target_samples = None
-            optimizer_target = (
-                "    target_supervised_tokens: "
-                f"{int(dynamic_target_supervised_tokens)}\n"
-            )
-        else:
-            target_samples = (
-                int(dynamic_target_samples)
-                if dynamic_target_samples is not None
-                else (
-                    int(per_device_train_batch_size)
-                    * int(gradient_accumulation_steps)
-                    * (2 if distributed else 1)
-                )
-            )
-            optimizer_target = f"    target_samples: {target_samples}\n"
-        planning_window = max(
-            int(target_samples or 0),
-            int(dynamic_max_samples_per_microbatch)
-            * int(gradient_accumulation_steps)
-            * (2 if distributed else 1),
-            8,
-        )
+    if bounded_cost_aware:
+        buffer_size = max(8, 2 if distributed else 1)
         batching_block = (
             "  batching:\n"
-            "    strategy: dynamic_cost_aware\n"
-            f"    planning_window: {planning_window}\n"
-            f"    max_samples_per_microbatch: {dynamic_max_samples_per_microbatch}\n"
-            f"    max_padded_tokens: {dynamic_max_padded_tokens}\n"
-            "    image_size_cache_size: 8\n"
-            f"    cost_plan_cache_dir: {base_dir / 'cost_plan_cache'}\n"
+            "    strategy: bounded_cost_aware\n"
+            f"    buffer_size: {buffer_size}\n"
+            "    cost_cache_size: 32\n"
+            f"    max_samples_per_microbatch: {bounded_max_samples_per_microbatch}\n"
+            f"    max_padded_tokens: {bounded_max_padded_tokens}\n"
             "  mix_strategy: concat\n"
             "  shuffle: false\n"
         )
-        train_block = train_block.replace(
-            "train:\n",
-            "train:\n"
-            "  optimizer_batch:\n"
-            f"{optimizer_target}",
-            1,
-        )
-    elif cost_aware:
+    else:
         batching_block = (
             "  batching:\n"
-            "    strategy: cost_aware\n"
-            "    planning_window: 8\n"
-            "    image_size_cache_size: 8\n"
-            f"    cost_plan_cache_dir: {base_dir / 'cost_plan_cache'}\n"
+            "    strategy: fixed\n"
         )
-    else:
-        batching_block = ""
     cfg.write_text(
         f"""
 experiment:
@@ -155,6 +122,7 @@ data:
       train_path: {train_jsonl}
       val_path: {val_jsonl}
   num_workers: 0
+  media_snapshot_id: smoke-fixture-v1
   persistent_workers: false
   pin_memory: false
   min_pixels:

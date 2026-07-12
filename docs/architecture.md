@@ -59,7 +59,7 @@ flowchart TD
     Infer["infer<br/>engine / pipeline"]
     Export["export<br/>inspect / validate / merge-peft"]
     Plugins["plugins<br/>registry / hook / interceptor / proxy"]
-    Obs["observability<br/>logging / context / events"]
+    Obs["observability<br/>logging / context / events / progress"]
 
     Scripts --> CLI
     CLI --> Config
@@ -101,7 +101,7 @@ flowchart TD
 | `infer` | 单阶段推理执行、多阶段上下文传递 | `InferEngineConfig`、`ShaftInferEngine`、`ShaftInferPipeline` | 训练逻辑、离线任务 DSL、私有 codec 体系 |
 | `export` | HF 目录检查、PEFT merge、导出校验 | `inspect_hf_artifact()`、`validate_hf_artifact()`、`merge_peft_adapter()` | 自定义产物格式、发布平台适配 |
 | `plugins` | hook / interceptor / 执行代理 | `Registry`、`HookManager`、`InterceptorManager`、`ExecutionProxy` | 替代核心业务流程 |
-| `observability` | 日志、上下文、事件输出 | `configure_logging()`、`emit_event()` | checkpoint 决策、训练控制 |
+| `observability` | 日志、上下文、事件与进度状态/输出 | `configure_logging()`、`emit_event()`、`ShaftProgressManager` | checkpoint 决策、训练控制 |
 | `cli` | 命令解析、无歧义 override、路由到 pipeline/infer/export | `main()`、`register_command()`、`run_from_args()` | 在 CLI 中堆叠业务逻辑 |
 
 ## 5. 训练主链
@@ -179,56 +179,58 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 
 ### 5.3 批次规划边界
 
-- 训练选择真源是 `ShaftSamplePlan`；它只决定 logical sample，不承载长度分桶、rank 平衡或 packing。
-- 成本感知训练的目标链路固定为：
+- 训练选择真源分成两层：
+  - `ShaftSampleSchedule` 是 horizon-independent 的 `draw_id -> SampleRef` 映射，绑定 source、mixing、
+    shuffle 和 seed，不绑定训练总步数。
+  - `ShaftSamplePlan` 是 fixed/GRPO 等有限训练路径的 `Schedule` view；bounded SFT 由 DataCenter 直接
+    产出 `Schedule`，不再构造 duration-sized finite plan。
+- 用户训练 YAML 必须显式选择 `fixed` 或 `bounded_cost_aware`。旧 `cost_aware`、
+  `dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact optimizer sample target 已删除；
+  loader 对这些旧字段 fail fast，避免双轨运行时。
+- bounded 主链固定为：
 
   ```text
-  SamplePlan -> CostPlan -> BatchPlan -> PackPlan
+  SampleSchedule -> on-demand CostProvider -> BoundedBufferPlanner -> HF BatchSampler
   ```
 
-- mixing 决定训练什么；BatchPlan 只能在有界 window 内重排已选样本，不得丢弃、复制或按长度修改
-  source 权重。
-- optimizer batch 可以拆成多个成本同质的 global microstep；同一 microstep 的 DP ranks 应尽量处理
-  相近成本，mixing 比例在 optimizer batch 或更长统计 horizon 收口。
-- packing 只改变 local microbatch 的物理布局。segment 的 attention、position、labels/loss scale 和
-  多模态 grid 必须隔离并对齐。
-- 动态 microbatch 必须使用全局 loss numerator/denominator；不能等权平均不同大小的本地 batch mean。
-- `ShaftSFTTrainer` 基于实际 `labels/loss_scale` 计算 optimizer-batch global denominator；固定与动态
-  batching 共用这一条 loss 主链，不存在动态 batch 专用 loss。
-- `CostPlan` 的持久化真源是 draw-indexed 的固定宽度 sidecar：global rank 0 在 cache miss 时调用 runtime
-  estimator 并原子写入，所有 data rank 随后通过 `ShaftMMapCostPlanProvider` 只读映射。pipeline 只负责
-  rank-zero build、attempt-scoped rendezvous、all-rank load acknowledgment 和 durable metadata 发布时序，
-  不解释 cost 字段；run root 的 reference 只定位共享 manifest，不参与启动同步，也不复制成本数组。
-- exact-cost cache fingerprint 只消费 `ProcessorPolicy.cost_semantics_signature()`；Qwen 的 patch/merge/
-  estimator 等字段由 Qwen policy 自己绑定。data 层不得枚举模型专属 processor 参数，新模型未声明完整
-  版本化成本签名时必须 fail fast。
-- 固定 cardinality 的 geometry 只由 `ShaftFixedBatchPlanningSpec` 生成一次；resume preflight、planner、
-  sampler 和 planning signature 必须消费同一个不可变 spec，不能各自在 pipeline/training/data 重算。
-- 动态 geometry 与 draw horizon 的唯一真源是 `ShaftDynamicBatchPlanningContract`；绑定 SamplePlan 后生成
-  `ShaftDynamicBatchPlanningSpec`。`ShaftDynamicBatchPlanner` 选择每个 optimizer step 的连续 draw prefix，
-  再按 sample/padded-token/vision 硬预算形成固定数量的 local slots；`ShaftDynamicBatchSampler` 只负责把
-  global local-batch 流交给 Accelerate 分片。
-- dynamic DataLoader 使用自定义 batch sampler；只在 prepare 这个 train DataLoader 时临时设置
-  `even_batches=false`，随后恢复 Accelerate 原值。这样保持 HF 的固定 optimizer-step、gradient
-  accumulation、checkpoint 与 scheduler 语义，同时 eval 继续使用 `even_batches=true` 的等步数分片，
-  避免奇数 eval 集在 collective 中死锁。
-- SFT 训练中的 eval 是 RNG observer：`ShaftSFTTrainer` 在整个评估调用外围保存并恢复 Python、NumPy、Torch
-  CPU 与当前 rank CUDA RNG。persistent eval worker 的创建时机不能改变后续训练随机序列或 checkpoint
-  RNG；需要 CUDA bitwise 对照时由 `train.full_determinism` 显式启用确定性 kernel。
-- SFT/RLHF 在构建 dataset、base model 或 PEFT adapter 前统一初始化 `experiment.seed`；
-  `full_determinism=true` 在同一早期边界启用确定性 runtime，不能等到 HF Trainer 初始化后再补 seed。
-- context parallel 是 job 级静态拓扑，不作为单个长样本的动态调度手段。
-- 该能力的完整目标契约、配置迁移与阶段验收见
-  [training_batch_planning_design.md](training_batch_planning_design.md)。当前已实现 Phase 0/1、共享 mmap
-  CostPlan 与 Phase 2 动态 cost-budget microbatch。`PackPlan` 和 context parallel 尚未进入运行时。
-- cost provider 不解释模型或监督细节：图像 resize 与 rendered/processed token layout 的估算真源是
-  `ProcessorPolicy`，它也负责声明覆盖 estimator 全部依赖状态的版本化 cost signature；target 截断、EOS、
-  causal shift 和 loss weight 的估算真源是 `Template`。新增模型或模板必须扩展对应 policy/interface，
-  不能在 data planner 中复制一份逻辑。
-- fixed/dynamic resume 都通过 `ShaftBatchPlanningSignature` 绑定 strategy、data/cost/planner/target/
-  topology，并随 checkpoint 持久化；相同 horizon 可精确恢复，改变 duration、target、预算或 topology
-  必须 fail fast。动态签名还直接绑定完整 planning-spec fingerprint，避免字段映射遗漏；Phase 1 旧 fixed
-  signature 的 fingerprint 保持可读兼容。
+- `ShaftBoundedBatchingSpec` 是 duration-independent 的不可变契约，只绑定 schedule/cost fingerprint、
+  DP world size、buffer、sample/token/vision budgets、seed 与 planner 版本。它不包含 max steps、GA、
+  target samples 或完整训练 horizon。
+- planner 的 live state 只有 next draw cursor、最多 `buffer_size` 个 `SampleRef + SampleCost`、global
+  microstep 和实际累计成本。每个 global microstep：
+  1. 惰性补满 buffer；
+  2. 取最老的 W 个 entry 作为 W 个 rank 的 non-empty anchor；
+  3. 在硬预算内确定性合并兼容 entry；
+  4. 优先最小化 projected rank load，再以 padding waste 做 tie-break；
+  5. 删除已选 entry，未选 entry 保持 FIFO。
+- `ShaftBoundedBatchSampler` 在一个 planning frame 内按 rank 累计 text+vision load 分配每个 microstep 的
+  local batches；training callback 再负责 `global_step * GA -> global_microstep` 的 committed 映射。
+- oldest-anchor 保证样本不会因长度长期饥饿；buffer 重排不改变 mixer draw multiset，不丢弃、不复制，也不
+  按长度修改 source 权重。weighted bounded 模式要求 `shuffle=true`；旧 unshuffled weighted 映射依赖
+  full horizon，因此明确拒绝。
+- 每个 local batch 同时受 `max_samples_per_microbatch`、processor 后 padded LLM token 和可选 vision
+  patch 总量约束。单样本超限或模型成本不精确时在首次观察该 draw 时失败，不会先扫描完整训练期。
+- cost provider 只缓存有界的 sample cost 与图像 header，不保存解码图像或 token tensor。模型图像成本和
+  processed token layout 由 `ProcessorPolicy` 提供，监督截断/EOS/causal shift/loss weight 由 Template
+  提供；data planner 不复制模型或模板语义。
+- `data.media_snapshot_id` 是外部媒体的不可变 snapshot contract，并进入 cost fingerprint。多 rank 在
+  startup 对首个 bounded plan 做 digest 一致性检查；provider/spec/resume 的本地错误先聚合再统一抛出。
+- 全局 BatchSampler 的扁平顺序固定为
+  `[optimizer step][gradient-accumulation microstep][rank]`。Accelerate 使用
+  `split_batches=false, even_batches=false` 做唯一一次 rank 分片；每个 rank 的 batch 数相等，但样本数
+  可以不同。eval 仍使用 fixed/even batches。
+- `ShaftSFTTrainer` 始终根据 collate 后真实 `labels/loss_scale`，跨 GA 和 DP rank 计算 global loss
+  denominator；planner cost 只用于容量和排序，不能替代真实 loss denominator。
+- checkpoint 保存的是模型真正完成 optimizer step 后的 committed state。sampler 可以因 worker prefetch
+  规划到未来，但 callback 只按 `global_step * GA` 提交对应 snapshot；resume 加载该 state 并设置
+  `ignore_data_skip=true`，避免 HF 二次 skip。DataLoader worker 使用独立 generator，重建 persistent
+  workers 不消耗模型/dropout RNG。
+- bounded spec/state 作为 `ShaftBoundedBatchingCallback` 的 stateful payload 写入 HF
+  `trainer_state.json`，因此在 HF rotation 前就是 checkpoint 成功条件。自动恢复会跳过缺失/损坏该 payload
+  的较新目录；duration/GA/optimizer/scheduler 改变必须使用 `init_from_checkpoint` 开新训练 schedule。
+  `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
+- sequence packing 与 context parallel 仍是独立后续阶段；bounded batching 不伪装成 packing，也不改变
+  attention/position 隔离语义。
 
 ### 5.4 分片训练边界
 
@@ -271,6 +273,35 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   - 显式 `target_modules` 保持权威
   - `trainable override` 会额外导出为 `modules_to_save`
 - 训练执行、adapter 导入兼容性校验、后续导出语义都应消费同一份 `resolved finetune plan`，避免多处重复推导
+
+### 5.6 进度与终端输出边界
+
+- `ShaftProgressManager` 是进度任务、父子关系、current/total、metric 和生命周期的唯一状态真源；terminal、
+  plain、JSON/WebUI 都只消费同一份不可变 snapshot。task mutation 在 manager 内线性化，commit revision
+  按序发布，避免并发 `advance` 丢增量或旧 snapshot 覆盖新状态；close 先关闭 mutation 入口再收口任务。
+- `ShaftTerminalProgressPresentation` 是单行视觉策略真源，负责小数百分比、高分辨率 bar、速率/ETA、指标
+  优先级和 40–72 列降级；terminal sink 只负责节流、速率窗口、清行、重绘和 stream 生命周期。terminal
+  与 WebUI 复用同一 display-task/百分比选择函数，不各自推导 terminal failure。
+- interactive 默认只由 global rank 0 输出结构化日志和进度。`logging.rank_zero_only=true` 会抑制所有非零
+  rank 的结构化 log，而不是放行 WARNING 后与 rank-0 活动行竞争；rank-local 主链失败必须通过已有
+  all-rank status envelope 传播，未捕获异常仍由 torchrun traceback 报告。显式 all-rank 调试会为文本/JSON
+  加 rank，并把 file log 拆成 `.rank<N>` 文件，避免多进程竞争同一个文件。
+- 训练行的固定信息优先级是：task、bar、current/total、小数百分比、速度、ETA、loss、LR。低于 1%
+  显示两位百分比；未完成任务永不提前显示 `100%`，紧邻数量级边界的 compact current/total 也不得显示成
+  相同值。慢 step 显示 `s/step`，低于 0.01 秒/step 时改为 `step/s`，正数亚秒 ETA 显示 `<1s`。
+  只要 current > 0，bar 至少显示一个 activity head。窄终端从低优先级字段开始省略，不能直接截断
+  current/total 或速度；严格 ASCII stream 会对整行降级，而不只是替换 bar。
+- 进入嵌套 eval 时 train 的 rolling rate 暂停，恢复后不把 eval wall time 算进 train `s/step`；task 完成后
+  立即回收对应 rate history。失败/取消阶段即使父任务仍运行也必须打印摘要，最终状态不得被父任务成功行掩盖。
+- 多 optimizer param group 的当前 LR 显示为 compact min–max range；单组/等值时显示一个值。progress
+  callback 不再把第 0 个 group 冒充整个 optimizer 的 LR。
+- bounded cost provider 负责在主进程、rank 0 汇总一次大图 header warning；对应 train dataset worker 只
+  局部抑制同一 `DecompressionBombWarning`，Pillow `DecompressionBombError` 和其它 decode 错误仍必须失败。
+  header probe 捕获到的其它 warning 必须原样重放。这只治理重复输出，不消除超大 PNG 的真实 decode 成本。
+- Transformers/HF Hub 自带进度条继续关闭；新增长任务必须发布统一 task，不得在 pipeline、trainer、data
+  worker 或 WebUI 平行维护 tqdm/Rich 状态。
+- interactive terminal registry 当前按“每个 Python 进程一个 pipeline、一个共享 progress manager”工作；同一
+  进程若并行运行多条 pipeline，必须显式共享 manager，或将额外 run 配成 plain/off，不能创建竞争的活动行。
 
 ## 6. 推理主链
 
@@ -406,7 +437,7 @@ Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内
 - 采用 `FastAPI + Jinja2 + 原生静态资源`
 - 通过生成 `YAML` 后调用现有 `scripts/train.py sft`
 - 训练真入口仍然是 CLI
-- Web UI 只负责表单、预览、状态和日志
+- Web UI 只负责表单、预览、状态和日志；实时阶段直接读取核心写出的 `shaft_progress.json`
 
 ### 9.3 明确边界
 
@@ -423,8 +454,10 @@ flowchart LR
     WebUI["FastAPI + Jinja2 Web UI"] --> YAML["YAML 生成/预览"]
     YAML --> CLI["scripts/train.py sft"]
     CLI --> Core["src/shaft 核心链路"]
-    Core --> Logs["日志 / 状态 / 产物目录"]
+    Core --> Logs["日志 / 产物目录"]
+    Core --> Snapshot["shaft_progress.json<br/>原子状态快照"]
     Logs --> WebUI
+    Snapshot --> WebUI
 ```
 
 ## 10. 稳定接口与演进接口
@@ -462,16 +495,17 @@ flowchart LR
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
 - 通过 `ShaftDatasetMeta -> BaseDataSource -> ShaftDataCenter` 统一多数据源、元信息、增强和 mixing。
-- train split 由不可变 source snapshot、`ShaftSamplePlan` 与 `ShaftSampleRef` 三层组成：
+- train split 由不可变 source snapshot、`ShaftSampleSchedule`、有限 `ShaftSamplePlan` adapter 与
+  `ShaftSampleRef` 组成：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
   - `concat` 表示覆盖式计划；`weighted` 表示按 dataset weight 的可复现有放回概率抽样。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
 - `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
 - GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地
   generator 在多 epoch resume 时回到 epoch 0 排列。
-- step duration 在固定 batch 下按 `steps × per-device batch × gradient accumulation × world size` 生成
-  sample budget；动态 batch 由 `ShaftDynamicBatchPlanningContract` 的 optimizer target/draw cap 生成
-  horizon。epoch 只作为 HF 有限时长兼容单位，不再控制 prompt 或 transform 刷新。
+- step duration 在 fixed batch 下按标准 global batch 公式生成有限 sample budget；bounded 模式只生成
+  map-style Dataset 的最大 draw 上界，runtime 从 duration-independent schedule 惰性消费。epoch 只作为
+  HF 有限时长兼容单位，不控制 prompt 或 transform 刷新。
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 

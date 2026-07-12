@@ -1,11 +1,43 @@
 from .context import bind_log_context, get_log_context, set_log_context
 from .events import emit_event
 from .logging import configure_logging
+from .progress import (
+    PROGRESS_SNAPSHOT_FILENAME,
+    ShaftJsonProgressSink,
+    ShaftPlainProgressSink,
+    ShaftProgressEvent,
+    ShaftProgressManager,
+    ShaftProgressSnapshot,
+    ShaftProgressTask,
+    ShaftProgressTaskSnapshot,
+    ShaftTerminalProgressPresentation,
+    ShaftTerminalProgressSink,
+    build_progress_manager,
+    format_progress_percentage,
+    progress_safe_write,
+    resolve_run_id,
+    select_progress_display_task_id,
+)
 
 __all__ = [
     "bind_log_context",
+    "build_progress_manager",
     "configure_logging",
     "emit_event",
+    "format_progress_percentage",
     "get_log_context",
+    "progress_safe_write",
+    "PROGRESS_SNAPSHOT_FILENAME",
+    "resolve_run_id",
+    "select_progress_display_task_id",
     "set_log_context",
+    "ShaftJsonProgressSink",
+    "ShaftPlainProgressSink",
+    "ShaftProgressEvent",
+    "ShaftProgressManager",
+    "ShaftProgressSnapshot",
+    "ShaftProgressTask",
+    "ShaftProgressTaskSnapshot",
+    "ShaftTerminalProgressPresentation",
+    "ShaftTerminalProgressSink",
 ]

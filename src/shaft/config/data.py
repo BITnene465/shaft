@@ -14,13 +14,11 @@ class PromptSamplingConfig:
 @dataclass
 class DataBatchingConfig:
     strategy: str = "fixed"
-    planning_window: int = 512
-    image_size_cache_size: int = 8192
-    cost_plan_cache_dir: str | None = None
+    buffer_size: int = 64
+    cost_cache_size: int = 65536
     max_samples_per_microbatch: int | None = None
     max_padded_tokens: int | None = None
     max_vision_patches: int | None = None
-    rank_balance: bool | None = None
 
 
 @dataclass
@@ -53,6 +51,7 @@ class DataConfig:
     pin_memory: bool = True
     persistent_workers: bool = True
     record_cache_dir: str | None = None
+    media_snapshot_id: str | None = None
     image_cache_size: int = 0
     min_pixels: int | None = 200704
     max_pixels: int | None = 1048576

@@ -39,6 +39,8 @@ model:
 algorithm:
   name: dpo
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: dpo_ds
       source_type: jsonl_dpo
@@ -105,6 +107,8 @@ model:
 algorithm:
   name: ppo
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ppo_ds
       source_type: jsonl_ppo
@@ -177,6 +181,8 @@ model:
 algorithm:
   name: grpo
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: grpo_ds
       source_type: jsonl_sft

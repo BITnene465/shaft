@@ -16,7 +16,6 @@ from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSample
 from shaft.training import ShaftEpochIntervalCallback
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
-from shaft.training.train_sampler_mixin import ShaftTrainSamplerMixin
 from tests.support.training import StaticOnlineEvalRunner
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
@@ -171,12 +170,34 @@ def test_shaft_trainer_uses_custom_train_sampler() -> None:
     assert train_dataloader.batch_sampler.sampler is sampler
 
 
+def test_shaft_trainer_rejects_pre_sharded_train_sampler() -> None:
+    model = _TinyModel()
+    args = build_training_args(
+        output_dir="/tmp/shaft_trainer_pre_sharded_sampler",
+    )
+    plan = ShaftSamplePlan(
+        {"a": 2},
+        {"a": 1.0},
+        strategy="concat",
+        shuffle=False,
+        seed=3,
+    )
+
+    with pytest.raises(ValueError, match="unsharded"):
+        ShaftSFTTrainer(
+            model=model,
+            args=args,
+            train_dataset=[0, 1],
+            eval_dataset=[],
+            train_sampler=ShaftSampleSampler(plan, rank=1, world_size=2),
+            data_collator=lambda batch: batch,
+        )
+
+
 def test_shaft_trainer_uses_variable_train_batch_sampler() -> None:
     class _VariableBatchSampler:
         batch_size = None
         drop_last = True
-        planned_sample_count = 3
-        planned_optimizer_batch_samples = 3
 
         def __iter__(self):
             yield [0]
@@ -203,35 +224,7 @@ def test_shaft_trainer_uses_variable_train_batch_sampler() -> None:
     assert list(train_dataloader) == [[0], [1, 2]]
     assert trainer.accelerator.even_batches is True
     initial_values = trainer.set_initial_training_values(args, train_dataloader)
-    assert initial_values[2:5] == (3, 3, 3)
-
-
-def test_variable_batch_metrics_preserve_transformers_457_tuple_layout() -> None:
-    class _LegacyTrainerBase:
-        def __init__(self, *args, **kwargs) -> None:
-            _ = args, kwargs
-
-        def set_initial_training_values(
-            self,
-            args,
-            dataloader,
-            total_train_batch_size,
-        ):
-            _ = args, dataloader, total_train_batch_size
-            return (1, 2, 30, 40, False, 6, 7)
-
-    class _LegacyTrainer(ShaftTrainSamplerMixin, _LegacyTrainerBase):
-        pass
-
-    sampler = SimpleNamespace(
-        planned_sample_count=12,
-        planned_optimizer_batch_samples=6,
-    )
-    trainer = _LegacyTrainer(train_batch_sampler=sampler)
-
-    values = trainer.set_initial_training_values(object(), object(), 8)
-
-    assert values == (1, 2, 12, 12, False, 6, 7)
+    assert len(initial_values) >= 7
 
 
 def test_shaft_trainer_evaluate_merges_online_metrics() -> None:

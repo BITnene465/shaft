@@ -28,5 +28,9 @@ class LoggingConfig:
 @dataclass
 class ProgressConfig:
     enabled: bool = True
-    leave: bool = False
-    mininterval: float = 0.2
+    display: str = "auto"  # auto | interactive | plain | off
+    width: int = 72
+    refresh_interval: float = 0.5
+    log_interval: float = 30.0
+    leave_completed: bool = False
+    persist: bool = True

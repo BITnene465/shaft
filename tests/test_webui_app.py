@@ -14,6 +14,8 @@ def test_create_webui_app_smoke(tmp_path: Path) -> None:
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl
@@ -51,6 +53,8 @@ def test_webui_root_redirects_to_sft(tmp_path: Path) -> None:
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl
@@ -78,6 +82,8 @@ def test_webui_rlhf_placeholder_route_smoke(tmp_path: Path) -> None:
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl
@@ -107,6 +113,8 @@ def test_webui_favicon_route_redirects_to_local_svg(tmp_path: Path) -> None:
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl

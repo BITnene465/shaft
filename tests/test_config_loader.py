@@ -30,6 +30,12 @@ data:
     assert cfg.model.attn_implementation is None
     assert isinstance(cfg.train.distributed, TrainDistributedConfig)
     assert cfg.train.distributed.strategy == "ddp"
+    assert cfg.progress.display == "auto"
+    assert cfg.progress.width == 72
+    assert cfg.progress.refresh_interval == pytest.approx(0.5)
+    assert cfg.progress.log_interval == pytest.approx(30.0)
+    assert cfg.progress.leave_completed is False
+    assert cfg.progress.persist is True
 
 
 def test_normalization(tmp_path: Path) -> None:
@@ -40,7 +46,8 @@ data:
   mix_strategy: WEIGHTED
   record_cache_dir: .cache/records
   batching:
-    cost_plan_cache_dir: .cache/cost-plans
+    buffer_size: 96
+    cost_cache_size: 2048
   max_length: 4096
   datasets:
     - dataset_name: ds1
@@ -72,14 +79,20 @@ eval:
 model:
   finetune:
     mode: DORA
+progress:
+  display: INTERACTIVE
+  width: 80
+  refresh_interval: 0.75
+  log_interval: 45
+  leave_completed: true
+  persist: false
 """
     cfg = load_config_from_yaml(tmp_path, payload)
     assert cfg.algorithm.name == "sft"
     assert cfg.data.mix_strategy == "weighted"
     assert cfg.data.record_cache_dir == str((tmp_path / ".cache/records").resolve())
-    assert cfg.data.batching.cost_plan_cache_dir == str(
-        (tmp_path / ".cache/cost-plans").resolve()
-    )
+    assert cfg.data.batching.buffer_size == 96
+    assert cfg.data.batching.cost_cache_size == 2048
     assert cfg.data.max_length == 4096
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"
@@ -98,5 +111,42 @@ model:
     }
     assert cfg.train.no_decay_name_patterns == ["embed_tokens.weight", "lm_head.weight"]
     assert cfg.model.finetune.mode == "dora"
+    assert cfg.progress.display == "interactive"
+    assert cfg.progress.width == 80
+    assert cfg.progress.refresh_interval == pytest.approx(0.75)
+    assert cfg.progress.log_interval == pytest.approx(45.0)
+    assert cfg.progress.leave_completed is True
+    assert cfg.progress.persist is False
     assert cfg.data.datasets[0].help == "demo dataset"
     assert cfg.data.datasets[0].tags == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("display", "sometimes", "progress.display"),
+        ("width", "39", "progress.width"),
+        ("refresh_interval", "0", "progress.refresh_interval"),
+        ("refresh_interval", ".nan", "progress.refresh_interval"),
+        ("log_interval", "-1", "progress.log_interval"),
+        ("log_interval", ".inf", "progress.log_interval"),
+    ],
+)
+def test_invalid_progress_config_is_rejected(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    payload = f"""
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+progress:
+  {field}: {value}
+"""
+
+    with pytest.raises(ValueError, match=message):
+        load_config_from_yaml(tmp_path, payload)

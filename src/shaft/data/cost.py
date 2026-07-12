@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
+import logging
 import math
 from pathlib import Path
 from typing import Any, Protocol
+import warnings
 
 from PIL import Image
 from transformers import __version__ as transformers_version
 
 from shaft.template import ShaftChatRenderer
+from shaft.utils.distributed import is_rank_zero
 
 from .mixing import ShaftSampleRef
 from .transforms import (
     is_planning_safe_online_transform,
     planning_online_transform_fingerprint,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _sequence_fingerprint(records: Any) -> str:
@@ -85,7 +91,8 @@ def _tokenizer_artifact_fingerprint(tokenizer: Any) -> str:
         artifact_payload = str(declared or "").strip()
         if not artifact_payload:
             raise ValueError(
-                "Exact SFT CostPlan requires tokenizer.backend_tokenizer.to_str() "
+                "Exact SFT sample-cost estimation requires "
+                "tokenizer.backend_tokenizer.to_str() "
                 "or an explicit tokenizer.shaft_cost_fingerprint covering the full "
                 "vocabulary and tokenization model (including merges/unigram state)."
             )
@@ -111,7 +118,7 @@ def _tokenizer_artifact_fingerprint(tokenizer: Any) -> str:
     return hashlib.sha256(repr(metadata).encode("utf-8")).hexdigest()
 
 
-def sft_cost_planning_source_fingerprint(dataset: Any) -> str:
+def sft_cost_source_fingerprint(dataset: Any) -> str:
     """Return a media-header-free fingerprint suitable for cross-rank preflight."""
 
     transform_fingerprints = tuple(
@@ -119,70 +126,22 @@ def sft_cost_planning_source_fingerprint(dataset: Any) -> str:
         for transform in getattr(dataset, "online_transforms", ())
     )
     payload = (
-        "shaft-sft-cost-planning-source-v1",
-        str(getattr(getattr(dataset, "sample_plan", None), "fingerprint", "")),
+        "shaft-sft-cost-source-v3-immutable-media-snapshot",
         _dataset_records_fingerprint(getattr(dataset, "records", ())),
         transform_fingerprints,
+        str(getattr(dataset, "media_snapshot_id", "")).strip(),
     )
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
 
-def _iter_planned_image_paths(dataset: Any):
-    records = getattr(dataset, "records", ())
-    sample_plan = getattr(dataset, "sample_plan", None)
-    if sample_plan is not None:
-        if not isinstance(records, Mapping):
-            raise TypeError(
-                "SFT cost planning with a SamplePlan requires dataset-keyed records."
-            )
-        for position in range(len(sample_plan)):
-            sample_ref = sample_plan.ref_at(position)
-            record = records[sample_ref.dataset_name][sample_ref.row_index]
-            yield str(getattr(record, "image_path", "")).strip()
-        return
-    if not isinstance(records, Sequence):
-        raise TypeError("SFT cost planning requires indexable dataset records.")
-    for row_index in range(len(records)):
-        yield str(getattr(records[row_index], "image_path", "")).strip()
-
-
-def _image_asset_identity(image_path: str) -> tuple[str, tuple[int, ...], tuple[int, int]]:
-    """Read a stable, header-only identity for one image asset.
-
-    Content bytes are deliberately not hashed at runtime: doing so would turn planner
-    startup into a full image-store scan on every data rank. Canonical path, inode/stat
-    metadata and dimensions bind normal immutable-snapshot changes and, importantly,
-    every field that can change the image cost. A mutation racing this scan is rejected.
-    """
-
-    path = Path(image_path).expanduser().resolve(strict=True)
-    before = path.stat()
-    with Image.open(path) as image:
-        width, height = image.size
-    after = path.stat()
-    before_stat = (
-        int(before.st_dev),
-        int(before.st_ino),
-        int(before.st_size),
-        int(before.st_mtime_ns),
-        int(before.st_ctime_ns),
-    )
-    after_stat = (
-        int(after.st_dev),
-        int(after.st_ino),
-        int(after.st_size),
-        int(after.st_mtime_ns),
-        int(after.st_ctime_ns),
-    )
-    if before_stat != after_stat:
-        raise RuntimeError(f"Image asset changed while building cost manifest: {path}")
-    return str(path), after_stat, (int(width), int(height))
-
-
-def validate_sft_cost_planning_dataset(dataset: Any) -> None:
+def validate_sft_cost_dataset(dataset: Any) -> None:
     if not hasattr(dataset, "get_planning_item"):
         raise TypeError(
             "SFT cost-aware batching requires a dataset with get_planning_item()."
+        )
+    if not str(getattr(dataset, "media_snapshot_id", "")).strip():
+        raise ValueError(
+            "SFT cost-aware batching requires an immutable media_snapshot_id."
         )
     unsafe_transforms = [
         transform
@@ -254,8 +213,8 @@ class ShaftRowInvariantCostProvider:
     """Small immutable mapping for costs that cannot vary across logical draws.
 
     The key deliberately excludes draw context. Do not use this adapter for prompt
-    rotation or any transform whose cost can change for the same source row. Large
-    production plans should use a draw-indexed memory-mapped provider.
+    rotation or any transform whose cost can change for the same source row. Production
+    SFT uses ``ShaftSFTSampleCostProvider`` so costs are resolved lazily per logical draw.
     """
 
     def __init__(
@@ -310,9 +269,9 @@ class ShaftSFTSampleCostProvider:
         max_length: int | None,
         add_eos_token: bool,
         loss_scale_name: str,
-        image_size_cache_size: int = 8192,
+        cache_size: int = 65536,
     ) -> None:
-        validate_sft_cost_planning_dataset(dataset)
+        validate_sft_cost_dataset(dataset)
         validate_sft_cost_model_adapter(model_adapter)
         self.dataset = dataset
         self.model_adapter = model_adapter
@@ -328,19 +287,20 @@ class ShaftSFTSampleCostProvider:
         self.max_length = int(max_length) if max_length is not None else None
         self.add_eos_token = bool(add_eos_token)
         self.loss_scale_name = str(loss_scale_name).strip().lower() or "default"
-        self.image_size_cache_size = max(int(image_size_cache_size), 0)
+        self.cache_size = max(int(cache_size), 0)
         self._image_sizes: OrderedDict[str, tuple[int, int]] = OrderedDict()
-        self._manifest_image_sizes: dict[str, tuple[int, int]] = {}
-        image_asset_manifest = self._build_image_asset_manifest()
+        self._sample_costs: OrderedDict[
+            tuple[str, int, int, int], ShaftSampleCost
+        ] = OrderedDict()
+        self._large_image_warning_count = 0
         processor_cost_semantics = model_adapter.processor_cost_semantics_signature(
             processor=processor,
             min_pixels=self.min_pixels,
             max_pixels=self.max_pixels,
         )
         fingerprint_payload = (
-            "shaft-sft-runtime-cost-v6",
-            sft_cost_planning_source_fingerprint(dataset),
-            image_asset_manifest,
+            "shaft-sft-runtime-cost-v7-bounded",
+            sft_cost_source_fingerprint(dataset),
             str(getattr(model_adapter, "model_type", "")),
             str(getattr(model_adapter, "model_name_or_path", "")),
             str(getattr(model_adapter, "template_type", "")),
@@ -361,37 +321,25 @@ class ShaftSFTSampleCostProvider:
             repr(fingerprint_payload).encode("utf-8")
         ).hexdigest()
 
-    def _build_image_asset_manifest(self) -> str:
-        digest = hashlib.sha256(b"shaft-image-asset-manifest-v2")
-        canonical_paths: set[str] = set()
-        for image_path in _iter_planned_image_paths(self.dataset):
-            if not image_path:
-                raise ValueError("SFT cost estimation requires image_path for every row.")
-            canonical_paths.add(
-                str(Path(image_path).expanduser().resolve(strict=True))
-            )
-        for canonical_path in sorted(canonical_paths):
-            canonical_path, stat_identity, image_size = _image_asset_identity(
-                canonical_path
-            )
-            digest.update(b"\0")
-            digest.update(
-                repr(
-                    (
-                        canonical_path,
-                        stat_identity,
-                        image_size,
-                    )
-                ).encode("utf-8")
-            )
-            self._manifest_image_sizes[canonical_path] = image_size
-        digest.update(b"\0")
-        digest.update(str(len(canonical_paths)).encode("utf-8"))
-        return digest.hexdigest()
-
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost:
         item = self.dataset.get_planning_item(sample_ref)
         target_text = str(item["target_text"])
+        image_path = str(item.get("image_path", "")).strip()
+        if not image_path:
+            raise ValueError(
+                "SFT cost estimation requires image_path for "
+                f"dataset={sample_ref.dataset_name!r}, row={sample_ref.row_index}."
+            )
+        cache_key = (
+            str(sample_ref.dataset_name),
+            int(sample_ref.row_index),
+            int(sample_ref.context.draw_id),
+            int(sample_ref.context.transform_seed),
+        )
+        cached = self._sample_costs.get(cache_key)
+        if cached is not None:
+            self._sample_costs.move_to_end(cache_key)
+            return cached
         supervision_plan = self.template.build_supervision_plan(
             item=item,
             target_text=target_text,
@@ -402,12 +350,6 @@ class ShaftSFTSampleCostProvider:
             supervision_plan.rendered_prefix_token_ids
             or self.renderer.tokenize(supervision_plan.prompt_text)
         )
-        image_path = str(item.get("image_path", "")).strip()
-        if not image_path:
-            raise ValueError(
-                "SFT cost estimation requires image_path for "
-                f"dataset={sample_ref.dataset_name!r}, row={sample_ref.row_index}."
-            )
         image_size = self._get_image_size(image_path)
         image_estimate = self.model_adapter.estimate_processor_image_cost(
             processor=self.processor,
@@ -428,33 +370,77 @@ class ShaftSFTSampleCostProvider:
             add_eos_token=self.add_eos_token,
             max_length=self.max_length,
         )
-        return ShaftSampleCost(
+        cost = ShaftSampleCost(
             llm_tokens=supervision_cost.llm_tokens,
             supervised_tokens=supervision_cost.supervised_tokens,
             vision_patches=image_estimate.vision_patches,
             loss_weight_sum=supervision_cost.loss_weight_sum,
             exact=bool(image_estimate.exact),
         )
+        self._remember_sample_cost(cache_key, cost)
+        return cost
 
     def _get_image_size(self, image_path: str) -> tuple[int, int]:
-        cached = self._image_sizes.get(image_path)
-        if cached is not None:
-            self._image_sizes.move_to_end(image_path)
-            return cached
         path = Path(image_path).expanduser().resolve(strict=True)
-        manifest_size = self._manifest_image_sizes.get(str(path))
-        if manifest_size is not None:
-            self._remember_image_size(image_path, manifest_size)
-            return manifest_size
-        with Image.open(path) as image:
-            width, height = image.size
+        cache_key = str(path)
+        cached = self._image_sizes.get(cache_key)
+        if cached is not None:
+            self._image_sizes.move_to_end(cache_key)
+            return cached
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                width, height = image.size
+        bomb_warnings = []
+        for caught_warning in caught:
+            if issubclass(
+                caught_warning.category,
+                Image.DecompressionBombWarning,
+            ):
+                bomb_warnings.append(caught_warning)
+                continue
+            warnings.warn_explicit(
+                caught_warning.message,
+                caught_warning.category,
+                caught_warning.filename,
+                caught_warning.lineno,
+                source=getattr(caught_warning, "source", None),
+            )
+        if bomb_warnings:
+            self._large_image_warning_count += 1
+            if self._large_image_warning_count == 1 and is_rank_zero():
+                logger.warning(
+                    "[bounded-cost] large image header observed; path=%s size=%sx%s "
+                    "further PIL DecompressionBombWarning messages are aggregated",
+                    path,
+                    width,
+                    height,
+                )
         resolved = (int(width), int(height))
-        self._remember_image_size(image_path, resolved)
+        self._remember_image_size(cache_key, resolved)
         return resolved
 
     def _remember_image_size(self, image_path: str, image_size: tuple[int, int]) -> None:
-        if self.image_size_cache_size > 0:
+        if self.cache_size > 0:
             self._image_sizes[image_path] = image_size
             self._image_sizes.move_to_end(image_path)
-            while len(self._image_sizes) > self.image_size_cache_size:
+            while len(self._image_sizes) > self.cache_size:
                 self._image_sizes.popitem(last=False)
+
+    def _remember_sample_cost(
+        self,
+        key: tuple[str, int, int, int],
+        cost: ShaftSampleCost,
+    ) -> None:
+        if self.cache_size <= 0:
+            return
+        self._sample_costs[key] = cost
+        self._sample_costs.move_to_end(key)
+        while len(self._sample_costs) > self.cache_size:
+            self._sample_costs.popitem(last=False)
+
+    @property
+    def cache_entry_counts(self) -> tuple[int, int]:
+        """Return ``(sample_costs, image_headers)`` for bounded diagnostics/tests."""
+
+        return len(self._sample_costs), len(self._image_sizes)

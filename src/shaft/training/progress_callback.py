@@ -1,140 +1,217 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
-from tqdm.auto import tqdm
 from transformers import TrainerCallback
 
-from shaft.utils import create_progress_bar
+from shaft.observability import ShaftProgressManager, ShaftProgressTask
 
 
 class ShaftProgressCallback(TrainerCallback):
-    def __init__(self, *, leave: bool = False, mininterval: float = 0.2) -> None:
-        self.training_bar: tqdm | None = None
-        self.prediction_bar: tqdm | None = None
-        self.current_step: int = 0
-        self.train_postfix: dict[str, Any] = {}
-        self.leave = bool(leave)
-        self.mininterval = float(mininterval)
+    """Adapt Hugging Face Trainer events into Shaft progress tasks."""
 
-    def _format_postfix_value(self, value: Any) -> Any:
-        if isinstance(value, float):
-            return f"{value:.4g}"
-        return value
+    def __init__(self, progress_manager: ShaftProgressManager) -> None:
+        self.progress_manager = progress_manager
+        self.training_task: ShaftProgressTask | None = None
+        self.prediction_task: ShaftProgressTask | None = None
 
-    def _resolve_learning_rate(self, *, optimizer: Any = None, lr_scheduler: Any = None) -> float | None:
-        last_lr = None
-        if lr_scheduler is not None and not isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            try:
-                last_lr = lr_scheduler.get_last_lr()[0]
-            except (AssertionError, AttributeError, IndexError, KeyError, TypeError):
-                last_lr = None
-        if last_lr is None and optimizer is not None:
-            try:
-                last_lr = optimizer.param_groups[0]["lr"]
-            except (AttributeError, IndexError, KeyError, TypeError):
-                last_lr = None
-        if isinstance(last_lr, torch.Tensor):
-            last_lr = last_lr.item()
-        if last_lr is None:
+    @staticmethod
+    def _format_learning_rate_range(values: tuple[float, ...]) -> float | str | None:
+        if not values or any(
+            not math.isfinite(value) or value < 0 for value in values
+        ):
             return None
-        try:
-            return float(last_lr)
-        except (TypeError, ValueError):
-            return None
+        finite = values
+        lower = min(finite)
+        upper = max(finite)
+        if math.isclose(lower, upper, rel_tol=1e-12, abs_tol=0.0):
+            return lower
 
-    def _set_train_postfix(
+        def _parts(value: float) -> tuple[str, int]:
+            mantissa, exponent = f"{value:.3e}".split("e", maxsplit=1)
+            return f"{float(mantissa):g}", int(exponent)
+
+        lower_mantissa, lower_exponent = _parts(lower)
+        upper_mantissa, upper_exponent = _parts(upper)
+        if lower_exponent == upper_exponent:
+            return (
+                f"{lower_mantissa}–{upper_mantissa}e{lower_exponent}"
+            )
+        return (
+            f"{lower_mantissa}e{lower_exponent}–"
+            f"{upper_mantissa}e{upper_exponent}"
+        )
+
+    def _resolve_learning_rate(
         self,
         *,
-        logs: dict[str, Any] | None = None,
-        learning_rate: float | None = None,
-    ) -> None:
-        if self.training_bar is None:
-            return
-        keys = ("loss", "learning_rate", "grad_norm", "eval_loss", "eval_final_loss", "eval_final_score")
-        if logs is not None:
-            for key in keys:
-                if key not in logs:
-                    continue
-                self.train_postfix[key] = self._format_postfix_value(logs[key])
-        if learning_rate is not None:
-            self.train_postfix["learning_rate"] = self._format_postfix_value(learning_rate)
-        if self.train_postfix:
-            self.training_bar.set_postfix(dict(self.train_postfix), refresh=False)
+        optimizer: Any = None,
+        lr_scheduler: Any = None,
+    ) -> float | str | None:
+        if lr_scheduler is not None and not isinstance(
+            lr_scheduler,
+            torch.optim.lr_scheduler.ReduceLROnPlateau,
+        ):
+            try:
+                learning_rates = tuple(
+                    float(value.item() if isinstance(value, torch.Tensor) else value)
+                    for value in lr_scheduler.get_last_lr()
+                )
+            except (
+                AssertionError,
+                AttributeError,
+                IndexError,
+                KeyError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ):
+                learning_rates = ()
+            resolved = self._format_learning_rate_range(learning_rates)
+            if resolved is not None:
+                return resolved
+        if optimizer is not None:
+            try:
+                learning_rates = tuple(
+                    float(
+                        group["lr"].item()
+                        if isinstance(group["lr"], torch.Tensor)
+                        else group["lr"]
+                    )
+                    for group in optimizer.param_groups
+                )
+            except (
+                AttributeError,
+                IndexError,
+                KeyError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ):
+                learning_rates = ()
+            return self._format_learning_rate_range(learning_rates)
+        return None
+
+    @staticmethod
+    def _is_world_process_zero(state: Any) -> bool:
+        return bool(getattr(state, "is_world_process_zero", True))
 
     def on_train_begin(self, args, state, control, **kwargs):  # noqa: ANN001
-        _ = control
-        if not state.is_world_process_zero:
+        _ = args, control
+        if not self._is_world_process_zero(state):
             return
-        self.train_postfix = {}
-        self.current_step = max(int(state.global_step), 0)
-        total_steps = max(int(state.max_steps), self.current_step)
-        self.training_bar = create_progress_bar(
-            total=total_steps,
-            initial=self.current_step,
-            desc="train",
-            unit="step",
-            leave=self.leave,
-            mininterval=self.mininterval,
-            colour="green",
+        initial_step = max(int(state.global_step), 0)
+        total_steps = max(int(state.max_steps), initial_step)
+        learning_rate = self._resolve_learning_rate(
+            optimizer=kwargs.get("optimizer"),
+            lr_scheduler=kwargs.get("lr_scheduler"),
         )
-        self._set_train_postfix(
-            learning_rate=self._resolve_learning_rate(
-                optimizer=kwargs.get("optimizer"),
-                lr_scheduler=kwargs.get("lr_scheduler"),
-            )
+        metrics = {} if learning_rate is None else {"lr": learning_rate}
+        self.training_task = self.progress_manager.start_task(
+            "train",
+            label="train",
+            total=total_steps,
+            initial=initial_step,
+            unit="step",
+            metrics=metrics,
+            summary_on_complete=True,
+            display_rate=True,
         )
 
     def on_step_end(self, args, state, control, **kwargs):  # noqa: ANN001
-        _ = args, control, kwargs
-        if self.training_bar is None:
+        _ = args, control
+        if self.training_task is None:
             return
-        step = int(state.global_step)
-        if step > self.current_step:
-            self.training_bar.update(step - self.current_step)
-            self.current_step = step
-        self._set_train_postfix(
-            learning_rate=self._resolve_learning_rate(
-                optimizer=kwargs.get("optimizer"),
-                lr_scheduler=kwargs.get("lr_scheduler"),
-            )
+        step = max(int(state.global_step), 0)
+        learning_rate = self._resolve_learning_rate(
+            optimizer=kwargs.get("optimizer"),
+            lr_scheduler=kwargs.get("lr_scheduler"),
         )
+        metrics = None if learning_rate is None else {"lr": learning_rate}
+        self.training_task.update(current=step, metrics=metrics)
 
     def on_log(self, args, state, control, logs=None, **kwargs):  # noqa: ANN001
         _ = args, state, control, kwargs
-        if logs is None:
+        if self.training_task is None or not isinstance(logs, dict):
             return
-        self._set_train_postfix(logs=dict(logs))
+        metrics: dict[str, Any] = {}
+        if "loss" in logs:
+            metrics["loss"] = logs["loss"]
+        if metrics:
+            self.training_task.update(metrics=metrics)
 
-    def on_prediction_step(self, args, state, control, eval_dataloader=None, **kwargs):  # noqa: ANN001
-        _ = state, control, kwargs
-        if str(args.eval_strategy).lower() != "no" and eval_dataloader is not None:
-            if self.prediction_bar is None:
-                self.prediction_bar = create_progress_bar(
-                    total=len(eval_dataloader),
-                    desc="eval",
-                    unit="batch",
-                    leave=self.leave,
-                    mininterval=self.mininterval,
-                    colour="cyan",
+    def on_prediction_step(
+        self,
+        args,
+        state,
+        control,
+        eval_dataloader=None,
+        **kwargs,
+    ):  # noqa: ANN001
+        _ = control, kwargs
+        if not self._is_world_process_zero(state) or eval_dataloader is None:
+            return
+        strategy = getattr(args, "eval_strategy", "no")
+        strategy = str(getattr(strategy, "value", strategy)).lower()
+        if strategy == "no":
+            return
+        if self.prediction_task is None:
+            try:
+                total = len(eval_dataloader)
+            except TypeError:
+                total = None
+            parent_task_id = "train" if self.progress_manager.is_task_active("train") else None
+            self.prediction_task = self.progress_manager.start_task(
+                "eval.loss",
+                label="eval",
+                total=total,
+                unit="batch",
+                parent_task_id=parent_task_id,
+                display_rate=True,
+            )
+        else:
+            task_snapshot = self.progress_manager.snapshot.tasks["eval.loss"]
+            if (
+                task_snapshot.total is not None
+                and task_snapshot.current >= task_snapshot.total
+            ):
+                previous_total = task_snapshot.total
+                try:
+                    next_total = len(eval_dataloader)
+                except TypeError:
+                    next_total = None
+                self.prediction_task.set_total(
+                    None if next_total is None else previous_total + next_total
                 )
-            self.prediction_bar.update(1)
+        task_snapshot = self.progress_manager.snapshot.tasks["eval.loss"]
+        if task_snapshot.total is None or task_snapshot.current < task_snapshot.total:
+            self.prediction_task.advance()
 
-    def on_evaluate(self, args, state, control, **kwargs):  # noqa: ANN001
-        _ = args, state, control, kwargs
-        if self.prediction_bar is not None:
-            self.prediction_bar.close()
-        self.prediction_bar = None
+    def _finish_prediction(self, metrics: dict[str, Any] | None = None) -> None:
+        if self.prediction_task is None:
+            return
+        progress_metrics = None
+        if isinstance(metrics, dict) and "eval_loss" in metrics:
+            progress_metrics = {"loss": metrics["eval_loss"]}
+        self.prediction_task.complete(metrics=progress_metrics)
+        self.prediction_task = None
 
-    def on_predict(self, args, state, control, **kwargs):  # noqa: ANN001
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):  # noqa: ANN001
         _ = args, state, control, kwargs
-        if self.prediction_bar is not None:
-            self.prediction_bar.close()
-        self.prediction_bar = None
+        self._finish_prediction(metrics)
+
+    def on_predict(self, args, state, control, metrics=None, **kwargs):  # noqa: ANN001
+        _ = args, state, control, kwargs
+        self._finish_prediction(metrics)
 
     def on_train_end(self, args, state, control, **kwargs):  # noqa: ANN001
-        _ = args, state, control, kwargs
-        if self.training_bar is not None:
-            self.training_bar.close()
-        self.training_bar = None
+        _ = args, control, kwargs
+        self._finish_prediction()
+        if self.training_task is None:
+            return
+        step = max(int(state.global_step), 0)
+        self.training_task.update(current=step)
+        self.training_task.complete(message="training complete")
+        self.training_task = None

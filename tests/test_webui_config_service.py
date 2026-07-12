@@ -22,6 +22,8 @@ experiment:
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl
@@ -69,6 +71,8 @@ def test_webui_config_service_rejects_non_sft_config(tmp_path: Path) -> None:
 algorithm:
   name: dpo
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       source_type: jsonl_dpo

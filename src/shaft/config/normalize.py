@@ -6,7 +6,7 @@ import re
 from .runtime import RuntimeConfig
 
 _MIX_STRATEGIES = {"concat", "weighted"}
-_BATCHING_STRATEGIES = {"fixed", "cost_aware", "dynamic_cost_aware"}
+_BATCHING_STRATEGIES = {"fixed", "bounded_cost_aware"}
 _TRAIN_DURATION_UNITS = {"steps", "epochs"}
 _ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
@@ -16,6 +16,7 @@ _PPO_VALUE_MODEL_MODES = {"shared_backbone", "copy_backbone"}
 _PPO_REWARD_MODEL_MODES = {"adapter_disabled_policy", "copy_backbone"}
 _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 _LOG_FORMATS = {"text", "json"}
+_PROGRESS_DISPLAY_MODES = {"auto", "interactive", "plain", "off"}
 _TRAIN_DISTRIBUTED_STRATEGIES = {"ddp", "fsdp", "deepspeed"}
 _FSDP_SHARDING_STRATEGIES = {"full_shard", "shard_grad_op", "no_shard", "hybrid_shard"}
 _FSDP_AUTO_WRAP_POLICIES = {"none", "transformer", "size"}
@@ -52,7 +53,9 @@ def _validate_optional_regex(value: str | None, field_name: str) -> str | None:
 def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.algorithm.name = str(config.algorithm.name).strip().lower()
     if config.algorithm.name not in _ALGORITHMS:
-        raise ValueError(f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}.")
+        raise ValueError(
+            f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}."
+        )
 
     config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
     if config.data.mix_strategy not in _MIX_STRATEGIES:
@@ -64,16 +67,12 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported data.batching.strategy={batching.strategy!r}. "
             f"Expected one of {_BATCHING_STRATEGIES}."
         )
-    batching.planning_window = int(batching.planning_window)
-    if batching.planning_window <= 0:
-        raise ValueError("data.batching.planning_window must be > 0.")
-    batching.image_size_cache_size = int(batching.image_size_cache_size)
-    if batching.image_size_cache_size < 0:
-        raise ValueError("data.batching.image_size_cache_size must be >= 0.")
-    if batching.cost_plan_cache_dir is not None:
-        batching.cost_plan_cache_dir = (
-            str(batching.cost_plan_cache_dir).strip() or None
-        )
+    batching.buffer_size = int(batching.buffer_size)
+    if batching.buffer_size <= 0:
+        raise ValueError("data.batching.buffer_size must be > 0.")
+    batching.cost_cache_size = int(batching.cost_cache_size)
+    if batching.cost_cache_size < 0:
+        raise ValueError("data.batching.cost_cache_size must be >= 0.")
     for field_name in (
         "max_samples_per_microbatch",
         "max_padded_tokens",
@@ -86,8 +85,6 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         if value <= 0:
             raise ValueError(f"data.batching.{field_name} must be > 0 when set.")
         setattr(batching, field_name, value)
-    if batching.rank_balance is not None:
-        batching.rank_balance = bool(batching.rank_balance)
     config.data.num_workers = int(config.data.num_workers)
     if config.data.num_workers < 0:
         raise ValueError("data.num_workers must be >= 0.")
@@ -100,11 +97,17 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("data.image_cache_size must be >= 0.")
     if config.data.record_cache_dir is not None:
         config.data.record_cache_dir = str(config.data.record_cache_dir).strip() or None
+    if config.data.media_snapshot_id is not None:
+        config.data.media_snapshot_id = (
+            str(config.data.media_snapshot_id).strip() or None
+        )
     if config.data.max_length is not None:
         config.data.max_length = int(config.data.max_length)
         if config.data.max_length <= 0:
             raise ValueError("data.max_length must be > 0 when set.")
-    config.data.catalog_names = [str(x).strip() for x in config.data.catalog_names if str(x).strip()]
+    config.data.catalog_names = [
+        str(x).strip() for x in config.data.catalog_names if str(x).strip()
+    ]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None
     prompt_sampling = config.data.prompt_sampling
@@ -132,7 +135,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if finetune.mode not in _FINETUNE_MODES:
         raise ValueError(f"Unsupported model.finetune.mode={finetune.mode!r}.")
     finetune.lora_bias = str(finetune.lora_bias).strip().lower()
-    finetune.freeze.groups = _normalize_string_list([str(value).lower() for value in finetune.freeze.groups])
+    finetune.freeze.groups = _normalize_string_list(
+        [str(value).lower() for value in finetune.freeze.groups]
+    )
     invalid_groups = sorted(set(finetune.freeze.groups) - _FREEZE_GROUPS)
     if invalid_groups:
         raise ValueError(
@@ -179,20 +184,37 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
         if not dataset.train_paths:
             raise ValueError(f"data.datasets[{dataset.dataset_name}].train_paths cannot be empty.")
-        if not dataset.val_paths and bool(config.eval.enabled) and dataset.enabled and dataset.use_for_eval:
+        if (
+            not dataset.val_paths
+            and bool(config.eval.enabled)
+            and dataset.enabled
+            and dataset.use_for_eval
+        ):
             raise ValueError(f"data.datasets[{dataset.dataset_name}].val_paths cannot be empty.")
         if config.algorithm.name == "sft" and dataset.source_type == "jsonl_ppo":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is sft.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is sft."
+            )
         if config.algorithm.name == "sft" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is sft.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is sft."
+            )
         if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is dpo.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is dpo."
+            )
         if config.algorithm.name == "dpo" and dataset.source_type == "jsonl_ppo":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is dpo.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_ppo but algorithm is dpo."
+            )
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_sft":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_sft but algorithm is ppo."
+            )
         if config.algorithm.name == "ppo" and dataset.source_type == "jsonl_dpo":
-            raise ValueError(f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo.")
+            raise ValueError(
+                f"data.datasets[{dataset.dataset_name}] uses jsonl_dpo but algorithm is ppo."
+            )
         if config.algorithm.name == "grpo" and dataset.source_type != "jsonl_sft":
             raise ValueError(
                 f"data.datasets[{dataset.dataset_name}] uses {dataset.source_type} but algorithm is grpo. "
@@ -209,8 +231,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             if (
                 dataset.enabled
                 and (
-                    dataset.weight > 0
-                    or (not prompt_sampling.train_only and dataset.use_for_eval)
+                    dataset.weight > 0 or (not prompt_sampling.train_only and dataset.use_for_eval)
                 )
                 and dataset.dataset_name not in prompt_sampling.pools
             )
@@ -223,8 +244,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
 
     if bool(config.eval.enabled):
         has_eval_dataset = any(
-            dataset.enabled and dataset.use_for_eval
-            for dataset in config.data.datasets
+            dataset.enabled and dataset.use_for_eval for dataset in config.data.datasets
         )
         if not has_eval_dataset:
             raise ValueError(
@@ -241,6 +261,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(f"Unsupported train.loss_name={train.loss_name!r}.")
     train.loss_scale = str(train.loss_scale).strip().lower() or "default"
     from shaft.loss_scale import build_loss_scale
+
     try:
         build_loss_scale(train.loss_scale)
     except Exception as exc:  # noqa: BLE001
@@ -265,7 +286,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("train.duration.value must be finite and > 0.")
     if train.duration.unit == "steps" and not train.duration.value.is_integer():
         raise ValueError("train.duration.value must be an integer when unit='steps'.")
-    if batching.strategy in {"cost_aware", "dynamic_cost_aware"}:
+    if batching.strategy == "bounded_cost_aware":
         if config.algorithm.name != "sft":
             raise ValueError(
                 f"data.batching.strategy={batching.strategy!r} currently supports "
@@ -283,61 +304,33 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if train.gradient_accumulation_steps <= 0:
         raise ValueError("train.gradient_accumulation_steps must be > 0.")
     train.full_determinism = bool(train.full_determinism)
-    optimizer_batch = train.optimizer_batch
-    for field_name in ("target_samples", "target_supervised_tokens"):
-        value = getattr(optimizer_batch, field_name)
-        if value is None:
-            continue
-        value = int(value)
-        if value <= 0:
-            raise ValueError(f"train.optimizer_batch.{field_name} must be > 0 when set.")
-        setattr(optimizer_batch, field_name, value)
-    if (
-        optimizer_batch.target_samples is not None
-        and optimizer_batch.target_supervised_tokens is not None
-    ):
-        raise ValueError(
-            "train.optimizer_batch accepts at most one of target_samples and "
-            "target_supervised_tokens."
-        )
-    if batching.strategy == "dynamic_cost_aware":
+    if batching.strategy == "bounded_cost_aware":
         if batching.max_samples_per_microbatch is None:
             batching.max_samples_per_microbatch = train.per_device_train_batch_size
         if batching.max_padded_tokens is None:
             raise ValueError(
                 "data.batching.max_padded_tokens is required when "
-                "strategy='dynamic_cost_aware'."
+                "strategy='bounded_cost_aware'."
             )
-        if batching.rank_balance is None:
-            batching.rank_balance = True
-        if (
-            optimizer_batch.target_supervised_tokens is not None
-            and config.data.mix_strategy == "weighted"
-            and not config.data.shuffle
-        ):
+        if config.data.mix_strategy == "weighted" and not config.data.shuffle:
             raise ValueError(
-                "Dynamic target_supervised_tokens is incompatible with "
-                "data.mix_strategy='weighted' and data.shuffle=false: the current "
-                "deterministic weighted map is horizon-dependent. Enable shuffle, "
-                "use concat, or use target_samples."
+                "bounded_cost_aware requires a horizon-independent sample schedule; "
+                "weighted mixing therefore requires data.shuffle=true."
             )
-    elif (
-        optimizer_batch.target_samples is not None
-        or optimizer_batch.target_supervised_tokens is not None
-    ):
-        raise ValueError(
-            "train.optimizer_batch targets require "
-            "data.batching.strategy='dynamic_cost_aware'."
-        )
+        if config.data.media_snapshot_id is None:
+            raise ValueError(
+                "bounded_cost_aware requires data.media_snapshot_id. The id must "
+                "name an immutable media snapshot; change it whenever source media "
+                "can change in place."
+            )
     elif (
         batching.max_samples_per_microbatch is not None
         or batching.max_padded_tokens is not None
         or batching.max_vision_patches is not None
-        or batching.rank_balance is not None
     ):
         raise ValueError(
-            "Dynamic data.batching budget fields require "
-            "strategy='dynamic_cost_aware'."
+            "Bounded data.batching budget fields require "
+            "strategy='bounded_cost_aware'."
         )
     if float(train.scheduler_num_cycles) <= 0:
         raise ValueError("train.scheduler_num_cycles must be > 0.")
@@ -360,9 +353,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                 f"train.param_group_lrs[{normalized_key!r}] must be a positive float."
             ) from exc
         if normalized_value <= 0:
-            raise ValueError(
-                f"train.param_group_lrs[{normalized_key!r}] must be > 0."
-            )
+            raise ValueError(f"train.param_group_lrs[{normalized_key!r}] must be > 0.")
         normalized_param_group_lrs[normalized_key] = normalized_value
     train.param_group_lrs = normalized_param_group_lrs
     normalized_no_decay_name_patterns: list[str] = []
@@ -380,12 +371,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
             f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
         )
-    if (
-        batching.strategy == "dynamic_cost_aware"
-        and train.distributed.strategy != "ddp"
-    ):
+    if batching.strategy == "bounded_cost_aware" and train.distributed.strategy != "ddp":
         raise ValueError(
-            "data.batching.strategy='dynamic_cost_aware' currently supports "
+            "data.batching.strategy='bounded_cost_aware' currently supports "
             "train.distributed.strategy='ddp' only; FSDP and DeepSpeed dynamic "
             "DataLoader contracts have not been validated yet."
         )
@@ -429,7 +417,10 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     )
     if fsdp_cfg.backward_prefetch == "":
         fsdp_cfg.backward_prefetch = None
-    if fsdp_cfg.backward_prefetch is not None and fsdp_cfg.backward_prefetch not in _FSDP_BACKWARD_PREFETCH:
+    if (
+        fsdp_cfg.backward_prefetch is not None
+        and fsdp_cfg.backward_prefetch not in _FSDP_BACKWARD_PREFETCH
+    ):
         raise ValueError(
             f"Unsupported train.distributed.fsdp.backward_prefetch={fsdp_cfg.backward_prefetch!r}."
         )
@@ -478,13 +469,17 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         if not policy.target_adapter:
             raise ValueError(f"eval.datasets.{normalized_name}.target_adapter cannot be empty.")
         if not isinstance(policy.target_adapter_params, dict):
-            raise ValueError(f"eval.datasets.{normalized_name}.target_adapter_params must be a mapping.")
+            raise ValueError(
+                f"eval.datasets.{normalized_name}.target_adapter_params must be a mapping."
+            )
         normalized_metrics: list[object] = []
         seen_metric_names: set[str] = set()
         for metric in policy.metrics:
             metric.name = str(metric.name).strip().lower()
             if not metric.name:
-                raise ValueError(f"eval.datasets.{normalized_name}.metrics[*].name cannot be empty.")
+                raise ValueError(
+                    f"eval.datasets.{normalized_name}.metrics[*].name cannot be empty."
+                )
             if metric.name in seen_metric_names:
                 raise ValueError(
                     f"eval.datasets.{normalized_name}.metrics contains duplicate metric {metric.name!r}."
@@ -525,7 +520,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         for dataset in config.data.datasets
         if dataset.enabled and dataset.use_for_eval
     }
-    if eval_cfg.datasets or eval_cfg.online_metrics_enabled or eval_cfg.metric_for_best_model == "eval_final_loss":
+    if (
+        eval_cfg.datasets
+        or eval_cfg.online_metrics_enabled
+        or eval_cfg.metric_for_best_model == "eval_final_loss"
+    ):
         if not eval_cfg.enabled:
             raise ValueError("dataset-policy eval requires eval.enabled=true.")
         if not eval_cfg.datasets:
@@ -553,7 +552,9 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
                 "algorithm.name in {'sft', 'grpo'}."
             )
         if eval_cfg.do_sample:
-            raise ValueError("eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false.")
+            raise ValueError(
+                "eval.online_metrics_enabled requires greedy decoding; set eval.do_sample=false."
+            )
         for dataset_name, policy in eval_cfg.datasets.items():
             if not CODEC_REGISTRY.has(policy.prediction_codec):
                 raise ValueError(
@@ -584,13 +585,19 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             eval_cfg.greater_is_better = False
     elif eval_cfg.metric_for_best_model == "eval_final_score":
         if not eval_cfg.online_metrics_enabled:
-            raise ValueError("eval.metric_for_best_model=eval_final_score requires eval.online_metrics_enabled=true.")
+            raise ValueError(
+                "eval.metric_for_best_model=eval_final_score requires eval.online_metrics_enabled=true."
+            )
         eval_cfg.greater_is_better = True
     elif eval_cfg.metric_for_best_model == "eval_final_loss":
         if not eval_cfg.loss_metrics_enabled:
-            raise ValueError("eval.metric_for_best_model=eval_final_loss requires eval.loss_metrics_enabled=true.")
+            raise ValueError(
+                "eval.metric_for_best_model=eval_final_loss requires eval.loss_metrics_enabled=true."
+            )
         if not eval_cfg.datasets:
-            raise ValueError("eval.metric_for_best_model=eval_final_loss requires eval.datasets to be configured.")
+            raise ValueError(
+                "eval.metric_for_best_model=eval_final_loss requires eval.datasets to be configured."
+            )
         eval_cfg.greater_is_better = False
 
     dpo_cfg = config.rlhf.dpo
@@ -782,7 +789,22 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(f"Unsupported logging.fmt={config.logging.fmt!r}.")
     config.logging.rank_zero_only = bool(config.logging.rank_zero_only)
 
-    config.progress.mininterval = float(config.progress.mininterval)
-    if config.progress.mininterval <= 0:
-        raise ValueError("progress.mininterval must be > 0.")
+    config.progress.enabled = bool(config.progress.enabled)
+    config.progress.display = str(config.progress.display).strip().lower()
+    if config.progress.display not in _PROGRESS_DISPLAY_MODES:
+        raise ValueError(
+            f"Unsupported progress.display={config.progress.display!r}. "
+            f"Expected one of {_PROGRESS_DISPLAY_MODES}."
+        )
+    config.progress.width = int(config.progress.width)
+    if config.progress.width < 40:
+        raise ValueError("progress.width must be >= 40.")
+    config.progress.refresh_interval = float(config.progress.refresh_interval)
+    if not math.isfinite(config.progress.refresh_interval) or config.progress.refresh_interval <= 0:
+        raise ValueError("progress.refresh_interval must be finite and > 0.")
+    config.progress.log_interval = float(config.progress.log_interval)
+    if not math.isfinite(config.progress.log_interval) or config.progress.log_interval <= 0:
+        raise ValueError("progress.log_interval must be finite and > 0.")
+    config.progress.leave_completed = bool(config.progress.leave_completed)
+    config.progress.persist = bool(config.progress.persist)
     return config

@@ -10,7 +10,7 @@ from torch.utils.data import Sampler
 
 from shaft.config import DataConfig
 
-from .mixing import ShaftSamplePlan, ShaftSampleRef
+from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 from .record_store import ShaftConcatRecordStore
 from .sampler import ShaftSampleSampler
 from .meta import build_dataset_metas
@@ -36,8 +36,11 @@ class ShaftPreparedRecords(Generic[RecordT]):
     val_records_by_dataset: dict[str, Sequence[RecordT]]
     train_online_transforms: list[OnlineSampleTransform]
     eval_online_transforms: list[OnlineSampleTransform]
-    train_sampler: ShaftSampleSampler
+    train_sampler: ShaftSampleSampler | None
+    train_schedule: ShaftSampleSchedule | None
+    media_snapshot_id: str | None = None
     image_cache_size: int = 0
+    suppress_train_decompression_bomb_warning: bool = False
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
         eval_datasets_by_name = {
@@ -56,8 +59,15 @@ class ShaftPreparedRecords(Generic[RecordT]):
                 self.train_records,
                 online_transforms=self.train_online_transforms,
                 split="train",
-                sample_plan=self.train_sampler.plan,
+                sample_plan=(
+                    None if self.train_sampler is None else self.train_sampler.plan
+                ),
+                sample_schedule=self.train_schedule,
+                media_snapshot_id=self.media_snapshot_id,
                 image_cache_size=self.image_cache_size,
+                suppress_decompression_bomb_warning=(
+                    self.suppress_train_decompression_bomb_warning
+                ),
             ),
             eval_dataset=_build_dataset(
                 dataset_cls,
@@ -68,6 +78,7 @@ class ShaftPreparedRecords(Generic[RecordT]):
             ),
             eval_datasets_by_name=eval_datasets_by_name,
             train_sampler=self.train_sampler,
+            train_schedule=self.train_schedule,
         )
 
 
@@ -77,6 +88,7 @@ class ShaftDatasetBundle(Generic[DatasetT]):
     eval_dataset: DatasetT
     eval_datasets_by_name: dict[str, DatasetT] | None = None
     train_sampler: Sampler[ShaftSampleRef] | None = None
+    train_schedule: ShaftSampleSchedule | None = None
 
 
 class ShaftDataCenter:
@@ -118,22 +130,34 @@ class ShaftDataCenter:
                 dataset_meta.online_transforms
             )
 
-        sample_plan = ShaftSamplePlan(
-            {
-                dataset_name: len(records)
-                for dataset_name, records in records_by_dataset_train.items()
-            },
-            weights,
-            strategy=self.data_config.mix_strategy,
-            num_samples=self.train_sample_budget,
-            shuffle=self.data_config.shuffle,
-            seed=self.seed,
-        )
-        train_sampler = ShaftSampleSampler(
-            sample_plan,
-            rank=0,
-            world_size=1,
-        )
+        source_sizes = {
+            dataset_name: len(records)
+            for dataset_name, records in records_by_dataset_train.items()
+        }
+        train_schedule = None
+        if self.data_config.mix_strategy != "weighted" or self.data_config.shuffle:
+            train_schedule = ShaftSampleSchedule(
+                source_sizes,
+                weights,
+                strategy=self.data_config.mix_strategy,
+                shuffle=self.data_config.shuffle,
+                seed=self.seed,
+            )
+        train_sampler: ShaftSampleSampler | None = None
+        if self.data_config.batching.strategy != "bounded_cost_aware":
+            sample_plan = ShaftSamplePlan(
+                source_sizes,
+                weights,
+                strategy=self.data_config.mix_strategy,
+                num_samples=self.train_sample_budget,
+                shuffle=self.data_config.shuffle,
+                seed=self.seed,
+            )
+            train_sampler = ShaftSampleSampler(
+                sample_plan,
+                rank=0,
+                world_size=1,
+            )
         val_records = ShaftConcatRecordStore(
             [records_by_dataset_val[name] for name in sorted(records_by_dataset_val)]
         )
@@ -166,7 +190,12 @@ class ShaftDataCenter:
             train_online_transforms=train_online_transforms,
             eval_online_transforms=eval_online_transforms,
             train_sampler=train_sampler,
+            train_schedule=train_schedule,
+            media_snapshot_id=self.data_config.media_snapshot_id,
             image_cache_size=self.data_config.image_cache_size,
+            suppress_train_decompression_bomb_warning=(
+                self.data_config.batching.strategy == "bounded_cost_aware"
+            ),
         )
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:

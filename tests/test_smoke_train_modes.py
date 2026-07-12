@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 import torch
-from PIL import Image
 from safetensors.torch import load_file
 
 from shaft.config import load_config
 from shaft.model.smoke_vlm import SmokeProcessor
+from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.pipeline import run_sft
+from shaft.training.batch_planning import BOUNDED_BATCHING_CALLBACK_NAME
 from tests.support.configs import write_sft_smoke_config
 
 
 pytestmark = pytest.mark.smoke
 
 
-def _run_mode(tmp_path: Path, mode: str, *, online_eval: bool = False) -> tuple[Path, dict[str, float]]:
+def _run_mode(
+    tmp_path: Path, mode: str, *, online_eval: bool = False
+) -> tuple[Path, dict[str, float]]:
     cfg_path = write_sft_smoke_config(tmp_path, finetune_mode=mode, online_eval=online_eval)
     cfg = load_config(cfg_path)
     metrics = run_sft(cfg)
@@ -51,7 +57,107 @@ def test_smoke_qlora(tmp_path: Path) -> None:
     _run_mode(tmp_path, "qlora")
 
 
-def test_dynamic_cost_aware_smoke_uses_variable_microbatches(
+def test_cli_non_tty_progress_is_sparse_and_persists_final_state(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=2,
+        val_size=1,
+        train_steps=1,
+    )
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train.py",
+            "sft",
+            "--config",
+            str(cfg_path),
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    output = f"{completed.stdout}\n{completed.stderr}"
+    assert completed.returncode == 0, output
+    assert "\r" not in output
+    assert "\x1b[" not in output
+    progress_lines = [line for line in output.splitlines() if "progress " in line]
+    assert any("progress data started" in line for line in progress_lines)
+    assert any("progress model succeeded" in line for line in progress_lines)
+    assert any("progress train succeeded" in line for line in progress_lines)
+    assert len(progress_lines) <= 12
+
+    config = load_config(cfg_path)
+    snapshot = json.loads(
+        (Path(config.experiment.output_dir) / PROGRESS_SNAPSHOT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert snapshot["status"] == "succeeded"
+    assert snapshot["active_task_id"] is None
+    assert snapshot["tasks"]["train"]["current"] == 1
+    assert snapshot["tasks"]["train"]["total"] == 1
+
+
+def test_cli_forced_interactive_progress_uses_compact_single_line_contract(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=4,
+        val_size=1,
+        train_steps=2,
+    )
+    cfg_path.write_text(
+        cfg_path.read_text(encoding="utf-8")
+        + "\nprogress:\n"
+        + "  enabled: true\n"
+        + "  display: interactive\n"
+        + "  width: 72\n"
+        + "  refresh_interval: 0.01\n"
+        + "  leave_completed: false\n"
+        + "  persist: true\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/train.py",
+            "sft",
+            "--config",
+            str(cfg_path),
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    output = completed.stdout + completed.stderr
+    decoded = output.decode("utf-8", errors="replace")
+
+    assert completed.returncode == 0, decoded
+    assert b"\rtrain" in output
+    assert "█" in decoded or "▏" in decoded
+    assert "s/step" in decoded
+    assert "lr " in decoded
+    assert "[----------]" not in decoded
+    assert "progress train" not in decoded
+
+
+def test_bounded_cost_aware_smoke_uses_variable_microbatches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -60,8 +166,7 @@ def test_dynamic_cost_aware_smoke_uses_variable_microbatches(
         finetune_mode="full",
         train_size=6,
         val_size=1,
-        dynamic_cost_aware=True,
-        dynamic_target_samples=6,
+        bounded_cost_aware=True,
         per_device_train_batch_size=3,
         gradient_accumulation_steps=2,
     )
@@ -89,17 +194,19 @@ def test_dynamic_cost_aware_smoke_uses_variable_microbatches(
     metrics = run_sft(config)
 
     assert metrics["train_loss"] >= 0
-    assert processor_batch_sizes[-2:] == [1, 5]
+    train_batch_sizes = processor_batch_sizes[-2:]
+    assert sum(train_batch_sizes) == 6
+    assert min(train_batch_sizes) < max(train_batch_sizes)
+    assert max(train_batch_sizes) > 1
 
 
-def test_dynamic_cost_aware_smoke_supports_persistent_workers(tmp_path: Path) -> None:
+def test_bounded_cost_aware_smoke_supports_persistent_workers(tmp_path: Path) -> None:
     cfg_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         train_size=6,
         val_size=1,
-        dynamic_cost_aware=True,
-        dynamic_target_samples=6,
+        bounded_cost_aware=True,
         per_device_train_batch_size=3,
         gradient_accumulation_steps=2,
     )
@@ -125,212 +232,98 @@ def test_smoke_online_eval_canary(tmp_path: Path) -> None:
     assert str(trainer_state["best_model_checkpoint"]).endswith("checkpoint-1")
 
 
-def test_cost_aware_same_horizon_checkpoint_resume_and_extension_guard(
-    tmp_path: Path,
-) -> None:
+def test_bounded_exact_resume_and_contract_guard(tmp_path: Path) -> None:
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=12,
+        val_size=1,
+        bounded_cost_aware=True,
+        bounded_max_samples_per_microbatch=3,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=2,
+    )
+    initial = load_config(cfg_path)
+    initial.eval.enabled = False
+    initial.train.duration.value = 2
+    initial.train.save_strategy = "steps"
+    initial.train.save_steps = 1
+    initial.train.save_total_limit = 2
+    initial.train.save_final_state = True
+
+    metrics = run_sft(initial)
+    checkpoint_one = Path(initial.experiment.output_dir) / "checkpoint-1"
+    uninterrupted_checkpoint = Path(initial.experiment.output_dir) / "checkpoint-2"
+
+    assert metrics["train_loss"] >= 0
+    assert _bounded_callback_payload(checkpoint_one)
+
+    resumed = load_config(cfg_path)
+    resumed.eval.enabled = False
+    resumed.train.duration.value = 2
+    resumed.experiment.output_dir = str(tmp_path / "bounded-resumed")
+    resumed.train.save_strategy = "steps"
+    resumed.train.save_steps = 1
+    resumed.train.save_total_limit = 2
+    resumed.train.save_final_state = True
+    resumed.train.resume_from_checkpoint = str(checkpoint_one)
+
+    resumed_metrics = run_sft(resumed)
+    resumed_checkpoint = Path(resumed.experiment.output_dir) / "checkpoint-2"
+
+    assert resumed_metrics["train_loss"] >= 0
+    _assert_checkpoint_training_state_equal(
+        uninterrupted_checkpoint,
+        resumed_checkpoint,
+    )
+    assert _bounded_callback_payload(
+        uninterrupted_checkpoint
+    ) == _bounded_callback_payload(resumed_checkpoint)
+
+    changed_contract = load_config(cfg_path)
+    changed_contract.eval.enabled = False
+    changed_contract.train.duration.value = 2
+    changed_contract.data.batching.buffer_size = 16
+    changed_contract.train.resume_from_checkpoint = str(checkpoint_one)
+    with pytest.raises(ValueError, match="changed fields.*buffer_size"):
+        run_sft(changed_contract)
+
+    changed_duration = load_config(cfg_path)
+    changed_duration.eval.enabled = False
+    changed_duration.train.duration.value = 3
+    changed_duration.train.resume_from_checkpoint = str(checkpoint_one)
+    with pytest.raises(ValueError, match="training contract changed"):
+        run_sft(changed_duration)
+
+
+def test_bounded_resume_rejects_changed_source_cost_contract(tmp_path: Path) -> None:
     cfg_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         train_size=4,
-        val_size=2,
-        cost_aware=True,
-        per_device_train_batch_size=2,
-    )
-    initial = load_config(cfg_path)
-    initial.train.duration.value = 2
-    initial.train.save_strategy = "steps"
-    initial.train.save_steps = 1
-    initial.train.save_total_limit = 2
-    initial.train.save_final_state = True
-
-    first_metrics = run_sft(initial)
-    checkpoint_one = Path(initial.experiment.output_dir) / "checkpoint-1"
-    uninterrupted_checkpoint = Path(initial.experiment.output_dir) / "checkpoint-2"
-    assert first_metrics["train_loss"] >= 0
-    assert (checkpoint_one / "trainer_state.json").is_file()
-    assert (checkpoint_one / "shaft_batch_planning_signature.json").is_file()
-    assert uninterrupted_checkpoint.is_dir()
-
-    resumed = load_config(cfg_path)
-    resumed.train.duration.value = 2
-    resumed.experiment.output_dir = str(tmp_path / "resumed_outputs")
-    resumed.train.save_strategy = "steps"
-    resumed.train.save_steps = 1
-    resumed.train.save_total_limit = 2
-    resumed.train.save_final_state = True
-    resumed.train.resume_from_checkpoint = str(checkpoint_one)
-    resumed_metrics = run_sft(resumed)
-    resumed_checkpoint = Path(resumed.experiment.output_dir) / "checkpoint-2"
-
-    assert resumed_metrics["train_loss"] >= 0
-    root_state = json.loads(
-        (Path(resumed.experiment.output_dir) / "trainer_state.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert int(root_state["global_step"]) == 2
-    _assert_checkpoint_training_state_equal(
-        uninterrupted_checkpoint,
-        resumed_checkpoint,
-    )
-
-    extended = load_config(cfg_path)
-    extended.train.duration.value = 3
-    extended.train.resume_from_checkpoint = str(checkpoint_one)
-    with pytest.raises(ValueError, match="resume planning geometry changed"):
-        run_sft(extended)
-
-
-def test_dynamic_cost_aware_exact_resume_and_extension_guard(tmp_path: Path) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=12,
         val_size=1,
-        dynamic_cost_aware=True,
-        dynamic_target_samples=6,
-        per_device_train_batch_size=3,
-        gradient_accumulation_steps=2,
+        bounded_cost_aware=True,
+        bounded_max_samples_per_microbatch=2,
+        gradient_accumulation_steps=1,
+        train_steps=2,
+        save_steps=1,
     )
     initial = load_config(cfg_path)
     initial.eval.enabled = False
-    initial.train.duration.value = 2
-    initial.train.save_strategy = "steps"
-    initial.train.save_steps = 1
     initial.train.save_total_limit = 2
-    initial.train.save_final_state = True
+    run_sft(initial)
+    checkpoint = Path(initial.experiment.output_dir) / "checkpoint-1"
 
-    first_metrics = run_sft(initial)
-    checkpoint_one = Path(initial.experiment.output_dir) / "checkpoint-1"
-    uninterrupted_checkpoint = Path(initial.experiment.output_dir) / "checkpoint-2"
-
-    assert first_metrics["train_loss"] >= 0
-    assert (checkpoint_one / "shaft_batch_planning_signature.json").is_file()
-
-    resumed = load_config(cfg_path)
-    resumed.eval.enabled = False
-    resumed.train.duration.value = 2
-    resumed.experiment.output_dir = str(tmp_path / "dynamic-resumed-outputs")
-    resumed.train.save_strategy = "steps"
-    resumed.train.save_steps = 1
-    resumed.train.save_total_limit = 2
-    resumed.train.save_final_state = True
-    resumed.train.resume_from_checkpoint = str(checkpoint_one)
-
-    resumed_metrics = run_sft(resumed)
-    resumed_checkpoint = Path(resumed.experiment.output_dir) / "checkpoint-2"
-
-    assert resumed_metrics["train_loss"] >= 0
-    _assert_checkpoint_training_state_equal(
-        uninterrupted_checkpoint,
-        resumed_checkpoint,
-    )
-
-    extended = load_config(cfg_path)
-    extended.eval.enabled = False
-    extended.train.duration.value = 3
-    extended.train.resume_from_checkpoint = str(checkpoint_one)
-    with pytest.raises(ValueError, match="resume planning geometry changed"):
-        run_sft(extended)
-
-
-def test_dynamic_token_target_executes_variable_counts_and_exact_resume(
-    tmp_path: Path,
-) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=12,
-        val_size=1,
-        dynamic_cost_aware=True,
-        dynamic_target_supervised_tokens=10,
-        dynamic_max_samples_per_microbatch=3,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=2,
-    )
     train_path = tmp_path / "train.jsonl"
-    rows = [
-        json.loads(line)
-        for line in train_path.read_text(encoding="utf-8").splitlines()
-    ]
-    target_texts = ["x" * 8, "a", "b", "c", "y" * 8, "d"] * 2
-    for row, target_text in zip(rows, target_texts, strict=True):
-        row["target_text"] = target_text
+    rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        row["target_text"] = "changed-supervision-" * 20
     train_path.write_text(
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
-
-    initial = load_config(cfg_path)
-    initial.eval.enabled = False
-    initial.train.duration.value = 2
-    initial.train.save_strategy = "steps"
-    initial.train.save_steps = 1
-    initial.train.save_total_limit = 2
-    initial.train.save_final_state = True
-
-    uninterrupted_metrics = run_sft(initial)
-    checkpoint_one = Path(initial.experiment.output_dir) / "checkpoint-1"
-    uninterrupted_checkpoint = Path(initial.experiment.output_dir) / "checkpoint-2"
-    uninterrupted_state = json.loads(
-        (uninterrupted_checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-    )
-    step_two_loss = next(
-        float(entry["loss"])
-        for entry in uninterrupted_state["log_history"]
-        if int(entry.get("step", -1)) == 2 and "loss" in entry
-    )
-    assert uninterrupted_metrics["train_samples_per_second"] * uninterrupted_metrics[
-        "train_runtime"
-    ] == pytest.approx(5, abs=0.1)
-    assert uninterrupted_metrics["train_steps_per_second"] * uninterrupted_metrics[
-        "train_runtime"
-    ] == pytest.approx(2, abs=0.1)
-
     resumed = load_config(cfg_path)
     resumed.eval.enabled = False
-    resumed.train.duration.value = 2
-    resumed.experiment.output_dir = str(tmp_path / "dynamic-token-resumed")
-    resumed.train.save_strategy = "steps"
-    resumed.train.save_steps = 1
-    resumed.train.save_total_limit = 2
-    resumed.train.save_final_state = True
-    resumed.train.resume_from_checkpoint = str(checkpoint_one)
-
-    resumed_metrics = run_sft(resumed)
-    resumed_checkpoint = Path(resumed.experiment.output_dir) / "checkpoint-2"
-    assert resumed_metrics["train_samples_per_second"] * resumed_metrics[
-        "train_runtime"
-    ] == pytest.approx(3, abs=0.1)
-    assert resumed_metrics["train_steps_per_second"] * resumed_metrics[
-        "train_runtime"
-    ] == pytest.approx(1, abs=0.1)
-    assert resumed_metrics["train_loss"] == pytest.approx(step_two_loss, abs=1e-6)
-    _assert_checkpoint_training_state_equal(
-        uninterrupted_checkpoint,
-        resumed_checkpoint,
-    )
-
-
-def test_cost_aware_resume_rejects_in_place_image_dimension_change(
-    tmp_path: Path,
-) -> None:
-    cfg_path = write_sft_smoke_config(
-        tmp_path,
-        finetune_mode="full",
-        train_size=2,
-        val_size=1,
-        cost_aware=True,
-        per_device_train_batch_size=1,
-    )
-    initial = load_config(cfg_path)
-    initial.train.save_strategy = "steps"
-    initial.train.save_steps = 1
-    run_sft(initial)
-    checkpoint = Path(initial.experiment.output_dir) / "checkpoint-1"
-
-    Image.new("RGB", (16, 8), color=(0, 0, 0)).save(tmp_path / "image.png")
-    resumed = load_config(cfg_path)
     resumed.train.resume_from_checkpoint = str(checkpoint)
 
     with pytest.raises(ValueError, match="cost_fingerprint"):
@@ -367,6 +360,13 @@ def _assert_checkpoint_training_state_equal(expected: Path, actual: Path) -> Non
         weights_only=True,
     )
     _assert_nested_state_equal(expected_scheduler, actual_scheduler)
+
+
+def _bounded_callback_payload(checkpoint: Path) -> dict:
+    trainer_state = json.loads(
+        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
+    )
+    return trainer_state["stateful_callbacks"][BOUNDED_BATCHING_CALLBACK_NAME]
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

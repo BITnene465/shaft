@@ -95,41 +95,57 @@ data:
         load_config(config_path)
 
 
-def test_cost_aware_batching_config_is_normalized(tmp_path: Path) -> None:
-    payload = """
+def test_training_yaml_requires_explicit_batching_strategy(tmp_path: Path) -> None:
+    config_path = write_config_yaml(
+        tmp_path,
+        """
 data:
-  batching:
-    strategy: COST_AWARE
-    planning_window: 64
-    image_size_cache_size: 0
-    cost_plan_cache_dir: "  /tmp/shaft-cost-plans  "
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
       val_path: val.jsonl
-train:
-  duration:
-    unit: steps
-    value: 2
-"""
-    config = load_config(write_config_yaml(tmp_path, payload))
+""",
+        ensure_explicit_batching=False,
+    )
 
-    assert config.data.batching.strategy == "cost_aware"
-    assert config.data.batching.planning_window == 64
-    assert config.data.batching.image_size_cache_size == 0
-    assert config.data.batching.cost_plan_cache_dir == "/tmp/shaft-cost-plans"
+    with pytest.raises(ValueError, match="data.batching.strategy.*explicit"):
+        load_config(config_path)
 
 
-def test_dynamic_cost_aware_batching_config_is_normalized(tmp_path: Path) -> None:
-    payload = """
+def test_fixed_batching_needs_no_secondary_guard_config(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
 data:
+  media_snapshot_id: fixture-v1
   batching:
-    strategy: DYNAMIC_COST_AWARE
-    planning_window: 64
+    strategy: FIXED
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+""",
+        )
+    )
+
+    assert config.data.batching.strategy == "fixed"
+
+
+def test_bounded_cost_aware_config_is_normalized(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  media_snapshot_id: fixture-v1
+  batching:
+    strategy: BOUNDED_COST_AWARE
+    buffer_size: 64
+    cost_cache_size: 1024
     max_samples_per_microbatch: 4
     max_padded_tokens: 512
     max_vision_patches: 1024
-    rank_balance: true
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -140,30 +156,26 @@ train:
     value: 2
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 2
-  optimizer_batch:
-    target_samples: 6
-"""
-    config = load_config(write_config_yaml(tmp_path, payload))
+""",
+        )
+    )
 
-    assert config.data.batching.strategy == "dynamic_cost_aware"
-    assert config.data.batching.max_samples_per_microbatch == 4
-    assert config.data.batching.max_padded_tokens == 512
-    assert config.data.batching.max_vision_patches == 1024
-    assert config.data.batching.rank_balance is True
-    assert config.train.optimizer_batch.target_samples == 6
-    assert config.train.optimizer_batch.target_supervised_tokens is None
+    batching = config.data.batching
+    assert batching.strategy == "bounded_cost_aware"
+    assert batching.buffer_size == 64
+    assert batching.cost_cache_size == 1024
+    assert batching.max_samples_per_microbatch == 4
+    assert batching.max_padded_tokens == 512
+    assert batching.max_vision_patches == 1024
+    assert not hasattr(config.train, "optimizer_batch")
 
 
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
         ("strategy", "unknown", "Unsupported data.batching.strategy"),
-        ("planning_window", "0", "data.batching.planning_window must be > 0"),
-        (
-            "image_size_cache_size",
-            "-1",
-            "data.batching.image_size_cache_size must be >= 0",
-        ),
+        ("buffer_size", "0", "data.batching.buffer_size must be > 0"),
+        ("cost_cache_size", "-1", "data.batching.cost_cache_size must be >= 0"),
     ],
 )
 def test_invalid_batching_config_raises(
@@ -181,86 +193,58 @@ data:
       train_path: train.jsonl
       val_path: val.jsonl
 """
-
     with pytest.raises(ValueError, match=message):
         load_config(write_config_yaml(tmp_path, payload))
 
 
-def test_cost_aware_batching_rejects_non_sft_algorithm(tmp_path: Path) -> None:
-    payload = """
-algorithm:
-  name: dpo
-data:
-  batching:
-    strategy: cost_aware
-  datasets:
-    - dataset_name: ds1
-      source_type: jsonl_dpo
-      train_path: train.jsonl
-      val_path: val.jsonl
-train:
-  duration:
-    unit: steps
-    value: 1
-"""
-
-    with pytest.raises(ValueError, match="supports algorithm.name='sft' only"):
-        load_config(write_config_yaml(tmp_path, payload))
-
-
-def test_cost_aware_batching_rejects_epoch_duration(tmp_path: Path) -> None:
-    payload = """
-data:
-  batching:
-    strategy: cost_aware
-  datasets:
-    - dataset_name: ds1
-      train_path: train.jsonl
-      val_path: val.jsonl
-train:
-  duration:
-    unit: epochs
-    value: 1
-"""
-
-    with pytest.raises(ValueError, match="requires train.duration.unit='steps'"):
-        load_config(write_config_yaml(tmp_path, payload))
-
-
 @pytest.mark.parametrize(
-    ("optimizer_batch", "message"),
+    ("algorithm_block", "duration_block", "message"),
     [
         (
-            "target_samples: 4\n    target_supervised_tokens: 100",
-            "at most one of target_samples and target_supervised_tokens",
+            """
+algorithm:
+  name: dpo
+""",
+            """
+  duration:
+    unit: steps
+    value: 2
+""",
+            "supports algorithm.name='sft' only",
         ),
-        ("target_samples: 0", "target_samples must be > 0"),
-        ("target_supervised_tokens: 0", "target_supervised_tokens must be > 0"),
+        (
+            "",
+            """
+  duration:
+    unit: epochs
+    value: 2
+""",
+            "requires train.duration.unit='steps'",
+        ),
     ],
 )
-def test_dynamic_optimizer_batch_rejects_invalid_config(
+def test_bounded_batching_rejects_unsupported_algorithm_or_duration(
     tmp_path: Path,
-    optimizer_batch: str,
+    algorithm_block: str,
+    duration_block: str,
     message: str,
 ) -> None:
+    source_type = "jsonl_dpo" if "dpo" in algorithm_block else "jsonl_sft"
     payload = f"""
+{algorithm_block}
 data:
   batching:
-    strategy: dynamic_cost_aware
+    strategy: bounded_cost_aware
     max_samples_per_microbatch: 4
     max_padded_tokens: 512
   datasets:
     - dataset_name: ds1
+      source_type: {source_type}
       train_path: train.jsonl
       val_path: val.jsonl
 train:
-  duration:
-    unit: steps
-    value: 2
-  optimizer_batch:
-    {optimizer_batch}
+{duration_block}
 """
-
     with pytest.raises(ValueError, match=message):
         load_config(write_config_yaml(tmp_path, payload))
 
@@ -277,7 +261,7 @@ train:
         ),
     ],
 )
-def test_dynamic_batching_rejects_invalid_hard_budgets(
+def test_bounded_batching_rejects_invalid_hard_budgets(
     tmp_path: Path,
     batching_fields: str,
     message: str,
@@ -285,7 +269,7 @@ def test_dynamic_batching_rejects_invalid_hard_budgets(
     payload = f"""
 data:
   batching:
-    strategy: dynamic_cost_aware
+    strategy: bounded_cost_aware
     {batching_fields}
   datasets:
     - dataset_name: ds1
@@ -296,12 +280,11 @@ train:
     unit: steps
     value: 2
 """
-
     with pytest.raises(ValueError, match=message):
         load_config(write_config_yaml(tmp_path, payload))
 
 
-def test_fixed_batching_rejects_dynamic_only_budget_fields(tmp_path: Path) -> None:
+def test_fixed_batching_rejects_bounded_only_budget_fields(tmp_path: Path) -> None:
     payload = """
 data:
   batching:
@@ -312,50 +295,45 @@ data:
       train_path: train.jsonl
       val_path: val.jsonl
 """
-
-    with pytest.raises(ValueError, match="Dynamic data.batching budget fields"):
+    with pytest.raises(ValueError, match="Bounded data.batching budget fields"):
         load_config(write_config_yaml(tmp_path, payload))
 
 
-def test_dynamic_token_target_rejects_horizon_dependent_weighted_plan(
+def test_bounded_weighted_mixing_requires_horizon_independent_shuffle(
     tmp_path: Path,
 ) -> None:
     payload = """
 data:
+  media_snapshot_id: fixture-v1
   mix_strategy: weighted
   shuffle: false
   batching:
-    strategy: dynamic_cost_aware
+    strategy: bounded_cost_aware
     max_samples_per_microbatch: 4
     max_padded_tokens: 512
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
       val_path: val.jsonl
-    - dataset_name: ds2
-      train_path: train2.jsonl
-      val_path: val2.jsonl
 train:
   duration:
     unit: steps
     value: 2
-  optimizer_batch:
-    target_supervised_tokens: 100
 """
-
-    with pytest.raises(ValueError, match="horizon-dependent"):
+    with pytest.raises(ValueError, match="horizon-independent"):
         load_config(write_config_yaml(tmp_path, payload))
 
 
 @pytest.mark.parametrize("distributed_strategy", ["fsdp", "deepspeed"])
-def test_dynamic_batching_rejects_unvalidated_distributed_strategies(
+def test_bounded_batching_rejects_unvalidated_distributed_strategies(
     tmp_path: Path,
     distributed_strategy: str,
 ) -> None:
     payload = f"""
 data:
+  media_snapshot_id: fixture-v1
   batching:
-    strategy: dynamic_cost_aware
+    strategy: bounded_cost_aware
     max_samples_per_microbatch: 4
     max_padded_tokens: 512
   datasets:
@@ -369,8 +347,93 @@ train:
   distributed:
     strategy: {distributed_strategy}
 """
-
     with pytest.raises(ValueError, match="supports.*ddp.*only"):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
+def test_bounded_batching_requires_immutable_media_snapshot_id(
+    tmp_path: Path,
+) -> None:
+    payload = """
+data:
+  batching:
+    strategy: bounded_cost_aware
+    max_samples_per_microbatch: 4
+    max_padded_tokens: 512
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  duration:
+    unit: steps
+    value: 2
+"""
+    with pytest.raises(ValueError, match="media_snapshot_id"):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    ("legacy_block", "path"),
+    [
+        ("    fixed_guard:\n      policy: off", "data.batching"),
+        ("    planning_window: 64", "data.batching"),
+        ("    cost_plan_cache_dir: /tmp/plans", "data.batching"),
+        ("    image_size_cache_size: 1024", "data.batching"),
+        ("    rank_balance: true", "data.batching"),
+    ],
+)
+def test_removed_batching_keys_fail_loudly(
+    tmp_path: Path,
+    legacy_block: str,
+    path: str,
+) -> None:
+    payload = f"""
+data:
+  batching:
+    strategy: fixed
+{legacy_block}
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    with pytest.raises(ValueError, match=f"Unknown config keys at {path}"):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
+@pytest.mark.parametrize("strategy", ["cost_aware", "dynamic_cost_aware"])
+def test_removed_batching_strategies_fail_loudly(
+    tmp_path: Path,
+    strategy: str,
+) -> None:
+    payload = f"""
+data:
+  batching:
+    strategy: {strategy}
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+    with pytest.raises(ValueError, match="Unsupported data.batching.strategy"):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
+def test_removed_optimizer_batch_config_fails_loudly(tmp_path: Path) -> None:
+    payload = """
+data:
+  batching:
+    strategy: fixed
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  optimizer_batch:
+    target_samples: 64
+"""
+    with pytest.raises(ValueError, match="Unknown config keys at train"):
         load_config(write_config_yaml(tmp_path, payload))
 
 

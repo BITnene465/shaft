@@ -14,6 +14,8 @@ pytestmark = pytest.mark.component
 def test_deepspeed_strategy_requires_config(tmp_path: Path) -> None:
     payload = """
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -31,6 +33,8 @@ train:
 def test_deepspeed_strategy_accepts_inline_config(tmp_path: Path) -> None:
     payload = """
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -58,6 +62,8 @@ def test_deepspeed_config_path_resolves_relative_to_train_config(tmp_path: Path)
     deepspeed_path.write_text('{"zero_optimization": {"stage": 3}}\n', encoding="utf-8")
     payload = """
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -79,6 +85,8 @@ train:
 def test_deepspeed_inline_config_rejects_optimizer_ownership_conflict(tmp_path: Path) -> None:
     payload = """
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -110,6 +118,8 @@ def test_deepspeed_config_path_rejects_optimizer_ownership_conflict(tmp_path: Pa
     )
     payload = """
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl

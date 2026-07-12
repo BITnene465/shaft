@@ -22,6 +22,8 @@ algorithm:
   name: dpo
 
 data:
+  batching:
+    strategy: fixed
   catalog_path: ../data/example.yaml
   catalog_names: [dpo_pairwise]
   mix_strategy: weighted

@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from shaft.observability import ShaftProgressManager
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from tests.support.online_eval import (
     FakeOnlineEvalPromptCollator,
@@ -16,6 +17,30 @@ from tests.support.online_eval import (
     online_eval_batch,
     online_eval_config,
 )
+
+
+class _RecordingSink:
+    def publish(self, snapshot, event) -> None:  # noqa: ANN001
+        _ = snapshot, event
+
+    def close(self) -> None:
+        return None
+
+
+class _SizedLoader(list):
+    def __init__(self, batches, *, dataset) -> None:
+        super().__init__(batches)
+        self.dataset = dataset
+
+
+class _SizedEvalTrainer(FakeOnlineEvalTrainer):
+    def __init__(self, batches, *, dataset) -> None:
+        super().__init__(batches)
+        self.loader = _SizedLoader(batches, dataset=dataset)
+
+    def get_eval_dataloader(self, eval_dataset):
+        _ = eval_dataset
+        return self.loader
 
 
 def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
@@ -69,6 +94,133 @@ def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
     assert "dataset=ds_a" in caplog.text
     assert "dataset=ds_b" in caplog.text
     assert "final_score=0.25" in caplog.text
+
+
+def test_online_eval_runner_uses_shared_nested_progress_and_counts_samples() -> None:
+    manager = ShaftProgressManager(run_id="run", sinks=[_RecordingSink()])
+    train_task = manager.start_task("train", label="train", total=10, unit="step")
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": json_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+        progress_manager=manager,
+    )
+    trainer = FakeOnlineEvalTrainer(
+        [
+            online_eval_batch(
+                input_ids=[[11, 12], [21, 22]],
+                dataset_names=["ds", "ds"],
+                sample_ids=["a", "b"],
+                target_texts=['{"ok": 1}', '{"ok": 2}'],
+            )
+        ]
+    )
+
+    runner.evaluate(trainer, eval_dataset=object())
+
+    snapshot = manager.snapshot
+    assert snapshot.active_task_id == "train"
+    assert snapshot.tasks["eval.online"].state == "succeeded"
+    assert snapshot.tasks["eval.online"].current == 2
+    assert snapshot.tasks["eval.online"].total is None
+    assert snapshot.tasks["eval.online"].parent_task_id == "train"
+    train_task.complete()
+
+
+def test_online_eval_progress_uses_global_sample_total_and_clamps_padding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CountingDataset:
+        def __init__(self) -> None:
+            self.len_calls = 0
+
+        def __len__(self) -> int:
+            self.len_calls += 1
+            return 3
+
+    dataset = _CountingDataset()
+    manager = ShaftProgressManager(run_id="run", sinks=[_RecordingSink()])
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": json_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+        progress_manager=manager,
+    )
+    trainer = _SizedEvalTrainer(
+        [
+            online_eval_batch(
+                input_ids=[[11, 12], [21, 22]],
+                dataset_names=["ds", "ds"],
+                sample_ids=["a", "b"],
+                target_texts=['{"ok": 1}', '{"ok": 2}'],
+            )
+        ],
+        dataset=dataset,
+    )
+    monkeypatch.setattr("shaft.training.online_eval.get_world_size", lambda: 2)
+
+    runner.collect_samples(trainer, eval_dataset=object())
+
+    task = manager.snapshot.tasks["eval.online"]
+    assert task.current == 3
+    assert task.total == 3
+    assert task.state == "succeeded"
+    assert dataset.len_calls == 1
+
+
+def test_online_eval_failure_marks_progress_and_restores_model_state() -> None:
+    manager = ShaftProgressManager(run_id="run", sinks=[_RecordingSink()])
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": json_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+        progress_manager=manager,
+    )
+    trainer = FakeOnlineEvalTrainer(
+        [
+            online_eval_batch(
+                input_ids=[[11, 12], [21, 22]],
+                dataset_names=["ds", "ds"],
+                sample_ids=["a", "b"],
+                target_texts=['{"ok": 1}', '{"ok": 2}'],
+            )
+        ]
+    )
+    trainer.model.training = True
+
+    def _raise_generate(**kwargs):
+        _ = kwargs
+        raise RuntimeError("generation failed")
+
+    trainer.model.generate = _raise_generate
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        runner.collect_samples(trainer, eval_dataset=object())
+
+    task = manager.snapshot.tasks["eval.online"]
+    assert task.state == "failed"
+    assert task.message == "generation failed"
+    assert trainer.model.training is True
+    assert trainer.model.config.use_cache is False
+    assert trainer.model.generation_config.use_cache is False
 
 
 def test_online_eval_runner_uses_online_prepare_hook() -> None:
@@ -175,7 +327,9 @@ def test_online_eval_runner_slices_left_padded_decoder_prompts_at_input_width() 
     assert metrics["eval_ds_exact_match"] == pytest.approx(1.0)
 
 
-def test_online_eval_runner_uses_named_eval_keys_to_avoid_cached_eval_dataloader_collision() -> None:
+def test_online_eval_runner_uses_named_eval_keys_to_avoid_cached_eval_dataloader_collision() -> (
+    None
+):
     runner = ShaftOnlineEvalRunner(
         eval_config=online_eval_config(
             {

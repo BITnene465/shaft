@@ -5,7 +5,12 @@ import logging
 from typing import Any
 
 from shaft.config import RuntimeConfig, load_config
-from shaft.observability import bind_log_context, configure_logging, set_log_context
+from shaft.observability import (
+    bind_log_context,
+    configure_logging,
+    resolve_run_id,
+    set_log_context,
+)
 from shaft.training.distributed import destroy_process_group_if_initialized
 
 
@@ -150,6 +155,7 @@ def run_from_args(
 ) -> dict[str, Any]:
     config = load_config(args.config)
     config = apply_common_overrides(config, args)
+    config.experiment.run_id = resolve_run_id(config)
     configure_logging(config.logging, run_id=config.experiment.run_id)
     set_log_context(algorithm=config.algorithm.name)
     logger = logging.getLogger(__name__)

@@ -127,30 +127,34 @@ def test_step_duration_resolves_exact_global_sample_budget(tmp_path: Path) -> No
     assert resolve_step_sample_budget(config, world_size=8) is None
 
 
-def test_dynamic_step_duration_uses_optimizer_batch_sample_target(tmp_path: Path) -> None:
+def test_bounded_step_duration_does_not_build_finite_sample_plan(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    config.data.batching.strategy = "dynamic_cost_aware"
+    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.buffer_size = 64
     config.data.batching.max_samples_per_microbatch = 4
     config.data.batching.max_padded_tokens = 512
     config.train.duration.value = 10
     config.train.per_device_train_batch_size = 2
     config.train.gradient_accumulation_steps = 2
-    config.train.optimizer_batch.target_samples = 6
 
-    assert resolve_step_sample_budget(config, world_size=2) == 60
-    assert build_hf_training_args(config).accelerator_config.even_batches is True
+    assert resolve_step_sample_budget(config, world_size=2) is None
+    args = build_hf_training_args(config)
+    assert args.accelerator_config.even_batches is True
+    assert args.accelerator_config.split_batches is False
+    assert args.accelerator_config.dispatch_batches is False
 
 
-def test_dynamic_token_target_materializes_bounded_draw_horizon(tmp_path: Path) -> None:
+def test_bounded_sample_cap_does_not_change_schedule_horizon(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    config.data.batching.strategy = "dynamic_cost_aware"
-    config.data.batching.max_samples_per_microbatch = 3
+    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.buffer_size = 8
+    config.data.batching.max_samples_per_microbatch = None
     config.data.batching.max_padded_tokens = 512
     config.train.duration.value = 10
+    config.train.per_device_train_batch_size = 3
     config.train.gradient_accumulation_steps = 2
-    config.train.optimizer_batch.target_supervised_tokens = 100
 
-    assert resolve_step_sample_budget(config, world_size=2) == 120
+    assert resolve_step_sample_budget(config, world_size=2) is None
 
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:

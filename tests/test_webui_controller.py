@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shaft.webui.controller import ShaftSFTWebUIController
+from shaft.webui.controller import ShaftSFTWebUIController, render_status_html
 from shaft.webui.services import ShaftRunStore, ShaftSFTTrainService, ShaftWebUIConfigService
 from shaft.webui.types import ShaftRunRecord
 
@@ -35,6 +35,8 @@ def test_webui_controller_initial_view_does_not_select_current_run(tmp_path: Pat
 algorithm:
   name: sft
 data:
+  batching:
+    strategy: fixed
   datasets:
     - dataset_name: ds
       train_path: train.jsonl
@@ -51,6 +53,34 @@ eval:
     assert state["current_run_id"] == ""
     assert state["runs"][0]["run_id"] == "existing-run"
     assert "Freeze Configuration" in state["freeze_preview_html"]
+
+
+def test_status_html_shows_phase_and_bounded_progress() -> None:
+    record = ShaftRunRecord(
+        run_id="live-run",
+        algorithm="sft",
+        status="running",
+        command=["python", "scripts/train.py"],
+        config_source_path="base.yaml",
+        resolved_config_path="resolved.yaml",
+        log_path="train.log",
+        output_dir="outputs/live",
+        pid=123,
+    )
+
+    html = render_status_html(
+        record,
+        summary={
+            "global_step": 3,
+            "progress_phase": "eval",
+            "progress_text": "2/4 (50%)",
+        },
+    )
+
+    assert "Phase" in html
+    assert "eval" in html
+    assert "Progress" in html
+    assert "2/4 (50%)" in html
 
 
 def test_webui_controller_load_run_returns_snapshot(tmp_path: Path) -> None:

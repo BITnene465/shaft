@@ -22,6 +22,8 @@ algorithm:
   name: grpo
 
 data:
+  batching:
+    strategy: fixed
   catalog_path: ../data/example.yaml
   catalog_names: [grpo_prompt_target]
   mix_strategy: weighted

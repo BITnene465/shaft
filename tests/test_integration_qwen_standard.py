@@ -20,8 +20,8 @@ from shaft.data import (
     SFTCollator,
     SFTDataset,
     SFTRecord,
-    ShaftDynamicBatchPlanner,
-    ShaftDynamicBatchPlanningSpec,
+    ShaftBoundedBatchPlanner,
+    ShaftBoundedBatchingSpec,
     ShaftSamplePlan,
     ShaftSFTSampleCostProvider,
 )
@@ -105,6 +105,7 @@ def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
                 ]
             },
             sample_plan=plan,
+            media_snapshot_id="integration-media-v1",
         )
         ref = plan.ref_at(0)
         common_kwargs = {
@@ -142,7 +143,7 @@ def test_qwen_vl_runtime_cost_matches_real_processor_and_collator(
 
 
 @pytest.mark.integration
-def test_qwen3vl_dynamic_planner_hard_caps_match_heterogeneous_real_batches(
+def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
     tmp_path: Path,
 ) -> None:
     model_path = Path("models/Qwen3-VL-4B-Instruct")
@@ -183,7 +184,11 @@ def test_qwen3vl_dynamic_planner_hard_caps_match_heterogeneous_real_batches(
         strategy="concat",
         shuffle=False,
     )
-    dataset = SFTDataset({"integration": records}, sample_plan=plan)
+    dataset = SFTDataset(
+        {"integration": records},
+        sample_plan=plan,
+        media_snapshot_id="integration-media-v1",
+    )
     common_kwargs = {
         "model_adapter": model_adapter,
         "template": template,
@@ -202,34 +207,27 @@ def test_qwen3vl_dynamic_planner_hard_caps_match_heterogeneous_real_batches(
     costs = tuple(cost_provider(plan.ref_at(index)) for index in range(len(plan)))
     max_padded_tokens = 3 * max(cost.llm_tokens for cost in costs)
     max_vision_patches = sum(cost.vision_patches for cost in costs)
-    planning_spec = ShaftDynamicBatchPlanningSpec.from_plan(
-        plan,
-        optimizer_step_count=1,
-        data_world_size=1,
-        gradient_accumulation_steps=2,
+    planning_spec = ShaftBoundedBatchingSpec(
+        data_world_size=2,
+        buffer_size=4,
         max_samples_per_microbatch=3,
         max_padded_tokens=max_padded_tokens,
         max_vision_patches=max_vision_patches,
-        target_samples=4,
-        target_supervised_tokens=None,
-        planning_window=4,
         seed=7,
-        rank_balance=True,
+        sample_schedule_fingerprint=plan.schedule.fingerprint,
+        cost_fingerprint=cost_provider.fingerprint,
     )
-    planner = ShaftDynamicBatchPlanner(
-        plan=plan,
+    planner = ShaftBoundedBatchPlanner(
+        schedule=plan.schedule,
         cost_provider=cost_provider,
         spec=planning_spec,
     )
     collator = SFTCollator(include_targets_in_inputs=True, **common_kwargs)
 
-    (optimizer_batch,) = tuple(planner.iter_optimizer_steps())
-    local_batches = [
-        local_batch
-        for microstep in optimizer_batch.microsteps
-        for local_batch in microstep.rank_microbatches
-    ]
-    assert sorted(len(batch.sample_refs) for batch in local_batches) == [2, 2]
+    microstep = planner.next_global_microbatch()
+    local_batches = microstep.rank_microbatches
+    assert len(local_batches) == 2
+    assert all(batch.sample_refs for batch in local_batches)
     for local_batch in local_batches:
         actual = collator([dataset[ref] for ref in local_batch.sample_refs])
         assert actual["input_ids"].numel() == local_batch.padded_llm_tokens

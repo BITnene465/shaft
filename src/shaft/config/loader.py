@@ -122,6 +122,24 @@ def _validate_deepspeed_config_path(path: str) -> None:
     )
 
 
+def _validate_explicit_batching_policy(payload: dict[str, Any]) -> None:
+    data_payload = payload.get("data")
+    if not isinstance(data_payload, dict):
+        raise ValueError(
+            "Training YAML must explicitly set data.batching.strategy; "
+            "the data mapping is missing."
+        )
+    batching_payload = data_payload.get("batching")
+    if not isinstance(batching_payload, dict) or "strategy" not in batching_payload:
+        raise ValueError(
+            "data.batching.strategy must be explicit in every training YAML; "
+            "implicit fallback to fixed batching is not allowed."
+        )
+    strategy = str(batching_payload.get("strategy", "")).strip().lower()
+    if not strategy:
+        raise ValueError("data.batching.strategy must be explicit and non-empty.")
+
+
 def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
     train_payload = payload.get("train")
     if train_payload is None:
@@ -171,11 +189,6 @@ def _resolve_data_cache_dirs(payload: dict[str, Any], *, config_path: Path) -> d
     cache_locations: list[tuple[dict[str, Any], str]] = [
         (data_payload, "record_cache_dir"),
     ]
-    batching_payload = data_payload.get("batching")
-    if batching_payload is not None:
-        if not isinstance(batching_payload, dict):
-            raise TypeError("Config key `data.batching` must be a mapping.")
-        cache_locations.append((batching_payload, "cost_plan_cache_dir"))
     for container, key in cache_locations:
         cache_dir = container.get(key)
         if cache_dir is None or not str(cache_dir).strip():
@@ -203,6 +216,7 @@ def load_config_from_payload(payload: dict[str, Any], *, config_path: str | Path
     config_path = Path(config_path)
     if not isinstance(payload, dict):
         raise TypeError("Config root must be a mapping.")
+    _validate_explicit_batching_policy(payload)
     payload = resolve_dataset_catalog(payload, config_path=config_path.resolve())
     payload = _resolve_data_cache_dirs(payload, config_path=config_path.resolve())
     payload = _resolve_deepspeed_config_path(payload, config_path=config_path.resolve())

@@ -85,6 +85,23 @@ def test_run_from_args_forced_algorithm() -> None:
     mocked.assert_called_once()
 
 
+def test_run_from_args_resolves_one_run_id_for_logging_and_pipeline() -> None:
+    args = build_common_train_args()
+    cfg = RuntimeConfig()
+    cfg.experiment.name = "canonical-run"
+    cfg.experiment.run_id = None
+    with patch("shaft.cli.common.load_config", return_value=cfg):
+        with patch("shaft.cli.common.configure_logging") as mocked_logging:
+            with patch("shaft.cli.common.run_sft", return_value={}):
+                run_from_args(args, forced_algorithm="sft")
+
+    assert cfg.experiment.run_id == "canonical-run"
+    mocked_logging.assert_called_once_with(
+        cfg.logging,
+        run_id="canonical-run",
+    )
+
+
 def test_run_from_args_allowed_algorithms() -> None:
     args = build_common_train_args(algorithm="ppo")
     cfg = RuntimeConfig()

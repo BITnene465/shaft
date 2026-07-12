@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+
+import pytest
 
 from shaft.config import LoggingConfig
 from shaft.observability.logging import configure_logging
@@ -12,7 +15,7 @@ from shaft.training.distributed import destroy_process_group_if_initialized
 from shaft.utils import distributed as distributed_utils
 
 
-def test_configure_logging_suppresses_info_on_nonzero_rank(
+def test_configure_logging_suppresses_all_structured_logs_on_nonzero_rank(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -25,13 +28,68 @@ def test_configure_logging_suppresses_info_on_nonzero_rank(
 
     logger = logging.getLogger("shaft.test")
     logger.info("hidden-info")
-    logger.warning("visible-warning")
+    logger.warning("hidden-warning")
+    logger.error("hidden-error")
     for handler in logging.getLogger().handlers:
         handler.flush()
 
     content = log_path.read_text(encoding="utf-8")
     assert "hidden-info" not in content
-    assert "visible-warning" in content
+    assert "hidden-warning" not in content
+    assert "hidden-error" not in content
+
+
+def test_configure_logging_keeps_rank_zero_warnings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    log_path = tmp_path / "rank-zero.log"
+    monkeypatch.setattr("shaft.observability.logging.get_rank", lambda: 0)
+    configure_logging(
+        LoggingConfig(rank_zero_only=True, file_path=str(log_path)),
+        run_id="demo",
+    )
+
+    logging.getLogger("shaft.test").warning("visible-warning")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    assert "visible-warning" in log_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("fmt", ["text", "json"])
+def test_all_rank_logging_identifies_rank_and_uses_per_rank_files(
+    tmp_path: Path,
+    monkeypatch,
+    fmt: str,
+) -> None:
+    log_path = tmp_path / "all-ranks.log"
+    monkeypatch.setattr("shaft.observability.logging.get_rank", lambda: 1)
+    monkeypatch.setattr("shaft.observability.logging.get_world_size", lambda: 2)
+    configure_logging(
+        LoggingConfig(
+            fmt=fmt,
+            rank_zero_only=False,
+            file_path=str(log_path),
+        ),
+        run_id="demo",
+    )
+
+    logging.getLogger("shaft.test").warning("rank-local-warning")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    ranked_path = tmp_path / "all-ranks.rank1.log"
+    assert ranked_path.exists()
+    assert not log_path.exists()
+    content = ranked_path.read_text(encoding="utf-8")
+    if fmt == "json":
+        payloads = [json.loads(line) for line in content.splitlines()]
+        assert all(payload["rank"] == 1 for payload in payloads)
+        assert any(payload["msg"] == "rank-local-warning" for payload in payloads)
+    else:
+        assert "rank=1" in content
+        assert "rank-local-warning" in content
 
 
 def test_barrier_if_distributed_noop_without_dist() -> None:

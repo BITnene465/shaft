@@ -29,6 +29,8 @@ datasets:
     config_path.write_text(
         f"""
 data:
+  batching:
+    strategy: fixed
   catalog_path: {catalog_path.name}
   catalog_names: [registry_ds]
 """,
@@ -64,6 +66,8 @@ datasets:
     config_path.write_text(
         f"""
 data:
+  batching:
+    strategy: fixed
   catalog_path: {catalog_path.name}
   catalog_names: [ds_from_catalog]
   datasets:
@@ -90,6 +94,8 @@ def test_load_config_raises_for_missing_catalog_entry(tmp_path: Path) -> None:
     config_path.write_text(
         f"""
 data:
+  batching:
+    strategy: fixed
   catalog_path: {catalog_path.name}
   catalog_names: [missing_ds]
 """,

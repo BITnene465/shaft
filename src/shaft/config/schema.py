@@ -9,7 +9,6 @@ from .training import (
     TrainDeepSpeedConfig,
     TrainDistributedConfig,
     TrainFSDPConfig,
-    TrainOptimizerBatchConfig,
 )
 
 __all__ = [
@@ -33,6 +32,5 @@ __all__ = [
     "TrainDeepSpeedConfig",
     "TrainDistributedConfig",
     "TrainFSDPConfig",
-    "TrainOptimizerBatchConfig",
     "TrainConfig",
 ]

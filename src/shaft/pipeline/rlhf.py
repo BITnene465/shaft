@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import logging
 from typing import Any
 
@@ -23,6 +24,7 @@ from shaft.data import (
 )
 from shaft.model import build_model_tokenizer_processor
 from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
+from shaft.observability import build_progress_manager
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
@@ -30,6 +32,11 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training.online_eval import ShaftOnlineEvalRunner
+from shaft.training.batch_planning import (
+    ShaftBatchingMetadataCallback,
+    build_batching_run_metadata,
+    publish_batching_run_metadata,
+)
 from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.reproducibility import initialize_training_randomness
 from shaft.training.checkpointing import (
@@ -55,9 +62,23 @@ class ShaftRLHFPipeline:
     def __init__(self, config: RuntimeConfig):
         self.config = config
         self.interceptor_manager = build_interceptor_manager(config.plugins.interceptors)
+        self.progress_manager = build_progress_manager(config)
+
+    def close(self) -> None:
+        self.progress_manager.close()
 
     def build_training_args(self) -> TrainingArguments:
         return build_hf_training_args(self.config)
+
+    def _progress_phase(self, task_id: str, *, label: str, message: str):
+        if not self.progress_manager.enabled:
+            return nullcontext()
+        return self.progress_manager.start_task(
+            task_id,
+            label=label,
+            unit="phase",
+            message=message,
+        )
 
     def _build_collator(self, algorithm_name: str, *, artifacts):
         common_kwargs = {
@@ -91,10 +112,21 @@ class ShaftRLHFPipeline:
             full_determinism=config.train.full_determinism,
         )
         training_args = self.build_training_args()
-        artifacts = build_model_tokenizer_processor(
-            config,
-            init_from_checkpoint=config.train.init_from_checkpoint,
+        batching_metadata = build_batching_run_metadata(
+            config=config,
+            training_args=training_args,
         )
+        publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
+        logger.info("[batching-metadata] %s", batching_metadata.to_dict())
+        with self._progress_phase(
+            "startup.model",
+            label="model",
+            message="loading",
+        ):
+            artifacts = build_model_tokenizer_processor(
+                config,
+                init_from_checkpoint=config.train.init_from_checkpoint,
+            )
         finetune_plan = getattr(artifacts, "finetune_plan", None)
         if finetune_plan is not None:
             freeze_summary = summarize_resolved_finetune_plan(
@@ -106,21 +138,26 @@ class ShaftRLHFPipeline:
             if is_rank_zero():
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        data_center = ShaftDataCenter(
-            config.data,
-            seed=config.experiment.seed,
-            train_sample_budget=resolve_step_sample_budget(
-                config,
-                world_size=training_args.world_size,
-            ),
-        )
         if algorithm_name == "dpo":
             dataset_cls = DPODataset
         elif algorithm_name == "ppo":
             dataset_cls = PPODataset
         else:
             dataset_cls = SFTDataset
-        dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
+        with self._progress_phase(
+            "startup.data",
+            label="data",
+            message="loading",
+        ):
+            data_center = ShaftDataCenter(
+                config.data,
+                seed=config.experiment.seed,
+                train_sample_budget=resolve_step_sample_budget(
+                    config,
+                    world_size=training_args.world_size,
+                ),
+            )
+            dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
         train_dataset = dataset_bundle.train_dataset
         eval_dataset: Any = dataset_bundle.eval_dataset
         use_named_eval_datasets = bool(
@@ -148,14 +185,9 @@ class ShaftRLHFPipeline:
             ):
                 eval_dataset = GRPODataset(eval_dataset, **grpo_dataset_kwargs)
         hook_manager = build_hook_manager(config.plugins.hooks)
-        callbacks = []
-        if config.progress.enabled:
-            callbacks.append(
-                ShaftProgressCallback(
-                    leave=config.progress.leave,
-                    mininterval=config.progress.mininterval,
-                )
-            )
+        callbacks = [ShaftBatchingMetadataCallback(batching_metadata)]
+        if self.progress_manager.enabled:
+            callbacks.append(ShaftProgressCallback(self.progress_manager))
         if hook_manager.hooks:
             callbacks.append(TrainerHookCallback(hook_manager))
         callbacks_or_none = callbacks or None
@@ -176,9 +208,7 @@ class ShaftRLHFPipeline:
                     include_metadata=True,
                     padding_side="left",
                 ),
-                progress_enabled=config.progress.enabled,
-                progress_leave=config.progress.leave,
-                progress_mininterval=config.progress.mininterval,
+                progress_manager=self.progress_manager,
             )
 
         algorithm_cls = ALGORITHM_REGISTRY.get(algorithm_name)
@@ -258,4 +288,12 @@ def run_rlhf(config: RuntimeConfig) -> dict[str, Any]:
         target=pipeline.run,
         interceptor_manager=pipeline.interceptor_manager,
     )
-    return runner()
+    try:
+        return runner()
+    except BaseException as exc:
+        pipeline.progress_manager.record_failure(
+            str(exc) or type(exc).__name__
+        )
+        raise
+    finally:
+        pipeline.close()

@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import warnings
 
 from PIL import Image
+import pytest
 from torch.utils.data import DataLoader
 
 from shaft.config import DatasetSourceConfig, PromptSamplingConfig, RuntimeConfig
-from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftSampleSampler
+from shaft.data import (
+    DPODataset,
+    SFTDataset,
+    SFTRecord,
+    ShaftDataCenter,
+    ShaftSampleSampler,
+)
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
 _MARK_DATASET_TRANSFORM = "mark_dataset_for_data_center_tests"
@@ -131,6 +139,61 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert "marked_dataset" not in sample_b["extra"]
     assert isinstance(train_dataset.records, dict)
     assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
+
+
+def test_bounded_data_center_enables_worker_warning_suppression_only_for_train(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "train"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "val"}],
+    )
+    config = RuntimeConfig()
+    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.media_snapshot_id = "fixture-media-v1"
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="fixture",
+            train_path=str(train_path),
+            val_path=str(val_path),
+        )
+    ]
+
+    bundle = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+
+    assert bundle.train_dataset.suppress_decompression_bomb_warning is True
+    assert bundle.eval_dataset.suppress_decompression_bomb_warning is False
+
+
+def test_bounded_dataset_suppresses_pil_bomb_warning_but_not_hard_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    image_path = tmp_path / "large-for-threshold.png"
+    Image.new("RGB", (10, 10), color=(0, 0, 0)).save(image_path)
+    record = SFTRecord(image_path=str(image_path), target_text="target")
+    bounded = SFTDataset(
+        [record],
+        suppress_decompression_bomb_warning=True,
+    )
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 60)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        bounded[0]
+    assert not any(
+        issubclass(item.category, Image.DecompressionBombWarning)
+        for item in caught
+    )
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 40)
+    with pytest.raises(Image.DecompressionBombError):
+        bounded[0]
 
 
 def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> None:
@@ -447,3 +510,43 @@ def test_data_center_applies_step_sample_budget_to_plan(tmp_path: Path) -> None:
     assert len(bundle.train_dataset) == 17
     assert bundle.train_sampler is not None
     assert len(bundle.train_sampler) == 17
+
+
+def test_bounded_data_center_exposes_schedule_without_duration_sized_plan(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "s"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.media_snapshot_id = "data-center-fixture-v1"
+    config.data.mix_strategy = "concat"
+    config.data.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            val_path=str(val_path),
+        )
+    ]
+
+    bundle = ShaftDataCenter(
+        config.data,
+        seed=3,
+        train_sample_budget=1_000_000,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert bundle.train_sampler is None
+    assert bundle.train_schedule is not None
+    assert bundle.train_dataset.sample_plan is None
+    assert bundle.train_dataset.sample_schedule is bundle.train_schedule
+    assert bundle.train_dataset.media_snapshot_id == "data-center-fixture-v1"
+    ref = bundle.train_schedule.ref_at(999_999)
+    assert bundle.train_dataset.get_planning_item(ref)["sample_id"] == "s"

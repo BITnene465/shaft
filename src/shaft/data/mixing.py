@@ -48,6 +48,111 @@ class ShaftSampleRef:
     context: ShaftSampleContext
 
 
+class ShaftSampleSchedule:
+    """Horizon-independent mapping from a logical draw id to one source row.
+
+    Bounded batching consumes this schedule directly.  Its identity deliberately
+    excludes training duration so extending ``max_steps`` does not change the draw
+    prefix used by an existing run.
+    """
+
+    def __init__(
+        self,
+        source_sizes: dict[str, int],
+        source_weights: dict[str, float],
+        *,
+        strategy: str = "weighted",
+        shuffle: bool = True,
+        seed: int = 42,
+    ) -> None:
+        self.strategy = str(strategy).strip().lower()
+        if self.strategy not in {"concat", "weighted"}:
+            raise ValueError(f"Unsupported mix strategy: {self.strategy!r}.")
+        if self.strategy == "weighted" and not bool(shuffle):
+            raise ValueError(
+                "Horizon-independent weighted sampling requires shuffle=true. "
+                "Use concat or enable shuffle for bounded batching."
+            )
+        active = [
+            (str(name), int(size), float(source_weights.get(name, 1.0)))
+            for name, size in sorted(source_sizes.items())
+            if int(size) > 0 and float(source_weights.get(name, 1.0)) > 0
+        ]
+        if not active:
+            raise ValueError("No active datasets for sample scheduling.")
+        self.source_names = tuple(item[0] for item in active)
+        self.source_sizes = tuple(item[1] for item in active)
+        raw_weights = tuple(item[2] for item in active)
+        max_weight = max(raw_weights)
+        scaled_weights = tuple(weight / max_weight for weight in raw_weights)
+        total_weight = sum(scaled_weights)
+        self.source_weights = tuple(weight / total_weight for weight in scaled_weights)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed) & _MASK_64
+        self.base_size = sum(self.source_sizes)
+
+        total = 0
+        self._source_ends: list[int] = []
+        for size in self.source_sizes:
+            total += size
+            self._source_ends.append(total)
+        cumulative = 0.0
+        self._weight_ends: list[float] = []
+        for weight in self.source_weights:
+            cumulative += weight
+            self._weight_ends.append(cumulative)
+        self._weight_ends[-1] = 1.0
+        payload = (
+            "shaft-sample-schedule-v1",
+            self.strategy,
+            self.source_names,
+            self.source_sizes,
+            self.source_weights,
+            self.shuffle,
+            self.seed,
+        )
+        self.fingerprint = hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+    def ref_at(self, draw_id: int) -> ShaftSampleRef:
+        draw_id = int(draw_id)
+        if draw_id < 0:
+            raise IndexError(draw_id)
+        if self.strategy == "concat":
+            dataset_name, row_index = self._resolve_concat(draw_id)
+        else:
+            source_random = _splitmix64(
+                self.seed ^ (draw_id * 0xD1342543DE82EF95)
+            )
+            source_value = (source_random >> 11) / float(1 << 53)
+            source_index = bisect_right(self._weight_ends, source_value)
+            row_random = _splitmix64(source_random ^ 0xE7037ED1A0B428DB)
+            row_index = int(row_random % self.source_sizes[source_index])
+            dataset_name = self.source_names[source_index]
+        return ShaftSampleRef(
+            dataset_name=dataset_name,
+            row_index=row_index,
+            context=ShaftSampleContext(
+                draw_id=draw_id,
+                plan_cycle=0,
+                transform_seed=_splitmix64(
+                    self.seed ^ draw_id ^ 0xA0761D6478BD642F
+                ),
+            ),
+        )
+
+    def _resolve_concat(self, draw_id: int) -> tuple[str, int]:
+        source_cycle, position = divmod(draw_id, self.base_size)
+        if self.shuffle:
+            position = _affine_permute(
+                position,
+                self.base_size,
+                seed=_splitmix64(self.seed ^ source_cycle),
+            )
+        source_index = bisect_right(self._source_ends, position)
+        source_start = 0 if source_index == 0 else self._source_ends[source_index - 1]
+        return self.source_names[source_index], position - source_start
+
+
 class ShaftSamplePlan:
     """Stateless position-to-sample plan shared by Trainer samplers and direct indexing."""
 
@@ -106,6 +211,26 @@ class ShaftSamplePlan:
             self.seed,
         )
         self.fingerprint = hashlib.sha256(repr(fingerprint_payload).encode("utf-8")).hexdigest()
+        self._schedule = (
+            ShaftSampleSchedule(
+                dict(zip(self.source_names, self.source_sizes, strict=True)),
+                dict(zip(self.source_names, raw_weights, strict=True)),
+                strategy=self.strategy,
+                shuffle=self.shuffle,
+                seed=self.seed,
+            )
+            if self.strategy != "weighted" or self.shuffle
+            else None
+        )
+
+    @property
+    def schedule(self) -> ShaftSampleSchedule:
+        if self._schedule is None:
+            raise ValueError(
+                "This finite weighted, unshuffled SamplePlan has no "
+                "horizon-independent schedule."
+            )
+        return self._schedule
 
     def __len__(self) -> int:
         return self.num_samples
@@ -116,14 +241,21 @@ class ShaftSamplePlan:
             raise IndexError(position)
         plan_cycle = int(plan_cycle)
         draw_id = plan_cycle * self.num_samples + position
-        if self.strategy == "concat":
-            dataset_name, row_index = self._resolve_concat(draw_id)
-        else:
-            dataset_name, row_index = self._resolve_weighted(
-                position,
-                draw_id=draw_id,
-                plan_cycle=plan_cycle,
+        if self._schedule is not None:
+            scheduled = self._schedule.ref_at(draw_id)
+            return ShaftSampleRef(
+                dataset_name=scheduled.dataset_name,
+                row_index=scheduled.row_index,
+                context=ShaftSampleContext(
+                    draw_id=draw_id,
+                    plan_cycle=plan_cycle,
+                    transform_seed=scheduled.context.transform_seed,
+                ),
             )
+        dataset_name, row_index = self._resolve_unshuffled_weighted(
+            position,
+            plan_cycle=plan_cycle,
+        )
         return ShaftSampleRef(
             dataset_name=dataset_name,
             row_index=row_index,
@@ -134,33 +266,12 @@ class ShaftSamplePlan:
             ),
         )
 
-    def _resolve_concat(self, draw_id: int) -> tuple[str, int]:
-        source_cycle, position = divmod(draw_id, self.base_size)
-        if self.shuffle:
-            position = _affine_permute(
-                position,
-                self.base_size,
-                seed=_splitmix64(self.seed ^ source_cycle),
-            )
-        source_index = bisect_right(self._source_ends, position)
-        source_start = 0 if source_index == 0 else self._source_ends[source_index - 1]
-        return self.source_names[source_index], position - source_start
-
-    def _resolve_weighted(
+    def _resolve_unshuffled_weighted(
         self,
         position: int,
         *,
-        draw_id: int,
         plan_cycle: int,
     ) -> tuple[str, int]:
-        if self.shuffle:
-            source_random = _splitmix64(self.seed ^ (draw_id * 0xD1342543DE82EF95))
-            source_value = (source_random >> 11) / float(1 << 53)
-            source_index = bisect_right(self._weight_ends, source_value)
-            row_random = _splitmix64(source_random ^ 0xE7037ED1A0B428DB)
-            row_index = int(row_random % self.source_sizes[source_index])
-            return self.source_names[source_index], row_index
-
         source_value = (position + 0.5) / self.num_samples
         source_index = bisect_right(self._weight_ends, source_value)
         source_start = 0.0 if source_index == 0 else self._weight_ends[source_index - 1]

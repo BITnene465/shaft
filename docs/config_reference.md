@@ -199,107 +199,67 @@
 
 ### `data.batching`
 
-固定 cardinality 成本分桶使用：
+所有训练 YAML 必须显式写 strategy。保留原 HF batch 顺序时：
 
 ```yaml
 data:
   batching:
-    strategy: cost_aware       # fixed | cost_aware | dynamic_cost_aware
-    planning_window: 512
-    image_size_cache_size: 8192
-    cost_plan_cache_dir: /shared/shaft/cost_plans  # optional
+    strategy: fixed
 ```
 
-动态 local microbatch 使用：
+启用有界成本感知批次时：
 
 ```yaml
 data:
+  media_snapshot_id: banana-v5.0-re2-media-v1
   batching:
-    strategy: dynamic_cost_aware
-    planning_window: 64
-    max_samples_per_microbatch: 8
-    max_padded_tokens: 8192
-    max_vision_patches: null
-    rank_balance: true
-    image_size_cache_size: 8192
-    cost_plan_cache_dir: /shared/shaft/cost_plans
-train:
-  optimizer_batch:
-    target_samples: 8
-    # target_supervised_tokens: 8192  # 与 target_samples 二选一
+    strategy: bounded_cost_aware
+    buffer_size: 64
+    cost_cache_size: 65536
+    max_samples_per_microbatch: 2
+    max_padded_tokens: 10000
+    max_vision_patches: 16384
 ```
 
-- `strategy=fixed` 是默认值，保持原 HF Trainer batch 顺序。
-- `strategy=cost_aware` 与 `strategy=dynamic_cost_aware` 当前只支持 `algorithm.name=sft`、
-  `train.duration.unit=steps` 和提供精确
-  image-cost policy 的模型族；首个支持路径是 Qwen3VL。其它算法、epoch duration 或不支持的模型会在
-  启动时明确失败。
-- Phase 2 的 `dynamic_cost_aware` 只开放 `train.distributed.strategy=ddp`（单进程也沿用该配置）；
-  FSDP/DeepSpeed 的变长 DataLoader、梯度归一化与 checkpoint 合约完成专项验收前会在 normalize 阶段拒绝。
-- 固定 `cost_aware` 下，`planning_window` 是 planner 允许重排的最大 logical sample horizon，会向下
-  对齐到完整的
-  `per_device_train_batch_size * data_world_size`，且至少包含一个 global microstep。planner 只重排
-  `ShaftSamplePlan` 已选择的 refs，不丢弃、不复制、不修改 mixing 权重。
-- 动态模式以 optimizer batch 为选择边界：每一步只消费 `ShaftSamplePlan` 的连续 draw prefix，再把这些
-  refs 分配到固定数量的 `data_world_size * gradient_accumulation_steps` 个 local microbatch slot。
-  `planning_window` 是每步最多检查的 draw 数；`target_samples` 不能超过它，token target 的 draw cap 是
-  `min(planning_window, slots * max_samples_per_microbatch)`。
-- `max_samples_per_microbatch`、`max_padded_tokens` 和可选的 `max_vision_patches` 是动态模式的硬上限。
-  `max_padded_tokens` 统计 `local sample count * processor 后最长 LLM sequence`，不是原始文本字符数。
-  单样本已超限、成本不精确或选中 prefix 无法分配时，rank 0 会在 Trainer 启动前失败并广播错误。
-  这些字段不能在 `fixed/cost_aware` 下静默配置。
-- `rank_balance=true` 会把成本相近的 local batches 配成同一个 global microstep 并确定性轮换 rank；它不
-  改变 optimizer batch 的样本集合。即使关闭，硬预算仍然生效。
-- `image_size_cache_size` 是主进程 sample-cost provider 的路径 alias/fallback LRU 容量；当前 horizon
-  manifest 会为每个唯一 canonical image 保留一个宽高 tuple，避免 planning 再开 header。两者都不缓存
-  解码后图像，也不改变各 DataLoader worker 的 `image_cache_size`。
-- `cost_plan_cache_dir` 保存 draw-indexed、固定宽度的 CostPlan manifest 与二进制 sidecar。未配置时优先
-  使用 `record_cache_dir/cost_plans`，其次读取 `SHAFT_COST_PLAN_CACHE_DIR`，最后回退到
-  `~/.cache/shaft/cost_plans`。目录位置不参与训练语义 fingerprint；source/image/prompt/processor/template
-  变化会生成新的 cache key。多机训练必须把该目录以相同绝对路径挂载到所有 rank；模型加载前会比对
-  source fingerprint，并由 rank 0 写入一次性探针、所有 rank 读取确认，避免同路径却是节点本地盘。
-- 固定 `cost_aware` 中每个 local microbatch 的样本数仍等于
-  `train.per_device_train_batch_size`。动态模式中该字段只作为未显式配置
-  `max_samples_per_microbatch/optimizer target` 时的兼容默认值，不再描述实际 local cardinality。
-  SFT loss 使用整个
-  optimizer batch 的实际 `labels/loss_scale` 作为 global denominator，覆盖 gradient accumulation 和
-  DDP；不能把不同大小 microbatch 的 mean 等权平均。sequence packing 尚未开放。
-- planner 会记录 token padding、有效监督 token、vision patches、local batch min/max、每类 local hard cap
-  的 `actual/configured`、跨 rank cost skew、
-  实际 selected samples、planning wall time 和 plan signature。sample target 的 HF sample throughput 直接
-  使用精确计划数；token target 会由 rank 0 预扫描完整计划后回填实际选中数，而不是使用最大 draw cap。
-  token target 下 HF 自带的启动行 `Total train batch size` 仍是兼容用的名义固定公式；Shaft 的
-  `[dynamic-batch-preflight] optimizer_batch_samples_min/max/avg` 才是实际 optimizer-batch cardinality。
-  从 checkpoint 恢复时，最终 train loss、steps/s 与 samples/s 只统计本次实际执行的 step/sample，不重复
-  计算 checkpoint 前的 horizon。
-  固定 planner 还会记录 planning window 的 inexact cost
-  数量、跨 rank cost skew、planning wall time 和 plan signature，并在 cycle 结束输出 aggregate。
-  Qwen VL SFT 运行时成本通过同一个 draw context 解析 prompt variant，只读取图像 header；patch 数调用
-  HF image processor 的官方估算 API，token expansion 由模型 `ProcessorPolicy` 负责。
-- cost-aware 模式会在主进程与 DataLoader worker 中分别重建 online transform 结果，因此 transform 必须
-  只依赖 logical sample/draw context 且可重复，并保持 image identity/geometry 与 media placeholders。
-  内置 identity 与 prompt sampling 已声明为 planning-safe；扩展 transform 必须使用
-  `planning_safe_online_transform(fingerprint="...")` 提供显式、版本化的稳定 fingerprint，否则注册时
-  立即拒绝。cost fingerprint 还绑定 fast-tokenizer backend 的完整序列化内容；没有 serialized backend
-  的 tokenizer 必须显式提供覆盖完整 vocab 与 merges/unigram model 的 `shaft_cost_fingerprint`，否则
-  fail fast。不能只依赖 tokenizer 路径、类名和 vocab size。
-- cost-aware run 与每个 checkpoint 都保存 `shaft_batch_planning_signature.json`。resume 只接受相同
-  duration/sample horizon、batch、gradient accumulation、DP topology、data/prompt 和 processor/template
-  签名；改变 steps 来延长旧 run 会明确失败，应从权重启动新 run。
-- signature 的图像资产 manifest 绑定 canonical path、stat/inode 和宽高，并绑定 Transformers/patch
-  estimator 版本；同路径替换或改变宽高会使 resume 失败。manifest 只扫描当前 SamplePlan horizon
-  实际引用的唯一 canonical image，并复用读取到的尺寸；它不会逐文件计算内容 hash，因此所引用的
-  图片目录仍必须是不可变数据 snapshot。
-- 图像 header manifest 只由 global rank 0 扫描。多机若使用节点本地 image replica，框架不会逐节点重读
-  并比较图片；这些 replica 必须由外部 content-addressed snapshot/version 保证一致，或直接使用所有节点
-  共享的同一图像目录。
-- global rank 0 会构造 runtime provider、校验图像资产并在 cache miss 时流式生成 CostPlan；其它 rank
-  不再 tokenize prompt 或扫描图像 header，而是通过本次启动的 rank-zero rendezvous 定位并 mmap 同一
-  sidecar。所有 rank 确认 mmap 可读、完整 resume 签名通过后，rank 0 才原子更新 run root 的
-  `shaft_cost_plan_reference.json`；root planning signature 先写、reference 最后作为 commit marker，任一
-  文件失败会回滚旧 snapshot 并向所有 rank 广播。失败的 resume/metadata publish 不会污染旧 run。
-  cache hit 会跳过逐 draw cost 计算。当前仍缺独立的训练前离线预构建 CLI 和 cache GC；极大数据集应
-  预留一次 rank-zero manifest/header 校验时间。
+- 可选策略只有 `fixed | bounded_cost_aware`。旧 `cost_aware`、`dynamic_cost_aware`、
+  `fixed_guard`、`planning_window`、`cost_plan_cache_dir`、`rank_balance` 和
+  `train.optimizer_batch` 已删除；出现时按未知配置字段拒绝，不提供隐式迁移。
+- `bounded_cost_aware` 当前只支持 SFT、`train.duration.unit=steps` 和 DDP（单进程也使用 DDP
+  contract）。FSDP/DeepSpeed 的 variable BatchSampler 尚未专项验收，因此 normalize 阶段拒绝。
+- `buffer_size` 是 planner 中最多常驻的轻量 `SampleRef + SampleCost` 数量，必须至少等于 DP world
+  size。它不是全训练 horizon，也不会导致启动时扫描 `steps * samples`。
+- `media_snapshot_id` 是 bounded 路径必填的不可变媒体快照 id。JSONL/Arrow record fingerprint 不会为了
+  startup 安全而扫描全部外部图片；若图片集合、内容或尺寸可能改变，必须先生成新快照并更换该 id。
+- `cost_cache_size` 同时限制 prompt-variant sample-cost LRU 与 canonical image-header LRU；`0` 表示
+  禁用缓存。缓存不包含解码图像、processor tensor 或完整文本 token tensor。
+- `max_samples_per_microbatch` 是每卡每个 local batch 的样本数上限。未显式设置时使用
+  `train.per_device_train_batch_size`；该 HF 字段在 bounded 模式只提供兼容默认值和日志名义值，不代表
+  每个实际 batch 的固定 cardinality。
+- `max_padded_tokens` 是硬上限，计算方式为
+  `local sample count * processor 后最长 LLM sequence`，不是原始字符数。
+- `max_vision_patches` 是 local batch 内所有图片 pre-merge vision patch 的可选总上限，用于避免多个大图
+  被合到同一 batch。它必须能容纳 processor pixel budget 允许的最大单样本；例如 Qwen patch-size 16、
+  `max_pixels=4,000,000` 的配置应至少使用 16,384。单样本超限会在该 draw 首次进入 buffer 时明确失败。
+- 每个 global microstep 固定输出 W 个 non-empty local batch，HF 继续按固定 GA 聚合；optimizer step 的
+  实际 sample/token 数自然可变，不再维护 exact target samples/tokens。
+- planner 取最老的 W 个 buffer entry 作为 anchors，再以 projected rank load 为第一目标、padding waste 为
+  tie-break 合并 entry；完整 planning frame 还会按 rank 累计成本重新分配 batches。因此不会饿死长样本，
+  也不会改变 mixing draw multiset。weighted mixing 在 bounded 模式要求 `data.shuffle=true`。
+- 多 rank startup 对第一个 buffer 的 cost/plan digest 做一致性校验。首个 forward 前会原子规划完整 GA frame，
+  cost call 上界是 `buffer + (GA - 1) * W * max_samples`，而不是完整 duration；运行中最坏 host 预取内存还
+  需计入 `num_workers * prefetch_factor`。
+- 所有 rank 在 immutable snapshot contract 下独立重放同一个轻量全局 BatchSampler，Accelerate 以
+  `split_batches=false/even_batches=false` 选择各 rank 的 batch。sampler 内禁止 collective，避免 worker
+  预取速度不同造成死锁；首 buffer 漂移和 startup 单 rank 错误会先做 all-rank 聚合再退出。
+- duration-independent spec、已提交 global microstep、FIFO buffer 及实际累计成本，作为
+  `ShaftBoundedBatchingCallback` stateful payload 写入 checkpoint 的 HF `trainer_state.json`。只保存已完成
+  optimizer step 对应 snapshot，不保存预取推进后的 live cursor，也不维护第二个 sidecar 状态源。
+- resume 会验证 source/media snapshot/mixing/prompt/tokenizer/processor/template、world size、buffer、budgets，
+  以及 duration/GA/optimizer/scheduler exact-resume contract；随后从 committed state 继续并禁用 HF 二次
+  data skip。persistent workers 使用 DataLoader 专用 generator，不改变模型 RNG。
+- run root 的 `shaft_batching_run_metadata.json` 保存 resolved 策略、DP/GA、pixel budget、source weights、
+  media snapshot id、buffer/cache/caps 和 contract fingerprint；启用 W&B 时同一 payload 写入
+  `shaft_batching` run config。
 
 ### `data.datasets`
 
@@ -332,7 +292,7 @@ train:
 - `mix_strategy` 当前支持：
   - `concat`：覆盖全部有效行；开启 `shuffle` 时每轮使用无额外索引内存的可复现置换。
   - `weighted`：以 `DatasetSourceConfig.weight` 归一化为数据源概率，并按 logical sample draw
-    有放回抽样。step 模式下 plan 长度直接等于训练所需全局样本预算。
+    有放回抽样。fixed step 模式使用有限 plan；bounded step 模式直接消费 horizon-independent schedule。
 - `weight=0` 会禁用该 source 的 train split 加载与抽样；若 `use_for_eval=true`，val split 仍可参与评估。
 - `num_workers` 是每个 rank 的 worker 数。例如 8 rank × 4 worker 会产生 32 个读取进程。
 - `prefetch_factor` 是每个 worker 预取 batch 数，仅在 `num_workers>0` 时传给 HF DataLoader。
@@ -429,7 +389,6 @@ prompts:
 关键字段：
 
 - `duration`
-- `optimizer_batch`
 - `per_device_train_batch_size`
 - `gradient_accumulation_steps`
 - `gradient_checkpointing`
@@ -486,33 +445,13 @@ train:
     value: 10000
 ```
 
-- `unit=steps` 是主路径，`value` 必须为正整数。Shaft 会把它映射到 HF `max_steps`。固定 batch 使用
-  `steps * per_device_batch * gradient_accumulation * world_size`；动态 batch 由
-  `ShaftDynamicBatchPlanningContract` 按 optimizer target 和每步 draw cap 生成 sample-plan horizon。
+- `unit=steps` 是主路径，`value` 必须为正整数。Shaft 会把它映射到 HF `max_steps`。fixed batch 的有限
+  SamplePlan 使用标准 global batch 公式；bounded 模式只计算 map-style Dataset 所需的最大 draw 上界，
+  runtime 从 horizon-independent schedule 惰性取数，不逐 draw 物化。
 - `unit=epochs` 用于有限数据兼容，`value` 可为正浮点数。Shaft 会映射到 HF
   `num_train_epochs`；一个 epoch 的 plan 长度默认为所有有效 source 行数之和。
 - YAML 不再同时维护 `epochs` 与 `max_steps`。CLI 仍提供互斥的 `--epochs` / `--max-steps` 便捷覆写。
 
-### `train.optimizer_batch`
-
-该块只在 `data.batching.strategy=dynamic_cost_aware` 下可设置：
-
-- `target_samples`：每个 optimizer step 精确选择的全局 logical sample 数。
-- `target_supervised_tokens`：按连续 draw 累加 causal-shift 后有效监督 token，达到目标后停止；为了保证
-  每个 rank/microstep 都能执行，至少会选择一个 sample 给每个 local slot。
-- 两个 target 最多显式设置一个。都未设置时，兼容默认值是
-  `per_device_train_batch_size * data_world_size * gradient_accumulation_steps`。
-- 当前 `target_supervised_tokens` 不接受 `mix_strategy=weighted + shuffle=false`：该 legacy deterministic
-  weighted 映射按最大 horizon 分块，而 token target 只消费短 prefix，会系统性偏向前序 source。请启用
-  默认的 `shuffle=true`、改用 `concat`，或使用 `target_samples`。后续若引入 horizon-independent 的低差异
-  weighted schedule，必须版本化 SamplePlan fingerprint 后再解除限制。
-- sample target 必须不小于 local slot 数，且不能超过
-  `slots * max_samples_per_microbatch` 或 `planning_window`。token target 若在 draw cap 内无法达到会启动失败。
-- target 只决定 optimizer batch 消费多少 mixer draws；scheduler、logging、save 与 resume 仍按 optimizer
-  step 计数。eval 仍使用 `per_device_eval_batch_size` 的固定 batch；训练期间的 eval 会保存并恢复进程训练
-  RNG，persistent eval workers 的创建不能改变后续训练随机序列。
-- 当前动态模式只支持 DDP。FSDP/DeepSpeed 的 fixed batch 能力不受影响，但 dynamic DataLoader 合约在
-  专项 loss/resume 验收前会被配置校验拒绝。
 说明：
 
 - `train` 是 SFT 与 RLHF 共用的基础训练块。
@@ -853,12 +792,51 @@ eval:
 - `fmt`
 - `file_path`
 - `rank_zero_only`
+  - 默认 `true`，表示所有 structured log 严格只由 global rank 0 输出，包括 WARNING/ERROR；分布式主链的
+    rank-local 失败依靠同步 failure envelope 或 torchrun traceback，不允许普通 warning 与 rank-0 活动行
+    竞争共享终端
+  - 调试时若设为 `false`，text/JSON 每行都会包含 rank；多节点/多卡且配置了 `file_path` 时自动写入
+    `<stem>.rank<N><suffix>`，避免各 rank 并发覆盖同一个文件。共享终端仍可能交错，因此建议同时把
+    progress 设为 `plain` 或 `off`
 
 ## 11. `progress`
 
 - `enabled`
-- `leave`
-- `mininterval`
+- `display`
+  - `auto`：TTY 使用单行交互显示，重定向日志/CI/WebUI 子进程使用稀疏文本状态
+  - `interactive`：强制单行原地刷新
+  - `plain`：强制输出无 ANSI、无 `\r` 的稀疏状态行
+  - `off`：不创建终端或文本 sink；若 `persist=true`，仍保存结构化快照
+- `width`
+  - 单行终端显示的最大物理列宽，默认 `72`，最小 `40`；CJK/组合字符按终端 cell 宽度处理
+  - 72 列优先显示高分辨率 bar、current/total、小数百分比、速度、ETA、loss 和 LR；40 列从 ETA/metric
+    开始降级，但保留进度和速度。慢 step 显示 `s/step`，极快 step 显示 `step/s`；正数亚秒 ETA 显示
+    `<1s`。未完成状态不会四舍五入成 `100%`。非 Unicode stream 对 bar 和整行文本一起安全降级
+- `refresh_interval`
+  - TTY 最小刷新间隔，默认 `0.5` 秒，必须为有限正数
+- `log_interval`
+  - 非 TTY 普通 update 的最小输出间隔，默认 `30.0` 秒，必须为有限正数；阶段开始/完成/失败不受节流，
+    且不会被 `logging.level` 静默屏蔽
+- `leave_completed`
+  - 是否保留普通子阶段的完成行，默认 `false`；训练主任务仍输出一条最终摘要
+- `persist`
+  - 是否原子更新 `<output_dir>/shaft_progress.json`，默认 `true`
+
+训练、loss eval、online eval 和 data/model startup 复用同一个 progress manager。bounded cost 在训练
+DataLoader 内按需完成，不再创建独立的全量 startup 进度任务。终端只显示
+当前前台阶段；进入 eval 时临时替换 train 行，结束后恢复 train。结构化快照保留完整任务树，供 Web UI
+读取，Web UI 不解析日志来推导进度。Shaft 同时关闭 Transformers 与 Hugging Face Hub 的原生进度条；
+新增长任务必须向统一 manager 发布，不能平行创建 tqdm。嵌套 eval 的 wall time 不计入恢复后的 train
+step rate；失败/取消阶段会强制留下摘要。manager 对并发 advance/close 提供有序状态语义。
+
+10,000-step 任务的 interactive 形态示例：
+
+```text
+train   ▏······· 25/10k 0.25% 6.54s/step ETA 18h07m loss 7.9 lr 2.5–5e-7
+```
+
+`lr` 为所有 optimizer param groups 的当前 min–max range；组间相同则只显示一个值。`logging_steps` 到达前
+没有 loss 属于训练日志策略，但速度、ETA 和精确进度从第一步起可见。
 
 ## 12. CLI override 原则
 

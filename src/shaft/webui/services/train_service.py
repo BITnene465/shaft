@@ -29,7 +29,9 @@ def _build_default_run_id() -> str:
 
 
 class ShaftSFTTrainService:
-    def __init__(self, *, run_store: ShaftRunStore | None = None, repo_root: str | Path | None = None) -> None:
+    def __init__(
+        self, *, run_store: ShaftRunStore | None = None, repo_root: str | Path | None = None
+    ) -> None:
         self.run_store = run_store or ShaftRunStore()
         self.repo_root = Path(repo_root) if repo_root is not None else _repo_root()
         self._processes: dict[str, subprocess.Popen[str]] = {}
@@ -61,7 +63,10 @@ class ShaftSFTTrainService:
         env = os.environ.copy()
         src_path = str((self.repo_root / "src").resolve())
         current_pythonpath = str(env.get("PYTHONPATH", "")).strip()
-        env["PYTHONPATH"] = src_path if not current_pythonpath else f"{src_path}:{current_pythonpath}"
+        env["PYTHONPATH"] = (
+            src_path if not current_pythonpath else f"{src_path}:{current_pythonpath}"
+        )
+        started_at = _utc_now()
         with log_path.open("a", encoding="utf-8") as log_handle:
             process = subprocess.Popen(
                 command,
@@ -82,8 +87,8 @@ class ShaftSFTTrainService:
             log_path=str(log_path),
             output_dir=str(config.experiment.output_dir),
             pid=int(process.pid),
-            created_at=_utc_now(),
-            started_at=_utc_now(),
+            created_at=started_at,
+            started_at=started_at,
         )
         self._processes[run_id] = process
         return self.run_store.save_record(record)
@@ -146,7 +151,9 @@ class ShaftSFTTrainService:
             return False
         refreshed = self.refresh_run(run_id) or record
         if not refreshed.is_terminal:
-            raise ValueError("Run is still active. Stop it before deleting the local Web UI record.")
+            raise ValueError(
+                "Run is still active. Stop it before deleting the local Web UI record."
+            )
         self._processes.pop(run_id, None)
         return self.run_store.delete_run(run_id)
 
@@ -167,7 +174,20 @@ class ShaftSFTTrainService:
         record = self.refresh_run(run_id)
         if record is None:
             return {}
-        summary = self.run_store.load_trainer_state_summary(record.output_dir, repo_root=self.repo_root)
+        summary = self.run_store.load_trainer_state_summary(
+            record.output_dir, repo_root=self.repo_root
+        )
+        summary.update(
+            self.run_store.load_progress_summary(
+                record.output_dir,
+                expected_run_id=record.run_id,
+                expected_not_before=record.started_at,
+                repo_root=self.repo_root,
+            )
+        )
+        summary["progress_stale"] = bool(
+            record.is_terminal and summary.get("progress_status") == "running"
+        )
         summary["status"] = record.status
         summary["return_code"] = record.return_code
         return summary

@@ -14,7 +14,7 @@ from transformers.debug_utils import DebugOption
 from transformers import Trainer
 
 from shaft.config.training import EvalConfig
-from shaft.utils.distributed import barrier_if_distributed
+from shaft.utils.distributed import all_gather_objects, barrier_if_distributed
 from .eval_policy import aggregate_weighted_dataset_values
 from .loss import build_loss
 from .optimizer_mixin import ShaftOptimizerMixin
@@ -289,8 +289,12 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
 
     def _save_checkpoint(self, model, trial) -> None:
         barrier_if_distributed()
-        super()._save_checkpoint(model, trial)
-        barrier_if_distributed()
+        local_error: Exception | None = None
+        try:
+            super()._save_checkpoint(model, trial)
+        except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
+            local_error = exc
+        self._raise_synchronized_operation_error("checkpoint save", local_error)
 
     def _load_optimizer_and_scheduler(self, checkpoint: str | None) -> None:
         if not self._requires_cpu_distributed_state_restore(checkpoint):
@@ -335,5 +339,30 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
 
     def save_model(self, output_dir: str | None = None, _internal_call: bool = False) -> None:
         barrier_if_distributed()
-        super().save_model(output_dir=output_dir, _internal_call=_internal_call)
-        barrier_if_distributed()
+        local_error: Exception | None = None
+        try:
+            super().save_model(output_dir=output_dir, _internal_call=_internal_call)
+        except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
+            local_error = exc
+        self._raise_synchronized_operation_error("model save", local_error)
+
+    @staticmethod
+    def _raise_synchronized_operation_error(
+        operation: str,
+        local_error: Exception | None,
+    ) -> None:
+        statuses = all_gather_objects(
+            {
+                "ok": local_error is None,
+                "error_type": (
+                    None if local_error is None else type(local_error).__name__
+                ),
+                "error": None if local_error is None else str(local_error),
+            }
+        )
+        failures = [status for status in statuses if not bool(status.get("ok"))]
+        if not failures:
+            return
+        if local_error is not None:
+            raise local_error
+        raise RuntimeError(f"Distributed {operation} failed on a peer rank: {failures!r}.")
