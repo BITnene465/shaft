@@ -111,7 +111,7 @@ def test_worker_vllm_openai_writes_predictions_raw_outputs_and_report(
     assert processed.metadata["progress_current_sample"] == "part1/json/a.json"
     prediction_path = tmp_path / "runs" / job.job_id / "predictions" / "part1" / "json" / "a.json"
     prediction = json.loads(prediction_path.read_text(encoding="utf-8"))
-    assert prediction["instances"][0]["bbox"] == [0.0, 0.0, 100.0, 50.0]
+    assert prediction["instances"][0]["bbox"] == [0.0, 0.0, 99.0, 49.0]
     assert prediction["metadata"]["latency_ms"] == 12.5
     assert prediction["metadata"]["finish_reason"] == "stop"
     assert prediction["metadata"]["completion_tokens"] == 7

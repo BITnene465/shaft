@@ -30,6 +30,12 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from shaft.codec import decode_with_codec  # noqa: E402
+from shaft.codec.coordinates import (  # noqa: E402
+    dequantize_qwen_bbox,
+    dequantize_qwen_point,
+    maybe_qwen_coordinate_payload,
+    qwen_coordinate_max,
+)
 from shaft.prompting import load_prompt_template  # noqa: E402
 
 
@@ -162,11 +168,13 @@ def _bbox_from_item(item: Any) -> list[float] | None:
 
 def _bbox_to_pixels(bbox: list[float], width: int, height: int) -> list[int] | None:
     x1, y1, x2, y2 = bbox
-    if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= float(NUM_BINS):
-        x1 = x1 / float(NUM_BINS) * width
-        x2 = x2 / float(NUM_BINS) * width
-        y1 = y1 / float(NUM_BINS) * height
-        y2 = y2 / float(NUM_BINS) * height
+    if maybe_qwen_coordinate_payload((x1, y1, x2, y2), num_bins=NUM_BINS):
+        x1, y1, x2, y2 = dequantize_qwen_bbox(
+            (x1, y1, x2, y2),
+            width=width,
+            height=height,
+            num_bins=NUM_BINS,
+        )
     left, right = sorted((x1, x2))
     top, bottom = sorted((y1, y2))
     left = max(0, min(width, int(round(left))))
@@ -335,8 +343,8 @@ def _parse_keypoints(text: str) -> list[list[float]]:
         if not isinstance(item, list) or len(item) != 2:
             continue
         try:
-            x = max(0.0, min(float(NUM_BINS), float(item[0])))
-            y = max(0.0, min(float(NUM_BINS), float(item[1])))
+            x = max(0.0, min(float(qwen_coordinate_max(NUM_BINS)), float(item[0])))
+            y = max(0.0, min(float(qwen_coordinate_max(NUM_BINS)), float(item[1])))
         except (TypeError, ValueError):
             continue
         points.append([x, y])
@@ -349,8 +357,14 @@ def _points_to_global(points_2d: list[list[float]], crop_box: list[int]) -> list
     crop_h = max(y2 - y1, 1)
     global_points: list[list[float]] = []
     for x, y in points_2d:
-        gx = x1 + x / float(NUM_BINS) * crop_w
-        gy = y1 + y / float(NUM_BINS) * crop_h
+        local_x, local_y = dequantize_qwen_point(
+            (x, y),
+            width=crop_w,
+            height=crop_h,
+            num_bins=NUM_BINS,
+        )
+        gx = x1 + local_x
+        gy = y1 + local_y
         global_points.append([round(gx, 2), round(gy, 2)])
     return global_points
 

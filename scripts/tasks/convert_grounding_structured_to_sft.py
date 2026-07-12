@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from shaft.codec.coordinates import quantize_qwen_coordinate
 from shaft.prompting import load_prompt_template
 
 
@@ -64,11 +65,7 @@ def _clip_bbox(bbox: list[float], image_width: int, image_height: int) -> tuple[
 
 
 def _quantize_coord(value: float, size: int, num_bins: int) -> int:
-    if size <= 1:
-        return 0
-    clipped = min(max(value, 0.0), float(size - 1))
-    normalized = clipped / float(size - 1)
-    return int(round(normalized * float(num_bins - 1)))
+    return quantize_qwen_coordinate(value, size=size, num_bins=num_bins)
 
 
 def _quantize_bbox(bbox: list[float], image_width: int, image_height: int, num_bins: int) -> list[int]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from shaft.codec.base import ShaftCodecResult
@@ -248,3 +249,56 @@ def test_prediction_visualization_points_2d_uses_line_strip(tmp_path: Path, monk
     assert isinstance(line_strips, list)
     assert len(line_strips) == 1
     assert len(line_strips[0].points) == 2
+    assert line_strips[0].points[0].x == pytest.approx(19.9199, abs=1e-4)
+    assert line_strips[0].points[1].x == pytest.approx(179.2793, abs=1e-4)
+
+
+def test_prediction_visualization_line_parameters_points_use_line_strips(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (200, 160), "white").save(image_path)
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed={
+            "type": "line",
+            "parameters": {
+                "is_single": False,
+                "points": [
+                    [[100, 100], [500, 100]],
+                    [[500, 100], [900, 300]],
+                ],
+            },
+        },
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_save_labeled_visualization(**kwargs) -> str:
+        captured.update(kwargs)
+        return str(tmp_path / "predictions" / "sample.jpg")
+
+    monkeypatch.setattr(
+        prediction_visualization,
+        "save_labeled_visualization",
+        fake_save_labeled_visualization,
+    )
+
+    output = prediction_visualization.render_prediction_visualization(
+        image_path=str(image_path),
+        sample_id="sample",
+        sample_index=1,
+        prediction=prediction,
+        out_dir=tmp_path,
+    )
+
+    assert output is not None
+    line_strips = captured["line_strips"]
+    assert isinstance(line_strips, list)
+    assert len(line_strips) == 2
+    assert len(line_strips[0].points) == 2
+    assert len(line_strips[1].points) == 2

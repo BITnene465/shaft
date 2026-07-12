@@ -3,10 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 from shaft.codec import decode_with_codec
+from shaft.codec.coordinates import (
+    QWEN_COORD_NUM_BINS,
+    dequantize_qwen_bbox,
+    dequantize_qwen_point,
+    maybe_qwen_coordinate_payload,
+)
 
 from .schema import PredictionDocument, PredictionInstance, TaskKind
 
-NUM_BINS = 1000
+NUM_BINS = QWEN_COORD_NUM_BINS
 GROUPED_DETECTION_LABEL_ORDER = ("shape", "icon", "image", "line", "arrow")
 
 
@@ -85,6 +91,13 @@ def _parse_keypoint_instances(
     image_width: int,
     image_height: int,
 ) -> list[PredictionInstance]:
+    if isinstance(payload, dict) and isinstance(payload.get("parameters"), dict):
+        points = _points_from_keypoint_payload(payload, image_width=image_width, image_height=image_height)
+        if points:
+            label = _label_text(payload.get("label") or payload.get("type")) or "line"
+            bbox = _bbox_from_points(points, image_width=image_width, image_height=image_height)
+            return [PredictionInstance(label=label, bbox=bbox, keypoints=points)] if bbox else []
+
     if isinstance(payload, dict) and "points_2d" in payload:
         label = _label_text(payload.get("label")) or "line"
         points = _points_from_value(payload.get("points_2d"), image_width, image_height)
@@ -116,6 +129,20 @@ def _parse_keypoint_instances(
             continue
         instances.append(PredictionInstance(label=label, bbox=bbox, keypoints=points or None))
     return instances
+
+
+def _points_from_keypoint_payload(
+    payload: dict[str, Any],
+    *,
+    image_width: int,
+    image_height: int,
+) -> list[list[float]]:
+    raw_points = payload.get("points_2d") or payload.get("keypoints_2d")
+    if raw_points is None:
+        parameters = payload.get("parameters")
+        if isinstance(parameters, dict):
+            raw_points = parameters.get("points")
+    return _points_from_value(raw_points, image_width, image_height)
 
 
 def _items_from_payload(payload: Any) -> list[Any]:
@@ -190,11 +217,13 @@ def _bbox_to_pixels(
     image_height: int,
 ) -> list[float] | None:
     x1, y1, x2, y2 = bbox
-    if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= float(NUM_BINS):
-        x1 = x1 / float(NUM_BINS) * float(image_width)
-        x2 = x2 / float(NUM_BINS) * float(image_width)
-        y1 = y1 / float(NUM_BINS) * float(image_height)
-        y2 = y2 / float(NUM_BINS) * float(image_height)
+    if maybe_qwen_coordinate_payload((x1, y1, x2, y2), num_bins=NUM_BINS):
+        x1, y1, x2, y2 = dequantize_qwen_bbox(
+            (x1, y1, x2, y2),
+            width=image_width,
+            height=image_height,
+            num_bins=NUM_BINS,
+        )
     x1, x2 = sorted((max(0.0, x1), min(float(image_width), x2)))
     y1, y2 = sorted((max(0.0, y1), min(float(image_height), y2)))
     if x2 <= x1 or y2 <= y1:
@@ -207,6 +236,9 @@ def _points_from_value(value: Any, image_width: int, image_height: int) -> list[
         return []
     points: list[list[float]] = []
     for item in value:
+        if isinstance(item, list) and item and all(isinstance(point, list) for point in item):
+            points.extend(_points_from_value(item, image_width, image_height))
+            continue
         if not isinstance(item, list) or len(item) != 2:
             continue
         try:
@@ -214,9 +246,13 @@ def _points_from_value(value: Any, image_width: int, image_height: int) -> list[
             y = float(item[1])
         except (TypeError, ValueError):
             continue
-        if max(abs(x), abs(y)) <= float(NUM_BINS):
-            x = x / float(NUM_BINS) * float(image_width)
-            y = y / float(NUM_BINS) * float(image_height)
+        if maybe_qwen_coordinate_payload((x, y), num_bins=NUM_BINS):
+            x, y = dequantize_qwen_point(
+                (x, y),
+                width=image_width,
+                height=image_height,
+                num_bins=NUM_BINS,
+            )
         points.append([
             min(max(0.0, x), float(image_width)),
             min(max(0.0, y), float(image_height)),

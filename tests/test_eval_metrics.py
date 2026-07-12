@@ -87,3 +87,38 @@ def test_keypoint_pck_accepts_points_2d_alias() -> None:
     metric.update(prediction=prediction, target=target, sample_meta={})
 
     assert metric.compute() == pytest.approx(1.0)
+
+
+def test_keypoint_pck_accepts_line_parameters_points_segments() -> None:
+    metric = build_eval_metric("keypoint_pck", params={"coordinate_space": "points"})
+    prediction = ShaftCodecResult(
+        raw_text="",
+        parsed={
+            "type": "line",
+            "parameters": {
+                "is_single": False,
+                "points": [
+                    [[100, 100], [500, 100]],
+                    [[500, 100], [900, 300]],
+                ],
+            },
+        },
+        valid=True,
+        partial=False,
+        error_type=None,
+        error=None,
+    )
+    target = {
+        "type": "line",
+        "parameters": {
+            "is_single": False,
+            "points": [
+                [[100, 100], [500, 100]],
+                [[500, 100], [900, 300]],
+            ],
+        },
+    }
+
+    metric.update(prediction=prediction, target=target, sample_meta={})
+
+    assert metric.compute() == pytest.approx(1.0)

@@ -7,6 +7,7 @@ from typing import Any
 from PIL import Image
 
 from shaft.codec.base import ShaftCodecResult
+from shaft.codec.coordinates import dequantize_qwen_point
 
 from .visualization import (
     ShaftVisualBox,
@@ -43,8 +44,8 @@ def render_prediction_visualization(
             bbox = _coerce_bbox(item.get("bbox_2d"))
             if bbox is None:
                 continue
-            x1, y1 = _scale_from_1000(bbox[0], bbox[1], image_width, image_height)
-            x2, y2 = _scale_from_1000(bbox[2], bbox[3], image_width, image_height)
+            x1, y1 = _scale_qwen_point(bbox[0], bbox[1], image_width, image_height)
+            x2, y2 = _scale_qwen_point(bbox[2], bbox[3], image_width, image_height)
             label = str(item.get("label", "")).strip().lower()
             boxes.append(
                 ShaftVisualBox(
@@ -54,16 +55,21 @@ def render_prediction_visualization(
                 )
             )
     elif isinstance(payload, dict):
-        raw_points = _coerce_keypoints(payload.get("points_2d") or payload.get("keypoints_2d"))
-        if raw_points is not None:
-            keypoint_points: list[ShaftVisualPoint] = []
-            for idx, (x, y) in enumerate(raw_points, start=1):
-                scaled_x, scaled_y = _scale_from_1000(x, y, image_width, image_height)
-                keypoint_points.append(ShaftVisualPoint(x=scaled_x, y=scaled_y, index=idx))
-            if len(keypoint_points) >= 2:
-                line_strips.append(ShaftVisualLineStrip(points=tuple(keypoint_points)))
-            else:
-                points.extend(keypoint_points)
+        raw_segments = _extract_keypoint_segments(payload)
+        if raw_segments is not None:
+            point_index = 1
+            for segment in raw_segments:
+                keypoint_points: list[ShaftVisualPoint] = []
+                for x, y in segment:
+                    scaled_x, scaled_y = _scale_qwen_point(x, y, image_width, image_height)
+                    keypoint_points.append(
+                        ShaftVisualPoint(x=scaled_x, y=scaled_y, index=point_index)
+                    )
+                    point_index += 1
+                if len(keypoint_points) >= 2:
+                    line_strips.append(ShaftVisualLineStrip(points=tuple(keypoint_points)))
+                else:
+                    points.extend(keypoint_points)
         if payload.get("stroke_pattern") is not None:
             summary_parts.append(f"stroke={payload['stroke_pattern']}")
         if payload.get("geometry_style") is not None:
@@ -141,5 +147,30 @@ def _coerce_keypoints(value: Any) -> list[tuple[float, float]] | None:
     return points or None
 
 
-def _scale_from_1000(x: float, y: float, width: int, height: int) -> tuple[float, float]:
-    return float(x) * float(width) / 1000.0, float(y) * float(height) / 1000.0
+def _coerce_keypoint_segments(value: Any) -> list[list[tuple[float, float]]] | None:
+    flat_points = _coerce_keypoints(value)
+    if flat_points is not None:
+        return [flat_points]
+    if not isinstance(value, list | tuple):
+        return None
+    segments: list[list[tuple[float, float]]] = []
+    for item in value:
+        segment = _coerce_keypoints(item)
+        if segment is None or len(segment) < 2:
+            continue
+        segments.append(segment)
+    return segments or None
+
+
+def _extract_keypoint_segments(payload: dict[str, Any]) -> list[list[tuple[float, float]]] | None:
+    raw_points = payload.get("points_2d") or payload.get("keypoints_2d")
+    if raw_points is None:
+        parameters = payload.get("parameters")
+        if isinstance(parameters, dict):
+            raw_points = parameters.get("points")
+    return _coerce_keypoint_segments(raw_points)
+
+
+def _scale_qwen_point(x: float, y: float, width: int, height: int) -> tuple[float, float]:
+    scaled_x, scaled_y = dequantize_qwen_point((x, y), width=width, height=height)
+    return scaled_x, scaled_y
