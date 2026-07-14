@@ -6,11 +6,12 @@
 # - shape-only other reduced from 20096 to 10000 rows
 #
 # Per-sample probability plan with train config `data.schedule.mixing: weighted`:
-# - grounding_layout:       8 (42.11%)
-# - shape_reconstruction:   5 (26.32%)
-# - line_reconstruction:    4 (21.05%)
-# - image_reconstruction:   1 (5.26%)
-# - background:             1 (5.26%)
+# - grounding_layout:             8 (40%)
+# - grounding_layout_sync:        1 (5%)
+# - shape_reconstruction:         5 (25%)
+# - line_reconstruction:          4 (20%)
+# - image_reconstruction:         1 (5%)
+# - background:                   1 (5%)
 datasets:
   grounding_layout:
     source_type: jsonl_sft
@@ -21,6 +22,15 @@ datasets:
     use_for_eval: false
     help: banana v5.1 / unified layout grounding retention replay
     tags: [banana, v5.1, grounding, layout, shape, icon, image, line, real, sft]
+
+  grounding_layout_sync:
+    source_type: jsonl_sft
+    train_path: ../../data/grounding_layout_sync/sft/train.jsonl
+    weight: 1.0
+    enabled: true
+    use_for_eval: false
+    help: banana v5.1 / clean full-image synthetic layout grounding replay
+    tags: [banana, v5.1, grounding, layout, shape, icon, image, line, synthetic, sft]
 
   shape_reconstruction:
     source_type: jsonl_sft

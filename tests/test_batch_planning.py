@@ -14,6 +14,7 @@ from shaft.data import (
     ShaftSampleCost,
     ShaftSamplePlan,
     ShaftVarlenBatchLayout,
+    sft_runtime_source_identity,
 )
 from shaft.data.transforms import planning_safe_online_transform
 from shaft.model.types import ShaftProcessorCostEstimate, ShaftProcessorTokenLayout
@@ -25,6 +26,24 @@ from shaft.template.types import (
 
 
 pytestmark = pytest.mark.component
+
+
+def test_runtime_source_identity_does_not_block_unversioned_fixed_transform() -> None:
+    def unversioned(sample):
+        return sample
+
+    identity = sft_runtime_source_identity(
+        SimpleNamespace(
+            records=[{"id": 1}],
+            online_transforms=[unversioned],
+            media_snapshot_id="",
+        )
+    )
+
+    assert identity.fingerprint
+    assert identity.complete is False
+    assert identity.incomplete_reasons[0].startswith("unversioned_transform:")
+    assert identity.incomplete_reasons[1] == "missing_media_snapshot_id"
 
 
 def test_varlen_batch_layout_rejects_an_empty_physical_batch() -> None:

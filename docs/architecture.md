@@ -166,7 +166,8 @@ SFT/DPO 的多模态监督采用单次 processor 契约：
    `ShaftProcessedBatch`；collator 不枚举某个模型的 `pixel_values/image_grid_thw/...` 字段。
 3. `ShaftModelAdapter -> ProcessorPolicy` 是 processor 差异的唯一真源，统一负责 processor 调用参数、
    pixel budget、rendered-token 到 processed-token layout、版本化 cost-semantics signature，以及 SFT/DPO
-   所需的模型输入复制/重排。
+   所需的模型输入复制/重排。GRPO 绕过 SFT collator 时，pipeline 也只能把 policy 的
+   `prepare_rollout_image()` 作为通用 callable 注入 dataset；data 层不能导入某个模型族的 resize utility。
    每个非 sequence 字段必须显式声明为 sample-aligned、whole-batch media 或 static；未知字段不透传。
 4. Qwen VL policy 使用 `mm_token_type_ids` 折叠图像 token expansion；identity policy 要求 processed
    tokens 与 rendered tokens 完全一致。任何无法证明的字段重排或 token 对齐都必须 fail fast。
@@ -206,7 +207,8 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 用户训练 YAML 必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与 `layout`。
   当前执行面是 `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
   `length + fixed + greedy + varlen`，以及 `bounded_cost + fixed|token_budget + none + padded`。
-  Qwen3VL image SFT 是首个 varlen 执行实现；其它模型族和未验收 backend/topology fail closed。
+  Qwen3VL 与 HF `qwen3_5`（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
+  其它模型族和未验收 backend/topology fail closed。
 - 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact
   optimizer sample target 已删除；loader 对这些旧字段 fail fast，避免双轨运行时。
 - bounded 主链固定为：
@@ -263,9 +265,32 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   schedule。
   `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
 - sequence packing 与 context parallel 是独立能力；bounded grouping 不伪装成 packing。当前已实现 bounded
-  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL image-SFT varlen 执行链。
-  varlen 的 plan/media 私有元数据由模型 `SequenceExecutionPolicy` 在 host 侧消费，构造 4-axis M-RoPE 并
-  验证 concrete class/backend；其它模型族和未验收 topology fail closed。context parallel 仍后置。
+  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 image-SFT
+  varlen 执行链。varlen 的 plan/media 私有元数据由模型 `SequenceExecutionPolicy` 在 host 侧消费：Qwen3VL
+  使用 reset 4-axis M-RoPE，Qwen3.5/3.6 hybrid policy 额外提供 linear-attention/causal-conv boundaries。
+  concrete class、kernel/backend 与 runtime shim 都由模型层验证；其它模型族和未验收 topology fail closed。
+  context parallel 仍后置。
+- `ResolvedModelPlan` 是 pipeline、builder 与 sequence contract 共用的唯一模型决议。它先读取本地 HF
+  `config.json`，必要时按 `revision/cache_dir/local_files_only` 从 HF cache/Hub 取得 config，形成
+  `ResolvedModelDescriptor` 后再解析 variant profile；catalog basename 只是已知模型的离线 hint。
+  descriptor 与 basename 冲突时以前者为准；未知或同时命中多个 profile 时 fail closed。full checkpoint
+  先成为 effective artifact 再解析 descriptor，PEFT adapter 则保留 base artifact 作为模型事实真源。
+  dense/MoE 等影响 sharding/execution 的事实不能从产品名猜测。新模型族继续通过独立的
+  `ProcessorPolicy / SequenceExecutionPolicy / ShardingPolicy` 扩展，pipeline/trainer 不增加模型名分支。
+- PEFT init 与 merge 共享 model 层 exact loader：`ResolvedAdapterInit` 绑定 canonical config、base variant 与
+  weight manifest；耗时 base build 后再次验证 artifact，再将实际权重一次读入内存，对同一 byte payload 做
+  length/SHA256 校验和反序列化。export 不直接调用宽松 PEFT path loader，也不制造与实际 adapter topology
+  相反的训练 plan。
+- planner 统计与执行统计是两个真源。`[batch-plan-summary]` 只描述可能领先的 producer；collator 生成
+  processor 后实际 `_shaft_batch_stats`，`ShaftTrainingEfficiencyMonitor` 只在成功 optimizer boundary 提交。
+  周期日志、W&B 与 `shaft_training_efficiency.json` 共用同一聚合结果；Trainer 在覆盖 checkpoint 前先发布
+  本次 telemetry generation 的 `pending/revoked` transaction，per-rank snapshot 再通过 revoke、rank
+  snapshots、manifest 三阶段分布式提交，最后原子切换为 `committed`。每个 fallible I/O 阶段先汇合状态再
+  继续；resume 只有在 checkpoint transaction、manifest 与所有 rank snapshot 的 generation、span/contract
+  全部一致时才恢复，否则所有 rank 一致降级为 partial history。
+  CUDA event 必须覆盖每个 committed optimizer frame 且各 rank 一致。类型化
+  `ShaftTrainingEfficiencyContract` 绑定模型 plan、数据/source、schedule、software/hardware、topology 与训练
+  超参，并把 batch/sequence fingerprints 单列为 A/B 实验轴。
 
 ### 5.4 分片训练边界
 
@@ -307,7 +332,8 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   - 仅作用于 `target_modules=["auto"] / ["all-linear"]` 的自动展开结果
   - 显式 `target_modules` 保持权威
   - `trainable override` 会额外导出为 `modules_to_save`
-- 训练执行、adapter 导入兼容性校验、后续导出语义都应消费同一份 `resolved finetune plan`，避免多处重复推导
+- 训练执行消费唯一 `resolved finetune plan`；adapter 导入与 merge/export 消费唯一
+  `ResolvedModelPlan / ResolvedAdapterInit` 并共享 exact state loader，避免多处重复推导或宽松加载
 
 ### 5.6 进度与终端输出边界
 
@@ -494,6 +520,8 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - train split 由不可变 source snapshot、`ShaftSampleSchedule`、有限 `ShaftSamplePlan` adapter 与
   `ShaftSampleRef` 组成：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
+  - SFT `prompt_args` 是 normalized record 的正式 JSON 字段；prompt pool、训练 planning 与标准 infer pipeline
+    共用 `shaft.prompting` 的受限模板编译器，最终下游仍只消费普通 `system_prompt/user_prompt`。
   - `concat` 表示覆盖式计划；`weighted` 表示按 dataset weight 的可复现有放回概率抽样。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
 - `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。

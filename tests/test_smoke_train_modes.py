@@ -402,7 +402,7 @@ def test_token_budget_exact_resume_preserves_variable_draw_cursor(
     assert uninterrupted_callback["args"]["spec"]["cardinality"] == "token_budget"
 
 
-def test_bounded_resume_rejects_changed_source_cost_contract(tmp_path: Path) -> None:
+def test_bounded_resume_rejects_changed_source_execution_contract(tmp_path: Path) -> None:
     cfg_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
@@ -431,7 +431,7 @@ def test_bounded_resume_rejects_changed_source_cost_contract(tmp_path: Path) -> 
     resumed.eval.enabled = False
     resumed.train.resume_from_checkpoint = str(checkpoint)
 
-    with pytest.raises(ValueError, match="cost_fingerprint"):
+    with pytest.raises(ValueError, match="sample execution changed"):
         run_sft(resumed)
 
 

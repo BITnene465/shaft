@@ -102,15 +102,29 @@ model requests.
 For grounding train data, every covered source image should keep one clean `full_image` row. This
 row is the detection backbone and must not be replaced by crop, blur, or padded variants.
 
-The maintained default `grounding_layout` augmentation policy is:
+The historical snapshot at `data/archive2/grounding_layout_v5.1_bak0714` contains clean full images,
+density/hard-negative crops, `1.0x` legacy blur rows, and `0.2x` random-padded rows. Do not mix
+those rows with the maintained multi-resolution dataset.
 
-- clean full images: `1.0x`
-- density crops: about `0.3x`, including only a small minority of negative samples
-- blur full plus blur crop rows: `1.0x`, using light-to-moderate Gaussian blur, resize blur, or
-  JPEG compression
-- random padded full images: `0.2x`, applied only to clean full-image views
+The maintained `data/grounding_layout` rebuild policy is:
+
+- native clean full images: `1.0x`
+- continuous clean resize views: about `2.9x`
+- random padded clean views: about `0.1x`
+- degraded resize views: about `1.2x`, with exactly one bounded Gaussian blur or noise operation
+- density crops: about `0.25x`
+- hard-negative crops: about `0.03x`
+
+These are bounded sampled views, not a Cartesian product of source images, scales, kernels, and
+degradation levels.
 
 Validation and VLM test data should remain clean full-image only.
+
+Synthetic layout detection is a separate replay source named `grounding_layout_sync`. Its source
+archive already has enough rendered diversity, so keep exactly one clean full-image view from the
+source train split and control exposure through the training catalog weight. Do not run the real
+layout multiscale augmentation profile on it, do not merge its files into `grounding_layout`, and
+do not use the synthetic validation split as formal model evaluation.
 
 ## Canonical Order Needs GT Validation
 
@@ -127,18 +141,36 @@ The 2026-07-09 review found that the old `row_bucket(y_center)` order was a poor
 diagram images: large containers were often placed after their children. Keep the living analysis
 under `notes/canonical_order/`.
 
-## JPEG Is Only One Controlled Grounding Degradation
+## JPEG Is Optional, Not An Implicit Default
 
-JPEG compression may be used as one of the maintained light-to-moderate blur/degradation choices
-for `grounding_layout`, but it should not dominate the robustness rows. Keep it balanced with
-Gaussian blur and resize blur, and do not apply severe corruption by default.
+JPEG compression may be used by an explicitly selected legacy or experimental profile, but the
+next direct-resize profile uses Gaussian blur and Gaussian noise only. Do not silently add JPEG,
+resize-back blur, or combined corruptions to that profile. Any optional degradation must remain
+bounded and must not replace the native clean row.
 
 ## Zoom Out Is Different From Pixel Budget
 
 Processor pixel budget controls the final visual token budget, but it does not replace geometry
-augmentation. If a task needs more scale robustness, keep the default small `random_padded_full`
-subset bounded at about `0.2x` of clean full-image rows. Padding must transform `bbox` /
-`linestrip` coordinates exactly and should not be applied to validation/test rows.
+augmentation. The current profile obtains scale diversity through direct, aspect-preserving resize;
+padding remains a distinct zoom-out transform at a bounded `0.1x` quota. Sample padding
+asymmetrically so the image can appear anywhere on the expanded canvas, and transform `bbox` /
+`linestrip` coordinates exactly. Padding replaces `0.1x` of the continuous-clean-resize budget;
+it does not increase the approximately 50k total.
+
+The training call must still pass runtime `min_pixels` / `max_pixels`. Persisted processor
+defaults inside a checkpoint are not proof that the intended training pixel budget is active.
+
+## Multi-Resolution Does Not Mean Fixed Five Sizes
+
+Sample target pixel counts continuously in log space from each source's feasible interval. Cap
+offline enlargement at `2x` linear scale, align output dimensions to the processor factor, and
+select only a bounded number of sufficiently separated views per source. Pixel ranges such as
+`0.2-0.5M`, `0.5-1M`, `1-2M`, and `2-4M` are quotas for balancing and reporting, not fixed resize
+levels.
+
+Use antialiased bicubic, Lanczos, and downscale-only area resampling according to resize direction;
+do not reduce every path to bilinear interpolation. Neural super-resolution is unsuitable for
+grounding augmentation because it can redraw supervised text, icons, lines, and boundaries.
 
 ## Rebuild Derived Data Cleanly
 

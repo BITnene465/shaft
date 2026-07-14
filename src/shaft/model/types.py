@@ -6,12 +6,15 @@ from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from packaging.version import InvalidVersion, Version
 import torch
 
 from .sharding import ModelShardingPolicy
+
+if TYPE_CHECKING:
+    from .descriptor import ResolvedModelDescriptor
 
 
 def _dedupe_non_empty(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
@@ -294,6 +297,18 @@ class ProcessorPolicy:
         "position_ids",
         "token_type_ids",
     )
+
+    def prepare_rollout_image(
+        self,
+        image: Any,
+        *,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> Any:
+        """Prepare one rollout image when an upstream trainer cannot forward budgets."""
+
+        _ = min_pixels, max_pixels
+        return image
 
     def __post_init__(self) -> None:
         field_names = (
@@ -676,6 +691,21 @@ class SequenceExecutionPolicy:
                 f"Sequence policy {type(self).__name__!r} does not support varlen layout."
             )
 
+    def configure_runtime(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        """Install model-owned runtime adapters before validation.
+
+        Most families need no mutation.  A family may use this hook for a
+        narrowly versioned upstream compatibility adapter, while collators and
+        trainers remain model-agnostic.
+        """
+
+        _ = model, contract
+
     def prepare_training_inputs(
         self,
         *,
@@ -727,6 +757,7 @@ class ModelLoader(ABC):
 class ModelGroup:
     name: str
     model_ids: tuple[str, ...] = ()
+    hf_model_types: tuple[str, ...] = ()
     template: str | None = None
     capabilities: ModelCapabilities | None = None
     module_groups: ModelModuleGroups | None = None
@@ -736,8 +767,22 @@ class ModelGroup:
     sharding_policy: ModelShardingPolicy | None = None
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
+    descriptor_matcher: Callable[[ResolvedModelDescriptor], bool] | None = None
 
-    def matches(self, model_name_or_path: str) -> bool:
+    def matches(
+        self,
+        model_name_or_path: str,
+        descriptor: ResolvedModelDescriptor | None = None,
+    ) -> bool:
+        if descriptor is not None:
+            if self.descriptor_matcher is not None:
+                return bool(self.descriptor_matcher(descriptor))
+            if self.hf_model_types:
+                return str(descriptor.hf_model_type).strip().lower() in {
+                    str(value).strip().lower()
+                    for value in self.hf_model_types
+                    if str(value).strip()
+                }
         normalized = str(model_name_or_path).strip().rstrip("/").lower()
         if not normalized:
             return False
@@ -765,6 +810,7 @@ class ModelMeta:
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
+    uses_hf_artifacts: bool = True
     loader: ModelLoader | None = None
 
     def with_loader(self, loader: ModelLoader) -> "ModelMeta":
@@ -782,6 +828,7 @@ class ModelMeta:
             sharding_policy=self.sharding_policy,
             requires=self.requires,
             additional_saved_files=self.additional_saved_files,
+            uses_hf_artifacts=self.uses_hf_artifacts,
             loader=loader,
         )
 
@@ -790,8 +837,48 @@ class ModelMeta:
         *,
         model_name_or_path: str,
         template_type: str | None = None,
+        descriptor: ResolvedModelDescriptor | None = None,
     ) -> "ShaftModelAdapter":
-        matched = self.get_matched_model_group(model_name_or_path)
+        variant_types = {
+            str(value).strip().lower()
+            for value in (
+                *self.hf_model_types,
+                *(
+                    item
+                    for group in self.model_groups
+                    for item in group.hf_model_types
+                ),
+            )
+            if str(value).strip()
+        }
+        if (
+            descriptor is not None
+            and variant_types
+            and descriptor.hf_model_type not in variant_types
+        ):
+            raise ValueError(
+                f"HF model_type {descriptor.hf_model_type!r} is not a registered "
+                f"variant of Shaft model family {self.model_type!r}; expected one "
+                f"of {tuple(sorted(variant_types))}."
+            )
+        matched = self.get_matched_model_group(
+            model_name_or_path,
+            descriptor=descriptor,
+        )
+        if matched is None and descriptor is None and len(variant_types) > 1:
+            raise ValueError(
+                f"Model family {self.model_type!r} has multiple HF architecture "
+                "variants, but the model could not be matched by catalog name and "
+                "no local config.json descriptor is available. Resolve/download the "
+                "HF config before selecting execution or sharding policies."
+            )
+        if matched is None and descriptor is not None and len(variant_types) > 1:
+            raise ValueError(
+                f"HF descriptor from {descriptor.source!r} does not match any "
+                f"registered model group in Shaft family {self.model_type!r}. "
+                "The model_type, architectures, or family-owned config facts are "
+                "inconsistent with the declared model family."
+            )
         resolved_template = str(template_type).strip().lower() if template_type else None
         if not resolved_template:
             resolved_template = (
@@ -842,6 +929,7 @@ class ModelMeta:
             additional_saved_files=_dedupe_non_empty(tuple(additional_saved_files)),
             group_name=matched.name if matched is not None else None,
             model_meta=self,
+            model_descriptor=descriptor,
         )
 
     def default_target_modules(self) -> list[str]:
@@ -856,11 +944,24 @@ class ModelMeta:
         candidates.extend(group.template for group in self.model_groups if group.template)
         return _dedupe_non_empty(tuple(candidates))
 
-    def get_matched_model_group(self, model_name_or_path: str) -> ModelGroup | None:
-        for group in self.model_groups:
-            if group.matches(model_name_or_path):
-                return group
-        return None
+    def get_matched_model_group(
+        self,
+        model_name_or_path: str,
+        *,
+        descriptor: ResolvedModelDescriptor | None = None,
+    ) -> ModelGroup | None:
+        matches = tuple(
+            group
+            for group in self.model_groups
+            if group.matches(model_name_or_path, descriptor=descriptor)
+        )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Model {model_name_or_path!r} ambiguously matches groups "
+                f"{tuple(group.name for group in matches)} in family "
+                f"{self.model_type!r}."
+            )
+        return matches[0] if matches else None
 
     def resolve_template_type(self, model_name_or_path: str | None = None) -> str:
         if model_name_or_path:
@@ -917,6 +1018,7 @@ class ShaftModelAdapter:
     additional_saved_files: tuple[str, ...] = ()
     group_name: str | None = None
     model_meta: ModelMeta | None = None
+    model_descriptor: ResolvedModelDescriptor | None = None
 
     def default_target_modules(self) -> list[str]:
         return self.peft_policy.default_target_modules()
@@ -952,6 +1054,19 @@ class ShaftModelAdapter:
             min_pixels=min_pixels,
             max_pixels=max_pixels,
             padding_side=padding_side,
+        )
+
+    def prepare_rollout_image(
+        self,
+        image: Any,
+        *,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> Any:
+        return self.processor_policy.prepare_rollout_image(
+            image,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
         )
 
     def estimate_processor_image_cost(
@@ -1030,6 +1145,17 @@ class ShaftModelAdapter:
         contract: ShaftSequenceExecutionContract,
     ) -> None:
         self.sequence_execution_policy.validate_runtime(
+            model=model,
+            contract=contract,
+        )
+
+    def configure_sequence_execution(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        self.sequence_execution_policy.configure_runtime(
             model=model,
             contract=contract,
         )
@@ -1122,3 +1248,13 @@ class ModelArtifacts:
     model_info: ModelInfo
     template: object
     finetune_plan: object | None = None
+
+
+@dataclass
+class LoadedAdapterArtifacts:
+    """Adapter model plus HF assets, without a synthetic training finetune plan."""
+
+    model: torch.nn.Module
+    tokenizer: object
+    processor: object
+    model_adapter: ShaftModelAdapter

@@ -30,6 +30,10 @@
 
 校验目录是否符合当前 `finetune_mode` 的 HF/PEFT 规则。
 
+当校验 adapter 时，可同时传入 `model_name_or_path`、`revision`、`cache_dir` 和
+`local_files_only`。这些参数与训练加载器共用 HF config resolver；Hub、cache snapshot 与本地目录都会先
+解析 config identity，再验证 adapter base、模型族 variant、target modules、state keys 与 shape。
+
 对应接口：
 
 - `validate_hf_artifact()`
@@ -48,6 +52,13 @@
 - 包含标准 HF `config.json + model weights`
 - 优先保留 adapter 侧 tokenizer / processor 资产
 - 不额外生成 Shaft 自定义产物层
+- merge 前先形成与训练初始化相同的 `ResolvedModelPlan / ResolvedAdapterInit`：显式 base 不能覆盖 adapter
+  声明的 dense/MoE variant，adapter config 与权重内容 fingerprint 必须稳定，state key/shape 必须与持久化
+  PEFT 拓扑精确一致；实际权重从同一份完成 length/SHA256 校验的内存 byte snapshot 反序列化，验证通过后
+  才执行 `merge_and_unload()` 和创建输出目录
+
+`merge-peft` 同样支持 `revision`、`cache_dir`、`local_files_only`，并把它们同时用于 base model、processor
+和统一模型 plan 的解析。离线部署流水线应显式设置 `local_files_only=true`，避免 cache miss 时意外访问 Hub。
 
 ## 3. 目录类型约定
 

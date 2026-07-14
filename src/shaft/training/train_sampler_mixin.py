@@ -201,6 +201,11 @@ class ShaftTrainSamplerMixin:
         return output
 
     def log(self, logs: dict[str, float], *args: Any, **kwargs: Any) -> None:
+        efficiency_monitor = getattr(self, "efficiency_monitor", None)
+        if efficiency_monitor is not None:
+            logs.update(
+                efficiency_monitor.report_pending(device=self.args.device)
+            )
         if self._is_planned_final_metrics(logs):
             self._correct_planned_final_metrics(logs)
             self._shaft_final_metrics_corrected = True

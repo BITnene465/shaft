@@ -22,17 +22,23 @@ from shaft.data import (
     ShaftBatchMicrobatchPlan,
     ShaftDataCenter,
     ShaftSFTSampleCostProvider,
+    sft_runtime_source_identity,
     validate_sft_cost_model_adapter,
     validate_sft_cost_dataset,
 )
 from shaft.model import (
     build_model_tokenizer_processor,
-    resolve_model_adapter_from_config,
+    resolve_model_plan,
     summarize_resolved_finetune_plan,
     write_resolved_finetune_summary,
 )
 from shaft.model.generation import align_model_generation_config
-from shaft.observability import build_progress_manager
+from shaft.observability import (
+    ShaftTrainingEfficiencyContract,
+    build_progress_manager,
+    training_hardware_fingerprint,
+    training_software_fingerprint,
+)
 from shaft.plugins import (
     ExecutionProxy,
     TrainerHookCallback,
@@ -52,6 +58,12 @@ from shaft.training.batch_planning import (
     validate_batch_planning_resume_contract,
 )
 from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
+from shaft.training.efficiency import (
+    ShaftTrainingEfficiencyCallback,
+    ShaftTrainingEfficiencyMonitor,
+    ShaftTrainingEfficiencySnapshotInvalidationCallback,
+    invalidate_training_efficiency_summary,
+)
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.reproducibility import initialize_training_randomness
@@ -238,8 +250,11 @@ class ShaftSFTPipeline:
     def close(self) -> None:
         self.progress_manager.close()
 
-    def build_training_args(self) -> TrainingArguments:
-        return build_hf_training_args(self.config)
+    def build_training_args(self, *, resolved_model_plan=None) -> TrainingArguments:
+        return build_hf_training_args(
+            self.config,
+            resolved_model_plan=resolved_model_plan,
+        )
 
     def _progress_phase(self, task_id: str, *, label: str, message: str):
         if not self.progress_manager.enabled:
@@ -259,20 +274,24 @@ class ShaftSFTPipeline:
                 f"ShaftSFTPipeline only supports sft, got {algorithm_name!r}. "
                 "Use ShaftRLHFPipeline for DPO/PPO."
             )
+        invalidate_training_efficiency_summary(config.experiment.output_dir)
         validate_training_state_policy(config)
         validate_training_topology(config)
         initialize_training_randomness(
             seed=config.experiment.seed,
             full_determinism=config.train.full_determinism,
         )
-        training_args = self.build_training_args()
+        model_plan = resolve_model_plan(
+            config,
+            init_from_checkpoint=config.train.init_from_checkpoint,
+        )
+        training_args = self.build_training_args(resolved_model_plan=model_plan)
         batch_contract = build_batch_contract(
             config=config,
             training_args=training_args,
         )
-        sequence_adapter = resolve_model_adapter_from_config(config)
         sequence_execution_contract = (
-            sequence_adapter.build_sequence_execution_contract(
+            model_plan.build_sequence_execution_contract(
                 layout=batch_contract.layout,
                 device_type="cpu" if bool(config.train.use_cpu) else "cuda",
                 attention_implementation=config.model.attn_implementation,
@@ -363,13 +382,31 @@ class ShaftSFTPipeline:
         train_dataset = dataset_bundle.train_dataset
         train_sampler = dataset_bundle.train_sampler
         train_schedule = dataset_bundle.train_schedule
+        train_execution_fingerprint = str(
+            dataset_bundle.train_execution_fingerprint or ""
+        ).strip()
+        if not train_execution_fingerprint:
+            raise RuntimeError(
+                "ShaftDataCenter did not publish a train execution fingerprint."
+            )
+        if resume_checkpoint is not None:
+            validate_batching_resume_contract(
+                resume_checkpoint,
+                expected_contract=batch_contract,
+                expected_sample_execution_fingerprint=train_execution_fingerprint,
+            )
 
         with self._progress_phase("startup.model", label="model", message="loading"):
             artifacts = build_model_tokenizer_processor(
                 config,
                 init_from_checkpoint=config.train.init_from_checkpoint,
                 sequence_execution_contract=sequence_execution_contract,
+                resolved_model_plan=model_plan,
             )
+        artifacts.model_adapter.configure_sequence_execution(
+            model=artifacts.model,
+            contract=sequence_execution_contract,
+        )
         artifacts.model_adapter.validate_sequence_execution(
             model=artifacts.model,
             contract=sequence_execution_contract,
@@ -417,6 +454,7 @@ class ShaftSFTPipeline:
             training_args=training_args,
             planning_spec=planning_spec,
             batch_contract=batch_contract,
+            sample_execution_fingerprint=train_execution_fingerprint,
         )
         publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
         logger.info("[batching-metadata] %s", batching_metadata.to_dict())
@@ -436,6 +474,63 @@ class ShaftSFTPipeline:
         if use_named_eval_datasets:
             eval_dataset = dataset_bundle.eval_datasets_by_name
 
+        resume_global_step = (
+            0 if resume_checkpoint is None else _checkpoint_global_step(resume_checkpoint)
+        )
+        efficiency_enabled = bool(config.train.efficiency.enabled)
+        efficiency_monitor: ShaftTrainingEfficiencyMonitor | None = None
+        if efficiency_enabled:
+            source_identity = sft_runtime_source_identity(train_dataset)
+            efficiency_monitor = ShaftTrainingEfficiencyMonitor.from_checkpoint(
+                output_dir=config.experiment.output_dir,
+                checkpoint_dir=resume_checkpoint,
+                checkpoint_global_step=resume_global_step,
+                device_timing=(
+                    str(config.train.efficiency.device_timing).strip().lower() != "off"
+                ),
+                persist=bool(config.train.efficiency.persist),
+                contract=ShaftTrainingEfficiencyContract(
+                    algorithm=algorithm_name,
+                    model_type=config.model.model_type,
+                    model_name_or_path=config.model.model_name_or_path,
+                    model_plan_fingerprint=model_plan.fingerprint,
+                    finetune_mode=config.model.finetune.mode,
+                    torch_dtype=config.model.torch_dtype,
+                    attention_implementation=config.model.attn_implementation,
+                    seed=config.experiment.seed,
+                    max_steps=training_args.max_steps,
+                    num_train_epochs=training_args.num_train_epochs,
+                    data_world_size=batch_contract.data_world_size,
+                    gradient_accumulation_steps=(
+                        training_args.gradient_accumulation_steps
+                    ),
+                    max_length=config.data.max_length,
+                    min_pixels=config.data.min_pixels,
+                    max_pixels=config.data.max_pixels,
+                    optimizer_name=config.train.optimizer_name,
+                    scheduler_name=config.train.scheduler_name,
+                    learning_rate=config.train.learning_rate,
+                    source_fingerprint=source_identity.fingerprint,
+                    source_contract_complete=source_identity.complete,
+                    sample_execution_fingerprint=train_execution_fingerprint,
+                    software_fingerprint=training_software_fingerprint(),
+                    hardware_fingerprint=training_hardware_fingerprint(
+                        training_args.device
+                    ),
+                    measurement_protocol="shaft-efficiency-optimizer-frame-v2",
+                    timing_mode=(
+                        "cuda_optimizer_frame"
+                        if str(config.train.efficiency.device_timing).strip().lower()
+                        != "off"
+                        and training_args.device.type == "cuda"
+                        else "host_optimizer_frame"
+                    ),
+                    batch_contract_fingerprint=batch_contract.fingerprint,
+                    sequence_contract_fingerprint=(
+                        sequence_execution_contract.fingerprint
+                    ),
+                ),
+            )
         callbacks: list[Any] = [ShaftBatchingMetadataCallback(batching_metadata)]
         if train_batch_sampler is not None and planning_spec is not None:
             if planning_resume_contract is None:
@@ -452,6 +547,10 @@ class ShaftSFTPipeline:
                     resume_contract_fingerprint=planning_resume_contract,
                 )
             )
+        if efficiency_monitor is not None:
+            callbacks.append(ShaftTrainingEfficiencyCallback(efficiency_monitor))
+        else:
+            callbacks.append(ShaftTrainingEfficiencySnapshotInvalidationCallback())
         if self.progress_manager.enabled:
             callbacks.append(ShaftProgressCallback(self.progress_manager))
         if (
@@ -489,6 +588,7 @@ class ShaftSFTPipeline:
             loss_scale_name=config.train.loss_scale,
             layout=batch_contract.layout,
             packing_mode=batch_contract.packing,
+            collect_stats=efficiency_monitor is not None,
         )
         eval_collator = SFTCollator(
             model_adapter=artifacts.model_adapter,
@@ -504,6 +604,7 @@ class ShaftSFTPipeline:
             loss_scale_name=config.train.loss_scale,
             layout="padded",
             packing_mode="none",
+            collect_stats=False,
         )
         online_eval_runner = None
         if config.eval.enabled and config.eval.online_metrics_enabled:
@@ -521,6 +622,7 @@ class ShaftSFTPipeline:
                     include_targets_in_inputs=False,
                     include_metadata=True,
                     padding_side="left",
+                    collect_stats=False,
                 ),
                 progress_manager=self.progress_manager,
             )
@@ -543,9 +645,17 @@ class ShaftSFTPipeline:
             eval_config=config.eval,
             model_adapter=artifacts.model_adapter,
             finetune_plan=finetune_plan,
+            efficiency_monitor=efficiency_monitor,
         )
+        if efficiency_monitor is not None:
+            efficiency_monitor.bind_update_applied_provider(
+                lambda: not bool(trainer.accelerator.optimizer_step_was_skipped)
+            )
 
         train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
+        finalize_efficiency = getattr(trainer, "finalize_training_efficiency", None)
+        if callable(finalize_efficiency):
+            train_result.metrics.update(finalize_efficiency())
         barrier_if_distributed()
         if config.train.save_final_model:
             best_export_dir = resolve_best_export_dir(config.experiment.output_dir)

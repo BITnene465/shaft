@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from peft import PeftModel
 import pytest
+from safetensors.torch import load_file, save_file
 
 from shaft.config import RuntimeConfig
-from shaft.model import build_model_tokenizer_processor
+from shaft.model import build_model_tokenizer_processor, resolve_model_plan
+from shaft.model.builder import _expected_adapter_names_from_artifacts
 
 
 def test_init_from_adapter_requires_peft_mode(tmp_path: Path) -> None:
@@ -63,6 +66,80 @@ def test_init_from_adapter_lora_loads_weights(tmp_path: Path) -> None:
     assert tgt_lora.keys() == src_lora.keys()
     for key in src_lora:
         assert (src_lora[key] == tgt_lora[key]).all()
+
+
+def test_adapter_compatibility_uses_peft_persisted_target_canonicalization() -> None:
+    artifacts = SimpleNamespace(
+        model=SimpleNamespace(
+            peft_config={
+                "default": SimpleNamespace(
+                    target_modules={"q_proj", "v_proj"},
+                    modules_to_save=None,
+                )
+            }
+        ),
+        finetune_plan=SimpleNamespace(
+            adapter_plan=SimpleNamespace(
+                resolved_target_modules=(
+                    "model.layers.0.self_attn.q_proj",
+                    "model.layers.0.self_attn.v_proj",
+                ),
+                modules_to_save=(),
+            )
+        ),
+    )
+
+    targets, modules_to_save = _expected_adapter_names_from_artifacts(artifacts)
+
+    assert sorted(targets or ()) == ["q_proj", "v_proj"]
+    assert modules_to_save == []
+
+
+def test_init_from_adapter_rejects_missing_state_keys(tmp_path: Path) -> None:
+    cfg = RuntimeConfig()
+    cfg.model.model_type = "smoke_vlm"
+    cfg.model.model_name_or_path = "models/smoke-vlm"
+    cfg.model.finetune.mode = "lora"
+    cfg.model.finetune.target_modules = ["all-linear"]
+    artifacts = build_model_tokenizer_processor(cfg)
+    adapter_dir = tmp_path / "adapter"
+    artifacts.model.save_pretrained(adapter_dir)
+    weights_path = adapter_dir / "adapter_model.safetensors"
+    state = load_file(weights_path)
+    state.pop(next(iter(state)))
+    save_file(state, weights_path)
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        build_model_tokenizer_processor(
+            cfg,
+            init_from_checkpoint=str(adapter_dir),
+        )
+
+
+def test_adapter_plan_detects_same_size_weight_replacement_before_load(
+    tmp_path: Path,
+) -> None:
+    cfg = RuntimeConfig()
+    cfg.model.model_type = "smoke_vlm"
+    cfg.model.model_name_or_path = "models/smoke-vlm"
+    cfg.model.finetune.mode = "lora"
+    cfg.model.finetune.target_modules = ["all-linear"]
+    source = build_model_tokenizer_processor(cfg)
+    adapter_dir = tmp_path / "adapter"
+    source.model.save_pretrained(adapter_dir)
+    plan = resolve_model_plan(cfg, init_from_checkpoint=str(adapter_dir))
+
+    weights_path = adapter_dir / "adapter_model.safetensors"
+    payload = bytearray(weights_path.read_bytes())
+    payload[-1] ^= 1
+    weights_path.write_bytes(payload)
+
+    with pytest.raises(ValueError, match="changed after ResolvedModelPlan"):
+        build_model_tokenizer_processor(
+            cfg,
+            init_from_checkpoint=str(adapter_dir),
+            resolved_model_plan=plan,
+        )
 
 
 def test_init_from_adapter_mismatch_raises(tmp_path: Path) -> None:

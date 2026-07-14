@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -30,6 +31,14 @@ from tests.support.pipeline import write_sft_pipeline_config as _write_base_conf
 
 
 pytestmark = pytest.mark.component
+
+
+def _resolved_plan_for_adapter(adapter):
+    return SimpleNamespace(
+        model_adapter=adapter,
+        fingerprint="test-model-plan-v1",
+        build_sequence_execution_contract=adapter.build_sequence_execution_contract,
+    )
 
 
 def _write_config(tmp_path: Path, **kwargs):
@@ -279,8 +288,8 @@ def test_varlen_pipeline_preflights_model_policy_and_configures_train_collator(
     )
 
     with patch(
-        "shaft.pipeline.sft.resolve_model_adapter_from_config",
-        return_value=artifacts.model_adapter,
+        "shaft.pipeline.sft.resolve_model_plan",
+        return_value=_resolved_plan_for_adapter(artifacts.model_adapter),
     ):
         with patch(
             "shaft.pipeline.sft.build_model_tokenizer_processor",
@@ -322,8 +331,8 @@ def test_varlen_pipeline_rejects_unsupported_execution_before_data_or_model_load
     )
 
     with patch(
-        "shaft.pipeline.sft.resolve_model_adapter_from_config",
-        return_value=unsupported_adapter,
+        "shaft.pipeline.sft.resolve_model_plan",
+        return_value=_resolved_plan_for_adapter(unsupported_adapter),
     ):
         with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
             with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
@@ -332,6 +341,25 @@ def test_varlen_pipeline_rejects_unsupported_execution_before_data_or_model_load
 
     data_center.assert_not_called()
     build_model.assert_not_called()
+
+
+def test_pipeline_revokes_stale_efficiency_summary_before_model_resolution(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    output_dir = Path(config.experiment.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stale_summary = output_dir / "shaft_training_efficiency.json"
+    stale_summary.write_text('{"stale": true}\n', encoding="utf-8")
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        side_effect=ValueError("invalid model artifact"),
+    ):
+        with pytest.raises(ValueError, match="invalid model artifact"):
+            run_sft(config)
+
+    assert not stale_summary.exists()
 
 
 def test_bounded_pipeline_resume_loads_committed_state_and_disables_hf_skip(
@@ -407,3 +435,24 @@ def test_fixed_pipeline_keeps_plain_sample_sampler(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["train_sampler"] is not None
     assert _FakeTrainer.last_kwargs["train_batch_sampler"] is None
     assert batching_run_metadata_path(config.experiment.output_dir).is_file()
+
+
+def test_fixed_weighted_unshuffled_pipeline_uses_finite_plan_execution_identity(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = False
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            run_sft(config)
+
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    efficiency_monitor = _FakeTrainer.last_kwargs["efficiency_monitor"]
+    assert train_sampler is not None
+    assert efficiency_monitor is not None
+    execution_fingerprint = efficiency_monitor.contract.sample_execution_fingerprint
+    assert len(execution_fingerprint) == 64
+    assert execution_fingerprint != train_sampler.plan.fingerprint

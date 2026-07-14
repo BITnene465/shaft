@@ -130,7 +130,11 @@
   分片；预分片 sampler 会 fail fast。
 - `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
 - `data.transforms.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于
-  train；它变换 draw view，不改变 draw 顺序或 mixing 权重。
+  train；它变换 draw view，不改变 draw 顺序或 mixing 权重。静态/参数化 variant 都由 `shaft.prompting`
+  编译和渲染，SFT `prompt_args` 保持 JSON 类型进入同一 planning-safe transform。
+- Arrow build-time record validator 与非空 validation fingerprint 是不可拆分的 API contract；二者必须同时
+  提供或同时省略，防止 cache hit 绕过新校验。train execution fingerprint 还组合规范化 record store 与
+  `media_snapshot_id`，不能只绑定 sample 数量和 transform。
 - `data.batching` 依次声明 grouping、cardinality、packing 与 layout。四者没有覆盖优先级。
   `ShaftLengthBatchGrouping` 只排序有界候选，`ShaftGreedySequencePacker` 只组合完整 logical segments，
   `ShaftVarlenBatchLayout` 只组装计划后的 tensor；Qwen 的 attention/M-RoPE/media 语义归模型
@@ -153,6 +157,8 @@
 - `src/shaft/model/types.py`
 - `src/shaft/model/builder.py`
 - `src/shaft/model/registry.py`
+- `src/shaft/model/descriptor.py`
+- `src/shaft/model/resolution.py`
 - `src/shaft/model/policies.py`
 - `src/shaft/model/sequence.py`
 - `src/shaft/model/sharding.py`
@@ -172,6 +178,20 @@
 - `ModelMeta`
   - `hf_model_types` 是本地 HF `config.json:model_type` 兼容性校验的真源，用于在真正加载
     checkpoint 前拦截 `model.model_type` 与权重目录不匹配的问题。
+- `ResolvedModelDescriptor`
+  - 从本地或 HF cache/Hub config 解析 architecture/model type/layer facts；多 variant family 必须据此选择
+    `ModelGroup`，未知或歧义 profile fail closed，catalog basename 不能覆盖 config 事实。
+- `ResolvedModelPlan`
+  - 一次性绑定 configured/effective artifact、init kind、descriptor、`ModelMeta`、`ShaftModelAdapter` 与 HF
+    revision/cache/offline 参数。pipeline 构造一次并把同一个 plan 交给 sequence contract 与 builder，禁止
+    重复解析路径、variant 或 checkpoint 类型。
+- `ResolvedAdapterInit`
+  - adapter init 的不可变身份，绑定 canonical `adapter_config.json`、声明的 base model、权重 manifest 与
+    artifact fingerprint。builder 只消费该 plan，并以运行时 PEFT canonical target/modules-to-save 加上
+    state key/shape 完整性验证，兼容 PEFT 对完整模块路径的持久化归一化。
+- `LoadedAdapterArtifacts`
+  - model 层给 adapter merge/export 的专用返回类型，只暴露已验证的 `PeftModel` 与 processor/tokenizer/
+    model adapter；不伪造训练态 `finetune_plan`。
 - `ShaftModelAdapter`
 - `ProcessorPolicy`
 - `ShaftProcessedBatch`
@@ -213,6 +233,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 ### 关键函数
 
 - `build_model_meta()`
+- `resolve_model_plan()`
 - `build_model_tokenizer_processor()`
 - `apply_finetune_strategy()`
 - `build_resolved_finetune_plan()`
@@ -467,6 +488,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftBatchPlanningCallback`
 - `ShaftBatchingMetadataCallback`
 - `ShaftBatchContract`
+- `ShaftTrainingEfficiencyMonitor`
+- `ShaftTrainingEfficiencyCallback`
 - `Muon`
 
 ### 关键函数
@@ -515,6 +538,11 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     versioned canonical `batch_contract`、其 fingerprint、grouping/cardinality/packing/layout、topology、
     buffer/cache/budgets 与可选的 `planner_spec_fingerprint`；其中 cache 只供性能审计，不进入 exact
     contract。root export 清理必须保留，W&B `shaft_batching` 只镜像同一 payload
+  - `shaft_training_efficiency.json` 是 collator 实际 tensor 到 optimizer commit 的执行效率真源；类型化
+    contract 绑定公平 A/B identity。Trainer 在 model checkpoint 写入前发布 generation transaction，snapshot
+    set 的 revoke、rank snapshot、manifest 与 transaction commit 各自通过 fixed-tensor status convergence，
+    单 rank I/O 失败不会造成 collective mismatch；只在 transaction 已 committed 且
+    generation/step/world/rank/contract 全部一致时续算历史
 
 - `ShaftSFTTrainer` 会对一个 optimizer batch 内实际 causal labels/loss weights 求 denominator，并在 data
   ranks 间汇总；local numerator 采用同一个 global denominator，保证 gradient accumulation 与 DDP
@@ -693,6 +721,9 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `validate_hf_artifact()`
 - `infer_base_model_from_adapter()`
 - `merge_peft_adapter()`
+  - 通过 model 层 `load_adapter_artifacts()` 复用 `ResolvedModelPlan / ResolvedAdapterInit`，先验证 base
+    descriptor/variant、adapter 内容 identity 与精确 state key/shape；权重从同一份已 hash 的内存 byte
+    snapshot 反序列化，再 merge 已验证的 `PeftModel`
 
 ### 开发边界
 
@@ -741,10 +772,13 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `src/shaft/observability/events.py`
 - `src/shaft/observability/context.py`
 - `src/shaft/observability/progress.py`
+- `src/shaft/observability/efficiency.py`
 
 ### 职能
 
 - 统一日志、上下文、事件和运行进度。
+- `ShaftTrainingEfficiencySummary` 持久化 committed counts/timing/coverage/rank skew；
+  `ShaftTrainingEfficiencyContract` 区分必须相同的实验 identity 与可变化的 batch/sequence 执行轴。
 - `ShaftProgressManager` 是进程内进度真源；terminal/plain/JSON sink 只读消费与内部状态隔离的 snapshot；
   并发 mutation 原子提交并按 revision 顺序发布，close 不允许新 task 穿透。
 - 训练回调与 online eval 只做事件适配，不持有独立进度条或刷新配置。
@@ -777,6 +811,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftTerminalProgressSink`
 - `ShaftPlainProgressSink`
 - `ShaftJsonProgressSink`
+- `ShaftTrainingEfficiencyContract`
+- `ShaftTrainingEfficiencySummary`
 
 ### 开发边界
 

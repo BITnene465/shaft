@@ -27,6 +27,103 @@ stages:
     assert cfg.stages[0].name == "stage1"
 
 
+def test_load_infer_config_accepts_shared_prompt_arguments(tmp_path: Path) -> None:
+    payload = """
+engines:
+  e1:
+    model_type: smoke_vlm
+    model_name_or_path: unused
+stages:
+  - name: stage1
+    engine: e1
+    arguments:
+      payload:
+        type: json
+    user_prompt_template: "payload={{ payload | json }}"
+"""
+    cfg_path = tmp_path / "infer_dynamic.yaml"
+    cfg_path.write_text(payload, encoding="utf-8")
+
+    cfg = load_infer_config(cfg_path)
+
+    assert cfg.stages[0].arguments == {"payload": {"type": "json"}}
+
+
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        "{det_out}",
+        "{det_out!r}",
+        "{det_out:s}",
+        "{det_out.value}",
+        "{det_out[key]}",
+        "{det_out:{width}}",
+    ],
+)
+def test_load_infer_config_rejects_legacy_python_format_placeholder(
+    tmp_path: Path,
+    legacy: str,
+) -> None:
+    payload = f"""
+engines:
+  e1:
+    model_type: smoke_vlm
+    model_name_or_path: unused
+stages:
+  - name: stage1
+    engine: e1
+    user_prompt_template: "legacy {legacy}"
+"""
+    cfg_path = tmp_path / "infer_legacy.yaml"
+    cfg_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="legacy.*det_out.*double braces"):
+        load_infer_config(cfg_path)
+
+
+def test_load_infer_config_rejects_invalid_unicode_in_system_prompt(
+    tmp_path: Path,
+) -> None:
+    cfg_path = tmp_path / "infer_invalid_unicode.yaml"
+    cfg_path.write_text(
+        """
+engines:
+  mock:
+    backend: hf_local
+stages:
+  - name: invalid
+    engine: mock
+    system_prompt: "\\uD800"
+    user_prompt_template: static
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="UTF-8"):
+        load_infer_config(cfg_path)
+
+
+def test_load_infer_config_rejects_unused_prompt_arguments(tmp_path: Path) -> None:
+    payload = """
+engines:
+  e1:
+    model_type: smoke_vlm
+    model_name_or_path: unused
+stages:
+  - name: stage1
+    engine: e1
+    arguments:
+      unused: {type: string}
+    user_prompt_template: static
+"""
+    cfg_path = tmp_path / "infer_unused.yaml"
+    cfg_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unused fields.*unused"):
+        load_infer_config(cfg_path)
+
+
 def test_load_infer_config_rejects_unknown_codec(tmp_path: Path) -> None:
     payload = """
 engines:

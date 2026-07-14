@@ -14,6 +14,8 @@
 ### 2.1 必改位置
 
 - `src/shaft/model/<family>.py`
+- `src/shaft/model/descriptor.py`（只有现有 descriptor facts 不足时才扩展）
+- `src/shaft/model/resolution.py`（通常复用，不为新模型另写平行 resolver）
 - `src/shaft/template/<family>.py`
 - `src/shaft/model/policies.py`（如需新增 policy）
 - `src/shaft/model/registry.py`
@@ -23,11 +25,24 @@
 
 1. 定义 `ModelMeta`
 2. 实现对应 `ModelLoader`
-3. 需要时补 `ModelGroup`
+3. 需要时补带稳定 `name` 与 `hf_model_types` 的 `ModelGroup`；dense/MoE 等 variant 必须由 HF config
+   descriptor 选择，产品名只作 catalog hint
 4. 注册 `processor policy` / `peft policy`
 5. 实现模板
 6. 为真实 processor 输出实现并验证 batch 构造、rendered-token -> processed-token layout 与训练输入装配
-7. 补模型、模板和单次 processor 契约测试
+7. 若开放 varlen，实现 family-owned `SequenceExecutionPolicy`，同时验证 position reset、全/线性 attention
+   state isolation、media kwargs 路由、backend/kernel/version 与 runtime shim；通用 trainer 不写模型分支
+8. 补模型、模板、descriptor variant、processor 契约和 packed-vs-standalone logits/loss/gradient 测试
+
+`ResolvedModelPlan` 是 artifact/variant/adapter/sequence contract 的单一决议入口。新增模型族只能注册
+descriptor matcher 与 policy，不能在 pipeline、builder 或 loader 再按路径名推导 dense/MoE。matcher 必须
+只消费 upstream config facts；无法确认的 variant 应失败，而不是选择一个“最常见”默认值。
+生产模型默认 `uses_hf_artifacts=true`，任何不存在但符合 `namespace/repo` 的 locator 都按 Hub artifact
+解析 config；不得用 `models/outputs/checkpoints` 等 namespace 黑名单绕过。只有不代表真实 artifact 的测试
+fixture 才能显式设为 false。
+adapter 初始化也必须进入同一个 plan：外部 adapter 的 base/profile、PEFT signature 与 state shape 不得由
+loader 或具体模型族另写一套宽松校验。模型族只负责解析 target policy；PEFT 的持久化 canonicalization 和
+exact state-key 验证由通用 builder 统一处理。
 
 补充要求：
 
@@ -43,14 +58,20 @@
 - policy 必须把 processor 的非 sequence 输出分别登记为 sample-aligned、whole-batch media 或 static；
   未声明字段会 fail fast。模型/processor 升级后新增输出时，应先确认其轴语义再更新 policy 和 DPO 测试。
 - pixel-budget 支持只由 `ProcessorPolicy` 声明；通用 policy 默认不假设 processor 接受该参数。
+- GRPO/rollout 若需要预缩放，也必须实现 `ProcessorPolicy.prepare_rollout_image()`；pipeline 只注入 callable，
+  `GRPODataset` 不得按模型名选择 resize 逻辑。
 - 声明 `supports_exact_image_cost=true` 的 policy 必须让 `cost_semantics_signature()` 覆盖 estimator 读取的
   所有 processor 参数及实现版本，例如 patch/merge、tile/crop、image token 和 pixel budgets。改变任一
-  依赖状态必须改变 signature，并以参数化 conformance test 锁定；`supports_pixel_budget=false` 时收到
-  pixel budget 必须 fail fast。禁止在 data cost provider 追加模型专属字段。
+  依赖状态必须改变 signature，并以参数化 conformance test 锁定。`supports_pixel_budget=false` 表示通用
+  policy 明确不向 upstream processor 转发预算；由于全局数据配置带有默认预算，这一兼容路径不会报错。
+  如果某个模型族要求严格拒绝预算，必须在自己的 policy 中建立显式 strict contract 和测试，不能改变通用
+  默认语义。禁止在 data cost provider 追加模型专属字段。
 - token layout 必须做 exact validation。无法对齐时应在模型接入阶段失败，不允许改回逐 partial message
   重跑图片 processor，也不允许用长度差做近似 span。
 - 如果新模型声称支持多图或视频，policy 与接入测试必须覆盖真实 media nesting、grid/patch 字段和 DPO
   pair 扩展；当前单图测试不能作为多图/视频支持证明。
+- 如果 upstream 顶层会把 language kwargs 透传给 vision/audio 子模块，兼容修复必须放在版本化模型 runtime
+  adapter 中，并对 API drift fail closed；禁止在 collator/trainer 删除模型专属字段。
 
 ### 2.3 不要做的事
 

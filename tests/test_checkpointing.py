@@ -9,6 +9,7 @@ import pytest
 from shaft.config import RuntimeConfig
 from shaft.data import ShaftBatchPlanningSpec, ShaftBatchPlanningState
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
+from shaft.observability import TRAINING_EFFICIENCY_FILENAME
 from shaft.training.batch_planning import (
     BATCHING_METADATA_CALLBACK_NAME,
     BATCHING_RUN_METADATA_FILENAME,
@@ -169,6 +170,7 @@ def test_prune_root_output_layout_preserves_runtime_metadata(tmp_path: Path) -> 
         "shaft_optimizer_summary.json",
         BATCHING_RUN_METADATA_FILENAME,
         PROGRESS_SNAPSHOT_FILENAME,
+        TRAINING_EFFICIENCY_FILENAME,
     )
     for name in names:
         (root / name).write_text("{}", encoding="utf-8")
@@ -243,6 +245,14 @@ def test_bounded_resume_rejects_contract_or_optimizer_boundary_drift(
         load_batch_planning_state(
             tmp_path,
             expected_spec=_spec(buffer_size=32),
+            expected_global_step=2,
+            gradient_accumulation_steps=2,
+            expected_resume_contract_fingerprint="resume-v1",
+        )
+    with pytest.raises(ValueError, match="changed fields.*cost_fingerprint"):
+        load_batch_planning_state(
+            tmp_path,
+            expected_spec=_spec(cost_fingerprint="cost-v2"),
             expected_global_step=2,
             gradient_accumulation_steps=2,
             expected_resume_contract_fingerprint="resume-v1",
@@ -696,6 +706,7 @@ def test_checkpoint_batch_contract_roundtrip_and_resume_drift_rejection(
         min_pixels=None,
         max_pixels=None,
         source_weights=(("a", 1.0),),
+        sample_execution_fingerprint="sample-v1",
     )
     callback = ShaftBatchingMetadataCallback(metadata)
     (tmp_path / "trainer_state.json").write_text(
@@ -714,6 +725,17 @@ def test_checkpoint_batch_contract_roundtrip_and_resume_drift_rejection(
         tmp_path,
         expected_contract=metadata.batch_contract,
     ) == metadata
+    assert validate_batching_resume_contract(
+        tmp_path,
+        expected_contract=metadata.batch_contract,
+        expected_sample_execution_fingerprint="sample-v1",
+    ) == metadata
+    with pytest.raises(ValueError, match="sample execution changed"):
+        validate_batching_resume_contract(
+            tmp_path,
+            expected_contract=metadata.batch_contract,
+            expected_sample_execution_fingerprint="sample-v2",
+        )
     changed_contract = ShaftBatchContract(
         grouping="none",
         cardinality="fixed",

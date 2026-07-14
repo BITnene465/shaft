@@ -9,7 +9,10 @@ from transformers.trainer_utils import get_last_checkpoint
 from shaft.config import RuntimeConfig
 from shaft.model import ModelMeta, ShaftModelAdapter
 from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
-from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
+from shaft.observability import (
+    PROGRESS_SNAPSHOT_FILENAME,
+    TRAINING_EFFICIENCY_FILENAME,
+)
 from .batch_planning import (
     BATCHING_RUN_METADATA_FILENAME,
     checkpoint_has_batch_planning_state,
@@ -24,6 +27,7 @@ _RUN_METADATA_FILENAMES = frozenset(
         OPTIMIZER_SUMMARY_FILENAME,
         BATCHING_RUN_METADATA_FILENAME,
         PROGRESS_SNAPSHOT_FILENAME,
+        TRAINING_EFFICIENCY_FILENAME,
     }
 )
 

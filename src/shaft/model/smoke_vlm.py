@@ -245,6 +245,7 @@ SMOKE_VLM_META = ModelMeta(
     processor_policy=build_processor_policy("smoke_vlm"),
     peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
+    uses_hf_artifacts=False,
 )
 
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
+
+from shaft.prompting import ShaftPromptProgram, compile_prompt, validate_prompt_text
 
 
 @dataclass
@@ -39,6 +42,7 @@ class InferStageConfig:
     name: str
     engine: str
     user_prompt_template: str
+    arguments: dict[str, object] = field(default_factory=dict)
     output_key: str | None = None
     system_prompt: str = ""
     generation: InferGenerationConfig | None = None
@@ -56,3 +60,36 @@ class InferStageConfig:
 class InferPipelineConfig:
     engines: dict[str, InferEngineConfig] = field(default_factory=dict)
     stages: list[InferStageConfig] = field(default_factory=list)
+
+
+def compile_stage_prompt(stage: InferStageConfig, *, source: str) -> ShaftPromptProgram:
+    if not isinstance(stage.user_prompt_template, str):
+        raise ValueError(f"{source}.user_prompt_template must be a string.")
+    validate_prompt_text(stage.system_prompt, source=f"{source}.system_prompt")
+    legacy = re.search(
+        r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*):\{[A-Za-z_][A-Za-z0-9_]*\}\}(?!\})",
+        stage.user_prompt_template,
+    ) or re.search(
+        r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)(?:[.!:\[][^{\n}]*)?\}(?!\})",
+        stage.user_prompt_template,
+    )
+    if legacy is not None:
+        name = legacy.group(1)
+        raise ValueError(
+            f"{source}.user_prompt_template uses legacy placeholder {{{name}}}; "
+            f"declare arguments.{name} and use double braces: "
+            f"{{{{ {name} }}}} or {{{{ {name} | json }}}}."
+        )
+    if "{{" in stage.system_prompt:
+        raise ValueError(f"{source}.system_prompt must be static.")
+    program = compile_prompt(
+        stage.user_prompt_template,
+        arguments=stage.arguments,
+        source=f"{source}.user_prompt_template",
+    )
+    declared = set(program.schema.names)
+    referenced = set(program.referenced_arguments)
+    unused = sorted(declared - referenced)
+    if unused:
+        raise ValueError(f"{source}.arguments contains unused fields: {unused}.")
+    return program

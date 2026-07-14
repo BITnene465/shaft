@@ -83,6 +83,147 @@ def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path
     assert len(refreshed) == 2
 
 
+def test_arrow_record_validator_requires_a_validation_fingerprint(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "samples.jsonl"
+    jsonl.write_text(
+        json.dumps({"image_path": str(image), "target_text": "{}"}) + "\n",
+        encoding="utf-8",
+    )
+    cache_dir = tmp_path / "record-cache"
+    load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
+    calls: list[str] = []
+
+    with pytest.raises(ValueError, match="record_validator.*validation_fingerprint"):
+        load_jsonl_sft_records(
+            jsonl,
+            dataset_name="demo",
+            cache_dir=cache_dir,
+            record_validator=lambda record: calls.append(record.target_text),
+        )
+    assert calls == []
+
+    with pytest.raises(ValueError, match="record_validator.*validation_fingerprint"):
+        load_jsonl_sft_records(
+            jsonl,
+            dataset_name="demo",
+            cache_dir=cache_dir,
+            validation_fingerprint="prompt-schema-v1",
+        )
+
+    validated = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="demo",
+        cache_dir=cache_dir,
+        record_validator=lambda record: calls.append(record.target_text),
+        validation_fingerprint="prompt-schema-v1",
+    )
+    assert calls == ["{}"]
+    calls.clear()
+
+    cached = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="demo",
+        cache_dir=cache_dir,
+        record_validator=lambda record: calls.append(record.target_text),
+        validation_fingerprint="prompt-schema-v1",
+    )
+    assert cached.cache_path == validated.cache_path
+    assert calls == []
+
+    revalidated = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="demo",
+        cache_dir=cache_dir,
+        record_validator=lambda record: calls.append(record.target_text),
+        validation_fingerprint="prompt-schema-v2",
+    )
+    assert revalidated.cache_path != validated.cache_path
+    assert calls == ["{}"]
+
+
+def test_sft_prompt_args_are_a_typed_record_field_and_survive_arrow_cache(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "samples.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "image_path": str(image),
+                "target_text": "{}",
+                "prompt_args": {
+                    "label": "shape",
+                    "bbox": [1, 2, 30, 40],
+                    "flag": True,
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="demo",
+        cache_dir=tmp_path / "cache",
+    )[0]
+
+    assert record.prompt_args == {
+        "label": "shape",
+        "bbox": [1, 2, 30, 40],
+        "flag": True,
+    }
+    assert "prompt_args" not in record.extra
+
+
+def test_sft_source_rejects_non_object_prompt_args(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "bad-prompt-args.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "image_path": str(image),
+                "target_text": "{}",
+                "prompt_args": '{"label":"shape"}',
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="prompt_args.*JSON object"):
+        load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=tmp_path / "cache")
+
+
+def test_empty_prompt_messages_can_use_prompt_args(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
+    jsonl = tmp_path / "assistant-only.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "image_path": str(image),
+                "messages": [{"role": "assistant", "content": "{}"}],
+                "prompt_args": {"value": "x"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=tmp_path / "cache")[0]
+
+    assert record.messages == []
+    assert record.prompt_args == {"value": "x"}
+
+
 def test_missing_target_raises(tmp_path: Path) -> None:
     image = tmp_path / "img.png"
     Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)

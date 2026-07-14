@@ -199,11 +199,24 @@ optimizer/scheduler 与 RNG 保存成功后，rank 0 原子发布 completion man
 rotation；保存的是模型已完成 optimizer step 的 buffer/cursor，而不是 DataLoader 预取推进的 live cursor。
 completion 同时绑定 versioned batch contract 与 planner spec；恢复会在加载数据/模型前先校验 batch contract
 及 duration/GA/optimizer/scheduler contract。`cost_cache_size` 只影响 host LRU，不阻止 exact resume。
-当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL
-image SFT 已支持 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
+当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL 与
+HF `qwen3_5`（Qwen3.5/Qwen3.6）image SFT 已支持
+`grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
 有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
-CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP，未验收的模型族/backend/topology 会在加载数据和权重前
-fail closed。`per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。
+CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；Qwen3.5/3.6 hybrid attention 还要求
+flash-linear-attention 与 causal-conv1d。未验收的模型族/backend/topology 会在加载数据和权重前 fail closed。
+`per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。
+
+训练默认生成 committed `shaft_training_efficiency.json`：统计实际 collate 后的 useful/materialized/
+supervised tokens、logical-segment length 分布、vision patches、logical segments/physical packs、batch
+acquire、batch prepare、host/device optimizer-frame time 与 DDP rank skew。它只在成功 optimizer boundary
+提交，不会把 DataLoader prefetch 或
+`[batch-plan-summary]` 误算成已执行吞吐。可用
+`python scripts/compare_efficiency.py RUN_A RUN_B ...` 比较不同 batching/layout 的 A/B 结果；checkpoint
+内的 per-rank snapshot 支持 resume 后继续完整累计。summary 内置类型化训练契约；比较器默认拒绝模型、
+数据快照、draw schedule、DP/GA、优化器或 step span 不一致的结果，只有明确诊断时才使用
+`--allow-incompatible`。snapshot set 使用 revoke、all-rank snapshot、rank-zero manifest 三阶段提交；每个
+可失败的文件阶段都会先做固定 tensor 状态汇合，避免单 rank I/O 错误把其它 rank 留在 barrier。
 完整边界见
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。
@@ -219,6 +232,8 @@ eval workers 改变后续训练随机序列。
 ### 训练
 
 - `SFT`
+- SFT prompt pool 支持 pool 级参数 schema 与 JSONL `prompt_args`；训练 planning 和实际读取共用受限
+  `{{ name }}` / `{{ name | json }}` renderer，静态 pool 保持兼容。
 - `DPO`
 - `PPO`（受限能力，非完整生产功能）
 - `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据；数据计划可与 TRL grouped-generation sampler
@@ -229,6 +244,7 @@ eval workers 改变后续训练随机序列。
 - 本地 HF 推理：`hf_local`
 - vLLM OpenAI 兼容后端：`vllm_openai`
 - 单阶段与多阶段推理编排
+- 多阶段 prompt 使用与训练相同的受限 renderer 和显式 `arguments`；旧 Python `{name}` format 语法已移除。
 - stage 级 `codec`、重试、超时、像素预算覆盖
 
 ### 导出
@@ -301,7 +317,8 @@ uv run pytest -q -m manual
 
 ## 当前说明
 
-- 当前正式模型族实现以 `qwen3vl` 为主，`smoke_vlm` 只用于测试。
+- 当前正式训练主链覆盖 `qwen3vl`、`qwen35vl` 与 `qwen36vl`；后两者共享 upstream
+  `qwen3_5` / `qwen3_5_moe` architecture，但保留产品级注册项与模板入口。`smoke_vlm` 只用于测试。
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。

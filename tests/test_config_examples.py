@@ -82,3 +82,22 @@ def test_banana_re_configs_use_bounded_qwen_vision_contract(filename: str) -> No
     assert config.train.per_device_train_batch_size == 2
     assert config.train.gradient_accumulation_steps == 4
     assert not hasattr(config.train, "optimizer_batch")
+
+
+def test_banana_v5_1_keeps_synthetic_grounding_as_separate_weighted_source() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = load_config(root / "configs" / "train" / "banana_sft_4b_v5_1.yaml")
+    datasets = {dataset.dataset_name: dataset for dataset in config.data.datasets}
+
+    assert datasets["grounding_layout"].weight == 8.0
+    assert datasets["grounding_layout_sync"].weight == 1.0
+    assert datasets["grounding_layout_sync"].train_paths == [
+        str((root / "data" / "grounding_layout_sync" / "sft" / "train.jsonl").resolve())
+    ]
+    assert datasets["grounding_layout_sync"].val_paths == []
+    assert not datasets["grounding_layout_sync"].use_for_eval
+    assert config.data.transforms.prompt_sampling.pools["grounding_layout_sync"] == str(
+        (root / "configs" / "prompts" / "pools" / "grounding_layout.v5.0.yaml").resolve()
+    )
+    total_weight = sum(dataset.weight for dataset in config.data.datasets if dataset.enabled)
+    assert datasets["grounding_layout_sync"].weight / total_weight == 0.05

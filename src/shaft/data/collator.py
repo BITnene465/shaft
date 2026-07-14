@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from .batching import ShaftVarlenBatchLayout
+from .batching import ShaftCollatedBatchStats, ShaftVarlenBatchLayout
 from shaft.model import ShaftModelAdapter, ShaftProcessedBatch, ShaftProcessorTokenLayout
 from shaft.template import (
     ShaftChatRenderer,
@@ -114,6 +114,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         loss_scale_name: str = "default",
         layout: str = "padded",
         packing_mode: str = "none",
+        collect_stats: bool = True,
     ) -> None:
         super().__init__(
             model_adapter=model_adapter,
@@ -132,6 +133,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         self.include_metadata = bool(include_metadata)
         self.layout = str(layout).strip().lower()
         self.packing_mode = str(packing_mode).strip().lower()
+        self.collect_stats = bool(collect_stats)
         if self.layout not in {"padded", "varlen"}:
             raise ValueError(f"Unsupported SFT collator layout: {self.layout!r}.")
         if self.packing_mode not in {"none", "greedy"}:
@@ -231,6 +233,18 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             out["_shaft_varlen_layout"] = varlen_plan
             if processed_batch.media_manifest is not None:
                 out["_shaft_media_manifest"] = processed_batch.media_manifest
+        if self.collect_stats:
+            media_manifest = processed_batch.media_manifest
+            out["_shaft_batch_stats"] = ShaftCollatedBatchStats.from_training_inputs(
+                sequence_inputs=sequence_inputs,
+                varlen_plan=varlen_plan,
+                vision_patches=(
+                    None
+                    if media_manifest is None
+                    else int(media_manifest.image_patch_count)
+                ),
+                ignore_index=self.ignore_index,
+            )
         if self.include_metadata:
             out["meta"] = {
                 "dataset_name": [item["dataset_name"] for item in batch],

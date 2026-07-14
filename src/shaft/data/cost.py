@@ -27,6 +27,13 @@ from .transforms import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftSFTSourceIdentity:
+    fingerprint: str
+    complete: bool
+    incomplete_reasons: tuple[str, ...] = ()
+
+
 def _sequence_fingerprint(records: Any) -> str:
     declared = str(getattr(records, "fingerprint", "")).strip()
     if declared:
@@ -133,6 +140,45 @@ def sft_cost_source_fingerprint(dataset: Any) -> str:
         str(getattr(dataset, "media_snapshot_id", "")).strip(),
     )
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+
+def sft_runtime_source_identity(dataset: Any) -> ShaftSFTSourceIdentity:
+    """Build a non-blocking source identity for observability and A/B checks.
+
+    Planned batching still requires the stricter cost fingerprint. Fixed paths may
+    use unversioned transforms, so telemetry records an incomplete identity instead
+    of changing whether training can start.
+    """
+
+    transform_identities: list[tuple[str, str]] = []
+    incomplete_reasons: list[str] = []
+    for transform in getattr(dataset, "online_transforms", ()):
+        if is_planning_safe_online_transform(transform):
+            transform_identities.append(
+                ("versioned", planning_online_transform_fingerprint(transform))
+            )
+            continue
+        qualified_name = (
+            f"{getattr(transform, '__module__', type(transform).__module__)}."
+            f"{getattr(transform, '__qualname__', type(transform).__qualname__)}"
+        )
+        transform_identities.append(("unversioned", qualified_name))
+        incomplete_reasons.append(f"unversioned_transform:{qualified_name}")
+
+    media_snapshot_id = str(getattr(dataset, "media_snapshot_id", "")).strip()
+    if not media_snapshot_id:
+        incomplete_reasons.append("missing_media_snapshot_id")
+    payload = (
+        "shaft-sft-runtime-source-identity-v1",
+        _dataset_records_fingerprint(getattr(dataset, "records", ())),
+        tuple(transform_identities),
+        media_snapshot_id,
+    )
+    return ShaftSFTSourceIdentity(
+        fingerprint=hashlib.sha256(repr(payload).encode("utf-8")).hexdigest(),
+        complete=not incomplete_reasons,
+        incomplete_reasons=tuple(incomplete_reasons),
+    )
 
 
 def validate_sft_cost_dataset(dataset: Any) -> None:

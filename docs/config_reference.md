@@ -52,6 +52,9 @@
 
 - `model_type`
 - `model_name_or_path`
+- `revision`
+- `cache_dir`
+- `local_files_only`
 - `template`
 - `trust_remote_code`
 - `attn_implementation`
@@ -86,6 +89,10 @@
   `transformers.models.qwen3_5` 模块是否存在；MoE 模型还会检查
   `transformers.models.qwen3_5_moe`。如果当前 PyPI release 尚未包含该模型，应安装
   Transformers 主分支或项目确认过的内部 wheel。
+- Qwen3.5/3.6 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
+  `flash-attn`、`flash-linear-attention` 与 `causal-conv1d`。这是 hybrid full/linear attention 的完整
+  segment-isolation contract，不能只安装 FlashAttention 后强行开启。Qwen3.6 在 Transformers 5.10.1
+  中复用 `qwen3_5` architecture；`qwen36vl` 是产品版本 alias，不是另一套 HF forward。
 - 仓库基础依赖允许 Transformers 4.x/5.x；当前验证过的 lock 口径固定为
   `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 的 HF 本地训练与推理。
   `qwen-next` extra 用于显式固定新一代 Qwen 口径；业务 vLLM 推理镜像使用同一份
@@ -113,6 +120,18 @@
 - Shaft 会对本地 `config.json` 的 HF `model_type` 做早期校验：`qwen3vl` 期望
   `qwen3_vl`，`qwen35vl` / `qwen36vl` 期望 `qwen3_5` 或 `qwen3_5_moe`。这能在模型加载前
   发现 `model.model_type` 与权重目录不匹配的问题。
+- 同一本地 config 还会解析为 `ResolvedModelDescriptor`，按 `hf_model_type/architectures` 选择 dense/MoE
+  variant profile。非本地 HF repo 会按 `revision`、`cache_dir` 和 `local_files_only` 读取 cache/Hub config；
+  目录名仅作为已知 catalog 的离线 hint。无法取得 config 且名称又不在已知 catalog 的多变体模型会
+  fail closed，避免未知 MoE 静默使用 dense FSDP layer policy。`local_files_only=true` 禁止网络回退，但仍
+  允许使用指定 cache；loader 与 descriptor resolver 消费同一组字段。
+- `ResolvedModelPlan` 在加载前一次性决定 configured/effective artifact、base/adapter/full-checkpoint init kind、
+  descriptor、variant adapter 和 fingerprint。`init_from_checkpoint` 指向 full HF checkpoint 时，该 checkpoint
+  是模型 architecture 真源；指向 PEFT adapter 时，architecture 仍来自 `model_name_or_path` 的 base model。
+- PEFT adapter 会解析为 `ResolvedAdapterInit`，并绑定 canonical config、声明的 base artifact 和权重 manifest。
+  adapter base 必须能证明与当前 resolved model profile/config 等价；加载时比较当前运行时 PEFT canonical
+  target/modules-to-save 及全部 state key/shape。PEFT 把完整模块路径保存为等价后缀集合时，不会把同一
+  `target_modules: [auto]` adapter 误判为不兼容。
 - `configs/train/qwen36_sft_27b_fsdp_example.yaml` 是最小 SFT/FSDP+LoRA 训练示例；其中
   `transformer_layer_cls_to_wrap: ["auto"]` 会按 `qwen36vl` 模型族解析为 Qwen3.5/3.6 的 dense
   decoder 与 vision block 类名。当前 Qwen3.6 / Transformers 5.10 / PyTorch 2.10 组合下，
@@ -249,7 +268,8 @@ data:
 - `grouping`、`cardinality`、`packing`、`layout` 是分层组合的 batch contract。当前可执行组合是
   `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
   `length + fixed + greedy + varlen`，以及
-  `bounded_cost + fixed|token_budget + none + padded`。varlen 首轮只支持 Qwen3VL image SFT；其它模型族、
+  `bounded_cost + fixed|token_budget + none + padded`。varlen 支持 Qwen3VL 与 HF `qwen3_5`
+  （Qwen3.5/Qwen3.6）image SFT；其它模型族、
   greedy+padded、greedy+token-budget 和 bounded-cost+greedy 会明确失败，不会静默退回其它模式。
 - 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、
   `fixed_guard`、`planning_window`、`cost_plan_cache_dir`、`rank_balance` 和
@@ -308,11 +328,12 @@ data:
   只能作为 `init_from_checkpoint` 权重来源启动新 schedule。bounded completion 还会交叉验证该 callback 与
   planner callback 的 spec fingerprint、batch geometry 和 GA。
 
-`packing` 决定多个逻辑序列是否组合，`layout` 决定最终 tensor/attention 表示。Qwen3VL varlen 把计划好的
+`packing` 决定多个逻辑序列是否组合，`layout` 决定最终 tensor/attention 表示。Qwen varlen 把计划好的
 logical rows 展平为 `[1,total_tokens]`，不传普通 2D attention mask；每段首 label/loss weight 清零，模型
-adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。CPU eager/SDPA
-只用于正确性 oracle；CUDA release 路径要求 FlashAttention 2、bf16/fp16 与 DDP。FSDP、DeepSpeed、
-torch.compile、Qwen3.5/3.6、真正单样本多图和视频仍明确拒绝。
+adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。Qwen3.5/3.6
+hybrid model 还生成 `seq_idx/cu_seq_lens/max_length`，因此 CUDA release 路径同时要求 FlashAttention 2、
+flash-linear-attention、causal-conv1d、bf16/fp16 与 DDP；CPU 只保留 Qwen3VL eager/SDPA correctness oracle。
+FSDP、DeepSpeed、torch.compile、真正单样本多图和视频仍明确拒绝。
 
 ### `data.datasets`
 
@@ -352,6 +373,11 @@ torch.compile、Qwen3.5/3.6、真正单样本多图和视频仍明确拒绝。
 - `prefetch_factor` 是每个 worker 预取 batch 数，仅在 `num_workers>0` 时传给 HF DataLoader。
 - JSONL 首次加载时会规范化到 source snapshot 指纹化的 Arrow cache；`record_cache_dir` 可覆盖默认的
   `~/.cache/shaft/records`。后续 rank/worker 使用只读 mmap，不再各自保留完整 Python record list。
+- SFT JSONL 可使用顶层 `prompt_args` 保存 prompt 模板参数。它必须是 JSON object，是 Arrow record 的正式
+  JSON 字段，不会进入 `extra`；提供完整 `messages` 的行不能同时提供非空 `prompt_args`。
+- DataCenter 在首次构建 Arrow cache 时按对应 pool program 校验每条 SFT record；验证 program fingerprint
+  进入 cache key。后续 mmap 命中表示该 source snapshot 已在同一 schema/template 语义下通过验证，不需要
+  每次启动重新扫描全量数据，也不会先解码图片再在 worker 中发现参数错误。
 - `image_cache_size` 是每个 worker 的解码后 PIL 图像 LRU 容量，默认 `0`（关闭）。多 rank/worker
   环境应按总内存预算谨慎开启。
 - `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
@@ -414,12 +440,46 @@ prompts:
     user_prompt: JSON only.
 ```
 
+参数化 variant 使用 pool 级 `arguments` schema；同一个 pool 的所有静态/动态 variant 共用该 schema：
+
+```yaml
+metadata:
+  id: shaft.reconstruction.prompt_pool.v1
+  version: v1
+arguments:
+  target_type:
+    type: enum
+    values: [shape, line]
+    required: true
+  target_bbox:
+    type: bbox_2d_0_999
+    required: true
+prompts:
+  - id: main
+    system_prompt: Return JSON only.
+    user_prompt_template: >-
+      Reconstruct {{ target_type }} at {{ target_bbox | json }}.
+```
+
+对应 SFT 行只保存参数：
+
+```json
+{"image_path":"images/a.png","target_text":"{}","prompt_args":{"target_type":"shape","target_bbox":[10,20,300,400]}}
+```
+
 约束：
 
 - prompt pool 路径相对训练 YAML 所在目录解析；一个数据集只能指向一个 pool 文件。
 - pool 只按 `dataset_name` 匹配，不能跨任务复用不同 label scope 的 prompt。
-- 每个 pool YAML 必须包含 `metadata.id`、版本信息和非空 `prompts` 列表；每个 prompt variant 必须包含
-  `id` 和 `user_prompt`。
+- 每个 pool YAML 必须包含 `metadata.id`、版本信息和非空 `prompts` 列表；每个 variant 必须包含 `id`，并且
+  只能选择静态 `user_prompt` 或动态 `user_prompt_template` 之一。
+- 动态语法只有 `{{ name }}` 与 `{{ name | json }}`。普通单花括号按字面量保留，因此 JSON 示例无需转义；
+  不支持 Jinja、属性访问、表达式或任意代码。无 `json` filter 的插值只适用于 `string/enum`。
+- 参数类型支持 `string/enum/integer/float/boolean/json/bbox_2d_0_999`。参数必须齐全且不能多出 schema
+  外字段；数值必须有限，bbox 必须是合法的 `0..999` 整数坐标且顺序正确。`json` filter 使用稳定的
+  UTF-8 compact/sorted-key JSON。
+- `system_prompt` 始终静态。pool 未声明参数时样本不得携带非空 `prompt_args`；关闭 prompt sampling 时同样
+  fail fast，避免参数被静默忽略。
 - variant 可配置非负 `sampling_weight`；运行时会归一化为概率。省略时默认为 `1.0`，因此整个 pool
   省略该字段就是等概率。至少一个 variant 的 weight 必须大于 0。
 - 启用后，所有正权重 train source 都必须有对应 pool；当 `train_only=false` 时，启用的 eval source
@@ -431,6 +491,12 @@ prompts:
   在 resume、多 worker 和分布式场景下仍可复现。
 - 当前实现只替换 `system_prompt/user_prompt` 形式的样本；如果样本已经提供多轮 `messages`，会跳过采样并在
   `extra.prompt_sampling_skipped` 里记录原因。
+- 规划读取和实际 DataLoader 读取调用同一 transform/renderer。审计 metadata 记录 renderer 版本、模板、参数
+  与最终文本的 SHA256；transform fingerprint 同时绑定 pool schema、模板内容与 renderer 版本。
+- exact resume 的 sample execution identity 同时绑定 sample plan/schedule、按 dataset 排序的规范化 record-store
+  fingerprint、`media_snapshot_id` 和 online transform fingerprint；修改 JSONL `prompt_args`、媒体快照、prompt
+  program、schema、weight 或 renderer 后，都不能继续旧 optimizer schedule，只能恢复原输入或把旧 checkpoint
+  作为 `init_from_checkpoint` 启动新 schedule。
 
 补充说明：
 
@@ -485,6 +551,7 @@ prompts:
 - `save_final_state`
 - `init_from_checkpoint`
 - `resume_from_checkpoint`
+- `efficiency`
 - `distributed`
 
 保存与恢复边界：
@@ -502,6 +569,37 @@ prompts:
   以及支持该能力的 FlashAttention deterministic backward。它用于 bitwise CUDA resume/fresh
   reproduction 验收，通常会降低吞吐；默认关闭。若默认关闭，planning/data/optimizer 状态仍可精确恢复，
   但非确定性 CUDA kernel 可能让两次运行产生正常的微小数值差异。
+
+### `train.efficiency`
+
+```yaml
+train:
+  efficiency:
+    enabled: true
+    device_timing: auto  # auto | off
+    persist: true
+```
+
+- 默认打开，覆盖普通 fixed padded 和所有 planned SFT batching 组合；它不改变 planner、loss 或 checkpoint
+  正确性语义。
+- `device_timing=auto` 在 CUDA 上从 optimizer frame 的第一次 `training_step` 到 optimizer 完成记录一对延迟
+  解析的 events，覆盖该 frame 的 forward/backward 与 optimizer device timeline，只在 logging/final window
+  同步；每个 committed frame、每个 rank 都必须有完整 event coverage。`off` 仍保留 iterator acquire、
+  batch denominator prepare、training-step 与 optimizer host wall time。
+- 周期指标在 `Trainer.log()` 进入 W&B/console 前合并；最终版本化真源是 run root 的
+  `shaft_training_efficiency.json`。`[batch-plan-summary]` 只表示 planner producer，不等于执行吞吐。
+- checkpoint 保存每 rank 的可选 `shaft_training_efficiency_rank<N>.json`。任一 rank 的 snapshot 缺失、损坏、
+  span 或 contract 不一致时，所有 rank 都丢弃旧 telemetry history；这不阻止模型/optimizer exact resume，
+  但最终 summary 会标记 `complete_history=false`。全套 snapshot 有效时从 checkpoint step 延续且不重复累计。
+  Trainer 在覆盖 model checkpoint 前先写入本次 generation 的 `pending/revoked` transaction；revoke、rank
+  snapshot write、manifest commit 与最终 transaction commit 都执行 all-rank 状态汇合。`persist=false` 也会
+  先把 transaction 标为 revoked，再清除同名 checkpoint 的旧 snapshot set，避免 I/O 失败或后续 run 误恢复
+  另一 generation。
+- 使用 `python scripts/compare_efficiency.py RUN_A RUN_B ...` 比较 committed throughput、padding、
+  segments/pack、logical-segment length 分布和 rank skew。工具默认校验模型、数据/source fingerprint、
+  draw schedule、DP/GA、优化器和 committed step span，只允许 batch/sequence contract 作为实验轴变化；
+  `--allow-incompatible` 仅供明确接受非公平结果的诊断。fixed path 中未版本化的 online transform 或缺失
+  `media_snapshot_id` 不阻止训练，但会令 source identity 标为 incomplete，默认不能进入公平多 run 比较。
 
 ### `train.duration`
 
@@ -826,7 +924,9 @@ eval:
 
 - `rollout` 是 GRPO 采样行为的真源；旧的 flat 字段如 `max_completion_length` 和 `use_vllm` 仍兼容，但新配置应写入 `rollout / vllm`。
 - `vllm.mode=colocate` 表示 vLLM 与训练进程共享同一组 GPU，适合 smoke 或单机资源有限场景；长训更推荐 `server` 模式，把 rollout 服务和训练进程拆开。
-- 对 VLM GRPO，`data.max_pixels` 会在 `GRPODataset` 层先应用到 PIL 图像；否则 TRL/vLLM 会绕过 SFT collator，按原始大图展开过多 multimodal tokens。
+- 对 VLM GRPO，TRL/vLLM 会绕过 SFT collator，因此 RLHF pipeline 把 model-owned
+  `ProcessorPolicy.prepare_rollout_image()` 注入 `GRPODataset`。Qwen policy 使用 `data.min_pixels/max_pixels`
+  做像素预算；通用 dataset 不理解 Qwen factor/aspect-ratio，后续模型族必须实现自己的 policy。
 - `vllm.max_model_length` 必须覆盖实际 prompt multimodal tokens 与 `rollout.max_completion_length` 的总长度；`max_completion_length=1024` 只限制生成长度，不限制图像 prompt 长度。
 - 当前 GRPO 复用 `jsonl_sft` 数据格式：
   - prompt 来自 `messages` 或 `system_prompt + user_prompt`

@@ -139,6 +139,8 @@ class ShaftProgressCallback(TrainerCallback):
         metrics: dict[str, Any] = {}
         if "loss" in logs:
             metrics["loss"] = logs["loss"]
+        if "efficiency/useful_tokens_per_second" in logs:
+            metrics["tok/s"] = logs["efficiency/useful_tokens_per_second"]
         if metrics:
             self.training_task.update(metrics=metrics)
 

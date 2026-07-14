@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import copy
 import time
 from typing import Any
 
 from shaft.codec import decode_with_codec
+from shaft.prompting import ShaftPromptProgram
 from .engine import ShaftInferEngine, ShaftInferRequest
-from .schema import InferPipelineConfig, InferStageConfig
+from .schema import InferPipelineConfig, InferStageConfig, compile_stage_prompt
 
 
 @dataclass
@@ -33,6 +35,13 @@ class ShaftInferStageResult:
     error: str | None = None
     prompt: str | None = None
     history: list[ShaftInferStageAttempt] | None = None
+    prompt_audit: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedStage:
+    config: InferStageConfig
+    prompt: ShaftPromptProgram
 
 
 class ShaftInferPipeline:
@@ -41,8 +50,15 @@ class ShaftInferPipeline:
             raise ValueError("ShaftInferPipeline requires at least one engine.")
         if not stages:
             raise ValueError("ShaftInferPipeline requires at least one stage.")
-        self.engines = engines
-        self.stages = stages
+        self.engines = dict(engines)
+        self._stages = tuple(
+            _resolve_stage(stage)
+            for stage in stages
+        )
+
+    @property
+    def stages(self) -> tuple[InferStageConfig, ...]:
+        return tuple(copy.deepcopy(item.config) for item in self._stages)
 
     @classmethod
     def from_config(cls, config: InferPipelineConfig) -> "ShaftInferPipeline":
@@ -54,8 +70,14 @@ class ShaftInferPipeline:
         context["image_path"] = image_path
         traces: list[ShaftInferStageResult] = []
 
-        for stage in self.stages:
-            result = self._run_stage(stage=stage, image_path=image_path, context=context)
+        for resolved in self._stages:
+            stage = resolved.config
+            result = self._run_stage(
+                stage=stage,
+                prompt_program=resolved.prompt,
+                image_path=image_path,
+                context=context,
+            )
             traces.append(result)
             if result.success:
                 context[result.output_key] = result.parsed
@@ -77,6 +99,7 @@ class ShaftInferPipeline:
         self,
         *,
         stage: InferStageConfig,
+        prompt_program: ShaftPromptProgram,
         image_path: str,
         context: dict[str, Any],
     ) -> ShaftInferStageResult:
@@ -95,11 +118,19 @@ class ShaftInferPipeline:
         latest_output_text: str | None = None
         latest_prompt: str | None = None
         latest_parsed: Any = None
+        prompt_values = {
+            name: context[name]
+            for name in prompt_program.schema.names
+            if name in context
+        }
+        user_prompt, prompt_audit = prompt_program.render_with_audit(
+            prompt_values,
+            context=f"infer stage {stage.name!r}",
+        )
 
         for attempt_index in range(max_retries + 1):
             t0 = time.perf_counter()
             try:
-                user_prompt = stage.user_prompt_template.format(**context)
                 response = engine.run(
                     ShaftInferRequest(
                         image_path=image_path,
@@ -144,6 +175,7 @@ class ShaftInferPipeline:
                     parsed=latest_parsed,
                     prompt=latest_prompt,
                     history=attempts,
+                    prompt_audit=prompt_audit,
                 )
             except Exception as exc:  # noqa: BLE001
                 elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -172,4 +204,13 @@ class ShaftInferPipeline:
             error=latest_error,
             prompt=latest_prompt,
             history=attempts,
+            prompt_audit=prompt_audit,
         )
+
+
+def _resolve_stage(stage: InferStageConfig) -> _ResolvedStage:
+    config = copy.deepcopy(stage)
+    return _ResolvedStage(
+        config=config,
+        prompt=compile_stage_prompt(config, source=f"infer stage {config.name!r}"),
+    )

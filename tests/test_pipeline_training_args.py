@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -359,6 +360,68 @@ def test_build_hf_training_args_resolves_qwen36vl_fsdp_auto_layers(tmp_path: Pat
     assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
         "Qwen3_5DecoderLayer",
         "Qwen3_5VisionBlock",
+    ]
+
+
+def test_fsdp_auto_layers_consume_descriptor_driven_model_plan(tmp_path: Path) -> None:
+    model_dir = tmp_path / "custom-qwen-moe"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "qwen3_5_moe",
+                "architectures": ["Qwen3_5MoeForConditionalGeneration"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _write_config(tmp_path)
+    config.model.model_type = "qwen36vl"
+    config.model.model_name_or_path = str(model_dir)
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+    from shaft.model import resolve_model_plan
+
+    model_plan = resolve_model_plan(config)
+    args = build_hf_training_args(config, resolved_model_plan=model_plan)
+
+    assert model_plan.model_adapter.group_name == "moe"
+    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
+        "Qwen3_5MoeDecoderLayer",
+        "Qwen3_5MoeVisionBlock",
+    ]
+
+
+def test_fsdp_auto_layers_follow_full_init_checkpoint_descriptor(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint-moe"
+    checkpoint.mkdir()
+    (checkpoint / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "qwen3_5_moe",
+                "architectures": ["Qwen3_5MoeForConditionalGeneration"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _write_config(tmp_path)
+    config.model.model_type = "qwen36vl"
+    config.model.model_name_or_path = "models/Qwen3.6-27B"
+    config.train.init_from_checkpoint = str(checkpoint)
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
+    from shaft.model import resolve_model_plan
+
+    model_plan = resolve_model_plan(
+        config,
+        init_from_checkpoint=config.train.init_from_checkpoint,
+    )
+    args = build_hf_training_args(config, resolved_model_plan=model_plan)
+
+    assert model_plan.model_adapter.group_name == "moe"
+    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
+        "Qwen3_5MoeDecoderLayer",
+        "Qwen3_5MoeVisionBlock",
     ]
 
 

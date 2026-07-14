@@ -40,6 +40,13 @@ class TrainDurationConfig:
 
 
 @dataclass
+class TrainEfficiencyConfig:
+    enabled: bool = True
+    device_timing: str = "auto"  # auto | off
+    persist: bool = True
+
+
+@dataclass
 class TrainConfig:
     duration: TrainDurationConfig = field(default_factory=TrainDurationConfig)
     per_device_train_batch_size: int = 1
@@ -76,6 +83,7 @@ class TrainConfig:
     save_final_state: bool = True
     init_from_checkpoint: str | None = None
     resume_from_checkpoint: str | None = None
+    efficiency: TrainEfficiencyConfig = field(default_factory=TrainEfficiencyConfig)
     distributed: TrainDistributedConfig = field(default_factory=TrainDistributedConfig)
 
 

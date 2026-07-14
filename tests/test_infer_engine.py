@@ -17,6 +17,20 @@ from shaft.infer import (
     ShaftInferRequest,
 )
 import shaft.infer.engine as infer_engine_module
+from shaft.infer.engine import HFLocalInferAdapter
+
+
+def test_hf_local_dynamic_prompt_message_remains_image_first() -> None:
+    adapter = object.__new__(HFLocalInferAdapter)
+
+    messages = adapter._build_messages(
+        system_prompt="system",
+        user_prompt="dynamic text",
+    )
+
+    assert messages[1]["role"] == "user"
+    assert messages[1]["content"][0] == {"type": "image"}
+    assert messages[1]["content"][1] == {"type": "text", "text": "dynamic text"}
 
 
 def test_smoke_vlm_engine_can_generate(tmp_path: Path) -> None:
@@ -200,6 +214,10 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
     assert body["seed"] == 11
     assert body["messages"][0]["role"] == "system"
     assert body["messages"][1]["content"][0]["type"] == "image_url"
+    assert body["messages"][1]["content"][1] == {
+        "type": "text",
+        "text": "return json",
+    }
 
 
 def test_vllm_openai_qwen35vl_disables_thinking_by_default(monkeypatch, tmp_path: Path) -> None:

@@ -46,6 +46,11 @@ class ConvertConfig:
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec("grounding_arrow", "grounding", "configs/prompts/pools/grounding_arrow.v2.4.yaml"),
     TaskSpec("grounding_layout", "grounding", "configs/prompts/pools/grounding_layout.v5.0.yaml"),
+    TaskSpec(
+        "grounding_layout_sync",
+        "grounding",
+        "configs/prompts/pools/grounding_layout.v5.0.yaml",
+    ),
     TaskSpec("grounding_shape", "grounding", "configs/prompts/pools/grounding_shape.v2.4.yaml"),
     TaskSpec(
         "grounding_icon_image",
@@ -488,7 +493,8 @@ def _write_readme(
         f"- Last converted split counts from structured extra: `{dict(split_counts)}`\n"
         f"{_target_contract_summary(task)}"
         "- Coordinate bins: `1000`\n"
-        "- Image paths are relative to this `sft/` directory and point back to task-local images.\n"
+        "- Image paths are relative to this `sft/` directory and resolve to the structured "
+        "row's source image.\n"
     )
     _atomic_write_text(path, content)
 

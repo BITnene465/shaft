@@ -1,4 +1,5 @@
 from .batching import (
+    ShaftCollatedBatchStats,
     ShaftGreedySequencePacker,
     ShaftLengthBatchGrouping,
     ShaftLocalMicroBatchPlan,
@@ -17,7 +18,9 @@ from .cost import (
     ShaftSampleCostProvider,
     ShaftRowInvariantCostProvider,
     ShaftSFTSampleCostProvider,
+    ShaftSFTSourceIdentity,
     sft_cost_source_fingerprint,
+    sft_runtime_source_identity,
     validate_sft_cost_model_adapter,
     validate_sft_cost_dataset,
 )
@@ -72,6 +75,7 @@ from .transforms import (
 )
 
 __all__ = [
+    "ShaftCollatedBatchStats",
     "OFFLINE_TRANSFORM_REGISTRY",
     "ONLINE_TRANSFORM_REGISTRY",
     "ShaftOnlineTransformPlanningPolicy",
@@ -121,7 +125,9 @@ __all__ = [
     "ShaftSampleCost",
     "ShaftSampleCostProvider",
     "ShaftSFTSampleCostProvider",
+    "ShaftSFTSourceIdentity",
     "sft_cost_source_fingerprint",
+    "sft_runtime_source_identity",
     "ShaftSamplePlan",
     "ShaftSampleRef",
     "ShaftSampleSchedule",

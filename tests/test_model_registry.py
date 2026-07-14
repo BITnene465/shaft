@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from types import MethodType
+from types import MethodType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -176,25 +176,23 @@ def test_builder_dispatches_registry() -> None:
         _ = self, cfg, model_meta, model_adapter, sequence_execution_contract
         return fake_artifacts
 
-    fake_meta = type(
-        "Meta",
-        (),
-        {
-            "resolve_adapter": lambda self, *, model_name_or_path, template_type=None: type(
-                "Adapter",
-                (),
-                {"check_requires": lambda self: None},
-            )(),
-            "loader": type(
-                "Loader",
-                (),
-                {"build": build_fake_artifacts},
-            )(),
-        },
-    )()
-    with patch("shaft.model.builder.build_model_meta", return_value=fake_meta) as mocked:
+    fake_meta = SimpleNamespace(
+        loader=type("Loader", (), {"build": build_fake_artifacts})(),
+    )
+    fake_adapter = SimpleNamespace(check_requires=lambda: None)
+    fake_plan = SimpleNamespace(
+        init_from_checkpoint=None,
+        init_kind="base",
+        effective_model_name_or_path=config.model.model_name_or_path,
+        model_meta=fake_meta,
+        model_adapter=fake_adapter,
+    )
+    with patch(
+        "shaft.model.builder.resolve_model_plan",
+        return_value=fake_plan,
+    ) as mocked:
         out = build_model_tokenizer_processor(config)
-    mocked.assert_called_once_with("qwen3vl")
+    mocked.assert_called_once_with(config, init_from_checkpoint=None)
     assert out is fake_artifacts
 
 

@@ -371,6 +371,7 @@ class ShaftBatchingRunMetadata:
     resource_budgets: tuple[tuple[str, int], ...] = ()
     batch_contract_fingerprint: str | None = None
     planner_spec_fingerprint: str | None = None
+    sample_execution_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         contract = self.batch_contract
@@ -474,6 +475,7 @@ class ShaftBatchingRunMetadata:
             "batch_contract": batch_contract.to_dict(),
             "batch_contract_fingerprint": self.batch_contract_fingerprint,
             "planner_spec_fingerprint": self.planner_spec_fingerprint,
+            "sample_execution_fingerprint": self.sample_execution_fingerprint,
         }
 
     @classmethod
@@ -542,6 +544,11 @@ class ShaftBatchingRunMetadata:
                 if payload.get("planner_spec_fingerprint") is None
                 else str(payload["planner_spec_fingerprint"])
             ),
+            sample_execution_fingerprint=(
+                None
+                if payload.get("sample_execution_fingerprint") is None
+                else str(payload["sample_execution_fingerprint"])
+            ),
         )
         if metadata.batch_contract != serialized_contract:
             expected = serialized_contract.to_dict()
@@ -587,6 +594,7 @@ def build_batching_run_metadata(
     training_args: Any,
     planning_spec: ShaftBatchPlanningSpec | None = None,
     batch_contract: ShaftBatchContract | None = None,
+    sample_execution_fingerprint: str | None = None,
 ) -> ShaftBatchingRunMetadata:
     contract = batch_contract or build_batch_contract(
         config=config,
@@ -656,6 +664,11 @@ def build_batching_run_metadata(
         batch_contract_fingerprint=contract.fingerprint,
         planner_spec_fingerprint=(
             None if planning_spec is None else planning_spec.fingerprint
+        ),
+        sample_execution_fingerprint=(
+            None
+            if sample_execution_fingerprint is None
+            else str(sample_execution_fingerprint)
         ),
     )
 
@@ -815,6 +828,7 @@ def validate_batching_resume_contract(
     path: str | Path,
     *,
     expected_contract: ShaftBatchContract,
+    expected_sample_execution_fingerprint: str | None = None,
 ) -> ShaftBatchingRunMetadata:
     metadata = load_checkpoint_batching_metadata(path)
     actual_contract = metadata.batch_contract
@@ -831,6 +845,16 @@ def validate_batching_resume_contract(
             f"changed fields: {differences}. Start a new training schedule from "
             "model weights or restore the original batching settings."
         )
+    if expected_sample_execution_fingerprint is not None:
+        actual_execution_fingerprint = str(
+            metadata.sample_execution_fingerprint or ""
+        ).strip()
+        if actual_execution_fingerprint != str(expected_sample_execution_fingerprint):
+            raise ValueError(
+                "Training sample execution changed across exact resume. Restore the "
+                "original data schedule/prompt transforms or start a new training "
+                "schedule from model weights."
+            )
     return metadata
 
 

@@ -104,6 +104,9 @@ class Qwen3VLLoader(ModelLoader):
         common_kwargs = {
             "trust_remote_code": bool(config.model.trust_remote_code),
             "dtype": resolved_dtype,
+            "revision": config.model.revision,
+            "cache_dir": config.model.cache_dir,
+            "local_files_only": bool(config.model.local_files_only),
         }
         if config.model.device_map not in (None, ""):
             common_kwargs["device_map"] = config.model.device_map
@@ -154,6 +157,9 @@ class Qwen3VLLoader(ModelLoader):
             model_name,
             trust_remote_code=config.model.trust_remote_code,
             fix_mistral_regex=False,
+            revision=config.model.revision,
+            cache_dir=config.model.cache_dir,
+            local_files_only=bool(config.model.local_files_only),
         )
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is None:
@@ -161,6 +167,9 @@ class Qwen3VLLoader(ModelLoader):
                 model_name,
                 trust_remote_code=config.model.trust_remote_code,
                 fix_mistral_regex=False,
+                revision=config.model.revision,
+                cache_dir=config.model.cache_dir,
+                local_files_only=bool(config.model.local_files_only),
             )
         if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
             tokenizer.pad_token = tokenizer.eos_token

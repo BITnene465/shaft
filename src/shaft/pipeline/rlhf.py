@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from functools import partial
 import logging
 from typing import Any
 
@@ -22,7 +23,7 @@ from shaft.data import (
     SFTDataset,
     ShaftDataCenter,
 )
-from shaft.model import build_model_tokenizer_processor
+from shaft.model import build_model_tokenizer_processor, resolve_model_plan
 from shaft.model import summarize_resolved_finetune_plan, write_resolved_finetune_summary
 from shaft.observability import build_progress_manager
 from shaft.plugins import (
@@ -52,6 +53,7 @@ from shaft.training.checkpointing import (
 from shaft.training.distributed import barrier_if_distributed
 from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
+from shaft.training.efficiency import invalidate_training_efficiency_summary
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .training_args import build_hf_training_args
@@ -69,8 +71,11 @@ class ShaftRLHFPipeline:
     def close(self) -> None:
         self.progress_manager.close()
 
-    def build_training_args(self) -> TrainingArguments:
-        return build_hf_training_args(self.config)
+    def build_training_args(self, *, resolved_model_plan=None) -> TrainingArguments:
+        return build_hf_training_args(
+            self.config,
+            resolved_model_plan=resolved_model_plan,
+        )
 
     def _progress_phase(self, task_id: str, *, label: str, message: str):
         if not self.progress_manager.enabled:
@@ -106,6 +111,7 @@ class ShaftRLHFPipeline:
             raise ValueError(
                 f"ShaftRLHFPipeline only supports dpo/ppo/grpo, got algorithm={algorithm_name!r}."
             )
+        invalidate_training_efficiency_summary(config.experiment.output_dir)
 
         validate_training_state_policy(config)
         validate_training_topology(config)
@@ -113,7 +119,11 @@ class ShaftRLHFPipeline:
             seed=config.experiment.seed,
             full_determinism=config.train.full_determinism,
         )
-        training_args = self.build_training_args()
+        model_plan = resolve_model_plan(
+            config,
+            init_from_checkpoint=config.train.init_from_checkpoint,
+        )
+        training_args = self.build_training_args(resolved_model_plan=model_plan)
         batch_contract = build_batch_contract(
             config=config,
             training_args=training_args,
@@ -150,6 +160,7 @@ class ShaftRLHFPipeline:
             artifacts = build_model_tokenizer_processor(
                 config,
                 init_from_checkpoint=config.train.init_from_checkpoint,
+                resolved_model_plan=model_plan,
             )
         finetune_plan = getattr(artifacts, "finetune_plan", None)
         if finetune_plan is not None:
@@ -199,8 +210,11 @@ class ShaftRLHFPipeline:
         if algorithm_name == "grpo":
             grpo_dataset_kwargs = {
                 "template": artifacts.template,
-                "min_pixels": config.data.min_pixels,
-                "max_pixels": config.data.max_pixels,
+                "image_preprocessor": partial(
+                    artifacts.model_adapter.prepare_rollout_image,
+                    min_pixels=config.data.min_pixels,
+                    max_pixels=config.data.max_pixels,
+                ),
             }
             train_dataset = GRPODataset(train_dataset, **grpo_dataset_kwargs)
             if eval_dataset is not None and not (

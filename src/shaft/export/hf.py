@@ -4,10 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 
-from peft import PeftConfig, PeftModel
+from peft import PeftConfig
 
 from shaft.config import RuntimeConfig
-from shaft.model import build_model_meta, build_model_tokenizer_processor
+from shaft.model import (
+    build_model_meta,
+    load_adapter_artifacts,
+    resolve_model_plan,
+)
 from shaft.training.checkpointing import (
     CheckpointLayout,
     ensure_hf_export_layout,
@@ -43,6 +47,9 @@ def _build_export_runtime_config(
     template: str | None,
     trust_remote_code: bool,
     torch_dtype: str,
+    revision: str | None = None,
+    cache_dir: str | None = None,
+    local_files_only: bool = False,
 ) -> RuntimeConfig:
     config = RuntimeConfig()
     config.model.model_type = str(model_type).strip().lower()
@@ -50,6 +57,9 @@ def _build_export_runtime_config(
     config.model.template = template
     config.model.trust_remote_code = bool(trust_remote_code)
     config.model.torch_dtype = str(torch_dtype)
+    config.model.revision = revision
+    config.model.cache_dir = cache_dir
+    config.model.local_files_only = bool(local_files_only)
     config.model.finetune.mode = "full"
     return config
 
@@ -59,16 +69,26 @@ def _resolve_model_export_meta(
     model_type: str | None,
     model_name_or_path: str | None,
     template: str | None,
+    revision: str | None = None,
+    cache_dir: str | None = None,
+    local_files_only: bool = False,
 ):
     if model_type is None:
         return None
     model_meta = build_model_meta(str(model_type).strip().lower())
     if model_name_or_path is None:
         return model_meta
-    return model_meta.resolve_adapter(
+    config = _build_export_runtime_config(
+        model_type=str(model_type),
         model_name_or_path=str(model_name_or_path),
-        template_type=template,
+        template=template,
+        trust_remote_code=True,
+        torch_dtype="bfloat16",
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
     )
+    return resolve_model_plan(config).model_adapter
 
 
 def validate_hf_artifact(
@@ -78,11 +98,17 @@ def validate_hf_artifact(
     model_type: str | None = None,
     model_name_or_path: str | None = None,
     template: str | None = None,
+    revision: str | None = None,
+    cache_dir: str | None = None,
+    local_files_only: bool = False,
 ) -> CheckpointLayout:
     model_meta = _resolve_model_export_meta(
         model_type=model_type,
         model_name_or_path=model_name_or_path,
         template=template,
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
     )
     ensure_hf_export_layout(path, finetune_mode=finetune_mode, model_meta=model_meta)
     return inspect_hf_artifact(path)
@@ -141,6 +167,9 @@ def merge_peft_adapter(
     torch_dtype: str = "bfloat16",
     safe_serialization: bool = True,
     max_shard_size: str = "5GB",
+    revision: str | None = None,
+    cache_dir: str | None = None,
+    local_files_only: bool = False,
 ) -> ExportMergeResult:
     adapter_dir = Path(adapter_path)
     ensure_hf_export_layout(adapter_dir, finetune_mode="lora")
@@ -156,8 +185,6 @@ def merge_peft_adapter(
             raise ValueError(f"Output path exists and is not a directory: {target_dir}")
         if any(target_dir.iterdir()):
             raise ValueError(f"Output directory must be empty: {target_dir}")
-    else:
-        target_dir.mkdir(parents=True, exist_ok=True)
 
     config = _build_export_runtime_config(
         model_type=model_type,
@@ -165,13 +192,21 @@ def merge_peft_adapter(
         template=template,
         trust_remote_code=trust_remote_code,
         torch_dtype=torch_dtype,
+        revision=revision,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
     )
-    artifacts = build_model_tokenizer_processor(config)
-    merged_model = PeftModel.from_pretrained(
-        artifacts.model,
-        str(adapter_dir),
-        is_trainable=False,
-    ).merge_and_unload()
+    model_plan = resolve_model_plan(
+        config,
+        init_from_checkpoint=str(adapter_dir),
+    )
+    artifacts = load_adapter_artifacts(
+        config,
+        adapter_path=str(adapter_dir),
+        resolved_model_plan=model_plan,
+    )
+    merged_model = artifacts.model.merge_and_unload()
+    target_dir.mkdir(parents=True, exist_ok=True)
     merged_model.save_pretrained(
         target_dir,
         safe_serialization=bool(safe_serialization),

@@ -76,6 +76,15 @@ def test_build_output_row_uses_qwen_grounding_schema(tmp_path: Path) -> None:
     }
 
 
+def test_grounding_layout_sync_uses_current_layout_prompt() -> None:
+    module = _load_module()
+
+    task = next(task for task in module.TASKS if task.name == "grounding_layout_sync")
+
+    assert task.kind == "grounding"
+    assert task.prompt_config == "configs/prompts/pools/grounding_layout.v5.0.yaml"
+
+
 def test_grounding_canonical_order_uses_y1_bucket_and_area_tie() -> None:
     module = _load_module()
 

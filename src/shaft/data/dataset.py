@@ -11,8 +11,6 @@ import warnings
 from PIL import Image
 from torch.utils.data import Dataset
 
-from shaft.utils.qwen_pixel_budget import apply_qwen_pixel_budget
-
 from .planned import ShaftPlannedSampleRef
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 
@@ -26,6 +24,7 @@ class SFTRecord:
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
     user_prompt: str = "Output only valid JSON. No markdown and no extra text."
+    prompt_args: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -153,24 +152,6 @@ class _BaseVisionDataset(Dataset):
         return resolved
 
 
-def _fit_image_to_pixel_budget(
-    image: Any,
-    *,
-    min_pixels: int | None,
-    max_pixels: int | None,
-) -> Any:
-    if not isinstance(image, Image.Image):
-        return image
-    if min_pixels is None and max_pixels is None:
-        return image
-    resized, _ = apply_qwen_pixel_budget(
-        image,
-        min_pixels=min_pixels,
-        max_pixels=max_pixels,
-    )
-    return resized
-
-
 class SFTDataset(_BaseVisionDataset):
     def __init__(
         self,
@@ -213,6 +194,7 @@ class SFTDataset(_BaseVisionDataset):
             "messages": record.messages,
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
+            "prompt_args": dict(record.prompt_args),
             "extra": dict(record.extra),
             **self._runtime_context(sample_ref),
         }
@@ -248,24 +230,20 @@ class GRPODataset(Dataset):
         dataset: Dataset,
         *,
         template: Any,
-        min_pixels: int | None = None,
-        max_pixels: int | None = None,
+        image_preprocessor: Any | None = None,
     ) -> None:
         self.dataset = dataset
         self.template = template
-        self.min_pixels = int(min_pixels) if min_pixels is not None else None
-        self.max_pixels = int(max_pixels) if max_pixels is not None else None
+        self.image_preprocessor = image_preprocessor
 
     def __len__(self) -> int:
         return len(self.dataset)
 
     def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
         item = self.dataset[index]
-        image = _fit_image_to_pixel_budget(
-            item.get("image"),
-            min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels,
-        )
+        image = item.get("image")
+        if self.image_preprocessor is not None:
+            image = self.image_preprocessor(image)
         if image is not item.get("image"):
             item = dict(item)
             item["image"] = image

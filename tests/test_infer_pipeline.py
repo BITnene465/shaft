@@ -68,7 +68,8 @@ def test_multistage_multi_engine_orchestration() -> None:
                 name="stage2",
                 engine="struct",
                 output_key="struct_out",
-                user_prompt_template="use {det_out} and refine",
+                user_prompt_template="use {{ det_out | json }} and refine",
+                arguments={"det_out": {"type": "json"}},
             ),
         ],
     )
@@ -78,6 +79,91 @@ def test_multistage_multi_engine_orchestration() -> None:
     assert outputs["det_out"].startswith("det:")
     assert outputs["det_out"] in outputs["struct_out"]
     assert len(outputs["__trace__"]) == 2
+
+
+def test_stage_prompt_renderer_keeps_json_braces_literal_and_image_first_contract() -> None:
+    recorder = _RecorderEngine()
+    pipeline = ShaftInferPipeline(
+        engines={"det": recorder},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                user_prompt_template=(
+                    'Return schema {"type":"object"}; payload={{ payload | json }}'
+                ),
+                arguments={"payload": {"type": "json"}},
+            )
+        ],
+    )
+
+    pipeline.run(
+        image_path="/tmp/fake.png",
+        inputs={"payload": {"z": 2, "a": 1}},
+    )
+
+    assert recorder.last_request is not None
+    assert recorder.last_request.image_path == "/tmp/fake.png"
+    assert recorder.last_request.user_prompt == (
+        'Return schema {"type":"object"}; payload={"a":1,"z":2}'
+    )
+
+
+def test_stage_prompt_validation_fails_before_retryable_engine_work() -> None:
+    engine = _FlakyEngine(fail_times=0, payload="unused")
+    pipeline = ShaftInferPipeline(
+        engines={"det": engine},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                user_prompt_template="value={{ value }}",
+                arguments={"value": {"type": "string"}},
+                max_retries=2,
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Missing prompt arguments.*value"):
+        pipeline.run(image_path="/tmp/fake.png", inputs={})
+    assert engine.calls == 0
+
+
+def test_direct_pipeline_construction_rejects_legacy_format_placeholder() -> None:
+    with pytest.raises(ValueError, match="legacy.*det_out.*double braces"):
+        ShaftInferPipeline(
+            engines={"det": _DummyEngine("det")},
+            stages=[
+                InferStageConfig(
+                    name="stage1",
+                    engine="det",
+                    user_prompt_template="legacy {det_out}",
+                )
+            ],
+        )
+
+
+def test_pipeline_resolves_an_immutable_stage_snapshot() -> None:
+    recorder = _RecorderEngine()
+    stages = [
+        InferStageConfig(
+            name="stage1",
+            engine="det",
+            user_prompt_template="original",
+        )
+    ]
+    pipeline = ShaftInferPipeline(engines={"det": recorder}, stages=stages)
+    stages.append(
+        InferStageConfig(name="stage2", engine="det", user_prompt_template="added")
+    )
+    exposed = pipeline.stages[0]
+    exposed.user_prompt_template = "mutated"
+
+    outputs = pipeline.run(image_path="/tmp/fake.png", inputs={})
+
+    assert len(outputs["__trace__"]) == 1
+    assert recorder.last_request is not None
+    assert recorder.last_request.user_prompt == "original"
 
 
 def test_stage_codec_parses_json_object() -> None:

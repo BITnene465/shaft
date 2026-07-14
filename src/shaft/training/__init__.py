@@ -49,6 +49,10 @@ from .optimizer_plan import (
 from .online_eval import ShaftOnlineEvalRunner
 from .epoch_interval_callback import ShaftEpochIntervalCallback
 from .eval_policy import aggregate_weighted_dataset_values
+from .efficiency import (
+    ShaftTrainingEfficiencyCallback,
+    ShaftTrainingEfficiencyMonitor,
+)
 from .progress_callback import ShaftProgressCallback
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .sft_trainer import ShaftSFTTrainer
@@ -62,6 +66,8 @@ __all__ = [
     "SCHEDULER_REGISTRY",
     "Muon",
     "ShaftEpochIntervalCallback",
+    "ShaftTrainingEfficiencyCallback",
+    "ShaftTrainingEfficiencyMonitor",
     "ShaftBatchPlanningCallback",
     "ShaftBatchContract",
     "ShaftBatchingMetadataCallback",

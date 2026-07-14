@@ -80,17 +80,33 @@ task families.
   segment's point order. Directionless line metric policy can be revisited later, but the
   training target should not reorder points unless raw/source semantics are changed together.
 - Grounding structured rows should reference task-local images, not raw-data image paths. The
-  maintained default `grounding_layout` train augmentation policy is:
-  `clean full_image = 1.0x`, `density_crop ~= 0.3x` with a small minority of negative samples,
-  `blur_full + blur_crop = 1.0x` using light-to-moderate Gaussian blur / resize blur /
-  JPEG compression, and `random_padded_full = 0.2x` applied only to clean full-image rows.
-  Validation and VLM test rows remain clean full-image only.
+  historical full/crop/blur/padded snapshot is retained at
+  `data/archive2/grounding_layout_v5.1_bak0714`. The maintained `data/grounding_layout` dataset
+  contains 49,666 rows from 9,118 sources:
+  `native clean = 1.0x`, `continuous clean resize = 2.9x`,
+  `random padded clean = 0.1x`,
+  `degraded resize = 1.2x`, `density_crop ~= 0.25x`, and
+  `hard_negative_crop ~= 0.03x`. Resize targets are continuous in log-pixel space, preserve
+  aspect ratio, align to the Qwen processor factor, and never exceed `2x` linear offline upscale.
+  Build degraded rows from selected clean dimensions with exactly one bounded Gaussian blur or
+  noise operation. Padded rows use independently sampled canvas expansion and random offsets so
+  placement is not centered; they replace `0.1x` of the clean-resize quota rather than increasing
+  the total. The actual clean-resize count is 26,140 because infeasible small/narrow-source slots
+  are skipped. Validation and VLM test rows remain native clean full-image only.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced
   generated images after hard-negative sampling. Pass `--train-split` and `--val-split`
   explicitly; the script intentionally has no stale default split files.
-- If SFT conversion is requested, preserve the same split and source ids from structured data.
+- Keep the v8 synthetic detection supplement separate as `grounding_layout_sync`. Build it with
+  `scripts/tasks/build_grounding_layout_sync_structured.py` from `gt_standard` and the source
+  `train.txt`; exclude `val.txt`, keep one clean full-image row per source, reference source PNGs
+  directly, and do not apply resize/crop/blur/noise/padding augmentation. Normalize source
+  `arrow` to model-facing `line`. This train-only source must not be merged into the real
+  `data/grounding_layout` directory or used for formal eval.
+- Convert current structured detection data with `scripts/tasks/build_sft_from_structured.py`.
+  Preserve the same split and source ids, use the v5.0 grounding prompt pool, and do not use the
+  historical area-bucket or `y_center` row-major converters for maintained v5.1 outputs.
 - Do not duplicate raw `extra` / `subattr` into structured or SFT rows. Raw data is the metadata
   truth; derived rows should carry only the model-facing target plus minimal traceability fields
   such as source id / source image when needed.

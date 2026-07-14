@@ -14,6 +14,7 @@ from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
     TrainConfig,
+    TrainEfficiencyConfig,
     TrainDeepSpeedConfig,
     TrainDistributedConfig,
     TrainFSDPConfig,
@@ -45,4 +46,5 @@ __all__ = [
     "TrainDistributedConfig",
     "TrainFSDPConfig",
     "TrainConfig",
+    "TrainEfficiencyConfig",
 ]

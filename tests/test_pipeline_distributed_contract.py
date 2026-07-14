@@ -48,10 +48,12 @@ def test_sft_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path)
         *,
         init_from_checkpoint=None,
         sequence_execution_contract=None,
+        resolved_model_plan=None,
     ):
         assert runtime_config is config
         assert init_from_checkpoint is None
         assert sequence_execution_contract is not None
+        assert resolved_model_plan is not None
         _assert_zero3_is_active()
         return build_fake_model_artifacts()
 
@@ -68,9 +70,15 @@ def test_rlhf_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path
     config.train.distributed.strategy = "deepspeed"
     config.train.distributed.deepspeed.config = _deepspeed_config()
 
-    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
+    def _fake_build_model(
+        runtime_config,
+        *,
+        init_from_checkpoint=None,
+        resolved_model_plan=None,
+    ):
         assert runtime_config is config
         assert init_from_checkpoint is None
+        assert resolved_model_plan is not None
         _assert_zero3_is_active()
         return build_fake_model_artifacts()
 

@@ -7,7 +7,7 @@ from typing import Any
 
 from shaft.config import PromptSamplingConfig
 from shaft.plugins import Registry
-from shaft.prompting import ShaftPromptTemplate, load_prompt_pool
+from shaft.prompting import ShaftPromptTemplate, canonical_json, load_prompt_pool
 
 from .record_store import ShaftRecordSubset
 
@@ -93,45 +93,129 @@ class PromptSamplingTransform:
         *,
         pools: dict[str, list[ShaftPromptTemplate]],
         seed: int,
+        enabled: bool,
     ) -> None:
         self.pools = {str(name): list(variants) for name, variants in pools.items()}
         self.seed = int(seed)
-        fingerprint_payload = (
-            "shaft-prompt-sampling-v1",
-            self.seed,
-            tuple(
-                (
-                    dataset_name,
-                    tuple(
-                        (
-                            variant.prompt_id,
-                            variant.variant_id,
-                            variant.version,
-                            variant.system_prompt,
-                            variant.user_prompt,
-                            variant.sampling_weight,
-                            variant.source_path,
-                        )
-                        for variant in variants
-                    ),
-                )
+        self.enabled = bool(enabled)
+        fingerprint_payload = {
+            "version": "shaft-prompt-sampling-v2",
+            "enabled": self.enabled,
+            "seed": self.seed,
+            "pools": {
+                dataset_name: [
+                    {
+                        "prompt_id": variant.prompt_id,
+                        "variant_id": variant.variant_id,
+                        "version": variant.version,
+                        "system_prompt": variant.system_prompt,
+                        "sampling_weight": variant.sampling_weight,
+                        "program_sha256": variant.program.program_sha256,
+                    }
+                    for variant in variants
+                ]
                 for dataset_name, variants in sorted(self.pools.items())
-            ),
-        )
+            },
+        }
         setattr(
             self,
             _PLANNING_POLICY_ATTRIBUTE,
             ShaftOnlineTransformPlanningPolicy(
                 fingerprint=hashlib.sha256(
-                    repr(fingerprint_payload).encode("utf-8")
+                    canonical_json(fingerprint_payload).encode("utf-8")
                 ).hexdigest()
             ),
         )
+        self.validation_fingerprints = {
+            dataset_name: hashlib.sha256(
+                canonical_json(
+                    {
+                        "version": "shaft-prompt-input-validation-v1",
+                        "enabled": self.enabled,
+                        "programs": [
+                            variant.program.program_sha256
+                            for variant in variants
+                            if variant.sampling_weight > 0
+                        ],
+                    }
+                ).encode("utf-8")
+            ).hexdigest()
+            for dataset_name, variants in self.pools.items()
+        }
+
+    def record_validation_fingerprint(self, dataset_name: str) -> str:
+        return self.validation_fingerprints.get(
+            dataset_name,
+            hashlib.sha256(
+                canonical_json(
+                    {
+                        "version": "shaft-prompt-input-validation-v1",
+                        "enabled": self.enabled,
+                        "programs": None,
+                    }
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+
+    def validate_record(
+        self,
+        record: Any,
+        *,
+        dataset_name: str,
+        active: bool,
+    ) -> None:
+        sample_id = str(getattr(record, "sample_id", None) or getattr(record, "image_path", ""))
+        prompt_args = getattr(record, "prompt_args", {})
+        messages = getattr(record, "messages", None)
+        context = f"dataset={dataset_name!r}, sample={sample_id!r}"
+        if messages and prompt_args:
+            raise ValueError(f"SFT sample cannot provide both messages and prompt_args ({context}).")
+        if messages:
+            return
+        if not active:
+            if prompt_args:
+                raise ValueError(f"Sample has prompt_args but prompt sampling is disabled ({context}).")
+            return
+        variants = self.pools.get(dataset_name)
+        if not variants:
+            if prompt_args:
+                raise ValueError(
+                    f"Sample has prompt_args but dataset has no configured prompt pool ({context})."
+                )
+            return
+        for variant in variants:
+            if variant.sampling_weight <= 0:
+                continue
+            variant.render(
+                prompt_args,
+                context=(
+                    f"{context}, pool={variant.prompt_id.rsplit('.', 1)[0]!r}, "
+                    f"version={variant.version!r}, variant={variant.variant_id!r}, "
+                    f"source={variant.source_path!r}"
+                ),
+            )
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         dataset_name = str(sample.get("dataset_name", "")).strip()
-        variants = self.pools.get(dataset_name)
-        if not variants:
+        sample_id = str(sample.get("sample_id") or sample.get("image_path") or "").strip()
+        raw_prompt_args = sample.get("prompt_args")
+        prompt_args = {} if raw_prompt_args is None else raw_prompt_args
+        if not isinstance(prompt_args, dict):
+            raise ValueError(
+                f"prompt_args must be a JSON object (dataset={dataset_name!r}, "
+                f"sample={sample_id!r})."
+            )
+        if sample.get("messages") and prompt_args:
+            raise ValueError(
+                f"SFT sample cannot provide both messages and prompt_args "
+                f"(dataset={dataset_name!r}, sample={sample_id!r})."
+            )
+        if not self.enabled:
+            if prompt_args:
+                raise ValueError(
+                    f"Sample has prompt_args but prompt sampling is disabled "
+                    f"(dataset={dataset_name!r}, sample={sample_id!r})."
+                )
             return sample
         if sample.get("messages"):
             updated = dict(sample)
@@ -139,11 +223,18 @@ class PromptSamplingTransform:
             extra["prompt_sampling_skipped"] = "messages_present"
             updated["extra"] = extra
             return updated
+        variants = self.pools.get(dataset_name)
+        if not variants:
+            if prompt_args:
+                raise ValueError(
+                    f"Sample has prompt_args but dataset has no configured prompt pool "
+                    f"(dataset={dataset_name!r}, sample={sample_id!r})."
+                )
+            return sample
 
         context = sample.get("_sample_context") or {}
         draw_id = int(context.get("draw_id", 0) or 0)
         transform_seed = int(context.get("transform_seed", 0) or 0)
-        sample_id = str(sample.get("sample_id") or sample.get("image_path") or "").strip()
         key = f"{self.seed}\n{transform_seed}\n{dataset_name}\n{sample_id}\n{draw_id}"
         digest = hashlib.sha256(key.encode("utf-8")).digest()
         max_weight = max(variant.sampling_weight for variant in variants)
@@ -159,6 +250,17 @@ class PromptSamplingTransform:
                 variant = candidate
                 break
 
+        render_context = (
+            f"dataset={dataset_name!r}, sample={sample_id!r}, draw_id={draw_id}, "
+            f"pool={variant.prompt_id.rsplit('.', 1)[0]!r}, "
+            f"version={variant.version!r}, variant={variant.variant_id!r}, "
+            f"source={variant.source_path!r}"
+        )
+        rendered, audit = variant.render_with_audit(
+            prompt_args,
+            context=render_context,
+        )
+
         updated = dict(sample)
         extra = dict(updated.get("extra", {}))
         extra["runtime_prompt_id"] = variant.prompt_id
@@ -166,9 +268,16 @@ class PromptSamplingTransform:
         extra["runtime_prompt_source"] = variant.source_path
         extra["runtime_prompt_draw_id"] = draw_id
         extra["runtime_prompt_sampling_weight"] = variant.sampling_weight
+        extra["runtime_prompt_renderer_version"] = audit["renderer_version"]
+        extra["runtime_prompt_json_version"] = audit["json_version"]
+        extra["runtime_prompt_template_sha256"] = audit["template_sha256"]
+        extra["runtime_prompt_schema_sha256"] = audit["schema_sha256"]
+        extra["runtime_prompt_program_sha256"] = audit["program_sha256"]
+        extra["runtime_prompt_arguments_sha256"] = audit["args_sha256"]
+        extra["runtime_prompt_rendered_sha256"] = audit["rendered_sha256"]
         updated["extra"] = extra
         updated["system_prompt"] = variant.system_prompt
-        updated["user_prompt"] = variant.user_prompt
+        updated["user_prompt"] = rendered
         return updated
 
 
@@ -244,14 +353,13 @@ def build_prompt_sampling_transform(
     config: PromptSamplingConfig,
     *,
     default_seed: int = 42,
-) -> PromptSamplingTransform | None:
-    if not config.enabled:
-        return None
+) -> PromptSamplingTransform:
     pools = {
         dataset_name: load_prompt_pool(path)
         for dataset_name, path in config.pools.items()
-    }
+    } if config.enabled else {}
     return PromptSamplingTransform(
         pools=pools,
         seed=int(default_seed) if config.seed is None else int(config.seed),
+        enabled=config.enabled,
     )

@@ -12,6 +12,141 @@ from .planned import ShaftBatchContext
 
 
 @dataclass(frozen=True, slots=True)
+class ShaftCollatedBatchStats:
+    """Actual, post-processor resources materialized for one local microbatch.
+
+    This is deliberately independent from planner estimates.  It travels as a
+    private host-side collator field and is consumed by the Trainer before model
+    forward.
+    """
+
+    logical_segments: int
+    physical_packs: int
+    useful_tokens: int
+    materialized_tokens: int
+    supervised_tokens: int
+    weighted_supervision_mass: float | None
+    sequence_length_sum: int
+    sequence_length_square_sum: int
+    vision_patches: int | None
+    global_microstep: int | None = None
+    plan_fingerprint: str | None = None
+    local_batch_id: int | None = None
+
+    def __post_init__(self) -> None:
+        integer_fields = (
+            "logical_segments",
+            "physical_packs",
+            "useful_tokens",
+            "materialized_tokens",
+            "supervised_tokens",
+            "sequence_length_sum",
+            "sequence_length_square_sum",
+        )
+        for name in integer_fields:
+            if int(getattr(self, name)) < 0:
+                raise ValueError(f"{name} must be >= 0.")
+        if self.logical_segments <= 0 or self.physical_packs <= 0:
+            raise ValueError("A collated training batch cannot be empty.")
+        if self.useful_tokens > self.materialized_tokens:
+            raise ValueError("useful_tokens cannot exceed materialized_tokens.")
+        if self.supervised_tokens > self.useful_tokens:
+            raise ValueError("supervised_tokens cannot exceed useful_tokens.")
+        if self.vision_patches is not None and int(self.vision_patches) < 0:
+            raise ValueError("vision_patches must be >= 0 when known.")
+
+    @classmethod
+    def from_training_inputs(
+        cls,
+        *,
+        sequence_inputs: dict[str, Any],
+        varlen_plan: Any = None,
+        vision_patches: int | None = None,
+        ignore_index: int = -100,
+    ) -> "ShaftCollatedBatchStats":
+        input_ids = sequence_inputs.get("input_ids")
+        labels = sequence_inputs.get("labels")
+        if not torch.is_tensor(input_ids) or input_ids.ndim != 2:
+            raise ValueError("Collated batch statistics require rank-2 input_ids.")
+        if not torch.is_tensor(labels) or tuple(labels.shape) != tuple(input_ids.shape):
+            raise ValueError("Collated batch statistics require labels aligned to input_ids.")
+
+        attention_mask = sequence_inputs.get("attention_mask")
+        if attention_mask is None:
+            lengths = torch.full(
+                (int(input_ids.shape[0]),),
+                int(input_ids.shape[1]),
+                dtype=torch.long,
+            )
+        else:
+            if not torch.is_tensor(attention_mask) or tuple(attention_mask.shape) != tuple(
+                input_ids.shape
+            ):
+                raise ValueError("attention_mask must align with input_ids.")
+            lengths = attention_mask.to(dtype=torch.long, device="cpu").sum(dim=-1)
+
+        shifted_valid = labels[..., 1:].ne(int(ignore_index))
+        supervised_tokens = int(shifted_valid.sum().item())
+        loss_scale = sequence_inputs.get("loss_scale")
+        weighted_mass = None
+        if loss_scale is not None:
+            if not torch.is_tensor(loss_scale) or tuple(loss_scale.shape) != tuple(
+                labels.shape
+            ):
+                raise ValueError("loss_scale must align with labels.")
+            weighted_mass = float(
+                (
+                    loss_scale[..., 1:].to(dtype=torch.float32)
+                    * shifted_valid.to(dtype=torch.float32)
+                )
+                .sum()
+                .item()
+            )
+
+        if varlen_plan is None:
+            physical_packs = int(input_ids.shape[0])
+            logical_segments = physical_packs
+            logical_lengths = lengths
+            global_microstep = None
+            plan_fingerprint = None
+            local_batch_id = None
+        else:
+            physical_packs = int(varlen_plan.physical_pack_count)
+            logical_segments = int(varlen_plan.logical_segment_count)
+            logical_lengths = torch.tensor(
+                [
+                    int(segment.stop) - int(segment.start)
+                    for segment in varlen_plan.segments
+                ],
+                dtype=torch.long,
+            )
+            if int(logical_lengths.sum().item()) != int(lengths.sum().item()):
+                raise ValueError(
+                    "Varlen logical segment lengths do not cover actual useful tokens."
+                )
+            global_microstep = int(varlen_plan.global_microstep)
+            plan_fingerprint = str(varlen_plan.plan_fingerprint)
+            local_batch_id = int(varlen_plan.local_batch_id)
+
+        return cls(
+            logical_segments=logical_segments,
+            physical_packs=physical_packs,
+            useful_tokens=int(lengths.sum().item()),
+            materialized_tokens=int(input_ids.numel()),
+            supervised_tokens=supervised_tokens,
+            weighted_supervision_mass=weighted_mass,
+            sequence_length_sum=int(logical_lengths.sum().item()),
+            sequence_length_square_sum=int(
+                (logical_lengths * logical_lengths).sum().item()
+            ),
+            vision_patches=None if vision_patches is None else int(vision_patches),
+            global_microstep=global_microstep,
+            plan_fingerprint=plan_fingerprint,
+            local_batch_id=local_batch_id,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ShaftLogicalSegmentPlan:
     """One indivisible logical training sequence in a physical batch plan."""
 

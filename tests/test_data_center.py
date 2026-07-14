@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import warnings
 
@@ -139,6 +140,11 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert "marked_dataset" not in sample_b["extra"]
     assert isinstance(train_dataset.records, dict)
     assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
+    assert dataset_bundle.train_execution_fingerprint
+    assert len(dataset_bundle.train_execution_fingerprint) == 64
+    assert dataset_bundle.train_execution_fingerprint != (
+        dataset_bundle.train_sampler.plan.fingerprint
+    )
 
 
 @pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
@@ -268,6 +274,192 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
     assert val_sample["user_prompt"] == "canonical user"
     assert val_sample["system_prompt"] == "canonical system"
     assert "runtime_prompt_id" not in val_sample["extra"]
+
+
+def test_dynamic_prompt_is_identical_for_planning_and_actual_reads(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": "{}",
+                "sample_id": "sample-1",
+                "prompt_args": {
+                    "kind": "shape",
+                    "bbox": [10, 20, 300, 400],
+                },
+            }
+        ],
+    )
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata:
+  id: prompt.dynamic
+  version: v1
+arguments:
+  kind:
+    type: enum
+    values: [shape, line]
+  bbox:
+    type: bbox_2d_0_999
+prompts:
+  - id: main
+    user_prompt_template: "Reconstruct {{ kind }} at {{ bbox | json }}."
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        seed=5,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+    bundle = ShaftDataCenter(config.data, seed=5).build_dataset_bundle(SFTDataset)
+    assert bundle.train_sampler is not None
+    sample_ref = next(iter(bundle.train_sampler))
+
+    planned = bundle.train_dataset.get_planning_item(sample_ref)
+    actual = bundle.train_dataset[sample_ref]
+
+    assert planned["user_prompt"] == actual["user_prompt"]
+    assert planned["user_prompt"] == "Reconstruct shape at [10,20,300,400]."
+    assert planned["extra"]["runtime_prompt_rendered_sha256"] == (
+        actual["extra"]["runtime_prompt_rendered_sha256"]
+    )
+
+
+@pytest.mark.parametrize("grouping", ["none", "length"])
+def test_train_execution_fingerprint_binds_prompt_args_and_media_snapshot(
+    tmp_path: Path,
+    grouping: str,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = tmp_path / "train.jsonl"
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.execution, version: v1}
+arguments:
+  value: {type: string}
+prompts:
+  - id: main
+    user_prompt_template: "value={{ value }}"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.media_snapshot_id = "media-v1"
+    config.data.batching.grouping = grouping
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    def write(value: str) -> None:
+        _write_jsonl(
+            train_path,
+            [
+                {
+                    "image_path": str(image),
+                    "target_text": "{}",
+                    "sample_id": "same-id",
+                    "prompt_args": {"value": value},
+                }
+            ],
+        )
+
+    write("x")
+    first = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+    first_mtime_ns = train_path.stat().st_mtime_ns
+    write("y")
+    stat = train_path.stat()
+    os.utime(
+        train_path,
+        ns=(stat.st_atime_ns, max(stat.st_mtime_ns, first_mtime_ns + 1_000_000_000)),
+    )
+    second = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+
+    assert first.train_dataset[0]["user_prompt"] == "value=x"
+    assert second.train_dataset[0]["user_prompt"] == "value=y"
+    if grouping == "none":
+        assert first.train_sampler is not None and second.train_sampler is not None
+        assert first.train_sampler.plan.fingerprint == second.train_sampler.plan.fingerprint
+    else:
+        assert first.train_schedule is not None and second.train_schedule is not None
+        assert first.train_schedule.fingerprint == second.train_schedule.fingerprint
+    assert first.train_execution_fingerprint != second.train_execution_fingerprint
+
+    config.data.media_snapshot_id = "media-v2"
+    third = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+    assert second.train_execution_fingerprint != third.train_execution_fingerprint
+
+
+def test_prompt_argument_errors_fail_during_record_preflight_without_image_decode(
+    tmp_path: Path,
+) -> None:
+    train_path = _write_jsonl(
+        tmp_path / "invalid.jsonl",
+        [
+            {
+                "image_path": str(tmp_path / "missing-image.png"),
+                "target_text": "{}",
+                "sample_id": "invalid-1",
+                "prompt_args": {},
+            }
+        ],
+    )
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.preflight, version: v1}
+arguments:
+  required_value: {type: string}
+prompts:
+  - id: main
+    user_prompt_template: "{{ required_value }}"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="L1: Missing prompt arguments.*required_value"):
+        ShaftDataCenter(config.data).prepare_records()
 
 
 def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:

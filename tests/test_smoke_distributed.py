@@ -11,7 +11,10 @@ import pytest
 from safetensors.torch import load_file
 import torch
 
-from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
+from shaft.observability import (
+    PROGRESS_SNAPSHOT_FILENAME,
+    TRAINING_EFFICIENCY_FILENAME,
+)
 from shaft.training.batch_planning import (
     BATCH_PLANNING_CALLBACK_NAME,
     BATCHING_RUN_METADATA_FILENAME,
@@ -127,6 +130,37 @@ def _run_progress_console(
     )
 
 
+def _run_efficiency_snapshot_fault(
+    repo_root: Path,
+    output_dir: Path,
+    mode: str,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_efficiency_snapshot_fault.py",
+            str(output_dir),
+            mode,
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
     config_path = write_sft_smoke_config(
         tmp_path,
@@ -148,6 +182,125 @@ def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
     )
     assert progress["status"] == "succeeded"
     assert progress["tasks"]["train"]["current"] == 1
+    efficiency = json.loads(
+        (tmp_path / "outputs" / TRAINING_EFFICIENCY_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert efficiency["world_size"] == 2
+    assert efficiency["final_global_step"] == 1
+    assert efficiency["aggregate"]["optimizer_steps"] == 1
+    assert efficiency["aggregate"]["useful_tokens"] > 0
+    assert efficiency["aggregate"]["materialized_tokens"] >= efficiency["aggregate"][
+        "useful_tokens"
+    ]
+
+
+@pytest.mark.parametrize("mode", ["missing", "corrupt"])
+def test_efficiency_resume_discards_asymmetric_rank_snapshots_without_hanging(
+    tmp_path: Path,
+    repo_root: Path,
+    mode: str,
+) -> None:
+    output_dir = tmp_path / mode
+    completed = _run_efficiency_snapshot_fault(repo_root, output_dir, mode)
+    _assert_torchrun_succeeded(completed)
+
+    result = json.loads(
+        (output_dir / "fault_result.json").read_text(encoding="utf-8")
+    )
+    assert result["complete_history"] is False
+    assert result["initial_global_step"] == 1
+    assert result["final_global_step"] == 2
+    assert result["aggregate"]["optimizer_steps"] == 1
+    assert result["aggregate"]["useful_tokens"] == 9
+
+
+def test_efficiency_aggregation_rejects_rank_divergent_optimizer_updates(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "update-mismatch"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "update_mismatch",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    assert (output_dir / "mismatch_rejected.txt").read_text(encoding="utf-8") == "ok\n"
+
+
+def test_efficiency_aggregation_rejects_rank_divergent_cuda_timing_coverage(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "timing-mismatch"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "timing_mismatch",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    assert (
+        output_dir / "timing_mismatch_rejected.txt"
+    ).read_text(encoding="utf-8") == "ok\n"
+
+
+def test_efficiency_monitor_rejects_rank_divergent_contracts_without_hanging(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "contract-mismatch"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "contract_mismatch",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    assert (
+        output_dir / "contract_mismatch_rejected.txt"
+    ).read_text(encoding="utf-8") == "ok\n"
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "revoke_fail",
+        "snapshot_write_fail",
+        "manifest_write_fail",
+        "transaction_commit_fail",
+    ],
+)
+def test_efficiency_snapshot_commit_converges_rank_local_io_failures(
+    tmp_path: Path,
+    repo_root: Path,
+    mode: str,
+) -> None:
+    output_dir = tmp_path / mode
+    completed = _run_efficiency_snapshot_fault(repo_root, output_dir, mode)
+    _assert_torchrun_succeeded(completed)
+
+    assert (output_dir / f"{mode}_rejected.txt").read_text(encoding="utf-8") == "ok\n"
+
+
+def test_efficiency_summary_write_converges_rank_zero_io_failure(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "summary-write-fail"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "summary_write_fail",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    assert (
+        output_dir / "summary_write_fail_rejected.txt"
+    ).read_text(encoding="utf-8") == "ok\n"
 
 
 def test_torchrun_interactive_progress_keeps_one_rank_zero_console_line(
@@ -342,6 +495,19 @@ def test_torchrun_exact_resume(
     assert "Resuming training from checkpoint with epoch" not in resumed_logs
 
     _assert_exact_checkpoint(expected_final, resumed_output / "checkpoint-3")
+    uninterrupted_efficiency = json.loads(
+        (tmp_path / "uninterrupted" / TRAINING_EFFICIENCY_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    resumed_efficiency = json.loads(
+        (resumed_output / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
+    )
+    assert resumed_efficiency["complete_history"] is True
+    assert resumed_efficiency["aggregate"]["optimizer_steps"] == 3
+    assert resumed_efficiency["aggregate"]["useful_tokens"] == uninterrupted_efficiency[
+        "aggregate"
+    ]["useful_tokens"]
 
 
 @pytest.mark.parametrize(

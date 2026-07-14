@@ -1,4 +1,14 @@
-from .builder import build_model_tokenizer_processor, resolve_model_adapter_from_config
+from .builder import (
+    build_model_tokenizer_processor,
+    load_adapter_artifacts,
+    resolve_model_adapter_from_config,
+)
+from .descriptor import (
+    ResolvedModelDescriptor,
+    resolve_local_model_descriptor,
+    resolve_model_descriptor,
+)
+from .resolution import ResolvedAdapterInit, ResolvedModelPlan, resolve_model_plan
 from .finetune_plan import (
     ShaftAdapterFinetunePlan,
     ShaftFreezePreview,
@@ -31,13 +41,14 @@ from .policies import (
 )
 from .registry import MODEL_REGISTRY, build_model_meta, default_model_groups
 from .sharding import ModelShardingPolicy
-from .sequence import Qwen3VLSequenceExecutionPolicy
+from .sequence import Qwen35VLSequenceExecutionPolicy, Qwen3VLSequenceExecutionPolicy
 from .types import (
     DefaultPeftPolicy,
     ModelArtifacts,
     ModelCapabilities,
     ModelGroup,
     ModelInfo,
+    LoadedAdapterArtifacts,
     ModelLoader,
     ModelMeta,
     ModelModuleGroups,
@@ -63,13 +74,18 @@ __all__ = [
     "ModelCapabilities",
     "ModelGroup",
     "ModelInfo",
+    "LoadedAdapterArtifacts",
     "ModelLoader",
     "ModelMeta",
     "ModelModuleGroups",
     "ModelShardingPolicy",
     "PeftPolicy",
     "ProcessorPolicy",
+    "ResolvedModelDescriptor",
+    "ResolvedAdapterInit",
+    "ResolvedModelPlan",
     "Qwen3VLSequenceExecutionPolicy",
+    "Qwen35VLSequenceExecutionPolicy",
     "SequenceExecutionPolicy",
     "ShaftMediaSegmentManifest",
     "ShaftMediaSlice",
@@ -93,7 +109,11 @@ __all__ = [
     "build_peft_policy",
     "build_processor_policy",
     "build_model_tokenizer_processor",
+    "load_adapter_artifacts",
     "resolve_model_adapter_from_config",
+    "resolve_local_model_descriptor",
+    "resolve_model_descriptor",
+    "resolve_model_plan",
     "build_freeze_plan",
     "build_freeze_spec",
     "build_resolved_finetune_plan",

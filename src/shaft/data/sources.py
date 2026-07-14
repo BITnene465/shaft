@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from .dataset import DPORecord, PPORecord, SFTRecord
 from .meta import ShaftDatasetMeta
@@ -110,6 +110,13 @@ def _build_sft_record_from_raw(
             "Missing target text. Expected target_text or a trailing assistant message."
         )
 
+    raw_prompt_args = raw.get("prompt_args")
+    prompt_args = {} if raw_prompt_args is None else raw_prompt_args
+    if not isinstance(prompt_args, dict):
+        raise ValueError("`prompt_args` must be a JSON object when provided.")
+    if messages and prompt_args:
+        raise ValueError("SFT samples cannot provide both `messages` and non-empty `prompt_args`.")
+
     raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
@@ -127,6 +134,7 @@ def _build_sft_record_from_raw(
             "sample_id",
             "system_prompt",
             "user_prompt",
+            "prompt_args",
         }
     }
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
@@ -141,6 +149,7 @@ def _build_sft_record_from_raw(
         user_prompt=str(
             raw.get("user_prompt", "Output only valid JSON. No markdown and no extra text.")
         ),
+        prompt_args=dict(prompt_args),
         extra=extra,
     )
 
@@ -254,6 +263,8 @@ def load_jsonl_sft_records(
     dataset_name: str,
     max_errors_to_report: int = 20,
     cache_dir: str | Path | None = None,
+    record_validator: Callable[[SFTRecord], None] | None = None,
+    validation_fingerprint: str = "",
 ) -> ShaftArrowRecordStore[SFTRecord]:
     return ShaftArrowRecordStore.from_jsonl(
         path,
@@ -262,6 +273,8 @@ def load_jsonl_sft_records(
         row_builder=_build_sft_record_from_raw,
         max_errors_to_report=max_errors_to_report,
         cache_dir=cache_dir,
+        record_validator=record_validator,
+        validation_fingerprint=validation_fingerprint,
     )
 
 
@@ -300,9 +313,18 @@ def load_jsonl_ppo_records(
 
 
 class BaseDataSource(ABC):
-    def __init__(self, dataset_meta: ShaftDatasetMeta, *, cache_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        cache_dir: str | Path | None = None,
+        record_validator: Callable[[Any, Split], None] | None = None,
+        validation_fingerprint: str = "",
+    ) -> None:
         self.dataset_meta = dataset_meta
         self.cache_dir = cache_dir
+        self.record_validator = record_validator
+        self.validation_fingerprint = str(validation_fingerprint)
 
     @abstractmethod
     def load_split(self, split: Split) -> Sequence[Any]:
@@ -321,6 +343,16 @@ class JsonlSFTDataSource(BaseDataSource):
                     path,
                     dataset_name=self.dataset_meta.dataset_name,
                     cache_dir=self.cache_dir,
+                    record_validator=(
+                        None
+                        if self.record_validator is None
+                        else lambda record: self.record_validator(record, split)
+                    ),
+                    validation_fingerprint=(
+                        f"{self.validation_fingerprint}:{split}"
+                        if self.validation_fingerprint
+                        else ""
+                    ),
                 )
                 for path in self._resolve_paths(split)
             ]
@@ -361,6 +393,13 @@ def build_data_source(
     dataset_meta: ShaftDatasetMeta,
     *,
     cache_dir: str | Path | None = None,
+    record_validator: Callable[[Any, Split], None] | None = None,
+    validation_fingerprint: str = "",
 ) -> BaseDataSource:
     source_cls = DATA_SOURCE_REGISTRY.get(dataset_meta.source_type)
-    return source_cls(dataset_meta, cache_dir=cache_dir)
+    return source_cls(
+        dataset_meta,
+        cache_dir=cache_dir,
+        record_validator=record_validator,
+        validation_fingerprint=validation_fingerprint,
+    )

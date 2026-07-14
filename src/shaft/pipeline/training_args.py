@@ -11,23 +11,30 @@ from transformers import TrainingArguments
 from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 
-def _resolve_fsdp_transformer_layers(config: RuntimeConfig) -> list[str]:
+def _resolve_fsdp_transformer_layers(
+    config: RuntimeConfig,
+    *,
+    resolved_model_plan=None,
+) -> list[str]:
     configured = list(config.train.distributed.fsdp.transformer_layer_cls_to_wrap)
-    from shaft.model import build_model_meta
+    if resolved_model_plan is None:
+        from shaft.model import resolve_model_plan
 
-    model_type = str(config.model.model_type).strip().lower()
-    try:
-        model_meta = build_model_meta(model_type)
-    except KeyError as exc:
-        raise ValueError(
-            "train.distributed.fsdp.transformer_layer_cls_to_wrap=['auto'] is not available "
-            f"for model.model_type={model_type!r}. Configure explicit transformer layer class names."
-        ) from exc
-    model_adapter = model_meta.resolve_adapter(
-        model_name_or_path=config.model.model_name_or_path,
-        template_type=config.model.template,
+        try:
+            resolved_model_plan = resolve_model_plan(
+                config,
+                init_from_checkpoint=config.train.init_from_checkpoint,
+            )
+        except KeyError as exc:
+            model_type = str(config.model.model_type).strip().lower()
+            raise ValueError(
+                "train.distributed.fsdp.transformer_layer_cls_to_wrap=['auto'] "
+                f"is not available for model.model_type={model_type!r}. Configure "
+                "explicit transformer layer class names."
+            ) from exc
+    return resolved_model_plan.model_adapter.resolve_fsdp_transformer_layer_cls_to_wrap(
+        configured
     )
-    return model_adapter.resolve_fsdp_transformer_layer_cls_to_wrap(configured)
 
 
 def _resolve_fsdp_auto_wrap_policy(policy: str) -> str:
@@ -50,7 +57,11 @@ def _resolve_fsdp_reshard_after_forward(sharding_strategy: str) -> bool | str:
     return normalized
 
 
-def _build_fsdp_args(config: RuntimeConfig) -> tuple[bool | None, dict[str, Any] | None]:
+def _build_fsdp_args(
+    config: RuntimeConfig,
+    *,
+    resolved_model_plan=None,
+) -> tuple[bool | None, dict[str, Any] | None]:
     distributed = config.train.distributed
     if distributed.strategy != "fsdp":
         return None, None
@@ -72,7 +83,10 @@ def _build_fsdp_args(config: RuntimeConfig) -> tuple[bool | None, dict[str, Any]
         fsdp_config["backward_prefetch"] = str(fsdp_cfg.backward_prefetch)
 
     if fsdp_cfg.auto_wrap_policy == "transformer":
-        fsdp_config["transformer_layer_cls_to_wrap"] = _resolve_fsdp_transformer_layers(config)
+        fsdp_config["transformer_layer_cls_to_wrap"] = _resolve_fsdp_transformer_layers(
+            config,
+            resolved_model_plan=resolved_model_plan,
+        )
     elif fsdp_cfg.auto_wrap_policy == "size":
         fsdp_config["min_num_params"] = int(fsdp_cfg.min_num_params)
 
@@ -130,13 +144,20 @@ def _build_warmup_kwargs(train_cfg: Any) -> dict[str, float | int]:
     return {"warmup_ratio": warmup_ratio}
 
 
-def build_hf_training_args(config: RuntimeConfig) -> TrainingArguments:
+def build_hf_training_args(
+    config: RuntimeConfig,
+    *,
+    resolved_model_plan=None,
+) -> TrainingArguments:
     train_cfg = config.train
     eval_cfg = config.eval
     eval_strategy = "no" if not eval_cfg.enabled else eval_cfg.eval_strategy
     use_bf16 = bool(train_cfg.bf16) and torch.cuda.is_available()
     dataloader_num_workers = int(config.data.num_workers)
-    fsdp, fsdp_config = _build_fsdp_args(config)
+    fsdp, fsdp_config = _build_fsdp_args(
+        config,
+        resolved_model_plan=resolved_model_plan,
+    )
     deepspeed = _build_deepspeed_arg(config)
     gradient_checkpointing = resolve_effective_gradient_checkpointing(config)
     warmup_kwargs = _build_warmup_kwargs(train_cfg)

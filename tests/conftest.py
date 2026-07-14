@@ -75,6 +75,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_template_registry.py",
         "test_template_supervision.py",
         "test_training_loss.py",
+        "test_training_efficiency.py",
         "test_training_optimizer.py",
         "test_training_topology.py",
         "test_transforms.py",
@@ -98,6 +99,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_build_image_reconstruction_sft.py",
         "test_build_reconstruction_from_gt_standard.py",
         "test_build_sft_from_structured.py",
+        "test_build_grounding_layout_sync_structured.py",
     ),
     "visual": ("test_prediction_visualization.py",),
 }

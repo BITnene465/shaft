@@ -127,6 +127,24 @@ Required workflow 不使用 PR path filter。GitHub 在整个 required workflow 
 真实 GPU、FlashAttention、真实模型与外部推理服务继续通过 `gpu/integration` suite 人工或专用 runner
 执行，不在 GitHub-hosted CPU runner 上伪造通过。
 
+Qwen 训练 release gate 需要本地 `models/Qwen3-VL-4B-Instruct`、`models/Qwen3.6-27B` processor 资产和两张
+可用 CUDA 卡，显式执行：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 \
+  uv run pytest -q tests/test_integration_qwen_standard.py \
+  -k 'two_rank_train_save_and_exact_resume_release_gate or two_rank_lora_varlen_and_export_release_gate'
+```
+
+它覆盖真实 Qwen3VL-4B LoRA greedy-varlen 的 fresh/checkpoint resume、PEFT validate、标准
+`PeftModel.from_pretrained` + export processor forward 与 adapter reload，以及 tiny upstream Qwen3.5 dense/MoE
+architecture 的 Qwen3.5 fixed padded、Qwen3.6 greedy-varlen fresh/save/exact-resume 和最终 HF
+processor+model forward。exact-resume gate 比较模型/adapter、optimizer、scheduler、每 rank RNG、
+  Trainer/stateful sampler、正式 batch-planning completion validator，以及 transaction/manifest generation
+  交叉验证后可由 2-rank runtime 完整恢复的 telemetry workload/span；wall-clock efficiency 字段不参与
+  bitwise 比较。所有 gate 显式启用
+`full_determinism`。资源守护进程只负责让卡，不得由测试或操作人停止、重启、发送信号或修改配置。
+
 ### 4.3 Eval Bench
 
 `.github/workflows/eval-bench.yml` 不是 branch protection required gate，只在相关路径变化或手动触发时：

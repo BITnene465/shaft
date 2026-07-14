@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from shaft.config import RuntimeConfig
-from shaft.model import build_model_meta, build_model_tokenizer_processor
+from shaft.model import (
+    build_model_tokenizer_processor,
+    resolve_model_plan,
+)
 from shaft.model.builder import (
     _validate_hf_sharded_checkpoint_files,
-    _validate_local_hf_config_model_type,
 )
 
 
@@ -117,7 +120,7 @@ def test_builder_rejects_local_hf_config_model_type_mismatch_before_loader(
     config.model.model_type = "qwen36vl"
     config.model.model_name_or_path = str(model_dir)
 
-    with pytest.raises(ValueError, match="does not match model.model_type='qwen36vl'"):
+    with pytest.raises(ValueError, match="not a registered variant"):
         build_model_tokenizer_processor(config)
 
 
@@ -129,7 +132,15 @@ def test_local_hf_config_model_type_validation_accepts_qwen36_config(tmp_path: P
         encoding="utf-8",
     )
 
-    _validate_local_hf_config_model_type(model_dir, model_meta=build_model_meta("qwen36vl"))
+    config = RuntimeConfig()
+    config.model.model_type = "qwen36vl"
+    config.model.model_name_or_path = str(model_dir)
+
+    plan = resolve_model_plan(config)
+
+    assert plan.descriptor is not None
+    assert plan.descriptor.hf_model_type == "qwen3_5"
+    assert plan.model_adapter.group_name == "dense"
 
 
 def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
@@ -141,24 +152,8 @@ def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
 
     captured = {}
 
-    class _Adapter:
-        loader = None
-
-        def __init__(self):
-            self.loader = type("Loader", (), {"build": self._build})()
-
-        def resolve_adapter(self, *, model_name_or_path, template_type=None):
-            _ = template_type
-            return type(
-                "ResolvedAdapter",
-                (),
-                {
-                    "check_requires": lambda self: None,
-                    "model_name_or_path": model_name_or_path,
-                },
-            )()
-
-        def _build(
+    class _Loader:
+        def build(
             self,
             cfg,
             *,
@@ -172,7 +167,19 @@ def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
             captured["sequence_execution_contract"] = sequence_execution_contract
             return object()
 
-    with patch("shaft.model.builder.build_model_meta", return_value=_Adapter()):
+    model_meta = SimpleNamespace(loader=_Loader())
+    model_adapter = SimpleNamespace(
+        check_requires=lambda: None,
+        model_name_or_path=str(init_ckpt),
+    )
+    model_plan = SimpleNamespace(
+        init_from_checkpoint=str(init_ckpt),
+        init_kind="full_checkpoint",
+        effective_model_name_or_path=str(init_ckpt),
+        model_meta=model_meta,
+        model_adapter=model_adapter,
+    )
+    with patch("shaft.model.builder.resolve_model_plan", return_value=model_plan):
         _ = build_model_tokenizer_processor(config, init_from_checkpoint=str(init_ckpt))
     called_cfg = captured["cfg"]
     assert called_cfg is not config

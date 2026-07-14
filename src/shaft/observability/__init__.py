@@ -1,6 +1,17 @@
 from .context import bind_log_context, get_log_context, set_log_context
 from .events import emit_event
 from .logging import configure_logging
+from .efficiency import (
+    TRAINING_EFFICIENCY_FILENAME,
+    TRAINING_EFFICIENCY_SCHEMA_VERSION,
+    ShaftEfficiencyAggregate,
+    ShaftEfficiencyFrame,
+    ShaftTrainingEfficiencyContract,
+    ShaftTrainingEfficiencySummary,
+    training_hardware_fingerprint,
+    training_software_fingerprint,
+    write_training_efficiency_summary,
+)
 from .progress import (
     PROGRESS_SNAPSHOT_FILENAME,
     ShaftJsonProgressSink,
@@ -20,6 +31,14 @@ from .progress import (
 )
 
 __all__ = [
+    "TRAINING_EFFICIENCY_FILENAME",
+    "TRAINING_EFFICIENCY_SCHEMA_VERSION",
+    "ShaftEfficiencyAggregate",
+    "ShaftEfficiencyFrame",
+    "ShaftTrainingEfficiencyContract",
+    "ShaftTrainingEfficiencySummary",
+    "training_hardware_fingerprint",
+    "training_software_fingerprint",
     "bind_log_context",
     "build_progress_manager",
     "configure_logging",
@@ -40,4 +59,5 @@ __all__ = [
     "ShaftProgressTaskSnapshot",
     "ShaftTerminalProgressPresentation",
     "ShaftTerminalProgressSink",
+    "write_training_efficiency_summary",
 ]

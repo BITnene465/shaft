@@ -11,6 +11,35 @@ from tests.support.configs import write_config_yaml
 pytestmark = pytest.mark.component
 
 
+def test_hf_model_resolution_fields_are_normalized(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+model:
+  model_type: QWEN36VL
+  model_name_or_path: " my-org/model "
+  revision: " release-v2 "
+  cache_dir: " /tmp/hf-cache "
+  local_files_only: "true"
+  trust_remote_code: "false"
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+""",
+        )
+    )
+
+    assert config.model.model_type == "qwen36vl"
+    assert config.model.model_name_or_path == "my-org/model"
+    assert config.model.revision == "release-v2"
+    assert config.model.cache_dir == "/tmp/hf-cache"
+    assert config.model.local_files_only is True
+    assert config.model.trust_remote_code is False
+
+
 def test_full_determinism_config_is_normalized(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(
@@ -28,6 +57,50 @@ train:
     )
 
     assert config.train.full_determinism is True
+
+
+def test_training_efficiency_config_is_normalized(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  efficiency:
+    enabled: "true"
+    device_timing: OFF
+    persist: "false"
+""",
+        )
+    )
+    assert config.train.efficiency.enabled is True
+    assert config.train.efficiency.device_timing == "off"
+    assert config.train.efficiency.persist is False
+
+
+def test_invalid_training_efficiency_device_timing_is_rejected(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="train.efficiency.device_timing"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  efficiency:
+    device_timing: always-ish
+""",
+            )
+        )
 
 
 def test_invalid_loss_scale_raises(tmp_path: Path) -> None:

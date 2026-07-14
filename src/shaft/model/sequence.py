@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+import inspect
+from types import MethodType
 from typing import Any
 
 import torch
@@ -16,6 +18,10 @@ from .types import (
 
 _QWEN3VL_CORE_MODULE = "transformers.models.qwen3_vl.modeling_qwen3_vl"
 _QWEN3VL_CORE_CLASS = "Qwen3VLModel"
+_QWEN35_CORE_TYPES = (
+    ("transformers.models.qwen3_5.modeling_qwen3_5", "Qwen3_5Model"),
+    ("transformers.models.qwen3_5_moe.modeling_qwen3_5_moe", "Qwen3_5MoeModel"),
+)
 
 
 @dataclass(frozen=True)
@@ -94,7 +100,7 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
             raise ValueError("Qwen3VL sequence execution contract is stale or foreign.")
         if contract.layout != "varlen":
             return
-        qwen_core = self._resolve_qwen3vl_core(model)
+        qwen_core = self._resolve_core(model)
         if contract.device_type == "cpu":
             actual_backends = self._actual_attention_implementations(
                 qwen_core
@@ -167,7 +173,7 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
                     "Qwen3VL varlen attention_mask must be absent or an all-valid flat row."
                 )
 
-        qwen_core = self._resolve_qwen3vl_core(model)
+        qwen_core = self._resolve_core(model)
         self._validate_media_alignment(
             prepared=prepared,
             layout=layout,
@@ -330,8 +336,7 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
         except PackageNotFoundError:
             return "missing"
 
-    @staticmethod
-    def _resolve_qwen3vl_core(model: Any) -> Any:
+    def _resolve_core(self, model: Any) -> Any:
         queue = [model]
         visited: set[int] = set()
         while queue:
@@ -353,4 +358,270 @@ class Qwen3VLSequenceExecutionPolicy(SequenceExecutionPolicy):
         raise ValueError(
             "Qwen3VL varlen requires a trusted Transformers Qwen3VLModel core; "
             "remote-code and unknown wrappers are not enabled."
+        )
+
+
+@dataclass(frozen=True)
+class Qwen35VLSequenceExecutionPolicy(Qwen3VLSequenceExecutionPolicy):
+    """Packed execution for Qwen3.5/Qwen3.6 hybrid attention models.
+
+    Qwen3.6 is currently implemented by Transformers through the qwen3_5
+    architecture.  In addition to M-RoPE resets, the linear-attention state and
+    causal convolution require explicit segment boundaries.
+    """
+
+    def _capability_signature(self) -> tuple[str, ...]:
+        return (
+            "shaft-qwen35vl-hybrid-sequence-execution-v2",
+            "vision-kwarg-filter=v1",
+            f"transformers={transformers_version}",
+            f"flash-attn={self._package_version('flash-attn')}",
+            f"flash-linear-attention={self._package_version('flash-linear-attention')}",
+            f"causal-conv1d={self._package_version('causal-conv1d')}",
+        )
+
+    def build_contract(
+        self,
+        *,
+        layout: str,
+        device_type: str,
+        attention_implementation: str | None,
+        torch_dtype: str,
+        distributed_strategy: str,
+        torch_compile: bool = False,
+    ) -> ShaftSequenceExecutionContract:
+        normalized_layout = str(layout).strip().lower()
+        if normalized_layout != "varlen":
+            return super().build_contract(
+                layout=layout,
+                device_type=device_type,
+                attention_implementation=attention_implementation,
+                torch_dtype=torch_dtype,
+                distributed_strategy=distributed_strategy,
+                torch_compile=torch_compile,
+            )
+        device = str(device_type).strip().lower()
+        attention = str(attention_implementation or "").strip().lower()
+        dtype = str(torch_dtype).strip().lower()
+        strategy = str(distributed_strategy).strip().lower()
+        if torch_compile:
+            raise ValueError("Qwen3.5/3.6 varlen does not yet support torch.compile.")
+        if device != "cuda":
+            raise ValueError(
+                "Qwen3.5/3.6 hybrid varlen requires CUDA kernels; CPU execution "
+                "would not safely isolate linear-attention state."
+            )
+        if attention != "flash_attention_2":
+            raise ValueError(
+                "CUDA Qwen3.5/3.6 varlen requires "
+                "attention_implementation='flash_attention_2'."
+            )
+        if dtype not in {"bf16", "bfloat16", "fp16", "float16"}:
+            raise ValueError("CUDA Qwen3.5/3.6 varlen requires bfloat16 or float16 dtype.")
+        if strategy != "ddp":
+            raise ValueError("CUDA Qwen3.5/3.6 varlen currently supports DDP only.")
+        missing = [
+            package
+            for package in ("flash-attn", "flash-linear-attention", "causal-conv1d")
+            if self._package_version(package) == "missing"
+        ]
+        if missing:
+            raise ImportError(
+                "Qwen3.5/3.6 varlen requires CUDA isolation kernels: "
+                + ", ".join(missing)
+                + "."
+            )
+        return ShaftSequenceExecutionContract(
+            layout=normalized_layout,
+            device_type=device,
+            attention_implementation=attention,
+            torch_dtype=dtype,
+            distributed_strategy=strategy,
+            torch_compile=False,
+            capability_signature=self._capability_signature(),
+        )
+
+    def prepare_training_inputs(
+        self,
+        *,
+        model: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        layout = inputs.get("_shaft_varlen_layout")
+        prepared = super().prepare_training_inputs(model=model, inputs=inputs)
+        if layout is None:
+            return prepared
+        boundaries = [0, *(int(segment.stop) for segment in layout.segments)]
+        if boundaries[-1] != int(layout.total_tokens):
+            raise ValueError("Qwen3.5/3.6 varlen boundaries do not cover all tokens.")
+        lengths = [
+            int(segment.stop) - int(segment.start) for segment in layout.segments
+        ]
+        sequence_ids = torch.cat(
+            [
+                torch.full(
+                    (length,),
+                    index,
+                    dtype=torch.int32,
+                    device=prepared["input_ids"].device,
+                )
+                for index, length in enumerate(lengths)
+            ],
+            dim=0,
+        ).view(1, -1)
+        cu_seqlens = torch.tensor(
+            boundaries,
+            dtype=torch.int32,
+            device=prepared["input_ids"].device,
+        )
+        prepared["seq_idx"] = sequence_ids
+        prepared["cu_seq_lens_q"] = cu_seqlens
+        prepared["cu_seq_lens_k"] = cu_seqlens
+        prepared["max_length_q"] = max(lengths)
+        prepared["max_length_k"] = max(lengths)
+        return prepared
+
+    def validate_runtime(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        super().validate_runtime(model=model, contract=contract)
+        if contract.layout != "varlen":
+            return
+        core = self._resolve_core(model)
+        if not bool(getattr(core, "_shaft_sequence_kwarg_filter_v2", False)):
+            raise ValueError(
+                "Qwen3.5/3.6 hybrid varlen runtime compatibility adapter is missing."
+            )
+        language_model = getattr(core, "language_model", None)
+        layers = tuple(getattr(language_model, "layers", ()) or ())
+        linear_layers = [
+            layer
+            for layer in layers
+            if str(getattr(layer, "layer_type", "")).strip().lower()
+            == "linear_attention"
+        ]
+        if not linear_layers:
+            raise ValueError(
+                "Qwen3.5/3.6 hybrid varlen could not verify any linear-attention layer."
+            )
+        for layer in linear_layers:
+            linear_attn = getattr(layer, "linear_attn", None)
+            if (
+                linear_attn is None
+                or getattr(linear_attn, "causal_conv1d_fn", None) is None
+                or getattr(linear_attn, "chunk_gated_delta_rule", None) is None
+            ):
+                raise ValueError(
+                    "Qwen3.5/3.6 hybrid varlen did not retain causal-conv1d and "
+                    "flash-linear-attention isolation kernels."
+                )
+
+    def configure_runtime(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        if contract.layout != "varlen":
+            return
+        core = self._resolve_core(model)
+        if bool(getattr(core, "_shaft_sequence_kwarg_filter_v2", False)):
+            return
+        language_model = getattr(core, "language_model", None)
+        self._require_variadic_keyword_contract(
+            getattr(core, "forward", None),
+            description="Qwen3.5/3.6 multimodal forward",
+        )
+        self._require_variadic_keyword_contract(
+            getattr(language_model, "forward", None),
+            description="Qwen3.5/3.6 language forward",
+        )
+        sequence_only_fields = {
+            "seq_idx",
+            "cu_seq_lens_q",
+            "cu_seq_lens_k",
+            "max_length_q",
+            "max_length_k",
+        }
+        wrapped_methods = 0
+        for method_name in ("get_image_features", "get_video_features"):
+            original = getattr(core, method_name, None)
+            if not callable(original):
+                continue
+            required_media_field = (
+                "pixel_values" if method_name == "get_image_features" else "pixel_values_videos"
+            )
+            signature = inspect.signature(original)
+            if required_media_field not in signature.parameters:
+                raise ValueError(
+                    f"Upstream {method_name} no longer exposes {required_media_field}; "
+                    "the versioned Qwen3.5/3.6 runtime adapter is incompatible."
+                )
+
+            def _filtered_media_features(
+                instance: Any,
+                *args: Any,
+                __original=original,
+                **kwargs: Any,
+            ) -> Any:
+                _ = instance
+                for field_name in sequence_only_fields:
+                    kwargs.pop(field_name, None)
+                return __original(*args, **kwargs)
+
+            setattr(
+                core,
+                method_name,
+                MethodType(_filtered_media_features, core),
+            )
+            wrapped_methods += 1
+        if wrapped_methods == 0:
+            raise ValueError(
+                "Qwen3.5/3.6 hybrid varlen could not locate upstream media "
+                "feature methods for boundary-kwarg isolation."
+            )
+        setattr(core, "_shaft_sequence_kwarg_filter_v2", True)
+
+    @staticmethod
+    def _require_variadic_keyword_contract(method: Any, *, description: str) -> None:
+        if not callable(method):
+            raise ValueError(f"{description} is unavailable in the installed Transformers.")
+        try:
+            signature = inspect.signature(method)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Cannot inspect {description} capability contract.") from exc
+        if not any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        ):
+            raise ValueError(
+                f"{description} no longer accepts sequence boundary kwargs; "
+                "refusing an unverified hybrid varlen runtime."
+            )
+
+    def _resolve_core(self, model: Any) -> Any:
+        queue = [model]
+        visited: set[int] = set()
+        while queue:
+            candidate = queue.pop(0)
+            if candidate is None or id(candidate) in visited:
+                continue
+            visited.add(id(candidate))
+            candidate_type = type(candidate)
+            if (
+                (candidate_type.__module__, candidate_type.__name__)
+                in _QWEN35_CORE_TYPES
+                and callable(getattr(candidate, "get_rope_index", None))
+            ):
+                return candidate
+            for attribute in ("module", "base_model", "model"):
+                child = getattr(candidate, attribute, None)
+                if child is not None and child is not candidate:
+                    queue.append(child)
+        raise ValueError(
+            "Qwen3.5/3.6 varlen requires a trusted Transformers Qwen3_5Model "
+            "or Qwen3_5MoeModel core; remote-code and unknown wrappers are not enabled."
         )

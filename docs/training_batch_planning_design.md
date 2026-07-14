@@ -1,7 +1,7 @@
 # Shaft batch planning design
 
-状态：**bounded grouping、length grouping、whole-sample greedy packing 与 Qwen3VL image-SFT varlen
-执行链已实现；context parallel 不在本轮范围内**
+状态：**bounded grouping、length grouping、whole-sample greedy packing、Qwen3VL 与
+Qwen3.5/3.6 image-SFT varlen、committed efficiency telemetry 已实现；context parallel 不在本轮范围内**
 
 ## 1. 问题与设计结论
 
@@ -69,8 +69,8 @@ grouping = bounded_cost, cardinality = fixed|token_budget, packing.mode = none, 
 grouping       cardinality   packing   layout    首轮状态
 none           fixed         none      padded    已实现
 length         fixed         none      padded    已实现
-length         fixed         none      varlen    已实现，仅 Qwen3VL image SFT
-length         fixed         greedy    varlen    已实现，仅 Qwen3VL image SFT
+length         fixed         none      varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 image SFT
+length         fixed         greedy    varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 image SFT
 bounded_cost   fixed         none      padded    已实现
 bounded_cost   token_budget  none      padded    已实现
 ```
@@ -382,13 +382,30 @@ aggregate budget 必须能容纳 processor 允许的最大单样本。Qwen patch
 - Qwen direct invariants：scalar axis 对每段严格等于 `0..L-1`，后三轴逐元素等于 standalone upstream
   M-RoPE；交换 manifest、删除 grid/patch row 必须在 forward 前失败。
 - capability negative matrix：3-axis positions、未 reset scalar positions、`use_cache=True`、非空 past、
-  顶层 cu-seqlens、FA2 实际回退、错误 dtype/device/concrete config、Qwen3.5/3.6、SmokeVLM 和未知模型。
+  FA2/FLA/causal-conv 实际回退、错误 dtype/device/concrete config、SmokeVLM 和未知模型。
 
 GPU canary 是 release gate，不能用 CPU smoke 冒充。2026-07-13 已在 CUDA 1、2 上用标准 HF tiny
 `Qwen3VLForConditionalGeneration` 完成 2-rank DDP + FlashAttention 2 + bf16 的完整 vision/DeepStack
 forward/backward、eval、checkpoint 与 checkpoint-1 resume。连续与恢复训练的 model bytes、optimizer、
 scheduler、两 rank RNG 和 committed planning manifest 一致；`trainer_state.json` 仅因输出目录不同而保留
 不同的 `best_model_checkpoint` 路径。
+
+2026-07-14 又在 CUDA 0、1 上用真实 Qwen3.6 processor 与 tiny `Qwen3_5ForConditionalGeneration`
+完成 2-rank DDP + FlashAttention 2 + FLA + causal-conv 的 greedy varlen 多模态 forward/backward、两步训练、
+checkpoint、checkpoint-1 exact resume、HF save/export 与 telemetry snapshot 恢复。packed 与 standalone
+hybrid-language hidden state parity、完整 vision forward 和 lm-head gradient 均通过；全程未操作
+`gpu-holder`。
+
+同日最终 release gate 在不可变源码状态下统一覆盖三组模型契约：
+
+| gate | 执行布局 | 发布验收 |
+|---|---|---|
+| 真实 Qwen3VL-4B PEFT | 2-rank greedy varlen | fresh/resume、planning completion、telemetry restore、标准 PEFT + processor reload/forward |
+| tiny upstream Qwen3.5/3.6 dense | 2-rank padded/varlen | fresh/resume、模型/optimizer/scheduler/RNG 等价、full HF + processor reload/forward |
+| tiny upstream Qwen3.5/3.6 MoE | 2-rank padded/varlen | router/expert 结构、fresh/resume、completion、telemetry、full HF reload/forward |
+
+统一命令选择 3 个 opt-in integration gate，结果 3/3 通过；它证明当前 Qwen variant 契约与发布链闭合，
+不替代生产数据上的吞吐、峰值显存和长时间稳定性 profiler。
 
 ## 9. Varlen layout
 
@@ -440,15 +457,18 @@ model family + concrete HF config
 只有上述两阶段检查都成功后才允许训练。请求 FlashAttention 2 或 varlen 时，依赖缺失、实现被 HF 静默回退、
 未知 remote-code forward 或不支持的分布式策略必须 fail closed，不能回退为 padded。
 
-首轮 allowlist 是闭集：
+当前 allowlist 是闭集：
 
 ```text
 Qwen3VL image SFT + CPU + eager/SDPA + fp32/bf16   correctness oracle only
 Qwen3VL image SFT + CUDA + FlashAttention 2
                     + bf16/fp16 + DDP              release path
+Qwen3.5/3.6 image SFT + CUDA + FlashAttention 2
+                    + FLA + causal-conv
+                    + bf16/fp16 + DDP              release path
 ```
 
-CUDA SDPA/eager、CUDA fp32 FA2、FSDP、DeepSpeed、torch.compile、Qwen3.5/3.6、SmokeVLM、未知或
+CUDA SDPA/eager、CUDA fp32 FA2、FSDP、DeepSpeed、torch.compile、SmokeVLM、未知或
 remote-code concrete class 都拒绝。TrainingArguments 中 `per_device_train_batch_size` 仍记录 physical pack
 数，DDP DataLoader 每次仍产生一个 local microbatch；模型看到的 varlen tensor batch axis 固定为 1。
 首轮拒绝会从 tensor batch axis 推导 micro-batch 的 DeepSpeed/FSDP 路径。
@@ -464,12 +484,20 @@ Qwen3VL 首轮策略：
    `position_ids` 为 `[4, 1, total_tokens]`。第一轴供 Transformers 构造 block-causal boundary，后三轴供
    Qwen M-RoPE。
 4. 省略 `attention_mask`，强制 `use_cache=False`。CUDA FlashAttention 2 由 reset scalar positions 推导
-   varlen 边界；不要把顶层 `cu_seq_lens` 透传给多模态 model，以免进入 vision attention。
+   varlen 边界。
 5. 逐段校验 modality run、grid row 和 patch slice 数量，任何 media manifest 漂移都在 forward 前失败。
 
-Qwen3.5/3.6 混合 attention 还需要 GatedDeltaNet 的 `seq_idx/cu_seq_lens` 和 FLA/causal-conv 快路径；CPU
-fallback 不满足 segment isolation，首轮明确拒绝，不复用 Qwen3VL policy。其他模型族通过注册自己的
-execution policy 扩展，collator/trainer 不再增加 `if model_type == ...` 分支。
+Qwen3.5/3.6 使用独立 hybrid policy：除同样的 segment-local 四轴 M-RoPE 外，还生成 `seq_idx`、
+`cu_seq_lens_q/k` 与 max lengths，分别隔离 causal-conv、GatedDeltaNet/FLA 和 full attention。Transformers
+5.10.1 会把语言侧 kwargs 同时传给 vision encoder，因此 policy 在模型 runtime 安装版本化 media-kwarg
+filter，只从 vision feature 调用移除这些语言字段；trainer/collator 不包含模型名分支。CPU fallback 不满足
+linear state isolation，明确拒绝。Qwen3.6 当前是 HF `qwen3_5` architecture 的产品 alias。
+
+模型 variant 不再只靠目录 basename：本地目录、HF cache 或 Hub repo 的 config 都先解析为
+`ResolvedModelDescriptor`，再按 `hf_model_type/architecture` 选择 dense 或 MoE sharding profile；
+`revision/cache_dir/local_files_only` 与 loader 使用同一组参数。未知且无法取得 config 的多变体模型会
+fail closed，避免 MoE 静默落入 dense policy。PEFT 初始化额外由 `ResolvedAdapterInit` 绑定 canonical
+adapter config、base artifact 与权重 manifest；builder 不再二次推导 adapter 身份。
 
 ## 11. Loss 与模型调用
 
@@ -481,7 +509,45 @@ Shaft 继续用 collate 后真实 `labels/loss_scale` 计算跨 GA/DP 的 global
 必须分别记录 physical packs、logical segments、useful tokens、padding tokens、segments/pack、planner CPU
 time 和 rank skew。不能再用 `batch_size` 一个数字同时表示 Tensor batch dim、pack 数和 logical sample 数。
 
-## 12. Context parallel 边界
+## 12. Committed efficiency telemetry
+
+`[batch-plan-summary]` 只描述 producer 已规划的窗口，可能包含 DataLoader prefetch 后最终未执行的 frame；它
+不是吞吐真源。实际效率链分三层：
+
+```text
+SFTCollator -> _shaft_batch_stats（processor 后实际 tensor/resource）
+HF Trainer  -> stage complete GA frame -> successful on_step_end commit
+observability -> Trainer.log/W&B + shaft_training_efficiency.json
+```
+
+- padded 的 useful/materialized token 分别来自 `attention_mask.sum()` 与 `input_ids.numel()`；varlen 来自实际
+  flattened tensor/layout。sequence length 的 sum/square 按 logical segment 统计，不能把整个 flat row 当成
+  一条样本。supervised token 与训练 loss 一样使用 shifted labels，vision patches 来自 processor media
+  manifest，不使用 planner estimate；optional weighted supervision 同时记录 microbatch coverage，部分覆盖
+  不会冒充完整 mass。
+- `get_batch_samples` 分开记录 iterator acquire（含 worker/IPC/collate 等待）与 global denominator prepare；
+  `training_step` 记录 host wall time。CUDA events 从该 optimizer frame 的第一次 training step 延续到 optimizer
+  完成，记录完整 device timeline；optimizer hook 另保留 host wall 诊断值。
+- 只有 `on_step_end` 提交。forward/backward/OOM 异常与预取领先的数据不会进入 totals；AMP skipped update
+  单独记录 `update_applied=false`。
+- DDP 只在 logging/final window 做固定 numeric tensor collective：counts 求和，duration 求 rank min/mean/max，
+  critical path 按 step 取最慢 rank，并累计该 critical rank 的 acquire/prepare/train/optimizer components；
+  不在每 step 使用 object gather。monitor 启动时还会验证所有 rank 的 typed contract fingerprint 一致。
+- checkpoint 内写每 rank 的可选 telemetry snapshot。rank 0 先 revoke 旧 snapshot set，再由所有 rank 写入
+  同一 generation，最后原子发布 set manifest。三个阶段都在本地 I/O 后通过固定 tensor 汇合成功状态；
+  任一 rank 失败时所有 rank 同步退出该提交并撤销 incomplete set，不在 fallible I/O 后直接进入 barrier。
+  `persist=false` 与 telemetry disabled 也会撤销同名 checkpoint 中的旧 set。只有所有 rank 的 snapshot 都存在且
+  generation/step/world/rank/span/typed training contract 对齐时 resume 才继续完整历史；任一 rank 缺失或不兼容时全体
+  一致降级，summary 标记 `complete_history=false` 并从 checkpoint step 重新覆盖，避免 asymmetric collective、
+  stale root summary 或重复累计。CUDA event coverage 同样要求每个 committed frame、每个 rank 完整一致。
+- `scripts/compare_efficiency.py RUN...` 比较相同训练契约下的 committed summary，可用于 fixed padded、length
+  padded、length varlen、greedy varlen 与 bounded token-budget 的 A/B。默认 identity 包含模型、数据/source、
+  sample schedule、DP/GA、optimizer/scheduler、measurement protocol、timing mode 与 step span，只允许
+  batch/sequence fingerprints 变化；
+  `--allow-incompatible` 是显式逃生口。fixed path 的未版本化 transform/缺失 media snapshot 不改变训练
+  可用性，但 source identity 会标 incomplete 并被默认比较拒绝。实验启动仍由普通训练 CLI 负责。
+
+## 13. Context parallel 边界
 
 context parallel 是 job-level topology，只处理单条不可分割的超长上下文；它不是普通短样本 padding、
 sequence packing 或 DDP straggler 的替代方案。它需要独立的 topology、position/attention、checkpoint 和

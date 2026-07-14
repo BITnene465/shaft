@@ -21,6 +21,10 @@ from .batch_planning import (
     write_batch_planning_checkpoint_completion,
 )
 from .eval_policy import aggregate_weighted_dataset_values
+from .efficiency import (
+    ShaftTrainingEfficiencyMonitor,
+    prepare_training_efficiency_checkpoint,
+)
 from .loss import build_loss
 from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
@@ -43,6 +47,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         online_eval_runner: ShaftOnlineEvalRunner | None = None,
         eval_config: EvalConfig | None = None,
         eval_data_collator: Any | None = None,
+        efficiency_monitor: ShaftTrainingEfficiencyMonitor | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -62,6 +67,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         self.online_eval_runner = online_eval_runner
         self.eval_config = eval_config
         self.eval_data_collator = eval_data_collator
+        self.efficiency_monitor = efficiency_monitor
         self._shaft_train_data_collator = self.data_collator
         # HF uses this flag to collect one optimizer batch before backward and pass
         # its global normalization denominator into compute_loss.
@@ -140,7 +146,10 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             self.data_collator = previous_collator
 
     def _prepare_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        prepared = inputs
+        if "_shaft_batch_stats" not in inputs and "_shaft_varlen_layout" not in inputs:
+            return super()._prepare_inputs(inputs)
+        prepared = dict(inputs)
+        prepared.pop("_shaft_batch_stats", None)
         if "_shaft_varlen_layout" in prepared:
             if self.model_adapter is None:
                 raise ValueError(
@@ -151,6 +160,67 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
                 inputs=prepared,
             )
         return super()._prepare_inputs(prepared)
+
+    def get_batch_samples(
+        self,
+        epoch_iterator: Any,
+        num_batches: int,
+        device: torch.device,
+    ) -> tuple[list[Any], torch.Tensor | int | None]:
+        if self.efficiency_monitor is None or not self.efficiency_monitor.enabled:
+            return super().get_batch_samples(epoch_iterator, num_batches, device)
+        acquire_started_at = time.perf_counter()
+        batch_samples: list[Any] = []
+        for _ in range(num_batches):
+            try:
+                batch_samples.append(next(epoch_iterator))
+            except StopIteration:
+                break
+        acquire_seconds = time.perf_counter() - acquire_started_at
+
+        prepare_started_at = time.perf_counter()
+        num_items = self._get_num_items_in_batch(batch_samples, device)
+        prepare_seconds = time.perf_counter() - prepare_started_at
+        if self.efficiency_monitor is not None and batch_samples:
+            self.efficiency_monitor.stage(
+                batch_samples,
+                host_batch_acquire_seconds=acquire_seconds,
+                batch_prepare_seconds=prepare_seconds,
+            )
+        return batch_samples, num_items
+
+    def training_step(
+        self,
+        model: torch.nn.Module,
+        inputs: dict[str, Any],
+        num_items_in_batch: torch.Tensor | int | None = None,
+    ) -> torch.Tensor:
+        if self.efficiency_monitor is None or not self.efficiency_monitor.enabled:
+            return super().training_step(model, inputs, num_items_in_batch)
+        started_at = time.perf_counter()
+        if (
+            self.efficiency_monitor is not None
+            and self.efficiency_monitor.device_timing
+            and self.args.device.type == "cuda"
+        ):
+            self.efficiency_monitor.start_device_frame()
+        result = super().training_step(model, inputs, num_items_in_batch)
+        if self.efficiency_monitor is not None:
+            self.efficiency_monitor.record_training_step(
+                time.perf_counter() - started_at,
+            )
+        return result
+
+    def finalize_training_efficiency(self) -> dict[str, float]:
+        if self.efficiency_monitor is None:
+            return {}
+        if not self.efficiency_monitor.enabled:
+            return {}
+        _, metrics = self.efficiency_monitor.finalize(
+            final_global_step=int(self.state.global_step),
+            device=self.args.device,
+        )
+        return metrics
 
     def _get_num_items_in_batch(
         self,
@@ -418,6 +488,18 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
                 "batch-planning checkpoint begin",
                 revoke_error,
             )
+        efficiency_generation: str | None = None
+        if (
+            self.efficiency_monitor is not None
+            and self.efficiency_monitor.enabled
+            and self.efficiency_monitor.persist
+        ):
+            efficiency_generation = self.efficiency_monitor.snapshot_generation
+        prepare_training_efficiency_checkpoint(
+            checkpoint_path,
+            global_step=int(self.state.global_step),
+            generation=efficiency_generation,
+        )
         save_total_limit = self.args.save_total_limit
         local_error: Exception | None = None
         # HF rotates on rank zero before a peer-rank RNG write failure can be

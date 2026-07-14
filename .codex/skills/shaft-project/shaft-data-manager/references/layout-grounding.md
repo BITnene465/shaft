@@ -27,17 +27,31 @@ task.
   `data/raw/splits/vlm.test.json`; do not include those test items in train-derived grounding
   data. For GT-based structured/eval data, resolve image-level split items to raw-relative JSON
   paths such as `json/gemini_0001.json` only when the JSON exists.
-- Validation uses full-image only.
-- Train keeps one clean full-image row for every covered source image.
-- Default train augmentation for `grounding_layout` is:
-  - `density_crop`: about `0.3x`, including only a small minority of negative samples.
-  - `blur_full + blur_crop`: `1.0x`, using light-to-moderate Gaussian blur, resize blur, or
-    JPEG compression.
-  - `random_padded_full`: `0.2x`, applied only to clean full-image rows.
+- Validation and test use native clean full-image rows only.
+- Train keeps one native clean full-image row for every covered source image.
+- The historical full/crop/blur/padded snapshot is retained as
+  `data/archive2/grounding_layout_v5.1_bak0714`.
+- The maintained `data/grounding_layout` rebuild contains 49,666 rows from 9,118 sources and uses:
+  `native clean = 1.0x`, `continuous clean resize = 2.9x`,
+  `random padded clean = 0.1x`,
+  `degraded resize = 1.2x`, `density crop ~= 0.25x`, and
+  `hard-negative crop ~= 0.03x`. The actual clean-resize count is 26,140 rather than the nominal
+  26,442 because 165 small or narrow sources cannot fill all slots under the scale and
+  deduplication constraints.
+- Sample resize targets continuously in log-pixel space while preserving aspect ratio. Align
+  output dimensions to the Qwen processor factor, cap offline linear upscale at `2x`, and avoid
+  near-native duplicates. The `0.2-0.5M`, `0.5-1M`, `1-2M`, and `2-4M` ranges are balancing and
+  reporting bands, not four fixed output sizes.
+- Build degraded rows from selected clean resize dimensions. Apply resize first and exactly one
+  bounded Gaussian blur or Gaussian noise operation second; do not materialize every
+  scale/degradation combination for every source.
+- Build the small padded family from native or selected clean resize views. Expand width and
+  height continuously, place the source at a uniformly random offset instead of centering it,
+  transform coordinates exactly, and keep the final aligned canvas inside the pixel budget.
 - Do not use fixed crop-size grids as the default. Crop size should depend on source image size
   and sampled local density.
-- Do not apply crop, blur, padding, or hard negatives to validation/test rows unless explicitly
-  requested.
+- Do not apply resize, crop, blur, noise, padding, or hard negatives to validation/test rows
+  unless explicitly requested.
 
 ## Structured Row
 

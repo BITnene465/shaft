@@ -12,7 +12,10 @@ from shaft.model import (
     ShaftProcessorMediaManifest,
     build_model_meta,
 )
-from shaft.model.sequence import Qwen3VLSequenceExecutionPolicy
+from shaft.model.sequence import (
+    Qwen35VLSequenceExecutionPolicy,
+    Qwen3VLSequenceExecutionPolicy,
+)
 
 
 def _tiny_qwen3vl_config(*, deepstack: bool = False):
@@ -93,6 +96,20 @@ def _trusted_qwen_core() -> object:
     return core
 
 
+def _trusted_qwen35_core() -> object:
+    core = _trusted_qwen_core()
+    trusted_type = type(
+        "Qwen3_5Model",
+        (type(core),),
+        {"__module__": "transformers.models.qwen3_5.modeling_qwen3_5"},
+    )
+    trusted = trusted_type()
+    trusted.config = core.config
+    trusted.forward = lambda **kwargs: kwargs
+    trusted.language_model = SimpleNamespace(forward=lambda **kwargs: kwargs)
+    return trusted
+
+
 def _varlen_inputs() -> dict[str, object]:
     layout = ShaftVarlenLayoutPlan(
         global_microstep=4,
@@ -156,6 +173,99 @@ def test_qwen3vl_varlen_policy_builds_isolated_four_axis_positions() -> None:
     assert "_shaft_varlen_layout" not in prepared
     assert "_shaft_media_manifest" not in prepared
     assert prepared["use_cache"] is False
+
+
+def test_qwen35vl_hybrid_varlen_adds_full_and_linear_attention_boundaries() -> None:
+    policy = Qwen35VLSequenceExecutionPolicy()
+    prepared = policy.prepare_training_inputs(
+        model=SimpleNamespace(model=_trusted_qwen35_core()),
+        inputs=_varlen_inputs(),
+    )
+
+    assert prepared["position_ids"][0, 0].tolist() == [0, 1, 2, 3, 0, 1, 2]
+    assert prepared["seq_idx"].tolist() == [[0, 0, 0, 0, 1, 1, 1]]
+    assert prepared["cu_seq_lens_q"].tolist() == [0, 4, 7]
+    assert prepared["cu_seq_lens_k"].tolist() == [0, 4, 7]
+    assert prepared["max_length_q"] == 4
+    assert prepared["max_length_k"] == 4
+
+
+def test_qwen35vl_and_qwen36vl_adapters_share_verified_hybrid_policy() -> None:
+    for model_type in ("qwen35vl", "qwen36vl"):
+        adapter = build_model_meta(model_type).resolve_adapter(
+            model_name_or_path="models/Qwen3.6-27B"
+        )
+        assert isinstance(
+            adapter.sequence_execution_policy,
+            Qwen35VLSequenceExecutionPolicy,
+        )
+        contract = adapter.build_sequence_execution_contract(
+            layout="varlen",
+            device_type="cuda",
+            attention_implementation="flash_attention_2",
+            torch_dtype="bf16",
+            distributed_strategy="ddp",
+        )
+        assert contract.capability_signature[0].startswith(
+            "shaft-qwen35vl-hybrid-sequence-execution"
+        )
+
+
+def test_qwen35vl_hybrid_varlen_fails_closed_without_cuda_or_ddp() -> None:
+    policy = Qwen35VLSequenceExecutionPolicy()
+    with pytest.raises(ValueError, match="requires CUDA kernels"):
+        policy.build_contract(
+            layout="varlen",
+            device_type="cpu",
+            attention_implementation="eager",
+            torch_dtype="fp32",
+            distributed_strategy="ddp",
+        )
+    with pytest.raises(ValueError, match="supports DDP only"):
+        policy.build_contract(
+            layout="varlen",
+            device_type="cuda",
+            attention_implementation="flash_attention_2",
+            torch_dtype="bf16",
+            distributed_strategy="fsdp",
+        )
+
+
+def test_qwen35vl_runtime_adapter_filters_boundaries_only_from_media_calls() -> None:
+    policy = Qwen35VLSequenceExecutionPolicy()
+    core = _trusted_qwen35_core()
+    observed = {}
+
+    def get_image_features(pixel_values=None, **kwargs):
+        observed.update(kwargs)
+        return pixel_values
+
+    core.get_image_features = get_image_features
+    model = SimpleNamespace(model=core)
+    contract = SimpleNamespace(layout="varlen")
+
+    policy.configure_runtime(model=model, contract=contract)
+    result = core.get_image_features(
+        pixel_values="pixels",
+        seq_idx="private",
+        cu_seq_lens_q="private",
+        output_attentions=True,
+    )
+
+    assert result == "pixels"
+    assert observed == {"output_attentions": True}
+    assert core._shaft_sequence_kwarg_filter_v2 is True
+
+
+def test_qwen35vl_runtime_adapter_fails_closed_on_upstream_api_drift() -> None:
+    policy = Qwen35VLSequenceExecutionPolicy()
+    model = SimpleNamespace(model=_trusted_qwen35_core())
+
+    with pytest.raises(ValueError, match="media feature methods"):
+        policy.configure_runtime(
+            model=model,
+            contract=SimpleNamespace(layout="varlen"),
+        )
 
 
 def test_qwen3vl_varlen_policy_rejects_untrusted_or_wrong_model_core() -> None:

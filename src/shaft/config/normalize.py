@@ -36,6 +36,7 @@ _PARAM_GROUP_LR_KEYS = {
     "lora_params",
     "modules_to_save",
 }
+_EFFICIENCY_DEVICE_TIMING = {"auto", "off"}
 
 
 def _normalize_bool(value: object, field_name: str) -> bool:
@@ -74,6 +75,31 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}."
         )
+
+    config.model.model_type = str(config.model.model_type).strip().lower()
+    if not config.model.model_type:
+        raise ValueError("model.model_type must not be empty.")
+    config.model.model_name_or_path = str(config.model.model_name_or_path).strip()
+    if not config.model.model_name_or_path:
+        raise ValueError("model.model_name_or_path must not be empty.")
+    config.model.revision = (
+        str(config.model.revision).strip() or None
+        if config.model.revision is not None
+        else None
+    )
+    config.model.cache_dir = (
+        str(config.model.cache_dir).strip() or None
+        if config.model.cache_dir is not None
+        else None
+    )
+    config.model.local_files_only = _normalize_bool(
+        config.model.local_files_only,
+        "model.local_files_only",
+    )
+    config.model.trust_remote_code = _normalize_bool(
+        config.model.trust_remote_code,
+        "model.trust_remote_code",
+    )
 
     schedule = config.data.schedule
     schedule.mixing = str(schedule.mixing).strip().lower()
@@ -352,6 +378,28 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             )
 
     train = config.train
+    train.efficiency.enabled = _normalize_bool(
+        train.efficiency.enabled,
+        "train.efficiency.enabled",
+    )
+    train.efficiency.persist = _normalize_bool(
+        train.efficiency.persist,
+        "train.efficiency.persist",
+    )
+    if isinstance(train.efficiency.device_timing, bool):
+        train.efficiency.device_timing = (
+            "auto" if train.efficiency.device_timing else "off"
+        )
+    else:
+        train.efficiency.device_timing = str(
+            train.efficiency.device_timing
+        ).strip().lower()
+    if train.efficiency.device_timing not in _EFFICIENCY_DEVICE_TIMING:
+        raise ValueError(
+            "Unsupported train.efficiency.device_timing="
+            f"{train.efficiency.device_timing!r}. Expected one of "
+            f"{_EFFICIENCY_DEVICE_TIMING}."
+        )
     train.optimizer_name = str(train.optimizer_name).strip().lower()
     train.scheduler_name = str(train.scheduler_name).strip().lower()
     if train.scheduler_name in {"", "auto"}:

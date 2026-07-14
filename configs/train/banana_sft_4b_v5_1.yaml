@@ -47,6 +47,7 @@ data:
   catalog_path: ../data/banana_v5_1.yaml
   catalog_names:
     - grounding_layout
+    - grounding_layout_sync
     - shape_reconstruction
     - line_reconstruction
     - image_reconstruction
@@ -57,6 +58,7 @@ data:
       train_only: true
       pools:
         grounding_layout: ../prompts/pools/grounding_layout.v5.0.yaml
+        grounding_layout_sync: ../prompts/pools/grounding_layout.v5.0.yaml
         shape_reconstruction: ../prompts/pools/shape_reconstruction.v5.0.yaml
         line_reconstruction: ../prompts/pools/line_reconstruction.v5.0.yaml
         image_reconstruction: ../prompts/pools/image_reconstruction.v5.0.yaml
@@ -64,7 +66,7 @@ data:
   schedule:
     mixing: weighted
     shuffle: true
-  media_snapshot_id: banana-v5.1-media-v1
+  media_snapshot_id: banana-v5.1-media-v2
   num_workers: 4
   pin_memory: true
   persistent_workers: true

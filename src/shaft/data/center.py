@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import hashlib
 import inspect
 from typing import Any, Generic, TypeVar
 
 from torch.utils.data import Sampler
 
-from shaft.config import DataConfig
+from shaft.config import DataConfig, PromptSamplingConfig
+from shaft.prompting import canonical_json
 
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 from .record_store import ShaftConcatRecordStore
@@ -79,6 +80,22 @@ class ShaftPreparedRecords(Generic[RecordT]):
             eval_datasets_by_name=eval_datasets_by_name,
             train_sampler=self.train_sampler,
             train_schedule=self.train_schedule,
+            train_execution_fingerprint=_train_execution_fingerprint(
+                sample_fingerprint=(
+                    str(self.train_sampler.plan.fingerprint)
+                    if self.train_sampler is not None
+                    else str(self.train_schedule.fingerprint)
+                ),
+                transforms=self.train_online_transforms,
+                record_fingerprints=tuple(
+                    (
+                        dataset_name,
+                        _record_sequence_fingerprint(records),
+                    )
+                    for dataset_name, records in sorted(self.train_records.items())
+                ),
+                media_snapshot_id=self.media_snapshot_id,
+            ),
         )
 
 
@@ -89,6 +106,7 @@ class ShaftDatasetBundle(Generic[DatasetT]):
     eval_datasets_by_name: dict[str, DatasetT] | None = None
     train_sampler: Sampler[ShaftSampleRef] | None = None
     train_schedule: ShaftSampleSchedule | None = None
+    train_execution_fingerprint: str | None = None
 
 
 class ShaftDataCenter:
@@ -110,6 +128,11 @@ class ShaftDataCenter:
         records_by_dataset_val: dict[str, Sequence[Any]] = {}
         weights: dict[str, float] = {}
         dataset_online_pipelines: dict[str, OnlineSampleTransform] = {}
+        prompt_sampling = self.data_config.transforms.prompt_sampling
+        prompt_sampling_transform = build_prompt_sampling_transform(
+            prompt_sampling,
+            default_seed=self.seed,
+        )
 
         for dataset_meta in build_dataset_metas(self.data_config):
             if not dataset_meta.enabled:
@@ -117,6 +140,20 @@ class ShaftDataCenter:
             source_impl = build_data_source(
                 dataset_meta,
                 cache_dir=self.data_config.record_cache_dir,
+                record_validator=lambda record, split, dataset_name=dataset_meta.dataset_name: (
+                    prompt_sampling_transform.validate_record(
+                        record,
+                        dataset_name=dataset_name,
+                        active=(
+                            prompt_sampling.enabled
+                            and (split == "train" or not prompt_sampling.train_only)
+                        ),
+                    )
+                ),
+                validation_fingerprint=(
+                    f"{prompt_sampling_transform.record_validation_fingerprint(dataset_meta.dataset_name)}:"
+                    f"train_only={prompt_sampling.train_only}"
+                ),
             )
             offline_pipeline = build_offline_pipeline(dataset_meta.offline_transforms)
             if float(dataset_meta.weight) > 0:
@@ -180,15 +217,13 @@ class ShaftDataCenter:
         )
         train_online_transforms = [train_dataset_aware_transform]
         eval_online_transforms = [eval_dataset_aware_transform]
-        prompt_sampling = self.data_config.transforms.prompt_sampling
-        prompt_sampling_transform = build_prompt_sampling_transform(
-            prompt_sampling,
-            default_seed=self.seed,
-        )
-        if prompt_sampling_transform is not None:
-            train_online_transforms.append(prompt_sampling_transform)
-            if not prompt_sampling.train_only:
-                eval_online_transforms.append(prompt_sampling_transform)
+        train_online_transforms.append(prompt_sampling_transform)
+        if prompt_sampling.enabled and not prompt_sampling.train_only:
+            eval_online_transforms.append(prompt_sampling_transform)
+        else:
+            eval_online_transforms.append(
+                build_prompt_sampling_transform(PromptSamplingConfig(enabled=False))
+            )
         return ShaftPreparedRecords(
             train_records=records_by_dataset_train,
             val_records=val_records,
@@ -249,6 +284,55 @@ def _supports_kwarg(callable_obj: Any, keyword: str) -> bool:
     if keyword in signature.parameters:
         return True
     return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+
+
+def _train_execution_fingerprint(
+    *,
+    sample_fingerprint: str,
+    transforms: Sequence[OnlineSampleTransform],
+    record_fingerprints: tuple[tuple[str, str], ...],
+    media_snapshot_id: str | None,
+) -> str:
+    transform_fingerprints = tuple(
+        (
+            planning_online_transform_fingerprint(transform)
+            if is_planning_safe_online_transform(transform)
+            else f"unversioned:{transform.__module__}.{getattr(transform, '__qualname__', type(transform).__qualname__)}"
+        )
+        for transform in transforms
+    )
+    return hashlib.sha256(
+        repr(
+            (
+                "shaft-train-execution-v3",
+                str(sample_fingerprint),
+                record_fingerprints,
+                str(media_snapshot_id or ""),
+                transform_fingerprints,
+            )
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _record_sequence_fingerprint(records: Sequence[Any]) -> str:
+    explicit = str(getattr(records, "fingerprint", "")).strip()
+    if explicit:
+        return explicit
+    digest = hashlib.sha256(b"shaft-inline-record-sequence-v1\0")
+    for record in records:
+        if is_dataclass(record):
+            payload = asdict(record)
+        elif isinstance(record, dict):
+            payload = record
+        else:
+            raise ValueError(
+                "Training record sequences must expose a stable fingerprint or contain "
+                "JSON-compatible dataclass/dict records."
+            )
+        encoded = canonical_json(payload).encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return digest.hexdigest()
 
 
 def _build_dataset(

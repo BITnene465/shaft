@@ -1,34 +1,33 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import io
 import json
 from pathlib import Path
 
-from peft import PeftModel, load_peft_weights, set_peft_model_state_dict
+import torch
+from peft import (
+    PeftModel,
+    get_peft_config,
+    get_peft_model,
+    get_peft_model_state_dict,
+    set_peft_model_state_dict,
+)
+from safetensors.torch import load as load_safetensors
 
 from shaft.config import RuntimeConfig
 
 from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
-from .registry import build_model_meta
+from .resolution import ResolvedAdapterInit, ResolvedModelPlan, resolve_model_plan
 from .types import (
+    LoadedAdapterArtifacts,
     ModelArtifacts,
     ShaftModelAdapter,
     ShaftSequenceExecutionContract,
 )
-
-
-def _is_adapter_checkpoint(path: Path) -> bool:
-    if not path.is_dir():
-        return False
-    if not (path / "adapter_config.json").exists():
-        return False
-    if (path / "adapter_model.safetensors").exists():
-        return True
-    if (path / "adapter_model.bin").exists():
-        return True
-    return False
 
 
 def _validate_hf_sharded_checkpoint_files(path: Path) -> None:
@@ -81,33 +80,6 @@ def _validate_hf_sharded_checkpoint_files(path: Path) -> None:
         )
 
 
-def _validate_local_hf_config_model_type(path: Path, *, model_meta) -> None:
-    expected = tuple(str(item).strip() for item in getattr(model_meta, "hf_model_types", ()) if str(item).strip())
-    if not expected or not path.is_dir():
-        return
-    config_path = path / "config.json"
-    if not config_path.exists():
-        return
-    try:
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid HF config JSON: {config_path}") from exc
-    actual = str(payload.get("model_type") or "").strip()
-    if actual and actual not in expected:
-        raise ValueError(
-            f"HF config model_type={actual!r} under {path} does not match "
-            f"model.model_type={model_meta.model_type!r}; expected one of {expected}."
-        )
-
-
-def _load_adapter_config(path: Path) -> dict:
-    raw = (path / "adapter_config.json").read_text(encoding="utf-8")
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        raise ValueError(f"Invalid adapter_config.json in {path}")
-    return payload
-
-
 def _normalize_name_list(value) -> list[str]:
     if isinstance(value, str):
         return [str(value)]
@@ -116,7 +88,23 @@ def _normalize_name_list(value) -> list[str]:
     return []
 
 
-def _expected_adapter_names_from_artifacts(artifacts: ModelArtifacts) -> tuple[list[str] | None, list[str] | None]:
+def _expected_adapter_names_from_artifacts(
+    artifacts: ModelArtifacts,
+) -> tuple[list[str] | None, list[str] | None]:
+    peft_config = getattr(artifacts.model, "peft_config", None)
+    if isinstance(peft_config, dict):
+        peft_config = peft_config.get("default") or (
+            next(iter(peft_config.values())) if peft_config else None
+        )
+    if peft_config is not None:
+        # PEFT canonicalizes a resolved full-module plan into the suffix set it
+        # persists in adapter_config.json. Compare that runtime truth here; the
+        # exact adapter state-key/shape check below still proves the expansion
+        # selects precisely the same concrete modules.
+        return (
+            _normalize_name_list(getattr(peft_config, "target_modules", None)),
+            _normalize_name_list(getattr(peft_config, "modules_to_save", None)),
+        )
     finetune_plan = getattr(artifacts, "finetune_plan", None)
     if finetune_plan is None or getattr(finetune_plan, "adapter_plan", None) is None:
         return None, None
@@ -136,6 +124,130 @@ def _resolve_default_peft_config(model: PeftModel):
             return next(iter(peft_config.values()))
         return None
     return peft_config
+
+
+def _validate_adapter_artifact(adapter_init: ResolvedAdapterInit) -> None:
+    init_path = Path(adapter_init.path)
+    config_path = init_path / "adapter_config.json"
+    try:
+        current_config = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid adapter config JSON: {config_path}") from exc
+    if not isinstance(current_config, dict):
+        raise TypeError(f"Adapter config must be a JSON object: {config_path}")
+    current_config_json = json.dumps(
+        current_config,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if current_config_json != adapter_init.config_json:
+        raise ValueError(
+            "PEFT adapter config changed after ResolvedModelPlan construction."
+        )
+    current_weight_manifest = tuple(
+        (
+            candidate.name,
+            int(candidate.stat().st_size),
+            _file_sha256(candidate),
+        )
+        for candidate in (
+            init_path / "adapter_model.safetensors",
+            init_path / "adapter_model.bin",
+        )
+        if candidate.is_file()
+    )
+    if current_weight_manifest != adapter_init.weight_manifest:
+        raise ValueError(
+            "PEFT adapter weights changed after ResolvedModelPlan construction."
+        )
+
+
+def _load_exact_adapter_state(
+    model: PeftModel,
+    *,
+    adapter_init: ResolvedAdapterInit,
+) -> None:
+    # Revalidate after the potentially long base-model build, then deserialize
+    # the same verified byte snapshot. A path-based loader would reopen the file
+    # after validation and leave a TOCTOU window.
+    _validate_adapter_artifact(adapter_init)
+    peft_state = _load_verified_adapter_weights(adapter_init)
+    expected_state = get_peft_model_state_dict(
+        model,
+        adapter_name="default",
+    )
+    missing_keys = sorted(set(expected_state).difference(peft_state))
+    unexpected_keys = sorted(set(peft_state).difference(expected_state))
+    shape_mismatches = sorted(
+        key
+        for key in set(expected_state).intersection(peft_state)
+        if tuple(expected_state[key].shape) != tuple(peft_state[key].shape)
+    )
+    if missing_keys or unexpected_keys or shape_mismatches:
+        raise ValueError(
+            "PEFT adapter state does not exactly match the resolved finetune plan: "
+            f"missing={missing_keys[:8]}, unexpected={unexpected_keys[:8]}, "
+            f"shape_mismatches={shape_mismatches[:8]}."
+        )
+    load_result = set_peft_model_state_dict(
+        model,
+        peft_state,
+        adapter_name="default",
+    )
+    unexpected_after_load = tuple(
+        getattr(load_result, "unexpected_keys", ()) or ()
+    )
+    if unexpected_after_load:
+        raise ValueError(
+            "PEFT adapter loader left unexpected state keys: "
+            f"{unexpected_after_load[:8]}."
+        )
+
+
+def _load_verified_adapter_weights(
+    adapter_init: ResolvedAdapterInit,
+) -> dict[str, torch.Tensor]:
+    directory = Path(adapter_init.path)
+    weight_path = next(
+        (
+            candidate
+            for candidate in (
+                directory / "adapter_model.safetensors",
+                directory / "adapter_model.bin",
+            )
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if weight_path is None:
+        raise FileNotFoundError(f"PEFT adapter weights are missing: {directory}.")
+    expected_by_name = {
+        name: (size, sha256)
+        for name, size, sha256 in adapter_init.weight_manifest
+    }
+    expected = expected_by_name.get(weight_path.name)
+    if expected is None:
+        raise ValueError(
+            "PEFT adapter weight file differs from ResolvedModelPlan manifest."
+        )
+    payload = weight_path.read_bytes()
+    actual = (len(payload), hashlib.sha256(payload).hexdigest())
+    if actual != expected:
+        raise ValueError(
+            "PEFT adapter weights changed after ResolvedModelPlan construction."
+        )
+    if weight_path.suffix == ".safetensors":
+        state = load_safetensors(payload)
+    else:
+        state = torch.load(
+            io.BytesIO(payload),
+            map_location=torch.device("cpu"),
+            weights_only=True,
+        )
+    if not isinstance(state, dict):
+        raise TypeError("PEFT adapter weights must deserialize to a state dictionary.")
+    return state
 
 
 def _validate_adapter_compatibility(
@@ -194,17 +306,15 @@ def _validate_adapter_compatibility(
 def _build_artifacts_from_runtime_config(
     config: RuntimeConfig,
     *,
-    model_meta,
+    model_plan: ResolvedModelPlan,
     sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
 ) -> ModelArtifacts:
     runtime_config = copy.deepcopy(config)
+    runtime_config.model.model_name_or_path = model_plan.effective_model_name_or_path
     model_path = Path(runtime_config.model.model_name_or_path)
     _validate_hf_sharded_checkpoint_files(model_path)
-    _validate_local_hf_config_model_type(model_path, model_meta=model_meta)
-    model_adapter = resolve_model_adapter_from_config(
-        runtime_config,
-        model_meta=model_meta,
-    )
+    model_meta = model_plan.model_meta
+    model_adapter = model_plan.model_adapter
     model_adapter.check_requires()
     assert model_meta.loader is not None
     return model_meta.loader.build(
@@ -220,13 +330,10 @@ def resolve_model_adapter_from_config(
     *,
     model_meta=None,
 ) -> ShaftModelAdapter:
-    resolved_model_meta = model_meta or build_model_meta(
-        str(config.model.model_type).strip().lower()
-    )
-    return resolved_model_meta.resolve_adapter(
-        model_name_or_path=config.model.model_name_or_path,
-        template_type=config.model.template,
-    )
+    plan = resolve_model_plan(config)
+    if model_meta is not None and plan.model_meta is not model_meta:
+        raise ValueError("Explicit model_meta differs from the resolved model plan.")
+    return plan.model_adapter
 
 
 def build_model_tokenizer_processor(
@@ -234,26 +341,25 @@ def build_model_tokenizer_processor(
     *,
     init_from_checkpoint: str | None = None,
     sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
+    resolved_model_plan: ResolvedModelPlan | None = None,
 ) -> ModelArtifacts:
-    model_type = str(config.model.model_type).strip().lower()
-    model_meta = build_model_meta(model_type)
-    if init_from_checkpoint is None:
-        return _build_artifacts_from_runtime_config(
-            config,
-            model_meta=model_meta,
-            sequence_execution_contract=sequence_execution_contract,
+    model_plan = resolved_model_plan or resolve_model_plan(
+        config,
+        init_from_checkpoint=init_from_checkpoint,
+    )
+    if init_from_checkpoint != model_plan.init_from_checkpoint:
+        raise ValueError(
+            "init_from_checkpoint differs from the supplied ResolvedModelPlan."
         )
-
-    init_path = Path(init_from_checkpoint)
-    if not init_path.exists():
-        raise FileNotFoundError(f"init_from checkpoint path not found: {init_path}")
-
-    if _is_adapter_checkpoint(init_path):
-        adapter_cfg = _load_adapter_config(init_path)
+    if model_plan.init_kind == "adapter":
+        assert model_plan.adapter_init is not None
+        init_path = Path(model_plan.adapter_init.path)
+        adapter_cfg = model_plan.adapter_init.config_dict()
+        _validate_adapter_artifact(model_plan.adapter_init)
         _validate_adapter_compatibility(config, adapter_cfg, init_path)
         artifacts = _build_artifacts_from_runtime_config(
             config,
-            model_meta=model_meta,
+            model_plan=model_plan,
             sequence_execution_contract=sequence_execution_contract,
         )
         if not isinstance(artifacts.model, PeftModel):
@@ -272,14 +378,74 @@ def build_model_tokenizer_processor(
             expected_target_modules=expected_target_modules,
             expected_modules_to_save=expected_modules_to_save,
         )
-        peft_state = load_peft_weights(str(init_path), device="cpu")
-        set_peft_model_state_dict(artifacts.model, peft_state, adapter_name="default")
+        _load_exact_adapter_state(
+            artifacts.model,
+            adapter_init=model_plan.adapter_init,
+        )
         return artifacts
-
-    override_config = copy.deepcopy(config)
-    override_config.model.model_name_or_path = str(init_path)
     return _build_artifacts_from_runtime_config(
-        override_config,
-        model_meta=model_meta,
+        config,
+        model_plan=model_plan,
         sequence_execution_contract=sequence_execution_contract,
     )
+
+
+def load_adapter_artifacts(
+    config: RuntimeConfig,
+    *,
+    adapter_path: str,
+    resolved_model_plan: ResolvedModelPlan | None = None,
+) -> LoadedAdapterArtifacts:
+    """Load an adapter exactly for merge/export without inventing training config.
+
+    The persisted PEFT config is authoritative for the adapter topology, while the
+    resolved model plan remains authoritative for base artifact and model variant.
+    The state is loaded only after exact key/shape validation.
+    """
+
+    model_plan = resolved_model_plan or resolve_model_plan(
+        config,
+        init_from_checkpoint=adapter_path,
+    )
+    if model_plan.init_from_checkpoint != adapter_path:
+        raise ValueError("adapter_path differs from the supplied ResolvedModelPlan.")
+    if model_plan.init_kind != "adapter" or model_plan.adapter_init is None:
+        raise ValueError(f"Expected a PEFT adapter checkpoint: {adapter_path}.")
+
+    adapter_init = model_plan.adapter_init
+    _validate_adapter_artifact(adapter_init)
+    adapter_config = get_peft_config(adapter_init.config_dict())
+    peft_type = getattr(adapter_config, "peft_type", None)
+    peft_type_value = getattr(peft_type, "value", peft_type)
+    if str(peft_type_value).strip().lower() != "lora":
+        raise ValueError(
+            "Shaft merge currently supports LoRA-family adapters only; "
+            f"received peft_type={peft_type_value!r}."
+        )
+
+    base_config = copy.deepcopy(config)
+    base_config.model.finetune.mode = "full"
+    artifacts = _build_artifacts_from_runtime_config(
+        base_config,
+        model_plan=model_plan,
+    )
+    adapter_model = get_peft_model(artifacts.model, adapter_config)
+    if not isinstance(adapter_model, PeftModel):
+        raise TypeError("Resolved adapter config did not produce a PEFT model.")
+    _load_exact_adapter_state(adapter_model, adapter_init=adapter_init)
+    return LoadedAdapterArtifacts(
+        model=adapter_model,
+        tokenizer=artifacts.tokenizer,
+        processor=artifacts.processor,
+        model_adapter=artifacts.model_adapter,
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

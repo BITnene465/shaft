@@ -16,8 +16,8 @@ from .dataset import DPORecord, PPORecord, SFTRecord
 RecordT = TypeVar("RecordT", SFTRecord, DPORecord, PPORecord)
 
 # Bump whenever normalized record schema or row-building semantics change.
-_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v2"
-_JSON_FIELDS = {"messages", "extra"}
+_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v3"
+_JSON_FIELDS = {"messages", "prompt_args", "extra"}
 _RECORD_TYPES = {
     record_type.__name__: record_type
     for record_type in (SFTRecord, DPORecord, PPORecord)
@@ -47,6 +47,7 @@ def _source_fingerprint(
     *,
     dataset_name: str,
     record_type: type[RecordT],
+    validation_fingerprint: str = "",
 ) -> str:
     stat = path.stat()
     digest = hashlib.sha256()
@@ -57,6 +58,8 @@ def _source_fingerprint(
     digest.update(str(dataset_name).encode("utf-8"))
     digest.update(b"\0")
     digest.update(record_type.__name__.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(str(validation_fingerprint).encode("utf-8"))
     digest.update(b"\0")
     digest.update(
         f"{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}".encode("utf-8")
@@ -104,15 +107,23 @@ class ShaftArrowRecordStore(Sequence[RecordT], Generic[RecordT]):
         dataset_name: str,
         record_type: type[RecordT],
         row_builder: Any,
+        record_validator: Any | None = None,
+        validation_fingerprint: str = "",
         max_errors_to_report: int = 20,
         cache_dir: str | Path | None = None,
         batch_size: int = 4096,
     ) -> ShaftArrowRecordStore[RecordT]:
+        resolved_validation_fingerprint = str(validation_fingerprint).strip()
+        if (record_validator is None) != (not resolved_validation_fingerprint):
+            raise ValueError(
+                "record_validator and validation_fingerprint must be provided together."
+            )
         jsonl_path = Path(path).resolve()
         fingerprint = _source_fingerprint(
             jsonl_path,
             dataset_name=dataset_name,
             record_type=record_type,
+            validation_fingerprint=resolved_validation_fingerprint,
         )
         resolved_cache_dir = (
             Path(cache_dir).expanduser() if cache_dir is not None else _default_cache_dir()
@@ -143,6 +154,7 @@ class ShaftArrowRecordStore(Sequence[RecordT], Generic[RecordT]):
                 dataset_name=dataset_name,
                 record_type=record_type,
                 row_builder=row_builder,
+                record_validator=record_validator,
                 max_errors_to_report=max_errors_to_report,
                 batch_size=batch_size,
             )
@@ -156,6 +168,7 @@ class ShaftArrowRecordStore(Sequence[RecordT], Generic[RecordT]):
         dataset_name: str,
         record_type: type[RecordT],
         row_builder: Any,
+        record_validator: Any | None,
         max_errors_to_report: int,
         batch_size: int,
     ) -> None:
@@ -190,6 +203,8 @@ class ShaftArrowRecordStore(Sequence[RecordT], Generic[RecordT]):
                                 line_no=line_no,
                                 dataset_name=dataset_name,
                             )
+                            if record_validator is not None:
+                                record_validator(record)
                             row = _record_to_arrow_row(record)
                         except Exception as exc:  # noqa: BLE001 - aggregate row diagnostics
                             total_parse_errors += 1

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from shaft.plugins import Registry
 
@@ -14,6 +14,7 @@ from .types import (
     PeftPolicy,
     ProcessorPolicy,
 )
+from .descriptor import ResolvedModelDescriptor
 
 MODEL_REGISTRY: Registry[ModelMeta] = Registry("model")
 
@@ -33,6 +34,8 @@ def build_model_meta(name: str) -> ModelMeta:
 def default_model_groups(
     *model_ids: str,
     template: str | None = None,
+    name: str = "default",
+    hf_model_types: Iterable[str] = (),
     capabilities: ModelCapabilities | None = None,
     module_groups: ModelModuleGroups | None = None,
     processor_policy: ProcessorPolicy | None = None,
@@ -40,12 +43,16 @@ def default_model_groups(
     sharding_policy: ModelShardingPolicy | None = None,
     requires: Iterable[str] = (),
     additional_saved_files: Iterable[str] = (),
+    descriptor_matcher: Callable[[ResolvedModelDescriptor], bool] | None = None,
 ) -> tuple[ModelGroup, ...]:
     cleaned = tuple(str(item).strip() for item in model_ids if str(item).strip())
     return (
         ModelGroup(
-            name="default",
+            name=str(name).strip() or "default",
             model_ids=cleaned,
+            hf_model_types=tuple(
+                str(item).strip() for item in hf_model_types if str(item).strip()
+            ),
             template=template,
             capabilities=capabilities,
             module_groups=module_groups,
@@ -56,5 +63,6 @@ def default_model_groups(
             additional_saved_files=tuple(
                 str(item).strip() for item in additional_saved_files if str(item).strip()
             ),
+            descriptor_matcher=descriptor_matcher,
         ),
     )

@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from shaft.plugins import Registry
+from shaft.utils.qwen_pixel_budget import apply_qwen_pixel_budget
 import torch
 from transformers import __version__ as transformers_version
 
@@ -23,6 +24,26 @@ from .types import (
 
 @dataclass(frozen=True)
 class QwenVLProcessorPolicy(ProcessorPolicy):
+    def prepare_rollout_image(
+        self,
+        image: Any,
+        *,
+        min_pixels: int | None,
+        max_pixels: int | None,
+    ) -> Any:
+        from PIL import Image
+
+        if not isinstance(image, Image.Image):
+            return image
+        if min_pixels is None and max_pixels is None:
+            return image
+        resized, _ = apply_qwen_pixel_budget(
+            image,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+        return resized
+
     def build_batch(
         self,
         *,

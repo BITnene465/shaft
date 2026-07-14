@@ -14,6 +14,7 @@ from transformers.trainer_utils import IntervalStrategy, SaveStrategy
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSampler
 from shaft.training import ShaftEpochIntervalCallback
+from shaft.training.efficiency import ShaftTrainingEfficiencyCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
@@ -43,6 +44,61 @@ class _TaggedEvalCollator:
                 dtype=torch.long,
             ),
         }
+
+
+def test_efficiency_cuda_lifecycle_is_wired_around_trainer_and_optimizer() -> None:
+    operations: list[str] = []
+
+    class _SpyMonitor:
+        enabled = True
+        device_timing = True
+
+        def start_device_frame(self) -> None:
+            operations.append("device-start")
+
+        def record_training_step(self, seconds: float) -> None:
+            assert seconds >= 0
+            operations.append("training-finished")
+
+        def start_optimizer_step(self) -> None:
+            operations.append("optimizer-start")
+
+        def finish_optimizer_step(self) -> None:
+            operations.append("optimizer-finished")
+
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_efficiency_lifecycle")
+    monitor = _SpyMonitor()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        data_collator=lambda rows: rows,
+        efficiency_monitor=monitor,
+    )
+    trainer.args._setup_devices = torch.device("cuda")
+
+    def _parent_training_step(*args, **kwargs):
+        del args, kwargs
+        operations.append("forward-backward")
+        return torch.tensor(1.0)
+
+    with patch("transformers.Trainer.training_step", _parent_training_step):
+        trainer.training_step(model, {"input_ids": torch.tensor([[1]])})
+
+    callback = ShaftTrainingEfficiencyCallback(monitor)  # type: ignore[arg-type]
+    control = TrainerControl()
+    state = TrainerState(global_step=0)
+    callback.on_pre_optimizer_step(trainer.args, state, control)
+    callback.on_optimizer_step(trainer.args, state, control)
+
+    assert operations == [
+        "device-start",
+        "forward-backward",
+        "training-finished",
+        "optimizer-start",
+        "optimizer-finished",
+    ]
 
 
 def test_shaft_trainer_uses_custom_components() -> None:
