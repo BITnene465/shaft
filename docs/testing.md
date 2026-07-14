@@ -180,6 +180,12 @@ processor+model forward。exact-resume gate 比较模型/adapter、optimizer、s
 以下测试应删除或改写：
 
 - production schema/manifest/常量的逐字段镜像。
+- 扫描 `configs/` 或绑定某个实验 YAML 的文件名、权重、学习率、step 数等当前训练配方；配置 parser/schema/
+  normalize 必须使用测试内构造的最小 fixture 验证。训练配方是否可用由启动前 config validation/canary 负责，
+  不能让本机未追踪配置隐式进入 CI。
+- 只验证 FlashAttention、Transformers 等第三方 kernel/model 能否独立运行，且不经过 Shaft adapter/policy 的
+  环境诊断；只有穿过 Shaft 公共边界并验证框架语义的 runtime gate 才属于本仓库测试。
+- 已被同文件真实 build/resolve/dispatch 路径完全支配的 `REGISTRY.has(...)` 或 keys 枚举断言。
 - 只断言私有 helper 或内部调用顺序。
 - 对同一调用链多层 patch 后只检查 mock 次数。
 - 临时 task、visual、性能或真实服务测试进入 `framework` suite。

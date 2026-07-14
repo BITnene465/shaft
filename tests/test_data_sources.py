@@ -10,7 +10,6 @@ from PIL import Image
 from shaft.config import DatasetSourceConfig
 from shaft.data import PPODataset, PPORecord, ShaftArrowRecordStore, ShaftDatasetMeta
 from shaft.data.sources import (
-    DATA_SOURCE_REGISTRY,
     build_data_source,
     load_jsonl_dpo_records,
     load_jsonl_ppo_records,
@@ -287,12 +286,6 @@ def test_jsonl_source_supports_multi_paths(tmp_path: Path) -> None:
     val_records = source.load_split("val")
     assert [record.sample_id for record in train_records] == ["a", "b"]
     assert [record.sample_id for record in val_records] == ["v"]
-
-
-def test_jsonl_source_registered() -> None:
-    assert DATA_SOURCE_REGISTRY.has("jsonl_sft")
-    assert DATA_SOURCE_REGISTRY.has("jsonl_dpo")
-    assert DATA_SOURCE_REGISTRY.has("jsonl_ppo")
 
 
 def test_dpo_jsonl_source_parses_pairwise_fields(tmp_path: Path) -> None:

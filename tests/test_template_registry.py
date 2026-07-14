@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from shaft.model import build_model_meta
 from shaft.template import (
-    TEMPLATE_REGISTRY,
     ShaftChatRenderer,
     build_template,
     build_template_meta,
@@ -12,19 +11,6 @@ from shaft.template import (
 
 def _renderer(tokenizer) -> ShaftChatRenderer:
     return ShaftChatRenderer.from_components(processor=object(), tokenizer=tokenizer)
-
-
-def test_qwen3vl_template_registered() -> None:
-    assert TEMPLATE_REGISTRY.has("qwen3vl")
-
-
-def test_qwen35vl_templates_registered() -> None:
-    assert TEMPLATE_REGISTRY.has("qwen35vl")
-    assert TEMPLATE_REGISTRY.has("qwen35vl_thinking")
-
-
-def test_smoke_template_registered() -> None:
-    assert TEMPLATE_REGISTRY.has("smoke_vlm")
 
 
 def test_build_template_returns_expected_name() -> None:

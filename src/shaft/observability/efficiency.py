@@ -16,7 +16,7 @@ import transformers
 
 
 TRAINING_EFFICIENCY_FILENAME = "shaft_training_efficiency.json"
-TRAINING_EFFICIENCY_SCHEMA_VERSION = 2
+TRAINING_EFFICIENCY_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +44,7 @@ class ShaftTrainingEfficiencyContract:
     source_fingerprint: str
     source_contract_complete: bool
     sample_execution_fingerprint: str
+    sample_stream_fingerprint: str
     software_fingerprint: str
     hardware_fingerprint: str
     measurement_protocol: str
@@ -72,7 +73,7 @@ class ShaftTrainingEfficiencyContract:
         "learning_rate",
         "source_fingerprint",
         "source_contract_complete",
-        "sample_execution_fingerprint",
+        "sample_stream_fingerprint",
         "software_fingerprint",
         "hardware_fingerprint",
         "measurement_protocol",
@@ -96,6 +97,7 @@ class ShaftTrainingEfficiencyContract:
             "scheduler_name",
             "source_fingerprint",
             "sample_execution_fingerprint",
+            "sample_stream_fingerprint",
             "software_fingerprint",
             "hardware_fingerprint",
             "measurement_protocol",
@@ -105,23 +107,17 @@ class ShaftTrainingEfficiencyContract:
         )
         for field_name in required_strings:
             if not str(getattr(self, field_name)).strip():
-                raise ValueError(
-                    f"Training-efficiency contract {field_name} must not be empty."
-                )
+                raise ValueError(f"Training-efficiency contract {field_name} must not be empty.")
         for field_name in (
             "data_world_size",
             "gradient_accumulation_steps",
         ):
             if int(getattr(self, field_name)) <= 0:
-                raise ValueError(
-                    f"Training-efficiency contract {field_name} must be > 0."
-                )
+                raise ValueError(f"Training-efficiency contract {field_name} must be > 0.")
         for field_name in ("max_length", "min_pixels", "max_pixels"):
             value = getattr(self, field_name)
             if value is not None and int(value) <= 0:
-                raise ValueError(
-                    f"Training-efficiency contract {field_name} must be > 0 when set."
-                )
+                raise ValueError(f"Training-efficiency contract {field_name} must be > 0 when set.")
         if float(self.learning_rate) <= 0:
             raise ValueError("Training-efficiency contract learning_rate must be > 0.")
 
@@ -187,18 +183,14 @@ class ShaftEfficiencyFrame:
         if self.supervised_tokens > self.useful_tokens:
             raise ValueError("Efficiency supervised_tokens cannot exceed useful_tokens.")
         if self.weighted_supervision_coverage_microbatches > self.microbatches:
-            raise ValueError(
-                "Efficiency weighted-supervision coverage cannot exceed microbatches."
-            )
+            raise ValueError("Efficiency weighted-supervision coverage cannot exceed microbatches.")
         if self.vision_coverage_batches > self.microbatches:
             raise ValueError("Efficiency vision coverage cannot exceed microbatches.")
         if self.weighted_supervision_mass is not None and (
             not math.isfinite(float(self.weighted_supervision_mass))
             or float(self.weighted_supervision_mass) < 0
         ):
-            raise ValueError(
-                "Efficiency weighted_supervision_mass must be finite and >= 0."
-            )
+            raise ValueError("Efficiency weighted_supervision_mass must be finite and >= 0.")
         for name in (
             "host_batch_acquire_seconds",
             "batch_prepare_seconds",
@@ -212,9 +204,7 @@ class ShaftEfficiencyFrame:
             not math.isfinite(float(self.device_training_seconds))
             or float(self.device_training_seconds) < 0
         ):
-            raise ValueError(
-                "Efficiency frame device_training_seconds must be finite and >= 0."
-            )
+            raise ValueError("Efficiency frame device_training_seconds must be finite and >= 0.")
 
     @property
     def critical_path_seconds(self) -> float:
@@ -287,29 +277,19 @@ class ShaftEfficiencyAggregate:
                 frame.weighted_supervision_coverage_microbatches for frame in ordered
             ),
             sequence_length_sum=sum(frame.sequence_length_sum for frame in ordered),
-            sequence_length_square_sum=sum(
-                frame.sequence_length_square_sum for frame in ordered
-            ),
+            sequence_length_square_sum=sum(frame.sequence_length_square_sum for frame in ordered),
             vision_patches=sum(frame.vision_patches for frame in ordered),
             vision_coverage_batches=sum(frame.vision_coverage_batches for frame in ordered),
             microbatches=sum(frame.microbatches for frame in ordered),
             update_applied_steps=sum(bool(frame.update_applied) for frame in ordered),
-            host_batch_acquire_seconds=sum(
-                frame.host_batch_acquire_seconds for frame in ordered
-            ),
-            batch_prepare_seconds=sum(
-                frame.batch_prepare_seconds for frame in ordered
-            ),
+            host_batch_acquire_seconds=sum(frame.host_batch_acquire_seconds for frame in ordered),
+            batch_prepare_seconds=sum(frame.batch_prepare_seconds for frame in ordered),
             training_step_seconds=sum(frame.training_step_seconds for frame in ordered),
-            optimizer_step_seconds=sum(
-                frame.optimizer_step_seconds for frame in ordered
-            ),
+            optimizer_step_seconds=sum(frame.optimizer_step_seconds for frame in ordered),
             device_training_seconds=sum(
                 float(frame.device_training_seconds or 0.0) for frame in ordered
             ),
-            device_timing_steps=sum(
-                frame.device_training_seconds is not None for frame in ordered
-            ),
+            device_timing_steps=sum(frame.device_training_seconds is not None for frame in ordered),
             critical_path_seconds=sum(critical),
             critical_path_p50_seconds=float(median(critical)),
             critical_path_p95_seconds=_quantile(critical, 0.95),
@@ -347,6 +327,18 @@ class ShaftEfficiencyAggregate:
                 self.useful_tokens,
                 self.critical_path_seconds,
             ),
+            "logical_segments_per_second": _safe_ratio(
+                self.logical_segments,
+                self.critical_path_seconds,
+            ),
+            "vision_patches_per_second": _safe_ratio(
+                self.vision_patches,
+                self.critical_path_seconds,
+            ),
+            "supervised_tokens_per_second": _safe_ratio(
+                self.supervised_tokens,
+                self.critical_path_seconds,
+            ),
             "data_acquire_fraction": _safe_ratio(
                 self.host_batch_acquire_seconds,
                 self.critical_path_seconds,
@@ -379,6 +371,18 @@ class ShaftTrainingEfficiencySummary:
     rank_time_mean_seconds: float
     rank_time_max_seconds: float
     contract: ShaftTrainingEfficiencyContract | None = None
+    peak_device_memory_allocated_bytes: int | None = None
+    peak_device_memory_reserved_bytes: int | None = None
+
+    def __post_init__(self) -> None:
+        allocated = self.peak_device_memory_allocated_bytes
+        reserved = self.peak_device_memory_reserved_bytes
+        if (allocated is None) != (reserved is None):
+            raise ValueError("Peak allocated/reserved memory must be both present or null.")
+        if allocated is not None:
+            assert reserved is not None
+            if int(allocated) < 0 or int(reserved) < 0:
+                raise ValueError("Peak allocated/reserved memory must be non-negative.")
 
     def to_dict(self) -> dict[str, Any]:
         mean = float(self.rank_time_mean_seconds)
@@ -396,6 +400,8 @@ class ShaftTrainingEfficiencySummary:
             "rank_time_mean_seconds": mean,
             "rank_time_max_seconds": float(self.rank_time_max_seconds),
             "rank_time_skew": rank_skew,
+            "peak_device_memory_allocated_bytes": self.peak_device_memory_allocated_bytes,
+            "peak_device_memory_reserved_bytes": self.peak_device_memory_reserved_bytes,
             "contract": None if self.contract is None else self.contract.to_dict(),
             "aggregate": None if self.aggregate is None else self.aggregate.to_dict(),
         }
@@ -405,8 +411,11 @@ class ShaftTrainingEfficiencySummary:
             return {}
         aggregate = self.aggregate
         ratios = aggregate.ratios()
-        return {
+        metrics = {
             f"{prefix}/useful_tokens_per_second": ratios["useful_tokens_per_second"],
+            f"{prefix}/logical_segments_per_second": ratios["logical_segments_per_second"],
+            f"{prefix}/vision_patches_per_second": ratios["vision_patches_per_second"],
+            f"{prefix}/supervised_tokens_per_second": ratios["supervised_tokens_per_second"],
             f"{prefix}/padding_fraction": ratios["padding_fraction"],
             f"{prefix}/supervision_fraction": ratios["supervision_fraction"],
             f"{prefix}/segments_per_pack": ratios["segments_per_pack"],
@@ -414,6 +423,8 @@ class ShaftTrainingEfficiencySummary:
             f"{prefix}/batch_prepare_fraction": ratios["batch_prepare_fraction"],
             f"{prefix}/mean_sequence_length": ratios["mean_sequence_length"],
             f"{prefix}/sequence_length_std": ratios["sequence_length_std"],
+            f"{prefix}/critical_path_p50_seconds": float(aggregate.critical_path_p50_seconds),
+            f"{prefix}/critical_path_p95_seconds": float(aggregate.critical_path_p95_seconds),
             f"{prefix}/rank_time_skew": _safe_ratio(
                 self.rank_time_max_seconds - self.rank_time_min_seconds,
                 self.rank_time_mean_seconds,
@@ -422,10 +433,17 @@ class ShaftTrainingEfficiencySummary:
             f"{prefix}/physical_packs": float(aggregate.physical_packs),
             f"{prefix}/useful_tokens": float(aggregate.useful_tokens),
             f"{prefix}/vision_patches": float(aggregate.vision_patches),
-            f"{prefix}/device_training_seconds": float(
-                aggregate.device_training_seconds
-            ),
+            f"{prefix}/device_training_seconds": float(aggregate.device_training_seconds),
         }
+        if self.peak_device_memory_allocated_bytes is not None:
+            metrics[f"{prefix}/peak_device_memory_allocated_gib"] = _bytes_to_gib(
+                self.peak_device_memory_allocated_bytes
+            )
+        if self.peak_device_memory_reserved_bytes is not None:
+            metrics[f"{prefix}/peak_device_memory_reserved_gib"] = _bytes_to_gib(
+                self.peak_device_memory_reserved_bytes
+            )
+        return metrics
 
 
 def write_training_efficiency_summary(
@@ -436,8 +454,7 @@ def write_training_efficiency_summary(
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(f"{path.suffix}.tmp")
     temporary.write_text(
-        json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
+        json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     temporary.replace(path)
@@ -534,6 +551,10 @@ def _safe_ratio(numerator: float | int, denominator: float | int) -> float:
     if not math.isfinite(denominator_value) or denominator_value <= 0:
         return 0.0
     return float(numerator) / denominator_value
+
+
+def _bytes_to_gib(value: float | int) -> float:
+    return float(value) / float(1024**3)
 
 
 def _quantile(values: Sequence[float], probability: float) -> float:

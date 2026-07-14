@@ -120,8 +120,7 @@ def _build_planned_batch_sampler(
     try:
         if train_schedule is None or not hasattr(train_schedule, "ref_at"):
             raise TypeError(
-                "Planned grouping requires Shaft's horizon-independent "
-                "sample schedule."
+                "Planned grouping requires Shaft's horizon-independent sample schedule."
             )
         validate_sft_cost_dataset(train_dataset)
         validate_sft_cost_model_adapter(artifacts.model_adapter)
@@ -140,9 +139,7 @@ def _build_planned_batch_sampler(
         )
         max_tokens = batch_contract.local_token_capacity
         if max_tokens is None:
-            raise ValueError(
-                "Planned grouping requires a resolved local token capacity."
-            )
+            raise ValueError("Planned grouping requires a resolved local token capacity.")
         spec = ShaftBatchPlanningSpec(
             grouping=batch_contract.grouping,
             packing=batch_contract.packing,
@@ -167,9 +164,7 @@ def _build_planned_batch_sampler(
                 resume_checkpoint,
                 expected_spec=spec,
                 expected_global_step=_checkpoint_global_step(resume_checkpoint),
-                gradient_accumulation_steps=int(
-                    training_args.gradient_accumulation_steps
-                ),
+                gradient_accumulation_steps=int(training_args.gradient_accumulation_steps),
                 expected_resume_contract_fingerprint=resume_contract_fingerprint,
             )
             for buffered in initial_state.buffer:
@@ -203,14 +198,10 @@ def _build_planned_batch_sampler(
     if failures:
         if local_error is not None:
             raise local_error
-        raise RuntimeError(
-            f"Batch planning startup failed on a peer rank: {failures!r}."
-        )
+        raise RuntimeError(f"Batch planning startup failed on a peer rank: {failures!r}.")
     contracts = {str(item["contract_fingerprint"]) for item in statuses}
     if len(contracts) != 1:
-        raise ValueError(
-            f"Batch-planning contract differs across data ranks: {statuses!r}."
-        )
+        raise ValueError(f"Batch-planning contract differs across data ranks: {statuses!r}.")
     plans = {str(item["preflight_fingerprint"]) for item in statuses}
     if int(training_args.world_size) > 1 and len(plans) != 1:
         raise ValueError(
@@ -228,8 +219,7 @@ def _build_planned_batch_sampler(
         cost_provider=provider,
         spec=spec,
         global_microstep_count=(
-            int(training_args.max_steps)
-            * int(training_args.gradient_accumulation_steps)
+            int(training_args.max_steps) * int(training_args.gradient_accumulation_steps)
         ),
         planning_frame_size=int(training_args.gradient_accumulation_steps),
         initial_state=initial_state,
@@ -290,15 +280,13 @@ class ShaftSFTPipeline:
             config=config,
             training_args=training_args,
         )
-        sequence_execution_contract = (
-            model_plan.build_sequence_execution_contract(
-                layout=batch_contract.layout,
-                device_type="cpu" if bool(config.train.use_cpu) else "cuda",
-                attention_implementation=config.model.attn_implementation,
-                torch_dtype=config.model.torch_dtype,
-                distributed_strategy=config.train.distributed.strategy,
-                torch_compile=bool(getattr(training_args, "torch_compile", False)),
-            )
+        sequence_execution_contract = model_plan.build_sequence_execution_contract(
+            layout=batch_contract.layout,
+            device_type="cpu" if bool(config.train.use_cpu) else "cuda",
+            attention_implementation=config.model.attn_implementation,
+            torch_dtype=config.model.torch_dtype,
+            distributed_strategy=config.train.distributed.strategy,
+            torch_compile=bool(getattr(training_args, "torch_compile", False)),
         )
         logger.info(
             "[sequence-contract] model=%s layout=%s device=%s attention=%s "
@@ -318,9 +306,7 @@ class ShaftSFTPipeline:
                 config=config,
                 training_args=training_args,
                 batch_contract=batch_contract,
-                sequence_execution_contract_fingerprint=(
-                    sequence_execution_contract.fingerprint
-                ),
+                sequence_execution_contract_fingerprint=(sequence_execution_contract.fingerprint),
             )
             if planned
             else None
@@ -382,13 +368,12 @@ class ShaftSFTPipeline:
         train_dataset = dataset_bundle.train_dataset
         train_sampler = dataset_bundle.train_sampler
         train_schedule = dataset_bundle.train_schedule
-        train_execution_fingerprint = str(
-            dataset_bundle.train_execution_fingerprint or ""
-        ).strip()
+        train_execution_fingerprint = str(dataset_bundle.train_execution_fingerprint or "").strip()
+        train_stream_fingerprint = str(dataset_bundle.train_stream_fingerprint or "").strip()
         if not train_execution_fingerprint:
-            raise RuntimeError(
-                "ShaftDataCenter did not publish a train execution fingerprint."
-            )
+            raise RuntimeError("ShaftDataCenter did not publish a train execution fingerprint.")
+        if not train_stream_fingerprint:
+            raise RuntimeError("ShaftDataCenter did not publish a train stream fingerprint.")
         if resume_checkpoint is not None:
             validate_batching_resume_contract(
                 resume_checkpoint,
@@ -467,8 +452,7 @@ class ShaftSFTPipeline:
             and (
                 config.eval.loss_metrics_enabled
                 or config.eval.online_metrics_enabled
-                or config.eval.metric_for_best_model
-                in {"eval_final_loss", "eval_final_score"}
+                or config.eval.metric_for_best_model in {"eval_final_loss", "eval_final_score"}
             )
         )
         if use_named_eval_datasets:
@@ -485,9 +469,7 @@ class ShaftSFTPipeline:
                 output_dir=config.experiment.output_dir,
                 checkpoint_dir=resume_checkpoint,
                 checkpoint_global_step=resume_global_step,
-                device_timing=(
-                    str(config.train.efficiency.device_timing).strip().lower() != "off"
-                ),
+                device_timing=(str(config.train.efficiency.device_timing).strip().lower() != "off"),
                 persist=bool(config.train.efficiency.persist),
                 contract=ShaftTrainingEfficiencyContract(
                     algorithm=algorithm_name,
@@ -501,9 +483,7 @@ class ShaftSFTPipeline:
                     max_steps=training_args.max_steps,
                     num_train_epochs=training_args.num_train_epochs,
                     data_world_size=batch_contract.data_world_size,
-                    gradient_accumulation_steps=(
-                        training_args.gradient_accumulation_steps
-                    ),
+                    gradient_accumulation_steps=(training_args.gradient_accumulation_steps),
                     max_length=config.data.max_length,
                     min_pixels=config.data.min_pixels,
                     max_pixels=config.data.max_pixels,
@@ -513,37 +493,29 @@ class ShaftSFTPipeline:
                     source_fingerprint=source_identity.fingerprint,
                     source_contract_complete=source_identity.complete,
                     sample_execution_fingerprint=train_execution_fingerprint,
+                    sample_stream_fingerprint=train_stream_fingerprint,
                     software_fingerprint=training_software_fingerprint(),
-                    hardware_fingerprint=training_hardware_fingerprint(
-                        training_args.device
-                    ),
-                    measurement_protocol="shaft-efficiency-optimizer-frame-v2",
+                    hardware_fingerprint=training_hardware_fingerprint(training_args.device),
+                    measurement_protocol="shaft-efficiency-optimizer-frame-v3",
                     timing_mode=(
                         "cuda_optimizer_frame"
-                        if str(config.train.efficiency.device_timing).strip().lower()
-                        != "off"
+                        if str(config.train.efficiency.device_timing).strip().lower() != "off"
                         and training_args.device.type == "cuda"
                         else "host_optimizer_frame"
                     ),
                     batch_contract_fingerprint=batch_contract.fingerprint,
-                    sequence_contract_fingerprint=(
-                        sequence_execution_contract.fingerprint
-                    ),
+                    sequence_contract_fingerprint=(sequence_execution_contract.fingerprint),
                 ),
             )
         callbacks: list[Any] = [ShaftBatchingMetadataCallback(batching_metadata)]
         if train_batch_sampler is not None and planning_spec is not None:
             if planning_resume_contract is None:
-                raise RuntimeError(
-                    "Batch-planning training contract fingerprint was not resolved."
-                )
+                raise RuntimeError("Batch-planning training contract fingerprint was not resolved.")
             callbacks.append(
                 ShaftBatchPlanningCallback(
                     train_batch_sampler,
                     planning_spec,
-                    gradient_accumulation_steps=int(
-                        training_args.gradient_accumulation_steps
-                    ),
+                    gradient_accumulation_steps=int(training_args.gradient_accumulation_steps),
                     resume_contract_fingerprint=planning_resume_contract,
                 )
             )
@@ -554,16 +526,10 @@ class ShaftSFTPipeline:
         if self.progress_manager.enabled:
             callbacks.append(ShaftProgressCallback(self.progress_manager))
         if (
-            (
-                config.eval.enabled
-                and config.eval.eval_strategy == "epoch"
-                and int(config.eval.epoch_interval) > 1
-            )
-            or (
-                config.train.save_strategy == "epoch"
-                and int(config.train.save_epoch_interval) > 1
-            )
-        ):
+            config.eval.enabled
+            and config.eval.eval_strategy == "epoch"
+            and int(config.eval.epoch_interval) > 1
+        ) or (config.train.save_strategy == "epoch" and int(config.train.save_epoch_interval) > 1):
             callbacks.append(
                 ShaftEpochIntervalCallback(
                     eval_epoch_interval=int(config.eval.epoch_interval),

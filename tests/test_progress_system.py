@@ -7,6 +7,7 @@ from pathlib import Path
 import threading
 import time
 
+from huggingface_hub import logging as hub_logging
 from huggingface_hub import utils as hf_hub_utils
 import pytest
 from transformers.utils import logging as hf_logging
@@ -480,7 +481,7 @@ def test_progress_safe_write_preserves_the_active_terminal_line() -> None:
     manager.close()
 
 
-def test_hf_logs_use_the_progress_aware_root_handler() -> None:
+def test_hf_logs_are_quiet_at_info_but_debug_remains_available() -> None:
     stream = _TTY()
     sink = ShaftTerminalProgressSink(
         stream=stream,
@@ -495,15 +496,34 @@ def test_hf_logs_use_the_progress_aware_root_handler() -> None:
     previous_hf_verbosity = hf_logging.get_verbosity()
     previous_hf_progress = hf_logging.is_progress_bar_enabled()
     previous_hub_progress = hf_hub_utils.are_progress_bars_disabled()
+    hub_root = logging.getLogger("huggingface_hub")
+    previous_hub_handlers = list(hub_root.handlers)
+    previous_hub_level = hub_root.level
+    previous_hub_propagate = hub_root.propagate
     try:
         configure_logging(LoggingConfig(level="INFO"), run_id="run")
         assert hf_logging.is_progress_bar_enabled() is False
         assert hf_hub_utils.are_progress_bars_disabled() is True
-        hf_logging.get_logger("transformers.progress_test").info("hf status")
+        hf_logger = hf_logging.get_logger("transformers.progress_test")
+        hub_logger = hub_logging.get_logger("huggingface_hub.progress_test")
+        hf_logger.info("hf detail")
+        hf_logger.warning("hf warning")
+        hub_logger.info("hub detail")
+        hub_logger.warning("hub warning")
 
         output = stream.getvalue()
-        assert output.count("hf status\n") == 1
-        assert output.split("hf status\n", maxsplit=1)[1].startswith("\rtrain")
+        assert "hf detail" not in output
+        assert "hub detail" not in output
+        assert output.count("hf warning\n") == 1
+        assert output.split("hf warning\n", maxsplit=1)[1].startswith("\rtrain")
+        assert output.count("hub warning\n") == 1
+        assert output.split("hub warning\n", maxsplit=1)[1].startswith("\rtrain")
+
+        configure_logging(LoggingConfig(level="DEBUG"), run_id="run")
+        hf_logger.info("hf debug detail")
+        hub_logger.info("hub debug detail")
+        assert stream.getvalue().count("hf debug detail\n") == 1
+        assert stream.getvalue().count("hub debug detail\n") == 1
     finally:
         task.complete()
         manager.close()
@@ -512,6 +532,9 @@ def test_hf_logs_use_the_progress_aware_root_handler() -> None:
         hf_logging.disable_propagation()
         hf_logging.enable_default_handler()
         hf_logging.set_verbosity(previous_hf_verbosity)
+        hub_root.handlers[:] = previous_hub_handlers
+        hub_root.setLevel(previous_hub_level)
+        hub_root.propagate = previous_hub_propagate
         if previous_hf_progress:
             hf_logging.enable_progress_bar()
         else:

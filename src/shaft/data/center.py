@@ -44,6 +44,23 @@ class ShaftPreparedRecords(Generic[RecordT]):
     suppress_train_decompression_bomb_warning: bool = False
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
+        record_fingerprints = tuple(
+            (
+                dataset_name,
+                _record_sequence_fingerprint(records),
+            )
+            for dataset_name, records in sorted(self.train_records.items())
+        )
+        train_stream_fingerprint = _train_input_fingerprint(
+            sample_fingerprint=(
+                str(self.train_schedule.fingerprint)
+                if self.train_schedule is not None
+                else str(self.train_sampler.plan.stream_fingerprint)
+            ),
+            transforms=self.train_online_transforms,
+            record_fingerprints=record_fingerprints,
+            media_snapshot_id=self.media_snapshot_id,
+        )
         eval_datasets_by_name = {
             dataset_name: _build_dataset(
                 dataset_cls,
@@ -60,9 +77,7 @@ class ShaftPreparedRecords(Generic[RecordT]):
                 self.train_records,
                 online_transforms=self.train_online_transforms,
                 split="train",
-                sample_plan=(
-                    None if self.train_sampler is None else self.train_sampler.plan
-                ),
+                sample_plan=(None if self.train_sampler is None else self.train_sampler.plan),
                 sample_schedule=self.train_schedule,
                 media_snapshot_id=self.media_snapshot_id,
                 image_cache_size=self.image_cache_size,
@@ -80,22 +95,17 @@ class ShaftPreparedRecords(Generic[RecordT]):
             eval_datasets_by_name=eval_datasets_by_name,
             train_sampler=self.train_sampler,
             train_schedule=self.train_schedule,
-            train_execution_fingerprint=_train_execution_fingerprint(
+            train_execution_fingerprint=_train_input_fingerprint(
                 sample_fingerprint=(
                     str(self.train_sampler.plan.fingerprint)
                     if self.train_sampler is not None
                     else str(self.train_schedule.fingerprint)
                 ),
                 transforms=self.train_online_transforms,
-                record_fingerprints=tuple(
-                    (
-                        dataset_name,
-                        _record_sequence_fingerprint(records),
-                    )
-                    for dataset_name, records in sorted(self.train_records.items())
-                ),
+                record_fingerprints=record_fingerprints,
                 media_snapshot_id=self.media_snapshot_id,
             ),
+            train_stream_fingerprint=train_stream_fingerprint,
         )
 
 
@@ -107,6 +117,7 @@ class ShaftDatasetBundle(Generic[DatasetT]):
     train_sampler: Sampler[ShaftSampleRef] | None = None
     train_schedule: ShaftSampleSchedule | None = None
     train_execution_fingerprint: str | None = None
+    train_stream_fingerprint: str | None = None
 
 
 class ShaftDataCenter:
@@ -162,14 +173,15 @@ class ShaftDataCenter:
                     source_impl.load_split("train")
                 )
             if dataset_meta.use_for_eval:
-                records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(source_impl.load_split("val"))
+                records_by_dataset_val[dataset_meta.dataset_name] = offline_pipeline(
+                    source_impl.load_split("val")
+                )
             dataset_online_pipelines[dataset_meta.dataset_name] = build_online_pipeline(
                 dataset_meta.online_transforms
             )
 
         source_sizes = {
-            dataset_name: len(records)
-            for dataset_name, records in records_by_dataset_train.items()
+            dataset_name: len(records) for dataset_name, records in records_by_dataset_train.items()
         }
         schedule_config = self.data_config.schedule
         train_schedule = None
@@ -234,9 +246,7 @@ class ShaftDataCenter:
             train_schedule=train_schedule,
             media_snapshot_id=self.data_config.media_snapshot_id,
             image_cache_size=self.data_config.image_cache_size,
-            suppress_train_decompression_bomb_warning=(
-                planned_grouping
-            ),
+            suppress_train_decompression_bomb_warning=(planned_grouping),
         )
 
     def build_dataset_bundle(self, dataset_cls: type[DatasetT]) -> ShaftDatasetBundle[DatasetT]:
@@ -269,9 +279,7 @@ class ShaftDataCenter:
             )
             planning_safe_online_transform(
                 _dataset_aware_online_transform,
-                fingerprint=hashlib.sha256(
-                    repr(fingerprint_payload).encode("utf-8")
-                ).hexdigest(),
+                fingerprint=hashlib.sha256(repr(fingerprint_payload).encode("utf-8")).hexdigest(),
             )
         return _dataset_aware_online_transform
 
@@ -283,10 +291,12 @@ def _supports_kwarg(callable_obj: Any, keyword: str) -> bool:
         return True
     if keyword in signature.parameters:
         return True
-    return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    return any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
+    )
 
 
-def _train_execution_fingerprint(
+def _train_input_fingerprint(
     *,
     sample_fingerprint: str,
     transforms: Sequence[OnlineSampleTransform],
@@ -341,8 +351,6 @@ def _build_dataset(
     **kwargs: Any,
 ) -> DatasetT:
     filtered_kwargs = {
-        key: value
-        for key, value in kwargs.items()
-        if _supports_kwarg(dataset_cls, key)
+        key: value for key, value in kwargs.items() if _supports_kwarg(dataset_cls, key)
     }
     return dataset_cls(records, **filtered_kwargs)

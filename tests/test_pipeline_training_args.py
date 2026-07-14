@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from shaft.config import load_config
 from shaft.data import ShaftBatchPlanningSpec
 from shaft.model import build_model_tokenizer_processor
 from shaft.pipeline.training_args import build_hf_training_args
@@ -422,24 +421,6 @@ def test_fsdp_auto_layers_follow_full_init_checkpoint_descriptor(tmp_path: Path)
     assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
         "Qwen3_5MoeDecoderLayer",
         "Qwen3_5MoeVisionBlock",
-    ]
-
-
-def test_qwen36_sft_27b_fsdp_example_config_loads() -> None:
-    config = load_config(Path("configs/train/qwen36_sft_27b_fsdp_example.yaml"))
-
-    assert config.model.model_type == "qwen36vl"
-    assert config.model.template == "qwen35vl"
-    assert config.model.finetune.mode == "lora"
-    assert config.train.distributed.strategy == "fsdp"
-
-    args = build_hf_training_args(config)
-    assert _fsdp_enabled(args.fsdp) is True
-    assert args.fsdp_config["activation_checkpointing"] is False
-    assert args.gradient_checkpointing is True
-    assert args.fsdp_config["transformer_layer_cls_to_wrap"] == [
-        "Qwen3_5DecoderLayer",
-        "Qwen3_5VisionBlock",
     ]
 
 

@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 import pytest
 
-from shaft.cli.registry import COMMAND_REGISTRY
 from shaft.cli.train import build_parser, main
 from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import capture_algorithm_runner
@@ -24,11 +23,6 @@ def _valid_runtime_config(*, source_type: str = "jsonl_sft") -> RuntimeConfig:
         )
     ]
     return config
-
-
-def test_command_registry_has_expected_commands() -> None:
-    assert "sft" in COMMAND_REGISTRY.keys()
-    assert "rlhf" in COMMAND_REGISTRY.keys()
 
 
 def test_parser_dispatches_to_sft() -> None:

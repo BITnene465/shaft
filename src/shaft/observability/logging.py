@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from huggingface_hub import logging as hub_logging
 from huggingface_hub import utils as hf_hub_utils
 from transformers.utils import logging as hf_logging
 
@@ -105,9 +106,7 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
     if config.file_path:
         file_path = Path(config.file_path)
         if not config.rank_zero_only and get_world_size() > 1:
-            file_path = file_path.with_name(
-                f"{file_path.stem}.rank{rank}{file_path.suffix}"
-            )
+            file_path = file_path.with_name(f"{file_path.stem}.rank{rank}{file_path.suffix}")
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(file_path, encoding="utf-8")
         file_handler.setFormatter(formatter)
@@ -118,10 +117,18 @@ def configure_logging(config: LoggingConfig, *, run_id: str | None = None) -> No
     hf_logging.disable_default_handler()
     hf_logging.enable_propagation()
     hf_logging.disable_progress_bar()
+    hub_root = hub_logging.get_logger()
+    hub_root.handlers.clear()
+    hub_logging.enable_propagation()
     hf_hub_utils.disable_progress_bars()
     if config.rank_zero_only and rank != 0:
-        hf_logging.set_verbosity_error()
+        upstream_level = logging.ERROR
     else:
-        hf_logging.set_verbosity(getattr(logging, config.level, logging.INFO))
+        shaft_level = getattr(logging, config.level, logging.INFO)
+        upstream_level = (
+            shaft_level if shaft_level <= logging.DEBUG else max(shaft_level, logging.WARNING)
+        )
+    hf_logging.set_verbosity(upstream_level)
+    hub_logging.set_verbosity(upstream_level)
 
     logging.getLogger(__name__).info("logging configured")

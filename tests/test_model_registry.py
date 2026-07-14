@@ -8,27 +8,9 @@ import pytest
 
 from shaft.config import RuntimeConfig
 from shaft.model import (
-    MODEL_REGISTRY,
-    PEFT_POLICY_REGISTRY,
-    PROCESSOR_POLICY_REGISTRY,
     build_model_meta,
     build_model_tokenizer_processor,
 )
-
-
-def test_qwen3vl_registered() -> None:
-    assert MODEL_REGISTRY.has("qwen3vl")
-
-
-def test_qwen35vl_registered() -> None:
-    assert MODEL_REGISTRY.has("qwen35vl")
-    assert MODEL_REGISTRY.has("qwen36vl")
-
-
-def test_builtin_model_policies_registered() -> None:
-    assert PROCESSOR_POLICY_REGISTRY.has("qwen_vl")
-    assert PROCESSOR_POLICY_REGISTRY.has("identity")
-    assert PEFT_POLICY_REGISTRY.has("all_linear")
 
 
 @pytest.mark.parametrize(

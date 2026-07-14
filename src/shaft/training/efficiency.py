@@ -24,7 +24,7 @@ from shaft.observability import (
 
 
 logger = logging.getLogger(__name__)
-_EFFICIENCY_SNAPSHOT_VERSION = 2
+_EFFICIENCY_SNAPSHOT_VERSION = 3
 _EFFICIENCY_SNAPSHOT_SET_FILENAME = "shaft_training_efficiency_snapshot_set.json"
 _EFFICIENCY_CHECKPOINT_TRANSACTION_FILENAME = (
     "shaft_training_efficiency_checkpoint_transaction.json"
@@ -60,13 +60,13 @@ class ShaftTrainingEfficiencyMonitor:
         persist: bool = True,
         contract: ShaftTrainingEfficiencyContract | None = None,
         snapshot_generation: str | None = None,
+        peak_memory_history: tuple[int, int] | None = None,
+        peak_memory_history_complete: bool = True,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.initial_global_step = max(int(initial_global_step), 0)
         self.complete_history = (
-            self.initial_global_step == 0
-            if complete_history is None
-            else bool(complete_history)
+            self.initial_global_step == 0 if complete_history is None else bool(complete_history)
         )
         self.enabled = bool(enabled)
         self.device_timing = bool(device_timing)
@@ -83,6 +83,13 @@ class ShaftTrainingEfficiencyMonitor:
         self._optimizer_started_at: float | None = None
         self._device_events: dict[int, tuple[torch.cuda.Event, torch.cuda.Event]] = {}
         self._update_applied_provider: Callable[[], bool] | None = None
+        self._peak_memory_history = peak_memory_history
+        if peak_memory_history is not None and any(int(value) < 0 for value in peak_memory_history):
+            raise ValueError("Efficiency peak-memory history must be non-negative.")
+        self._peak_memory_history_complete = bool(peak_memory_history_complete)
+        self._peak_memory_history_frame_count = 0
+        self._memory_window_device: torch.device | None = None
+        self._memory_window_available = False
         if self.enabled and self.contract is not None:
             _validate_distributed_contract_consensus(self.contract)
 
@@ -93,6 +100,19 @@ class ShaftTrainingEfficiencyMonitor:
         if self._update_applied_provider is None:
             return True
         return bool(self._update_applied_provider())
+
+    def start_memory_window(self, device: torch.device) -> None:
+        if not self.enabled or self._memory_window_device is not None:
+            return
+        resolved = torch.device(device)
+        self._memory_window_device = resolved
+        if resolved.type != "cuda" or not torch.cuda.is_available():
+            return
+        try:
+            torch.cuda.reset_peak_memory_stats(resolved)
+        except (AssertionError, RuntimeError):
+            return
+        self._memory_window_available = True
 
     @classmethod
     def from_checkpoint(
@@ -134,10 +154,9 @@ class ShaftTrainingEfficiencyMonitor:
         initial_global_step = step
         complete_history = False
         snapshot_generation: str | None = None
+        peak_memory_history: tuple[int, int] | None = None
         try:
-            transaction = _read_training_efficiency_checkpoint_transaction(
-                checkpoint_dir
-            )
+            transaction = _read_training_efficiency_checkpoint_transaction(checkpoint_dir)
             if transaction.get("state") != _CHECKPOINT_TRANSACTION_COMMITTED:
                 raise ValueError("checkpoint telemetry transaction is not committed")
             if int(transaction.get("global_step", -1)) != step:
@@ -145,9 +164,7 @@ class ShaftTrainingEfficiencyMonitor:
                     "checkpoint telemetry transaction global_step differs from checkpoint"
                 )
             if int(transaction.get("world_size", -1)) != _world_size():
-                raise ValueError(
-                    "checkpoint telemetry transaction world_size differs from runtime"
-                )
+                raise ValueError("checkpoint telemetry transaction world_size differs from runtime")
             snapshot_generation = str(transaction.get("generation") or "").strip()
             if not snapshot_generation:
                 raise ValueError("committed checkpoint telemetry has no generation")
@@ -194,6 +211,7 @@ class ShaftTrainingEfficiencyMonitor:
             frames = [ShaftEfficiencyFrame(**dict(value)) for value in raw_frames]
             initial_global_step = int(payload.get("initial_global_step", -1))
             complete_history = bool(payload.get("complete_history", False))
+            peak_memory_history = _snapshot_peak_memory_history(payload)
             cls._validate_snapshot_span(
                 frames=frames,
                 checkpoint_global_step=step,
@@ -229,9 +247,7 @@ class ShaftTrainingEfficiencyMonitor:
             state_max = local_state.clone()
             torch.distributed.all_reduce(state_min, op=torch.distributed.ReduceOp.MIN)
             torch.distributed.all_reduce(state_max, op=torch.distributed.ReduceOp.MAX)
-            all_valid = bool(state_min[0].item()) and torch.equal(
-                state_min[1:], state_max[1:]
-            )
+            all_valid = bool(state_min[0].item()) and torch.equal(state_min[1:], state_max[1:])
 
         if not all_valid:
             detail = (
@@ -265,8 +281,11 @@ class ShaftTrainingEfficiencyMonitor:
             persist=persist,
             contract=contract,
             snapshot_generation=snapshot_generation,
+            peak_memory_history=peak_memory_history,
+            peak_memory_history_complete=peak_memory_history is not None,
         )
         monitor._committed = frames
+        monitor._peak_memory_history_frame_count = len(frames)
         monitor._reported_count = len(frames)
         logger.info(
             "[training-efficiency] restored rank=%s frames=%s through_step=%s",
@@ -314,9 +333,7 @@ class ShaftTrainingEfficiencyMonitor:
         for batch in batches:
             value = batch.get("_shaft_batch_stats")
             if not isinstance(value, ShaftCollatedBatchStats):
-                raise ValueError(
-                    "Training efficiency requires collator-owned _shaft_batch_stats."
-                )
+                raise ValueError("Training efficiency requires collator-owned _shaft_batch_stats.")
             stats.append(value)
         self._staged = _StagedEfficiencyFrame(
             stats=tuple(stats),
@@ -372,9 +389,7 @@ class ShaftTrainingEfficiencyMonitor:
             raise RuntimeError("Cannot commit efficiency telemetry without a staged frame.")
         step = int(global_step)
         expected = (
-            self._committed[-1].global_step + 1
-            if self._committed
-            else self.initial_global_step + 1
+            self._committed[-1].global_step + 1 if self._committed else self.initial_global_step + 1
         )
         if step != expected:
             raise ValueError(
@@ -394,21 +409,13 @@ class ShaftTrainingEfficiencyMonitor:
             materialized_tokens=sum(value.materialized_tokens for value in stats),
             supervised_tokens=sum(value.supervised_tokens for value in stats),
             weighted_supervision_mass=(
-                None
-                if len(weighted_values) != len(stats)
-                else float(sum(weighted_values))
+                None if len(weighted_values) != len(stats) else float(sum(weighted_values))
             ),
             weighted_supervision_coverage_microbatches=len(weighted_values),
             sequence_length_sum=sum(value.sequence_length_sum for value in stats),
-            sequence_length_square_sum=sum(
-                value.sequence_length_square_sum for value in stats
-            ),
-            vision_patches=sum(
-                int(value.vision_patches or 0) for value in stats
-            ),
-            vision_coverage_batches=sum(
-                value.vision_patches is not None for value in stats
-            ),
+            sequence_length_square_sum=sum(value.sequence_length_square_sum for value in stats),
+            vision_patches=sum(int(value.vision_patches or 0) for value in stats),
+            vision_coverage_batches=sum(value.vision_patches is not None for value in stats),
             microbatches=len(stats),
             host_batch_acquire_seconds=self._staged.host_batch_acquire_seconds,
             batch_prepare_seconds=self._staged.batch_prepare_seconds,
@@ -460,6 +467,7 @@ class ShaftTrainingEfficiencyMonitor:
                 "Efficiency snapshot can only be written for the latest committed step."
             )
         path = self._snapshot_path(checkpoint_dir)
+        peak_memory = self._rank_peak_memory()
         payload = {
             "schema_version": _EFFICIENCY_SNAPSHOT_VERSION,
             "global_step": step,
@@ -469,6 +477,8 @@ class ShaftTrainingEfficiencyMonitor:
             "world_size": _world_size(),
             "rank": _rank(),
             "generation": self.snapshot_generation,
+            "peak_device_memory_allocated_bytes": (None if peak_memory is None else peak_memory[0]),
+            "peak_device_memory_reserved_bytes": (None if peak_memory is None else peak_memory[1]),
             "frames": [asdict(frame) for frame in self._committed],
         }
         invalidate_training_efficiency_snapshot_set(
@@ -504,9 +514,7 @@ class ShaftTrainingEfficiencyMonitor:
                     "world_size": _world_size(),
                     "generation": self.snapshot_generation,
                 }
-                manifest_temporary = manifest_path.with_suffix(
-                    f"{manifest_path.suffix}.tmp"
-                )
+                manifest_temporary = manifest_path.with_suffix(f"{manifest_path.suffix}.tmp")
                 manifest_temporary.write_text(
                     json.dumps(
                         manifest_payload,
@@ -562,13 +570,9 @@ class ShaftTrainingEfficiencyMonitor:
         self._resolve_device_events()
         summary = self._distributed_summary(self._committed, device=device)
         if int(final_global_step) != (
-            self._committed[-1].global_step
-            if self._committed
-            else self.initial_global_step
+            self._committed[-1].global_step if self._committed else self.initial_global_step
         ):
-            raise ValueError(
-                "Efficiency committed steps do not match Trainer global_step."
-            )
+            raise ValueError("Efficiency committed steps do not match Trainer global_step.")
         summary_error: Exception | None = None
         summary_path: Path | None = None
         if self.persist and _is_rank_zero():
@@ -595,6 +599,9 @@ class ShaftTrainingEfficiencyMonitor:
     ) -> ShaftTrainingEfficiencySummary:
         world_size = _world_size()
         complete_history = self.complete_history
+        rank_peak_memory = self._rank_peak_memory()
+        peak_memory_allocated = None if rank_peak_memory is None else int(rank_peak_memory[0])
+        peak_memory_reserved = None if rank_peak_memory is None else int(rank_peak_memory[1])
         if world_size > 1:
             collective_device = _collective_device(device)
             local_state = torch.tensor(
@@ -616,10 +623,35 @@ class ShaftTrainingEfficiencyMonitor:
                     "refusing a collective that could deadlock."
                 )
             if int(state_min[1].item()) != int(state_max[1].item()):
-                raise RuntimeError(
-                    "Efficiency ranks have different initial global steps."
-                )
+                raise RuntimeError("Efficiency ranks have different initial global steps.")
             complete_history = bool(state_min[2].item())
+            peak_memory_available = torch.tensor(
+                [int(rank_peak_memory is not None)],
+                dtype=torch.int64,
+                device=collective_device,
+            )
+            torch.distributed.all_reduce(
+                peak_memory_available,
+                op=torch.distributed.ReduceOp.MIN,
+            )
+            peak_memory = torch.tensor(
+                [
+                    0 if peak_memory_allocated is None else peak_memory_allocated,
+                    0 if peak_memory_reserved is None else peak_memory_reserved,
+                ],
+                dtype=torch.int64,
+                device=collective_device,
+            )
+            torch.distributed.all_reduce(
+                peak_memory,
+                op=torch.distributed.ReduceOp.MAX,
+            )
+            if bool(peak_memory_available.item()):
+                peak_memory_allocated = int(peak_memory[0].item())
+                peak_memory_reserved = int(peak_memory[1].item())
+            else:
+                peak_memory_allocated = None
+                peak_memory_reserved = None
         if not frames:
             return ShaftTrainingEfficiencySummary(
                 initial_global_step=self.initial_global_step,
@@ -631,12 +663,12 @@ class ShaftTrainingEfficiencyMonitor:
                 rank_time_mean_seconds=0.0,
                 rank_time_max_seconds=0.0,
                 contract=self.contract,
+                peak_device_memory_allocated_bytes=peak_memory_allocated,
+                peak_device_memory_reserved_bytes=peak_memory_reserved,
             )
         local = ShaftEfficiencyAggregate.from_frames(frames)
         expected_device_timing_steps = (
-            len(frames)
-            if self.device_timing and torch.device(device).type == "cuda"
-            else 0
+            len(frames) if self.device_timing and torch.device(device).type == "cuda" else 0
         )
         if world_size == 1 and local.device_timing_steps != expected_device_timing_steps:
             raise RuntimeError(
@@ -656,6 +688,8 @@ class ShaftTrainingEfficiencyMonitor:
                 rank_time_mean_seconds=rank_time,
                 rank_time_max_seconds=rank_time,
                 contract=self.contract,
+                peak_device_memory_allocated_bytes=peak_memory_allocated,
+                peak_device_memory_reserved_bytes=peak_memory_reserved,
             )
 
         timing_coverage_state = torch.tensor(
@@ -673,31 +707,19 @@ class ShaftTrainingEfficiencyMonitor:
             timing_coverage_max,
             op=torch.distributed.ReduceOp.MAX,
         )
-        if (
-            not torch.equal(timing_coverage_min, timing_coverage_max)
-            or int(timing_coverage_min[0].item())
-            != int(timing_coverage_min[1].item())
-        ):
-            raise RuntimeError(
-                "Efficiency ranks have incomplete or different CUDA event coverage."
-            )
+        if not torch.equal(timing_coverage_min, timing_coverage_max) or int(
+            timing_coverage_min[0].item()
+        ) != int(timing_coverage_min[1].item()):
+            raise RuntimeError("Efficiency ranks have incomplete or different CUDA event coverage.")
 
         step_state_tensor = torch.tensor(
-            [
-                [frame.global_step, int(frame.update_applied)]
-                for frame in frames
-            ],
+            [[frame.global_step, int(frame.update_applied)] for frame in frames],
             dtype=torch.int64,
             device=collective_device,
         )
-        gathered_step_states = [
-            torch.empty_like(step_state_tensor) for _ in range(world_size)
-        ]
+        gathered_step_states = [torch.empty_like(step_state_tensor) for _ in range(world_size)]
         torch.distributed.all_gather(gathered_step_states, step_state_tensor)
-        if any(
-            not torch.equal(step_state_tensor, other)
-            for other in gathered_step_states
-        ):
+        if any(not torch.equal(step_state_tensor, other) for other in gathered_step_states):
             raise RuntimeError(
                 "Efficiency rank step/update states differ; refusing misaligned metrics."
             )
@@ -744,9 +766,7 @@ class ShaftTrainingEfficiencyMonitor:
             dtype=torch.float64,
             device=collective_device,
         )
-        gathered_components = [
-            torch.empty_like(component_tensor) for _ in range(world_size)
-        ]
+        gathered_components = [torch.empty_like(component_tensor) for _ in range(world_size)]
         torch.distributed.all_gather(gathered_components, component_tensor)
         stacked_components = torch.stack(gathered_components, dim=0)
         stacked_critical = stacked_components[:, :, 6]
@@ -798,6 +818,27 @@ class ShaftTrainingEfficiencyMonitor:
             rank_time_mean_seconds=float(rank_totals.mean().item()),
             rank_time_max_seconds=float(rank_totals.max().item()),
             contract=self.contract,
+            peak_device_memory_allocated_bytes=peak_memory_allocated,
+            peak_device_memory_reserved_bytes=peak_memory_reserved,
+        )
+
+    def _rank_peak_memory(self) -> tuple[int, int] | None:
+        if not self._peak_memory_history_complete:
+            return None
+        current = (
+            _peak_device_memory(self._memory_window_device)
+            if self._memory_window_available and self._memory_window_device is not None
+            else None
+        )
+        if len(self._committed) > self._peak_memory_history_frame_count and current is None:
+            return None
+        if self._peak_memory_history is None:
+            return current
+        if current is None:
+            return self._peak_memory_history
+        return (
+            max(int(self._peak_memory_history[0]), int(current[0])),
+            max(int(self._peak_memory_history[1]), int(current[1])),
         )
 
     def _resolve_device_events(self) -> None:
@@ -820,9 +861,49 @@ class ShaftTrainingEfficiencyMonitor:
         self._device_events.clear()
 
 
+def _peak_device_memory(device: torch.device) -> tuple[int, int] | None:
+    resolved = torch.device(device)
+    if resolved.type != "cuda" or not torch.cuda.is_available():
+        return None
+    try:
+        return (
+            int(torch.cuda.max_memory_allocated(resolved)),
+            int(torch.cuda.max_memory_reserved(resolved)),
+        )
+    except (AssertionError, RuntimeError):
+        return None
+
+
+def _snapshot_peak_memory_history(
+    payload: dict[str, Any],
+) -> tuple[int, int] | None:
+    required = {
+        "peak_device_memory_allocated_bytes",
+        "peak_device_memory_reserved_bytes",
+    }
+    if not required.issubset(payload):
+        raise ValueError("Efficiency snapshot has no peak-memory history fields.")
+    allocated = payload.get("peak_device_memory_allocated_bytes")
+    reserved = payload.get("peak_device_memory_reserved_bytes")
+    if allocated is None and reserved is None:
+        return None
+    if isinstance(allocated, bool) or isinstance(reserved, bool):
+        raise ValueError("Efficiency snapshot peak memory must contain integer bytes.")
+    if not isinstance(allocated, int) or not isinstance(reserved, int):
+        raise ValueError("Efficiency snapshot peak memory must be both present or null.")
+    if allocated < 0 or reserved < 0:
+        raise ValueError("Efficiency snapshot peak memory must be non-negative.")
+    return int(allocated), int(reserved)
+
+
 class ShaftTrainingEfficiencyCallback(TrainerCallback):
     def __init__(self, monitor: ShaftTrainingEfficiencyMonitor) -> None:
         self.monitor = monitor
+
+    def on_train_begin(self, args, state, control, **kwargs):  # noqa: ANN001
+        _ = state, kwargs
+        self.monitor.start_memory_window(args.device)
+        return control
 
     def on_pre_optimizer_step(self, args, state, control, **kwargs):  # noqa: ANN001
         _ = args, state, kwargs
@@ -957,10 +1038,7 @@ def _read_training_efficiency_checkpoint_transaction(
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise TypeError("checkpoint telemetry transaction must be a JSON object")
-    if (
-        int(payload.get("schema_version", -1))
-        != _EFFICIENCY_CHECKPOINT_TRANSACTION_VERSION
-    ):
+    if int(payload.get("schema_version", -1)) != _EFFICIENCY_CHECKPOINT_TRANSACTION_VERSION:
         raise ValueError("unsupported checkpoint telemetry transaction schema")
     state = str(payload.get("state") or "").strip()
     if state not in {
@@ -983,21 +1061,13 @@ def _validate_training_efficiency_checkpoint_transaction(
     try:
         payload = _read_training_efficiency_checkpoint_transaction(checkpoint_dir)
         if str(payload.get("state")) != expected_state:
-            raise ValueError(
-                "checkpoint telemetry transaction state differs from expected state"
-            )
+            raise ValueError("checkpoint telemetry transaction state differs from expected state")
         if int(payload.get("global_step", -1)) != int(global_step):
-            raise ValueError(
-                "checkpoint telemetry transaction global_step differs from runtime"
-            )
+            raise ValueError("checkpoint telemetry transaction global_step differs from runtime")
         if int(payload.get("world_size", -1)) != _world_size():
-            raise ValueError(
-                "checkpoint telemetry transaction world_size differs from runtime"
-            )
+            raise ValueError("checkpoint telemetry transaction world_size differs from runtime")
         if payload.get("generation") != generation:
-            raise ValueError(
-                "checkpoint telemetry transaction generation differs from runtime"
-            )
+            raise ValueError("checkpoint telemetry transaction generation differs from runtime")
     except Exception as exc:  # noqa: BLE001 - converge rank-local read failures
         local_error = exc
     failure = _converge_distributed_io_failure(
@@ -1011,9 +1081,7 @@ def _validate_training_efficiency_checkpoint_transaction(
 def invalidate_training_efficiency_summary(output_dir: str | Path) -> None:
     from shaft.observability import TRAINING_EFFICIENCY_FILENAME
 
-    if not (
-        torch.distributed.is_available() and torch.distributed.is_initialized()
-    ):
+    if not (torch.distributed.is_available() and torch.distributed.is_initialized()):
         rank = int(os.environ.get("RANK", "0"))
         if rank != 0:
             return
@@ -1058,9 +1126,7 @@ def invalidate_training_efficiency_snapshot_set(
                     path.unlink(missing_ok=True)
             manifest_path = directory / _EFFICIENCY_SNAPSHOT_SET_FILENAME
             manifest_path.unlink(missing_ok=True)
-            manifest_path.with_suffix(f"{manifest_path.suffix}.tmp").unlink(
-                missing_ok=True
-            )
+            manifest_path.with_suffix(f"{manifest_path.suffix}.tmp").unlink(missing_ok=True)
         except Exception as exc:  # noqa: BLE001 - converge rank-local I/O failures
             local_error = exc
     if not synchronize:
@@ -1118,9 +1184,7 @@ def _converge_distributed_io_failure(
     failed_rank = int(global_state[1].item())
     detail = str(local_error) if _rank() == failed_rank and local_error is not None else ""
     suffix = f": {detail}" if detail else ""
-    return RuntimeError(
-        f"Training efficiency {phase} failed on rank {failed_rank}{suffix}"
-    )
+    return RuntimeError(f"Training efficiency {phase} failed on rank {failed_rank}{suffix}")
 
 
 def _world_size() -> int:
@@ -1199,6 +1263,4 @@ def _validate_distributed_contract_consensus(
     torch.distributed.all_reduce(minimum, op=torch.distributed.ReduceOp.MIN)
     torch.distributed.all_reduce(maximum, op=torch.distributed.ReduceOp.MAX)
     if not torch.equal(minimum, maximum):
-        raise RuntimeError(
-            "Training-efficiency contract differs across distributed ranks."
-        )
+        raise RuntimeError("Training-efficiency contract differs across distributed ranks.")

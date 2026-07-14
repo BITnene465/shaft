@@ -209,14 +209,20 @@ flash-linear-attention 与 causal-conv1d。未验收的模型族/backend/topolog
 
 训练默认生成 committed `shaft_training_efficiency.json`：统计实际 collate 后的 useful/materialized/
 supervised tokens、logical-segment length 分布、vision patches、logical segments/physical packs、batch
-acquire、batch prepare、host/device optimizer-frame time 与 DDP rank skew。它只在成功 optimizer boundary
+acquire、batch prepare、host/device optimizer-frame time、critical-path p50/p95、训练窗口内 peak CUDA memory
+与 DDP rank skew。它只在成功 optimizer boundary
 提交，不会把 DataLoader prefetch 或
 `[batch-plan-summary]` 误算成已执行吞吐。可用
 `python scripts/compare_efficiency.py RUN_A RUN_B ...` 比较不同 batching/layout 的 A/B 结果；checkpoint
 内的 per-rank snapshot 支持 resume 后继续完整累计。summary 内置类型化训练契约；比较器默认拒绝模型、
-数据快照、draw schedule、DP/GA、优化器或 step span 不一致的结果，只有明确诊断时才使用
-`--allow-incompatible`。snapshot set 使用 revoke、all-rank snapshot、rank-zero manifest 三阶段提交；每个
+数据快照、logical draw stream、DP/GA、优化器或 step span 不一致的结果，只有明确诊断时才使用
+`--allow-incompatible`；packing 导致 committed logical workload 不同但其它约束相同时，可用更窄的
+`--allow-workload-variation` 做 capacity 对比；它仍锁定 optimizer update、microbatch 与 physical-pack 数，
+不能把结果表述为等工作量 speedup。peak memory 从 HF
+`on_train_begin` 建立窗口，resume 时取 checkpoint 历史与当前窗口最大值；历史缺失时明确输出 `n/a`。
+snapshot set 使用 revoke、all-rank snapshot、rank-zero manifest 三阶段提交；每个
 可失败的文件阶段都会先做固定 tensor 状态汇合，避免单 rank I/O 错误把其它 rank 留在 barrier。
+比较器只接受采用当前 measurement contract 的 v3 summary；旧 v2 不自动迁移。
 完整边界见
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。

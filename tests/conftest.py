@@ -23,7 +23,6 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_config_catalog.py",
         "test_config_deepspeed.py",
         "test_config_eval_datasets.py",
-        "test_config_examples.py",
         "test_config_freeze.py",
         "test_config_loader.py",
         "test_config_online_eval.py",

@@ -12,9 +12,8 @@ import tempfile
 import numpy as np
 import pytest
 import torch
-from accelerate import init_empty_weights
 from PIL import Image
-from transformers import AutoConfig, AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor
 from peft import PeftModel
 
 from shaft.infer import (
@@ -34,6 +33,7 @@ from shaft.data import (
     ShaftSFTSampleCostProvider,
 )
 from shaft.model import MODEL_REGISTRY, build_model_meta
+from shaft.observability import TRAINING_EFFICIENCY_SCHEMA_VERSION
 from shaft.template import ShaftChatRenderer, build_template
 from shaft.training import checkpoint_has_batch_planning_state
 from tests.support.qwen_training_gate import (
@@ -735,35 +735,6 @@ def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
 
 @pytest.mark.integration
 @pytest.mark.manual
-def test_qwen36vl_empty_model_architecture_loads() -> None:
-    model_path = Path("models/Qwen3.6-27B")
-    config_path = model_path / "config.json"
-    if not config_path.exists():
-        pytest.skip(f"Qwen3.6 config not found: {config_path}")
-    if importlib.util.find_spec("transformers.models.qwen3_5") is None:
-        pytest.skip("Current Transformers build does not include qwen3_5 support.")
-    if not MODEL_REGISTRY.has("qwen36vl"):
-        pytest.skip("qwen36vl model adapter is not registered in current runtime.")
-
-    config = AutoConfig.from_pretrained(
-        model_path,
-        trust_remote_code=True,
-    )
-    with init_empty_weights():
-        model = AutoModelForImageTextToText.from_config(
-            config,
-            trust_remote_code=True,
-        )
-
-    assert type(model).__name__ == "Qwen3_5ForConditionalGeneration"
-    assert next(model.parameters()).device.type == "meta"
-    nested_model = getattr(model, "model", None)
-    assert hasattr(model, "language_model") or hasattr(nested_model, "language_model")
-    assert hasattr(model, "visual") or hasattr(nested_model, "visual")
-
-
-@pytest.mark.integration
-@pytest.mark.manual
 def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
     tmp_path: Path,
     repo_root: Path,
@@ -867,7 +838,7 @@ def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
                 encoding="utf-8"
             )
         )
-        assert summary["schema_version"] == 2
+        assert summary["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
         assert summary["complete_history"] is True
         assert summary["aggregate"]["optimizer_steps"] == expected_steps
         assert summary["aggregate"]["device_timing_steps"] == expected_steps
@@ -1075,7 +1046,7 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
     summary = json.loads(
         (output_dir / "shaft_training_efficiency.json").read_text(encoding="utf-8")
     )
-    assert summary["schema_version"] == 2
+    assert summary["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
     assert summary["complete_history"] is True
     assert summary["aggregate"]["optimizer_steps"] == 2
     assert summary["aggregate"]["device_timing_steps"] == 2

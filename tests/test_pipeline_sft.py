@@ -153,9 +153,7 @@ def test_run_sft_rejects_resume_contract_before_data_or_model_load(
                 side_effect=ValueError("batch contract drift"),
             ):
                 with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
-                    with patch(
-                        "shaft.pipeline.sft.build_model_tokenizer_processor"
-                    ) as build_model:
+                    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
                         with pytest.raises(ValueError, match="batch contract drift"):
                             run_sft(config)
 
@@ -454,5 +452,8 @@ def test_fixed_weighted_unshuffled_pipeline_uses_finite_plan_execution_identity(
     assert train_sampler is not None
     assert efficiency_monitor is not None
     execution_fingerprint = efficiency_monitor.contract.sample_execution_fingerprint
+    stream_fingerprint = efficiency_monitor.contract.sample_stream_fingerprint
     assert len(execution_fingerprint) == 64
+    assert len(stream_fingerprint) == 64
     assert execution_fingerprint != train_sampler.plan.fingerprint
+    assert stream_fingerprint == execution_fingerprint

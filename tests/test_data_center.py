@@ -86,21 +86,21 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
         [
-            {"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": "a1"},
-            {"image_path": str(image), "target_text": "{\"a\":2}", "sample_id": "a2"},
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": "a1"},
+            {"image_path": str(image), "target_text": '{"a":2}', "sample_id": "a2"},
         ],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": "b1"}],
+        [{"image_path": str(image), "target_text": '{"b":1}', "sample_id": "b1"}],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
     val_b = _write_jsonl(
         tmp_path / "val_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
     )
 
     config = RuntimeConfig()
@@ -142,9 +142,51 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
     assert dataset_bundle.train_execution_fingerprint
     assert len(dataset_bundle.train_execution_fingerprint) == 64
+    assert dataset_bundle.train_stream_fingerprint
+    assert len(dataset_bundle.train_stream_fingerprint) == 64
     assert dataset_bundle.train_execution_fingerprint != (
         dataset_bundle.train_sampler.plan.fingerprint
     )
+
+
+def test_train_stream_fingerprint_is_stable_across_fixed_and_planned_grouping(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {"image_path": str(image), "target_text": "a", "sample_id": "a"},
+            {"image_path": str(image), "target_text": "b", "sample_id": "b"},
+        ],
+    )
+    config = RuntimeConfig()
+    config.data.media_snapshot_id = "stream-fixture-v1"
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    config.data.batching.grouping = "none"
+    fixed = ShaftDataCenter(
+        config.data,
+        seed=7,
+        train_sample_budget=2,
+    ).build_dataset_bundle(SFTDataset)
+    config.data.batching.grouping = "length"
+    planned = ShaftDataCenter(
+        config.data,
+        seed=7,
+        train_sample_budget=2,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert fixed.train_execution_fingerprint != planned.train_execution_fingerprint
+    assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
 
 
 @pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
@@ -194,10 +236,7 @@ def test_bounded_dataset_suppresses_pil_bomb_warning_but_not_hard_error(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         bounded[0]
-    assert not any(
-        issubclass(item.category, Image.DecompressionBombWarning)
-        for item in caught
-    )
+    assert not any(issubclass(item.category, Image.DecompressionBombWarning) for item in caught)
 
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 40)
     with pytest.raises(Image.DecompressionBombError):
@@ -211,7 +250,7 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
         [
             {
                 "image_path": str(image),
-                "target_text": "{\"a\":1}",
+                "target_text": '{"a":1}',
                 "sample_id": "sample-1",
                 "system_prompt": "canonical system",
                 "user_prompt": "canonical user",
@@ -223,7 +262,7 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
         [
             {
                 "image_path": str(image),
-                "target_text": "{\"v\":1}",
+                "target_text": '{"v":1}',
                 "sample_id": "val-1",
                 "system_prompt": "canonical system",
                 "user_prompt": "canonical user",
@@ -335,8 +374,9 @@ prompts:
 
     assert planned["user_prompt"] == actual["user_prompt"]
     assert planned["user_prompt"] == "Reconstruct shape at [10,20,300,400]."
-    assert planned["extra"]["runtime_prompt_rendered_sha256"] == (
-        actual["extra"]["runtime_prompt_rendered_sha256"]
+    assert (
+        planned["extra"]["runtime_prompt_rendered_sha256"]
+        == (actual["extra"]["runtime_prompt_rendered_sha256"])
     )
 
 
@@ -469,8 +509,8 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
         [
             {
                 "image_path": str(image),
-                "chosen_text": "{\"ok\":1}",
-                "rejected_text": "{\"ok\":0}",
+                "chosen_text": '{"ok":1}',
+                "rejected_text": '{"ok":0}',
                 "sample_id": "d1",
             }
         ],
@@ -480,8 +520,8 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
         [
             {
                 "image_path": str(image),
-                "chosen_text": "{\"ok\":2}",
-                "rejected_text": "{\"ok\":1}",
+                "chosen_text": '{"ok":2}',
+                "rejected_text": '{"ok":1}',
                 "sample_id": "d2",
             }
         ],
@@ -507,23 +547,23 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     assert len(val_dataset) == 1
     sample = train_dataset[0]
     assert sample["dataset_name"] == "dpo_ds"
-    assert sample["chosen_text"] == "{\"ok\":1}"
-    assert sample["rejected_text"] == "{\"ok\":0}"
+    assert sample["chosen_text"] == '{"ok":1}'
+    assert sample["rejected_text"] == '{"ok":0}'
 
 
 def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": "a1"}],
+        [{"image_path": str(image), "target_text": '{"a":1}', "sample_id": "a1"}],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": "b1"}],
+        [{"image_path": str(image), "target_text": '{"b":1}', "sample_id": "b1"}],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
 
     config = RuntimeConfig()
@@ -561,19 +601,25 @@ def test_data_center_sampler_passes_plan_cycle_in_sample_ref(tmp_path: Path) -> 
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": f"a{i}"} for i in range(4)],
+        [
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": f"a{i}"}
+            for i in range(4)
+        ],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": f"b{i}"} for i in range(4)],
+        [
+            {"image_path": str(image), "target_text": '{"b":1}', "sample_id": f"b{i}"}
+            for i in range(4)
+        ],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
     val_b = _write_jsonl(
         tmp_path / "val_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
     )
 
     config = RuntimeConfig()
@@ -604,10 +650,7 @@ def test_sample_context_crosses_persistent_worker_boundary(tmp_path: Path) -> No
     image = _write_image(tmp_path / "img.png")
     train_path = _write_jsonl(
         tmp_path / "train.jsonl",
-        [
-            {"image_path": str(image), "target_text": "{}", "sample_id": f"s{i}"}
-            for i in range(2)
-        ],
+        [{"image_path": str(image), "target_text": "{}", "sample_id": f"s{i}"} for i in range(2)],
     )
     val_path = _write_jsonl(
         tmp_path / "val.jsonl",
@@ -647,19 +690,25 @@ def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": f"a{i}"} for i in range(8)],
+        [
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": f"a{i}"}
+            for i in range(8)
+        ],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": f"b{i}"} for i in range(8)],
+        [
+            {"image_path": str(image), "target_text": '{"b":1}', "sample_id": f"b{i}"}
+            for i in range(8)
+        ],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
     val_b = _write_jsonl(
         tmp_path / "val_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
     )
 
     config = RuntimeConfig()

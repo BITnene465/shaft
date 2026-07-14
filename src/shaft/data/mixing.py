@@ -120,9 +120,7 @@ class ShaftSampleSchedule:
         if self.strategy == "concat":
             dataset_name, row_index = self._resolve_concat(draw_id)
         else:
-            source_random = _splitmix64(
-                self.seed ^ (draw_id * 0xD1342543DE82EF95)
-            )
+            source_random = _splitmix64(self.seed ^ (draw_id * 0xD1342543DE82EF95))
             source_value = (source_random >> 11) / float(1 << 53)
             source_index = bisect_right(self._weight_ends, source_value)
             row_random = _splitmix64(source_random ^ 0xE7037ED1A0B428DB)
@@ -134,9 +132,7 @@ class ShaftSampleSchedule:
             context=ShaftSampleContext(
                 draw_id=draw_id,
                 plan_cycle=0,
-                transform_seed=_splitmix64(
-                    self.seed ^ draw_id ^ 0xA0761D6478BD642F
-                ),
+                transform_seed=_splitmix64(self.seed ^ draw_id ^ 0xA0761D6478BD642F),
             ),
         )
 
@@ -227,10 +223,21 @@ class ShaftSamplePlan:
     def schedule(self) -> ShaftSampleSchedule:
         if self._schedule is None:
             raise ValueError(
-                "This finite weighted, unshuffled SamplePlan has no "
-                "horizon-independent schedule."
+                "This finite weighted, unshuffled SamplePlan has no horizon-independent schedule."
             )
         return self._schedule
+
+    @property
+    def stream_fingerprint(self) -> str:
+        """Identify the logical draw stream independently of finite-plan length when possible.
+
+        Weighted, unshuffled sampling is defined by the finite plan horizon, so its
+        finite plan fingerprint is the only honest stream identity.
+        """
+
+        if self._schedule is None:
+            return self.fingerprint
+        return self._schedule.fingerprint
 
     def __len__(self) -> int:
         return self.num_samples

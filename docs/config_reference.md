@@ -587,7 +587,12 @@ train:
   同步；每个 committed frame、每个 rank 都必须有完整 event coverage。`off` 仍保留 iterator acquire、
   batch denominator prepare、training-step 与 optimizer host wall time。
 - 周期指标在 `Trainer.log()` 进入 W&B/console 前合并；最终版本化真源是 run root 的
-  `shaft_training_efficiency.json`。`[batch-plan-summary]` 只表示 planner producer，不等于执行吞吐。
+  `shaft_training_efficiency.json`。除 useful token throughput 外，summary 还记录 logical-segment/vision-patch
+  throughput、critical-path p50/p95，以及各 rank 中最大的 CUDA peak allocated/reserved memory。显存窗口在
+  HF `on_train_begin` 建立，即 model/optimizer 与 resume state 装配完成之后；不混入模型加载瞬时峰值。
+  checkpoint 保存 rank-local 历史峰值，exact resume 最终取历史与当前窗口 MAX；旧/缺失历史或窗口不可用时
+  JSON 为 `null`、比较器显示 `n/a`，不得静默当成 0。`reserved` 反映 allocator 缓存，不等同于模型实际持有的
+  `allocated` memory。`[batch-plan-summary]` 只表示 planner producer，不等于执行吞吐。
 - checkpoint 保存每 rank 的可选 `shaft_training_efficiency_rank<N>.json`。任一 rank 的 snapshot 缺失、损坏、
   span 或 contract 不一致时，所有 rank 都丢弃旧 telemetry history；这不阻止模型/optimizer exact resume，
   但最终 summary 会标记 `complete_history=false`。全套 snapshot 有效时从 checkpoint step 延续且不重复累计。
@@ -597,9 +602,17 @@ train:
   另一 generation。
 - 使用 `python scripts/compare_efficiency.py RUN_A RUN_B ...` 比较 committed throughput、padding、
   segments/pack、logical-segment length 分布和 rank skew。工具默认校验模型、数据/source fingerprint、
-  draw schedule、DP/GA、优化器和 committed step span，只允许 batch/sequence contract 作为实验轴变化；
-  `--allow-incompatible` 仅供明确接受非公平结果的诊断。fixed path 中未版本化的 online transform 或缺失
-  `media_snapshot_id` 不阻止训练，但会令 source identity 标为 incomplete，默认不能进入公平多 run 比较。
+  logical draw stream、DP/GA、优化器和 committed step span，只允许 batch/sequence contract 作为实验轴变化；
+  默认还要求 committed logical workload 完全一致，适合 padded/varlen layout A/B。packing 使同一 step
+  span 消费更多 logical work 时可使用 `--allow-workload-variation` 做 capacity comparison：它只放宽
+  segment/token/vision/mass，仍强制 identity、step span、update count、microbatch/physical-pack count 与
+  telemetry coverage 一致，并分别展示 useful/supervised token、segment、vision-patch rate；该模式不是等工作量
+  speedup。
+  exact-resume 继续另行绑定包含有限 plan horizon 的 execution fingerprint。`--allow-incompatible`
+  仅供明确接受非公平结果的诊断。fixed path 中未版本化的 online transform 或缺失 `media_snapshot_id`
+  不阻止训练，但会令 source identity 标为 incomplete，默认不能进入公平多 run 比较。
+- 比较器只接受当前 v3 root summary；v2 采用旧显存边界且缺少 stream contract，不做自动迁移，也不能进入
+  公平 A/B。缺失显存显示 `n/a` 仅指合法 v3 summary/snapshot 中显式的 `null`，不代表兼容旧 root schema。
 
 ### `train.duration`
 
@@ -967,6 +980,9 @@ eval:
   - 调试时若设为 `false`，text/JSON 每行都会包含 rank；多节点/多卡且配置了 `file_path` 时自动写入
     `<stem>.rank<N><suffix>`，避免各 rank 并发覆盖同一个文件。共享终端仍可能交错，因此建议同时把
     progress 设为 `plain` 或 `off`
+- Shaft 的 `INFO` 只保留 Transformers/Hugging Face Hub 的 `WARNING/ERROR`，避免默认打印完整
+  model/processor config；两者都移除独立 stderr handler 并经 Shaft 的 rank/progress-aware handler 输出一次。
+  显式 `logging.level=DEBUG` 才恢复上游详细日志。该规则不改变 Shaft 自身的 INFO 生命周期日志。
 
 ## 11. `progress`
 

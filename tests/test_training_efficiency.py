@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +24,7 @@ from shaft.observability import (
 )
 from shaft.cli.efficiency import build_comparison
 from shaft.training.efficiency import (
+    ShaftTrainingEfficiencyCallback,
     ShaftTrainingEfficiencyMonitor,
     invalidate_training_efficiency_summary,
     prepare_training_efficiency_checkpoint,
@@ -72,9 +74,10 @@ def _contract(**overrides) -> ShaftTrainingEfficiencyContract:
         "source_fingerprint": "source-v1",
         "source_contract_complete": True,
         "sample_execution_fingerprint": "execution-v1",
+        "sample_stream_fingerprint": "stream-v1",
         "software_fingerprint": "software-v1",
         "hardware_fingerprint": "hardware-v1",
-        "measurement_protocol": "shaft-efficiency-optimizer-frame-v2",
+        "measurement_protocol": "shaft-efficiency-optimizer-frame-v3",
         "timing_mode": "host_optimizer_frame",
         "batch_contract_fingerprint": "batch-v1",
         "sequence_contract_fingerprint": "sequence-v1",
@@ -116,10 +119,10 @@ def test_efficiency_monitor_commits_only_successful_optimizer_frames(
     assert aggregate.host_batch_acquire_seconds == 0.25
     assert aggregate.training_step_seconds == 1.25
     assert metrics["train_efficiency/padding_fraction"] == 0.25
+    assert metrics["train_efficiency/logical_segments_per_second"] == pytest.approx(4 / 1.5)
+    assert metrics["train_efficiency/vision_patches_per_second"] == pytest.approx(8 / 1.5)
 
-    payload = json.loads(
-        (tmp_path / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
-    )
+    payload = json.loads((tmp_path / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8"))
     assert payload["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
     assert payload["final_global_step"] == 1
     assert payload["aggregate"]["useful_tokens"] == 12
@@ -171,10 +174,9 @@ def test_efficiency_checkpoint_snapshot_restores_without_double_counting(
     )
     first.write_checkpoint_snapshot(checkpoint, global_step=2)
     transaction = json.loads(
-        (
-            checkpoint
-            / "shaft_training_efficiency_checkpoint_transaction.json"
-        ).read_text(encoding="utf-8")
+        (checkpoint / "shaft_training_efficiency_checkpoint_transaction.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert transaction["state"] == "committed"
     assert transaction["generation"] == first.snapshot_generation
@@ -238,6 +240,42 @@ def test_efficiency_checkpoint_contract_mismatch_restarts_partial_coverage(
     resumed.commit(global_step=2)
 
 
+def test_efficiency_legacy_snapshot_restarts_partial_coverage(tmp_path: Path) -> None:
+    first = ShaftTrainingEfficiencyMonitor(output_dir=tmp_path)
+    first.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.01,
+    )
+    first.record_training_step(0.02)
+    first.commit(global_step=1)
+    checkpoint = tmp_path / "checkpoint-1"
+    prepare_training_efficiency_checkpoint(
+        checkpoint,
+        global_step=1,
+        generation=first.snapshot_generation,
+    )
+    snapshot = first.write_checkpoint_snapshot(checkpoint, global_step=1)
+    assert snapshot is not None
+    payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    payload["schema_version"] = 2
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+
+    resumed = ShaftTrainingEfficiencyMonitor.from_checkpoint(
+        output_dir=tmp_path,
+        checkpoint_dir=checkpoint,
+        checkpoint_global_step=1,
+    )
+
+    assert resumed.complete_history is False
+    assert resumed.committed_frames == ()
+    resumed.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.01,
+    )
+    resumed.record_training_step(0.02)
+    resumed.commit(global_step=2)
+
+
 def test_efficiency_checkpoint_snapshot_set_revokes_stale_generation(
     tmp_path: Path,
 ) -> None:
@@ -275,9 +313,7 @@ def test_efficiency_checkpoint_snapshot_set_revokes_stale_generation(
     assert not stale_snapshot.exists()
     manifest = json.loads(stale_manifest.read_text(encoding="utf-8"))
     snapshot = json.loads(
-        (checkpoint / "shaft_training_efficiency_rank0.json").read_text(
-            encoding="utf-8"
-        )
+        (checkpoint / "shaft_training_efficiency_rank0.json").read_text(encoding="utf-8")
     )
     assert manifest["generation"] == monitor.snapshot_generation
     assert snapshot["generation"] == monitor.snapshot_generation
@@ -494,10 +530,9 @@ def test_efficiency_persist_false_revokes_stale_checkpoint_snapshot_set(
     assert not stale_snapshot.exists()
     assert not stale_manifest.exists()
     transaction = json.loads(
-        (
-            checkpoint
-            / "shaft_training_efficiency_checkpoint_transaction.json"
-        ).read_text(encoding="utf-8")
+        (checkpoint / "shaft_training_efficiency_checkpoint_transaction.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert transaction["state"] == "revoked"
     assert transaction["generation"] is None
@@ -513,6 +548,7 @@ def test_efficiency_comparator_enforces_identity_but_allows_batch_axes(
             "varlen",
             replace(
                 _contract(),
+                sample_execution_fingerprint="execution-v2",
                 batch_contract_fingerprint="batch-v2",
                 sequence_contract_fingerprint="sequence-v2",
             ),
@@ -533,6 +569,24 @@ def test_efficiency_comparator_enforces_identity_but_allows_batch_axes(
         paths.append(output_dir)
 
     assert len(build_comparison(paths)) == 2
+    capacity_rows = build_comparison(paths, allow_workload_variation=True)
+    assert all(row["workload_matched"] is True for row in capacity_rows)
+    assert all(row["exact_workload_enforced"] is False for row in capacity_rows)
+
+    different_stream_dir = tmp_path / "different-stream"
+    monitor = ShaftTrainingEfficiencyMonitor(
+        output_dir=different_stream_dir,
+        contract=replace(_contract(), sample_stream_fingerprint="stream-v2"),
+    )
+    monitor.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.01,
+    )
+    monitor.record_training_step(0.02)
+    monitor.commit(global_step=1)
+    monitor.finalize(final_global_step=1, device=torch.device("cpu"))
+    with pytest.raises(ValueError, match="sample_stream_fingerprint"):
+        build_comparison([paths[0], different_stream_dir])
 
     incompatible_dir = tmp_path / "other-model"
     monitor = ShaftTrainingEfficiencyMonitor(
@@ -549,12 +603,15 @@ def test_efficiency_comparator_enforces_identity_but_allows_batch_axes(
 
     with pytest.raises(ValueError, match="model_type"):
         build_comparison([paths[0], incompatible_dir])
-    assert len(
-        build_comparison(
-            [paths[0], incompatible_dir],
-            allow_incompatible=True,
+    assert (
+        len(
+            build_comparison(
+                [paths[0], incompatible_dir],
+                allow_incompatible=True,
+            )
         )
-    ) == 2
+        == 2
+    )
 
 
 def test_efficiency_comparator_rejects_incomplete_source_identity(
@@ -608,6 +665,255 @@ def test_efficiency_comparator_rejects_different_committed_workloads(
 
     with pytest.raises(ValueError, match="committed workload"):
         build_comparison(paths)
+
+    rows = build_comparison(paths, allow_workload_variation=True)
+    assert rows[0]["useful_tokens_per_second_delta_fraction"] == 0.0
+    assert rows[1]["useful_tokens_per_second_delta_fraction"] == pytest.approx(1 / 6)
+    assert rows[1]["logical_segments_per_second_delta_fraction"] == 0.0
+    assert rows[1]["vision_patches_per_second_delta_fraction"] == 0.0
+    assert rows[1]["comparison_mode"] == "capacity"
+    assert rows[1]["workload_matched"] is False
+    assert rows[0]["logical_segments_per_second"] > 0
+    assert rows[0]["vision_patches_per_second"] > 0
+    assert rows[0]["critical_path_p50_seconds"] > 0
+    assert rows[0]["critical_path_p95_seconds"] > 0
+
+
+def test_efficiency_exact_workload_rejects_different_length_distribution(
+    tmp_path: Path,
+) -> None:
+    paths = []
+    for name in ("first", "second"):
+        output_dir = tmp_path / name
+        monitor = ShaftTrainingEfficiencyMonitor(
+            output_dir=output_dir,
+            contract=_contract(),
+        )
+        monitor.stage(
+            [{"_shaft_batch_stats": _stats()}],
+            host_batch_acquire_seconds=0.0,
+        )
+        monitor.record_training_step(0.01)
+        monitor.commit(global_step=1)
+        monitor.finalize(final_global_step=1, device=torch.device("cpu"))
+        paths.append(output_dir)
+
+    second_path = paths[1] / TRAINING_EFFICIENCY_FILENAME
+    payload = json.loads(second_path.read_text(encoding="utf-8"))
+    payload["aggregate"]["sequence_length_square_sum"] += 1
+    second_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="sequence_length_square_sum"):
+        build_comparison(paths)
+    capacity_rows = build_comparison(paths, allow_workload_variation=True)
+    assert capacity_rows[0]["workload_matched"] is True
+    assert capacity_rows[1]["workload_matched"] is False
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("update_applied_steps", 0),
+        ("microbatches", 2),
+        ("physical_packs", 2),
+    ],
+)
+def test_efficiency_workload_variation_preserves_physical_execution_envelope(
+    tmp_path: Path,
+    field_name: str,
+    value: int,
+) -> None:
+    paths = []
+    for name in ("first", "second"):
+        output_dir = tmp_path / name
+        monitor = ShaftTrainingEfficiencyMonitor(
+            output_dir=output_dir,
+            contract=_contract(),
+        )
+        monitor.stage(
+            [{"_shaft_batch_stats": _stats()}],
+            host_batch_acquire_seconds=0.0,
+        )
+        monitor.record_training_step(0.01)
+        monitor.commit(global_step=1)
+        monitor.finalize(final_global_step=1, device=torch.device("cpu"))
+        paths.append(output_dir)
+
+    second_path = paths[1] / TRAINING_EFFICIENCY_FILENAME
+    payload = json.loads(second_path.read_text(encoding="utf-8"))
+    payload["aggregate"][field_name] = value
+    second_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=field_name):
+        build_comparison(paths, allow_workload_variation=True)
+
+
+def test_efficiency_summary_reports_peak_cuda_memory(tmp_path: Path) -> None:
+    monitor = ShaftTrainingEfficiencyMonitor(
+        output_dir=tmp_path,
+        device_timing=False,
+    )
+    monitor.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.0,
+    )
+    monitor.record_training_step(0.01)
+    monitor.commit(global_step=1)
+
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch("torch.cuda.reset_peak_memory_stats") as reset_peak,
+        patch("torch.cuda.max_memory_allocated", return_value=3 * 1024**3),
+        patch("torch.cuda.max_memory_reserved", return_value=4 * 1024**3),
+    ):
+        monitor.start_memory_window(torch.device("cuda", 0))
+        summary, metrics = monitor.finalize(
+            final_global_step=1,
+            device=torch.device("cuda", 0),
+        )
+
+    reset_peak.assert_called_once_with(torch.device("cuda", 0))
+    assert summary.peak_device_memory_allocated_bytes == 3 * 1024**3
+    assert summary.peak_device_memory_reserved_bytes == 4 * 1024**3
+    assert metrics["train_efficiency/peak_device_memory_allocated_gib"] == 3.0
+    assert metrics["train_efficiency/peak_device_memory_reserved_gib"] == 4.0
+
+
+def test_efficiency_callback_starts_memory_window_at_train_begin(
+    tmp_path: Path,
+) -> None:
+    monitor = ShaftTrainingEfficiencyMonitor(output_dir=tmp_path)
+    callback = ShaftTrainingEfficiencyCallback(monitor)
+    control = object()
+    device = torch.device("cuda", 0)
+
+    with patch.object(monitor, "start_memory_window") as start_memory_window:
+        returned = callback.on_train_begin(
+            SimpleNamespace(device=device),
+            object(),
+            control,
+        )
+
+    assert returned is control
+    start_memory_window.assert_called_once_with(device)
+
+
+def test_efficiency_peak_memory_survives_exact_resume(tmp_path: Path) -> None:
+    first = ShaftTrainingEfficiencyMonitor(
+        output_dir=tmp_path,
+        device_timing=False,
+    )
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch("torch.cuda.reset_peak_memory_stats"),
+        patch("torch.cuda.max_memory_allocated", return_value=3 * 1024**3),
+        patch("torch.cuda.max_memory_reserved", return_value=4 * 1024**3),
+    ):
+        first.start_memory_window(torch.device("cuda", 0))
+        first.stage(
+            [{"_shaft_batch_stats": _stats()}],
+            host_batch_acquire_seconds=0.0,
+        )
+        first.record_training_step(0.01)
+        first.commit(global_step=1)
+        checkpoint = tmp_path / "checkpoint-1"
+        prepare_training_efficiency_checkpoint(
+            checkpoint,
+            global_step=1,
+            generation=first.snapshot_generation,
+        )
+        snapshot = first.write_checkpoint_snapshot(checkpoint, global_step=1)
+
+    assert snapshot is not None
+    snapshot_payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert snapshot_payload["peak_device_memory_allocated_bytes"] == 3 * 1024**3
+    assert snapshot_payload["peak_device_memory_reserved_bytes"] == 4 * 1024**3
+
+    resumed = ShaftTrainingEfficiencyMonitor.from_checkpoint(
+        output_dir=tmp_path,
+        checkpoint_dir=checkpoint,
+        checkpoint_global_step=1,
+        device_timing=False,
+    )
+    unmeasured_resume = ShaftTrainingEfficiencyMonitor.from_checkpoint(
+        output_dir=tmp_path,
+        checkpoint_dir=checkpoint,
+        checkpoint_global_step=1,
+        device_timing=False,
+    )
+    unmeasured_resume.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.0,
+    )
+    unmeasured_resume.record_training_step(0.01)
+    unmeasured_resume.commit(global_step=2)
+    unmeasured_summary, _ = unmeasured_resume.finalize(
+        final_global_step=2,
+        device=torch.device("cpu"),
+    )
+    assert unmeasured_summary.peak_device_memory_allocated_bytes is None
+    assert unmeasured_summary.peak_device_memory_reserved_bytes is None
+
+    with (
+        patch("torch.cuda.is_available", return_value=True),
+        patch("torch.cuda.reset_peak_memory_stats"),
+        patch("torch.cuda.max_memory_allocated", return_value=2 * 1024**3),
+        patch("torch.cuda.max_memory_reserved", return_value=5 * 1024**3),
+    ):
+        resumed.start_memory_window(torch.device("cuda", 0))
+        resumed.stage(
+            [{"_shaft_batch_stats": _stats()}],
+            host_batch_acquire_seconds=0.0,
+        )
+        resumed.record_training_step(0.01)
+        resumed.commit(global_step=2)
+        summary, _ = resumed.finalize(
+            final_global_step=2,
+            device=torch.device("cuda", 0),
+        )
+
+    assert summary.complete_history is True
+    assert summary.peak_device_memory_allocated_bytes == 3 * 1024**3
+    assert summary.peak_device_memory_reserved_bytes == 5 * 1024**3
+
+
+def test_efficiency_peak_memory_is_unavailable_without_a_started_window(
+    tmp_path: Path,
+) -> None:
+    monitor = ShaftTrainingEfficiencyMonitor(output_dir=tmp_path)
+    monitor.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.0,
+    )
+    monitor.record_training_step(0.01)
+    monitor.commit(global_step=1)
+    summary, metrics = monitor.finalize(
+        final_global_step=1,
+        device=torch.device("cpu"),
+    )
+
+    assert summary.peak_device_memory_allocated_bytes is None
+    assert summary.peak_device_memory_reserved_bytes is None
+    assert "train_efficiency/peak_device_memory_allocated_gib" not in metrics
+    assert build_comparison([tmp_path])[0]["peak_device_memory_allocated_gib"] is None
+
+
+def test_efficiency_comparator_rejects_legacy_root_summary_schema(tmp_path: Path) -> None:
+    monitor = ShaftTrainingEfficiencyMonitor(output_dir=tmp_path)
+    monitor.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.0,
+    )
+    monitor.record_training_step(0.01)
+    monitor.commit(global_step=1)
+    monitor.finalize(final_global_step=1, device=torch.device("cpu"))
+    summary_path = tmp_path / TRAINING_EFFICIENCY_FILENAME
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 2
+    summary_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Unsupported training-efficiency summary"):
+        build_comparison([tmp_path])
 
 
 def test_efficiency_comparator_tolerates_roundoff_but_checks_applied_updates(
@@ -673,9 +979,7 @@ def test_collated_batch_stats_use_actual_shifted_training_tensors() -> None:
             "input_ids": torch.tensor([[1, 2, 3, 0], [4, 5, 0, 0]]),
             "attention_mask": torch.tensor([[1, 1, 1, 0], [1, 1, 0, 0]]),
             "labels": torch.tensor([[-100, 2, 3, -100], [-100, 5, -100, -100]]),
-            "loss_scale": torch.tensor(
-                [[0.0, 1.0, 0.5, 0.0], [0.0, 2.0, 0.0, 0.0]]
-            ),
+            "loss_scale": torch.tensor([[0.0, 1.0, 0.5, 0.0], [0.0, 2.0, 0.0, 0.0]]),
         },
         vision_patches=None,
     )
@@ -765,6 +1069,7 @@ def test_compare_efficiency_script_has_help_and_json_contract(
     )
     assert help_result.returncode == 0
     assert "Compare committed Shaft" in help_result.stdout
+    assert "--allow-workload-variation" in help_result.stdout
 
     json_result = subprocess.run(
         [
@@ -772,6 +1077,7 @@ def test_compare_efficiency_script_has_help_and_json_contract(
             "scripts/compare_efficiency.py",
             str(tmp_path),
             "--json",
+            "--allow-workload-variation",
         ],
         cwd=repo_root,
         text=True,
@@ -783,11 +1089,49 @@ def test_compare_efficiency_script_has_help_and_json_contract(
     assert rows[0]["mean_sequence_length"] == 3.0
     assert rows[0]["useful_tokens"] == 6
 
-    incompatible_dir = tmp_path / "incompatible"
-    incompatible_dir.mkdir()
-    payload = json.loads(
+    workload_dir = tmp_path / "workload-variation"
+    workload_dir.mkdir()
+    workload_payload = json.loads(
         (tmp_path / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
     )
+    workload_payload["aggregate"]["useful_tokens"] += 1
+    workload_payload["aggregate"]["materialized_tokens"] += 1
+    (workload_dir / TRAINING_EFFICIENCY_FILENAME).write_text(
+        json.dumps(workload_payload),
+        encoding="utf-8",
+    )
+    workload_rejected = subprocess.run(
+        [
+            sys.executable,
+            "scripts/compare_efficiency.py",
+            str(tmp_path),
+            str(workload_dir),
+        ],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert workload_rejected.returncode != 0
+    assert "committed workload" in workload_rejected.stderr
+    workload_allowed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/compare_efficiency.py",
+            str(tmp_path),
+            str(workload_dir),
+            "--allow-workload-variation",
+        ],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert workload_allowed.returncode == 0
+
+    incompatible_dir = tmp_path / "incompatible"
+    incompatible_dir.mkdir()
+    payload = json.loads((tmp_path / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8"))
     payload["contract"]["model_type"] = "qwen35vl"
     (incompatible_dir / TRAINING_EFFICIENCY_FILENAME).write_text(
         json.dumps(payload),

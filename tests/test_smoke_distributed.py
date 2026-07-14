@@ -65,9 +65,7 @@ def _assert_torchrun_succeeded(completed: subprocess.CompletedProcess[str]) -> N
     output = f"{completed.stdout}\n{completed.stderr}"
     if "Operation not permitted" in output and "RendezvousConnectionError" in output:
         pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
-    raise AssertionError(
-        f"torchrun failed (code={completed.returncode}).\n{output}"
-    )
+    raise AssertionError(f"torchrun failed (code={completed.returncode}).\n{output}")
 
 
 def _run_bounded_fault(
@@ -176,24 +174,20 @@ def test_torchrun_train_eval_smoke(tmp_path: Path, repo_root: Path) -> None:
     assert output.count("progress train started") == 1
     assert "\r" not in output
     progress = json.loads(
-        (tmp_path / "outputs" / PROGRESS_SNAPSHOT_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "outputs" / PROGRESS_SNAPSHOT_FILENAME).read_text(encoding="utf-8")
     )
     assert progress["status"] == "succeeded"
     assert progress["tasks"]["train"]["current"] == 1
     efficiency = json.loads(
-        (tmp_path / "outputs" / TRAINING_EFFICIENCY_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "outputs" / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
     )
     assert efficiency["world_size"] == 2
     assert efficiency["final_global_step"] == 1
     assert efficiency["aggregate"]["optimizer_steps"] == 1
     assert efficiency["aggregate"]["useful_tokens"] > 0
-    assert efficiency["aggregate"]["materialized_tokens"] >= efficiency["aggregate"][
-        "useful_tokens"
-    ]
+    assert (
+        efficiency["aggregate"]["materialized_tokens"] >= efficiency["aggregate"]["useful_tokens"]
+    )
 
 
 @pytest.mark.parametrize("mode", ["missing", "corrupt"])
@@ -206,9 +200,7 @@ def test_efficiency_resume_discards_asymmetric_rank_snapshots_without_hanging(
     completed = _run_efficiency_snapshot_fault(repo_root, output_dir, mode)
     _assert_torchrun_succeeded(completed)
 
-    result = json.loads(
-        (output_dir / "fault_result.json").read_text(encoding="utf-8")
-    )
+    result = json.loads((output_dir / "fault_result.json").read_text(encoding="utf-8"))
     assert result["complete_history"] is False
     assert result["initial_global_step"] == 1
     assert result["final_global_step"] == 2
@@ -243,9 +235,41 @@ def test_efficiency_aggregation_rejects_rank_divergent_cuda_timing_coverage(
     )
     _assert_torchrun_succeeded(completed)
 
-    assert (
-        output_dir / "timing_mismatch_rejected.txt"
-    ).read_text(encoding="utf-8") == "ok\n"
+    assert (output_dir / "timing_mismatch_rejected.txt").read_text(encoding="utf-8") == "ok\n"
+
+
+def test_efficiency_peak_memory_uses_max_across_ranks(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "peak-memory-max"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "peak_memory_max",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    result = json.loads((output_dir / "peak_memory_max.json").read_text(encoding="utf-8"))
+    assert result["peak_device_memory_allocated_bytes"] == 3 * 1024**3
+    assert result["peak_device_memory_reserved_bytes"] == 4 * 1024**3
+
+
+def test_efficiency_peak_memory_is_unavailable_if_any_rank_is_unavailable(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    output_dir = tmp_path / "peak-memory-unavailable"
+    completed = _run_efficiency_snapshot_fault(
+        repo_root,
+        output_dir,
+        "peak_memory_unavailable",
+    )
+    _assert_torchrun_succeeded(completed)
+
+    result = json.loads((output_dir / "peak_memory_unavailable.json").read_text(encoding="utf-8"))
+    assert result["peak_device_memory_allocated_bytes"] is None
+    assert result["peak_device_memory_reserved_bytes"] is None
 
 
 def test_efficiency_monitor_rejects_rank_divergent_contracts_without_hanging(
@@ -260,9 +284,7 @@ def test_efficiency_monitor_rejects_rank_divergent_contracts_without_hanging(
     )
     _assert_torchrun_succeeded(completed)
 
-    assert (
-        output_dir / "contract_mismatch_rejected.txt"
-    ).read_text(encoding="utf-8") == "ok\n"
+    assert (output_dir / "contract_mismatch_rejected.txt").read_text(encoding="utf-8") == "ok\n"
 
 
 @pytest.mark.parametrize(
@@ -298,9 +320,7 @@ def test_efficiency_summary_write_converges_rank_zero_io_failure(
     )
     _assert_torchrun_succeeded(completed)
 
-    assert (
-        output_dir / "summary_write_fail_rejected.txt"
-    ).read_text(encoding="utf-8") == "ok\n"
+    assert (output_dir / "summary_write_fail_rejected.txt").read_text(encoding="utf-8") == "ok\n"
 
 
 def test_torchrun_interactive_progress_keeps_one_rank_zero_console_line(
@@ -355,9 +375,7 @@ def test_torchrun_bounded_fixed_batch_contract(
     assert "[batch-plan]" in output
     assert "[batch-plan-summary]" in output
     metadata = json.loads(
-        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(encoding="utf-8")
     )
     assert metadata["grouping"] == "bounded_cost"
     assert metadata["cardinality"] == "fixed"
@@ -405,9 +423,7 @@ def test_torchrun_bounded_token_budget_uses_variable_local_batches(
     assert "first_logical_segments=3" in output
     assert "first_physical_packs=3" in output
     metadata = json.loads(
-        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(encoding="utf-8")
     )
     assert metadata["cardinality"] == "token_budget"
     assert metadata["local_pack_count_range"] == [1, 2]
@@ -469,9 +485,7 @@ def test_torchrun_exact_resume(
     assert "Num Epochs =" not in uninterrupted_logs
     checkpoint_one = tmp_path / "uninterrupted" / "checkpoint-1"
     expected_final = tmp_path / "uninterrupted" / "checkpoint-3"
-    assert _planning_callback_payload(checkpoint_one)["args"]["spec"][
-        "cardinality"
-    ] == cardinality
+    assert _planning_callback_payload(checkpoint_one)["args"]["spec"]["cardinality"] == cardinality
 
     resumed_output = tmp_path / "resumed"
     resume_config = tmp_path / "resume.yaml"
@@ -496,18 +510,17 @@ def test_torchrun_exact_resume(
 
     _assert_exact_checkpoint(expected_final, resumed_output / "checkpoint-3")
     uninterrupted_efficiency = json.loads(
-        (tmp_path / "uninterrupted" / TRAINING_EFFICIENCY_FILENAME).read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "uninterrupted" / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
     )
     resumed_efficiency = json.loads(
         (resumed_output / TRAINING_EFFICIENCY_FILENAME).read_text(encoding="utf-8")
     )
     assert resumed_efficiency["complete_history"] is True
     assert resumed_efficiency["aggregate"]["optimizer_steps"] == 3
-    assert resumed_efficiency["aggregate"]["useful_tokens"] == uninterrupted_efficiency[
-        "aggregate"
-    ]["useful_tokens"]
+    assert (
+        resumed_efficiency["aggregate"]["useful_tokens"]
+        == uninterrupted_efficiency["aggregate"]["useful_tokens"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -705,9 +718,7 @@ def _assert_exact_checkpoint(expected: Path, actual: Path) -> None:
 
 
 def _planning_callback_payload(checkpoint: Path) -> dict:
-    trainer_state = json.loads(
-        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-    )
+    trainer_state = json.loads((checkpoint / "trainer_state.json").read_text(encoding="utf-8"))
     return trainer_state["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]
 
 

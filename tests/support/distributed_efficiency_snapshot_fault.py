@@ -55,9 +55,10 @@ def _contract(rank: int) -> ShaftTrainingEfficiencyContract:
         source_fingerprint="source-v1",
         source_contract_complete=True,
         sample_execution_fingerprint="execution-v1",
+        sample_stream_fingerprint="stream-v1",
         software_fingerprint="software-v1",
         hardware_fingerprint="hardware-v1",
-        measurement_protocol="shaft-efficiency-optimizer-frame-v2",
+        measurement_protocol="shaft-efficiency-optimizer-frame-v3",
         timing_mode="host_optimizer_frame",
         batch_contract_fingerprint="batch-v1",
         sequence_contract_fingerprint="sequence-v1",
@@ -75,6 +76,8 @@ def main() -> None:
         "timing_mismatch",
         "update_mismatch",
         "contract_mismatch",
+        "peak_memory_max",
+        "peak_memory_unavailable",
         "revoke_fail",
         "snapshot_write_fail",
         "manifest_write_fail",
@@ -114,6 +117,29 @@ def main() -> None:
         )
         monitor.record_training_step(0.02)
         monitor.commit(global_step=1)
+        if mode in {"peak_memory_max", "peak_memory_unavailable"}:
+            rank_peak = (
+                None
+                if mode == "peak_memory_unavailable" and rank == 0
+                else ((2 + rank) * 1024**3, (3 + rank) * 1024**3)
+            )
+            with patch.object(
+                monitor,
+                "_rank_peak_memory",
+                return_value=rank_peak,
+            ):
+                summary, _ = monitor.finalize(
+                    final_global_step=1,
+                    device=torch.device("cpu"),
+                )
+            dist.barrier()
+            if rank == 0:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / f"{mode}.json").write_text(
+                    json.dumps(summary.to_dict(), sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            return
         if mode == "summary_write_fail":
             with patch(
                 "shaft.training.efficiency.write_training_efficiency_summary",
@@ -128,9 +154,7 @@ def main() -> None:
                     if "root summary write" not in str(exc):
                         raise
                 else:
-                    raise AssertionError(
-                        "Rank-zero summary write failure did not converge."
-                    )
+                    raise AssertionError("Rank-zero summary write failure did not converge.")
             dist.barrier()
             if rank == 0:
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -183,8 +207,7 @@ def main() -> None:
             if (
                 mode == "transaction_commit_fail"
                 and rank == 0
-                and path.name
-                == "shaft_training_efficiency_checkpoint_transaction.json.tmp"
+                and path.name == "shaft_training_efficiency_checkpoint_transaction.json.tmp"
             ):
                 raise OSError("injected checkpoint transaction commit failure")
             return original_write_text(path, *args, **kwargs)
@@ -206,9 +229,7 @@ def main() -> None:
                     "revoke_fail": "snapshot set revoke",
                     "snapshot_write_fail": "rank snapshot write",
                     "manifest_write_fail": "snapshot set manifest commit",
-                    "transaction_commit_fail": (
-                        "checkpoint telemetry transaction commit"
-                    ),
+                    "transaction_commit_fail": ("checkpoint telemetry transaction commit"),
                 }[mode]
                 if expected_phase not in str(exc):
                     raise

@@ -532,7 +532,10 @@ observability -> Trainer.log/W&B + shaft_training_efficiency.json
   单独记录 `update_applied=false`。
 - DDP 只在 logging/final window 做固定 numeric tensor collective：counts 求和，duration 求 rank min/mean/max，
   critical path 按 step 取最慢 rank，并累计该 critical rank 的 acquire/prepare/train/optimizer components；
-  不在每 step 使用 object gather。monitor 启动时还会验证所有 rank 的 typed contract fingerprint 一致。
+  peak CUDA allocated/reserved memory 取所有 rank 的最大值；显存窗口在 HF `on_train_begin`（完成
+  model/optimizer/resume state 装配后）重置，exact resume 把 checkpoint 历史峰值与当前窗口取 MAX。任一 rank
+  缺少完整历史/可用窗口时结果为 `null`，不能低报或冒充 0。不在每 step 使用 object gather。monitor 启动时
+  还会验证所有 rank 的 typed contract fingerprint 一致。
 - checkpoint 内写每 rank 的可选 telemetry snapshot。rank 0 先 revoke 旧 snapshot set，再由所有 rank 写入
   同一 generation，最后原子发布 set manifest。三个阶段都在本地 I/O 后通过固定 tensor 汇合成功状态；
   任一 rank 失败时所有 rank 同步退出该提交并撤销 incomplete set，不在 fallible I/O 后直接进入 barrier。
@@ -542,10 +545,16 @@ observability -> Trainer.log/W&B + shaft_training_efficiency.json
   stale root summary 或重复累计。CUDA event coverage 同样要求每个 committed frame、每个 rank 完整一致。
 - `scripts/compare_efficiency.py RUN...` 比较相同训练契约下的 committed summary，可用于 fixed padded、length
   padded、length varlen、greedy varlen 与 bounded token-budget 的 A/B。默认 identity 包含模型、数据/source、
-  sample schedule、DP/GA、optimizer/scheduler、measurement protocol、timing mode 与 step span，只允许
-  batch/sequence fingerprints 变化；
+  logical sample stream、DP/GA、optimizer/scheduler、measurement protocol、timing mode 与 step span，只允许
+  batch/sequence fingerprints 变化。默认 exact-workload 还校验 logical token/segment/vision totals 与 sequence
+  length sum/square-sum，防止把明显不同的 attention workload 认证为公平 padded/varlen A/B；packing 在相同 step span
+  消费不同 logical workload 时可用 `--allow-workload-variation` 做 capacity comparison，仍要求
+  update/microbatch/physical-pack/coverage 完全一致，并分别报告 token/segment/vision rate；它不能解释为
+  等工作量 speedup。
+  exact-resume 另行使用包含 finite-plan horizon 的 sample execution identity。
   `--allow-incompatible` 是显式逃生口。fixed path 的未版本化 transform/缺失 media snapshot 不改变训练
   可用性，但 source identity 会标 incomplete 并被默认比较拒绝。实验启动仍由普通训练 CLI 负责。
+  comparator 只接受 v3 root summary；旧 v2 不迁移、不参与公平比较。
 
 ## 13. Context parallel 边界
 

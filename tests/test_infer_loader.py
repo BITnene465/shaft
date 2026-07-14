@@ -200,16 +200,6 @@ stages:
     assert cfg.engines["e1"].endpoint == "http://127.0.0.1:8001"
 
 
-def test_load_qwen36_vllm_example_config() -> None:
-    cfg = load_infer_config(Path("configs/infer/qwen36_vllm_example.yaml"))
-    engine = cfg.engines["qwen36_vllm"]
-    assert engine.backend == "vllm_openai"
-    assert engine.model_type == "qwen36vl"
-    assert engine.model_name_or_path == "models/Qwen3.6-27B"
-    assert engine.served_model_name == "qwen3_6_27b"
-    assert cfg.stages[0].max_pixels == 1_000_000
-
-
 def test_load_infer_config_rejects_invalid_stage_pixel_budget(tmp_path: Path) -> None:
     payload = """
 engines:

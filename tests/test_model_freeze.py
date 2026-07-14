@@ -11,6 +11,7 @@ from shaft.model import (
     ModelModuleGroups,
     ProcessorPolicy,
     ShaftModelAdapter,
+    ShaftResolvedFreezeSummary,
 )
 from shaft.model.finetune import apply_finetune_strategy
 from shaft.model.freeze import (
@@ -57,6 +58,25 @@ def _trainable_parameter_names(model: torch.nn.Module) -> set[str]:
     return {name for name, parameter in model.named_parameters() if parameter.requires_grad}
 
 
+def test_resolved_freeze_summary_keeps_artifact_complete_but_compacts_logs() -> None:
+    resolved_targets = tuple(f"model.layers.{index}.q_proj" for index in range(20))
+    summary = ShaftResolvedFreezeSummary(
+        mode="lora",
+        total_params=100,
+        trainable_params=10,
+        frozen_params=90,
+        trainable_ratio=0.123456,
+        resolved_target_modules=resolved_targets,
+    )
+
+    assert summary.to_dict()["resolved_target_modules"] == resolved_targets
+    log_payload = summary.to_log_dict()
+    assert "resolved_target_modules" not in log_payload
+    assert log_payload["resolved_target_module_count"] == 20
+    assert log_payload["sample_resolved_target_modules"] == resolved_targets[:8]
+    assert log_payload["trainable_ratio"] == 0.1235
+
+
 def test_full_mode_freeze_group_disables_vision_tower_parameters() -> None:
     model = _TinyFreezeModel()
     adapter = _build_adapter()
@@ -79,14 +99,20 @@ def test_model_module_groups_resolve_most_specific_prefix() -> None:
         generator=("lm_head",),
     )
 
-    assert groups.resolve_group_for_name("model.layers.0.self_attn.q_proj.weight") == "language_model"
-    assert groups.resolve_group_for_name("model.visual.blocks.0.attn.q_proj.weight") == "vision_tower"
+    assert (
+        groups.resolve_group_for_name("model.layers.0.self_attn.q_proj.weight") == "language_model"
+    )
+    assert (
+        groups.resolve_group_for_name("model.visual.blocks.0.attn.q_proj.weight") == "vision_tower"
+    )
     assert groups.resolve_group_for_name("model.visual.merger.mlp.0.weight") == "aligner"
     assert groups.resolve_group_for_name("lm_head.weight") == "generator"
     assert groups.resolve_group_for_name("model.visualish.proj.weight") == "language_model"
 
 
-def test_qwen_module_groups_do_not_freeze_visual_paths_when_language_model_group_is_selected() -> None:
+def test_qwen_module_groups_do_not_freeze_visual_paths_when_language_model_group_is_selected() -> (
+    None
+):
     adapter = QWEN3VL_META.resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
     plan = build_freeze_plan(
         model_adapter=adapter,
@@ -186,7 +212,9 @@ def test_lora_all_linear_filters_frozen_groups_and_adds_modules_to_save() -> Non
     plan = build_freeze_plan(model_adapter=adapter, finetune=finetune)
 
     filtered_targets = resolve_adapter_target_modules(model, finetune.target_modules, plan=plan)
-    modules_to_save = resolve_adapter_modules_to_save(model, plan=plan, target_modules=filtered_targets)
+    modules_to_save = resolve_adapter_modules_to_save(
+        model, plan=plan, target_modules=filtered_targets
+    )
 
     assert isinstance(filtered_targets, list)
     assert all(not name.startswith("vision_tower") for name in filtered_targets)

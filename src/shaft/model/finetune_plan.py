@@ -101,6 +101,9 @@ class ShaftResolvedFreezeSummary:
     def to_log_dict(self) -> dict[str, object]:
         payload = self.to_dict()
         payload["trainable_ratio"] = round(self.trainable_ratio, 4)
+        resolved_targets = tuple(payload.pop("resolved_target_modules"))
+        payload["resolved_target_module_count"] = len(resolved_targets)
+        payload["sample_resolved_target_modules"] = resolved_targets[:8]
         return payload
 
 
@@ -138,7 +141,9 @@ def build_freeze_preview(
 ) -> ShaftFreezePreview:
     freeze_plan = build_freeze_plan(model_adapter=model_adapter, finetune=finetune)
     target_modules_input = _tuple_from_names(list(finetune.target_modules))
-    policy_target_modules = _tuple_from_names(model_adapter.resolve_target_modules(list(finetune.target_modules)))
+    policy_target_modules = _tuple_from_names(
+        model_adapter.resolve_target_modules(list(finetune.target_modules))
+    )
     return ShaftFreezePreview(
         mode=str(finetune.mode).strip().lower(),
         frozen_groups=freeze_plan.frozen_groups,
@@ -163,7 +168,9 @@ def summarize_resolved_finetune_plan(
     total_params, trainable_params = _count_parameters(model)
     frozen_params = total_params - trainable_params
     target_modules_input = _tuple_from_names(list(finetune.target_modules))
-    policy_target_modules = _tuple_from_names(model_adapter.resolve_target_modules(list(finetune.target_modules)))
+    policy_target_modules = _tuple_from_names(
+        model_adapter.resolve_target_modules(list(finetune.target_modules))
+    )
     actual_trainable_names: list[str] = []
     actual_frozen_names: list[str] = []
     for name, parameter in model.named_parameters():
@@ -188,7 +195,9 @@ def summarize_resolved_finetune_plan(
         resolved_target_modules=(
             plan.adapter_plan.resolved_target_modules if plan.adapter_plan is not None else ()
         ),
-        modules_to_save=(plan.adapter_plan.modules_to_save if plan.adapter_plan is not None else ()),
+        modules_to_save=(
+            plan.adapter_plan.modules_to_save if plan.adapter_plan is not None else ()
+        ),
         sample_trainable_parameters=tuple(actual_trainable_names[:sample_limit]),
         sample_frozen_parameters=tuple(actual_frozen_names[:sample_limit]),
     )
@@ -205,7 +214,9 @@ def write_resolved_finetune_summary(
     path = resolved_finetune_summary_path(output_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(".tmp")
-    temp_path.write_text(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.write_text(
+        json.dumps(summary.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     temp_path.replace(path)
     return path
 

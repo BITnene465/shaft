@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 
+from huggingface_hub import logging as hub_logging
 import pytest
 
 from shaft.config import LoggingConfig
@@ -30,6 +31,7 @@ def test_configure_logging_suppresses_all_structured_logs_on_nonzero_rank(
     logger.info("hidden-info")
     logger.warning("hidden-warning")
     logger.error("hidden-error")
+    hub_logging.get_logger("huggingface_hub.rank_test").error("hidden-hub-error")
     for handler in logging.getLogger().handlers:
         handler.flush()
 
@@ -37,6 +39,7 @@ def test_configure_logging_suppresses_all_structured_logs_on_nonzero_rank(
     assert "hidden-info" not in content
     assert "hidden-warning" not in content
     assert "hidden-error" not in content
+    assert "hidden-hub-error" not in content
 
 
 def test_configure_logging_keeps_rank_zero_warnings(
@@ -76,6 +79,7 @@ def test_all_rank_logging_identifies_rank_and_uses_per_rank_files(
     )
 
     logging.getLogger("shaft.test").warning("rank-local-warning")
+    hub_logging.get_logger("huggingface_hub.rank_test").warning("rank-local-hub-warning")
     for handler in logging.getLogger().handlers:
         handler.flush()
 
@@ -87,9 +91,11 @@ def test_all_rank_logging_identifies_rank_and_uses_per_rank_files(
         payloads = [json.loads(line) for line in content.splitlines()]
         assert all(payload["rank"] == 1 for payload in payloads)
         assert any(payload["msg"] == "rank-local-warning" for payload in payloads)
+        assert sum(payload["msg"] == "rank-local-hub-warning" for payload in payloads) == 1
     else:
         assert "rank=1" in content
         assert "rank-local-warning" in content
+        assert content.count("rank-local-hub-warning") == 1
 
 
 def test_barrier_if_distributed_noop_without_dist() -> None:
