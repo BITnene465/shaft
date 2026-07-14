@@ -141,6 +141,8 @@ class ShaftProgressCallback(TrainerCallback):
             metrics["loss"] = logs["loss"]
         if "efficiency/useful_tokens_per_second" in logs:
             metrics["tok/s"] = logs["efficiency/useful_tokens_per_second"]
+        if "grad_norm" in logs:
+            metrics["grad_norm"] = logs["grad_norm"]
         if metrics:
             self.training_task.update(metrics=metrics)
 

@@ -782,10 +782,13 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftProgressManager` 是进程内进度真源；terminal/plain/JSON sink 只读消费与内部状态隔离的 snapshot；
   并发 mutation 原子提交并按 revision 顺序发布，close 不允许新 task 穿透。
 - 训练回调与 online eval 只做事件适配，不持有独立进度条或刷新配置。
-- `ShaftTerminalProgressPresentation` 是纯展示策略：统一高分辨率/ASCII bar、小数百分比、宽度降级、
-  `s/step`/`step/s`、ETA、metric 排序与整行 encoding fallback；未完成状态不会提前显示 `100%`。
-  `ShaftTerminalProgressSink` 只维护前台 task 的短窗口 rate sample 与原地 I/O，嵌套阶段暂停父 task 计时，
+- `ShaftTerminalProgressPresentation` 是纯展示策略：统一高对比度 `━╸─`/ASCII bar、未知 total spinner、精确
+  百分比、`s/it`/`it/s`、ETA、颜色角色与 metric 排序；未完成状态不会提前显示 `100%`。
+  `ShaftTerminalProgressSink` 只维护前台 task 的短窗口 rate sample、indeterminate redraw ticker、真实
+  terminal width、ANSI erase-line 与原地 I/O；ticker 只消费 immutable snapshot。嵌套阶段暂停父 task 计时，
   完成即回收 history，失败摘要不能被父任务重绘隐藏。
+- terminal sink registry 按 stream 维护注册栈；`progress_safe_write()` 不得把显式目标流重定向到无关 manager，
+  最新 sink 关闭后会恢复上一个仍存活的 sink。
 - `logging.rank_zero_only=true` 时 structured console/file log 严格只由 rank 0 输出。非零 rank WARNING 不再
   绕过 terminal sink；需要 all-rank 调试时应显式关闭该开关，并使用 plain/off progress。all-rank 模式
   的每行包含 rank，file log 自动写入独立的 `.rank<N>` 文件。

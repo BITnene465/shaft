@@ -272,7 +272,8 @@ eval workers 改变后续训练随机序列。
 - `src/shaft/export`：HF 兼容导出工具链
 - `src/shaft/plugins`：registry、hook、interceptor
 - `src/shaft/observability`：logging、context、events、统一 progress 状态与 terminal/plain/JSON sink；TTY
-  使用单行高分辨率进度、不会提前完成的百分比、自适应 `s/step`/`step/s`、ETA、loss 和多参数组 LR range
+  使用高对比度自适应单行进度、标准 `s/it`/`it/s`、动态 spinner、ETA、loss、token throughput 和多参数组
+  LR range；自动适配终端宽度与颜色能力，日志不会打断活动行
 - `projects/eval_bench`：离线评测工作台子项目，管理 benchmark copy、run manifest、prediction snapshot、报告、对比与可视化
 
 ## 文档

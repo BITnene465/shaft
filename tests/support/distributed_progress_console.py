@@ -5,13 +5,11 @@ import os
 from pathlib import Path
 import sys
 import time
+from types import SimpleNamespace
 
 from shaft.config import LoggingConfig
 from shaft.observability.logging import configure_logging
-from shaft.observability.progress import (
-    ShaftProgressManager,
-    ShaftTerminalProgressSink,
-)
+from shaft.observability.progress import build_progress_manager
 
 
 def _wait_for(path: Path, *, timeout: float = 10.0) -> None:
@@ -32,19 +30,35 @@ def main() -> None:
     rank = int(os.environ.get("RANK", "0"))
     configure_logging(LoggingConfig(rank_zero_only=True), run_id="progress-smoke")
     logger = logging.getLogger("shaft.progress_smoke")
+    config = SimpleNamespace(
+        experiment=SimpleNamespace(
+            run_id="progress-smoke",
+            name="progress-smoke",
+            output_dir=str(sync_dir),
+        ),
+        progress=SimpleNamespace(
+            enabled=True,
+            display="interactive",
+            width=72,
+            refresh_interval=0.0,
+            leave_completed=False,
+            log_interval=30.0,
+            persist=False,
+        ),
+    )
+    manager = build_progress_manager(config, stream=sys.stderr)
 
     if rank != 0:
+        if manager.enabled:
+            raise RuntimeError("nonzero rank unexpectedly created a progress sink")
         _wait_for(ready)
         logger.warning("rank-one-warning-must-be-hidden")
         peer_done.touch()
+        manager.close()
         return
 
-    sink = ShaftTerminalProgressSink(
-        stream=sys.stderr,
-        width=72,
-        refresh_interval=0.0,
-    )
-    manager = ShaftProgressManager(run_id="progress-smoke", sinks=[sink])
+    if not manager.enabled:
+        raise RuntimeError("rank zero did not create the configured progress sink")
     train = manager.start_task(
         "train",
         label="train",

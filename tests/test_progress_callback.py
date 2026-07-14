@@ -82,7 +82,7 @@ def test_progress_callback_resumes_from_trainer_state_and_tracks_current_lr() ->
     assert task.metrics == {"lr": 4e-6}
 
 
-def test_progress_callback_exposes_only_train_loss_and_learning_rate() -> None:
+def test_progress_callback_exposes_loss_token_throughput_and_current_lr() -> None:
     callback, manager = _build_callback()
     callback.on_train_begin(
         args=object(),
@@ -101,12 +101,15 @@ def test_progress_callback_exposes_only_train_loss_and_learning_rate() -> None:
             "learning_rate": 1.5e-5,
             "grad_norm": 0.98765,
             "eval_loss": 3.0,
+            "efficiency/useful_tokens_per_second": 4_103.7,
         },
     )
 
     assert manager.snapshot.tasks["train"].metrics == {
         "loss": 1.23456,
         "lr": 2e-5,
+        "tok/s": 4_103.7,
+        "grad_norm": 0.98765,
     }
 
 

@@ -993,10 +993,16 @@ eval:
   - `plain`：强制输出无 ANSI、无 `\r` 的稀疏状态行
   - `off`：不创建终端或文本 sink；若 `persist=true`，仍保存结构化快照
 - `width`
-  - 单行终端显示的最大物理列宽，默认 `72`，最小 `40`；CJK/组合字符按终端 cell 宽度处理
-  - 72 列优先显示高分辨率 bar、current/total、小数百分比、速度、ETA、loss 和 LR；40 列从 ETA/metric
-    开始降级，但保留进度和速度。慢 step 显示 `s/step`，极快 step 显示 `step/s`；正数亚秒 ETA 显示
-    `<1s`。未完成状态不会四舍五入成 `100%`。非 Unicode stream 对 bar 和整行文本一起安全降级
+  - 单行终端显示的最大物理列宽，默认 `72`，配置最小值 `40`；运行时还会跟随真实 terminal resize 向下
+    收缩，避免窄窗口换行。CJK、组合字符、常见 emoji grapheme 和 ANSI style 按真实 terminal cell 处理；
+    小于 40 列时只移除完整字段，不会把 `current/total` 截成半个值
+  - interactive 使用高对比度 `━╸─` bar，72 列依次保留 task、精确百分比、bar、current/total、速度、ETA
+    和最有用的指标；40 列先舍弃 ETA/metric，但保留进度和速度。慢 iteration 显示 `s/it`，快 iteration
+    显示 `it/s`；其它任务显示 `sample/s`、`batch/s` 等带单位 rate。正数亚秒 ETA 显示 `<1s`，未知 total
+    使用自动刷新的 spinner。未完成状态不会四舍五入成 `100%`
+  - 真 TTY 自动使用克制的 label/bar/metric 颜色和 ANSI erase-line。`NO_COLOR`、`CLICOLOR=0` 关闭 SGR
+    颜色但保留安全清行；`TERM=dumb` 或重定向输出关闭 ANSI terminal control。严格 ASCII stream 自动降级为
+    `=>-` bar，plain 模式始终无 ANSI、无 `\r`
 - `refresh_interval`
   - TTY 最小刷新间隔，默认 `0.5` 秒，必须为有限正数
 - `log_interval`
@@ -1014,15 +1020,18 @@ DataLoader 内按需完成，不再创建独立的全量 startup 进度任务。
 Transformers 与 Hugging Face Hub 的原生进度条；
 新增长任务必须向统一 manager 发布，不能平行创建 tqdm。嵌套 eval 的 wall time 不计入恢复后的 train
 step rate；失败/取消阶段会强制留下摘要。manager 对并发 advance/close 提供有序状态语义。
+显示指标按 `loss -> useful token throughput -> grad norm -> LR` 排序，宽度不足时从右侧低优先级字段开始
+省略；状态与 JSON snapshot 中仍保留完整 metric，不因终端宽度丢失。
 
 10,000-step 任务的 interactive 形态示例：
 
 ```text
-train   ▏······· 25/10k 0.25% 6.54s/step ETA 18h07m loss 7.9 lr 2.5–5e-7
+train 0.25% ╸───────── 25/10k 6.54s/it eta 18h07m loss 7.9 lr 2.5–5e-7
 ```
 
 `lr` 为所有 optimizer param groups 的当前 min–max range；组间相同则只显示一个值。`logging_steps` 到达前
-没有 loss 属于训练日志策略，但速度、ETA 和精确进度从第一步起可见。
+没有 loss 属于训练日志策略，但速度、ETA 和精确进度从第一步起可见；efficiency callback 首次提交后会优先
+显示 `tok …/s`，此时窄行可能省略 LR。
 
 ## 12. CLI override 原则
 

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import errno
+import fcntl
 import json
 import logging
 import os
 from pathlib import Path
+import pty
+import re
+import select
+import struct
 import subprocess
 import sys
+import termios
+import time
 
 import pytest
 import torch
@@ -20,6 +28,66 @@ from tests.support.configs import write_sft_smoke_config
 
 
 pytestmark = pytest.mark.smoke
+
+
+def _set_terminal_size(fd: int, *, columns: int) -> None:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
+
+
+def _run_cli_in_pty(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    columns: int,
+    timeout: float,
+) -> tuple[int, bytes]:
+    master_fd, slave_fd = pty.openpty()
+    _set_terminal_size(slave_fd, columns=columns)
+    process: subprocess.Popen[bytes] | None = None
+    chunks: list[bytes] = []
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+        )
+        os.close(slave_fd)
+        slave_fd = -1
+        deadline = time.monotonic() + timeout
+        exited_at: float | None = None
+        while True:
+            if time.monotonic() >= deadline:
+                process.kill()
+                raise TimeoutError(f"PTY command timed out after {timeout}s: {command}")
+            ready, _, _ = select.select([master_fd], [], [], 0.05)
+            if ready:
+                try:
+                    chunk = os.read(master_fd, 65_536)
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        raise
+                    chunk = b""
+                if chunk:
+                    chunks.append(chunk)
+                    continue
+                return process.wait(timeout=5), b"".join(chunks)
+            returncode = process.poll()
+            if returncode is not None:
+                exited_at = time.monotonic() if exited_at is None else exited_at
+                if time.monotonic() - exited_at >= 0.2:
+                    return returncode, b"".join(chunks)
+    finally:
+        if slave_fd >= 0:
+            os.close(slave_fd)
+        os.close(master_fd)
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def _run_mode(
@@ -150,12 +218,64 @@ def test_cli_forced_interactive_progress_uses_compact_single_line_contract(
     decoded = output.decode("utf-8", errors="replace")
 
     assert completed.returncode == 0, decoded
-    assert b"\rtrain" in output
-    assert "█" in decoded or "▏" in decoded
-    assert "s/step" in decoded
-    assert "lr " in decoded
+    frames = [segment.rstrip() for segment in decoded.split("\r") if segment.startswith("train ")]
+    assert frames
+    assert any("━" in frame and "─" in frame for frame in frames)
+    assert "▏" not in decoded and "·" not in decoded
+    assert any("s/it" in frame or "it/s" in frame for frame in frames)
+    assert any("lr " in frame for frame in frames)
     assert "[----------]" not in decoded
     assert "progress train" not in decoded
+
+
+def test_cli_auto_progress_uses_real_pty_color_and_bounded_frames(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=4,
+        val_size=1,
+        train_steps=2,
+    )
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["TERM"] = "xterm-256color"
+    env.pop("NO_COLOR", None)
+    env.pop("CLICOLOR", None)
+    returncode, output = _run_cli_in_pty(
+        [
+            sys.executable,
+            "scripts/train.py",
+            "sft",
+            "--config",
+            str(cfg_path),
+        ],
+        cwd=repo_root,
+        env=env,
+        columns=72,
+        timeout=120,
+    )
+    decoded = output.decode("utf-8", errors="replace")
+
+    assert returncode == 0, decoded
+    assert "\r\x1b[2K" in decoded
+    assert "\x1b[1;36mtrain\x1b[0m" in decoded
+    assert "progress train" not in decoded
+    assert "▏" not in decoded and "·" not in decoded
+
+    progress_frames: list[str] = []
+    for segment in decoded.split("\r\x1b[2K")[1:]:
+        frame = segment.split("\r", maxsplit=1)[0].split("\n", maxsplit=1)[0]
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", frame)
+        if plain.startswith("train "):
+            progress_frames.append(plain)
+
+    assert progress_frames
+    assert all(len(frame) <= 72 for frame in progress_frames)
+    assert any("━" in frame or "╸" in frame for frame in progress_frames)
+    assert any("tok " in frame for frame in progress_frames)
 
 
 def test_bounded_cost_grouping_keeps_fixed_per_device_microbatches(
@@ -248,8 +368,7 @@ def test_token_budget_uses_real_batch_sizes(
     messages = [record.getMessage() for record in caplog.records]
     assert any(
         "[train-batch] local_packs=1..2 global_packs=1..2 "
-        "optimizer_packs=2..4 per_device_train_batch_size=2"
-        in message
+        "optimizer_packs=2..4 per_device_train_batch_size=2" in message
         for message in messages
     )
     assert not any(
@@ -334,9 +453,9 @@ def test_bounded_exact_resume_and_contract_guard(tmp_path: Path) -> None:
         uninterrupted_checkpoint,
         resumed_checkpoint,
     )
-    assert _bounded_callback_payload(
-        uninterrupted_checkpoint
-    ) == _bounded_callback_payload(resumed_checkpoint)
+    assert _bounded_callback_payload(uninterrupted_checkpoint) == _bounded_callback_payload(
+        resumed_checkpoint
+    )
 
     changed_contract = load_config(cfg_path)
     changed_contract.eval.enabled = False
@@ -468,9 +587,7 @@ def _assert_checkpoint_training_state_equal(expected: Path, actual: Path) -> Non
 
 
 def _bounded_callback_payload(checkpoint: Path) -> dict:
-    trainer_state = json.loads(
-        (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
-    )
+    trainer_state = json.loads((checkpoint / "trainer_state.json").read_text(encoding="utf-8"))
     return trainer_state["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]
 
 

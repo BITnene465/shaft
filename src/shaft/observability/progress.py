@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import io
 import json
 import logging
 import math
@@ -66,28 +67,76 @@ def _terminal_character_width(character: str) -> int:
     return 2 if unicodedata.east_asian_width(character) in {"F", "W"} else 1
 
 
+def _is_grapheme_extension(character: str) -> bool:
+    codepoint = ord(character)
+    return bool(
+        unicodedata.combining(character)
+        or unicodedata.category(character) in {"Me", "Mn"}
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0xE0100 <= codepoint <= 0xE01EF
+        or 0x1F3FB <= codepoint <= 0x1F3FF
+        or codepoint == 0x20E3
+    )
+
+
+def _is_regional_indicator(character: str) -> bool:
+    return 0x1F1E6 <= ord(character) <= 0x1F1FF
+
+
+def _iter_grapheme_clusters(value: str) -> Iterable[str]:
+    """Yield terminal-safe clusters without splitting common emoji sequences."""
+
+    index = 0
+    while index < len(value):
+        cluster = [value[index]]
+        regional = _is_regional_indicator(value[index])
+        index += 1
+        if regional and index < len(value) and _is_regional_indicator(value[index]):
+            cluster.append(value[index])
+            index += 1
+        while index < len(value):
+            character = value[index]
+            if _is_grapheme_extension(character):
+                cluster.append(character)
+                index += 1
+                continue
+            if character == "\u200d" and index + 1 < len(value):
+                cluster.extend((character, value[index + 1]))
+                index += 2
+                continue
+            break
+        yield "".join(cluster)
+
+
+def _grapheme_cluster_width(cluster: str) -> int:
+    widths = [_terminal_character_width(character) for character in cluster]
+    codepoints = {ord(character) for character in cluster}
+    emoji_presentation = bool(
+        "\u200d" in cluster
+        or any(0xFE0F == codepoint for codepoint in codepoints)
+        or any(0x1F3FB <= codepoint <= 0x1F3FF for codepoint in codepoints)
+        or sum(_is_regional_indicator(character) for character in cluster) >= 2
+    )
+    if emoji_presentation:
+        return max(max(widths, default=0), 2)
+    return sum(widths)
+
+
 def _display_width(value: str) -> int:
-    return sum(_terminal_character_width(character) for character in value)
+    visible = _ANSI_CONTROL_RE.sub("", value)
+    return sum(_grapheme_cluster_width(cluster) for cluster in _iter_grapheme_clusters(visible))
 
 
 def _truncate_display(value: str, width: int) -> str:
     rendered: list[str] = []
     current_width = 0
-    for character in value:
-        character_width = _terminal_character_width(character)
-        if current_width + character_width > width:
+    for cluster in _iter_grapheme_clusters(value):
+        cluster_width = _grapheme_cluster_width(cluster)
+        if current_width + cluster_width > width:
             break
-        rendered.append(character)
-        current_width += character_width
+        rendered.append(cluster)
+        current_width += cluster_width
     return "".join(rendered)
-
-
-def _pad_display(value: str, width: int) -> str:
-    return value + (" " * max(width - _display_width(value), 0))
-
-
-def _format_label(value: str, *, width: int = 7) -> str:
-    return _pad_display(_truncate_display(_single_line_text(value), width), width)
 
 
 @dataclass(frozen=True, slots=True)
@@ -737,22 +786,20 @@ def _format_rate(rate: float, *, unit: str) -> str:
     normalized_unit = _single_line_text(unit).strip().lower()
     if rate <= 0:
         return ""
-    if normalized_unit == "step":
-        seconds_per_step = 1.0 / rate
-        if seconds_per_step < 0.01:
-            return f"{_compact_number(rate)}step/s"
-        if seconds_per_step < 1:
-            rendered = f"{seconds_per_step:.3f}"
-        elif seconds_per_step < 10:
-            rendered = f"{seconds_per_step:.2f}"
-        elif seconds_per_step < 100:
-            rendered = f"{seconds_per_step:.1f}"
+    display_unit = "it" if normalized_unit == "step" else normalized_unit or "it"
+    seconds_per_item = 1.0 / rate
+    if seconds_per_item >= 1.0:
+        if seconds_per_item < 10:
+            rendered = f"{seconds_per_item:.2f}"
+        elif seconds_per_item < 100:
+            rendered = f"{seconds_per_item:.1f}"
         else:
-            rendered = f"{seconds_per_step:.0f}"
+            rendered = f"{seconds_per_item:.0f}"
         if "." in rendered:
             rendered = rendered.rstrip("0").rstrip(".")
-        return f"{rendered}s/step"
-    return f"{_compact_number(rate)}/s"
+        return f"{rendered}s/{display_unit}"
+    separator = "" if display_unit == "it" else " "
+    return f"{_compact_number(rate)}{separator}{display_unit}/s"
 
 
 def _stream_supports_unicode(stream: TextIO) -> bool:
@@ -760,10 +807,42 @@ def _stream_supports_unicode(stream: TextIO) -> bool:
     if not encoding:
         return True
     try:
-        "▏·█".encode(str(encoding))
+        "━─╸⠋✓×".encode(str(encoding))
     except (LookupError, UnicodeEncodeError):
         return False
     return True
+
+
+def _stream_supports_ansi_control(stream: TextIO) -> bool:
+    if str(os.environ.get("TERM", "")).strip().lower() == "dumb":
+        return False
+    try:
+        if not bool(stream.isatty()):
+            return False
+        return int(stream.fileno()) >= 0
+    except (AttributeError, io.UnsupportedOperation, OSError, TypeError, ValueError):
+        return False
+
+
+def _stream_supports_color(stream: TextIO, *, ansi_control: bool) -> bool:
+    if (
+        "NO_COLOR" in os.environ
+        or os.environ.get("CLICOLOR") == "0"
+        or str(os.environ.get("TERM", "")).strip().lower() == "dumb"
+    ):
+        return False
+    force_color = str(os.environ.get("FORCE_COLOR", "")).strip().lower()
+    if force_color and force_color not in {"0", "false", "no"}:
+        return True
+    return ansi_control
+
+
+def _stream_terminal_width(stream: TextIO, *, fallback: int) -> int:
+    try:
+        columns = int(os.get_terminal_size(stream.fileno()).columns)
+    except (AttributeError, io.UnsupportedOperation, OSError, TypeError, ValueError):
+        return int(fallback)
+    return columns if columns > 0 else int(fallback)
 
 
 def _encoding_safe_text(value: str, encoding: str | None) -> str:
@@ -796,26 +875,20 @@ def _format_progress_bar(
     unicode: bool,
 ) -> str:
     bounded = min(max(float(fraction), 0.0), 1.0)
+    width = max(int(width), 1)
     if unicode:
         if bounded >= 1.0:
-            return "█" * width
-        partials = "▏▎▍▌▋▊▉"
-        scaled = bounded * width
-        full = min(int(scaled), width)
-        partial_index = int((scaled - full) * 8)
-        if current > 0 and full == 0 and partial_index == 0:
-            partial_index = 1
-        partial = (
-            partials[partial_index - 1]
-            if partial_index > 0 and full < width
-            else ""
-        )
-        return "█" * full + partial + "·" * (width - full - len(partial))
+            return "━" * width
+        if current <= 0:
+            return "─" * width
+        head_position = max(min(math.ceil(bounded * width), width), 1)
+        return "━" * (head_position - 1) + "╸" + "─" * (width - head_position)
     if bounded >= 1.0:
-        return "#" * width
-    full = min(int(bounded * width), width)
-    head = ">" if current > 0 and full < width else ""
-    return "#" * full + head + "." * (width - full - len(head))
+        return "=" * width
+    if current <= 0:
+        return "-" * width
+    head_position = max(min(math.ceil(bounded * width), width), 1)
+    return "=" * (head_position - 1) + ">" + "-" * (width - head_position)
 
 
 def _format_duration(seconds: float) -> str:
@@ -834,12 +907,18 @@ def _format_duration(seconds: float) -> str:
 
 
 def _format_metric(key: str, value: Any) -> str:
+    normalized_key = str(key)
     label = _single_line_text(
         {
             "learning_rate": "lr",
             "eval_loss": "loss",
-        }.get(str(key), str(key))
+            "grad_norm": "grad",
+            "tok/s": "tok",
+            "tokens/s": "tok",
+        }.get(normalized_key, normalized_key)
     )
+    if normalized_key in {"tok/s", "tokens/s"} and isinstance(value, int | float):
+        return f"{label} {_compact_number(value)}/s"
     if isinstance(value, float):
         if value != 0 and abs(value) < 1e-3:
             mantissa, exponent = f"{value:.1e}".split("e", maxsplit=1)
@@ -852,10 +931,18 @@ def _format_metric(key: str, value: Any) -> str:
 
 
 def _ordered_metrics(metrics: Mapping[str, Any]) -> list[tuple[str, Any]]:
-    priority = {"loss": 0, "eval_loss": 0, "lr": 1, "learning_rate": 1}
+    priority = {
+        "loss": 0,
+        "eval_loss": 0,
+        "tok/s": 1,
+        "tokens/s": 1,
+        "grad_norm": 2,
+        "lr": 3,
+        "learning_rate": 3,
+    }
     return sorted(
         metrics.items(),
-        key=lambda item: (priority.get(str(item[0]), 2), str(item[0])),
+        key=lambda item: (priority.get(str(item[0]), 4), str(item[0])),
     )
 
 
@@ -905,7 +992,22 @@ def select_progress_display_task_id(
 
 
 class ShaftTerminalProgressPresentation:
-    """Pure width-aware presentation policy for one terminal progress line."""
+    """Pure adaptive presentation policy for one polished terminal progress line."""
+
+    _STYLE_CODES = {
+        "label": "1;36",
+        "percentage": "1",
+        "bar": "36",
+        "bar_done": "32",
+        "rate": "2",
+        "eta": "2",
+        "metric": "33",
+        "spinner": "36",
+        "success": "1;32",
+        "failure": "1;31",
+    }
+    _UNICODE_SPINNER = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    _ASCII_SPINNER = ("|", "/", "-", "\\")
 
     def __init__(
         self,
@@ -913,10 +1015,15 @@ class ShaftTerminalProgressPresentation:
         width: int,
         unicode: bool,
         encoding: str | None = None,
+        color: bool = False,
     ) -> None:
-        self.width = max(int(width), 40)
+        self.width = max(int(width), 1)
         self.unicode = bool(unicode)
         self.encoding = encoding
+        self.color = bool(color)
+
+    def set_width(self, width: int) -> None:
+        self.width = max(int(width), 1)
 
     def format_failure(
         self,
@@ -927,64 +1034,214 @@ class ShaftTerminalProgressPresentation:
         progress = _compact_number(task.current)
         if task.total is not None:
             progress = f"{progress}/{_compact_number(task.total)}"
-        parts = [_format_label(task.label), state, progress]
+        symbol = "×" if self.unicode else "!"
+        label = (self._label(task), "label")
+        symbol_part = (symbol, "failure")
+        state_part = (_single_line_text(state), "failure")
+        progress_part = (progress, "")
+        parts = self._select_core(
+            [
+                [label, symbol_part, state_part, progress_part],
+                [symbol_part, state_part, progress_part],
+                [state_part, progress_part],
+                [progress_part],
+                [symbol_part],
+            ]
+        )
         if task.message:
-            parts.append(_single_line_text(task.message))
-        return self._finalize(" ".join(parts))
+            self._append_clipped(parts, _single_line_text(task.message))
+        return self._finalize(parts)
 
     def format_task(
         self,
         task: ShaftProgressTaskSnapshot,
         *,
         rate: float,
+        activity: float = 0.0,
     ) -> str:
         fraction = task.progress_fraction
         if fraction is None:
-            parts = [_format_label(task.label)]
-            if task.message:
-                parts.append(_single_line_text(task.message))
-            else:
-                parts.append(_compact_number(task.current))
-            return self._finalize(" ".join(parts))
+            return self._format_indeterminate(task, rate=rate, activity=activity)
 
-        progress_text = (
-            f"{_compact_number(task.current)}/{_compact_number(task.total or 0)}"
-        )
+        progress_text = f"{_compact_number(task.current)}/{_compact_number(task.total or 0)}"
         percentage = format_progress_percentage(fraction)
-        bar = _format_progress_bar(
-            fraction,
-            current=task.current,
-            unicode=self.unicode,
+        bar_width = self._preferred_bar_width()
+        parts = self._core_parts(
+            task,
+            percentage=percentage,
+            progress_text=progress_text,
+            fraction=fraction,
+            bar_width=bar_width,
         )
-        full_parts = [_format_label(task.label), bar, progress_text, percentage]
-        compact_parts = [_format_label(task.label), progress_text, percentage]
         rate_text = _format_rate(rate, unit=task.unit) if task.display_rate else ""
-        if rate_text and self._width([*full_parts, rate_text]) > self.width:
-            parts = compact_parts
-        else:
-            parts = full_parts
         if rate_text:
-            self._append_if_fits(parts, rate_text)
-        if rate > 0 and task.total is not None and task.current < task.total:
-            eta = f"ETA {_format_duration((task.total - task.current) / rate)}"
-            self._append_if_fits(parts, eta)
-        for metric_key, metric_value in _ordered_metrics(task.metrics)[:2]:
-            self._append_if_fits(parts, _format_metric(metric_key, metric_value))
-        return self._finalize(" ".join(parts))
+            self._append_if_fits(parts, rate_text, role="rate")
+        if rate > 0 and task.state == "running" and task.current < (task.total or 0):
+            eta = f"eta {_format_duration(((task.total or 0) - task.current) / rate)}"
+            self._append_if_fits(parts, eta, role="eta")
+        for metric_key, metric_value in _ordered_metrics(task.metrics):
+            if not self._append_if_fits(
+                parts,
+                _format_metric(metric_key, metric_value),
+                role="metric",
+            ):
+                break
+        if task.state == "running" and task.message:
+            self._append_if_fits(parts, _single_line_text(task.message))
+        if task.state == "succeeded":
+            self._append_if_fits(parts, "✓" if self.unicode else "ok", role="success")
+        return self._finalize(parts)
 
-    def _finalize(self, value: str) -> str:
-        safe = _encoding_safe_text(value, self.encoding)
-        return _truncate_display(safe, self.width)
+    def _format_indeterminate(
+        self,
+        task: ShaftProgressTaskSnapshot,
+        *,
+        rate: float,
+        activity: float,
+    ) -> str:
+        status_part: tuple[str, str]
+        if task.state == "succeeded":
+            status_part = ("✓" if self.unicode else "ok", "success")
+        else:
+            frames = self._UNICODE_SPINNER if self.unicode else self._ASCII_SPINNER
+            status_part = (
+                frames[int(max(activity, 0.0) * 10) % len(frames)],
+                "spinner",
+            )
+        count_part: tuple[str, str] | None = None
+        if task.current > 0 or not task.message:
+            count = _compact_number(task.current)
+            unit = _single_line_text(task.unit).strip()
+            count_part = (f"{count} {unit}".rstrip(), "")
+        label_part = (self._label(task), "label")
+        candidates = [[label_part, status_part]]
+        if count_part is not None:
+            candidates = [
+                [label_part, status_part, count_part],
+                [status_part, count_part],
+                [count_part],
+                *candidates,
+            ]
+        candidates.append([status_part])
+        parts = self._select_core(candidates)
+        rate_text = _format_rate(rate, unit=task.unit) if task.display_rate else ""
+        if rate_text:
+            self._append_if_fits(parts, rate_text, role="rate")
+        for metric_key, metric_value in _ordered_metrics(task.metrics):
+            if not self._append_if_fits(
+                parts,
+                _format_metric(metric_key, metric_value),
+                role="metric",
+            ):
+                break
+        if task.message:
+            self._append_clipped(parts, _single_line_text(task.message))
+        return self._finalize(parts)
+
+    def _core_parts(
+        self,
+        task: ShaftProgressTaskSnapshot,
+        *,
+        percentage: str,
+        progress_text: str,
+        fraction: float,
+        bar_width: int,
+    ) -> list[tuple[str, str]]:
+        while bar_width >= 4:
+            bar = _format_progress_bar(
+                fraction,
+                current=task.current,
+                width=bar_width,
+                unicode=self.unicode,
+            )
+            parts = [
+                (self._label(task), "label"),
+                (percentage, "percentage"),
+                (bar, "bar_done" if task.state == "succeeded" else "bar"),
+                (progress_text, ""),
+            ]
+            if self._width(parts) <= self.width:
+                return parts
+            bar_width -= 1
+        label_part = (self._label(task), "label")
+        percentage_part = (percentage, "percentage")
+        progress_part = (progress_text, "")
+        return self._select_core(
+            [
+                [label_part, percentage_part, progress_part],
+                [percentage_part, progress_part],
+                [progress_part],
+                [percentage_part],
+            ]
+        )
+
+    def _preferred_bar_width(self) -> int:
+        if self.width >= 88:
+            return 16
+        if self.width >= 64:
+            return 10
+        if self.width >= 40:
+            return 8
+        return 4
+
+    def _label(self, task: ShaftProgressTaskSnapshot) -> str:
+        label = _single_line_text(task.label).strip() or _single_line_text(task.task_id).strip()
+        max_width = max(min(self.width // 5, 10), 1)
+        return _truncate_display(label, max_width)
+
+    def _select_core(
+        self,
+        candidates: Iterable[list[tuple[str, str]]],
+    ) -> list[tuple[str, str]]:
+        for candidate in candidates:
+            if candidate and self._width(candidate) <= self.width:
+                return candidate
+        marker = "…" if self.unicode and self.width >= 1 and self.encoding != "ascii" else "."
+        return [(marker, "")]
 
     @staticmethod
-    def _width(parts: list[str]) -> int:
-        return _display_width(" ".join(parts))
+    def _width(parts: list[tuple[str, str]]) -> int:
+        return _display_width(" ".join(value for value, _ in parts if value))
 
-    def _append_if_fits(self, parts: list[str], value: str) -> bool:
-        if self._width([*parts, value]) > self.width:
+    def _append_if_fits(
+        self,
+        parts: list[tuple[str, str]],
+        value: str,
+        *,
+        role: str = "",
+    ) -> bool:
+        candidate = _single_line_text(value)
+        if not candidate or self._width([*parts, (candidate, role)]) > self.width:
             return False
-        parts.append(value)
+        parts.append((candidate, role))
         return True
+
+    def _append_clipped(
+        self,
+        parts: list[tuple[str, str]],
+        value: str,
+        *,
+        role: str = "",
+    ) -> None:
+        separator_width = 1 if parts else 0
+        remaining = self.width - self._width(parts) - separator_width
+        if remaining <= 0:
+            return
+        clipped = _truncate_display(_single_line_text(value), remaining)
+        if clipped:
+            parts.append((clipped, role))
+
+    def _finalize(self, parts: list[tuple[str, str]]) -> str:
+        if self._width(parts) > self.width:
+            parts = self._select_core([[part] for part in reversed(parts) if part[0]])
+        rendered: list[str] = []
+        for value, role in parts:
+            if not value:
+                continue
+            safe = _encoding_safe_text(value, self.encoding)
+            code = self._STYLE_CODES.get(role) if self.color else None
+            rendered.append(f"\x1b[{code}m{safe}\x1b[0m" if code else safe)
+        return " ".join(rendered)
 
 
 class ShaftTerminalProgressSink:
@@ -998,6 +1255,8 @@ class ShaftTerminalProgressSink:
         refresh_interval: float = 0.5,
         leave_completed: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        color: bool | None = None,
+        width_provider: Callable[[], int] | None = None,
     ) -> None:
         self.stream = stream or sys.stderr
         self.width = max(int(width), 40)
@@ -1005,10 +1264,20 @@ class ShaftTerminalProgressSink:
         self.leave_completed = bool(leave_completed)
         self.clock = clock
         self._stream_encoding = getattr(self.stream, "encoding", None)
+        self._ansi_control = _stream_supports_ansi_control(self.stream)
+        resolved_color = (
+            _stream_supports_color(self.stream, ansi_control=self._ansi_control)
+            if color is None
+            else bool(color)
+        )
+        self._width_provider = width_provider or (
+            lambda: _stream_terminal_width(self.stream, fallback=self.width)
+        )
         self.presentation = ShaftTerminalProgressPresentation(
             width=self.width,
             unicode=_stream_supports_unicode(self.stream),
             encoding=self._stream_encoding,
+            color=resolved_color,
         )
         self._last_rendered_at = float("-inf")
         self._last_line = ""
@@ -1018,6 +1287,10 @@ class ShaftTerminalProgressSink:
         ] = {}
         self._active_rate_key: tuple[str, int] | None = None
         self._rate_paused_at: dict[tuple[str, int], float] = {}
+        self._display_task: ShaftProgressTaskSnapshot | None = None
+        self._spinner_stop = threading.Event()
+        self._spinner_thread: threading.Thread | None = None
+        self._spinner_interval = 0.1
         self._closed = False
         self._lock = threading.RLock()
         _register_terminal_sink(self)
@@ -1035,9 +1308,11 @@ class ShaftTerminalProgressSink:
             if not force and now - self._last_rendered_at < self.refresh_interval:
                 return
             self._last_rendered_at = now
+            self.presentation.set_width(self._effective_width())
             active = (
                 None if snapshot.active_task_id is None else snapshot.tasks[snapshot.active_task_id]
             )
+            self._set_display_task(active)
             self._switch_active_rate_task(active, now=now)
             completed = snapshot.tasks.get(event.task_id)
             try:
@@ -1130,7 +1405,54 @@ class ShaftTerminalProgressSink:
         return self.presentation.format_task(
             task,
             rate=self._observe_rate(task, now=now),
+            activity=now,
         )
+
+    def _effective_width(self) -> int:
+        try:
+            available = int(self._width_provider())
+        except (OSError, OverflowError, TypeError, ValueError):
+            available = self.width
+        if available <= 0:
+            available = 1
+        return max(min(available, self.width), 1)
+
+    def _set_display_task(self, task: ShaftProgressTaskSnapshot | None) -> None:
+        self._display_task = task
+        if task is None or task.state != "running" or task.total is not None:
+            return
+        thread = self._spinner_thread
+        if thread is not None and thread.is_alive():
+            return
+        self._spinner_stop.clear()
+        thread = threading.Thread(
+            target=self._spinner_loop,
+            name="shaft-progress-spinner",
+            daemon=True,
+        )
+        self._spinner_thread = thread
+        thread.start()
+
+    def _spinner_loop(self) -> None:
+        current_thread = threading.current_thread()
+        try:
+            while not self._spinner_stop.wait(self._spinner_interval):
+                with self._lock:
+                    if self._closed:
+                        return
+                    task = self._display_task
+                    if task is None or task.state != "running" or task.total is not None:
+                        return
+                    now = self.clock()
+                    self.presentation.set_width(self._effective_width())
+                    self._draw(self._format_task(task, now=now))
+        except Exception:  # noqa: BLE001 - background progress must not affect training
+            self.close()
+            logger.warning("disabled failed terminal progress ticker", exc_info=True)
+        finally:
+            with self._lock:
+                if self._spinner_thread is current_thread:
+                    self._spinner_thread = None
 
     def _observe_rate(
         self,
@@ -1184,10 +1506,21 @@ class ShaftTerminalProgressSink:
 
     def _draw(self, line: str) -> None:
         line = _encoding_safe_text(line, self._stream_encoding)
-        line = _truncate_display(line, self.width)
+        render_width = self.presentation.width
+        if _display_width(line) > render_width:
+            marker = "…" if self.presentation.unicode else "."
+            line = _truncate_display(
+                _encoding_safe_text(marker, self._stream_encoding), render_width
+            )
         line_width = _display_width(line)
-        padded_width = max(_display_width(self._last_line), line_width)
-        self.stream.write("\r" + line + (" " * (padded_width - line_width)))
+        if self._ansi_control:
+            self.stream.write("\r\x1b[2K" + line)
+        else:
+            padded_width = min(
+                max(_display_width(self._last_line), line_width),
+                render_width,
+            )
+            self.stream.write("\r" + line + (" " * (padded_width - line_width)))
         self.stream.flush()
         self._last_line = line
         self._line_visible = True
@@ -1195,33 +1528,46 @@ class ShaftTerminalProgressSink:
     def _clear(self) -> None:
         if not self._line_visible:
             return
-        self.stream.write("\r" + (" " * _display_width(self._last_line)) + "\r")
+        if self._ansi_control:
+            self.stream.write("\r\x1b[2K")
+        else:
+            clear_width = min(_display_width(self._last_line), self._effective_width())
+            self.stream.write("\r" + (" " * clear_width) + "\r")
         self.stream.flush()
         self._last_line = ""
         self._line_visible = False
 
     def write_message(self, message: str) -> None:
         with self._lock:
-            redraw = self._last_line if self._line_visible else ""
+            if self._closed:
+                raise RuntimeError("Terminal progress sink is closed.")
+            redraw_task = self._display_task if self._line_visible else None
             self._clear()
             rendered = _encoding_safe_text(str(message), self._stream_encoding)
             self.stream.write(rendered + "\n")
             self.stream.flush()
-            if redraw:
-                self._draw(redraw)
+            if redraw_task is not None and redraw_task.state == "running":
+                now = self.clock()
+                self.presentation.set_width(self._effective_width())
+                self._draw(self._format_task(redraw_task, now=now))
 
     def close(self) -> None:
+        spinner_thread: threading.Thread | None = None
         with self._lock:
             if self._closed:
                 return
+            self._closed = True
+            self._display_task = None
+            self._spinner_stop.set()
+            spinner_thread = self._spinner_thread
             try:
                 self._clear()
             except Exception:  # noqa: BLE001 - unregister a broken terminal below
                 self._last_line = ""
                 self._line_visible = False
-            finally:
-                self._closed = True
         _unregister_terminal_sink(self)
+        if spinner_thread is not None and spinner_thread is not threading.current_thread():
+            spinner_thread.join(timeout=1.0)
 
 
 class ShaftPlainProgressSink:
@@ -1331,25 +1677,36 @@ class ShaftJsonProgressSink:
 
 
 _TERMINAL_SINK_LOCK = threading.RLock()
-_ACTIVE_TERMINAL_SINK: ShaftTerminalProgressSink | None = None
+_TERMINAL_SINKS: list[ShaftTerminalProgressSink] = []
 
 
 def _register_terminal_sink(sink: ShaftTerminalProgressSink) -> None:
-    global _ACTIVE_TERMINAL_SINK
     with _TERMINAL_SINK_LOCK:
-        _ACTIVE_TERMINAL_SINK = sink
+        _TERMINAL_SINKS[:] = [candidate for candidate in _TERMINAL_SINKS if candidate is not sink]
+        _TERMINAL_SINKS.append(sink)
 
 
 def _unregister_terminal_sink(sink: ShaftTerminalProgressSink) -> None:
-    global _ACTIVE_TERMINAL_SINK
     with _TERMINAL_SINK_LOCK:
-        if _ACTIVE_TERMINAL_SINK is sink:
-            _ACTIVE_TERMINAL_SINK = None
+        _TERMINAL_SINKS[:] = [candidate for candidate in _TERMINAL_SINKS if candidate is not sink]
+
+
+def _select_terminal_sink(stream: TextIO | None) -> ShaftTerminalProgressSink | None:
+    with _TERMINAL_SINK_LOCK:
+        if stream is not None:
+            return next(
+                (
+                    candidate
+                    for candidate in reversed(_TERMINAL_SINKS)
+                    if candidate.stream is stream
+                ),
+                None,
+            )
+        return _TERMINAL_SINKS[-1] if _TERMINAL_SINKS else None
 
 
 def progress_safe_write(message: str, *, stream: TextIO | None = None) -> None:
-    with _TERMINAL_SINK_LOCK:
-        sink = _ACTIVE_TERMINAL_SINK
+    sink = _select_terminal_sink(stream)
     if sink is not None:
         try:
             sink.write_message(str(message))

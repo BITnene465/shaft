@@ -333,8 +333,11 @@ def test_torchrun_interactive_progress_keeps_one_rank_zero_console_line(
     output = f"{completed.stdout}\n{completed.stderr}"
     assert output.count("rank-zero-warning") == 1
     assert "rank-one-warning-must-be-hidden" not in output
-    assert "0/10k 0%" in output
-    assert "1/10k 0.01%" in output
+    frames = [line.rstrip() for line in output.splitlines() if line.startswith("train ")]
+    assert any("0%" in frame and "0/10k" in frame for frame in frames)
+    assert any("0.01%" in frame and "1/10k" in frame for frame in frames)
+    assert any("━" in frame or "╸" in frame for frame in frames)
+    assert "▏" not in output and "·" not in output
     warning_end = output.index("rank-zero-warning") + len("rank-zero-warning")
     assert output[warning_end:].lstrip().startswith("train")
 

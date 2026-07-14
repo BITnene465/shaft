@@ -340,20 +340,26 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - `ShaftProgressManager` 是进度任务、父子关系、current/total、metric 和生命周期的唯一状态真源；terminal、
   plain、JSON 都只消费同一份不可变 snapshot。task mutation 在 manager 内线性化，commit revision
   按序发布，避免并发 `advance` 丢增量或旧 snapshot 覆盖新状态；close 先关闭 mutation 入口再收口任务。
-- `ShaftTerminalProgressPresentation` 是单行视觉策略真源，负责小数百分比、高分辨率 bar、速率/ETA、指标
-  优先级和 40–72 列降级；terminal sink 只负责节流、速率窗口、清行、重绘和 stream 生命周期。terminal
-  复用同一 display-task/百分比选择函数，不在不同输出端重复推导 terminal failure。
+- `ShaftTerminalProgressPresentation` 是单行视觉策略真源，负责精确百分比、高对比度 `━╸─`/ASCII bar、
+  spinner、标准 `s/it`/`it/s`、ETA、颜色角色和 metric 优先级；terminal sink 只负责节流、速率窗口、
+  indeterminate ticker、terminal resize、ANSI erase-line、重绘和 stream 生命周期。ticker 只重绘最近的
+  immutable snapshot，不产生第二份 task 状态；terminal 复用同一 display-task/百分比选择函数。
 - interactive 默认只由 global rank 0 输出结构化日志和进度。`logging.rank_zero_only=true` 会抑制所有非零
   rank 的结构化 log，而不是放行 WARNING 后与 rank-0 活动行竞争；rank-local 主链失败必须通过已有
   all-rank status envelope 传播，未捕获异常仍由 torchrun traceback 报告。显式 all-rank 调试会为文本/JSON
   加 rank，并把 file log 拆成 `.rank<N>` 文件，避免多进程竞争同一个文件。
-- 训练行的固定信息优先级是：task、bar、current/total、小数百分比、速度、ETA、loss、LR。低于 1%
+- 训练行的固定信息优先级是：task、百分比、bar、current/total、速度、ETA、loss、token throughput、
+  grad norm、LR。低于 1%
   显示两位百分比；未完成任务永不提前显示 `100%`，紧邻数量级边界的 compact current/total 也不得显示成
-  相同值。慢 step 显示 `s/step`，低于 0.01 秒/step 时改为 `step/s`，正数亚秒 ETA 显示 `<1s`。
+  相同值。慢 iteration 显示 `s/it`，快 iteration 显示 `it/s`，正数亚秒 ETA 显示 `<1s`。
   只要 current > 0，bar 至少显示一个 activity head。窄终端从低优先级字段开始省略，不能直接截断
-  current/total 或速度；严格 ASCII stream 会对整行降级，而不只是替换 bar。
-- 进入嵌套 eval 时 train 的 rolling rate 暂停，恢复后不把 eval wall time 算进 train `s/step`；task 完成后
+  current/total 或速度；小于 40 列时按完整字段逐项降级，不能截出半个 count。真实 terminal resize 会立即
+  重排活动行，常见 emoji grapheme 不会被切开；严格 ASCII 会降级 glyph，`NO_COLOR`/`CLICOLOR=0` 只关闭
+  颜色，`TERM=dumb` 和重定向输出再关闭 ANSI terminal control。
+- 进入嵌套 eval 时 train 的 rolling rate 暂停，恢复后不把 eval wall time 算进 train `s/it`；task 完成后
   立即回收对应 rate history。失败/取消阶段即使父任务仍运行也必须打印摘要，最终状态不得被父任务成功行掩盖。
+- `progress_safe_write()` 按目标 stream 路由到对应 terminal sink；未显式提供 stream 的结构化日志使用最近注册
+  的 sink，嵌套 manager 关闭后恢复前一个 sink，不能用单个全局指针劫持其它输出流。
 - 多 optimizer param group 的当前 LR 显示为 compact min–max range；单组/等值时显示一个值。progress
   callback 不再把第 0 个 group 冒充整个 optimizer 的 LR。
 - bounded cost provider 负责在主进程、rank 0 汇总一次大图 header warning；对应 train dataset worker 只
