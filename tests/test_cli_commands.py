@@ -6,11 +6,24 @@ import pytest
 
 from shaft.cli.registry import COMMAND_REGISTRY
 from shaft.cli.train import build_parser, main
-from shaft.config import RuntimeConfig
+from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import capture_algorithm_runner
 
 
 pytestmark = pytest.mark.contract
+
+
+def _valid_runtime_config(*, source_type: str = "jsonl_sft") -> RuntimeConfig:
+    config = RuntimeConfig()
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="fixture",
+            source_type=source_type,
+            train_paths=["train.jsonl"],
+            val_paths=["val.jsonl"],
+        )
+    ]
+    return config
 
 
 def test_command_registry_has_expected_commands() -> None:
@@ -26,7 +39,7 @@ def test_parser_dispatches_to_sft() -> None:
 
 
 def test_main_runs_sft_command() -> None:
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
@@ -36,7 +49,7 @@ def test_main_runs_sft_command() -> None:
 
 
 def test_main_runs_rlhf_command() -> None:
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config(source_type="jsonl_dpo")
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
@@ -46,7 +59,7 @@ def test_main_runs_rlhf_command() -> None:
 
 
 def test_main_runs_grpo_command() -> None:
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):
@@ -56,7 +69,7 @@ def test_main_runs_grpo_command() -> None:
 
 
 def test_main_defaults_to_sft_when_command_omitted() -> None:
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):

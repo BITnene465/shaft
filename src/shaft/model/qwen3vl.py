@@ -17,6 +17,7 @@ from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
 from .finetune_plan import build_resolved_finetune_plan
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
+from .sequence import Qwen3VLSequenceExecutionPolicy
 from .sharding import ModelShardingPolicy
 from .types import (
     ModelArtifacts,
@@ -25,6 +26,7 @@ from .types import (
     ModelMeta,
     ModelModuleGroups,
     ShaftModelAdapter,
+    ShaftSequenceExecutionContract,
 )
 
 
@@ -39,7 +41,11 @@ def _resolve_dtype(dtype_name: str) -> torch.dtype | str:
     return "auto"
 
 
-def _resolve_attn_implementation(attn_implementation: str | None) -> str | None:
+def _resolve_attn_implementation(
+    attn_implementation: str | None,
+    *,
+    required: bool = False,
+) -> str | None:
     normalized = str(attn_implementation).strip() if attn_implementation is not None else ""
     if not normalized:
         return None
@@ -47,6 +53,11 @@ def _resolve_attn_implementation(attn_implementation: str | None) -> str | None:
         return normalized
     if importlib.util.find_spec("flash_attn") is not None:
         return normalized
+    if required:
+        raise ImportError(
+            "Qwen3VL varlen requested FlashAttention 2, but flash-attn is not "
+            "installed; refusing a silent padded-attention fallback."
+        )
     warnings.warn(
         "Requested attn_implementation='flash_attention_2' but flash-attn is not installed. "
         "Falling back to the Transformers default attention implementation.",
@@ -69,6 +80,7 @@ QWEN3VL_META = ModelMeta(
         generator=("lm_head",),
     ),
     processor_policy=build_processor_policy("qwen_vl"),
+    sequence_execution_policy=Qwen3VLSequenceExecutionPolicy(),
     peft_policy=build_peft_policy("all_linear"),
     sharding_policy=ModelShardingPolicy(
         fsdp_transformer_layer_cls_to_wrap=("Qwen3VLTextDecoderLayer", "Qwen3VLVisionBlock"),
@@ -84,6 +96,7 @@ class Qwen3VLLoader(ModelLoader):
         *,
         model_meta: ModelMeta,
         model_adapter: ShaftModelAdapter,
+        sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
     ) -> ModelArtifacts:
         model_name = config.model.model_name_or_path
         resolved_dtype = _resolve_dtype(config.model.torch_dtype)
@@ -94,7 +107,19 @@ class Qwen3VLLoader(ModelLoader):
         }
         if config.model.device_map not in (None, ""):
             common_kwargs["device_map"] = config.model.device_map
-        attn_implementation = _resolve_attn_implementation(config.model.attn_implementation)
+        execution_contract = sequence_execution_contract
+        if execution_contract is None:
+            execution_contract = model_adapter.build_sequence_execution_contract(
+                layout=config.data.batching.layout,
+                device_type="cpu" if bool(config.train.use_cpu) else "cuda",
+                attention_implementation=config.model.attn_implementation,
+                torch_dtype=config.model.torch_dtype,
+                distributed_strategy=config.train.distributed.strategy,
+            )
+        attn_implementation = _resolve_attn_implementation(
+            config.model.attn_implementation,
+            required=execution_contract.layout == "varlen",
+        )
         if attn_implementation:
             common_kwargs["attn_implementation"] = attn_implementation
         if finetune.mode == "qlora" and bool(finetune.qlora_load_in_4bit):

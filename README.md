@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="src/shaft/webui/static/logo.png" alt="Shaft logo" width="680">
-</p>
-
 # shaft（重构中）
 
 Shaft 是一个 `HF-first` 的多模态训练与推理框架。当前主目标是把 `Qwen3VL + SFT` 主链做稳，同时保留面向 RLHF、更多模型族与推理后端的扩展骨架。
@@ -107,7 +103,11 @@ CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数，并
 data:
   media_snapshot_id: banana-v5.0-re2-media-v1
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
 ```
@@ -117,7 +117,11 @@ data:
 ```yaml
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: arrow_multitask
       source_type: jsonl_sft
@@ -137,13 +141,16 @@ data:
 - `use_for_eval=false` 表示该数据集只参与训练，不参与验证集构建，也不要求提供 `val_paths`。
 - 仓库内置的 [`configs/data/example.yaml`](configs/data/example.yaml) 当前只是示例文件，里面的路径默认不保证存在。
 - 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
-- 每个训练 YAML 都必须显式声明 `data.batching.strategy`；缺失策略不会静默回退。
+- 每个训练 YAML 都必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与
+  `layout`。缺失字段不会静默回退。
 
 训练时长使用单一真源，step 是主路径：
 
 ```yaml
 data:
-  mix_strategy: weighted
+  schedule:
+    mixing: weighted
+    shuffle: true
 train:
   duration:
     unit: steps
@@ -159,29 +166,45 @@ Qwen VL SFT 可启用有界、在线的成本感知批次：
 data:
   media_snapshot_id: banana-v5.0-re2-media-v1
   batching:
-    strategy: bounded_cost_aware
+    grouping: bounded_cost
+    cardinality: token_budget
+    packing:
+      mode: none
+    layout: padded
     buffer_size: 64
     cost_cache_size: 65536
-    max_samples_per_microbatch: 2
-    max_padded_tokens: 10000
-    max_vision_patches: 16384
+    max_tokens_per_microbatch: 10000
+    resource_budgets:
+      vision_patches: 16384
+train:
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
 ```
 
-`bounded_cost_aware` 不再维护精确的 64-sample optimizer target，也不在训练前物化完整 CostPlan。它只在
-`buffer_size` 个轻量 `SampleRef + cost` 上工作；每个 global microstep 先为每个 DP rank 取一个 FIFO anchor，
-再在 sample、padded-token、vision-patch 上限内合并兼容的短样本。mixing 的 draw multiset 不丢失、不复制，
-HF 继续负责固定 GA、optimizer、scheduler 和 checkpoint。
+`bounded_cost` 不在训练前物化完整 CostPlan，只在 `buffer_size` 个轻量 `SampleRef + cost` 上工作。
+`train.per_device_train_batch_size` 是每卡 physical pack count 的唯一配置真源：`fixed` 时是精确值，
+`token_budget` 时是上限 `B`。在该 `packing=none` 路径中一个 pack 就是一条样本；planner 根据真实 padded
+token 与 vision 总预算为每个 rank 选择 `1..B` 个 pack，
+并让同一 microstep 的 rank 成本尽量接近。mixing 的 draw multiset 不丢失、不复制，HF 继续负责固定 GA、
+optimizer、scheduler 和 checkpoint。re/re2 当前把 `B` 配成 2，使用 8 rank、GA4，即每个 optimizer step
+处理 32–64 条 logical samples；loss 按该 optimizer frame 内跨 rank 的真实有效 token 归一化。
 
-成本按 buffer 即时估算，图像只读 header，并使用容量受限的 LRU。多 rank 启动只校验第一个 buffer；为了在
-任何 forward 前原子验证完整 GA frame，首个 forward 前的成本调用上界为
-`buffer_size + (GA - 1) * world_size * max_samples_per_microbatch`，仍与总 steps 无关。
+成本按 buffer 即时估算，图像只读 header，并使用容量受限的 LRU。多 rank 启动校验得到的首个 plan 会被
+正式 sampler 直接复用；为了在任何 forward 前原子验证完整 GA frame，首个 forward 前的成本调用上界为
+`buffer_size + (GA - 1) * world_size * per_device_train_batch_size`，仍与总 steps 无关。
 `media_snapshot_id` 声明外部图片是不可变快照；改变媒体必须同时改变该 id。
 
-checkpoint committed state 直接进入 HF `trainer_state.json` 的 stateful callback，在 checkpoint rotation 前
-成为成功条件；保存的是模型已完成 optimizer step 的 buffer/cursor，而不是 DataLoader 预取推进的 live
-cursor。恢复还会严格校验 duration/GA/optimizer/scheduler contract。当前该策略只开放 SFT + step duration +
-DDP，eval 保持 fixed batch。`re` 与 `re2` 都使用这一条运行时，不再存在 fixed cost-aware、dynamic
-cost-aware 两套计划器。完整边界见
+checkpoint committed state 直接进入 HF `trainer_state.json` 的 stateful callback。所有 rank 的模型状态、
+optimizer/scheduler 与 RNG 保存成功后，rank 0 原子发布 completion manifest，之后才执行 checkpoint
+rotation；保存的是模型已完成 optimizer step 的 buffer/cursor，而不是 DataLoader 预取推进的 live cursor。
+completion 同时绑定 versioned batch contract 与 planner spec；恢复会在加载数据/模型前先校验 batch contract
+及 duration/GA/optimizer/scheduler contract。`cost_cache_size` 只影响 host LRU，不阻止 exact resume。
+当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL
+image SFT 已支持 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
+有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
+CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP，未验收的模型族/backend/topology 会在加载数据和权重前
+fail closed。`per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。
+完整边界见
 [`docs/training_batch_planning_design.md`](docs/training_batch_planning_design.md) 与
 [`docs/config_reference.md`](docs/config_reference.md)。
 
@@ -246,7 +269,6 @@ eval workers 改变后续训练随机序列。
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
 - [docs/export.md](docs/export.md)
-- [docs/webui.md](docs/webui.md)
 - [projects/eval_bench/README.md](projects/eval_bench/README.md)
 
 ## 测试
@@ -283,5 +305,4 @@ uv run pytest -q -m manual
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。
-- Web UI 当前已提供面向工程师/科研人员的 SFT 可视化控制台，真入口仍是 CLI。
 - PPO 暂停项见 [docs/ppo_todo.md](docs/ppo_todo.md)。

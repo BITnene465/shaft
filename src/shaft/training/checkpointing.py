@@ -12,7 +12,7 @@ from shaft.model.finetune_plan import FINETUNE_SUMMARY_FILENAME
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from .batch_planning import (
     BATCHING_RUN_METADATA_FILENAME,
-    checkpoint_has_bounded_batching_state,
+    checkpoint_has_batch_planning_state,
 )
 from .optimizer_plan import OPTIMIZER_SUMMARY_FILENAME
 
@@ -88,7 +88,7 @@ def resolve_best_export_dir(output_dir: str | Path) -> Path:
 def resolve_resume_checkpoint(
     path: str | Path | None,
     *,
-    require_bounded_state: bool = False,
+    require_planning_state: bool = False,
 ) -> str | None:
     if path is None:
         return None
@@ -97,12 +97,12 @@ def resolve_resume_checkpoint(
         raise FileNotFoundError(f"resume_from checkpoint path not found: {target}")
     layout = inspect_checkpoint_layout(target)
     if layout.has_trainer_state and layout.kind in {"full", "adapter"}:
-        if require_bounded_state and not checkpoint_has_bounded_batching_state(target):
+        if require_planning_state and not checkpoint_has_batch_planning_state(target):
             raise ValueError(
-                f"Checkpoint is missing valid bounded batching state: {target}"
+                f"Checkpoint is missing valid batch-planning state: {target}"
             )
         return str(target)
-    if require_bounded_state and target.is_dir():
+    if require_planning_state and target.is_dir():
         candidates: list[tuple[int, Path]] = []
         for candidate in target.glob("checkpoint-*"):
             try:
@@ -113,12 +113,12 @@ def resolve_resume_checkpoint(
             if (
                 candidate_layout.has_trainer_state
                 and candidate_layout.kind in {"full", "adapter"}
-                and checkpoint_has_bounded_batching_state(candidate)
+                and checkpoint_has_batch_planning_state(candidate)
             ):
                 candidates.append((step, candidate))
         if candidates:
             return str(max(candidates)[1])
-        raise ValueError(f"No complete bounded trainer checkpoint found under: {target}")
+        raise ValueError(f"No complete planned trainer checkpoint found under: {target}")
     last_checkpoint = get_last_checkpoint(str(target))
     if last_checkpoint is not None:
         return str(last_checkpoint)

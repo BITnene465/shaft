@@ -13,9 +13,9 @@ import torch
 
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.training.batch_planning import (
+    BATCH_PLANNING_CALLBACK_NAME,
     BATCHING_RUN_METADATA_FILENAME,
-    BOUNDED_BATCHING_CALLBACK_NAME,
-    checkpoint_has_bounded_batching_state,
+    checkpoint_has_batch_planning_state,
 )
 from shaft.training.checkpointing import resolve_resume_checkpoint
 from tests.support.configs import write_sft_smoke_config
@@ -166,9 +166,11 @@ def test_torchrun_interactive_progress_keeps_one_rank_zero_console_line(
     assert output[warning_end:].lstrip().startswith("train")
 
 
-def test_torchrun_bounded_variable_batch_contract(
+@pytest.mark.parametrize("per_device_batch_size", [1, 2])
+def test_torchrun_bounded_fixed_batch_contract(
     tmp_path: Path,
     repo_root: Path,
+    per_device_batch_size: int,
 ) -> None:
     config_path = write_sft_smoke_config(
         tmp_path,
@@ -176,9 +178,9 @@ def test_torchrun_bounded_variable_batch_contract(
         train_size=20,
         val_size=2,
         distributed=True,
-        bounded_cost_aware=True,
-        bounded_max_samples_per_microbatch=4,
-        bounded_max_padded_tokens=512,
+        bounded_cost_grouping=True,
+        bounded_max_tokens_per_microbatch=1024,
+        per_device_train_batch_size=per_device_batch_size,
         gradient_accumulation_steps=2,
         train_steps=2,
         save_steps=1,
@@ -196,22 +198,86 @@ def test_torchrun_bounded_variable_batch_contract(
     _assert_torchrun_succeeded(completed)
 
     output = f"{completed.stdout}\n{completed.stderr}"
-    assert "[bounded-batch]" in output
-    assert "[bounded-batch-planned-summary]" in output
+    assert "[batch-contract]" in output
+    assert "[batch-plan]" in output
+    assert "[batch-plan-summary]" in output
     metadata = json.loads(
         (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(
             encoding="utf-8"
         )
     )
-    assert metadata["strategy"] == "bounded_cost_aware"
+    assert metadata["grouping"] == "bounded_cost"
+    assert metadata["cardinality"] == "fixed"
+    assert metadata["packing"] == "none"
+    assert metadata["layout"] == "padded"
+    assert metadata["per_device_train_batch_size"] == per_device_batch_size
+    assert metadata["global_pack_count"] == 2 * per_device_batch_size
+    assert metadata["optimizer_pack_count"] == 4 * per_device_batch_size
     assert metadata["buffer_size"] == 8
-    assert _bounded_callback_payload(tmp_path / "outputs" / "checkpoint-1")
+    assert _planning_callback_payload(tmp_path / "outputs" / "checkpoint-1")
     assert not list((tmp_path / "outputs").glob("*cost_plan*"))
 
 
-def test_torchrun_bounded_exact_resume_with_persistent_workers(
+def test_torchrun_bounded_token_budget_uses_variable_local_batches(
     tmp_path: Path,
     repo_root: Path,
+) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=20,
+        val_size=2,
+        distributed=True,
+        bounded_cost_grouping=True,
+        bounded_cardinality="token_budget",
+        bounded_max_tokens_per_microbatch=450,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=2,
+        train_steps=2,
+        save_steps=1,
+    )
+    train_path = tmp_path / "train.jsonl"
+    rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["user_prompt"] = "x" * 300
+    train_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    completed = _run_torchrun(repo_root, config_path)
+    _assert_torchrun_succeeded(completed)
+
+    output = f"{completed.stdout}\n{completed.stderr}"
+    assert "cardinality=token_budget" in output
+    assert "first_logical_segments=3" in output
+    assert "first_physical_packs=3" in output
+    metadata = json.loads(
+        (tmp_path / "outputs" / BATCHING_RUN_METADATA_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert metadata["cardinality"] == "token_budget"
+    assert metadata["local_pack_count_range"] == [1, 2]
+    assert metadata["global_pack_count_range"] == [2, 4]
+    assert metadata["optimizer_pack_count_range"] == [4, 8]
+    assert metadata["global_pack_count"] is None
+    checkpoint = tmp_path / "outputs" / "checkpoint-1"
+    callback = _planning_callback_payload(checkpoint)
+    state = callback["attributes"]["planning_state"]
+    assert state["global_microstep"] == 2
+    assert 4 <= state["emitted_samples"] <= 8
+
+
+@pytest.mark.parametrize(
+    ("cardinality", "batch_cap", "token_cap"),
+    [("fixed", 1, 512), ("token_budget", 2, 450)],
+)
+def test_torchrun_exact_resume(
+    tmp_path: Path,
+    repo_root: Path,
+    cardinality: str,
+    batch_cap: int,
+    token_cap: int,
 ) -> None:
     config_path = write_sft_smoke_config(
         tmp_path,
@@ -220,9 +286,10 @@ def test_torchrun_bounded_exact_resume_with_persistent_workers(
         train_size=36,
         val_size=3,
         distributed=True,
-        bounded_cost_aware=True,
-        bounded_max_samples_per_microbatch=3,
-        bounded_max_padded_tokens=512,
+        bounded_cost_grouping=True,
+        bounded_cardinality=cardinality,
+        bounded_max_tokens_per_microbatch=token_cap,
+        per_device_train_batch_size=batch_cap,
         gradient_accumulation_steps=2,
         train_steps=3,
         save_steps=1,
@@ -245,9 +312,13 @@ def test_torchrun_bounded_exact_resume_with_persistent_workers(
 
     uninterrupted = _run_torchrun(repo_root, config_path)
     _assert_torchrun_succeeded(uninterrupted)
+    uninterrupted_logs = f"{uninterrupted.stdout}\n{uninterrupted.stderr}"
+    assert "Num Epochs =" not in uninterrupted_logs
     checkpoint_one = tmp_path / "uninterrupted" / "checkpoint-1"
     expected_final = tmp_path / "uninterrupted" / "checkpoint-3"
-    assert _bounded_callback_payload(checkpoint_one)
+    assert _planning_callback_payload(checkpoint_one)["args"]["spec"][
+        "cardinality"
+    ] == cardinality
 
     resumed_output = tmp_path / "resumed"
     resume_config = tmp_path / "resume.yaml"
@@ -266,6 +337,9 @@ def test_torchrun_bounded_exact_resume_with_persistent_workers(
         str(checkpoint_one),
     )
     _assert_torchrun_succeeded(resumed)
+    resumed_logs = f"{resumed.stdout}\n{resumed.stderr}"
+    assert "[train-resume] global_step=1/3" in resumed_logs
+    assert "Resuming training from checkpoint with epoch" not in resumed_logs
 
     _assert_exact_checkpoint(expected_final, resumed_output / "checkpoint-3")
 
@@ -290,7 +364,7 @@ def test_torchrun_bounded_startup_faults_fail_all_ranks_without_hanging(
     config_path = write_sft_smoke_config(
         tmp_path,
         distributed=True,
-        bounded_cost_aware=True,
+        bounded_cost_grouping=True,
         train_size=12,
         val_size=1,
         train_steps=1,
@@ -300,17 +374,32 @@ def test_torchrun_bounded_startup_faults_fail_all_ranks_without_hanging(
     output = f"{completed.stdout}\n{completed.stderr}"
 
     assert completed.returncode != 0
-    assert message in output
+    assert message.lower() in output.lower()
 
 
-def test_torchrun_bounded_checkpoint_state_failure_preserves_last_complete_resume(
+@pytest.mark.parametrize(
+    ("fault_mode", "message"),
+    [
+        (
+            "checkpoint_write_failure",
+            "synthetic bounded trainer-state write failure",
+        ),
+        (
+            "checkpoint_peer_rng_failure",
+            "synthetic peer-rank RNG-state write failure",
+        ),
+    ],
+)
+def test_torchrun_bounded_checkpoint_failure_preserves_last_complete_resume(
     tmp_path: Path,
     repo_root: Path,
+    fault_mode: str,
+    message: str,
 ) -> None:
     config_path = write_sft_smoke_config(
         tmp_path,
         distributed=True,
-        bounded_cost_aware=True,
+        bounded_cost_grouping=True,
         train_size=20,
         val_size=1,
         train_steps=2,
@@ -328,18 +417,65 @@ def test_torchrun_bounded_checkpoint_state_failure_preserves_last_complete_resum
     completed = _run_bounded_fault(
         repo_root,
         config_path,
-        "checkpoint_write_failure",
+        fault_mode,
     )
     output = f"{completed.stdout}\n{completed.stderr}"
     run_dir = tmp_path / "outputs"
     checkpoint_one = run_dir / "checkpoint-1"
 
     assert completed.returncode != 0
-    assert "synthetic bounded trainer-state write failure" in output
-    assert checkpoint_has_bounded_batching_state(checkpoint_one)
+    assert message in output
+    assert checkpoint_has_batch_planning_state(checkpoint_one)
     assert resolve_resume_checkpoint(
         run_dir,
-        require_bounded_state=True,
+        require_planning_state=True,
+    ) == str(checkpoint_one)
+
+
+def test_torchrun_bounded_checkpoint_rewrite_revokes_stale_completion(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    config_path = write_sft_smoke_config(
+        tmp_path,
+        distributed=True,
+        bounded_cost_grouping=True,
+        train_size=20,
+        val_size=1,
+        train_steps=2,
+        save_steps=1,
+    )
+    first_run = _run_torchrun(repo_root, config_path)
+    _assert_torchrun_succeeded(first_run)
+
+    run_dir = tmp_path / "outputs"
+    checkpoint_one = run_dir / "checkpoint-1"
+    checkpoint_two = run_dir / "checkpoint-2"
+    assert checkpoint_has_batch_planning_state(checkpoint_one)
+    assert checkpoint_has_batch_planning_state(checkpoint_two)
+
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "train:\n",
+            f"train:\n  resume_from_checkpoint: {checkpoint_one}\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    failed_rewrite = _run_bounded_fault(
+        repo_root,
+        config_path,
+        "checkpoint_peer_rng_failure",
+    )
+    output = f"{failed_rewrite.stdout}\n{failed_rewrite.stderr}"
+
+    assert failed_rewrite.returncode != 0
+    assert "synthetic peer-rank RNG-state write failure" in output
+    assert not checkpoint_has_batch_planning_state(checkpoint_two)
+    assert checkpoint_has_batch_planning_state(checkpoint_one)
+    assert resolve_resume_checkpoint(
+        run_dir,
+        require_planning_state=True,
     ) == str(checkpoint_one)
 
 
@@ -397,16 +533,16 @@ def _assert_exact_checkpoint(expected: Path, actual: Path) -> None:
             torch.load(expected_path, map_location="cpu", weights_only=False),
             torch.load(actual_path, map_location="cpu", weights_only=False),
         )
-    expected_bounded = _bounded_callback_payload(expected)
-    actual_bounded = _bounded_callback_payload(actual)
-    assert expected_bounded == actual_bounded
+    expected_planning = _planning_callback_payload(expected)
+    actual_planning = _planning_callback_payload(actual)
+    assert expected_planning == actual_planning
 
 
-def _bounded_callback_payload(checkpoint: Path) -> dict:
+def _planning_callback_payload(checkpoint: Path) -> dict:
     trainer_state = json.loads(
         (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
     )
-    return trainer_state["stateful_callbacks"][BOUNDED_BATCHING_CALLBACK_NAME]
+    return trainer_state["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

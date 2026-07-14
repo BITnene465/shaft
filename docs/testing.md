@@ -19,7 +19,7 @@ Framework suite membership 的唯一真源是 `tests/conftest.py` 中的 `_SUITE
 
 | Suite | 用途 | 默认/required CI |
 | --- | --- | --- |
-| `framework` | config/data/model/template/pipeline/training/infer/eval/export/webui CPU 功能契约 | 是 |
+| `framework` | config/data/model/template/pipeline/training/infer/eval/export CPU 功能契约 | 是 |
 | `smoke` | tiny/fake SFT、DPO/PPO/GRPO、online eval 最短主链 | 是 |
 | `distributed` | DeepSpeed/FSDP/torchrun runtime contract | 否，独立 workflow |
 | `integration` | 真实模型、真实推理服务或仓库 fixture 主链 | 否 |

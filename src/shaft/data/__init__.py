@@ -1,3 +1,15 @@
+from .batching import (
+    ShaftGreedySequencePacker,
+    ShaftLengthBatchGrouping,
+    ShaftLocalMicroBatchPlan,
+    ShaftLogicalSegmentPlan,
+    ShaftPhysicalPackPlan,
+    ShaftVarlenBatchLayout,
+    ShaftVarlenLayoutPlan,
+    ShaftVarlenSegmentLayout,
+    resolve_local_pack_count_bounds,
+)
+from .planned import ShaftBatchContext, ShaftPlannedSampleRef
 from .collator import DPOCollator, GRPOCollator, PPOCollator, SFTCollator
 from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
 from .cost import (
@@ -19,13 +31,14 @@ from .dataset import (
     SFTRecord,
 )
 from .dynamic_batching import (
-    SHAFT_BOUNDED_BATCHING_VERSION,
-    ShaftBoundedBatchPlanner,
-    ShaftBoundedBatchingSpec,
-    ShaftBoundedBatchingState,
-    ShaftBoundedMicrobatchPlan,
-    ShaftBoundedMicrobatchStats,
+    SHAFT_BATCH_PLANNING_VERSION,
+    ShaftBatchMicrobatchPlan,
+    ShaftBatchMicrobatchStats,
+    ShaftBatchPlanner,
+    ShaftBatchPlanningSpec,
+    ShaftBatchPlanningState,
     ShaftBufferedSample,
+    ShaftPartitionSearchBudgetExceeded,
 )
 from .meta import ShaftDatasetMeta, build_dataset_metas
 from .mixing import (
@@ -36,8 +49,8 @@ from .mixing import (
 )
 from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
 from .sampler import (
-    ShaftBoundedBatchSampler,
     ShaftGroupedSampleSampler,
+    ShaftPlannedBatchSampler,
     ShaftSampleSampler,
 )
 from .registry import DATA_SOURCE_REGISTRY
@@ -73,14 +86,14 @@ __all__ = [
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
-    "SHAFT_BOUNDED_BATCHING_VERSION",
-    "ShaftBoundedBatchPlanner",
-    "ShaftBoundedBatchSampler",
-    "ShaftBoundedBatchingSpec",
-    "ShaftBoundedBatchingState",
-    "ShaftBoundedMicrobatchPlan",
-    "ShaftBoundedMicrobatchStats",
+    "SHAFT_BATCH_PLANNING_VERSION",
+    "ShaftBatchMicrobatchPlan",
+    "ShaftBatchMicrobatchStats",
+    "ShaftBatchPlanner",
+    "ShaftBatchPlanningSpec",
+    "ShaftBatchPlanningState",
     "ShaftBufferedSample",
+    "ShaftPartitionSearchBudgetExceeded",
     "ShaftDatasetBundle",
     "ShaftDatasetMeta",
     "build_offline_pipeline",
@@ -88,6 +101,7 @@ __all__ = [
     "is_planning_safe_online_transform",
     "planning_online_transform_fingerprint",
     "planning_safe_online_transform",
+    "resolve_local_pack_count_bounds",
     "build_data_source",
     "build_dataset_metas",
     "DATA_SOURCE_REGISTRY",
@@ -97,6 +111,13 @@ __all__ = [
     "ShaftRecordSubset",
     "ShaftSampleContext",
     "ShaftGroupedSampleSampler",
+    "ShaftBatchContext",
+    "ShaftGreedySequencePacker",
+    "ShaftLengthBatchGrouping",
+    "ShaftLocalMicroBatchPlan",
+    "ShaftLogicalSegmentPlan",
+    "ShaftPhysicalPackPlan",
+    "ShaftPlannedSampleRef",
     "ShaftSampleCost",
     "ShaftSampleCostProvider",
     "ShaftSFTSampleCostProvider",
@@ -105,6 +126,10 @@ __all__ = [
     "ShaftSampleRef",
     "ShaftSampleSchedule",
     "ShaftSampleSampler",
+    "ShaftPlannedBatchSampler",
+    "ShaftVarlenBatchLayout",
+    "ShaftVarlenLayoutPlan",
+    "ShaftVarlenSegmentLayout",
     "ShaftRowInvariantCostProvider",
     "validate_sft_cost_model_adapter",
     "validate_sft_cost_dataset",

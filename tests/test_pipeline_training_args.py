@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,8 +8,13 @@ import pytest
 import torch
 
 from shaft.config import load_config
+from shaft.data import ShaftBatchPlanningSpec
 from shaft.model import build_model_tokenizer_processor
-from shaft.pipeline.training_args import build_hf_training_args, resolve_step_sample_budget
+from shaft.pipeline.training_args import build_hf_training_args
+from shaft.training.batch_planning import (
+    build_batch_contract,
+    build_batching_run_metadata,
+)
 from shaft.training.reproducibility import initialize_training_randomness
 from tests.support.pipeline import fsdp_enabled as _fsdp_enabled
 from tests.support.pipeline import fsdp_option_values as _fsdp_option_values
@@ -120,41 +126,190 @@ def test_step_duration_resolves_exact_global_sample_budget(tmp_path: Path) -> No
     config.train.per_device_train_batch_size = 2
     config.train.gradient_accumulation_steps = 4
 
-    assert resolve_step_sample_budget(config, world_size=8) == 640
+    args = build_hf_training_args(config)
+    contract = build_batch_contract(config=config, training_args=args)
+
+    assert contract.finite_sample_plan_size(max_steps=10) == 80
+
+    eight_rank_contract = replace(contract, data_world_size=8)
+    assert eight_rank_contract.finite_sample_plan_size(max_steps=10) == 640
 
     config.train.duration.unit = "epochs"
     config.train.duration.value = 2
-    assert resolve_step_sample_budget(config, world_size=8) is None
+    assert eight_rank_contract.finite_sample_plan_size(max_steps=-1) is None
+
+
+def test_resolved_batch_contract_uses_per_device_batch_as_physical_truth(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.per_device_train_batch_size = 3
+    config.train.gradient_accumulation_steps = 2
+    args = build_hf_training_args(config)
+
+    contract = build_batch_contract(config=config, training_args=args)
+
+    assert contract.per_device_microbatch_size == 3
+    assert contract.global_pack_count == 3
+    assert contract.optimizer_pack_count == 6
+    assert contract.cardinality == "fixed"
+
+
+def test_length_contract_keeps_physical_batch_slots_and_derives_local_token_capacity(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.max_length = 128
+    config.data.media_snapshot_id = "fixture-v1"
+    config.data.batching.grouping = "length"
+    config.data.batching.cardinality = "fixed"
+    config.data.batching.packing.mode = "greedy"
+    config.data.batching.layout = "varlen"
+    config.data.batching.buffer_size = 16
+    config.data.batching.resource_budgets = {"vision_patches": 4096}
+    config.train.per_device_train_batch_size = 3
+    config.train.gradient_accumulation_steps = 2
+    args = build_hf_training_args(config)
+
+    contract = build_batch_contract(config=config, training_args=args)
+
+    assert contract.is_planned is True
+    assert contract.is_bounded is False
+    assert contract.per_device_microbatch_size == 3
+    assert contract.local_pack_count_bounds == (3, 3)
+    assert contract.max_sequence_length == 128
+    assert contract.max_tokens_per_microbatch is None
+    assert contract.local_token_capacity == 384
+    assert contract.global_pack_count == 3
+    assert contract.finite_sample_plan_size(max_steps=10) is None
+
+
+def test_length_contract_rejects_planner_buffer_smaller_than_one_global_microbatch(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.max_length = 128
+    config.data.batching.grouping = "length"
+    config.data.batching.buffer_size = 1
+    config.train.per_device_train_batch_size = 2
+    args = build_hf_training_args(config)
+
+    with pytest.raises(ValueError, match="one complete global microbatch"):
+        build_batch_contract(config=config, training_args=args)
+
+
+def test_resolved_token_budget_contract_uses_per_device_batch_as_upper_bound(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "token_budget"
+    config.data.batching.buffer_size = 8
+    config.data.batching.max_tokens_per_microbatch = 512
+    config.data.media_snapshot_id = "fixture-v1"
+    config.train.duration.unit = "steps"
+    config.train.duration.value = 2
+    config.train.per_device_train_batch_size = 2
+    config.train.gradient_accumulation_steps = 4
+    args = build_hf_training_args(config)
+
+    contract = build_batch_contract(config=config, training_args=args)
+
+    assert contract.cardinality == "token_budget"
+    assert contract.per_device_microbatch_size == 2
+    assert contract.local_pack_count_bounds == (1, 2)
+    assert contract.global_pack_count_bounds == (1, 2)
+    assert contract.optimizer_pack_count_bounds == (4, 8)
+    with pytest.raises(ValueError, match="not exact"):
+        _ = contract.global_pack_count
+    with pytest.raises(ValueError, match="not exact"):
+        _ = contract.optimizer_pack_count
+
+
+def test_resolved_bounded_contract_rejects_too_small_buffer_before_data_loading(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "fixed"
+    config.data.batching.buffer_size = 1
+    config.data.batching.max_tokens_per_microbatch = 1024
+    config.data.media_snapshot_id = "fixture-v1"
+    config.train.per_device_train_batch_size = 2
+    args = build_hf_training_args(config)
+
+    with pytest.raises(ValueError, match="one complete global microbatch"):
+        build_batch_contract(config=config, training_args=args)
+
+
+def test_batching_metadata_rejects_a_spec_that_drifted_from_resolved_contract(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.media_snapshot_id = "fixture-v1"
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "fixed"
+    config.data.batching.buffer_size = 64
+    config.data.batching.max_tokens_per_microbatch = 1024
+    config.data.batching.resource_budgets = {"vision_patches": 2048}
+    config.train.duration.unit = "steps"
+    config.train.duration.value = 2
+    config.train.per_device_train_batch_size = 1
+    args = build_hf_training_args(config)
+    contract = build_batch_contract(config=config, training_args=args)
+    drifted = ShaftBatchPlanningSpec(
+        data_world_size=contract.data_world_size,
+        buffer_size=64,
+        per_device_microbatch_size=2,
+        max_tokens_per_microbatch=1024,
+        resource_budgets=(("vision_patches", 2048),),
+        seed=42,
+        sample_schedule_fingerprint="schedule-v1",
+        cost_fingerprint="cost-v1",
+    )
+
+    with pytest.raises(ValueError, match="differs from the resolved batch contract"):
+        build_batching_run_metadata(
+            config=config,
+            training_args=args,
+            planning_spec=drifted,
+            batch_contract=contract,
+        )
 
 
 def test_bounded_step_duration_does_not_build_finite_sample_plan(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "fixed"
     config.data.batching.buffer_size = 64
-    config.data.batching.max_samples_per_microbatch = 4
-    config.data.batching.max_padded_tokens = 512
+    config.data.batching.max_tokens_per_microbatch = 512
     config.train.duration.value = 10
     config.train.per_device_train_batch_size = 2
     config.train.gradient_accumulation_steps = 2
 
-    assert resolve_step_sample_budget(config, world_size=2) is None
+    args = build_hf_training_args(config)
+    contract = build_batch_contract(config=config, training_args=args)
+    assert contract.finite_sample_plan_size(max_steps=2) is None
     args = build_hf_training_args(config)
     assert args.accelerator_config.even_batches is True
     assert args.accelerator_config.split_batches is False
     assert args.accelerator_config.dispatch_batches is False
+    assert args.per_device_train_batch_size == 2
 
 
-def test_bounded_sample_cap_does_not_change_schedule_horizon(tmp_path: Path) -> None:
+def test_bounded_per_device_batch_does_not_change_schedule_horizon(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "fixed"
     config.data.batching.buffer_size = 8
-    config.data.batching.max_samples_per_microbatch = None
-    config.data.batching.max_padded_tokens = 512
+    config.data.batching.max_tokens_per_microbatch = 512
     config.train.duration.value = 10
     config.train.per_device_train_batch_size = 3
     config.train.gradient_accumulation_steps = 2
 
-    assert resolve_step_sample_budget(config, world_size=2) is None
+    args = build_hf_training_args(config)
+    contract = build_batch_contract(config=config, training_args=args)
+    assert contract.finite_sample_plan_size(max_steps=2) is None
 
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:

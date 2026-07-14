@@ -5,7 +5,7 @@
 # - no icon/image-as-other cross-label negatives
 # - shape-only other reduced from 20096 to 10000 rows
 #
-# Per-sample probability plan with train config `mix_strategy: weighted`:
+# Per-sample probability plan with train config `data.schedule.mixing: weighted`:
 # - grounding_layout:       8 (42.11%)
 # - shape_reconstruction:   5 (26.32%)
 # - line_reconstruction:    4 (21.05%)

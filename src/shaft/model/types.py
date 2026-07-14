@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+import hashlib
 import importlib.util
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
@@ -180,10 +181,77 @@ class ShaftProcessorTokenLayout:
         return self.processed_boundaries[start], self.processed_boundaries[end]
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftMediaSlice:
+    start: int
+    stop: int
+
+    def __post_init__(self) -> None:
+        start = int(self.start)
+        stop = int(self.stop)
+        if start < 0 or stop < start:
+            raise ValueError("A media slice must satisfy 0 <= start <= stop.")
+        object.__setattr__(self, "start", start)
+        object.__setattr__(self, "stop", stop)
+
+    @property
+    def length(self) -> int:
+        return self.stop - self.start
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftMediaSegmentManifest:
+    processor_row_index: int
+    image_grids: ShaftMediaSlice
+    image_patches: ShaftMediaSlice
+
+    def __post_init__(self) -> None:
+        row_index = int(self.processor_row_index)
+        if row_index < 0:
+            raise ValueError("processor_row_index must be >= 0.")
+        object.__setattr__(self, "processor_row_index", row_index)
+
+
+@dataclass(frozen=True, slots=True)
+class ShaftProcessorMediaManifest:
+    segments: tuple[ShaftMediaSegmentManifest, ...]
+    image_grid_count: int
+    image_patch_count: int
+
+    def __post_init__(self) -> None:
+        image_grid_count = int(self.image_grid_count)
+        image_patch_count = int(self.image_patch_count)
+        if image_grid_count < 0 or image_patch_count < 0:
+            raise ValueError("Processor media counts must be >= 0.")
+        object.__setattr__(self, "segments", tuple(self.segments))
+        object.__setattr__(self, "image_grid_count", image_grid_count)
+        object.__setattr__(self, "image_patch_count", image_patch_count)
+
+        expected_rows = tuple(range(len(self.segments)))
+        actual_rows = tuple(segment.processor_row_index for segment in self.segments)
+        if actual_rows != expected_rows:
+            raise ValueError("Processor media manifest rows must be contiguous and ordered.")
+
+        grid_cursor = 0
+        patch_cursor = 0
+        for segment in self.segments:
+            if segment.image_grids.start != grid_cursor:
+                raise ValueError("Processor image-grid slices must be contiguous.")
+            if segment.image_patches.start != patch_cursor:
+                raise ValueError("Processor image-patch slices must be contiguous.")
+            grid_cursor = segment.image_grids.stop
+            patch_cursor = segment.image_patches.stop
+        if grid_cursor != image_grid_count:
+            raise ValueError("Processor image-grid slices do not cover image_grid_count.")
+        if patch_cursor != image_patch_count:
+            raise ValueError("Processor image-patch slices do not cover image_patch_count.")
+
+
 @dataclass(frozen=True)
 class ShaftProcessedBatch:
     model_inputs: dict[str, Any]
     batch_size: int
+    media_manifest: ShaftProcessorMediaManifest | None = None
 
     def __post_init__(self) -> None:
         if self.batch_size <= 0:
@@ -199,6 +267,11 @@ class ShaftProcessedBatch:
             if int(value.shape[0]) != self.batch_size:
                 raise ValueError(
                     f"Processor output {key!r} batch axis does not match batch_size."
+                )
+        if self.media_manifest is not None:
+            if len(self.media_manifest.segments) != self.batch_size:
+                raise ValueError(
+                    "Processor media manifest must contain one segment per processor row."
                 )
 
 
@@ -503,6 +576,120 @@ class ProcessorPolicy:
         return ShaftProcessorTokenLayout(processed_boundaries)
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftSequenceExecutionContract:
+    """Immutable model-owned sequence execution request and environment signature."""
+
+    layout: str
+    device_type: str
+    attention_implementation: str | None
+    torch_dtype: str
+    distributed_strategy: str
+    torch_compile: bool
+    capability_signature: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "layout", str(self.layout).strip().lower())
+        object.__setattr__(self, "device_type", str(self.device_type).strip().lower())
+        attention = str(self.attention_implementation or "").strip().lower()
+        object.__setattr__(
+            self,
+            "attention_implementation",
+            attention or None,
+        )
+        object.__setattr__(self, "torch_dtype", str(self.torch_dtype).strip().lower())
+        object.__setattr__(
+            self,
+            "distributed_strategy",
+            str(self.distributed_strategy).strip().lower(),
+        )
+        object.__setattr__(self, "torch_compile", bool(self.torch_compile))
+        object.__setattr__(
+            self,
+            "capability_signature",
+            _dedupe_non_empty(self.capability_signature),
+        )
+        if self.layout not in {"padded", "varlen"}:
+            raise ValueError(f"Unsupported sequence layout: {self.layout!r}.")
+        if not self.device_type or not self.torch_dtype or not self.distributed_strategy:
+            raise ValueError("Sequence execution contract fields must not be empty.")
+        if not self.capability_signature:
+            raise ValueError("Sequence execution capability_signature must not be empty.")
+
+    @property
+    def fingerprint(self) -> str:
+        payload = (
+            "shaft-sequence-execution-contract-v1",
+            self.layout,
+            self.device_type,
+            self.attention_implementation,
+            self.torch_dtype,
+            self.distributed_strategy,
+            self.torch_compile,
+            self.capability_signature,
+        )
+        return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+
+class SequenceExecutionPolicy:
+    """Model-owned conversion from a collated layout into forward inputs."""
+
+    def build_contract(
+        self,
+        *,
+        layout: str,
+        device_type: str,
+        attention_implementation: str | None,
+        torch_dtype: str,
+        distributed_strategy: str,
+        torch_compile: bool = False,
+    ) -> ShaftSequenceExecutionContract:
+        normalized_layout = str(layout).strip().lower()
+        if normalized_layout == "varlen":
+            raise ValueError(
+                f"Sequence policy {type(self).__name__!r} does not support varlen layout."
+            )
+        return ShaftSequenceExecutionContract(
+            layout=normalized_layout,
+            device_type=device_type,
+            attention_implementation=attention_implementation,
+            torch_dtype=torch_dtype,
+            distributed_strategy=distributed_strategy,
+            torch_compile=torch_compile,
+            capability_signature=(
+                f"{type(self).__module__}.{type(self).__qualname__}",
+            ),
+        )
+
+    def validate_runtime(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        _ = model
+        expected_signature = (f"{type(self).__module__}.{type(self).__qualname__}",)
+        if contract.capability_signature != expected_signature:
+            raise ValueError("Sequence execution contract belongs to another policy.")
+        if contract.layout == "varlen":
+            raise ValueError(
+                f"Sequence policy {type(self).__name__!r} does not support varlen layout."
+            )
+
+    def prepare_training_inputs(
+        self,
+        *,
+        model: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        _ = model
+        if "_shaft_varlen_layout" in inputs:
+            raise ValueError(
+                f"Sequence policy {type(self).__name__!r} cannot execute varlen inputs."
+            )
+        return dict(inputs)
+
+
 class PeftPolicy(ABC):
     @abstractmethod
     def default_target_modules(self) -> list[str]:
@@ -531,6 +718,7 @@ class ModelLoader(ABC):
         *,
         model_meta: "ModelMeta",
         model_adapter: "ShaftModelAdapter",
+        sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
     ) -> "ModelArtifacts":
         raise NotImplementedError
 
@@ -543,6 +731,7 @@ class ModelGroup:
     capabilities: ModelCapabilities | None = None
     module_groups: ModelModuleGroups | None = None
     processor_policy: ProcessorPolicy | None = None
+    sequence_execution_policy: SequenceExecutionPolicy | None = None
     peft_policy: PeftPolicy | None = None
     sharding_policy: ModelShardingPolicy | None = None
     requires: tuple[str, ...] = ()
@@ -569,6 +758,9 @@ class ModelMeta:
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     module_groups: ModelModuleGroups = field(default_factory=ModelModuleGroups)
     processor_policy: ProcessorPolicy = field(default_factory=ProcessorPolicy)
+    sequence_execution_policy: SequenceExecutionPolicy = field(
+        default_factory=SequenceExecutionPolicy
+    )
     peft_policy: PeftPolicy = field(default_factory=lambda: DefaultPeftPolicy(target_modules=["all-linear"]))
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
@@ -585,6 +777,7 @@ class ModelMeta:
             capabilities=self.capabilities,
             module_groups=self.module_groups,
             processor_policy=self.processor_policy,
+            sequence_execution_policy=self.sequence_execution_policy,
             peft_policy=self.peft_policy,
             sharding_policy=self.sharding_policy,
             requires=self.requires,
@@ -615,6 +808,11 @@ class ModelMeta:
             if matched is not None and matched.processor_policy is not None
             else self.processor_policy
         )
+        sequence_execution_policy = (
+            matched.sequence_execution_policy
+            if matched is not None and matched.sequence_execution_policy is not None
+            else self.sequence_execution_policy
+        )
         peft_policy = (
             matched.peft_policy if matched is not None and matched.peft_policy is not None else self.peft_policy
         )
@@ -637,6 +835,7 @@ class ModelMeta:
             capabilities=capabilities,
             module_groups=module_groups,
             processor_policy=processor_policy,
+            sequence_execution_policy=sequence_execution_policy,
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
             requires=_dedupe_non_empty(tuple(requires)),
@@ -710,6 +909,9 @@ class ShaftModelAdapter:
     module_groups: ModelModuleGroups
     processor_policy: ProcessorPolicy
     peft_policy: PeftPolicy
+    sequence_execution_policy: SequenceExecutionPolicy = field(
+        default_factory=SequenceExecutionPolicy
+    )
     sharding_policy: ModelShardingPolicy = field(default_factory=ModelShardingPolicy)
     requires: tuple[str, ...] = ()
     additional_saved_files: tuple[str, ...] = ()
@@ -819,6 +1021,47 @@ class ShaftModelAdapter:
             processed_batch=processed_batch,
             sequence_inputs=sequence_inputs,
             row_indices=row_indices,
+        )
+
+    def validate_sequence_execution(
+        self,
+        *,
+        model: Any,
+        contract: ShaftSequenceExecutionContract,
+    ) -> None:
+        self.sequence_execution_policy.validate_runtime(
+            model=model,
+            contract=contract,
+        )
+
+    def build_sequence_execution_contract(
+        self,
+        *,
+        layout: str,
+        device_type: str,
+        attention_implementation: str | None,
+        torch_dtype: str,
+        distributed_strategy: str,
+        torch_compile: bool = False,
+    ) -> ShaftSequenceExecutionContract:
+        return self.sequence_execution_policy.build_contract(
+            layout=layout,
+            device_type=device_type,
+            attention_implementation=attention_implementation,
+            torch_dtype=torch_dtype,
+            distributed_strategy=distributed_strategy,
+            torch_compile=torch_compile,
+        )
+
+    def prepare_sequence_training_inputs(
+        self,
+        *,
+        model: Any,
+        inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.sequence_execution_policy.prepare_training_inputs(
+            model=model,
+            inputs=inputs,
         )
 
     def required_saved_files(self) -> tuple[str, ...]:

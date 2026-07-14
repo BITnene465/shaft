@@ -13,6 +13,7 @@ from shaft.data import (
     ShaftSFTSampleCostProvider,
     ShaftSampleCost,
     ShaftSamplePlan,
+    ShaftVarlenBatchLayout,
 )
 from shaft.data.transforms import planning_safe_online_transform
 from shaft.model.types import ShaftProcessorCostEstimate, ShaftProcessorTokenLayout
@@ -24,6 +25,19 @@ from shaft.template.types import (
 
 
 pytestmark = pytest.mark.component
+
+
+def test_varlen_batch_layout_rejects_an_empty_physical_batch() -> None:
+    with pytest.raises(ValueError, match="cannot be empty"):
+        ShaftVarlenBatchLayout.build(
+            contexts=(),
+            input_ids=(),
+            labels=(),
+            mm_token_type_ids=(),
+            loss_scales=(),
+            ignore_index=-100,
+            max_sequence_length=16,
+        )
 
 
 class _CostTokenizer:

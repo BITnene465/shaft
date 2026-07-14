@@ -18,12 +18,6 @@ def infer_main(argv=None):
 
     return main(argv)
 
-
-def web_main(argv=None):
-    from .web import main
-
-    return main(argv)
-
 __all__ = [
     "COMMAND_REGISTRY",
     "CommandSpec",
@@ -31,5 +25,4 @@ __all__ = [
     "train_main",
     "export_main",
     "infer_main",
-    "web_main",
 ]

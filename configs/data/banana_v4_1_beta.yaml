@@ -4,7 +4,7 @@
 # the main detection tasks. It still trains draw.io shape reconstruction fields
 # from weak labels, but main-task retention is the priority.
 #
-# Per-sample probability mix with mix_strategy=weighted:
+# Per-sample probability mix with data.schedule.mixing=weighted:
 # - grounding_arrow:        ~31%
 # - grounding_layout:       ~26%
 # - real shape/icon-image:  ~16%

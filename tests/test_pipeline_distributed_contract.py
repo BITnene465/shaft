@@ -38,12 +38,20 @@ def _assert_zero3_is_active() -> None:
 
 def test_sft_pipeline_initializes_deepspeed_before_model_loading(tmp_path: Path) -> None:
     config = write_sft_pipeline_config(tmp_path)
+    config.model.model_type = "smoke_vlm"
+    config.model.model_name_or_path = "models/Smoke-VLM"
     config.train.distributed.strategy = "deepspeed"
     config.train.distributed.deepspeed.config = _deepspeed_config()
 
-    def _fake_build_model(runtime_config, *, init_from_checkpoint=None):
+    def _fake_build_model(
+        runtime_config,
+        *,
+        init_from_checkpoint=None,
+        sequence_execution_contract=None,
+    ):
         assert runtime_config is config
         assert init_from_checkpoint is None
+        assert sequence_execution_contract is not None
         _assert_zero3_is_active()
         return build_fake_model_artifacts()
 

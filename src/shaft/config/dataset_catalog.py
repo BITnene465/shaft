@@ -39,21 +39,31 @@ def _resolve_dataset_paths(dataset_payload: dict[str, Any], *, base_dir: Path) -
 
 
 def _resolve_prompt_sampling_paths(data_payload: dict[str, Any], *, base_dir: Path) -> None:
-    prompt_sampling = data_payload.get("prompt_sampling")
+    transforms = data_payload.get("transforms")
+    if transforms is None:
+        return
+    if not isinstance(transforms, dict):
+        raise TypeError("Config key `data.transforms` must be a mapping.")
+    prompt_sampling = transforms.get("prompt_sampling")
     if prompt_sampling is None:
         return
     if not isinstance(prompt_sampling, dict):
-        raise TypeError("Config key `data.prompt_sampling` must be a mapping.")
+        raise TypeError(
+            "Config key `data.transforms.prompt_sampling` must be a mapping."
+        )
     pools = prompt_sampling.get("pools")
     if pools is None:
         return
     if not isinstance(pools, dict):
-        raise TypeError("Config key `data.prompt_sampling.pools` must be a mapping.")
+        raise TypeError(
+            "Config key `data.transforms.prompt_sampling.pools` must be a mapping."
+        )
     resolved_pools: dict[str, str] = {}
     for dataset_name, path in pools.items():
         if isinstance(path, list):
             raise TypeError(
-                f"Config key `data.prompt_sampling.pools.{dataset_name}` must be one prompt pool file, not a list."
+                "Config key `data.transforms.prompt_sampling.pools."
+                f"{dataset_name}` must be one prompt pool file, not a list."
             )
         resolved_pools[str(dataset_name)] = _resolve_path_value(path, base_dir=base_dir)
     prompt_sampling["pools"] = resolved_pools

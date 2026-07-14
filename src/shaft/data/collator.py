@@ -5,6 +5,7 @@ from typing import Any
 
 import torch
 
+from .batching import ShaftVarlenBatchLayout
 from shaft.model import ShaftModelAdapter, ShaftProcessedBatch, ShaftProcessorTokenLayout
 from shaft.template import (
     ShaftChatRenderer,
@@ -111,6 +112,8 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         include_metadata: bool = False,
         padding_side: str = "right",
         loss_scale_name: str = "default",
+        layout: str = "padded",
+        packing_mode: str = "none",
     ) -> None:
         super().__init__(
             model_adapter=model_adapter,
@@ -127,6 +130,18 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         )
         self.include_targets_in_inputs = bool(include_targets_in_inputs)
         self.include_metadata = bool(include_metadata)
+        self.layout = str(layout).strip().lower()
+        self.packing_mode = str(packing_mode).strip().lower()
+        if self.layout not in {"padded", "varlen"}:
+            raise ValueError(f"Unsupported SFT collator layout: {self.layout!r}.")
+        if self.packing_mode not in {"none", "greedy"}:
+            raise ValueError(
+                f"Unsupported SFT collator packing mode: {self.packing_mode!r}."
+            )
+        if self.packing_mode == "greedy" and self.layout != "varlen":
+            raise ValueError("greedy packing requires the varlen collator layout.")
+        if self.layout == "varlen" and self.padding_side != "right":
+            raise ValueError("varlen SFT collation requires right-side sequence semantics.")
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         plans = [
@@ -163,28 +178,59 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         ]
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else eos_id
-        sequence_inputs: dict[str, Any] = {
-            "input_ids": self._pad_sequences([row.input_ids for row in rows], padding_value=int(pad_id)),
-            "attention_mask": self._pad_sequences([row.attention_mask for row in rows], padding_value=0),
-            "labels": self._pad_sequences([row.labels for row in rows], padding_value=self.ignore_index),
-        }
-        mm_rows = [row.mm_token_type_ids for row in rows if row.mm_token_type_ids is not None]
-        if mm_rows:
-            sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
-                mm_rows,
-                padding_value=0,
+        varlen_plan = None
+        if self.layout == "varlen":
+            sequence_inputs, varlen_plan = ShaftVarlenBatchLayout.build(
+                contexts=[item.get("_batch_context") for item in batch],
+                input_ids=[row.input_ids for row in rows],
+                labels=[row.labels for row in rows],
+                mm_token_type_ids=[row.mm_token_type_ids for row in rows],
+                loss_scales=[row.loss_scale for row in rows],
+                ignore_index=self.ignore_index,
+                max_sequence_length=self.max_length,
             )
-        loss_scale_rows = [row.loss_scale for row in rows if row.loss_scale is not None]
-        if loss_scale_rows:
-            sequence_inputs["loss_scale"] = self._pad_sequences(
-                loss_scale_rows,
-                padding_value=0,
-            ).to(dtype=torch.float32)
+        else:
+            sequence_inputs = {
+                "input_ids": self._pad_sequences(
+                    [row.input_ids for row in rows],
+                    padding_value=int(pad_id),
+                ),
+                "attention_mask": self._pad_sequences(
+                    [row.attention_mask for row in rows],
+                    padding_value=0,
+                ),
+                "labels": self._pad_sequences(
+                    [row.labels for row in rows],
+                    padding_value=self.ignore_index,
+                ),
+            }
+            mm_rows = [
+                row.mm_token_type_ids
+                for row in rows
+                if row.mm_token_type_ids is not None
+            ]
+            if mm_rows:
+                sequence_inputs["mm_token_type_ids"] = self._pad_sequences(
+                    mm_rows,
+                    padding_value=0,
+                )
+            loss_scale_rows = [
+                row.loss_scale for row in rows if row.loss_scale is not None
+            ]
+            if loss_scale_rows:
+                sequence_inputs["loss_scale"] = self._pad_sequences(
+                    loss_scale_rows,
+                    padding_value=0,
+                ).to(dtype=torch.float32)
         out = self.model_adapter.assemble_processor_training_inputs(
             processed_batch=processed_batch,
             sequence_inputs=sequence_inputs,
             row_indices=tuple(range(len(batch))),
         )
+        if varlen_plan is not None:
+            out["_shaft_varlen_layout"] = varlen_plan
+            if processed_batch.media_manifest is not None:
+                out["_shaft_media_manifest"] = processed_batch.media_manifest
         if self.include_metadata:
             out["meta"] = {
                 "dataset_name": [item["dataset_name"] for item in batch],

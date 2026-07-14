@@ -20,12 +20,13 @@ def test_prompt_sampling_config_normalizes_and_resolves_paths(tmp_path: Path) ->
     )
     payload = """
 data:
-  prompt_sampling:
-    enabled: true
-    train_only: true
-    seed: 123
-    pools:
-      ds1: prompts/pool.yaml
+  transforms:
+    prompt_sampling:
+      enabled: true
+      train_only: true
+      seed: 123
+      pools:
+        ds1: prompts/pool.yaml
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -33,10 +34,10 @@ data:
 """
     cfg = load_config_from_yaml(tmp_path, payload)
 
-    assert cfg.data.prompt_sampling.enabled is True
-    assert cfg.data.prompt_sampling.train_only is True
-    assert cfg.data.prompt_sampling.seed == 123
-    assert cfg.data.prompt_sampling.pools == {"ds1": str((prompt_dir / "pool.yaml").resolve())}
+    assert cfg.data.transforms.prompt_sampling.enabled is True
+    assert cfg.data.transforms.prompt_sampling.train_only is True
+    assert cfg.data.transforms.prompt_sampling.seed == 123
+    assert cfg.data.transforms.prompt_sampling.pools == {"ds1": str((prompt_dir / "pool.yaml").resolve())}
 
 
 def test_prompt_sampling_requires_pool_for_every_active_dataset(tmp_path: Path) -> None:
@@ -47,10 +48,11 @@ def test_prompt_sampling_requires_pool_for_every_active_dataset(tmp_path: Path) 
     )
     payload = f"""
 data:
-  prompt_sampling:
-    enabled: true
-    pools:
-      ds1: {prompt_path}
+  transforms:
+    prompt_sampling:
+      enabled: true
+      pools:
+        ds1: {prompt_path}
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -75,10 +77,11 @@ def test_prompt_sampling_does_not_require_pool_for_zero_weight_train_source(
     )
     payload = f"""
 data:
-  prompt_sampling:
-    enabled: true
-    pools:
-      ds1: {prompt_path}
+  transforms:
+    prompt_sampling:
+      enabled: true
+      pools:
+        ds1: {prompt_path}
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl

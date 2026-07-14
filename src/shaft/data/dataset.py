@@ -13,6 +13,7 @@ from torch.utils.data import Dataset
 
 from shaft.utils.qwen_pixel_budget import apply_qwen_pixel_budget
 
+from .planned import ShaftPlannedSampleRef
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 
 
@@ -115,8 +116,10 @@ class _BaseVisionDataset(Dataset):
     def _resolve_record(
         self,
         records: Sequence[Any] | dict[str, Sequence[Any]],
-        index: int | ShaftSampleRef,
+        index: int | ShaftSampleRef | ShaftPlannedSampleRef,
     ) -> tuple[Any, ShaftSampleRef | None]:
+        if isinstance(index, ShaftPlannedSampleRef):
+            index = index.sample_ref
         if isinstance(records, dict):
             if isinstance(index, ShaftSampleRef):
                 sample_ref = index
@@ -137,6 +140,17 @@ class _BaseVisionDataset(Dataset):
                 return records[names[source_index]][position - start], None
             return records[sample_ref.dataset_name][sample_ref.row_index], sample_ref
         return records[int(index)], None
+
+    @staticmethod
+    def _attach_batch_context(
+        sample: dict[str, Any],
+        index: int | ShaftSampleRef | ShaftPlannedSampleRef,
+    ) -> dict[str, Any]:
+        if not isinstance(index, ShaftPlannedSampleRef):
+            return sample
+        resolved = dict(sample)
+        resolved["_batch_context"] = index.batch_context.to_dict()
+        return resolved
 
 
 def _fit_image_to_pixel_budget(
@@ -214,14 +228,18 @@ class SFTDataset(_BaseVisionDataset):
         )
         return self._apply_online_transforms(sample)
 
-    def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
+    def __getitem__(
+        self,
+        index: int | ShaftSampleRef | ShaftPlannedSampleRef,
+    ) -> dict[str, Any]:
         record, sample_ref = self._resolve_record(self.records, index)
         sample = self._build_sample(
             record,
             sample_ref=sample_ref,
             image=self._load_image(record.image_path),
         )
-        return self._apply_online_transforms(sample)
+        sample = self._apply_online_transforms(sample)
+        return self._attach_batch_context(sample, index)
 
 
 class GRPODataset(Dataset):

@@ -19,7 +19,7 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
 
 ## 目标边界
 - 临时评测工具放在仓库根目录，目录名统一为 `<model-slug>-test/`。
-- 不把这类临时实验能力塞进 `src/shaft`、`src/shaft/webui`、`scripts/train.py` 或正式 CLI。
+- 不把这类临时实验能力塞进 `src/shaft`、`scripts/train.py` 或正式 CLI/UI surface。
 - 不复制一套训练、数据、checkpoint 语义。
 - 产物统一落在 `outputs/<model-slug>-test/`。
 

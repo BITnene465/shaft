@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from shaft.config import RuntimeConfig, load_config
+from shaft.config.normalize import normalize_runtime_config
 from shaft.observability import (
     bind_log_context,
     configure_logging,
@@ -115,7 +116,7 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
     if eval_batch_size is not None:
         eval_config.per_device_eval_batch_size = int(eval_batch_size)
     if mix_strategy is not None:
-        config.data.mix_strategy = str(mix_strategy)
+        config.data.schedule.mixing = str(mix_strategy)
     if optimizer_name is not None:
         train_config.optimizer_name = str(optimizer_name)
     if scheduler_name is not None:
@@ -155,11 +156,6 @@ def run_from_args(
 ) -> dict[str, Any]:
     config = load_config(args.config)
     config = apply_common_overrides(config, args)
-    config.experiment.run_id = resolve_run_id(config)
-    configure_logging(config.logging, run_id=config.experiment.run_id)
-    set_log_context(algorithm=config.algorithm.name)
-    logger = logging.getLogger(__name__)
-    logger.info("[startup] config loaded")
 
     algorithm_name = forced_algorithm
     if algorithm_name is None and hasattr(args, "algorithm") and args.algorithm is not None:
@@ -169,6 +165,13 @@ def run_from_args(
             allowed_sorted = ",".join(sorted(allowed_algorithms))
             raise ValueError(f"Unsupported algorithm={algorithm_name!r}. Allowed: {allowed_sorted}")
         config.algorithm.name = algorithm_name
+
+    config = normalize_runtime_config(config)
+    config.experiment.run_id = resolve_run_id(config)
+    configure_logging(config.logging, run_id=config.experiment.run_id)
+    set_log_context(algorithm=config.algorithm.name)
+    logger = logging.getLogger(__name__)
+    logger.info("[startup] config loaded")
 
     try:
         with bind_log_context(algorithm=config.algorithm.name):

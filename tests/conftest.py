@@ -15,6 +15,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     "framework": (
         "test_checkpointing.py",
         "test_batch_planning.py",
+        "test_batching_policies.py",
         "test_cli_commands.py",
         "test_cli_common.py",
         "test_codec.py",
@@ -55,6 +56,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_model_meta.py",
         "test_model_processor_policy.py",
         "test_model_registry.py",
+        "test_model_sequence_policy.py",
         "test_online_eval_aggregation.py",
         "test_online_eval_runner.py",
         "test_pipeline_registry.py",
@@ -76,11 +78,6 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
         "test_training_optimizer.py",
         "test_training_topology.py",
         "test_transforms.py",
-        "test_webui_app.py",
-        "test_webui_cli.py",
-        "test_webui_config_service.py",
-        "test_webui_controller.py",
-        "test_webui_train_service.py",
     ),
     "smoke": (
         "test_pipeline_rlhf_smoke.py",

@@ -317,7 +317,7 @@ uv run python -c 'from pathlib import Path; import yaml; [yaml.safe_load(p.read_
    - template/model
    - training/pipeline/checkpoint/export
    - infer/codec/metrics/online eval
-   - webui shell
+   - observability/progress contract
 5. 每批先列出“真实功能目标 -> 保留测试”，再删除或改写实现细节测试。
 6. 更新 branch protection 到 `framework-ci / framework-goals`。
 7. 删除旧 `eval-bench` shim。

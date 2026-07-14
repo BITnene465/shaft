@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +13,7 @@ from shaft.model import (
 )
 from shaft.model.policies import build_peft_policy, build_processor_policy
 from shaft.model.qwen3vl import _resolve_attn_implementation
+from shaft.model.generation import align_model_generation_config
 from shaft.template import resolve_template_meta
 
 
@@ -32,6 +34,24 @@ def test_qwen3vl_meta_exposes_family_and_policies() -> None:
     assert model_meta.additional_saved_files == ()
     assert len(model_meta.model_groups) == 1
     assert model_meta.candidate_templates == ("qwen3vl",)
+
+
+def test_generation_alignment_accepts_a_scalar_existing_eos_token() -> None:
+    target = SimpleNamespace(
+        config=SimpleNamespace(eos_token_id=None, bos_token_id=None, pad_token_id=None),
+        generation_config=SimpleNamespace(
+            do_sample=False,
+            eos_token_id=2,
+            bos_token_id=None,
+            pad_token_id=None,
+        ),
+    )
+    tokenizer = SimpleNamespace(eos_token_id=2, bos_token_id=1, pad_token_id=0)
+
+    align_model_generation_config(target, tokenizer=tokenizer)
+
+    assert target.config.eos_token_id == 2
+    assert target.generation_config.eos_token_id == [2]
 
 
 def test_qwen35vl_meta_exposes_family_and_policies() -> None:
@@ -176,6 +196,12 @@ def test_qwen3vl_flash_attention_falls_back_without_flash_attn() -> None:
         with pytest.warns(UserWarning, match="flash-attn"):
             resolved = _resolve_attn_implementation("flash_attention_2")
     assert resolved is None
+
+
+def test_qwen3vl_required_flash_attention_never_silently_falls_back() -> None:
+    with patch("shaft.model.qwen3vl.importlib.util.find_spec", return_value=None):
+        with pytest.raises(ImportError, match="varlen.*flash-attn"):
+            _resolve_attn_implementation("flash_attention_2", required=True)
 
 
 def test_model_meta_can_resolve_template_meta() -> None:

@@ -22,7 +22,10 @@ def write_config_yaml(
         parsed = yaml.safe_load(payload) or {}
         data = parsed.setdefault("data", {})
         batching = data.setdefault("batching", {})
-        batching.setdefault("strategy", "fixed")
+        batching.setdefault("grouping", "none")
+        batching.setdefault("cardinality", "fixed")
+        batching.setdefault("packing", {"mode": "none"})
+        batching.setdefault("layout", "padded")
         payload = yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True)
     config_path.write_text(payload, encoding="utf-8")
     return config_path
@@ -65,9 +68,9 @@ def write_sft_smoke_config(
     val_size: int = 1,
     online_eval: bool = False,
     distributed: bool = False,
-    bounded_cost_aware: bool = False,
-    bounded_max_samples_per_microbatch: int = 5,
-    bounded_max_padded_tokens: int = 512,
+    bounded_cost_grouping: bool = False,
+    bounded_cardinality: str = "fixed",
+    bounded_max_tokens_per_microbatch: int = 512,
     per_device_train_batch_size: int = 1,
     gradient_accumulation_steps: int = 1,
     train_steps: int = 1,
@@ -86,22 +89,30 @@ def write_sft_smoke_config(
     )
     eval_block = _sft_eval_block(online_eval=online_eval)
     target_modules = '    target_modules: ["all-linear"]\n' if not distributed else ""
-    if bounded_cost_aware:
+    if bounded_cost_grouping:
         buffer_size = max(8, 2 if distributed else 1)
         batching_block = (
             "  batching:\n"
-            "    strategy: bounded_cost_aware\n"
+            "    grouping: bounded_cost\n"
+            f"    cardinality: {bounded_cardinality}\n"
+            "    packing:\n"
+            "      mode: none\n"
+            "    layout: padded\n"
             f"    buffer_size: {buffer_size}\n"
             "    cost_cache_size: 32\n"
-            f"    max_samples_per_microbatch: {bounded_max_samples_per_microbatch}\n"
-            f"    max_padded_tokens: {bounded_max_padded_tokens}\n"
-            "  mix_strategy: concat\n"
-            "  shuffle: false\n"
+            f"    max_tokens_per_microbatch: {bounded_max_tokens_per_microbatch}\n"
+            "  schedule:\n"
+            "    mixing: concat\n"
+            "    shuffle: false\n"
         )
     else:
         batching_block = (
             "  batching:\n"
-            "    strategy: fixed\n"
+            "    grouping: none\n"
+            "    cardinality: fixed\n"
+            "    packing:\n"
+            "      mode: none\n"
+            "    layout: padded\n"
         )
     cfg.write_text(
         f"""

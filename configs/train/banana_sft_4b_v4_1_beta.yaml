@@ -32,7 +32,11 @@ algorithm:
 
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: ../data/banana_v4_1_beta.yaml
   catalog_names:
     - grounding_arrow
@@ -42,18 +46,21 @@ data:
     - point_arrow
     - lin_point_arrow_style
     - drawio_shape
-  prompt_sampling:
-    enabled: true
-    train_only: true
-    pools:
-      grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
-      grounding_layout: ../prompts/pools/grounding_layout.v2.4.yaml
-      grounding_shape: ../prompts/pools/grounding_shape.v2.4.yaml
-      grounding_icon_image: ../prompts/pools/grounding_icon_image.v2.4.yaml
-      point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
-      lin_point_arrow_style: ../prompts/pools/point_arrow_style.v2.4.yaml
-      drawio_shape: ../prompts/pools/drawio_shape.v4.0.yaml
-  mix_strategy: weighted
+  transforms:
+    prompt_sampling:
+      enabled: true
+      train_only: true
+      pools:
+        grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
+        grounding_layout: ../prompts/pools/grounding_layout.v2.4.yaml
+        grounding_shape: ../prompts/pools/grounding_shape.v2.4.yaml
+        grounding_icon_image: ../prompts/pools/grounding_icon_image.v2.4.yaml
+        point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
+        lin_point_arrow_style: ../prompts/pools/point_arrow_style.v2.4.yaml
+        drawio_shape: ../prompts/pools/drawio_shape.v4.0.yaml
+  schedule:
+    mixing: weighted
+    shuffle: true
   num_workers: 4
   pin_memory: true
   persistent_workers: true
@@ -61,7 +68,6 @@ data:
   max_pixels: 2000000
   max_length: 5500
   add_eos_token: true
-  shuffle: true
 
 train:
   duration:

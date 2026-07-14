@@ -76,28 +76,29 @@ def _align_special_tokens(target: Any, tokenizer: Any) -> None:
     root_config = getattr(target, "config", target)
 
     tokenizer_has_new_eos = tokenizer_eos != getattr(root_config, "eos_token_id", None)
-    existing_generation_eos = None
+    existing_generation_eos: list[int] = []
     if model_has_generation_config:
-        existing_generation_eos = getattr(generation_config, "eos_token_id", None)
-        if existing_generation_eos is None:
-            tokenizer_has_new_eos |= tokenizer_eos != existing_generation_eos
-        elif isinstance(existing_generation_eos, int):
-            if tokenizer_eos != existing_generation_eos:
-                generation_config.eos_token_id = [existing_generation_eos]
-            tokenizer_has_new_eos |= tokenizer_eos != existing_generation_eos
+        raw_generation_eos = getattr(generation_config, "eos_token_id", None)
+        if raw_generation_eos is None:
+            tokenizer_has_new_eos |= tokenizer_eos is not None
+        elif isinstance(raw_generation_eos, int):
+            existing_generation_eos = [int(raw_generation_eos)]
+            tokenizer_has_new_eos |= tokenizer_eos not in existing_generation_eos
         else:
-            existing_generation_eos = list(existing_generation_eos)
+            existing_generation_eos = [
+                int(token) for token in raw_generation_eos if token is not None
+            ]
             tokenizer_has_new_eos |= tokenizer_eos not in existing_generation_eos
     if tokenizer_has_new_eos:
         root_config.eos_token_id = tokenizer_eos
         if model_has_generation_config:
-            eos_tokens = []
-            current_generation_eos = getattr(generation_config, "eos_token_id", None)
-            if current_generation_eos is not None:
-                eos_tokens = list(current_generation_eos)
-            generation_config.eos_token_id = [
-                token for token in [tokenizer_eos, *eos_tokens] if token is not None
-            ]
+            generation_config.eos_token_id = list(
+                dict.fromkeys(
+                    token
+                    for token in [tokenizer_eos, *existing_generation_eos]
+                    if token is not None
+                )
+            )
 
     tokenizer_has_new_bos = tokenizer_bos != getattr(root_config, "bos_token_id", None)
     if model_has_generation_config:

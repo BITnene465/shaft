@@ -40,7 +40,11 @@ algorithm:
   name: dpo
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: dpo_ds
       source_type: jsonl_dpo
@@ -108,7 +112,11 @@ algorithm:
   name: ppo
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ppo_ds
       source_type: jsonl_ppo
@@ -182,7 +190,11 @@ algorithm:
   name: grpo
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: grpo_ds
       source_type: jsonl_sft

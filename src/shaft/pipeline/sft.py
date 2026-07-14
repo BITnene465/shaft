@@ -15,10 +15,11 @@ from shaft.config import RuntimeConfig
 from shaft.data import (
     SFTCollator,
     SFTDataset,
-    ShaftBoundedBatchSampler,
-    ShaftBoundedBatchPlanner,
-    ShaftBoundedBatchingSpec,
-    ShaftBoundedBatchingState,
+    ShaftPlannedBatchSampler,
+    ShaftBatchPlanner,
+    ShaftBatchPlanningSpec,
+    ShaftBatchPlanningState,
+    ShaftBatchMicrobatchPlan,
     ShaftDataCenter,
     ShaftSFTSampleCostProvider,
     validate_sft_cost_model_adapter,
@@ -26,6 +27,7 @@ from shaft.data import (
 )
 from shaft.model import (
     build_model_tokenizer_processor,
+    resolve_model_adapter_from_config,
     summarize_resolved_finetune_plan,
     write_resolved_finetune_summary,
 )
@@ -38,12 +40,16 @@ from shaft.plugins import (
     build_interceptor_manager,
 )
 from shaft.training.batch_planning import (
+    ShaftBatchContract,
     ShaftBatchingMetadataCallback,
-    ShaftBoundedBatchingCallback,
-    build_bounded_resume_contract_fingerprint,
+    ShaftBatchPlanningCallback,
+    build_batch_contract,
+    build_batch_planning_resume_contract_fingerprint,
     build_batching_run_metadata,
-    load_bounded_batching_state,
+    load_batch_planning_state,
     publish_batching_run_metadata,
+    validate_batching_resume_contract,
+    validate_batch_planning_resume_contract,
 )
 from shaft.training.epoch_interval_callback import ShaftEpochIntervalCallback
 from shaft.training.online_eval import ShaftOnlineEvalRunner
@@ -65,7 +71,7 @@ from shaft.training.distributed import (
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import build_hf_training_args, resolve_step_sample_budget
+from .training_args import build_hf_training_args
 
 
 logger = logging.getLogger(__name__)
@@ -82,7 +88,7 @@ def _checkpoint_global_step(checkpoint: str | Path) -> int:
     return global_step
 
 
-def _build_bounded_batch_sampler(
+def _build_planned_batch_sampler(
     *,
     config: RuntimeConfig,
     training_args: TrainingArguments,
@@ -90,16 +96,19 @@ def _build_bounded_batch_sampler(
     train_schedule: Any,
     artifacts: Any,
     resume_checkpoint: str | None,
-) -> tuple[ShaftBoundedBatchSampler, ShaftBoundedBatchingSpec]:
+    resume_contract_fingerprint: str | None,
+    batch_contract: ShaftBatchContract,
+) -> tuple[ShaftPlannedBatchSampler, ShaftBatchPlanningSpec]:
     local_error: Exception | None = None
     provider: ShaftSFTSampleCostProvider | None = None
-    spec: ShaftBoundedBatchingSpec | None = None
-    initial_state: ShaftBoundedBatchingState | None = None
+    spec: ShaftBatchPlanningSpec | None = None
+    initial_state: ShaftBatchPlanningState | None = None
     preflight_fingerprint: str | None = None
+    preflight_plan: ShaftBatchMicrobatchPlan | None = None
     try:
         if train_schedule is None or not hasattr(train_schedule, "ref_at"):
             raise TypeError(
-                "bounded_cost_aware SFT requires Shaft's horizon-independent "
+                "Planned grouping requires Shaft's horizon-independent "
                 "sample schedule."
             )
         validate_sft_cost_dataset(train_dataset)
@@ -115,31 +124,34 @@ def _build_bounded_batch_sampler(
             max_length=config.data.max_length,
             add_eos_token=config.data.add_eos_token,
             loss_scale_name=config.train.loss_scale,
-            cache_size=config.data.batching.cost_cache_size,
+            cache_size=int(config.data.batching.cost_cache_size),
         )
-        max_padded_tokens = config.data.batching.max_padded_tokens
-        max_samples = config.data.batching.max_samples_per_microbatch
-        if max_padded_tokens is None or max_samples is None:
+        max_tokens = batch_contract.local_token_capacity
+        if max_tokens is None:
             raise ValueError(
-                "bounded_cost_aware requires normalized max_padded_tokens and "
-                "max_samples_per_microbatch."
+                "Planned grouping requires a resolved local token capacity."
             )
-        spec = ShaftBoundedBatchingSpec(
-            data_world_size=max(int(training_args.world_size), 1),
-            buffer_size=int(config.data.batching.buffer_size),
-            max_samples_per_microbatch=int(max_samples),
-            max_padded_tokens=int(max_padded_tokens),
-            max_vision_patches=config.data.batching.max_vision_patches,
+        spec = ShaftBatchPlanningSpec(
+            grouping=batch_contract.grouping,
+            packing=batch_contract.packing,
+            layout=batch_contract.layout,
+            max_sequence_length=batch_contract.max_sequence_length,
+            data_world_size=batch_contract.data_world_size,
+            buffer_size=int(batch_contract.buffer_size or 0),
+            cardinality=batch_contract.cardinality,
+            per_device_microbatch_size=batch_contract.per_device_microbatch_size,
+            max_tokens_per_microbatch=int(max_tokens),
+            resource_budgets=batch_contract.resource_budgets,
             seed=int(config.experiment.seed),
             sample_schedule_fingerprint=str(train_schedule.fingerprint),
             cost_fingerprint=str(provider.fingerprint),
         )
         if resume_checkpoint is not None:
-            resume_contract_fingerprint = build_bounded_resume_contract_fingerprint(
-                config=config,
-                training_args=training_args,
-            )
-            initial_state = load_bounded_batching_state(
+            if not resume_contract_fingerprint:
+                raise ValueError(
+                    "Planned resume requires a resolved training contract fingerprint."
+                )
+            initial_state = load_batch_planning_state(
                 resume_checkpoint,
                 expected_spec=spec,
                 expected_global_step=_checkpoint_global_step(resume_checkpoint),
@@ -152,18 +164,18 @@ def _build_bounded_batch_sampler(
                 resolved_cost = provider(buffered.sample_ref)
                 if resolved_cost != buffered.cost:
                     raise ValueError(
-                        "Bounded batching resume detected changed cost for buffered "
+                        "Batch-planning resume detected changed cost for buffered "
                         f"draw_id={buffered.sample_ref.context.draw_id}; source media, "
                         "prompt transforms, or cost semantics changed in place."
                     )
         if int(training_args.world_size) > 1:
-            preflight = ShaftBoundedBatchPlanner(
+            preflight_plan = ShaftBatchPlanner(
                 schedule=train_schedule,
                 cost_provider=provider,
                 spec=spec,
                 state=initial_state,
             ).next_global_microbatch()
-            preflight_fingerprint = preflight.fingerprint
+            preflight_fingerprint = preflight_plan.fingerprint
     except Exception as exc:  # noqa: BLE001 - every rank must reach startup gather
         local_error = exc
 
@@ -180,17 +192,17 @@ def _build_bounded_batch_sampler(
         if local_error is not None:
             raise local_error
         raise RuntimeError(
-            f"Bounded batching startup failed on a peer rank: {failures!r}."
+            f"Batch planning startup failed on a peer rank: {failures!r}."
         )
     contracts = {str(item["contract_fingerprint"]) for item in statuses}
     if len(contracts) != 1:
         raise ValueError(
-            f"Bounded batching contract differs across data ranks: {statuses!r}."
+            f"Batch-planning contract differs across data ranks: {statuses!r}."
         )
     plans = {str(item["preflight_fingerprint"]) for item in statuses}
     if int(training_args.world_size) > 1 and len(plans) != 1:
         raise ValueError(
-            "Bounded batching first-buffer costs or plans differ across data ranks; "
+            "First-buffer costs or plans differ across data ranks; "
             "verify immutable media mounts and data snapshots."
         )
     assert provider is not None and spec is not None
@@ -199,7 +211,7 @@ def _build_bounded_batch_sampler(
         # HF must not replay its own local-batch skip on top of that state.
         training_args.ignore_data_skip = True
 
-    sampler = ShaftBoundedBatchSampler(
+    sampler = ShaftPlannedBatchSampler(
         train_schedule,
         cost_provider=provider,
         spec=spec,
@@ -209,13 +221,14 @@ def _build_bounded_batch_sampler(
         ),
         planning_frame_size=int(training_args.gradient_accumulation_steps),
         initial_state=initial_state,
+        preflight_plan=preflight_plan,
     )
     return sampler, spec
 
 
 @register_pipeline("shaft_sft")
 class ShaftSFTPipeline:
-    """HF-first SFT pipeline with a bounded, lazy cost-aware data path."""
+    """HF-first SFT pipeline with optional lazy global batch planning."""
 
     def __init__(self, config: RuntimeConfig):
         self.config = config
@@ -253,21 +266,87 @@ class ShaftSFTPipeline:
             full_determinism=config.train.full_determinism,
         )
         training_args = self.build_training_args()
-        bounded = config.data.batching.strategy == "bounded_cost_aware"
+        batch_contract = build_batch_contract(
+            config=config,
+            training_args=training_args,
+        )
+        sequence_adapter = resolve_model_adapter_from_config(config)
+        sequence_execution_contract = (
+            sequence_adapter.build_sequence_execution_contract(
+                layout=batch_contract.layout,
+                device_type="cpu" if bool(config.train.use_cpu) else "cuda",
+                attention_implementation=config.model.attn_implementation,
+                torch_dtype=config.model.torch_dtype,
+                distributed_strategy=config.train.distributed.strategy,
+                torch_compile=bool(getattr(training_args, "torch_compile", False)),
+            )
+        )
         logger.info(
-            "[batching] strategy=%s buffer_size=%s cost_cache_size=%s "
-            "per_device_batch=%s data_world_size=%s gradient_accumulation=%s "
-            "max_samples=%s max_padded_tokens=%s max_vision_patches=%s "
+            "[sequence-contract] model=%s layout=%s device=%s attention=%s "
+            "dtype=%s distributed=%s compile=%s fingerprint=%s",
+            config.model.model_type,
+            sequence_execution_contract.layout,
+            sequence_execution_contract.device_type,
+            sequence_execution_contract.attention_implementation,
+            sequence_execution_contract.torch_dtype,
+            sequence_execution_contract.distributed_strategy,
+            sequence_execution_contract.torch_compile,
+            sequence_execution_contract.fingerprint,
+        )
+        planned = batch_contract.is_planned
+        planning_resume_contract = (
+            build_batch_planning_resume_contract_fingerprint(
+                config=config,
+                training_args=training_args,
+                batch_contract=batch_contract,
+                sequence_execution_contract_fingerprint=(
+                    sequence_execution_contract.fingerprint
+                ),
+            )
+            if planned
+            else None
+        )
+        resume_checkpoint = resolve_resume_checkpoint(
+            config.train.resume_from_checkpoint,
+            require_planning_state=planned,
+        )
+        if resume_checkpoint is not None:
+            validate_resume_checkpoint(
+                resume_checkpoint,
+                finetune_mode=config.model.finetune.mode,
+            )
+            validate_batching_resume_contract(
+                resume_checkpoint,
+                expected_contract=batch_contract,
+            )
+            if planned:
+                if planning_resume_contract is None:
+                    raise RuntimeError(
+                        "Batch-planning training contract fingerprint was not resolved."
+                    )
+                validate_batch_planning_resume_contract(
+                    resume_checkpoint,
+                    expected_resume_contract_fingerprint=planning_resume_contract,
+                )
+        logger.info(
+            "[batch-contract] grouping=%s cardinality=%s packing=%s layout=%s "
+            "local_pack_range=%s global_pack_range=%s "
+            "gradient_accumulation=%s optimizer_pack_range=%s "
+            "buffer_size=%s cost_cache_size=%s max_tokens=%s "
+            "resource_budgets=%s "
             "min_pixels=%s max_pixels=%s",
-            config.data.batching.strategy,
-            config.data.batching.buffer_size if bounded else None,
-            config.data.batching.cost_cache_size if bounded else None,
-            training_args.per_device_train_batch_size,
-            training_args.world_size,
-            training_args.gradient_accumulation_steps,
-            config.data.batching.max_samples_per_microbatch,
-            config.data.batching.max_padded_tokens,
-            config.data.batching.max_vision_patches,
+            batch_contract.grouping,
+            batch_contract.cardinality,
+            batch_contract.packing,
+            batch_contract.layout,
+            batch_contract.local_pack_count_bounds,
+            batch_contract.global_pack_count_bounds,
+            batch_contract.gradient_accumulation_steps,
+            batch_contract.optimizer_pack_count_bounds,
+            batch_contract.buffer_size,
+            config.data.batching.cost_cache_size if planned else None,
+            batch_contract.local_token_capacity,
+            dict(batch_contract.resource_budgets),
             config.data.min_pixels,
             config.data.max_pixels,
         )
@@ -276,9 +355,8 @@ class ShaftSFTPipeline:
             data_center = ShaftDataCenter(
                 config.data,
                 seed=config.experiment.seed,
-                train_sample_budget=resolve_step_sample_budget(
-                    config,
-                    world_size=training_args.world_size,
+                train_sample_budget=batch_contract.finite_sample_plan_size(
+                    max_steps=training_args.max_steps,
                 ),
             )
             dataset_bundle = data_center.build_dataset_bundle(SFTDataset)
@@ -286,21 +364,16 @@ class ShaftSFTPipeline:
         train_sampler = dataset_bundle.train_sampler
         train_schedule = dataset_bundle.train_schedule
 
-        resume_checkpoint = resolve_resume_checkpoint(
-            config.train.resume_from_checkpoint,
-            require_bounded_state=bounded,
-        )
-        if resume_checkpoint is not None:
-            validate_resume_checkpoint(
-                resume_checkpoint,
-                finetune_mode=config.model.finetune.mode,
-            )
-
         with self._progress_phase("startup.model", label="model", message="loading"):
             artifacts = build_model_tokenizer_processor(
                 config,
                 init_from_checkpoint=config.train.init_from_checkpoint,
+                sequence_execution_contract=sequence_execution_contract,
             )
+        artifacts.model_adapter.validate_sequence_execution(
+            model=artifacts.model,
+            contract=sequence_execution_contract,
+        )
         align_model_generation_config(
             artifacts.model,
             tokenizer=artifacts.tokenizer,
@@ -324,23 +397,26 @@ class ShaftSFTPipeline:
                 )
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
 
-        train_batch_sampler: ShaftBoundedBatchSampler | None = None
-        bounded_spec: ShaftBoundedBatchingSpec | None = None
-        if bounded:
-            train_batch_sampler, bounded_spec = _build_bounded_batch_sampler(
+        train_batch_sampler: ShaftPlannedBatchSampler | None = None
+        planning_spec: ShaftBatchPlanningSpec | None = None
+        if planned:
+            train_batch_sampler, planning_spec = _build_planned_batch_sampler(
                 config=config,
                 training_args=training_args,
                 train_dataset=train_dataset,
                 train_schedule=train_schedule,
                 artifacts=artifacts,
                 resume_checkpoint=resume_checkpoint,
+                resume_contract_fingerprint=planning_resume_contract,
+                batch_contract=batch_contract,
             )
             train_sampler = None
 
         batching_metadata = build_batching_run_metadata(
             config=config,
             training_args=training_args,
-            bounded_spec=bounded_spec,
+            planning_spec=planning_spec,
+            batch_contract=batch_contract,
         )
         publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
         logger.info("[batching-metadata] %s", batching_metadata.to_dict())
@@ -361,19 +437,19 @@ class ShaftSFTPipeline:
             eval_dataset = dataset_bundle.eval_datasets_by_name
 
         callbacks: list[Any] = [ShaftBatchingMetadataCallback(batching_metadata)]
-        if train_batch_sampler is not None and bounded_spec is not None:
-            bounded_resume_contract = build_bounded_resume_contract_fingerprint(
-                config=config,
-                training_args=training_args,
-            )
+        if train_batch_sampler is not None and planning_spec is not None:
+            if planning_resume_contract is None:
+                raise RuntimeError(
+                    "Batch-planning training contract fingerprint was not resolved."
+                )
             callbacks.append(
-                ShaftBoundedBatchingCallback(
+                ShaftBatchPlanningCallback(
                     train_batch_sampler,
-                    bounded_spec,
+                    planning_spec,
                     gradient_accumulation_steps=int(
                         training_args.gradient_accumulation_steps
                     ),
-                    resume_contract_fingerprint=bounded_resume_contract,
+                    resume_contract_fingerprint=planning_resume_contract,
                 )
             )
         if self.progress_manager.enabled:
@@ -411,6 +487,23 @@ class ShaftSFTPipeline:
             include_targets_in_inputs=True,
             include_metadata=False,
             loss_scale_name=config.train.loss_scale,
+            layout=batch_contract.layout,
+            packing_mode=batch_contract.packing,
+        )
+        eval_collator = SFTCollator(
+            model_adapter=artifacts.model_adapter,
+            template=artifacts.template,
+            processor=artifacts.processor,
+            tokenizer=artifacts.tokenizer,
+            min_pixels=config.data.min_pixels,
+            max_pixels=config.data.max_pixels,
+            max_length=config.data.max_length,
+            add_eos_token=config.data.add_eos_token,
+            include_targets_in_inputs=True,
+            include_metadata=False,
+            loss_scale_name=config.train.loss_scale,
+            layout="padded",
+            packing_mode="none",
         )
         online_eval_runner = None
         if config.eval.enabled and config.eval.online_metrics_enabled:
@@ -444,6 +537,7 @@ class ShaftSFTPipeline:
             train_batch_sampler=train_batch_sampler,
             processing_class=artifacts.processor,
             data_collator=collator,
+            eval_data_collator=eval_collator,
             callbacks=callbacks,
             online_eval_runner=online_eval_runner,
             eval_config=config.eval,

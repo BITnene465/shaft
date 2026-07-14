@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from shaft.plugins import Registry
+import torch
 from transformers import __version__ as transformers_version
 
 from .types import (
     DefaultPeftPolicy,
     PeftPolicy,
     ProcessorPolicy,
+    ShaftMediaSegmentManifest,
+    ShaftMediaSlice,
     ShaftProcessedBatch,
+    ShaftProcessorMediaManifest,
     ShaftProcessorCostEstimate,
     ShaftProcessorTokenLayout,
 )
@@ -19,6 +23,123 @@ from .types import (
 
 @dataclass(frozen=True)
 class QwenVLProcessorPolicy(ProcessorPolicy):
+    def build_batch(
+        self,
+        *,
+        processor: Any,
+        tokenizer: Any | None,
+        prompt_texts: list[str],
+        images: list[Any],
+        min_pixels: int | None,
+        max_pixels: int | None,
+        padding_side: str | None = None,
+    ) -> ShaftProcessedBatch:
+        processed_batch = super().build_batch(
+            processor=processor,
+            tokenizer=tokenizer,
+            prompt_texts=prompt_texts,
+            images=images,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            padding_side=padding_side,
+        )
+        media_manifest = self._build_image_media_manifest(
+            processed_batch,
+            images=images,
+        )
+        if media_manifest is None:
+            return processed_batch
+        return replace(processed_batch, media_manifest=media_manifest)
+
+    @staticmethod
+    def _has_payload(value: Any) -> bool:
+        if value is None:
+            return False
+        if torch.is_tensor(value):
+            return bool(value.numel())
+        if isinstance(value, (list, tuple)):
+            return bool(value)
+        return True
+
+    def _build_image_media_manifest(
+        self,
+        processed_batch: ShaftProcessedBatch,
+        *,
+        images: list[Any],
+    ) -> ShaftProcessorMediaManifest | None:
+        model_inputs = processed_batch.model_inputs
+        if self._has_payload(model_inputs.get("video_grid_thw")) or self._has_payload(
+            model_inputs.get("pixel_values_videos")
+        ):
+            # Video remains valid for the ordinary padded path. The varlen execution
+            # policy requires an image-only manifest and rejects its absence explicitly.
+            return None
+
+        image_grid_thw = model_inputs.get("image_grid_thw")
+        pixel_values = model_inputs.get("pixel_values")
+        if image_grid_thw is None and pixel_values is None:
+            return None
+        if image_grid_thw is None or pixel_values is None:
+            # Some padded-only adapters expose an opaque pixel tensor without Qwen's
+            # grid metadata. They remain valid for the ordinary padded path, but
+            # cannot create the manifest required by varlen execution.
+            return None
+        if not torch.is_tensor(image_grid_thw) or not torch.is_tensor(pixel_values):
+            raise ValueError("Qwen VL media layout fields must be tensors.")
+        if image_grid_thw.ndim != 2 or tuple(image_grid_thw.shape[1:]) != (3,):
+            raise ValueError("Qwen VL image_grid_thw must have shape [num_images, 3].")
+        row_image_counts = tuple(
+            len(row_images)
+            if isinstance(row_images, (list, tuple))
+            else 0
+            if row_images is None
+            else 1
+            for row_images in images
+        )
+        if len(row_image_counts) != processed_batch.batch_size:
+            raise ValueError("Qwen VL image rows must align with the processor batch.")
+        if int(image_grid_thw.shape[0]) != sum(row_image_counts):
+            raise ValueError(
+                "Qwen VL image grid count does not match the images supplied per "
+                "processor row."
+            )
+        if pixel_values.ndim < 1:
+            raise ValueError("Qwen VL pixel_values must expose a leading image-patch axis.")
+
+        grid_patch_counts = image_grid_thw.to(dtype=torch.long, device="cpu").prod(dim=1)
+        if bool((grid_patch_counts <= 0).any()):
+            raise ValueError("Qwen VL image_grid_thw entries must have positive dimensions.")
+        expected_patch_count = int(grid_patch_counts.sum().item())
+        actual_patch_count = int(pixel_values.shape[0])
+        if actual_patch_count != expected_patch_count:
+            raise ValueError(
+                "Qwen VL image patch count does not match image_grid_thw: "
+                f"pixel_values={actual_patch_count}, grid_product={expected_patch_count}."
+            )
+
+        patch_cursor = 0
+        grid_cursor = 0
+        segments: list[ShaftMediaSegmentManifest] = []
+        patch_counts = tuple(int(value) for value in grid_patch_counts.tolist())
+        for row_index, image_count in enumerate(row_image_counts):
+            grid_stop = grid_cursor + int(image_count)
+            patch_count = sum(patch_counts[grid_cursor:grid_stop])
+            patch_stop = patch_cursor + int(patch_count)
+            segments.append(
+                ShaftMediaSegmentManifest(
+                    processor_row_index=row_index,
+                    image_grids=ShaftMediaSlice(grid_cursor, grid_stop),
+                    image_patches=ShaftMediaSlice(patch_cursor, patch_stop),
+                )
+            )
+            grid_cursor = grid_stop
+            patch_cursor = patch_stop
+        return ShaftProcessorMediaManifest(
+            segments=tuple(segments),
+            image_grid_count=int(image_grid_thw.shape[0]),
+            image_patch_count=actual_patch_count,
+        )
+
     def _validate_pixel_budget_contract(
         self,
         *,

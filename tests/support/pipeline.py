@@ -52,7 +52,11 @@ experiment:
   output_dir: {tmp_path}/out
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds
       train_path: {train_jsonl}

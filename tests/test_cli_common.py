@@ -5,11 +5,29 @@ from unittest.mock import patch
 import pytest
 
 from shaft.cli.common import apply_common_overrides, run_from_args
-from shaft.config import RuntimeConfig
+from shaft.config import DatasetSourceConfig, RuntimeConfig
 from tests.support.cli import build_common_train_args
 
 
 pytestmark = pytest.mark.component
+
+
+def _valid_runtime_config() -> RuntimeConfig:
+    config = RuntimeConfig()
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="fixture",
+            train_paths=["train.jsonl"],
+            val_paths=["val.jsonl"],
+        )
+    ]
+    return config
+
+
+def _enable_bounded_batching(config: RuntimeConfig) -> None:
+    config.data.media_snapshot_id = "cli-fixture-v1"
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.max_tokens_per_microbatch = 1024
 
 
 def test_apply_common_overrides() -> None:
@@ -45,7 +63,7 @@ def test_apply_common_overrides() -> None:
     assert out.train.learning_rate == pytest.approx(2.5e-5)
     assert out.train.per_device_train_batch_size == 2
     assert out.eval.per_device_eval_batch_size == 4
-    assert out.data.mix_strategy == "concat"
+    assert out.data.schedule.mixing == "concat"
     assert out.train.optimizer_name == "adamw_torch"
     assert out.train.scheduler_name == "cosine_with_restarts"
     assert out.train.scheduler_num_cycles == pytest.approx(2.0)
@@ -77,7 +95,7 @@ def test_apply_common_overrides_rejects_non_positive_steps() -> None:
 
 def test_run_from_args_forced_algorithm() -> None:
     args = build_common_train_args()
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_sft", return_value={"train_loss": 0.1}) as mocked:
             run_from_args(args, forced_algorithm="sft")
@@ -87,7 +105,7 @@ def test_run_from_args_forced_algorithm() -> None:
 
 def test_run_from_args_resolves_one_run_id_for_logging_and_pipeline() -> None:
     args = build_common_train_args()
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     cfg.experiment.name = "canonical-run"
     cfg.experiment.run_id = None
     with patch("shaft.cli.common.load_config", return_value=cfg):
@@ -104,7 +122,8 @@ def test_run_from_args_resolves_one_run_id_for_logging_and_pipeline() -> None:
 
 def test_run_from_args_allowed_algorithms() -> None:
     args = build_common_train_args(algorithm="ppo")
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
+    cfg.data.datasets[0].source_type = "jsonl_ppo"
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
@@ -114,7 +133,7 @@ def test_run_from_args_allowed_algorithms() -> None:
 
 def test_run_from_args_supports_grpo() -> None:
     args = build_common_train_args(algorithm="grpo")
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
@@ -124,7 +143,35 @@ def test_run_from_args_supports_grpo() -> None:
 
 def test_run_from_args_rejects_disallowed_algorithm() -> None:
     args = build_common_train_args(algorithm="sft")
-    cfg = RuntimeConfig()
+    cfg = _valid_runtime_config()
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with pytest.raises(ValueError):
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
+
+
+def test_run_from_args_revalidates_bounded_duration_override() -> None:
+    args = build_common_train_args(epochs=1)
+    config = _valid_runtime_config()
+    _enable_bounded_batching(config)
+
+    with patch("shaft.cli.common.load_config", return_value=config):
+        with patch("shaft.cli.common.run_sft") as run_sft:
+            with pytest.raises(ValueError, match="requires train.duration.unit='steps'"):
+                run_from_args(args, forced_algorithm="sft")
+
+    run_sft.assert_not_called()
+
+
+def test_run_from_args_revalidates_schedule_mixing_override() -> None:
+    args = build_common_train_args(mix_strategy="weighted")
+    config = _valid_runtime_config()
+    _enable_bounded_batching(config)
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+
+    with patch("shaft.cli.common.load_config", return_value=config):
+        with patch("shaft.cli.common.run_sft") as run_sft:
+            with pytest.raises(ValueError, match="requires data.schedule.shuffle=true"):
+                run_from_args(args, forced_algorithm="sft")
+
+    run_sft.assert_not_called()

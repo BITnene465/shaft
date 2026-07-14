@@ -20,8 +20,8 @@ from shaft.data import (
     SFTCollator,
     SFTDataset,
     SFTRecord,
-    ShaftBoundedBatchPlanner,
-    ShaftBoundedBatchingSpec,
+    ShaftBatchPlanner,
+    ShaftBatchPlanningSpec,
     ShaftSamplePlan,
     ShaftSFTSampleCostProvider,
 )
@@ -205,19 +205,19 @@ def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
         **common_kwargs,
     )
     costs = tuple(cost_provider(plan.ref_at(index)) for index in range(len(plan)))
-    max_padded_tokens = 3 * max(cost.llm_tokens for cost in costs)
-    max_vision_patches = sum(cost.vision_patches for cost in costs)
-    planning_spec = ShaftBoundedBatchingSpec(
+    max_tokens_per_microbatch = 2 * max(cost.llm_tokens for cost in costs)
+    vision_patch_budget = sum(cost.vision_patches for cost in costs)
+    planning_spec = ShaftBatchPlanningSpec(
         data_world_size=2,
         buffer_size=4,
-        max_samples_per_microbatch=3,
-        max_padded_tokens=max_padded_tokens,
-        max_vision_patches=max_vision_patches,
+        per_device_microbatch_size=2,
+        max_tokens_per_microbatch=max_tokens_per_microbatch,
+        resource_budgets=(("vision_patches", vision_patch_budget),),
         seed=7,
         sample_schedule_fingerprint=plan.schedule.fingerprint,
         cost_fingerprint=cost_provider.fingerprint,
     )
-    planner = ShaftBoundedBatchPlanner(
+    planner = ShaftBatchPlanner(
         schedule=plan.schedule,
         cost_provider=cost_provider,
         spec=planning_spec,
@@ -234,9 +234,11 @@ def test_qwen3vl_bounded_planner_hard_caps_match_heterogeneous_real_batches(
         assert int(actual["image_grid_thw"].prod(dim=-1).sum()) == (
             local_batch.vision_patches
         )
-        assert len(local_batch.sample_refs) <= planning_spec.max_samples_per_microbatch
-        assert local_batch.padded_llm_tokens <= planning_spec.max_padded_tokens
-        assert local_batch.vision_patches <= int(planning_spec.max_vision_patches)
+        assert len(local_batch.sample_refs) == planning_spec.per_device_microbatch_size
+        assert local_batch.padded_llm_tokens <= planning_spec.max_tokens_per_microbatch
+        assert local_batch.vision_patches <= int(
+            planning_spec.resource_budget("vision_patches")
+        )
 
 
 @pytest.mark.integration

@@ -15,7 +15,11 @@ def test_deepspeed_strategy_requires_config(tmp_path: Path) -> None:
     payload = """
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -34,7 +38,11 @@ def test_deepspeed_strategy_accepts_inline_config(tmp_path: Path) -> None:
     payload = """
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -63,7 +71,11 @@ def test_deepspeed_config_path_resolves_relative_to_train_config(tmp_path: Path)
     payload = """
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -86,7 +98,11 @@ def test_deepspeed_inline_config_rejects_optimizer_ownership_conflict(tmp_path: 
     payload = """
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl
@@ -119,7 +135,11 @@ def test_deepspeed_config_path_rejects_optimizer_ownership_conflict(tmp_path: Pa
     payload = """
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: ds1
       train_path: train.jsonl

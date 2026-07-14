@@ -179,37 +179,68 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 
 ### 5.3 批次规划边界
 
+- 数据配置按“选择什么、如何变换、如何组成 batch”分层：
+
+  ```text
+  data
+  ├── sources / catalog
+  ├── schedule
+  │   ├── mixing
+  │   └── shuffle
+  ├── transforms
+  │   └── prompt_sampling
+  └── batching
+      ├── grouping
+      ├── cardinality
+      ├── packing
+      └── layout
+  ```
+
+  运行顺序是 `schedule -> transforms -> grouping/cardinality -> packing -> layout`。这些字段不存在相互
+  覆盖的“优先级”；每层只解释自己的语义，不兼容组合由 normalize 在启动前拒绝。
 - 训练选择真源分成两层：
   - `ShaftSampleSchedule` 是 horizon-independent 的 `draw_id -> SampleRef` 映射，绑定 source、mixing、
     shuffle 和 seed，不绑定训练总步数。
   - `ShaftSamplePlan` 是 fixed/GRPO 等有限训练路径的 `Schedule` view；bounded SFT 由 DataCenter 直接
     产出 `Schedule`，不再构造 duration-sized finite plan。
-- 用户训练 YAML 必须显式选择 `fixed` 或 `bounded_cost_aware`。旧 `cost_aware`、
-  `dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact optimizer sample target 已删除；
-  loader 对这些旧字段 fail fast，避免双轨运行时。
+- 用户训练 YAML 必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与 `layout`。
+  当前执行面是 `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
+  `length + fixed + greedy + varlen`，以及 `bounded_cost + fixed|token_budget + none + padded`。
+  Qwen3VL image SFT 是首个 varlen 执行实现；其它模型族和未验收 backend/topology fail closed。
+- 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact
+  optimizer sample target 已删除；loader 对这些旧字段 fail fast，避免双轨运行时。
 - bounded 主链固定为：
 
   ```text
   SampleSchedule -> on-demand CostProvider -> BoundedBufferPlanner -> HF BatchSampler
   ```
 
-- `ShaftBoundedBatchingSpec` 是 duration-independent 的不可变契约，只绑定 schedule/cost fingerprint、
-  DP world size、buffer、sample/token/vision budgets、seed 与 planner 版本。它不包含 max steps、GA、
-  target samples 或完整训练 horizon。
+- `ShaftBatchContract` 是配置解析后的单一物理 batch 真源，绑定 grouping/cardinality/packing/layout、
+  `per_device_train_batch_size`、DP world size 与 GA，并派生 local/global/optimizer physical-pack count range。
+  pipeline、sampler、metadata 与 checkpoint spec 都必须由它构造，不能再次推导 batch cardinality。其
+  canonical payload/fingerprint 进入所有训练 checkpoint，exact resume 会在模型加载前拒绝 batch contract
+  漂移。`cost_cache_size` 仅控制 host LRU，是 audit/performance 参数，不进入 exact contract；调整缓存容量
+  不会伪装成训练语义变化。
+- `ShaftBatchPlanningSpec` 是 duration-independent 的不可变 sampler 契约，只绑定 schedule/cost
+  fingerprint、DP world size、buffer、cardinality policy、per-device 上限、token/resource budgets、seed 与 planner
+  版本。它不包含 max steps、GA、target samples 或完整训练 horizon。
 - planner 的 live state 只有 next draw cursor、最多 `buffer_size` 个 `SampleRef + SampleCost`、global
   microstep 和实际累计成本。每个 global microstep：
   1. 惰性补满 buffer；
-  2. 取最老的 W 个 entry 作为 W 个 rank 的 non-empty anchor；
-  3. 在硬预算内确定性合并兼容 entry；
+  2. 强制选择最老 entry，并寻找 W 个成本相近的 rank anchor；
+  3. fixed 模式为每个 rank 恰好填满 `per_device_train_batch_size` 条；token-budget 模式在硬预算内选择
+     1 到该上限；
   4. 优先最小化 projected rank load，再以 padding waste 做 tie-break；
-  5. 删除已选 entry，未选 entry 保持 FIFO。
-- `ShaftBoundedBatchSampler` 在一个 planning frame 内按 rank 累计 text+vision load 分配每个 microstep 的
+  5. 贪心误入死路时执行有界 exact feasibility fallback；
+  6. 删除已选 entry，未选 entry 保持 FIFO。
+- `ShaftPlannedBatchSampler` 在一个 planning frame 内按 rank 累计 text+vision load 分配每个 microstep 的
   local batches；training callback 再负责 `global_step * GA -> global_microstep` 的 committed 映射。
 - oldest-anchor 保证样本不会因长度长期饥饿；buffer 重排不改变 mixer draw multiset，不丢弃、不复制，也不
   按长度修改 source 权重。weighted bounded 模式要求 `shuffle=true`；旧 unshuffled weighted 映射依赖
   full horizon，因此明确拒绝。
-- 每个 local batch 同时受 `max_samples_per_microbatch`、processor 后 padded LLM token 和可选 vision
-  patch 总量约束。单样本超限或模型成本不精确时在首次观察该 draw 时失败，不会先扫描完整训练期。
+- 每个 local batch 的样本数只由 `train.per_device_train_batch_size` 和显式 cardinality policy 解释，并同时
+  受 processor 后 padded LLM token 与通用 resource budget 约束。没有第二个 sample-count 字段。单样本
+  超限或模型成本不精确时在首次观察该 draw 时失败，不会先扫描完整训练期。
 - cost provider 只缓存有界的 sample cost 与图像 header，不保存解码图像或 token tensor。模型图像成本和
   processed token layout 由 `ProcessorPolicy` 提供，监督截断/EOS/causal shift/loss weight 由 Template
   提供；data planner 不复制模型或模板语义。
@@ -217,20 +248,24 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   startup 对首个 bounded plan 做 digest 一致性检查；provider/spec/resume 的本地错误先聚合再统一抛出。
 - 全局 BatchSampler 的扁平顺序固定为
   `[optimizer step][gradient-accumulation microstep][rank]`。Accelerate 使用
-  `split_batches=false, even_batches=false` 做唯一一次 rank 分片；每个 rank 的 batch 数相等，但样本数
-  可以不同。eval 仍使用 fixed/even batches。
+  `split_batches=false, even_batches=false` 做唯一一次 rank 分片；每个 rank 的 batch 数相等，token-budget
+  模式允许各 rank 样本数不同。eval 仍使用 fixed/even batches。
 - `ShaftSFTTrainer` 始终根据 collate 后真实 `labels/loss_scale`，跨 GA 和 DP rank 计算 global loss
   denominator；planner cost 只用于容量和排序，不能替代真实 loss denominator。
 - checkpoint 保存的是模型真正完成 optimizer step 后的 committed state。sampler 可以因 worker prefetch
   规划到未来，但 callback 只按 `global_step * GA` 提交对应 snapshot；resume 加载该 state 并设置
   `ignore_data_skip=true`，避免 HF 二次 skip。DataLoader worker 使用独立 generator，重建 persistent
   workers 不消耗模型/dropout RNG。
-- bounded spec/state 作为 `ShaftBoundedBatchingCallback` 的 stateful payload 写入 HF
-  `trainer_state.json`，因此在 HF rotation 前就是 checkpoint 成功条件。自动恢复会跳过缺失/损坏该 payload
-  的较新目录；duration/GA/optimizer/scheduler 改变必须使用 `init_from_checkpoint` 开新训练 schedule。
+- planned spec/state 作为 `ShaftBatchPlanningCallback` 的 stateful payload 写入 HF
+  `trainer_state.json`。HF rotation 会延后到所有 rank 的 RNG/训练状态保存成功、rank 0 原子发布 completion
+  manifest 之后。自动恢复会跳过 manifest、per-rank RNG、optimizer/scheduler 或 callback state
+  缺失/不一致的较新目录；duration/GA/optimizer/scheduler 改变必须使用 `init_from_checkpoint` 开新训练
+  schedule。
   `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
-- sequence packing 与 context parallel 仍是独立后续阶段；bounded batching 不伪装成 packing，也不改变
-  attention/position 隔离语义。
+- sequence packing 与 context parallel 是独立能力；bounded grouping 不伪装成 packing。当前已实现 bounded
+  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL image-SFT varlen 执行链。
+  varlen 的 plan/media 私有元数据由模型 `SequenceExecutionPolicy` 在 host 侧消费，构造 4-axis M-RoPE 并
+  验证 concrete class/backend；其它模型族和未验收 topology fail closed。context parallel 仍后置。
 
 ### 5.4 分片训练边界
 
@@ -277,11 +312,11 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 ### 5.6 进度与终端输出边界
 
 - `ShaftProgressManager` 是进度任务、父子关系、current/total、metric 和生命周期的唯一状态真源；terminal、
-  plain、JSON/WebUI 都只消费同一份不可变 snapshot。task mutation 在 manager 内线性化，commit revision
+  plain、JSON 都只消费同一份不可变 snapshot。task mutation 在 manager 内线性化，commit revision
   按序发布，避免并发 `advance` 丢增量或旧 snapshot 覆盖新状态；close 先关闭 mutation 入口再收口任务。
 - `ShaftTerminalProgressPresentation` 是单行视觉策略真源，负责小数百分比、高分辨率 bar、速率/ETA、指标
   优先级和 40–72 列降级；terminal sink 只负责节流、速率窗口、清行、重绘和 stream 生命周期。terminal
-  与 WebUI 复用同一 display-task/百分比选择函数，不各自推导 terminal failure。
+  复用同一 display-task/百分比选择函数，不在不同输出端重复推导 terminal failure。
 - interactive 默认只由 global rank 0 输出结构化日志和进度。`logging.rank_zero_only=true` 会抑制所有非零
   rank 的结构化 log，而不是放行 WARNING 后与 rank-0 活动行竞争；rank-local 主链失败必须通过已有
   all-rank status envelope 传播，未捕获异常仍由 torchrun traceback 报告。显式 all-rank 调试会为文本/JSON
@@ -298,8 +333,8 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - bounded cost provider 负责在主进程、rank 0 汇总一次大图 header warning；对应 train dataset worker 只
   局部抑制同一 `DecompressionBombWarning`，Pillow `DecompressionBombError` 和其它 decode 错误仍必须失败。
   header probe 捕获到的其它 warning 必须原样重放。这只治理重复输出，不消除超大 PNG 的真实 decode 成本。
-- Transformers/HF Hub 自带进度条继续关闭；新增长任务必须发布统一 task，不得在 pipeline、trainer、data
-  worker 或 WebUI 平行维护 tqdm/Rich 状态。
+- Transformers/HF Hub 自带进度条继续关闭；新增长任务必须发布统一 task，不得在 pipeline、trainer 或 data
+  worker 平行维护 tqdm/Rich 状态。
 - interactive terminal registry 当前按“每个 Python 进程一个 pipeline、一个共享 progress manager”工作；同一
   进程若并行运行多条 pipeline，必须显式共享 manager，或将额外 run 配成 plain/off，不能创建竞争的活动行。
 
@@ -421,48 +456,9 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
 - [docs/online_eval_design.md](online_eval_design.md)
 
-## 9. Web UI 边界
+## 9. 稳定接口与演进接口
 
-Shaft Web UI 是训练框架之上的可视化外壳，不属于 `src/shaft` 内核层的一部分。
-
-### 9.1 定位
-
-- 面向工程师与科研人员
-- 第一版只覆盖 `SFT` 训练
-- 目标是让 `YAML` 编辑、训练启动和日志查看更顺手
-- 不作为第二套训练系统
-
-### 9.2 当前实现方式
-
-- 采用 `FastAPI + Jinja2 + 原生静态资源`
-- 通过生成 `YAML` 后调用现有 `scripts/train.py sft`
-- 训练真入口仍然是 CLI
-- Web UI 只负责表单、预览、状态和日志；实时阶段直接读取核心写出的 `shaft_progress.json`
-
-### 9.3 明确边界
-
-1. 不在 Web UI 中复制训练内核逻辑。
-2. 不在 Web UI 中引入新的配置语义。
-3. 不在 Web UI 中维护一套独立 checkpoint 或数据语义。
-4. 不从 Web UI 直接调用底层训练组件作为长期主入口。
-5. 不在第一版里把推理、导出、RLHF 一并展开。
-
-### 9.4 当前建议的关系图
-
-```mermaid
-flowchart LR
-    WebUI["FastAPI + Jinja2 Web UI"] --> YAML["YAML 生成/预览"]
-    YAML --> CLI["scripts/train.py sft"]
-    CLI --> Core["src/shaft 核心链路"]
-    Core --> Logs["日志 / 产物目录"]
-    Core --> Snapshot["shaft_progress.json<br/>原子状态快照"]
-    Logs --> WebUI
-    Snapshot --> WebUI
-```
-
-## 10. 稳定接口与演进接口
-
-### 10.1 当前建议视为稳定的接口
+### 9.1 当前建议视为稳定的接口
 
 - `RuntimeConfig` 及其一级配置块
 - `ShaftDataCenter`
@@ -473,14 +469,14 @@ flowchart LR
 - `InferEngineConfig` / `ShaftInferEngine` / `ShaftInferPipeline`
 - `inspect_hf_artifact()` / `validate_hf_artifact()` / `merge_peft_adapter()`
 
-### 10.2 当前不应在外部承诺长期稳定的接口
+### 9.2 当前不应在外部承诺长期稳定的接口
 
 - PPO 运行时细节与限制条件
 - interceptor 的 `point` 字符串全集
 - 单个模型族的细粒度 `processor_kwargs`
 - 临时 smoke model / smoke template 能力
 
-## 11. 当前明确受限的能力
+## 10. 当前明确受限的能力
 
 - PPO 仍是受限能力，不能视为完整生产功能。
 - 当前正式 Qwen 多模态模型族包括 `qwen3vl` 与新一代兼容注册项 `qwen35vl`/`qwen36vl`；
@@ -488,9 +484,9 @@ flowchart LR
 - 结构化任务评估已支持轻量在线 metric；离线 Eval Bench 已具备 benchmark copy、benchmark inspector、持久化 job、vLLM OpenAI worker、metric report、画布优先 run inspector、leaderboard、pairwise comparison 和基础任务管理能力。后续重点是继续扩展真实生产 run 的长期归档、更多任务 metric profile 和更丰富的批量筛查工具。
 - 发布到 Hub 的工具链尚未开始。
 
-## 12. 架构约束清单
+## 11. 架构约束清单
 
-### 12.1 允许
+### 11.1 允许
 
 - 通过注册表扩展模型、模板、算法、数据源、codec、命令。
 - 通过 `ModelMeta -> ShaftModelAdapter` 收敛模型差异。
@@ -509,7 +505,7 @@ flowchart LR
 - 通过 `training/checkpointing.py` 统一 HF 兼容训练状态规则。
 - 未来通过 dataset 级 eval policy 支持多数据集、多任务、单阶段在线 eval。
 
-### 12.2 禁止
+### 11.2 禁止
 
 1. 在 `training` 中解析 JSONL 或图像路径。
 2. 在 `data` 中写 loss、optimizer、scheduler。
@@ -518,7 +514,7 @@ flowchart LR
 5. 在 `infer` 中维护私有 codec 逻辑而不与共享 codec 收敛。
 6. 在 `export` 中引入自定义模型目录格式。
 
-## 13. 相关文档
+## 12. 相关文档
 
 - [docs/README.md](README.md)
 - [docs/module_reference.md](module_reference.md)
@@ -530,4 +526,3 @@ flowchart LR
 - [docs/extension_guide.md](extension_guide.md)
 - [docs/development_workflow.md](development_workflow.md)
 - [docs/testing.md](testing.md)
-- [docs/webui.md](webui.md)

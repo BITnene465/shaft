@@ -36,6 +36,44 @@ data:
     assert cfg.progress.log_interval == pytest.approx(30.0)
     assert cfg.progress.leave_completed is False
     assert cfg.progress.persist is True
+    assert cfg.data.schedule.mixing == "weighted"
+    assert cfg.data.schedule.shuffle is True
+    assert cfg.data.transforms.prompt_sampling.enabled is False
+    assert cfg.data.batching.grouping == "none"
+    assert cfg.data.batching.cardinality == "fixed"
+    assert cfg.data.batching.packing.mode == "none"
+    assert cfg.data.batching.layout == "padded"
+
+
+def test_schedule_and_prompt_sampling_parse_quoted_booleans(tmp_path: Path) -> None:
+    payload = """
+data:
+  schedule:
+    shuffle: "false"
+  pin_memory: "false"
+  persistent_workers: "false"
+  add_eos_token: "false"
+  transforms:
+    prompt_sampling:
+      enabled: "false"
+      train_only: "false"
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+      use_for_eval: "false"
+eval:
+  enabled: "false"
+"""
+    cfg = load_config_from_yaml(tmp_path, payload)
+
+    assert cfg.data.schedule.shuffle is False
+    assert cfg.data.transforms.prompt_sampling.enabled is False
+    assert cfg.data.transforms.prompt_sampling.train_only is False
+    assert cfg.data.pin_memory is False
+    assert cfg.data.persistent_workers is False
+    assert cfg.data.add_eos_token is False
+    assert cfg.data.datasets[0].use_for_eval is False
 
 
 def test_normalization(tmp_path: Path) -> None:
@@ -43,11 +81,9 @@ def test_normalization(tmp_path: Path) -> None:
 algorithm:
   name: SFT
 data:
-  mix_strategy: WEIGHTED
+  schedule:
+    mixing: WEIGHTED
   record_cache_dir: .cache/records
-  batching:
-    buffer_size: 96
-    cost_cache_size: 2048
   max_length: 4096
   datasets:
     - dataset_name: ds1
@@ -89,10 +125,8 @@ progress:
 """
     cfg = load_config_from_yaml(tmp_path, payload)
     assert cfg.algorithm.name == "sft"
-    assert cfg.data.mix_strategy == "weighted"
+    assert cfg.data.schedule.mixing == "weighted"
     assert cfg.data.record_cache_dir == str((tmp_path / ".cache/records").resolve())
-    assert cfg.data.batching.buffer_size == 96
-    assert cfg.data.batching.cost_cache_size == 2048
     assert cfg.data.max_length == 4096
     assert cfg.train.scheduler_name == "linear"
     assert cfg.train.loss_scale == "all"

@@ -237,6 +237,33 @@ class ShaftOnlineEvalRunner:
         )
 
     def _get_prompt_eval_dataloaders(self, trainer: Any, eval_dataset: Any) -> list[Any]:
+        get_online_eval_dataloader = getattr(
+            trainer,
+            "get_online_eval_dataloader",
+            None,
+        )
+        if callable(get_online_eval_dataloader):
+            if isinstance(eval_dataset, dict):
+                return [
+                    get_online_eval_dataloader(
+                        eval_dataset[dataset_name],
+                        data_collator=self.prompt_collator,
+                        dataset_key=(
+                            f"named:{dataset_name}:{id(eval_dataset[dataset_name])}"
+                        ),
+                    )
+                    for dataset_name in sorted(eval_dataset)
+                ]
+            return [
+                get_online_eval_dataloader(
+                    eval_dataset,
+                    data_collator=self.prompt_collator,
+                    dataset_key=f"default:{id(eval_dataset)}",
+                )
+            ]
+
+        # Compatibility path for lightweight third-party Trainer fakes/adapters
+        # that only implement the public HF get_eval_dataloader hook.
         original_collator = getattr(trainer, "data_collator", None)
         trainer.data_collator = self.prompt_collator
         try:

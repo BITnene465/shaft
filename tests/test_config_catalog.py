@@ -30,7 +30,11 @@ datasets:
         f"""
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: {catalog_path.name}
   catalog_names: [registry_ds]
 """,
@@ -67,7 +71,11 @@ datasets:
         f"""
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: {catalog_path.name}
   catalog_names: [ds_from_catalog]
   datasets:
@@ -95,7 +103,11 @@ def test_load_config_raises_for_missing_catalog_entry(tmp_path: Path) -> None:
         f"""
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: {catalog_path.name}
   catalog_names: [missing_ds]
 """,

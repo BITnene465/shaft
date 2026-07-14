@@ -51,7 +51,7 @@ class ShaftSampleRef:
 class ShaftSampleSchedule:
     """Horizon-independent mapping from a logical draw id to one source row.
 
-    Bounded batching consumes this schedule directly.  Its identity deliberately
+    Planned batching consumes this schedule directly. Its identity deliberately
     excludes training duration so extending ``max_steps`` does not change the draw
     prefix used by an existing run.
     """
@@ -71,7 +71,7 @@ class ShaftSampleSchedule:
         if self.strategy == "weighted" and not bool(shuffle):
             raise ValueError(
                 "Horizon-independent weighted sampling requires shuffle=true. "
-                "Use concat or enable shuffle for bounded batching."
+                "Use concat or enable shuffle for planned batching."
             )
         active = [
             (str(name), int(size), float(source_weights.get(name, 1.0)))

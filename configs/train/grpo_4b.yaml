@@ -23,10 +23,16 @@ algorithm:
 
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: ../data/example.yaml
   catalog_names: [grpo_prompt_target]
-  mix_strategy: weighted
+  schedule:
+    mixing: weighted
+    shuffle: true
   num_workers: 16
   pin_memory: true
   persistent_workers: true

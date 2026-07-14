@@ -102,33 +102,6 @@ python scripts/export.py merge-peft \
   --output-dir outputs/run_x/merged
 ```
 
-### `scripts/web.py`
-
-用途：
-- 启动面向工程师/科研人员的 Web UI
-
-常用形式：
-
-```bash
-python scripts/web.py
-```
-
-指定 host / port：
-
-```bash
-python scripts/web.py --host 0.0.0.0 --port 7861
-```
-
-指定默认训练配置：
-
-```bash
-python scripts/web.py --base-config configs/train/banana_sft_4b.yaml
-```
-
-说明：
-- 默认端口不固定；省略 `--port` 时由 Web UI 服务自动选择空闲端口
-- `Ctrl-C` 视为正常退出
-
 ### `scripts/eval_bench.py`
 
 用途：

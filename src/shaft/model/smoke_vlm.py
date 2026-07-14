@@ -26,6 +26,7 @@ from .types import (
     ModelMeta,
     ModelModuleGroups,
     ShaftModelAdapter,
+    ShaftSequenceExecutionContract,
 )
 
 
@@ -255,7 +256,9 @@ class SmokeVLMLoader(ModelLoader):
         *,
         model_meta: ModelMeta,
         model_adapter: ShaftModelAdapter,
+        sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
     ) -> ModelArtifacts:
+        _ = sequence_execution_contract
         model = SmokeVLMModel(SmokeVLMConfig())
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)

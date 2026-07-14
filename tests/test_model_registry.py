@@ -164,6 +164,18 @@ def test_builder_dispatches_registry() -> None:
     config = RuntimeConfig()
     config.model.model_type = "qwen3vl"
     fake_artifacts = object()
+
+    def build_fake_artifacts(
+        self,
+        cfg,
+        *,
+        model_meta,
+        model_adapter,
+        sequence_execution_contract=None,
+    ):
+        _ = self, cfg, model_meta, model_adapter, sequence_execution_contract
+        return fake_artifacts
+
     fake_meta = type(
         "Meta",
         (),
@@ -176,9 +188,7 @@ def test_builder_dispatches_registry() -> None:
             "loader": type(
                 "Loader",
                 (),
-                {
-                    "build": lambda self, cfg, *, model_meta, model_adapter: fake_artifacts,
-                },
+                {"build": build_fake_artifacts},
             )(),
         },
     )()

@@ -30,6 +30,11 @@
 - `ModelConfig`
 - `FinetuneConfig`
 - `DataConfig`
+- `DataScheduleConfig`：logical draw 的 mixing / shuffle
+- `DataTransformsConfig`：逐 draw 的 prompt sampling 等样本视图变换
+- `PromptSamplingConfig`
+- `DataBatchingConfig`：grouping / cardinality / packing / layout 的父 contract
+- `DataPackingConfig`：独立的 logical-sequence packing 入口
 - `DatasetSourceConfig`
 - `TrainConfig`
 - `TrainDistributedConfig`
@@ -46,6 +51,7 @@
 - `load_config()`
 - `normalize_runtime_config()`
 - `resolve_dataset_catalog()`
+- `to_resolved_payload()`：生成 canonical launch snapshot；不是 source YAML 的无损 roundtrip
 
 ### 核心接口
 
@@ -79,7 +85,7 @@
 - 读取并规范化多数据源，构建可复用的 Arrow mmap record store。
 - 做离线/在线增强和 sample-level mixing。
 - 提供 horizon-independent draw schedule 及有限长度 HF Dataset adapter。
-- 按需估算 processor/template 后成本，并在有界 buffer 内形成 variable-cardinality batches。
+- 按需估算 processor/template 后成本，并在有界 buffer 内形成 fixed 或 token-budget cost-grouped batches。
 - 产出 Dataset、sampler 和 collator；不承载 optimizer 或训练循环。
 
 ### 关键类
@@ -89,11 +95,11 @@
 - `ShaftSampleSchedule` / `ShaftSamplePlan` / `ShaftSampleRef` /
   `ShaftSampleContext`
 - `ShaftSampleSampler` / `ShaftGroupedSampleSampler` /
-  `ShaftBoundedBatchSampler`
+  `ShaftPlannedBatchSampler`
 - `ShaftSampleCost` / `ShaftSFTSampleCostProvider` /
   `ShaftRowInvariantCostProvider`
-- `ShaftBoundedBatchingSpec` / `ShaftBoundedBatchingState` /
-  `ShaftBoundedBatchPlanner`
+- `ShaftBatchPlanningSpec` / `ShaftBatchPlanningState` /
+  `ShaftBatchPlanner`
 - `SFTDataset` / `DPODataset` / `PPODataset`
 - `SFTCollator` / `DPOCollator` / `PPOCollator` / `GRPOCollator`
 
@@ -111,18 +117,24 @@
   fingerprint 绑定显式 immutable `media_snapshot_id`，但 schedule fingerprint 只由 batching spec 持有。
 - `ProcessorPolicy` 是图像 patch 和 processed-token layout 真源，Template 是监督 token、EOS、截断、
   causal shift 与 loss weight 真源。cost provider 不维护模型/模板的平行实现。
-- `ShaftBoundedBatchPlanner` 每次只补充至 `buffer_size`，以最老的 W 个 entry 为 anchors，再按 sample、
-  padded-token、vision budgets 做确定性放置，并优先最小化 projected rank load。未选 entry 保持 FIFO；
-  已选、buffer、future cursor
+- `ShaftBatchPlanner` 每次只补充至 `buffer_size`，强制选择最老 draw，并按
+  `per_device_train_batch_size` 上限、cardinality policy、padded-token 和 resource budgets 做确定性分组。
+  fixed 模式贪心失败时使用有界 exact fallback；未选 entry 保持 FIFO，已选、buffer、future cursor
   精确分割 draw stream。
-- planner 每个 global microstep 输出 W 个 non-empty local batches。`ShaftBoundedBatchSampler` 只认识
+- planner 每个 global microstep 输出 W 个非空 local batches。`ShaftPlannedBatchSampler` 只认识
   global-microstep stream 与 generic planning frame，并在 frame 内按 rank 累计 load 分配后展平给
   Accelerate；training callback 单独解释 GA/global step。sampler 内不做 collective。
 - state 只保存轻量 ref/cost/cursor/实际累计指标。训练 callback 按实际完成的 optimizer boundary commit
   snapshot，不能保存 DataLoader 预取后的 live cursor。
 - 普通 `ShaftSampleSampler` 交给 HF Trainer 时保持 global/unsharded，由 Accelerate 完成唯一一次 rank
   分片；预分片 sampler 会 fail fast。
-- `data.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于 train。
+- `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
+- `data.transforms.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于
+  train；它变换 draw view，不改变 draw 顺序或 mixing 权重。
+- `data.batching` 依次声明 grouping、cardinality、packing 与 layout。四者没有覆盖优先级。
+  `ShaftLengthBatchGrouping` 只排序有界候选，`ShaftGreedySequencePacker` 只组合完整 logical segments，
+  `ShaftVarlenBatchLayout` 只组装计划后的 tensor；Qwen 的 attention/M-RoPE/media 语义归模型
+  `SequenceExecutionPolicy`，不回流到 sampler 或通用 collator。
 - 合成 reconstruction 数据的离线真源仍是 `gt_standard`；数据构建脚本与训练 batching 相互独立，不得把
   任务字段语义放入 planner。
 
@@ -142,6 +154,7 @@
 - `src/shaft/model/builder.py`
 - `src/shaft/model/registry.py`
 - `src/shaft/model/policies.py`
+- `src/shaft/model/sequence.py`
 - `src/shaft/model/sharding.py`
 - `src/shaft/model/finetune.py`
 - `src/shaft/model/qwen3vl.py`
@@ -152,7 +165,7 @@
 - 声明模型族元信息。
 - 构建 HF model/tokenizer/processor。
 - 处理全量微调与 PEFT。
-- 收口 processor / peft / sharding policy。
+- 收口 processor / sequence execution / peft / sharding policy。
 
 ### 关键类
 
@@ -164,6 +177,8 @@
 - `ShaftProcessedBatch`
 - `ShaftProcessorTokenLayout`
 - `ShaftProcessorCostEstimate`
+- `ShaftSequenceExecutionContract`
+- `SequenceExecutionPolicy`
 
 `ShaftProcessedBatch` 保存一次 batch processor 调用的完整输出，不把允许字段限制为 Qwen 当前使用的
 键。`ProcessorPolicy` 同时声明 processor 构造参数、pixel-budget forwarding、token-layout 规则、训练
@@ -176,6 +191,12 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 如何随 target 拼接、padding 或 DPO pair 扩展。其它字段也必须进入 policy 的
 `sample_aligned_model_input_names / whole_batch_model_input_names / static_model_input_names` 之一；未声明
 字段会在训练装配时失败，避免升级 processor 后静默误用第 0 维。
+
+`ShaftSequenceExecutionContract` 是一次训练唯一的模型执行能力决议，绑定 layout、device、attention
+backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版本。pipeline 在数据/权重加载前
+构造一次，并把同一个对象传给 loader、concrete runtime 校验和 exact-resume fingerprint；loader/trainer
+不得再从 config 独立推导第二份 varlen 能力结果。模型专用 position、segment isolation 与 media manifest
+逻辑由 `SequenceExecutionPolicy` 实现。
 - `ModelGroup`
 - `ModelModuleGroups`
 - `ShaftModelAdapter`
@@ -443,8 +464,9 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 - `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
 - `CheckpointLayout`
-- `ShaftBoundedBatchingCallback`
+- `ShaftBatchPlanningCallback`
 - `ShaftBatchingMetadataCallback`
+- `ShaftBatchContract`
 - `Muon`
 
 ### 关键函数
@@ -457,8 +479,10 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 - `inspect_checkpoint_layout()`
 - `resolve_resume_checkpoint()`
 - `validate_resume_checkpoint()`
-- `load_bounded_batching_state()`
-- `build_bounded_resume_contract_fingerprint()`
+- `load_batch_planning_state()`
+- `build_batch_planning_resume_contract_fingerprint()`
+- `build_batch_contract()`
+- `validate_batching_resume_contract()`
 - `validate_training_state_policy()`
 - `prune_root_output_layout()`
 
@@ -475,20 +499,30 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
   - root `trainer_state.json`、`shaft_finetune_summary.json`、`shaft_optimizer_summary.json` 是持久化
     运行摘要，root export 清理必须保留
   - 从 run 根目录恢复时，最新 `checkpoint-*` 优先于 root final state
-  - bounded SFT 的 committed data state 进入 HF `trainer_state.json` 的 stateful callback；改变
-    duration/GA/optimizer/scheduler 或 topology/data/media/processor contract 时，exact resume 会拒绝
-  - `shaft_batching_run_metadata.json` 是 SFT/RLHF 共用的 resolved batching/audit 运行摘要，包含策略、
-    topology、buffer/cache/caps 与 contract fingerprint；root export 清理必须保留，W&B
-    `shaft_batching` 只镜像同一 payload
+  - 所有训练路径都把 canonical `ShaftBatchContract` 通过 stateful callback 写入 HF
+    `trainer_state.json`；改变 grouping/cardinality/packing/layout、local batch、DP world size 或 GA 时，
+    exact resume 会拒绝
+  - planned SFT 额外保存 committed data state；改变 duration/optimizer/scheduler 或
+    topology/data/media/processor/planner contract 时，exact resume 同样拒绝
+  - planned checkpoint 会交叉校验 canonical batch-contract callback 与 planner callback；只有二者
+    的 planner fingerprint、batch geometry 和 GA 一致，且全部 rank RNG、optimizer/scheduler 保存成功后，
+    才原子写 completion manifest。rotation 在该提交点之后执行，run-root resume 会跳过 torn checkpoint
+  - `ShaftBatchContract` 是 resolved physical batch 的唯一真源；fixed 模式从
+    `per_device_train_batch_size`、DP world size 与 GA 派生精确 physical-pack 计数，token-budget 模式派生
+    min/max pack range，
+    sampler spec 与 metadata 必须和它严格一致
+  - `shaft_batching_run_metadata.json` 是 SFT/RLHF 共用的 resolved batching/audit 运行摘要，包含
+    versioned canonical `batch_contract`、其 fingerprint、grouping/cardinality/packing/layout、topology、
+    buffer/cache/budgets 与可选的 `planner_spec_fingerprint`；其中 cache 只供性能审计，不进入 exact
+    contract。root export 清理必须保留，W&B `shaft_batching` 只镜像同一 payload
 
 - `ShaftSFTTrainer` 会对一个 optimizer batch 内实际 causal labels/loss weights 求 denominator，并在 data
   ranks 间汇总；local numerator 采用同一个 global denominator，保证 gradient accumulation 与 DDP
   分割不改变 token 权重。
 - `ShaftTrainSamplerMixin` 保留普通 `train_sampler` 路径，并在提供 `train_batch_sampler` 时通过 HF 明确
-  支持的 `get_train_dataloader()` 扩展点构造可变 cardinality DataLoader。它同步复用 worker seed、
-  prefetch、pin/persistent worker、MPS multiprocessing 与 Accelerate prepare 语义；动态 sample count 会
-  回填 HF throughput 统计，不改 optimizer-step 计算。resume 时使用每个 optimizer step 的实际 selected
-  sample count 计算本次 invocation 的 loss、steps/s 与 samples/s，不把已完成 horizon 重复计入。
+  支持的 `get_train_dataloader()` 扩展点构造 bounded grouped DataLoader。它同步复用 worker seed、
+  prefetch、pin/persistent worker、MPS multiprocessing 与 Accelerate prepare 语义；throughput 使用 committed
+  sample count，不改 optimizer-step 计算。
 - `ShaftSFTTrainer.evaluate()` 在训练生命周期内把 eval 当作纯观察者：调用标准 HF evaluate 前后保存并
   恢复 Python、NumPy、Torch CPU 与当前 rank CUDA RNG。这样 persistent eval DataLoader 的首次 iterator
   创建不会因 uninterrupted/resume 生命周期不同而改变后续训练随机序列；独立 eval 调用保持标准行为。
@@ -515,7 +549,7 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
   - `ShaftGRPOTrainer`
   - 并在 optimizer 创建后写出：
     - `shaft_optimizer_summary.json`
-    - 供 CLI 日志和 Web UI 回看 resolved optimizer groups
+    - 供 CLI 日志和外部诊断工具审计 resolved optimizer groups
 - `gradient checkpointing` 当前通过两层接通：
   - `src/shaft/config/training.py`
     - `resolve_effective_gradient_checkpointing()` 是实际运行时开关真源
@@ -786,52 +820,3 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 
 - 允许：参数解析、命令调度
 - 禁止：在 CLI 里堆叠训练、推理、导出业务逻辑
-
-## 16. `webui`
-
-相关文档：
-
-- `docs/webui.md`
-
-### 职能
-
-- 面向工程师与科研人员提供 `SFT` 训练的可视化控制台。
-- 复用现有 CLI、配置和日志体系。
-- 做 YAML 编辑、少量高频 override、任务启动、日志与状态展示。
-
-### 当前原则
-
-- Web UI 是外层可视化壳，不是训练内核。
-- Web UI 只应通过生成 YAML 并调用现有 CLI 进入训练主链。
-- 不应在 Web UI 中复制数据、模型、算法、checkpoint 语义。
-
-### 开发边界
-
-- 允许：表单、预览、状态展示、日志轮询、CLI 调用封装
-- 禁止：直连训练内核、发明新配置语义、引入第二套训练入口
-
-### 当前实现结构
-
-- `app.py`
-  - `FastAPI` 路由装配与 HTML / JSON API 暴露
-  - 顶部导航壳与页面路由切分（`SFT / DPO / PPO / GRPO`）
-- `controller.py`
-  - Web UI 事件处理与视图返回协议
-- `templates/index.html`
-  - 页面骨架与初始状态注入
-- `static/webui.css`
-  - 视觉样式与亮暗主题变量
-- `static/webui.js`
-  - 前端交互、状态刷新、主题切换
-- `services/config_service.py`
-  - YAML 读取、解析、override 应用
-  - 冻结配置预览构造
-- `services/train_service.py`
-  - 子进程管理、run snapshot 读取
-  - 运行时 freeze summary 读取
-  - 运行时 optimizer group summary 读取
-- `services/run_store.py`
-  - 本地 run 目录、resolved config、日志与 record 管理
-  - `shaft_finetune_summary.json` 读取
-  - `shaft_optimizer_summary.json` 读取
-  - 本地 run store 条目删除

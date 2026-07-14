@@ -14,6 +14,7 @@ from transformers.trainer_utils import IntervalStrategy, SaveStrategy
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSampler
 from shaft.training import ShaftEpochIntervalCallback
+from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
 from tests.support.training import StaticOnlineEvalRunner
@@ -23,6 +24,25 @@ from tests.support.training import capture_trainer_logs, eval_loop_output
 
 
 pytestmark = pytest.mark.component
+
+
+class _TaggedEvalCollator:
+    def __init__(self, source: str) -> None:
+        self.source = source
+
+    def __call__(self, rows):
+        return {
+            "source": self.source,
+            "sample_ids": [str(row["sample_id"]) for row in rows],
+            "input_ids": torch.tensor(
+                [row.get("input_ids", [1, 2]) for row in rows],
+                dtype=torch.long,
+            ),
+            "labels": torch.tensor(
+                [row.get("labels", [1, 2]) for row in rows],
+                dtype=torch.long,
+            ),
+        }
 
 
 def test_shaft_trainer_uses_custom_components() -> None:
@@ -80,6 +100,206 @@ def test_shaft_trainer_uses_custom_components() -> None:
     loss = trainer.compute_loss(model, inputs)
     assert isinstance(loss, torch.Tensor)
     assert "loss_scale" not in (model.last_forward_kwargs or {})
+    assert model.last_forward_labels is None
+
+
+def test_shaft_trainer_delegates_private_varlen_inputs_before_device_transfer() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_varlen_prepare")
+
+    class _SequenceAdapter:
+        def __init__(self) -> None:
+            self.seen_model = None
+            self.seen_layout = None
+
+        def prepare_sequence_training_inputs(self, *, model, inputs):
+            self.seen_model = model
+            prepared = dict(inputs)
+            self.seen_layout = prepared.pop("_shaft_varlen_layout")
+            prepared["position_ids"] = torch.arange(
+                prepared["input_ids"].shape[-1],
+                dtype=torch.long,
+            ).view(1, 1, -1)
+            return prepared
+
+    adapter = _SequenceAdapter()
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda x: x,
+        model_adapter=adapter,
+    )
+    layout = object()
+
+    prepared = trainer._prepare_inputs(
+        {
+            "input_ids": torch.tensor([[1, 2, 3]], dtype=torch.long),
+            "_shaft_varlen_layout": layout,
+        }
+    )
+
+    assert adapter.seen_model is model
+    assert adapter.seen_layout is layout
+    assert "_shaft_varlen_layout" not in prepared
+    assert prepared["position_ids"].shape == (1, 1, 3)
+
+
+def test_custom_train_batch_sampler_keeps_batches_on_host_until_prepare_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _SingleBatchSampler:
+        batch_size = None
+        drop_last = True
+
+        def __iter__(self):
+            yield [0]
+
+        def __len__(self):
+            return 1
+
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_host_planned_batch")
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[torch.tensor([1, 2, 3])],
+        eval_dataset=[],
+        train_batch_sampler=_SingleBatchSampler(),
+        data_collator=lambda rows: {"input_ids": torch.stack(rows)},
+    )
+    prepare_data_loader = trainer.accelerator.prepare_data_loader
+    observed_device_placement: list[bool | None] = []
+
+    def _capture_prepare_data_loader(
+        dataloader,
+        device_placement=None,
+        slice_fn_for_dispatch=None,
+    ):
+        observed_device_placement.append(device_placement)
+        return prepare_data_loader(
+            dataloader,
+            device_placement=device_placement,
+            slice_fn_for_dispatch=slice_fn_for_dispatch,
+        )
+
+    monkeypatch.setattr(
+        trainer.accelerator,
+        "prepare_data_loader",
+        _capture_prepare_data_loader,
+    )
+
+    batch = next(iter(trainer.get_train_dataloader()))
+
+    assert observed_device_placement == [False]
+    assert batch["input_ids"].device.type == "cpu"
+    prepared = trainer._prepare_inputs(batch)
+    assert prepared["input_ids"].device == trainer.args.device
+
+
+def test_shaft_trainer_uses_a_distinct_padded_eval_collator() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_eval_collator")
+
+    def train_collator(rows):
+        return {"source": "train", "rows": rows}
+
+    def eval_collator(rows):
+        return {"source": "eval", "rows": rows}
+
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[{"value": 1}],
+        eval_dataset=[{"value": 2}],
+        data_collator=train_collator,
+        eval_data_collator=eval_collator,
+    )
+
+    batch = next(iter(trainer.get_eval_dataloader()))
+
+    assert batch["source"] == "eval"
+    assert trainer.data_collator is train_collator
+
+
+def test_loss_and_online_eval_have_distinct_persistent_loader_namespaces() -> None:
+    dataset = [{"sample_id": "one", "input_ids": [1, 2], "labels": [1, 2]}]
+    train_collator = _TaggedEvalCollator("train")
+    loss_collator = _TaggedEvalCollator("loss")
+    online_collator = _TaggedEvalCollator("online")
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_eval_loader_namespaces",
+            per_device_eval_batch_size=1,
+            dataloader_num_workers=1,
+            dataloader_persistent_workers=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=[],
+        eval_dataset=dataset,
+        data_collator=train_collator,
+        eval_data_collator=loss_collator,
+    )
+    runner = ShaftOnlineEvalRunner(
+        eval_config=EvalConfig(),
+        prompt_collator=online_collator,
+    )
+
+    loss_loader = trainer.get_eval_dataloader()
+    assert next(iter(loss_loader))["source"] == "loss"
+    online_loader = runner._get_prompt_eval_dataloaders(trainer, dataset)[0]
+    assert next(iter(online_loader))["source"] == "online"
+
+    assert trainer.get_eval_dataloader() is loss_loader
+    assert runner._get_prompt_eval_dataloaders(trainer, dataset)[0] is online_loader
+    assert online_loader is not loss_loader
+    assert set(trainer._eval_dataloaders) == {
+        "eval",
+        f"shaft-online:default:{id(dataset)}",
+    }
+
+
+def test_named_loss_eval_datasets_do_not_share_a_persistent_loader() -> None:
+    eval_datasets = {
+        "a": [{"sample_id": "a", "input_ids": [1, 2], "labels": [1, 2]}],
+        "b": [{"sample_id": "b", "input_ids": [2, 3], "labels": [2, 3]}],
+    }
+    trainer = ShaftSFTTrainer(
+        model=_TinyModel(),
+        args=build_training_args(
+            output_dir="/tmp/shaft_trainer_named_eval_loader_namespaces",
+            per_device_eval_batch_size=1,
+            dataloader_num_workers=1,
+            dataloader_persistent_workers=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=[],
+        eval_dataset=eval_datasets,
+        data_collator=_TaggedEvalCollator("train"),
+        eval_data_collator=_TaggedEvalCollator("loss"),
+    )
+    observed: dict[str, list[str]] = {}
+
+    def _evaluation_loop(dataloader, *args, metric_key_prefix, **kwargs):
+        _ = args, kwargs
+        batch = next(iter(dataloader))
+        observed[metric_key_prefix] = batch["sample_ids"]
+        return eval_loop_output(
+            {f"{metric_key_prefix}_loss": 1.0},
+            num_samples=1,
+        )
+
+    trainer.evaluation_loop = _evaluation_loop  # type: ignore[method-assign]
+    trainer._evaluate_named_datasets(
+        eval_datasets=eval_datasets,
+        ignore_keys=None,
+        metric_key_prefix="eval",
+    )
+
+    assert observed == {"eval_a": ["a"], "eval_b": ["b"]}
+    assert {"a", "b"}.issubset(trainer._eval_dataloaders)
 
 
 def test_shaft_trainer_counts_weighted_optimizer_batch_denominator() -> None:
@@ -108,6 +328,62 @@ def test_shaft_trainer_counts_weighted_optimizer_batch_denominator() -> None:
 
     assert denominator is not None
     assert float(denominator) == pytest.approx(5.5)
+
+
+def test_weighted_denominator_is_not_divided_in_average_tokens_mode() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_data_parallel")
+    args.average_tokens_across_devices = True
+    args._n_gpu = 2
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda x: x,
+    )
+    batches = [
+        {
+            "labels": torch.tensor([[0, 1, 2, 3]], dtype=torch.long),
+            "loss_scale": torch.tensor([[0.0, 0.5, 2.0, 3.0]]),
+        }
+    ]
+
+    denominator = trainer._get_num_items_in_batch(batches, torch.device("cpu"))
+
+    assert denominator is not None
+    assert float(denominator) == pytest.approx(5.5)
+
+
+def test_weighted_denominator_preserves_fractions_when_removing_replicas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_trainer_replicated_denominator")
+    args.average_tokens_across_devices = True
+    trainer = ShaftSFTTrainer(
+        model=model,
+        args=args,
+        train_dataset=[],
+        eval_dataset=[],
+        data_collator=lambda x: x,
+    )
+    monkeypatch.setattr(
+        trainer.accelerator.state,
+        "parallelism_config",
+        SimpleNamespace(non_data_parallel_size=2),
+    )
+    batches = [
+        {
+            "labels": torch.tensor([[0, 1, 2, 3]], dtype=torch.long),
+            "loss_scale": torch.tensor([[0.0, 0.5, 2.0, 3.0]]),
+        }
+    ]
+
+    denominator = trainer._get_num_items_in_batch(batches, torch.device("cpu"))
+
+    assert denominator is not None
+    assert float(denominator) == pytest.approx(2.75)
 
 
 def test_optimizer_summary_is_written_only_on_rank_zero(tmp_path, monkeypatch) -> None:

@@ -1,4 +1,4 @@
-from .loader import load_config, load_config_from_payload, load_config_from_text
+from .loader import load_config, load_config_from_payload, load_config_from_text, to_resolved_payload
 from .algorithm import (
     AlgorithmConfig,
     DPOConfig,
@@ -13,6 +13,9 @@ from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
 from .data import (
     DataBatchingConfig,
     DataConfig,
+    DataPackingConfig,
+    DataScheduleConfig,
+    DataTransformsConfig,
     DatasetSourceConfig,
     PromptSamplingConfig,
 )
@@ -35,6 +38,9 @@ __all__ = [
     "AlgorithmConfig",
     "DataBatchingConfig",
     "DataConfig",
+    "DataPackingConfig",
+    "DataScheduleConfig",
+    "DataTransformsConfig",
     "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
@@ -65,4 +71,5 @@ __all__ = [
     "load_config_from_payload",
     "load_config_from_text",
     "resolve_effective_gradient_checkpointing",
+    "to_resolved_payload",
 ]

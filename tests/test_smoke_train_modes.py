@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -14,7 +15,7 @@ from shaft.config import load_config
 from shaft.model.smoke_vlm import SmokeProcessor
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.pipeline import run_sft
-from shaft.training.batch_planning import BOUNDED_BATCHING_CALLBACK_NAME
+from shaft.training.batch_planning import BATCH_PLANNING_CALLBACK_NAME
 from tests.support.configs import write_sft_smoke_config
 
 
@@ -157,7 +158,7 @@ def test_cli_forced_interactive_progress_uses_compact_single_line_contract(
     assert "progress train" not in decoded
 
 
-def test_bounded_cost_aware_smoke_uses_variable_microbatches(
+def test_bounded_cost_grouping_keeps_fixed_per_device_microbatches(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -166,7 +167,8 @@ def test_bounded_cost_aware_smoke_uses_variable_microbatches(
         finetune_mode="full",
         train_size=6,
         val_size=1,
-        bounded_cost_aware=True,
+        bounded_cost_grouping=True,
+        bounded_max_tokens_per_microbatch=2048,
         per_device_train_batch_size=3,
         gradient_accumulation_steps=2,
     )
@@ -196,17 +198,74 @@ def test_bounded_cost_aware_smoke_uses_variable_microbatches(
     assert metrics["train_loss"] >= 0
     train_batch_sizes = processor_batch_sizes[-2:]
     assert sum(train_batch_sizes) == 6
-    assert min(train_batch_sizes) < max(train_batch_sizes)
-    assert max(train_batch_sizes) > 1
+    assert train_batch_sizes == [3, 3]
 
 
-def test_bounded_cost_aware_smoke_supports_persistent_workers(tmp_path: Path) -> None:
+def test_token_budget_uses_real_batch_sizes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=3,
+        val_size=1,
+        bounded_cost_grouping=True,
+        bounded_cardinality="token_budget",
+        bounded_max_tokens_per_microbatch=450,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=2,
+    )
+    train_path = tmp_path / "train.jsonl"
+    rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
+    for row, prompt_length in zip(rows, [300, 1, 1], strict=True):
+        row["user_prompt"] = "x" * prompt_length
+    train_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    config = load_config(cfg_path)
+    config.eval.enabled = False
+
+    processor_batch_sizes: list[int] = []
+    original_call = SmokeProcessor.__call__
+
+    def _counting_call(self, *args, **kwargs):
+        processor_batch_sizes.append(len(kwargs["text"]))
+        return original_call(self, *args, **kwargs)
+
+    monkeypatch.setattr(SmokeProcessor, "__call__", _counting_call)
+
+    metrics = run_sft(config)
+
+    assert metrics["train_loss"] >= 0
+    assert processor_batch_sizes[-2:] == [1, 2]
+    assert metrics["train_samples_per_second"] == pytest.approx(
+        round(3 / metrics["train_runtime"], 3)
+    )
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "[train-batch] local_packs=1..2 global_packs=1..2 "
+        "optimizer_packs=2..4 per_device_train_batch_size=2"
+        in message
+        for message in messages
+    )
+    assert not any(
+        "Instantaneous batch size per device" in message
+        or "Total train batch size (w. parallel, distributed & accumulation)" in message
+        for message in messages
+    )
+
+
+def test_bounded_cost_smoke_supports_persistent_workers(tmp_path: Path) -> None:
     cfg_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         train_size=6,
         val_size=1,
-        bounded_cost_aware=True,
+        bounded_cost_grouping=True,
         per_device_train_batch_size=3,
         gradient_accumulation_steps=2,
     )
@@ -238,8 +297,7 @@ def test_bounded_exact_resume_and_contract_guard(tmp_path: Path) -> None:
         finetune_mode="full",
         train_size=12,
         val_size=1,
-        bounded_cost_aware=True,
-        bounded_max_samples_per_microbatch=3,
+        bounded_cost_grouping=True,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=2,
     )
@@ -296,14 +354,61 @@ def test_bounded_exact_resume_and_contract_guard(tmp_path: Path) -> None:
         run_sft(changed_duration)
 
 
+def test_token_budget_exact_resume_preserves_variable_draw_cursor(
+    tmp_path: Path,
+) -> None:
+    cfg_path = write_sft_smoke_config(
+        tmp_path,
+        finetune_mode="full",
+        train_size=12,
+        val_size=1,
+        bounded_cost_grouping=True,
+        bounded_cardinality="token_budget",
+        bounded_max_tokens_per_microbatch=450,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=2,
+        train_steps=2,
+        save_steps=1,
+    )
+    train_path = tmp_path / "train.jsonl"
+    rows = [json.loads(line) for line in train_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["user_prompt"] = "x" * 300
+    train_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    initial = load_config(cfg_path)
+    initial.eval.enabled = False
+    initial.train.save_total_limit = 2
+    initial.train.save_final_state = True
+    run_sft(initial)
+    checkpoint_one = Path(initial.experiment.output_dir) / "checkpoint-1"
+    uninterrupted = Path(initial.experiment.output_dir) / "checkpoint-2"
+
+    resumed = load_config(cfg_path)
+    resumed.eval.enabled = False
+    resumed.experiment.output_dir = str(tmp_path / "token-budget-resumed")
+    resumed.train.save_total_limit = 2
+    resumed.train.save_final_state = True
+    resumed.train.resume_from_checkpoint = str(checkpoint_one)
+    run_sft(resumed)
+    resumed_checkpoint = Path(resumed.experiment.output_dir) / "checkpoint-2"
+
+    _assert_checkpoint_training_state_equal(uninterrupted, resumed_checkpoint)
+    uninterrupted_callback = _bounded_callback_payload(uninterrupted)
+    resumed_callback = _bounded_callback_payload(resumed_checkpoint)
+    assert uninterrupted_callback == resumed_callback
+    assert uninterrupted_callback["args"]["spec"]["cardinality"] == "token_budget"
+
+
 def test_bounded_resume_rejects_changed_source_cost_contract(tmp_path: Path) -> None:
     cfg_path = write_sft_smoke_config(
         tmp_path,
         finetune_mode="full",
         train_size=4,
         val_size=1,
-        bounded_cost_aware=True,
-        bounded_max_samples_per_microbatch=2,
+        bounded_cost_grouping=True,
         gradient_accumulation_steps=1,
         train_steps=2,
         save_steps=1,
@@ -366,7 +471,7 @@ def _bounded_callback_payload(checkpoint: Path) -> dict:
     trainer_state = json.loads(
         (checkpoint / "trainer_state.json").read_text(encoding="utf-8")
     )
-    return trainer_state["stateful_callbacks"][BOUNDED_BATCHING_CALLBACK_NAME]
+    return trainer_state["stateful_callbacks"][BATCH_PLANNING_CALLBACK_NAME]
 
 
 def _assert_nested_state_equal(expected, actual) -> None:

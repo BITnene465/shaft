@@ -31,6 +31,7 @@ from .policies import (
 )
 from .registry import MODEL_REGISTRY, build_model_meta, default_model_groups
 from .sharding import ModelShardingPolicy
+from .sequence import Qwen3VLSequenceExecutionPolicy
 from .types import (
     DefaultPeftPolicy,
     ModelArtifacts,
@@ -42,9 +43,14 @@ from .types import (
     ModelModuleGroups,
     PeftPolicy,
     ProcessorPolicy,
+    SequenceExecutionPolicy,
+    ShaftMediaSegmentManifest,
+    ShaftMediaSlice,
     ShaftProcessedBatch,
+    ShaftProcessorMediaManifest,
     ShaftProcessorCostEstimate,
     ShaftProcessorTokenLayout,
+    ShaftSequenceExecutionContract,
     ShaftModelAdapter,
 )
 
@@ -63,9 +69,15 @@ __all__ = [
     "ModelShardingPolicy",
     "PeftPolicy",
     "ProcessorPolicy",
+    "Qwen3VLSequenceExecutionPolicy",
+    "SequenceExecutionPolicy",
+    "ShaftMediaSegmentManifest",
+    "ShaftMediaSlice",
     "ShaftProcessedBatch",
+    "ShaftProcessorMediaManifest",
     "ShaftProcessorCostEstimate",
     "ShaftProcessorTokenLayout",
+    "ShaftSequenceExecutionContract",
     "ShaftAdapterFinetunePlan",
     "ShaftFreezePreview",
     "ShaftFreezePlan",

@@ -13,6 +13,7 @@ import warnings
 from PIL import Image
 from transformers import __version__ as transformers_version
 
+from shaft.config.data import SHAFT_BATCH_RESOURCE_NAMES
 from shaft.template import ShaftChatRenderer
 from shaft.utils.distributed import is_rank_zero
 
@@ -201,6 +202,19 @@ class ShaftSampleCost:
                 raise ValueError(
                     "ShaftSampleCost.loss_weight_sum must be finite and >= 0 when set."
                 )
+
+    def resource_value(self, name: str) -> int:
+        normalized = str(name).strip().lower()
+        if normalized not in SHAFT_BATCH_RESOURCE_NAMES:
+            raise ValueError(
+                f"ShaftSampleCost does not expose configured resource {normalized!r}."
+            )
+        if normalized == "vision_patches":
+            return int(self.vision_patches)
+        raise AssertionError(
+            "Configured batch-resource schema has no ShaftSampleCost field dispatch: "
+            f"{normalized!r}."
+        )
 
 
 class ShaftSampleCostProvider(Protocol):

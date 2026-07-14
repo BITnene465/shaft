@@ -44,6 +44,34 @@ def test_run_rlhf_initializes_seed_before_model_and_adapter_build(tmp_path: Path
             _ = run_rlhf(cfg)
 
 
+def test_run_rlhf_rejects_resume_contract_before_publish_or_model_load(
+    tmp_path: Path,
+) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    with patch(
+        "shaft.pipeline.rlhf.resolve_resume_checkpoint",
+        return_value=cfg.train.resume_from_checkpoint,
+    ):
+        with patch("shaft.pipeline.rlhf.validate_resume_checkpoint"):
+            with patch(
+                "shaft.pipeline.rlhf.validate_batching_resume_contract",
+                side_effect=ValueError("batch contract drift"),
+            ):
+                with patch(
+                    "shaft.pipeline.rlhf.publish_batching_run_metadata"
+                ) as publish_metadata:
+                    with patch(
+                        "shaft.pipeline.rlhf.build_model_tokenizer_processor"
+                    ) as build_model:
+                        with pytest.raises(ValueError, match="batch contract drift"):
+                            run_rlhf(cfg)
+
+    publish_metadata.assert_not_called()
+    build_model.assert_not_called()
+
+
 def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     cfg.train.save_final_model = True
@@ -97,7 +125,10 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
     assert _FakeTrainer.last_kwargs["finetune_plan"] is None
     metadata = load_batching_run_metadata(cfg.experiment.output_dir)
-    assert metadata.strategy == "fixed"
+    assert metadata.grouping == "none"
+    assert metadata.cardinality == "fixed"
+    assert metadata.packing == "none"
+    assert metadata.layout == "padded"
     assert any(
         isinstance(callback, ShaftBatchingMetadataCallback)
         for callback in _FakeTrainer.last_kwargs["callbacks"]
@@ -171,7 +202,11 @@ algorithm:
   name: grpo
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   datasets:
     - dataset_name: grpo_ds
       source_type: jsonl_sft

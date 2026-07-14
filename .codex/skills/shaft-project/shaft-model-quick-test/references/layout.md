@@ -115,5 +115,5 @@ tests/
 
 - 临时评测目录留在仓库根目录
 - 不进入 `src/shaft`
-- 不接 `src/shaft/webui`
+- 不进入 `src/shaft`，也不新增正式 UI/CLI 入口
 - 文档只在 `docs/module_reference.md` 附录补一个入口说明

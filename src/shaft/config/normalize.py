@@ -3,10 +3,14 @@ from __future__ import annotations
 import math
 import re
 
+from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
 
-_MIX_STRATEGIES = {"concat", "weighted"}
-_BATCHING_STRATEGIES = {"fixed", "bounded_cost_aware"}
+_SCHEDULE_MIXING_STRATEGIES = {"concat", "weighted"}
+_BATCH_GROUPINGS = {"none", "length", "bounded_cost"}
+_BATCH_CARDINALITIES = {"fixed", "token_budget"}
+_BATCH_LAYOUTS = {"padded", "varlen"}
+_PACKING_MODES = {"none", "greedy"}
 _TRAIN_DURATION_UNITS = {"steps", "epochs"}
 _ALGORITHMS = {"sft", "dpo", "ppo", "grpo"}
 _FINETUNE_MODES = {"full", "lora", "dora", "qlora"}
@@ -34,6 +38,20 @@ _PARAM_GROUP_LR_KEYS = {
 }
 
 
+def _normalize_bool(value: object, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    raise ValueError(f"{field_name} must be a boolean value.")
+
+
 def _normalize_string_list(values: list[str]) -> list[str]:
     normalized = [str(item).strip() for item in values if str(item).strip()]
     return list(dict.fromkeys(normalized))
@@ -57,15 +75,30 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported algorithm.name={config.algorithm.name!r}. Expected one of {_ALGORITHMS}."
         )
 
-    config.data.mix_strategy = str(config.data.mix_strategy).strip().lower()
-    if config.data.mix_strategy not in _MIX_STRATEGIES:
-        raise ValueError(f"Unsupported data.mix_strategy={config.data.mix_strategy!r}.")
-    batching = config.data.batching
-    batching.strategy = str(batching.strategy).strip().lower()
-    if batching.strategy not in _BATCHING_STRATEGIES:
+    schedule = config.data.schedule
+    schedule.mixing = str(schedule.mixing).strip().lower()
+    if schedule.mixing not in _SCHEDULE_MIXING_STRATEGIES:
         raise ValueError(
-            f"Unsupported data.batching.strategy={batching.strategy!r}. "
-            f"Expected one of {_BATCHING_STRATEGIES}."
+            f"Unsupported data.schedule.mixing={schedule.mixing!r}. "
+            f"Expected one of {_SCHEDULE_MIXING_STRATEGIES}."
+        )
+    schedule.shuffle = _normalize_bool(
+        schedule.shuffle,
+        "data.schedule.shuffle",
+    )
+
+    batching = config.data.batching
+    batching.grouping = str(batching.grouping).strip().lower()
+    if batching.grouping not in _BATCH_GROUPINGS:
+        raise ValueError(
+            f"Unsupported data.batching.grouping={batching.grouping!r}. "
+            f"Expected one of {_BATCH_GROUPINGS}."
+        )
+    batching.cardinality = str(batching.cardinality).strip().lower()
+    if batching.cardinality not in _BATCH_CARDINALITIES:
+        raise ValueError(
+            f"Unsupported data.batching.cardinality={batching.cardinality!r}. "
+            f"Expected one of {_BATCH_CARDINALITIES}."
         )
     batching.buffer_size = int(batching.buffer_size)
     if batching.buffer_size <= 0:
@@ -73,18 +106,48 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     batching.cost_cache_size = int(batching.cost_cache_size)
     if batching.cost_cache_size < 0:
         raise ValueError("data.batching.cost_cache_size must be >= 0.")
-    for field_name in (
-        "max_samples_per_microbatch",
-        "max_padded_tokens",
-        "max_vision_patches",
-    ):
-        value = getattr(batching, field_name)
-        if value is None:
-            continue
-        value = int(value)
-        if value <= 0:
-            raise ValueError(f"data.batching.{field_name} must be > 0 when set.")
-        setattr(batching, field_name, value)
+    if batching.max_tokens_per_microbatch is not None:
+        batching.max_tokens_per_microbatch = int(
+            batching.max_tokens_per_microbatch
+        )
+        if batching.max_tokens_per_microbatch <= 0:
+            raise ValueError(
+                "data.batching.max_tokens_per_microbatch must be > 0 when set."
+            )
+    normalized_resource_budgets: dict[str, int] = {}
+    for resource_name, value in dict(batching.resource_budgets).items():
+        normalized_name = str(resource_name).strip().lower()
+        if not normalized_name:
+            raise ValueError(
+                "data.batching.resource_budgets contains an empty resource name."
+            )
+        if normalized_name not in SHAFT_BATCH_RESOURCE_NAMES:
+            raise ValueError(
+                "Unsupported data.batching resource "
+                f"{normalized_name!r}. Expected one of {SHAFT_BATCH_RESOURCE_NAMES}."
+            )
+        normalized_value = int(value)
+        if normalized_value <= 0:
+            raise ValueError(
+                "data.batching.resource_budgets."
+                f"{normalized_name} must be > 0."
+            )
+        normalized_resource_budgets[normalized_name] = normalized_value
+    batching.resource_budgets = normalized_resource_budgets
+
+    batching.layout = str(batching.layout).strip().lower()
+    if batching.layout not in _BATCH_LAYOUTS:
+        raise ValueError(
+            f"Unsupported data.batching.layout={batching.layout!r}. "
+            f"Expected one of {_BATCH_LAYOUTS}."
+        )
+    packing = batching.packing
+    packing.mode = str(packing.mode).strip().lower()
+    if packing.mode not in _PACKING_MODES:
+        raise ValueError(
+            f"Unsupported data.batching.packing.mode={packing.mode!r}. "
+            f"Expected one of {_PACKING_MODES}."
+        )
     config.data.num_workers = int(config.data.num_workers)
     if config.data.num_workers < 0:
         raise ValueError("data.num_workers must be >= 0.")
@@ -95,6 +158,18 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.data.image_cache_size = int(config.data.image_cache_size)
     if config.data.image_cache_size < 0:
         raise ValueError("data.image_cache_size must be >= 0.")
+    config.data.pin_memory = _normalize_bool(
+        config.data.pin_memory,
+        "data.pin_memory",
+    )
+    config.data.persistent_workers = _normalize_bool(
+        config.data.persistent_workers,
+        "data.persistent_workers",
+    )
+    config.data.add_eos_token = _normalize_bool(
+        config.data.add_eos_token,
+        "data.add_eos_token",
+    )
     if config.data.record_cache_dir is not None:
         config.data.record_cache_dir = str(config.data.record_cache_dir).strip() or None
     if config.data.media_snapshot_id is not None:
@@ -110,25 +185,36 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     ]
     if config.data.catalog_path is not None:
         config.data.catalog_path = str(config.data.catalog_path).strip() or None
-    prompt_sampling = config.data.prompt_sampling
-    prompt_sampling.enabled = bool(prompt_sampling.enabled)
-    prompt_sampling.train_only = bool(prompt_sampling.train_only)
+    prompt_sampling = config.data.transforms.prompt_sampling
+    prompt_sampling.enabled = _normalize_bool(
+        prompt_sampling.enabled,
+        "data.transforms.prompt_sampling.enabled",
+    )
+    prompt_sampling.train_only = _normalize_bool(
+        prompt_sampling.train_only,
+        "data.transforms.prompt_sampling.train_only",
+    )
     if prompt_sampling.seed is not None:
         prompt_sampling.seed = int(prompt_sampling.seed)
     normalized_prompt_pools: dict[str, str] = {}
     for dataset_name, path in dict(prompt_sampling.pools).items():
         normalized_name = str(dataset_name).strip()
         if not normalized_name:
-            raise ValueError("data.prompt_sampling.pools contains an empty dataset key.")
+            raise ValueError(
+                "data.transforms.prompt_sampling.pools contains an empty dataset key."
+            )
         normalized_path = str(path).strip()
         if not normalized_path:
             raise ValueError(
-                f"data.prompt_sampling.pools.{normalized_name} must point to a prompt pool file."
+                "data.transforms.prompt_sampling.pools."
+                f"{normalized_name} must point to a prompt pool file."
             )
         normalized_prompt_pools[normalized_name] = normalized_path
     prompt_sampling.pools = normalized_prompt_pools
     if prompt_sampling.enabled and not prompt_sampling.pools:
-        raise ValueError("data.prompt_sampling.enabled=true requires at least one prompt pool.")
+        raise ValueError(
+            "data.transforms.prompt_sampling.enabled=true requires at least one prompt pool."
+        )
 
     finetune = config.model.finetune
     finetune.mode = str(finetune.mode).strip().lower()
@@ -159,29 +245,42 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if not finetune.target_modules:
         raise ValueError("model.finetune.target_modules cannot be empty.")
 
+    config.eval.enabled = _normalize_bool(config.eval.enabled, "eval.enabled")
     for dataset in config.data.datasets:
         dataset.dataset_name = str(dataset.dataset_name).strip()
         if not dataset.dataset_name:
             raise ValueError("data.datasets[*].dataset_name cannot be empty.")
         dataset.source_type = str(dataset.source_type).strip().lower()
-        dataset.enabled = bool(dataset.enabled)
-        dataset.use_for_eval = bool(dataset.use_for_eval)
+        dataset.enabled = _normalize_bool(
+            dataset.enabled,
+            f"data.datasets[{dataset.dataset_name}].enabled",
+        )
+        dataset.use_for_eval = _normalize_bool(
+            dataset.use_for_eval,
+            f"data.datasets[{dataset.dataset_name}].use_for_eval",
+        )
         dataset.weight = float(dataset.weight)
         if not math.isfinite(dataset.weight) or dataset.weight < 0:
             raise ValueError(
                 f"data.datasets[{dataset.dataset_name}].weight must be finite and >= 0."
             )
-        dataset.train_paths = [str(x).strip() for x in dataset.train_paths if str(x).strip()]
-        dataset.val_paths = [str(x).strip() for x in dataset.val_paths if str(x).strip()]
+        dataset.train_paths = _normalize_string_list(dataset.train_paths)
+        dataset.val_paths = _normalize_string_list(dataset.val_paths)
         dataset.offline_transforms = _normalize_string_list(dataset.offline_transforms)
         dataset.online_transforms = _normalize_string_list(dataset.online_transforms)
         dataset.tags = _normalize_string_list(dataset.tags)
         if dataset.help is not None:
             dataset.help = str(dataset.help).strip() or None
         if dataset.train_path:
-            dataset.train_paths = [str(dataset.train_path).strip(), *dataset.train_paths]
+            dataset.train_paths = _normalize_string_list(
+                [str(dataset.train_path), *dataset.train_paths]
+            )
         if dataset.val_path:
-            dataset.val_paths = [str(dataset.val_path).strip(), *dataset.val_paths]
+            dataset.val_paths = _normalize_string_list(
+                [str(dataset.val_path), *dataset.val_paths]
+            )
+        dataset.train_path = None
+        dataset.val_path = None
         if not dataset.train_paths:
             raise ValueError(f"data.datasets[{dataset.dataset_name}].train_paths cannot be empty.")
         if (
@@ -238,7 +337,8 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         ]
         if missing_prompt_pools:
             raise ValueError(
-                "data.prompt_sampling.enabled=true requires prompt pools for all active train/eval datasets. "
+                "data.transforms.prompt_sampling.enabled=true requires prompt pools "
+                "for all active train/eval datasets. "
                 f"Missing: {missing_prompt_pools}"
             )
 
@@ -286,15 +386,18 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("train.duration.value must be finite and > 0.")
     if train.duration.unit == "steps" and not train.duration.value.is_integer():
         raise ValueError("train.duration.value must be an integer when unit='steps'.")
-    if batching.strategy == "bounded_cost_aware":
+    bounded = batching.grouping == "bounded_cost"
+    length_grouped = batching.grouping == "length"
+    planned = bounded or length_grouped
+    if planned:
         if config.algorithm.name != "sft":
             raise ValueError(
-                f"data.batching.strategy={batching.strategy!r} currently supports "
+                f"data.batching.grouping={batching.grouping!r} currently supports "
                 "algorithm.name='sft' only."
             )
         if train.duration.unit != "steps":
             raise ValueError(
-                f"data.batching.strategy={batching.strategy!r} currently requires "
+                f"data.batching.grouping={batching.grouping!r} currently requires "
                 "train.duration.unit='steps'."
             )
     train.per_device_train_batch_size = int(train.per_device_train_batch_size)
@@ -304,33 +407,80 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if train.gradient_accumulation_steps <= 0:
         raise ValueError("train.gradient_accumulation_steps must be > 0.")
     train.full_determinism = bool(train.full_determinism)
-    if batching.strategy == "bounded_cost_aware":
-        if batching.max_samples_per_microbatch is None:
-            batching.max_samples_per_microbatch = train.per_device_train_batch_size
-        if batching.max_padded_tokens is None:
+    if planned:
+        if length_grouped and config.data.max_length is None:
             raise ValueError(
-                "data.batching.max_padded_tokens is required when "
-                "strategy='bounded_cost_aware'."
+                f"data.batching.grouping={batching.grouping!r} requires "
+                "data.max_length > 0 so planning and collate use one sequence limit."
             )
-        if config.data.mix_strategy == "weighted" and not config.data.shuffle:
+        if schedule.mixing == "weighted" and not schedule.shuffle:
             raise ValueError(
-                "bounded_cost_aware requires a horizon-independent sample schedule; "
-                "weighted mixing therefore requires data.shuffle=true."
+                f"{batching.grouping} grouping requires a horizon-independent "
+                "sample schedule; weighted mixing therefore requires "
+                "data.schedule.shuffle=true."
             )
         if config.data.media_snapshot_id is None:
             raise ValueError(
-                "bounded_cost_aware requires data.media_snapshot_id. The id must "
-                "name an immutable media snapshot; change it whenever source media "
-                "can change in place."
+                f"{batching.grouping} grouping requires data.media_snapshot_id. "
+                "The id must name an immutable media snapshot."
             )
-    elif (
-        batching.max_samples_per_microbatch is not None
-        or batching.max_padded_tokens is not None
-        or batching.max_vision_patches is not None
+    if bounded:
+        if batching.layout != "padded" or packing.mode != "none":
+            raise ValueError(
+                "data.batching.grouping='bounded_cost' currently supports "
+                "data.batching.packing.mode='none' and layout='padded' only. "
+                "Packing and varlen execution require explicit runtime capabilities."
+            )
+        if batching.max_tokens_per_microbatch is None:
+            raise ValueError(
+                "data.batching.max_tokens_per_microbatch is required when "
+                "grouping='bounded_cost'."
+            )
+    elif batching.max_tokens_per_microbatch is not None:
+        raise ValueError(
+            "data.batching.max_tokens_per_microbatch requires "
+            "grouping='bounded_cost'."
+        )
+    if not planned and batching.resource_budgets:
+        raise ValueError(
+            "data.batching.resource_budgets require grouping='length' or "
+            "grouping='bounded_cost'."
+        )
+    if not planned and (
+        batching.buffer_size != 64 or batching.cost_cache_size != 65536
     ):
         raise ValueError(
-            "Bounded data.batching budget fields require "
-            "strategy='bounded_cost_aware'."
+            "data.batching.buffer_size and cost_cache_size are only meaningful "
+            "when grouping='length' or grouping='bounded_cost'."
+        )
+    if batching.cardinality == "token_budget" and not bounded:
+        raise ValueError(
+            "data.batching.cardinality='token_budget' requires "
+            "data.batching.grouping='bounded_cost'."
+        )
+    if length_grouped and batching.cardinality != "fixed":
+        raise ValueError(
+            "data.batching.grouping='length' currently requires "
+            "cardinality='fixed'."
+        )
+    if packing.mode == "greedy" and not length_grouped:
+        raise ValueError(
+            "data.batching.packing.mode='greedy' currently requires "
+            "grouping='length'."
+        )
+    if packing.mode == "greedy" and batching.layout != "varlen":
+        raise ValueError(
+            "data.batching.packing.mode='greedy' requires layout='varlen'."
+        )
+    if packing.mode == "greedy" and "vision_patches" not in batching.resource_budgets:
+        raise ValueError(
+            "data.batching.packing.mode='greedy' requires an explicit "
+            "data.batching.resource_budgets.vision_patches hard guard."
+        )
+    if batching.layout == "varlen" and not length_grouped:
+        raise ValueError(
+            "data.batching.layout='varlen' currently requires grouping='length' "
+            "so every training segment has an explicit planned context."
         )
     if float(train.scheduler_num_cycles) <= 0:
         raise ValueError("train.scheduler_num_cycles must be > 0.")
@@ -371,11 +521,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
             f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
         )
-    if batching.strategy == "bounded_cost_aware" and train.distributed.strategy != "ddp":
+    if planned and train.distributed.strategy != "ddp":
         raise ValueError(
-            "data.batching.strategy='bounded_cost_aware' currently supports "
-            "train.distributed.strategy='ddp' only; FSDP and DeepSpeed dynamic "
-            "DataLoader contracts have not been validated yet."
+            f"data.batching.grouping={batching.grouping!r} currently supports "
+            "train.distributed.strategy='ddp' only; FSDP and DeepSpeed planned "
+            "batch/tensor-axis contracts have not been validated yet."
         )
     fsdp_cfg = train.distributed.fsdp
     fsdp_cfg.sharding_strategy = str(fsdp_cfg.sharding_strategy).strip().lower()

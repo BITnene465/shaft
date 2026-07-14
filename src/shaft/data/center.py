@@ -134,23 +134,28 @@ class ShaftDataCenter:
             dataset_name: len(records)
             for dataset_name, records in records_by_dataset_train.items()
         }
+        schedule_config = self.data_config.schedule
         train_schedule = None
-        if self.data_config.mix_strategy != "weighted" or self.data_config.shuffle:
+        if schedule_config.mixing != "weighted" or schedule_config.shuffle:
             train_schedule = ShaftSampleSchedule(
                 source_sizes,
                 weights,
-                strategy=self.data_config.mix_strategy,
-                shuffle=self.data_config.shuffle,
+                strategy=schedule_config.mixing,
+                shuffle=schedule_config.shuffle,
                 seed=self.seed,
             )
         train_sampler: ShaftSampleSampler | None = None
-        if self.data_config.batching.strategy != "bounded_cost_aware":
+        planned_grouping = self.data_config.batching.grouping in {
+            "length",
+            "bounded_cost",
+        }
+        if not planned_grouping:
             sample_plan = ShaftSamplePlan(
                 source_sizes,
                 weights,
-                strategy=self.data_config.mix_strategy,
+                strategy=schedule_config.mixing,
                 num_samples=self.train_sample_budget,
-                shuffle=self.data_config.shuffle,
+                shuffle=schedule_config.shuffle,
                 seed=self.seed,
             )
             train_sampler = ShaftSampleSampler(
@@ -175,13 +180,14 @@ class ShaftDataCenter:
         )
         train_online_transforms = [train_dataset_aware_transform]
         eval_online_transforms = [eval_dataset_aware_transform]
+        prompt_sampling = self.data_config.transforms.prompt_sampling
         prompt_sampling_transform = build_prompt_sampling_transform(
-            self.data_config.prompt_sampling,
+            prompt_sampling,
             default_seed=self.seed,
         )
         if prompt_sampling_transform is not None:
             train_online_transforms.append(prompt_sampling_transform)
-            if not self.data_config.prompt_sampling.train_only:
+            if not prompt_sampling.train_only:
                 eval_online_transforms.append(prompt_sampling_transform)
         return ShaftPreparedRecords(
             train_records=records_by_dataset_train,
@@ -194,7 +200,7 @@ class ShaftDataCenter:
             media_snapshot_id=self.data_config.media_snapshot_id,
             image_cache_size=self.data_config.image_cache_size,
             suppress_train_decompression_bomb_warning=(
-                self.data_config.batching.strategy == "bounded_cost_aware"
+                planned_grouping
             ),
         )
 

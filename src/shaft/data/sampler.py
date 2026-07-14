@@ -13,12 +13,13 @@ from shaft.utils.distributed import get_rank, get_world_size
 from .batching import ShaftLocalMicroBatchPlan
 from .cost import ShaftSampleCostProvider
 from .dynamic_batching import (
-    ShaftBoundedBatchPlanner,
-    ShaftBoundedBatchingSpec,
-    ShaftBoundedBatchingState,
-    ShaftBoundedMicrobatchPlan,
+    ShaftBatchPlanner,
+    ShaftBatchPlanningSpec,
+    ShaftBatchPlanningState,
+    ShaftBatchMicrobatchPlan,
 )
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule, _affine_permute, _splitmix64
+from .planned import ShaftPlannedSampleRef
 
 
 logger = logging.getLogger(__name__)
@@ -62,8 +63,8 @@ class ShaftSampleSampler(Sampler[ShaftSampleRef]):
         self.plan_cycle = int(epoch)
 
 
-class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
-    """Yield variable-cardinality global batches for Accelerate rank sharding.
+class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
+    """Yield globally planned batches for Accelerate rank sharding.
 
     The flattened order is ``[planning frame][microstep][rank]``.  A complete
     planning frame is planned before any of its batches are yielded, so a cost or
@@ -78,10 +79,11 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
         schedule: ShaftSampleSchedule,
         *,
         cost_provider: ShaftSampleCostProvider,
-        spec: ShaftBoundedBatchingSpec,
+        spec: ShaftBatchPlanningSpec,
         global_microstep_count: int,
         planning_frame_size: int,
-        initial_state: ShaftBoundedBatchingState | None = None,
+        initial_state: ShaftBatchPlanningState | None = None,
+        preflight_plan: ShaftBatchMicrobatchPlan | None = None,
     ) -> None:
         self.schedule = schedule
         self.cost_provider = cost_provider
@@ -93,25 +95,39 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
         if self.planning_frame_size <= 0:
             raise ValueError("planning_frame_size must be > 0.")
         if initial_state is None:
-            initial_state = ShaftBoundedBatchingState(
+            initial_state = ShaftBatchPlanningState(
                 contract_fingerprint=spec.fingerprint,
             )
-        if initial_state.contract_fingerprint != spec.fingerprint:
-            raise ValueError("Initial bounded batching state has a different contract.")
+        initial_state.validate_against_spec(spec)
         if int(initial_state.global_microstep) % self.planning_frame_size != 0:
             raise ValueError(
-                "Bounded batching can only resume at a planning-frame boundary."
+                "Planned batching can only resume at a planning-frame boundary."
             )
         if int(initial_state.global_microstep) > self.global_microstep_count:
-            raise ValueError("Bounded batching resume state is beyond configured duration.")
+            raise ValueError("Planned batching resume state is beyond configured duration.")
         self.initial_state = initial_state
+        if preflight_plan is not None:
+            if int(preflight_plan.global_microstep) != int(
+                initial_state.global_microstep
+            ):
+                raise ValueError(
+                    "Planning preflight does not start at the initial state."
+                )
+            preflight_plan.state_after.validate_against_spec(spec)
+            if int(preflight_plan.state_after.global_microstep) != (
+                int(initial_state.global_microstep) + 1
+            ):
+                raise ValueError(
+                    "Planning preflight must advance exactly one global microstep."
+                )
+        self.preflight_plan = preflight_plan
         self._committed_state = initial_state
-        self._snapshots: dict[int, ShaftBoundedBatchingState] = {
+        self._snapshots: dict[int, ShaftBatchPlanningState] = {
             int(initial_state.global_microstep): initial_state
         }
 
     @property
-    def sampler(self) -> "ShaftBoundedBatchSampler":
+    def sampler(self) -> "ShaftPlannedBatchSampler":
         """Expose set_epoch through Accelerate's BatchSamplerShard."""
 
         return self
@@ -120,87 +136,115 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
         remaining = self.global_microstep_count - int(self.initial_state.global_microstep)
         return remaining * int(self.spec.data_world_size)
 
-    def __iter__(self) -> Iterator[list[ShaftSampleRef]]:
-        planner = ShaftBoundedBatchPlanner(
+    def __iter__(self) -> Iterator[list[ShaftPlannedSampleRef]]:
+        planner_state = (
+            self.initial_state
+            if self.preflight_plan is None
+            else self.preflight_plan.state_after
+        )
+        planner = ShaftBatchPlanner(
             schedule=self.schedule,
             cost_provider=self.cost_provider,
             spec=self.spec,
-            state=self.initial_state,
+            state=planner_state,
         )
         remaining_microsteps = self.global_microstep_count - int(
             self.initial_state.global_microstep
         )
         if remaining_microsteps % self.planning_frame_size != 0:
             raise RuntimeError(
-                "Remaining bounded microsteps do not form complete planning frames."
+                "Remaining microsteps do not form complete planning frames."
             )
 
         planning_seconds = 0.0
-        emitted_samples = 0
+        planned_microsteps = 0
+        emitted_logical_segments = 0
+        emitted_physical_packs = 0
         emitted_llm_tokens = 0
         emitted_padded_tokens = 0
         emitted_supervised_tokens = 0
         emitted_vision_patches = 0
-        max_local_batch_size = 0
+        max_local_pack_count = 0
         max_rank_skew = 0.0
         max_frame_rank_skew = 0.0
         frame_count = remaining_microsteps // self.planning_frame_size
         try:
-            for _ in range(frame_count):
+            for frame_index in range(frame_count):
                 started = time.perf_counter()
-                frame, frame_rank_skew = self._balance_planning_frame(tuple(
+                frame_prefix = (
+                    (self.preflight_plan,)
+                    if frame_index == 0 and self.preflight_plan is not None
+                    else ()
+                )
+                unbalanced_frame = frame_prefix + tuple(
                     planner.next_global_microbatch()
-                    for _ in range(self.planning_frame_size)
-                ))
+                    for _ in range(self.planning_frame_size - len(frame_prefix))
+                )
+                frame, frame_rank_skew = self._balance_planning_frame(
+                    unbalanced_frame
+                )
                 planning_seconds += time.perf_counter() - started
+                planned_microsteps += len(frame)
                 max_frame_rank_skew = max(max_frame_rank_skew, frame_rank_skew)
                 for plan in frame:
                     stats = plan.stats
-                    emitted_samples += stats.sample_count
+                    emitted_logical_segments += stats.logical_segment_count
+                    emitted_physical_packs += stats.physical_pack_count
                     emitted_llm_tokens += stats.useful_llm_tokens
                     emitted_padded_tokens += stats.padded_llm_tokens
                     emitted_supervised_tokens += stats.supervised_tokens
                     emitted_vision_patches += stats.vision_patches
-                    max_local_batch_size = max(
-                        max_local_batch_size,
-                        stats.max_local_batch_size,
+                    max_local_pack_count = max(
+                        max_local_pack_count,
+                        stats.max_local_pack_count,
                     )
                     max_rank_skew = max(max_rank_skew, stats.max_rank_cost_skew)
                     if plan.global_microstep == int(self.initial_state.global_microstep):
                         logger.info(
-                            "[bounded-batch] buffer=%s world=%s max_samples=%s "
-                            "max_padded_tokens=%s max_vision_patches=%s "
-                            "first_samples=%s first_padding=%.4f first_rank_skew=%.4f",
+                            "[batch-plan] grouping=%s packing=%s layout=%s "
+                            "buffer=%s world=%s cardinality=%s "
+                            "local_pack_range=%s "
+                            "max_tokens=%s resource_budgets=%s "
+                            "first_logical_segments=%s first_physical_packs=%s "
+                            "first_padding=%.4f first_rank_skew=%.4f",
+                            self.spec.grouping,
+                            self.spec.packing,
+                            self.spec.layout,
                             self.spec.buffer_size,
                             self.spec.data_world_size,
-                            self.spec.max_samples_per_microbatch,
-                            self.spec.max_padded_tokens,
-                            self.spec.max_vision_patches,
-                            stats.sample_count,
+                            self.spec.cardinality,
+                            self.spec.local_pack_count_bounds,
+                            self.spec.max_tokens_per_microbatch,
+                            dict(self.spec.resource_budgets),
+                            stats.logical_segment_count,
+                            stats.physical_pack_count,
                             stats.padding_ratio,
                             stats.max_rank_cost_skew,
                         )
                 state = frame[-1].state_after
                 self._snapshots[int(state.global_microstep)] = state
                 for plan in frame:
-                    for local_batch in plan.rank_microbatches:
-                        yield list(local_batch.sample_refs)
+                    for rank_index in range(len(plan.rank_microbatches)):
+                        yield list(plan.planned_refs_for_rank(rank_index))
         finally:
-            if emitted_samples:
+            if emitted_logical_segments:
                 logger.info(
-                    "[bounded-batch-planned-summary] microsteps=%s samples=%s "
+                    "[batch-plan-summary] microsteps=%s logical_segments=%s "
+                    "physical_packs=%s segments_per_pack=%.4f "
                     "useful_llm_tokens=%s padded_llm_tokens=%s supervised_tokens=%s "
-                    "vision_patches=%s max_local_batch=%s/%s padding=%.4f "
+                    "vision_patches=%s max_local_packs=%s/%s padding=%.4f "
                     "microstep_rank_skew_max=%.4f frame_rank_skew_max=%.4f "
                     "planning_seconds=%.6f",
-                    remaining_microsteps,
-                    emitted_samples,
+                    planned_microsteps,
+                    emitted_logical_segments,
+                    emitted_physical_packs,
+                    emitted_logical_segments / max(emitted_physical_packs, 1),
                     emitted_llm_tokens,
                     emitted_padded_tokens,
                     emitted_supervised_tokens,
                     emitted_vision_patches,
-                    max_local_batch_size,
-                    self.spec.max_samples_per_microbatch,
+                    max_local_pack_count,
+                    self.spec.local_pack_count_bounds[1],
                     1.0 - emitted_llm_tokens / max(emitted_padded_tokens, 1),
                     max_rank_skew,
                     max_frame_rank_skew,
@@ -210,15 +254,15 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
     def commit_global_microstep(
         self,
         global_microstep: int,
-    ) -> ShaftBoundedBatchingState:
+    ) -> ShaftBatchPlanningState:
         target_microstep = int(global_microstep)
         if target_microstep < int(self._committed_state.global_microstep):
-            raise ValueError("Cannot move the committed bounded batching state backwards.")
+            raise ValueError("Cannot move committed batch-planning state backwards.")
         try:
             committed = self._snapshots[target_microstep]
         except KeyError as exc:
             raise RuntimeError(
-                "No bounded batching snapshot exists for completed planning frame at "
+                "No batch-planning snapshot exists for completed planning frame at "
                 f"global_microstep={target_microstep}; producer/consumer state drifted."
             ) from exc
         self._committed_state = committed
@@ -230,11 +274,11 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
         return committed
 
     @property
-    def committed_state(self) -> ShaftBoundedBatchingState:
+    def committed_state(self) -> ShaftBatchPlanningState:
         return self._committed_state
 
     @property
-    def latest_planned_state(self) -> ShaftBoundedBatchingState:
+    def latest_planned_state(self) -> ShaftBatchPlanningState:
         return self._snapshots[max(self._snapshots)]
 
     @property
@@ -245,10 +289,10 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
 
     def _balance_planning_frame(
         self,
-        frame: tuple[ShaftBoundedMicrobatchPlan, ...],
-    ) -> tuple[tuple[ShaftBoundedMicrobatchPlan, ...], float]:
+        frame: tuple[ShaftBatchMicrobatchPlan, ...],
+    ) -> tuple[tuple[ShaftBatchMicrobatchPlan, ...], float]:
         cumulative_load = [0.0] * int(self.spec.data_world_size)
-        balanced: list[ShaftBoundedMicrobatchPlan] = []
+        balanced: list[ShaftBatchMicrobatchPlan] = []
         for plan in frame:
             batches = sorted(
                 plan.rank_microbatches,
@@ -294,13 +338,17 @@ class ShaftBoundedBatchSampler(Sampler[list[ShaftSampleRef]]):
         return tuple(balanced), frame_rank_skew
 
     def _normalized_batch_load(self, batch: ShaftLocalMicroBatchPlan) -> float:
-        text = batch.padded_llm_tokens / int(self.spec.max_padded_tokens)
-        vision = (
-            0.0
-            if self.spec.max_vision_patches is None
-            else batch.vision_patches / int(self.spec.max_vision_patches)
+        materialized_tokens = (
+            batch.useful_llm_tokens
+            if self.spec.layout == "varlen"
+            else batch.padded_llm_tokens
         )
-        return text + vision
+        text = materialized_tokens / int(self.spec.max_tokens_per_microbatch)
+        resources = 0.0
+        for resource_name, budget in self.spec.resource_budgets:
+            value = batch.resource_total(resource_name)
+            resources += value / int(budget)
+        return text + resources
 
     def set_epoch(self, epoch: int) -> None:
         # A step-bounded loader is one deterministic stream.  HF may report a

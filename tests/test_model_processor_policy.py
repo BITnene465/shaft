@@ -40,6 +40,133 @@ def test_processor_policy_controls_pixel_budget_forwarding() -> None:
     assert captured["images_kwargs"] == {"min_pixels": 16, "max_pixels": 32}
 
 
+def test_qwen_processor_policy_builds_one_image_media_manifest_per_row() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+
+    class _Processor:
+        def __call__(self, **kwargs):
+            _ = kwargs
+            return {
+                "input_ids": torch.tensor([[1, 2], [3, 0]], dtype=torch.long),
+                "attention_mask": torch.tensor([[1, 1], [1, 0]], dtype=torch.long),
+                "pixel_values": torch.zeros((6, 8), dtype=torch.float32),
+                "image_grid_thw": torch.tensor(
+                    [[1, 2, 2], [1, 1, 2]],
+                    dtype=torch.long,
+                ),
+            }
+
+    processed = model_adapter.build_processor_batch(
+        processor=_Processor(),
+        prompt_texts=["first", "second"],
+        images=["image-0", "image-1"],
+        min_pixels=None,
+        max_pixels=None,
+    )
+
+    assert processed.media_manifest is not None
+    assert processed.media_manifest.image_grid_count == 2
+    assert processed.media_manifest.image_patch_count == 6
+    assert [
+        (
+            segment.processor_row_index,
+            segment.image_grids.start,
+            segment.image_grids.stop,
+            segment.image_patches.start,
+            segment.image_patches.stop,
+        )
+        for segment in processed.media_manifest.segments
+    ] == [
+        (0, 0, 1, 0, 4),
+        (1, 1, 2, 4, 6),
+    ]
+
+
+def test_qwen_processor_manifest_keeps_multi_image_rows_for_padded_execution() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+
+    class _Processor:
+        def __call__(self, **kwargs):
+            _ = kwargs
+            return {
+                "input_ids": torch.tensor([[1, 2], [3, 0]], dtype=torch.long),
+                "attention_mask": torch.tensor([[1, 1], [1, 0]], dtype=torch.long),
+                "pixel_values": torch.zeros((7, 8), dtype=torch.float32),
+                "image_grid_thw": torch.tensor(
+                    [[1, 2, 2], [1, 1, 2], [1, 1, 1]],
+                    dtype=torch.long,
+                ),
+            }
+
+    processed = model_adapter.build_processor_batch(
+        processor=_Processor(),
+        prompt_texts=["two images", "one image"],
+        images=[["image-0", "image-1"], ["image-2"]],
+        min_pixels=None,
+        max_pixels=None,
+    )
+
+    assert processed.media_manifest is not None
+    assert [
+        (
+            segment.image_grids.start,
+            segment.image_grids.stop,
+            segment.image_patches.start,
+            segment.image_patches.stop,
+        )
+        for segment in processed.media_manifest.segments
+    ] == [(0, 2, 0, 6), (2, 3, 6, 7)]
+
+
+@pytest.mark.parametrize(
+    ("image_grid_thw", "pixel_values", "message"),
+    [
+        (
+            torch.tensor([[1, 2, 2]], dtype=torch.long),
+            torch.zeros((4, 8), dtype=torch.float32),
+            "image grid count",
+        ),
+        (
+            torch.tensor([[1, 2, 2], [1, 1, 2]], dtype=torch.long),
+            torch.zeros((5, 8), dtype=torch.float32),
+            "image patch count",
+        ),
+    ],
+    ids=("grid-row-count", "patch-count"),
+)
+def test_qwen_processor_policy_rejects_ambiguous_media_layout(
+    image_grid_thw: torch.Tensor,
+    pixel_values: torch.Tensor,
+    message: str,
+) -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+
+    class _Processor:
+        def __call__(self, **kwargs):
+            _ = kwargs
+            return {
+                "input_ids": torch.tensor([[1], [2]], dtype=torch.long),
+                "attention_mask": torch.ones((2, 1), dtype=torch.long),
+                "pixel_values": pixel_values,
+                "image_grid_thw": image_grid_thw,
+            }
+
+    with pytest.raises(ValueError, match=message):
+        model_adapter.build_processor_batch(
+            processor=_Processor(),
+            prompt_texts=["first", "second"],
+            images=["image-0", "image-1"],
+            min_pixels=None,
+            max_pixels=None,
+        )
+
+
 def test_qwen_processor_policy_estimates_resized_image_tokens_and_patches() -> None:
     model_adapter = build_model_meta("qwen3vl").resolve_adapter(
         model_name_or_path="models/Qwen3-VL-4B-Instruct"

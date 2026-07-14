@@ -6,7 +6,7 @@
 # - Add synthetic gt_standard crop reconstruction for shape and line.
 # - Add reviewed image-type reconstruction and full-image background classification.
 #
-# Per-sample probability plan with train config `mix_strategy: weighted`:
+# Per-sample probability plan with train config `data.schedule.mixing: weighted`:
 # - grounding_layout:       8 (40%)
 # - shape_reconstruction:   5 (25%)
 # - line_reconstruction:    4 (20%)

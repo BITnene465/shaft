@@ -120,28 +120,6 @@ def resolve_hf_train_duration(train_cfg: Any) -> tuple[float, int]:
     raise ValueError(f"Unsupported train duration unit: {unit!r}.")
 
 
-def resolve_step_sample_budget(
-    config: RuntimeConfig,
-    *,
-    world_size: int,
-) -> int | None:
-    """Return the global sample plan size for a step-bounded run."""
-
-    _, max_steps = resolve_hf_train_duration(config.train)
-    if max_steps < 0:
-        return None
-    if config.data.batching.strategy == "bounded_cost_aware":
-        # Bounded SFT consumes a horizon-independent schedule directly. No
-        # duration-sized finite SamplePlan is constructed for this path.
-        return None
-    return (
-        max_steps
-        * int(config.train.per_device_train_batch_size)
-        * int(config.train.gradient_accumulation_steps)
-        * max(int(world_size), 1)
-    )
-
-
 def _build_warmup_kwargs(train_cfg: Any) -> dict[str, float | int]:
     warmup_ratio = float(train_cfg.warmup_ratio)
     if warmup_ratio <= 0:

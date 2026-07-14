@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 import torch.distributed as dist
+from transformers import Trainer
 from transformers.trainer_callback import TrainerState
 
 from shaft.config import load_config
@@ -49,6 +50,15 @@ def main() -> None:
             original_save(self, json_path)
 
         TrainerState.save_to_json = _failing_save
+    elif mode == "checkpoint_peer_rng_failure":
+        original_save_rng_state = Trainer._save_rng_state
+
+        def _failing_save_rng_state(self, output_dir: str) -> None:
+            if dist.get_rank() == 1 and "checkpoint-2" in str(output_dir):
+                raise OSError("synthetic peer-rank RNG-state write failure")
+            original_save_rng_state(self, output_dir)
+
+        Trainer._save_rng_state = _failing_save_rng_state
     else:
         raise ValueError(f"unsupported mode: {mode}")
 

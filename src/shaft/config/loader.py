@@ -1,19 +1,48 @@
 from __future__ import annotations
 
 import json
-from dataclasses import fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
 
 from .dataset_catalog import resolve_dataset_catalog
+from .data import DataBatchingConfig
 from .normalize import normalize_runtime_config
 from .runtime import RuntimeConfig
 
 T = TypeVar("T")
 
 _DEEPSPEED_SHAFT_MANAGED_KEYS = {"optimizer", "scheduler"}
+
+
+def to_resolved_payload(config: RuntimeConfig) -> dict[str, Any]:
+    """Build a canonical launch snapshot, not a lossless source-YAML roundtrip."""
+
+    payload = asdict(config)
+    data = payload["data"]
+    if data["datasets"]:
+        data.pop("catalog_path", None)
+        data.pop("catalog_names", None)
+    batching = data["batching"]
+    if batching["grouping"] == "none":
+        for field_name in (
+            "buffer_size",
+            "cost_cache_size",
+            "max_tokens_per_microbatch",
+            "resource_budgets",
+        ):
+            batching.pop(field_name, None)
+    elif batching["grouping"] == "length":
+        batching.pop("max_tokens_per_microbatch", None)
+
+    for dataset in data["datasets"]:
+        if dataset["train_paths"]:
+            dataset.pop("train_path", None)
+        if dataset["val_paths"]:
+            dataset.pop("val_path", None)
+    return payload
 
 
 def _is_optional(annotation: Any) -> bool:
@@ -126,19 +155,61 @@ def _validate_explicit_batching_policy(payload: dict[str, Any]) -> None:
     data_payload = payload.get("data")
     if not isinstance(data_payload, dict):
         raise ValueError(
-            "Training YAML must explicitly set data.batching.strategy; "
+            "Training YAML must explicitly set data.batching.grouping, cardinality, "
+            "packing.mode, and layout; "
             "the data mapping is missing."
         )
     batching_payload = data_payload.get("batching")
-    if not isinstance(batching_payload, dict) or "strategy" not in batching_payload:
+    if not isinstance(batching_payload, dict):
         raise ValueError(
-            "data.batching.strategy must be explicit in every training YAML; "
-            "implicit fallback to fixed batching is not allowed."
+            "data.batching must be explicit in every training YAML."
         )
-    strategy = str(batching_payload.get("strategy", "")).strip().lower()
-    if not strategy:
-        raise ValueError("data.batching.strategy must be explicit and non-empty.")
-
+    batching_fields = {field.name for field in fields(DataBatchingConfig)}
+    unknown_batching_fields = sorted(set(batching_payload) - batching_fields)
+    if unknown_batching_fields:
+        raise ValueError(
+            "Unknown config keys at data.batching: "
+            f"{unknown_batching_fields}"
+        )
+    for field_name in ("grouping", "cardinality", "layout"):
+        value = str(batching_payload.get(field_name, "")).strip().lower()
+        if not value:
+            raise ValueError(
+                f"data.batching.{field_name} must be explicit and non-empty "
+                "in every training YAML."
+            )
+    packing_payload = batching_payload.get("packing")
+    if not isinstance(packing_payload, dict):
+        raise ValueError(
+            "data.batching.packing must be explicit in every training YAML."
+        )
+    packing_mode = str(packing_payload.get("mode", "")).strip().lower()
+    if not packing_mode:
+        raise ValueError(
+            "data.batching.packing.mode must be explicit and non-empty in every "
+            "training YAML."
+        )
+    grouping = str(batching_payload["grouping"]).strip().lower()
+    planned_only_fields = {
+        "buffer_size",
+        "cost_cache_size",
+        "resource_budgets",
+    }
+    ignored_planned_fields = sorted(
+        planned_only_fields & batching_payload.keys()
+        if grouping == "none"
+        else ()
+    )
+    if ignored_planned_fields:
+        raise ValueError(
+            "data.batching planning fields require grouping='length' or "
+            f"grouping='bounded_cost': {ignored_planned_fields}."
+        )
+    if grouping != "bounded_cost" and "max_tokens_per_microbatch" in batching_payload:
+        raise ValueError(
+            "data.batching.max_tokens_per_microbatch is only valid when "
+            "grouping='bounded_cost'."
+        )
 
 def _resolve_deepspeed_config_path(payload: dict[str, Any], *, config_path: Path) -> dict[str, Any]:
     train_payload = payload.get("train")

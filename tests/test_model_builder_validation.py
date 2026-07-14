@@ -158,10 +158,18 @@ def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
                 },
             )()
 
-        def _build(self, cfg, *, model_meta, model_adapter):
+        def _build(
+            self,
+            cfg,
+            *,
+            model_meta,
+            model_adapter,
+            sequence_execution_contract=None,
+        ):
             captured["cfg"] = cfg
             captured["model_meta"] = model_meta
             captured["model_adapter"] = model_adapter
+            captured["sequence_execution_contract"] = sequence_execution_contract
             return object()
 
     with patch("shaft.model.builder.build_model_meta", return_value=_Adapter()):

@@ -104,8 +104,8 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
 
     config = RuntimeConfig()
     config.experiment.seed = 7
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds_a",
@@ -141,8 +141,10 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
 
 
-def test_bounded_data_center_enables_worker_warning_suppression_only_for_train(
+@pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
+def test_planned_data_center_enables_worker_warning_suppression_only_for_train(
     tmp_path: Path,
+    grouping: str,
 ) -> None:
     image = _write_image(tmp_path / "img.png")
     train_path = _write_jsonl(
@@ -154,7 +156,7 @@ def test_bounded_data_center_enables_worker_warning_suppression_only_for_train(
         [{"image_path": str(image), "target_text": "val"}],
     )
     config = RuntimeConfig()
-    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.grouping = grouping
     config.data.media_snapshot_id = "fixture-media-v1"
     config.data.datasets = [
         DatasetSourceConfig(
@@ -234,9 +236,9 @@ def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> No
 
     config = RuntimeConfig()
     config.experiment.seed = 11
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
-    config.data.prompt_sampling = PromptSamplingConfig(
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
         enabled=True,
         train_only=True,
         seed=99,
@@ -333,8 +335,8 @@ def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     )
 
     config = RuntimeConfig()
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="eval_ds",
@@ -384,8 +386,8 @@ def test_data_center_sampler_passes_plan_cycle_in_sample_ref(tmp_path: Path) -> 
 
     config = RuntimeConfig()
     config.experiment.seed = 5
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = True
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = True
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
         DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
@@ -420,8 +422,8 @@ def test_sample_context_crosses_persistent_worker_boundary(tmp_path: Path) -> No
         [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
     )
     config = RuntimeConfig()
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
     ]
@@ -470,8 +472,8 @@ def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
 
     config = RuntimeConfig()
     config.experiment.seed = 5
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
         DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
@@ -512,8 +514,10 @@ def test_data_center_applies_step_sample_budget_to_plan(tmp_path: Path) -> None:
     assert len(bundle.train_sampler) == 17
 
 
-def test_bounded_data_center_exposes_schedule_without_duration_sized_plan(
+@pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
+def test_planned_data_center_exposes_schedule_without_duration_sized_plan(
     tmp_path: Path,
+    grouping: str,
 ) -> None:
     image = _write_image(tmp_path / "img.png")
     train_path = _write_jsonl(
@@ -525,10 +529,10 @@ def test_bounded_data_center_exposes_schedule_without_duration_sized_plan(
         [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
     )
     config = RuntimeConfig()
-    config.data.batching.strategy = "bounded_cost_aware"
+    config.data.batching.grouping = grouping
     config.data.media_snapshot_id = "data-center-fixture-v1"
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds",

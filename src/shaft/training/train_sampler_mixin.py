@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import partial
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +12,29 @@ from torch.utils.data import DataLoader, IterableDataset
 from transformers.trainer_utils import seed_worker
 from transformers.utils import is_datasets_available
 
-from shaft.data.sampler import ShaftBoundedBatchSampler, ShaftSampleSampler
+from shaft.data.sampler import ShaftPlannedBatchSampler, ShaftSampleSampler
 
 
 if is_datasets_available():
     import datasets
+
+
+logger = logging.getLogger(__name__)
+
+
+class _BatchSummaryFilter(logging.Filter):
+    _PREFIXES = (
+        "Num examples =",
+        "Num Epochs =",
+        "Num update steps per epoch =",
+        "Instantaneous batch size per device =",
+        "Total train batch size (w. parallel, distributed & accumulation) =",
+        "Resuming training from checkpoint with epoch",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage().strip()
+        return not any(message.startswith(prefix) for prefix in self._PREFIXES)
 
 
 class ShaftTrainSamplerMixin:
@@ -76,7 +95,7 @@ class ShaftTrainSamplerMixin:
             "persistent_workers": self.args.dataloader_persistent_workers,
             "multiprocessing_context": "fork" if should_fork else None,
             # Worker base seeds must not advance the model/dropout RNG when a
-            # committed bounded state resumes and recreates persistent workers.
+            # committed planning state resumes and recreates persistent workers.
             "generator": torch.Generator().manual_seed(
                 int(self.args.data_seed or self.args.seed)
             ),
@@ -92,37 +111,45 @@ class ShaftTrainSamplerMixin:
         previous_even_batches = self.accelerator.even_batches
         self.accelerator.even_batches = False
         try:
-            prepared = self.accelerator.prepare(dataloader)
+            # Planned batches can carry host-side structural metadata that a
+            # model-family sequence policy must consume before tensor transfer
+            # (for example Qwen3VL segment-local M-RoPE construction).  Keep
+            # device placement owned by Trainer._prepare_inputs while still
+            # letting Accelerate shard the global microbatch stream.
+            prepared = self.accelerator.prepare_data_loader(
+                dataloader,
+                device_placement=False,
+            )
         finally:
-            # Dynamic cardinality is train-only. Distributed eval must keep equal
-            # per-rank step counts or its prediction collectives can deadlock.
+            # Custom grouped batching is train-only. Distributed eval must keep
+            # equal per-rank step counts or its prediction collectives can deadlock.
             self.accelerator.even_batches = previous_even_batches
         batch_sampler = getattr(prepared, "batch_sampler", None)
-        if not isinstance(self.train_batch_sampler, ShaftBoundedBatchSampler):
+        if not isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler):
             return prepared
         world_size = int(self.train_batch_sampler.spec.data_world_size)
         if isinstance(prepared, DataLoaderDispatcher):
             raise RuntimeError(
-                "Bounded variable batches require dispatch_batches=False."
+                "Planned batches require dispatch_batches=False."
             )
         if world_size > 1 and not isinstance(batch_sampler, BatchSamplerShard):
             raise RuntimeError(
-                "Distributed bounded batches require Accelerate BatchSamplerShard."
+                "Distributed planned batches require Accelerate BatchSamplerShard."
             )
         if isinstance(batch_sampler, BatchSamplerShard):
             if bool(batch_sampler.even_batches) or bool(batch_sampler.split_batches):
                 raise RuntimeError(
-                    "Bounded variable batches require Accelerate "
+                    "Planned batches require Accelerate "
                     "even_batches=False and split_batches=False."
                 )
             if int(batch_sampler.num_processes) != world_size:
                 raise RuntimeError(
-                    "Accelerate batch-shard world size differs from bounded spec."
+                    "Accelerate batch-shard world size differs from planning spec."
                 )
         expected_local_batches = len(self.train_batch_sampler) // world_size
         if len(prepared) != expected_local_batches:
             raise RuntimeError(
-                "Prepared bounded DataLoader length differs from the remaining "
+                "Prepared planned DataLoader length differs from the remaining "
                 "global-microstep count."
             )
         return prepared
@@ -134,8 +161,37 @@ class ShaftTrainSamplerMixin:
         self._shaft_initial_global_step = self._checkpoint_global_step(
             resume_from_checkpoint
         )
+        if self._shaft_initial_global_step > 0:
+            logger.info(
+                "[train-resume] global_step=%s/%s planning_cursor=restored",
+                self._shaft_initial_global_step,
+                int(self.args.max_steps),
+            )
         self._shaft_final_metrics_corrected = False
-        output = super()._inner_training_loop(*args, **kwargs)
+        log_filter: _BatchSummaryFilter | None = None
+        if isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler):
+            spec = self.train_batch_sampler.spec
+            local_min, local_max = spec.local_pack_count_bounds
+            world_size = int(spec.data_world_size)
+            accumulation = int(self.args.gradient_accumulation_steps)
+            logger.info(
+                "[train-batch] local_packs=%s..%s global_packs=%s..%s "
+                "optimizer_packs=%s..%s per_device_train_batch_size=%s",
+                local_min,
+                local_max,
+                local_min * world_size,
+                local_max * world_size,
+                local_min * world_size * accumulation,
+                local_max * world_size * accumulation,
+                local_max,
+            )
+            log_filter = _BatchSummaryFilter()
+            logging.getLogger("transformers.trainer").addFilter(log_filter)
+        try:
+            output = super()._inner_training_loop(*args, **kwargs)
+        finally:
+            if log_filter is not None:
+                logging.getLogger("transformers.trainer").removeFilter(log_filter)
         if (
             self._shaft_final_metrics_corrected
             and hasattr(output, "_replace")
@@ -145,20 +201,20 @@ class ShaftTrainSamplerMixin:
         return output
 
     def log(self, logs: dict[str, float], *args: Any, **kwargs: Any) -> None:
-        if self._is_bounded_final_metrics(logs):
-            self._correct_bounded_final_metrics(logs)
+        if self._is_planned_final_metrics(logs):
+            self._correct_planned_final_metrics(logs)
             self._shaft_final_metrics_corrected = True
         return super().log(logs, *args, **kwargs)
 
-    def _is_bounded_final_metrics(self, logs: dict[str, float]) -> bool:
+    def _is_planned_final_metrics(self, logs: dict[str, float]) -> bool:
         return bool(
             not getattr(self, "_shaft_final_metrics_corrected", False)
-            and isinstance(self.train_batch_sampler, ShaftBoundedBatchSampler)
+            and isinstance(self.train_batch_sampler, ShaftPlannedBatchSampler)
             and "train_runtime" in logs
             and "train_loss" in logs
         )
 
-    def _correct_bounded_final_metrics(
+    def _correct_planned_final_metrics(
         self,
         logs: dict[str, float],
     ) -> None:

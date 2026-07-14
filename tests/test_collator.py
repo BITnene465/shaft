@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 import torch
 from PIL import Image
 
@@ -80,6 +81,47 @@ def _build_smoke_adapter():
     )
 
 
+def _sft_item(
+    *,
+    sample_id: str,
+    target_text: str = "answer",
+    batch_context: dict[str, int | str] | None = None,
+) -> dict[str, object]:
+    item: dict[str, object] = {
+        "dataset_name": "fixture",
+        "sample_id": sample_id,
+        "image_path": f"/tmp/{sample_id}.png",
+        "image": Image.new("RGB", (16, 16), color=(255, 255, 255)),
+        "target_text": target_text,
+        "messages": None,
+        "system_prompt": "",
+        "user_prompt": "Locate.",
+        "extra": {},
+    }
+    if batch_context is not None:
+        item["_batch_context"] = batch_context
+    return item
+
+
+def _batch_context(
+    *,
+    pack_index: int,
+    segment_index: int,
+    pack_segment_count: int,
+    global_microstep: int = 5,
+    plan_fingerprint: str = "plan-v1",
+    local_batch_id: int = 0,
+) -> dict[str, int | str]:
+    return {
+        "global_microstep": global_microstep,
+        "plan_fingerprint": plan_fingerprint,
+        "local_batch_id": local_batch_id,
+        "pack_index": pack_index,
+        "segment_index": segment_index,
+        "pack_segment_count": pack_segment_count,
+    }
+
+
 if not LOSS_SCALE_REGISTRY.has("test_weighted"):
     @register_loss_scale("test_weighted")
     class _TestWeightedLossScale(ShaftLossScale):
@@ -155,6 +197,115 @@ def test_sft_collator_builds_labels() -> None:
     )
     eval_out = eval_collator(batch)
     assert "dataset_name" in eval_out["meta"]
+
+
+def test_sft_varlen_collator_flattens_planned_segments_without_padding() -> None:
+    adapter = _build_smoke_adapter()
+    processor = _FakeProcessor()
+    collator = SFTCollator(
+        model_adapter=adapter,
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=_FakeTokenizer(),
+        max_length=32,
+        layout="varlen",
+        packing_mode="greedy",
+        loss_scale_name="test_weighted",
+    )
+    batch = [
+        _sft_item(
+            sample_id="a",
+            target_text="one two",
+            batch_context=_batch_context(
+                pack_index=0,
+                segment_index=0,
+                pack_segment_count=2,
+            ),
+        ),
+        _sft_item(
+            sample_id="b",
+            target_text="three",
+            batch_context=_batch_context(
+                pack_index=0,
+                segment_index=1,
+                pack_segment_count=2,
+            ),
+        ),
+        _sft_item(
+            sample_id="c",
+            target_text="four five six",
+            batch_context=_batch_context(
+                pack_index=1,
+                segment_index=0,
+                pack_segment_count=1,
+            ),
+        ),
+    ]
+
+    out = collator(batch)
+
+    assert out["input_ids"].shape[0] == 1
+    assert out["labels"].shape == out["input_ids"].shape
+    assert out["loss_scale"].shape == out["input_ids"].shape
+    assert "attention_mask" not in out
+    layout = out["_shaft_varlen_layout"]
+    assert layout.physical_pack_count == 2
+    assert layout.logical_segment_count == 3
+    assert layout.pack_lengths == tuple(
+        sum(segment.length for segment in layout.segments if segment.pack_index == pack)
+        for pack in range(2)
+    )
+    assert int(out["input_ids"].shape[1]) == sum(
+        segment.length for segment in layout.segments
+    )
+    for segment in layout.segments:
+        assert int(out["labels"][0, segment.start].item()) == -100
+        assert float(out["loss_scale"][0, segment.start].item()) == 0.0
+
+
+@pytest.mark.parametrize(
+    "broken_context",
+    [
+        None,
+        _batch_context(
+            pack_index=0,
+            segment_index=0,
+            pack_segment_count=2,
+        ),
+        _batch_context(
+            pack_index=1,
+            segment_index=0,
+            pack_segment_count=1,
+            plan_fingerprint="other-plan",
+        ),
+    ],
+)
+def test_sft_varlen_collator_rejects_missing_or_inconsistent_plan_context(
+    broken_context: dict[str, int | str] | None,
+) -> None:
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        max_length=32,
+        layout="varlen",
+        packing_mode="greedy",
+    )
+    batch = [
+        _sft_item(
+            sample_id="a",
+            batch_context=_batch_context(
+                pack_index=0,
+                segment_index=0,
+                pack_segment_count=2,
+            ),
+        ),
+        _sft_item(sample_id="b", batch_context=broken_context),
+    ]
+
+    with pytest.raises(ValueError, match="varlen.*plan|plan.*varlen"):
+        collator(batch)
 
 
 def test_sft_collator_loss_scale_all_supervises_prefix_tokens() -> None:

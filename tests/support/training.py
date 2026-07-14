@@ -21,9 +21,11 @@ class TinyModel(torch.nn.Module):
         self.fc = torch.nn.Linear(8, vocab_size)
         self.config = type("Cfg", (), {"hidden_size": 8})()
         self.last_forward_kwargs = None
+        self.last_forward_labels = None
 
     def forward(self, input_ids=None, labels=None, **kwargs):
         self.last_forward_kwargs = dict(kwargs)
+        self.last_forward_labels = labels
         hidden = self.emb(input_ids)
         logits = self.fc(hidden)
         loss = None

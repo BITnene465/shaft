@@ -33,9 +33,11 @@ from shaft.plugins import (
 )
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.batch_planning import (
+    build_batch_contract,
     ShaftBatchingMetadataCallback,
     build_batching_run_metadata,
     publish_batching_run_metadata,
+    validate_batching_resume_contract,
 )
 from shaft.training.progress_callback import ShaftProgressCallback
 from shaft.training.reproducibility import initialize_training_randomness
@@ -52,7 +54,7 @@ from shaft.training.distributed import is_rank_zero
 from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
-from .training_args import build_hf_training_args, resolve_step_sample_budget
+from .training_args import build_hf_training_args
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +114,31 @@ class ShaftRLHFPipeline:
             full_determinism=config.train.full_determinism,
         )
         training_args = self.build_training_args()
+        batch_contract = build_batch_contract(
+            config=config,
+            training_args=training_args,
+        )
+        resume_checkpoint = resolve_resume_checkpoint(
+            config.train.resume_from_checkpoint
+        )
+        if resume_checkpoint is not None:
+            if algorithm_name == "ppo":
+                raise ValueError(
+                    "TRL PPOTrainer does not support resume_from_checkpoint "
+                    "in current Shaft pipeline."
+                )
+            validate_resume_checkpoint(
+                resume_checkpoint,
+                finetune_mode=config.model.finetune.mode,
+            )
+            validate_batching_resume_contract(
+                resume_checkpoint,
+                expected_contract=batch_contract,
+            )
         batching_metadata = build_batching_run_metadata(
             config=config,
             training_args=training_args,
+            batch_contract=batch_contract,
         )
         publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
         logger.info("[batching-metadata] %s", batching_metadata.to_dict())
@@ -152,9 +176,8 @@ class ShaftRLHFPipeline:
             data_center = ShaftDataCenter(
                 config.data,
                 seed=config.experiment.seed,
-                train_sample_budget=resolve_step_sample_budget(
-                    config,
-                    world_size=training_args.world_size,
+                train_sample_budget=batch_contract.finite_sample_plan_size(
+                    max_steps=training_args.max_steps,
                 ),
             )
             dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
@@ -246,12 +269,7 @@ class ShaftRLHFPipeline:
             **trainer_kwargs,
         )
 
-        resume_checkpoint = resolve_resume_checkpoint(config.train.resume_from_checkpoint)
-        if resume_checkpoint is not None:
-            validate_resume_checkpoint(resume_checkpoint, finetune_mode=config.model.finetune.mode)
         if algorithm_name == "ppo":
-            if resume_checkpoint is not None:
-                raise ValueError("TRL PPOTrainer does not support resume_from_checkpoint in current Shaft pipeline.")
             train_result = trainer.train()
         else:
             train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)

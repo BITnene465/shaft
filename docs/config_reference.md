@@ -182,9 +182,9 @@
 - `catalog_path`
 - `catalog_names`
 - `datasets`
-- `prompt_sampling`
+- `schedule`
+- `transforms`
 - `batching`
-- `mix_strategy`
 - `num_workers`
 - `prefetch_factor`
 - `pin_memory`
@@ -195,16 +195,19 @@
 - `max_pixels`
 - `max_length`
 - `add_eos_token`
-- `shuffle`
 
 ### `data.batching`
 
-所有训练 YAML 必须显式写 strategy。保留原 HF batch 顺序时：
+所有训练 YAML 必须显式写 grouping、cardinality、packing 和 layout。保留普通固定 batch 时：
 
 ```yaml
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
 ```
 
 启用有界成本感知批次时：
@@ -213,53 +216,103 @@ data:
 data:
   media_snapshot_id: banana-v5.0-re2-media-v1
   batching:
-    strategy: bounded_cost_aware
+    grouping: bounded_cost
+    cardinality: token_budget
+    packing:
+      mode: none
+    layout: padded
     buffer_size: 64
     cost_cache_size: 65536
-    max_samples_per_microbatch: 2
-    max_padded_tokens: 10000
-    max_vision_patches: 16384
+    max_tokens_per_microbatch: 10000
+    resource_budgets:
+      vision_patches: 16384
 ```
 
-- 可选策略只有 `fixed | bounded_cost_aware`。旧 `cost_aware`、`dynamic_cost_aware`、
+启用 Qwen3VL whole-sample packing 时：
+
+```yaml
+data:
+  max_length: 8192
+  media_snapshot_id: my-media-v1
+  batching:
+    grouping: length
+    cardinality: fixed
+    packing:
+      mode: greedy
+    layout: varlen
+    buffer_size: 64
+    cost_cache_size: 65536
+    resource_budgets:
+      vision_patches: 16384
+```
+
+- `grouping`、`cardinality`、`packing`、`layout` 是分层组合的 batch contract。当前可执行组合是
+  `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
+  `length + fixed + greedy + varlen`，以及
+  `bounded_cost + fixed|token_budget + none + padded`。varlen 首轮只支持 Qwen3VL image SFT；其它模型族、
+  greedy+padded、greedy+token-budget 和 bounded-cost+greedy 会明确失败，不会静默退回其它模式。
+- 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、
   `fixed_guard`、`planning_window`、`cost_plan_cache_dir`、`rank_balance` 和
   `train.optimizer_batch` 已删除；出现时按未知配置字段拒绝，不提供隐式迁移。
-- `bounded_cost_aware` 当前只支持 SFT、`train.duration.unit=steps` 和 DDP（单进程也使用 DDP
-  contract）。FSDP/DeepSpeed 的 variable BatchSampler 尚未专项验收，因此 normalize 阶段拒绝。
-- `buffer_size` 是 planner 中最多常驻的轻量 `SampleRef + SampleCost` 数量，必须至少等于 DP world
-  size。它不是全训练 horizon，也不会导致启动时扫描 `steps * samples`。
-- `media_snapshot_id` 是 bounded 路径必填的不可变媒体快照 id。JSONL/Arrow record fingerprint 不会为了
+- `bounded_cost` 当前只支持 SFT、`train.duration.unit=steps` 和 DDP（单进程也使用 DDP
+  contract）。FSDP/DeepSpeed 的自定义 BatchSampler 尚未专项验收，因此 normalize 阶段拒绝。
+- `buffer_size` 是 planner 中最多常驻的轻量 `SampleRef + SampleCost` 数量。`fixed` 时必须至少等于
+  `DP world size × per_device_train_batch_size`；`token_budget` 时至少等于 DP world size，实际配置应保留
+  足够 lookahead 以找到相近成本样本。它不是全训练 horizon，也不会导致启动时扫描 `steps * samples`。
+- `media_snapshot_id` 是 length/bounded planned 路径必填的不可变媒体快照 id。JSONL/Arrow record fingerprint 不会为了
   startup 安全而扫描全部外部图片；若图片集合、内容或尺寸可能改变，必须先生成新快照并更换该 id。
 - `cost_cache_size` 同时限制 prompt-variant sample-cost LRU 与 canonical image-header LRU；`0` 表示
   禁用缓存。缓存不包含解码图像、processor tensor 或完整文本 token tensor。
-- `max_samples_per_microbatch` 是每卡每个 local batch 的样本数上限。未显式设置时使用
-  `train.per_device_train_batch_size`；该 HF 字段在 bounded 模式只提供兼容默认值和日志名义值，不代表
-  每个实际 batch 的固定 cardinality。
-- `max_padded_tokens` 是硬上限，计算方式为
-  `local sample count * processor 后最长 LLM sequence`，不是原始字符数。
-- `max_vision_patches` 是 local batch 内所有图片 pre-merge vision patch 的可选总上限，用于避免多个大图
+- `train.per_device_train_batch_size` 是唯一 local physical-pack count 配置。`cardinality=fixed` 时每个 rank
+  必须恰好生成该数量的 pack；`cardinality=token_budget` 时它是每个 rank 的硬上限，实际数量为
+  `[1, per_device_train_batch_size]`。不存在第二个 max-samples 开关。
+- `packing=none` 时一个 physical pack 恰好是一条 logical sample；`packing=greedy` 时一个 pack 可含多条
+  logical segments，因此训练日志分别报告 `logical_segments`、`physical_packs` 和 `segments_per_pack`，不能
+  用 tensor 的 batch 维或 pack count 反推 logical sample count。
+- bounded-cost 的 `max_tokens_per_microbatch` 是硬安全上限，计算方式为
+  `local sample count * processor 后最长 LLM sequence`，不是原始字符数。length 路径不重复配置该字段，
+  local token cap 固定派生为 `per_device_train_batch_size * data.max_length`。
+- `resource_budgets.vision_patches` 是 local batch 内所有图片 pre-merge vision patch 的可选总上限，用于避免多个大图
   被合到同一 batch。它必须能容纳 processor pixel budget 允许的最大单样本；例如 Qwen patch-size 16、
   `max_pixels=4,000,000` 的配置应至少使用 16,384。单样本超限会在该 draw 首次进入 buffer 时明确失败。
-- 每个 global microstep 固定输出 W 个 non-empty local batch，HF 继续按固定 GA 聚合；optimizer step 的
-  实际 sample/token 数自然可变，不再维护 exact target samples/tokens。
-- planner 取最老的 W 个 buffer entry 作为 anchors，再以 projected rank load 为第一目标、padding waste 为
-  tie-break 合并 entry；完整 planning frame 还会按 rank 累计成本重新分配 batches。因此不会饿死长样本，
-  也不会改变 mixing draw multiset。weighted mixing 在 bounded 模式要求 `data.shuffle=true`。
-- 多 rank startup 对第一个 buffer 的 cost/plan digest 做一致性校验。首个 forward 前会原子规划完整 GA frame，
-  cost call 上界是 `buffer + (GA - 1) * W * max_samples`，而不是完整 duration；运行中最坏 host 预取内存还
+- 每个 global microstep 固定输出 W 个非空 local microbatch。`fixed` 的 optimizer physical pack count 是
+  `B × W × GA`；`token_budget` 的范围是 `[W × GA, B × W × GA]`。SFT Trainer 对一个 optimizer frame 内
+  真实 `labels/loss_scale` 求跨 GA/DP 的 global denominator，因此 local cardinality 不同不会改变 token
+  权重，LR/scheduler 仍以 optimizer step 为单位。
+- planner 强制消费最老 draw，并从有界 buffer 中选择成本相近的样本。`fixed` 模式贪心快路径失败时使用
+  有节点上限的 deterministic exact fallback；`token_budget` 模式以单样本可行为底线，在预算内尽量填充
+  到上限。完整 planning frame 还会按 rank 累计成本重新分配 batches。因此不会饿死长样本，也不会改变
+  mixing draw multiset。weighted mixing 在 bounded 模式要求 `data.schedule.shuffle=true`。
+- 多 rank startup 对第一个 buffer 的 cost/plan digest 做一致性校验，并把该 preflight plan 交给正式 sampler
+  复用。首个 forward 前会原子规划完整 GA frame，
+  cost call 上界是 `buffer + (GA - 1) * W * per_device_train_batch_size`，而不是完整 duration；运行中最坏 host 预取内存还
   需计入 `num_workers * prefetch_factor`。
 - 所有 rank 在 immutable snapshot contract 下独立重放同一个轻量全局 BatchSampler，Accelerate 以
   `split_batches=false/even_batches=false` 选择各 rank 的 batch。sampler 内禁止 collective，避免 worker
   预取速度不同造成死锁；首 buffer 漂移和 startup 单 rank 错误会先做 all-rank 聚合再退出。
 - duration-independent spec、已提交 global microstep、FIFO buffer 及实际累计成本，作为
-  `ShaftBoundedBatchingCallback` stateful payload 写入 checkpoint 的 HF `trainer_state.json`。只保存已完成
-  optimizer step 对应 snapshot，不保存预取推进后的 live cursor，也不维护第二个 sidecar 状态源。
+  `ShaftBatchPlanningCallback` stateful payload 写入 checkpoint 的 HF `trainer_state.json`。只保存已完成
+  optimizer step 对应 snapshot，不保存预取推进后的 live cursor。所有 rank 保存成功后原子写 completion
+  manifest，再执行 rotation；该 manifest 是提交标记，不是第二个 sampler 状态源。
 - resume 会验证 source/media snapshot/mixing/prompt/tokenizer/processor/template、world size、buffer、budgets，
   以及 duration/GA/optimizer/scheduler exact-resume contract；随后从 committed state 继续并禁用 HF 二次
   data skip。persistent workers 使用 DataLoader 专用 generator，不改变模型 RNG。
-- run root 的 `shaft_batching_run_metadata.json` 保存 resolved 策略、DP/GA、pixel budget、source weights、
-  media snapshot id、buffer/cache/caps 和 contract fingerprint；启用 W&B 时同一 payload 写入
-  `shaft_batching` run config。
+- run root 的 `shaft_batching_run_metadata.json` 保存 resolved 策略、`local_pack_count_range`、
+  `global_pack_count[_range]`、`optimizer_pack_count[_range]`、DP/GA、pixel budget、source weights、media
+  snapshot id、buffer/cache/caps、versioned canonical
+  `batch_contract`、`batch_contract_fingerprint` 和 bounded 路径的 `planner_spec_fingerprint`；启用 W&B 时
+  同一 payload 写入 `shaft_batching` run config。`cost_cache_size` 是性能审计字段，不参与 exact-resume
+  fingerprint。
+- 所有 checkpoint 都在 stateful callback 中保存同一 canonical batch contract。exact resume 改变四轴、
+  `per_device_train_batch_size`、DP world size 或 GA 会在模型加载前失败；旧 checkpoint 若没有该 callback，
+  只能作为 `init_from_checkpoint` 权重来源启动新 schedule。bounded completion 还会交叉验证该 callback 与
+  planner callback 的 spec fingerprint、batch geometry 和 GA。
+
+`packing` 决定多个逻辑序列是否组合，`layout` 决定最终 tensor/attention 表示。Qwen3VL varlen 把计划好的
+logical rows 展平为 `[1,total_tokens]`，不传普通 2D attention mask；每段首 label/loss weight 清零，模型
+adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。CPU eager/SDPA
+只用于正确性 oracle；CUDA release 路径要求 FlashAttention 2、bf16/fp16 与 DDP。FSDP、DeepSpeed、
+torch.compile、Qwen3.5/3.6、真正单样本多图和视频仍明确拒绝。
 
 ### `data.datasets`
 
@@ -289,10 +342,11 @@ data:
 - `DatasetSourceConfig` 只描述配置输入；进入数据主链前，会先被解析成 `ShaftDatasetMeta`。
 - `use_for_eval=false` 表示该数据集只参与训练 mixing，不参与验证集构建，也不要求提供 `val_path/val_paths`。
 - 当 `eval.enabled=true` 时，至少要有一个 `enabled=true` 且 `use_for_eval=true` 的数据集。
-- `mix_strategy` 当前支持：
+- `data.schedule.mixing` 当前支持：
   - `concat`：覆盖全部有效行；开启 `shuffle` 时每轮使用无额外索引内存的可复现置换。
   - `weighted`：以 `DatasetSourceConfig.weight` 归一化为数据源概率，并按 logical sample draw
     有放回抽样。fixed step 模式使用有限 plan；bounded step 模式直接消费 horizon-independent schedule。
+- `data.schedule.shuffle` 控制每个 source 内部的确定性行置换，不是在 batching 后再次全局洗牌。
 - `weight=0` 会禁用该 source 的 train split 加载与抽样；若 `use_for_eval=true`，val split 仍可参与评估。
 - `num_workers` 是每个 rank 的 worker 数。例如 8 rank × 4 worker 会产生 32 个读取进程。
 - `prefetch_factor` 是每个 worker 预取 batch 数，仅在 `num_workers>0` 时传给 HF DataLoader。
@@ -305,7 +359,21 @@ data:
   token budget 截断 assistant target；被截断的 target 不会补 EOS，避免把半截 JSON 教成合法结束。
   训练前仍应按真实 processor 做长度审计，超限样本优先过滤、记录或拆 crop。
 
-### `data.prompt_sampling`
+### `data.schedule`
+
+`schedule` 只决定逻辑样本流，不决定 batch 大小或 padding：
+
+```yaml
+data:
+  schedule:
+    mixing: weighted
+    shuffle: true
+```
+
+同一个 `draw_id`、seed 和 source snapshot 必须解析到同一个 source/row。batching 可以在有界窗口内重组
+已经选中的 draws，但不能改变 schedule 的 multiset。
+
+### `data.transforms.prompt_sampling`
 
 用途：训练运行时对同一数据样本随机轮换等价 prompt，避免把固定 prompt 学成任务 one-hot 编码。
 
@@ -321,13 +389,14 @@ data:
 
 ```yaml
 data:
-  prompt_sampling:
-    enabled: true
-    train_only: true
-    seed: 42
-    pools:
-      grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
-      point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
+  transforms:
+    prompt_sampling:
+      enabled: true
+      train_only: true
+      seed: 42
+      pools:
+        grounding_arrow: ../prompts/pools/grounding_arrow.v2.4.yaml
+        point_arrow: ../prompts/pools/point_arrow.v2.4.yaml
 ```
 
 Prompt pool 示例：
@@ -423,7 +492,7 @@ prompts:
 - `save_final_model=true` 把部署用 HF/PEFT 导出写入 `<output_dir>/best`。
 - `save_final_state=true` 把最终 `trainer_state.json` 保留在 run 根目录；finetune/optimizer summary 也属于
   run metadata，root layout 清理不得删除这些文件。
-- root `trainer_state.json` 只用于最终指标和 Web UI 状态展示，不等于包含 optimizer/RNG 的可恢复
+- root `trainer_state.json` 只用于保留最终指标，不等于包含 optimizer/RNG 的可恢复
   checkpoint。`resume_from_checkpoint` 指向 run 根目录时，如果存在 `checkpoint-*`，始终优先最新
   checkpoint；`best` 仍是部署导出，不作为精确训练恢复点。
 - SFT/RLHF pipeline 总是在 dataset、base model 与 PEFT adapter 装配前使用 `experiment.seed` 初始化 Python/
@@ -492,7 +561,7 @@ train:
   这是 ZeRO-3 大模型训练的必要顺序：HF 会在 `TrainingArguments` 初始化阶段建立 DeepSpeed
   runtime config，让模型加载阶段能感知 ZeRO-3 分片语义。
 - `strategy` 不是 `deepspeed` 时，Shaft 会清理 HF/Accelerate 进程级 DeepSpeed 状态，避免
-  在测试、Web UI 或长驻进程里先运行 DeepSpeed 后污染后续 DDP/FSDP 训练。
+  在测试或长驻进程里先运行 DeepSpeed 后污染后续 DDP/FSDP 训练。
 - `configs/deepspeed/zero1_bf16.json`、`zero2_bf16.json`、`zero3_bf16.json` 分别是 ZeRO-1/2/3
   bf16 示例配置；ZeRO-3 示例包含保存时 gather 16-bit 权重的设置，用于保持 `trainer.save_model()`
   的 HF export 语义。
@@ -803,7 +872,7 @@ eval:
 
 - `enabled`
 - `display`
-  - `auto`：TTY 使用单行交互显示，重定向日志/CI/WebUI 子进程使用稀疏文本状态
+  - `auto`：TTY 使用单行交互显示，重定向日志、CI 和非交互子进程使用稀疏文本状态
   - `interactive`：强制单行原地刷新
   - `plain`：强制输出无 ANSI、无 `\r` 的稀疏状态行
   - `off`：不创建终端或文本 sink；若 `persist=true`，仍保存结构化快照
@@ -824,8 +893,9 @@ eval:
 
 训练、loss eval、online eval 和 data/model startup 复用同一个 progress manager。bounded cost 在训练
 DataLoader 内按需完成，不再创建独立的全量 startup 进度任务。终端只显示
-当前前台阶段；进入 eval 时临时替换 train 行，结束后恢复 train。结构化快照保留完整任务树，供 Web UI
-读取，Web UI 不解析日志来推导进度。Shaft 同时关闭 Transformers 与 Hugging Face Hub 的原生进度条；
+当前前台阶段；进入 eval 时临时替换 train 行，结束后恢复 train。结构化快照保留完整任务树，供持久化
+状态审计和外部诊断工具读取；外部消费者应读取 JSON，而不是解析日志来推导进度。Shaft 同时关闭
+Transformers 与 Hugging Face Hub 的原生进度条；
 新增长任务必须向统一 manager 发布，不能平行创建 tqdm。嵌套 eval 的 wall time 不计入恢复后的 train
 step rate；失败/取消阶段会强制留下摘要。manager 对并发 advance/close 提供有序状态语义。
 

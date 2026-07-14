@@ -12,7 +12,11 @@ from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
 from .registry import build_model_meta
-from .types import ModelArtifacts, ShaftModelAdapter
+from .types import (
+    ModelArtifacts,
+    ShaftModelAdapter,
+    ShaftSequenceExecutionContract,
+)
 
 
 def _is_adapter_checkpoint(path: Path) -> bool:
@@ -187,7 +191,12 @@ def _validate_adapter_compatibility(
         )
 
 
-def _build_artifacts_from_runtime_config(config: RuntimeConfig, *, model_meta) -> ModelArtifacts:
+def _build_artifacts_from_runtime_config(
+    config: RuntimeConfig,
+    *,
+    model_meta,
+    sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
+) -> ModelArtifacts:
     runtime_config = copy.deepcopy(config)
     model_path = Path(runtime_config.model.model_name_or_path)
     _validate_hf_sharded_checkpoint_files(model_path)
@@ -198,7 +207,12 @@ def _build_artifacts_from_runtime_config(config: RuntimeConfig, *, model_meta) -
     )
     model_adapter.check_requires()
     assert model_meta.loader is not None
-    return model_meta.loader.build(runtime_config, model_meta=model_meta, model_adapter=model_adapter)
+    return model_meta.loader.build(
+        runtime_config,
+        model_meta=model_meta,
+        model_adapter=model_adapter,
+        sequence_execution_contract=sequence_execution_contract,
+    )
 
 
 def resolve_model_adapter_from_config(
@@ -219,11 +233,16 @@ def build_model_tokenizer_processor(
     config: RuntimeConfig,
     *,
     init_from_checkpoint: str | None = None,
+    sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
 ) -> ModelArtifacts:
     model_type = str(config.model.model_type).strip().lower()
     model_meta = build_model_meta(model_type)
     if init_from_checkpoint is None:
-        return _build_artifacts_from_runtime_config(config, model_meta=model_meta)
+        return _build_artifacts_from_runtime_config(
+            config,
+            model_meta=model_meta,
+            sequence_execution_contract=sequence_execution_contract,
+        )
 
     init_path = Path(init_from_checkpoint)
     if not init_path.exists():
@@ -232,7 +251,11 @@ def build_model_tokenizer_processor(
     if _is_adapter_checkpoint(init_path):
         adapter_cfg = _load_adapter_config(init_path)
         _validate_adapter_compatibility(config, adapter_cfg, init_path)
-        artifacts = _build_artifacts_from_runtime_config(config, model_meta=model_meta)
+        artifacts = _build_artifacts_from_runtime_config(
+            config,
+            model_meta=model_meta,
+            sequence_execution_contract=sequence_execution_contract,
+        )
         if not isinstance(artifacts.model, PeftModel):
             raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
         expected_target_modules, expected_modules_to_save = _expected_adapter_names_from_artifacts(artifacts)
@@ -255,4 +278,8 @@ def build_model_tokenizer_processor(
 
     override_config = copy.deepcopy(config)
     override_config.model.model_name_or_path = str(init_path)
-    return _build_artifacts_from_runtime_config(override_config, model_meta=model_meta)
+    return _build_artifacts_from_runtime_config(
+        override_config,
+        model_meta=model_meta,
+        sequence_execution_contract=sequence_execution_contract,
+    )

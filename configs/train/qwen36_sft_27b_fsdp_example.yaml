@@ -33,10 +33,16 @@ algorithm:
 
 data:
   batching:
-    strategy: fixed
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
   catalog_path: ../data/example.yaml
   catalog_names: [arrow_multitask]
-  mix_strategy: weighted
+  schedule:
+    mixing: weighted
+    shuffle: true
   num_workers: 8
   pin_memory: true
   persistent_workers: true
@@ -44,7 +50,6 @@ data:
   max_pixels: 1000000
   max_length: 5000
   add_eos_token: true
-  shuffle: true
 
 train:
   duration:

@@ -878,7 +878,7 @@ def select_progress_display_task_id(
     active_task_id: str | None,
     status: str,
 ) -> str | None:
-    """Select the shared terminal/WebUI foreground task from a progress snapshot."""
+    """Select the shared foreground task from a progress snapshot."""
 
     if active_task_id is not None and str(active_task_id) in tasks:
         return str(active_task_id)
@@ -1225,7 +1225,7 @@ class ShaftTerminalProgressSink:
 
 
 class ShaftPlainProgressSink:
-    """Emit sparse progress lines for CI, redirected logs, and WebUI subprocesses."""
+    """Emit sparse progress lines for CI, redirected logs, and non-interactive subprocesses."""
 
     def __init__(
         self,
