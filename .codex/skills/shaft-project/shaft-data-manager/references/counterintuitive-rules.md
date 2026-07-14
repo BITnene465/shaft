@@ -201,6 +201,15 @@ For weak-label datasets, this is still true even if there is no human raw truth 
 weak-label audit information such as `evidence`, `confidence`, `abstain_reason`, source model,
 and source job id out of `target_text`; store only minimal traceability in `extra`.
 
+## Full-Image Region Reconstruction Has No Bbox-Local Coordinate Frame
+
+The v5.2 `*_region_reconstruction` tasks receive the full image and identify the target with
+`prompt_args.bbox_2d`. Both that prompt bbox and every model-facing target geometry field use the
+same Qwen integer `0..999` space normalized against the full image. Do not normalize shape corners,
+callout body/tail geometry, or line points against the selected bbox merely because historical
+crop reconstruction used crop-local coordinates. The selected bbox identifies the object; it does
+not establish a second perceptual coordinate frame.
+
 ## Shape Attributes Follow The Editable Outer Container
 
 For shape subattribute prelabeling, classify the editable outer container or base shape, not the

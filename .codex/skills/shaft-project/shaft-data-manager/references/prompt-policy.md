@@ -10,12 +10,15 @@ Active v5.0 training/eval prompt pools:
 - `configs/prompts/pools/grounding_layout.v5.0.yaml`
 - `configs/prompts/pools/point_line.v5.0.yaml`
 
-Business reconstruction prompt pools:
+Active business reconstruction prompt pools:
 
-- `configs/prompts/pools/shape_reconstruction.v5.0.yaml`
-- `configs/prompts/pools/line_reconstruction.v5.0.yaml`
-- `configs/prompts/pools/image_reconstruction.v5.0.yaml`
+- `configs/prompts/pools/shape_region_reconstruction.v5.2.yaml`
+- `configs/prompts/pools/line_region_reconstruction.v5.2.yaml`
+- `configs/prompts/pools/image_region_reconstruction.v5.2.yaml`
 - `configs/prompts/pools/background.v5.0.yaml`
+
+The v5.0 `shape_reconstruction`, `line_reconstruction`, and `image_reconstruction` pools are
+historical crop-task contracts. Active v5.2 reconstruction training uses the region task names.
 
 Historical `arrow` annotations are normalized to the model-facing `line` label inside
 `grounding_layout`. Do not introduce new detection prompts with an `arrow` label. v5.0 has no
@@ -64,6 +67,10 @@ detection labels live in the unified `grounding_layout` task.
   An icon/image asset with no independent editable outer shape returns only
   `{"shape_type":"other"}`; its rectangular bitmap boundary is not a rectangle container. A
   distinct enclosing tile, badge, or panel is still classified by that outer geometric shape.
+- Region reconstruction consumes the full image and a dynamic `bbox_2d` prompt argument. The
+  prompt bbox and every model-facing shape/line geometry field use the same Qwen integer `0..999`
+  coordinate space normalized against the full input image. Do not normalize target geometry
+  against the selected bbox.
 - Line reconstruction prompts should follow the current PDF line DSL and the project extension
   for endpoint markers: `tee` for T-bar inhibition endpoints and `circle` for circular endpoint
   markers. `points` follows `gt_standard`: it is a list of one or more center-path segments,

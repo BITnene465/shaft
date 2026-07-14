@@ -524,6 +524,31 @@ uv run python scripts/tasks/build_sft_from_structured.py \
 `convert_grounding_structured_to_sft.py` 和
 `convert_grounding_structured_to_sft_row_major.py` 仅用于历史数据复现，不能用于当前 v5.1 数据重建。
 
+### `scripts/tasks/build_region_reconstruction_sft.py`
+
+用途：
+- 将既有 shape、line、image reconstruction 筛选 manifest 转换为整图区域重建任务
+- 保持原筛选、采样、类别分布和 sample ID 不变，仅把输入从 crop 改为源整图
+- 生成 `shape_region_reconstruction`、`line_region_reconstruction` 和
+  `image_region_reconstruction` 的 structured/SFT 数据
+
+构建命令：
+
+```bash
+uv run python scripts/tasks/build_region_reconstruction_sft.py \
+  --workers 50 \
+  --clean
+```
+
+关键行为：
+- SFT 直接引用源整图，不生成或复制 crop 图片
+- `prompt_args.bbox_2d` 按整图宽高量化为 Qwen 整数 `0..999`
+- shape/line target 内的所有控制点、body bbox 和 tail 点也按同一整图宽高量化；不得改成目标框局部坐标
+- `system_prompt` 和 `user_prompt` 留空，由对应 v5.2 prompt pool 在运行时注入
+- 旧 reconstruction structured 数据只作为确定性选择 manifest；shape/line 参数回查
+  `gt_standard`，image bbox 与已 review 的 image type 回查 raw JSON 真源
+- 只生成 train，validation 保持为空；筛选与采样策略不在该转换中改变
+
 
 ## 4. 维护规则
 

@@ -39,6 +39,15 @@ task families.
   `tail.points`, and line `points`. Do not leave target geometry as crop-local pixels; variable
   crop sizes make that harder for the model to learn and inconsistent with Qwen grounding
   pretraining.
+- Active v5.2 region reconstruction uses `shape_region_reconstruction`,
+  `line_region_reconstruction`, and `image_region_reconstruction`. Build all three with
+  `scripts/tasks/build_region_reconstruction_sft.py`. The builder preserves the existing
+  selection manifests, sample IDs, sampling, and class distributions, but replaces crop media
+  with direct references to the source full image. `prompt_args.bbox_2d` and all shape/line target
+  geometry share one full-image Qwen integer `0..999` coordinate space. The target bbox is not a
+  second local coordinate frame. These datasets are train-only and do not create task-local crop
+  images. Selection manifests choose rows only: shape/line attributes come from `gt_standard`,
+  while image bbox and reviewed `image_type` come from raw JSON.
 - Rebuild synthetic shape/line reconstruction data with
   `scripts/tasks/build_reconstruction_from_gt_standard.py`. Sampling is deterministic. The current
   on-disk v5.0-re `balanced_v2` snapshot keeps all ten non-head shape types, stratifies the
