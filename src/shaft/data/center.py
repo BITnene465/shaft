@@ -184,8 +184,13 @@ class ShaftDataCenter:
             dataset_name: len(records) for dataset_name, records in records_by_dataset_train.items()
         }
         schedule_config = self.data_config.schedule
-        train_schedule = None
-        if schedule_config.mixing != "weighted" or schedule_config.shuffle:
+        planned_grouping = self.data_config.batching.grouping in {
+            "length",
+            "bounded_cost",
+        }
+        train_schedule: ShaftSampleSchedule | None = None
+        train_sampler: ShaftSampleSampler | None = None
+        if planned_grouping:
             train_schedule = ShaftSampleSchedule(
                 source_sizes,
                 weights,
@@ -193,12 +198,7 @@ class ShaftDataCenter:
                 shuffle=schedule_config.shuffle,
                 seed=self.seed,
             )
-        train_sampler: ShaftSampleSampler | None = None
-        planned_grouping = self.data_config.batching.grouping in {
-            "length",
-            "bounded_cost",
-        }
-        if not planned_grouping:
+        else:
             sample_plan = ShaftSamplePlan(
                 source_sizes,
                 weights,
@@ -212,6 +212,8 @@ class ShaftDataCenter:
                 rank=0,
                 world_size=1,
             )
+            if schedule_config.mixing != "weighted" or schedule_config.shuffle:
+                train_schedule = sample_plan.schedule
         val_records = ShaftConcatRecordStore(
             [records_by_dataset_val[name] for name in sorted(records_by_dataset_val)]
         )

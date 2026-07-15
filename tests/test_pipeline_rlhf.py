@@ -9,7 +9,13 @@ import pytest
 import torch
 
 from shaft.config import load_config
-from shaft.data import DPODataset, GRPODataset, SFTDataset, ShaftDatasetBundle
+from shaft.data import (
+    DPODataset,
+    GRPODataset,
+    SFTDataset,
+    ShaftDatasetBundle,
+    ShaftGroupedSampleContract,
+)
 from shaft.pipeline import run_rlhf
 from shaft.training.batch_planning import (
     ShaftBatchingMetadataCallback,
@@ -72,6 +78,121 @@ def test_run_rlhf_rejects_resume_contract_before_publish_or_model_load(
     build_model.assert_not_called()
 
 
+def test_run_rlhf_rejects_sample_execution_drift_before_publish_or_model_load(
+    tmp_path: Path,
+) -> None:
+    cfg = load_config(_write_dpo_config(tmp_path))
+    cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed, train_sample_budget):
+            _ = data_config, seed, train_sample_budget
+
+        def build_dataset_bundle(self, dataset_cls):
+            assert dataset_cls is DPODataset
+            return ShaftDatasetBundle(
+                train_dataset=object(),
+                eval_dataset=object(),
+                train_sampler=SimpleNamespace(plan=object()),
+                train_execution_fingerprint="weighted-ticket-execution-v2",
+            )
+
+    def validate_contract(
+        path,
+        *,
+        expected_contract,
+        expected_sample_execution_fingerprint=None,
+    ):
+        _ = path, expected_contract
+        if expected_sample_execution_fingerprint is None:
+            return
+        assert expected_sample_execution_fingerprint == "weighted-ticket-execution-v2"
+        raise ValueError("sample execution drift")
+
+    with patch(
+        "shaft.pipeline.rlhf.resolve_resume_checkpoint",
+        return_value=cfg.train.resume_from_checkpoint,
+    ):
+        with patch("shaft.pipeline.rlhf.validate_resume_checkpoint"):
+            with patch(
+                "shaft.pipeline.rlhf.validate_batching_resume_contract",
+                side_effect=validate_contract,
+            ):
+                with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+                    with patch(
+                        "shaft.pipeline.rlhf.publish_batching_run_metadata"
+                    ) as publish_metadata:
+                        with patch(
+                            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
+                        ) as build_model:
+                            with pytest.raises(ValueError, match="sample execution drift"):
+                                run_rlhf(cfg)
+
+    publish_metadata.assert_not_called()
+    build_model.assert_not_called()
+
+
+def test_run_rlhf_binds_grpo_grouped_geometry_before_resume(
+    tmp_path: Path,
+) -> None:
+    cfg = load_config(_write_grpo_config(tmp_path))
+    cfg.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+    base_fingerprint = "grpo-base-execution-v2"
+    grouped_contract = ShaftGroupedSampleContract(
+        mini_repeat_count=2,
+        batch_size=1,
+        iteration_count=1,
+        steps_per_iteration=2,
+    )
+
+    class _FakeDataCenter:
+        def __init__(self, data_config, *, seed, train_sample_budget):
+            _ = data_config, seed, train_sample_budget
+
+        def build_dataset_bundle(self, dataset_cls):
+            assert dataset_cls is SFTDataset
+            return ShaftDatasetBundle(
+                train_dataset=object(),
+                eval_dataset=object(),
+                train_sampler=SimpleNamespace(plan=object()),
+                train_execution_fingerprint=base_fingerprint,
+            )
+
+    def validate_contract(path, *, expected_contract, expected_sample_execution_fingerprint=None):
+        _ = path, expected_contract
+        if expected_sample_execution_fingerprint is None:
+            return
+        assert expected_sample_execution_fingerprint == (
+            grouped_contract.execution_fingerprint(base_fingerprint)
+        )
+        raise ValueError("GRPO grouped sample execution drift")
+
+    with patch(
+        "shaft.pipeline.rlhf.resolve_resume_checkpoint",
+        return_value=cfg.train.resume_from_checkpoint,
+    ):
+        with patch("shaft.pipeline.rlhf.validate_resume_checkpoint"):
+            with patch(
+                "shaft.pipeline.rlhf.validate_batching_resume_contract",
+                side_effect=validate_contract,
+            ):
+                with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
+                    with patch(
+                        "shaft.pipeline.rlhf.publish_batching_run_metadata"
+                    ) as publish_metadata:
+                        with patch(
+                            "shaft.pipeline.rlhf.build_model_tokenizer_processor"
+                        ) as build_model:
+                            with pytest.raises(
+                                ValueError,
+                                match="GRPO grouped sample execution drift",
+                            ):
+                                run_rlhf(cfg)
+
+    publish_metadata.assert_not_called()
+    build_model.assert_not_called()
+
+
 def test_run_rlhf_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
     cfg = load_config(_write_grpo_config(tmp_path))
     cfg.train.save_final_model = True
@@ -107,6 +228,7 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
                 train_dataset=fake_train_dataset,
                 eval_dataset=fake_eval_dataset,
                 train_sampler=fake_train_sampler,
+                train_execution_fingerprint="dpo-execution-v2",
             )
 
     with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
@@ -129,6 +251,7 @@ def test_run_rlhf_uses_data_center_for_dpo(tmp_path: Path) -> None:
     assert metadata.cardinality == "fixed"
     assert metadata.packing == "none"
     assert metadata.layout == "padded"
+    assert metadata.sample_execution_fingerprint == "dpo-execution-v2"
     assert any(
         isinstance(callback, ShaftBatchingMetadataCallback)
         for callback in _FakeTrainer.last_kwargs["callbacks"]
@@ -154,6 +277,7 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
                 train_dataset=fake_train_dataset,
                 eval_dataset=fake_eval_dataset,
                 train_sampler=fake_train_sampler,
+                train_execution_fingerprint="grpo-execution-v2",
             )
 
     with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):
@@ -171,6 +295,17 @@ def test_run_rlhf_uses_sft_dataset_for_grpo(tmp_path: Path) -> None:
     assert "data_collator" not in _FakeTrainer.last_kwargs
     assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
     assert _FakeTrainer.last_kwargs["finetune_plan"] is None
+    grouped_contract = _FakeTrainer.last_kwargs["grouped_sample_contract"]
+    assert grouped_contract == ShaftGroupedSampleContract(
+        mini_repeat_count=2,
+        batch_size=1,
+        iteration_count=1,
+        steps_per_iteration=2,
+    )
+    metadata = load_batching_run_metadata(cfg.experiment.output_dir)
+    assert metadata.sample_execution_fingerprint == grouped_contract.execution_fingerprint(
+        "grpo-execution-v2"
+    )
 
 
 def test_run_rlhf_wires_grpo_online_eval_runner_with_named_eval_datasets(
@@ -271,6 +406,7 @@ rlhf:
                 eval_dataset=object(),
                 eval_datasets_by_name=fake_eval_datasets_by_name,
                 train_sampler=SimpleNamespace(plan=object()),
+                train_execution_fingerprint="grpo-eval-execution-v2",
             )
 
     with patch("shaft.pipeline.rlhf.ShaftDataCenter", _FakeDataCenter):

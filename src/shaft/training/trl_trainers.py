@@ -7,7 +7,7 @@ from transformers import Trainer as HFTrainer
 
 from shaft.config.training import EvalConfig
 from shaft.data.mixing import ShaftSamplePlan
-from shaft.data.sampler import ShaftGroupedSampleSampler
+from shaft.data.sampler import ShaftGroupedSampleContract, ShaftGroupedSampleSampler
 
 from .distributed import barrier_if_distributed
 from .optimizer_mixin import ShaftOptimizerMixin
@@ -70,6 +70,7 @@ class ShaftGRPOTrainer(ShaftOptimizerMixin, _TRLGRPOTrainer):
         self,
         *args: Any,
         sample_plan: ShaftSamplePlan | None = None,
+        grouped_sample_contract: ShaftGroupedSampleContract | None = None,
         online_eval_runner: ShaftOnlineEvalRunner | None = None,
         eval_config: EvalConfig | None = None,
         **kwargs: Any,
@@ -79,6 +80,11 @@ class ShaftGRPOTrainer(ShaftOptimizerMixin, _TRLGRPOTrainer):
                 "TRL GRPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
             ) from _GRPO_IMPORT_ERROR
         self.sample_plan = sample_plan
+        self.grouped_sample_contract = grouped_sample_contract
+        if (sample_plan is None) != (grouped_sample_contract is None):
+            raise ValueError(
+                "GRPO sample_plan and grouped_sample_contract must be provided together."
+            )
         super().__init__(*args, **kwargs)
         self.online_eval_runner = online_eval_runner
         self.eval_config = eval_config
@@ -86,13 +92,10 @@ class ShaftGRPOTrainer(ShaftOptimizerMixin, _TRLGRPOTrainer):
     def _get_train_sampler(self, dataset=None):
         if self.sample_plan is None:
             return super()._get_train_sampler(dataset)
+        assert self.grouped_sample_contract is not None
         return ShaftGroupedSampleSampler(
             self.sample_plan,
-            mini_repeat_count=self.num_generations,
-            batch_size=self.args.generation_batch_size // self.num_generations,
-            repeat_count=self.num_iterations * self.args.steps_per_generation,
-            shuffle=self.shuffle_dataset,
-            seed=self.args.seed,
+            contract=self.grouped_sample_contract,
         )
 
     def prepare_online_eval_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:

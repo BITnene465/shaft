@@ -52,6 +52,7 @@ from .mixing import (
 )
 from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
 from .sampler import (
+    ShaftGroupedSampleContract,
     ShaftGroupedSampleSampler,
     ShaftPlannedBatchSampler,
     ShaftSampleSampler,
@@ -114,6 +115,7 @@ __all__ = [
     "ShaftConcatRecordStore",
     "ShaftRecordSubset",
     "ShaftSampleContext",
+    "ShaftGroupedSampleContract",
     "ShaftGroupedSampleSampler",
     "ShaftBatchContext",
     "ShaftGreedySequencePacker",

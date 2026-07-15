@@ -9,6 +9,10 @@ from transformers import TrainingArguments
 
 from shaft.algorithms.base import AlgorithmContext
 from shaft.algorithms.registry import ALGORITHM_REGISTRY
+from shaft.algorithms.rlhf_utils import (
+    build_trl_grpo_config,
+    resolve_grpo_grouped_sample_contract,
+)
 from shaft.algorithms import dpo as _dpo  # noqa: F401
 from shaft.algorithms import grpo as _grpo  # noqa: F401
 from shaft.algorithms import ppo as _ppo  # noqa: F401
@@ -124,6 +128,19 @@ class ShaftRLHFPipeline:
             init_from_checkpoint=config.train.init_from_checkpoint,
         )
         training_args = self.build_training_args(resolved_model_plan=model_plan)
+        resolved_grpo_args = (
+            build_trl_grpo_config(
+                train_args=training_args,
+                rlhf_config=config.rlhf.grpo,
+            )
+            if algorithm_name == "grpo"
+            else None
+        )
+        grouped_sample_contract = (
+            resolve_grpo_grouped_sample_contract(resolved_grpo_args)
+            if resolved_grpo_args is not None
+            else None
+        )
         batch_contract = build_batch_contract(
             config=config,
             training_args=training_args,
@@ -145,10 +162,47 @@ class ShaftRLHFPipeline:
                 resume_checkpoint,
                 expected_contract=batch_contract,
             )
+        if algorithm_name == "dpo":
+            dataset_cls = DPODataset
+        elif algorithm_name == "ppo":
+            dataset_cls = PPODataset
+        else:
+            dataset_cls = SFTDataset
+        with self._progress_phase(
+            "startup.data",
+            label="data",
+            message="loading",
+        ):
+            data_center = ShaftDataCenter(
+                config.data,
+                seed=config.experiment.seed,
+                train_sample_budget=batch_contract.finite_sample_plan_size(
+                    max_steps=training_args.max_steps,
+                ),
+            )
+            dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
+        train_execution_fingerprint = str(
+            dataset_bundle.train_execution_fingerprint or ""
+        ).strip()
+        if not train_execution_fingerprint:
+            raise RuntimeError(
+                "ShaftDataCenter did not publish a train execution fingerprint."
+            )
+        if grouped_sample_contract is not None:
+            train_execution_fingerprint = grouped_sample_contract.execution_fingerprint(
+                train_execution_fingerprint
+            )
+        if resume_checkpoint is not None:
+            validate_batching_resume_contract(
+                resume_checkpoint,
+                expected_contract=batch_contract,
+                expected_sample_execution_fingerprint=train_execution_fingerprint,
+            )
         batching_metadata = build_batching_run_metadata(
             config=config,
             training_args=training_args,
             batch_contract=batch_contract,
+            sample_execution_fingerprint=train_execution_fingerprint,
         )
         publish_batching_run_metadata(config.experiment.output_dir, batching_metadata)
         logger.info("[batching-metadata] %s", batching_metadata.to_dict())
@@ -173,25 +227,6 @@ class ShaftRLHFPipeline:
             if is_rank_zero():
                 write_resolved_finetune_summary(config.experiment.output_dir, freeze_summary)
                 logger.info("[startup] resolved freeze summary: %s", freeze_summary.to_log_dict())
-        if algorithm_name == "dpo":
-            dataset_cls = DPODataset
-        elif algorithm_name == "ppo":
-            dataset_cls = PPODataset
-        else:
-            dataset_cls = SFTDataset
-        with self._progress_phase(
-            "startup.data",
-            label="data",
-            message="loading",
-        ):
-            data_center = ShaftDataCenter(
-                config.data,
-                seed=config.experiment.seed,
-                train_sample_budget=batch_contract.finite_sample_plan_size(
-                    max_steps=training_args.max_steps,
-                ),
-            )
-            dataset_bundle = data_center.build_dataset_bundle(dataset_cls)
         train_dataset = dataset_bundle.train_dataset
         eval_dataset: Any = dataset_bundle.eval_dataset
         use_named_eval_datasets = bool(
@@ -275,6 +310,8 @@ class ShaftRLHFPipeline:
             if dataset_bundle.train_sampler is None:
                 raise RuntimeError("GRPO requires a Shaft sample plan from the data center.")
             trainer_kwargs["sample_plan"] = dataset_bundle.train_sampler.plan
+            trainer_kwargs["grouped_sample_contract"] = grouped_sample_contract
+            trainer_kwargs["resolved_grpo_args"] = resolved_grpo_args
             trainer_kwargs["online_eval_runner"] = online_eval_runner
             trainer_kwargs["eval_config"] = config.eval
         if algorithm_name != "grpo":

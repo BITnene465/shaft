@@ -653,8 +653,14 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     eval_cfg.metric_for_best_model = str(eval_cfg.metric_for_best_model).strip()
     if not eval_cfg.metric_for_best_model:
         raise ValueError("eval.metric_for_best_model cannot be empty.")
-    eval_cfg.loss_metrics_enabled = bool(eval_cfg.loss_metrics_enabled)
-    eval_cfg.online_metrics_enabled = bool(eval_cfg.online_metrics_enabled)
+    eval_cfg.loss_metrics_enabled = _normalize_bool(
+        eval_cfg.loss_metrics_enabled,
+        "eval.loss_metrics_enabled",
+    )
+    eval_cfg.online_metrics_enabled = _normalize_bool(
+        eval_cfg.online_metrics_enabled,
+        "eval.online_metrics_enabled",
+    )
     normalized_policies: dict[str, object] = {}
     for dataset_name, policy in config.eval.datasets.items():
         normalized_name = str(dataset_name).strip()

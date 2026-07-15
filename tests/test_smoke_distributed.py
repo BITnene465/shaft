@@ -441,8 +441,12 @@ def test_torchrun_bounded_token_budget_uses_variable_local_batches(
 
 
 @pytest.mark.parametrize(
-    ("cardinality", "batch_cap", "token_cap"),
-    [("fixed", 1, 512), ("token_budget", 2, 450)],
+    ("cardinality", "batch_cap", "token_cap", "mixing"),
+    [
+        ("fixed", 1, 512, "concat"),
+        ("token_budget", 2, 450, "concat"),
+        ("fixed", 1, 512, "weighted"),
+    ],
 )
 def test_torchrun_exact_resume(
     tmp_path: Path,
@@ -450,6 +454,7 @@ def test_torchrun_exact_resume(
     cardinality: str,
     batch_cap: int,
     token_cap: int,
+    mixing: str,
 ) -> None:
     config_path = write_sft_smoke_config(
         tmp_path,
@@ -466,6 +471,13 @@ def test_torchrun_exact_resume(
         train_steps=3,
         save_steps=1,
     )
+    if mixing == "weighted":
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            .replace("    mixing: concat", "    mixing: weighted", 1)
+            .replace("    shuffle: false", "    shuffle: true", 1),
+            encoding="utf-8",
+        )
     config_path.write_text(
         config_path.read_text(encoding="utf-8")
         .replace("  num_workers: 0", "  num_workers: 2", 1)

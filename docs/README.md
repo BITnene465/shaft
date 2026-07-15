@@ -16,8 +16,9 @@
   - 扩展入口与禁止事项
 
 - [config_reference.md](config_reference.md)
-  - `RuntimeConfig` 主要配置块
-  - 常用字段和使用原则
+  - `RuntimeConfig` 顶层职责树与 YAML 加载流程
+  - schedule/mixing、transforms、batching、optimizer 的数据执行树与职责矩阵
+  - batching 四轴合法组合矩阵、选择决策树、跨层字段关系和常用字段原则
 
 - [online_eval_design.md](online_eval_design.md)
   - 单阶段在线 eval 设计说明

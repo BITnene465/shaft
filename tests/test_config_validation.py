@@ -82,6 +82,27 @@ train:
     assert config.train.efficiency.persist is False
 
 
+def test_eval_metric_switches_normalize_quoted_booleans(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+eval:
+  loss_metrics_enabled: "false"
+  online_metrics_enabled: "false"
+""",
+        )
+    )
+
+    assert config.eval.loss_metrics_enabled is False
+    assert config.eval.online_metrics_enabled is False
+
+
 def test_invalid_training_efficiency_device_timing_is_rejected(
     tmp_path: Path,
 ) -> None:

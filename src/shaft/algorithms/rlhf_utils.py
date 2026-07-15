@@ -10,6 +10,7 @@ from transformers import TrainingArguments
 from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
+from shaft.data.sampler import ShaftGroupedSampleContract
 
 from shaft.training.trl_trainers import _DPO_IMPORT_ERROR, _GRPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
 
@@ -350,6 +351,28 @@ def build_trl_grpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftGR
             ),
             "vllm_tensor_parallel_size": int(vllm_config.tensor_parallel_size),
             "steps_per_generation": steps_per_generation,
+            # ShaftSamplePlan is the only shuffle owner.  The grouped sampler only
+            # expands GRPO mini-repeat/repeat structure; allowing TRL to shuffle a
+            # second time can cross source-local permutation cycles.
+            "shuffle_dataset": False,
         }
     )
     return TRLGRPOConfig(**payload)
+
+
+def resolve_grpo_grouped_sample_contract(args: object) -> ShaftGroupedSampleContract:
+    """Resolve TRL GRPO arguments into the generic grouped-repeat contract once."""
+
+    num_generations = int(getattr(args, "num_generations"))
+    generation_batch_size = int(getattr(args, "generation_batch_size"))
+    if generation_batch_size % num_generations != 0:
+        raise ValueError(
+            "GRPO generation_batch_size must be divisible by num_generations: "
+            f"{generation_batch_size} vs {num_generations}."
+        )
+    return ShaftGroupedSampleContract(
+        mini_repeat_count=num_generations,
+        batch_size=generation_batch_size // num_generations,
+        iteration_count=int(getattr(args, "num_iterations")),
+        steps_per_iteration=int(getattr(args, "steps_per_generation")),
+    )

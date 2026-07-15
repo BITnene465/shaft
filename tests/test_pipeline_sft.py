@@ -214,6 +214,15 @@ def test_bounded_pipeline_has_no_full_plan_preflight_or_cost_plan_sidecar(
     assert metadata.media_snapshot_id == "pipeline-fixture-v1"
     assert metadata.batch_contract_fingerprint
     assert metadata.planner_spec_fingerprint == batch_sampler.spec.fingerprint
+    assert metadata.sample_execution_fingerprint
+    assert (
+        batch_sampler.schedule.fingerprint
+        == batch_sampler.spec.sample_schedule_fingerprint
+    )
+    assert (
+        metadata.sample_execution_fingerprint
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sample_execution_fingerprint
+    )
     assert any(
         isinstance(callback, ShaftBatchPlanningCallback)
         for callback in _FakeTrainer.last_kwargs["callbacks"]
@@ -457,3 +466,26 @@ def test_fixed_weighted_unshuffled_pipeline_uses_finite_plan_execution_identity(
     assert len(stream_fingerprint) == 64
     assert execution_fingerprint != train_sampler.plan.fingerprint
     assert stream_fingerprint == execution_fingerprint
+
+
+def test_fixed_weighted_pipeline_publishes_versioned_sample_execution_identity(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = True
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            run_sft(config)
+
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    metadata = load_batching_run_metadata(config.experiment.output_dir)
+    assert train_sampler is not None
+    assert train_sampler.plan.schedule.ticket_block_size > 0
+    assert metadata.sample_execution_fingerprint
+    assert (
+        metadata.sample_execution_fingerprint
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sample_execution_fingerprint
+    )

@@ -189,6 +189,60 @@ def test_train_stream_fingerprint_is_stable_across_fixed_and_planned_grouping(
     assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
 
 
+def test_weighted_fixed_and_planned_data_center_share_one_schedule_contract(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {"image_path": str(image), "target_text": "a", "sample_id": "a"},
+            {"image_path": str(image), "target_text": "b", "sample_id": "b"},
+        ],
+    )
+    config = RuntimeConfig()
+    config.data.media_snapshot_id = "weighted-stream-fixture-v1"
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = True
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="light",
+            train_path=str(train_path),
+            weight=1.0,
+            use_for_eval=False,
+        ),
+        DatasetSourceConfig(
+            dataset_name="heavy",
+            train_path=str(train_path),
+            weight=3.0,
+            use_for_eval=False,
+        ),
+    ]
+
+    config.data.batching.grouping = "none"
+    fixed = ShaftDataCenter(
+        config.data,
+        seed=41,
+        train_sample_budget=32,
+    ).build_dataset_bundle(SFTDataset)
+    config.data.batching.grouping = "length"
+    planned = ShaftDataCenter(
+        config.data,
+        seed=41,
+        train_sample_budget=32,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert fixed.train_sampler is not None
+    assert fixed.train_schedule is fixed.train_sampler.plan.schedule
+    assert planned.train_schedule is not None
+    assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
+    assert fixed.train_execution_fingerprint != planned.train_execution_fingerprint
+    assert fixed.train_schedule.source_quotas == planned.train_schedule.source_quotas
+    assert [fixed.train_schedule.ref_at(index) for index in range(32)] == [
+        planned.train_schedule.ref_at(index) for index in range(32)
+    ]
+
+
 @pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
 def test_planned_data_center_enables_worker_warning_suppression_only_for_train(
     tmp_path: Path,

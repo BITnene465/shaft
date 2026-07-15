@@ -126,10 +126,20 @@ startup 明确失败。
 
 `ShaftSampleSchedule.ref_at(draw_id)` 是 horizon-independent 的 draw 映射：
 
-- fingerprint 绑定 source names/sizes/weights、mix strategy、shuffle 和 seed；
+- fingerprint 绑定 source names/sizes/weights、mix strategy、shuffle、seed、weighted ticket 算法版本、salt
+  与 canonical base-block digest；
 - 不绑定 max steps 或有限 plan 长度；
 - `draw_id` 同时驱动 prompt rotation 与 deterministic online transform；
 - bounded weighted mixing 要求 `shuffle=true`。
+
+`weighted + shuffle=true` 不再为每个 draw 独立随机选择 row。source 选择使用固定配额 ticket block；常见
+简单比例约为 4K，复杂权重在 4K/8K/16K 候选中选择最大相对误差最小的 block，并要求每个 source 的相对
+误差不超过 5%；16K 仍无法满足时直接拒绝配置。一个 seed-specific base
+block 只构造一次，每个后续 block 使用确定性 rotation，因此任意 block 的 source quota 一致，并可从
+`draw_id` 通过每源 ticket-position rank 查询，以 O(log quota) 求出该 source 的全局 occurrence。occurrence
+按 source size 划分为独立 keyed-Feistel row permutation cycle：一轮耗尽前无重复，耗尽后才进入下一轮。
+它不物化训练 horizon，也不保存 checkpoint cursor；fixed plan fingerprint 与 planned schedule fingerprint
+都绑定 v2 语义，防止旧有放回 checkpoint 静默恢复。
 
 普通 map-style 路径仍可使用有限 `ShaftSamplePlan`。bounded SFT 直接消费 schedule，不构造 duration-sized
 Python 索引或 CostPlan。

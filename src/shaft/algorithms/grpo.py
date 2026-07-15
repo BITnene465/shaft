@@ -24,10 +24,12 @@ class GRPOAlgorithm:
         training_args = kwargs.pop("args")
         model = kwargs.pop("model")
         kwargs.pop("finetune_mode", None)
-        grpo_args = build_trl_grpo_config(
-            train_args=training_args,
-            rlhf_config=rlhf_config,
-        )
+        grpo_args = kwargs.pop("resolved_grpo_args", None)
+        if grpo_args is None:
+            grpo_args = build_trl_grpo_config(
+                train_args=training_args,
+                rlhf_config=rlhf_config,
+            )
         reward_funcs = build_grpo_reward_functions(rlhf_config.reward_functions)
         return ShaftGRPOTrainer(
             model=model,

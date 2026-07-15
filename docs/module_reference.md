@@ -94,7 +94,7 @@
 - `SFTRecord` / `DPORecord` / `PPORecord`
 - `ShaftSampleSchedule` / `ShaftSamplePlan` / `ShaftSampleRef` /
   `ShaftSampleContext`
-- `ShaftSampleSampler` / `ShaftGroupedSampleSampler` /
+- `ShaftSampleSampler` / `ShaftGroupedSampleContract` / `ShaftGroupedSampleSampler` /
   `ShaftPlannedBatchSampler`
 - `ShaftSampleCost` / `ShaftSFTSampleCostProvider` /
   `ShaftRowInvariantCostProvider`
@@ -110,6 +110,12 @@
   sampler 提供 `len()`；bounded DataCenter 直接返回 schedule，不创建 duration-sized plan。
 - `concat` 和 `weighted + shuffle=true` 都可 horizon-independent；`weighted + shuffle=false` 的旧
   分段算法依赖最终 horizon，因此 bounded 模式拒绝。
+- `weighted + shuffle=true` 使用固定配额 ticket block；复杂权重从 4K/8K/16K 候选中选择最大相对误差最小
+  的 quota，并对每个 source 强制 5% 相对误差上限，无法表示时 fail closed。seed-specific base block 只物化一次，block-dependent rotation 让稀有 source 跨 DP rank
+  residue 轮换；每源 ticket position list 用于 O(log quota) occurrence rank 查询。每个 occurrence 再通过
+  keyed Feistel permutation 映射到独立 row cycle，因此 canonical draw stream 在 source 耗尽前无重复，
+  运行时状态与训练 horizon 无关。schedule/finite-plan fingerprint 绑定算法版本、salt 和 base-block digest，
+  旧的 row-with-replacement checkpoint 不能 exact resume。
 - prompt sampling/online transform 使用 `draw_id/transform_seed`，并必须通过
   `planning_safe_online_transform(fingerprint=...)` 声明可重复、保持媒体 identity/geometry 和 placeholder。
 - `ShaftSFTSampleCostProvider` 调用 Dataset 的 `get_planning_item()`，不解码图片，只读取按需 image
@@ -128,6 +134,11 @@
   snapshot，不能保存 DataLoader 预取后的 live cursor。
 - 普通 `ShaftSampleSampler` 交给 HF Trainer 时保持 global/unsharded，由 Accelerate 完成唯一一次 rank
   分片；预分片 sampler 会 fail fast。
+- `ShaftGroupedSampleSampler` 按 canonical `ShaftSamplePlan` 顺序扩展 GRPO 所需的
+  mini-repeat/repeat-count，不执行第二次 position shuffle。GRPO 的 TRL `shuffle_dataset` 被显式关闭，
+  source/row 顺序仍只由 `data.schedule` 决定。`ShaftGroupedSampleContract` 是 repeat 几何真源，分别绑定
+  mini-repeat、group batch、iteration 与 steps-per-iteration；其 composite execution fingerprint 在模型
+  加载前参与 resume 校验，不能用乘积相同但 cadence 不同的配置续训。
 - `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
 - `data.transforms.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于
   train；它变换 draw view，不改变 draw 顺序或 mixing 权重。静态/参数化 variant 都由 `shaft.prompting`

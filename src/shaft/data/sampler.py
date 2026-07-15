@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
+import hashlib
 import logging
 import math
 import time
@@ -18,11 +19,13 @@ from .dynamic_batching import (
     ShaftBatchPlanningState,
     ShaftBatchMicrobatchPlan,
 )
-from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule, _affine_permute, _splitmix64
+from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule, _splitmix64
 from .planned import ShaftPlannedSampleRef
 
 
 logger = logging.getLogger(__name__)
+
+_GROUPED_SAMPLE_CONTRACT_VERSION = "shaft-grouped-sample-contract-v1"
 
 
 class ShaftSampleSampler(Sampler[ShaftSampleRef]):
@@ -356,42 +359,69 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
         _ = epoch
 
 
+@dataclass(frozen=True, slots=True)
+class ShaftGroupedSampleContract:
+    """Algorithm-agnostic grouped-repeat geometry and exact-resume identity."""
+
+    mini_repeat_count: int
+    batch_size: int
+    iteration_count: int
+    steps_per_iteration: int
+
+    def __post_init__(self) -> None:
+        if min(
+            self.mini_repeat_count,
+            self.batch_size,
+            self.iteration_count,
+            self.steps_per_iteration,
+        ) <= 0:
+            raise ValueError("Grouped sampler counts and batch_size must be > 0.")
+
+    @property
+    def repeat_count(self) -> int:
+        return self.iteration_count * self.steps_per_iteration
+
+    def execution_fingerprint(self, base_fingerprint: str) -> str:
+        base_fingerprint = str(base_fingerprint).strip()
+        if not base_fingerprint:
+            raise ValueError("Grouped sample execution requires a base fingerprint.")
+        payload = (
+            _GROUPED_SAMPLE_CONTRACT_VERSION,
+            base_fingerprint,
+            self.mini_repeat_count,
+            self.batch_size,
+            self.iteration_count,
+            self.steps_per_iteration,
+        )
+        return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+
 class ShaftGroupedSampleSampler(Sampler[ShaftSampleRef]):
-    """GRPO-compatible grouped repeats with deterministic, resumable plan cycles."""
+    """GRPO grouped repeats over the canonical, resumable sample-plan order.
+
+    The plan is the only shuffle source. Reordering finite-plan positions here can
+    cross source permutation cycles and defeat source-local without-replacement.
+    """
 
     def __init__(
         self,
         plan: ShaftSamplePlan,
         *,
-        mini_repeat_count: int,
-        batch_size: int,
-        repeat_count: int,
-        shuffle: bool,
-        seed: int,
+        contract: ShaftGroupedSampleContract,
     ) -> None:
         self.plan = plan
-        self.mini_repeat_count = int(mini_repeat_count)
-        self.batch_size = int(batch_size)
-        self.repeat_count = int(repeat_count)
-        self.shuffle = bool(shuffle)
-        self.seed = int(seed)
+        self.contract = contract
+        self.mini_repeat_count = contract.mini_repeat_count
+        self.batch_size = contract.batch_size
+        self.repeat_count = contract.repeat_count
         self.plan_cycle = 0
-        if min(self.mini_repeat_count, self.batch_size, self.repeat_count) <= 0:
-            raise ValueError("Grouped sampler repeat counts and batch_size must be > 0.")
 
     def __iter__(self) -> Iterator[ShaftSampleRef]:
         usable_size = (len(self.plan) // self.batch_size) * self.batch_size
-        permutation_seed = _splitmix64(self.seed ^ self.plan_cycle)
         for chunk_start in range(0, usable_size, self.batch_size):
             chunk: list[ShaftSampleRef] = []
             for offset in range(self.batch_size):
                 position = chunk_start + offset
-                if self.shuffle:
-                    position = _affine_permute(
-                        position,
-                        len(self.plan),
-                        seed=permutation_seed,
-                    )
                 chunk.append(self.plan.ref_at(position, plan_cycle=self.plan_cycle))
             for _ in range(self.repeat_count):
                 for sample_ref in chunk:

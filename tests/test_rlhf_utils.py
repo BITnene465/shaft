@@ -12,6 +12,7 @@ from shaft.algorithms.rlhf_utils import (
     build_trl_dpo_config,
     build_trl_grpo_config,
     build_trl_ppo_config,
+    resolve_grpo_grouped_sample_contract,
     validate_ppo_runtime_requirements,
 )
 from shaft.config import DPOConfig as ShaftDPOConfig
@@ -19,7 +20,7 @@ from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
 from shaft.config import GRPORolloutConfig, GRPOVLLMConfig
-from shaft.data import ShaftGroupedSampleSampler, ShaftSamplePlan
+from shaft.data import ShaftGroupedSampleContract, ShaftGroupedSampleSampler, ShaftSamplePlan
 from shaft.model import build_model_meta
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from tests.support.training import TinyModel as _TinyModel
@@ -38,6 +39,12 @@ def test_grpo_trainer_uses_epoch_resumable_grouped_sample_refs() -> None:
     )
     trainer = object.__new__(ShaftGRPOTrainer)
     trainer.sample_plan = plan
+    trainer.grouped_sample_contract = ShaftGroupedSampleContract(
+        mini_repeat_count=2,
+        batch_size=2,
+        iteration_count=1,
+        steps_per_iteration=2,
+    )
     trainer.num_generations = 2
     trainer.num_iterations = 1
     trainer.shuffle_dataset = True
@@ -174,6 +181,13 @@ def test_build_trl_grpo_config_from_training_args() -> None:
     assert grpo_args.vllm_max_model_length == 4096
     assert grpo_args.vllm_tensor_parallel_size == 1
     assert grpo_args.reward_weights == [0.25, 2.0]
+    assert grpo_args.shuffle_dataset is False
+    assert resolve_grpo_grouped_sample_contract(grpo_args) == ShaftGroupedSampleContract(
+        mini_repeat_count=4,
+        batch_size=1,
+        iteration_count=1,
+        steps_per_iteration=4,
+    )
 
 
 def test_build_trl_grpo_config_sets_bf16_model_init_kwargs() -> None:

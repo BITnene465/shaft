@@ -106,6 +106,18 @@ def _draw_ids(plan) -> list[int]:
     ]
 
 
+def _sample_keys(plan) -> list[tuple[int, str, int]]:
+    return [
+        (
+            ref.context.draw_id,
+            ref.dataset_name,
+            ref.row_index,
+        )
+        for batch in plan.rank_microbatches
+        for ref in batch.sample_refs
+    ]
+
+
 def test_bounded_spec_is_duration_independent_and_validates_buffer_geometry() -> None:
     provider = CountingCostProvider([1])
     first = _spec(provider)
@@ -570,6 +582,62 @@ def test_state_json_roundtrip_continues_exact_stream() -> None:
     )
 
     assert [_draw_ids(restored.next_global_microbatch()) for _ in range(10)] == continued
+
+
+def test_weighted_state_roundtrip_continues_exact_source_and_row_stream() -> None:
+    schedule = ShaftSampleSchedule(
+        {"a": 9, "b": 7},
+        {"a": 1.0, "b": 3.0},
+        strategy="weighted",
+        shuffle=True,
+        seed=43,
+    )
+    provider = CountingCostProvider([1, 2, 7, 3])
+    spec = ShaftBatchPlanningSpec(
+        data_world_size=2,
+        buffer_size=10,
+        per_device_microbatch_size=1,
+        max_tokens_per_microbatch=12,
+        resource_budgets=(),
+        seed=23,
+        sample_schedule_fingerprint=schedule.fingerprint,
+        cost_fingerprint=provider.fingerprint,
+    )
+    planner = ShaftBatchPlanner(
+        schedule=schedule,
+        cost_provider=provider,
+        spec=spec,
+    )
+    _ = tuple(planner.iter_global_microbatches(7))
+    restored_state = ShaftBatchPlanningState.from_dict(
+        json.loads(json.dumps(planner.state.to_dict()))
+    )
+    continued = [_sample_keys(planner.next_global_microbatch()) for _ in range(10)]
+
+    restored_provider = CountingCostProvider([1, 2, 7, 3])
+    restored = ShaftBatchPlanner(
+        schedule=ShaftSampleSchedule(
+            {"a": 9, "b": 7},
+            {"a": 1.0, "b": 3.0},
+            strategy="weighted",
+            shuffle=True,
+            seed=43,
+        ),
+        cost_provider=restored_provider,
+        spec=ShaftBatchPlanningSpec(
+            data_world_size=2,
+            buffer_size=10,
+            per_device_microbatch_size=1,
+            max_tokens_per_microbatch=12,
+            resource_budgets=(),
+            seed=23,
+            sample_schedule_fingerprint=schedule.fingerprint,
+            cost_fingerprint=restored_provider.fingerprint,
+        ),
+        state=restored_state,
+    )
+
+    assert [_sample_keys(restored.next_global_microbatch()) for _ in range(10)] == continued
 
 
 def test_token_budget_state_roundtrip_continues_exact_variable_stream() -> None:
