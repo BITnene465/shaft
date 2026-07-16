@@ -59,13 +59,6 @@ distributed = [
   "deepspeed>=0.16.0; sys_platform == 'linux'",
   "ninja>=1.11.0; sys_platform == 'linux'",
 ]
-eval-bench = [
-  "aiosqlite>=0.20.0",
-  "fastapi>=0.116.0",
-  "python-multipart>=0.0.20",
-  "sqlalchemy>=2.0.0",
-  "uvicorn>=0.35.0",
-]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch"]
@@ -84,7 +77,6 @@ target-version = "py311"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
-pythonpath = ["projects/eval_bench"]
 norecursedirs = [
   "old",
   "temp",

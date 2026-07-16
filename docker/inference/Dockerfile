@@ -36,14 +36,12 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY scripts ./scripts
 COPY configs ./configs
-COPY projects/eval_bench ./projects/eval_bench
 
 RUN uv sync --frozen --no-dev \
     --extra serve \
     --extra qwen-next \
     --extra gpu \
-    --extra gpu-kernels \
-    --extra eval-bench
+    --extra gpu-kernels
 
 COPY docker/inference/start-vllm.sh /usr/local/bin/shaft-start-vllm
 COPY docker/inference/contract-smoke.py /usr/local/bin/shaft-contract-smoke

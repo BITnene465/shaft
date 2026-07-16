@@ -29,21 +29,6 @@
   - horizon-independent schedule、bounded buffer、Accelerate 分片、committed-state resume 与 DDP
     static-graph bitwise 恢复边界
 
-- [../projects/eval_bench/README.md](../projects/eval_bench/README.md)
-  - 离线 Eval Bench 子项目说明
-  - benchmark copy、prediction snapshot、run manifest、pairwise comparison、持久化目录边界
-
-- [eval_bench_frontend_reference_study.md](eval_bench_frontend_reference_study.md)
-  - VSCode、FiftyOne、CVAT、Codex 客户端源码参考记录
-  - Eval Bench 前端模块边界、viewer、快捷键和状态模型设计启发
-
-- [eval_bench_architecture.md](eval_bench_architecture.md)
-  - Eval Bench 七层架构、中间层真源和扩展测试责任
-
-- [eval_bench_ui_icon_design.md](eval_bench_ui_icon_design.md)
-  - Eval Bench UI 压缩原则
-  - image_gen PNG 图标库、资产路径和前端接入边界
-
 ## 2. 开发与扩展
 
 - [development_workflow.md](development_workflow.md)
@@ -63,7 +48,6 @@
 - [scripts.md](scripts.md)
   - `scripts/` 目录的正式使用说明
   - 顶层入口脚本与 `scripts/tasks/` 的稳定接口
-  - 包含 `scripts/eval_bench.py` 入口说明
 
 - [infer.md](infer.md)
   - 推理子系统设计

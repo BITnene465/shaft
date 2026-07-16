@@ -28,9 +28,6 @@ uv pip install -e ".[train,rlhf]"
 
 # 部署 / vLLM
 uv pip install -e ".[serve]"
-
-# 离线 Eval Bench
-uv pip install -e ".[eval-bench]"
 ```
 
 ## 统一入口
@@ -65,33 +62,6 @@ python scripts/export.py merge-peft \
 `merge-peft` 默认校验 Shaft adapter checkpoint 中记录的训练 base-model identity。第三方/旧 adapter 缺少
 该 provenance 时会 fail closed；人工确认 base 后可显式使用 `--allow-unverified-base-model true`，当前 base
 仍会执行完整字节 SHA256 校验。
-
-### Eval Bench
-
-```bash
-python scripts/eval_bench.py --help
-python scripts/eval_bench.py serve-dashboard --host 127.0.0.1 --port 8765
-```
-
-Dashboard 当前提供高密度总览、benchmark、job queue、run/report 列表和交互式 run inspector；
-总览页是四模块 cockpit，只保留下一步动作、F1/报告覆盖、评测闭环卡点和最近 run 产物流，
-不展示细粒度评测指标或低频排障面板。
-inspector 直接读取 benchmark GT 与 prediction snapshot，在原图上叠加 GT / Prediction
-实例，支持 label 过滤、图层显隐、对象 hover/click 高亮、滚轮缩放和拖拽平移，主视图按图像工作台设计，低频配置和明细默认折叠，便于检查
-漏检、误检和解析问题。Compare 页支持排行榜、run 成对 delta、top 改善/退化
-样本列表和并排样本对比，用于比较新旧权重或 prompt/推理参数变更。每个 run 会持久化
-模型路径、prompt ID/path/hash、prompt 文本快照、采样参数、pixel budget 和 vLLM 服务参数，
-并在 Run Inspector 顶部按需展开，便于复盘一次评测到底用了什么配置。
-Runs 表格中的备注摘要可直接跳转到对应 Run Inspector 的备注编辑面板。
-Benchmarks 页可以从 raw_data split 创建 benchmark copy。
-Run Inspector 和 Benchmark Inspector 都支持直接输入 sample 序号跳转。
-Runs 页也可以把外部预测 JSON 目录导入为标准 run，并立即和对应 benchmark/test GT
-评估对比。
-Services 页可以登记外部 vLLM endpoint 或本地 vLLM OpenAI server 配置；本地服务会保存
-CUDA、TP、port、max_model_len、GPU util、max_num_seqs 等启动参数，并提供 Start/Stop
-入口。Job 创建采用 manifest 模板 + 自由 JSON 编辑 + preflight 校验；一次性 vLLM runtime
-由 eval job 自己启动和关闭，长期 vLLM service 则在 Services 页独立管理，避免任务生命周期
-和常驻服务生命周期混在一起。
 
 说明：
 
@@ -291,7 +261,6 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - `src/shaft/observability`：logging、context、events、统一 progress 状态与 terminal/plain/JSON sink；TTY
   使用高对比度自适应单行进度、标准 `s/it`/`it/s`、动态 spinner、ETA、loss、token throughput 和多参数组
   LR range；自动适配终端宽度与颜色能力，日志不会打断活动行
-- `projects/eval_bench`：离线评测工作台子项目，管理 benchmark copy、run manifest、prediction snapshot、报告、对比与可视化
 
 ## 文档
 
@@ -309,7 +278,6 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 - [docs/testing.md](docs/testing.md)
 - [docs/infer.md](docs/infer.md)
 - [docs/export.md](docs/export.md)
-- [projects/eval_bench/README.md](projects/eval_bench/README.md)
 
 ## 测试
 
