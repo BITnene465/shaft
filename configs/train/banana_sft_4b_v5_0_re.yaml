@@ -1,0 +1,147 @@
+# Banana v5.0-re bounded cost-aware SFT training config.
+#
+# Full-model continuation from banana-v5.0 checkpoint-10000 model weights.
+# This is an init-from checkpoint run, not optimizer/scheduler resume.
+# Token-budget local batch 1-2 with GA=4 yields 32-64 samples per optimizer step
+# on eight data-parallel ranks; per_device_train_batch_size=2 is the hard cap.
+experiment:
+  name: banana-v5.0-re-qwen3vl-sft-4b
+  output_dir: outputs/qwen3vl-sft/4b/banana-v5.0-re
+  seed: 42
+
+model:
+  model_type: qwen3vl
+  model_name_or_path: models/Qwen3-VL-4B-Instruct
+  trust_remote_code: true
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  finetune:
+    mode: full
+    target_modules: ["auto"]
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.0
+    lora_bias: none
+    use_rslora: false
+    qlora_load_in_4bit: true
+    qlora_use_double_quant: true
+    qlora_quant_type: nf4
+    qlora_compute_dtype: bfloat16
+
+algorithm:
+  name: sft
+  params: {}
+
+data:
+  batching:
+    grouping: bounded_cost
+    cardinality: token_budget
+    packing:
+      mode: none
+    layout: padded
+    buffer_size: 64
+    cost_cache_size: 65536
+    max_tokens_per_microbatch: 10000
+    resource_budgets:
+      vision_patches: 16384
+  catalog_path: ../data/banana_v5_0_re.yaml
+  catalog_names:
+    - grounding_layout
+    - shape_reconstruction
+    - line_reconstruction
+    - image_reconstruction
+    - background
+  transforms:
+    prompt_sampling:
+      enabled: true
+      train_only: true
+      pools:
+        grounding_layout: ../prompts/pools/grounding_layout.v5.0.yaml
+        shape_reconstruction: ../prompts/pools/shape_reconstruction.v5.0.yaml
+        line_reconstruction: ../prompts/pools/line_reconstruction.v5.0.yaml
+        image_reconstruction: ../prompts/pools/image_reconstruction.v5.0.yaml
+        background: ../prompts/pools/background.v5.0.yaml
+  schedule:
+    mixing: weighted
+    shuffle: true
+  media_snapshot_id: banana-v5.0-re-media-v1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  min_pixels: 200704
+  max_pixels: 2000000
+  max_length: 10000
+  add_eos_token: true
+
+train:
+  duration:
+    unit: steps
+    value: 12000
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
+  learning_rate: 0.00002
+  param_group_lrs:
+    vision_tower: 0.00001
+    aligner: 0.00001
+  no_decay_name_patterns:
+    - embed_tokens.weight
+  optimizer_name: adamw_torch
+  scheduler_name: auto
+  scheduler_num_cycles: 0.5
+  scheduler_power: 1.0
+  loss_name: auto
+  loss_scale: default
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  weight_decay: 0.03
+  warmup_ratio: 0.05
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 50
+  save_strategy: steps
+  save_epoch_interval: 1
+  save_steps: 2000
+  save_total_limit: 20
+  load_best_model_at_end: false
+  save_final_model: true
+  save_final_state: true
+  ddp_find_unused_parameters: false
+  report_to: ["wandb"]
+  init_from_checkpoint: outputs/qwen3vl-sft/4b/banana-v5.0/checkpoint-10000
+  resume_from_checkpoint:
+
+eval:
+  enabled: false
+  per_device_eval_batch_size: 1
+  eval_strategy: no
+  epoch_interval: 1
+  eval_steps: 200
+  loss_metrics_enabled: false
+  do_sample: false
+  temperature: 0.0
+  max_new_tokens: 8000
+  online_metrics_enabled: false
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  datasets: {}
+
+plugins:
+  hooks: []
+
+logging:
+  level: INFO
+  fmt: text
+  file_path:
+  rank_zero_only: true
+
+progress:
+  enabled: true
+  display: auto
+  width: 72
+  refresh_interval: 0.5
+  log_interval: 30.0
+  leave_completed: false
+  persist: true

@@ -10,23 +10,24 @@
   - 训练/推理主链
   - 架构图与时序图
 
-- [webui.md](webui.md)
-  - 面向工程师/科研人员的 SFT Web UI 当前实现说明
-  - FastAPI/Jinja2 可视化控制台边界
-  - 训练真入口与 YAML 真源约定
-
 - [module_reference.md](module_reference.md)
   - 各模块职责
   - 关键类、函数、接口
   - 扩展入口与禁止事项
 
 - [config_reference.md](config_reference.md)
-  - `RuntimeConfig` 主要配置块
-  - 常用字段和使用原则
+  - `RuntimeConfig` 顶层职责树与 YAML 加载流程
+  - schedule/mixing、transforms、batching、optimizer 的数据执行树与职责矩阵
+  - batching 四轴合法组合矩阵、选择决策树、跨层字段关系和常用字段原则
 
 - [online_eval_design.md](online_eval_design.md)
   - 单阶段在线 eval 设计说明
   - 多数据集、多任务、共享 codec、final score 设计
+
+- [training_batch_planning_design.md](training_batch_planning_design.md)
+  - sample-level mixing、bounded cost-aware batching、sequence packing 与 DDP/CP 的顶层边界
+  - horizon-independent schedule、bounded buffer、Accelerate 分片、committed-state resume 与 DDP
+    static-graph bitwise 恢复边界
 
 ## 2. 开发与扩展
 
@@ -52,13 +53,17 @@
   - 推理子系统设计
   - stage / engine 边界
 
+- [../docker/inference/README.md](../docker/inference/README.md)
+  - 业务推理镜像构建与 vLLM 启动
+  - `shaft-contract-smoke` 推理契约验收
+
 - [export.md](export.md)
   - HF 导出、validate、merge-peft
 
 - [testing.md](testing.md)
-  - 测试层级
-  - 推荐命令
-  - 变更类型与必跑清单
+  - unit / component / contract / smoke / integration / manual 分层
+  - 默认快速回归与显式 smoke 命令
+  - 测试 support 层、真实文件依赖规则和变更必跑清单
 
 ## 4. 待办与限制
 

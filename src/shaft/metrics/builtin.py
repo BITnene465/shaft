@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from shaft.codec import ShaftCodecResult
+from shaft.codec.coordinates import QWEN_COORD_NUM_BINS, qwen_coordinate_max
 
 from .base import ShaftEvalMetric
 from .registry import register_eval_metric
@@ -53,6 +54,36 @@ def _coerce_keypoints(value: Any) -> list[tuple[float, float]] | None:
             return None
         points.append((float(px), float(py)))
     return points
+
+
+def _coerce_keypoint_segments(value: Any) -> list[list[tuple[float, float]]] | None:
+    if not isinstance(value, list | tuple):
+        return None
+    flat_points = _coerce_keypoints(value)
+    if flat_points is not None:
+        return [flat_points]
+
+    segments: list[list[tuple[float, float]]] = []
+    for segment in value:
+        segment_points = _coerce_keypoints(segment)
+        if segment_points is None or len(segment_points) < 2:
+            return None
+        segments.append(segment_points)
+    return segments
+
+
+def _extract_keypoints(value: Any) -> list[tuple[float, float]] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_points = value.get("points_2d") or value.get("keypoints_2d")
+    if raw_points is None:
+        parameters = value.get("parameters")
+        if isinstance(parameters, dict):
+            raw_points = parameters.get("points")
+    segments = _coerce_keypoint_segments(raw_points)
+    if segments is None:
+        return None
+    return [point for segment in segments for point in segment]
 
 
 def _coerce_field_map(value: Any) -> dict[str, Any] | None:
@@ -406,8 +437,8 @@ class KeypointPCKMetric(ShaftEvalMetric):
             self.values.append(0.0)
             return
 
-        pred_kpts = _coerce_keypoints(pred_data.get("keypoints_2d"))
-        tgt_kpts = _coerce_keypoints(tgt_data.get("keypoints_2d"))
+        pred_kpts = _extract_keypoints(pred_data)
+        tgt_kpts = _extract_keypoints(tgt_data)
         if pred_kpts is None or tgt_kpts is None or len(pred_kpts) != len(tgt_kpts):
             self.values.append(0.0)
             return
@@ -441,7 +472,23 @@ class KeypointPCKMetric(ShaftEvalMetric):
         sample_meta: dict[str, Any],
     ) -> float:
         coordinate_space = str(self.params.get("coordinate_space", "normalized_1000")).strip().lower()
-        if coordinate_space in {"normalized", "normalized_1000", "bbox_2d", "bins", "quantized"}:
+        if coordinate_space in {
+            "qwen_0_999",
+            "qwen",
+        }:
+            return float(
+                qwen_coordinate_max(int(self.params.get("num_bins", QWEN_COORD_NUM_BINS)))
+            )
+        if coordinate_space in {
+            "normalized",
+            "normalized_1000",
+            "bbox_2d",
+            "keypoints_2d",
+            "points_2d",
+            "points",
+            "bins",
+            "quantized",
+        }:
             return float(self.params.get("coordinate_scale", self.params.get("num_bins", 1000)))
         if coordinate_space != "image":
             raise ValueError(f"Unsupported keypoint_pck coordinate_space={coordinate_space!r}.")

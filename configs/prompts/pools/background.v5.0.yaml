@@ -1,0 +1,45 @@
+metadata:
+  id: shaft.background.prompt_pool.v5.0
+  version: v5.0
+  name: reconstruction background classification prompt pool
+  task: classification
+  subtask: background
+  target_labels: [background]
+  output_schema: background_boolean
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Decide whether this bitmap contains a non-editable reconstruction background.
+      Return exactly:
+      {"background":true|false}
+
+      Use true only when a photo, texture, complex illustration, medical or biological image,
+      decorative raster layer, complex light effect, or another non-editable visual layer forms
+      the page or a major-region backing behind foreground layout elements.
+      Use false for blank, transparent, solid-color, or simple-gradient canvases; editable
+      vector-like panels and shapes; and local foreground images such as icons, logos,
+      thumbnails, charts, maps, or embedded image panels.
+
+  - id: reconstruction_residue
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid compact JSON only. No markdown or explanation.
+    user_prompt: |
+      Imagine extracting editable foreground text, shapes, icons, lines, charts, tables,
+      diagrams, and local image objects. Determine whether a large non-editable visual backing
+      would still remain.
+      Output exactly {"background":true} or {"background":false}.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt: |
+      Classify whether the page has a non-editable reconstruction background layer.
+      Local foreground images do not count as a background.
+      Return exactly {"background":true|false}.

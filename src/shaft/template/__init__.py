@@ -1,3 +1,4 @@
+from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
 from .registry import (
@@ -8,8 +9,9 @@ from .registry import (
     register_template,
     resolve_template_meta,
 )
+from .rendering import ShaftChatRenderer
 from .types import (
-    ShaftTemplateMessagePlan,
+    ShaftSupervisionCostEstimate,
     ShaftTemplateSupervisionPlan,
     ShaftTemplateSupervisedRow,
     Template,
@@ -18,7 +20,8 @@ from .types import (
 
 __all__ = [
     "TEMPLATE_REGISTRY",
-    "ShaftTemplateMessagePlan",
+    "ShaftChatRenderer",
+    "ShaftSupervisionCostEstimate",
     "ShaftTemplateSupervisionPlan",
     "ShaftTemplateSupervisedRow",
     "Template",

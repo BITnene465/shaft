@@ -1,0 +1,67 @@
+name: framework-runtime
+
+"on":
+  pull_request:
+    paths:
+      - ".github/workflows/framework-runtime.yml"
+      - "configs/**"
+      - "scripts/train.py"
+      - "src/shaft/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/framework-runtime.yml"
+      - "configs/**"
+      - "scripts/train.py"
+      - "src/shaft/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  distributed-contracts:
+    name: distributed-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Install distributed test environment
+        run: uv sync --locked --extra dev --extra train --extra rlhf --extra distributed
+
+      - name: Run distributed contracts
+        run: |
+          mkdir -p "$RUNNER_TEMP/shaft-test-results"
+          uv run --locked pytest tests --suite distributed \
+            --junitxml="$RUNNER_TEMP/shaft-test-results/distributed.xml"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: distributed-test-results
+          path: ${{ runner.temp }}/shaft-test-results
+          if-no-files-found: warn
+          retention-days: 14

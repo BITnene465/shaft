@@ -1,9 +1,0 @@
-metadata:
-  id: keypoint_arrow.sft.v4
-  name: keypoint arrow sft
-
-prompt:
-  system_prompt: >
-    You are a visual annotation assistant. Return only valid JSON with no markdown or extra text.
-  user_prompt: |
-    Predict the ordered keypoints of the central arrow and return a JSON object with keypoints_2d.

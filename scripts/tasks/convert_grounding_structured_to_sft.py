@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
+from shaft.codec.coordinates import quantize_qwen_coordinate
+from shaft.prompting import load_prompt_template
 
 
 @dataclass(frozen=True)
@@ -21,20 +22,11 @@ class PromptConfig:
 
 
 def _load_prompt_config(path: Path) -> PromptConfig:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    metadata = payload.get("metadata", {})
-    prompt = payload.get("prompt", {})
-    prompt_id = str(metadata.get("id") or payload.get("prompt_id") or "").strip()
-    if not prompt_id:
-        raise ValueError(f"Missing prompt id in {path}.")
-    system_prompt = str(prompt.get("system_prompt", payload.get("system_prompt", "")))
-    user_prompt = str(prompt.get("user_prompt", payload.get("user_prompt", ""))).strip()
-    if not user_prompt:
-        raise ValueError(f"Missing user_prompt in {path}.")
+    prompt = load_prompt_template(path, variant_id="main")
     return PromptConfig(
-        prompt_id=prompt_id,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
+        prompt_id=prompt.prompt_id,
+        system_prompt=prompt.system_prompt,
+        user_prompt=prompt.user_prompt,
     )
 
 
@@ -73,11 +65,7 @@ def _clip_bbox(bbox: list[float], image_width: int, image_height: int) -> tuple[
 
 
 def _quantize_coord(value: float, size: int, num_bins: int) -> int:
-    if size <= 1:
-        return 0
-    clipped = min(max(value, 0.0), float(size - 1))
-    normalized = clipped / float(size - 1)
-    return int(round(normalized * float(num_bins - 1)))
+    return quantize_qwen_coordinate(value, size=size, num_bins=num_bins)
 
 
 def _quantize_bbox(bbox: list[float], image_width: int, image_height: int, num_bins: int) -> list[int]:
@@ -300,8 +288,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-name", required=True, help="dataset_name to embed in output rows.")
     parser.add_argument(
         "--prompt-config",
-        default="configs/prompts/grounding_arrow.yaml",
-        help="YAML file defining prompt id/system/user prompts.",
+        default="configs/prompts/pools/grounding_arrow.v2.4.yaml",
+        help="YAML file defining a prompt or versioned prompt pool; pool defaults to main.",
     )
     parser.add_argument("--num-bins", type=int, default=1000, help="Coordinate quantization bins.")
     parser.add_argument(

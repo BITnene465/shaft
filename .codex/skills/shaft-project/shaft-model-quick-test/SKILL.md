@@ -19,7 +19,7 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
 
 ## 目标边界
 - 临时评测工具放在仓库根目录，目录名统一为 `<model-slug>-test/`。
-- 不把这类临时实验能力塞进 `src/shaft`、`src/shaft/webui`、`scripts/train.py` 或正式 CLI。
+- 不把这类临时实验能力塞进 `src/shaft`、`scripts/train.py` 或正式 CLI/UI surface。
 - 不复制一套训练、数据、checkpoint 语义。
 - 产物统一落在 `outputs/<model-slug>-test/`。
 
@@ -30,7 +30,9 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
    - `rex-omni-test/batch_infer.py`
    - `rex-omni-test/app.py`
    - `tests/test_rex_omni_tools.py`
-3. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
+3. 如果任务是 reconstruction 结果 review、render/overlay 临时可视化，读取
+   [references/reconstruction-review.md](references/reconstruction-review.md)。
+4. 只在需要更具体结构时再读 [references/layout.md](references/layout.md)。
 
 ## 固定结构
 - `<model-slug>-test/<model_slug>_tools.py`
@@ -98,6 +100,19 @@ description: 在仓库根目录为外部/新模型快速搭建临时评测工作
 - 不跑真实大模型推理，除非用户明确要求。
 - 不修改 `src/shaft` 正式内核，除非用户明确要求集成。
 - 如果引入了 vendored 上游源码，确认导入路径稳定，不依赖临时目录或未记录的 shell 状态。
+
+## GPU Runtime 排障
+- 如果 `nvidia-smi` 显示 `[Not Found]`、残留 PID，或者 `kill <pid>` 返回 `No such process`，不要直接尝试 GPU reset、重启容器或宿主机介入。
+- 第一时间用 `lsof` 查真实持有 NVIDIA 设备文件的当前命名空间进程：
+  - `lsof /dev/nvidia*`
+  - `lsof -t /dev/nvidia* | sort -u | xargs -r ps -o pid,ppid,pgid,sid,stat,cmd -p`
+- 以 `lsof` 结果作为 GPU holder 排查真源，它能暴露 vLLM EngineCore/Worker、孤儿多进程子进程、`nvtop`、临时占卡脚本等 `nvidia-smi` 可能显示不清的进程。
+- 清理顺序：
+  1. 对明确属于本次任务的进程先普通 `kill`
+  2. 短暂等待后复查 `lsof /dev/nvidia*` 和 `nvidia-smi`
+  3. 仍残留时再对同一批 PID 使用 `kill -9`
+- 不要杀 PID 1、当前 shell、无关服务或用户未授权的业务进程。必要时按进程组清理自己启动的 runtime 进程。
+- 只有在 `lsof` 已确认没有可清理 holder、但显存仍异常占用时，才考虑宿主机侧 reset 或运维介入。
 
 ## 注意事项
 - 这是“快速验证模型能力”的工作流，不是长期产品化入口。

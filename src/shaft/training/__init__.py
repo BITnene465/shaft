@@ -1,7 +1,39 @@
+from .batch_planning import (
+    BATCHING_RUN_METADATA_FILENAME,
+    BATCHING_METADATA_CALLBACK_NAME,
+    BATCH_PLANNING_CALLBACK_NAME,
+    ShaftBatchPlanningCallback,
+    ShaftBatchContract,
+    ShaftBatchingMetadataCallback,
+    ShaftBatchingRunMetadata,
+    batching_run_metadata_path,
+    build_batch_planning_resume_contract_fingerprint,
+    build_batch_contract,
+    build_batching_run_metadata,
+    checkpoint_has_batch_planning_state,
+    load_batch_planning_state,
+    load_batching_run_metadata,
+    load_checkpoint_batching_metadata,
+    publish_batching_run_metadata,
+    write_batching_run_metadata,
+    validate_batching_resume_contract,
+    validate_batch_planning_resume_contract,
+)
 from .checkpointing import (
+    TRAINING_CHECKPOINT_COMMIT_FILENAME,
+    ResolvedResumeCheckpoint,
+    ShaftCheckpointProtocol,
+    ShaftCheckpointCommitMixin,
+    commit_training_checkpoint,
     ensure_hf_export_layout,
+    resolve_checkpoint_protocol,
     resolve_resume_checkpoint,
+    resolve_resume_checkpoint_generation,
+    resume_checkpoint_consensus_fingerprints,
+    training_checkpoint_is_committed,
+    validate_training_checkpoint_commit,
     validate_resume_checkpoint,
+    validate_resolved_resume_checkpoint_guard,
     validate_training_state_policy,
 )
 from .distributed import (
@@ -13,9 +45,32 @@ from .distributed import (
     is_rank_zero,
 )
 from .loss import LOSS_REGISTRY, build_loss, register_loss
+from .input_contract import (
+    ShaftTrainInputContract,
+    build_train_input_contract,
+    callable_semantic_signature,
+    component_semantic_signature,
+    validate_train_data_identity_checkpointability,
+    validate_train_input_checkpointability,
+)
+from .resume_contract import (
+    ShaftOptimizerResumeContract,
+    ShaftSchedulerResumeContract,
+    ShaftTrainingResumeContract,
+    build_training_resume_preflight_contract,
+    build_training_resume_contract,
+    converge_training_contract_fingerprints,
+    distributed_training_contract_stage,
+    training_contract_section_fingerprint,
+)
 from .muon import Muon
 from .optimizer_mixin import ShaftOptimizerMixin
-from .optimizer import OPTIMIZER_REGISTRY, build_optimizer, build_optimizer_and_plan, register_optimizer
+from .optimizer import (
+    OPTIMIZER_REGISTRY,
+    build_optimizer,
+    build_optimizer_and_plan,
+    register_optimizer,
+)
 from .optimizer_plan import (
     ShaftResolvedOptimizerGroupSummary,
     ShaftResolvedOptimizerPlan,
@@ -28,17 +83,36 @@ from .optimizer_plan import (
 from .online_eval import ShaftOnlineEvalRunner
 from .epoch_interval_callback import ShaftEpochIntervalCallback
 from .eval_policy import aggregate_weighted_dataset_values
+from .efficiency import (
+    ShaftTrainingEfficiencyCallback,
+    ShaftTrainingEfficiencyMonitor,
+)
 from .progress_callback import ShaftProgressCallback
-from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from .scheduler import SCHEDULER_REGISTRY, build_scheduler, register_scheduler
 from .sft_trainer import ShaftSFTTrainer
 
 __all__ = [
     "LOSS_REGISTRY",
+    "BATCH_PLANNING_CALLBACK_NAME",
+    "BATCHING_METADATA_CALLBACK_NAME",
+    "BATCHING_RUN_METADATA_FILENAME",
     "OPTIMIZER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "Muon",
     "ShaftEpochIntervalCallback",
+    "ShaftTrainingEfficiencyCallback",
+    "ShaftTrainingEfficiencyMonitor",
+    "ShaftBatchPlanningCallback",
+    "ShaftBatchContract",
+    "ShaftBatchingMetadataCallback",
+    "ShaftBatchingRunMetadata",
+    "ShaftCheckpointCommitMixin",
+    "ShaftCheckpointProtocol",
+    "ResolvedResumeCheckpoint",
+    "ShaftTrainInputContract",
+    "ShaftTrainingResumeContract",
+    "ShaftOptimizerResumeContract",
+    "ShaftSchedulerResumeContract",
     "ShaftOnlineEvalRunner",
     "ShaftOptimizerMixin",
     "ShaftProgressCallback",
@@ -49,26 +123,68 @@ __all__ = [
     "ShaftResolvedOptimizerPlan",
     "ShaftResolvedOptimizerSummary",
     "ShaftSFTTrainer",
+    "TRAINING_CHECKPOINT_COMMIT_FILENAME",
     "barrier_if_distributed",
+    "batching_run_metadata_path",
+    "build_batch_planning_resume_contract_fingerprint",
+    "build_batch_contract",
+    "build_batching_run_metadata",
+    "checkpoint_has_batch_planning_state",
     "destroy_process_group_if_initialized",
     "build_loss",
+    "build_train_input_contract",
+    "callable_semantic_signature",
+    "component_semantic_signature",
+    "build_training_resume_contract",
+    "build_training_resume_preflight_contract",
+    "converge_training_contract_fingerprints",
+    "distributed_training_contract_stage",
     "build_optimizer",
     "build_optimizer_and_plan",
     "build_resolved_optimizer_plan",
     "build_scheduler",
+    "commit_training_checkpoint",
     "aggregate_weighted_dataset_values",
     "ensure_hf_export_layout",
     "get_rank",
     "get_world_size",
     "is_distributed",
     "is_rank_zero",
+    "load_batch_planning_state",
+    "load_batching_run_metadata",
+    "load_checkpoint_batching_metadata",
+    "publish_batching_run_metadata",
     "register_optimizer",
     "register_scheduler",
     "register_loss",
     "resolve_resume_checkpoint",
+    "resolve_resume_checkpoint_generation",
+    "resume_checkpoint_consensus_fingerprints",
+    "resolve_checkpoint_protocol",
     "resolved_optimizer_summary_path",
     "summarize_resolved_optimizer_plan",
+    "training_checkpoint_is_committed",
+    "training_contract_section_fingerprint",
+    "validate_training_checkpoint_commit",
     "validate_resume_checkpoint",
+    "validate_resolved_resume_checkpoint_guard",
+    "validate_batching_resume_contract",
+    "validate_batch_planning_resume_contract",
     "validate_training_state_policy",
+    "validate_train_data_identity_checkpointability",
+    "validate_train_input_checkpointability",
     "write_resolved_optimizer_summary",
+    "write_batching_run_metadata",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"ShaftDPOTrainer", "ShaftGRPOTrainer", "ShaftPPOTrainer"}:
+        from .trl_trainers import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
+
+        return {
+            "ShaftDPOTrainer": ShaftDPOTrainer,
+            "ShaftGRPOTrainer": ShaftGRPOTrainer,
+            "ShaftPPOTrainer": ShaftPPOTrainer,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

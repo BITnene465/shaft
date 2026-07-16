@@ -11,10 +11,11 @@ from shaft.codec import ShaftCodecResult, decode_with_codec
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
 from shaft.metrics import build_eval_metric
 from shaft.model.generation import restore_model_use_cache, set_model_use_cache
+from shaft.observability import ShaftProgressManager, ShaftProgressTask
 from shaft.plugins import Registry
-from shaft.utils import create_progress_bar
 from shaft.utils.distributed import get_rank, get_world_size, is_distributed, is_rank_zero
 from .eval_policy import aggregate_weighted_dataset_values
+from .reproducibility import preserve_training_rng_state
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,9 @@ class ShaftOnlineEvalSample:
 def target_adapter_text(sample_meta: dict[str, Any], params: dict[str, Any]) -> ShaftTargetResult:
     raw_value = sample_meta.get("target_text")
     if raw_value is None:
-        return ShaftTargetResult(value=None, valid=False, error="Missing target_text in sample meta.")
+        return ShaftTargetResult(
+            value=None, valid=False, error="Missing target_text in sample meta."
+        )
     codec_name = str(params.get("codec", "")).strip().lower()
     if codec_name:
         decoded = decode_with_codec(codec_name, str(raw_value))
@@ -56,10 +59,14 @@ def target_adapter_text(sample_meta: dict[str, Any], params: dict[str, Any]) -> 
 
 
 @register_target_adapter("extra_field")
-def target_adapter_extra_field(sample_meta: dict[str, Any], params: dict[str, Any]) -> ShaftTargetResult:
+def target_adapter_extra_field(
+    sample_meta: dict[str, Any], params: dict[str, Any]
+) -> ShaftTargetResult:
     field_name = str(params.get("field", "")).strip()
     if not field_name:
-        return ShaftTargetResult(value=None, valid=False, error="extra_field target adapter requires param 'field'.")
+        return ShaftTargetResult(
+            value=None, valid=False, error="extra_field target adapter requires param 'field'."
+        )
     current: Any = sample_meta.get("extra", {})
     for token in field_name.split("."):
         if not isinstance(current, dict) or token not in current:
@@ -90,19 +97,19 @@ class ShaftOnlineEvalRunner:
         *,
         eval_config: EvalConfig,
         prompt_collator: Any,
-        progress_enabled: bool = True,
-        progress_leave: bool = False,
-        progress_mininterval: float = 0.2,
+        progress_manager: ShaftProgressManager | None = None,
     ) -> None:
         self.eval_config = eval_config
         self.prompt_collator = prompt_collator
-        self.progress_enabled = bool(progress_enabled)
-        self.progress_leave = bool(progress_leave)
-        self.progress_mininterval = float(progress_mininterval)
+        self.progress_manager = progress_manager
 
     @property
     def enabled(self) -> bool:
-        return bool(self.eval_config.enabled and self.eval_config.online_metrics_enabled and self.eval_config.datasets)
+        return bool(
+            self.eval_config.enabled
+            and self.eval_config.online_metrics_enabled
+            and self.eval_config.datasets
+        )
 
     def evaluate(
         self,
@@ -113,10 +120,13 @@ class ShaftOnlineEvalRunner:
     ) -> dict[str, float]:
         if not self.enabled or eval_dataset is None:
             return {}
-        entries = self.collect_samples(trainer, eval_dataset=eval_dataset)
-        metrics = self.aggregate_samples(entries, metric_key_prefix=metric_key_prefix)
-        self.log_metrics(metrics, metric_key_prefix=metric_key_prefix)
-        return metrics
+        # Keep direct runner use observational too. Trainer.evaluate also wraps
+        # loader construction and loss eval; nested snapshots are intentional.
+        with preserve_training_rng_state():
+            entries = self.collect_samples(trainer, eval_dataset=eval_dataset)
+            metrics = self.aggregate_samples(entries, metric_key_prefix=metric_key_prefix)
+            self.log_metrics(metrics, metric_key_prefix=metric_key_prefix)
+            return metrics
 
     def collect_samples(self, trainer: Any, *, eval_dataset: Any) -> list[ShaftOnlineEvalSample]:
         dataloaders = self._get_prompt_eval_dataloaders(trainer, eval_dataset)
@@ -125,7 +135,9 @@ class ShaftOnlineEvalRunner:
         was_training = bool(getattr(model, "training", False))
         model.eval()
         previous_use_cache = set_model_use_cache(model, enabled=True)
-        progress_bar = self._create_progress_bar(dataloaders)
+        progress_total = self._progress_total(dataloaders)
+        progress_task = self._create_progress_task(total=progress_total)
+        progress_current = 0
         try:
             with torch.inference_mode():
                 for dataloader in dataloaders:
@@ -136,7 +148,9 @@ class ShaftOnlineEvalRunner:
                         batch.pop("labels", None)
                         prepared = self._prepare_model_inputs(trainer, batch)
                         input_sequence_length = int(prepared["input_ids"].shape[1])
-                        generated_tokens = model.generate(**prepared, **self._build_generation_kwargs())
+                        generated_tokens = model.generate(
+                            **prepared, **self._build_generation_kwargs()
+                        )
                         if isinstance(generated_tokens, tuple):
                             generated_tokens = generated_tokens[0]
                         batch_entries = self._decode_batch_entries(
@@ -145,15 +159,28 @@ class ShaftOnlineEvalRunner:
                             meta=meta,
                         )
                         local_entries.extend(batch_entries)
-                        if progress_bar is not None:
-                            progress_bar.update(self._progress_update_amount(progress_bar, batch_entries))
+                        if progress_task is not None:
+                            amount = self._progress_update_amount(
+                                current=progress_current,
+                                total=progress_total,
+                                batch_entries=batch_entries,
+                            )
+                            if amount:
+                                progress_task.advance(amount)
+                                progress_current += amount
+            gathered = self._gather_entries(local_entries)
+        except BaseException as exc:
+            if progress_task is not None:
+                progress_task.fail(str(exc) or type(exc).__name__)
+            raise
+        else:
+            if progress_task is not None:
+                progress_task.complete()
+            return gathered
         finally:
-            if progress_bar is not None:
-                progress_bar.close()
             restore_model_use_cache(model, previous_use_cache)
-        if was_training:
-            model.train()
-        return self._gather_entries(local_entries)
+            if was_training:
+                model.train()
 
     def aggregate_samples(
         self,
@@ -166,11 +193,7 @@ class ShaftOnlineEvalRunner:
         scores_by_dataset: dict[str, float] = {}
         for dataset_name in sorted(self.eval_config.datasets):
             policy = self.eval_config.datasets[dataset_name]
-            dataset_entries = [
-                entry
-                for entry in entries
-                if entry.dataset_name == dataset_name
-            ]
+            dataset_entries = [entry for entry in entries if entry.dataset_name == dataset_name]
             if not dataset_entries:
                 logger.warning(
                     "[eval] dataset=%s has no samples in this evaluation pass; skipping score aggregation",
@@ -218,6 +241,33 @@ class ShaftOnlineEvalRunner:
         )
 
     def _get_prompt_eval_dataloaders(self, trainer: Any, eval_dataset: Any) -> list[Any]:
+        get_online_eval_dataloader = getattr(
+            trainer,
+            "get_online_eval_dataloader",
+            None,
+        )
+        if callable(get_online_eval_dataloader):
+            if isinstance(eval_dataset, dict):
+                return [
+                    get_online_eval_dataloader(
+                        eval_dataset[dataset_name],
+                        data_collator=self.prompt_collator,
+                        dataset_key=(
+                            f"named:{dataset_name}:{id(eval_dataset[dataset_name])}"
+                        ),
+                    )
+                    for dataset_name in sorted(eval_dataset)
+                ]
+            return [
+                get_online_eval_dataloader(
+                    eval_dataset,
+                    data_collator=self.prompt_collator,
+                    dataset_key=f"default:{id(eval_dataset)}",
+                )
+            ]
+
+        # Compatibility path for lightweight third-party Trainer fakes/adapters
+        # that only implement the public HF get_eval_dataloader hook.
         original_collator = getattr(trainer, "data_collator", None)
         trainer.data_collator = self.prompt_collator
         try:
@@ -225,7 +275,8 @@ class ShaftOnlineEvalRunner:
                 trainer_eval_dataset = getattr(trainer, "eval_dataset", None)
                 return [
                     trainer.get_eval_dataloader(dataset_name)
-                    if isinstance(trainer_eval_dataset, dict) and dataset_name in trainer_eval_dataset
+                    if isinstance(trainer_eval_dataset, dict)
+                    and dataset_name in trainer_eval_dataset
                     else trainer.get_eval_dataloader(eval_dataset[dataset_name])
                     for dataset_name in sorted(eval_dataset)
                 ]
@@ -268,13 +319,17 @@ class ShaftOnlineEvalRunner:
         tokenizer = self.prompt_collator.tokenizer
         template = self.prompt_collator.template
         is_encoder_decoder = bool(
-            getattr(getattr(getattr(self.prompt_collator, "model_adapter", None), "capabilities", None), "is_encoder_decoder", False)
+            getattr(
+                getattr(getattr(self.prompt_collator, "model_adapter", None), "capabilities", None),
+                "is_encoder_decoder",
+                False,
+            )
         )
         entries: list[ShaftOnlineEvalSample] = []
         batch_size = int(generated_tokens.shape[0])
         for index in range(batch_size):
             row = generated_tokens[index]
-            completion_ids = row if is_encoder_decoder else row[int(input_sequence_length):]
+            completion_ids = row if is_encoder_decoder else row[int(input_sequence_length) :]
             raw_text = template.decode(tokenizer=tokenizer, token_ids=completion_ids.tolist())
             sample_meta = {
                 "dataset_name": meta["dataset_name"][index],
@@ -304,7 +359,9 @@ class ShaftOnlineEvalRunner:
             )
         return entries
 
-    def _resolve_target(self, policy: EvalDatasetPolicyConfig, sample_meta: dict[str, Any]) -> ShaftTargetResult:
+    def _resolve_target(
+        self, policy: EvalDatasetPolicyConfig, sample_meta: dict[str, Any]
+    ) -> ShaftTargetResult:
         adapter_name = str(policy.target_adapter).strip().lower()
         adapter = TARGET_ADAPTER_REGISTRY.get(adapter_name)
         return adapter(sample_meta, dict(policy.target_adapter_params))
@@ -326,8 +383,7 @@ class ShaftOnlineEvalRunner:
                     sample_meta=entry.meta,
                 )
         return {
-            metric_name: float(metric.compute())
-            for metric_name, metric in metric_instances.items()
+            metric_name: float(metric.compute()) for metric_name, metric in metric_instances.items()
         }
 
     def _normalize_score(self, value: float, policy: EvalDatasetPolicyConfig) -> float:
@@ -342,7 +398,9 @@ class ShaftOnlineEvalRunner:
             return float(min(max(score, 0.0), 1.0))
         raise ValueError(f"Unsupported normalizer.type={normalizer.type!r}.")
 
-    def _gather_entries(self, local_entries: list[ShaftOnlineEvalSample]) -> list[ShaftOnlineEvalSample]:
+    def _gather_entries(
+        self, local_entries: list[ShaftOnlineEvalSample]
+    ) -> list[ShaftOnlineEvalSample]:
         if not is_distributed():
             return local_entries
         gathered: list[list[ShaftOnlineEvalSample] | None] = [None] * get_world_size()
@@ -374,38 +432,43 @@ class ShaftOnlineEvalRunner:
             deduped.append(entry)
         return deduped
 
-    def _create_progress_bar(self, dataloaders: list[Any]):
-        if not self.progress_enabled or not is_rank_zero():
-            return None
+    def _progress_total(self, dataloaders: list[Any]) -> int | None:
         total = 0
-        unknown_total = False
         for dataloader in dataloaders:
+            dataset = getattr(dataloader, "dataset", None)
+            if dataset is None:
+                return None
             try:
-                total += len(dataloader.dataset)
+                total += len(dataset)
             except TypeError:
-                unknown_total = True
-                break
-            except AttributeError:
-                try:
-                    total += len(dataloader)
-                except TypeError:
-                    unknown_total = True
-                    break
-        return create_progress_bar(
-            total=None if unknown_total else total,
-            desc="online_eval",
+                return None
+        return total
+
+    def _create_progress_task(
+        self,
+        *,
+        total: int | None,
+    ) -> ShaftProgressTask | None:
+        manager = self.progress_manager
+        if manager is None or not manager.enabled:
+            return None
+        parent_task_id = "train" if manager.is_task_active("train") else None
+        return manager.start_task(
+            "eval.online",
+            label="online",
+            total=total,
             unit="sample",
-            leave=self.progress_leave,
-            mininterval=self.progress_mininterval,
-            colour="magenta",
+            parent_task_id=parent_task_id,
         )
 
-    def _progress_update_amount(self, progress_bar: Any, batch_entries: list[ShaftOnlineEvalSample]) -> int:
-        amount = len(batch_entries)
-        if is_distributed():
-            amount *= get_world_size()
-        total = getattr(progress_bar, "total", None)
-        current = getattr(progress_bar, "n", 0)
+    def _progress_update_amount(
+        self,
+        *,
+        current: int,
+        total: int | None,
+        batch_entries: list[ShaftOnlineEvalSample],
+    ) -> int:
+        amount = len(batch_entries) * max(get_world_size(), 1)
         if total is not None:
             amount = min(amount, max(0, int(total) - int(current)))
         return max(0, int(amount))

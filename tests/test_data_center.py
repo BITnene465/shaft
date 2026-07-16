@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import warnings
 
 from PIL import Image
+import pytest
+from torch.utils.data import DataLoader
 
-from shaft.config import DatasetSourceConfig, RuntimeConfig
-from shaft.data import DPODataset, SFTDataset, ShaftDataCenter, ShaftMixedIndexSampler
+from shaft.config import DatasetSourceConfig, PromptSamplingConfig, RuntimeConfig
+from shaft.data import (
+    DPODataset,
+    SFTDataset,
+    SFTRecord,
+    ShaftDataCenter,
+    ShaftSampleSampler,
+)
 from shaft.data.transforms import ONLINE_TRANSFORM_REGISTRY
 
 _MARK_DATASET_TRANSFORM = "mark_dataset_for_data_center_tests"
+
+
+def _first_sample(batch):
+    return batch[0]
 
 
 if not ONLINE_TRANSFORM_REGISTRY.has(_MARK_DATASET_TRANSFORM):
@@ -35,32 +49,64 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
     return path
 
 
+def _write_prompt_pool(
+    path: Path,
+    *,
+    pool_id: str,
+    version: str = "test-version",
+    prompts: list[tuple[str, str, str]],
+) -> Path:
+    prompt_lines = []
+    for variant_id, system_prompt, user_prompt in prompts:
+        prompt_lines.extend(
+            [
+                f"  - id: {variant_id}",
+                f"    system_prompt: {system_prompt!r}",
+                f"    user_prompt: {user_prompt!r}",
+            ]
+        )
+    path.write_text(
+        "\n".join(
+            [
+                "metadata:",
+                f"  id: {pool_id}",
+                f"  version: {version}",
+                "prompts:",
+                *prompt_lines,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
         [
-            {"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": "a1"},
-            {"image_path": str(image), "target_text": "{\"a\":2}", "sample_id": "a2"},
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": "a1"},
+            {"image_path": str(image), "target_text": '{"a":2}', "sample_id": "a2"},
         ],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": "b1"}],
+        [{"image_path": str(image), "target_text": '{"b":1}', "sample_id": "b1"}],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
     val_b = _write_jsonl(
         tmp_path / "val_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
     )
 
     config = RuntimeConfig()
     config.experiment.seed = 7
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="ds_a",
@@ -93,8 +139,428 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert sample_b["dataset_name"] == "ds_b"
     assert "marked_dataset" not in sample_b["extra"]
     assert isinstance(train_dataset.records, dict)
-    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
-    assert dataset_bundle.train_sampler.refresh_mode == "static"
+    assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
+    assert dataset_bundle.train_execution_fingerprint
+    assert len(dataset_bundle.train_execution_fingerprint) == 64
+    assert dataset_bundle.train_stream_fingerprint
+    assert len(dataset_bundle.train_stream_fingerprint) == 64
+    assert dataset_bundle.train_execution_fingerprint != (
+        dataset_bundle.train_sampler.plan.fingerprint
+    )
+    assert dataset_bundle.train_execution_contract_complete is False
+    assert any(
+        reason.startswith("unversioned_online_transform")
+        for reason in dataset_bundle.train_execution_incomplete_reasons
+    )
+
+
+def test_train_stream_fingerprint_is_stable_across_fixed_and_planned_grouping(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {"image_path": str(image), "target_text": "a", "sample_id": "a"},
+            {"image_path": str(image), "target_text": "b", "sample_id": "b"},
+        ],
+    )
+    config = RuntimeConfig()
+    config.data.media_snapshot_id = "stream-fixture-v1"
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    config.data.batching.grouping = "none"
+    fixed = ShaftDataCenter(
+        config.data,
+        seed=7,
+        train_sample_budget=2,
+    ).build_dataset_bundle(SFTDataset)
+    config.data.batching.grouping = "length"
+    planned = ShaftDataCenter(
+        config.data,
+        seed=7,
+        train_sample_budget=2,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert fixed.train_execution_contract_complete is True
+    assert planned.train_execution_contract_complete is True
+    assert fixed.train_execution_fingerprint != planned.train_execution_fingerprint
+    assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
+
+
+def test_weighted_fixed_and_planned_data_center_share_one_schedule_contract(
+    tmp_path: Path,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {"image_path": str(image), "target_text": "a", "sample_id": "a"},
+            {"image_path": str(image), "target_text": "b", "sample_id": "b"},
+        ],
+    )
+    config = RuntimeConfig()
+    config.data.media_snapshot_id = "weighted-stream-fixture-v1"
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = True
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="light",
+            train_path=str(train_path),
+            weight=1.0,
+            use_for_eval=False,
+        ),
+        DatasetSourceConfig(
+            dataset_name="heavy",
+            train_path=str(train_path),
+            weight=3.0,
+            use_for_eval=False,
+        ),
+    ]
+
+    config.data.batching.grouping = "none"
+    fixed = ShaftDataCenter(
+        config.data,
+        seed=41,
+        train_sample_budget=32,
+    ).build_dataset_bundle(SFTDataset)
+    config.data.batching.grouping = "length"
+    planned = ShaftDataCenter(
+        config.data,
+        seed=41,
+        train_sample_budget=32,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert fixed.train_sampler is not None
+    assert fixed.train_schedule is fixed.train_sampler.plan.schedule
+    assert planned.train_schedule is not None
+    assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
+    assert fixed.train_execution_fingerprint != planned.train_execution_fingerprint
+    assert fixed.train_schedule.source_quotas == planned.train_schedule.source_quotas
+    assert [fixed.train_schedule.ref_at(index) for index in range(32)] == [
+        planned.train_schedule.ref_at(index) for index in range(32)
+    ]
+
+
+@pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
+def test_planned_data_center_enables_worker_warning_suppression_only_for_train(
+    tmp_path: Path,
+    grouping: str,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "train"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "val"}],
+    )
+    config = RuntimeConfig()
+    config.data.batching.grouping = grouping
+    config.data.media_snapshot_id = "fixture-media-v1"
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="fixture",
+            train_path=str(train_path),
+            val_path=str(val_path),
+        )
+    ]
+
+    bundle = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+
+    assert bundle.train_dataset.suppress_decompression_bomb_warning is True
+    assert bundle.eval_dataset.suppress_decompression_bomb_warning is False
+
+
+def test_bounded_dataset_suppresses_pil_bomb_warning_but_not_hard_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    image_path = tmp_path / "large-for-threshold.png"
+    Image.new("RGB", (10, 10), color=(0, 0, 0)).save(image_path)
+    record = SFTRecord(image_path=str(image_path), target_text="target")
+    bounded = SFTDataset(
+        [record],
+        suppress_decompression_bomb_warning=True,
+    )
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 60)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        bounded[0]
+    assert not any(issubclass(item.category, Image.DecompressionBombWarning) for item in caught)
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 40)
+    with pytest.raises(Image.DecompressionBombError):
+        bounded[0]
+
+
+def test_data_center_prompt_sampling_applies_only_to_train(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": '{"a":1}',
+                "sample_id": "sample-1",
+                "system_prompt": "canonical system",
+                "user_prompt": "canonical user",
+            }
+        ],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": '{"v":1}',
+                "sample_id": "val-1",
+                "system_prompt": "canonical system",
+                "user_prompt": "canonical user",
+            }
+        ],
+    )
+    prompt_pool = _write_prompt_pool(
+        tmp_path / "prompt_pool.yaml",
+        pool_id="prompt.pool",
+        version="test-version",
+        prompts=[
+            ("a", "system a", "user a"),
+            ("b", "system b", "user b"),
+        ],
+    )
+
+    config = RuntimeConfig()
+    config.experiment.seed = 11
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        train_only=True,
+        seed=99,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+
+    train_sample = dataset_bundle.train_dataset[0]
+    assert train_sample["user_prompt"] in {"user a", "user b"}
+    assert train_sample["system_prompt"] in {"system a", "system b"}
+    assert train_sample["extra"]["runtime_prompt_id"] in {"prompt.pool.a", "prompt.pool.b"}
+    assert train_sample["extra"]["runtime_prompt_version"] == "test-version"
+    assert train_sample["extra"]["runtime_prompt_draw_id"] == 0
+
+    assert dataset_bundle.train_sampler is not None
+    dataset_bundle.train_sampler.set_epoch(3)
+    refreshed_ref = next(iter(dataset_bundle.train_sampler))
+    refreshed_sample = dataset_bundle.train_dataset[refreshed_ref]
+    assert refreshed_sample["extra"]["runtime_prompt_draw_id"] == 3
+
+    val_sample = dataset_bundle.eval_dataset[0]
+    assert val_sample["user_prompt"] == "canonical user"
+    assert val_sample["system_prompt"] == "canonical system"
+    assert "runtime_prompt_id" not in val_sample["extra"]
+
+
+def test_dynamic_prompt_is_identical_for_planning_and_actual_reads(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [
+            {
+                "image_path": str(image),
+                "target_text": "{}",
+                "sample_id": "sample-1",
+                "prompt_args": {
+                    "kind": "shape",
+                    "bbox": [10, 20, 300, 400],
+                },
+            }
+        ],
+    )
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata:
+  id: prompt.dynamic
+  version: v1
+arguments:
+  kind:
+    type: enum
+    values: [shape, line]
+  bbox:
+    type: bbox_2d_0_999
+prompts:
+  - id: main
+    user_prompt_template: "Reconstruct {{ kind }} at {{ bbox | json }}."
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        seed=5,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+    bundle = ShaftDataCenter(config.data, seed=5).build_dataset_bundle(SFTDataset)
+    assert bundle.train_sampler is not None
+    sample_ref = next(iter(bundle.train_sampler))
+
+    planned = bundle.train_dataset.get_planning_item(sample_ref)
+    actual = bundle.train_dataset[sample_ref]
+
+    assert planned["user_prompt"] == actual["user_prompt"]
+    assert planned["user_prompt"] == "Reconstruct shape at [10,20,300,400]."
+    assert (
+        planned["extra"]["runtime_prompt_rendered_sha256"]
+        == (actual["extra"]["runtime_prompt_rendered_sha256"])
+    )
+
+
+@pytest.mark.parametrize("grouping", ["none", "length"])
+def test_train_execution_fingerprint_binds_prompt_args_and_media_snapshot(
+    tmp_path: Path,
+    grouping: str,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = tmp_path / "train.jsonl"
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.execution, version: v1}
+arguments:
+  value: {type: string}
+prompts:
+  - id: main
+    user_prompt_template: "value={{ value }}"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.media_snapshot_id = "media-v1"
+    config.data.batching.grouping = grouping
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    def write(value: str) -> None:
+        _write_jsonl(
+            train_path,
+            [
+                {
+                    "image_path": str(image),
+                    "target_text": "{}",
+                    "sample_id": "same-id",
+                    "prompt_args": {"value": value},
+                }
+            ],
+        )
+
+    write("x")
+    first = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+    first_mtime_ns = train_path.stat().st_mtime_ns
+    write("y")
+    stat = train_path.stat()
+    os.utime(
+        train_path,
+        ns=(stat.st_atime_ns, max(stat.st_mtime_ns, first_mtime_ns + 1_000_000_000)),
+    )
+    second = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+
+    assert first.train_dataset[0]["user_prompt"] == "value=x"
+    assert second.train_dataset[0]["user_prompt"] == "value=y"
+    if grouping == "none":
+        assert first.train_sampler is not None and second.train_sampler is not None
+        assert first.train_sampler.plan.fingerprint == second.train_sampler.plan.fingerprint
+    else:
+        assert first.train_schedule is not None and second.train_schedule is not None
+        assert first.train_schedule.fingerprint == second.train_schedule.fingerprint
+    assert first.train_execution_fingerprint != second.train_execution_fingerprint
+
+    config.data.media_snapshot_id = "media-v2"
+    third = ShaftDataCenter(config.data).build_dataset_bundle(SFTDataset)
+    assert second.train_execution_fingerprint != third.train_execution_fingerprint
+
+
+def test_prompt_argument_errors_fail_during_record_preflight_without_image_decode(
+    tmp_path: Path,
+) -> None:
+    train_path = _write_jsonl(
+        tmp_path / "invalid.jsonl",
+        [
+            {
+                "image_path": str(tmp_path / "missing-image.png"),
+                "target_text": "{}",
+                "sample_id": "invalid-1",
+                "prompt_args": {},
+            }
+        ],
+    )
+    prompt_pool = tmp_path / "dynamic-pool.yaml"
+    prompt_pool.write_text(
+        """
+metadata: {id: prompt.preflight, version: v1}
+arguments:
+  required_value: {type: string}
+prompts:
+  - id: main
+    user_prompt_template: "{{ required_value }}"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = RuntimeConfig()
+    config.data.record_cache_dir = str(tmp_path / "record-cache")
+    config.data.transforms.prompt_sampling = PromptSamplingConfig(
+        enabled=True,
+        pools={"ds": str(prompt_pool)},
+    )
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            use_for_eval=False,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="L1: Missing prompt arguments.*required_value"):
+        ShaftDataCenter(config.data).prepare_records()
 
 
 def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
@@ -104,8 +570,8 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
         [
             {
                 "image_path": str(image),
-                "chosen_text": "{\"ok\":1}",
-                "rejected_text": "{\"ok\":0}",
+                "chosen_text": '{"ok":1}',
+                "rejected_text": '{"ok":0}',
                 "sample_id": "d1",
             }
         ],
@@ -115,8 +581,8 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
         [
             {
                 "image_path": str(image),
-                "chosen_text": "{\"ok\":2}",
-                "rejected_text": "{\"ok\":1}",
+                "chosen_text": '{"ok":2}',
+                "rejected_text": '{"ok":1}',
                 "sample_id": "d2",
             }
         ],
@@ -142,28 +608,28 @@ def test_data_center_builds_dpo_dataset_pair(tmp_path: Path) -> None:
     assert len(val_dataset) == 1
     sample = train_dataset[0]
     assert sample["dataset_name"] == "dpo_ds"
-    assert sample["chosen_text"] == "{\"ok\":1}"
-    assert sample["rejected_text"] == "{\"ok\":0}"
+    assert sample["chosen_text"] == '{"ok":1}'
+    assert sample["rejected_text"] == '{"ok":0}'
 
 
 def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": "a1"}],
+        [{"image_path": str(image), "target_text": '{"a":1}', "sample_id": "a1"}],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": "b1"}],
+        [{"image_path": str(image), "target_text": '{"b":1}', "sample_id": "b1"}],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
 
     config = RuntimeConfig()
-    config.data.mix_strategy = "concat"
-    config.data.shuffle = False
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
     config.data.datasets = [
         DatasetSourceConfig(
             dataset_name="eval_ds",
@@ -192,30 +658,35 @@ def test_data_center_skips_val_for_train_only_dataset(tmp_path: Path) -> None:
     assert val_dataset[0]["dataset_name"] == "eval_ds"
 
 
-def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
+def test_data_center_sampler_passes_plan_cycle_in_sample_ref(tmp_path: Path) -> None:
     image = _write_image(tmp_path / "img.png")
     train_a = _write_jsonl(
         tmp_path / "train_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"a\":1}", "sample_id": f"a{i}"} for i in range(4)],
+        [
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": f"a{i}"}
+            for i in range(4)
+        ],
     )
     train_b = _write_jsonl(
         tmp_path / "train_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"b\":1}", "sample_id": f"b{i}"} for i in range(4)],
+        [
+            {"image_path": str(image), "target_text": '{"b":1}', "sample_id": f"b{i}"}
+            for i in range(4)
+        ],
     )
     val_a = _write_jsonl(
         tmp_path / "val_a.jsonl",
-        [{"image_path": str(image), "target_text": "{\"va\":1}", "sample_id": "va1"}],
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
     )
     val_b = _write_jsonl(
         tmp_path / "val_b.jsonl",
-        [{"image_path": str(image), "target_text": "{\"vb\":1}", "sample_id": "vb1"}],
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
     )
 
     config = RuntimeConfig()
     config.experiment.seed = 5
-    config.data.mix_strategy = "concat"
-    config.data.mix_refresh = "epoch_refresh"
-    config.data.shuffle = True
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = True
     config.data.datasets = [
         DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
         DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
@@ -225,12 +696,163 @@ def test_data_center_epoch_refresh_builds_train_sampler(tmp_path: Path) -> None:
     dataset_bundle = center.build_dataset_bundle(SFTDataset)
     train_dataset = dataset_bundle.train_dataset
 
-    assert isinstance(dataset_bundle.train_sampler, ShaftMixedIndexSampler)
-    assert dataset_bundle.train_sampler.refresh_mode == "epoch_refresh"
-    first = list(dataset_bundle.train_sampler.current_indices)
-    first_sample = train_dataset[0]["sample_id"]
+    assert isinstance(dataset_bundle.train_sampler, ShaftSampleSampler)
+    first = list(dataset_bundle.train_sampler)
+    first_sample = train_dataset[first[0]]
     dataset_bundle.train_sampler.set_epoch(1)
-    second = list(dataset_bundle.train_sampler.current_indices)
-    second_sample = train_dataset[0]["sample_id"]
+    second = list(dataset_bundle.train_sampler)
+    second_sample = train_dataset[second[0]]
     assert first != second
-    assert first_sample != second_sample
+    assert first_sample["_sample_context"]["draw_id"] == 0
+    assert second_sample["_sample_context"]["draw_id"] == len(train_dataset)
+
+
+def test_sample_context_crosses_persistent_worker_boundary(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": f"s{i}"} for i in range(2)],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+    bundle = ShaftDataCenter(config.data, seed=13).build_dataset_bundle(SFTDataset)
+    assert bundle.train_sampler is not None
+    loader = DataLoader(
+        bundle.train_dataset,
+        batch_size=1,
+        sampler=bundle.train_sampler,
+        num_workers=1,
+        persistent_workers=True,
+        collate_fn=_first_sample,
+    )
+
+    first = next(iter(loader))
+    bundle.train_sampler.set_epoch(1)
+    second = next(iter(loader))
+
+    assert first["_sample_context"]["draw_id"] == 0
+    assert second["_sample_context"]["draw_id"] == len(bundle.train_dataset)
+
+
+def test_data_center_builds_unsharded_train_sampler_for_hf_trainer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("WORLD_SIZE", "8")
+    monkeypatch.setenv("RANK", "3")
+    image = _write_image(tmp_path / "img.png")
+    train_a = _write_jsonl(
+        tmp_path / "train_a.jsonl",
+        [
+            {"image_path": str(image), "target_text": '{"a":1}', "sample_id": f"a{i}"}
+            for i in range(8)
+        ],
+    )
+    train_b = _write_jsonl(
+        tmp_path / "train_b.jsonl",
+        [
+            {"image_path": str(image), "target_text": '{"b":1}', "sample_id": f"b{i}"}
+            for i in range(8)
+        ],
+    )
+    val_a = _write_jsonl(
+        tmp_path / "val_a.jsonl",
+        [{"image_path": str(image), "target_text": '{"va":1}', "sample_id": "va1"}],
+    )
+    val_b = _write_jsonl(
+        tmp_path / "val_b.jsonl",
+        [{"image_path": str(image), "target_text": '{"vb":1}', "sample_id": "vb1"}],
+    )
+
+    config = RuntimeConfig()
+    config.experiment.seed = 5
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds_a", train_path=str(train_a), val_path=str(val_a)),
+        DatasetSourceConfig(dataset_name="ds_b", train_path=str(train_b), val_path=str(val_b)),
+    ]
+
+    center = ShaftDataCenter(config.data, seed=config.experiment.seed)
+    dataset_bundle = center.build_dataset_bundle(SFTDataset)
+
+    assert len(dataset_bundle.train_sampler) == 16
+    assert len(dataset_bundle.train_dataset) == 16
+    assert dataset_bundle.train_sampler.rank == 0
+    assert dataset_bundle.train_sampler.world_size == 1
+
+
+def test_data_center_applies_step_sample_budget_to_plan(tmp_path: Path) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "s"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.datasets = [
+        DatasetSourceConfig(dataset_name="ds", train_path=str(train_path), val_path=str(val_path))
+    ]
+
+    bundle = ShaftDataCenter(
+        config.data,
+        seed=3,
+        train_sample_budget=17,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert len(bundle.train_dataset) == 17
+    assert bundle.train_sampler is not None
+    assert len(bundle.train_sampler) == 17
+
+
+@pytest.mark.parametrize("grouping", ["length", "bounded_cost"])
+def test_planned_data_center_exposes_schedule_without_duration_sized_plan(
+    tmp_path: Path,
+    grouping: str,
+) -> None:
+    image = _write_image(tmp_path / "img.png")
+    train_path = _write_jsonl(
+        tmp_path / "train.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "s"}],
+    )
+    val_path = _write_jsonl(
+        tmp_path / "val.jsonl",
+        [{"image_path": str(image), "target_text": "{}", "sample_id": "v"}],
+    )
+    config = RuntimeConfig()
+    config.data.batching.grouping = grouping
+    config.data.media_snapshot_id = "data-center-fixture-v1"
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.data.datasets = [
+        DatasetSourceConfig(
+            dataset_name="ds",
+            train_path=str(train_path),
+            val_path=str(val_path),
+        )
+    ]
+
+    bundle = ShaftDataCenter(
+        config.data,
+        seed=3,
+        train_sample_budget=1_000_000,
+    ).build_dataset_bundle(SFTDataset)
+
+    assert bundle.train_sampler is None
+    assert bundle.train_schedule is not None
+    assert bundle.train_dataset.sample_plan is None
+    assert bundle.train_dataset.sample_schedule is bundle.train_schedule
+    assert bundle.train_dataset.media_snapshot_id == "data-center-fixture-v1"
+    ref = bundle.train_schedule.ref_at(999_999)
+    assert bundle.train_dataset.get_planning_item(ref)["sample_id"] == "s"

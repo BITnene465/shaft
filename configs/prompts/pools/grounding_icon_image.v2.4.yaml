@@ -1,0 +1,98 @@
+metadata:
+  id: shaft.grounding_icon_image.prompt_pool.v2.4
+  version: v2.4
+  name: grounding icon and image detection prompt pool
+  task: grounding
+  subtask: grounding_icon_image
+  target_labels: [icon, image]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Return only valid compact JSON. Do not
+      include markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      Detect all visible icon and image instances in the image.
+      Use image for a whole picture or screenshot region; do not split its internal content.
+      If overlapping picture regions form one stacked visual area, label the whole stack as one image.
+      Use icon for a medium-complexity standalone object, often composed of multiple simple shapes.
+      Do not return arrows or shape-only regions.
+      Use a tight bbox around each visible target object.
+      Do not merge separate target objects into one bbox.
+      Return a JSON array of objects with this schema:
+      {"label":"icon|image","bbox_2d":[x1,y1,x2,y2]}
+      Use integer bbox_2d coordinates in the 0-999 normalized image coordinate space.
+      Order objects from top to bottom; for objects on the same visual row, order from left to right.
+      Return [] when no target object is visible.
+
+  - id: icons_and_images
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Output compact valid JSON only.
+      Do not add markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      Find all visible targets labeled icon or image.
+      Use image broadly for an entire picture, photo, screenshot, embedded media area, thumbnail, cropped picture, chart screenshot, UI screenshot, or stacked picture area; do not split internal content.
+      Use icon broadly for standalone symbols, pictograms, logos, badges, markers, UI glyphs, small composed objects, and visual objects made from multiple simple shapes.
+      Be recall-oriented: include small, faint, partial, cropped, nested, or stylized icon/image targets when visible.
+      Do not annotate arrows or plain shape-only regions.
+      Return one tight bbox for each separate visible icon or image target.
+      Return a JSON array using this schema:
+      {"label":"icon|image","bbox_2d":[x1,y1,x2,y2]}
+      Coordinates must be integer bbox_2d values in the 0-999 normalized image coordinate space.
+      Sort results top to bottom, and left to right within the same visual row.
+      Return [] only after carefully checking that no icon or image-like target is visible.
+
+  - id: visual_assets
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown or explanatory text.
+    user_prompt: |
+      Locate visible icon and image objects.
+      Mark a whole photo, screenshot, embedded media block, thumbnail, cropped picture, chart screenshot, UI screenshot, or visual canvas region as image, including overlapping image stacks as one image.
+      Mark standalone composed objects as icon, including small symbols, pictograms, logos, badges, markers, UI glyphs, and multi-shape visual objects.
+      Prefer returning plausible visible icon/image objects over an empty answer.
+      Exclude arrows and plain shape-only regions.
+      Use a tight bbox for every separate target object.
+      Output a JSON array of objects exactly in this form:
+      {"label":"icon|image","bbox_2d":[x1,y1,x2,y2]}
+      Use integer coordinates normalized to the 0-999 image coordinate space.
+      Order the objects by visual reading order: top to bottom, then left to right.
+      Output [] only when there is truly no visible icon or image target.
+
+  - id: media_and_icons
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Respond with compact valid JSON only.
+      Do not include markdown, comments, explanations, or any surrounding text.
+    user_prompt: |
+      Detect visible objects whose label is icon or image.
+      Use image for a whole picture, photo, screenshot, thumbnail, embedded media block, cropped image, chart screenshot, UI screenshot, or stacked picture region; do not split the internal content.
+      Use icon for a standalone composed visual object, including small or medium icons, symbols, logos, badges, markers, UI glyphs, pictograms, and objects made from multiple simple shapes.
+      Include small, partial, low-contrast, nested, cropped, or visually subtle icon/image targets when visible.
+      Do not return arrows, text-only regions, or simple shape-only regions.
+      Return one tight bbox for each separate visible icon or image.
+      Return a JSON array of objects with this schema:
+      {"label":"icon|image","bbox_2d":[x1,y1,x2,y2]}
+      Use integer bbox_2d coordinates in the 0-999 normalized image coordinate space.
+      Sort objects from top to bottom, then left to right within the same visual row.
+      Return [] only when no icon or image target is visible.
+
+  - id: icon_image_instances
+    sampling_weight: 1.0
+    system_prompt: >
+      Output only valid compact JSON. Do not output markdown, comments, explanations,
+      code fences, or extra text.
+    user_prompt: |
+      Locate every visible icon and image instance.
+      Label complete photo, screenshot, picture, thumbnail, embedded media, cropped image, chart screenshot, UI screenshot, or visual canvas regions as image, including overlapping image stacks as one image.
+      Label standalone visual symbols or composed objects as icon, including small icons, logos, badges, markers, UI glyphs, pictograms, and medium-complexity multi-shape objects.
+      Be inclusive and avoid empty output when any visible icon/image-like target is present.
+      Exclude arrows and plain geometric shape-only targets.
+      Use a tight bbox around each individual target object; keep separate targets separate.
+      Output a JSON array in this exact object schema:
+      {"label":"icon|image","bbox_2d":[x1,y1,x2,y2]}
+      Coordinates are integers normalized to the 0-999 image coordinate space.
+      Use row-major order: top to bottom, then left to right.
+      If no icon or image target exists after careful visual inspection, output [].

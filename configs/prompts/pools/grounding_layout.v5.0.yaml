@@ -1,0 +1,64 @@
+metadata:
+  id: shaft.grounding_layout.prompt_pool.v5.0
+  version: v5.0
+  name: grounding layout detection prompt pool
+  task: grounding
+  subtask: grounding_layout
+  target_labels: [icon, image, shape, line]
+  output_schema: qwen_bbox_2d_list
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Detect layout objects.
+      Allowed labels: icon, image, shape, line.
+      Return a JSON array of objects:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape"}]
+      Return [] if none.
+
+  - id: visual_elements
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid JSON only. No markdown or extra text.
+    user_prompt: |
+      Find visible page or diagram elements.
+      Use labels: icon, image, shape, line.
+      Output:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"icon"}]
+      If there are no targets, output [].
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only.
+    user_prompt: |
+      Return this JSON array schema:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+      Task: locate icon, image, shape, and line objects.
+      Empty result: [].
+
+  - id: extraction_request
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not add explanations.
+    user_prompt: |
+      Extract visible layout target instances.
+      Target labels: icon, image, shape, line.
+      Return:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"line"}]
+      No target: [].
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt: |
+      Ground visible layout elements.
+      Labels: icon, image, shape, line.
+      Schema:
+      [{"bbox_2d":[x1,y1,x2,y2],"label":"shape|icon|image|line"}]
+      Empty: [].

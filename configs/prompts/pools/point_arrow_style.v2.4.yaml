@@ -1,0 +1,111 @@
+metadata:
+  id: shaft.point_arrow_style.prompt_pool.v2.4
+  version: v2.4
+  name: point arrow style prompt pool
+  task: point
+  subtask: point_arrow_style
+  target_labels: [arrow]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Return only valid compact JSON.
+      Do not include markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      The image is a crop around one arrow.
+      Predict the ordered arrow path and its visual style.
+      Return exactly one JSON object.
+
+      Path arrow format:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...],"line_type":"straight|curved","begin_arrow":"none|arrow|stealth|triangle","end_arrow":"none|arrow|stealth|triangle","line_style":"path","dash_style":"solid|dash","connector_corner_style":"sharp|round","color":"#RRGGBB"}
+
+      Shape arrow format:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...],"line_type":"straight|curved","begin_arrow":"none|arrow|stealth|triangle","end_arrow":"none|arrow|stealth|triangle","line_style":"shape","dash_style":"solid|dash","shape_body_style":"constant|tapered","shape_corner_style":"round|sharp","shape_arrow_head_style":"flat|swallowtail","has_border":true|false,"color":"#RRGGBB","border_color":"#RRGGBB"}
+
+      Use integer keypoints_2d coordinates in the 0-999 normalized crop coordinate space.
+      Order keypoints from the arrow tail to the arrow head. begin_arrow describes the first keypoint endpoint, and end_arrow describes the last keypoint endpoint.
+      Include every visible bend point needed to describe the arrow path.
+      Use straight for straight or polyline bodies; use curved only for visibly smooth curved bodies.
+      path arrows look like stroked lines with optional arrowhead markers; shape arrows look like filled arrow polygons or block arrows, sometimes with a border.
+      For line_style="path", connector_corner_style is required.
+      For line_style="shape", shape_body_style, shape_corner_style, shape_arrow_head_style, and has_border are required.
+      Include border_color only when has_border is true; omit border_color when has_border is false.
+      Use uppercase six-digit hex strings for color and border_color.
+      Do not return bbox, label, thickness, arrow size, border width, radius, markdown, comments, or any extra text.
+
+  - id: trace_and_style
+    sampling_weight: 1.0
+    system_prompt: >
+      Output compact valid JSON only. Do not add markdown, comments,
+      explanations, code fences, or surrounding text.
+    user_prompt: |
+      This crop contains one arrow. Trace the visible arrow from tail to head and classify its style.
+      Output exactly one JSON object.
+      Required base fields:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...],"line_type":"straight|curved","begin_arrow":"none|arrow|stealth|triangle","end_arrow":"none|arrow|stealth|triangle","line_style":"path|shape","dash_style":"solid|dash","color":"#RRGGBB"}
+      Coordinates are integers in the 0-999 normalized crop coordinate space.
+      begin_arrow describes the first keypoint endpoint, and end_arrow describes the last keypoint endpoint.
+      Use straight for straight or polyline bodies; use curved only for visibly smooth curved bodies.
+      path arrows look like stroked lines with optional arrowhead markers; shape arrows look like filled arrow polygons or block arrows, sometimes with a border.
+      For line_style="path", add connector_corner_style with value "sharp" or "round".
+      For line_style="shape", add shape_body_style, shape_corner_style, shape_arrow_head_style, and has_border.
+      Include border_color only when has_border is true; omit border_color when has_border is false.
+      Use uppercase six-digit hex strings.
+      Do not output boxes, labels, continuous size values, markdown, or explanations.
+
+  - id: detailed_style
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Respond with valid compact JSON only.
+      No markdown, no comments, no explanations.
+    user_prompt: |
+      Analyze the single arrow in this crop.
+      Return its keypoint path and style attributes as one JSON object:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...],"line_type":"straight|curved","begin_arrow":"none|arrow|stealth|triangle","end_arrow":"none|arrow|stealth|triangle","line_style":"path|shape","dash_style":"solid|dash","color":"#RRGGBB"}
+      keypoints_2d must be integer coordinates normalized to 0-999 within the crop.
+      Order keypoints from the arrow tail to the arrow head; begin_arrow is the style at the first keypoint endpoint and end_arrow is the style at the last keypoint endpoint.
+      Use straight for straight or polyline bodies; use curved only for visibly smooth curved bodies.
+      Use the visible arrow color as an uppercase six-digit hex string such as "#000000" or "#2196F3".
+      For path arrows, include connector_corner_style: "sharp" or "round".
+      For shape arrows, include shape_body_style ("constant" or "tapered"), shape_corner_style ("round" or "sharp"), shape_arrow_head_style ("flat" or "swallowtail"), and has_border.
+      Include border_color only when has_border is true; omit border_color when has_border is false.
+      Path arrows are stroked lines; shape arrows are filled arrow polygons or block arrows.
+      Do not include bbox_2d, labels, thickness, arrow_width_px, arrow_length_px, border_width, or any radius fields.
+
+  - id: compact_schema
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown or explanatory text.
+    user_prompt: |
+      The crop contains exactly one arrow.
+      Output one JSON object describing the arrow path and style:
+      {"keypoints_2d":[[x1,y1],[x2,y2],...],"line_type":"straight|curved","begin_arrow":"none|arrow|stealth|triangle","end_arrow":"none|arrow|stealth|triangle","line_style":"path|shape","dash_style":"solid|dash","color":"#RRGGBB"}
+      Coordinates are 0-999 normalized crop coordinates, ordered from arrow tail to arrow head.
+      begin_arrow describes the first keypoint endpoint; end_arrow describes the last keypoint endpoint.
+      Use straight for straight or polyline bodies; use curved only for visibly smooth curved bodies.
+      line_style="path" means a stroked line arrow and requires connector_corner_style.
+      line_style="shape" means a filled polygon or block arrow and requires shape_body_style, shape_corner_style, shape_arrow_head_style, and has_border.
+      Include border_color only when has_border is true; omit border_color when has_border is false.
+      Use uppercase six-digit hex strings.
+      Exclude bbox, label, and all precise width, length, radius, and thickness values.
+
+  - id: style_first
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Output valid JSON only, without
+      markdown, comments, explanations, or extra text.
+    user_prompt: |
+      Identify the one arrow in this crop and return a compact JSON object.
+      Required output fields are keypoints_2d, line_type, begin_arrow, end_arrow, line_style, dash_style, and color.
+      keypoints_2d must trace the arrow from tail to head using integer 0-999 crop coordinates.
+      begin_arrow describes the first keypoint endpoint, and end_arrow describes the last keypoint endpoint.
+      line_type is "curved" only for a visibly smooth curved arrow body; otherwise it is "straight", including polyline arrows with bend points.
+      begin_arrow and end_arrow must be one of: "none", "arrow", "stealth", "triangle".
+      line_style must be "path" for stroked line arrows or "shape" for filled polygon/block arrows.
+      dash_style must be "solid" or "dash".
+      color and border_color must use uppercase "#RRGGBB" hex strings.
+      Include connector_corner_style for path arrows.
+      Include shape_body_style, shape_corner_style, shape_arrow_head_style, and has_border for shape arrows.
+      Include border_color only when has_border is true; omit border_color when has_border is false.
+      Do not output bbox, labels, size measurements, markdown, or extra text.

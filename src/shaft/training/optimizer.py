@@ -152,7 +152,6 @@ def build_optimizer_and_plan(
     param_group_lrs: dict[str, float] | None = None,
     no_decay_name_patterns: list[str] | None = None,
 ) -> tuple[torch.optim.Optimizer, ShaftResolvedOptimizerPlan]:
-    normalized = str(optimizer_name).strip().lower()
     resolved_plan = build_resolved_optimizer_plan(
         model=model,
         args=args,
@@ -161,13 +160,35 @@ def build_optimizer_and_plan(
         param_group_lrs=param_group_lrs,
         no_decay_name_patterns=no_decay_name_patterns,
     )
-    grouped_params = resolved_plan.to_optimizer_groups()
+    optimizer = build_optimizer_from_plan(
+        plan=resolved_plan,
+        args=args,
+        optimizer_name=optimizer_name,
+        adam_beta1=adam_beta1,
+        adam_beta2=adam_beta2,
+        adam_epsilon=adam_epsilon,
+    )
+    return optimizer, resolved_plan
+
+
+def build_optimizer_from_plan(
+    *,
+    plan: ShaftResolvedOptimizerPlan,
+    args: TrainingArguments,
+    optimizer_name: str,
+    adam_beta1: float,
+    adam_beta2: float,
+    adam_epsilon: float,
+) -> torch.optim.Optimizer:
+    """Build the optimizer from the already fingerprinted parameter plan."""
+
+    normalized = str(optimizer_name).strip().lower()
+    grouped_params = plan.to_optimizer_groups()
     builder = OPTIMIZER_REGISTRY.get(normalized)
-    optimizer = builder(
+    return builder(
         grouped_params=grouped_params,
         args=args,
         adam_beta1=float(adam_beta1),
         adam_beta2=float(adam_beta2),
         adam_epsilon=float(adam_epsilon),
     )
-    return optimizer, resolved_plan

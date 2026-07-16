@@ -1,0 +1,99 @@
+metadata:
+  id: shaft.grounding_layout.prompt_pool.v2.4
+  version: v2.4
+  name: grounding layout detection prompt pool
+  task: grounding
+  subtask: grounding_layout
+  target_labels: [icon, image, shape]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Return only valid compact JSON. Do not
+      include markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      Detect all visible top-level layout elements with labels icon, image, or shape.
+      Use image for a whole picture or screenshot region; do not split its internal content.
+      If overlapping picture regions form one stacked visual area, label the whole stack as one image.
+      Use icon for a medium-complexity standalone object, often composed of multiple simple shapes.
+      Use shape for simple non-icon geometric regions and diagram blocks.
+      Use a tight bbox around each visible target object.
+      Do not merge separate target objects into one bbox.
+      Return a JSON array of objects with this schema:
+      {"label":"icon|image|shape","bbox_2d":[x1,y1,x2,y2]}
+      Use integer bbox_2d coordinates in the 0-999 normalized image coordinate space.
+      Order objects from top to bottom; for objects on the same visual row, order from left to right.
+      Return [] when no target object is visible.
+
+  - id: top_level_elements
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Output compact valid JSON only.
+      Do not add markdown, comments, explanations, or surrounding text.
+    user_prompt: |
+      Find all visible top-level layout targets whose label is icon, image, or shape.
+      Use image broadly for an entire picture, screenshot, embedded media area, thumbnail, cropped photo, chart screenshot, UI screenshot, or stacked visual region; do not annotate its inner parts.
+      Use icon broadly for standalone symbols, pictograms, logos, badges, markers, UI glyphs, small composed objects, and objects made from multiple simple shapes.
+      Use shape broadly for geometric regions, presentation/PPT shapes, diagram blocks, containers, cards, panels, callouts, badges, flowchart nodes, filled regions, outlines, and other non-icon graphic areas.
+      Be recall-oriented: include small, faint, partially visible, nested, cropped, or lightly styled layout targets when they are visible.
+      Return one tight bbox per visible target object, without merging separate objects unless overlapping image regions form one stacked visual area.
+      Return a JSON array using this schema:
+      {"label":"icon|image|shape","bbox_2d":[x1,y1,x2,y2]}
+      Coordinates must be integer bbox_2d values in the 0-999 normalized image coordinate space.
+      Sort results top to bottom, and left to right within the same visual row.
+      Return [] only after checking that no icon, image, or shape-like layout target is visible.
+
+  - id: layout_bbox
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown or explanatory text.
+    user_prompt: |
+      Locate visible layout objects of type icon, image, or shape.
+      Mark a whole photo, screenshot, embedded media block, thumbnail, cropped picture, chart screenshot, UI screenshot, or visual canvas area as image, including overlapping image stacks as one image.
+      Mark standalone composed objects as icon, including small symbols, pictograms, logos, badges, markers, UI glyphs, and multi-shape visual objects.
+      Mark non-icon geometric areas, PPT-style shapes, diagram blocks, frames, panels, containers, flowchart elements, decorative regions, and background blocks as shape.
+      Prefer returning plausible visible layout objects over an empty answer; many slide, UI, media, and diagram graphics are valid layout targets.
+      Use a tight bbox for each separate target object.
+      Output a JSON array of objects exactly in this form:
+      {"label":"icon|image|shape","bbox_2d":[x1,y1,x2,y2]}
+      Use integer coordinates normalized to the 0-999 image coordinate space.
+      Order the objects by visual reading order: top to bottom, then left to right.
+      Output [] only when there is truly no visible icon, image, or shape target.
+
+  - id: layout_targets
+    sampling_weight: 1.0
+    system_prompt: >
+      You are a visual annotation assistant. Respond with compact valid JSON only.
+      Do not include markdown, comments, explanations, or any surrounding text.
+    user_prompt: |
+      Detect all visible layout targets labeled icon, image, or shape.
+      Use image for an entire picture, screenshot, photo, thumbnail, embedded media block, cropped image, chart screenshot, UI screenshot, or stacked image region; do not split internal content.
+      Use icon for a standalone composed visual object, including small or medium icons, symbols, logos, badges, markers, UI glyphs, and objects made from multiple simple shapes.
+      Use shape broadly for non-icon geometric objects, diagram blocks, PPT-style shapes, cards, containers, callouts, labels, filled regions, outlines, panels, and decorative graphic areas.
+      Include targets that are small, partial, low-contrast, nested, cropped, or visually subtle when their region is visible.
+      Do not return arrows or text-only regions.
+      Use one tight bbox for each separate visible target object.
+      Return a JSON array of objects with this schema:
+      {"label":"icon|image|shape","bbox_2d":[x1,y1,x2,y2]}
+      Use integer bbox_2d coordinates in the 0-999 normalized image coordinate space.
+      Sort objects from top to bottom, then left to right within the same visual row.
+      Return [] only when no icon, image, or shape target is visible.
+
+  - id: page_element_boxes
+    sampling_weight: 1.0
+    system_prompt: >
+      Output only valid compact JSON. Do not output markdown, comments, explanations,
+      code fences, or extra text.
+    user_prompt: |
+      Locate visible top-level page elements whose label is icon, image, or shape.
+      Mark whole media, photo, screenshot, thumbnail, embedded picture, chart screenshot, UI screenshot, cropped image, or visual canvas regions as image, including overlapping image stacks as one image.
+      Mark standalone composed symbols or objects as icon, including logos, badges, markers, UI glyphs, pictograms, and small multi-shape objects, even if they are embedded in a diagram.
+      Mark geometric areas, diagram blocks, PPT-style shapes, containers, cards, panels, frames, callouts, flowchart nodes, decorative regions, and other non-photo graphic areas as shape.
+      Be inclusive and avoid empty output when any visible icon/image/shape-like page element is present.
+      Keep each separate target as a separate object and use a tight bbox.
+      Output a JSON array in this exact object schema:
+      {"label":"icon|image|shape","bbox_2d":[x1,y1,x2,y2]}
+      Coordinates are integers normalized to the 0-999 image coordinate space.
+      Use row-major order: top to bottom, then left to right.
+      If no target layout object exists after careful visual inspection, output [].

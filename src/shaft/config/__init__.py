@@ -1,4 +1,4 @@
-from .loader import load_config, load_config_from_payload, load_config_from_text
+from .loader import load_config, load_config_from_payload, load_config_from_text, to_resolved_payload
 from .algorithm import (
     AlgorithmConfig,
     DPOConfig,
@@ -10,26 +10,50 @@ from .algorithm import (
     RLHFConfig,
 )
 from .base import ExperimentConfig, LoggingConfig, PluginsConfig, ProgressConfig
-from .data import DataConfig, DatasetSourceConfig
+from .data import (
+    DataBatchingConfig,
+    DataConfig,
+    DataPackingConfig,
+    DataScheduleConfig,
+    DataTransformsConfig,
+    DatasetSourceConfig,
+    PromptSamplingConfig,
+)
 from .model import FinetuneConfig, FreezeConfig, ModelConfig
 from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
     EvalDatasetPolicyConfig,
+    EvalInputPolicy,
     EvalMetricConfig,
     EvalNormalizerConfig,
+    EvalPixelBudget,
+    TrainDDPConfig,
+    TrainDeepSpeedConfig,
+    TrainDurationConfig,
+    TrainDistributedConfig,
+    TrainFSDPConfig,
     TrainConfig,
+    TrainEfficiencyConfig,
+    resolve_effective_gradient_checkpointing,
+    resolve_eval_input_policy,
 )
 
 __all__ = [
     "AlgorithmConfig",
+    "DataBatchingConfig",
     "DataConfig",
+    "DataPackingConfig",
+    "DataScheduleConfig",
+    "DataTransformsConfig",
     "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
     "EvalDatasetPolicyConfig",
+    "EvalInputPolicy",
     "EvalMetricConfig",
     "EvalNormalizerConfig",
+    "EvalPixelBudget",
     "ExperimentConfig",
     "FinetuneConfig",
     "GRPOConfig",
@@ -41,11 +65,21 @@ __all__ = [
     "ModelConfig",
     "PPOConfig",
     "PluginsConfig",
+    "PromptSamplingConfig",
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
+    "TrainDDPConfig",
+    "TrainDeepSpeedConfig",
+    "TrainDurationConfig",
+    "TrainDistributedConfig",
+    "TrainFSDPConfig",
     "TrainConfig",
+    "TrainEfficiencyConfig",
     "load_config",
     "load_config_from_payload",
     "load_config_from_text",
+    "resolve_effective_gradient_checkpointing",
+    "resolve_eval_input_policy",
+    "to_resolved_payload",
 ]

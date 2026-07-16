@@ -32,8 +32,12 @@ class FinetuneConfig:
 class ModelConfig:
     model_type: str = "qwen3vl"
     model_name_or_path: str = "models/Qwen3-VL-4B-Instruct"
+    revision: str | None = None
+    cache_dir: str | None = None
+    local_files_only: bool = False
     template: str | None = None
     trust_remote_code: bool = True
     attn_implementation: str | None = None
     torch_dtype: str = "bfloat16"
+    device_map: str | dict[str, str] | None = None
     finetune: FinetuneConfig = field(default_factory=FinetuneConfig)

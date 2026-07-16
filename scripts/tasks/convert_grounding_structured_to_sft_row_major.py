@@ -247,8 +247,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-name", required=True, help="dataset_name to embed in output rows.")
     parser.add_argument(
         "--prompt-config",
-        default="configs/prompts/grounding_arrow.yaml",
-        help="YAML file defining prompt id/system/user prompts.",
+        default="configs/prompts/pools/grounding_arrow.v2.4.yaml",
+        help="YAML file defining a prompt or versioned prompt pool; pool defaults to main.",
     )
     parser.add_argument("--num-bins", type=int, default=1000, help="Coordinate quantization bins.")
     parser.add_argument(

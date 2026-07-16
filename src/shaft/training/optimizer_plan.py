@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -47,6 +48,29 @@ class ShaftResolvedOptimizerPlan:
 
     def to_optimizer_groups(self) -> list[dict[str, Any]]:
         return [group.to_optimizer_group() for group in self.groups]
+
+    @property
+    def fingerprint(self) -> str:
+        payload = {
+            "version": "shaft-resolved-optimizer-plan-v1",
+            "groups": [
+                {
+                    "logical_group": group.logical_group,
+                    "decay": bool(group.decay),
+                    "lr": float(group.lr),
+                    "weight_decay": float(group.weight_decay),
+                    "parameter_names": list(group.parameter_names),
+                }
+                for group in self.groups
+            ],
+        }
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -126,7 +150,7 @@ def _is_no_decay_parameter(
     no_decay_name_patterns: list[str] | None = None,
 ) -> bool:
     return (
-        parameter.ndim <= 1
+        _parameter_ndim(parameter) <= 1
         or str(name).endswith(".bias")
         or _matches_no_decay_name_pattern(name, no_decay_name_patterns)
     )
@@ -207,7 +231,7 @@ def summarize_resolved_optimizer_plan(
     group_summaries: list[ShaftResolvedOptimizerGroupSummary] = []
     total_trainable_params = 0
     for group in plan.groups:
-        num_parameters = sum(int(parameter.numel()) for parameter in group.parameters)
+        num_parameters = sum(_parameter_numel(parameter) for parameter in group.parameters)
         total_trainable_params += num_parameters
         group_summaries.append(
             ShaftResolvedOptimizerGroupSummary(
@@ -225,6 +249,26 @@ def summarize_resolved_optimizer_plan(
         group_count=len(group_summaries),
         groups=tuple(group_summaries),
     )
+
+
+def _parameter_numel(parameter: torch.nn.Parameter) -> int:
+    deepspeed_numel = getattr(parameter, "ds_numel", None)
+    if deepspeed_numel is not None:
+        return int(deepspeed_numel)
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        total = 1
+        for dim in deepspeed_shape:
+            total *= int(dim)
+        return int(total)
+    return int(parameter.numel())
+
+
+def _parameter_ndim(parameter: torch.nn.Parameter) -> int:
+    deepspeed_shape = getattr(parameter, "ds_shape", None)
+    if deepspeed_shape is not None:
+        return len(tuple(deepspeed_shape))
+    return int(parameter.ndim)
 
 
 def resolved_optimizer_summary_path(output_dir: str | Path) -> Path:

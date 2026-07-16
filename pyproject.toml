@@ -10,23 +10,20 @@ readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = "MIT"
 dependencies = [
-  "cairosvg>=2.8",
-  "numpy>=1.26",
+  "numpy==2.2.6",
+  "packaging>=24.0",
   "pillow>=10.0",
   "pyyaml>=6.0",
   "safetensors>=0.5.0",
-  "torch>=2.3",
-  "torchvision>=0.18",
+  "torch==2.10.0",
+  "torchvision==0.25.0",
   "tqdm>=4.66",
-  "transformers==4.57.6",
+  "transformers>=4.57.6,<6",
   "peft>=0.14.0",
   "wandb>=0.19.0",
-  "fastapi>=0.116.0",
-  "jinja2>=3.1.6",
   "openai>=2.30.0",
   "matplotlib>=3.10.8",
   "modelscope>=1.35.3",
-  "uvicorn>=0.35.0",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +41,8 @@ gpu = [
 ]
 gpu-kernels = [
   "flash-attn==2.8.3",
+  "flash-linear-attention>=0.5.0",
+  "causal-conv1d>=1.6.2",
 ]
 rlhf = [
   "trl>=0.19.0,<1.0.0",
@@ -51,7 +50,14 @@ rlhf = [
   "datasets>=3.0.0",
 ]
 serve = [
-  "vllm==0.19.0; sys_platform == 'linux'",
+  "vllm==0.19.1; sys_platform == 'linux'",
+]
+qwen-next = [
+  "transformers==5.10.1",
+]
+distributed = [
+  "deepspeed>=0.16.0; sys_platform == 'linux'",
+  "ninja>=1.11.0; sys_platform == 'linux'",
 ]
 
 [tool.uv.extra-build-dependencies]
@@ -70,7 +76,7 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q -m 'not integration and not manual'"
+addopts = "-q"
 norecursedirs = [
   "old",
   "temp",
@@ -80,6 +86,15 @@ norecursedirs = [
   "rex-omni-test",
 ]
 markers = [
+  "unit: pure module-level checks with no filesystem, subprocess, model service, or heavyweight framework setup.",
+  "component: checks one Shaft component through its public API using in-memory fakes or tmp_path fixtures.",
+  "contract: verifies a stable CLI/API/schema contract rather than private implementation details.",
+  "slow: tests that are valid but too slow for the default developer/PR loop.",
+  "gpu: tests that require CUDA/NPU/MPS or GPU-oriented runtime assumptions.",
+  "task: tests for temporary data/review/task scripts rather than the maintained Shaft framework contract.",
+  "visual: tests for review visualization/rendering artifacts rather than training framework behavior.",
+  "perf: performance guard tests that are not deterministic enough for default CI.",
+  "smoke: runs a shortest viable cross-component path and is excluded from default pytest.",
   "integration: marks tests that run integration workflow (model loading / real inference).",
   "manual: marks tests that should be executed manually only.",
 ]

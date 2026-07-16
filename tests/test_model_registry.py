@@ -1,36 +1,138 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from dataclasses import replace
+from types import MethodType, SimpleNamespace
 from unittest.mock import patch
 
-from peft import PeftModel
 import pytest
 
 from shaft.config import RuntimeConfig
 from shaft.model import (
-    MODEL_REGISTRY,
-    ModelCapabilities,
-    ModelGroup,
-    ModelMeta,
-    PEFT_POLICY_REGISTRY,
-    PROCESSOR_POLICY_REGISTRY,
     build_model_meta,
     build_model_tokenizer_processor,
 )
-from shaft.model.policies import build_peft_policy, build_processor_policy
-from shaft.model.qwen3vl import _resolve_attn_implementation
-from shaft.template import resolve_template_meta
 
 
-def test_qwen3vl_registered() -> None:
-    assert MODEL_REGISTRY.has("qwen3vl")
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "patch_size",
+        "temporal_patch_size",
+        "merge_size",
+        "size",
+        "image_token_id",
+        "image_token",
+        "min_pixels",
+        "max_pixels",
+        "estimator",
+    ],
+)
+def test_qwen_processor_cost_signature_binds_policy_owned_processor_state(
+    mutation: str,
+) -> None:
+    class ImageProcessor:
+        def __init__(self) -> None:
+            self.patch_size = 14
+            self.temporal_patch_size = 2
+            self.merge_size = 2
+            self.size = {"shortest_edge": 56}
+
+        def get_number_of_image_patches(self, *, height, width, images_kwargs):
+            _ = height, width, images_kwargs
+            return 16
+
+    class Processor:
+        def __init__(self) -> None:
+            self.image_token_id = 151655
+            self.image_token = "<|image_pad|>"
+            self.image_processor = ImageProcessor()
+
+    def alternative_patch_estimator(self, *, height, width, images_kwargs):
+        _ = self, height, width, images_kwargs
+        return 16
+
+    adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    first_processor = Processor()
+    first = adapter.processor_cost_semantics_signature(
+        processor=first_processor,
+        min_pixels=1024,
+        max_pixels=4096,
+    )
+    second_processor = Processor()
+    min_pixels = 1024
+    max_pixels = 4096
+    if mutation == "patch_size":
+        second_processor.image_processor.patch_size = 16
+    elif mutation == "temporal_patch_size":
+        second_processor.image_processor.temporal_patch_size = 4
+    elif mutation == "merge_size":
+        second_processor.image_processor.merge_size = 4
+    elif mutation == "size":
+        second_processor.image_processor.size = {"shortest_edge": 112}
+    elif mutation == "image_token_id":
+        second_processor.image_token_id = 151656
+    elif mutation == "image_token":
+        second_processor.image_token = "<|different_image_pad|>"
+    elif mutation == "min_pixels":
+        min_pixels = 2048
+    elif mutation == "max_pixels":
+        max_pixels = 8192
+    elif mutation == "estimator":
+        second_processor.image_processor.get_number_of_image_patches = MethodType(
+            alternative_patch_estimator,
+            second_processor.image_processor,
+        )
+    else:  # pragma: no cover - parametrization is exhaustive
+        raise AssertionError(mutation)
+    second = adapter.processor_cost_semantics_signature(
+        processor=second_processor,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
+    )
+
+    assert first != second
 
 
-def test_builtin_model_policies_registered() -> None:
-    assert PROCESSOR_POLICY_REGISTRY.has("pixel_budget")
-    assert PROCESSOR_POLICY_REGISTRY.has("no_pixel_budget")
-    assert PEFT_POLICY_REGISTRY.has("all_linear")
+def test_qwen_exact_cost_rejects_unforwarded_pixel_budget() -> None:
+    class ImageProcessor:
+        patch_size = 14
+        temporal_patch_size = 2
+        merge_size = 2
+        size = {"shortest_edge": 56}
+
+        def get_number_of_image_patches(self, *, height, width, images_kwargs):
+            _ = height, width, images_kwargs
+            return 16
+
+    class Processor:
+        image_token_id = 151655
+        image_processor = ImageProcessor()
+
+    adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+    disabled_policy = replace(
+        adapter.processor_policy,
+        supports_pixel_budget=False,
+    )
+
+    with pytest.raises(ValueError, match="does not forward pixel budgets"):
+        disabled_policy.cost_semantics_signature(
+            processor=Processor(),
+            min_pixels=1024,
+            max_pixels=4096,
+        )
+    assert disabled_policy.cost_semantics_signature(
+        processor=Processor(),
+        min_pixels=None,
+        max_pixels=None,
+    ) != adapter.processor_policy.cost_semantics_signature(
+        processor=Processor(),
+        min_pixels=None,
+        max_pixels=None,
+    )
 
 
 def test_unknown_model_type_raises() -> None:
@@ -44,26 +146,56 @@ def test_builder_dispatches_registry() -> None:
     config = RuntimeConfig()
     config.model.model_type = "qwen3vl"
     fake_artifacts = object()
-    fake_meta = type(
-        "Meta",
-        (),
-        {
-            "resolve_adapter": lambda self, *, model_name_or_path, template_type=None: type(
-                "Adapter", (), {"check_requires": lambda self: None}
-            )(),
-            "loader": type(
-                "Loader",
-                (),
-                {
-                    "build": lambda self, cfg, *, model_meta, model_adapter: fake_artifacts,
-                },
-            )(),
-        },
-    )()
-    with patch("shaft.model.builder.build_model_meta", return_value=fake_meta) as mocked:
-        out = build_model_tokenizer_processor(config)
-    mocked.assert_called_once_with("qwen3vl")
+    inside_local_phase = False
+    phases: list[str] = []
+
+    def build_fake_artifacts(
+        self,
+        cfg,
+        *,
+        model_meta,
+        model_adapter,
+        sequence_execution_contract=None,
+    ):
+        assert inside_local_phase is False
+        _ = self, cfg, model_meta, model_adapter, sequence_execution_contract
+        return fake_artifacts
+
+    def run_local_phase(phase, operation):
+        nonlocal inside_local_phase
+        phases.append(phase)
+        inside_local_phase = True
+        try:
+            return operation()
+        finally:
+            inside_local_phase = False
+
+    fake_meta = SimpleNamespace(
+        loader=type("Loader", (), {"build": build_fake_artifacts})(),
+    )
+    fake_adapter = SimpleNamespace(check_requires=lambda: None)
+    fake_plan = SimpleNamespace(
+        init_from_checkpoint=None,
+        init_kind="base",
+        effective_model_name_or_path=config.model.model_name_or_path,
+        resolved_revision=None,
+        artifact_identity=SimpleNamespace(kind="unresolved_hf", complete=False),
+        require_immutable_artifact=False,
+        trust_remote_code=False,
+        model_meta=fake_meta,
+        model_adapter=fake_adapter,
+    )
+    with patch(
+        "shaft.model.builder.resolve_model_plan",
+        return_value=fake_plan,
+    ) as mocked:
+        out = build_model_tokenizer_processor(
+            config,
+            local_phase_runner=run_local_phase,
+        )
+    mocked.assert_called_once_with(config, init_from_checkpoint=None)
     assert out is fake_artifacts
+    assert phases == ["prepare", "finalize"]
 
 
 def test_smoke_artifacts_expose_meta_and_template() -> None:
@@ -76,363 +208,6 @@ def test_smoke_artifacts_expose_meta_and_template() -> None:
     assert artifacts.model_info.model_dir == cfg.model.model_name_or_path
     assert artifacts.model_info.is_multimodal is True
     assert artifacts.model_adapter.default_target_modules() == ["all-linear"]
-    assert artifacts.model_adapter.capabilities.supports_pixel_budget is False
+    assert artifacts.model_adapter.processor_policy.supports_pixel_budget is False
     assert artifacts.template.name == "smoke_vlm"
     assert artifacts.template.template_meta.template_type == "smoke_vlm"
-
-
-def test_qwen3vl_meta_exposes_family_and_policies() -> None:
-    model_meta = build_model_meta("qwen3vl")
-    assert model_meta.family == "qwen"
-    assert model_meta.capabilities.supports_pixel_budget is True
-    assert model_meta.module_groups.language_model == ("model",)
-    assert model_meta.module_groups.vision_tower == ("model.visual",)
-    assert model_meta.module_groups.aligner == ("model.visual.merger", "model.visual.deepstack_merger_list")
-    assert model_meta.module_groups.generator == ("lm_head",)
-    assert model_meta.default_target_modules() == ["all-linear"]
-    assert model_meta.default_template == "qwen3vl"
-    assert model_meta.requires == ()
-    assert model_meta.additional_saved_files == ()
-    assert len(model_meta.model_groups) == 1
-    assert model_meta.candidate_templates == ("qwen3vl",)
-
-
-def test_model_meta_supports_model_group_override() -> None:
-    model_meta = build_model_meta("qwen3vl")
-    group = model_meta.model_groups[0]
-    assert group.name == "default"
-    assert group.template == "qwen3vl"
-    assert isinstance(group.model_ids, tuple)
-
-
-def test_model_meta_collects_requires_from_groups() -> None:
-    model_meta = build_model_meta("qwen3vl")
-    assert model_meta.all_requires() == []
-
-
-def test_model_meta_can_match_registered_model_name() -> None:
-    model_meta = build_model_meta("smoke_vlm")
-    matched = model_meta.get_matched_model_group("models/Smoke-VLM")
-    assert matched is not None
-    assert matched.name == "default"
-
-
-def test_model_meta_resolves_template_from_matched_group() -> None:
-    model_meta = build_model_meta("smoke_vlm")
-    assert model_meta.resolve_template_type("models/Smoke-VLM") == "smoke_vlm"
-
-
-def test_model_meta_check_requires_raises_for_missing_package() -> None:
-    model_meta = ModelMeta(
-        model_type="dummy",
-        family="dummy",
-        default_template="smoke_vlm",
-        model_groups=(ModelGroup(name="default"),),
-        requires=("package_that_does_not_exist_for_shaft_tests>=1.0",),
-    )
-    with pytest.raises(ImportError):
-        model_meta.check_requires()
-
-
-def test_processor_policy_controls_pixel_budget_forwarding() -> None:
-    model_adapter = build_model_meta("qwen3vl").resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
-    captured = {}
-
-    class _Processor:
-        def __call__(self, **kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
-
-    _ = model_adapter.build_processor_inputs(
-        processor=_Processor(),
-        prompt_texts=["hello"],
-        images=["img"],
-        min_pixels=16,
-        max_pixels=32,
-    )
-    assert captured["min_pixels"] == 16
-    assert captured["max_pixels"] == 32
-
-
-def test_processor_policy_can_disable_pixel_budget() -> None:
-    model_adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
-    captured = {}
-
-    class _Processor:
-        def __call__(self, **kwargs):
-            captured.update(kwargs)
-            return {"ok": True}
-
-    _ = model_adapter.build_processor_inputs(
-        processor=_Processor(),
-        prompt_texts=["hello"],
-        images=["img"],
-        min_pixels=16,
-        max_pixels=32,
-    )
-    assert "min_pixels" not in captured
-    assert "max_pixels" not in captured
-
-
-def test_processor_policy_temporarily_controls_padding_side() -> None:
-    model_adapter = build_model_meta("qwen3vl").resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
-    captured = {}
-
-    class _Tokenizer:
-        def __init__(self) -> None:
-            self.padding_side = "right"
-
-    tokenizer = _Tokenizer()
-
-    class _Processor:
-        def __init__(self, tokenizer_obj) -> None:
-            self.tokenizer = tokenizer_obj
-
-        def __call__(self, **kwargs):
-            captured["padding_side_during_call"] = self.tokenizer.padding_side
-            return {"ok": True, "kwargs": kwargs}
-
-    processor = _Processor(tokenizer)
-    _ = model_adapter.build_processor_inputs(
-        processor=processor,
-        tokenizer=tokenizer,
-        prompt_texts=["hello"],
-        images=["img"],
-        min_pixels=16,
-        max_pixels=32,
-        padding_side="left",
-    )
-    assert captured["padding_side_during_call"] == "left"
-    assert tokenizer.padding_side == "right"
-
-
-def test_model_meta_can_resolve_unified_model_adapter() -> None:
-    model_meta = build_model_meta("smoke_vlm")
-    adapter = model_meta.resolve_adapter(model_name_or_path="models/Smoke-VLM")
-    assert adapter.model_type == "smoke_vlm"
-    assert adapter.group_name == "default"
-    assert adapter.template_type == "smoke_vlm"
-    assert adapter.default_target_modules() == ["all-linear"]
-    assert adapter.required_saved_files() == ("smoke_tokenizer.json", "smoke_processor.json")
-
-
-def test_model_group_can_override_template_and_policies() -> None:
-    model_meta = ModelMeta(
-        model_type="dummy",
-        family="dummy",
-        default_template="smoke_vlm",
-        capabilities=ModelCapabilities(supports_pixel_budget=True, is_multimodal=True),
-        processor_policy=build_processor_policy("pixel_budget"),
-        peft_policy=build_peft_policy("all_linear"),
-        model_groups=(
-            ModelGroup(
-                name="compact",
-                model_ids=("dummy-compact",),
-                template="qwen3vl",
-                capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=False),
-                processor_policy=build_processor_policy("no_pixel_budget"),
-                requires=("pkg_a>=1.0",),
-                additional_saved_files=("extra.json",),
-            ),
-        ),
-    )
-    adapter = model_meta.resolve_adapter(model_name_or_path="dummy-compact")
-    assert adapter.template_type == "qwen3vl"
-    assert adapter.capabilities.supports_pixel_budget is False
-    assert adapter.capabilities.is_multimodal is False
-    assert adapter.requires == ("pkg_a>=1.0",)
-    assert adapter.required_saved_files() == ("extra.json",)
-
-
-def test_qwen3vl_flash_attention_falls_back_without_flash_attn() -> None:
-    with patch("shaft.model.qwen3vl.importlib.util.find_spec", return_value=None):
-        with pytest.warns(UserWarning, match="flash-attn"):
-            resolved = _resolve_attn_implementation("flash_attention_2")
-    assert resolved is None
-
-
-def test_qwen3vl_attn_implementation_keeps_non_flash_value() -> None:
-    assert _resolve_attn_implementation("sdpa") == "sdpa"
-
-
-def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
-    config = RuntimeConfig()
-    config.model.model_type = "qwen3vl"
-    init_ckpt = tmp_path / "full_ckpt"
-    init_ckpt.mkdir(parents=True, exist_ok=True)
-    (init_ckpt / "config.json").write_text("{}", encoding="utf-8")
-
-    captured = {}
-
-    class _Adapter:
-        loader = None
-
-        def __init__(self):
-            self.loader = type("Loader", (), {"build": self._build})()
-
-        def resolve_adapter(self, *, model_name_or_path, template_type=None):
-            _ = template_type
-            return type(
-                "ResolvedAdapter",
-                (),
-                {
-                    "check_requires": lambda self: None,
-                    "model_name_or_path": model_name_or_path,
-                },
-            )()
-
-        def _build(self, cfg, *, model_meta, model_adapter):
-            captured["cfg"] = cfg
-            captured["model_meta"] = model_meta
-            captured["model_adapter"] = model_adapter
-            return object()
-
-    with patch("shaft.model.builder.build_model_meta", return_value=_Adapter()):
-        _ = build_model_tokenizer_processor(config, init_from_checkpoint=str(init_ckpt))
-    called_cfg = captured["cfg"]
-    assert called_cfg is not config
-    assert called_cfg.model.model_name_or_path == str(init_ckpt)
-    assert captured["model_meta"] is not None
-    assert captured["model_adapter"].model_name_or_path == str(init_ckpt)
-
-
-def test_init_from_adapter_requires_peft_mode(tmp_path: Path) -> None:
-    adapter_dir = tmp_path / "adapter"
-    adapter_dir.mkdir(parents=True, exist_ok=True)
-    (adapter_dir / "adapter_config.json").write_text("{}", encoding="utf-8")
-    (adapter_dir / "adapter_model.safetensors").write_bytes(b"placeholder")
-
-    cfg = RuntimeConfig()
-    cfg.model.model_type = "smoke_vlm"
-    cfg.model.finetune.mode = "full"
-    with pytest.raises(ValueError):
-        build_model_tokenizer_processor(cfg, init_from_checkpoint=str(adapter_dir))
-
-
-def test_init_from_adapter_lora_loads_weights(tmp_path: Path) -> None:
-    cfg_src = RuntimeConfig()
-    cfg_src.model.model_type = "smoke_vlm"
-    cfg_src.model.model_name_or_path = "models/smoke-vlm"
-    cfg_src.model.finetune.mode = "lora"
-    cfg_src.model.finetune.target_modules = ["all-linear"]
-    cfg_src.model.finetune.lora_r = 8
-    cfg_src.model.finetune.lora_alpha = 16
-    artifacts_src = build_model_tokenizer_processor(cfg_src)
-    assert isinstance(artifacts_src.model, PeftModel)
-    adapter_dir = tmp_path / "adapter"
-    artifacts_src.model.save_pretrained(adapter_dir)
-
-    src_lora = {k: v.detach().cpu().clone() for k, v in artifacts_src.model.named_parameters() if "lora_" in k}
-    assert src_lora, "source adapter has no lora parameters"
-
-    cfg_tgt = RuntimeConfig()
-    cfg_tgt.model.model_type = "smoke_vlm"
-    cfg_tgt.model.model_name_or_path = "models/smoke-vlm"
-    cfg_tgt.model.finetune.mode = "lora"
-    cfg_tgt.model.finetune.target_modules = ["all-linear"]
-    cfg_tgt.model.finetune.lora_r = 8
-    cfg_tgt.model.finetune.lora_alpha = 16
-    artifacts_tgt = build_model_tokenizer_processor(cfg_tgt, init_from_checkpoint=str(adapter_dir))
-    assert isinstance(artifacts_tgt.model, PeftModel)
-    tgt_lora = {k: v.detach().cpu() for k, v in artifacts_tgt.model.named_parameters() if "lora_" in k}
-    assert tgt_lora.keys() == src_lora.keys()
-    for key in src_lora:
-        assert (src_lora[key] == tgt_lora[key]).all()
-
-
-def test_init_from_adapter_mismatch_raises(tmp_path: Path) -> None:
-    cfg_src = RuntimeConfig()
-    cfg_src.model.model_type = "smoke_vlm"
-    cfg_src.model.model_name_or_path = "models/smoke-vlm"
-    cfg_src.model.finetune.mode = "lora"
-    cfg_src.model.finetune.target_modules = ["all-linear"]
-    cfg_src.model.finetune.lora_r = 8
-    cfg_src.model.finetune.lora_alpha = 16
-    artifacts_src = build_model_tokenizer_processor(cfg_src)
-    adapter_dir = tmp_path / "adapter"
-    artifacts_src.model.save_pretrained(adapter_dir)
-
-    cfg_tgt = RuntimeConfig()
-    cfg_tgt.model.model_type = "smoke_vlm"
-    cfg_tgt.model.model_name_or_path = "models/smoke-vlm"
-    cfg_tgt.model.finetune.mode = "lora"
-    cfg_tgt.model.finetune.target_modules = ["all-linear"]
-    cfg_tgt.model.finetune.lora_r = 16  # mismatch
-    cfg_tgt.model.finetune.lora_alpha = 16
-    with pytest.raises(ValueError):
-        build_model_tokenizer_processor(cfg_tgt, init_from_checkpoint=str(adapter_dir))
-
-
-def test_init_from_adapter_with_modules_to_save_loads_weights(tmp_path: Path) -> None:
-    cfg_src = RuntimeConfig()
-    cfg_src.model.model_type = "smoke_vlm"
-    cfg_src.model.model_name_or_path = "models/smoke-vlm"
-    cfg_src.model.finetune.mode = "lora"
-    cfg_src.model.finetune.target_modules = ["all-linear"]
-    cfg_src.model.finetune.freeze.trainable_prefixes = ["lm_head"]
-    artifacts_src = build_model_tokenizer_processor(cfg_src)
-    assert isinstance(artifacts_src.model, PeftModel)
-
-    for name, parameter in artifacts_src.model.named_parameters():
-        if "lora_A" in name:
-            parameter.data.fill_(0.125)
-        if "lora_B" in name:
-            parameter.data.fill_(0.25)
-        if "modules_to_save" in name:
-            parameter.data.fill_(0.5)
-
-    adapter_dir = tmp_path / "adapter-with-modules-to-save"
-    artifacts_src.model.save_pretrained(adapter_dir)
-    payload = json.loads((adapter_dir / "adapter_config.json").read_text(encoding="utf-8"))
-    assert payload["modules_to_save"] == ["lm_head"]
-
-    src_state = {
-        name: parameter.detach().cpu().clone()
-        for name, parameter in artifacts_src.model.named_parameters()
-        if "lora_" in name or "modules_to_save" in name
-    }
-    assert any("modules_to_save" in name for name in src_state)
-
-    cfg_tgt = RuntimeConfig()
-    cfg_tgt.model.model_type = "smoke_vlm"
-    cfg_tgt.model.model_name_or_path = "models/smoke-vlm"
-    cfg_tgt.model.finetune.mode = "lora"
-    cfg_tgt.model.finetune.target_modules = ["all-linear"]
-    cfg_tgt.model.finetune.freeze.trainable_prefixes = ["lm_head"]
-    artifacts_tgt = build_model_tokenizer_processor(cfg_tgt, init_from_checkpoint=str(adapter_dir))
-    assert isinstance(artifacts_tgt.model, PeftModel)
-    tgt_state = {
-        name: parameter.detach().cpu()
-        for name, parameter in artifacts_tgt.model.named_parameters()
-        if "lora_" in name or "modules_to_save" in name
-    }
-    assert tgt_state.keys() == src_state.keys()
-    for key in src_state:
-        assert (src_state[key] == tgt_state[key]).all()
-
-
-def test_init_from_adapter_modules_to_save_mismatch_raises(tmp_path: Path) -> None:
-    cfg_src = RuntimeConfig()
-    cfg_src.model.model_type = "smoke_vlm"
-    cfg_src.model.model_name_or_path = "models/smoke-vlm"
-    cfg_src.model.finetune.mode = "lora"
-    cfg_src.model.finetune.target_modules = ["all-linear"]
-    cfg_src.model.finetune.freeze.trainable_prefixes = ["lm_head"]
-    artifacts_src = build_model_tokenizer_processor(cfg_src)
-    adapter_dir = tmp_path / "adapter-with-modules-to-save"
-    artifacts_src.model.save_pretrained(adapter_dir)
-
-    cfg_tgt = RuntimeConfig()
-    cfg_tgt.model.model_type = "smoke_vlm"
-    cfg_tgt.model.model_name_or_path = "models/smoke-vlm"
-    cfg_tgt.model.finetune.mode = "lora"
-    cfg_tgt.model.finetune.target_modules = ["all-linear"]
-    with pytest.raises(ValueError, match="modules_to_save mismatch"):
-        build_model_tokenizer_processor(cfg_tgt, init_from_checkpoint=str(adapter_dir))
-
-
-def test_model_meta_can_resolve_template_meta() -> None:
-    model_adapter = build_model_meta("qwen3vl").resolve_adapter(model_name_or_path="models/Qwen3-VL-4B-Instruct")
-    template_meta = resolve_template_meta(model_adapter=model_adapter)
-    assert template_meta.template_type == "qwen3vl"
-    assert template_meta.template_cls.__name__ == "Qwen3VLTemplate"

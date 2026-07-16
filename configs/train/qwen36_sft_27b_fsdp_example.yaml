@@ -1,0 +1,128 @@
+# Qwen3.6-27B SFT FSDP+LoRA example.
+# Requires the qwen-next extra for Transformers 5.10.1 / qwen3_5 support:
+#   uv sync --extra dev --extra train --extra distributed --extra qwen-next --extra gpu
+# Do not combine qwen-next with the serve extra; vLLM 0.19 still requires Transformers <5.
+experiment:
+  name: qwen36vl-sft-27b-fsdp-lora-example
+  output_dir: outputs/qwen36vl-sft/27b/lora-example
+  seed: 42
+
+model:
+  model_type: qwen36vl
+  model_name_or_path: models/Qwen3.6-27B
+  template: qwen35vl
+  trust_remote_code: true
+  attn_implementation:
+  torch_dtype: bfloat16
+  finetune:
+    mode: lora
+    target_modules: ["auto"]
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.0
+    lora_bias: none
+    use_rslora: false
+    qlora_load_in_4bit: true
+    qlora_use_double_quant: true
+    qlora_quant_type: nf4
+    qlora_compute_dtype: bfloat16
+
+algorithm:
+  name: sft
+  params: {}
+
+data:
+  batching:
+    grouping: none
+    cardinality: fixed
+    packing:
+      mode: none
+    layout: padded
+  catalog_path: ../data/example.yaml
+  catalog_names: [arrow_multitask]
+  schedule:
+    mixing: weighted
+    shuffle: true
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  min_pixels: 200704
+  max_pixels: 1000000
+  max_length: 5000
+  add_eos_token: true
+
+train:
+  duration:
+    unit: epochs
+    value: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 1.0e-5
+  optimizer_name: adamw_torch
+  scheduler_name: auto
+  scheduler_num_cycles: 0.5
+  scheduler_power: 1.0
+  loss_name: auto
+  loss_scale: default
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  bf16: true
+  logging_steps: 10
+  save_strategy: steps
+  save_steps: 200
+  save_total_limit: 3
+  load_best_model_at_end: false
+  save_final_model: true
+  save_final_state: true
+  ddp_find_unused_parameters: false
+  distributed:
+    strategy: fsdp
+    fsdp:
+      sharding_strategy: full_shard
+      auto_wrap_policy: transformer
+      transformer_layer_cls_to_wrap: ["auto"]
+      # Qwen3.6 linear-attention layers are not stable with the FSDP activation
+      # checkpoint wrapper in the current Transformers 5.10 / PyTorch 2.10 stack.
+      # Keep FSDP sharding and use Trainer/model gradient checkpointing instead.
+      activation_checkpointing: false
+      state_dict_type: full_state_dict
+      use_orig_params: true
+      limit_all_gathers: true
+  report_to: ["none"]
+  init_from_checkpoint:
+  resume_from_checkpoint:
+
+eval:
+  enabled: false
+  per_device_eval_batch_size: 1
+  eval_strategy: no
+  eval_steps: 200
+  do_sample: false
+  temperature: 0.0
+  max_new_tokens: 512
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+
+plugins:
+  hooks: []
+
+logging:
+  level: INFO
+  fmt: text
+  file_path:
+  rank_zero_only: true
+
+progress:
+  enabled: true
+  display: auto
+  width: 72
+  refresh_interval: 0.5
+  log_interval: 30.0
+  leave_completed: false
+  persist: true

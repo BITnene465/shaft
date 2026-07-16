@@ -1,5 +1,29 @@
+from .batching import (
+    ShaftCollatedBatchStats,
+    ShaftGreedySequencePacker,
+    ShaftLengthBatchGrouping,
+    ShaftLocalMicroBatchPlan,
+    ShaftLogicalSegmentPlan,
+    ShaftPhysicalPackPlan,
+    ShaftVarlenBatchLayout,
+    ShaftVarlenLayoutPlan,
+    ShaftVarlenSegmentLayout,
+    resolve_local_pack_count_bounds,
+)
+from .planned import ShaftBatchContext, ShaftPlannedSampleRef
 from .collator import DPOCollator, GRPOCollator, PPOCollator, SFTCollator
 from .center import ShaftDataCenter, ShaftDatasetBundle, ShaftPreparedRecords
+from .cost import (
+    ShaftSampleCost,
+    ShaftSampleCostProvider,
+    ShaftRowInvariantCostProvider,
+    ShaftSFTSampleCostProvider,
+    ShaftSFTSourceIdentity,
+    sft_cost_source_fingerprint,
+    sft_runtime_source_identity,
+    validate_sft_cost_model_adapter,
+    validate_sft_cost_dataset,
+)
 from .dataset import (
     DPODataset,
     DPORecord,
@@ -9,10 +33,32 @@ from .dataset import (
     SFTDataset,
     SFTRecord,
 )
+from .dynamic_batching import (
+    SHAFT_BATCH_PLANNING_VERSION,
+    ShaftBatchMicrobatchPlan,
+    ShaftBatchMicrobatchStats,
+    ShaftBatchPlanner,
+    ShaftBatchPlanningSpec,
+    ShaftBatchPlanningState,
+    ShaftBufferedSample,
+    ShaftPartitionSearchBudgetExceeded,
+)
 from .meta import ShaftDatasetMeta, build_dataset_metas
-from .mixing import MixedDatasetBuilder
-from .sampler import ShaftMixedIndexSampler
-from .registry import DATA_SOURCE_REGISTRY, MIX_STRATEGY_REGISTRY
+from .mixing import (
+    ShaftSampleContext,
+    ShaftSamplePlan,
+    ShaftSampleRef,
+    ShaftSampleSchedule,
+    validate_sample_schedule_world_size,
+)
+from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
+from .sampler import (
+    ShaftGroupedSampleContract,
+    ShaftGroupedSampleSampler,
+    ShaftPlannedBatchSampler,
+    ShaftSampleSampler,
+)
+from .registry import DATA_SOURCE_REGISTRY
 from .sources import (
     build_data_source,
     load_jsonl_dpo_records,
@@ -22,14 +68,19 @@ from .sources import (
 from .transforms import (
     OFFLINE_TRANSFORM_REGISTRY,
     ONLINE_TRANSFORM_REGISTRY,
+    ShaftOnlineTransformPlanningPolicy,
     build_offline_pipeline,
     build_online_pipeline,
+    is_planning_safe_online_transform,
+    planning_online_transform_fingerprint,
+    planning_safe_online_transform,
 )
 
 __all__ = [
-    "MixedDatasetBuilder",
+    "ShaftCollatedBatchStats",
     "OFFLINE_TRANSFORM_REGISTRY",
     "ONLINE_TRANSFORM_REGISTRY",
+    "ShaftOnlineTransformPlanningPolicy",
     "DPOCollator",
     "DPODataset",
     "DPORecord",
@@ -41,16 +92,57 @@ __all__ = [
     "SFTCollator",
     "SFTDataset",
     "SFTRecord",
+    "SHAFT_BATCH_PLANNING_VERSION",
+    "ShaftBatchMicrobatchPlan",
+    "ShaftBatchMicrobatchStats",
+    "ShaftBatchPlanner",
+    "ShaftBatchPlanningSpec",
+    "ShaftBatchPlanningState",
+    "ShaftBufferedSample",
+    "ShaftPartitionSearchBudgetExceeded",
     "ShaftDatasetBundle",
     "ShaftDatasetMeta",
     "build_offline_pipeline",
     "build_online_pipeline",
+    "is_planning_safe_online_transform",
+    "planning_online_transform_fingerprint",
+    "planning_safe_online_transform",
+    "resolve_local_pack_count_bounds",
     "build_data_source",
     "build_dataset_metas",
     "DATA_SOURCE_REGISTRY",
-    "MIX_STRATEGY_REGISTRY",
     "ShaftDataCenter",
-    "ShaftMixedIndexSampler",
+    "ShaftArrowRecordStore",
+    "ShaftConcatRecordStore",
+    "ShaftRecordSubset",
+    "ShaftSampleContext",
+    "ShaftGroupedSampleContract",
+    "ShaftGroupedSampleSampler",
+    "ShaftBatchContext",
+    "ShaftGreedySequencePacker",
+    "ShaftLengthBatchGrouping",
+    "ShaftLocalMicroBatchPlan",
+    "ShaftLogicalSegmentPlan",
+    "ShaftPhysicalPackPlan",
+    "ShaftPlannedSampleRef",
+    "ShaftSampleCost",
+    "ShaftSampleCostProvider",
+    "ShaftSFTSampleCostProvider",
+    "ShaftSFTSourceIdentity",
+    "sft_cost_source_fingerprint",
+    "sft_runtime_source_identity",
+    "ShaftSamplePlan",
+    "ShaftSampleRef",
+    "ShaftSampleSchedule",
+    "validate_sample_schedule_world_size",
+    "ShaftSampleSampler",
+    "ShaftPlannedBatchSampler",
+    "ShaftVarlenBatchLayout",
+    "ShaftVarlenLayoutPlan",
+    "ShaftVarlenSegmentLayout",
+    "ShaftRowInvariantCostProvider",
+    "validate_sft_cost_model_adapter",
+    "validate_sft_cost_dataset",
     "ShaftPreparedRecords",
     "load_jsonl_dpo_records",
     "load_jsonl_ppo_records",

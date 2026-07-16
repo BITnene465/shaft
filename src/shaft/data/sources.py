@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Literal
+from collections.abc import Sequence
+from typing import Any, Callable, Literal
 
 from .dataset import DPORecord, PPORecord, SFTRecord
 from .meta import ShaftDatasetMeta
+from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore
 from .registry import DATA_SOURCE_REGISTRY, register_data_source
 
 Split = Literal["train", "val"]
@@ -67,6 +68,13 @@ def _extract_target_from_messages(messages: list[dict[str, Any]]) -> tuple[str |
 
 
 def _resolve_image_path(raw: dict[str, Any], jsonl_path: Path, line_no: int) -> str:
+    image_path = _resolve_optional_image_path(raw, jsonl_path)
+    if image_path is None:
+        raise ValueError(f"Missing image path in {jsonl_path}:{line_no}. Expected image_path/image/images.")
+    return image_path
+
+
+def _resolve_optional_image_path(raw: dict[str, Any], jsonl_path: Path) -> str | None:
     image_obj = raw.get("image_path")
     if image_obj is None:
         image_obj = raw.get("image")
@@ -75,7 +83,7 @@ def _resolve_image_path(raw: dict[str, Any], jsonl_path: Path, line_no: int) -> 
         if isinstance(images, list) and images:
             image_obj = images[0]
     if image_obj is None:
-        raise ValueError(f"Missing image path in {jsonl_path}:{line_no}. Expected image_path/image/images.")
+        return None
     image_path = str(image_obj)
     if not Path(image_path).is_absolute():
         image_path = str((jsonl_path.parent / image_path).resolve())
@@ -102,11 +110,32 @@ def _build_sft_record_from_raw(
             "Missing target text. Expected target_text or a trailing assistant message."
         )
 
+    raw_prompt_args = raw.get("prompt_args")
+    prompt_args = {} if raw_prompt_args is None else raw_prompt_args
+    if not isinstance(prompt_args, dict):
+        raise ValueError("`prompt_args` must be a JSON object when provided.")
+    if messages and prompt_args:
+        raise ValueError("SFT samples cannot provide both `messages` and non-empty `prompt_args`.")
+
     raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
         for k, v in raw.items()
-        if k not in {"image_path", "image", "images", "target_text", "messages", "conversation", "conversations"}
+        if k
+        not in {
+            "image_path",
+            "image",
+            "images",
+            "target_text",
+            "messages",
+            "conversation",
+            "conversations",
+            "dataset_name",
+            "sample_id",
+            "system_prompt",
+            "user_prompt",
+            "prompt_args",
+        }
     }
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
         extra.setdefault("source_dataset_name", raw_dataset_name)
@@ -120,6 +149,7 @@ def _build_sft_record_from_raw(
         user_prompt=str(
             raw.get("user_prompt", "Output only valid JSON. No markdown and no extra text.")
         ),
+        prompt_args=dict(prompt_args),
         extra=extra,
     )
 
@@ -153,6 +183,10 @@ def _build_dpo_record_from_raw(
             "chosen",
             "rejected_text",
             "rejected",
+            "dataset_name",
+            "sample_id",
+            "system_prompt",
+            "user_prompt",
         }
     }
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
@@ -179,12 +213,17 @@ def _build_ppo_record_from_raw(
     line_no: int,
     dataset_name: str,
 ) -> PPORecord:
-    image_path = _resolve_image_path(raw, jsonl_path, line_no)
+    image_path = _resolve_optional_image_path(raw, jsonl_path)
     messages = _normalize_messages(raw)
     prompt_text = str(raw.get("prompt", ""))
     user_prompt = str(raw.get("user_prompt", prompt_text))
     if messages is None and not user_prompt.strip():
         raise ValueError("Missing prompt for PPO sample. Expected messages or user_prompt/prompt.")
+    if messages is not None and not any(
+        _content_to_text(message.get("content", []))
+        for message in messages
+    ):
+        raise ValueError("Current PPO path is text-only; messages must contain text content.")
     raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
@@ -199,6 +238,9 @@ def _build_ppo_record_from_raw(
             "conversations",
             "prompt",
             "user_prompt",
+            "dataset_name",
+            "sample_id",
+            "system_prompt",
         }
     }
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
@@ -215,74 +257,24 @@ def _build_ppo_record_from_raw(
     )
 
 
-def _format_error_examples(
-    path: Path,
-    *,
-    total_errors: int,
-    errors: list[tuple[int, str]],
-) -> str:
-    snippets = [f"L{line_no}: {message}" for line_no, message in errors]
-    detail = "; ".join(snippets)
-    return (
-        f"Failed to parse {total_errors} row(s) in {path}. "
-        f"Examples: {detail}"
-    )
-
-
-def _load_jsonl_records_with_builder(
-    path: str | Path,
-    *,
-    dataset_name: str,
-    row_builder,
-    max_errors_to_report: int = 20,
-) -> list[Any]:
-    records: list[Any] = []
-    jsonl_path = Path(path)
-    parse_errors: list[tuple[int, str]] = []
-    total_parse_errors = 0
-    with jsonl_path.open("r", encoding="utf-8") as handle:
-        for line_no, line in enumerate(handle, start=1):
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                raw = json.loads(text)
-                if not isinstance(raw, dict):
-                    raise TypeError("Each JSONL row must be a JSON object.")
-                records.append(
-                    row_builder(
-                        raw,
-                        jsonl_path=jsonl_path,
-                        line_no=line_no,
-                        dataset_name=dataset_name,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                total_parse_errors += 1
-                if len(parse_errors) < max(1, int(max_errors_to_report)):
-                    parse_errors.append((line_no, str(exc)))
-    if total_parse_errors > 0:
-        raise ValueError(
-            _format_error_examples(
-                jsonl_path,
-                total_errors=total_parse_errors,
-                errors=parse_errors,
-            )
-        )
-    return records
-
-
 def load_jsonl_sft_records(
     path: str | Path,
     *,
     dataset_name: str,
     max_errors_to_report: int = 20,
-) -> list[SFTRecord]:
-    return _load_jsonl_records_with_builder(
+    cache_dir: str | Path | None = None,
+    record_validator: Callable[[SFTRecord], None] | None = None,
+    validation_fingerprint: str = "",
+) -> ShaftArrowRecordStore[SFTRecord]:
+    return ShaftArrowRecordStore.from_jsonl(
         path,
         dataset_name=dataset_name,
+        record_type=SFTRecord,
         row_builder=_build_sft_record_from_raw,
         max_errors_to_report=max_errors_to_report,
+        cache_dir=cache_dir,
+        record_validator=record_validator,
+        validation_fingerprint=validation_fingerprint,
     )
 
 
@@ -291,12 +283,15 @@ def load_jsonl_dpo_records(
     *,
     dataset_name: str,
     max_errors_to_report: int = 20,
-) -> list[DPORecord]:
-    return _load_jsonl_records_with_builder(
+    cache_dir: str | Path | None = None,
+) -> ShaftArrowRecordStore[DPORecord]:
+    return ShaftArrowRecordStore.from_jsonl(
         path,
         dataset_name=dataset_name,
+        record_type=DPORecord,
         row_builder=_build_dpo_record_from_raw,
         max_errors_to_report=max_errors_to_report,
+        cache_dir=cache_dir,
     )
 
 
@@ -305,21 +300,34 @@ def load_jsonl_ppo_records(
     *,
     dataset_name: str,
     max_errors_to_report: int = 20,
-) -> list[PPORecord]:
-    return _load_jsonl_records_with_builder(
+    cache_dir: str | Path | None = None,
+) -> ShaftArrowRecordStore[PPORecord]:
+    return ShaftArrowRecordStore.from_jsonl(
         path,
         dataset_name=dataset_name,
+        record_type=PPORecord,
         row_builder=_build_ppo_record_from_raw,
         max_errors_to_report=max_errors_to_report,
+        cache_dir=cache_dir,
     )
 
 
 class BaseDataSource(ABC):
-    def __init__(self, dataset_meta: ShaftDatasetMeta) -> None:
+    def __init__(
+        self,
+        dataset_meta: ShaftDatasetMeta,
+        *,
+        cache_dir: str | Path | None = None,
+        record_validator: Callable[[Any, Split], None] | None = None,
+        validation_fingerprint: str = "",
+    ) -> None:
         self.dataset_meta = dataset_meta
+        self.cache_dir = cache_dir
+        self.record_validator = record_validator
+        self.validation_fingerprint = str(validation_fingerprint)
 
     @abstractmethod
-    def load_split(self, split: Split) -> list[Any]:
+    def load_split(self, split: Split) -> Sequence[Any]:
         raise NotImplementedError
 
     def _resolve_paths(self, split: Split) -> list[str]:
@@ -328,31 +336,70 @@ class BaseDataSource(ABC):
 
 @register_data_source("jsonl_sft")
 class JsonlSFTDataSource(BaseDataSource):
-    def load_split(self, split: Split) -> list[SFTRecord]:
-        records: list[SFTRecord] = []
-        for path in self._resolve_paths(split):
-            records.extend(load_jsonl_sft_records(path, dataset_name=self.dataset_meta.dataset_name))
-        return records
+    def load_split(self, split: Split) -> Sequence[SFTRecord]:
+        return ShaftConcatRecordStore(
+            [
+                load_jsonl_sft_records(
+                    path,
+                    dataset_name=self.dataset_meta.dataset_name,
+                    cache_dir=self.cache_dir,
+                    record_validator=(
+                        None
+                        if self.record_validator is None
+                        else lambda record: self.record_validator(record, split)
+                    ),
+                    validation_fingerprint=(
+                        f"{self.validation_fingerprint}:{split}"
+                        if self.validation_fingerprint
+                        else ""
+                    ),
+                )
+                for path in self._resolve_paths(split)
+            ]
+        )
 
 
 @register_data_source("jsonl_dpo")
 class JsonlDPODataSource(BaseDataSource):
-    def load_split(self, split: Split) -> list[DPORecord]:
-        records: list[DPORecord] = []
-        for path in self._resolve_paths(split):
-            records.extend(load_jsonl_dpo_records(path, dataset_name=self.dataset_meta.dataset_name))
-        return records
+    def load_split(self, split: Split) -> Sequence[DPORecord]:
+        return ShaftConcatRecordStore(
+            [
+                load_jsonl_dpo_records(
+                    path,
+                    dataset_name=self.dataset_meta.dataset_name,
+                    cache_dir=self.cache_dir,
+                )
+                for path in self._resolve_paths(split)
+            ]
+        )
 
 
 @register_data_source("jsonl_ppo")
 class JsonlPPODataSource(BaseDataSource):
-    def load_split(self, split: Split) -> list[PPORecord]:
-        records: list[PPORecord] = []
-        for path in self._resolve_paths(split):
-            records.extend(load_jsonl_ppo_records(path, dataset_name=self.dataset_meta.dataset_name))
-        return records
+    def load_split(self, split: Split) -> Sequence[PPORecord]:
+        return ShaftConcatRecordStore(
+            [
+                load_jsonl_ppo_records(
+                    path,
+                    dataset_name=self.dataset_meta.dataset_name,
+                    cache_dir=self.cache_dir,
+                )
+                for path in self._resolve_paths(split)
+            ]
+        )
 
 
-def build_data_source(dataset_meta: ShaftDatasetMeta) -> BaseDataSource:
+def build_data_source(
+    dataset_meta: ShaftDatasetMeta,
+    *,
+    cache_dir: str | Path | None = None,
+    record_validator: Callable[[Any, Split], None] | None = None,
+    validation_fingerprint: str = "",
+) -> BaseDataSource:
     source_cls = DATA_SOURCE_REGISTRY.get(dataset_meta.source_type)
-    return source_cls(dataset_meta)
+    return source_cls(
+        dataset_meta,
+        cache_dir=cache_dir,
+        record_validator=record_validator,
+        validation_fingerprint=validation_fingerprint,
+    )

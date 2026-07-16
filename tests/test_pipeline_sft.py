@@ -1,592 +1,730 @@
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import torch
-from PIL import Image
 
-from shaft.config import FinetuneConfig, RuntimeConfig, load_config
-from shaft.data import SFTDataset, ShaftDatasetBundle
-from shaft.model import build_model_meta
-from shaft.model.finetune_plan import build_resolved_finetune_plan, resolved_finetune_summary_path
-from shaft.pipeline.training_args import build_hf_training_args
+from shaft.config import (
+    EvalDatasetPolicyConfig,
+    EvalMetricConfig,
+    resolve_eval_input_policy,
+)
+from shaft.data import (
+    ShaftDatasetBundle,
+    ShaftPlannedBatchSampler,
+    ShaftSampleCost,
+    ShaftSampleSampler,
+)
+from shaft.model import SequenceExecutionPolicy
+from shaft.model.finetune_plan import resolved_finetune_summary_path
+from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
 from shaft.pipeline import run_sft
-from shaft.template import build_template
-from shaft.training.topology import validate_training_topology
+from shaft.plugins.hooks import hook
+from shaft.training.batch_planning import (
+    BATCHING_METADATA_CALLBACK_NAME,
+    BATCH_PLANNING_CALLBACK_NAME,
+    ShaftBatchingMetadataCallback,
+    ShaftBatchPlanningCallback,
+    batching_run_metadata_path,
+    load_batching_run_metadata,
+    build_batch_contract,
+)
+from shaft.training.checkpointing import (
+    ResolvedResumeCheckpoint,
+    ShaftCheckpointProtocol,
+    commit_training_checkpoint,
+    resolve_resume_checkpoint_generation,
+)
+from shaft.training.resume_contract import build_training_resume_contract
+from shaft.pipeline.training_args import build_hf_training_args
+from tests.support.pipeline import FakePipelineModel as _FakeModel
+from tests.support.pipeline import FakePipelineTrainer as _FakeTrainer
+from tests.support.pipeline import build_fake_model_artifacts as _build_fake_model_artifacts
+from tests.support.pipeline import write_sft_pipeline_config as _write_base_config
 
 
-class _FakeTokenizer:
-    eos_token_id = 2
-    pad_token_id = 0
-    eos_token = "</s>"
-
-    def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
-        _ = add_special_tokens, return_attention_mask
-        return {"input_ids": [[1] for _ in texts]}
+pytestmark = pytest.mark.component
 
 
-class _FakeProcessor:
-    tokenizer = _FakeTokenizer()
-
-    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
-        _ = messages, tokenize, add_generation_prompt
-        return "prompt"
-
-    def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
-        _ = text, images, padding, return_tensors, kwargs
-        return {
-            "input_ids": torch.tensor([[1], [1]], dtype=torch.long),
-            "attention_mask": torch.tensor([[1], [1]], dtype=torch.long),
-            "pixel_values": torch.randn(2, 3, 2, 2),
-        }
+def _resolved_plan_for_adapter(adapter):
+    return SimpleNamespace(
+        model_adapter=adapter,
+        fingerprint="test-model-plan-v1",
+        artifact_identity=SimpleNamespace(complete=True),
+        build_sequence_execution_contract=adapter.build_sequence_execution_contract,
+    )
 
 
-class _FakeModel(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.config = SimpleNamespace(use_cache=False)
-        self.generation_config = SimpleNamespace(
-            use_cache=False,
-            max_new_tokens=32,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
-            repetition_penalty=1.0,
+def _write_config(tmp_path: Path, **kwargs):
+    config = _write_base_config(tmp_path, **kwargs)
+    config.model.model_type = "smoke_vlm"
+    config.model.model_name_or_path = "models/Smoke-VLM"
+    config.data.media_snapshot_id = "pipeline-fixture-v1"
+    return config
+
+
+def _resolved_resume(path: str | Path, *, step: int = 1) -> ResolvedResumeCheckpoint:
+    return ResolvedResumeCheckpoint(
+        path=Path(path),
+        protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+        global_step=step,
+        generation_fingerprint="a" * 64,
+        commit_fingerprint="b" * 64,
+        stat_guard=(),
+    )
+
+
+def test_sft_checkpoint_step_reader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 2, "global_step": 2}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        resolve_resume_checkpoint_generation(
+            checkpoint,
+            protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
         )
 
-    def forward(self, **kwargs):
-        _ = kwargs
-        return type("Out", (), {"loss": torch.tensor(0.1)})
+
+class _CountingProvider:
+    fingerprint = "bounded-pipeline-cost-v1"
+
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    def __call__(self, sample_ref):
+        self.calls.append(int(sample_ref.context.draw_id))
+        return ShaftSampleCost(
+            llm_tokens=2,
+            supervised_tokens=1,
+            vision_patches=4,
+            exact=True,
+        )
 
 
-class _FakeTrainResult:
-    metrics = {"train_loss": 0.1}
+def _enable_bounded(config, *, steps: int = 2) -> None:
+    config.data.batching.grouping = "bounded_cost"
+    config.data.batching.cardinality = "fixed"
+    config.data.batching.layout = "padded"
+    config.data.batching.buffer_size = 8
+    config.data.batching.cost_cache_size = 16
+    config.data.batching.max_tokens_per_microbatch = 16
+    config.data.batching.resource_budgets = {"vision_patches": 32}
+    config.data.media_snapshot_id = "pipeline-fixture-v1"
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.train.duration.value = steps
 
 
-class _FakeTrainer:
-    last_kwargs = None
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        _FakeTrainer.last_kwargs = kwargs
-
-    def train(self, resume_from_checkpoint=None):
-        _ = resume_from_checkpoint
-        return _FakeTrainResult()
-
-    def save_model(self, *args, **kwargs):
-        _ = args, kwargs
-        return None
-
-    def save_state(self):
-        return None
-
-
-def _write_config(
-    tmp_path: Path,
-    *,
-    hooks: list[str] | None = None,
-    loss_scale: str = "default",
-) -> RuntimeConfig:
-    train_jsonl = tmp_path / "train.jsonl"
-    val_jsonl = tmp_path / "val.jsonl"
-    image = tmp_path / "img.png"
-
-    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
-    train_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    val_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    hooks_yaml = f"  hooks: {hooks}\n" if hooks is not None else ""
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        f"""
-experiment:
-  name: test
-  output_dir: {tmp_path}/out
-data:
-  datasets:
-    - dataset_name: ds
-      train_path: {train_jsonl}
-      val_path: {val_jsonl}
-algorithm:
-  name: sft
-plugins:
-{hooks_yaml if hooks_yaml else '  hooks: []'}
-train:
-  epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 1
-  learning_rate: 1.0e-5
-  loss_scale: {loss_scale}
-  use_cpu: true
-  report_to: ["none"]
-  load_best_model_at_end: false
-  save_final_model: false
-  save_final_state: false
-eval:
-  enabled: false
-""",
-        encoding="utf-8",
-    )
-    return load_config(cfg_path)
+def _enable_length_grouping(config, *, steps: int = 2) -> None:
+    config.data.max_length = 8
+    config.data.batching.grouping = "length"
+    config.data.batching.cardinality = "fixed"
+    config.data.batching.packing.mode = "none"
+    config.data.batching.layout = "padded"
+    config.data.batching.buffer_size = 8
+    config.data.batching.cost_cache_size = 16
+    config.data.batching.max_tokens_per_microbatch = None
+    config.data.batching.resource_budgets = {"vision_patches": 32}
+    config.data.media_snapshot_id = "pipeline-fixture-v1"
+    config.data.schedule.mixing = "concat"
+    config.data.schedule.shuffle = False
+    config.train.duration.value = steps
 
 
 def test_run_sft_smoke(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     fake_model = _FakeModel()
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": fake_model,
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": adapter,
-                "template": build_template("smoke_vlm"),
-                "finetune_plan": build_resolved_finetune_plan(
-                    _FakeModel(),
-                    FinetuneConfig(mode="full"),
-                    model_adapter=adapter,
-                ),
-            },
-        )()
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts(
+            model=fake_model,
+            include_finetune_plan=True,
+        )
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
             metrics = run_sft(config)
-    assert "train_loss" in metrics
+
+    assert metrics["train_loss"] == pytest.approx(0.1)
     assert fake_model.generation_config.do_sample is False
     assert fake_model.generation_config.temperature == 1.0
-    assert fake_model.generation_config.top_p == 1.0
-    assert fake_model.generation_config.top_k == 50
+    assert fake_model.generation_config.eos_token_id == [2, 99]
     assert resolved_finetune_summary_path(config.experiment.output_dir).exists()
+    progress = json.loads(
+        (Path(config.experiment.output_dir) / PROGRESS_SNAPSHOT_FILENAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert progress["tasks"]["startup.data"]["state"] == "succeeded"
+    assert progress["tasks"]["startup.model"]["state"] == "succeeded"
 
 
-def test_run_sft_rank_nonzero_skips_run_level_file_ops(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("save_strategy", "expected_immutable"),
+    [("steps", True), ("no", False)],
+)
+def test_sft_pipeline_materializes_model_identity_only_when_checkpointable(
+    tmp_path: Path,
+    save_strategy: str,
+    expected_immutable: bool,
+) -> None:
     config = _write_config(tmp_path)
-    config.train.save_final_model = True
-    config.train.save_final_state = True
-    adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
+    config.train.save_strategy = save_strategy
+    from shaft.pipeline import sft as sft_pipeline
 
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": adapter,
-                "template": build_template("smoke_vlm"),
-                "finetune_plan": build_resolved_finetune_plan(
-                    _FakeModel(),
-                    FinetuneConfig(mode="full"),
-                    model_adapter=adapter,
-                ),
-            },
-        )()
-        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            with patch("shaft.pipeline.sft.is_rank_zero", return_value=False):
-                with patch("shaft.pipeline.sft.ensure_hf_export_layout") as mocked_ensure:
-                    with patch("shaft.pipeline.sft.prune_root_output_layout") as mocked_prune:
-                        metrics = run_sft(config)
-
-    assert "train_loss" in metrics
-    mocked_ensure.assert_not_called()
-    mocked_prune.assert_not_called()
-
-
-def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.gradient_checkpointing = True
-
-    args = build_hf_training_args(config)
-
-    assert args.gradient_checkpointing is True
-
-
-def test_training_topology_rejects_single_process_data_parallel(monkeypatch, tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.use_cpu = False
-    monkeypatch.delenv("WORLD_SIZE", raising=False)
-    monkeypatch.delenv("LOCAL_RANK", raising=False)
-    monkeypatch.delenv("RANK", raising=False)
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
-
-    try:
-        validate_training_topology(config)
-    except RuntimeError as exc:
-        message = str(exc)
-    else:  # pragma: no cover - defensive assertion path
-        raise AssertionError("validate_training_topology should reject single-process multi-GPU training")
-
-    assert "torch.nn.DataParallel" in message
-    assert "CUDA_VISIBLE_DEVICES=1" in message
-
-
-def test_training_topology_allows_distributed_launch(monkeypatch, tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    config.train.use_cpu = False
-    monkeypatch.setenv("WORLD_SIZE", "2")
-    monkeypatch.setenv("LOCAL_RANK", "0")
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
-
-    validate_training_topology(config)
-
-
-def test_run_sft_wires_loss_scale_into_train_collator(tmp_path: Path) -> None:
-    config = _write_config(tmp_path, loss_scale="all")
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                "template": build_template("smoke_vlm"),
-            },
-        )()
-        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_sft(config)
-    collator = _FakeTrainer.last_kwargs["data_collator"]
-    assert collator.loss_scale_name == "all"
-
-
-def test_hooks_are_wired_into_trainer_callbacks(tmp_path: Path) -> None:
-    config = _write_config(tmp_path, hooks=["log_on_save"])
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                "template": build_template("smoke_vlm"),
-            },
-        )()
-        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_sft(config)
-    callbacks = _FakeTrainer.last_kwargs.get("callbacks")
-    assert callbacks is not None
-    assert len(callbacks) >= 1
-
-
-def test_run_sft_uses_data_center(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    fake_train_dataset = object()
-    fake_eval_dataset = object()
-    fake_train_sampler = object()
-    captured = {}
-
-    class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
-            captured["data_config"] = data_config
-            captured["seed"] = seed
-
-        def build_dataset_bundle(self, dataset_cls):
-            captured["dataset_cls"] = dataset_cls
-            return ShaftDatasetBundle(
-                train_dataset=fake_train_dataset,
-                eval_dataset=fake_eval_dataset,
-                train_sampler=fake_train_sampler,
-            )
-
-    with patch("shaft.pipeline.sft.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-            mocked_builder.return_value = type(
-                "Artifacts",
-                (),
-                {
-                    "model": _FakeModel(),
-                    "tokenizer": _FakeTokenizer(),
-                    "processor": _FakeProcessor(),
-                    "model_meta": build_model_meta("smoke_vlm"),
-                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                    "template": build_template("smoke_vlm"),
-                },
-            )()
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        wraps=sft_pipeline.resolve_model_plan,
+    ) as resolver:
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+            builder.return_value = _build_fake_model_artifacts()
             with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-                _ = run_sft(config)
+                run_sft(config)
 
-    assert captured["data_config"] is config.data
-    assert captured["seed"] == config.experiment.seed
-    assert captured["dataset_cls"] is SFTDataset
-    assert _FakeTrainer.last_kwargs["train_dataset"] is fake_train_dataset
-    assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
-    assert _FakeTrainer.last_kwargs["eval_dataset"] is None
-    assert _FakeTrainer.last_kwargs["model_adapter"] is mocked_builder.return_value.model_adapter
-    assert _FakeTrainer.last_kwargs["finetune_plan"] is None
+    assert resolver.call_args.kwargs["require_immutable_artifact"] is expected_immutable
 
 
-def test_run_sft_wires_data_center_train_sampler(tmp_path: Path) -> None:
+def test_run_sft_initializes_seed_before_model_build(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    fake_train_dataset = object()
-    fake_eval_dataset = object()
-    fake_train_sampler = object()
+    config.experiment.seed = 137
+    torch.manual_seed(999)
 
-    class _FakeDataCenter:
-        def __init__(self, data_config, *, seed):
-            _ = data_config, seed
+    def build_seeded_artifacts(*args, **kwargs):
+        _ = args, kwargs
+        assert torch.initial_seed() == 137
+        return _build_fake_model_artifacts()
+
+    with patch(
+        "shaft.pipeline.sft.build_model_tokenizer_processor",
+        side_effect=build_seeded_artifacts,
+    ):
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            run_sft(config)
+
+
+def test_run_sft_rejects_resume_contract_before_data_or_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    with patch(
+        "shaft.pipeline.sft.resolve_resume_checkpoint_generation",
+        return_value=_resolved_resume(config.train.resume_from_checkpoint),
+    ):
+        with patch("shaft.pipeline.sft.validate_resume_checkpoint"):
+            with patch(
+                "shaft.pipeline.sft.load_checkpoint_batching_metadata",
+                return_value=SimpleNamespace(training_resume_contract=object()),
+            ):
+                with patch(
+                    "shaft.pipeline.sft.build_training_resume_preflight_contract",
+                    return_value=SimpleNamespace(fingerprint="preflight-v1"),
+                ):
+                    with patch(
+                        "shaft.pipeline.sft.validate_batching_resume_contract",
+                        side_effect=ValueError("batch contract drift"),
+                    ):
+                        with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
+                            with patch(
+                                "shaft.pipeline.sft.build_model_tokenizer_processor"
+                            ) as build_model:
+                                with pytest.raises(ValueError, match="batch contract drift"):
+                                    run_sft(config)
+
+    data_center.assert_not_called()
+    build_model.assert_not_called()
+
+
+def test_sft_resume_drift_fails_before_local_weight_hashing(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    model_dir = tmp_path / "local-hf"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps({"model_type": "qwen3_vl"}),
+        encoding="utf-8",
+    )
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    config.model.model_type = "qwen3vl"
+    config.model.model_name_or_path = str(model_dir)
+    training_args = build_hf_training_args(config)
+    batch_contract = build_batch_contract(config=config, training_args=training_args)
+    checkpoint_contract = build_training_resume_contract(
+        config=config,
+        training_args=training_args,
+        batch_contract_fingerprint=batch_contract.fingerprint,
+        train_input_contract_fingerprint="stored-train-input",
+        data_execution_fingerprint="stored-data-execution",
+        model_plan_fingerprint="stored-model-plan",
+        resolved_finetune_plan_fingerprint="stored-finetune-plan",
+        resolved_optimizer_plan_fingerprint="stored-optimizer-plan",
+    )
+    config.train.learning_rate *= 2
+    config.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    def reject_drift(path, *, expected_training_resume_contract, **kwargs):
+        _ = path, kwargs
+        assert expected_training_resume_contract.fingerprint != checkpoint_contract.fingerprint
+        raise ValueError("Training resume contract changed across exact resume")
+
+    with (
+        patch(
+            "shaft.pipeline.sft.resolve_resume_checkpoint_generation",
+            return_value=_resolved_resume(config.train.resume_from_checkpoint),
+        ),
+        patch("shaft.pipeline.sft.validate_resume_checkpoint"),
+        patch(
+            "shaft.pipeline.sft.load_checkpoint_batching_metadata",
+            return_value=SimpleNamespace(training_resume_contract=checkpoint_contract),
+        ),
+        patch(
+            "shaft.pipeline.sft.validate_batching_resume_contract",
+            side_effect=reject_drift,
+        ),
+        patch(
+            "shaft.pipeline.sft.resolve_model_plan",
+            side_effect=AssertionError("model identity resolved before cheap preflight"),
+        ),
+        patch(
+            "shaft.model.artifact_identity._file_sha256",
+            side_effect=AssertionError("weights hashed before cheap preflight"),
+        ),
+    ):
+        with pytest.raises(ValueError, match="Training resume contract changed"):
+            run_sft(config)
+
+
+def test_run_sft_rejects_invalid_epoch_sharding_before_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    sharding_calls: list[dict[str, object]] = []
+
+    def _reject_epoch_sharding(self, **kwargs):
+        _ = self
+        sharding_calls.append(dict(kwargs))
+        raise ValueError("unequal per-rank train step counts")
+
+    with patch.object(
+        ShaftSampleSampler,
+        "validate_epoch_sharding",
+        new=_reject_epoch_sharding,
+    ):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
+            with pytest.raises(ValueError, match="unequal per-rank train step counts"):
+                run_sft(config)
+
+    assert len(sharding_calls) == 1
+    build_model.assert_not_called()
+
+
+def test_run_sft_rejects_incomplete_data_identity_before_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    class _IncompleteDataCenter:
+        def __init__(self, data_config, *, seed, train_sample_budget):
+            _ = data_config, seed, train_sample_budget
 
         def build_dataset_bundle(self, dataset_cls):
             _ = dataset_cls
             return ShaftDatasetBundle(
-                train_dataset=fake_train_dataset,
-                eval_dataset=fake_eval_dataset,
-                train_sampler=fake_train_sampler,
+                train_dataset=object(),
+                eval_dataset=None,
+                train_execution_fingerprint="incomplete-data-v1",
+                train_execution_contract_complete=False,
+                train_execution_incomplete_reasons=("missing_media_snapshot_id",),
+                train_stream_fingerprint="incomplete-stream-v1",
             )
 
-    with patch("shaft.pipeline.sft.ShaftDataCenter", _FakeDataCenter):
-        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-            mocked_builder.return_value = type(
-                "Artifacts",
-                (),
-                {
-                    "model": _FakeModel(),
-                    "tokenizer": _FakeTokenizer(),
-                    "processor": _FakeProcessor(),
-                    "model_meta": build_model_meta("smoke_vlm"),
-                    "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                    "template": build_template("smoke_vlm"),
-                },
-            )()
+    with patch("shaft.pipeline.sft.ShaftDataCenter", _IncompleteDataCenter):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
+            with pytest.raises(ValueError, match="before model loading"):
+                run_sft(config)
+
+    build_model.assert_not_called()
+
+
+def test_run_sft_wires_loss_scale_and_hooks(tmp_path: Path) -> None:
+    hook_name = f"pipeline-hook-{tmp_path.name}"
+
+    @hook("after_step", name=hook_name, trajectory_neutral=True)
+    def _test_hook(state):
+        _ = state
+
+    config = _write_config(tmp_path, loss_scale="all", hooks=[hook_name])
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
+        with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+            run_sft(config)
+
+    kwargs = _FakeTrainer.last_kwargs
+    assert kwargs["data_collator"].loss_scale_name == "all"
+    assert any(type(callback).__name__ == "TrainerHookCallback" for callback in kwargs["callbacks"])
+
+
+def test_sft_loss_and_online_eval_share_resolved_dataset_pixel_budget(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _write_config(tmp_path)
+    config.eval.enabled = True
+    config.eval.online_metrics_enabled = True
+    config.eval.min_pixels = 200
+    config.eval.max_pixels = 2000
+    config.eval.datasets = {
+        "ds": EvalDatasetPolicyConfig(
+            min_pixels=300,
+            max_pixels=3000,
+            metrics=[EvalMetricConfig(name="parse_success")],
+            primary_metric="parse_success",
+        )
+    }
+
+    with caplog.at_level("INFO", logger="shaft.training.eval_policy"):
+        with patch(
+            "shaft.pipeline.sft.resolve_eval_input_policy",
+            wraps=resolve_eval_input_policy,
+        ) as resolve_policy:
+            with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+                builder.return_value = _build_fake_model_artifacts()
+                with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                    run_sft(config)
+
+    resolve_policy.assert_called_once()
+    loss_collator = _FakeTrainer.last_kwargs["eval_data_collator"]
+    generation_collator = _FakeTrainer.last_kwargs["online_eval_runner"].prompt_collator
+    assert loss_collator.input_mode == "training"
+    assert loss_collator.padding_side == "right"
+    assert generation_collator.input_mode == "generation"
+    assert generation_collator.padding_side == "left"
+    assert loss_collator._resolve_pixel_budget(["ds"]) == (300, 3000)
+    assert generation_collator._resolve_pixel_budget(["ds"]) == (300, 3000)
+    assert "[eval-input] default=200:2000 datasets=ds=300:3000" in caplog.text
+
+
+def test_bounded_pipeline_has_no_full_plan_preflight_or_cost_plan_sidecar(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _enable_bounded(config, steps=3)
+    provider = _CountingProvider()
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=provider,
+        ):
             with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-                _ = run_sft(config)
+                run_sft(config)
 
-    assert _FakeTrainer.last_kwargs["train_sampler"] is fake_train_sampler
-    callbacks = _FakeTrainer.last_kwargs.get("callbacks")
-    assert callbacks is not None
-    assert all(callback.__class__.__name__ != "ShaftMixRefreshCallback" for callback in callbacks)
+    batch_sampler = _FakeTrainer.last_kwargs["train_batch_sampler"]
+    assert isinstance(batch_sampler, ShaftPlannedBatchSampler)
+    assert provider.calls == []
+    first_global_batches = []
+    iterator = iter(batch_sampler)
+    for _ in range(batch_sampler.spec.data_world_size):
+        first_global_batches.append(next(iterator))
+    assert all(first_global_batches)
+    assert provider.calls == list(range(config.data.batching.buffer_size))
+    assert not list(Path(config.experiment.output_dir).glob("*cost_plan*"))
+    metadata = load_batching_run_metadata(config.experiment.output_dir)
+    assert metadata.grouping == "bounded_cost"
+    assert metadata.cardinality == "fixed"
+    assert metadata.packing == "none"
+    assert metadata.layout == "padded"
+    assert metadata.per_device_train_batch_size == 1
+    assert metadata.media_snapshot_id == "pipeline-fixture-v1"
+    assert metadata.batch_contract_fingerprint
+    assert metadata.planner_spec_fingerprint == batch_sampler.spec.fingerprint
+    assert metadata.sample_execution_fingerprint
+    assert metadata.train_input_contract is not None
+    assert metadata.train_input_contract.exact_resume_safe is True
+    assert (
+        dict(metadata.train_input_contract.input_options)["sequence_execution_contract_fingerprint"]
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sequence_contract_fingerprint
+    )
+    assert batch_sampler.schedule.fingerprint == batch_sampler.spec.sample_schedule_fingerprint
+    assert (
+        metadata.sample_execution_fingerprint
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sample_execution_fingerprint
+    )
+    assert any(
+        isinstance(callback, ShaftBatchPlanningCallback)
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+    )
 
 
-def test_run_sft_wires_online_eval_runner(tmp_path: Path) -> None:
-    train_jsonl = tmp_path / "train.jsonl"
-    val_jsonl = tmp_path / "val.jsonl"
-    image = tmp_path / "img.png"
-    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
-    train_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
+def test_length_pipeline_uses_the_unified_lazy_planner(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    _enable_length_grouping(config, steps=3)
+    provider = _CountingProvider()
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
+        with patch(
+            "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+            return_value=provider,
+        ):
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                run_sft(config)
+
+    batch_sampler = _FakeTrainer.last_kwargs["train_batch_sampler"]
+    assert isinstance(batch_sampler, ShaftPlannedBatchSampler)
+    assert batch_sampler.spec.grouping == "length"
+    assert batch_sampler.spec.packing == "none"
+    assert batch_sampler.spec.layout == "padded"
+    assert batch_sampler.spec.max_sequence_length == 8
+    assert batch_sampler.spec.max_tokens_per_microbatch == 8
+    assert provider.calls == []
+    first_local_batch = next(iter(batch_sampler))
+    assert first_local_batch
+    assert provider.calls == list(range(config.data.batching.buffer_size))
+
+    metadata = load_batching_run_metadata(config.experiment.output_dir)
+    assert metadata.grouping == "length"
+    assert metadata.max_sequence_length == 8
+    assert metadata.max_tokens_per_microbatch is None
+    assert metadata.planner_spec_fingerprint == batch_sampler.spec.fingerprint
+
+
+def test_varlen_pipeline_preflights_model_policy_and_configures_train_collator(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _enable_length_grouping(config, steps=1)
+    config.data.batching.packing.mode = "greedy"
+    config.data.batching.layout = "varlen"
+    config.eval.enabled = True
+    provider = _CountingProvider()
+
+    class _RecordingSequencePolicy(SequenceExecutionPolicy):
+        def __init__(self) -> None:
+            self.calls = []
+
+        def validate_runtime(self, *, model, contract) -> None:
+            self.calls.append((model, contract))
+
+        def build_contract(self, **kwargs):
+            from shaft.model import ShaftSequenceExecutionContract
+
+            return ShaftSequenceExecutionContract(
+                **kwargs,
+                capability_signature=("recording-sequence-policy-v1",),
+            )
+
+    policy = _RecordingSequencePolicy()
+    artifacts = _build_fake_model_artifacts()
+    artifacts.model_adapter = replace(
+        artifacts.model_adapter,
+        sequence_execution_policy=policy,
     )
-    val_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        return_value=_resolved_plan_for_adapter(artifacts.model_adapter),
+    ):
+        with patch(
+            "shaft.pipeline.sft.build_model_tokenizer_processor",
+            return_value=artifacts,
+        ) as build_model:
+            with patch(
+                "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+                return_value=provider,
+            ):
+                with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                    run_sft(config)
+
+    assert len(policy.calls) == 1
+    validated_model, validated_contract = policy.calls[0]
+    assert validated_model is artifacts.model
+    assert validated_contract.layout == "varlen"
+    assert validated_contract.device_type == "cpu"
+    loaded_contract = build_model.call_args.kwargs["sequence_execution_contract"]
+    assert loaded_contract.layout == "varlen"
+    assert loaded_contract.capability_signature == ("recording-sequence-policy-v1",)
+    collator = _FakeTrainer.last_kwargs["data_collator"]
+    assert collator.layout == "varlen"
+    assert collator.packing_mode == "greedy"
+    eval_collator = _FakeTrainer.last_kwargs["eval_data_collator"]
+    assert eval_collator.layout == "padded"
+    assert eval_collator.packing_mode == "none"
+
+
+def test_varlen_pipeline_rejects_unsupported_execution_before_data_or_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _enable_length_grouping(config, steps=1)
+    config.data.batching.packing.mode = "greedy"
+    config.data.batching.layout = "varlen"
+    unsupported_adapter = replace(
+        _build_fake_model_artifacts().model_adapter,
+        sequence_execution_policy=SequenceExecutionPolicy(),
     )
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        f"""
-experiment:
-  name: test-online-eval
-  output_dir: {tmp_path}/out
-data:
-  datasets:
-    - dataset_name: ds
-      train_path: {train_jsonl}
-      val_path: {val_jsonl}
-algorithm:
-  name: sft
-train:
-  epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 1
-  learning_rate: 1.0e-5
-  save_epoch_interval: 2
-  use_cpu: true
-  report_to: ["none"]
-  load_best_model_at_end: false
-  save_final_model: false
-  save_final_state: false
-eval:
-  enabled: true
-  epoch_interval: 2
-  online_metrics_enabled: true
-  metric_for_best_model: eval_final_score
-  greater_is_better: true
-  datasets:
-    ds:
-      prediction_codec: json_object
-      target_adapter: target_text
-      target_adapter_params:
-        codec: json_object
-      metrics:
-        - name: parse_success
-        - name: exact_match
-      primary_metric: exact_match
-      normalizer:
-        type: identity
-      weight: 1.0
-""",
-        encoding="utf-8",
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        return_value=_resolved_plan_for_adapter(unsupported_adapter),
+    ):
+        with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
+            with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
+                with pytest.raises(ValueError, match="does not support varlen layout"):
+                    run_sft(config)
+
+    data_center.assert_not_called()
+    build_model.assert_not_called()
+
+
+def test_pipeline_revokes_stale_efficiency_summary_before_model_resolution(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    output_dir = Path(config.experiment.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stale_summary = output_dir / "shaft_training_efficiency.json"
+    stale_summary.write_text('{"stale": true}\n', encoding="utf-8")
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        side_effect=ValueError("invalid model artifact"),
+    ):
+        with pytest.raises(ValueError, match="invalid model artifact"):
+            run_sft(config)
+
+    assert not stale_summary.exists()
+
+
+def test_bounded_pipeline_resume_loads_committed_state_and_disables_hf_skip(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _enable_bounded(config, steps=3)
+
+    def run_with_provider():
+        provider = _CountingProvider()
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+            builder.return_value = _build_fake_model_artifacts()
+            with patch(
+                "shaft.pipeline.sft.ShaftSFTSampleCostProvider",
+                return_value=provider,
+            ):
+                with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                    run_sft(config)
+        return _FakeTrainer.last_kwargs["train_batch_sampler"]
+
+    initial_sampler = run_with_provider()
+    _ = list(initial_sampler)
+    committed = initial_sampler.commit_global_microstep(1)
+    initial_callback = next(
+        callback
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+        if isinstance(callback, ShaftBatchPlanningCallback)
     )
-    config = load_config(cfg_path)
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
+    metadata_callback = next(
+        callback
+        for callback in _FakeTrainer.last_kwargs["callbacks"]
+        if isinstance(callback, ShaftBatchingMetadataCallback)
+    )
+    checkpoint = tmp_path / "checkpoint-1"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps(
             {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                "template": build_template("smoke_vlm"),
-            },
-        )()
+                "global_step": 1,
+                "stateful_callbacks": {
+                    BATCH_PLANNING_CALLBACK_NAME: initial_callback.state(),
+                    BATCHING_METADATA_CALLBACK_NAME: metadata_callback.state(),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (checkpoint / "config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"model")
+    (checkpoint / "optimizer.pt").write_bytes(b"optimizer")
+    (checkpoint / "scheduler.pt").write_bytes(b"scheduler")
+    if initial_sampler.spec.data_world_size == 1:
+        (checkpoint / "rng_state.pth").write_bytes(b"rng")
+    else:
+        for rank in range(initial_sampler.spec.data_world_size):
+            (checkpoint / f"rng_state_{rank}.pth").write_bytes(b"rng")
+    commit_training_checkpoint(
+        checkpoint,
+        world_size=initial_sampler.spec.data_world_size,
+        requires_grad_scaler=False,
+    )
+    config.train.resume_from_checkpoint = str(checkpoint)
+
+    resumed_sampler = run_with_provider()
+
+    assert resumed_sampler.initial_state == committed
+    assert _FakeTrainer.last_kwargs["args"].ignore_data_skip is True
+
+
+def test_fixed_pipeline_keeps_plain_sample_sampler(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_sft(config)
-    assert isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
-    assert set(_FakeTrainer.last_kwargs["eval_dataset"].keys()) == {"ds"}
-    assert _FakeTrainer.last_kwargs["online_eval_runner"] is not None
-    assert _FakeTrainer.last_kwargs["eval_config"] is config.eval
-    assert _FakeTrainer.last_kwargs["online_eval_runner"].prompt_collator.padding_side == "left"
-    callbacks = _FakeTrainer.last_kwargs.get("callbacks")
-    assert callbacks is not None
-    assert any(callback.__class__.__name__ == "ShaftEpochIntervalCallback" for callback in callbacks)
+            run_sft(config)
+
+    assert _FakeTrainer.last_kwargs["train_sampler"] is not None
+    assert _FakeTrainer.last_kwargs["train_batch_sampler"] is None
+    assert batching_run_metadata_path(config.experiment.output_dir).is_file()
 
 
-def test_run_sft_keeps_merged_eval_dataset_for_legacy_eval_loss_mode(tmp_path: Path) -> None:
-    train_jsonl = tmp_path / "train.jsonl"
-    val_jsonl = tmp_path / "val.jsonl"
-    image = tmp_path / "img.png"
-    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
-    train_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    val_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        f"""
-experiment:
-  name: test-legacy-eval-loss
-  output_dir: {tmp_path}/out
-data:
-  datasets:
-    - dataset_name: ds
-      train_path: {train_jsonl}
-      val_path: {val_jsonl}
-algorithm:
-  name: sft
-train:
-  epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 1
-  learning_rate: 1.0e-5
-  use_cpu: true
-  report_to: ["none"]
-  load_best_model_at_end: false
-  save_final_model: false
-  save_final_state: false
-eval:
-  enabled: true
-  loss_metrics_enabled: false
-  online_metrics_enabled: false
-  metric_for_best_model: eval_loss
-  datasets:
-    ds:
-      weight: 1.0
-""",
-        encoding="utf-8",
-    )
-    config = load_config(cfg_path)
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                "template": build_template("smoke_vlm"),
-            },
-        )()
+def test_fixed_weighted_unshuffled_pipeline_uses_finite_plan_execution_identity(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = False
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_sft(config)
-    assert not isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
-    assert _FakeTrainer.last_kwargs["online_eval_runner"] is None
+            run_sft(config)
+
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    efficiency_monitor = _FakeTrainer.last_kwargs["efficiency_monitor"]
+    assert train_sampler is not None
+    assert efficiency_monitor is not None
+    execution_fingerprint = efficiency_monitor.contract.sample_execution_fingerprint
+    stream_fingerprint = efficiency_monitor.contract.sample_stream_fingerprint
+    assert len(execution_fingerprint) == 64
+    assert len(stream_fingerprint) == 64
+    assert execution_fingerprint != train_sampler.plan.fingerprint
+    assert train_sampler.plan.stream_fingerprint != train_sampler.plan.fingerprint
+    assert stream_fingerprint != execution_fingerprint
 
 
-def test_run_sft_keeps_merged_eval_dataset_when_eval_policies_are_absent(tmp_path: Path) -> None:
-    train_jsonl = tmp_path / "train.jsonl"
-    val_jsonl = tmp_path / "val.jsonl"
-    image = tmp_path / "img.png"
-    Image.new("RGB", (8, 8), color=(0, 0, 0)).save(image)
-    train_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    val_jsonl.write_text(
-        f'{{"image_path":"{image}","target_text":"{{\\"ok\\":1}}","user_prompt":"x"}}\n',
-        encoding="utf-8",
-    )
-    cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(
-        f"""
-experiment:
-  name: test-plain-eval-loss
-  output_dir: {tmp_path}/out
-data:
-  datasets:
-    - dataset_name: ds
-      train_path: {train_jsonl}
-      val_path: {val_jsonl}
-algorithm:
-  name: sft
-train:
-  epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 1
-  learning_rate: 1.0e-5
-  use_cpu: true
-  report_to: ["none"]
-  load_best_model_at_end: false
-  save_final_model: false
-  save_final_state: false
-eval:
-  enabled: true
-  online_metrics_enabled: false
-  metric_for_best_model: eval_loss
-""",
-        encoding="utf-8",
-    )
-    config = load_config(cfg_path)
-    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as mocked_builder:
-        mocked_builder.return_value = type(
-            "Artifacts",
-            (),
-            {
-                "model": _FakeModel(),
-                "tokenizer": _FakeTokenizer(),
-                "processor": _FakeProcessor(),
-                "model_meta": build_model_meta("smoke_vlm"),
-                "model_adapter": build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM"),
-                "template": build_template("smoke_vlm"),
-            },
-        )()
+def test_fixed_weighted_pipeline_publishes_versioned_sample_execution_identity(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.data.schedule.mixing = "weighted"
+    config.data.schedule.shuffle = True
+
+    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+        builder.return_value = _build_fake_model_artifacts()
         with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
-            _ = run_sft(config)
-    assert not isinstance(_FakeTrainer.last_kwargs["eval_dataset"], dict)
-    assert _FakeTrainer.last_kwargs["online_eval_runner"] is None
+            run_sft(config)
+
+    train_sampler = _FakeTrainer.last_kwargs["train_sampler"]
+    metadata = load_batching_run_metadata(config.experiment.output_dir)
+    assert train_sampler is not None
+    assert train_sampler.plan.schedule.ticket_block_size > 0
+    assert metadata.sample_execution_fingerprint
+    assert (
+        metadata.sample_execution_fingerprint
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sample_execution_fingerprint
+    )

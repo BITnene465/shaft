@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,10 +13,11 @@ from transformers import PreTrainedModel, PretrainedConfig
 from transformers.processing_utils import ProcessorMixin
 from transformers.modeling_outputs import CausalLMOutput
 
-from shaft.config import RuntimeConfig
+from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 from .finetune import apply_resolved_finetune_plan
 from .finetune_plan import build_resolved_finetune_plan
+from .inference import ShaftImageTextInferencePolicy
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
 from .types import (
@@ -25,6 +27,7 @@ from .types import (
     ModelMeta,
     ModelModuleGroups,
     ShaftModelAdapter,
+    ShaftSequenceExecutionContract,
 )
 
 
@@ -104,8 +107,24 @@ class SmokeTokenizer:
     bos_token: str = "<s>"
     eos_token: str = "</s>"
 
+    def shaft_tokenizer_fingerprint(self) -> str:
+        payload = (
+            "shaft-smoke-tokenizer-v1",
+            self.vocab_size,
+            self.pad_token_id,
+            self.bos_token_id,
+            self.eos_token_id,
+            self.pad_token,
+            self.bos_token,
+            self.eos_token,
+        )
+        return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+    def shaft_cost_fingerprint(self) -> str:
+        return self.shaft_tokenizer_fingerprint()
+
     def _encode(self, text: str) -> list[int]:
-        ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text[:16]]
+        ids = [3 + (ord(ch) % max(self.vocab_size - 4, 1)) for ch in text]
         return ids or [3]
 
     def __call__(self, texts, add_special_tokens: bool = False, return_attention_mask: bool = False):
@@ -129,7 +148,7 @@ class SmokeTokenizer:
         return [self.decode(seq, skip_special_tokens=skip_special_tokens) for seq in sequences]
 
     def apply_chat_template(self, messages: list[dict[str, Any]], tokenize: bool = False, add_generation_prompt: bool = True):
-        _ = tokenize, add_generation_prompt
+        _ = tokenize
         rendered = []
         for message in messages:
             role = str(message.get("role", "user"))
@@ -139,10 +158,13 @@ class SmokeTokenizer:
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
                         text_parts.append(str(item.get("text", "")))
-                rendered.append(f"{role}:{' '.join(text_parts)}")
+                text = " ".join(text_parts)
             else:
-                rendered.append(f"{role}:{str(content)}")
-        return "\n".join(rendered)
+                text = str(content)
+            rendered.append(f"<|smoke_start|>{role}\n{text}\n<|smoke_end|>\n")
+        if add_generation_prompt:
+            rendered.append("<|smoke_start|>assistant\n")
+        return "".join(rendered)
 
     def save_pretrained(self, output_dir: str | Path):
         target = Path(output_dir)
@@ -178,14 +200,70 @@ class SmokeProcessor(ProcessorMixin):
     def batch_decode(self, sequences, skip_special_tokens: bool = True) -> list[str]:
         return self.tokenizer.batch_decode(sequences, skip_special_tokens=skip_special_tokens)
 
-    def apply_chat_template(self, messages: list[dict[str, Any]], tokenize: bool = False, add_generation_prompt: bool = True):
-        return self.tokenizer.apply_chat_template(messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt)
+    def apply_chat_template(
+        self,
+        conversation: list[dict[str, Any]] | list[list[dict[str, Any]]] | None = None,
+        *,
+        messages: list[dict[str, Any]] | list[list[dict[str, Any]]] | None = None,
+        tokenize: bool = False,
+        add_generation_prompt: bool = True,
+        return_dict: bool = False,
+        padding: bool = False,
+        **kwargs: Any,
+    ):
+        """Implement the public processor chat-template contract used by TRL.
+
+        Real multimodal processors accept both one conversation and a batch via
+        the ``conversation=`` keyword.  Keeping the smoke processor faithful to
+        that public contract lets CPU integration tests exercise TRL itself
+        instead of replacing its generation path with a mock.
+        """
+
+        _ = kwargs
+        conversations = conversation if conversation is not None else messages
+        if conversations is None:
+            raise TypeError("conversation is required.")
+        is_batched = bool(conversations) and isinstance(conversations[0], list)
+        batch = conversations if is_batched else [conversations]
+        rendered = [
+            self.tokenizer.apply_chat_template(
+                item,
+                tokenize=False,
+                add_generation_prompt=add_generation_prompt,
+            )
+            for item in batch
+        ]
+        if not tokenize:
+            return rendered if is_batched else rendered[0]
+
+        input_ids = self.tokenizer(
+            rendered,
+            add_special_tokens=False,
+            return_attention_mask=False,
+        )["input_ids"]
+        max_length = max(len(ids) for ids in input_ids) if padding else None
+        attention_mask: list[list[int]] = []
+        if max_length is not None:
+            padded_ids = []
+            for ids in input_ids:
+                padding_length = max_length - len(ids)
+                padded_ids.append(ids + [self.pad_token_id] * padding_length)
+                attention_mask.append([1] * len(ids) + [0] * padding_length)
+            input_ids = padded_ids
+        else:
+            attention_mask = [[1] * len(ids) for ids in input_ids]
+        if return_dict:
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+        return input_ids if is_batched else input_ids[0]
 
     def __call__(
         self,
         *,
         text: list[str],
-        images: list[Any],
+        images: list[Any] | None = None,
         padding: bool = True,
         return_tensors: str = "pt",
         **kwargs: Any,
@@ -199,12 +277,16 @@ class SmokeProcessor(ProcessorMixin):
             row = ids + [self.tokenizer.pad_token_id] * (max_len - len(ids))
             input_ids.append(row)
             attention_mask.append([1] * len(ids) + [0] * (max_len - len(ids)))
-        pixel_values = torch.zeros((len(images), 3, 4, 4), dtype=torch.float32)
-        return {
+        output = {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
-            "pixel_values": pixel_values,
         }
+        if images is not None:
+            output["pixel_values"] = torch.zeros(
+                (len(images), 3, 4, 4),
+                dtype=torch.float32,
+            )
+        return output
 
     def save_pretrained(self, output_dir: str | Path):
         target = Path(output_dir)
@@ -219,14 +301,16 @@ SMOKE_VLM_META = ModelMeta(
     family="smoke",
     default_template="smoke_vlm",
     model_groups=default_model_groups("smoke-vlm", "models/smoke-vlm", template="smoke_vlm"),
-    capabilities=ModelCapabilities(supports_pixel_budget=False, is_multimodal=True),
+    capabilities=ModelCapabilities(is_multimodal=True),
     module_groups=ModelModuleGroups(
         language_model=("embed_tokens", "proj"),
         generator=("lm_head",),
     ),
-    processor_policy=build_processor_policy("no_pixel_budget"),
+    processor_policy=build_processor_policy("smoke_vlm"),
+    inference_policy=ShaftImageTextInferencePolicy(),
     peft_policy=build_peft_policy("all_linear"),
     additional_saved_files=("smoke_tokenizer.json", "smoke_processor.json"),
+    uses_hf_artifacts=False,
 )
 
 
@@ -238,7 +322,9 @@ class SmokeVLMLoader(ModelLoader):
         *,
         model_meta: ModelMeta,
         model_adapter: ShaftModelAdapter,
+        sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
     ) -> ModelArtifacts:
+        _ = sequence_execution_contract
         model = SmokeVLMModel(SmokeVLMConfig())
         model.name_or_path = str(config.model.model_name_or_path)
         model.config._name_or_path = str(config.model.model_name_or_path)
@@ -247,7 +333,7 @@ class SmokeVLMLoader(ModelLoader):
             model,
             finetune_plan,
             finetune=config.model.finetune,
-            gradient_checkpointing=bool(config.train.gradient_checkpointing),
+            gradient_checkpointing=resolve_effective_gradient_checkpointing(config),
         )
         setattr(model, "_shaft_finetune_plan", finetune_plan)
         tokenizer = SmokeTokenizer()

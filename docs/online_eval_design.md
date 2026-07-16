@@ -318,7 +318,7 @@ eval 进度条上不显示 task metrics。
 
 ### 9.2 日志
 
-每次在线 eval 结束后，直接打印：
+SFT 同时启用 loss 与 online eval 时，每次评估结束后直接打印：
 
 1. 每个 dataset 的全部指标
 2. 每个 dataset 的 normalized score 与 weight
@@ -338,9 +338,8 @@ eval 进度条上不显示 task metrics。
 说明：
 
 - per-dataset 指标会进入本地 logger，也会通过 `Trainer.log()` 进入 `report_to`。
-- dataset-policy eval 现在统一产出两类总览指标：
-  - `eval_final_loss`
-  - `eval_final_score`
+- dataset-policy eval 定义 `eval_final_loss` 与 `eval_final_score` 两类总览指标；SFT 可同时产出两者，
+  GRPO 当前只产出 online `eval_final_score`。
 - 它们共用同一套 `eval.datasets` policy 与 `weight`，只是在底层分别对应：
   - teacher-forced loss
   - free-running generation metrics
@@ -348,17 +347,22 @@ eval 进度条上不显示 task metrics。
 
 ## 10. 当前支持的配置形态
 
+下面是 SFT 同时启用 loss 与 online eval 的配置形态：
+
 ```yaml
 eval:
   enabled: true
   eval_strategy: epoch
   per_device_eval_batch_size: 2
+  min_pixels: 200704
+  max_pixels: 2000000
   loss_metrics_enabled: true
   metric_for_best_model: eval_final_score
   greater_is_better: true
   online_metrics_enabled: true
   datasets:
     det_dataset:
+      max_pixels: 4000000
       prediction_codec: det_json
       target_adapter: det_annotation
       metrics:
@@ -395,15 +399,18 @@ eval:
 - 共享 codec 层已经独立为 `src/shaft/codec`
 - 在线 eval metric registry 已实现，当前内置 `parse_success`、`parse_partial_rate` 与 `exact_match`
 - dataset eval policy 已接入 `EvalConfig.datasets`
+- eval pixel budget 支持 `eval.*` 默认值与 `eval.datasets.<name>.*` 覆盖；未配置时兼容回退到
+  `data.min_pixels/max_pixels`
+- SFT 的 teacher-forced `eval_final_loss` 与 generation-based `eval_final_score` 由同一个 resolved
+  `EvalInputPolicy` 装配，generation 通过 `ProcessorInputPolicy` 使用 generation padding
 - 在线 eval runner 已接入 SFT 与 GRPO 的 trainer evaluate 路径
 - `prediction_codec` / `target_adapter` / `metric` 已在配置加载阶段做注册校验
-- dataset-policy eval 统一支持：
-  - `eval_final_score`
-  - `eval_final_loss`
+- SFT dataset-policy eval 支持 `eval_final_score` 与 `eval_final_loss`；GRPO 当前仅支持 online
+  `eval_final_score`
 - `metric_for_best_model` 现在可以选择：
   - `eval_final_score`
   - `eval_final_loss`
-- `report_to` 会同时上报：
+- SFT 同时启用两条评估链时，`report_to` 会上报：
   - per-dataset loss
   - per-dataset metrics
   - per-dataset normalized score
@@ -412,6 +419,9 @@ eval:
 - 若某个 dataset 本次没有样本，会 warning 并跳过，不参与 `final_score`
 - 当前支持 SFT 与 GRPO 的单阶段在线 eval
 - GRPO 训练集会转换为 `GRPODataset` 供 rollout 使用；在线 eval 的命名验证集保留原始 SFT 样本结构，由 `SFTCollator` 生成评估 prompt，避免把 reward/rollout 数据形态泄漏到 eval 层
+- `ShaftGRPOTrainer` 当前没有可靠的 loss eval / `eval_final_loss` 聚合。GRPO 启用 eval 时必须显式设置
+  `loss_metrics_enabled: false`，并以 `online_metrics_enabled: true`、
+  `metric_for_best_model: eval_final_score` 使用现有在线路径；normalize 会拒绝误开的 loss eval
 
 当前仍未做的部分：
 

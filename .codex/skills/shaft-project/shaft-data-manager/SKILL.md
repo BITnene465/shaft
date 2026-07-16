@@ -13,17 +13,19 @@ preparation from the data side.
 
 1. Identify the layer being changed:
    - `raw_*`: source annotations and images.
-   - `grounding_*` / `keypoint_*` / `sft`: derived artifacts that should be rebuildable.
+   - `grounding` / `point_arrow` / `structured` / `sft`: derived artifacts that should be
+     rebuildable.
    - `configs/data/*.yaml`: catalog and mixing configuration.
 2. Always read the counterintuitive rules first, then only the task-specific references needed:
    - Counterintuitive data rules: `references/counterintuitive-rules.md`
    - Raw source handling: `references/raw-data.md`
    - Cleaning and dedupe: `references/cleaning.md`
    - Data merge/import: `references/merge.md`
-   - General grounding augmentation: `references/augmentation-grounding.md`
-   - Layout grounding rules: `references/layout-grounding.md`
-   - Arrow grounding rules: `references/arrow-grounding.md`
+   - General grounding task and augmentation: `references/augmentation-grounding.md`
+   - Layout raw-layer rules for grounding: `references/layout-grounding.md`
+   - Arrow raw-layer rules for grounding/point: `references/arrow-grounding.md`
    - Model-assisted prelabeling: `references/prelabeling.md`
+   - Prompt policy for SFT/eval data: `references/prompt-policy.md`
    - Preview policy: `references/preview.md`
    - Derived structured/SFT rebuilds: `references/derived-datasets.md`
    - Data catalog usage from the data-prep side: `references/data-center.md`

@@ -7,7 +7,7 @@ from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 import yaml
 
 from shaft.codec import CODEC_REGISTRY
-from .schema import InferPipelineConfig
+from .schema import InferPipelineConfig, compile_stage_prompt
 
 T = TypeVar("T")
 
@@ -119,6 +119,7 @@ def _validate_infer_config(config: InferPipelineConfig) -> None:
                     f"engines.{name}.served_model_name or model_name_or_path must be non-empty."
                 )
     for index, stage in enumerate(config.stages):
+        stage_path = f"stages[{index}]"
         if stage.engine not in known_engines:
             raise ValueError(
                 f"stages[{index}].engine={stage.engine!r} not found in engines: {sorted(known_engines)}."
@@ -140,6 +141,9 @@ def _validate_infer_config(config: InferPipelineConfig) -> None:
                 )
         if not isinstance(stage.backend_options, dict):
             raise ValueError(f"stages[{index}].backend_options must be a mapping.")
+        if not isinstance(stage.arguments, dict):
+            raise ValueError(f"{stage_path}.arguments must be a mapping.")
+        compile_stage_prompt(stage, source=stage_path)
         codec_name = str(stage.codec).strip().lower()
         if not CODEC_REGISTRY.has(codec_name):
             raise ValueError(

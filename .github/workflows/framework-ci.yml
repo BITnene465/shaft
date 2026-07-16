@@ -1,0 +1,83 @@
+name: framework-ci
+
+"on":
+  pull_request: {}
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Install framework test environment
+        run: uv sync --locked --extra dev --extra train --extra rlhf
+
+      - name: Run static checks
+        run: |
+          uv run --locked ruff check src/shaft tests
+          uv run --locked python -m compileall -q src/shaft tests
+          uv run --locked python -c 'from pathlib import Path; import yaml; [yaml.safe_load(path.read_text()) for path in Path(".github/workflows").glob("*.yml")]'
+
+      - name: Build wheel
+        run: uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+
+      - name: Run framework functional suite
+        run: |
+          mkdir -p "$RUNNER_TEMP/shaft-test-results"
+          uv run --locked pytest tests --suite framework \
+            --junitxml="$RUNNER_TEMP/shaft-test-results/framework.xml"
+
+      - name: Run CPU smoke suite
+        run: |
+          uv run --locked pytest tests --suite smoke \
+            --junitxml="$RUNNER_TEMP/shaft-test-results/smoke.xml"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: framework-test-results
+          path: ${{ runner.temp }}/shaft-test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+  required:
+    name: required
+    if: always()
+    needs:
+      - core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify required jobs
+        env:
+          CORE_RESULT: ${{ needs.core.result }}
+        run: |
+          if [ "$CORE_RESULT" != "success" ]; then
+            echo "Required job failed: core=$CORE_RESULT" >&2
+            exit 1
+          fi
+          echo "All required framework checks passed."

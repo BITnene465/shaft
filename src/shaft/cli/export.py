@@ -28,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--model-type", default=None)
     validate_parser.add_argument("--model-name-or-path", default=None)
     validate_parser.add_argument("--template", default=None)
+    validate_parser.add_argument("--revision", default=None)
+    validate_parser.add_argument("--cache-dir", default=None)
+    validate_parser.add_argument("--local-files-only", type=_as_bool, default=False)
 
     merge_parser = subparsers.add_parser("merge-peft", help="Merge a PEFT adapter into a HF full export.")
     merge_parser.add_argument("--model-type", required=True)
@@ -39,6 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--torch-dtype", default="bfloat16")
     merge_parser.add_argument("--safe-serialization", type=_as_bool, default=True)
     merge_parser.add_argument("--max-shard-size", default="5GB")
+    merge_parser.add_argument("--revision", default=None)
+    merge_parser.add_argument("--cache-dir", default=None)
+    merge_parser.add_argument("--local-files-only", type=_as_bool, default=False)
+    merge_parser.add_argument(
+        "--allow-unverified-base-model",
+        type=_as_bool,
+        default=False,
+        help=(
+            "Bypass Shaft checkpoint base-model provenance validation. This does not "
+            "disable hashing of the current base artifact."
+        ),
+    )
     return parser
 
 
@@ -68,6 +83,9 @@ def main(argv: list[str] | None = None) -> None:
             model_type=args.model_type,
             model_name_or_path=args.model_name_or_path,
             template=args.template,
+            revision=args.revision,
+            cache_dir=args.cache_dir,
+            local_files_only=args.local_files_only,
         )
         print(
             json.dumps(
@@ -94,6 +112,10 @@ def main(argv: list[str] | None = None) -> None:
             torch_dtype=args.torch_dtype,
             safe_serialization=args.safe_serialization,
             max_shard_size=args.max_shard_size,
+            revision=args.revision,
+            cache_dir=args.cache_dir,
+            local_files_only=args.local_files_only,
+            allow_unverified_base_model=args.allow_unverified_base_model,
         )
         print(
             json.dumps(

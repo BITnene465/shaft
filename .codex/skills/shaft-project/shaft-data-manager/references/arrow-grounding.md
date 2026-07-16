@@ -1,6 +1,7 @@
 # Arrow Grounding
 
-Use this for arrow layers inside unified `raw_data` and for derived `grounding_arrow`.
+Use this for arrow raw layers inside unified `raw_data` when deriving the unified `grounding`
+task and the `point_arrow` task.
 
 ## Raw Schema
 
@@ -61,3 +62,22 @@ Empty arrow layers can be kept as negative samples only when `annotation.layers`
 - Validation should stay full-image unless explicitly requested otherwise.
 - When deriving model-facing grounding rows, expose only `label + bbox` in `instances`; keep
   route and style metadata in `extra`.
+
+## Derived Point Policy
+
+- `point_arrow` is a crop/point task over arrow instances with a valid `linestrip`.
+- Do not derive point rows from bbox-only arrows. Bbox-only arrows may still participate in
+  `grounding`.
+- Use `data/raw_data/splits/point_arrow_val.txt` for validation. For train, filter
+  `grounding_train.txt` to `part1` arrow instances with `linestrip` unless the user provides a
+  separate point train split.
+- The maintained point-arrow structured generator is
+  `scripts/tasks/build_point_arrow_structured.py`.
+- Current crop policy is one crop row per valid arrow instance, not base-plus-jitter. Train may
+  randomize padding deterministically from the source identity; validation should use a stable
+  padding policy.
+- Eval `point_arrow` must use the same crop-level validation rows as SFT validation. Do not
+  evaluate point-arrow on raw full images.
+- Do not double the point dataset with jitter variants unless the user explicitly changes the
+  sampling policy. If extra point augmentation is added later, it must keep crop-local `bbox` and
+  `linestrip` transformed exactly and must be documented in `data/point_arrow/README.md`.

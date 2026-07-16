@@ -30,6 +30,10 @@
 
 校验目录是否符合当前 `finetune_mode` 的 HF/PEFT 规则。
 
+当校验 adapter 时，可同时传入 `model_name_or_path`、`revision`、`cache_dir` 和
+`local_files_only`。这些参数与训练加载器共用 HF config resolver；Hub、cache snapshot 与本地目录都会先
+解析 config identity，再验证 adapter base、模型族 variant、target modules、state keys 与 shape。
+
 对应接口：
 
 - `validate_hf_artifact()`
@@ -48,6 +52,21 @@
 - 包含标准 HF `config.json + model weights`
 - 优先保留 adapter 侧 tokenizer / processor 资产
 - 不额外生成 Shaft 自定义产物层
+- merge 前先形成与训练初始化相同的 `ResolvedModelPlan / ResolvedAdapterInit`：显式 base 不能覆盖 adapter
+  声明的 dense/MoE variant，adapter config 与权重内容 fingerprint 必须稳定，state key/shape 必须与持久化
+  PEFT 拓扑精确一致；实际权重从同一份完成 length/SHA256 校验的内存 byte snapshot 反序列化，验证通过后
+  才执行 `merge_and_unload()` 和创建输出目录
+- 默认还会读取 adapter checkpoint 的 `shaft_batching_run_metadata.json`，要求其中训练 input contract 的
+  base-model plan fingerprint 与本次 merge 完整 SHA256 校验后的 base 完全一致。外部 PEFT adapter 或旧
+  checkpoint 没有该 provenance 时默认拒绝；只有人工独立核验过 base 后，才可显式传
+  `--allow-unverified-base-model true`。该开关只跳过历史 provenance 比对，不会关闭当前 base 的完整 hash
+  与 load 前后变更检查。
+
+`merge-peft` 同样支持 `revision`、`cache_dir`、`local_files_only`，并把它们同时用于 base model、processor
+和统一模型 plan 的解析。离线部署流水线应显式设置 `local_files_only=true`，避免 cache miss 时意外访问 Hub。
+本地 checkpoint 模式不再依据 inode/stat 或采样窗口复用旧摘要；plan、load 前、load 后的安全校验都读取
+manifest 中每个文件的完整字节并计算 SHA256。这样会增加顺序读 I/O，但不会把同尺寸、同 timestamp 的权重
+替换误判为 cache hit。
 
 ## 3. 目录类型约定
 

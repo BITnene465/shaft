@@ -1,0 +1,117 @@
+metadata:
+  id: shaft.shape_reconstruction.prompt_pool.v5.0
+  version: v5.0
+  name: shape reconstruction prompt pool
+  task: shape_reconstruction
+  subtask: shape_reconstruction
+  target_labels: [shape]
+
+prompts:
+  - id: main
+    sampling_weight: 1.0
+    system_prompt: >
+      Return only valid compact JSON. Do not include markdown, comments,
+      explanations, or surrounding text.
+    user_prompt: |
+      Reconstruct the primary visible shape.
+      Return exactly one JSON object with type "shape" and parameters only.
+
+      Base object:
+      {"type":"shape","parameters":{"shape_type":"rectangle|oval|triangle|trapezoid|parallelogram|diamond|step|regular_pentagon|regular_hexagon|arrow_pentagon|other_polygon|callout|other"}}
+
+      For shape_type other, output only shape_type.
+      If the crop is primarily an icon or image asset with no independent editable outer shape
+      container, use shape_type other. Do not treat the rectangular pixel boundary as a rectangle.
+      For every supported non-other shape, include border, fill, and effect.
+      Border:
+      - {"type":"none"}
+      - {"type":"uniform","style":"solid|dash|dot","color":"#RRGGBB"}
+      - {"type":"complex"}
+      Fill:
+      - {"type":"none"}
+      - {"type":"solid","color":"#RRGGBB"}
+      - {"type":"linear_gradient","direction":"bottom_to_top|bottom_left_to_top_right|left_to_right|top_left_to_bottom_right","colors":["#RRGGBB","#RRGGBB"]}
+      - {"type":"radial_gradient","direction":"center_to_edge","colors":["#RRGGBB","#RRGGBB"]}
+      - {"type":"complex"}
+      Effect: {"type":"none|shadow|glow"}.
+
+      All point and bbox coordinates are integer 0-999 normalized crop coordinates.
+      For polygon-like shapes except oval and other, include corners in clockwise outline order.
+      Sharp corner: {"type":"sharp","point":[x,y]}.
+      Round corner: {"type":"round","start":[x,y],"mid":[x,y],"end":[x,y]}.
+      The first corner is the visually top-left semantic corner.
+
+      For callout, use shape_type "callout", include body_type "rectangle|oval", border, fill,
+      tail {"points":[attach_start,tip,attach_end]}, and effect.
+      Rectangle-body callout uses body_corners. Oval-body callout uses body_bbox.
+
+  - id: visible_object
+    sampling_weight: 1.0
+    system_prompt: >
+      Output valid JSON only. No markdown or extra text.
+    user_prompt: |
+      Describe the outermost primary shape for reconstruction.
+      Ignore text, icons, decorations, inner containers, and neighboring objects introduced by crop relax.
+      Return one object:
+      {"type":"shape","parameters":{"shape_type":"rectangle|oval|triangle|trapezoid|parallelogram|diamond|step|regular_pentagon|regular_hexagon|arrow_pentagon|other_polygon|callout|other"}}
+
+      Use other only when the visible shape cannot be stably represented by this DSL; then do not
+      output border, fill, corners, tail, or effect.
+      An icon or image asset without its own editable outer container is other, even when its crop
+      boundary is rectangular. If a distinct outer geometric container exists, classify that container.
+      Otherwise include border, fill, and effect. Include corners for polygon-like supported shapes.
+      Coordinates are integer 0-999 normalized crop coordinates.
+      Use callout only when a visible speech-bubble tail is part of the outer shape; include
+      body_type, body_corners or body_bbox, and tail.points.
+
+  - id: schema_first
+    sampling_weight: 1.0
+    system_prompt: >
+      Respond with compact JSON only.
+    user_prompt: |
+      Return a shape reconstruction object:
+      {"type":"shape","parameters":{"shape_type":"rectangle|oval|triangle|trapezoid|parallelogram|diamond|step|regular_pentagon|regular_hexagon|arrow_pentagon|other_polygon|callout|other","border":{"type":"none|uniform|complex"},"fill":{"type":"none|solid|linear_gradient|radial_gradient|complex"},"effect":{"type":"none|shadow|glow"}}}
+
+      Do not include audit fields.
+      Uniform border may include style "solid|dash|dot" and color "#RRGGBB".
+      Solid fill includes color. Linear gradient includes direction and two colors. Radial gradient
+      uses direction "center_to_edge" and two colors.
+      Polygon-like shapes include corners. Oval has no corners. Other has only shape_type.
+      Icons and image assets without an independent editable outer shape are other; ignore their
+      rectangular bitmap boundary.
+      Callout includes body_type, tail.points, and either body_corners or body_bbox.
+      Coordinates are integer 0-999 normalized crop coordinates.
+
+  - id: attribute_extraction
+    sampling_weight: 1.0
+    system_prompt: >
+      Return JSON only. Do not add explanations.
+    user_prompt: |
+      Extract reconstructable shape attributes into:
+      {"type":"shape","parameters":{...}}
+
+      Required parameter: shape_type.
+      Shape types: rectangle, oval, triangle, trapezoid, parallelogram, diamond, step,
+      regular_pentagon, regular_hexagon, arrow_pentagon, other_polygon, callout, other.
+      Non-other shapes require border, fill, and effect.
+      Border type: none, uniform, complex. Uniform border has style solid, dash, or dot and a hex color.
+      Fill type: none, solid, linear_gradient, radial_gradient, complex.
+      Effect type: none, shadow, glow.
+      Add clockwise corners for polygon-like shapes; round corners use start, mid, and end points.
+      Add callout body and tail fields only for true callouts.
+      Use other for icon/image content that has no independent editable outer shape container.
+      Coordinates are integer 0-999 normalized crop coordinates.
+
+  - id: minimal_contract
+    sampling_weight: 1.0
+    system_prompt: >
+      Valid JSON only.
+    user_prompt: |
+      Shape reconstruction. Return exactly:
+      {"type":"shape","parameters":{...}}
+      shape_type is one of rectangle, oval, triangle, trapezoid, parallelogram, diamond, step,
+      regular_pentagon, regular_hexagon, arrow_pentagon, other_polygon, callout, other.
+      Use the PDF DSL fields: border, fill, corners/body_corners/body_bbox, tail, and effect.
+      Icon/image assets without an independent editable outer shape return only
+      {"shape_type":"other"}; their bitmap boundary is not a rectangle container.
+      Coordinates are integer 0-999 normalized crop coordinates.
