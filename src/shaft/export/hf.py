@@ -166,7 +166,7 @@ def _validate_adapter_base_provenance(
     base_model_plan,
     allow_unverified_base_model: bool,
 ) -> None:
-    if bool(allow_unverified_base_model):
+    if allow_unverified_base_model is True:
         return
     errors: list[Exception] = []
     loaded_metadata = False
@@ -231,6 +231,11 @@ def merge_peft_adapter(
     local_files_only: bool = False,
     allow_unverified_base_model: bool = False,
 ) -> ExportMergeResult:
+    if type(allow_unverified_base_model) is not bool:
+        raise TypeError(
+            "allow_unverified_base_model must be a boolean; "
+            f"got {allow_unverified_base_model!r}."
+        )
     adapter_dir = Path(adapter_path)
     ensure_hf_export_layout(adapter_dir, finetune_mode="lora")
     resolved_base_model = base_model_path or infer_base_model_from_adapter(adapter_dir)

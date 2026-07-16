@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -191,24 +192,34 @@ def test_qwen35vl_hybrid_varlen_adds_full_and_linear_attention_boundaries() -> N
 
 
 def test_qwen35vl_and_qwen36vl_adapters_share_verified_hybrid_policy() -> None:
-    for model_type in ("qwen35vl", "qwen36vl"):
-        adapter = build_model_meta(model_type).resolve_adapter(
-            model_name_or_path="models/Qwen3.6-27B"
-        )
-        assert isinstance(
-            adapter.sequence_execution_policy,
-            Qwen35VLSequenceExecutionPolicy,
-        )
-        contract = adapter.build_sequence_execution_contract(
-            layout="varlen",
-            device_type="cuda",
-            attention_implementation="flash_attention_2",
-            torch_dtype="bf16",
-            distributed_strategy="ddp",
-        )
-        assert contract.capability_signature[0].startswith(
-            "shaft-qwen35vl-hybrid-sequence-execution"
-        )
+    with patch.object(
+        Qwen35VLSequenceExecutionPolicy,
+        "_package_version",
+        return_value="test-version",
+    ):
+        for model_type in ("qwen35vl", "qwen36vl"):
+            adapter = build_model_meta(model_type).resolve_adapter(
+                model_name_or_path="models/Qwen3.6-27B"
+            )
+            assert isinstance(
+                adapter.sequence_execution_policy,
+                Qwen35VLSequenceExecutionPolicy,
+            )
+            contract = adapter.build_sequence_execution_contract(
+                layout="varlen",
+                device_type="cuda",
+                attention_implementation="flash_attention_2",
+                torch_dtype="bf16",
+                distributed_strategy="ddp",
+            )
+            assert contract.capability_signature[0].startswith(
+                "shaft-qwen35vl-hybrid-sequence-execution"
+            )
+            assert contract.capability_signature[-3:] == (
+                "flash-attn=test-version",
+                "flash-linear-attention=test-version",
+                "causal-conv1d=test-version",
+            )
 
 
 def test_qwen35vl_hybrid_varlen_fails_closed_without_cuda_or_ddp() -> None:
@@ -229,6 +240,27 @@ def test_qwen35vl_hybrid_varlen_fails_closed_without_cuda_or_ddp() -> None:
             torch_dtype="bf16",
             distributed_strategy="fsdp",
         )
+
+
+def test_qwen35vl_hybrid_varlen_fails_closed_when_isolation_kernel_is_missing() -> None:
+    policy = Qwen35VLSequenceExecutionPolicy()
+
+    def package_version(package: str) -> str:
+        return "missing" if package == "causal-conv1d" else "test-version"
+
+    with patch.object(
+        Qwen35VLSequenceExecutionPolicy,
+        "_package_version",
+        side_effect=package_version,
+    ):
+        with pytest.raises(ImportError, match="causal-conv1d"):
+            policy.build_contract(
+                layout="varlen",
+                device_type="cuda",
+                attention_implementation="flash_attention_2",
+                torch_dtype="bf16",
+                distributed_strategy="ddp",
+            )
 
 
 def test_qwen35vl_runtime_adapter_filters_boundaries_only_from_media_calls() -> None:

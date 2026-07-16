@@ -40,6 +40,7 @@ from shaft.utils.semantic_identity import (
     callable_semantic_fingerprint,
     component_semantic_fingerprint,
 )
+from tests.support.configs import write_hf_model_descriptor
 
 
 _SEMANTIC_GLOBAL_SCALE = 1
@@ -1783,36 +1784,48 @@ def test_full_init_checkpoint_is_the_model_plan_truth_source(tmp_path: Path) -> 
 def test_adapter_init_keeps_base_artifact_as_model_plan_truth_source(
     tmp_path: Path,
 ) -> None:
+    base_model = write_hf_model_descriptor(
+        tmp_path,
+        model_type="qwen3_5",
+        architectures=("Qwen3_5ForConditionalGeneration",),
+        directory_name="qwen36-dense",
+    )
     adapter = tmp_path / "adapter"
     adapter.mkdir()
     (adapter / "adapter_config.json").write_text(
-        json.dumps({"base_model_name_or_path": "models/Qwen3.6-27B"}),
+        json.dumps({"base_model_name_or_path": str(base_model)}),
         encoding="utf-8",
     )
     (adapter / "adapter_model.safetensors").write_bytes(b"")
     config = RuntimeConfig()
     config.model.model_type = "qwen36vl"
-    config.model.model_name_or_path = "models/Qwen3.6-27B"
+    config.model.model_name_or_path = str(base_model)
 
     plan = resolve_model_plan(config, init_from_checkpoint=str(adapter))
 
     assert plan.init_kind == "adapter"
-    assert plan.effective_model_name_or_path == "models/Qwen3.6-27B"
+    assert plan.effective_model_name_or_path == str(base_model)
     assert plan.model_adapter.group_name == "dense"
     assert plan.adapter_init is not None
-    assert plan.adapter_init.base_model_name_or_path == "models/Qwen3.6-27B"
+    assert plan.adapter_init.base_model_name_or_path == str(base_model)
 
 
 def test_adapter_init_fingerprint_binds_the_adapter_artifact(tmp_path: Path) -> None:
+    base_model = write_hf_model_descriptor(
+        tmp_path,
+        model_type="qwen3_5",
+        architectures=("Qwen3_5ForConditionalGeneration",),
+        directory_name="qwen36-dense",
+    )
     config = RuntimeConfig()
     config.model.model_type = "qwen36vl"
-    config.model.model_name_or_path = "models/Qwen3.6-27B"
+    config.model.model_name_or_path = str(base_model)
     fingerprints = []
     for name in ("adapter-a", "adapter-b"):
         adapter = tmp_path / name
         adapter.mkdir()
         (adapter / "adapter_config.json").write_text(
-            json.dumps({"base_model_name_or_path": "models/Qwen3.6-27B"}),
+            json.dumps({"base_model_name_or_path": str(base_model)}),
             encoding="utf-8",
         )
         (adapter / "adapter_model.safetensors").write_bytes(name.encode("utf-8"))

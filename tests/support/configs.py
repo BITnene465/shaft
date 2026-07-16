@@ -9,6 +9,27 @@ import yaml
 from shaft.config import RuntimeConfig, load_config
 
 
+def write_hf_model_descriptor(
+    base_dir: Path,
+    *,
+    model_type: str,
+    architectures: tuple[str, ...] = (),
+    directory_name: str = "model",
+) -> Path:
+    model_dir = base_dir / directory_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": model_type,
+                "architectures": list(architectures),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return model_dir
+
+
 def write_config_yaml(
     base_dir: Path,
     payload: str,

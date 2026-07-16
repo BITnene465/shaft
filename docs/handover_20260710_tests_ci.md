@@ -41,6 +41,13 @@ uv run pytest -q tests --suite gpu
 新增测试必须保护 public API、配置语义、最终 batch、artifact、metric、CLI 或主链装配结果。不要为
 私有 helper、调用次数、当前实验 YAML 或一次性 task 脚本增加长期测试。
 
+测试必须能在 clean clone 中独立运行：
+
+- 不依赖未跟踪的 `models/`、本地实验配置、Hub cache 或外网；模型 descriptor 使用 `tmp_path` fixture。
+- optional backend/package 的单测显式模拟 package metadata，并保留缺依赖 fail-closed 负例。
+- `torchrun` support script 的启动器必须显式提供仓库根目录 import contract，不能依赖 editable 环境偶然
+  把 `tests.support` 放入 `sys.path`。
+
 ## 3. CI 分层
 
 ### `framework-ci`
@@ -77,13 +84,13 @@ CPU 回归已经覆盖：
 2. 补跑当前 HEAD 的 CUDA Qwen release gates。
 3. 如果对外承诺真实多机能力，再增加双主机 NCCL/NIC/共享存储 canary；否则在能力矩阵明确标记未验收。
 
-## 5. 当前已知合并阻塞
+## 5. 当前收口状态
 
-- `src/shaft/export/hf.py` 的 `allow_unverified_base_model` 需要 exact-bool 校验，不能让字符串
-  `"false"` 通过 truthiness 跳过 provenance。
-- `ShaftInferAdapterCapabilities` 的 deadline/cancellation capability 需要 exact-bool 校验，不能让
-  字符串 `"false"` 绕过 fail-closed。
-- `docs/development_log.md`/`docs/todo.md` 的版本控制政策必须与 `AGENTS.md` 和文档索引一致。
+- `allow_unverified_base_model` 与 `ShaftInferAdapterCapabilities` 已使用 exact-bool 校验，并覆盖字符串、
+  整数和 `None` 的拒绝测试。
+- `docs/development_log.md` 与 `docs/todo.md` 已恢复为仓库真源；本轮没有修改 `.gitignore`。
+- 首次 `main` clean-runner 暴露的本地模型目录、optional dependency 和 `torchrun` import 隔离问题已修复；
+  最终结论仍以修复 commit 对应的远端 `framework-ci` 与 `framework-runtime` 终态为准。
 
 ## 6. 协作与提交
 

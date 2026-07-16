@@ -21,6 +21,7 @@ from shaft.infer import (
     InferPipelineConfig,
     InferStageConfig,
     ShaftInferCancelledError,
+    ShaftInferAdapterCapabilities,
     ShaftInferExecutionControl,
     ShaftInferExecutionControlUnsupportedError,
     ShaftInferEngine,
@@ -30,6 +31,17 @@ from shaft.infer import (
 import shaft.infer.engine as infer_engine_module
 from shaft.infer.engine import VLLMOpenAIInferAdapter
 from shaft.model import ModelMeta, ShaftImageTextInferencePolicy
+
+
+@pytest.mark.parametrize("field_name", ["supports_deadline", "supports_cancellation"])
+@pytest.mark.parametrize("value", ["false", 0, 1, None])
+def test_infer_adapter_capabilities_reject_non_boolean_flags(
+    field_name: str,
+    value: object,
+) -> None:
+    kwargs = {field_name: value}
+    with pytest.raises(TypeError, match=rf"{field_name} must be a boolean"):
+        ShaftInferAdapterCapabilities(**kwargs)
 
 
 class _JSONHTTPResponse:

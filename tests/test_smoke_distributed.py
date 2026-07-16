@@ -38,15 +38,24 @@ from tests.support.configs import write_sft_smoke_config
 pytestmark = pytest.mark.smoke
 
 
+def _torchrun_env(repo_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    existing_pythonpath = str(env.get("PYTHONPATH") or "").strip()
+    env["PYTHONPATH"] = os.pathsep.join(
+        value for value in (str(repo_root), existing_pythonpath) if value
+    )
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return env
+
+
 def _run_torchrun(
     repo_root: Path,
     config_path: Path,
     *extra_args: str,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -152,9 +161,7 @@ def _run_two_node_torchrun(
         or processes_per_node < 1
     ):
         raise ValueError("processes_per_node must be a positive integer.")
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     last_result: subprocess.CompletedProcess[str] | None = None
     overall_deadline = time.monotonic() + float(timeout)
     port_conflict_markers = ("Address already in use", "EADDRINUSE")
@@ -251,9 +258,7 @@ def _run_bounded_fault(
     *,
     timeout: int = 180,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -282,9 +287,7 @@ def _run_efficiency_snapshot_fault(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -312,9 +315,7 @@ def _run_training_contract_drift(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -340,9 +341,7 @@ def _run_resume_generation_drift(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -368,9 +367,7 @@ def _run_interceptor_fault(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -396,9 +393,7 @@ def _run_neutral_hook_fault(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -424,9 +419,7 @@ def _run_rlhf_trainer_prepare_fault(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -453,9 +446,7 @@ def _run_finalization_fault(
     *,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -483,9 +474,7 @@ def _run_pipeline_finalization_fault(
     *,
     timeout: int = 120,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     return subprocess.run(
         [
             sys.executable,
@@ -1357,9 +1346,7 @@ def test_torchrun_global_weighted_loss_matches_single_process_reference(
     repo_root: Path,
 ) -> None:
     result_path = tmp_path / "distributed-loss-result.json"
-    env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = ""
-    env["OMP_NUM_THREADS"] = "1"
+    env = _torchrun_env(repo_root)
     completed = subprocess.run(
         [
             sys.executable,

@@ -169,6 +169,21 @@ def test_merge_peft_adapter_rejects_adapter_without_base_provenance(
         )
 
 
+@pytest.mark.parametrize("value", ["false", 0, 1, None])
+def test_merge_peft_adapter_rejects_non_boolean_provenance_override(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    with pytest.raises(TypeError, match="allow_unverified_base_model must be a boolean"):
+        _merge_peft_adapter(
+            model_type="smoke_vlm",
+            adapter_path=tmp_path / "missing-adapter",
+            output_dir=tmp_path / "merged",
+            base_model_path="models/smoke-vlm",
+            allow_unverified_base_model=value,
+        )
+
+
 def test_merge_peft_adapter_rejects_mismatched_base_provenance(
     tmp_path: Path,
 ) -> None:

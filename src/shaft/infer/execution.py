@@ -54,3 +54,9 @@ class ShaftInferExecutionControl:
 class ShaftInferAdapterCapabilities:
     supports_deadline: bool = False
     supports_cancellation: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("supports_deadline", "supports_cancellation"):
+            value = getattr(self, name)
+            if type(value) is not bool:
+                raise TypeError(f"{name} must be a boolean; got {value!r}.")

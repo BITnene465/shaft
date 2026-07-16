@@ -523,7 +523,9 @@ def test_run_grpo_accepts_compatible_vllm_metadata(
 
     def version(distribution: str) -> str:
         versions = {"trl": "0.29.1", "vllm": "0.12.1"}
-        return versions.get(distribution, distribution_version(distribution))
+        if distribution in versions:
+            return versions[distribution]
+        return distribution_version(distribution)
 
     with (
         patch(

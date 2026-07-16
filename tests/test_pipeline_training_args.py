@@ -16,6 +16,7 @@ from shaft.training.batch_planning import (
     build_batching_run_metadata,
 )
 from shaft.training.reproducibility import initialize_training_randomness
+from tests.support.configs import write_hf_model_descriptor
 from tests.support.pipeline import fsdp_enabled as _fsdp_enabled
 from tests.support.pipeline import fsdp_option_values as _fsdp_option_values
 from tests.support.pipeline import write_sft_pipeline_config as _write_config
@@ -335,6 +336,14 @@ def test_bounded_per_device_batch_does_not_change_schedule_horizon(tmp_path: Pat
 
 def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
+    config.model.model_name_or_path = str(
+        write_hf_model_descriptor(
+            tmp_path,
+            model_type="qwen3_vl",
+            architectures=("Qwen3VLForConditionalGeneration",),
+            directory_name="qwen3vl",
+        )
+    )
     config.train.distributed.strategy = "fsdp"
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
 
@@ -370,6 +379,14 @@ def test_fsdp_activation_checkpointing_disables_trainer_gradient_checkpointing(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
+    config.model.model_name_or_path = str(
+        write_hf_model_descriptor(
+            tmp_path,
+            model_type="qwen3_vl",
+            architectures=("Qwen3VLForConditionalGeneration",),
+            directory_name="qwen3vl",
+        )
+    )
     config.train.gradient_checkpointing = True
     config.train.distributed.strategy = "fsdp"
     config.train.distributed.fsdp.activation_checkpointing = True
@@ -384,7 +401,14 @@ def test_fsdp_activation_checkpointing_disables_trainer_gradient_checkpointing(
 def test_build_hf_training_args_resolves_qwen36vl_fsdp_auto_layers(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.model.model_type = "qwen36vl"
-    config.model.model_name_or_path = "models/Qwen3.6-27B"
+    config.model.model_name_or_path = str(
+        write_hf_model_descriptor(
+            tmp_path,
+            model_type="qwen3_5",
+            architectures=("Qwen3_5ForConditionalGeneration",),
+            directory_name="qwen36-dense",
+        )
+    )
     config.train.distributed.strategy = "fsdp"
     config.train.distributed.fsdp.transformer_layer_cls_to_wrap = ["auto"]
 
