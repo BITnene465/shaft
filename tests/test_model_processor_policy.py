@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from shaft.model import (
+    ProcessorInputPolicy,
     ProcessorPolicy,
     ShaftProcessedBatch,
     ShaftProcessorCostEstimate,
@@ -276,10 +277,53 @@ def test_processor_policy_temporarily_controls_padding_side() -> None:
         images=["img"],
         min_pixels=16,
         max_pixels=32,
-        padding_side="left",
+        input_mode="generation",
     )
     assert captured["padding_side_during_call"] == "left"
     assert tokenizer.padding_side == "right"
+
+
+def test_processor_policy_restores_non_string_padding_state() -> None:
+    model_adapter = build_model_meta("qwen3vl").resolve_adapter(
+        model_name_or_path="models/Qwen3-VL-4B-Instruct"
+    )
+
+    tokenizer = SimpleNamespace(padding_side=None)
+
+    class _Processor:
+        def __init__(self) -> None:
+            self.tokenizer = tokenizer
+
+        def __call__(self, **kwargs):
+            _ = kwargs
+            assert self.tokenizer.padding_side == "left"
+            return {
+                "input_ids": torch.tensor([[1]], dtype=torch.long),
+                "attention_mask": torch.tensor([[1]], dtype=torch.long),
+            }
+
+    _ = model_adapter.build_processor_batch(
+        processor=_Processor(),
+        tokenizer=tokenizer,
+        prompt_texts=["hello"],
+        images=["img"],
+        min_pixels=None,
+        max_pixels=None,
+        input_mode="generation",
+    )
+
+    assert tokenizer.padding_side is None
+
+
+def test_processor_input_policy_declares_training_and_generation_padding() -> None:
+    policy = ProcessorInputPolicy()
+
+    assert policy.resolve_padding_side("training") == "right"
+    assert policy.resolve_padding_side("generation") == "left"
+    with pytest.raises(ValueError, match="processor input_mode"):
+        policy.resolve_padding_side("evaluation")
+    with pytest.raises(ValueError, match="generation_padding_side"):
+        ProcessorInputPolicy(generation_padding_side="center")
 
 
 def test_qwen_processor_policy_maps_expanded_multimodal_token_runs() -> None:

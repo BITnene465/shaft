@@ -176,6 +176,10 @@ def test_init_from_full_checkpoint_overrides_model_path(tmp_path: Path) -> None:
         init_from_checkpoint=str(init_ckpt),
         init_kind="full_checkpoint",
         effective_model_name_or_path=str(init_ckpt),
+        resolved_revision=None,
+        artifact_identity=SimpleNamespace(kind="unresolved_hf", complete=False),
+        require_immutable_artifact=False,
+        trust_remote_code=False,
         model_meta=model_meta,
         model_adapter=model_adapter,
     )

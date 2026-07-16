@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from packaging.version import InvalidVersion, Version
 import torch
 
+from .inference import ShaftInferencePolicy
 from .sharding import ModelShardingPolicy
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ def _temporary_processor_padding_side(
     if normalized not in {"left", "right"}:
         raise ValueError("padding_side must be 'left' or 'right'.")
 
-    previous: list[tuple[Any, str]] = []
+    previous: list[tuple[Any, Any]] = []
     seen: set[int] = set()
     candidates = [tokenizer, getattr(processor, "tokenizer", None)]
     try:
@@ -88,7 +89,7 @@ def _temporary_processor_padding_side(
             if candidate_id in seen:
                 continue
             seen.add(candidate_id)
-            previous.append((candidate, str(getattr(candidate, "padding_side"))))
+            previous.append((candidate, getattr(candidate, "padding_side")))
             setattr(candidate, "padding_side", normalized)
         yield
     finally:
@@ -99,6 +100,32 @@ def _temporary_processor_padding_side(
 @dataclass(frozen=True)
 class ModelCapabilities:
     is_multimodal: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorInputPolicy:
+    """Declare processor padding semantics for training and generation inputs."""
+
+    training_padding_side: str = "right"
+    generation_padding_side: str = "left"
+
+    def __post_init__(self) -> None:
+        for field_name in ("training_padding_side", "generation_padding_side"):
+            value = str(getattr(self, field_name)).strip().lower()
+            if value not in {"left", "right"}:
+                raise ValueError(f"{field_name} must be 'left' or 'right'.")
+            object.__setattr__(self, field_name, value)
+
+    def resolve_padding_side(self, input_mode: str) -> str:
+        normalized = str(input_mode).strip().lower()
+        if normalized == "training":
+            return self.training_padding_side
+        if normalized == "generation":
+            return self.generation_padding_side
+        raise ValueError(
+            f"Unsupported processor input_mode={input_mode!r}; expected 'training' or "
+            "'generation'."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +309,7 @@ class ShaftProcessedBatch:
 class ProcessorPolicy:
     supports_pixel_budget: bool = False
     supports_exact_image_cost: bool = False
+    input_policy: ProcessorInputPolicy = field(default_factory=ProcessorInputPolicy)
     sample_aligned_model_input_names: tuple[str, ...] = ()
     whole_batch_model_input_names: tuple[str, ...] = ()
     static_model_input_names: tuple[str, ...] = ()
@@ -349,7 +377,7 @@ class ProcessorPolicy:
         images: list[Any],
         min_pixels: int | None,
         max_pixels: int | None,
-        padding_side: str | None = None,
+        input_mode: str = "training",
     ) -> ShaftProcessedBatch:
         kwargs: dict[str, Any] = {
             "text": prompt_texts,
@@ -368,7 +396,7 @@ class ProcessorPolicy:
         with _temporary_processor_padding_side(
             tokenizer=tokenizer,
             processor=processor,
-            padding_side=padding_side,
+            padding_side=self.input_policy.resolve_padding_side(input_mode),
         ):
             outputs = processor(**kwargs)
         return ShaftProcessedBatch(
@@ -762,6 +790,7 @@ class ModelGroup:
     capabilities: ModelCapabilities | None = None
     module_groups: ModelModuleGroups | None = None
     processor_policy: ProcessorPolicy | None = None
+    inference_policy: ShaftInferencePolicy | None = None
     sequence_execution_policy: SequenceExecutionPolicy | None = None
     peft_policy: PeftPolicy | None = None
     sharding_policy: ModelShardingPolicy | None = None
@@ -803,6 +832,7 @@ class ModelMeta:
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     module_groups: ModelModuleGroups = field(default_factory=ModelModuleGroups)
     processor_policy: ProcessorPolicy = field(default_factory=ProcessorPolicy)
+    inference_policy: ShaftInferencePolicy = field(default_factory=ShaftInferencePolicy)
     sequence_execution_policy: SequenceExecutionPolicy = field(
         default_factory=SequenceExecutionPolicy
     )
@@ -823,6 +853,7 @@ class ModelMeta:
             capabilities=self.capabilities,
             module_groups=self.module_groups,
             processor_policy=self.processor_policy,
+            inference_policy=self.inference_policy,
             sequence_execution_policy=self.sequence_execution_policy,
             peft_policy=self.peft_policy,
             sharding_policy=self.sharding_policy,
@@ -895,6 +926,11 @@ class ModelMeta:
             if matched is not None and matched.processor_policy is not None
             else self.processor_policy
         )
+        inference_policy = (
+            matched.inference_policy
+            if matched is not None and matched.inference_policy is not None
+            else self.inference_policy
+        )
         sequence_execution_policy = (
             matched.sequence_execution_policy
             if matched is not None and matched.sequence_execution_policy is not None
@@ -922,6 +958,7 @@ class ModelMeta:
             capabilities=capabilities,
             module_groups=module_groups,
             processor_policy=processor_policy,
+            inference_policy=inference_policy,
             sequence_execution_policy=sequence_execution_policy,
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
@@ -1010,6 +1047,7 @@ class ShaftModelAdapter:
     module_groups: ModelModuleGroups
     processor_policy: ProcessorPolicy
     peft_policy: PeftPolicy
+    inference_policy: ShaftInferencePolicy = field(default_factory=ShaftInferencePolicy)
     sequence_execution_policy: SequenceExecutionPolicy = field(
         default_factory=SequenceExecutionPolicy
     )
@@ -1044,7 +1082,7 @@ class ShaftModelAdapter:
         images: list[Any],
         min_pixels: int | None,
         max_pixels: int | None,
-        padding_side: str | None = None,
+        input_mode: str = "training",
     ) -> ShaftProcessedBatch:
         return self.processor_policy.build_batch(
             processor=processor,
@@ -1053,8 +1091,11 @@ class ShaftModelAdapter:
             images=images,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
-            padding_side=padding_side,
+            input_mode=input_mode,
         )
+
+    def resolve_processor_padding_side(self, input_mode: str) -> str:
+        return self.processor_policy.input_policy.resolve_padding_side(input_mode)
 
     def prepare_rollout_image(
         self,

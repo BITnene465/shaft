@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import partial
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,12 @@ from torch.utils.data import DataLoader, IterableDataset
 from transformers.trainer_utils import seed_worker
 from transformers.utils import is_datasets_available
 
-from shaft.data.sampler import ShaftPlannedBatchSampler, ShaftSampleSampler
+from shaft.data.sampler import (
+    ShaftGroupedSampleSampler,
+    ShaftPlannedBatchSampler,
+    ShaftSampleSampler,
+)
+from shaft.utils.contract_schema import json_int, load_strict_json, require_json_mapping
 
 
 if is_datasets_available():
@@ -40,6 +44,8 @@ class _BatchSummaryFilter(logging.Filter):
 class ShaftTrainSamplerMixin:
     """Inject Shaft sample or batch plans through HF's DataLoader extension points."""
 
+    requires_equal_rank_train_batch_cardinality = False
+
     def __init__(
         self,
         *args: Any,
@@ -66,7 +72,45 @@ class ShaftTrainSamplerMixin:
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_batch_sampler is None:
-            return super().get_train_dataloader()
+            train_sampler = self.train_sampler
+            if not isinstance(
+                train_sampler,
+                (ShaftSampleSampler, ShaftGroupedSampleSampler),
+            ):
+                return super().get_train_dataloader()
+            if isinstance(train_sampler, ShaftSampleSampler):
+                train_sampler.validate_epoch_sharding(
+                    per_device_batch_size=int(self._train_batch_size),
+                    data_world_size=int(self.args.world_size),
+                    dataloader_drop_last=bool(self.args.dataloader_drop_last),
+                    require_equal_rank_batch_cardinality=bool(
+                        self.requires_equal_rank_train_batch_cardinality
+                    ),
+                )
+            else:
+                train_sampler.validate_epoch_sharding(
+                    per_device_generation_batch_size=(
+                        int(self._train_batch_size)
+                        * int(getattr(self.args, "steps_per_generation"))
+                    ),
+                    data_world_size=int(self.args.world_size),
+                    dataloader_drop_last=bool(self.args.dataloader_drop_last),
+                )
+            previous_even_batches = self.accelerator.even_batches
+            self.accelerator.even_batches = False
+            try:
+                prepared = super().get_train_dataloader()
+            finally:
+                # Eval dataloaders still require equal rank-local step counts.
+                self.accelerator.even_batches = previous_even_batches
+            batch_sampler = getattr(prepared, "batch_sampler", None)
+            if isinstance(batch_sampler, BatchSamplerShard):
+                if bool(batch_sampler.even_batches) or bool(batch_sampler.split_batches):
+                    raise RuntimeError(
+                        "Canonical Shaft sample plans require Accelerate "
+                        "even_batches=False and split_batches=False."
+                    )
+            return prepared
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
 
@@ -83,10 +127,7 @@ class ShaftTrainSamplerMixin:
                 description="Training",
             )
 
-        should_fork = (
-            torch.backends.mps.is_available()
-            and self.args.dataloader_num_workers > 1
-        )
+        should_fork = torch.backends.mps.is_available() and self.args.dataloader_num_workers > 1
         dataloader_params: dict[str, Any] = {
             "batch_sampler": self.train_batch_sampler,
             "collate_fn": data_collator,
@@ -96,9 +137,7 @@ class ShaftTrainSamplerMixin:
             "multiprocessing_context": "fork" if should_fork else None,
             # Worker base seeds must not advance the model/dropout RNG when a
             # committed planning state resumes and recreates persistent workers.
-            "generator": torch.Generator().manual_seed(
-                int(self.args.data_seed or self.args.seed)
-            ),
+            "generator": torch.Generator().manual_seed(int(self.args.data_seed or self.args.seed)),
         }
         if not isinstance(train_dataset, IterableDataset):
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
@@ -129,23 +168,16 @@ class ShaftTrainSamplerMixin:
             return prepared
         world_size = int(self.train_batch_sampler.spec.data_world_size)
         if isinstance(prepared, DataLoaderDispatcher):
-            raise RuntimeError(
-                "Planned batches require dispatch_batches=False."
-            )
+            raise RuntimeError("Planned batches require dispatch_batches=False.")
         if world_size > 1 and not isinstance(batch_sampler, BatchSamplerShard):
-            raise RuntimeError(
-                "Distributed planned batches require Accelerate BatchSamplerShard."
-            )
+            raise RuntimeError("Distributed planned batches require Accelerate BatchSamplerShard.")
         if isinstance(batch_sampler, BatchSamplerShard):
             if bool(batch_sampler.even_batches) or bool(batch_sampler.split_batches):
                 raise RuntimeError(
-                    "Planned batches require Accelerate "
-                    "even_batches=False and split_batches=False."
+                    "Planned batches require Accelerate even_batches=False and split_batches=False."
                 )
             if int(batch_sampler.num_processes) != world_size:
-                raise RuntimeError(
-                    "Accelerate batch-shard world size differs from planning spec."
-                )
+                raise RuntimeError("Accelerate batch-shard world size differs from planning spec.")
         expected_local_batches = len(self.train_batch_sampler) // world_size
         if len(prepared) != expected_local_batches:
             raise RuntimeError(
@@ -154,13 +186,41 @@ class ShaftTrainSamplerMixin:
             )
         return prepared
 
+    def _run_epoch(
+        self,
+        model: Any,
+        epoch: int,
+        train_dataloader: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Set the canonical cycle before HF can add a resume skip wrapper.
+
+        ``DataLoaderShard.set_epoch`` only traverses a fixed number of nested
+        batch-sampler layers. Mid-epoch resume adds ``SkipBatchSampler`` and can
+        otherwise leave the underlying Shaft sampler on cycle zero. The sampler
+        is the state truth, so update it directly before delegating to HF.
+        """
+
+        train_sampler = getattr(self, "train_sampler", None)
+        if isinstance(
+            train_sampler,
+            (ShaftSampleSampler, ShaftGroupedSampleSampler),
+        ):
+            train_sampler.set_epoch(int(epoch))
+        return super()._run_epoch(
+            model,
+            epoch,
+            train_dataloader,
+            *args,
+            **kwargs,
+        )
+
     def _inner_training_loop(self, *args: Any, **kwargs: Any) -> Any:
         resume_from_checkpoint = kwargs.get("resume_from_checkpoint")
         if resume_from_checkpoint is None and len(args) >= 3:
             resume_from_checkpoint = args[2]
-        self._shaft_initial_global_step = self._checkpoint_global_step(
-            resume_from_checkpoint
-        )
+        self._shaft_initial_global_step = self._checkpoint_global_step(resume_from_checkpoint)
         if self._shaft_initial_global_step > 0:
             logger.info(
                 "[train-resume] global_step=%s/%s planning_cursor=restored",
@@ -203,9 +263,7 @@ class ShaftTrainSamplerMixin:
     def log(self, logs: dict[str, float], *args: Any, **kwargs: Any) -> None:
         efficiency_monitor = getattr(self, "efficiency_monitor", None)
         if efficiency_monitor is not None:
-            logs.update(
-                efficiency_monitor.report_pending(device=self.args.device)
-            )
+            logs.update(efficiency_monitor.report_pending(device=self.args.device))
         if self._is_planned_final_metrics(logs):
             self._correct_planned_final_metrics(logs)
             self._shaft_final_metrics_corrected = True
@@ -242,7 +300,17 @@ class ShaftTrainSamplerMixin:
         if not state_path.is_file():
             return 0
         try:
-            payload = json.loads(state_path.read_text(encoding="utf-8"))
-            return max(int(payload.get("global_step", 0)), 0)
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            return 0
+            payload = load_strict_json(state_path, role=f"trainer state {state_path}")
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"Cannot read trainer global_step from {state_path}.") from exc
+        payload = require_json_mapping(payload, role=f"trainer state {state_path}")
+        if "global_step" not in payload:
+            raise ValueError(f"Trainer state has no global_step: {state_path}.")
+        global_step = json_int(
+            payload,
+            "global_step",
+            role=f"trainer state {state_path}",
+        )
+        if global_step < 0:
+            raise ValueError(f"Trainer global_step must be >= 0: {state_path}.")
+        return global_step

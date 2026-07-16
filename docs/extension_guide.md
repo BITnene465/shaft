@@ -18,6 +18,7 @@
 - `src/shaft/model/resolution.py`（通常复用，不为新模型另写平行 resolver）
 - `src/shaft/template/<family>.py`
 - `src/shaft/model/policies.py`（如需新增 policy）
+- `src/shaft/model/inference.py` 与模型族专用 inference policy（若开放推理）
 - `src/shaft/model/registry.py`
 - `src/shaft/template/registry.py`
 
@@ -28,11 +29,13 @@
 3. 需要时补带稳定 `name` 与 `hf_model_types` 的 `ModelGroup`；dense/MoE 等 variant 必须由 HF config
    descriptor 选择，产品名只作 catalog hint
 4. 注册 `processor policy` / `peft policy`
-5. 实现模板
-6. 为真实 processor 输出实现并验证 batch 构造、rendered-token -> processed-token layout 与训练输入装配
-7. 若开放 varlen，实现 family-owned `SequenceExecutionPolicy`，同时验证 position reset、全/线性 attention
+5. 若开放推理，显式注册 family-owned `ShaftInferencePolicy`；未注册时保持 fail closed
+6. 实现模板
+7. 为真实 processor 输出实现并验证 batch 构造、rendered-token -> processed-token layout 与训练输入装配
+8. 若开放 varlen，实现 family-owned `SequenceExecutionPolicy`，同时验证 position reset、全/线性 attention
    state isolation、media kwargs 路由、backend/kernel/version 与 runtime shim；通用 trainer 不写模型分支
-8. 补模型、模板、descriptor variant、processor 契约和 packed-vs-standalone logits/loss/gradient 测试
+9. 补模型、模板、descriptor variant、processor/inference 契约和 packed-vs-standalone
+   logits/loss/gradient 测试
 
 `ResolvedModelPlan` 是 artifact/variant/adapter/sequence contract 的单一决议入口。新增模型族只能注册
 descriptor matcher 与 policy，不能在 pipeline、builder 或 loader 再按路径名推导 dense/MoE。matcher 必须
@@ -58,6 +61,13 @@ exact state-key 验证由通用 builder 统一处理。
 - policy 必须把 processor 的非 sequence 输出分别登记为 sample-aligned、whole-batch media 或 static；
   未声明字段会 fail fast。模型/processor 升级后新增输出时，应先确认其轴语义再更新 policy 和 DPO 测试。
 - pixel-budget 支持只由 `ProcessorPolicy` 声明；通用 policy 默认不假设 processor 接受该参数。
+- 新 processor policy 必须同时声明 `ProcessorInputPolicy`；训练输入和生成输入分别通过 `training`、
+  `generation` mode 请求 padding，不允许在 pipeline/collator/infer 中重新写裸 `padding_side`。
+- 推理 media/messages/chat-template kwargs/pixel-budget 语义必须由
+  `ModelMeta -> ShaftModelAdapter.inference_policy` 提供。通用 HF/vLLM adapter 不允许按 `model_type`
+  特判；只支持训练、尚未声明推理契约的模型应在任何图片编码或网络调用前 fail closed。
+- 新 inference policy 必须分别声明并测试本地/远端后端能力。自定义 infer adapter 还必须声明
+  deadline/cancellation capability；无法安全抢占的本地 generate 不得用后台线程伪造 timeout。
 - GRPO/rollout 若需要预缩放，也必须实现 `ProcessorPolicy.prepare_rollout_image()`；pipeline 只注入 callable，
   `GRPODataset` 不得按模型名选择 resize 逻辑。
 - 声明 `supports_exact_image_cost=true` 的 policy 必须让 `cost_semantics_signature()` 覆盖 estimator 读取的
@@ -150,7 +160,9 @@ exact state-key 验证由通用 builder 统一处理。
 
 ### 5.3 原则
 
-- 算法只构建 trainer，不读 JSONL
+- 算法只准备/构建 trainer，不读 JSONL。新增算法实现 `prepare_trainer()` 返回
+  `ShaftTrainerSpec`；pure-local validation/config/辅助模型准备在该阶段完成，pipeline 只在全 rank
+  readiness consensus 后、status envelope 外调用 `spec.build()`
 - 算法专属强类型配置优先放到 schema 中
 - 不要在算法层处理模型族模板细节
 
@@ -321,7 +333,34 @@ ShaftCodecResult(
 - `README.md`
 - `docs/README.md`
 
-## 13. 必跑测试
+## 13. 新增 hook / interceptor
+
+`hook()` 与 `interceptor()` 属于训练轨迹边界，不只是日志注册表。新增插件时必须先判断它是否会改变模型输入、
+loss、梯度、optimizer/scheduler、随机数状态、数据游标或 Trainer 控制流：
+
+- 纯观测插件必须在 decorator 上显式写 `trajectory_neutral=True`。该参数只接受真正的 Python `bool`，字符串
+  `"true"/"false"`、整数和 truthy 对象都会在注册时拒绝。
+- `trajectory_neutral=True` 是开发者对轨迹不变性的承诺，不是绕过校验的开关。插件只能读取事件并写日志、
+  metric 或外部 telemetry；不得修改传入对象、消费训练 RNG 或改变 callback control。
+- neutral observer 在某个 rank 的 `before_step`、`after_step` 或 `on_save` 抛错时，不在训练热路径增加全 rank
+  collective：本 rank 只记录一次 warning，并在本次 run 的后续所有事件中禁用该 observer。该降级同样适用于
+  FSDP/DeepSpeed 的 backend-native `on_save` callback。未声明 neutral 的 hook 仍 fail fast，不会被静默吞掉。
+- 未声明 neutral 或声明为 `False` 的插件，在 SFT/DPO/GRPO 开启 checkpoint 或 exact resume 时 fail
+  closed。neutral observer 可以维护可重置的 telemetry counter/cache；这些状态不进入 checkpoint，也不得
+  反向影响训练轨迹。当前框架尚未提供 trajectory-affecting plugin `state_dict/load_state_dict` 的版本化恢复协议。
+- pipeline 必须把 manager 中的实际插件实例交给 `ShaftTrainingResumeContract`，不能根据配置名重新实例化一份
+  仅用于 fingerprint 的对象。插件顺序、实现、closure/声明状态与 neutral marker 都属于 contract。
+- SFT/RLHF pipeline 的 `before` interceptor 是独立的 rank-local readiness 阶段：所有 rank 成功后才会进入
+  collective-owning pipeline body。插件不得在 `before` 中自行调用 distributed collective，也不得给零参数
+  pipeline 注入 `args/kwargs`；rank-local 异常会由该阶段收敛到所有 rank。`after` 只在 target 成功返回后执行。
+
+最低测试责任：decorator 类型反例、manager 到 resume contract 的真实装配、实现/顺序漂移，以及 checkpoint
+模式下缺失 neutral marker/non-neutral 插件拒绝。pipeline-level interceptor 还必须用 CPU/Gloo 两 rank 注入单
+rank `before` 失败，证明 peer 不进入后续 collective。neutral Trainer hook 则必须注入单 rank observer 异常，
+覆盖 `before_step`、`after_step` 和 backend-native `on_save`，证明 peer 仍能进入后续 collective 且 observer
+只告警一次。仅测试 registry 中存在某个名字不够。
+
+## 14. 必跑测试
 
 ### 新模型族
 
@@ -366,7 +405,7 @@ ShaftCodecResult(
 - `tests/test_export_cli.py`
 - 必要时加 checkpoint 兼容测试
 
-## 14. 功能完成后的全局收口
+## 15. 功能完成后的全局收口
 
 - 一个 feature 基本完成后，不要直接提交。
 - 先做一次“项目级别的收口 review”，重点看：

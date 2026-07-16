@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
+import random
 from types import SimpleNamespace
 import warnings
 
+import numpy as np
 import pytest
 import torch
+from accelerate.data_loader import skip_first_batches
+from torch.utils.data import DataLoader
 
+from shaft.algorithms import ShaftTrainerSpec
+from shaft.algorithms.base import model_topology_signature, trainer_spec_contract
 from shaft.algorithms.grpo_rewards import build_grpo_reward_functions
 from shaft.algorithms.rlhf_utils import (
     build_ppo_value_and_reward_models,
@@ -13,21 +20,216 @@ from shaft.algorithms.rlhf_utils import (
     build_trl_grpo_config,
     build_trl_ppo_config,
     resolve_grpo_grouped_sample_contract,
+    resolve_grpo_checkpoint_step_cadence,
+    validate_grpo_checkpoint_cadence,
+    validate_grpo_rollout_checkpointability,
+    validate_grpo_vllm_runtime_compatibility,
     validate_ppo_runtime_requirements,
 )
+from shaft.algorithms import rlhf_utils as rlhf_utils_module
 from shaft.config import DPOConfig as ShaftDPOConfig
 from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.config import GRPORewardConfig
 from shaft.config import GRPORolloutConfig, GRPOVLLMConfig
+from shaft.config import TrainConfig
 from shaft.data import ShaftGroupedSampleContract, ShaftGroupedSampleSampler, ShaftSamplePlan
 from shaft.model import build_model_meta
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
+from shaft.training import trl_trainers as trl_trainer_module
+from shaft.training.checkpointing import ShaftCheckpointCommitMixin
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
 
 
 pytestmark = pytest.mark.component
+
+
+def _trainer_constructor_helper_v1(instance) -> None:
+    instance.marker = 1
+
+
+def _trainer_constructor_helper_v2(instance) -> None:
+    instance.marker = 2
+
+
+_TRAINER_CONSTRUCTOR_HELPER = _trainer_constructor_helper_v1
+
+
+def test_trainer_spec_defers_the_constructor_boundary() -> None:
+    constructor_calls: list[int] = []
+
+    class _Trainer:
+        def __init__(self, *, value: int) -> None:
+            constructor_calls.append(value)
+
+    spec = ShaftTrainerSpec(
+        trainer_cls=_Trainer,
+        kwargs={"value": 7},
+        contract={"version": 1, "algorithm": "test"},
+    )
+
+    assert constructor_calls == []
+    assert spec.implementation["type"].endswith("._Trainer")
+    assert len(spec.implementation["semantic_sha256"]) == 64
+    assert len(spec.fingerprint) == 64
+    trainer = spec.build()
+    assert isinstance(trainer, _Trainer)
+    assert constructor_calls == [7]
+
+
+def test_trainer_spec_fingerprint_binds_same_name_constructor_implementation() -> None:
+    def _trainer_cls(marker: int):
+        class _Trainer:
+            def __init__(self) -> None:
+                self.marker = marker
+
+        return _Trainer
+
+    first = ShaftTrainerSpec(
+        trainer_cls=_trainer_cls(1),
+        kwargs={},
+        contract={"version": 1, "algorithm": "test"},
+    )
+    second = ShaftTrainerSpec(
+        trainer_cls=_trainer_cls(2),
+        kwargs={},
+        contract={"version": 1, "algorithm": "test"},
+    )
+
+    assert first.implementation["type"] == second.implementation["type"]
+    assert (
+        first.implementation["semantic_sha256"]
+        != second.implementation["semantic_sha256"]
+    )
+    assert first.fingerprint != second.fingerprint
+
+
+def test_trainer_spec_fingerprint_binds_live_constructor_global_helper(monkeypatch) -> None:
+    class _Trainer:
+        def __init__(self) -> None:
+            _TRAINER_CONSTRUCTOR_HELPER(self)
+
+    original = ShaftTrainerSpec(
+        trainer_cls=_Trainer,
+        kwargs={},
+        contract={"version": 1, "algorithm": "test"},
+    )
+    original_fingerprint = original.fingerprint
+    monkeypatch.setattr(
+        "tests.test_rlhf_utils._TRAINER_CONSTRUCTOR_HELPER",
+        _trainer_constructor_helper_v2,
+    )
+    changed = ShaftTrainerSpec(
+        trainer_cls=_Trainer,
+        kwargs={},
+        contract={"version": 1, "algorithm": "test"},
+    )
+
+    assert original.implementation["type"] == changed.implementation["type"]
+    assert original_fingerprint != changed.fingerprint
+
+
+def test_trainer_spec_contract_excludes_rank_local_args() -> None:
+    class _Args:
+        def __init__(self, *, local_rank: int, learning_rate: float) -> None:
+            self.local_rank = local_rank
+            self.learning_rate = learning_rate
+
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "local_rank": self.local_rank,
+                "process_index": self.local_rank,
+                "device": f"cuda:{self.local_rank}",
+                "learning_rate": self.learning_rate,
+                "per_device_train_batch_size": 1,
+            }
+
+    train_config = TrainConfig()
+    rank_zero = trainer_spec_contract(
+        algorithm="ppo",
+        args=_Args(local_rank=0, learning_rate=1e-5),
+        train_config=train_config,
+    )
+    rank_one = trainer_spec_contract(
+        algorithm="ppo",
+        args=_Args(local_rank=1, learning_rate=1e-5),
+        train_config=train_config,
+    )
+    changed_learning_rate = trainer_spec_contract(
+        algorithm="ppo",
+        args=_Args(local_rank=1, learning_rate=2e-5),
+        train_config=train_config,
+    )
+
+    assert rank_zero == rank_one
+    assert rank_zero != changed_learning_rate
+
+
+def test_model_topology_signature_ignores_values_but_binds_trainable_shape() -> None:
+    class _Graph(torch.nn.Module):
+        def __init__(self, *, with_activation: bool) -> None:
+            super().__init__()
+            self.projection = torch.nn.Linear(3, 2, bias=True)
+            if with_activation:
+                self.activation = torch.nn.ReLU()
+
+    first = torch.nn.Linear(3, 2, bias=True)
+    second = torch.nn.Linear(3, 2, bias=True)
+    with torch.no_grad():
+        first.weight.fill_(1.0)
+        second.weight.fill_(9.0)
+
+    first_signature = model_topology_signature(first)
+    assert first_signature == model_topology_signature(second)
+
+    second.weight.requires_grad_(False)
+    assert first_signature != model_topology_signature(second)
+    assert first_signature != model_topology_signature(torch.nn.Linear(4, 2, bias=True))
+    assert model_topology_signature(_Graph(with_activation=False)) != model_topology_signature(
+        _Graph(with_activation=True)
+    )
+
+
+@pytest.mark.parametrize(
+    ("trainer_cls", "base_cls"),
+    [
+        (ShaftDPOTrainer, trl_trainer_module._TRLDPOTrainer),
+        (ShaftGRPOTrainer, trl_trainer_module._TRLGRPOTrainer),
+    ],
+)
+def test_exact_resumable_rlhf_eval_preserves_training_rng(
+    trainer_cls,
+    base_cls,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = object.__new__(trainer_cls)
+    trainer.is_in_train = True
+    trainer.eval_dataset = []
+    if trainer_cls is ShaftDPOTrainer:
+        trainer.eval_config = None
+    else:
+        trainer.online_eval_runner = None
+
+    def _consume_rng(self, *args, **kwargs):
+        _ = self, args, kwargs
+        random.random()
+        np.random.random()
+        torch.rand(())
+        return {"eval_loss": 0.0}
+
+    monkeypatch.setattr(base_cls, "evaluate", _consume_rng)
+    random.seed(29)
+    np.random.seed(29)
+    torch.manual_seed(29)
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+
+    assert trainer.evaluate(eval_dataset=[]) == {"eval_loss": 0.0}
+    assert random.getstate() == python_state
+    assert np.array_equal(np.random.get_state()[1], numpy_state[1])
+    assert torch.equal(torch.random.get_rng_state(), torch_state)
 
 
 def test_grpo_trainer_uses_epoch_resumable_grouped_sample_refs() -> None:
@@ -59,6 +261,441 @@ def test_grpo_trainer_uses_epoch_resumable_grouped_sample_refs() -> None:
 
     assert isinstance(sampler, ShaftGroupedSampleSampler)
     assert {ref.context.plan_cycle for ref in sampler} == {2}
+
+
+def test_grpo_checkpoint_cadence_rejects_mid_generation_save_and_resume(
+    tmp_path,
+) -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=1,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="steps",
+        save_steps=1,
+        max_steps=4,
+        num_train_epochs=1.0,
+        use_vllm=False,
+    )
+
+    assert resolve_grpo_checkpoint_step_cadence(args) == 2
+    with pytest.raises(ValueError, match="save_steps=1"):
+        validate_grpo_checkpoint_cadence(args, epoch_microsteps=4)
+
+    args.save_steps = 2
+    validate_grpo_checkpoint_cadence(args, epoch_microsteps=4)
+
+    checkpoint = tmp_path / "checkpoint-1"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 1}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="generation-reuse cycle"):
+        validate_grpo_checkpoint_cadence(
+            args,
+            epoch_microsteps=4,
+            resume_checkpoint=checkpoint,
+        )
+
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 2}',
+        encoding="utf-8",
+    )
+    validate_grpo_checkpoint_cadence(
+        args,
+        epoch_microsteps=4,
+        resume_checkpoint=checkpoint,
+    )
+
+
+@pytest.mark.parametrize("global_step", [True, "2"])
+def test_grpo_checkpoint_cadence_rejects_noncanonical_global_step(
+    tmp_path,
+    global_step: object,
+) -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=1,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="no",
+    )
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": global_step}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TypeError, match=r"global_step must be a JSON integer"):
+        validate_grpo_checkpoint_cadence(
+            args,
+            epoch_microsteps=4,
+            resume_checkpoint=checkpoint,
+        )
+
+
+@pytest.mark.parametrize(
+    "trainer_state",
+    [
+        '{"global_step": 2, "global_step": 4}',
+        '{"global_step": NaN}',
+        '{"global_step": Infinity}',
+    ],
+)
+def test_grpo_checkpoint_cadence_rejects_ambiguous_json(
+    tmp_path,
+    trainer_state: str,
+) -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=1,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="no",
+    )
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        trainer_state,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="readable trainer_state|duplicate|non-finite"):
+        validate_grpo_checkpoint_cadence(
+            args,
+            epoch_microsteps=4,
+            resume_checkpoint=checkpoint,
+        )
+
+
+def test_grpo_checkpoint_cadence_accounts_for_gradient_accumulation() -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=2,
+        steps_per_generation=3,
+        num_iterations=2,
+        save_strategy="no",
+        save_steps=1,
+    )
+
+    # Generate every six local training steps; two microsteps are consumed by
+    # each optimizer step, so only every third checkpoint is exactly resumable.
+    assert resolve_grpo_checkpoint_step_cadence(args) == 3
+    validate_grpo_checkpoint_cadence(args)
+
+
+def test_grpo_checkpoint_cadence_proves_epoch_save_boundary() -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=1,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="epoch",
+        save_steps=1,
+        max_steps=-1,
+        num_train_epochs=1.0,
+        use_vllm=False,
+    )
+
+    # A complete grouped epoch always contains a whole number of generation
+    # reuse cycles, even when not every optimizer boundary is safe.
+    validate_grpo_checkpoint_cadence(args, epoch_microsteps=4)
+
+    # A step-bounded run can stop and trigger its epoch save inside the first
+    # grouped epoch; that partial boundary must still be rejected.
+    args.max_steps = 1
+    with pytest.raises(ValueError, match="partial epoch.*generation-reuse cycle"):
+        validate_grpo_checkpoint_cadence(args, epoch_microsteps=4)
+
+
+def test_grpo_checkpoint_cadence_accounts_for_short_epoch_accumulation() -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=2,
+        steps_per_generation=3,
+        num_iterations=1,
+        save_strategy="steps",
+        save_steps=3,
+        max_steps=4,
+        num_train_epochs=1.0,
+        use_vllm=False,
+    )
+
+    # Epoch 0 consumes three microsteps in two optimizer updates. At global
+    # step 3, epoch 1 has consumed two more microsteps: 5 % 3 == 2. The old
+    # global_step * GA formula incorrectly accepted this checkpoint.
+    with pytest.raises(ValueError, match="global_step=3.*microstep=5.*phase=2"):
+        validate_grpo_checkpoint_cadence(args, epoch_microsteps=3)
+
+
+def test_grpo_checkpoint_cadence_checks_later_save_targets_across_epochs() -> None:
+    args = SimpleNamespace(
+        gradient_accumulation_steps=3,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="steps",
+        save_steps=2,
+        max_steps=4,
+        num_train_epochs=1.0,
+        use_vllm=False,
+    )
+
+    # Eight microsteps form three optimizer updates per epoch. The first save
+    # target is safe at microstep 6, but the second crosses the shortened epoch
+    # tail and lands at microstep 11, inside the next two-step rollout cycle.
+    with pytest.raises(ValueError, match="global_step=4.*microstep=11.*phase=1"):
+        validate_grpo_checkpoint_cadence(args, epoch_microsteps=8)
+
+
+def test_grpo_vllm_sampled_rollout_rejects_checkpoint_and_resume() -> None:
+    args = SimpleNamespace(use_vllm=True, save_strategy="steps")
+    with pytest.raises(ValueError, match="vLLM.*RNG state"):
+        validate_grpo_rollout_checkpointability(args)
+
+    args.save_strategy = "no"
+    validate_grpo_rollout_checkpointability(args)
+    with pytest.raises(ValueError, match="vLLM.*RNG state"):
+        validate_grpo_rollout_checkpointability(args, resume_requested=True)
+
+
+def _patch_grpo_dependency_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    requirements: list[str] | None,
+    trl_version: str = "0.29.1",
+    vllm_version: str | None = "0.12.1",
+) -> None:
+    monkeypatch.setattr(
+        rlhf_utils_module.metadata,
+        "requires",
+        lambda distribution: requirements if distribution == "trl" else None,
+    )
+
+    def resolve_version(distribution: str) -> str:
+        if distribution == "trl":
+            return trl_version
+        if distribution == "vllm" and vllm_version is not None:
+            return vllm_version
+        raise rlhf_utils_module.metadata.PackageNotFoundError(distribution)
+
+    monkeypatch.setattr(rlhf_utils_module.metadata, "version", resolve_version)
+
+
+def test_grpo_vllm_compatibility_bypasses_metadata_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        rlhf_utils_module.metadata,
+        "requires",
+        lambda _distribution: pytest.fail("disabled vLLM should not inspect metadata"),
+    )
+    monkeypatch.setattr(
+        rlhf_utils_module.metadata,
+        "version",
+        lambda _distribution: pytest.fail("disabled vLLM should not inspect versions"),
+    )
+
+    validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=False))
+
+
+def test_grpo_vllm_compatibility_rejects_non_boolean_enable_flag() -> None:
+    with pytest.raises(ValueError, match=r"use_vllm must be a boolean.*'false'"):
+        validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm="false"))
+
+
+def test_grpo_vllm_compatibility_accepts_trl_extra_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_grpo_dependency_metadata(
+        monkeypatch,
+        requirements=['vllm<0.13.0,>=0.10.2; extra == "vllm"'],
+    )
+
+    validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=True))
+
+
+def test_grpo_vllm_compatibility_respects_active_platform_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_grpo_dependency_metadata(
+        monkeypatch,
+        requirements=[
+            ('vllm<0.13.0,>=0.10.2; python_version >= "3.0" and extra == "vllm"'),
+            ('vllm<0.9; python_version < "3.0" and extra == "vllm"'),
+        ],
+    )
+
+    validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=True))
+
+
+@pytest.mark.parametrize(
+    ("requirements", "expected_spec"),
+    [
+        (None, "<missing>"),
+        (["requests; extra == 'vllm'"], "<missing>"),
+        (["vllm; extra == 'vllm'"], "<ambiguous:<missing>>"),
+        (
+            [
+                "vllm<0.13; extra == 'vllm'",
+                "vllm>=0.10; extra == 'vllm'",
+            ],
+            "<ambiguous:<0.13,>=0.10>",
+        ),
+    ],
+)
+def test_grpo_vllm_compatibility_rejects_missing_or_ambiguous_spec(
+    monkeypatch: pytest.MonkeyPatch,
+    requirements: list[str] | None,
+    expected_spec: str,
+) -> None:
+    _patch_grpo_dependency_metadata(monkeypatch, requirements=requirements)
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=True))
+
+    message = str(exc_info.value)
+    assert "trl_version=0.29.1" in message
+    assert f"required_vllm_spec={expected_spec}" in message
+    assert "installed_vllm_version=0.12.1" in message
+
+
+def test_grpo_vllm_compatibility_rejects_malformed_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_requirement = "vllm>=???; extra == 'vllm'"
+    _patch_grpo_dependency_metadata(
+        monkeypatch,
+        requirements=[raw_requirement],
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=True))
+
+    message = str(exc_info.value)
+    assert "required_vllm_spec=<malformed:" in message
+    assert "installed_vllm_version=0.12.1" in message
+
+
+@pytest.mark.parametrize(
+    ("vllm_version", "expected_reason"),
+    [
+        (None, "not installed"),
+        ("not-a-version", "malformed version"),
+        ("0.19.1", "compatibility window"),
+    ],
+)
+def test_grpo_vllm_compatibility_rejects_invalid_runtime_version(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_version: str | None,
+    expected_reason: str,
+) -> None:
+    _patch_grpo_dependency_metadata(
+        monkeypatch,
+        requirements=['vllm<0.13.0,>=0.10.2; extra == "vllm"'],
+        vllm_version=vllm_version,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_grpo_vllm_runtime_compatibility(SimpleNamespace(use_vllm=True))
+
+    message = str(exc_info.value)
+    assert expected_reason in message
+    assert "required_vllm_spec=<0.13.0,>=0.10.2" in message
+    assert f"installed_vllm_version={vllm_version or '<missing>'}" in message
+
+
+def test_grpo_boundary_resume_matches_next_generation_batch(tmp_path) -> None:
+    plan = ShaftSamplePlan(
+        {"ds": 4},
+        {"ds": 1.0},
+        strategy="concat",
+        shuffle=False,
+        seed=3,
+    )
+    contract = ShaftGroupedSampleContract(
+        mini_repeat_count=2,
+        batch_size=1,
+        iteration_count=1,
+        steps_per_iteration=2,
+    )
+
+    class _RefDataset:
+        def __len__(self):
+            return len(plan)
+
+        def __getitem__(self, ref):
+            return ref
+
+    def build_loader(sampler):
+        return DataLoader(
+            _RefDataset(),
+            batch_size=2,
+            sampler=sampler,
+            collate_fn=lambda refs: {
+                "draw_ids": torch.tensor(
+                    [ref.context.draw_id for ref in refs],
+                    dtype=torch.long,
+                ),
+                "plan_cycles": tuple(ref.context.plan_cycle for ref in refs),
+            },
+        )
+
+    def build_trainer(generation_calls):
+        trainer = object.__new__(ShaftGRPOTrainer)
+        trainer.model = SimpleNamespace(training=True)
+        trainer.args = SimpleNamespace(steps_per_generation=2)
+        trainer.num_iterations = 1
+        trainer._step = 0
+        trainer._buffered_inputs = None
+
+        def generate(batch):
+            generation_calls.append(
+                (tuple(batch["draw_ids"].tolist()), tuple(batch["plan_cycles"]))
+            )
+            return {"x": batch["draw_ids"].clone()}
+
+        trainer._generate_and_score_completions = generate
+        return trainer
+
+    prepare_inputs = ShaftGRPOTrainer._prepare_inputs.__wrapped__
+    uninterrupted_calls = []
+    uninterrupted_trainer = build_trainer(uninterrupted_calls)
+    uninterrupted_iterator = iter(build_loader(ShaftGroupedSampleSampler(plan, contract=contract)))
+    _ = prepare_inputs(uninterrupted_trainer, next(uninterrupted_iterator))
+    uninterrupted_trainer._step += 1
+    _ = prepare_inputs(uninterrupted_trainer, next(uninterrupted_iterator))
+    uninterrupted_trainer._step += 1
+    checkpoint_rng = torch.get_rng_state().clone()
+    uninterrupted_next = prepare_inputs(
+        uninterrupted_trainer,
+        next(uninterrupted_iterator),
+    )
+
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 2}',
+        encoding="utf-8",
+    )
+    cadence_args = SimpleNamespace(
+        gradient_accumulation_steps=1,
+        steps_per_generation=2,
+        num_iterations=1,
+        save_strategy="no",
+        save_steps=1,
+    )
+    validate_grpo_checkpoint_cadence(
+        cadence_args,
+        epoch_microsteps=8,
+        resume_checkpoint=checkpoint,
+    )
+
+    resumed_calls = []
+    resumed_trainer = build_trainer(resumed_calls)
+    resumed_sampler = ShaftGroupedSampleSampler(plan, contract=contract)
+    resumed_loader = skip_first_batches(build_loader(resumed_sampler), 2)
+    resumed_sampler.set_epoch(0)
+    torch.set_rng_state(checkpoint_rng)
+    resumed_next = prepare_inputs(resumed_trainer, next(iter(resumed_loader)))
+
+    assert uninterrupted_calls[-1] == resumed_calls[0] == ((1, 1), (0, 0))
+    assert torch.equal(uninterrupted_next["x"], resumed_next["x"])
 
 
 def test_build_trl_dpo_config_from_training_args() -> None:
@@ -211,6 +848,14 @@ def test_shaft_rlhf_trainer_classes_are_importable() -> None:
     assert isinstance(ShaftDPOTrainer, type)
     assert isinstance(ShaftPPOTrainer, type)
     assert isinstance(ShaftGRPOTrainer, type)
+    assert ShaftDPOTrainer.requires_equal_rank_train_batch_cardinality is True
+    assert ShaftGRPOTrainer.requires_equal_rank_train_batch_cardinality is False
+
+
+def test_dpo_and_grpo_share_checkpoint_commit_protocol_but_ppo_does_not() -> None:
+    assert issubclass(ShaftDPOTrainer, ShaftCheckpointCommitMixin)
+    assert issubclass(ShaftGRPOTrainer, ShaftCheckpointCommitMixin)
+    assert not issubclass(ShaftPPOTrainer, ShaftCheckpointCommitMixin)
 
 
 def test_build_grpo_reward_functions_supports_exact_match_and_parse_success() -> None:

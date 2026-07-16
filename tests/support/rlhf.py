@@ -51,6 +51,7 @@ data:
       train_path: {train_jsonl}
       val_path: {val_jsonl}
   num_workers: 0
+  media_snapshot_id: smoke-dpo-fixture-v1
   persistent_workers: false
   pin_memory: false
   min_pixels:
@@ -123,6 +124,7 @@ data:
       train_path: {train_jsonl}
       val_path: {val_jsonl}
   num_workers: 0
+  media_snapshot_id: smoke-ppo-fixture-v1
   persistent_workers: false
   pin_memory: false
   min_pixels:
@@ -163,17 +165,32 @@ rlhf:
     return cfg
 
 
-def write_grpo_config(base_dir: Path) -> Path:
+def write_grpo_config(base_dir: Path, *, sample_count: int = 1) -> Path:
+    if sample_count <= 0:
+        raise ValueError("sample_count must be > 0.")
     image_path = write_common_image(base_dir)
     train_jsonl = base_dir / "train_grpo.jsonl"
     val_jsonl = base_dir / "val_grpo.jsonl"
-    row = {
-        "image_path": str(image_path),
-        "target_text": "{\"ok\":1}",
-        "user_prompt": "return json",
-    }
-    train_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
-    val_jsonl.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    rows = [
+        {
+            "image_path": str(image_path),
+            "target_text": json.dumps({"ok": index + 1}, ensure_ascii=False),
+            "user_prompt": (
+                "return json"
+                if sample_count == 1
+                else f"return json sample {index}"
+            ),
+        }
+        for index in range(sample_count)
+    ]
+    train_jsonl.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    val_jsonl.write_text(
+        json.dumps(rows[0], ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     cfg = base_dir / "config_grpo.yaml"
     cfg.write_text(
         f"""
@@ -201,6 +218,7 @@ data:
       train_path: {train_jsonl}
       val_path: {val_jsonl}
   num_workers: 0
+  media_snapshot_id: smoke-grpo-fixture-v1
   persistent_workers: false
   pin_memory: false
   min_pixels:

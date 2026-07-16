@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import inspect
+import logging
+from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 from transformers import TrainerCallback
@@ -11,7 +13,11 @@ HookFn = Callable[[dict[str, Any]], None]
 HOOK_EVENTS = {"before_batch", "after_batch", "before_step", "after_step", "on_save"}
 HOOK_REGISTRY: Registry[Callable[[], "Hook"] | "Hook"] = Registry("hook")
 
+logger = logging.getLogger(__name__)
+
 class Hook(Protocol):
+    shaft_trajectory_neutral: bool
+
     def before_batch(self, state: dict[str, Any]) -> None: ...
 
     def after_batch(self, state: dict[str, Any]) -> None: ...
@@ -26,6 +32,7 @@ class Hook(Protocol):
 @dataclass
 class FunctionHook:
     name: str
+    shaft_trajectory_neutral: bool = False
     before_batch_fn: HookFn | None = None
     after_batch_fn: HookFn | None = None
     before_step_fn: HookFn | None = None
@@ -53,7 +60,14 @@ class FunctionHook:
             self.on_save_fn(state)
 
 
-def hook(event: str, *, name: str | None = None):
+def hook(
+    event: str,
+    *,
+    name: str | None = None,
+    trajectory_neutral: bool = False,
+):
+    if type(trajectory_neutral) is not bool:
+        raise TypeError("hook trajectory_neutral must be a boolean.")
     normalized_event = str(event).strip().lower()
     if normalized_event not in HOOK_EVENTS:
         allowed = ", ".join(sorted(HOOK_EVENTS))
@@ -66,7 +80,11 @@ def hook(event: str, *, name: str | None = None):
 
         def _builder() -> Hook:
             kwargs = {f"{normalized_event}_fn": fn}
-            return FunctionHook(name=hook_name, **kwargs)
+            return FunctionHook(
+                name=hook_name,
+                shaft_trajectory_neutral=trajectory_neutral,
+                **kwargs,
+            )
 
         HOOK_REGISTRY.register(hook_name, _builder)
         return fn
@@ -77,12 +95,52 @@ def hook(event: str, *, name: str | None = None):
 @dataclass
 class HookManager:
     hooks: list[Hook]
+    _disabled_neutral_hook_ids: set[int] = field(
+        default_factory=set,
+        init=False,
+        repr=False,
+    )
+
+    @staticmethod
+    def _hook_label(hook: Hook) -> str:
+        name = inspect.getattr_static(hook, "name", None)
+        if type(name) is str and name.strip():
+            return name.strip()
+        return f"{type(hook).__module__}.{type(hook).__qualname__}"
 
     def _emit(self, fn_name: str, state: dict[str, Any]) -> None:
         for hook in self.hooks:
-            fn = getattr(hook, fn_name, None)
-            if callable(fn):
-                fn(state)
+            hook_id = id(hook)
+            if hook_id in self._disabled_neutral_hook_ids:
+                continue
+            try:
+                fn = getattr(hook, fn_name, None)
+                if callable(fn):
+                    fn(state)
+            except Exception as exc:
+                # A trajectory-neutral observer may degrade independently on
+                # each rank: it cannot alter training state by contract, and
+                # synchronizing every step just to report telemetry failures
+                # would add a collective to the hot path. Disable the failed
+                # observer locally and warn exactly once. Trajectory-affecting
+                # hooks retain fail-fast semantics. Use static lookup so a
+                # dynamic property cannot forge neutrality while handling an
+                # observer failure.
+                neutral = inspect.getattr_static(
+                    hook,
+                    "shaft_trajectory_neutral",
+                    None,
+                )
+                if neutral is not True:
+                    raise
+                self._disabled_neutral_hook_ids.add(hook_id)
+                logger.warning(
+                    "[plugin-disabled] trajectory-neutral hook %s failed during %s; "
+                    "this rank will continue without that observer: %s",
+                    self._hook_label(hook),
+                    fn_name,
+                    str(exc) or type(exc).__name__,
+                )
 
     def before_batch(self, state: dict[str, Any]) -> None:
         self._emit("before_batch", state)

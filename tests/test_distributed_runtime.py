@@ -145,6 +145,40 @@ def test_barrier_if_distributed_passes_nccl_device_ids(monkeypatch) -> None:
     assert _FakeDist.barrier_kwargs == {"device_ids": [1]}
 
 
+def test_process_group_honors_explicit_cpu_intent_when_cuda_is_visible(monkeypatch) -> None:
+    class _FakeDist:
+        backend = None
+
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def is_initialized() -> bool:
+            return False
+
+        @classmethod
+        def init_process_group(cls, *, backend: str) -> None:
+            cls.backend = backend
+
+    def _unexpected_set_device(_local_rank: int) -> None:
+        raise AssertionError("An explicit CPU run must not select a CUDA device.")
+
+    monkeypatch.setattr(distributed_utils, "dist", _FakeDist)
+    monkeypatch.setattr(distributed_utils, "get_world_size", lambda: 2)
+    monkeypatch.setattr(distributed_utils.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(distributed_utils.torch.cuda, "set_device", _unexpected_set_device)
+
+    distributed_utils.initialize_process_group_if_needed(use_cpu=True)
+
+    assert _FakeDist.backend == "gloo"
+
+
+def test_process_group_rejects_truthy_non_boolean_cpu_intent() -> None:
+    with pytest.raises(TypeError, match="use_cpu intent must be a boolean"):
+        distributed_utils.initialize_process_group_if_needed(use_cpu="false")  # type: ignore[arg-type]
+
+
 def test_destroy_process_group_if_initialized_calls_dist_destroy(monkeypatch) -> None:
     class _FakeDist:
         destroyed = False

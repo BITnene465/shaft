@@ -65,6 +65,63 @@ class ShaftSampleSampler(Sampler[ShaftSampleRef]):
     def set_epoch(self, epoch: int) -> None:
         self.plan_cycle = int(epoch)
 
+    def validate_epoch_sharding(
+        self,
+        *,
+        per_device_batch_size: int,
+        data_world_size: int,
+        dataloader_drop_last: bool,
+        require_equal_rank_batch_cardinality: bool = False,
+    ) -> int:
+        """Validate that rank sharding can preserve the canonical epoch exactly.
+
+        Accelerate's default ``even_batches=True`` repeats samples from the start
+        when the number of local batches is not divisible by the data world size.
+        Shaft disables that padding for canonical sample plans, so an unequal
+        number of rank-local steps would instead deadlock DDP. Reject only that
+        geometry; a smaller final local batch is valid when every rank still owns
+        the same number of steps.
+        """
+
+        batch_size = int(per_device_batch_size)
+        world_size = int(data_world_size)
+        self.plan.validate_data_world_size(world_size)
+        if batch_size <= 0 or world_size <= 0:
+            raise ValueError("Epoch sharding batch size and world size must be > 0.")
+        sample_count = len(self.plan)
+        if bool(dataloader_drop_last):
+            if sample_count % batch_size != 0:
+                raise ValueError(
+                    "Shaft canonical sample plans cannot use dataloader_drop_last=True "
+                    "when an incomplete local batch would be silently discarded."
+                )
+            local_batch_count = sample_count // batch_size
+        else:
+            local_batch_count = int(math.ceil(sample_count / batch_size))
+        if local_batch_count % world_size != 0:
+            raise ValueError(
+                "Canonical epoch sharding would produce unequal per-rank train step "
+                "counts without repeating or dropping samples: "
+                f"samples={sample_count}, per_device_batch_size={batch_size}, "
+                f"world_size={world_size}, local_batches={local_batch_count}. "
+                "Use train.duration.unit='steps' or choose an epoch dataset/batch "
+                "geometry whose local batch count is divisible by world_size."
+            )
+        if (
+            bool(require_equal_rank_batch_cardinality)
+            and world_size > 1
+            and sample_count % (batch_size * world_size) != 0
+        ):
+            raise ValueError(
+                "This training algorithm requires equal rank-local batch cardinality "
+                "at every synchronized step, but the canonical epoch has a partial "
+                "global tail: "
+                f"samples={sample_count}, per_device_batch_size={batch_size}, "
+                f"world_size={world_size}. Use train.duration.unit='steps' or align "
+                "the epoch sample count to per_device_batch_size * world_size."
+            )
+        return local_batch_count // world_size
+
 
 class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
     """Yield globally planned batches for Accelerate rank sharding.
@@ -93,6 +150,7 @@ class ShaftPlannedBatchSampler(Sampler[list[ShaftPlannedSampleRef]]):
         self.spec = spec
         self.global_microstep_count = int(global_microstep_count)
         self.planning_frame_size = int(planning_frame_size)
+        self.schedule.validate_data_world_size(int(spec.data_world_size))
         if self.global_microstep_count <= 0:
             raise ValueError("global_microstep_count must be > 0.")
         if self.planning_frame_size <= 0:
@@ -381,6 +439,89 @@ class ShaftGroupedSampleContract:
     def repeat_count(self) -> int:
         return self.iteration_count * self.steps_per_iteration
 
+    def finite_sample_plan_size(
+        self,
+        *,
+        max_steps: int,
+        gradient_accumulation_steps: int,
+    ) -> int | None:
+        """Resolve unique samples needed by a step-bounded grouped stream.
+
+        ``max_steps`` counts optimizer updates, while the grouped sampler consumes
+        one repeated generation group for ``repeat_count`` train microsteps.  The
+        canonical plan therefore owns unique prompts, not the expanded samples
+        seen by the dataloader.
+        """
+
+        optimizer_steps = int(max_steps)
+        if optimizer_steps < 0:
+            return None
+        accumulation_steps = int(gradient_accumulation_steps)
+        if accumulation_steps <= 0:
+            raise ValueError("gradient_accumulation_steps must be > 0.")
+        required_microsteps = optimizer_steps * accumulation_steps
+        generation_group_count = math.ceil(required_microsteps / self.repeat_count)
+        return generation_group_count * self.batch_size
+
+    def validate_plan_size(self, sample_count: int) -> None:
+        sample_count = int(sample_count)
+        if sample_count <= 0:
+            raise ValueError("GRPO canonical sample plan must not be empty.")
+        if sample_count % self.batch_size != 0:
+            raise ValueError(
+                "GRPO canonical sample plan must contain complete grouped batches; "
+                "refusing to silently discard the epoch remainder: "
+                f"samples={sample_count}, unique_prompts_per_group={self.batch_size}. "
+                "Use train.duration.unit='steps' or align the epoch sample count."
+            )
+
+    def validate_epoch_sharding(
+        self,
+        *,
+        sample_count: int,
+        per_device_generation_batch_size: int,
+        data_world_size: int,
+        dataloader_drop_last: bool,
+    ) -> int:
+        """Return the proven number of rank-local GRPO microsteps per epoch."""
+
+        self.validate_plan_size(sample_count)
+        local_batch_size = int(per_device_generation_batch_size)
+        world_size = int(data_world_size)
+        if local_batch_size <= 0 or world_size <= 0:
+            raise ValueError("Grouped epoch batch size and world size must be > 0.")
+        expected_global_batch = self.batch_size * self.mini_repeat_count
+        actual_global_batch = local_batch_size * world_size
+        if actual_global_batch != expected_global_batch:
+            raise ValueError(
+                "GRPO grouped sampler contract differs from the distributed "
+                "generation batch: "
+                f"contract_global_batch={expected_global_batch}, "
+                f"loader_global_batch={actual_global_batch}."
+            )
+        expanded_count = (
+            int(sample_count) * self.mini_repeat_count * self.repeat_count
+        )
+        global_batch_count, remainder = divmod(expanded_count, local_batch_size)
+        if remainder:
+            raise ValueError(
+                "GRPO grouped sampler does not form complete rank-local generation batches."
+            )
+        rank_local_microsteps, rank_remainder = divmod(
+            global_batch_count,
+            world_size,
+        )
+        if rank_remainder:
+            raise ValueError(
+                "GRPO grouped sampler would produce unequal per-rank train step counts."
+            )
+        if bool(dataloader_drop_last):
+            raise ValueError(
+                "GRPO grouped execution requires dataloader_drop_last=False; "
+                "all grouped batches are already complete."
+            )
+        return rank_local_microsteps
+
     def execution_fingerprint(self, base_fingerprint: str) -> str:
         base_fingerprint = str(base_fingerprint).strip()
         if not base_fingerprint:
@@ -415,10 +556,10 @@ class ShaftGroupedSampleSampler(Sampler[ShaftSampleRef]):
         self.batch_size = contract.batch_size
         self.repeat_count = contract.repeat_count
         self.plan_cycle = 0
+        self.contract.validate_plan_size(len(self.plan))
 
     def __iter__(self) -> Iterator[ShaftSampleRef]:
-        usable_size = (len(self.plan) // self.batch_size) * self.batch_size
-        for chunk_start in range(0, usable_size, self.batch_size):
+        for chunk_start in range(0, len(self.plan), self.batch_size):
             chunk: list[ShaftSampleRef] = []
             for offset in range(self.batch_size):
                 position = chunk_start + offset
@@ -429,8 +570,24 @@ class ShaftGroupedSampleSampler(Sampler[ShaftSampleRef]):
                         yield sample_ref
 
     def __len__(self) -> int:
-        usable_size = (len(self.plan) // self.batch_size) * self.batch_size
-        return usable_size * self.mini_repeat_count * self.repeat_count
+        return len(self.plan) * self.mini_repeat_count * self.repeat_count
 
     def set_epoch(self, epoch: int) -> None:
         self.plan_cycle = int(epoch)
+
+    def validate_epoch_sharding(
+        self,
+        *,
+        per_device_generation_batch_size: int,
+        data_world_size: int,
+        dataloader_drop_last: bool,
+    ) -> int:
+        """Prove grouped epochs shard into equal, complete rank-local steps."""
+
+        self.plan.validate_data_world_size(int(data_world_size))
+        return self.contract.validate_epoch_sharding(
+            sample_count=len(self.plan),
+            per_device_generation_batch_size=per_device_generation_batch_size,
+            data_world_size=data_world_size,
+            dataloader_drop_last=dataloader_drop_last,
+        )

@@ -16,6 +16,7 @@ from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from peft import PeftModel
 
+from shaft.export import validate_hf_artifact
 from shaft.infer import (
     InferEngineConfig,
     InferGenerationConfig,
@@ -35,7 +36,10 @@ from shaft.data import (
 from shaft.model import MODEL_REGISTRY, build_model_meta
 from shaft.observability import TRAINING_EFFICIENCY_SCHEMA_VERSION
 from shaft.template import ShaftChatRenderer, build_template
-from shaft.training import checkpoint_has_batch_planning_state
+from shaft.training import (
+    checkpoint_has_batch_planning_state,
+    validate_training_checkpoint_commit,
+)
 from tests.support.qwen_training_gate import (
     prepare_qwen_training_dataset,
     prepare_tiny_qwen35_training_assets,
@@ -57,7 +61,15 @@ class _CountingProcessor:
         return self.wrapped(*args, **kwargs)
 
 
-def _run_qwen_training_gate(repo_root: Path, config_path: Path) -> None:
+def _run_qwen_training_gate(
+    repo_root: Path,
+    config_path: Path,
+    *,
+    cpu_only: bool = False,
+) -> None:
+    env = {**os.environ, "OMP_NUM_THREADS": "1"}
+    if cpu_only:
+        env["CUDA_VISIBLE_DEVICES"] = ""
     completed = subprocess.run(
         [
             sys.executable,
@@ -72,7 +84,7 @@ def _run_qwen_training_gate(repo_root: Path, config_path: Path) -> None:
             str(config_path),
         ],
         cwd=repo_root,
-        env={**os.environ, "OMP_NUM_THREADS": "1"},
+        env=env,
         text=True,
         capture_output=True,
         timeout=600,
@@ -144,15 +156,15 @@ def _assert_checkpoint_state_equivalent(
     *,
     weight_filename: str,
 ) -> None:
-    fresh_completion = fresh_checkpoint / "shaft_batch_planning_complete.json"
-    resumed_completion = resumed_checkpoint / "shaft_batch_planning_complete.json"
-    assert fresh_completion.is_file() == resumed_completion.is_file()
-    if fresh_completion.is_file():
+    fresh_commit = validate_training_checkpoint_commit(fresh_checkpoint)
+    resumed_commit = validate_training_checkpoint_commit(resumed_checkpoint)
+    fresh_planning = fresh_commit["extensions"].get("batch_planning")
+    resumed_planning = resumed_commit["extensions"].get("batch_planning")
+    assert (fresh_planning is not None) == (resumed_planning is not None)
+    if fresh_planning is not None:
         assert checkpoint_has_batch_planning_state(fresh_checkpoint)
         assert checkpoint_has_batch_planning_state(resumed_checkpoint)
-        assert json.loads(fresh_completion.read_text(encoding="utf-8")) == json.loads(
-            resumed_completion.read_text(encoding="utf-8")
-        )
+        assert fresh_planning == resumed_planning
     else:
         assert not checkpoint_has_batch_planning_state(fresh_checkpoint)
         assert not checkpoint_has_batch_planning_state(resumed_checkpoint)
@@ -220,32 +232,40 @@ def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
         return json.loads(output_path.read_text(encoding="utf-8"))
 
 
-def _assert_full_hf_export_reloads(export_dir: Path, *, expected_type: str) -> None:
+def _assert_full_hf_export_reloads(
+    export_dir: Path,
+    *,
+    expected_type: str,
+    device: str | torch.device | None = None,
+) -> None:
     processor = AutoProcessor.from_pretrained(
         export_dir,
         local_files_only=True,
         trust_remote_code=True,
         fix_mistral_regex=False,
     )
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    selected_device = device
+    if selected_device is None:
+        selected_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    resolved_device = torch.device(selected_device)
     load_kwargs = {
         "local_files_only": True,
-        "dtype": torch.bfloat16 if device.type == "cuda" else torch.float32,
+        "dtype": torch.bfloat16 if resolved_device.type == "cuda" else torch.float32,
     }
-    if device.type == "cuda":
-        load_kwargs["device_map"] = {"": 0}
+    if resolved_device.type == "cuda":
+        load_kwargs["device_map"] = {"": resolved_device.index or 0}
     model = AutoModelForImageTextToText.from_pretrained(export_dir, **load_kwargs)
     assert type(model).__name__ == expected_type
-    assert next(model.parameters()).device.type == device.type
+    assert next(model.parameters()).device.type == resolved_device.type
     inputs = {
-        key: value.to(device) if torch.is_tensor(value) else value
+        key: value.to(resolved_device) if torch.is_tensor(value) else value
         for key, value in processor(text=["hello"], return_tensors="pt").items()
     }
     with torch.no_grad():
         logits = model(**inputs).logits
     assert torch.isfinite(logits).all()
     del logits, inputs, model, processor
-    if device.type == "cuda":
+    if resolved_device.type == "cuda":
         torch.cuda.empty_cache()
 
 
@@ -731,6 +751,77 @@ def test_qwen36vl_processor_template_disables_thinking_by_default() -> None:
 
     assert "<|im_start|>assistant" in rendered
     assert "<think>\n\n</think>" in rendered
+
+
+@pytest.mark.integration
+def test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    processor_source = Path("models/Qwen3.6-27B")
+    if not (processor_source / "preprocessor_config.json").is_file():
+        pytest.skip(f"Qwen3.6 processor assets not found: {processor_source}")
+
+    model_dir, dataset_path = prepare_tiny_qwen35_training_assets(
+        tmp_path,
+        processor_source=processor_source,
+        moe=True,
+        attention_implementation="eager",
+        layer_types=("full_attention", "full_attention"),
+    )
+    fresh_output = tmp_path / "qwen35-moe-cpu-fresh"
+    fresh_config = write_qwen_training_gate_config(
+        tmp_path / "qwen35-moe-cpu-fresh.yaml",
+        model_type="qwen35vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=fresh_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        use_cpu=True,
+        attention_implementation="eager",
+        torch_dtype="float32",
+    )
+    _run_qwen_training_gate(repo_root, fresh_config, cpu_only=True)
+
+    resumed_output = tmp_path / "qwen35-moe-cpu-resumed"
+    resumed_config = write_qwen_training_gate_config(
+        tmp_path / "qwen35-moe-cpu-resumed.yaml",
+        model_type="qwen35vl",
+        model_dir=model_dir,
+        dataset_path=dataset_path,
+        output_dir=resumed_output,
+        layout="padded",
+        packing="none",
+        steps=2,
+        save_steps=1,
+        resume_from_checkpoint=fresh_output / "checkpoint-1",
+        use_cpu=True,
+        attention_implementation="eager",
+        torch_dtype="float32",
+    )
+    _run_qwen_training_gate(repo_root, resumed_config, cpu_only=True)
+
+    _assert_checkpoint_state_equivalent(
+        fresh_output / "checkpoint-2",
+        resumed_output / "checkpoint-2",
+        weight_filename="model.safetensors",
+    )
+    _assert_full_hf_export_reloads(
+        fresh_output / "best",
+        expected_type="Qwen3_5MoeForConditionalGeneration",
+        device="cpu",
+    )
+    layout = validate_hf_artifact(
+        fresh_output / "best",
+        finetune_mode="full",
+        model_type="qwen36vl",
+        model_name_or_path=str(fresh_output / "best"),
+        local_files_only=True,
+    )
+    assert layout.kind == "full"
 
 
 @pytest.mark.integration

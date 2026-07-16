@@ -225,6 +225,8 @@ class SFTDataset(_BaseVisionDataset):
 
 
 class GRPODataset(Dataset):
+    SHAFT_INPUT_POLICY_VERSION = "shaft-grpo-dataset-input-v1"
+
     def __init__(
         self,
         dataset: Dataset,

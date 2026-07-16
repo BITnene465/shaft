@@ -146,6 +146,8 @@ def test_builder_dispatches_registry() -> None:
     config = RuntimeConfig()
     config.model.model_type = "qwen3vl"
     fake_artifacts = object()
+    inside_local_phase = False
+    phases: list[str] = []
 
     def build_fake_artifacts(
         self,
@@ -155,8 +157,18 @@ def test_builder_dispatches_registry() -> None:
         model_adapter,
         sequence_execution_contract=None,
     ):
+        assert inside_local_phase is False
         _ = self, cfg, model_meta, model_adapter, sequence_execution_contract
         return fake_artifacts
+
+    def run_local_phase(phase, operation):
+        nonlocal inside_local_phase
+        phases.append(phase)
+        inside_local_phase = True
+        try:
+            return operation()
+        finally:
+            inside_local_phase = False
 
     fake_meta = SimpleNamespace(
         loader=type("Loader", (), {"build": build_fake_artifacts})(),
@@ -166,6 +178,10 @@ def test_builder_dispatches_registry() -> None:
         init_from_checkpoint=None,
         init_kind="base",
         effective_model_name_or_path=config.model.model_name_or_path,
+        resolved_revision=None,
+        artifact_identity=SimpleNamespace(kind="unresolved_hf", complete=False),
+        require_immutable_artifact=False,
+        trust_remote_code=False,
         model_meta=fake_meta,
         model_adapter=fake_adapter,
     )
@@ -173,9 +189,13 @@ def test_builder_dispatches_registry() -> None:
         "shaft.model.builder.resolve_model_plan",
         return_value=fake_plan,
     ) as mocked:
-        out = build_model_tokenizer_processor(config)
+        out = build_model_tokenizer_processor(
+            config,
+            local_phase_runner=run_local_phase,
+        )
     mocked.assert_called_once_with(config, init_from_checkpoint=None)
     assert out is fake_artifacts
+    assert phases == ["prepare", "finalize"]
 
 
 def test_smoke_artifacts_expose_meta_and_template() -> None:

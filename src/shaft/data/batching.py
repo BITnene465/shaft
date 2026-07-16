@@ -6,6 +6,16 @@ from typing import Any, Sequence
 
 import torch
 
+from shaft.utils.contract_schema import (
+    json_bool,
+    json_int,
+    json_mapping,
+    json_optional_number,
+    json_string,
+    require_exact_keys,
+    require_json_mapping,
+)
+
 from .cost import ShaftSampleCost
 from .mixing import ShaftSampleContext, ShaftSampleRef
 from .planned import ShaftBatchContext
@@ -173,30 +183,69 @@ class ShaftLogicalSegmentPlan:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ShaftLogicalSegmentPlan":
-        context_payload = payload["context"]
-        cost_payload = payload["cost"]
-        if not isinstance(context_payload, dict) or not isinstance(cost_payload, dict):
-            raise TypeError("Logical segment context and cost must be mappings.")
+        role = "Logical segment"
+        payload = require_json_mapping(payload, role=role)
+        require_exact_keys(
+            payload,
+            role=role,
+            expected=frozenset({"dataset_name", "row_index", "context", "cost"}),
+        )
+        context_payload = json_mapping(payload, "context", role=role)
+        require_exact_keys(
+            context_payload,
+            role=f"{role}.context",
+            expected=frozenset({"draw_id", "plan_cycle", "transform_seed"}),
+        )
+        cost_payload = json_mapping(payload, "cost", role=role)
+        require_exact_keys(
+            cost_payload,
+            role=f"{role}.cost",
+            expected=frozenset(
+                {
+                    "llm_tokens",
+                    "supervised_tokens",
+                    "vision_patches",
+                    "loss_weight_sum",
+                    "exact",
+                }
+            ),
+        )
         return cls(
             sample_ref=ShaftSampleRef(
-                dataset_name=str(payload["dataset_name"]),
-                row_index=int(payload["row_index"]),
+                dataset_name=json_string(payload, "dataset_name", role=role),
+                row_index=json_int(payload, "row_index", role=role),
                 context=ShaftSampleContext(
-                    draw_id=int(context_payload["draw_id"]),
-                    plan_cycle=int(context_payload["plan_cycle"]),
-                    transform_seed=int(context_payload["transform_seed"]),
+                    draw_id=json_int(context_payload, "draw_id", role=f"{role}.context"),
+                    plan_cycle=json_int(
+                        context_payload,
+                        "plan_cycle",
+                        role=f"{role}.context",
+                    ),
+                    transform_seed=json_int(
+                        context_payload,
+                        "transform_seed",
+                        role=f"{role}.context",
+                    ),
                 ),
             ),
             cost=ShaftSampleCost(
-                llm_tokens=int(cost_payload["llm_tokens"]),
-                supervised_tokens=int(cost_payload.get("supervised_tokens", 0)),
-                vision_patches=int(cost_payload.get("vision_patches", 0)),
-                loss_weight_sum=(
-                    None
-                    if cost_payload.get("loss_weight_sum") is None
-                    else float(cost_payload["loss_weight_sum"])
+                llm_tokens=json_int(cost_payload, "llm_tokens", role=f"{role}.cost"),
+                supervised_tokens=json_int(
+                    cost_payload,
+                    "supervised_tokens",
+                    role=f"{role}.cost",
                 ),
-                exact=bool(cost_payload.get("exact", False)),
+                vision_patches=json_int(
+                    cost_payload,
+                    "vision_patches",
+                    role=f"{role}.cost",
+                ),
+                loss_weight_sum=json_optional_number(
+                    cost_payload,
+                    "loss_weight_sum",
+                    role=f"{role}.cost",
+                ),
+                exact=json_bool(cost_payload, "exact", role=f"{role}.cost"),
             ),
         )
 

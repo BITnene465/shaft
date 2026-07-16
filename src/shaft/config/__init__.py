@@ -24,8 +24,11 @@ from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
     EvalDatasetPolicyConfig,
+    EvalInputPolicy,
     EvalMetricConfig,
     EvalNormalizerConfig,
+    EvalPixelBudget,
+    TrainDDPConfig,
     TrainDeepSpeedConfig,
     TrainDurationConfig,
     TrainDistributedConfig,
@@ -33,6 +36,7 @@ from .training import (
     TrainConfig,
     TrainEfficiencyConfig,
     resolve_effective_gradient_checkpointing,
+    resolve_eval_input_policy,
 )
 
 __all__ = [
@@ -46,8 +50,10 @@ __all__ = [
     "DPOConfig",
     "EvalConfig",
     "EvalDatasetPolicyConfig",
+    "EvalInputPolicy",
     "EvalMetricConfig",
     "EvalNormalizerConfig",
+    "EvalPixelBudget",
     "ExperimentConfig",
     "FinetuneConfig",
     "GRPOConfig",
@@ -63,6 +69,7 @@ __all__ = [
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
+    "TrainDDPConfig",
     "TrainDeepSpeedConfig",
     "TrainDurationConfig",
     "TrainDistributedConfig",
@@ -73,5 +80,6 @@ __all__ = [
     "load_config_from_payload",
     "load_config_from_text",
     "resolve_effective_gradient_checkpointing",
+    "resolve_eval_input_policy",
     "to_resolved_payload",
 ]

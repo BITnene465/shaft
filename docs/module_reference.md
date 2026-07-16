@@ -108,14 +108,25 @@
 - `ShaftSampleSchedule.ref_at(draw_id)` 是 bounded 训练的 sampling 真源。它绑定 source sizes/weights、
   strategy、shuffle、seed，但不绑定 max steps。有限 `ShaftSamplePlan` 只给 map-style Dataset 和普通
   sampler 提供 `len()`；bounded DataCenter 直接返回 schedule，不创建 duration-sized plan。
-- `concat` 和 `weighted + shuffle=true` 都可 horizon-independent；`weighted + shuffle=false` 的旧
-  分段算法依赖最终 horizon，因此 bounded 模式拒绝。
-- `weighted + shuffle=true` 使用固定配额 ticket block；复杂权重从 4K/8K/16K 候选中选择最大相对误差最小
-  的 quota，并对每个 source 强制 5% 相对误差上限，无法表示时 fail closed。seed-specific base block 只物化一次，block-dependent rotation 让稀有 source 跨 DP rank
-  residue 轮换；每源 ticket position list 用于 O(log quota) occurrence rank 查询。每个 occurrence 再通过
+- `concat` 和 `weighted + shuffle=true` 都有正式 horizon-independent `ShaftSampleSchedule`；
+  `weighted + shuffle=false` v3 虽已使用跨 cycle 连续的 exact-ticket stream，但当前只由 finite fixed-plan
+  adapter 消费，bounded/planned API 仍 fail closed，不把尚未开放的执行路径伪装为支持。
+- `weighted + shuffle=true` 使用固定配额 ticket block；最多 64 个 source 时完整搜索 16K 内的 Hamilton
+  最优解，更大 catalog 先走最多 32 个 denominator-derived 候选；无合法候选时用 quota 区间和线性
+  Hamilton rank predicate 完整验证剩余可行 block，不对每个 block 重复排序 catalog。每个 source 强制
+  5% 相对误差上限，无法表示时 fail closed。seed-specific base block 只物化一次；rotation 每 256 blocks
+  用 SplitMix64 更换 phase，group 内使用与 block 和 `1..64` rank modulus 互质的 counter step，让稀有
+  source 的有限前缀具备确定性 rank discrepancy 上界。每源 ticket position list 用于
+  O(log quota) occurrence rank 查询。每个 occurrence 再通过
   keyed Feistel permutation 映射到独立 row cycle，因此 canonical draw stream 在 source 耗尽前无重复，
   运行时状态与训练 horizon 无关。schedule/finite-plan fingerprint 绑定算法版本、salt 和 base-block digest，
-  旧的 row-with-replacement checkpoint 不能 exact resume。
+  旧的 v2 weighted checkpoint 不能 exact resume。
+- `weighted + shuffle=false` 复用相同 quota resolver，因而每个正权重 source 必须有正 ticket、resolved
+  probability 相对误差不超过 5%，16K 内无法表达就 fail closed。它不随机置换 ticket，而是按每-source
+  occurrence midpoint 做 exact k-way merge，得到确定性的低差异 block；finite-plan cycle 只切分这条连续
+  stream，不重新舍入 quota。row occurrence 在 block/cycle 边界连续，unshuffled v2 checkpoint 不能 exact
+  resume 到 v3。stream fingerprint 排除 finite horizon，plan/execution fingerprint 再绑定 `num_samples`，
+  不能用跨 horizon 比较身份替代 exact-resume 身份。
 - prompt sampling/online transform 使用 `draw_id/transform_seed`，并必须通过
   `planning_safe_online_transform(fingerprint=...)` 声明可重复、保持媒体 identity/geometry 和 placeholder。
 - `ShaftSFTSampleCostProvider` 调用 Dataset 的 `get_planning_item()`，不解码图片，只读取按需 image
@@ -133,12 +144,14 @@
 - state 只保存轻量 ref/cost/cursor/实际累计指标。训练 callback 按实际完成的 optimizer boundary commit
   snapshot，不能保存 DataLoader 预取后的 live cursor。
 - 普通 `ShaftSampleSampler` 交给 HF Trainer 时保持 global/unsharded，由 Accelerate 完成唯一一次 rank
-  分片；预分片 sampler 会 fail fast。
+  分片；预分片 sampler 会 fail fast。fixed SFT 在 rank step 数一致时可保留 token-normalized 的异长尾批；
+  DPO 还要求每个同步 step 的 rank-local cardinality 相同，避免 TRL local-mean 偏权和变长 metric gather。
 - `ShaftGroupedSampleSampler` 按 canonical `ShaftSamplePlan` 顺序扩展 GRPO 所需的
   mini-repeat/repeat-count，不执行第二次 position shuffle。GRPO 的 TRL `shuffle_dataset` 被显式关闭，
   source/row 顺序仍只由 `data.schedule` 决定。`ShaftGroupedSampleContract` 是 repeat 几何真源，分别绑定
   mini-repeat、group batch、iteration 与 steps-per-iteration；其 composite execution fingerprint 在模型
-  加载前参与 resume 校验，不能用乘积相同但 cadence 不同的配置续训。
+  加载前参与 resume 校验，不能用乘积相同但 cadence 不同的配置续训。contract 同时证明并返回真实的
+  rank-local epoch microstep 数；sampler 与 checkpoint cadence 不再各自推导一份 epoch 几何。
 - `data.schedule` 只决定 mixing 与 shuffle，形成确定性的 logical draw stream。
 - `data.transforms.prompt_sampling` 按 dataset name 选择 prompt pool，采样键来自 draw context，默认只作用于
   train；它变换 draw view，不改变 draw 顺序或 mixing 权重。静态/参数化 variant 都由 `shaft.prompting`
@@ -171,6 +184,8 @@
 - `src/shaft/model/descriptor.py`
 - `src/shaft/model/resolution.py`
 - `src/shaft/model/policies.py`
+- `src/shaft/model/inference.py`
+- `src/shaft/model/qwen_inference.py`
 - `src/shaft/model/sequence.py`
 - `src/shaft/model/sharding.py`
 - `src/shaft/model/finetune.py`
@@ -182,7 +197,7 @@
 - 声明模型族元信息。
 - 构建 HF model/tokenizer/processor。
 - 处理全量微调与 PEFT。
-- 收口 processor / sequence execution / peft / sharding policy。
+- 收口 processor / inference / sequence execution / peft / sharding policy。
 
 ### 关键类
 
@@ -196,6 +211,13 @@
   - 一次性绑定 configured/effective artifact、init kind、descriptor、`ModelMeta`、`ShaftModelAdapter` 与 HF
     revision/cache/offline 参数。pipeline 构造一次并把同一个 plan 交给 sequence contract 与 builder，禁止
     重复解析路径、variant 或 checkpoint 类型。
+  - checkpointable 本地 HF 路径在 plan 阶段建立一次完整 SHA-256 baseline；builder 用短生命周期 metadata
+    load guard 包住 HF loader，并在 loader 返回后做一次完整 SHA-256 closure。常态每个文件只完整扫描两次，
+    不再执行 baseline/pre-load/post-load 三次扫描；即每 rank 额外读取 `2 × artifact bytes`（HF loader 本身
+    另计）。guard 不是持久 cache，不能替代 closure hash；当前也不跨 rank 共享本地 digest。
+  - 本地 sharded checkpoint 的 `weight_map` 使用 strict entry/path validator；不会忽略非法 value，也不会
+    hash 或加载模型目录之外（包括 symlink escape）的 shard。非 indexed weight、config 和本地 remote-code
+    文件复用同一 containment validator。
 - `ResolvedAdapterInit`
   - adapter init 的不可变身份，绑定 canonical `adapter_config.json`、声明的 base model、权重 manifest 与
     artifact fingerprint。builder 只消费该 plan，并以运行时 PEFT canonical target/modules-to-save 加上
@@ -205,6 +227,9 @@
     model adapter；不伪造训练态 `finetune_plan`。
 - `ShaftModelAdapter`
 - `ProcessorPolicy`
+- `ProcessorInputPolicy`
+- `ShaftInferencePolicy`
+- `QwenVLInferencePolicy`
 - `ShaftProcessedBatch`
 - `ShaftProcessorTokenLayout`
 - `ShaftProcessorCostEstimate`
@@ -222,6 +247,19 @@ processed tokens 完全一致且不声明成本估算能力；`qwen_vl`
 如何随 target 拼接、padding 或 DPO pair 扩展。其它字段也必须进入 policy 的
 `sample_aligned_model_input_names / whole_batch_model_input_names / static_model_input_names` 之一；未声明
 字段会在训练装配时失败，避免升级 processor 后静默误用第 0 维。
+
+`ProcessorInputPolicy` 是 processor padding 语义真源：training mode 默认为 right padding，generation
+mode 默认为 left padding。`EvalInputPolicy` 位于 config 层，解析 `data.* -> eval.* ->
+eval.datasets.<name>.*` 的 pixel-budget 覆盖关系；SFT loss/online eval 与 DPO eval collator 只消费解析结果。
+PPO 的 query 虽来自训练 dataloader，实际直接进入 rollout generation，因此 `PPOCollator` 在类级把默认
+input mode 定义为 `generation`，异长 query 不会继承 training/right padding。GRPO 的现有评估能力只接
+online `eval_final_score`；由于 `ShaftGRPOTrainer` 尚未提供可靠的 loss eval / `eval_final_loss` 聚合，config
+normalize 会拒绝 `algorithm=grpo + eval.enabled=true + loss_metrics_enabled=true`。
+
+`ShaftInferencePolicy` 是模型推理输入契约真源，经 `ModelMeta` 解析到 `ShaftModelAdapter`。它负责
+media、messages、chat-template backend kwargs 与 pixel-budget 行为，并按 backend 显式 opt in；默认
+policy 对本地和远端都 fail closed。`QwenVLInferencePolicy` 才拥有 Qwen smart resize 和
+Qwen35/36 thinking template 参数，`src/shaft/infer` 不按模型名分支。
 
 `ShaftSequenceExecutionContract` 是一次训练唯一的模型执行能力决议，绑定 layout、device、attention
 backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版本。pipeline 在数据/权重加载前
@@ -245,6 +283,9 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 - `build_model_meta()`
 - `resolve_model_plan()`
+- `prepare_model_build()`
+- `invoke_model_loader()`
+- `finalize_model_build()`
 - `build_model_tokenizer_processor()`
 - `apply_finetune_strategy()`
 - `build_resolved_finetune_plan()`
@@ -267,6 +308,11 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 补充说明：
 
+- 模型装配固定为三相：`prepare_model_build()` 只做 shard/require/load-guard 与 adapter 预检，
+  `invoke_model_loader()` 是唯一允许拥有 HF/DeepSpeed collective 的相位，`finalize_model_build()` 做完整
+  artifact SHA closure、remote-code identity 与 adapter 后验。SFT/RLHF 只给 prepare/finalize 套
+  all-rank status convergence；raw loader 必须裸调用。普通 infer/export 继续调用
+  `build_model_tokenizer_processor()`，由兼容 wrapper 顺序串联三相。
 - `ModelModuleGroups` 负责声明模型族的结构分组：
   - `language_model`
   - `vision_tower`
@@ -275,6 +321,10 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `src/shaft/model/freeze.py` 统一执行冻结逻辑：
   - 作为低层规则工具，负责 group/prefix/regex 匹配
   - 结构分组匹配采用最具体前缀优先，例如 `model.visual.*` 会优先归到 `vision_tower`，不会被更宽的 `language_model=model` 误伤
+- `ResolvedModelPlan` 将加载定位与轨迹语义分开：`configured_model_name_or_path`、
+  `effective_model_name_or_path` 仍保留用于加载、错误报告和审计；只有已完成全文件内容摘要的本地 HF artifact
+  才允许在 model-plan fingerprint 中忽略目录搬迁。Hub artifact 继续绑定 repo id + immutable commit，未完整
+  物化的本地 artifact 继续绑定 locator，不会借“可迁移”语义绕过 fail-closed。
 - `src/shaft/model/finetune_plan.py` 是冻结与 adapter 语义的单一真源：
   - 解析 full 模式下真实可训练参数集合
   - 解析 adapter 模式下真实 `target_modules / modules_to_save`
@@ -368,6 +418,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 ### 关键类
 
 - `AlgorithmContext`
+- `ShaftTrainerSpec`
 - `SFTAlgorithm`
 - `DPOAlgorithm`
 - `GRPOAlgorithm`
@@ -382,6 +433,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `build_grpo_reward_functions()`
 - `build_ppo_value_and_reward_models()`
 - `validate_ppo_runtime_requirements()`
+- `validate_grpo_vllm_runtime_compatibility()`
 
 ### 开发边界
 
@@ -392,6 +444,9 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 - `GRPOAlgorithm` 当前使用共享 `codec` 注册表与内置 reward registry 组合 reward functions。
 - GRPO 配置以 `rlhf.grpo.rollout` 描述采样参数，以 `rlhf.grpo.vllm` 描述 vLLM rollout 后端；旧 flat 字段仅作为兼容入口。
+- GRPO `use_vllm` 在 cheap preflight 中同时经过两条独立校验：安装的 vLLM 必须满足当前 TRL vLLM extra 的
+  platform requirement；若启用 checkpoint/resume，还必须证明 sampled-rollout RNG 可恢复。版本 gate 不影响
+  独立 infer/vLLM 后端，RNG gate 也不能替代 package compatibility。
 - 当前内置 GRPO reward：
   - `exact_match`
   - `parse_success`
@@ -490,11 +545,13 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftSFTTrainer`
 - `ShaftDPOTrainer`
 - `ShaftPPOTrainer`
+- `ShaftGRPOTrainer`
 - `ShaftOptimizerMixin`
 - `ShaftTrainSamplerMixin`
 - `ShaftResolvedOptimizerPlan`
 - `ShaftOnlineEvalRunner`
 - `ShaftProgressCallback`
+- `ShaftCheckpointProtocol`
 - `CheckpointLayout`
 - `ShaftBatchPlanningCallback`
 - `ShaftBatchingMetadataCallback`
@@ -512,6 +569,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `register_target_adapter()`
 - `inspect_checkpoint_layout()`
 - `resolve_resume_checkpoint()`
+- `resolve_checkpoint_protocol()`
 - `validate_resume_checkpoint()`
 - `load_batch_planning_state()`
 - `build_batch_planning_resume_contract_fingerprint()`
@@ -528,27 +586,68 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 补充说明：
 
 - checkpoint 与 run metadata 分层：
-  - `checkpoint-*` 是包含训练状态的精确恢复点
+  - `checkpoint-*` 是训练状态 generation；DDP/native-HF 只有通过 manifest validator 的目录才是 Shaft
+    exact-resume 点，FSDP/DeepSpeed 的可恢复性由 backend-native contract 决定
   - `best` 是 HF/PEFT 部署导出
   - root `trainer_state.json`、`shaft_finetune_summary.json`、`shaft_optimizer_summary.json` 是持久化
     运行摘要，root export 清理必须保留
   - 从 run 根目录恢复时，最新 `checkpoint-*` 优先于 root final state
+  - `ShaftCheckpointProtocol` 是 storage owner 真源：DDP/native-HF 路由到 `committed_manifest`，
+    FSDP/DeepSpeed 路由到 `backend_native`
+  - `ShaftCheckpointCommitMixin` 只在 `committed_manifest` 路径安装保存事务 wrapper：super save 前撤销旧
+    `shaft_checkpoint_commit.json`，暂缓 HF rotation；callback-handler wrapper 先要求所有 rank 具有完全相同、
+    顺序一致的普通 `on_save` callback 拓扑，再捕获每个 callback（包括 efficiency telemetry/plugin）的
+    rank-local 异常并做 all-rank convergence。拓扑差异在 callback 执行前 fail closed；全部成功后才进入
+    独立 commit phase、原子提交并执行 rotation。PPO 不接入该 mixin，仍禁止 resume
+  - manifest 绑定非空 model/adapter、`trainer_state.json` hash、optimizer、scheduler、按保存 world size 的
+    每-rank RNG，以及 checkpoint 内全部 recorded artifact 的相对路径、尺寸和 SHA-256。`committed_manifest` 的 direct-path 与
+    run-root resolver 只接受通过同一 validator 的 committed checkpoint；run-root 会跳过未提交或已损坏的
+    目录。`backend_native` 不安装 wrapper，沿用 HF/FSDP/DeepSpeed 的保存、发现、校验和 rotation，当前不提供
+    通用 manifest 的 torn/atomic 保证
+  - startup 用 `ResolvedResumeCheckpoint` 固定本次恢复的 protocol、step、content-derived generation identity、
+    commit identity 与 stat guard。run-root 从新到旧验证到首个有效 generation 即停止；选中 generation 的大
+    artifact 只做一次完整 digest 校验，preflight、planned state 与 train 入口复用同一 token。进入 Trainer 前
+    再检查小 marker 与 stat guard，并对 generation identity 做全 rank consensus，避免重复多 GiB I/O，同时拒绝
+    启动窗口内 stat-visible 的替换/改写或各 rank 同名路径对应不同内容
   - 所有训练路径都把 canonical `ShaftBatchContract` 通过 stateful callback 写入 HF
     `trainer_state.json`；改变 grouping/cardinality/packing/layout、local batch、DP world size 或 GA 时，
     exact resume 会拒绝
+  - GRPO checkpoint 额外按真实 rank-local epoch microstep 几何验证 TRL generation buffer phase。完整
+    grouped epoch 的末端天然是安全边界；step save、部分 epoch save 和 resume checkpoint 都使用 shortened
+    accumulation 后的实际 microstep cursor 校验，不能只比较 `global_step * GA`。vLLM sampled rollout 的
+    engine/server RNG 尚未持久化，因此 vLLM 训练当前禁止 checkpoint 与 resume，只允许最终模型导出
+  - `ShaftTrainInputContract` 是 training 层从 logical sample 到模型输入的 exact-resume 真源。它组合
+    DataCenter execution identity、train Dataset 类及其 effective runtime methods、Pillow runtime、model
+    plan、model-owned processor policy、完整 tokenizer artifact 与 wrapper/backend package identity、
+    processor/template、显式 collator/input-policy version、pixel/token limits；SFT 还绑定 sequence execution
+    contract。该 canonical payload 与 fingerprint 随 batching metadata 一起进入 stateful callback，不把模型
+    语义下沉到 data 层
+  - `ShaftTrainingResumeContract` v2 是未来 optimizer update 的根契约；除 batch/model/optimizer/objective
+    语义外，还直接组合 `ShaftTrainInputContract.fingerprint` 与 data execution fingerprint。batching metadata
+    构造时会交叉验证三者一致，consumer 不能只保存并列字段而绕过根契约
+  - tokenizer backend serialization 与完整 vocabulary 已形成内容身份后，HF 自动注入的
+    `name_or_path`、cache/local flags 和 `*_file`/`*_path` 定位参数不进入语义 hash；其余 `init_kwargs`、special
+    tokens、chat template、padding/truncation 和 runtime implementation 仍然绑定。model adapter 的加载路径由
+    model plan 单独负责，input contract 与 SFT cost-provider fingerprint 不再重复解释同一 locator
+  - 未版本化 online transform、缺少 immutable `media_snapshot_id`、Dataset/runtime identity 不完整、
+    tokenizer identity 不完整、无显式 input-policy version，或 component state 含无法 canonicalize 的未知
+    类型，都会把 input contract 标为 incomplete。data-side completeness 与 checkpoint 是否已有完整 payload
+    在 model load 前 fail closed，processor/model 完整契约在装配后做第二阶段校验。`save_strategy=no` 的 fresh
+    run 可继续并在 metadata/log 中明确记录 incomplete
   - planned SFT 额外保存 committed data state；改变 duration/optimizer/scheduler 或
     topology/data/media/processor/planner contract 时，exact resume 同样拒绝
-  - planned checkpoint 会交叉校验 canonical batch-contract callback 与 planner callback；只有二者
-    的 planner fingerprint、batch geometry 和 GA 一致，且全部 rank RNG、optimizer/scheduler 保存成功后，
-    才原子写 completion manifest。rotation 在该提交点之后执行，run-root resume 会跳过 torn checkpoint
+  - planned checkpoint 会交叉校验 canonical batch-contract callback 与 planner callback；二者的 planner
+    fingerprint、batch geometry、GA、committed cursor 和 resume contract 写入通用 manifest 的
+    `batch_planning` extension，不再维护第二个 completion marker。旧独立 planning completion 不能作为新
+    exact-resume 提交点；需要继承时使用 `init_from_checkpoint` 开新 schedule
   - `ShaftBatchContract` 是 resolved physical batch 的唯一真源；fixed 模式从
     `per_device_train_batch_size`、DP world size 与 GA 派生精确 physical-pack 计数，token-budget 模式派生
     min/max pack range，
     sampler spec 与 metadata 必须和它严格一致
   - `shaft_batching_run_metadata.json` 是 SFT/RLHF 共用的 resolved batching/audit 运行摘要，包含
     versioned canonical `batch_contract`、其 fingerprint、grouping/cardinality/packing/layout、topology、
-    buffer/cache/budgets 与可选的 `planner_spec_fingerprint`；其中 cache 只供性能审计，不进入 exact
-    contract。root export 清理必须保留，W&B `shaft_batching` 只镜像同一 payload
+    buffer/cache/budgets、可选的 `planner_spec_fingerprint` 与 canonical `train_input_contract`；其中 cache
+    只供性能审计，不进入 exact contract。root export 清理必须保留，W&B `shaft_batching` 只镜像同一 payload
   - `shaft_training_efficiency.json` 是 collator 实际 tensor 到 optimizer commit 的执行效率真源；类型化
     contract 绑定公平 A/B identity。Trainer 在 model checkpoint 写入前发布 generation transaction，snapshot
     set 的 revoke、rank snapshot、manifest 与 transaction commit 各自通过 fixed-tensor status convergence，
@@ -568,6 +667,30 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `training/reproducibility.py` 是训练启动 seed 的共享边界。SFT/RLHF pipeline 在 dataset/model/PEFT 装配
   前调用；普通模式使用 HF `set_seed`，full determinism 使用 `enable_full_determinism`，Trainer 后续仍
   保持上游标准初始化。
+- `utils/semantic_identity.py` 是 model/input/resume/plugin implementation identity 的唯一编码边界。它绑定
+  callable 的 code/default/closure、live class implementation、函数实际读取的 module attribute、普通嵌套
+  对象的 type/implementation/state，并对无法确定性编码的值 fail closed。custom `Mapping` 必须显式实现
+  `shaft_semantic_state()`，dataclass 变体也不例外；只有经过审计的 HF `_LazyAutoMapping` 使用内建有界投影，
+  其中 reverse table 与 live methods 属于行为真源，`_modules` 访问缓存不属于。声明但不可编码的类属性不能
+  退化为 type-only identity。PyTorch `ReduceOp.RedOpType` 以稳定 qualified type/name/value 编码，供 collective
+  helper 的默认参数进入 deterministic identity。
+- `utils/distributed.initialize_process_group_if_needed()` 在 fallible startup 前建立默认 group，并以 resolved
+  `train.use_cpu` 而非 CUDA 可见性决定 Gloo/NCCL；model loader 与 Trainer/Accelerator constructor 作为
+  collective owner 在 pure-local readiness consensus 之后直接调用，不能嵌套在 status envelope 中。
+- `algorithms.ShaftTrainerSpec` 是 algorithm trainer 装配的两相边界。`prepare_trainer()` 只做 pure-local
+  validation/config/model/reward 准备并返回 spec；pipeline 在全 rank `trainer-prepare` consensus 成功后，
+  才于 envelope 外调用 `ShaftTrainerSpec.build()`。`build_trainer()` 仅作为兼容的串联入口，不能用于分布式
+  pipeline startup。spec fingerprint 只绑定 rank-invariant 的 constructor-shaping TRL/HF args、Shaft optimizer
+  选项与实际 prepared kwargs；model role 使用 bounded topology digest（module graph，以及 parameter/buffer 的
+  name/shape/dtype/requires-grad，不读权重值），callable 使用共享 semantic digest，Trainer class 本身也以共享
+  callable/component digest 绑定 live declared MRO/constructor，并单独绑定 constructor 读取的 live global
+  helper，而非只记录 module/qualname。所有 rank 必须在 constructor 前一致，
+  `local_rank/process_index/device` 等合法 rank-local 字段不能进入该指纹。
+- `pipeline.execution.finalize_training_outputs()` 是 SFT/RLHF 训练结束保存的共享边界：先做全 rank readiness，
+  再在 status envelope 外调用可能拥有 FSDP/DeepSpeed collective 的 `save_model()`；export layout 校验、
+  `save_state()` 与 root prune 随后作为 rank-local 阶段统一收敛异常。最终 status collective 同时承担结束同步，
+  不再在可能失败的 rank-local I/O 后放置裸 barrier。`best_export_dir` 在 readiness 内解析为规范化绝对路径，
+  并由 readiness/finalization fingerprint 与 `save_model()` 共用；任一 rank 路径漂移必须在 model save 前拒绝。
 
 - `src/shaft/training/optimizer_plan.py` 是分组学习率的运行时真源：
   - 根据 `resolved finetune plan`、`model_adapter.module_groups` 和 `train.param_group_lrs`
@@ -589,6 +712,12 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
   - 并在 optimizer 创建后写出：
     - `shaft_optimizer_summary.json`
     - 供 CLI 日志和外部诊断工具审计 resolved optimizer groups
+  - `create_optimizer(model=None)` 与 Transformers 5.10 的 delayed optimizer consumer 对齐：FSDP1
+    wrap 后传入 model 时，先从 wrapped model 重建 optimizer plan，并要求其 name/group fingerprint 与
+    启动时 plan 完全一致；随后 optimizer 只持有 wrapped model 的 `Parameter` 对象。名称、trainable
+    参数或分组语义发生漂移会直接失败。
+  - 上述重绑定只支持 `use_orig_params=true`；`FlatParameter` 的 name/group 映射尚未实现，配置层明确拒绝
+    `strategy=fsdp + use_orig_params=false`。
 - `gradient checkpointing` 当前通过两层接通：
   - `src/shaft/config/training.py`
     - `resolve_effective_gradient_checkpointing()` 是实际运行时开关真源
@@ -683,6 +812,7 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `src/shaft/infer/schema.py`
 - `src/shaft/infer/loader.py`
 - `src/shaft/infer/engine.py`
+- `src/shaft/infer/execution.py`
 - `src/shaft/infer/pipeline.py`
 
 ### 职能
@@ -698,6 +828,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `InferPipelineConfig`
 - `ShaftInferRequest`
 - `ShaftInferResponse`
+- `ShaftInferExecutionControl`
+- `ShaftInferAdapterCapabilities`
 - `ShaftInferEngine`
 - `ShaftInferPipeline`
 - `ShaftInferStageResult`
@@ -708,8 +840,13 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 ### 开发边界
 
-- 允许：后端封装、stage 调度、共享 codec 调用
+- 允许：后端封装、stage 调度、absolute deadline/cancellation 契约、共享 codec 调用
 - 禁止：训练逻辑、离线业务脚本逻辑、任务 DSL
+
+`timeout_seconds` 会解析成贯穿 stage retries/backoff/backend I/O 的同一个 absolute deadline。
+vLLM adapter 将连接和分块 body read 绑定到剩余预算；本地 HF generate 当前不可安全抢占，收到
+deadline/cancellation 时在工作开始前 fail closed。`ShaftInferPipeline.run` 可接收
+`cancellation_event`，但 adapter 必须显式声明相应 capability。
 
 ## 12. `export`
 
@@ -753,6 +890,19 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 ### 职能
 
 - 提供注册表、hook、interceptor 和执行代理。
+- checkpointable 训练只接受显式 `trajectory_neutral=True` 的纯观测插件；marker 必须是 exact bool。实际
+  manager 实例的顺序、实现与实例配置 state 进入统一 training-resume contract。纯 telemetry counter/cache
+  可以在 resume 时重置，但不得影响模型输入、loss、梯度、RNG、数据游标或 TrainerControl；会影响训练轨迹的
+  stateful 插件即使伪装成 neutral 也不受支持。
+- `HookManager` 对 neutral observer 采用 rank-local 故障隔离：`before_step`、`after_step`、`on_save` 首次异常
+  warning 一次并禁用该 observer，不给热路径增加故障共识 collective；backend-native checkpoint callback 同样
+  适用。non-neutral hook 的异常保持 fail-fast。
+- `ExecutionProxy` 将调用拆成 `prepare()` 与 `invoke()`：前者只执行 rank-local `before` interceptor，训练
+  pipeline 先对该阶段做全 rank failure/fingerprint convergence；后者才进入可能拥有 collective 的 pipeline
+  body，并仅在 target 成功后执行 `after`。collective owner 不能被包进 local status envelope。
+  `prepare_pipeline_call()` 的 schedule 身份只从 `runner.interceptor_manager` 对该 point 的实际 ordered
+  instances 派生，绑定 phase/name/order/position 与调用实现；配置 names 不是第二真源，同名实现漂移也会在
+  body 前拒绝。
 
 ### 关键类
 
@@ -774,6 +924,9 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 
 - 允许：横切增强
 - 禁止：替代主业务流程、隐藏关键训练行为
+- 禁止：把修改 loss/梯度/RNG/TrainerControl 的插件标成 trajectory-neutral；当前没有 trajectory-affecting
+  plugin state 的通用 checkpoint 恢复协议，插件私有文件不能冒充该协议
+- 禁止：pipeline `before` interceptor 自行执行 distributed collective，或修改 pipeline 的零参数调用合同
 
 ## 14. `observability`
 

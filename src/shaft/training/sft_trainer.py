@@ -2,36 +2,38 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-import random
 import time
 from typing import Any
 import warnings
 
-import numpy as np
 import torch
 import transformers.trainer as hf_trainer_module
 from transformers.debug_utils import DebugOption
 from transformers import Trainer
 
 from shaft.config.training import EvalConfig
-from shaft.utils.distributed import all_gather_objects, barrier_if_distributed
-from .batch_planning import (
-    BATCH_PLANNING_CALLBACK_NAME,
-    BATCH_PLANNING_CHECKPOINT_COMPLETION_FILENAME,
-    write_batch_planning_checkpoint_completion,
-)
+from shaft.utils.distributed import barrier_if_distributed
+from .checkpointing import ShaftCheckpointCommitMixin
 from .eval_policy import aggregate_weighted_dataset_values
 from .efficiency import (
     ShaftTrainingEfficiencyMonitor,
     prepare_training_efficiency_checkpoint,
 )
+from .eval_dataloader import ShaftEvalDataLoaderMixin
 from .loss import build_loss
 from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
+from .reproducibility import isolate_training_rng_during_eval
 from .train_sampler_mixin import ShaftTrainSamplerMixin
 
 
-class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
+class ShaftSFTTrainer(
+    ShaftCheckpointCommitMixin,
+    ShaftEvalDataLoaderMixin,
+    ShaftOptimizerMixin,
+    ShaftTrainSamplerMixin,
+    Trainer,
+):
     def __init__(
         self,
         *args: Any,
@@ -66,84 +68,11 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         self.ignore_index = int(ignore_index)
         self.online_eval_runner = online_eval_runner
         self.eval_config = eval_config
-        self.eval_data_collator = eval_data_collator
         self.efficiency_monitor = efficiency_monitor
-        self._shaft_train_data_collator = self.data_collator
+        self._configure_eval_data_collator(eval_data_collator)
         # HF uses this flag to collect one optimizer batch before backward and pass
         # its global normalization denominator into compute_loss.
         self.model_accepts_loss_kwargs = True
-
-    def get_eval_dataloader(self, eval_dataset: Any = None):
-        if eval_dataset is None and self.eval_dataset is None:
-            raise ValueError("Trainer: evaluation requires an eval_dataset.")
-        cache_key = eval_dataset if isinstance(eval_dataset, str) else "eval"
-        resolved_dataset = (
-            self.eval_dataset[eval_dataset]
-            if isinstance(eval_dataset, str)
-            else eval_dataset
-            if eval_dataset is not None
-            else self.eval_dataset
-        )
-        data_collator = self.data_collator
-        if (
-            self.eval_data_collator is not None
-            and data_collator is self._shaft_train_data_collator
-        ):
-            data_collator = self.eval_data_collator
-        return self._build_eval_loader(
-            dataset=resolved_dataset,
-            data_collator=data_collator,
-            cache_key=str(cache_key),
-            description="Evaluation",
-        )
-
-    def get_online_eval_dataloader(
-        self,
-        eval_dataset: Any,
-        *,
-        data_collator: Any,
-        dataset_key: str,
-    ):
-        resolved_dataset = (
-            self.eval_dataset[eval_dataset]
-            if isinstance(eval_dataset, str)
-            else eval_dataset
-        )
-        normalized_key = str(dataset_key).strip()
-        if not normalized_key:
-            raise ValueError("Online eval dataset_key must not be empty.")
-        return self._build_eval_loader(
-            dataset=resolved_dataset,
-            data_collator=data_collator,
-            cache_key=f"shaft-online:{normalized_key}",
-            description="Online Evaluation",
-        )
-
-    def _build_eval_loader(
-        self,
-        *,
-        dataset: Any,
-        data_collator: Any,
-        cache_key: str,
-        description: str,
-    ):
-        if dataset is None:
-            raise ValueError(f"Trainer: {description.lower()} requires an eval_dataset.")
-        cached_loaders = getattr(self, "_eval_dataloaders", {})
-        if self.args.dataloader_persistent_workers and cache_key in cached_loaders:
-            return cached_loaders[cache_key]
-        previous_collator = self.data_collator
-        self.data_collator = data_collator
-        try:
-            return self._get_dataloader(
-                dataset=dataset,
-                description=description,
-                batch_size=self.args.eval_batch_size,
-                sampler_fn=self._get_eval_sampler,
-                dataloader_key=cache_key,
-            )
-        finally:
-            self.data_collator = previous_collator
 
     def _prepare_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
         if "_shaft_batch_stats" not in inputs and "_shaft_varlen_layout" not in inputs:
@@ -290,41 +219,18 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             loss = loss * (data_parallel_scale if self.args.n_gpu <= 1 else self.args.n_gpu)
         return (loss, outputs) if return_outputs else loss
 
+    @isolate_training_rng_during_eval
     def evaluate(
         self,
         eval_dataset: Any = None,
         ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
     ):
-        if not self.is_in_train:
-            return self._evaluate_impl(
-                eval_dataset=eval_dataset,
-                ignore_keys=ignore_keys,
-                metric_key_prefix=metric_key_prefix,
-            )
-        python_rng_state = random.getstate()
-        numpy_rng_state = np.random.get_state()
-        torch_cpu_rng_state = torch.random.get_rng_state()
-        cuda_device: int | None = None
-        cuda_rng_state: torch.Tensor | None = None
-        if torch.cuda.is_available() and torch.cuda.is_initialized():
-            cuda_device = torch.cuda.current_device()
-            cuda_rng_state = torch.cuda.get_rng_state(cuda_device)
-        try:
-            return self._evaluate_impl(
-                eval_dataset=eval_dataset,
-                ignore_keys=ignore_keys,
-                metric_key_prefix=metric_key_prefix,
-            )
-        finally:
-            # A persistent eval loader is created only on its first evaluation.
-            # Iterator construction consumes host RNG and would otherwise make a
-            # resumed run's later RNG snapshot differ from an uninterrupted run.
-            random.setstate(python_rng_state)
-            np.random.set_state(numpy_rng_state)
-            torch.random.set_rng_state(torch_cpu_rng_state)
-            if cuda_device is not None and cuda_rng_state is not None:
-                torch.cuda.set_rng_state(cuda_rng_state, cuda_device)
+        return self._evaluate_impl(
+            eval_dataset=eval_dataset,
+            ignore_keys=ignore_keys,
+            metric_key_prefix=metric_key_prefix,
+        )
 
     def _evaluate_impl(
         self,
@@ -388,7 +294,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
         if dataloader_key is None:
             eval_dataloader = self.get_eval_dataloader(eval_dataset)
         else:
-            eval_dataloader = self._build_eval_loader(
+            eval_dataloader = self._build_shaft_eval_loader(
                 dataset=eval_dataset,
                 data_collator=self.eval_data_collator or self.data_collator,
                 cache_key=dataloader_key,
@@ -465,29 +371,7 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             metric_name="loss",
         )
 
-    def _save_checkpoint(self, model, trial) -> None:
-        barrier_if_distributed()
-        has_planning_callback = any(
-            callback.__class__.__name__ == BATCH_PLANNING_CALLBACK_NAME
-            for callback in self.callback_handler.callbacks
-        )
-        checkpoint_path = (
-            Path(self._get_output_dir(trial=trial))
-            / f"checkpoint-{int(self.state.global_step)}"
-        )
-        revoke_error: Exception | None = None
-        if has_planning_callback and self.is_world_process_zero():
-            try:
-                (checkpoint_path / BATCH_PLANNING_CHECKPOINT_COMPLETION_FILENAME).unlink(
-                    missing_ok=True
-                )
-            except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
-                revoke_error = exc
-        if has_planning_callback:
-            self._raise_synchronized_operation_error(
-                "batch-planning checkpoint begin",
-                revoke_error,
-            )
+    def _prepare_shaft_checkpoint_save(self, checkpoint_path: Path) -> None:
         efficiency_generation: str | None = None
         if (
             self.efficiency_monitor is not None
@@ -499,49 +383,6 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             checkpoint_path,
             global_step=int(self.state.global_step),
             generation=efficiency_generation,
-        )
-        save_total_limit = self.args.save_total_limit
-        local_error: Exception | None = None
-        # HF rotates on rank zero before a peer-rank RNG write failure can be
-        # observed. Defer rotation until every rank confirms the full save.
-        if has_planning_callback:
-            self.args.save_total_limit = None
-        try:
-            super()._save_checkpoint(model, trial)
-        except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
-            local_error = exc
-        finally:
-            if has_planning_callback:
-                self.args.save_total_limit = save_total_limit
-        self._raise_synchronized_operation_error("checkpoint save", local_error)
-        if not has_planning_callback:
-            return
-
-        completion_error: Exception | None = None
-        if self.is_world_process_zero():
-            try:
-                write_batch_planning_checkpoint_completion(checkpoint_path)
-            except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
-                completion_error = exc
-        self._raise_synchronized_operation_error(
-            "batch-planning checkpoint commit",
-            completion_error,
-        )
-
-        rotation_error: Exception | None = None
-        if self.args.should_save:
-            try:
-                hf_trainer_module.rotate_checkpoints(
-                    output_dir=self._get_output_dir(trial=trial),
-                    save_total_limit=save_total_limit,
-                    best_model_checkpoint=self.state.best_model_checkpoint,
-                    use_mtime=True,
-                )
-            except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
-                rotation_error = exc
-        self._raise_synchronized_operation_error(
-            "checkpoint rotation",
-            rotation_error,
         )
 
     def _load_optimizer_and_scheduler(self, checkpoint: str | None) -> None:
@@ -592,25 +433,4 @@ class ShaftSFTTrainer(ShaftOptimizerMixin, ShaftTrainSamplerMixin, Trainer):
             super().save_model(output_dir=output_dir, _internal_call=_internal_call)
         except Exception as exc:  # noqa: BLE001 - synchronize failure across ranks
             local_error = exc
-        self._raise_synchronized_operation_error("model save", local_error)
-
-    @staticmethod
-    def _raise_synchronized_operation_error(
-        operation: str,
-        local_error: Exception | None,
-    ) -> None:
-        statuses = all_gather_objects(
-            {
-                "ok": local_error is None,
-                "error_type": (
-                    None if local_error is None else type(local_error).__name__
-                ),
-                "error": None if local_error is None else str(local_error),
-            }
-        )
-        failures = [status for status in statuses if not bool(status.get("ok"))]
-        if not failures:
-            return
-        if local_error is not None:
-            raise local_error
-        raise RuntimeError(f"Distributed {operation} failed on a peer rank: {failures!r}.")
+        self._raise_synchronized_checkpoint_error("model save", local_error)

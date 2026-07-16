@@ -1,10 +1,11 @@
-from .base import Algorithm, AlgorithmContext
+from .base import Algorithm, AlgorithmContext, ShaftTrainerSpec
 from .registry import ALGORITHM_REGISTRY
 
 __all__ = [
     "ALGORITHM_REGISTRY",
     "Algorithm",
     "AlgorithmContext",
+    "ShaftTrainerSpec",
     "DPOAlgorithm",
     "GRPOAlgorithm",
     "PPOAlgorithm",

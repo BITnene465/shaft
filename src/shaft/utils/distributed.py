@@ -30,6 +30,28 @@ def is_rank_zero() -> bool:
     return get_rank() == 0
 
 
+def initialize_process_group_if_needed(*, use_cpu: bool) -> None:
+    """Initialize torchrun's default group before fallible rank-local setup.
+
+    Hugging Face normally initializes the group while resolving
+    ``TrainingArguments.device``.  Shaft needs an earlier status collective so
+    plugin/config/TrainingArguments construction itself cannot strand peers.
+    Under torchrun the rendezvous environment is already authoritative.  The
+    resolved training intent is authoritative for backend selection: an
+    explicit CPU run must use Gloo even when CUDA devices are visible.
+    """
+
+    if type(use_cpu) is not bool:
+        raise TypeError("Distributed process-group use_cpu intent must be a boolean.")
+    if not dist.is_available() or dist.is_initialized() or get_world_size() <= 1:
+        return
+    use_cuda = not use_cpu and torch.cuda.is_available()
+    if use_cuda:
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl" if use_cuda else "gloo")
+
+
 def _nccl_barrier_kwargs() -> dict[str, list[int]]:
     try:
         backend = str(dist.get_backend()).lower()

@@ -68,12 +68,7 @@ class _CostTokenizer:
         _ = add_special_tokens, return_attention_mask
         if isinstance(texts, str):
             texts = [texts]
-        return {
-            "input_ids": [
-                [20, 21] if text == "target" else [10, 99, 11, 12]
-                for text in texts
-            ]
-        }
+        return {"input_ids": [[20, 21] if text == "target" else [10, 99, 11, 12] for text in texts]}
 
 
 class _UndeclaredCostTokenizer(_CostTokenizer):
@@ -227,6 +222,28 @@ def test_sft_cost_provider_matches_supervision_and_processor_cost(tmp_path: Path
         exact=True,
     )
     assert provider.fingerprint
+
+
+def test_sft_cost_fingerprint_ignores_model_artifact_locator(tmp_path: Path) -> None:
+    _, provider, adapter = _build_provider(tmp_path)
+    original = provider.fingerprint
+    adapter.model_name_or_path = str(tmp_path / "relocated" / "same-model")
+
+    relocated = ShaftSFTSampleCostProvider(
+        dataset=provider.dataset,
+        model_adapter=adapter,
+        template=provider.template,
+        processor=provider.processor,
+        tokenizer=provider.tokenizer,
+        min_pixels=provider.min_pixels,
+        max_pixels=provider.max_pixels,
+        max_length=provider.max_length,
+        add_eos_token=provider.add_eos_token,
+        loss_scale_name=provider.loss_scale_name,
+        cache_size=provider.cache_size,
+    )
+
+    assert relocated.fingerprint == original
 
 
 def test_provider_construction_does_not_scan_future_image_headers(tmp_path: Path) -> None:

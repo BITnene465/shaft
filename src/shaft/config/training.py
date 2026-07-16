@@ -12,6 +12,7 @@ class TrainFSDPConfig:
     min_num_params: int = 0
     activation_checkpointing: bool = True
     cpu_offload: bool = False
+    # The optimizer plan is name-addressed; FlatParameter remapping is not implemented.
     use_orig_params: bool = True
     backward_prefetch: str | None = None
     forward_prefetch: bool = False
@@ -27,8 +28,14 @@ class TrainDeepSpeedConfig:
 
 
 @dataclass
+class TrainDDPConfig:
+    static_graph: bool = False
+
+
+@dataclass
 class TrainDistributedConfig:
     strategy: str = "ddp"  # ddp | fsdp | deepspeed
+    ddp: TrainDDPConfig = field(default_factory=TrainDDPConfig)
     fsdp: TrainFSDPConfig = field(default_factory=TrainFSDPConfig)
     deepspeed: TrainDeepSpeedConfig = field(default_factory=TrainDeepSpeedConfig)
 
@@ -102,6 +109,8 @@ class EvalNormalizerConfig:
 
 @dataclass
 class EvalDatasetPolicyConfig:
+    min_pixels: int | None = None
+    max_pixels: int | None = None
     prediction_codec: str = "text"
     target_adapter: str = "target_text"
     target_adapter_params: dict[str, Any] = field(default_factory=dict)
@@ -118,6 +127,8 @@ class EvalConfig:
     eval_strategy: str = "epoch"  # no | steps | epoch
     epoch_interval: int = 1
     eval_steps: int = 200
+    min_pixels: int | None = None
+    max_pixels: int | None = None
     loss_metrics_enabled: bool = True
     do_sample: bool = False
     temperature: float = 0.0
@@ -126,6 +137,108 @@ class EvalConfig:
     datasets: dict[str, EvalDatasetPolicyConfig] = field(default_factory=dict)
     metric_for_best_model: str = "eval_loss"
     greater_is_better: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class EvalPixelBudget:
+    min_pixels: int | None
+    max_pixels: int | None
+
+    def __post_init__(self) -> None:
+        if self.min_pixels is not None and int(self.min_pixels) <= 0:
+            raise ValueError("min_pixels must be > 0 when set.")
+        if self.max_pixels is not None and int(self.max_pixels) <= 0:
+            raise ValueError("max_pixels must be > 0 when set.")
+        if (
+            self.min_pixels is not None
+            and self.max_pixels is not None
+            and int(self.min_pixels) > int(self.max_pixels)
+        ):
+            raise ValueError("min_pixels must be <= max_pixels.")
+
+
+@dataclass(frozen=True, slots=True)
+class EvalInputPolicy:
+    """Resolved eval processor budgets shared by loss and generation eval."""
+
+    default_pixel_budget: EvalPixelBudget
+    dataset_pixel_budgets: tuple[tuple[str, EvalPixelBudget], ...] = ()
+
+    def pixel_budget_for(self, dataset_name: str | None = None) -> EvalPixelBudget:
+        normalized_name = str(dataset_name).strip() if dataset_name is not None else ""
+        for name, budget in self.dataset_pixel_budgets:
+            if name == normalized_name:
+                return budget
+        return self.default_pixel_budget
+
+    def pixel_budgets_by_dataset(self) -> dict[str, tuple[int | None, int | None]]:
+        return {
+            name: (budget.min_pixels, budget.max_pixels)
+            for name, budget in self.dataset_pixel_budgets
+        }
+
+
+def resolve_eval_input_policy(
+    eval_config: EvalConfig,
+    *,
+    train_min_pixels: int | None,
+    train_max_pixels: int | None,
+) -> EvalInputPolicy:
+    """Resolve train-compatible eval defaults and per-dataset overrides once."""
+
+    try:
+        default_budget = EvalPixelBudget(
+            min_pixels=(
+                int(eval_config.min_pixels)
+                if eval_config.min_pixels is not None
+                else int(train_min_pixels)
+                if train_min_pixels is not None
+                else None
+            ),
+            max_pixels=(
+                int(eval_config.max_pixels)
+                if eval_config.max_pixels is not None
+                else int(train_max_pixels)
+                if train_max_pixels is not None
+                else None
+            ),
+        )
+    except ValueError as exc:
+        raise ValueError(f"Invalid resolved eval pixel budget: {exc}") from exc
+    dataset_budgets: list[tuple[str, EvalPixelBudget]] = []
+    for dataset_name, dataset_config in sorted(eval_config.datasets.items()):
+        has_override = (
+            dataset_config.min_pixels is not None
+            or dataset_config.max_pixels is not None
+        )
+        try:
+            budget = EvalPixelBudget(
+                min_pixels=(
+                    int(dataset_config.min_pixels)
+                    if dataset_config.min_pixels is not None
+                    else default_budget.min_pixels
+                ),
+                max_pixels=(
+                    int(dataset_config.max_pixels)
+                    if dataset_config.max_pixels is not None
+                    else default_budget.max_pixels
+                ),
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid resolved eval.datasets.{dataset_name} pixel budget: {exc}"
+            ) from exc
+        if has_override:
+            dataset_budgets.append(
+                (
+                    str(dataset_name),
+                    budget,
+                )
+            )
+    return EvalInputPolicy(
+        default_pixel_budget=default_budget,
+        dataset_pixel_budgets=tuple(dataset_budgets),
+    )
 
 
 def resolve_effective_gradient_checkpointing(config: Any) -> bool:

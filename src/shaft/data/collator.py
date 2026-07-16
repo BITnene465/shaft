@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -16,6 +17,8 @@ from shaft.template import (
 
 
 class _ShaftSequenceCollatorBase:
+    DEFAULT_INPUT_MODE = "training"
+
     def __init__(
         self,
         *,
@@ -28,8 +31,13 @@ class _ShaftSequenceCollatorBase:
         max_length: int | None = None,
         add_eos_token: bool = True,
         ignore_index: int = -100,
-        padding_side: str = "right",
+        input_mode: str | None = None,
         loss_scale_name: str = "default",
+        pixel_budgets_by_dataset: Mapping[
+            str,
+            tuple[int | None, int | None],
+        ]
+        | None = None,
     ) -> None:
         self.model_adapter = model_adapter
         self.template = template
@@ -44,20 +52,57 @@ class _ShaftSequenceCollatorBase:
         self.max_length = int(max_length) if max_length is not None else None
         self.add_eos_token = bool(add_eos_token)
         self.ignore_index = int(ignore_index)
-        self.padding_side = padding_side
+        resolved_input_mode = self.DEFAULT_INPUT_MODE if input_mode is None else input_mode
+        self.input_mode = str(resolved_input_mode).strip().lower()
+        self.padding_side = model_adapter.resolve_processor_padding_side(self.input_mode)
         self.loss_scale_name = str(loss_scale_name).strip().lower() or "default"
-        if self.padding_side not in {"left", "right"}:
-            raise ValueError("padding_side must be 'left' or 'right'.")
+        self.pixel_budgets_by_dataset = {
+            str(dataset_name): (
+                int(budget[0]) if budget[0] is not None else None,
+                int(budget[1]) if budget[1] is not None else None,
+            )
+            for dataset_name, budget in (pixel_budgets_by_dataset or {}).items()
+        }
 
-    def _run_processor(self, prompt_texts: list[str], images: list[Any]) -> ShaftProcessedBatch:
+    def _resolve_pixel_budget(
+        self,
+        dataset_names: list[str | None] | None,
+    ) -> tuple[int | None, int | None]:
+        default_budget = (self.min_pixels, self.max_pixels)
+        if not self.pixel_budgets_by_dataset:
+            return default_budget
+        normalized_names = [
+            str(dataset_name).strip() if dataset_name is not None else ""
+            for dataset_name in (dataset_names or [])
+        ]
+        if not normalized_names:
+            return default_budget
+        budgets = {
+            self.pixel_budgets_by_dataset.get(dataset_name, default_budget)
+            for dataset_name in normalized_names
+        }
+        if len(budgets) != 1:
+            raise ValueError(
+                "A processor batch cannot mix datasets with different eval pixel budgets."
+            )
+        return next(iter(budgets))
+
+    def _run_processor(
+        self,
+        prompt_texts: list[str],
+        images: list[Any],
+        *,
+        dataset_names: list[str | None] | None = None,
+    ) -> ShaftProcessedBatch:
+        min_pixels, max_pixels = self._resolve_pixel_budget(dataset_names)
         return self.model_adapter.build_processor_batch(
             processor=self.processor,
             tokenizer=self.tokenizer,
             prompt_texts=prompt_texts,
             images=images,
-            min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels,
-            padding_side=self.padding_side,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            input_mode=self.input_mode,
         )
 
     def _pad_sequences(self, rows: list[torch.Tensor], *, padding_value: int) -> torch.Tensor:
@@ -96,6 +141,8 @@ class _ShaftSequenceCollatorBase:
 
 
 class SFTCollator(_ShaftSequenceCollatorBase):
+    SHAFT_INPUT_POLICY_VERSION = "shaft-sft-collator-input-v1"
+
     def __init__(
         self,
         *,
@@ -110,11 +157,16 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         ignore_index: int = -100,
         include_targets_in_inputs: bool = True,
         include_metadata: bool = False,
-        padding_side: str = "right",
+        input_mode: str = "training",
         loss_scale_name: str = "default",
         layout: str = "padded",
         packing_mode: str = "none",
         collect_stats: bool = True,
+        pixel_budgets_by_dataset: Mapping[
+            str,
+            tuple[int | None, int | None],
+        ]
+        | None = None,
     ) -> None:
         super().__init__(
             model_adapter=model_adapter,
@@ -126,8 +178,9 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             max_length=max_length,
             add_eos_token=add_eos_token,
             ignore_index=ignore_index,
-            padding_side=padding_side,
+            input_mode=input_mode,
             loss_scale_name=loss_scale_name,
+            pixel_budgets_by_dataset=pixel_budgets_by_dataset,
         )
         self.include_targets_in_inputs = bool(include_targets_in_inputs)
         self.include_metadata = bool(include_metadata)
@@ -157,7 +210,11 @@ class SFTCollator(_ShaftSequenceCollatorBase):
         ]
         prompt_texts = [plan.prompt_text for plan in plans]
         images = [item["image"] for item in batch]
-        processed_batch = self._run_processor(prompt_texts, images)
+        processed_batch = self._run_processor(
+            prompt_texts,
+            images,
+            dataset_names=[item.get("dataset_name") for item in batch],
+        )
         prefix_token_layouts = self._build_prefix_token_layouts(
             plans=plans,
             processed_batch=processed_batch,
@@ -247,7 +304,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             )
         if self.include_metadata:
             out["meta"] = {
-                "dataset_name": [item["dataset_name"] for item in batch],
+                "dataset_name": [item.get("dataset_name") for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
                 "image_path": [item["image_path"] for item in batch],
                 "target_text": [item["target_text"] for item in batch],
@@ -257,6 +314,8 @@ class SFTCollator(_ShaftSequenceCollatorBase):
 
 
 class DPOCollator(_ShaftSequenceCollatorBase):
+    SHAFT_INPUT_POLICY_VERSION = "shaft-dpo-collator-input-v1"
+
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         chosen_plans = [
             self.template.build_supervision_plan(
@@ -273,7 +332,11 @@ class DPOCollator(_ShaftSequenceCollatorBase):
         ]
         prompt_texts = [plan.prompt_text for plan in chosen_plans]
         images = [item["image"] for item in batch]
-        processed_batch = self._run_processor(prompt_texts, images)
+        processed_batch = self._run_processor(
+            prompt_texts,
+            images,
+            dataset_names=[item.get("dataset_name") for item in batch],
+        )
         prefix_token_layouts = self._build_prefix_token_layouts(
             plans=chosen_plans,
             processed_batch=processed_batch,
@@ -342,6 +405,12 @@ class DPOCollator(_ShaftSequenceCollatorBase):
 
 
 class PPOCollator(_ShaftSequenceCollatorBase):
+    SHAFT_INPUT_POLICY_VERSION = "shaft-ppo-collator-input-v1"
+
+    # PPO batches are rollout prompts consumed by decoder-only generation, even
+    # though they are produced by the training dataloader.
+    DEFAULT_INPUT_MODE = "generation"
+
     def _apply_text_only_chat_template(self, item: dict[str, Any]) -> str:
         messages = item.get("messages")
         if messages:
@@ -392,6 +461,8 @@ class PPOCollator(_ShaftSequenceCollatorBase):
 
 
 class GRPOCollator:
+    SHAFT_INPUT_POLICY_VERSION = "shaft-grpo-collator-input-v1"
+
     def __init__(self, *, template: Template) -> None:
         self.template = template
 

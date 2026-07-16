@@ -14,6 +14,7 @@ from PIL import Image
 from transformers import __version__ as transformers_version
 
 from shaft.config.data import SHAFT_BATCH_RESOURCE_NAMES
+from shaft.model.input_identity import tokenizer_artifact_fingerprint
 from shaft.template import ShaftChatRenderer
 from shaft.utils.distributed import is_rank_zero
 
@@ -55,75 +56,6 @@ def _dataset_records_fingerprint(records: Any) -> str:
     else:
         payload = (("__flat__", _sequence_fingerprint(records)),)
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
-
-
-def _stable_artifact_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, Mapping):
-        return tuple(
-            (str(key), _stable_artifact_value(item))
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-        )
-    if isinstance(value, (list, tuple)):
-        return tuple(_stable_artifact_value(item) for item in value)
-    if isinstance(value, (set, frozenset)):
-        resolved = [_stable_artifact_value(item) for item in value]
-        return tuple(sorted(resolved, key=repr))
-    if hasattr(value, "content"):
-        return (
-            f"{type(value).__module__}.{type(value).__qualname__}",
-            str(getattr(value, "content", "")),
-            bool(getattr(value, "single_word", False)),
-            bool(getattr(value, "lstrip", False)),
-            bool(getattr(value, "rstrip", False)),
-            bool(getattr(value, "normalized", False)),
-            bool(getattr(value, "special", False)),
-        )
-    return f"{type(value).__module__}.{type(value).__qualname__}"
-
-
-def _tokenizer_artifact_fingerprint(tokenizer: Any) -> str:
-    """Bind token costs to tokenizer implementation and serialized vocabulary assets."""
-
-    backend = getattr(tokenizer, "backend_tokenizer", None)
-    backend_to_str = getattr(backend, "to_str", None)
-    if callable(backend_to_str):
-        artifact_kind = "backend-tokenizer-json"
-        artifact_payload = str(backend_to_str())
-    else:
-        declared = getattr(tokenizer, "shaft_cost_fingerprint", None)
-        declared = declared() if callable(declared) else declared
-        artifact_payload = str(declared or "").strip()
-        if not artifact_payload:
-            raise ValueError(
-                "Exact SFT sample-cost estimation requires "
-                "tokenizer.backend_tokenizer.to_str() "
-                "or an explicit tokenizer.shaft_cost_fingerprint covering the full "
-                "vocabulary and tokenization model (including merges/unigram state)."
-            )
-        artifact_kind = "declared-shaft-cost-fingerprint"
-
-    metadata = (
-        "shaft-tokenizer-artifact-v1",
-        artifact_kind,
-        hashlib.sha256(artifact_payload.encode("utf-8")).hexdigest(),
-        f"{type(tokenizer).__module__}.{type(tokenizer).__qualname__}",
-        str(getattr(tokenizer, "name_or_path", "")),
-        getattr(tokenizer, "vocab_size", None),
-        getattr(tokenizer, "eos_token_id", None),
-        getattr(tokenizer, "bos_token_id", None),
-        getattr(tokenizer, "pad_token_id", None),
-        getattr(tokenizer, "model_max_length", None),
-        getattr(tokenizer, "padding_side", None),
-        getattr(tokenizer, "truncation_side", None),
-        _stable_artifact_value(getattr(tokenizer, "special_tokens_map", {})),
-        _stable_artifact_value(getattr(tokenizer, "init_kwargs", {})),
-        _stable_artifact_value(getattr(tokenizer, "added_tokens_encoder", {})),
-    )
-    return hashlib.sha256(repr(metadata).encode("utf-8")).hexdigest()
 
 
 def sft_cost_source_fingerprint(dataset: Any) -> str:
@@ -183,13 +115,9 @@ def sft_runtime_source_identity(dataset: Any) -> ShaftSFTSourceIdentity:
 
 def validate_sft_cost_dataset(dataset: Any) -> None:
     if not hasattr(dataset, "get_planning_item"):
-        raise TypeError(
-            "SFT cost-aware batching requires a dataset with get_planning_item()."
-        )
+        raise TypeError("SFT cost-aware batching requires a dataset with get_planning_item().")
     if not str(getattr(dataset, "media_snapshot_id", "")).strip():
-        raise ValueError(
-            "SFT cost-aware batching requires an immutable media_snapshot_id."
-        )
+        raise ValueError("SFT cost-aware batching requires an immutable media_snapshot_id.")
     unsafe_transforms = [
         transform
         for transform in getattr(dataset, "online_transforms", ())
@@ -237,9 +165,7 @@ class ShaftSampleCost:
         if int(self.supervised_tokens) < 0:
             raise ValueError("ShaftSampleCost.supervised_tokens must be >= 0.")
         if int(self.supervised_tokens) > int(self.llm_tokens):
-            raise ValueError(
-                "ShaftSampleCost.supervised_tokens cannot exceed llm_tokens."
-            )
+            raise ValueError("ShaftSampleCost.supervised_tokens cannot exceed llm_tokens.")
         if int(self.vision_patches) < 0:
             raise ValueError("ShaftSampleCost.vision_patches must be >= 0.")
         if self.loss_weight_sum is not None:
@@ -252,9 +178,7 @@ class ShaftSampleCost:
     def resource_value(self, name: str) -> int:
         normalized = str(name).strip().lower()
         if normalized not in SHAFT_BATCH_RESOURCE_NAMES:
-            raise ValueError(
-                f"ShaftSampleCost does not expose configured resource {normalized!r}."
-            )
+            raise ValueError(f"ShaftSampleCost does not expose configured resource {normalized!r}.")
         if normalized == "vision_patches":
             return int(self.vision_patches)
         raise AssertionError(
@@ -285,17 +209,13 @@ class ShaftRowInvariantCostProvider:
     ) -> None:
         self._costs = dict(costs)
         if not self._costs:
-            raise ValueError(
-                "ShaftRowInvariantCostProvider requires at least one sample cost."
-            )
+            raise ValueError("ShaftRowInvariantCostProvider requires at least one sample cost.")
         if fingerprint is None:
             payload = tuple(sorted(self._costs.items()))
             fingerprint = hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
         self.fingerprint = str(fingerprint).strip()
         if not self.fingerprint:
-            raise ValueError(
-                "ShaftRowInvariantCostProvider fingerprint must not be empty."
-            )
+            raise ValueError("ShaftRowInvariantCostProvider fingerprint must not be empty.")
 
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost:
         key = (str(sample_ref.dataset_name), int(sample_ref.row_index))
@@ -349,9 +269,7 @@ class ShaftSFTSampleCostProvider:
         self.loss_scale_name = str(loss_scale_name).strip().lower() or "default"
         self.cache_size = max(int(cache_size), 0)
         self._image_sizes: OrderedDict[str, tuple[int, int]] = OrderedDict()
-        self._sample_costs: OrderedDict[
-            tuple[str, int, int, int], ShaftSampleCost
-        ] = OrderedDict()
+        self._sample_costs: OrderedDict[tuple[str, int, int, int], ShaftSampleCost] = OrderedDict()
         self._large_image_warning_count = 0
         processor_cost_semantics = model_adapter.processor_cost_semantics_signature(
             processor=processor,
@@ -359,16 +277,15 @@ class ShaftSFTSampleCostProvider:
             max_pixels=self.max_pixels,
         )
         fingerprint_payload = (
-            "shaft-sft-runtime-cost-v7-bounded",
+            "shaft-sft-runtime-cost-v8-bounded",
             sft_cost_source_fingerprint(dataset),
             str(getattr(model_adapter, "model_type", "")),
-            str(getattr(model_adapter, "model_name_or_path", "")),
             str(getattr(model_adapter, "template_type", "")),
             processor_cost_semantics,
             f"{type(processor).__module__}.{type(processor).__qualname__}",
             str(transformers_version),
             repr(getattr(processor, "chat_template", None)),
-            _tokenizer_artifact_fingerprint(tokenizer),
+            tokenizer_artifact_fingerprint(tokenizer),
             f"{type(template).__module__}.{type(template).__qualname__}",
             repr(getattr(template, "template_meta", None)),
             self.min_pixels,
@@ -377,9 +294,7 @@ class ShaftSFTSampleCostProvider:
             self.add_eos_token,
             self.loss_scale_name,
         )
-        self.fingerprint = hashlib.sha256(
-            repr(fingerprint_payload).encode("utf-8")
-        ).hexdigest()
+        self.fingerprint = hashlib.sha256(repr(fingerprint_payload).encode("utf-8")).hexdigest()
 
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost:
         item = self.dataset.get_planning_item(sample_ref)
@@ -406,9 +321,8 @@ class ShaftSFTSampleCostProvider:
             renderer=self.renderer,
             loss_scale_name=self.loss_scale_name,
         )
-        rendered_ids = (
-            supervision_plan.rendered_prefix_token_ids
-            or self.renderer.tokenize(supervision_plan.prompt_text)
+        rendered_ids = supervision_plan.rendered_prefix_token_ids or self.renderer.tokenize(
+            supervision_plan.prompt_text
         )
         image_size = self._get_image_size(image_path)
         image_estimate = self.model_adapter.estimate_processor_image_cost(

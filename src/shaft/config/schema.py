@@ -13,7 +13,10 @@ from .model import FinetuneConfig, ModelConfig
 from .runtime import RuntimeConfig
 from .training import (
     EvalConfig,
+    EvalInputPolicy,
+    EvalPixelBudget,
     TrainConfig,
+    TrainDDPConfig,
     TrainEfficiencyConfig,
     TrainDeepSpeedConfig,
     TrainDistributedConfig,
@@ -30,6 +33,8 @@ __all__ = [
     "DatasetSourceConfig",
     "DPOConfig",
     "EvalConfig",
+    "EvalInputPolicy",
+    "EvalPixelBudget",
     "ExperimentConfig",
     "FinetuneConfig",
     "GRPOConfig",
@@ -42,6 +47,7 @@ __all__ = [
     "ProgressConfig",
     "RLHFConfig",
     "RuntimeConfig",
+    "TrainDDPConfig",
     "TrainDeepSpeedConfig",
     "TrainDistributedConfig",
     "TrainFSDPConfig",

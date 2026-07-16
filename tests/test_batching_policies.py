@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from enum import IntEnum
+from pathlib import Path
 
 from accelerate.data_loader import BatchSamplerShard
 import pytest
@@ -29,6 +31,10 @@ from shaft.data import (
     SFTDataset,
     SFTRecord,
 )
+
+
+class _JsonIntImpostor(IntEnum):
+    ONE = 1
 
 
 def _segment(draw_id: int, length: int, *, vision_patches: int = 0) -> ShaftLogicalSegmentPlan:
@@ -74,6 +80,53 @@ def test_plan_hierarchy_has_one_structural_truth_and_derived_flat_views() -> Non
     assert local.supervised_tokens == 8
     assert local.vision_patches == 28
     assert local.padded_llm_tokens == 16
+
+
+def test_logical_segment_json_roundtrip_preserves_identity_and_cost() -> None:
+    segment = _segment(3, 8, vision_patches=16)
+
+    payload = json.loads(json.dumps(segment.to_dict()))
+
+    assert ShaftLogicalSegmentPlan.from_dict(payload) == segment
+
+
+@pytest.mark.parametrize(
+    ("path", "invalid_value"),
+    (
+        (("dataset_name",), Path("train")),
+        (("row_index",), True),
+        (("context", "draw_id"), "3"),
+        (("context", "plan_cycle"), 0.0),
+        (("context", "transform_seed"), _JsonIntImpostor.ONE),
+        (("cost", "llm_tokens"), False),
+        (("cost", "supervised_tokens"), "7"),
+        (("cost", "vision_patches"), 16.0),
+        (("cost", "loss_weight_sum"), float("-inf")),
+        (("cost", "exact"), 1),
+    ),
+)
+def test_logical_segment_rejects_noncanonical_json_values(
+    path: tuple[str, ...],
+    invalid_value: object,
+) -> None:
+    payload = _segment(3, 8, vision_patches=16).to_dict()
+    target = payload
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = invalid_value
+
+    with pytest.raises((TypeError, ValueError)):
+        ShaftLogicalSegmentPlan.from_dict(payload)
+
+
+@pytest.mark.parametrize("owner", ("segment", "context", "cost"))
+def test_logical_segment_rejects_unknown_versioned_schema_fields(owner: str) -> None:
+    payload = _segment(3, 8, vision_patches=16).to_dict()
+    target = payload if owner == "segment" else payload[owner]
+    target["unknown"] = 1
+
+    with pytest.raises(ValueError, match="unknown"):
+        ShaftLogicalSegmentPlan.from_dict(payload)
 
 
 def test_varlen_layout_rejects_duplicate_processor_rows() -> None:
@@ -190,6 +243,9 @@ def test_planned_sample_ref_requires_complete_batch_identity() -> None:
         "segment_index": 1,
         "pack_segment_count": 2,
     }
+    assert ShaftBatchContext.from_dict(
+        json.loads(json.dumps(planned.batch_context.to_dict()))
+    ) == planned.batch_context
 
     with pytest.raises(ValueError, match="segment_index"):
         ShaftBatchContext(
@@ -200,6 +256,54 @@ def test_planned_sample_ref_requires_complete_batch_identity() -> None:
             segment_index=2,
             pack_segment_count=2,
         )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("global_microstep", True),
+        ("plan_fingerprint", Path("plan-abc")),
+        ("local_batch_id", "1"),
+        ("pack_index", 0.0),
+        ("segment_index", _JsonIntImpostor.ONE),
+        ("pack_segment_count", False),
+    ),
+)
+def test_batch_context_rejects_noncanonical_json_values(
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    payload = ShaftBatchContext(
+        global_microstep=7,
+        plan_fingerprint="plan-abc",
+        local_batch_id=1,
+        pack_index=0,
+        segment_index=1,
+        pack_segment_count=2,
+    ).to_dict()
+    payload[field_name] = invalid_value
+
+    with pytest.raises(TypeError):
+        ShaftBatchContext.from_dict(payload)
+
+
+def test_batch_context_rejects_unknown_and_non_string_keys() -> None:
+    payload = ShaftBatchContext(
+        global_microstep=7,
+        plan_fingerprint="plan-abc",
+        local_batch_id=1,
+        pack_index=0,
+        segment_index=1,
+        pack_segment_count=2,
+    ).to_dict()
+    payload["unknown"] = 1
+    with pytest.raises(ValueError, match="unknown"):
+        ShaftBatchContext.from_dict(payload)
+
+    payload.pop("unknown")
+    payload[1] = "non-string-key"
+    with pytest.raises(TypeError, match="keys"):
+        ShaftBatchContext.from_dict(payload)
 
 
 def _planning_spec(

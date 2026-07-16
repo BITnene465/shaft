@@ -31,6 +31,7 @@ class _FakeProcessor:
 
     def __init__(self) -> None:
         self.call_count = 0
+        self.last_kwargs = {}
 
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
         _ = tokenize, add_generation_prompt
@@ -38,8 +39,9 @@ class _FakeProcessor:
         return " ".join(chunk.get("text", "") for m in messages for chunk in m.get("content", []))
 
     def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
-        _ = images, padding, return_tensors, kwargs
+        _ = images, padding, return_tensors
         self.call_count += 1
+        self.last_kwargs = dict(kwargs)
         tokenized = self.tokenizer(text, add_special_tokens=False, return_attention_mask=False)["input_ids"]
         batch_size = len(tokenized)
         max_len = max(len(ids) for ids in tokenized)
@@ -197,6 +199,120 @@ def test_sft_collator_builds_labels() -> None:
     )
     eval_out = eval_collator(batch)
     assert "dataset_name" in eval_out["meta"]
+
+
+def test_sft_collator_routes_resolved_eval_pixel_budget_by_dataset() -> None:
+    adapter = _build_smoke_adapter()
+    adapter = replace(
+        adapter,
+        processor_policy=replace(adapter.processor_policy, supports_pixel_budget=True),
+    )
+    processor = _FakeProcessor()
+    collator = SFTCollator(
+        model_adapter=adapter,
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=processor.tokenizer,
+        min_pixels=100,
+        max_pixels=1000,
+        pixel_budgets_by_dataset={"fixture": (300, 3000)},
+    )
+
+    collator([_sft_item(sample_id="one")])
+
+    assert processor.last_kwargs["images_kwargs"] == {
+        "min_pixels": 300,
+        "max_pixels": 3000,
+    }
+
+
+def test_sft_collator_without_dataset_overrides_accepts_missing_dataset_name() -> None:
+    item = _sft_item(sample_id="legacy")
+    item.pop("dataset_name")
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        include_metadata=True,
+    )
+
+    output = collator([item])
+
+    assert output["input_ids"].shape[0] == 1
+    assert output["meta"]["dataset_name"] == [None]
+
+
+@pytest.mark.parametrize("dataset_name", [None, "unknown"])
+def test_sft_collator_uses_default_budget_for_missing_or_unknown_dataset_name(
+    dataset_name: str | None,
+) -> None:
+    item = _sft_item(sample_id="default")
+    if dataset_name is None:
+        item.pop("dataset_name")
+    else:
+        item["dataset_name"] = dataset_name
+    adapter = _build_smoke_adapter()
+    adapter = replace(
+        adapter,
+        processor_policy=replace(adapter.processor_policy, supports_pixel_budget=True),
+    )
+    processor = _FakeProcessor()
+    collator = SFTCollator(
+        model_adapter=adapter,
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=processor.tokenizer,
+        min_pixels=100,
+        max_pixels=1000,
+        pixel_budgets_by_dataset={"fixture": (300, 3000)},
+    )
+
+    collator([item])
+
+    assert processor.last_kwargs["images_kwargs"] == {
+        "min_pixels": 100,
+        "max_pixels": 1000,
+    }
+
+
+def test_sft_collator_allows_default_and_override_with_the_same_eval_budget() -> None:
+    first = _sft_item(sample_id="first")
+    second = _sft_item(sample_id="second")
+    first.pop("dataset_name")
+    second["dataset_name"] = "override"
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        min_pixels=300,
+        max_pixels=3000,
+        pixel_budgets_by_dataset={"override": (300, 3000)},
+    )
+
+    output = collator([first, second])
+
+    assert output["input_ids"].shape[0] == 2
+
+
+def test_sft_collator_rejects_default_and_override_with_different_eval_budgets() -> None:
+    first = _sft_item(sample_id="first")
+    second = _sft_item(sample_id="second")
+    first.pop("dataset_name")
+    second["dataset_name"] = "override"
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=_FakeProcessor(),
+        tokenizer=_FakeTokenizer(),
+        min_pixels=300,
+        max_pixels=3000,
+        pixel_budgets_by_dataset={"override": (400, 4000)},
+    )
+
+    with pytest.raises(ValueError, match="cannot mix datasets"):
+        collator([first, second])
 
 
 def test_sft_varlen_collator_flattens_planned_segments_without_padding() -> None:
@@ -603,7 +719,7 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
     assert out["model_specific_mask"].flatten().tolist() == [0, 1, 0, 1]
 
 
-def test_ppo_collator_builds_query_only_batch() -> None:
+def test_ppo_collator_builds_left_padded_generation_queries() -> None:
     model_adapter = _build_smoke_adapter()
     processor = _FakeProcessor()
     collator = PPOCollator(
@@ -628,13 +744,24 @@ def test_ppo_collator_builds_query_only_batch() -> None:
             "image_path": "/tmp/a2.png",
             "messages": None,
             "system_prompt": "",
-            "user_prompt": "Locate.",
+            "user_prompt": "Locate the requested object.",
             "extra": {},
         },
     ]
     out = collator(batch)
+
+    assert collator.input_mode == "generation"
+    assert collator.padding_side == "left"
     assert out["input_ids"].shape[0] == 2
     assert out["attention_mask"].shape == out["input_ids"].shape
+    assert out["input_ids"].tolist() == [
+        [0, 0, 0, 10],
+        [10, 11, 12, 13],
+    ]
+    assert out["attention_mask"].tolist() == [
+        [0, 0, 0, 1],
+        [1, 1, 1, 1],
+    ]
     assert all(
         chunk.get("type") != "image"
         for message in processor.last_messages

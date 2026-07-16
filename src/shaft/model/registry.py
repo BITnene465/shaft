@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from shaft.plugins import Registry
 
 from .sharding import ModelShardingPolicy
+from .inference import ShaftInferencePolicy
 from .types import (
     ModelCapabilities,
     ModelGroup,
@@ -39,6 +40,7 @@ def default_model_groups(
     capabilities: ModelCapabilities | None = None,
     module_groups: ModelModuleGroups | None = None,
     processor_policy: ProcessorPolicy | None = None,
+    inference_policy: ShaftInferencePolicy | None = None,
     peft_policy: PeftPolicy | None = None,
     sharding_policy: ModelShardingPolicy | None = None,
     requires: Iterable[str] = (),
@@ -50,13 +52,12 @@ def default_model_groups(
         ModelGroup(
             name=str(name).strip() or "default",
             model_ids=cleaned,
-            hf_model_types=tuple(
-                str(item).strip() for item in hf_model_types if str(item).strip()
-            ),
+            hf_model_types=tuple(str(item).strip() for item in hf_model_types if str(item).strip()),
             template=template,
             capabilities=capabilities,
             module_groups=module_groups,
             processor_policy=processor_policy,
+            inference_policy=inference_policy,
             peft_policy=peft_policy,
             sharding_policy=sharding_policy,
             requires=tuple(str(item).strip() for item in requires if str(item).strip()),

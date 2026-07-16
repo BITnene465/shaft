@@ -53,7 +53,6 @@ def test_apply_common_overrides() -> None:
         qlora_load_in_4bit=False,
         use_cpu=True,
         init_from="init-ckpt-a",
-        resume_from="ckpt-a",
     )
     out = apply_common_overrides(cfg, args)
     assert out.experiment.run_id == "rid-1"
@@ -77,7 +76,17 @@ def test_apply_common_overrides() -> None:
     assert out.model.finetune.qlora_load_in_4bit is False
     assert out.train.use_cpu is True
     assert out.train.init_from_checkpoint == "init-ckpt-a"
-    assert out.train.resume_from_checkpoint == "ckpt-a"
+
+
+def test_apply_common_overrides_rejects_init_and_resume_together() -> None:
+    with pytest.raises(ValueError, match="--init-from and --resume-from are mutually exclusive"):
+        apply_common_overrides(
+            RuntimeConfig(),
+            build_common_train_args(
+                init_from="init-ckpt-a",
+                resume_from="checkpoint-a",
+            ),
+        )
 
 
 def test_apply_common_overrides_rejects_two_duration_units() -> None:
@@ -124,6 +133,7 @@ def test_run_from_args_allowed_algorithms() -> None:
     args = build_common_train_args(algorithm="ppo")
     cfg = _valid_runtime_config()
     cfg.data.datasets[0].source_type = "jsonl_ppo"
+    cfg.train.save_strategy = "no"
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})
@@ -134,6 +144,7 @@ def test_run_from_args_allowed_algorithms() -> None:
 def test_run_from_args_supports_grpo() -> None:
     args = build_common_train_args(algorithm="grpo")
     cfg = _valid_runtime_config()
+    cfg.eval.enabled = False
     with patch("shaft.cli.common.load_config", return_value=cfg):
         with patch("shaft.cli.common.run_rlhf", return_value={}) as mocked:
             run_from_args(args, allowed_algorithms={"dpo", "ppo", "grpo"})

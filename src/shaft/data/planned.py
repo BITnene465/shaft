@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from shaft.utils.contract_schema import (
+    json_int,
+    json_string,
+    require_exact_keys,
+    require_json_mapping,
+)
+
 from .mixing import ShaftSampleContext, ShaftSampleRef
 
 
@@ -42,15 +49,29 @@ class ShaftBatchContext:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ShaftBatchContext":
-        if not isinstance(payload, dict):
-            raise TypeError("ShaftBatchContext payload must be a mapping.")
+        role = "ShaftBatchContext"
+        payload = require_json_mapping(payload, role=role)
+        require_exact_keys(
+            payload,
+            role=role,
+            expected=frozenset(
+                {
+                    "global_microstep",
+                    "plan_fingerprint",
+                    "local_batch_id",
+                    "pack_index",
+                    "segment_index",
+                    "pack_segment_count",
+                }
+            ),
+        )
         return cls(
-            global_microstep=int(payload["global_microstep"]),
-            plan_fingerprint=str(payload["plan_fingerprint"]),
-            local_batch_id=int(payload["local_batch_id"]),
-            pack_index=int(payload["pack_index"]),
-            segment_index=int(payload["segment_index"]),
-            pack_segment_count=int(payload["pack_segment_count"]),
+            global_microstep=json_int(payload, "global_microstep", role=role),
+            plan_fingerprint=json_string(payload, "plan_fingerprint", role=role),
+            local_batch_id=json_int(payload, "local_batch_id", role=role),
+            pack_index=json_int(payload, "pack_index", role=role),
+            segment_index=json_int(payload, "segment_index", role=role),
+            pack_segment_count=json_int(payload, "pack_segment_count", role=role),
         )
 
 

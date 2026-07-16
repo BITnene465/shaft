@@ -90,9 +90,12 @@ def test_export_main_forwards_hf_locator_options_to_merge() -> None:
                 "/tmp/hf-cache",
                 "--local-files-only",
                 "true",
+                "--allow-unverified-base-model",
+                "true",
             ]
         )
 
     assert mocked.call_args.kwargs["revision"] == "release-v2"
     assert mocked.call_args.kwargs["cache_dir"] == "/tmp/hf-cache"
     assert mocked.call_args.kwargs["local_files_only"] is True
+    assert mocked.call_args.kwargs["allow_unverified_base_model"] is True

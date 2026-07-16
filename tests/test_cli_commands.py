@@ -54,6 +54,7 @@ def test_main_runs_rlhf_command() -> None:
 
 def test_main_runs_grpo_command() -> None:
     cfg = _valid_runtime_config()
+    cfg.eval.enabled = False
     captured: dict[str, str] = {}
 
     with patch("shaft.cli.common.load_config", return_value=cfg):

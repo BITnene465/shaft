@@ -9,7 +9,17 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from shaft.data import ShaftPlannedBatchSampler, ShaftSampleCost
+from shaft.config import (
+    EvalDatasetPolicyConfig,
+    EvalMetricConfig,
+    resolve_eval_input_policy,
+)
+from shaft.data import (
+    ShaftDatasetBundle,
+    ShaftPlannedBatchSampler,
+    ShaftSampleCost,
+    ShaftSampleSampler,
+)
 from shaft.model import SequenceExecutionPolicy
 from shaft.model.finetune_plan import resolved_finetune_summary_path
 from shaft.observability import PROGRESS_SNAPSHOT_FILENAME
@@ -22,8 +32,16 @@ from shaft.training.batch_planning import (
     ShaftBatchPlanningCallback,
     batching_run_metadata_path,
     load_batching_run_metadata,
-    write_batch_planning_checkpoint_completion,
+    build_batch_contract,
 )
+from shaft.training.checkpointing import (
+    ResolvedResumeCheckpoint,
+    ShaftCheckpointProtocol,
+    commit_training_checkpoint,
+    resolve_resume_checkpoint_generation,
+)
+from shaft.training.resume_contract import build_training_resume_contract
+from shaft.pipeline.training_args import build_hf_training_args
 from tests.support.pipeline import FakePipelineModel as _FakeModel
 from tests.support.pipeline import FakePipelineTrainer as _FakeTrainer
 from tests.support.pipeline import build_fake_model_artifacts as _build_fake_model_artifacts
@@ -37,6 +55,7 @@ def _resolved_plan_for_adapter(adapter):
     return SimpleNamespace(
         model_adapter=adapter,
         fingerprint="test-model-plan-v1",
+        artifact_identity=SimpleNamespace(complete=True),
         build_sequence_execution_contract=adapter.build_sequence_execution_contract,
     )
 
@@ -45,7 +64,34 @@ def _write_config(tmp_path: Path, **kwargs):
     config = _write_base_config(tmp_path, **kwargs)
     config.model.model_type = "smoke_vlm"
     config.model.model_name_or_path = "models/Smoke-VLM"
+    config.data.media_snapshot_id = "pipeline-fixture-v1"
     return config
+
+
+def _resolved_resume(path: str | Path, *, step: int = 1) -> ResolvedResumeCheckpoint:
+    return ResolvedResumeCheckpoint(
+        path=Path(path),
+        protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+        global_step=step,
+        generation_fingerprint="a" * 64,
+        commit_fingerprint="b" * 64,
+        stat_guard=(),
+    )
+
+
+def test_sft_checkpoint_step_reader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 2, "global_step": 2}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        resolve_resume_checkpoint_generation(
+            checkpoint,
+            protocol=ShaftCheckpointProtocol.BACKEND_NATIVE,
+        )
 
 
 class _CountingProvider:
@@ -119,6 +165,31 @@ def test_run_sft_smoke(tmp_path: Path) -> None:
     assert progress["tasks"]["startup.model"]["state"] == "succeeded"
 
 
+@pytest.mark.parametrize(
+    ("save_strategy", "expected_immutable"),
+    [("steps", True), ("no", False)],
+)
+def test_sft_pipeline_materializes_model_identity_only_when_checkpointable(
+    tmp_path: Path,
+    save_strategy: str,
+    expected_immutable: bool,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.save_strategy = save_strategy
+    from shaft.pipeline import sft as sft_pipeline
+
+    with patch(
+        "shaft.pipeline.sft.resolve_model_plan",
+        wraps=sft_pipeline.resolve_model_plan,
+    ) as resolver:
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+            builder.return_value = _build_fake_model_artifacts()
+            with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                run_sft(config)
+
+    assert resolver.call_args.kwargs["require_immutable_artifact"] is expected_immutable
+
+
 def test_run_sft_initializes_seed_before_model_build(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     config.experiment.seed = 137
@@ -144,27 +215,147 @@ def test_run_sft_rejects_resume_contract_before_data_or_model_load(
     config.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
 
     with patch(
-        "shaft.pipeline.sft.resolve_resume_checkpoint",
-        return_value=config.train.resume_from_checkpoint,
+        "shaft.pipeline.sft.resolve_resume_checkpoint_generation",
+        return_value=_resolved_resume(config.train.resume_from_checkpoint),
     ):
         with patch("shaft.pipeline.sft.validate_resume_checkpoint"):
             with patch(
-                "shaft.pipeline.sft.validate_batching_resume_contract",
-                side_effect=ValueError("batch contract drift"),
+                "shaft.pipeline.sft.load_checkpoint_batching_metadata",
+                return_value=SimpleNamespace(training_resume_contract=object()),
             ):
-                with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
-                    with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
-                        with pytest.raises(ValueError, match="batch contract drift"):
-                            run_sft(config)
+                with patch(
+                    "shaft.pipeline.sft.build_training_resume_preflight_contract",
+                    return_value=SimpleNamespace(fingerprint="preflight-v1"),
+                ):
+                    with patch(
+                        "shaft.pipeline.sft.validate_batching_resume_contract",
+                        side_effect=ValueError("batch contract drift"),
+                    ):
+                        with patch("shaft.pipeline.sft.ShaftDataCenter") as data_center:
+                            with patch(
+                                "shaft.pipeline.sft.build_model_tokenizer_processor"
+                            ) as build_model:
+                                with pytest.raises(ValueError, match="batch contract drift"):
+                                    run_sft(config)
 
     data_center.assert_not_called()
+    build_model.assert_not_called()
+
+
+def test_sft_resume_drift_fails_before_local_weight_hashing(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    model_dir = tmp_path / "local-hf"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text(
+        json.dumps({"model_type": "qwen3_vl"}),
+        encoding="utf-8",
+    )
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    config.model.model_type = "qwen3vl"
+    config.model.model_name_or_path = str(model_dir)
+    training_args = build_hf_training_args(config)
+    batch_contract = build_batch_contract(config=config, training_args=training_args)
+    checkpoint_contract = build_training_resume_contract(
+        config=config,
+        training_args=training_args,
+        batch_contract_fingerprint=batch_contract.fingerprint,
+        train_input_contract_fingerprint="stored-train-input",
+        data_execution_fingerprint="stored-data-execution",
+        model_plan_fingerprint="stored-model-plan",
+        resolved_finetune_plan_fingerprint="stored-finetune-plan",
+        resolved_optimizer_plan_fingerprint="stored-optimizer-plan",
+    )
+    config.train.learning_rate *= 2
+    config.train.resume_from_checkpoint = str(tmp_path / "checkpoint-1")
+
+    def reject_drift(path, *, expected_training_resume_contract, **kwargs):
+        _ = path, kwargs
+        assert expected_training_resume_contract.fingerprint != checkpoint_contract.fingerprint
+        raise ValueError("Training resume contract changed across exact resume")
+
+    with (
+        patch(
+            "shaft.pipeline.sft.resolve_resume_checkpoint_generation",
+            return_value=_resolved_resume(config.train.resume_from_checkpoint),
+        ),
+        patch("shaft.pipeline.sft.validate_resume_checkpoint"),
+        patch(
+            "shaft.pipeline.sft.load_checkpoint_batching_metadata",
+            return_value=SimpleNamespace(training_resume_contract=checkpoint_contract),
+        ),
+        patch(
+            "shaft.pipeline.sft.validate_batching_resume_contract",
+            side_effect=reject_drift,
+        ),
+        patch(
+            "shaft.pipeline.sft.resolve_model_plan",
+            side_effect=AssertionError("model identity resolved before cheap preflight"),
+        ),
+        patch(
+            "shaft.model.artifact_identity._file_sha256",
+            side_effect=AssertionError("weights hashed before cheap preflight"),
+        ),
+    ):
+        with pytest.raises(ValueError, match="Training resume contract changed"):
+            run_sft(config)
+
+
+def test_run_sft_rejects_invalid_epoch_sharding_before_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    sharding_calls: list[dict[str, object]] = []
+
+    def _reject_epoch_sharding(self, **kwargs):
+        _ = self
+        sharding_calls.append(dict(kwargs))
+        raise ValueError("unequal per-rank train step counts")
+
+    with patch.object(
+        ShaftSampleSampler,
+        "validate_epoch_sharding",
+        new=_reject_epoch_sharding,
+    ):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
+            with pytest.raises(ValueError, match="unequal per-rank train step counts"):
+                run_sft(config)
+
+    assert len(sharding_calls) == 1
+    build_model.assert_not_called()
+
+
+def test_run_sft_rejects_incomplete_data_identity_before_model_load(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    class _IncompleteDataCenter:
+        def __init__(self, data_config, *, seed, train_sample_budget):
+            _ = data_config, seed, train_sample_budget
+
+        def build_dataset_bundle(self, dataset_cls):
+            _ = dataset_cls
+            return ShaftDatasetBundle(
+                train_dataset=object(),
+                eval_dataset=None,
+                train_execution_fingerprint="incomplete-data-v1",
+                train_execution_contract_complete=False,
+                train_execution_incomplete_reasons=("missing_media_snapshot_id",),
+                train_stream_fingerprint="incomplete-stream-v1",
+            )
+
+    with patch("shaft.pipeline.sft.ShaftDataCenter", _IncompleteDataCenter):
+        with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as build_model:
+            with pytest.raises(ValueError, match="before model loading"):
+                run_sft(config)
+
     build_model.assert_not_called()
 
 
 def test_run_sft_wires_loss_scale_and_hooks(tmp_path: Path) -> None:
     hook_name = f"pipeline-hook-{tmp_path.name}"
 
-    @hook("after_step", name=hook_name)
+    @hook("after_step", name=hook_name, trajectory_neutral=True)
     def _test_hook(state):
         _ = state
 
@@ -177,6 +368,46 @@ def test_run_sft_wires_loss_scale_and_hooks(tmp_path: Path) -> None:
     kwargs = _FakeTrainer.last_kwargs
     assert kwargs["data_collator"].loss_scale_name == "all"
     assert any(type(callback).__name__ == "TrainerHookCallback" for callback in kwargs["callbacks"])
+
+
+def test_sft_loss_and_online_eval_share_resolved_dataset_pixel_budget(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _write_config(tmp_path)
+    config.eval.enabled = True
+    config.eval.online_metrics_enabled = True
+    config.eval.min_pixels = 200
+    config.eval.max_pixels = 2000
+    config.eval.datasets = {
+        "ds": EvalDatasetPolicyConfig(
+            min_pixels=300,
+            max_pixels=3000,
+            metrics=[EvalMetricConfig(name="parse_success")],
+            primary_metric="parse_success",
+        )
+    }
+
+    with caplog.at_level("INFO", logger="shaft.training.eval_policy"):
+        with patch(
+            "shaft.pipeline.sft.resolve_eval_input_policy",
+            wraps=resolve_eval_input_policy,
+        ) as resolve_policy:
+            with patch("shaft.pipeline.sft.build_model_tokenizer_processor") as builder:
+                builder.return_value = _build_fake_model_artifacts()
+                with patch("shaft.algorithms.sft.ShaftSFTTrainer", _FakeTrainer):
+                    run_sft(config)
+
+    resolve_policy.assert_called_once()
+    loss_collator = _FakeTrainer.last_kwargs["eval_data_collator"]
+    generation_collator = _FakeTrainer.last_kwargs["online_eval_runner"].prompt_collator
+    assert loss_collator.input_mode == "training"
+    assert loss_collator.padding_side == "right"
+    assert generation_collator.input_mode == "generation"
+    assert generation_collator.padding_side == "left"
+    assert loss_collator._resolve_pixel_budget(["ds"]) == (300, 3000)
+    assert generation_collator._resolve_pixel_budget(["ds"]) == (300, 3000)
+    assert "[eval-input] default=200:2000 datasets=ds=300:3000" in caplog.text
 
 
 def test_bounded_pipeline_has_no_full_plan_preflight_or_cost_plan_sidecar(
@@ -215,10 +446,13 @@ def test_bounded_pipeline_has_no_full_plan_preflight_or_cost_plan_sidecar(
     assert metadata.batch_contract_fingerprint
     assert metadata.planner_spec_fingerprint == batch_sampler.spec.fingerprint
     assert metadata.sample_execution_fingerprint
+    assert metadata.train_input_contract is not None
+    assert metadata.train_input_contract.exact_resume_safe is True
     assert (
-        batch_sampler.schedule.fingerprint
-        == batch_sampler.spec.sample_schedule_fingerprint
+        dict(metadata.train_input_contract.input_options)["sequence_execution_contract_fingerprint"]
+        == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sequence_contract_fingerprint
     )
+    assert batch_sampler.schedule.fingerprint == batch_sampler.spec.sample_schedule_fingerprint
     assert (
         metadata.sample_execution_fingerprint
         == _FakeTrainer.last_kwargs["efficiency_monitor"].contract.sample_execution_fingerprint
@@ -423,7 +657,11 @@ def test_bounded_pipeline_resume_loads_committed_state_and_disables_hf_skip(
     else:
         for rank in range(initial_sampler.spec.data_world_size):
             (checkpoint / f"rng_state_{rank}.pth").write_bytes(b"rng")
-    write_batch_planning_checkpoint_completion(checkpoint)
+    commit_training_checkpoint(
+        checkpoint,
+        world_size=initial_sampler.spec.data_world_size,
+        requires_grad_scaler=False,
+    )
     config.train.resume_from_checkpoint = str(checkpoint)
 
     resumed_sampler = run_with_provider()
@@ -465,7 +703,8 @@ def test_fixed_weighted_unshuffled_pipeline_uses_finite_plan_execution_identity(
     assert len(execution_fingerprint) == 64
     assert len(stream_fingerprint) == 64
     assert execution_fingerprint != train_sampler.plan.fingerprint
-    assert stream_fingerprint == execution_fingerprint
+    assert train_sampler.plan.stream_fingerprint != train_sampler.plan.fingerprint
+    assert stream_fingerprint != execution_fingerprint
 
 
 def test_fixed_weighted_pipeline_publishes_versioned_sample_execution_identity(

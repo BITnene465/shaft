@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 from pathlib import Path
 
@@ -57,6 +58,16 @@ class ShaftResolvedFinetunePlan:
     freeze_plan: ShaftFreezePlan
     parameter_plan: ShaftParameterSelectionPlan
     adapter_plan: ShaftAdapterFinetunePlan | None = None
+
+    @property
+    def fingerprint(self) -> str:
+        canonical = json.dumps(
+            asdict(self),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,7 @@ from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 from .finetune import apply_resolved_finetune_plan, make_bnb_4bit_config
 from .finetune_plan import build_resolved_finetune_plan
+from .qwen_inference import QwenVLInferencePolicy
 from .policies import build_peft_policy, build_processor_policy
 from .registry import default_model_groups, register_model
 from .sequence import Qwen3VLSequenceExecutionPolicy
@@ -80,6 +81,7 @@ QWEN3VL_META = ModelMeta(
         generator=("lm_head",),
     ),
     processor_policy=build_processor_policy("qwen_vl"),
+    inference_policy=QwenVLInferencePolicy(),
     sequence_execution_policy=Qwen3VLSequenceExecutionPolicy(),
     peft_policy=build_peft_policy("all_linear"),
     sharding_policy=ModelShardingPolicy(

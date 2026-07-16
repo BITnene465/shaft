@@ -62,6 +62,10 @@ python scripts/export.py merge-peft \
   --output-dir /path/to/merged_model
 ```
 
+`merge-peft` 默认校验 Shaft adapter checkpoint 中记录的训练 base-model identity。第三方/旧 adapter 缺少
+该 provenance 时会 fail closed；人工确认 base 后可显式使用 `--allow-unverified-base-model true`，当前 base
+仍会执行完整字节 SHA256 校验。
+
 ### Eval Bench
 
 ```bash
@@ -194,11 +198,16 @@ optimizer、scheduler 和 checkpoint。re/re2 当前把 `B` 配成 2，使用 8 
 `buffer_size + (GA - 1) * world_size * per_device_train_batch_size`，仍与总 steps 无关。
 `media_snapshot_id` 声明外部图片是不可变快照；改变媒体必须同时改变该 id。
 
-checkpoint committed state 直接进入 HF `trainer_state.json` 的 stateful callback。所有 rank 的模型状态、
-optimizer/scheduler 与 RNG 保存成功后，rank 0 原子发布 completion manifest，之后才执行 checkpoint
-rotation；保存的是模型已完成 optimizer step 的 buffer/cursor，而不是 DataLoader 预取推进的 live cursor。
-completion 同时绑定 versioned batch contract 与 planner spec；恢复会在加载数据/模型前先校验 batch contract
-及 duration/GA/optimizer/scheduler contract。`cost_cache_size` 只影响 host LRU，不阻止 exact resume。
+checkpoint committed state 直接进入 HF `trainer_state.json` 的 stateful callback。SFT、DPO、GRPO 的 DDP/
+native-HF 路径共用 `committed_manifest` 协议：所有 rank 必须具有完全相同、顺序一致的 `on_save` callback
+拓扑，否则在执行 callback 前 fail closed；每个 callback 的 rank-local 结果再做 all-rank convergence。全部
+callback 和模型/adapter、optimizer/scheduler、RNG 保存成功后，rank 0 原子发布
+`shaft_checkpoint_commit.json`，之后才执行 checkpoint rotation。FSDP/DeepSpeed 显式走
+`backend_native` 协议，由对应后端负责保存、发现、校验和 rotation，不安装该 commit wrapper，也不宣称具备
+通用 manifest 的 torn/atomic 防护。planned SFT 保存的是模型已完成 optimizer step 的 buffer/cursor，而不是
+DataLoader 预取推进的 live cursor；该状态作为 manifest extension 绑定 versioned batch contract、planner
+spec 与 duration/GA/optimizer/scheduler contract。
+`cost_cache_size` 只影响 host LRU，不阻止 exact resume。
 当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL 与
 HF `qwen3_5`（Qwen3.5/Qwen3.6）image SFT 已支持
 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
@@ -228,10 +237,11 @@ snapshot set 使用 revoke、all-rank snapshot、rank-zero manifest 三阶段提
 [`docs/config_reference.md`](docs/config_reference.md)。
 
 Shaft 会在 dataset、base model 与 PEFT adapter 装配前初始化 `experiment.seed`。需要验证 CUDA bitwise
-resume/fresh reproduction 时，再在 `train` 下设置 `full_determinism: true`；该选项还会启用确定性
-CUDA/attention backward，通常有吞吐代价。默认关闭时，非确定性 kernel 产生的微小数值差异不等同于
-BatchPlan 或 resume cursor 错位。SFT 训练过程中的 eval 会保存并恢复主进程训练 RNG，避免 persistent
-eval workers 改变后续训练随机序列。
+resume/fresh reproduction 时，在 `train` 下设置 `full_determinism: true`；三个及以上 DDP rank 还要为静态
+SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 checkpoint 重建时的 reducer bucket 生命周期。
+两者通常都有吞吐或适用范围代价；动态图不得冒充 static graph。默认关闭时，非确定性 kernel 或 reducer
+浮点归约产生的微小数值差异不等同于 BatchPlan / resume cursor 错位。SFT 训练过程中的 eval 会保存并恢复
+主进程训练 RNG，避免 persistent eval workers 改变后续训练随机序列。
 
 ## 当前能力
 
@@ -241,9 +251,13 @@ eval workers 改变后续训练随机序列。
 - SFT prompt pool 支持 pool 级参数 schema 与 JSONL `prompt_args`；训练 planning 和实际读取共用受限
   `{{ name }}` / `{{ name | json }}` renderer，静态 pool 保持兼容。
 - `DPO`
-- `PPO`（受限能力，非完整生产功能）
+- `PPO`（受限能力，禁止 resume，`save_strategy` 必须为 `no`；最终导出不受影响）
 - `GRPO`（当前复用 `jsonl_sft` 作为 prompt-target 数据；数据计划可与 TRL grouped-generation sampler
   通过无状态位置索引组合）
+- 评估输入可用 `eval.min_pixels/max_pixels` 设置默认像素预算，并通过
+  `eval.datasets.<name>.min_pixels/max_pixels` 覆盖单个数据集；SFT 的 teacher-forced loss 与在线生成共享
+  同一解析结果。processor 的训练/生成 padding 由模型 policy 统一选择，不需要在 pipeline 中重复配置。
+  GRPO 当前只支持 online `eval_final_score`，启用 eval 时必须设置 `loss_metrics_enabled: false`。
 
 ### 推理
 
@@ -252,6 +266,9 @@ eval workers 改变后续训练随机序列。
 - 单阶段与多阶段推理编排
 - 多阶段 prompt 使用与训练相同的受限 renderer 和显式 `arguments`；旧 Python `{name}` format 语法已移除。
 - stage 级 `codec`、重试、超时、像素预算覆盖
+- stage timeout 使用贯穿重试、backoff 和后端 I/O 的同一个绝对 deadline；pipeline 也接受 cooperative
+  cancellation。无法安全抢占的本地 HF generate 会在开始工作前明确拒绝 control，不会遗留后台推理。
+  详细能力边界见 [docs/infer.md](docs/infer.md)。
 
 ### 导出
 
@@ -263,7 +280,7 @@ eval workers 改变后续训练随机序列。
 
 - `src/shaft/config`：配置 schema、YAML 加载、catalog 展开、归一化校验
 - `src/shaft/data`：数据源、增强、mixing、dataset、collator
-- `src/shaft/model`：模型族元信息、HF 加载、PEFT 包装、processor/peft policy
+- `src/shaft/model`：模型族元信息、HF 加载、PEFT 包装、processor/inference/peft policy
 - `src/shaft/template`：chat template 与 decode 约定
 - `src/shaft/algorithms`：SFT/DPO/PPO/GRPO trainer 装配
 - `src/shaft/pipeline`：`ShaftSFTPipeline` / `ShaftRLHFPipeline`

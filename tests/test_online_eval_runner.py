@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import random
 
+import numpy as np
 import pytest
+import torch
 
 from shaft.observability import ShaftProgressManager
 from shaft.training.online_eval import ShaftOnlineEvalRunner
@@ -94,6 +97,53 @@ def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
     assert "dataset=ds_a" in caplog.text
     assert "dataset=ds_b" in caplog.text
     assert "final_score=0.25" in caplog.text
+
+
+def test_online_eval_runner_is_observational_for_all_host_rng_streams() -> None:
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": json_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+    )
+    runner.eval_config.do_sample = True
+    runner.eval_config.temperature = 0.7
+    trainer = FakeOnlineEvalTrainer(
+        [
+            online_eval_batch(
+                input_ids=[[11, 12], [21, 22]],
+                dataset_names=["ds", "ds"],
+                sample_ids=["a", "b"],
+                target_texts=['{"ok": 1}', '{"ok": 2}'],
+            )
+        ]
+    )
+    original_generate = trainer.model.generate
+
+    def _sampled_generate(**kwargs):
+        random.random()
+        np.random.random()
+        torch.rand(())
+        return original_generate(**kwargs)
+
+    trainer.model.generate = _sampled_generate
+    random.seed(23)
+    np.random.seed(23)
+    torch.manual_seed(23)
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+
+    runner.evaluate(trainer, eval_dataset=object())
+
+    assert random.getstate() == python_state
+    assert np.array_equal(np.random.get_state()[1], numpy_state[1])
+    assert torch.equal(torch.random.get_rng_state(), torch_state)
 
 
 def test_online_eval_runner_uses_shared_nested_progress_and_counts_samples() -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from enum import IntEnum
+from pathlib import Path
 
 import pytest
 from accelerate.data_loader import BatchSamplerShard
@@ -50,6 +52,10 @@ class CountingCostProvider:
             vision_patches=int(self.vision[index]),
             exact=self.exact,
         )
+
+
+class _JsonIntImpostor(IntEnum):
+    ONE = 1
 
 
 def _schedule() -> ShaftSampleSchedule:
@@ -118,6 +124,19 @@ def _sample_keys(plan) -> list[tuple[int, str, int]]:
     ]
 
 
+def _refingerprint_state(payload: dict[str, object]) -> None:
+    unsigned = dict(payload)
+    unsigned.pop("fingerprint", None)
+    payload["fingerprint"] = hashlib.sha256(
+        json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def test_bounded_spec_is_duration_independent_and_validates_buffer_geometry() -> None:
     provider = CountingCostProvider([1])
     first = _spec(provider)
@@ -153,6 +172,106 @@ def test_bounded_spec_is_duration_independent_and_validates_buffer_geometry() ->
             sample_schedule_fingerprint=_schedule().fingerprint,
             cost_fingerprint=provider.fingerprint,
         )
+
+
+def test_planning_spec_json_roundtrip_preserves_the_contract() -> None:
+    provider = CountingCostProvider([1])
+    spec = _spec(provider, max_vision=16)
+
+    payload = json.loads(json.dumps(spec.to_dict()))
+
+    assert ShaftBatchPlanningSpec.from_dict(payload) == spec
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("data_world_size", True),
+        ("buffer_size", "8"),
+        ("per_device_microbatch_size", 1.0),
+        ("max_tokens_per_microbatch", _JsonIntImpostor.ONE),
+        ("seed", Path("23")),
+        ("max_sequence_length", False),
+    ),
+)
+def test_planning_spec_rejects_noncanonical_json_integer_fields(
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    provider = CountingCostProvider([1])
+    payload = _spec(provider).to_dict()
+    payload[field_name] = invalid_value
+
+    with pytest.raises(TypeError):
+        ShaftBatchPlanningSpec.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda payload: payload.update({"unknown": 1}),
+        lambda payload: payload.update({1: "non-string-key"}),
+        lambda payload: payload.update({"resource_budgets": (("vision_patches", 4),)}),
+        lambda payload: payload.update({"resource_budgets": {1: 4}}),
+        lambda payload: payload.update({"resource_budgets": {"vision_patches": True}}),
+    ),
+)
+def test_planning_spec_rejects_noncanonical_json_structure(mutation) -> None:
+    provider = CountingCostProvider([1])
+    payload = _spec(provider).to_dict()
+    mutation(payload)
+
+    with pytest.raises((TypeError, ValueError)):
+        ShaftBatchPlanningSpec.from_dict(payload)
+
+
+def test_buffered_sample_roundtrip_and_strict_nested_schema() -> None:
+    provider = CountingCostProvider([3])
+    sample_ref = _schedule().ref_at(0)
+    buffered = ShaftBufferedSample(sample_ref=sample_ref, cost=provider(sample_ref))
+    payload = json.loads(json.dumps(buffered.to_dict()))
+
+    assert ShaftBufferedSample.from_dict(payload) == buffered
+
+    for owner in ("sample", "context", "cost"):
+        invalid = json.loads(json.dumps(payload))
+        if owner == "sample":
+            invalid["unknown"] = 1
+        else:
+            invalid[owner]["unknown"] = 1
+        with pytest.raises(ValueError, match="unknown"):
+            ShaftBufferedSample.from_dict(invalid)
+
+
+@pytest.mark.parametrize(
+    ("path", "invalid_value"),
+    (
+        (("row_index",), True),
+        (("context", "draw_id"), "0"),
+        (("context", "plan_cycle"), 0.0),
+        (("context", "transform_seed"), _JsonIntImpostor.ONE),
+        (("cost", "llm_tokens"), False),
+        (("cost", "supervised_tokens"), "2"),
+        (("cost", "vision_patches"), 0.0),
+        (("cost", "exact"), 1),
+        (("cost", "loss_weight_sum"), float("nan")),
+        (("cost", "loss_weight_sum"), float("inf")),
+    ),
+)
+def test_buffered_sample_rejects_coercible_or_nonfinite_nested_values(
+    path: tuple[str, ...],
+    invalid_value: object,
+) -> None:
+    provider = CountingCostProvider([3])
+    sample_ref = _schedule().ref_at(0)
+    payload = ShaftBufferedSample(sample_ref=sample_ref, cost=provider(sample_ref)).to_dict()
+    target = payload
+    for component in path[:-1]:
+        target = target[component]
+    target[path[-1]] = invalid_value
+
+    with pytest.raises((TypeError, ValueError)):
+        ShaftBufferedSample.from_dict(payload)
 
 
 @pytest.mark.parametrize(
@@ -582,6 +701,54 @@ def test_state_json_roundtrip_continues_exact_stream() -> None:
     )
 
     assert [_draw_ids(restored.next_global_microbatch()) for _ in range(10)] == continued
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("global_microstep", True),
+        ("next_draw_id", "8"),
+        ("emitted_samples", 2.0),
+        ("emitted_physical_packs", _JsonIntImpostor.ONE),
+        ("emitted_llm_tokens", False),
+        ("emitted_supervised_tokens", "1"),
+        ("emitted_vision_patches", 0.0),
+    ),
+)
+def test_planning_state_rejects_noncanonical_json_integer_fields(
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    payload = ShaftBatchPlanningState(contract_fingerprint="contract").to_dict()
+    payload[field_name] = invalid_value
+    _refingerprint_state(payload)
+
+    with pytest.raises(TypeError):
+        ShaftBatchPlanningState.from_dict(payload)
+
+
+def test_planning_state_rejects_unknown_keys_and_non_list_buffer() -> None:
+    payload = ShaftBatchPlanningState(contract_fingerprint="contract").to_dict()
+    payload["unknown"] = 1
+    _refingerprint_state(payload)
+    with pytest.raises(ValueError, match="unknown"):
+        ShaftBatchPlanningState.from_dict(payload)
+
+    payload = ShaftBatchPlanningState(contract_fingerprint="contract").to_dict()
+    payload["buffer"] = ()
+    _refingerprint_state(payload)
+    with pytest.raises(TypeError, match="JSON list"):
+        ShaftBatchPlanningState.from_dict(payload)
+
+
+def test_planning_state_validates_nested_buffer_schema_before_accepting_fingerprint() -> None:
+    provider = CountingCostProvider([1])
+    payload = _planner(provider).next_global_microbatch().state_after.to_dict()
+    payload["buffer"][0]["context"]["unknown"] = 1
+    _refingerprint_state(payload)
+
+    with pytest.raises(ValueError, match="unknown"):
+        ShaftBatchPlanningState.from_dict(payload)
 
 
 def test_weighted_state_roundtrip_continues_exact_source_and_row_stream() -> None:

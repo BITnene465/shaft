@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from shaft.config import RuntimeConfig, TrainDistributedConfig
+from shaft.config import RuntimeConfig, TrainDDPConfig, TrainDistributedConfig
 from tests.support.configs import load_config_from_yaml
 
 
@@ -29,7 +29,9 @@ data:
     assert cfg.model.finetune.mode == "full"
     assert cfg.model.attn_implementation is None
     assert isinstance(cfg.train.distributed, TrainDistributedConfig)
+    assert isinstance(cfg.train.distributed.ddp, TrainDDPConfig)
     assert cfg.train.distributed.strategy == "ddp"
+    assert cfg.train.distributed.ddp.static_graph is False
     assert cfg.progress.display == "auto"
     assert cfg.progress.width == 72
     assert cfg.progress.refresh_interval == pytest.approx(0.5)

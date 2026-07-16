@@ -53,7 +53,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
         images: list[Any],
         min_pixels: int | None,
         max_pixels: int | None,
-        padding_side: str | None = None,
+        input_mode: str = "training",
     ) -> ShaftProcessedBatch:
         processed_batch = super().build_batch(
             processor=processor,
@@ -62,7 +62,7 @@ class QwenVLProcessorPolicy(ProcessorPolicy):
             images=images,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
-            padding_side=padding_side,
+            input_mode=input_mode,
         )
         media_manifest = self._build_image_media_manifest(
             processed_batch,

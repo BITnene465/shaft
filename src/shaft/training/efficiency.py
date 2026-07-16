@@ -21,6 +21,7 @@ from shaft.observability import (
     ShaftTrainingEfficiencySummary,
     write_training_efficiency_summary,
 )
+from shaft.utils.contract_schema import load_strict_json, require_json_mapping
 
 
 logger = logging.getLogger(__name__)
@@ -168,9 +169,13 @@ class ShaftTrainingEfficiencyMonitor:
             snapshot_generation = str(transaction.get("generation") or "").strip()
             if not snapshot_generation:
                 raise ValueError("committed checkpoint telemetry has no generation")
-            set_manifest = json.loads(set_manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(set_manifest, dict):
-                raise TypeError("snapshot set manifest must be a JSON object")
+            set_manifest = require_json_mapping(
+                load_strict_json(
+                    set_manifest_path,
+                    role=f"training efficiency snapshot set {set_manifest_path}",
+                ),
+                role=f"training efficiency snapshot set {set_manifest_path}",
+            )
             if int(set_manifest.get("schema_version", -1)) != _EFFICIENCY_SNAPSHOT_VERSION:
                 raise ValueError("unsupported snapshot set schema version")
             if int(set_manifest.get("global_step", -1)) != step:
@@ -184,9 +189,13 @@ class ShaftTrainingEfficiencyMonitor:
                 raise ValueError(
                     "snapshot set generation differs from checkpoint telemetry transaction"
                 )
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                raise TypeError("snapshot root must be a JSON object")
+            payload = require_json_mapping(
+                load_strict_json(
+                    path,
+                    role=f"training efficiency rank snapshot {path}",
+                ),
+                role=f"training efficiency rank snapshot {path}",
+            )
             if int(payload.get("schema_version", -1)) != _EFFICIENCY_SNAPSHOT_VERSION:
                 raise ValueError("unsupported schema version")
             if int(payload.get("global_step", -1)) != step:
@@ -490,7 +499,14 @@ class ShaftTrainingEfficiencyMonitor:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                json.dumps(
+                    payload,
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
                 encoding="utf-8",
             )
             temporary.replace(path)
@@ -518,6 +534,7 @@ class ShaftTrainingEfficiencyMonitor:
                 manifest_temporary.write_text(
                     json.dumps(
                         manifest_payload,
+                        allow_nan=False,
                         ensure_ascii=False,
                         indent=2,
                         sort_keys=True,
@@ -1017,7 +1034,14 @@ def _write_training_efficiency_checkpoint_transaction(
             }
             temporary = path.with_suffix(f"{path.suffix}.tmp")
             temporary.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                json.dumps(
+                    payload,
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
                 encoding="utf-8",
             )
             temporary.replace(path)
@@ -1035,9 +1059,13 @@ def _read_training_efficiency_checkpoint_transaction(
     checkpoint_dir: str | Path,
 ) -> dict[str, Any]:
     path = Path(checkpoint_dir) / _EFFICIENCY_CHECKPOINT_TRANSACTION_FILENAME
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError("checkpoint telemetry transaction must be a JSON object")
+    payload = require_json_mapping(
+        load_strict_json(
+            path,
+            role=f"training efficiency checkpoint transaction {path}",
+        ),
+        role=f"training efficiency checkpoint transaction {path}",
+    )
     if int(payload.get("schema_version", -1)) != _EFFICIENCY_CHECKPOINT_TRANSACTION_VERSION:
         raise ValueError("unsupported checkpoint telemetry transaction schema")
     state = str(payload.get("state") or "").strip()

@@ -62,8 +62,20 @@ eval:
   enabled: true
   eval_strategy: epoch
   per_device_eval_batch_size: 1
-  metric_for_best_model: eval_loss
-  greater_is_better: false
+  loss_metrics_enabled: false
+  online_metrics_enabled: true
+  metric_for_best_model: eval_final_score
+  greater_is_better: true
+  datasets:
+    grpo_prompt_target:
+      prediction_codec: json_any
+      target_adapter: target_text
+      target_adapter_params:
+        codec: json_any
+      metrics:
+        - name: parse_success
+        - name: exact_match
+      primary_metric: exact_match
 
 rlhf:
   enabled: true

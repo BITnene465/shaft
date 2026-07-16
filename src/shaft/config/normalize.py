@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 import math
 import re
+from typing import Any, get_args, get_type_hints
 
 from .data import SHAFT_BATCH_RESOURCE_NAMES
 from .runtime import RuntimeConfig
+from .training import resolve_eval_input_policy
 
 _SCHEDULE_MIXING_STRATEGIES = {"concat", "weighted"}
 _BATCH_GROUPINGS = {"none", "length", "bounded_cost"}
@@ -53,6 +56,89 @@ def _normalize_bool(value: object, field_name: str) -> bool:
     raise ValueError(f"{field_name} must be a boolean value.")
 
 
+def _normalize_declared_booleans(owner: Any, *, path: str = "") -> None:
+    """Normalize every schema-declared bool before semantic validation.
+
+    The dataclass schema is the field registry. This keeps new boolean fields from
+    silently falling back to Python's non-empty-string truthiness when a caller
+    constructs a config from YAML or another loosely typed mapping.
+    """
+
+    if not is_dataclass(owner) or isinstance(owner, type):
+        return
+    type_hints = get_type_hints(type(owner))
+    for field_info in fields(owner):
+        field_name = field_info.name
+        field_path = f"{path}.{field_name}" if path else field_name
+        value = getattr(owner, field_name)
+        annotation = type_hints.get(field_name, field_info.type)
+        annotation_args = get_args(annotation)
+        is_required_bool = annotation is bool
+        is_optional_bool = (
+            bool in annotation_args
+            and set(annotation_args).issubset({bool, type(None)})
+        )
+        if is_required_bool:
+            setattr(owner, field_name, _normalize_bool(value, field_path))
+            continue
+        if is_optional_bool:
+            if value is not None:
+                setattr(owner, field_name, _normalize_bool(value, field_path))
+            continue
+        if is_dataclass(value) and not isinstance(value, type):
+            _normalize_declared_booleans(value, path=field_path)
+            continue
+        if isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                if is_dataclass(item) and not isinstance(item, type):
+                    _normalize_declared_booleans(
+                        item,
+                        path=f"{field_path}[{index}]",
+                    )
+            continue
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if is_dataclass(item) and not isinstance(item, type):
+                    _normalize_declared_booleans(
+                        item,
+                        path=f"{field_path}.{key}",
+                    )
+
+
+def _normalize_bool_fields(
+    owner: object,
+    *,
+    prefix: str,
+    field_names: tuple[str, ...],
+) -> None:
+    """Keep explicit semantic normalization sites readable after schema pre-pass."""
+
+    for field_name in field_names:
+        setattr(
+            owner,
+            field_name,
+            _normalize_bool(
+                getattr(owner, field_name),
+                f"{prefix}.{field_name}",
+            ),
+        )
+
+
+def _normalize_optional_bool(value: object, field_name: str) -> bool | None:
+    if value is None:
+        return None
+    return _normalize_bool(value, field_name)
+
+
+def _normalize_optional_positive_int(value: object, field_name: str) -> int | None:
+    if value is None:
+        return None
+    normalized = int(value)
+    if normalized <= 0:
+        raise ValueError(f"{field_name} must be > 0 when set.")
+    return normalized
+
+
 def _normalize_string_list(values: list[str]) -> list[str]:
     normalized = [str(item).strip() for item in values if str(item).strip()]
     return list(dict.fromkeys(normalized))
@@ -70,6 +156,7 @@ def _validate_optional_regex(value: str | None, field_name: str) -> str | None:
 
 
 def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
+    _normalize_declared_booleans(config)
     config.algorithm.name = str(config.algorithm.name).strip().lower()
     if config.algorithm.name not in _ALGORITHMS:
         raise ValueError(
@@ -206,6 +293,20 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         config.data.max_length = int(config.data.max_length)
         if config.data.max_length <= 0:
             raise ValueError("data.max_length must be > 0 when set.")
+    config.data.min_pixels = _normalize_optional_positive_int(
+        config.data.min_pixels,
+        "data.min_pixels",
+    )
+    config.data.max_pixels = _normalize_optional_positive_int(
+        config.data.max_pixels,
+        "data.max_pixels",
+    )
+    if (
+        config.data.min_pixels is not None
+        and config.data.max_pixels is not None
+        and config.data.min_pixels > config.data.max_pixels
+    ):
+        raise ValueError("data.min_pixels must be <= data.max_pixels.")
     config.data.catalog_names = [
         str(x).strip() for x in config.data.catalog_names if str(x).strip()
     ]
@@ -243,6 +344,15 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         )
 
     finetune = config.model.finetune
+    _normalize_bool_fields(
+        finetune,
+        prefix="model.finetune",
+        field_names=(
+            "use_rslora",
+            "qlora_load_in_4bit",
+            "qlora_use_double_quant",
+        ),
+    )
     finetune.mode = str(finetune.mode).strip().lower()
     if finetune.mode not in _FINETUNE_MODES:
         raise ValueError(f"Unsupported model.finetune.mode={finetune.mode!r}.")
@@ -378,6 +488,20 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             )
 
     train = config.train
+    _normalize_bool_fields(
+        train,
+        prefix="train",
+        field_names=(
+            "gradient_checkpointing",
+            "bf16",
+            "use_cpu",
+            "full_determinism",
+            "ddp_find_unused_parameters",
+            "load_best_model_at_end",
+            "save_final_model",
+            "save_final_state",
+        ),
+    )
     train.efficiency.enabled = _normalize_bool(
         train.efficiency.enabled,
         "train.efficiency.enabled",
@@ -421,6 +545,30 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         train.save_strategy = str(train.save_strategy).strip().lower()
     if train.save_strategy not in {"no", "steps", "epoch"}:
         raise ValueError(f"Unsupported train.save_strategy={train.save_strategy!r}.")
+    train.init_from_checkpoint = (
+        str(train.init_from_checkpoint).strip() or None
+        if train.init_from_checkpoint is not None
+        else None
+    )
+    train.resume_from_checkpoint = (
+        str(train.resume_from_checkpoint).strip() or None
+        if train.resume_from_checkpoint is not None
+        else None
+    )
+    if (
+        train.init_from_checkpoint is not None
+        and train.resume_from_checkpoint is not None
+    ):
+        raise ValueError(
+            "train.init_from_checkpoint and train.resume_from_checkpoint are "
+            "mutually exclusive: init starts a new schedule, while resume restores "
+            "the previous training state."
+        )
+    if config.algorithm.name == "ppo" and train.save_strategy != "no":
+        raise ValueError(
+            "Shaft PPO does not publish resumable training checkpoints; "
+            "set train.save_strategy='no'. Final model export remains available."
+        )
     if int(train.save_epoch_interval) <= 0:
         raise ValueError("train.save_epoch_interval must be > 0.")
     train.duration.unit = str(train.duration.unit).strip().lower()
@@ -454,7 +602,6 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     train.gradient_accumulation_steps = int(train.gradient_accumulation_steps)
     if train.gradient_accumulation_steps <= 0:
         raise ValueError("train.gradient_accumulation_steps must be > 0.")
-    train.full_determinism = bool(train.full_determinism)
     if planned:
         if length_grouped and config.data.max_length is None:
             raise ValueError(
@@ -569,6 +716,22 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
             f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
         )
+    ddp_cfg = train.distributed.ddp
+    _normalize_bool_fields(
+        ddp_cfg,
+        prefix="train.distributed.ddp",
+        field_names=("static_graph",),
+    )
+    if ddp_cfg.static_graph and train.distributed.strategy != "ddp":
+        raise ValueError(
+            "train.distributed.ddp.static_graph=true requires "
+            "train.distributed.strategy='ddp'."
+        )
+    if ddp_cfg.static_graph and config.algorithm.name != "sft":
+        raise ValueError(
+            "train.distributed.ddp.static_graph=true is currently validated only for "
+            "algorithm.name='sft'."
+        )
     if planned and train.distributed.strategy != "ddp":
         raise ValueError(
             f"data.batching.grouping={batching.grouping!r} currently supports "
@@ -597,12 +760,24 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     fsdp_cfg.min_num_params = int(fsdp_cfg.min_num_params)
     if fsdp_cfg.min_num_params < 0:
         raise ValueError("train.distributed.fsdp.min_num_params must be >= 0.")
-    fsdp_cfg.activation_checkpointing = bool(fsdp_cfg.activation_checkpointing)
-    fsdp_cfg.cpu_offload = bool(fsdp_cfg.cpu_offload)
-    fsdp_cfg.use_orig_params = bool(fsdp_cfg.use_orig_params)
-    fsdp_cfg.forward_prefetch = bool(fsdp_cfg.forward_prefetch)
-    fsdp_cfg.limit_all_gathers = bool(fsdp_cfg.limit_all_gathers)
-    fsdp_cfg.sync_module_states = bool(fsdp_cfg.sync_module_states)
+    _normalize_bool_fields(
+        fsdp_cfg,
+        prefix="train.distributed.fsdp",
+        field_names=(
+            "activation_checkpointing",
+            "cpu_offload",
+            "use_orig_params",
+            "forward_prefetch",
+            "limit_all_gathers",
+            "sync_module_states",
+        ),
+    )
+    if train.distributed.strategy == "fsdp" and not fsdp_cfg.use_orig_params:
+        raise ValueError(
+            "Shaft FSDP currently requires "
+            "train.distributed.fsdp.use_orig_params=true because the resolved "
+            "optimizer plan does not implement FSDP FlatParameter remapping."
+        )
     fsdp_cfg.state_dict_type = str(fsdp_cfg.state_dict_type).strip().lower()
     if fsdp_cfg.state_dict_type not in _FSDP_STATE_DICT_TYPES:
         raise ValueError(
@@ -650,6 +825,14 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("eval.epoch_interval must be > 0.")
     if int(eval_cfg.max_new_tokens) <= 0:
         raise ValueError("eval.max_new_tokens must be > 0.")
+    eval_cfg.min_pixels = _normalize_optional_positive_int(
+        eval_cfg.min_pixels,
+        "eval.min_pixels",
+    )
+    eval_cfg.max_pixels = _normalize_optional_positive_int(
+        eval_cfg.max_pixels,
+        "eval.max_pixels",
+    )
     eval_cfg.metric_for_best_model = str(eval_cfg.metric_for_best_model).strip()
     if not eval_cfg.metric_for_best_model:
         raise ValueError("eval.metric_for_best_model cannot be empty.")
@@ -661,11 +844,36 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         eval_cfg.online_metrics_enabled,
         "eval.online_metrics_enabled",
     )
+    eval_cfg.do_sample = _normalize_bool(
+        eval_cfg.do_sample,
+        "eval.do_sample",
+    )
+    eval_cfg.greater_is_better = _normalize_bool(
+        eval_cfg.greater_is_better,
+        "eval.greater_is_better",
+    )
+    if (
+        eval_cfg.enabled
+        and config.algorithm.name == "grpo"
+        and eval_cfg.loss_metrics_enabled
+    ):
+        raise ValueError(
+            "Shaft GRPO evaluation currently supports online metrics only; set "
+            "eval.loss_metrics_enabled=false."
+        )
     normalized_policies: dict[str, object] = {}
     for dataset_name, policy in config.eval.datasets.items():
         normalized_name = str(dataset_name).strip()
         if not normalized_name:
             raise ValueError("eval.datasets contains an empty dataset key.")
+        policy.min_pixels = _normalize_optional_positive_int(
+            policy.min_pixels,
+            f"eval.datasets.{normalized_name}.min_pixels",
+        )
+        policy.max_pixels = _normalize_optional_positive_int(
+            policy.max_pixels,
+            f"eval.datasets.{normalized_name}.max_pixels",
+        )
         policy.prediction_codec = str(policy.prediction_codec).strip().lower()
         if not policy.prediction_codec:
             raise ValueError(f"eval.datasets.{normalized_name}.prediction_codec cannot be empty.")
@@ -719,6 +927,32 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             raise ValueError(f"eval.datasets.{normalized_name}.weight must be > 0.")
         normalized_policies[normalized_name] = policy
     eval_cfg.datasets = normalized_policies
+    has_explicit_eval_pixel_budget = any(
+        value is not None
+        for value in (
+            eval_cfg.min_pixels,
+            eval_cfg.max_pixels,
+            *(
+                value
+                for policy in eval_cfg.datasets.values()
+                for value in (policy.min_pixels, policy.max_pixels)
+            ),
+        )
+    )
+    if (
+        eval_cfg.enabled
+        and config.algorithm.name == "ppo"
+        and has_explicit_eval_pixel_budget
+    ):
+        raise ValueError(
+            "Explicit eval pixel budgets are not applicable to the current text-only PPO "
+            "collator."
+        )
+    resolve_eval_input_policy(
+        eval_cfg,
+        train_min_pixels=config.data.min_pixels,
+        train_max_pixels=config.data.max_pixels,
+    )
     configured_dataset_names = {
         dataset.dataset_name
         for dataset in config.data.datasets
@@ -805,6 +1039,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         eval_cfg.greater_is_better = False
 
     dpo_cfg = config.rlhf.dpo
+    _normalize_bool_fields(
+        dpo_cfg,
+        prefix="rlhf.dpo",
+        field_names=("precompute_ref_log_probs", "use_weighting"),
+    )
     dpo_cfg.loss_type = str(dpo_cfg.loss_type).strip().lower()
     if dpo_cfg.loss_type not in _DPO_LOSS_TYPES:
         raise ValueError(f"Unsupported rlhf.dpo.loss_type={dpo_cfg.loss_type!r}.")
@@ -814,6 +1053,16 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError("rlhf.dpo.label_smoothing must be in [0, 1).")
 
     ppo_cfg = config.rlhf.ppo
+    _normalize_bool_fields(
+        ppo_cfg,
+        prefix="rlhf.ppo",
+        field_names=(
+            "whiten_rewards",
+            "train_value_backbone",
+            "allow_untrained_reward_model",
+            "allow_text_only_multimodal_ppo",
+        ),
+    )
     if not (0.0 < float(ppo_cfg.cliprange) < 1.0):
         raise ValueError("rlhf.ppo.cliprange must be in (0, 1).")
     if not (0.0 < float(ppo_cfg.cliprange_value) < 1.0):
@@ -852,9 +1101,6 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             f"Unsupported rlhf.ppo.reward_model_mode={ppo_cfg.reward_model_mode!r}. "
             f"Expected one of {_PPO_REWARD_MODEL_MODES}."
         )
-    ppo_cfg.allow_untrained_reward_model = bool(ppo_cfg.allow_untrained_reward_model)
-    ppo_cfg.allow_text_only_multimodal_ppo = bool(ppo_cfg.allow_text_only_multimodal_ppo)
-
     grpo_cfg = config.rlhf.grpo
     if float(grpo_cfg.beta) < 0:
         raise ValueError("rlhf.grpo.beta must be >= 0.")
@@ -880,7 +1126,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     if grpo_cfg.repetition_penalty is not None:
         rollout_cfg.repetition_penalty = float(grpo_cfg.repetition_penalty)
     if grpo_cfg.use_vllm is not None:
-        vllm_cfg.enabled = bool(grpo_cfg.use_vllm)
+        grpo_cfg.use_vllm = _normalize_optional_bool(
+            grpo_cfg.use_vllm,
+            "rlhf.grpo.use_vllm",
+        )
+        vllm_cfg.enabled = grpo_cfg.use_vllm
 
     if int(rollout_cfg.num_generations) <= 0:
         raise ValueError("rlhf.grpo.rollout.num_generations must be > 0.")
@@ -905,16 +1155,25 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         if rollout_cfg.cache_implementation is not None
         else None
     )
-    rollout_cfg.use_transformers_paged = bool(rollout_cfg.use_transformers_paged)
+    rollout_cfg.use_transformers_paged = _normalize_bool(
+        rollout_cfg.use_transformers_paged,
+        "rlhf.grpo.rollout.use_transformers_paged",
+    )
 
-    vllm_cfg.enabled = bool(vllm_cfg.enabled)
+    vllm_cfg.enabled = _normalize_bool(
+        vllm_cfg.enabled,
+        "rlhf.grpo.vllm.enabled",
+    )
     vllm_cfg.mode = str(vllm_cfg.mode).strip().lower()
     if vllm_cfg.mode not in {"server", "colocate"}:
         raise ValueError("rlhf.grpo.vllm.mode must be 'server' or 'colocate'.")
     vllm_cfg.model_impl = str(vllm_cfg.model_impl).strip().lower()
     if vllm_cfg.model_impl not in {"vllm", "transformers"}:
         raise ValueError("rlhf.grpo.vllm.model_impl must be 'vllm' or 'transformers'.")
-    vllm_cfg.enable_sleep_mode = bool(vllm_cfg.enable_sleep_mode)
+    vllm_cfg.enable_sleep_mode = _normalize_bool(
+        vllm_cfg.enable_sleep_mode,
+        "rlhf.grpo.vllm.enable_sleep_mode",
+    )
     vllm_cfg.structured_outputs_regex = (
         str(vllm_cfg.structured_outputs_regex)
         if vllm_cfg.structured_outputs_regex is not None
@@ -949,7 +1208,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     grpo_cfg.top_k = int(rollout_cfg.top_k)
     grpo_cfg.min_p = float(rollout_cfg.min_p) if rollout_cfg.min_p is not None else None
     grpo_cfg.repetition_penalty = float(rollout_cfg.repetition_penalty)
-    grpo_cfg.use_vllm = bool(vllm_cfg.enabled)
+    grpo_cfg.use_vllm = vllm_cfg.enabled
     if not grpo_cfg.reward_functions:
         raise ValueError("rlhf.grpo.reward_functions cannot be empty.")
     from shaft.algorithms.grpo_rewards import GRPO_REWARD_REGISTRY
@@ -991,9 +1250,19 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.logging.fmt = str(config.logging.fmt).strip().lower()
     if config.logging.fmt not in _LOG_FORMATS:
         raise ValueError(f"Unsupported logging.fmt={config.logging.fmt!r}.")
-    config.logging.rank_zero_only = bool(config.logging.rank_zero_only)
+    config.rlhf.enabled = _normalize_bool(
+        config.rlhf.enabled,
+        "rlhf.enabled",
+    )
+    config.logging.rank_zero_only = _normalize_bool(
+        config.logging.rank_zero_only,
+        "logging.rank_zero_only",
+    )
 
-    config.progress.enabled = bool(config.progress.enabled)
+    config.progress.enabled = _normalize_bool(
+        config.progress.enabled,
+        "progress.enabled",
+    )
     config.progress.display = str(config.progress.display).strip().lower()
     if config.progress.display not in _PROGRESS_DISPLAY_MODES:
         raise ValueError(
@@ -1009,6 +1278,12 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
     config.progress.log_interval = float(config.progress.log_interval)
     if not math.isfinite(config.progress.log_interval) or config.progress.log_interval <= 0:
         raise ValueError("progress.log_interval must be finite and > 0.")
-    config.progress.leave_completed = bool(config.progress.leave_completed)
-    config.progress.persist = bool(config.progress.persist)
+    config.progress.leave_completed = _normalize_bool(
+        config.progress.leave_completed,
+        "progress.leave_completed",
+    )
+    config.progress.persist = _normalize_bool(
+        config.progress.persist,
+        "progress.persist",
+    )
     return config

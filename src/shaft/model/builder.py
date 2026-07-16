@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
 import hashlib
 import io
 import json
 from pathlib import Path
+from typing import Any, Callable
 
 import torch
 from peft import (
@@ -21,7 +23,17 @@ from shaft.config import RuntimeConfig
 from . import qwen35vl as _qwen35vl  # noqa: F401
 from . import qwen3vl as _qwen3vl  # noqa: F401
 from . import smoke_vlm as _smoke_vlm  # noqa: F401
-from .resolution import ResolvedAdapterInit, ResolvedModelPlan, resolve_model_plan
+from .artifact_identity import (
+    LocalModelArtifactLoadGuard,
+    validate_loaded_remote_code_identity,
+)
+from .resolution import (
+    ResolvedAdapterInit,
+    ResolvedModelPlan,
+    prepare_resolved_model_artifact_load,
+    resolve_model_plan,
+    validate_resolved_model_artifact,
+)
 from .types import (
     LoadedAdapterArtifacts,
     ModelArtifacts,
@@ -303,26 +315,169 @@ def _validate_adapter_compatibility(
         )
 
 
-def _build_artifacts_from_runtime_config(
+@dataclass(frozen=True)
+class ShaftPreparedModelBuild:
+    """Pure-local preparation for one model loader invocation.
+
+    The preparation deliberately contains every rank-local check which can run
+    before a loader that may own distributed collectives.  The corresponding
+    finalize function closes the immutable-artifact and remote-code identity
+    after the loader returns.
+    """
+
+    config: RuntimeConfig
+    model_plan: ResolvedModelPlan
+    sequence_execution_contract: ShaftSequenceExecutionContract | None
+    artifact_load_guard: LocalModelArtifactLoadGuard | None
+    adapter_config: dict[str, object] | None = None
+
+
+ModelBuildLocalPhaseRunner = Callable[[str, Callable[[], Any]], Any]
+
+
+def prepare_model_build(
+    config: RuntimeConfig,
+    *,
+    init_from_checkpoint: str | None = None,
+    sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
+    resolved_model_plan: ResolvedModelPlan | None = None,
+) -> ShaftPreparedModelBuild:
+    """Resolve and validate all local state required before the raw loader."""
+
+    model_plan = resolved_model_plan or resolve_model_plan(
+        config,
+        init_from_checkpoint=init_from_checkpoint,
+    )
+    if init_from_checkpoint != model_plan.init_from_checkpoint:
+        raise ValueError(
+            "init_from_checkpoint differs from the supplied ResolvedModelPlan."
+        )
+    return _prepare_resolved_model_build(
+        config,
+        model_plan=model_plan,
+        sequence_execution_contract=sequence_execution_contract,
+        apply_adapter_init=True,
+    )
+
+
+def _prepare_resolved_model_build(
     config: RuntimeConfig,
     *,
     model_plan: ResolvedModelPlan,
-    sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
-) -> ModelArtifacts:
+    sequence_execution_contract: ShaftSequenceExecutionContract | None,
+    apply_adapter_init: bool,
+) -> ShaftPreparedModelBuild:
     runtime_config = copy.deepcopy(config)
     runtime_config.model.model_name_or_path = model_plan.effective_model_name_or_path
+    runtime_config.model.revision = model_plan.resolved_revision
     model_path = Path(runtime_config.model.model_name_or_path)
     _validate_hf_sharded_checkpoint_files(model_path)
+    artifact_load_guard = prepare_resolved_model_artifact_load(model_plan)
     model_meta = model_plan.model_meta
     model_adapter = model_plan.model_adapter
     model_adapter.check_requires()
     assert model_meta.loader is not None
+
+    adapter_config: dict[str, object] | None = None
+    if apply_adapter_init and model_plan.init_kind == "adapter":
+        assert model_plan.adapter_init is not None
+        init_path = Path(model_plan.adapter_init.path)
+        adapter_config = model_plan.adapter_init.config_dict()
+        _validate_adapter_artifact(model_plan.adapter_init)
+        _validate_adapter_compatibility(
+            config,
+            adapter_config,
+            init_path,
+        )
+
+    return ShaftPreparedModelBuild(
+        config=runtime_config,
+        model_plan=model_plan,
+        sequence_execution_contract=sequence_execution_contract,
+        artifact_load_guard=artifact_load_guard,
+        adapter_config=adapter_config,
+    )
+
+
+def invoke_model_loader(
+    prepared: ShaftPreparedModelBuild,
+) -> ModelArtifacts:
+    """Invoke only the loader API which is allowed to own collectives."""
+
+    model_meta = prepared.model_plan.model_meta
+    model_adapter = prepared.model_plan.model_adapter
+    assert model_meta.loader is not None
     return model_meta.loader.build(
-        runtime_config,
+        prepared.config,
         model_meta=model_meta,
         model_adapter=model_adapter,
-        sequence_execution_contract=sequence_execution_contract,
+        sequence_execution_contract=prepared.sequence_execution_contract,
     )
+
+
+def finalize_model_build(
+    prepared: ShaftPreparedModelBuild,
+    artifacts: ModelArtifacts,
+) -> ModelArtifacts:
+    """Run pure-local post-loader identity and adapter validation."""
+
+    model_plan = prepared.model_plan
+    validate_resolved_model_artifact(
+        model_plan,
+        load_guard=prepared.artifact_load_guard,
+    )
+    if (
+        model_plan.require_immutable_artifact
+        and model_plan.trust_remote_code
+        and model_plan.artifact_identity.kind in {"hf_hub", "local_hf"}
+    ):
+        validate_loaded_remote_code_identity(
+            model=artifacts.model,
+            tokenizer=artifacts.tokenizer,
+            processor=artifacts.processor,
+            expected_model_revision=(
+                model_plan.resolved_revision
+                if model_plan.artifact_identity.kind == "hf_hub"
+                else None
+            ),
+            strict=True,
+        )
+
+    if prepared.adapter_config is not None:
+        assert model_plan.adapter_init is not None
+        assert prepared.adapter_config is not None
+        init_path = Path(model_plan.adapter_init.path)
+        if not isinstance(artifacts.model, PeftModel):
+            raise TypeError(
+                "Adapter init requires a PEFT model, but current mode did not create one."
+            )
+        expected_target_modules, expected_modules_to_save = (
+            _expected_adapter_names_from_artifacts(artifacts)
+        )
+        if expected_target_modules is None:
+            peft_config = _resolve_default_peft_config(artifacts.model)
+            expected_target_modules = _normalize_name_list(
+                getattr(
+                    peft_config,
+                    "target_modules",
+                    prepared.config.model.finetune.target_modules,
+                )
+            )
+            expected_modules_to_save = _normalize_name_list(
+                getattr(peft_config, "modules_to_save", None)
+            )
+        _validate_adapter_compatibility(
+            prepared.config,
+            prepared.adapter_config,
+            init_path,
+            expected_target_modules=expected_target_modules,
+            expected_modules_to_save=expected_modules_to_save,
+        )
+        _load_exact_adapter_state(
+            artifacts.model,
+            adapter_init=model_plan.adapter_init,
+        )
+    return artifacts
 
 
 def resolve_model_adapter_from_config(
@@ -342,52 +497,40 @@ def build_model_tokenizer_processor(
     init_from_checkpoint: str | None = None,
     sequence_execution_contract: ShaftSequenceExecutionContract | None = None,
     resolved_model_plan: ResolvedModelPlan | None = None,
+    local_phase_runner: ModelBuildLocalPhaseRunner | None = None,
 ) -> ModelArtifacts:
-    model_plan = resolved_model_plan or resolve_model_plan(
-        config,
-        init_from_checkpoint=init_from_checkpoint,
-    )
-    if init_from_checkpoint != model_plan.init_from_checkpoint:
-        raise ValueError(
-            "init_from_checkpoint differs from the supplied ResolvedModelPlan."
-        )
-    if model_plan.init_kind == "adapter":
-        assert model_plan.adapter_init is not None
-        init_path = Path(model_plan.adapter_init.path)
-        adapter_cfg = model_plan.adapter_init.config_dict()
-        _validate_adapter_artifact(model_plan.adapter_init)
-        _validate_adapter_compatibility(config, adapter_cfg, init_path)
-        artifacts = _build_artifacts_from_runtime_config(
+    """Build artifacts through prepare -> raw loader -> finalize.
+
+    Ordinary callers retain the original one-call API.  Distributed training
+    pipelines supply ``local_phase_runner`` so only the local prepare/finalize
+    phases are enclosed by rank-status convergence; the raw loader invocation
+    is intentionally never nested in that envelope.
+    """
+
+    def prepare() -> ShaftPreparedModelBuild:
+        return prepare_model_build(
             config,
-            model_plan=model_plan,
+            init_from_checkpoint=init_from_checkpoint,
             sequence_execution_contract=sequence_execution_contract,
+            resolved_model_plan=resolved_model_plan,
         )
-        if not isinstance(artifacts.model, PeftModel):
-            raise TypeError("Adapter init requires a PEFT model, but current mode did not create one.")
-        expected_target_modules, expected_modules_to_save = _expected_adapter_names_from_artifacts(artifacts)
-        if expected_target_modules is None:
-            peft_config = _resolve_default_peft_config(artifacts.model)
-            expected_target_modules = _normalize_name_list(
-                getattr(peft_config, "target_modules", config.model.finetune.target_modules)
-            )
-            expected_modules_to_save = _normalize_name_list(getattr(peft_config, "modules_to_save", None))
-        _validate_adapter_compatibility(
-            config,
-            adapter_cfg,
-            init_path,
-            expected_target_modules=expected_target_modules,
-            expected_modules_to_save=expected_modules_to_save,
-        )
-        _load_exact_adapter_state(
-            artifacts.model,
-            adapter_init=model_plan.adapter_init,
-        )
-        return artifacts
-    return _build_artifacts_from_runtime_config(
-        config,
-        model_plan=model_plan,
-        sequence_execution_contract=sequence_execution_contract,
+
+    prepared = (
+        prepare()
+        if local_phase_runner is None
+        else local_phase_runner("prepare", prepare)
     )
+    artifacts = invoke_model_loader(prepared)
+
+    def finalize() -> ModelArtifacts:
+        return finalize_model_build(prepared, artifacts)
+
+    finalized = (
+        finalize()
+        if local_phase_runner is None
+        else local_phase_runner("finalize", finalize)
+    )
+    return finalized
 
 
 def load_adapter_artifacts(
@@ -425,9 +568,15 @@ def load_adapter_artifacts(
 
     base_config = copy.deepcopy(config)
     base_config.model.finetune.mode = "full"
-    artifacts = _build_artifacts_from_runtime_config(
+    prepared = _prepare_resolved_model_build(
         base_config,
         model_plan=model_plan,
+        sequence_execution_contract=None,
+        apply_adapter_init=False,
+    )
+    artifacts = finalize_model_build(
+        prepared,
+        invoke_model_loader(prepared),
     )
     adapter_model = get_peft_model(artifacts.model, adapter_config)
     if not isinstance(adapter_model, PeftModel):

@@ -26,7 +26,8 @@
 
 - [training_batch_planning_design.md](training_batch_planning_design.md)
   - sample-level mixing、bounded cost-aware batching、sequence packing 与 DDP/CP 的顶层边界
-  - horizon-independent schedule、bounded buffer、Accelerate 分片与 committed-state resume
+  - horizon-independent schedule、bounded buffer、Accelerate 分片、committed-state resume 与 DDP
+    static-graph bitwise 恢复边界
 
 - [../projects/eval_bench/README.md](../projects/eval_bench/README.md)
   - 离线 Eval Bench 子项目说明

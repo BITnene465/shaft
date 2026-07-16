@@ -202,6 +202,62 @@ def test_efficiency_checkpoint_snapshot_restores_without_double_counting(
     assert summary.aggregate.useful_tokens == 18
 
 
+@pytest.mark.parametrize(
+    ("artifact_name", "old", "new"),
+    [
+        (
+            "shaft_training_efficiency_checkpoint_transaction.json",
+            '"global_step": 1',
+            '"global_step": 1, "global_step": 1',
+        ),
+        (
+            "shaft_training_efficiency_snapshot_set.json",
+            '"generation":',
+            '"generation": "shadow", "generation":',
+        ),
+        (
+            "shaft_training_efficiency_rank0.json",
+            '"global_step": 1',
+            '"global_step": NaN',
+        ),
+    ],
+)
+def test_efficiency_checkpoint_ambiguous_json_restarts_partial_coverage(
+    tmp_path: Path,
+    artifact_name: str,
+    old: str,
+    new: str,
+) -> None:
+    monitor = ShaftTrainingEfficiencyMonitor(output_dir=tmp_path)
+    monitor.stage(
+        [{"_shaft_batch_stats": _stats()}],
+        host_batch_acquire_seconds=0.01,
+    )
+    monitor.record_training_step(0.02)
+    monitor.commit(global_step=1)
+    checkpoint = tmp_path / "checkpoint-1"
+    prepare_training_efficiency_checkpoint(
+        checkpoint,
+        global_step=1,
+        generation=monitor.snapshot_generation,
+    )
+    monitor.write_checkpoint_snapshot(checkpoint, global_step=1)
+    artifact = checkpoint / artifact_name
+    document = artifact.read_text(encoding="utf-8")
+    assert old in document
+    artifact.write_text(document.replace(old, new, 1), encoding="utf-8")
+
+    resumed = ShaftTrainingEfficiencyMonitor.from_checkpoint(
+        output_dir=tmp_path,
+        checkpoint_dir=checkpoint,
+        checkpoint_global_step=1,
+    )
+
+    assert resumed.initial_global_step == 1
+    assert resumed.complete_history is False
+    assert resumed.committed_frames == ()
+
+
 def test_efficiency_checkpoint_contract_mismatch_restarts_partial_coverage(
     tmp_path: Path,
 ) -> None:

@@ -90,6 +90,80 @@ def _run_cli_in_pty(
             process.wait(timeout=5)
 
 
+def _replay_terminal_lines(payload: str) -> list[str]:
+    """Replay the terminal controls emitted by the progress sink.
+
+    This intentionally implements only the controls that Shaft owns: carriage
+    return, newline, SGR styling, and CSI 2K erase-line.  Replaying the final
+    screen catches a progress renderer that accidentally appends a newline on
+    every refresh, which raw-frame assertions cannot detect.
+    """
+
+    lines: list[list[str]] = [[]]
+    row = 0
+    column = 0
+    index = 0
+    while index < len(payload):
+        char = payload[index]
+        if char == "\r":
+            column = 0
+            index += 1
+            continue
+        if char == "\n":
+            row += 1
+            column = 0
+            if row == len(lines):
+                lines.append([])
+            index += 1
+            continue
+        if char == "\x1b" and index + 1 < len(payload) and payload[index + 1] == "[":
+            match = re.match(r"\x1b\[([0-9;?]*)([@-~])", payload[index:])
+            if match is not None:
+                parameters, command = match.groups()
+                if command == "K" and parameters in {"2", "02"}:
+                    lines[row].clear()
+                index += len(match.group(0))
+                continue
+        line = lines[row]
+        if column < len(line):
+            line[column] = char
+        else:
+            line.extend(" " for _ in range(column - len(line)))
+            line.append(char)
+        column += 1
+        index += 1
+    return ["".join(line).rstrip() for line in lines]
+
+
+def _run_distributed_progress_console(
+    repo_root: Path,
+    sync_dir: Path,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ""
+    env["OMP_NUM_THREADS"] = "1"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            "--nnodes=1",
+            "--nproc_per_node=2",
+            "tests/support/distributed_progress_console.py",
+            str(sync_dir),
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def _run_mode(
     tmp_path: Path, mode: str, *, online_eval: bool = False
 ) -> tuple[Path, dict[str, float]]:
@@ -276,6 +350,34 @@ def test_cli_auto_progress_uses_real_pty_color_and_bounded_frames(
     assert all(len(frame) <= 72 for frame in progress_frames)
     assert any("━" in frame or "╸" in frame for frame in progress_frames)
     assert any("tok " in frame for frame in progress_frames)
+    terminal_lines = _replay_terminal_lines(decoded)
+    completed_lines = [line for line in terminal_lines if line.startswith("train ")]
+    assert len(completed_lines) == 1, terminal_lines
+    assert "100%" in completed_lines[0] and "2/2" in completed_lines[0]
+
+
+def test_required_smoke_keeps_distributed_progress_on_rank_zero(
+    tmp_path: Path,
+    repo_root: Path,
+) -> None:
+    completed = _run_distributed_progress_console(repo_root, tmp_path / "progress-sync")
+    output = f"{completed.stdout}\n{completed.stderr}"
+    if (
+        completed.returncode != 0
+        and "Operation not permitted" in output
+        and "RendezvousConnectionError" in output
+    ):
+        pytest.skip("torchrun rendezvous is blocked by current sandbox/network policy.")
+
+    assert completed.returncode == 0, output
+    assert output.count("rank-zero-warning") == 1
+    assert "rank-one-warning-must-be-hidden" not in output
+    frames = [line.rstrip() for line in output.splitlines() if line.startswith("train ")]
+    assert any("0%" in frame and "0/10k" in frame for frame in frames)
+    assert any("0.01%" in frame and "1/10k" in frame for frame in frames)
+    assert any("━" in frame or "╸" in frame for frame in frames)
+    warning_end = output.index("rank-zero-warning") + len("rank-zero-warning")
+    assert output[warning_end:].lstrip().startswith("train")
 
 
 def test_bounded_cost_grouping_keeps_fixed_per_device_microbatches(
@@ -469,7 +571,7 @@ def test_bounded_exact_resume_and_contract_guard(tmp_path: Path) -> None:
     changed_duration.eval.enabled = False
     changed_duration.train.duration.value = 3
     changed_duration.train.resume_from_checkpoint = str(checkpoint_one)
-    with pytest.raises(ValueError, match="training contract changed"):
+    with pytest.raises(ValueError, match="(?i)training resume contract changed"):
         run_sft(changed_duration)
 
 

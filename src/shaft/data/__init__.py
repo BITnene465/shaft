@@ -49,6 +49,7 @@ from .mixing import (
     ShaftSamplePlan,
     ShaftSampleRef,
     ShaftSampleSchedule,
+    validate_sample_schedule_world_size,
 )
 from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore, ShaftRecordSubset
 from .sampler import (
@@ -133,6 +134,7 @@ __all__ = [
     "ShaftSamplePlan",
     "ShaftSampleRef",
     "ShaftSampleSchedule",
+    "validate_sample_schedule_world_size",
     "ShaftSampleSampler",
     "ShaftPlannedBatchSampler",
     "ShaftVarlenBatchLayout",

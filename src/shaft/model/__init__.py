@@ -1,6 +1,11 @@
 from .builder import (
+    ModelBuildLocalPhaseRunner,
+    ShaftPreparedModelBuild,
     build_model_tokenizer_processor,
+    finalize_model_build,
+    invoke_model_loader,
     load_adapter_artifacts,
+    prepare_model_build,
     resolve_model_adapter_from_config,
 )
 from .descriptor import (
@@ -8,7 +13,15 @@ from .descriptor import (
     resolve_local_model_descriptor,
     resolve_model_descriptor,
 )
-from .resolution import ResolvedAdapterInit, ResolvedModelPlan, resolve_model_plan
+from .artifact_identity import ResolvedModelArtifactIdentity
+from .resolution import (
+    ResolvedAdapterInit,
+    ResolvedModelPlan,
+    prepare_resolved_model_artifact_load,
+    resolve_model_plan,
+    validate_model_artifact_checkpointability,
+    validate_resolved_model_artifact,
+)
 from .finetune_plan import (
     ShaftAdapterFinetunePlan,
     ShaftFreezePreview,
@@ -31,6 +44,13 @@ from .freeze import (
     resolve_adapter_modules_to_save,
     resolve_adapter_target_modules,
 )
+from .inference import (
+    ShaftImageTextInferencePolicy,
+    ShaftInferencePolicy,
+    ShaftPreparedLocalInference,
+    ShaftPreparedOpenAIInference,
+)
+from .qwen_inference import QwenVLInferencePolicy
 from .policies import (
     PEFT_POLICY_REGISTRY,
     PROCESSOR_POLICY_REGISTRY,
@@ -53,6 +73,7 @@ from .types import (
     ModelMeta,
     ModelModuleGroups,
     PeftPolicy,
+    ProcessorInputPolicy,
     ProcessorPolicy,
     SequenceExecutionPolicy,
     ShaftMediaSegmentManifest,
@@ -71,6 +92,7 @@ __all__ = [
     "PROCESSOR_POLICY_REGISTRY",
     "DefaultPeftPolicy",
     "ModelArtifacts",
+    "ModelBuildLocalPhaseRunner",
     "ModelCapabilities",
     "ModelGroup",
     "ModelInfo",
@@ -80,9 +102,12 @@ __all__ = [
     "ModelModuleGroups",
     "ModelShardingPolicy",
     "PeftPolicy",
+    "QwenVLInferencePolicy",
+    "ProcessorInputPolicy",
     "ProcessorPolicy",
     "ResolvedModelDescriptor",
     "ResolvedAdapterInit",
+    "ResolvedModelArtifactIdentity",
     "ResolvedModelPlan",
     "Qwen3VLSequenceExecutionPolicy",
     "Qwen35VLSequenceExecutionPolicy",
@@ -98,22 +123,33 @@ __all__ = [
     "ShaftFreezePreview",
     "ShaftFreezePlan",
     "ShaftFreezeSpec",
+    "ShaftImageTextInferencePolicy",
+    "ShaftInferencePolicy",
     "ShaftModelAdapter",
     "ShaftParameterSelectionPlan",
+    "ShaftPreparedModelBuild",
     "ShaftPeftSignature",
     "ShaftResolvedFreezeSummary",
     "ShaftResolvedFinetunePlan",
+    "ShaftPreparedLocalInference",
+    "ShaftPreparedOpenAIInference",
     "apply_full_freeze",
     "build_freeze_preview",
     "build_model_meta",
     "build_peft_policy",
     "build_processor_policy",
     "build_model_tokenizer_processor",
+    "finalize_model_build",
+    "invoke_model_loader",
     "load_adapter_artifacts",
+    "prepare_resolved_model_artifact_load",
+    "prepare_model_build",
     "resolve_model_adapter_from_config",
     "resolve_local_model_descriptor",
     "resolve_model_descriptor",
     "resolve_model_plan",
+    "validate_model_artifact_checkpointability",
+    "validate_resolved_model_artifact",
     "build_freeze_plan",
     "build_freeze_spec",
     "build_resolved_finetune_plan",

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from array import array
 from bisect import bisect_left, bisect_right
+from collections import Counter
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import lru_cache
 import hashlib
+import heapq
 from itertools import repeat
 import math
 
@@ -15,8 +18,18 @@ _SPLITMIX_MULTIPLIER_2 = 0x94D049BB133111EB
 _WEIGHTED_TICKET_TARGET_SIZE = 4096
 _WEIGHTED_TICKET_MAX_SIZE = 16384
 _WEIGHTED_MAX_RELATIVE_ERROR = 0.05
-_WEIGHTED_SCHEDULE_VERSION = "shaft-weighted-ticket-schedule-v2"
-_WEIGHTED_PLAN_VERSION = "shaft-weighted-ticket-plan-v2"
+_WEIGHTED_EXACT_RELATIVE_TOLERANCE = 1e-12
+_WEIGHTED_EXHAUSTIVE_SOURCE_LIMIT = 64
+_WEIGHTED_FAST_CANDIDATE_LIMIT = 32
+_WEIGHTED_ROTATION_PHASE_BLOCKS = 256
+_WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE = 64
+_WEIGHTED_ROTATION_RANK_MODULUS = math.lcm(
+    *range(1, _WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE + 1)
+)
+_WEIGHTED_SCHEDULE_VERSION = "shaft-weighted-ticket-schedule-v3"
+_WEIGHTED_PLAN_VERSION = "shaft-weighted-ticket-plan-v3"
+_WEIGHTED_UNSHUFFLED_PLAN_VERSION = "shaft-weighted-unshuffled-ticket-plan-v3"
+_WEIGHTED_UNSHUFFLED_STREAM_VERSION = "shaft-weighted-unshuffled-ticket-stream-v3"
 _TICKET_SHUFFLE_SALT = 0xD2B74407B1CE6E93
 _TICKET_BLOCK_SALT = 0xCA5A826395121157
 _SOURCE_CYCLE_SALT = 0x9E3779B185EBCA87
@@ -71,6 +84,73 @@ def _feistel_permute(position: int, size: int, *, seed: int) -> int:
         candidate = permute_domain(candidate)
         if candidate < size:
             return candidate
+
+
+@lru_cache(maxsize=None)
+def _ticket_rotation_step(block_size: int) -> int:
+    """Resolve a short full-cycle step whose global-draw slope is rank-coprime."""
+
+    block_size = int(block_size)
+    if block_size <= 1:
+        return 0
+    step = 1
+    while True:
+        if (
+            math.gcd(step, block_size) == 1
+            and math.gcd(
+                block_size + step,
+                _WEIGHTED_ROTATION_RANK_MODULUS,
+            )
+            == 1
+        ):
+            return step
+        step += 1
+
+
+def _ticket_block_rotation(block_id: int, block_size: int, *, seed: int) -> int:
+    if block_size <= 1:
+        return 0
+    phase_group, group_position = divmod(
+        int(block_id),
+        _WEIGHTED_ROTATION_PHASE_BLOCKS,
+    )
+    phase = int(
+        _splitmix64(int(seed) ^ _TICKET_BLOCK_SALT ^ phase_group) % block_size
+    )
+    return (
+        phase - (_ticket_rotation_step(block_size) * group_position)
+    ) % block_size
+
+
+def validate_sample_schedule_world_size(
+    *,
+    strategy: str,
+    shuffle: bool,
+    world_size: int,
+) -> None:
+    """Reject data-parallel geometries outside the weighted rotation proof.
+
+    The weighted schedule deliberately stays independent of training topology.
+    Its counter rotation is proven rank-balanced for every world size in
+    ``[1, 64]``.  Silently accepting a larger world can lock a rare ticket to a
+    strict subset of ranks when ``ticket_block_size + rotation_step`` shares a
+    factor with that world size, so unsupported topologies must fail closed.
+    """
+
+    world_size = int(world_size)
+    if world_size <= 0:
+        raise ValueError("Data world size must be > 0.")
+    if (
+        str(strategy).strip().lower() == "weighted"
+        and bool(shuffle)
+        and world_size > _WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE
+    ):
+        raise ValueError(
+            "Weighted shuffled sampling only guarantees rank-balanced ticket "
+            "rotation for data_world_size <= "
+            f"{_WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE}, got {world_size}. "
+            "Use concat sampling or run with at most 64 data-parallel ranks."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +243,232 @@ def _ticket_relative_errors(
     )
 
 
+def _fast_ticket_candidate_sizes(
+    normalized_weights: tuple[float, ...],
+) -> tuple[int, ...]:
+    """Return bounded denominator-derived candidates for unusually many sources.
+
+    Mixtures with at most ``_WEIGHTED_EXHAUSTIVE_SOURCE_LIMIT`` sources are
+    searched exhaustively and therefore get the global Hamilton optimum within
+    the configured maximum block size. Above that boundary this function provides
+    a fixed-size fast path derived from the rarest probabilities and distribution
+    quantiles. If the shortlist cannot satisfy the error contract, the resolver
+    falls back to a complete search so a representable mixture is never rejected.
+    The common large-catalog path evaluates at most ``candidate_limit`` blocks;
+    only pathological inputs pay for the complete fallback.
+    """
+
+    minimum_size = len(normalized_weights)
+    anchors = {
+        _WEIGHTED_TICKET_TARGET_SIZE,
+        min(_WEIGHTED_TICKET_TARGET_SIZE * 2, _WEIGHTED_TICKET_MAX_SIZE),
+        _WEIGHTED_TICKET_MAX_SIZE,
+    }
+    anchors = {
+        size
+        for size in anchors
+        if minimum_size <= size <= _WEIGHTED_TICKET_MAX_SIZE
+    }
+    ordered = sorted(normalized_weights)
+    representative_indices = set(range(min(16, len(ordered))))
+    representative_indices.update(
+        round(index * (len(ordered) - 1) / 16) for index in range(17)
+    )
+    representative_probabilities = tuple(
+        ordered[index] for index in sorted(representative_indices)
+    )
+    candidates = set(anchors)
+    for probability in representative_probabilities:
+        reciprocal = round(1.0 / probability)
+        candidates.update(range(reciprocal - 2, reciprocal + 3))
+        denominator = Fraction(str(probability)).limit_denominator(
+            _WEIGHTED_TICKET_MAX_SIZE
+        ).denominator
+        candidates.add(denominator)
+        for anchor in (_WEIGHTED_TICKET_TARGET_SIZE, _WEIGHTED_TICKET_MAX_SIZE):
+            quotient = anchor / denominator
+            for multiplier in {math.floor(quotient), round(quotient), math.ceil(quotient)}:
+                resolved = denominator * max(int(multiplier), 1)
+                candidates.update((resolved - 1, resolved, resolved + 1))
+    candidates = {
+        size
+        for size in candidates
+        if minimum_size <= size <= _WEIGHTED_TICKET_MAX_SIZE
+    }
+
+    def approximation_score(block_size: int) -> tuple[float, int, int]:
+        worst_error = max(
+            abs((max(round(probability * block_size), 1) / block_size) - probability)
+            / probability
+            for probability in representative_probabilities
+        )
+        return (
+            worst_error,
+            abs(block_size - _WEIGHTED_TICKET_TARGET_SIZE),
+            block_size,
+        )
+
+    shortlist = set(anchors)
+    shortlist.update(
+        sorted(candidates - anchors, key=approximation_score)[
+            : max(_WEIGHTED_FAST_CANDIDATE_LIMIT - len(shortlist), 0)
+        ]
+    )
+    return tuple(sorted(shortlist))
+
+
+def _ticket_candidate_sizes(
+    normalized_weights: tuple[float, ...],
+) -> range | tuple[int, ...]:
+    if len(normalized_weights) <= _WEIGHTED_EXHAUSTIVE_SOURCE_LIMIT:
+        return range(len(normalized_weights), _WEIGHTED_TICKET_MAX_SIZE + 1)
+    return _fast_ticket_candidate_sizes(normalized_weights)
+
+
+def _ticket_quota_candidate(
+    normalized_weights: tuple[float, ...],
+    *,
+    block_size: int,
+) -> tuple[float, float, int, tuple[int, ...]] | None:
+    quotas = _hamilton_ticket_quotas(
+        normalized_weights,
+        block_size=block_size,
+    )
+    if not all(quota > 0 for quota in quotas):
+        return None
+    relative_errors = _ticket_relative_errors(quotas, normalized_weights)
+    resolved = tuple(quota / block_size for quota in quotas)
+    total_absolute_error = sum(
+        abs(actual - expected)
+        for actual, expected in zip(
+            resolved,
+            normalized_weights,
+            strict=True,
+        )
+    )
+    return max(relative_errors), total_absolute_error, block_size, quotas
+
+
+def _ticket_individually_feasible_block_sizes(
+    normalized_weights: tuple[float, ...],
+) -> tuple[int, ...]:
+    """Return block sizes where every source can meet the relative-error bound.
+
+    A source with probability ``p`` and integer quota ``q`` accepts a contiguous
+    block-size interval. The total number of intervals over all sources is
+    ``O(max_tickets + source_count)`` because their maximum quotas sum to roughly
+    ``max_tickets``. Merging equal-probability sources and range-adding those
+    intervals avoids the previous large-catalog ``block_sizes * N log N`` scan.
+    This is a necessary filter only; Hamilton tie-breaking is checked separately.
+    """
+
+    minimum_size = len(normalized_weights)
+    maximum_size = _WEIGHTED_TICKET_MAX_SIZE
+    coverage_delta = [0] * (maximum_size + 2)
+    probability_counts = Counter(normalized_weights)
+    for probability, multiplicity in probability_counts.items():
+        maximum_quota = math.floor(
+            math.nextafter(
+                maximum_size
+                * probability
+                * (1.0 + _WEIGHTED_MAX_RELATIVE_ERROR),
+                math.inf,
+            )
+        )
+        intervals: list[tuple[int, int]] = []
+        for quota in range(1, maximum_quota + 1):
+            lower = math.ceil(
+                math.nextafter(
+                    quota
+                    / (probability * (1.0 + _WEIGHTED_MAX_RELATIVE_ERROR)),
+                    -math.inf,
+                )
+            )
+            upper = math.floor(
+                math.nextafter(
+                    quota
+                    / (probability * (1.0 - _WEIGHTED_MAX_RELATIVE_ERROR)),
+                    math.inf,
+                )
+            )
+            lower = max(lower, minimum_size)
+            upper = min(upper, maximum_size)
+            if lower > upper:
+                continue
+            if intervals and lower <= intervals[-1][1] + 1:
+                intervals[-1] = (intervals[-1][0], max(intervals[-1][1], upper))
+            else:
+                intervals.append((lower, upper))
+        for lower, upper in intervals:
+            coverage_delta[lower] += multiplicity
+            coverage_delta[upper + 1] -= multiplicity
+
+    source_count = len(normalized_weights)
+    coverage = 0
+    feasible: list[int] = []
+    for block_size in range(minimum_size, maximum_size + 1):
+        coverage += coverage_delta[block_size]
+        if coverage == source_count:
+            feasible.append(block_size)
+    return tuple(feasible)
+
+
+def _hamilton_candidate_meets_error_contract(
+    normalized_weights: tuple[float, ...],
+    *,
+    block_size: int,
+) -> bool:
+    """Check a Hamilton block in O(source_count) without materializing a sort."""
+
+    expected = tuple(weight * block_size for weight in normalized_weights)
+    floors = tuple(math.floor(value) for value in expected)
+    remaining = block_size - sum(floors)
+    required_increment_min_key: tuple[float, int] | None = None
+    forbidden_increment_max_key: tuple[float, int] | None = None
+    minimum_quota_sum = 0
+    maximum_quota_sum = 0
+
+    for index, (probability, expected_quota, floor_quota) in enumerate(
+        zip(normalized_weights, expected, floors, strict=True)
+    ):
+        ceil_quota = floor_quota + 1
+        floor_allowed = floor_quota > 0 and (
+            abs((floor_quota / block_size) - probability) / probability
+            <= _WEIGHTED_MAX_RELATIVE_ERROR
+        )
+        ceil_allowed = (
+            abs((ceil_quota / block_size) - probability) / probability
+            <= _WEIGHTED_MAX_RELATIVE_ERROR
+        )
+        if not floor_allowed and not ceil_allowed:
+            return False
+        minimum_quota_sum += floor_quota if floor_allowed else ceil_quota
+        maximum_quota_sum += ceil_quota if ceil_allowed else floor_quota
+        key = (expected_quota - floor_quota, -index)
+        if ceil_allowed and not floor_allowed:
+            if required_increment_min_key is None or key < required_increment_min_key:
+                required_increment_min_key = key
+        elif floor_allowed and not ceil_allowed:
+            if forbidden_increment_max_key is None or key > forbidden_increment_max_key:
+                forbidden_increment_max_key = key
+
+    if not minimum_quota_sum <= block_size <= maximum_quota_sum:
+        return False
+    keys = tuple(
+        (expected_quota - floor_quota, -index)
+        for index, (expected_quota, floor_quota) in enumerate(
+            zip(expected, floors, strict=True)
+        )
+    )
+    if required_increment_min_key is not None:
+        if sum(key > required_increment_min_key for key in keys) >= remaining:
+            return False
+    if forbidden_increment_max_key is not None:
+        if sum(key > forbidden_increment_max_key for key in keys) < remaining:
+            return False
+    return True
+
+
 def _resolve_ticket_quotas(
     source_names: tuple[str, ...],
     raw_weights: tuple[float, ...],
@@ -172,6 +478,28 @@ def _resolve_ticket_quotas(
         raise ValueError(
             "Weighted sampling has more active sources than the maximum ticket block size: "
             f"sources={len(raw_weights)}, max_tickets={_WEIGHTED_TICKET_MAX_SIZE}."
+        )
+    minimum_representable_probability = 1.0 / (
+        _WEIGHTED_TICKET_MAX_SIZE * (1.0 + _WEIGHTED_MAX_RELATIVE_ERROR)
+    )
+    unrepresentable_indices = [
+        index
+        for index, probability in enumerate(normalized_weights)
+        if probability < minimum_representable_probability
+    ]
+    if unrepresentable_indices:
+        worst_index = min(
+            unrepresentable_indices,
+            key=normalized_weights.__getitem__,
+        )
+        raise ValueError(
+            "Weighted sampling ticket quantization exceeds the relative-error limit: "
+            f"source={source_names[worst_index]!r}, "
+            f"target_probability={normalized_weights[worst_index]:.12g}, "
+            f"minimum_representable_probability={minimum_representable_probability:.12g}, "
+            f"max_tickets={_WEIGHTED_TICKET_MAX_SIZE}, "
+            f"max_relative_error={_WEIGHTED_MAX_RELATIVE_ERROR:.6g}. "
+            "Increase that source weight or remove the source explicitly."
         )
     max_weight = max(raw_weights)
     scaled_weights = tuple(weight / max_weight for weight in raw_weights)
@@ -187,49 +515,52 @@ def _resolve_ticket_quotas(
         if (
             sum(quotas) <= _WEIGHTED_TICKET_MAX_SIZE
             and max(_ticket_relative_errors(quotas, normalized_weights))
-            <= _WEIGHTED_MAX_RELATIVE_ERROR
+            <= _WEIGHTED_EXACT_RELATIVE_TOLERANCE
         ):
             return quotas
 
-    candidate_sizes = tuple(
-        dict.fromkeys(
-            (
-                _WEIGHTED_TICKET_TARGET_SIZE,
-                min(_WEIGHTED_TICKET_TARGET_SIZE * 2, _WEIGHTED_TICKET_MAX_SIZE),
-                _WEIGHTED_TICKET_MAX_SIZE,
-            )
-        )
-    )
-    candidates: list[tuple[float, float, int, tuple[int, ...]]] = []
+    best: tuple[float, float, int, tuple[int, ...]] | None = None
+    candidate_sizes = _ticket_candidate_sizes(normalized_weights)
     for block_size in candidate_sizes:
-        quotas = _hamilton_ticket_quotas(
+        candidate = _ticket_quota_candidate(
             normalized_weights,
             block_size=block_size,
         )
-        if all(quota > 0 for quota in quotas):
-            relative_errors = _ticket_relative_errors(quotas, normalized_weights)
-            max_relative_error = max(relative_errors)
-            resolved = tuple(quota / block_size for quota in quotas)
-            total_absolute_error = sum(
-                abs(actual - expected)
-                for actual, expected in zip(
-                    resolved,
-                    normalized_weights,
-                    strict=True,
-                )
-            )
-            candidates.append(
-                (
-                    max_relative_error,
-                    total_absolute_error,
-                    block_size,
-                    quotas,
-                )
-            )
-    if candidates:
-        best = min(candidates, key=lambda candidate: candidate[:3])
-        if best[0] <= _WEIGHTED_MAX_RELATIVE_ERROR:
+        if candidate is not None and (best is None or candidate[:3] < best[:3]):
+            best = candidate
+
+    if len(normalized_weights) <= _WEIGHTED_EXHAUSTIVE_SOURCE_LIMIT:
+        if best is not None and best[0] <= _WEIGHTED_MAX_RELATIVE_ERROR:
             return best[3]
+    elif best is not None and best[0] <= _WEIGHTED_MAX_RELATIVE_ERROR:
+        return best[3]
+    else:
+        evaluated_sizes = set(candidate_sizes)
+        target_size = max(_WEIGHTED_TICKET_TARGET_SIZE, len(normalized_weights))
+        fallback_sizes = sorted(
+            _ticket_individually_feasible_block_sizes(normalized_weights),
+            key=lambda size: (abs(size - target_size), size),
+        )
+        for block_size in fallback_sizes:
+            if block_size in evaluated_sizes:
+                continue
+            if not _hamilton_candidate_meets_error_contract(
+                normalized_weights,
+                block_size=block_size,
+            ):
+                continue
+            candidate = _ticket_quota_candidate(
+                normalized_weights,
+                block_size=block_size,
+            )
+            if candidate is None:
+                continue
+            if best is None or candidate[:3] < best[:3]:
+                best = candidate
+            if candidate[0] <= _WEIGHTED_MAX_RELATIVE_ERROR:
+                return candidate[3]
+
+    if best is not None:
         best_errors = _ticket_relative_errors(best[3], normalized_weights)
         worst_index = max(
             range(len(normalized_weights)),
@@ -275,6 +606,46 @@ def _build_ticket_block(
     for position, source_index in enumerate(source_indices):
         source_positions[source_index].append(position)
         digest.update(int(source_index).to_bytes(2, "big"))
+    return _TicketBlock(
+        source_indices=source_indices,
+        source_positions=source_positions,
+        digest=digest.hexdigest(),
+    )
+
+
+def _build_unshuffled_ticket_block(quotas: tuple[int, ...]) -> _TicketBlock:
+    """Merge per-source occurrence midpoints into a deterministic low-discrepancy block.
+
+    This is deliberately not a random permutation.  Sorting occurrence midpoints
+    spreads each source's exact integer quota across the block, so finite-plan
+    boundaries cannot permanently award the same rounding remainder or starve a
+    positive-weight source.  ``Fraction`` keeps the ordering platform-independent.
+    """
+
+    pending: list[tuple[Fraction, int, int]] = [
+        (Fraction(1, 2 * quota), source_index, 0)
+        for source_index, quota in enumerate(quotas)
+    ]
+    heapq.heapify(pending)
+    source_indices = array("H")
+    source_positions = tuple(array("H") for _ in quotas)
+    digest = hashlib.sha256()
+    while pending:
+        _, source_index, occurrence = heapq.heappop(pending)
+        position = len(source_indices)
+        source_indices.append(source_index)
+        source_positions[source_index].append(position)
+        digest.update(int(source_index).to_bytes(2, "big"))
+        next_occurrence = occurrence + 1
+        if next_occurrence < quotas[source_index]:
+            heapq.heappush(
+                pending,
+                (
+                    Fraction(2 * next_occurrence + 1, 2 * quotas[source_index]),
+                    source_index,
+                    next_occurrence,
+                ),
+            )
     return _TicketBlock(
         source_indices=source_indices,
         source_positions=source_positions,
@@ -348,6 +719,7 @@ class ShaftSampleSchedule:
             self._source_ends.append(total)
         self.source_quotas: tuple[int, ...] = ()
         self.ticket_block_size = 0
+        self.ticket_rotation_step = 0
         self.ticket_block_digest = ""
         self._ticket_block: _TicketBlock | None = None
         self._source_cycle_seeds: tuple[int, ...] = ()
@@ -358,6 +730,7 @@ class ShaftSampleSchedule:
                 resolved.normalized_weights,
             )
             self.ticket_block_size = sum(self.source_quotas)
+            self.ticket_rotation_step = _ticket_rotation_step(self.ticket_block_size)
             self._ticket_block = _build_ticket_block(
                 self.source_quotas,
                 seed=self.seed,
@@ -377,10 +750,16 @@ class ShaftSampleSchedule:
                 _WEIGHTED_TICKET_TARGET_SIZE,
                 _WEIGHTED_TICKET_MAX_SIZE,
                 _WEIGHTED_MAX_RELATIVE_ERROR,
+                _WEIGHTED_EXACT_RELATIVE_TOLERANCE,
+                _WEIGHTED_EXHAUSTIVE_SOURCE_LIMIT,
+                _WEIGHTED_FAST_CANDIDATE_LIMIT,
+                _WEIGHTED_ROTATION_PHASE_BLOCKS,
+                _WEIGHTED_ROTATION_MAX_BALANCED_WORLD_SIZE,
+                _WEIGHTED_ROTATION_RANK_MODULUS,
+                self.ticket_rotation_step,
                 _TICKET_SHUFFLE_SALT,
                 _TICKET_BLOCK_SALT,
                 _SOURCE_CYCLE_SALT,
-                _AFFINE_OFFSET_SALT,
                 _TRANSFORM_SEED_SALT,
                 _FEISTEL_ROUND_SALT,
                 _FEISTEL_ROUNDS,
@@ -390,7 +769,8 @@ class ShaftSampleSchedule:
                     _SPLITMIX_MULTIPLIER_2,
                 ),
                 "splitmix64-fisher-yates-base-v1",
-                "block-cycle-affine-rotation-v1",
+                "splitmix64-phase-coprime-counter-rotation-v1",
+                "smallest-step-coprime-with-block-and-rank-modulus-v1",
                 "per-source-feistel6-cyclewalk-v1",
                 "source-seed-sha256-first8-big-v1",
                 self.seed,
@@ -406,6 +786,13 @@ class ShaftSampleSchedule:
                 self.seed,
             )
         self.fingerprint = hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+
+    def validate_data_world_size(self, world_size: int) -> None:
+        validate_sample_schedule_world_size(
+            strategy=self.strategy,
+            shuffle=self.shuffle,
+            world_size=world_size,
+        )
 
     def ref_at(self, draw_id: int) -> ShaftSampleRef:
         draw_id = int(draw_id)
@@ -439,13 +826,10 @@ class ShaftSampleSchedule:
 
     def _resolve_weighted(self, draw_id: int) -> tuple[str, int]:
         block_id, offset = divmod(draw_id, self.ticket_block_size)
-        block_cycle, block_position = divmod(block_id, self.ticket_block_size)
-        rotation = _affine_permute(
-            block_position,
+        rotation = _ticket_block_rotation(
+            block_id,
             self.ticket_block_size,
-            seed=_splitmix64(
-                self.seed ^ _TICKET_BLOCK_SALT ^ (block_cycle * _SOURCE_CYCLE_SALT)
-            ),
+            seed=self.seed,
         )
         ticket_position = (offset + rotation) % self.ticket_block_size
         ticket_block = self._ticket_block
@@ -510,12 +894,21 @@ class ShaftSamplePlan:
         for size in self.source_sizes:
             total += size
             self._source_ends.append(total)
-        cumulative = 0.0
-        self._weight_ends: list[float] = []
-        for weight in self.source_weights:
-            cumulative += weight
-            self._weight_ends.append(cumulative)
-        self._weight_ends[-1] = 1.0
+        self._unshuffled_source_quotas: tuple[int, ...] = ()
+        self._unshuffled_ticket_block_size = 0
+        self._unshuffled_ticket_block: _TicketBlock | None = None
+        if self.strategy == "weighted" and not self.shuffle:
+            self._unshuffled_source_quotas = _resolve_ticket_quotas(
+                resolved.names,
+                resolved.raw_weights,
+                resolved.normalized_weights,
+            )
+            self._unshuffled_ticket_block_size = sum(
+                self._unshuffled_source_quotas
+            )
+            self._unshuffled_ticket_block = _build_unshuffled_ticket_block(
+                self._unshuffled_source_quotas
+            )
         self._schedule = (
             ShaftSampleSchedule(
                 dict(zip(self.source_names, self.source_sizes, strict=True)),
@@ -529,12 +922,38 @@ class ShaftSamplePlan:
         )
         if self.strategy == "weighted" and self.shuffle:
             assert self._schedule is not None
+            self._stream_fingerprint = self._schedule.fingerprint
             fingerprint_payload = (
                 _WEIGHTED_PLAN_VERSION,
-                self._schedule.fingerprint,
+                self._stream_fingerprint,
+                self.num_samples,
+            )
+        elif self.strategy == "weighted":
+            stream_payload = (
+                _WEIGHTED_UNSHUFFLED_STREAM_VERSION,
+                self.source_names,
+                self.source_sizes,
+                self.source_weights,
+                self._unshuffled_source_quotas,
+                self._unshuffled_ticket_block_size,
+                self._unshuffled_ticket_block.digest,
+                _WEIGHTED_TICKET_TARGET_SIZE,
+                _WEIGHTED_TICKET_MAX_SIZE,
+                _WEIGHTED_MAX_RELATIVE_ERROR,
+                _WEIGHTED_EXACT_RELATIVE_TOLERANCE,
+                self.seed,
+            )
+            self._stream_fingerprint = hashlib.sha256(
+                repr(stream_payload).encode("utf-8")
+            ).hexdigest()
+            fingerprint_payload = (
+                _WEIGHTED_UNSHUFFLED_PLAN_VERSION,
+                self._stream_fingerprint,
                 self.num_samples,
             )
         else:
+            assert self._schedule is not None
+            self._stream_fingerprint = self._schedule.fingerprint
             fingerprint_payload = (
                 self.strategy,
                 self.source_names,
@@ -552,21 +971,23 @@ class ShaftSamplePlan:
     def schedule(self) -> ShaftSampleSchedule:
         if self._schedule is None:
             raise ValueError(
-                "This finite weighted, unshuffled SamplePlan has no horizon-independent schedule."
+                "This finite weighted, unshuffled SamplePlan has no public "
+                "ShaftSampleSchedule adapter."
             )
         return self._schedule
 
     @property
     def stream_fingerprint(self) -> str:
-        """Identify the logical draw stream independently of finite-plan length when possible.
+        """Identify the logical draw stream independently of finite-plan length."""
 
-        Weighted, unshuffled sampling is defined by the finite plan horizon, so its
-        finite plan fingerprint is the only honest stream identity.
-        """
+        return self._stream_fingerprint
 
-        if self._schedule is None:
-            return self.fingerprint
-        return self._schedule.fingerprint
+    def validate_data_world_size(self, world_size: int) -> None:
+        validate_sample_schedule_world_size(
+            strategy=self.strategy,
+            shuffle=self.shuffle,
+            world_size=world_size,
+        )
 
     def __len__(self) -> int:
         return self.num_samples
@@ -576,6 +997,8 @@ class ShaftSamplePlan:
         if position < 0 or position >= self.num_samples:
             raise IndexError(position)
         plan_cycle = int(plan_cycle)
+        if plan_cycle < 0:
+            raise IndexError(plan_cycle)
         draw_id = plan_cycle * self.num_samples + position
         if self._schedule is not None:
             scheduled = self._schedule.ref_at(draw_id)
@@ -608,12 +1031,21 @@ class ShaftSamplePlan:
         *,
         plan_cycle: int,
     ) -> tuple[str, int]:
-        source_value = (position + 0.5) / self.num_samples
-        source_index = bisect_right(self._weight_ends, source_value)
-        source_start = 0.0 if source_index == 0 else self._weight_ends[source_index - 1]
-        local_position = max(
-            int(position - math.floor(source_start * self.num_samples)),
-            0,
+        draw_id = plan_cycle * self.num_samples + position
+        block_id, block_position = divmod(
+            draw_id,
+            self._unshuffled_ticket_block_size,
         )
-        row_index = (local_position + plan_cycle) % self.source_sizes[source_index]
+        ticket_block = self._unshuffled_ticket_block
+        assert ticket_block is not None
+        source_index = int(ticket_block.source_indices[block_position])
+        local_occurrence = bisect_left(
+            ticket_block.source_positions[source_index],
+            block_position,
+        )
+        source_occurrence = (
+            block_id * self._unshuffled_source_quotas[source_index]
+            + local_occurrence
+        )
+        row_index = source_occurrence % self.source_sizes[source_index]
         return self.source_names[source_index], row_index

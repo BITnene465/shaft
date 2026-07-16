@@ -113,6 +113,9 @@ python scripts/export.py merge-peft \
 `validate` 与 `merge-peft` 使用和训练相同的 HF locator 语义：`revision` 固定 Hub 版本，`cache-dir`
 选择缓存根目录，`local-files-only=true` 禁止联网。adapter 的 base artifact 解析和模型 variant 选择均由
 统一 `ResolvedModelPlan` 完成，CLI 不根据目录名猜测 dense/MoE。
+`merge-peft` 默认要求 adapter 携带 Shaft 训练 metadata，并验证其中 base-model plan fingerprint。若导入的是
+没有 Shaft provenance 的第三方 PEFT adapter，必须先独立核对 base，再显式增加
+`--allow-unverified-base-model true`；该 escape hatch 不会关闭当前 base artifact 的完整 SHA256 校验。
 
 ### `scripts/compare_efficiency.py`
 

@@ -5,6 +5,7 @@ from shaft.utils.distributed import (
     destroy_process_group_if_initialized,
     get_rank,
     get_world_size,
+    initialize_process_group_if_needed,
     is_distributed,
     is_rank_zero,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "destroy_process_group_if_initialized",
     "get_rank",
     "get_world_size",
+    "initialize_process_group_if_needed",
     "is_distributed",
     "is_rank_zero",
 ]

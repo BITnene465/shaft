@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .qwen_inference import QwenVLInferencePolicy
 from .policies import build_peft_policy, build_processor_policy
 from .qwen3vl import Qwen3VLLoader
 from .registry import default_model_groups, register_model
@@ -35,6 +36,7 @@ _QWEN35VL_COMMON = dict(
         generator=("lm_head",),
     ),
     processor_policy=build_processor_policy("qwen_vl"),
+    inference_policy=QwenVLInferencePolicy(supports_thinking_templates=True),
     sequence_execution_policy=Qwen35VLSequenceExecutionPolicy(),
     peft_policy=build_peft_policy("all_linear"),
     requires=("transformers>=5.10.1", "module:transformers.models.qwen3_5"),

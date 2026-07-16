@@ -145,6 +145,11 @@ def apply_common_overrides(config: RuntimeConfig, args: argparse.Namespace) -> R
         train_config.init_from_checkpoint = str(init_from)
     if resume_from is not None:
         train_config.resume_from_checkpoint = str(resume_from)
+    if (
+        train_config.init_from_checkpoint is not None
+        and train_config.resume_from_checkpoint is not None
+    ):
+        raise ValueError("--init-from and --resume-from are mutually exclusive.")
     return config
 
 

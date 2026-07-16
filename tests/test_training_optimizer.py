@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
 import torch
+from torch.utils.data import DataLoader
 
 from shaft.config import FinetuneConfig, FreezeConfig
 from shaft.model import build_model_meta
@@ -10,6 +15,7 @@ from shaft.model.finetune_plan import build_resolved_finetune_plan
 from shaft.model.smoke_vlm import SmokeVLMConfig, SmokeVLMModel
 from shaft.training.muon import Muon
 from shaft.training.optimizer import OPTIMIZER_REGISTRY, build_optimizer
+from shaft.training.optimizer_mixin import ShaftOptimizerMixin
 from shaft.training.optimizer_plan import (
     ShaftOptimizerParamGroup,
     ShaftResolvedOptimizerPlan,
@@ -17,6 +23,7 @@ from shaft.training.optimizer_plan import (
     summarize_resolved_optimizer_plan,
 )
 from shaft.training.scheduler import SCHEDULER_REGISTRY, build_scheduler
+from shaft.training.sft_trainer import ShaftSFTTrainer
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
 
@@ -273,3 +280,131 @@ def test_optimizer_grouping_uses_deepspeed_global_parameter_ndim() -> None:
     assert groups_by_decay[True].to_optimizer_group()["weight_decay"] == pytest.approx(0.03)
     assert groups_by_decay[False].parameter_names == ("bias",)
     assert groups_by_decay[False].to_optimizer_group()["weight_decay"] == pytest.approx(0.0)
+
+
+def test_optimizer_mixin_accepts_delayed_wrapped_model_and_validates_plan() -> None:
+    model = _TinyModel()
+    args = build_training_args(output_dir="/tmp/shaft_optimizer_delayed")
+    plan = build_resolved_optimizer_plan(model=model, args=args)
+    consumer = object.__new__(ShaftOptimizerMixin)
+    consumer.optimizer = None
+    consumer.model = model
+    consumer.args = args
+    consumer.optimizer_name = "adamw_torch"
+    consumer.adam_beta1 = 0.9
+    consumer.adam_beta2 = 0.999
+    consumer.adam_epsilon = 1e-8
+    consumer.finetune_plan = None
+    consumer.model_adapter = None
+    consumer.param_group_lrs = {}
+    consumer.no_decay_name_patterns = []
+    consumer.resolved_optimizer_plan = plan
+    consumer.resolved_optimizer_summary = None
+
+    with patch("shaft.training.optimizer_mixin.is_rank_zero", return_value=False):
+        optimizer = consumer.create_optimizer(model=model)
+
+    assert isinstance(optimizer, torch.optim.Optimizer)
+    assert consumer.resolved_optimizer_plan.fingerprint == plan.fingerprint
+
+    drifted = _TinyModel()
+    drifted.extra = torch.nn.Parameter(torch.ones(1))
+    consumer.optimizer = None
+    consumer.resolved_optimizer_plan = plan
+    with pytest.raises(ValueError, match="Wrapped-model optimizer plan differs"):
+        consumer.create_optimizer(model=drifted)
+
+
+def test_sft_trainer_hf_delayed_fsdp_optimizer_uses_wrapped_parameters(
+    tmp_path,
+) -> None:
+    original_model = _TinyModel()
+    wrapped_model = deepcopy(original_model)
+    args = build_training_args(output_dir=tmp_path)
+    original_plan = build_resolved_optimizer_plan(model=original_model, args=args)
+    trainer = ShaftSFTTrainer(
+        model=original_model,
+        args=args,
+        train_dataset=[],
+        resolved_optimizer_plan=original_plan,
+    )
+    original_parameter_ids = {id(parameter) for parameter in original_model.parameters()}
+    wrapped_parameter_ids = {id(parameter) for parameter in wrapped_model.parameters()}
+    assert tuple(original_model.state_dict()) == tuple(wrapped_model.state_dict())
+    assert original_parameter_ids.isdisjoint(wrapped_parameter_ids)
+
+    def prepare(value):
+        if value is original_model:
+            return wrapped_model
+        return value
+
+    trainer.is_fsdp_enabled = True
+    fsdp_plugin = SimpleNamespace(fsdp_version=1)
+    with (
+        patch.object(
+            trainer.accelerator.state,
+            "fsdp_plugin",
+            fsdp_plugin,
+            create=True,
+        ),
+        patch.object(trainer.accelerator, "prepare", side_effect=prepare),
+        patch("shaft.training.optimizer_mixin.is_rank_zero", return_value=False),
+    ):
+        prepared_model, _ = trainer._prepare_for_training(
+            max_steps=1,
+            train_dataloader=DataLoader([0]),
+            resume_from_checkpoint=None,
+        )
+
+    optimizer_parameter_ids = {
+        id(parameter)
+        for group in trainer.optimizer.param_groups
+        for parameter in group["params"]
+    }
+    assert prepared_model is wrapped_model
+    assert trainer.model is wrapped_model
+    assert optimizer_parameter_ids == wrapped_parameter_ids
+    assert optimizer_parameter_ids.isdisjoint(original_parameter_ids)
+    assert trainer.resolved_optimizer_plan.fingerprint == original_plan.fingerprint
+
+
+def test_sft_trainer_hf_delayed_fsdp_optimizer_rejects_wrapped_plan_drift(
+    tmp_path,
+) -> None:
+    original_model = _TinyModel()
+    drifted_wrapper = torch.nn.Module()
+    drifted_wrapper.wrapped = deepcopy(original_model)
+    args = build_training_args(output_dir=tmp_path)
+    trainer = ShaftSFTTrainer(
+        model=original_model,
+        args=args,
+        train_dataset=[],
+        resolved_optimizer_plan=build_resolved_optimizer_plan(
+            model=original_model,
+            args=args,
+        ),
+    )
+
+    def prepare(value):
+        if value is original_model:
+            return drifted_wrapper
+        return value
+
+    trainer.is_fsdp_enabled = True
+    fsdp_plugin = SimpleNamespace(fsdp_version=1)
+    with (
+        patch.object(
+            trainer.accelerator.state,
+            "fsdp_plugin",
+            fsdp_plugin,
+            create=True,
+        ),
+        patch.object(trainer.accelerator, "prepare", side_effect=prepare),
+        patch("shaft.training.optimizer_mixin.is_rank_zero", return_value=False),
+        pytest.raises(ValueError, match="Wrapped-model optimizer plan differs"),
+    ):
+        trainer._prepare_for_training(
+            max_steps=1,
+            train_dataloader=DataLoader([0]),
+            resume_from_checkpoint=None,
+        )

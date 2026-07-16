@@ -92,6 +92,9 @@ class FakePipelineTokenizer:
     bos_token_id = None
     eos_token = "</s>"
 
+    def shaft_tokenizer_fingerprint(self) -> str:
+        return "tests-fake-pipeline-tokenizer-v1"
+
     def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
         _ = add_special_tokens, return_attention_mask
         return {"input_ids": [[1] for _ in texts]}
@@ -116,6 +119,7 @@ class FakePipelineProcessor:
 class FakePipelineModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(1))
         self.config = SimpleNamespace(
             use_cache=False,
             eos_token_id=99,
@@ -146,8 +150,6 @@ class FakePipelineTrainResult:
 
 
 class FakePipelineTrainer:
-    last_kwargs = None
-
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         type(self).last_kwargs = kwargs
@@ -167,7 +169,7 @@ class FakePipelineTrainer:
 def build_fake_model_artifacts(
     *,
     model: FakePipelineModel | None = None,
-    include_finetune_plan: bool = False,
+    include_finetune_plan: bool = True,
 ):
     adapter = build_model_meta("smoke_vlm").resolve_adapter(model_name_or_path="models/Smoke-VLM")
     fake_model = model or FakePipelineModel()

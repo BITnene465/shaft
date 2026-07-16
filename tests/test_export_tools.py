@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,11 @@ import torch
 
 import shaft.model.builder as model_builder
 from shaft.config import RuntimeConfig
-from shaft.export import infer_base_model_from_adapter, merge_peft_adapter, validate_hf_artifact
+from shaft.export import (
+    infer_base_model_from_adapter,
+    merge_peft_adapter as _merge_peft_adapter,
+    validate_hf_artifact,
+)
 from shaft.model import (
     build_model_meta,
     build_model_tokenizer_processor,
@@ -20,6 +25,13 @@ from shaft.model import (
 )
 from shaft.model.smoke_vlm import SmokeVLMModel
 from shaft.training.checkpointing import ensure_hf_export_layout
+
+
+def merge_peft_adapter(**kwargs):
+    """Existing synthetic adapters intentionally exercise the explicit unsafe path."""
+
+    kwargs.setdefault("allow_unverified_base_model", True)
+    return _merge_peft_adapter(**kwargs)
 
 
 def _build_smoke_lora_artifacts():
@@ -104,13 +116,27 @@ def test_merge_peft_adapter_exports_full_layout(tmp_path: Path) -> None:
 
     output_dir = tmp_path / "merged"
     torch.manual_seed(17)
-    result = merge_peft_adapter(
-        model_type="smoke_vlm",
-        adapter_path=adapter_dir,
-        output_dir=output_dir,
-        base_model_path="models/smoke-vlm",
-        torch_dtype="float32",
+    base_config = RuntimeConfig()
+    base_config.model.model_type = "smoke_vlm"
+    base_config.model.model_name_or_path = "models/smoke-vlm"
+    base_plan = resolve_model_plan(base_config, require_immutable_artifact=True)
+    metadata = SimpleNamespace(
+        train_input_contract=SimpleNamespace(
+            model_plan_fingerprint=base_plan.fingerprint,
+        )
     )
+    with patch(
+        "shaft.export.hf.load_checkpoint_batching_metadata",
+        return_value=metadata,
+    ):
+        result = merge_peft_adapter(
+            model_type="smoke_vlm",
+            adapter_path=adapter_dir,
+            output_dir=output_dir,
+            base_model_path="models/smoke-vlm",
+            torch_dtype="float32",
+            allow_unverified_base_model=False,
+        )
 
     assert result.output_dir == output_dir
     ensure_hf_export_layout(
@@ -124,6 +150,94 @@ def test_merge_peft_adapter_exports_full_layout(tmp_path: Path) -> None:
     with torch.no_grad():
         actual_logits = merged_model(input_ids=input_ids).logits
     assert torch.allclose(actual_logits, expected_logits, atol=1e-6, rtol=1e-6)
+
+
+def test_merge_peft_adapter_rejects_adapter_without_base_provenance(
+    tmp_path: Path,
+) -> None:
+    artifacts = _build_smoke_lora_artifacts()
+    adapter_dir = tmp_path / "adapter"
+    artifacts.model.save_pretrained(adapter_dir)
+
+    with pytest.raises(ValueError, match="cannot prove which base-model bytes"):
+        _merge_peft_adapter(
+            model_type="smoke_vlm",
+            adapter_path=adapter_dir,
+            output_dir=tmp_path / "merged",
+            base_model_path="models/smoke-vlm",
+            torch_dtype="float32",
+        )
+
+
+def test_merge_peft_adapter_rejects_mismatched_base_provenance(
+    tmp_path: Path,
+) -> None:
+    artifacts = _build_smoke_lora_artifacts()
+    adapter_dir = tmp_path / "adapter"
+    artifacts.model.save_pretrained(adapter_dir)
+    metadata = SimpleNamespace(
+        train_input_contract=SimpleNamespace(
+            model_plan_fingerprint="different-base-plan",
+        )
+    )
+
+    with (
+        patch(
+            "shaft.export.hf.load_checkpoint_batching_metadata",
+            return_value=metadata,
+        ),
+        pytest.raises(ValueError, match="base-model identity differs"),
+    ):
+        _merge_peft_adapter(
+            model_type="smoke_vlm",
+            adapter_path=adapter_dir,
+            output_dir=tmp_path / "merged",
+            base_model_path="models/smoke-vlm",
+            torch_dtype="float32",
+        )
+
+
+def test_merge_peft_adapter_falls_back_to_parent_run_provenance(
+    tmp_path: Path,
+) -> None:
+    artifacts = _build_smoke_lora_artifacts()
+    adapter_dir = tmp_path / "run" / "best"
+    artifacts.model.save_pretrained(adapter_dir)
+    base_config = RuntimeConfig()
+    base_config.model.model_type = "smoke_vlm"
+    base_config.model.model_name_or_path = "models/smoke-vlm"
+    base_plan = resolve_model_plan(base_config, require_immutable_artifact=True)
+    legacy_metadata = SimpleNamespace(train_input_contract=None)
+    parent_metadata = SimpleNamespace(
+        train_input_contract=SimpleNamespace(
+            model_plan_fingerprint=base_plan.fingerprint,
+        )
+    )
+
+    with (
+        patch(
+            "shaft.export.hf.load_checkpoint_batching_metadata",
+            return_value=legacy_metadata,
+        ),
+        patch(
+            "shaft.export.hf.load_batching_run_metadata",
+            side_effect=[FileNotFoundError("no local metadata"), parent_metadata],
+        ) as run_loader,
+    ):
+        result = _merge_peft_adapter(
+            model_type="smoke_vlm",
+            adapter_path=adapter_dir,
+            output_dir=tmp_path / "merged",
+            base_model_path="models/smoke-vlm",
+            torch_dtype="float32",
+            allow_unverified_base_model=False,
+        )
+
+    assert result.layout.kind == "full"
+    assert [call.args[0] for call in run_loader.call_args_list] == [
+        adapter_dir,
+        adapter_dir.parent,
+    ]
 
 
 def test_merge_peft_adapter_rejects_non_empty_output_dir(tmp_path: Path) -> None:
@@ -371,10 +485,10 @@ def test_load_adapter_artifacts_rejects_weight_change_during_base_build(
     config.model.model_type = "smoke_vlm"
     config.model.model_name_or_path = "models/smoke-vlm"
     plan = resolve_model_plan(config, init_from_checkpoint=str(adapter_dir))
-    real_build = model_builder._build_artifacts_from_runtime_config
+    real_loader = model_builder.invoke_model_loader
 
-    def _build_then_replace(*args, **kwargs):
-        built = real_build(*args, **kwargs)
+    def _load_then_replace(prepared):
+        built = real_loader(prepared)
         weight_path.write_bytes(replacement)
         assert weight_path.stat().st_size == original_size
         return built
@@ -382,8 +496,8 @@ def test_load_adapter_artifacts_rejects_weight_change_during_base_build(
     with (
         patch.object(
             model_builder,
-            "_build_artifacts_from_runtime_config",
-            side_effect=_build_then_replace,
+            "invoke_model_loader",
+            side_effect=_load_then_replace,
         ),
         pytest.raises(ValueError, match="weights changed after ResolvedModelPlan"),
     ):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import shutil
 
@@ -11,6 +11,10 @@ from shaft.model import (
     build_model_meta,
     load_adapter_artifacts,
     resolve_model_plan,
+)
+from shaft.training.batch_planning import (
+    load_batching_run_metadata,
+    load_checkpoint_batching_metadata,
 )
 from shaft.training.checkpointing import (
     CheckpointLayout,
@@ -156,6 +160,61 @@ def _overlay_adapter_processing_assets(
         shutil.copy2(source, target)
 
 
+def _validate_adapter_base_provenance(
+    *,
+    adapter_dir: Path,
+    base_model_plan,
+    allow_unverified_base_model: bool,
+) -> None:
+    if bool(allow_unverified_base_model):
+        return
+    errors: list[Exception] = []
+    loaded_metadata = False
+    loaders = [
+        (load_checkpoint_batching_metadata, adapter_dir),
+        (load_batching_run_metadata, adapter_dir),
+    ]
+    if adapter_dir.name == "best" or adapter_dir.name.startswith("checkpoint-"):
+        loaders.append((load_batching_run_metadata, adapter_dir.parent))
+    for loader, metadata_root in loaders:
+        try:
+            metadata = loader(metadata_root)
+        except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+            errors.append(exc)
+            continue
+        loaded_metadata = True
+        train_input_contract = getattr(metadata, "train_input_contract", None)
+        if train_input_contract is None:
+            errors.append(
+                ValueError(
+                    f"Metadata at {metadata_root} has no training input contract."
+                )
+            )
+            continue
+        actual = str(train_input_contract.model_plan_fingerprint)
+        expected = str(base_model_plan.fingerprint)
+        if actual != expected:
+            raise ValueError(
+                "Adapter checkpoint base-model identity differs from the requested merge "
+                f"base: checkpoint={actual!r}, requested={expected!r}. Pass "
+                "--allow-unverified-base-model true only after independently verifying "
+                "that this mismatch is intentional."
+            )
+        return
+    if not loaded_metadata:
+        raise ValueError(
+            "Adapter merge cannot prove which base-model bytes produced this adapter: "
+            "valid Shaft checkpoint metadata is missing. Pass "
+            "--allow-unverified-base-model true only after independently verifying "
+            "the base model."
+        ) from (errors[-1] if errors else None)
+    raise ValueError(
+        "Adapter merge found checkpoint metadata, but none of the available scopes "
+        "contains a training input contract. Pass --allow-unverified-base-model true "
+        "only after independently verifying the base model."
+    ) from (errors[-1] if errors else None)
+
+
 def merge_peft_adapter(
     *,
     model_type: str,
@@ -170,6 +229,7 @@ def merge_peft_adapter(
     revision: str | None = None,
     cache_dir: str | None = None,
     local_files_only: bool = False,
+    allow_unverified_base_model: bool = False,
 ) -> ExportMergeResult:
     adapter_dir = Path(adapter_path)
     ensure_hf_export_layout(adapter_dir, finetune_mode="lora")
@@ -199,6 +259,23 @@ def merge_peft_adapter(
     model_plan = resolve_model_plan(
         config,
         init_from_checkpoint=str(adapter_dir),
+        require_immutable_artifact=True,
+    )
+    if not model_plan.artifact_identity.complete:
+        raise ValueError(
+            "Adapter merge requires an immutable base-model artifact identity: "
+            f"{list(model_plan.artifact_identity.incomplete_reasons)}."
+        )
+    base_model_plan = replace(
+        model_plan,
+        init_from_checkpoint=None,
+        init_kind="base",
+        adapter_init=None,
+    )
+    _validate_adapter_base_provenance(
+        adapter_dir=adapter_dir,
+        base_model_plan=base_model_plan,
+        allow_unverified_base_model=allow_unverified_base_model,
     )
     artifacts = load_adapter_artifacts(
         config,

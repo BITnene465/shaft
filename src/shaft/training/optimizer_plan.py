@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -47,6 +48,29 @@ class ShaftResolvedOptimizerPlan:
 
     def to_optimizer_groups(self) -> list[dict[str, Any]]:
         return [group.to_optimizer_group() for group in self.groups]
+
+    @property
+    def fingerprint(self) -> str:
+        payload = {
+            "version": "shaft-resolved-optimizer-plan-v1",
+            "groups": [
+                {
+                    "logical_group": group.logical_group,
+                    "decay": bool(group.decay),
+                    "lr": float(group.lr),
+                    "weight_decay": float(group.weight_decay),
+                    "parameter_names": list(group.parameter_names),
+                }
+                for group in self.groups
+            ],
+        }
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

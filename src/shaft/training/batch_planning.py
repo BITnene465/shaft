@@ -26,22 +26,99 @@ from shaft.data import (
     resolve_local_pack_count_bounds,
 )
 
-from .distributed import broadcast_object_from_rank_zero, is_rank_zero
+from .distributed import (
+    broadcast_object_from_rank_zero,
+    get_world_size,
+    is_rank_zero,
+)
+from .input_contract import ShaftTrainInputContract
+from .resume_contract import ShaftTrainingResumeContract
+from shaft.utils.contract_schema import (
+    json_bool,
+    json_int,
+    json_list,
+    json_number,
+    json_optional_int,
+    json_optional_string,
+    json_string,
+    load_strict_json,
+    require_exact_keys,
+    require_json_mapping,
+)
 
 
 BATCHING_RUN_METADATA_FILENAME = "shaft_batching_run_metadata.json"
 BATCH_PLANNING_CALLBACK_NAME = "ShaftBatchPlanningCallback"
 BATCHING_METADATA_CALLBACK_NAME = "ShaftBatchingMetadataCallback"
-BATCH_PLANNING_CHECKPOINT_COMPLETION_FILENAME = "shaft_batch_planning_complete.json"
-_BATCH_PLANNING_CHECKPOINT_COMPLETION_VERSION = "shaft-batch-planning-complete-v4"
+BATCH_PLANNING_CHECKPOINT_COMMIT_EXTENSION = "batch_planning"
+_BATCH_PLANNING_CHECKPOINT_COMMIT_VERSION = "shaft-batch-planning-commit-v1"
 _BATCH_CONTRACT_VERSION = "shaft-batch-contract-v3"
+_BATCHING_RUN_METADATA_VERSION = "shaft-batching-run-metadata-v1"
+
+_BATCH_CONTRACT_KEYS = frozenset(
+    {
+        "version",
+        "grouping",
+        "cardinality",
+        "packing",
+        "layout",
+        "per_device_microbatch_size",
+        "data_world_size",
+        "gradient_accumulation_steps",
+        "buffer_size",
+        "max_tokens_per_microbatch",
+        "max_sequence_length",
+        "resource_budgets",
+    }
+)
+_BATCHING_RUN_METADATA_KEYS = frozenset(
+    {
+        "version",
+        "grouping",
+        "cardinality",
+        "packing",
+        "layout",
+        "per_device_train_batch_size",
+        "data_world_size",
+        "gradient_accumulation_steps",
+        "global_pack_count",
+        "optimizer_pack_count",
+        "local_pack_count_range",
+        "global_pack_count_range",
+        "optimizer_pack_count_range",
+        "min_pixels",
+        "max_pixels",
+        "source_weights",
+        "media_snapshot_id",
+        "buffer_size",
+        "cost_cache_size",
+        "max_tokens_per_microbatch",
+        "max_sequence_length",
+        "resource_budgets",
+        "batch_contract",
+        "batch_contract_fingerprint",
+        "planner_spec_fingerprint",
+        "sample_execution_fingerprint",
+        "train_input_contract",
+        "train_input_contract_fingerprint",
+        "training_resume_contract",
+        "training_resume_contract_fingerprint",
+    }
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _optional_int(payload: dict[str, Any], field_name: str) -> int | None:
-    value = payload.get(field_name)
-    return None if value is None else int(value)
+def _json_int_pair(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    role: str,
+) -> list[int]:
+    values = json_list(payload, field_name, role=role)
+    if len(values) != 2 or any(type(value) is not int for value in values):
+        raise TypeError(f"{role}.{field_name} must be a two-item JSON integer list.")
+    return values
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,25 +147,15 @@ class ShaftBatchContract:
             if not str(getattr(self, field_name)).strip():
                 raise ValueError(f"ShaftBatchContract.{field_name} must not be empty.")
         if self.grouping not in {"none", "length", "bounded_cost"}:
-            raise ValueError(
-                f"Unsupported resolved batch grouping: {self.grouping!r}."
-            )
+            raise ValueError(f"Unsupported resolved batch grouping: {self.grouping!r}.")
         if self.cardinality not in {"fixed", "token_budget"}:
-            raise ValueError(
-                f"Unsupported resolved batch cardinality: {self.cardinality!r}."
-            )
+            raise ValueError(f"Unsupported resolved batch cardinality: {self.cardinality!r}.")
         if self.cardinality == "token_budget" and self.grouping != "bounded_cost":
-            raise ValueError(
-                "Resolved token-budget cardinality requires bounded_cost grouping."
-            )
+            raise ValueError("Resolved token-budget cardinality requires bounded_cost grouping.")
         if self.packing not in {"none", "greedy"}:
-            raise ValueError(
-                f"Unsupported resolved batch packing: {self.packing!r}."
-            )
+            raise ValueError(f"Unsupported resolved batch packing: {self.packing!r}.")
         if self.layout not in {"padded", "varlen"}:
-            raise ValueError(
-                f"Unsupported resolved batch layout: {self.layout!r}."
-            )
+            raise ValueError(f"Unsupported resolved batch layout: {self.layout!r}.")
         for field_name in (
             "per_device_microbatch_size",
             "data_world_size",
@@ -98,19 +165,13 @@ class ShaftBatchContract:
                 raise ValueError(f"ShaftBatchContract.{field_name} must be > 0.")
         names = [name for name, _ in self.resource_budgets]
         if names != sorted(names) or len(names) != len(set(names)):
-            raise ValueError(
-                "ShaftBatchContract.resource_budgets must be sorted and unique."
-            )
+            raise ValueError("ShaftBatchContract.resource_budgets must be sorted and unique.")
         if any(not str(name).strip() or int(value) <= 0 for name, value in self.resource_budgets):
-            raise ValueError(
-                "ShaftBatchContract.resource_budgets names and values must be valid."
-            )
+            raise ValueError("ShaftBatchContract.resource_budgets names and values must be valid.")
         if self.is_planned:
             if self.buffer_size is None or int(self.buffer_size) <= 0:
                 raise ValueError("Planned ShaftBatchContract requires buffer_size > 0.")
-            required_buffer_size = int(self.data_world_size) * int(
-                self.local_pack_count_bounds[0]
-            )
+            required_buffer_size = int(self.data_world_size) * int(self.local_pack_count_bounds[0])
             if int(self.buffer_size) < required_buffer_size:
                 raise ValueError(
                     "Planned ShaftBatchContract buffer must hold one complete global "
@@ -122,27 +183,17 @@ class ShaftBatchContract:
                 raise ValueError(
                     "bounded_cost grouping requires packing='none' and layout='padded'."
                 )
-            if (
-                self.max_tokens_per_microbatch is None
-                or int(self.max_tokens_per_microbatch) <= 0
-            ):
+            if self.max_tokens_per_microbatch is None or int(self.max_tokens_per_microbatch) <= 0:
                 raise ValueError(
                     "Bounded ShaftBatchContract requires max_tokens_per_microbatch > 0."
                 )
             if self.max_sequence_length is not None:
-                raise ValueError(
-                    "Bounded ShaftBatchContract cannot carry max_sequence_length."
-                )
+                raise ValueError("Bounded ShaftBatchContract cannot carry max_sequence_length.")
         elif self.grouping == "length":
             if self.cardinality != "fixed":
                 raise ValueError("Length grouping requires fixed cardinality.")
-            if (
-                self.max_sequence_length is None
-                or int(self.max_sequence_length) <= 0
-            ):
-                raise ValueError(
-                    "Length ShaftBatchContract requires max_sequence_length > 0."
-                )
+            if self.max_sequence_length is None or int(self.max_sequence_length) <= 0:
+                raise ValueError("Length ShaftBatchContract requires max_sequence_length > 0.")
             if self.max_tokens_per_microbatch is not None:
                 raise ValueError(
                     "Length ShaftBatchContract derives its local token capacity from "
@@ -150,27 +201,22 @@ class ShaftBatchContract:
                 )
             if self.packing == "greedy" and self.layout != "varlen":
                 raise ValueError("Greedy packing requires layout='varlen'.")
-            if self.packing == "greedy" and not dict(self.resource_budgets).get(
-                "vision_patches"
-            ):
-                raise ValueError(
-                    "Greedy multimodal packing requires a vision_patches hard guard."
+            if self.packing == "greedy" and not dict(self.resource_budgets).get("vision_patches"):
+                raise ValueError("Greedy multimodal packing requires a vision_patches hard guard.")
+        elif (
+            any(
+                value is not None
+                for value in (
+                    self.buffer_size,
+                    self.max_tokens_per_microbatch,
+                    self.max_sequence_length,
                 )
-        elif any(
-            value is not None
-            for value in (
-                self.buffer_size,
-                self.max_tokens_per_microbatch,
-                self.max_sequence_length,
             )
-        ) or self.resource_budgets:
-            raise ValueError(
-                "Non-bounded ShaftBatchContract cannot carry bounded planner fields."
-            )
+            or self.resource_budgets
+        ):
+            raise ValueError("Non-bounded ShaftBatchContract cannot carry bounded planner fields.")
         if self.grouping == "none" and (
-            self.cardinality != "fixed"
-            or self.packing != "none"
-            or self.layout != "padded"
+            self.cardinality != "fixed" or self.packing != "none" or self.layout != "padded"
         ):
             raise ValueError(
                 "Unplanned batching requires fixed cardinality, packing='none', "
@@ -197,9 +243,7 @@ class ShaftBatchContract:
                 "optimizer_pack_count is not exact for token-budget cardinality; "
                 "use optimizer_pack_count_bounds."
             )
-        return self.global_pack_count * int(
-            self.gradient_accumulation_steps
-        )
+        return self.global_pack_count * int(self.gradient_accumulation_steps)
 
     @property
     def local_pack_count_bounds(self) -> tuple[int, int]:
@@ -235,9 +279,7 @@ class ShaftBatchContract:
         if self.is_bounded:
             return int(self.max_tokens_per_microbatch or 0)
         if self.grouping == "length":
-            return int(self.per_device_microbatch_size) * int(
-                self.max_sequence_length or 0
-            )
+            return int(self.per_device_microbatch_size) * int(self.max_sequence_length or 0)
         return None
 
     def to_dict(self) -> dict[str, Any]:
@@ -249,53 +291,62 @@ class ShaftBatchContract:
             "layout": self.layout,
             "per_device_microbatch_size": int(self.per_device_microbatch_size),
             "data_world_size": int(self.data_world_size),
-            "gradient_accumulation_steps": int(
-                self.gradient_accumulation_steps
-            ),
+            "gradient_accumulation_steps": int(self.gradient_accumulation_steps),
             "buffer_size": self.buffer_size,
             "max_tokens_per_microbatch": self.max_tokens_per_microbatch,
             "max_sequence_length": self.max_sequence_length,
-            "resource_budgets": {
-                str(name): int(value) for name, value in self.resource_budgets
-            },
+            "resource_budgets": {str(name): int(value) for name, value in self.resource_budgets},
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "ShaftBatchContract":
-        if not isinstance(payload, dict):
-            raise TypeError("Batch contract payload must be a mapping.")
-        version = str(payload.get("version", ""))
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ShaftBatchContract":
+        role = "Batch contract"
+        payload = require_json_mapping(payload, role=role)
+        require_exact_keys(
+            payload,
+            expected=_BATCH_CONTRACT_KEYS,
+            role=role,
+        )
+        version = json_string(payload, "version", role=role)
         if version != _BATCH_CONTRACT_VERSION:
-            raise ValueError(
-                f"Unsupported batch contract version: {version!r}."
-            )
-        resource_budgets = payload.get("resource_budgets", {})
-        if not isinstance(resource_budgets, dict):
-            raise TypeError("Batch contract resource_budgets must be a mapping.")
+            raise ValueError(f"Unsupported batch contract version: {version!r}.")
+        resource_budgets = require_json_mapping(
+            payload["resource_budgets"],
+            role="Batch contract.resource_budgets",
+        )
+        normalized_resource_budgets: list[tuple[str, int]] = []
+        for name, value in resource_budgets.items():
+            if type(value) is not int:
+                raise TypeError(f"Batch contract.resource_budgets.{name} must be a JSON integer.")
+            normalized_resource_budgets.append((name, value))
         return cls(
-            grouping=str(payload["grouping"]),
-            cardinality=str(payload["cardinality"]),
-            packing=str(payload["packing"]),
-            layout=str(payload["layout"]),
-            per_device_microbatch_size=int(
-                payload["per_device_microbatch_size"]
+            grouping=json_string(payload, "grouping", role=role),
+            cardinality=json_string(payload, "cardinality", role=role),
+            packing=json_string(payload, "packing", role=role),
+            layout=json_string(payload, "layout", role=role),
+            per_device_microbatch_size=json_int(
+                payload,
+                "per_device_microbatch_size",
+                role=role,
             ),
-            data_world_size=int(payload["data_world_size"]),
-            gradient_accumulation_steps=int(
-                payload["gradient_accumulation_steps"]
+            data_world_size=json_int(payload, "data_world_size", role=role),
+            gradient_accumulation_steps=json_int(
+                payload,
+                "gradient_accumulation_steps",
+                role=role,
             ),
-            buffer_size=_optional_int(payload, "buffer_size"),
-            max_tokens_per_microbatch=_optional_int(
+            buffer_size=json_optional_int(payload, "buffer_size", role=role),
+            max_tokens_per_microbatch=json_optional_int(
                 payload,
                 "max_tokens_per_microbatch",
+                role=role,
             ),
-            max_sequence_length=_optional_int(payload, "max_sequence_length"),
-            resource_budgets=tuple(
-                sorted(
-                    (str(name), int(value))
-                    for name, value in resource_budgets.items()
-                )
+            max_sequence_length=json_optional_int(
+                payload,
+                "max_sequence_length",
+                role=role,
             ),
+            resource_budgets=tuple(sorted(normalized_resource_budgets)),
         )
 
     @property
@@ -343,9 +394,7 @@ def build_batch_contract(*, config: Any, training_args: Any) -> ShaftBatchContra
         resource_budgets=tuple(
             sorted(
                 (str(name), int(value))
-                for name, value in (
-                    batching.resource_budgets.items() if planned else ()
-                )
+                for name, value in (batching.resource_budgets.items() if planned else ())
             )
         ),
     )
@@ -372,18 +421,16 @@ class ShaftBatchingRunMetadata:
     batch_contract_fingerprint: str | None = None
     planner_spec_fingerprint: str | None = None
     sample_execution_fingerprint: str | None = None
+    train_input_contract: ShaftTrainInputContract | None = None
+    training_resume_contract: ShaftTrainingResumeContract | None = None
 
     def __post_init__(self) -> None:
         contract = self.batch_contract
         if contract.is_planned:
             if self.cost_cache_size is None or int(self.cost_cache_size) < 0:
-                raise ValueError(
-                    "Planned batching metadata requires cost_cache_size >= 0."
-                )
+                raise ValueError("Planned batching metadata requires cost_cache_size >= 0.")
         elif self.cost_cache_size is not None:
-            raise ValueError(
-                "Unplanned batching metadata cannot carry cost_cache_size."
-            )
+            raise ValueError("Unplanned batching metadata cannot carry cost_cache_size.")
         expected_fingerprint = contract.fingerprint
         if self.batch_contract_fingerprint is None:
             object.__setattr__(
@@ -396,14 +443,53 @@ class ShaftBatchingRunMetadata:
                 "Batching metadata batch_contract_fingerprint differs from its "
                 "canonical batch contract."
             )
-        has_planner_fingerprint = bool(
-            str(self.planner_spec_fingerprint or "").strip()
-        )
+        has_planner_fingerprint = bool(str(self.planner_spec_fingerprint or "").strip())
         if contract.is_planned != has_planner_fingerprint:
             raise ValueError(
                 "Planned batching metadata requires exactly one planner spec "
                 "fingerprint; unplanned metadata cannot carry one."
             )
+        if self.train_input_contract is not None:
+            sample_fingerprint = str(self.sample_execution_fingerprint or "").strip()
+            if sample_fingerprint != self.train_input_contract.data_execution_fingerprint:
+                raise ValueError(
+                    "Batching metadata sample execution fingerprint differs from "
+                    "its training input contract."
+                )
+        if self.training_resume_contract is not None:
+            if self.training_resume_contract.batch_contract_fingerprint != expected_fingerprint:
+                raise ValueError(
+                    "Batching metadata training resume contract refers to a "
+                    "different batch contract."
+                )
+            if (
+                self.train_input_contract is not None
+                and self.training_resume_contract.algorithm != self.train_input_contract.algorithm
+            ):
+                raise ValueError(
+                    "Batching metadata training resume and input contracts refer "
+                    "to different algorithms."
+                )
+            if self.train_input_contract is None:
+                raise ValueError(
+                    "Training resume metadata requires its composed training input contract."
+                )
+            if (
+                self.training_resume_contract.train_input_contract_fingerprint
+                != self.train_input_contract.fingerprint
+            ):
+                raise ValueError(
+                    "Batching metadata training resume contract refers to a different "
+                    "training input contract."
+                )
+            if (
+                self.training_resume_contract.data_execution_fingerprint
+                != self.train_input_contract.data_execution_fingerprint
+            ):
+                raise ValueError(
+                    "Batching metadata training resume contract refers to a different "
+                    "data execution contract."
+                )
 
     @property
     def batch_contract(self) -> ShaftBatchContract:
@@ -441,6 +527,7 @@ class ShaftBatchingRunMetadata:
         global_bounds = list(self.global_pack_count_bounds)
         optimizer_bounds = list(self.optimizer_pack_count_bounds)
         return {
+            "version": _BATCHING_RUN_METADATA_VERSION,
             "grouping": str(self.grouping),
             "cardinality": str(self.cardinality),
             "packing": str(self.packing),
@@ -452,110 +539,240 @@ class ShaftBatchingRunMetadata:
                 global_bounds[0] if global_bounds[0] == global_bounds[1] else None
             ),
             "optimizer_pack_count": (
-                optimizer_bounds[0]
-                if optimizer_bounds[0] == optimizer_bounds[1]
-                else None
+                optimizer_bounds[0] if optimizer_bounds[0] == optimizer_bounds[1] else None
             ),
             "local_pack_count_range": [local_min, local_max],
             "global_pack_count_range": global_bounds,
             "optimizer_pack_count_range": optimizer_bounds,
             "min_pixels": None if self.min_pixels is None else int(self.min_pixels),
             "max_pixels": None if self.max_pixels is None else int(self.max_pixels),
-            "source_weights": {
-                name: float(weight) for name, weight in self.source_weights
-            },
+            "source_weights": {name: float(weight) for name, weight in self.source_weights},
             "media_snapshot_id": self.media_snapshot_id,
             "buffer_size": self.buffer_size,
             "cost_cache_size": self.cost_cache_size,
             "max_tokens_per_microbatch": self.max_tokens_per_microbatch,
             "max_sequence_length": self.max_sequence_length,
-            "resource_budgets": {
-                str(name): int(value) for name, value in self.resource_budgets
-            },
+            "resource_budgets": {str(name): int(value) for name, value in self.resource_budgets},
             "batch_contract": batch_contract.to_dict(),
             "batch_contract_fingerprint": self.batch_contract_fingerprint,
             "planner_spec_fingerprint": self.planner_spec_fingerprint,
             "sample_execution_fingerprint": self.sample_execution_fingerprint,
+            "train_input_contract": (
+                None if self.train_input_contract is None else self.train_input_contract.to_dict()
+            ),
+            "train_input_contract_fingerprint": (
+                None if self.train_input_contract is None else self.train_input_contract.fingerprint
+            ),
+            "training_resume_contract": (
+                None
+                if self.training_resume_contract is None
+                else self.training_resume_contract.to_dict()
+            ),
+            "training_resume_contract_fingerprint": (
+                None
+                if self.training_resume_contract is None
+                else self.training_resume_contract.fingerprint
+            ),
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "ShaftBatchingRunMetadata":
-        serialized_contract_payload = payload.get("batch_contract")
-        if not isinstance(serialized_contract_payload, dict):
-            raise ValueError(
-                "Batching metadata is missing the versioned canonical batch_contract."
-            )
-        serialized_contract = ShaftBatchContract.from_dict(
-            serialized_contract_payload
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ShaftBatchingRunMetadata":
+        role = "Batching metadata"
+        payload = require_json_mapping(payload, role=role)
+        require_exact_keys(
+            payload,
+            expected=_BATCHING_RUN_METADATA_KEYS,
+            role=role,
         )
-        if "batch_contract_fingerprint" not in payload:
-            raise ValueError(
-                "Batching metadata is missing batch_contract_fingerprint."
-            )
-        serialized_batch_fingerprint = str(
-            payload.get("batch_contract_fingerprint") or ""
+        version = json_string(payload, "version", role=role)
+        if version != _BATCHING_RUN_METADATA_VERSION:
+            raise ValueError(f"Unsupported batching metadata version: {version!r}.")
+
+        serialized_contract_payload = require_json_mapping(
+            payload["batch_contract"],
+            role="Batching metadata.batch_contract",
+        )
+        serialized_contract = ShaftBatchContract.from_dict(serialized_contract_payload)
+        serialized_batch_fingerprint = json_string(
+            payload,
+            "batch_contract_fingerprint",
+            role=role,
         ).strip()
         if not serialized_batch_fingerprint:
-            raise ValueError(
-                "Batching metadata batch_contract_fingerprint must not be empty."
-            )
-        source_weights = payload.get("source_weights", {})
-        if not isinstance(source_weights, dict):
-            raise TypeError("Batching metadata source_weights must be a mapping.")
-        resource_budgets = payload.get("resource_budgets", {})
-        if not isinstance(resource_budgets, dict):
-            raise TypeError("Batching metadata resource_budgets must be a mapping.")
-        metadata = cls(
-            grouping=str(payload["grouping"]),
-            cardinality=str(payload["cardinality"]),
-            packing=str(payload["packing"]),
-            layout=str(payload["layout"]),
-            per_device_train_batch_size=int(payload["per_device_train_batch_size"]),
-            data_world_size=int(payload["data_world_size"]),
-            gradient_accumulation_steps=int(payload["gradient_accumulation_steps"]),
-            min_pixels=_optional_int(payload, "min_pixels"),
-            max_pixels=_optional_int(payload, "max_pixels"),
-            source_weights=tuple(
-                sorted(
-                    (str(name), float(weight))
-                    for name, weight in source_weights.items()
-                )
-            ),
-            media_snapshot_id=(
-                None
-                if payload.get("media_snapshot_id") is None
-                else str(payload["media_snapshot_id"])
-            ),
-            buffer_size=_optional_int(payload, "buffer_size"),
-            cost_cache_size=_optional_int(payload, "cost_cache_size"),
-            max_tokens_per_microbatch=_optional_int(
-                payload, "max_tokens_per_microbatch"
-            ),
-            max_sequence_length=_optional_int(payload, "max_sequence_length"),
-            resource_budgets=tuple(
-                sorted(
-                    (str(name), int(value))
-                    for name, value in resource_budgets.items()
-                )
-            ),
-            batch_contract_fingerprint=serialized_batch_fingerprint,
-            planner_spec_fingerprint=(
-                None
-                if payload.get("planner_spec_fingerprint") is None
-                else str(payload["planner_spec_fingerprint"])
-            ),
-            sample_execution_fingerprint=(
-                None
-                if payload.get("sample_execution_fingerprint") is None
-                else str(payload["sample_execution_fingerprint"])
-            ),
+            raise ValueError("Batching metadata batch_contract_fingerprint must not be empty.")
+
+        source_weights = require_json_mapping(
+            payload["source_weights"],
+            role="Batching metadata.source_weights",
         )
+        normalized_source_weights = tuple(
+            sorted(
+                (
+                    name,
+                    json_number(
+                        weight,
+                        role=f"Batching metadata.source_weights.{name}",
+                    ),
+                )
+                for name, weight in source_weights.items()
+            )
+        )
+        resource_budgets = require_json_mapping(
+            payload["resource_budgets"],
+            role="Batching metadata.resource_budgets",
+        )
+        normalized_resource_budgets: list[tuple[str, int]] = []
+        for name, value in resource_budgets.items():
+            if type(value) is not int:
+                raise TypeError(
+                    f"Batching metadata.resource_budgets.{name} must be a JSON integer."
+                )
+            normalized_resource_budgets.append((name, value))
+
+        serialized_global_pack_count = json_optional_int(
+            payload,
+            "global_pack_count",
+            role=role,
+        )
+        serialized_optimizer_pack_count = json_optional_int(
+            payload,
+            "optimizer_pack_count",
+            role=role,
+        )
+        serialized_local_pack_count_range = _json_int_pair(
+            payload,
+            "local_pack_count_range",
+            role=role,
+        )
+        serialized_global_pack_count_range = _json_int_pair(
+            payload,
+            "global_pack_count_range",
+            role=role,
+        )
+        serialized_optimizer_pack_count_range = _json_int_pair(
+            payload,
+            "optimizer_pack_count_range",
+            role=role,
+        )
+
+        raw_input_contract = payload["train_input_contract"]
+        train_input_contract = None
+        if raw_input_contract is not None:
+            train_input_contract = ShaftTrainInputContract.from_dict(
+                require_json_mapping(
+                    raw_input_contract,
+                    role="Batching metadata.train_input_contract",
+                )
+            )
+        raw_resume_contract = payload["training_resume_contract"]
+        training_resume_contract = None
+        if raw_resume_contract is not None:
+            training_resume_contract = ShaftTrainingResumeContract.from_dict(
+                require_json_mapping(
+                    raw_resume_contract,
+                    role="Batching metadata.training_resume_contract",
+                )
+            )
+
+        metadata = cls(
+            grouping=json_string(payload, "grouping", role=role),
+            cardinality=json_string(payload, "cardinality", role=role),
+            packing=json_string(payload, "packing", role=role),
+            layout=json_string(payload, "layout", role=role),
+            per_device_train_batch_size=json_int(
+                payload,
+                "per_device_train_batch_size",
+                role=role,
+            ),
+            data_world_size=json_int(payload, "data_world_size", role=role),
+            gradient_accumulation_steps=json_int(
+                payload,
+                "gradient_accumulation_steps",
+                role=role,
+            ),
+            min_pixels=json_optional_int(payload, "min_pixels", role=role),
+            max_pixels=json_optional_int(payload, "max_pixels", role=role),
+            source_weights=normalized_source_weights,
+            media_snapshot_id=json_optional_string(
+                payload,
+                "media_snapshot_id",
+                role=role,
+            ),
+            buffer_size=json_optional_int(payload, "buffer_size", role=role),
+            cost_cache_size=json_optional_int(
+                payload,
+                "cost_cache_size",
+                role=role,
+            ),
+            max_tokens_per_microbatch=json_optional_int(
+                payload,
+                "max_tokens_per_microbatch",
+                role=role,
+            ),
+            max_sequence_length=json_optional_int(
+                payload,
+                "max_sequence_length",
+                role=role,
+            ),
+            resource_budgets=tuple(sorted(normalized_resource_budgets)),
+            batch_contract_fingerprint=serialized_batch_fingerprint,
+            planner_spec_fingerprint=json_optional_string(
+                payload,
+                "planner_spec_fingerprint",
+                role=role,
+            ),
+            sample_execution_fingerprint=json_optional_string(
+                payload,
+                "sample_execution_fingerprint",
+                role=role,
+            ),
+            train_input_contract=train_input_contract,
+            training_resume_contract=training_resume_contract,
+        )
+        serialized_input_fingerprint = json_optional_string(
+            payload,
+            "train_input_contract_fingerprint",
+            role=role,
+        )
+        if metadata.train_input_contract is not None:
+            if not str(serialized_input_fingerprint or "").strip():
+                raise ValueError(
+                    "Batching metadata training input contract is missing its fingerprint."
+                )
+            if str(serialized_input_fingerprint) != metadata.train_input_contract.fingerprint:
+                raise ValueError(
+                    "Batching metadata training input contract fingerprint differs "
+                    "from its canonical payload."
+                )
+        elif serialized_input_fingerprint is not None:
+            raise ValueError(
+                "Batching metadata cannot carry a training input contract fingerprint "
+                "without the contract payload."
+            )
+        serialized_resume_fingerprint = json_optional_string(
+            payload,
+            "training_resume_contract_fingerprint",
+            role=role,
+        )
+        if metadata.training_resume_contract is not None:
+            if not str(serialized_resume_fingerprint or "").strip():
+                raise ValueError(
+                    "Batching metadata training resume contract is missing its fingerprint."
+                )
+            if str(serialized_resume_fingerprint) != metadata.training_resume_contract.fingerprint:
+                raise ValueError(
+                    "Batching metadata training resume contract fingerprint differs "
+                    "from its canonical payload."
+                )
+        elif serialized_resume_fingerprint is not None:
+            raise ValueError(
+                "Batching metadata cannot carry a training resume contract "
+                "fingerprint without the contract payload."
+            )
         if metadata.batch_contract != serialized_contract:
             expected = serialized_contract.to_dict()
             actual = metadata.batch_contract.to_dict()
-            differences = [
-                key for key, value in expected.items() if actual.get(key) != value
-            ]
+            differences = [key for key, value in expected.items() if actual.get(key) != value]
             raise ValueError(
                 "Batching metadata flat audit fields differ from its canonical "
                 f"batch_contract: changed fields: {differences}."
@@ -565,25 +782,31 @@ class ShaftBatchingRunMetadata:
         optimizer_bounds = list(metadata.optimizer_pack_count_bounds)
         derived_fields = {
             "global_pack_count": (
-                global_bounds[0] if global_bounds[0] == global_bounds[1] else None
+                serialized_global_pack_count,
+                global_bounds[0] if global_bounds[0] == global_bounds[1] else None,
             ),
             "optimizer_pack_count": (
-                optimizer_bounds[0]
-                if optimizer_bounds[0] == optimizer_bounds[1]
-                else None
+                serialized_optimizer_pack_count,
+                (optimizer_bounds[0] if optimizer_bounds[0] == optimizer_bounds[1] else None),
             ),
-            "local_pack_count_range": [local_min, local_max],
-            "global_pack_count_range": global_bounds,
-            "optimizer_pack_count_range": optimizer_bounds,
+            "local_pack_count_range": (
+                serialized_local_pack_count_range,
+                [local_min, local_max],
+            ),
+            "global_pack_count_range": (
+                serialized_global_pack_count_range,
+                global_bounds,
+            ),
+            "optimizer_pack_count_range": (
+                serialized_optimizer_pack_count_range,
+                optimizer_bounds,
+            ),
         }
-        for field_name, expected in derived_fields.items():
-            if field_name not in payload:
-                continue
-            serialized = payload[field_name]
+        for field_name, (serialized, expected) in derived_fields.items():
             if serialized != expected:
                 raise ValueError(
                     f"Batching metadata {field_name} differs from its source fields: "
-                    f"serialized={payload[field_name]}, expected={expected}."
+                    f"serialized={serialized}, expected={expected}."
                 )
         return metadata
 
@@ -595,15 +818,15 @@ def build_batching_run_metadata(
     planning_spec: ShaftBatchPlanningSpec | None = None,
     batch_contract: ShaftBatchContract | None = None,
     sample_execution_fingerprint: str | None = None,
+    train_input_contract: ShaftTrainInputContract | None = None,
+    training_resume_contract: ShaftTrainingResumeContract | None = None,
 ) -> ShaftBatchingRunMetadata:
     contract = batch_contract or build_batch_contract(
         config=config,
         training_args=training_args,
     )
     if contract.is_planned != (planning_spec is not None):
-        raise ValueError(
-            "Resolved batch-planning spec does not match data.batching.grouping."
-        )
+        raise ValueError("Resolved batch-planning spec does not match data.batching.grouping.")
     if planning_spec is not None:
         expected_spec_fields = (
             contract.grouping,
@@ -654,22 +877,18 @@ def build_batching_run_metadata(
         media_snapshot_id=config.data.media_snapshot_id,
         buffer_size=contract.buffer_size,
         cost_cache_size=(
-            int(config.data.batching.cost_cache_size)
-            if contract.is_planned
-            else None
+            int(config.data.batching.cost_cache_size) if contract.is_planned else None
         ),
         max_tokens_per_microbatch=contract.max_tokens_per_microbatch,
         max_sequence_length=contract.max_sequence_length,
         resource_budgets=contract.resource_budgets,
         batch_contract_fingerprint=contract.fingerprint,
-        planner_spec_fingerprint=(
-            None if planning_spec is None else planning_spec.fingerprint
-        ),
+        planner_spec_fingerprint=(None if planning_spec is None else planning_spec.fingerprint),
         sample_execution_fingerprint=(
-            None
-            if sample_execution_fingerprint is None
-            else str(sample_execution_fingerprint)
+            None if sample_execution_fingerprint is None else str(sample_execution_fingerprint)
         ),
+        train_input_contract=train_input_contract,
+        training_resume_contract=training_resume_contract,
     )
 
 
@@ -682,7 +901,7 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> Path:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("x", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            json.dump(payload, handle, allow_nan=False, ensure_ascii=False, indent=2)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
@@ -715,66 +934,88 @@ def publish_batching_run_metadata(
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
-    status = broadcast_object_from_rank_zero(status)
-    if not isinstance(status, dict) or not bool(status.get("ok")):
-        if publish_error is not None:
+    raw_status = broadcast_object_from_rank_zero(status)
+    try:
+        resolved_status = require_json_mapping(
+            raw_status,
+            role="rank-zero batching metadata publish status",
+        )
+        ok = json_bool(
+            resolved_status,
+            "ok",
+            role="rank-zero batching metadata publish status",
+        )
+        if ok:
+            require_exact_keys(
+                resolved_status,
+                expected=frozenset({"ok", "path"}),
+                role="rank-zero batching metadata publish status",
+            )
+            published_path = json_string(
+                resolved_status,
+                "path",
+                role="rank-zero batching metadata publish status",
+            ).strip()
+            if not published_path:
+                raise ValueError("Published batching metadata path must not be empty.")
+        else:
+            require_exact_keys(
+                resolved_status,
+                expected=frozenset({"ok", "error_type", "error"}),
+                role="rank-zero batching metadata publish status",
+            )
+            error_type = json_string(
+                resolved_status,
+                "error_type",
+                role="rank-zero batching metadata publish status",
+            ).strip()
+            error = json_string(
+                resolved_status,
+                "error",
+                role="rank-zero batching metadata publish status",
+            ).strip()
+            if not error_type or not error:
+                raise ValueError("Failed batching metadata status requires non-empty error fields.")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "Rank-zero batching metadata publish returned a malformed status "
+            f"envelope: {raw_status!r}."
+        ) from exc
+    if not ok:
+        if get_world_size() == 1 and publish_error is not None:
             raise publish_error
-        raise RuntimeError(f"Rank-zero batching metadata publish failed: {status!r}.")
-    return Path(str(status["path"]))
+        raise RuntimeError(f"Rank-zero batching metadata publish failed: {error_type}: {error}.")
+    return Path(published_path)
 
 
 def load_batching_run_metadata(path: str | Path) -> ShaftBatchingRunMetadata:
-    payload = json.loads(batching_run_metadata_path(path).read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError("Batching run metadata must be a JSON object.")
+    target = batching_run_metadata_path(path)
+    payload = load_strict_json(target, role=f"batching run metadata {target}")
+    payload = require_json_mapping(payload, role=f"batching run metadata {target}")
     return ShaftBatchingRunMetadata.from_dict(payload)
 
 
 def build_batch_planning_resume_contract_fingerprint(
     *,
-    config: Any,
-    training_args: Any,
-    batch_contract: ShaftBatchContract | None = None,
+    training_resume_contract: ShaftTrainingResumeContract,
     sequence_execution_contract_fingerprint: str,
 ) -> str:
-    """Bind exact Trainer resume to duration, optimizer and scheduler semantics."""
+    """Bind planner cursor state to the unified training trajectory contract."""
 
-    train = config.train
-    resolved_contract = batch_contract or build_batch_contract(
-        config=config, training_args=training_args
-    )
-    if not resolved_contract.is_planned:
-        raise ValueError(
-            "Batch-planning resume fingerprint requires a planned grouping."
-        )
+    if not str(sequence_execution_contract_fingerprint).strip():
+        raise ValueError("Batch-planning resume fingerprint requires a sequence contract.")
     payload = (
-        "shaft-batch-planning-resume-contract-v2",
-        resolved_contract.fingerprint,
+        "shaft-batch-planning-resume-contract-v3",
+        training_resume_contract.fingerprint,
         str(sequence_execution_contract_fingerprint),
-        int(training_args.max_steps),
-        int(training_args.gradient_accumulation_steps),
-        str(train.optimizer_name),
-        str(train.scheduler_name),
-        float(train.scheduler_num_cycles),
-        float(train.scheduler_power),
-        float(train.warmup_ratio),
-        str(train.lr_scheduler_type),
-        float(train.learning_rate),
-        float(train.weight_decay),
-        float(train.adam_beta1),
-        float(train.adam_beta2),
-        float(train.adam_epsilon),
-        tuple(sorted((str(key), float(value)) for key, value in train.param_group_lrs.items())),
     )
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
 
 def _load_trainer_state_payload(path: str | Path) -> dict[str, Any]:
     target = Path(path) / TRAINER_STATE_NAME
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError("Trainer state must be a JSON object.")
-    return payload
+    payload = load_strict_json(target, role=f"trainer state {target}")
+    return require_json_mapping(payload, role=f"trainer state {target}")
 
 
 def _stateful_callback_payload(
@@ -788,9 +1029,7 @@ def _stateful_callback_payload(
     if isinstance(callback_payload, list):
         callback_payload = callback_payload[-1] if callback_payload else None
     if not isinstance(callback_payload, dict):
-        raise ValueError(
-            f"Trainer checkpoint has no {callback_name} callback state."
-        )
+        raise ValueError(f"Trainer checkpoint has no {callback_name} callback state.")
     return callback_payload
 
 
@@ -829,31 +1068,102 @@ def validate_batching_resume_contract(
     *,
     expected_contract: ShaftBatchContract,
     expected_sample_execution_fingerprint: str | None = None,
+    expected_train_input_contract: ShaftTrainInputContract | None = None,
+    expected_training_resume_contract: ShaftTrainingResumeContract | None = None,
+    require_train_input_contract_payload: bool = False,
+    require_training_resume_contract_payload: bool = False,
 ) -> ShaftBatchingRunMetadata:
     metadata = load_checkpoint_batching_metadata(path)
+    if require_training_resume_contract_payload:
+        checkpoint_resume_contract = metadata.training_resume_contract
+        if checkpoint_resume_contract is None:
+            raise ValueError(
+                "Checkpoint predates the unified training resume contract and "
+                "cannot be used for exact resume. Start from model weights or "
+                "restore the original framework version."
+            )
+    if require_train_input_contract_payload:
+        checkpoint_input_contract = metadata.train_input_contract
+        if checkpoint_input_contract is None:
+            raise ValueError(
+                "Checkpoint predates the complete training input contract and cannot "
+                "be used for exact resume. Start from model weights or restore the "
+                "original framework version."
+            )
+        if not checkpoint_input_contract.exact_resume_safe:
+            raise ValueError(
+                "Checkpoint training input contract is incomplete and is not "
+                "exact-resume safe: "
+                f"{list(checkpoint_input_contract.incomplete_reasons)}."
+            )
     actual_contract = metadata.batch_contract
     if actual_contract.fingerprint != expected_contract.fingerprint:
         actual = actual_contract.to_dict()
         expected = expected_contract.to_dict()
-        differences = [
-            key
-            for key, value in expected.items()
-            if actual.get(key) != value
-        ]
+        differences = [key for key, value in expected.items() if actual.get(key) != value]
         raise ValueError(
             "Training batch contract changed across exact resume; "
             f"changed fields: {differences}. Start a new training schedule from "
             "model weights or restore the original batching settings."
         )
     if expected_sample_execution_fingerprint is not None:
-        actual_execution_fingerprint = str(
-            metadata.sample_execution_fingerprint or ""
-        ).strip()
+        actual_execution_fingerprint = str(metadata.sample_execution_fingerprint or "").strip()
         if actual_execution_fingerprint != str(expected_sample_execution_fingerprint):
             raise ValueError(
                 "Training sample execution changed across exact resume. Restore the "
                 "original data schedule/prompt transforms or start a new training "
                 "schedule from model weights."
+            )
+    if expected_train_input_contract is not None:
+        if not expected_train_input_contract.exact_resume_safe:
+            raise ValueError(
+                "Exact resume is unavailable because the training input identity "
+                "is incomplete: "
+                f"{list(expected_train_input_contract.incomplete_reasons)}. "
+                "Version every active transform/input policy and provide complete "
+                "tokenizer artifacts plus an immutable media snapshot, or start a "
+                "new training schedule."
+            )
+        actual_input_contract = metadata.train_input_contract
+        if actual_input_contract is None:
+            raise ValueError(
+                "Checkpoint predates the complete training input contract and cannot "
+                "be used for exact resume. Start from model weights or restore the "
+                "original framework version."
+            )
+        if not actual_input_contract.exact_resume_safe:
+            raise ValueError(
+                "Checkpoint training input contract is incomplete and is not "
+                "exact-resume safe: "
+                f"{list(actual_input_contract.incomplete_reasons)}."
+            )
+        if actual_input_contract.fingerprint != expected_train_input_contract.fingerprint:
+            actual = actual_input_contract.to_dict()
+            expected = expected_train_input_contract.to_dict()
+            differences = [key for key, value in expected.items() if actual.get(key) != value]
+            raise ValueError(
+                "Training input contract changed across exact resume; changed fields: "
+                f"{differences}. Restore the original data limits, model processor, "
+                "tokenizer, template and collator semantics or start a new training "
+                "schedule from model weights."
+            )
+    if expected_training_resume_contract is not None:
+        actual_resume_contract = metadata.training_resume_contract
+        if actual_resume_contract is None:
+            raise ValueError(
+                "Checkpoint predates the unified training resume contract and "
+                "cannot be used for exact resume. Start from model weights or "
+                "restore the original framework version."
+            )
+        if actual_resume_contract.fingerprint != expected_training_resume_contract.fingerprint:
+            actual = actual_resume_contract.to_dict()
+            expected = expected_training_resume_contract.to_dict()
+            differences = [key for key, value in expected.items() if actual.get(key) != value]
+            raise ValueError(
+                "Training resume contract changed across exact resume; changed "
+                f"fields: {differences}. Restore the original optimizer, scheduler, "
+                "duration, randomness and algorithm objective settings, or start "
+                "a new training schedule from model weights."
             )
     return metadata
 
@@ -868,11 +1178,7 @@ def _batch_planning_resume_artifact_names(
         return target.is_file() and target.stat().st_size > 0
 
     optimizer_name = next(
-        (
-            name
-            for name in (OPTIMIZER_NAME, OPTIMIZER_NAME_BIN)
-            if is_nonempty_file(name)
-        ),
+        (name for name in (OPTIMIZER_NAME, OPTIMIZER_NAME_BIN) if is_nonempty_file(name)),
         None,
     )
     if optimizer_name is None:
@@ -882,26 +1188,17 @@ def _batch_planning_resume_artifact_names(
     if int(spec.data_world_size) <= 1:
         rng_names = ("rng_state.pth",)
     else:
-        rng_names = tuple(
-            f"rng_state_{rank}.pth" for rank in range(int(spec.data_world_size))
-        )
-    missing_rng_names = [
-        name for name in rng_names if not is_nonempty_file(name)
-    ]
+        rng_names = tuple(f"rng_state_{rank}.pth" for rank in range(int(spec.data_world_size)))
+    missing_rng_names = [name for name in rng_names if not is_nonempty_file(name)]
     if missing_rng_names:
         raise ValueError(
-            "Planned exact-resume checkpoint is missing per-rank RNG state: "
-            f"{missing_rng_names}."
+            f"Planned exact-resume checkpoint is missing per-rank RNG state: {missing_rng_names}."
         )
-    return tuple(
-        sorted((TRAINER_STATE_NAME, optimizer_name, SCHEDULER_NAME, *rng_names))
-    )
+    return tuple(sorted((TRAINER_STATE_NAME, optimizer_name, SCHEDULER_NAME, *rng_names)))
 
 
 def _validate_batch_planning_checkpoint_payload(
     path: str | Path,
-    *,
-    require_completion: bool = True,
 ) -> tuple[
     ShaftBatchPlanningSpec,
     ShaftBatchPlanningState,
@@ -919,27 +1216,45 @@ def _validate_batch_planning_checkpoint_payload(
     checkpoint = Path(path)
     trainer_state = _load_trainer_state_payload(checkpoint)
     callback_payload = _batch_planning_callback_payload(trainer_state)
-    args_payload = callback_payload.get("args")
-    attributes_payload = callback_payload.get("attributes")
-    if not isinstance(args_payload, dict) or not isinstance(attributes_payload, dict):
-        raise TypeError("Batch-planning callback must contain args and attributes mappings.")
-    spec_payload = args_payload.get("spec")
-    state_payload = attributes_payload.get("planning_state")
-    if not isinstance(spec_payload, dict) or not isinstance(state_payload, dict):
-        raise TypeError("Batch-planning checkpoint must contain spec and state mappings.")
+    args_payload = require_json_mapping(
+        callback_payload.get("args"),
+        role="batch-planning callback.args",
+    )
+    attributes_payload = require_json_mapping(
+        callback_payload.get("attributes"),
+        role="batch-planning callback.attributes",
+    )
+    spec_payload = require_json_mapping(
+        args_payload.get("spec"),
+        role="batch-planning callback.args.spec",
+    )
+    state_payload = require_json_mapping(
+        attributes_payload.get("planning_state"),
+        role="batch-planning callback.attributes.planning_state",
+    )
 
     spec = ShaftBatchPlanningSpec.from_dict(spec_payload)
     state = ShaftBatchPlanningState.from_dict(state_payload)
     state.validate_against_spec(spec)
 
-    global_step = int(trainer_state["global_step"])
+    global_step = json_int(
+        trainer_state,
+        "global_step",
+        role="batch-planning trainer state",
+    )
     if global_step < 0:
         raise ValueError("Trainer global_step must be >= 0.")
-    gradient_accumulation_steps = int(args_payload["gradient_accumulation_steps"])
+    gradient_accumulation_steps = json_int(
+        args_payload,
+        "gradient_accumulation_steps",
+        role="batch-planning callback.args",
+    )
     if gradient_accumulation_steps <= 0:
         raise ValueError("Stored gradient_accumulation_steps must be > 0.")
-    resume_contract_fingerprint = str(
-        args_payload.get("resume_contract_fingerprint", "")
+    resume_contract_fingerprint = json_string(
+        args_payload,
+        "resume_contract_fingerprint",
+        role="batch-planning callback.args",
     ).strip()
     if not resume_contract_fingerprint:
         raise ValueError("Stored planning resume contract fingerprint must not be empty.")
@@ -979,9 +1294,7 @@ def _validate_batch_planning_checkpoint_payload(
             "Batching metadata batch_contract differs from the planning callback spec."
         )
     if contract.gradient_accumulation_steps != gradient_accumulation_steps:
-        raise ValueError(
-            "Batching metadata gradient accumulation differs from the planning state."
-        )
+        raise ValueError("Batching metadata gradient accumulation differs from the planning state.")
     batch_contract_fingerprint = str(metadata.batch_contract_fingerprint)
     expected_microstep = global_step * gradient_accumulation_steps
     if int(state.global_microstep) != expected_microstep:
@@ -990,28 +1303,6 @@ def _validate_batch_planning_checkpoint_payload(
             f"state_microstep={state.global_microstep}, expected={expected_microstep}."
         )
 
-    required_artifacts = _batch_planning_resume_artifact_names(checkpoint, spec=spec)
-    if require_completion:
-        completion_path = checkpoint / BATCH_PLANNING_CHECKPOINT_COMPLETION_FILENAME
-        completion = json.loads(completion_path.read_text(encoding="utf-8"))
-        if not isinstance(completion, dict):
-            raise TypeError("Planning completion manifest must be a mapping.")
-        expected_completion = {
-            "version": _BATCH_PLANNING_CHECKPOINT_COMPLETION_VERSION,
-            "contract_fingerprint": spec.fingerprint,
-            "batch_contract_fingerprint": batch_contract_fingerprint,
-            "planning_state_fingerprint": state.to_dict()["fingerprint"],
-            "resume_contract_fingerprint": resume_contract_fingerprint,
-            "global_step": global_step,
-            "gradient_accumulation_steps": gradient_accumulation_steps,
-            "data_world_size": int(spec.data_world_size),
-            "required_artifacts": list(required_artifacts),
-        }
-        if completion != expected_completion:
-            raise ValueError(
-                "Planning completion manifest differs from the committed "
-                "trainer/callback state."
-            )
     return (
         spec,
         state,
@@ -1022,10 +1313,16 @@ def _validate_batch_planning_checkpoint_payload(
     )
 
 
-def write_batch_planning_checkpoint_completion(path: str | Path) -> Path:
-    """Atomically publish the final commit marker after every rank saved successfully."""
+def build_batch_planning_checkpoint_commit_payload(
+    path: str | Path,
+) -> dict[str, Any] | None:
+    """Build the planned-data extension for the shared training commit manifest."""
 
     checkpoint = Path(path)
+    trainer_state = _load_trainer_state_payload(checkpoint)
+    callbacks = trainer_state.get("stateful_callbacks")
+    if not isinstance(callbacks, dict) or BATCH_PLANNING_CALLBACK_NAME not in callbacks:
+        return None
     (
         spec,
         state,
@@ -1033,30 +1330,82 @@ def write_batch_planning_checkpoint_completion(path: str | Path) -> Path:
         gradient_accumulation_steps,
         resume_contract_fingerprint,
         batch_contract_fingerprint,
-    ) = _validate_batch_planning_checkpoint_payload(
-        checkpoint,
-        require_completion=False,
-    )
+    ) = _validate_batch_planning_checkpoint_payload(checkpoint)
     required_artifacts = _batch_planning_resume_artifact_names(checkpoint, spec=spec)
-    return _atomic_write_json(
-        checkpoint / BATCH_PLANNING_CHECKPOINT_COMPLETION_FILENAME,
-        {
-            "version": _BATCH_PLANNING_CHECKPOINT_COMPLETION_VERSION,
-            "contract_fingerprint": spec.fingerprint,
-            "batch_contract_fingerprint": batch_contract_fingerprint,
-            "planning_state_fingerprint": state.to_dict()["fingerprint"],
-            "resume_contract_fingerprint": resume_contract_fingerprint,
-            "global_step": global_step,
-            "gradient_accumulation_steps": gradient_accumulation_steps,
-            "data_world_size": int(spec.data_world_size),
-            "required_artifacts": list(required_artifacts),
-        },
+    return {
+        "version": _BATCH_PLANNING_CHECKPOINT_COMMIT_VERSION,
+        "contract_fingerprint": spec.fingerprint,
+        "batch_contract_fingerprint": batch_contract_fingerprint,
+        "planning_state_fingerprint": state.to_dict()["fingerprint"],
+        "resume_contract_fingerprint": resume_contract_fingerprint,
+        "global_step": global_step,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "data_world_size": int(spec.data_world_size),
+        "required_artifacts": list(required_artifacts),
+    }
+
+
+def validate_batch_planning_checkpoint_commit_payload(
+    path: str | Path,
+    payload: Mapping[str, Any],
+) -> None:
+    expected = build_batch_planning_checkpoint_commit_payload(path)
+    if expected is None:
+        raise ValueError(
+            "Training checkpoint commit declares batch planning but the trainer "
+            "state has no planning callback."
+        )
+    if dict(payload) != expected:
+        raise ValueError("Batch-planning commit payload differs from the trainer/callback state.")
+
+
+def _validate_committed_batch_planning_checkpoint(
+    path: str | Path,
+    *,
+    expected_commit_fingerprint: str | None = None,
+) -> tuple[
+    ShaftBatchPlanningSpec,
+    ShaftBatchPlanningState,
+    int,
+    int,
+    str,
+    str,
+]:
+    from .checkpointing import (
+        TRAINING_CHECKPOINT_COMMIT_FILENAME,
+        validate_training_checkpoint_commit,
     )
+
+    if expected_commit_fingerprint is None:
+        validate_training_checkpoint_commit(path)
+    else:
+        marker_path = Path(path) / TRAINING_CHECKPOINT_COMMIT_FILENAME
+        marker = load_strict_json(
+            marker_path,
+            role="training checkpoint commit manifest",
+        )
+        marker = require_json_mapping(
+            marker,
+            role="training checkpoint commit manifest",
+        )
+        canonical = json.dumps(
+            marker,
+            allow_nan=False,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        actual_fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if actual_fingerprint != str(expected_commit_fingerprint):
+            raise ValueError(
+                "Batch-planning checkpoint commit marker changed during startup."
+            )
+    return _validate_batch_planning_checkpoint_payload(path)
 
 
 def checkpoint_has_batch_planning_state(path: str | Path) -> bool:
     try:
-        _validate_batch_planning_checkpoint_payload(path)
+        _validate_committed_batch_planning_checkpoint(path)
         return True
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return False
@@ -1066,6 +1415,7 @@ def validate_batch_planning_resume_contract(
     path: str | Path,
     *,
     expected_resume_contract_fingerprint: str,
+    expected_commit_fingerprint: str | None = None,
 ) -> None:
     """Reject duration/optimizer/scheduler drift before loading data or a model."""
 
@@ -1076,7 +1426,10 @@ def validate_batch_planning_resume_contract(
         _gradient_accumulation_steps,
         actual_resume_fingerprint,
         _batch_contract_fingerprint,
-    ) = _validate_batch_planning_checkpoint_payload(path)
+    ) = _validate_committed_batch_planning_checkpoint(
+        path,
+        expected_commit_fingerprint=expected_commit_fingerprint,
+    )
     if actual_resume_fingerprint != str(expected_resume_contract_fingerprint):
         raise ValueError(
             "Batch-planning exact-resume training contract changed; duration, "
@@ -1092,6 +1445,7 @@ def load_batch_planning_state(
     expected_global_step: int,
     gradient_accumulation_steps: int,
     expected_resume_contract_fingerprint: str,
+    expected_commit_fingerprint: str | None = None,
 ) -> ShaftBatchPlanningState:
     (
         actual_spec,
@@ -1100,7 +1454,10 @@ def load_batch_planning_state(
         actual_gradient_accumulation_steps,
         actual_resume_fingerprint,
         _actual_batch_contract_fingerprint,
-    ) = _validate_batch_planning_checkpoint_payload(path)
+    ) = _validate_committed_batch_planning_checkpoint(
+        path,
+        expected_commit_fingerprint=expected_commit_fingerprint,
+    )
     if actual_resume_fingerprint != str(expected_resume_contract_fingerprint):
         raise ValueError(
             "Batch-planning exact-resume training contract changed; duration, "

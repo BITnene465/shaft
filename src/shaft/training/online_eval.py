@@ -15,6 +15,7 @@ from shaft.observability import ShaftProgressManager, ShaftProgressTask
 from shaft.plugins import Registry
 from shaft.utils.distributed import get_rank, get_world_size, is_distributed, is_rank_zero
 from .eval_policy import aggregate_weighted_dataset_values
+from .reproducibility import preserve_training_rng_state
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +120,13 @@ class ShaftOnlineEvalRunner:
     ) -> dict[str, float]:
         if not self.enabled or eval_dataset is None:
             return {}
-        entries = self.collect_samples(trainer, eval_dataset=eval_dataset)
-        metrics = self.aggregate_samples(entries, metric_key_prefix=metric_key_prefix)
-        self.log_metrics(metrics, metric_key_prefix=metric_key_prefix)
-        return metrics
+        # Keep direct runner use observational too. Trainer.evaluate also wraps
+        # loader construction and loss eval; nested snapshots are intentional.
+        with preserve_training_rng_state():
+            entries = self.collect_samples(trainer, eval_dataset=eval_dataset)
+            metrics = self.aggregate_samples(entries, metric_key_prefix=metric_key_prefix)
+            self.log_metrics(metrics, metric_key_prefix=metric_key_prefix)
+            return metrics
 
     def collect_samples(self, trainer: Any, *, eval_dataset: Any) -> list[ShaftOnlineEvalSample]:
         dataloaders = self._get_prompt_eval_dataloaders(trainer, eval_dataset)

@@ -5,14 +5,46 @@ import os
 from pathlib import Path
 import sys
 
+import torch
 import torch.distributed as dist
-from transformers import Trainer
-from transformers.trainer_callback import TrainerState
+from transformers.trainer_callback import TrainerCallback, TrainerState
 
 from shaft.config import load_config
 from shaft.data import ShaftSFTSampleCostProvider as _RealCostProvider
 from shaft.pipeline import run_sft
 import shaft.pipeline.sft as sft_pipeline
+from shaft.training.sft_trainer import ShaftSFTTrainer
+
+
+class _RankLocalOnSaveFailure(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):  # noqa: ANN001
+        _ = args, kwargs
+        if dist.get_rank() == 1 and int(state.global_step) == 2:
+            raise RuntimeError("synthetic peer-rank on_save callback failure")
+        return control
+
+
+class _CollectiveAfterOnSaveFailure(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):  # noqa: ANN001
+        _ = kwargs
+        if int(state.global_step) == 2:
+            marker = Path(args.output_dir) / (
+                f"unexpected_post_failure_collective_rank{dist.get_rank()}.txt"
+            )
+            marker.write_text("entered\n", encoding="utf-8")
+        dist.barrier()
+        return control
+
+
+class _RankLocalCollectiveOnSave(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):  # noqa: ANN001
+        _ = state, kwargs
+        marker = Path(args.output_dir) / (
+            f"unexpected_rank_local_collective_rank{dist.get_rank()}.txt"
+        )
+        marker.write_text("entered\n", encoding="utf-8")
+        dist.barrier()
+        return control
 
 
 class _RankDependentCostProvider:
@@ -51,14 +83,39 @@ def main() -> None:
 
         TrainerState.save_to_json = _failing_save
     elif mode == "checkpoint_peer_rng_failure":
-        original_save_rng_state = Trainer._save_rng_state
+        original_torch_save = torch.save
 
-        def _failing_save_rng_state(self, output_dir: str) -> None:
-            if dist.get_rank() == 1 and "checkpoint-2" in str(output_dir):
+        def _failing_torch_save(obj, path, *args, **kwargs):
+            path_text = str(path)
+            if (
+                dist.get_rank() == 1
+                and "checkpoint-2" in path_text
+                and Path(path_text).name.startswith("rng_state")
+            ):
                 raise OSError("synthetic peer-rank RNG-state write failure")
-            original_save_rng_state(self, output_dir)
+            return original_torch_save(obj, path, *args, **kwargs)
 
-        Trainer._save_rng_state = _failing_save_rng_state
+        torch.save = _failing_torch_save
+    elif mode == "checkpoint_peer_on_save_failure":
+        original_init = ShaftSFTTrainer.__init__
+
+        def _init_with_rank_local_on_save_failure(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            self.callback_handler.callbacks[0:0] = [
+                _RankLocalOnSaveFailure(),
+                _CollectiveAfterOnSaveFailure(),
+            ]
+
+        ShaftSFTTrainer.__init__ = _init_with_rank_local_on_save_failure
+    elif mode == "checkpoint_rank_local_callback_schedule":
+        original_init = ShaftSFTTrainer.__init__
+
+        def _init_with_rank_local_collective(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            if dist.get_rank() == 0:
+                self.callback_handler.callbacks.insert(0, _RankLocalCollectiveOnSave())
+
+        ShaftSFTTrainer.__init__ = _init_with_rank_local_collective
     else:
         raise ValueError(f"unsupported mode: {mode}")
 

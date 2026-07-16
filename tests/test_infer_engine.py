@@ -2,35 +2,85 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import socket
+import threading
+import time
 from types import SimpleNamespace
 import urllib.request
 import base64
 from io import BytesIO
 
 from PIL import Image
+import pytest
 import torch
 
 from shaft.infer import (
     InferEngineConfig,
     InferGenerationConfig,
+    InferPipelineConfig,
+    InferStageConfig,
+    ShaftInferCancelledError,
+    ShaftInferExecutionControl,
+    ShaftInferExecutionControlUnsupportedError,
     ShaftInferEngine,
+    ShaftInferPipeline,
     ShaftInferRequest,
 )
 import shaft.infer.engine as infer_engine_module
-from shaft.infer.engine import HFLocalInferAdapter
+from shaft.infer.engine import VLLMOpenAIInferAdapter
+from shaft.model import ModelMeta, ShaftImageTextInferencePolicy
 
 
-def test_hf_local_dynamic_prompt_message_remains_image_first() -> None:
-    adapter = object.__new__(HFLocalInferAdapter)
+class _JSONHTTPResponse:
+    def __init__(self, payload: dict[str, object]):
+        self.payload = payload
+        self._read = False
 
-    messages = adapter._build_messages(
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        _ = exc_type, exc, tb
+        return False
+
+    def read(self, size: int = -1) -> bytes:
+        _ = size
+        if self._read:
+            return b""
+        self._read = True
+        return json.dumps(self.payload, ensure_ascii=False).encode("utf-8")
+
+
+def test_model_owned_local_policy_keeps_image_first(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    captured: dict[str, object] = {}
+
+    class _CapturingTemplate:
+        def apply_chat_template(self, *, renderer, messages):  # noqa: ANN001
+            captured["renderer"] = renderer
+            captured["messages"] = messages
+            return "rendered"
+
+    prepared = ShaftImageTextInferencePolicy().prepare_local(
+        image_path=str(image),
         system_prompt="system",
         user_prompt="dynamic text",
+        messages=None,
+        min_pixels=None,
+        max_pixels=None,
+        backend_options=None,
+        template=_CapturingTemplate(),
+        renderer="renderer",
     )
 
+    messages = captured["messages"]
+    assert isinstance(messages, list)
     assert messages[1]["role"] == "user"
     assert messages[1]["content"][0] == {"type": "image"}
     assert messages[1]["content"][1] == {"type": "text", "text": "dynamic text"}
+    assert prepared.prompt == "rendered"
 
 
 def test_smoke_vlm_engine_can_generate(tmp_path: Path) -> None:
@@ -49,14 +99,32 @@ def test_smoke_vlm_engine_can_generate(tmp_path: Path) -> None:
             image_path=str(image),
             system_prompt="you are tester",
             user_prompt="return json",
-            min_pixels=200704,
-            max_pixels=1048576,
-            backend_options={"seed": 11},
         )
     )
     assert isinstance(response.text, str)
     assert "return json" in response.prompt
     assert isinstance(response.output_ids, list)
+
+
+def test_smoke_vlm_local_policy_fails_closed_for_pixel_budget(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="smoke_vlm",
+            model_name_or_path="unused",
+            device="cpu",
+        )
+    )
+
+    with pytest.raises(ValueError, match="does not support min_pixels/max_pixels"):
+        engine.run(
+            ShaftInferRequest(
+                image_path=str(image),
+                user_prompt="return json",
+                max_pixels=1024,
+            )
+        )
 
 
 def test_infer_engine_generate_does_not_emit_invalid_sampling_flags_for_greedy() -> None:
@@ -106,7 +174,9 @@ def test_infer_engine_generate_does_not_emit_invalid_sampling_flags_for_greedy()
         "input_ids": torch.ones((1, 2), dtype=torch.long),
         "attention_mask": torch.ones((1, 2), dtype=torch.long),
     }
-    adapter._generate(batch=batch, generation=InferGenerationConfig(max_new_tokens=4, do_sample=False))
+    adapter._generate(
+        batch=batch, generation=InferGenerationConfig(max_new_tokens=4, do_sample=False)
+    )
 
     gen_config = captured["kwargs"]["generation_config"]
     assert adapter.model.config.use_cache is True
@@ -146,25 +216,15 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
     Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
     captured: dict[str, object] = {}
 
-    class _DummyHTTPResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            _ = exc_type, exc, tb
-            return False
-
-        def read(self) -> bytes:
-            payload = {
-                "id": "chatcmpl-test",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": '{"ok": true}'},
-                    }
-                ],
+    payload = {
+        "id": "chatcmpl-test",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": '{"ok": true}'},
             }
-            return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        ],
+    }
 
     def _fake_urlopen(request, timeout=0):  # noqa: ANN001
         assert isinstance(request, urllib.request.Request)
@@ -172,7 +232,7 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
         captured["timeout"] = timeout
         captured["headers"] = {k.lower(): v for k, v in request.header_items()}
         captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
-        return _DummyHTTPResponse()
+        return _JSONHTTPResponse(payload)
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
@@ -201,7 +261,7 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
     assert response.output_ids == []
 
     assert captured["url"] == "http://127.0.0.1:8001/v1/chat/completions"
-    assert captured["timeout"] == 12.5
+    assert 0 < float(captured["timeout"]) <= 12.5
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers["authorization"] == "Bearer test-key"
@@ -225,23 +285,9 @@ def test_vllm_openai_qwen35vl_disables_thinking_by_default(monkeypatch, tmp_path
     Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
     captured: dict[str, object] = {}
 
-    class _DummyHTTPResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            _ = exc_type, exc, tb
-            return False
-
-        def read(self) -> bytes:
-            return json.dumps(
-                {"choices": [{"message": {"role": "assistant", "content": "{}"}}]},
-                ensure_ascii=False,
-            ).encode("utf-8")
-
     def _fake_urlopen(request, timeout=0):  # noqa: ANN001
         captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
-        return _DummyHTTPResponse()
+        return _JSONHTTPResponse({"choices": [{"message": {"role": "assistant", "content": "{}"}}]})
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
@@ -271,23 +317,9 @@ def test_vllm_openai_qwen35vl_allows_chat_template_kwargs_override(
     Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
     captured: dict[str, object] = {}
 
-    class _DummyHTTPResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            _ = exc_type, exc, tb
-            return False
-
-        def read(self) -> bytes:
-            return json.dumps(
-                {"choices": [{"message": {"role": "assistant", "content": "{}"}}]},
-                ensure_ascii=False,
-            ).encode("utf-8")
-
     def _fake_urlopen(request, timeout=0):  # noqa: ANN001
         captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
-        return _DummyHTTPResponse()
+        return _JSONHTTPResponse({"choices": [{"message": {"role": "assistant", "content": "{}"}}]})
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
@@ -326,24 +358,10 @@ def test_vllm_openai_engine_resizes_image_before_request(monkeypatch, tmp_path: 
     Image.new("RGB", (4096, 2748), color=(255, 255, 255)).save(image)
     captured: dict[str, object] = {}
 
-    class _DummyHTTPResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            _ = exc_type, exc, tb
-            return False
-
-        def read(self) -> bytes:
-            return json.dumps(
-                {"choices": [{"message": {"role": "assistant", "content": "[]"}}]},
-                ensure_ascii=False,
-            ).encode("utf-8")
-
     def _fake_urlopen(request, timeout=0):  # noqa: ANN001
         assert isinstance(request, urllib.request.Request)
         captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
-        return _DummyHTTPResponse()
+        return _JSONHTTPResponse({"choices": [{"message": {"role": "assistant", "content": "[]"}}]})
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
@@ -394,7 +412,7 @@ def test_vllm_openai_engine_rejects_pixel_budget_backend_options(
         )
     )
 
-    try:
+    with pytest.raises(ValueError, match="model inference policy"):
         engine.run(
             ShaftInferRequest(
                 image_path=str(image),
@@ -402,7 +420,269 @@ def test_vllm_openai_engine_rejects_pixel_budget_backend_options(
                 backend_options={"mm_processor_kwargs": {"max_pixels": 1_000_000}},
             )
         )
-    except ValueError as exc:
-        assert "pixel budget is applied by resizing" in str(exc)
-    else:
-        raise AssertionError("expected pixel-budget backend option to be rejected")
+
+
+def test_vllm_stage_deadline_shortens_http_timeout_and_surfaces_timeout(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    captured: dict[str, float] = {}
+
+    def _blocking_urlopen(request, timeout=0):  # noqa: ANN001
+        _ = request
+        captured["timeout"] = float(timeout)
+        raise socket.timeout("blocked")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _blocking_urlopen)
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen3vl",
+            model_name_or_path="banana",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+            request_timeout_seconds=60.0,
+        )
+    )
+    control = ShaftInferExecutionControl(deadline_monotonic=time.monotonic() + 0.25)
+
+    with pytest.raises(TimeoutError, match="deadline expired"):
+        engine.run(
+            ShaftInferRequest(
+                image_path=str(image),
+                user_prompt="return json",
+                execution=control,
+            )
+        )
+
+    assert 0 < captured["timeout"] <= 0.25
+
+
+def test_vllm_stage_deadline_interrupts_stalled_partial_http_body(tmp_path: Path) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+    partial_sent = threading.Event()
+    release_handler = threading.Event()
+
+    class _StalledBodyHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length:
+                self.rfile.read(content_length)
+            partial = b'{"choices":[{"message":{"content":"'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(partial) + 1024))
+            self.end_headers()
+            self.wfile.write(partial)
+            self.wfile.flush()
+            partial_sent.set()
+            release_handler.wait(timeout=5.0)
+
+        def log_message(self, format, *args) -> None:  # noqa: A002, ANN001
+            _ = format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _StalledBodyHandler)
+    server.daemon_threads = True
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        pipeline = ShaftInferPipeline.from_config(
+            InferPipelineConfig(
+                engines={
+                    "remote": InferEngineConfig(
+                        model_type="qwen3vl",
+                        model_name_or_path="banana",
+                        backend="vllm_openai",
+                        endpoint=endpoint,
+                        request_timeout_seconds=5.0,
+                    )
+                },
+                stages=[
+                    InferStageConfig(
+                        name="stage1",
+                        engine="remote",
+                        output_key="out",
+                        user_prompt_template="return json",
+                        timeout_seconds=0.5,
+                        fail_fast=False,
+                    )
+                ],
+            )
+        )
+        started = time.monotonic()
+
+        outputs = pipeline.run(image_path=str(image))
+
+        elapsed = time.monotonic() - started
+    finally:
+        release_handler.set()
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2.0)
+
+    assert partial_sent.is_set()
+    assert elapsed < 2.0
+    assert outputs["out"] is None
+    assert "deadline expired" in outputs["out__error"]
+
+
+def test_vllm_expired_deadline_fails_before_http(monkeypatch) -> None:
+    def _unexpected_urlopen(request, timeout=0):  # noqa: ANN001
+        raise AssertionError("expired request must fail before HTTP")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _unexpected_urlopen)
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen3vl",
+            model_name_or_path="banana",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+        )
+    )
+
+    with pytest.raises(TimeoutError, match="deadline expired"):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                user_prompt="return json",
+                execution=ShaftInferExecutionControl(deadline_monotonic=time.monotonic() - 1.0),
+            )
+        )
+
+
+def test_hf_local_deadline_fails_closed_before_model_work() -> None:
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="smoke_vlm",
+            model_name_or_path="unused",
+            device="cpu",
+        )
+    )
+
+    with pytest.raises(
+        ShaftInferExecutionControlUnsupportedError,
+        match="cannot honor an absolute deadline",
+    ):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                user_prompt="return json",
+                execution=ShaftInferExecutionControl(deadline_monotonic=time.monotonic() + 10.0),
+            )
+        )
+
+
+def test_hf_local_cancellation_fails_closed_before_model_work() -> None:
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="smoke_vlm",
+            model_name_or_path="unused",
+            device="cpu",
+        )
+    )
+
+    with pytest.raises(
+        ShaftInferExecutionControlUnsupportedError,
+        match="cannot honor cooperative cancellation",
+    ):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                user_prompt="return json",
+                execution=ShaftInferExecutionControl(cancellation_event=threading.Event()),
+            )
+        )
+
+
+def test_hf_local_pre_cancelled_control_precedes_capability_rejection() -> None:
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="smoke_vlm",
+            model_name_or_path="unused",
+            device="cpu",
+        )
+    )
+    cancellation_event = threading.Event()
+    cancellation_event.set()
+
+    with pytest.raises(ShaftInferCancelledError, match="was cancelled"):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                execution=ShaftInferExecutionControl(cancellation_event=cancellation_event),
+            )
+        )
+
+
+def test_hf_local_expired_deadline_precedes_capability_rejection() -> None:
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="smoke_vlm",
+            model_name_or_path="unused",
+            device="cpu",
+        )
+    )
+
+    with pytest.raises(TimeoutError, match="deadline expired"):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                execution=ShaftInferExecutionControl(deadline_monotonic=time.monotonic() - 1.0),
+            )
+        )
+
+
+def test_vllm_cancellation_fails_closed_before_http(monkeypatch) -> None:
+    def _unexpected_urlopen(request, timeout=0):  # noqa: ANN001
+        raise AssertionError("unsupported cancellation must fail before HTTP")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _unexpected_urlopen)
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen3vl",
+            model_name_or_path="banana",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+        )
+    )
+
+    with pytest.raises(
+        ShaftInferExecutionControlUnsupportedError,
+        match="cannot honor cooperative cancellation",
+    ):
+        engine.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                execution=ShaftInferExecutionControl(cancellation_event=threading.Event()),
+            )
+        )
+
+
+def test_unregistered_model_inference_policy_fails_closed_before_http(monkeypatch) -> None:
+    def _unexpected_urlopen(request, timeout=0):  # noqa: ANN001
+        raise AssertionError("unsupported model must fail before HTTP")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _unexpected_urlopen)
+    model_adapter = ModelMeta(
+        model_type="unsupported",
+        family="unsupported",
+        default_template="unsupported",
+    ).resolve_adapter(model_name_or_path="unsupported")
+    adapter = VLLMOpenAIInferAdapter(
+        endpoint="http://127.0.0.1:8001",
+        model_name="unsupported",
+        model_adapter=model_adapter,
+    )
+
+    with pytest.raises(ValueError, match="does not support the vllm_openai backend"):
+        adapter.run(
+            ShaftInferRequest(
+                image_path="/does/not/matter.png",
+                user_prompt="return json",
+            )
+        )

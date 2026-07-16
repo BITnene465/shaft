@@ -92,7 +92,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | `config` | 配置 schema、YAML 加载、catalog 展开、严格校验 | `RuntimeConfig`、`load_config()`、`normalize_runtime_config()` | 训练循环、模型构建、JSONL 解析 |
 | `data` | 数据元信息、数据源、记录结构、增强、mixing、dataset、collator | `ShaftDatasetMeta`、`ShaftDataCenter`、`BaseDataSource`、`build_data_source()` | optimizer/loss、训练阶段调度、任务级语义判断 |
-| `model` | 模型族元信息、HF 加载、PEFT 包装、processor/peft policy、冻结执行计划 | `ModelMeta`、`ModelModuleGroups`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
+| `model` | 模型族元信息、HF 加载、PEFT 包装、processor/inference/peft policy、冻结执行计划 | `ModelMeta`、`ModelModuleGroups`、`ShaftModelAdapter`、`build_model_tokenizer_processor()` | 数据路径处理、训练循环、推理 stage 编排 |
 | `template` | 消息规范化、chat template、decode 约定、训练 supervision plan | `TemplateMeta`、`Template`、`build_template()` | 图像处理、任务后处理、generation 参数决策 |
 | `algorithms` | 构建 SFT/DPO/PPO/GRPO trainer 与算法专属辅助对象 | `SFTAlgorithm`、`DPOAlgorithm`、`PPOAlgorithm`、`GRPOAlgorithm` | 读取数据文件、控制 pipeline、硬编码模型族 |
 | `pipeline` | 训练主链编排和阶段调度 | `ShaftSFTPipeline`、`ShaftRLHFPipeline`、`run_sft()`、`run_rlhf()` | 任务语义、数据格式解析、模型专属 patch |
@@ -123,8 +123,9 @@ sequenceDiagram
     CLI->>Pipeline: run_sft() / run_rlhf()
     Pipeline->>Model: build_model_tokenizer_processor()
     Pipeline->>Data: ShaftDataCenter.build_dataset_bundle()
-    Pipeline->>Algo: algorithm.build_trainer(...)
-    Algo-->>Pipeline: Trainer
+    Pipeline->>Algo: algorithm.prepare_trainer(...)
+    Algo-->>Pipeline: ShaftTrainerSpec
+    Pipeline->>Trainer: spec.build()（status envelope 外）
     Pipeline->>Trainer: train()
     Trainer-->>Pipeline: metrics
     Pipeline-->>CLI: metrics
@@ -147,7 +148,9 @@ sequenceDiagram
   - 负责把 `train.distributed.strategy` 映射到 HF `TrainingArguments.fsdp/fsdp_config/deepspeed`
 - checkpoint 规则：
   - `inspect_checkpoint_layout()`
+  - `commit_training_checkpoint()`
   - `resolve_resume_checkpoint()`
+  - `validate_training_checkpoint_commit()`
   - `validate_resume_checkpoint()`
   - `validate_training_state_policy()`
 
@@ -173,6 +176,9 @@ SFT/DPO 的多模态监督采用单次 processor 契约：
    tokens 与 rendered tokens 完全一致。任何无法证明的字段重排或 token 对齐都必须 fail fast。
 5. `template` 只消费 `ShaftProcessedBatch` 与精确 layout 生成 labels/loss scale；DPO 的 chosen/rejected
    共享同一 prompt plan、layout 和视觉处理结果。
+6. `ProcessorInputPolicy` 显式声明 training/right 与 generation/left padding；caller 只声明 input mode，
+   不再传递裸 `padding_side`。`EvalInputPolicy` 在 config 层按 dataset override、eval default、data fallback
+   的优先级解析 pixel budget；teacher-forced loss 与 online generation 共享同一个 resolved policy。
 
 新模型族如果不能提供精确 token layout，必须在接入测试中显式失败并注册模型专用 processor policy；
 新模板必须提供基于单次完整渲染的精确 assistant-span compiler。禁止近似对齐、通用 partial-render
@@ -238,8 +244,9 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - `ShaftPlannedBatchSampler` 在一个 planning frame 内按 rank 累计 text+vision load 分配每个 microstep 的
   local batches；training callback 再负责 `global_step * GA -> global_microstep` 的 committed 映射。
 - oldest-anchor 保证样本不会因长度长期饥饿；buffer 重排不改变 mixer draw multiset，不丢弃、不复制，也不
-  按长度修改 source 权重。weighted bounded 模式要求 `shuffle=true`；旧 unshuffled weighted 映射依赖
-  full horizon，因此明确拒绝。
+  按长度修改 source 权重。weighted bounded 模式当前要求 `shuffle=true`；unshuffled v3 已改成跨 cycle
+  连续的 exact-ticket 低差异 stream，但 planned schedule API 尚未开放该执行路径，因此仍明确拒绝，不能把
+  fixed adapter 的正确性等同于 bounded 支持。
 - 每个 local batch 的样本数只由 `train.per_device_train_batch_size` 和显式 cardinality policy 解释，并同时
   受 processor 后 padded LLM token 与通用 resource budget 约束。没有第二个 sample-count 字段。单样本
   超限或模型成本不精确时在首次观察该 draw 时失败，不会先扫描完整训练期。
@@ -258,11 +265,27 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   规划到未来，但 callback 只按 `global_step * GA` 提交对应 snapshot；resume 加载该 state 并设置
   `ignore_data_skip=true`，避免 HF 二次 skip。DataLoader worker 使用独立 generator，重建 persistent
   workers 不消耗模型/dropout RNG。
+- checkpoint storage protocol 由 distributed strategy 显式路由。SFT、DPO、GRPO 的 DDP/native-HF 路径
+  使用 `committed_manifest`：`ShaftCheckpointCommitMixin` 在覆盖同名 checkpoint 前撤销旧
+  `shaft_checkpoint_commit.json` 并暂缓 HF rotation；模型/adapter、Trainer、optimizer、scheduler 与 RNG
+  保存后，先验证各 rank 的 telemetry/plugin `on_save` callback 拓扑完全相同且顺序一致，再在每个 callback
+  后做 all-rank convergence；全部成功才进入独立 commit phase，由 rank 0 原子发布 manifest 并执行
+  rotation。rank-zero progress 也在所有 rank 安装同类 callback，非零 rank 只执行无 sink 的 no-op 路径。
+  direct-path 和 run-root resume 共用同一
+  validator，run-root 跳过未提交或 artifact 缺失、尺寸变化、SHA-256 digest 漂移的 torn/tampered
+  checkpoint。FSDP/DeepSpeed 使用
+  `backend_native`，保存、发现、校验和 rotation 全部交回后端，不安装 wrapper，也不提供上述通用
+  torn/atomic 保证；typed sharded/ZeRO commit protocol 留待后续设计。PPO 仍不支持 resume，且
+  `save_strategy` 必须为 `no`；最终 `best` 导出与 root final state 不受影响。
+- 恢复启动把选中的 checkpoint 固定为一个 `ResolvedResumeCheckpoint` generation token。run root 只从新到旧
+  扫描到首个有效 generation；preflight、planned state 与 Trainer 入口复用同一 content identity，不重复
+  hash 大 shard。train 前以小 marker + stat guard 捕获窗口内改写，并用 generation fingerprint 做全 rank
+  consensus；路径名和 step 相同不代表内容相同。
 - planned spec/state 作为 `ShaftBatchPlanningCallback` 的 stateful payload 写入 HF
-  `trainer_state.json`。HF rotation 会延后到所有 rank 的 RNG/训练状态保存成功、rank 0 原子发布 completion
-  manifest 之后。自动恢复会跳过 manifest、per-rank RNG、optimizer/scheduler 或 callback state
-  缺失/不一致的较新目录；duration/GA/optimizer/scheduler 改变必须使用 `init_from_checkpoint` 开新训练
-  schedule。
+  `trainer_state.json`，并作为通用 commit manifest 的 `batch_planning` extension 绑定 planner、batch、
+  committed cursor 与 resume-contract fingerprint，不再维护独立 completion 文件。旧
+  `shaft_batch_planning_complete.json` 不是新协议的提交点，只能通过 `init_from_checkpoint` 继承权重并开启
+  新 schedule。duration/GA/optimizer/scheduler 改变同样必须使用 `init_from_checkpoint`。
   `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
 - sequence packing 与 context parallel 是独立能力；bounded grouping 不伪装成 packing。当前已实现 bounded
   lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 image-SFT
@@ -277,6 +300,22 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   先成为 effective artifact 再解析 descriptor，PEFT adapter 则保留 base artifact 作为模型事实真源。
   dense/MoE 等影响 sharding/execution 的事实不能从产品名猜测。新模型族继续通过独立的
   `ProcessorPolicy / SequenceExecutionPolicy / ShardingPolicy` 扩展，pipeline/trainer 不增加模型名分支。
+- checkpointable 本地 HF artifact 使用两阶段内容校验：plan 构造时对 config、weight shard 和启用的本地
+  remote-code 文件做一次完整 SHA-256，形成内容 identity；进入 HF loader 前只捕获并核对文件清单、大小、
+  mtime/ctime/device/inode 的短生命周期 load guard，loader 返回后立即再做一次完整 SHA-256 并与 plan
+  identity 比较。常态不再在 loader 前重复全量 hash；同尺寸/同 mtime 改写仍由 post-load SHA 捕获，加载
+  窗口内可观察的替换由 guard 捕获。这里不使用 stat-only 持久缓存，也不跨 rank 信任本地路径，因为不同
+  rank/node 的同名路径可能不是同一组 bytes；因此 exact 模式的安全下限仍是每个 rank 两次内容扫描，第二次
+  通常命中 loader/OS page cache。当前可量化的额外读取量是每 rank `2 × artifact bytes`（不含 HF loader
+  自己的读取）；本次只修复冗余的第三次 full pass，不宣称消除全部 hash 成本。跨 rank 共享 digest 需要另行
+  设计 node-local/split-mount consensus，否则会漏掉不同 rank 挂载到不同 bytes 的错误。若以后要进一步降到
+  一次，必须先引入可信只读 snapshot 或让 loader 在读取权重时同时产出经过验证的内容 digest，不能靠时间戳
+  跳过。
+  HF shard index 同样是 identity 边界：`weight_map` 的每个 tensor key/shard value 必须是非空规范字符串，
+  JSON 顶层必须是 object 且不能有重复 key；shard 必须位于模型目录内。绝对路径、`..`、反斜杠歧义路径和
+  经 symlink 逃逸目录都会在 hash 前拒绝。
+  同一 containment 规则也覆盖非 indexed weight、config 和启用 `trust_remote_code` 后的本地 Python 文件。
+  remote-code package directory symlink 因 `rglob`/import traversal 无法形成无歧义 file manifest，统一拒绝。
 - PEFT init 与 merge 共享 model 层 exact loader：`ResolvedAdapterInit` 绑定 canonical config、base variant 与
   weight manifest；耗时 base build 后再次验证 artifact，再将实际权重一次读入内存，对同一 byte payload 做
   length/SHA256 校验和反序列化。export 不直接调用宽松 PEFT path loader，也不制造与实际 adapter topology
@@ -378,14 +417,18 @@ sequenceDiagram
     participant Loader as shaft.infer.loader
     participant Pipeline as shaft.infer.pipeline
     participant Engine as shaft.infer.engine
+    participant Policy as ShaftModelAdapter.inference_policy
     participant Codec as shaft.codec
 
     Script->>Loader: load_infer_config()
     Loader-->>Script: InferPipelineConfig
     Script->>Pipeline: ShaftInferPipeline.from_config()
     loop 每个 stage
-        Pipeline->>Engine: run(ShaftInferRequest)
+        Pipeline->>Engine: run(request + absolute deadline/cancellation)
+        Engine->>Policy: prepare media/messages/chat-template kwargs
+        Policy-->>Engine: backend-ready request
         Engine-->>Pipeline: ShaftInferResponse
+        Pipeline->>Pipeline: execution checkpoint
         Pipeline->>Codec: decode_with_codec()
         Codec-->>Pipeline: parsed payload
     end
@@ -402,9 +445,13 @@ sequenceDiagram
   - `ShaftInferEngine`
   - `ShaftInferRequest`
   - `ShaftInferResponse`
+  - `ShaftInferExecutionControl`
 - pipeline：
   - `ShaftInferPipeline`
   - `ShaftInferStageResult`
+
+模型专属推理准备属于 `model.inference_policy`，不属于通用 engine。stage timeout 是共享 absolute
+deadline；vLLM HTTP 消费剩余预算，本地 HF generate 无安全抢占能力时在开始工作前 fail closed。
 - codec：
   - `decode_with_codec()`
   - `register_codec()`
@@ -461,9 +508,8 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 - 支持 **多数据集、多任务**
 - 每个 `dataset_name` 只绑定一个 task / 一套 eval policy
 - codec 为共享层，`infer` 与在线 eval 共用
-- dataset-policy eval 统一支持：
-  - `eval_final_score`
-  - `eval_final_loss`
+- SFT dataset-policy eval 同时支持 `eval_final_score` 与 `eval_final_loss`；GRPO 当前只支持 online
+  `eval_final_score`
 
 在线 eval 当前的关键层：
 
@@ -474,11 +520,15 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
 
 说明：
 
-- dataset-policy eval 会基于同一套 `eval.datasets` policy，同时聚合：
+- SFT dataset-policy eval 会基于同一套 `eval.datasets` policy，同时聚合：
   - teacher-forced `eval_final_loss`
   - generation-based `eval_final_score`
+- 两条评估链还共享同一个 resolved `EvalInputPolicy`：loss 使用 training/right processor mode，generation
+  使用 generation/left mode，但 pixel budget 的默认值和 per-dataset override 完全一致。
+- `ShaftGRPOTrainer` 尚未提供可靠的 loss eval / `eval_final_loss` 聚合；GRPO 启用 eval 时 config normalize
+  要求 `loss_metrics_enabled=false`，现有能力只走 online `eval_final_score`。
 - task metric 不会实时塞进 eval 进度条
-- 每次 eval 完成后，使用日志统一打印：
+- 每次 eval 完成后，使用日志统一打印当前算法实际启用的字段（GRPO 不包含 loss 类字段）：
   - per-dataset loss
   - per-dataset metrics / score
   - `eval_final_loss`
@@ -528,7 +578,8 @@ Shaft 当前已经具备基础在线 task metric 能力，边界如下：
   - JSONL 首次规范化到 source snapshot 指纹化的 Arrow cache，worker 只读 mmap record store。
   - SFT `prompt_args` 是 normalized record 的正式 JSON 字段；prompt pool、训练 planning 与标准 infer pipeline
     共用 `shaft.prompting` 的受限模板编译器，最终下游仍只消费普通 `system_prompt/user_prompt`。
-  - `concat` 表示覆盖式计划；`weighted` 表示按 dataset weight 的可复现有放回概率抽样。
+  - `concat` 表示覆盖式计划；`weighted + shuffle=true` 表示固定配额的可复现 stratified source stream，
+    每个 source 内部独立置换并在耗尽前无放回。
   - plan 按位置计算 sample ref，不物化或复制全量 Python tuple index。
 - `ShaftSampleRef` 显式携带 draw context。dataset 不保存 sampler，也不读取跨进程可变 epoch 状态。
 - GRPO 的 grouped repeat 由 epoch-aware `ShaftGroupedSampleSampler` 输出 sample refs，避免 TRL 本地

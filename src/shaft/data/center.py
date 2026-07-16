@@ -61,6 +61,20 @@ class ShaftPreparedRecords(Generic[RecordT]):
             record_fingerprints=record_fingerprints,
             media_snapshot_id=self.media_snapshot_id,
         )
+        train_execution_incomplete_reasons = tuple(
+            [
+                "unversioned_online_transform:"
+                f"{getattr(transform, '__module__', type(transform).__module__)}."
+                f"{getattr(transform, '__qualname__', type(transform).__qualname__)}"
+                for transform in self.train_online_transforms
+                if not is_planning_safe_online_transform(transform)
+            ]
+            + (
+                []
+                if str(self.media_snapshot_id or "").strip()
+                else ["missing_media_snapshot_id"]
+            )
+        )
         eval_datasets_by_name = {
             dataset_name: _build_dataset(
                 dataset_cls,
@@ -105,6 +119,12 @@ class ShaftPreparedRecords(Generic[RecordT]):
                 record_fingerprints=record_fingerprints,
                 media_snapshot_id=self.media_snapshot_id,
             ),
+            train_execution_contract_complete=(
+                not train_execution_incomplete_reasons
+            ),
+            train_execution_incomplete_reasons=(
+                train_execution_incomplete_reasons
+            ),
             train_stream_fingerprint=train_stream_fingerprint,
         )
 
@@ -117,6 +137,8 @@ class ShaftDatasetBundle(Generic[DatasetT]):
     train_sampler: Sampler[ShaftSampleRef] | None = None
     train_schedule: ShaftSampleSchedule | None = None
     train_execution_fingerprint: str | None = None
+    train_execution_contract_complete: bool = False
+    train_execution_incomplete_reasons: tuple[str, ...] = ()
     train_stream_fingerprint: str | None = None
 
 

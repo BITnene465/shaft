@@ -59,6 +59,73 @@ train:
     assert config.train.full_determinism is True
 
 
+def test_ddp_static_graph_config_is_strictly_normalized(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: DDP
+    ddp:
+      static_graph: "true"
+""",
+        )
+    )
+
+    assert config.train.distributed.ddp.static_graph is True
+
+
+def test_ddp_static_graph_rejects_non_ddp_strategy(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="static_graph=true requires.*strategy='ddp'"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: fsdp
+    ddp:
+      static_graph: true
+""",
+            )
+        )
+
+
+def test_ddp_static_graph_rejects_unvalidated_algorithm(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="static_graph=true is currently validated only.*sft"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+algorithm:
+  name: dpo
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_dpo
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: ddp
+    ddp:
+      static_graph: true
+""",
+            )
+        )
+
+
 def test_training_efficiency_config_is_normalized(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(
@@ -82,6 +149,25 @@ train:
     assert config.train.efficiency.persist is False
 
 
+def test_init_and_resume_checkpoint_are_mutually_exclusive(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  init_from_checkpoint: init-checkpoint
+  resume_from_checkpoint: resume-checkpoint
+""",
+            )
+        )
+
+
 def test_eval_metric_switches_normalize_quoted_booleans(tmp_path: Path) -> None:
     config = load_config(
         write_config_yaml(
@@ -101,6 +187,173 @@ eval:
 
     assert config.eval.loss_metrics_enabled is False
     assert config.eval.online_metrics_enabled is False
+
+
+def test_all_runtime_boolean_fields_use_strict_normalization(tmp_path: Path) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+model:
+  finetune:
+    use_rslora: "false"
+    qlora_load_in_4bit: "false"
+    qlora_use_double_quant: "false"
+data:
+  pin_memory: "false"
+  persistent_workers: "false"
+  add_eos_token: "false"
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+      enabled: "true"
+      use_for_eval: "true"
+train:
+  gradient_checkpointing: "false"
+  bf16: "false"
+  use_cpu: "false"
+  full_determinism: "false"
+  ddp_find_unused_parameters: "false"
+  load_best_model_at_end: "false"
+  save_final_model: "false"
+  save_final_state: "false"
+  distributed:
+    ddp:
+      static_graph: "false"
+    fsdp:
+      activation_checkpointing: "false"
+      cpu_offload: "false"
+      use_orig_params: "false"
+      forward_prefetch: "false"
+      limit_all_gathers: "false"
+      sync_module_states: "false"
+eval:
+  do_sample: "false"
+  greater_is_better: "false"
+  loss_metrics_enabled: "false"
+  online_metrics_enabled: "false"
+rlhf:
+  enabled: "false"
+  dpo:
+    precompute_ref_log_probs: "false"
+    use_weighting: "false"
+  ppo:
+    whiten_rewards: "false"
+    train_value_backbone: "false"
+    allow_untrained_reward_model: "false"
+    allow_text_only_multimodal_ppo: "false"
+  grpo:
+    use_vllm: "false"
+    rollout:
+      use_transformers_paged: "false"
+    vllm:
+      enabled: "false"
+      enable_sleep_mode: "false"
+logging:
+  rank_zero_only: "false"
+progress:
+  enabled: "false"
+  leave_completed: "false"
+  persist: "false"
+""",
+        )
+    )
+
+    false_values = (
+        config.model.finetune.use_rslora,
+        config.model.finetune.qlora_load_in_4bit,
+        config.model.finetune.qlora_use_double_quant,
+        config.data.pin_memory,
+        config.data.persistent_workers,
+        config.data.add_eos_token,
+        config.train.gradient_checkpointing,
+        config.train.bf16,
+        config.train.use_cpu,
+        config.train.full_determinism,
+        config.train.ddp_find_unused_parameters,
+        config.train.load_best_model_at_end,
+        config.train.save_final_model,
+        config.train.save_final_state,
+        config.train.distributed.ddp.static_graph,
+        config.train.distributed.fsdp.activation_checkpointing,
+        config.train.distributed.fsdp.cpu_offload,
+        config.train.distributed.fsdp.use_orig_params,
+        config.train.distributed.fsdp.forward_prefetch,
+        config.train.distributed.fsdp.limit_all_gathers,
+        config.train.distributed.fsdp.sync_module_states,
+        config.eval.do_sample,
+        config.eval.greater_is_better,
+        config.eval.loss_metrics_enabled,
+        config.eval.online_metrics_enabled,
+        config.rlhf.enabled,
+        config.rlhf.dpo.precompute_ref_log_probs,
+        config.rlhf.dpo.use_weighting,
+        config.rlhf.ppo.whiten_rewards,
+        config.rlhf.ppo.train_value_backbone,
+        config.rlhf.ppo.allow_untrained_reward_model,
+        config.rlhf.ppo.allow_text_only_multimodal_ppo,
+        config.rlhf.grpo.rollout.use_transformers_paged,
+        config.rlhf.grpo.vllm.enabled,
+        config.rlhf.grpo.vllm.enable_sleep_mode,
+        config.rlhf.grpo.use_vllm,
+        config.logging.rank_zero_only,
+        config.progress.enabled,
+        config.progress.leave_completed,
+        config.progress.persist,
+    )
+    assert all(value is False for value in false_values)
+
+
+def test_fsdp_rejects_use_orig_params_false_during_config_normalization(
+    tmp_path: Path,
+) -> None:
+    payload = """
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  distributed:
+    strategy: fsdp
+    fsdp:
+      use_orig_params: false
+"""
+
+    with pytest.raises(
+        ValueError,
+        match=r"FSDP.*use_orig_params=true.*FlatParameter",
+    ):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    ("field_yaml", "field_name"),
+    [
+        ("train:\n  full_determinism: maybe", "train.full_determinism"),
+        (
+            "rlhf:\n  ppo:\n    allow_untrained_reward_model: maybe",
+            "rlhf.ppo.allow_untrained_reward_model",
+        ),
+        ("progress:\n  enabled: maybe", "progress.enabled"),
+    ],
+)
+def test_invalid_boolean_text_is_rejected(
+    tmp_path: Path,
+    field_yaml: str,
+    field_name: str,
+) -> None:
+    payload = f"""
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+{field_yaml}
+"""
+    with pytest.raises(ValueError, match=field_name.replace(".", r"\.")):
+        load_config(write_config_yaml(tmp_path, payload))
 
 
 def test_invalid_training_efficiency_device_timing_is_rejected(

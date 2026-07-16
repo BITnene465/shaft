@@ -7,6 +7,16 @@ import json
 from typing import Any, Iterator
 
 from shaft.config.data import SHAFT_BATCH_RESOURCE_NAMES
+from shaft.utils.contract_schema import (
+    json_int,
+    json_int_value,
+    json_list,
+    json_mapping,
+    json_optional_int,
+    json_string,
+    require_exact_keys,
+    require_json_mapping,
+)
 
 from .batching import (
     ShaftBatchContext,
@@ -18,7 +28,7 @@ from .batching import (
     resolve_local_pack_count_bounds,
 )
 from .cost import ShaftSampleCost, ShaftSampleCostProvider
-from .mixing import ShaftSampleContext, ShaftSampleRef, ShaftSampleSchedule, _splitmix64
+from .mixing import ShaftSampleRef, ShaftSampleSchedule, _splitmix64
 from .planned import ShaftPlannedSampleRef
 
 
@@ -38,19 +48,6 @@ def _mapping_fingerprint(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _require_serialized_fields(
-    payload: dict[str, Any],
-    *,
-    owner: str,
-    fields: tuple[str, ...],
-) -> None:
-    missing = tuple(field for field in fields if field not in payload)
-    if missing:
-        raise ValueError(
-            f"{owner} missing required fields: {', '.join(missing)}."
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,65 +179,83 @@ class ShaftBatchPlanningSpec:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ShaftBatchPlanningSpec":
-        if not isinstance(payload, dict):
-            raise TypeError("Planned batching spec payload must be a mapping.")
-        version = str(payload.get("version", ""))
+        role = "Planned batching spec"
+        payload = require_json_mapping(payload, role=role)
+        version = payload.get("version", "")
+        if type(version) is not str:
+            raise TypeError(f"{role}.version must be a JSON string.")
         if version != SHAFT_BATCH_PLANNING_VERSION:
             raise ValueError(
                 "Unsupported planned batching spec version: "
                 f"{version!r}; expected {SHAFT_BATCH_PLANNING_VERSION!r}."
             )
-        _require_serialized_fields(
+        require_exact_keys(
             payload,
-            owner="Planned batching spec",
-            fields=(
-                "version",
-                "grouping",
-                "packing",
-                "layout",
-                "max_sequence_length",
-                "data_world_size",
-                "buffer_size",
-                "cardinality",
-                "per_device_microbatch_size",
-                "max_tokens_per_microbatch",
-                "resource_budgets",
-                "seed",
-                "sample_schedule_fingerprint",
-                "cost_fingerprint",
-                "fingerprint",
+            role=role,
+            expected=frozenset(
+                {
+                    "version",
+                    "grouping",
+                    "packing",
+                    "layout",
+                    "max_sequence_length",
+                    "data_world_size",
+                    "buffer_size",
+                    "cardinality",
+                    "per_device_microbatch_size",
+                    "max_tokens_per_microbatch",
+                    "resource_budgets",
+                    "seed",
+                    "sample_schedule_fingerprint",
+                    "cost_fingerprint",
+                    "fingerprint",
+                }
             ),
         )
-        raw_resource_budgets = payload["resource_budgets"]
-        if not isinstance(raw_resource_budgets, dict):
-            raise TypeError("Planned batching resource_budgets must be a mapping.")
+        raw_resource_budgets = json_mapping(payload, "resource_budgets", role=role)
         spec = cls(
-            data_world_size=int(payload["data_world_size"]),
-            buffer_size=int(payload["buffer_size"]),
-            cardinality=str(payload["cardinality"]),
-            per_device_microbatch_size=int(payload["per_device_microbatch_size"]),
-            max_tokens_per_microbatch=int(payload["max_tokens_per_microbatch"]),
+            data_world_size=json_int(payload, "data_world_size", role=role),
+            buffer_size=json_int(payload, "buffer_size", role=role),
+            cardinality=json_string(payload, "cardinality", role=role),
+            per_device_microbatch_size=json_int(
+                payload,
+                "per_device_microbatch_size",
+                role=role,
+            ),
+            max_tokens_per_microbatch=json_int(
+                payload,
+                "max_tokens_per_microbatch",
+                role=role,
+            ),
             resource_budgets=tuple(
                 sorted(
-                    (str(name).strip().lower(), int(value))
+                    (
+                        name,
+                        json_int_value(
+                            value,
+                            role=f"{role}.resource_budgets.{name}",
+                        ),
+                    )
                     for name, value in raw_resource_budgets.items()
                 )
             ),
-            seed=int(payload["seed"]),
-            sample_schedule_fingerprint=str(
-                payload["sample_schedule_fingerprint"]
+            seed=json_int(payload, "seed", role=role),
+            sample_schedule_fingerprint=json_string(
+                payload,
+                "sample_schedule_fingerprint",
+                role=role,
             ),
-            cost_fingerprint=str(payload["cost_fingerprint"]),
-            grouping=str(payload["grouping"]),
-            packing=str(payload["packing"]),
-            layout=str(payload["layout"]),
-            max_sequence_length=(
-                None
-                if payload["max_sequence_length"] is None
-                else int(payload["max_sequence_length"])
+            cost_fingerprint=json_string(payload, "cost_fingerprint", role=role),
+            grouping=json_string(payload, "grouping", role=role),
+            packing=json_string(payload, "packing", role=role),
+            layout=json_string(payload, "layout", role=role),
+            max_sequence_length=json_optional_int(
+                payload,
+                "max_sequence_length",
+                role=role,
             ),
         )
-        serialized = str(payload["fingerprint"])
+        serialized = json_string(payload, "fingerprint", role=role)
         if serialized != spec.fingerprint:
             raise ValueError("Planned batching spec fingerprint does not match its payload.")
         return spec
@@ -292,31 +307,10 @@ class ShaftBufferedSample:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ShaftBufferedSample":
-        context_payload = payload["context"]
-        cost_payload = payload["cost"]
-        if not isinstance(context_payload, dict) or not isinstance(cost_payload, dict):
-            raise TypeError("Buffered sample context and cost must be mappings.")
+        segment = ShaftLogicalSegmentPlan.from_dict(payload)
         return cls(
-            sample_ref=ShaftSampleRef(
-                dataset_name=str(payload["dataset_name"]),
-                row_index=int(payload["row_index"]),
-                context=ShaftSampleContext(
-                    draw_id=int(context_payload["draw_id"]),
-                    plan_cycle=int(context_payload["plan_cycle"]),
-                    transform_seed=int(context_payload["transform_seed"]),
-                ),
-            ),
-            cost=ShaftSampleCost(
-                llm_tokens=int(cost_payload["llm_tokens"]),
-                supervised_tokens=int(cost_payload.get("supervised_tokens", 0)),
-                vision_patches=int(cost_payload.get("vision_patches", 0)),
-                loss_weight_sum=(
-                    None
-                    if cost_payload.get("loss_weight_sum") is None
-                    else float(cost_payload["loss_weight_sum"])
-                ),
-                exact=bool(cost_payload.get("exact", False)),
-            ),
+            sample_ref=segment.sample_ref,
+            cost=segment.cost,
         )
 
 
@@ -424,52 +418,65 @@ class ShaftBatchPlanningState:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "ShaftBatchPlanningState":
-        if not isinstance(payload, dict):
-            raise TypeError("Planned batching state payload must be a mapping.")
-        version = str(payload.get("version", ""))
+        role = "Planned batching state"
+        payload = require_json_mapping(payload, role=role)
+        version = payload.get("version", "")
+        if type(version) is not str:
+            raise TypeError(f"{role}.version must be a JSON string.")
         if version != SHAFT_BATCH_PLANNING_VERSION:
             raise ValueError(
                 "Unsupported planned batching state version: "
                 f"{version!r}; expected {SHAFT_BATCH_PLANNING_VERSION!r}."
             )
-        _require_serialized_fields(
+        require_exact_keys(
             payload,
-            owner="Planned batching state",
-            fields=(
-                "version",
-                "contract_fingerprint",
-                "global_microstep",
-                "next_draw_id",
-                "buffer",
-                "emitted_samples",
-                "emitted_physical_packs",
-                "emitted_llm_tokens",
-                "emitted_supervised_tokens",
-                "emitted_vision_patches",
-                "fingerprint",
+            role=role,
+            expected=frozenset(
+                {
+                    "version",
+                    "contract_fingerprint",
+                    "global_microstep",
+                    "next_draw_id",
+                    "buffer",
+                    "emitted_samples",
+                    "emitted_physical_packs",
+                    "emitted_llm_tokens",
+                    "emitted_supervised_tokens",
+                    "emitted_vision_patches",
+                    "fingerprint",
+                }
             ),
         )
-        fingerprint = str(payload["fingerprint"])
+        fingerprint = json_string(payload, "fingerprint", role=role)
+        buffer_payload = json_list(payload, "buffer", role=role)
+        buffer = tuple(ShaftBufferedSample.from_dict(item) for item in buffer_payload)
         unsigned = dict(payload)
         unsigned.pop("fingerprint", None)
         expected = _mapping_fingerprint(unsigned)
         if fingerprint != expected:
             raise ValueError("Planned batching state fingerprint does not match its payload.")
-        buffer_payload = payload["buffer"]
-        if not isinstance(buffer_payload, list):
-            raise TypeError("Planned batching state buffer must be a list.")
         return cls(
-            contract_fingerprint=str(payload["contract_fingerprint"]),
-            global_microstep=int(payload["global_microstep"]),
-            next_draw_id=int(payload["next_draw_id"]),
-            buffer=tuple(
-                ShaftBufferedSample.from_dict(item) for item in buffer_payload
+            contract_fingerprint=json_string(payload, "contract_fingerprint", role=role),
+            global_microstep=json_int(payload, "global_microstep", role=role),
+            next_draw_id=json_int(payload, "next_draw_id", role=role),
+            buffer=buffer,
+            emitted_samples=json_int(payload, "emitted_samples", role=role),
+            emitted_physical_packs=json_int(
+                payload,
+                "emitted_physical_packs",
+                role=role,
             ),
-            emitted_samples=int(payload["emitted_samples"]),
-            emitted_physical_packs=int(payload["emitted_physical_packs"]),
-            emitted_llm_tokens=int(payload["emitted_llm_tokens"]),
-            emitted_supervised_tokens=int(payload["emitted_supervised_tokens"]),
-            emitted_vision_patches=int(payload["emitted_vision_patches"]),
+            emitted_llm_tokens=json_int(payload, "emitted_llm_tokens", role=role),
+            emitted_supervised_tokens=json_int(
+                payload,
+                "emitted_supervised_tokens",
+                role=role,
+            ),
+            emitted_vision_patches=json_int(
+                payload,
+                "emitted_vision_patches",
+                role=role,
+            ),
         )
 
     @property

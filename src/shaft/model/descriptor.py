@@ -19,6 +19,7 @@ class ResolvedModelDescriptor:
     source: str
     config_fingerprint: str
     config_json: str
+    commit_hash: str | None = None
 
     @classmethod
     def from_payload(
@@ -26,6 +27,7 @@ class ResolvedModelDescriptor:
         payload: dict[str, Any],
         *,
         source: str,
+        commit_hash: str | None = None,
     ) -> "ResolvedModelDescriptor":
         model_type = str(payload.get("model_type") or "").strip().lower()
         if not model_type:
@@ -55,6 +57,9 @@ class ResolvedModelDescriptor:
             source=str(source),
             config_fingerprint=hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
             config_json=config_json,
+            commit_hash=(
+                str(commit_hash).strip() if str(commit_hash or "").strip() else None
+            ),
         )
 
     def config_value(self, dotted_path: str, default: Any = None) -> Any:
@@ -101,7 +106,7 @@ def resolve_model_descriptor(
     if path.exists() or not allow_remote:
         return None
     try:
-        payload, _ = PretrainedConfig.get_config_dict(
+        payload, resolved_kwargs = PretrainedConfig.get_config_dict(
             str(model_name_or_path),
             revision=revision,
             cache_dir=None if cache_dir is None else str(cache_dir),
@@ -117,7 +122,16 @@ def resolve_model_descriptor(
         raise TypeError("Transformers returned a non-object HF config payload.")
     if not str(payload.get("model_type") or "").strip():
         return None
+    commit_hash = str(
+        resolved_kwargs.get("_commit_hash")
+        or payload.get("_commit_hash")
+        or ""
+    ).strip()
     source = f"hf://{model_name_or_path}"
     if revision:
         source += f"@{revision}"
-    return ResolvedModelDescriptor.from_payload(payload, source=source)
+    return ResolvedModelDescriptor.from_payload(
+        payload,
+        source=source,
+        commit_hash=commit_hash or None,
+    )

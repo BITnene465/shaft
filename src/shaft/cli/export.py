@@ -45,6 +45,15 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--revision", default=None)
     merge_parser.add_argument("--cache-dir", default=None)
     merge_parser.add_argument("--local-files-only", type=_as_bool, default=False)
+    merge_parser.add_argument(
+        "--allow-unverified-base-model",
+        type=_as_bool,
+        default=False,
+        help=(
+            "Bypass Shaft checkpoint base-model provenance validation. This does not "
+            "disable hashing of the current base artifact."
+        ),
+    )
     return parser
 
 
@@ -106,6 +115,7 @@ def main(argv: list[str] | None = None) -> None:
             revision=args.revision,
             cache_dir=args.cache_dir,
             local_files_only=args.local_files_only,
+            allow_unverified_base_model=args.allow_unverified_base_model,
         )
         print(
             json.dumps(

@@ -8,8 +8,17 @@ from typing import Any
 
 from shaft.config import RuntimeConfig
 
+from .artifact_identity import (
+    LocalModelArtifactLoadGuard,
+    ResolvedModelArtifactIdentity,
+    capture_local_model_artifact_load_guard,
+    external_auto_map_repositories,
+    resolve_model_artifact_identity,
+    validate_local_model_artifact_load_guard,
+)
 from .descriptor import ResolvedModelDescriptor, resolve_model_descriptor
 from .registry import build_model_meta
+from .training_identity import model_training_semantic_fingerprint
 from .types import (
     ModelMeta,
     ShaftModelAdapter,
@@ -47,8 +56,13 @@ class ResolvedModelPlan:
     descriptor: ResolvedModelDescriptor | None
     model_adapter: ShaftModelAdapter
     revision: str | None
+    resolved_revision: str | None
     cache_dir: str | None
     local_files_only: bool
+    trust_remote_code: bool
+    require_immutable_artifact: bool
+    artifact_identity: ResolvedModelArtifactIdentity
+    model_training_semantic_fingerprint: str
     adapter_init: ResolvedAdapterInit | None = None
 
     def __post_init__(self) -> None:
@@ -57,30 +71,62 @@ class ResolvedModelPlan:
         if not self.configured_model_name_or_path or not self.effective_model_name_or_path:
             raise ValueError("Resolved model paths must not be empty.")
         if self.model_adapter.model_meta is not self.model_meta:
-            raise ValueError("Resolved model adapter and model metadata do not share a truth source.")
+            raise ValueError(
+                "Resolved model adapter and model metadata do not share a truth source."
+            )
         if self.model_adapter.model_name_or_path != self.effective_model_name_or_path:
             raise ValueError("Resolved model adapter does not target the effective load artifact.")
         if (self.init_kind == "adapter") != (self.adapter_init is not None):
             raise ValueError("Resolved adapter init must exist exactly for adapter plans.")
+        if (
+            self.artifact_identity.resolved_revision is not None
+            and self.resolved_revision != self.artifact_identity.resolved_revision
+        ):
+            raise ValueError("Resolved model revision differs from the artifact identity.")
+        implementation_fingerprint = self.model_training_semantic_fingerprint
+        if len(implementation_fingerprint) != 64 or any(
+            character not in "0123456789abcdef" for character in implementation_fingerprint
+        ):
+            raise ValueError(
+                "Resolved model training semantic fingerprint must be a lowercase SHA-256 digest."
+            )
 
     @property
     def fingerprint(self) -> str:
+        # Complete local HF identities are content-addressed by the relative file
+        # manifest in ``artifact_identity``. Keep configured/effective paths on the
+        # plan for loading and audit, but do not turn a byte-identical relocation
+        # into a different training trajectory. Hub and incomplete local identities
+        # remain locator-bound and fail closed.
+        content_addressed_local = bool(
+            self.artifact_identity.kind == "local_hf" and self.artifact_identity.complete
+        )
         payload = {
+            "version": "shaft-resolved-model-plan-v2",
             "model_type": self.model_meta.model_type,
-            "configured_model_name_or_path": self.configured_model_name_or_path,
-            "effective_model_name_or_path": self.effective_model_name_or_path,
+            "artifact_locator": (
+                None
+                if content_addressed_local
+                else {
+                    "configured_model_name_or_path": (self.configured_model_name_or_path),
+                    "effective_model_name_or_path": (self.effective_model_name_or_path),
+                }
+            ),
             "init_kind": self.init_kind,
             "revision": self.revision,
+            "resolved_revision": self.resolved_revision,
             "descriptor_fingerprint": (
                 None if self.descriptor is None else self.descriptor.config_fingerprint
             ),
             "group_name": self.model_adapter.group_name,
             "template_type": self.model_adapter.template_type,
+            "model_training_semantic_fingerprint": (self.model_training_semantic_fingerprint),
             "adapter_artifact_fingerprint": (
-                None
-                if self.adapter_init is None
-                else self.adapter_init.artifact_fingerprint
+                None if self.adapter_init is None else self.adapter_init.artifact_fingerprint
             ),
+            "model_artifact_fingerprint": self.artifact_identity.fingerprint,
+            "model_artifact_identity_complete": self.artifact_identity.complete,
+            "trust_remote_code": self.trust_remote_code,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -97,8 +143,7 @@ def _is_adapter_checkpoint(path: Path) -> bool:
         path.is_dir()
         and (path / "adapter_config.json").is_file()
         and (
-            (path / "adapter_model.safetensors").is_file()
-            or (path / "adapter_model.bin").is_file()
+            (path / "adapter_model.safetensors").is_file() or (path / "adapter_model.bin").is_file()
         )
     )
 
@@ -113,9 +158,7 @@ def _resolve_adapter_init(path: Path) -> ResolvedAdapterInit:
         raise TypeError(f"Adapter config must be a JSON object: {config_path}")
     base_model = str(payload.get("base_model_name_or_path") or "").strip()
     if not base_model:
-        raise ValueError(
-            f"Adapter config has no base_model_name_or_path: {config_path}."
-        )
+        raise ValueError(f"Adapter config has no base_model_name_or_path: {config_path}.")
     config_json = json.dumps(
         payload,
         ensure_ascii=False,
@@ -140,9 +183,7 @@ def _resolve_adapter_init(path: Path) -> ResolvedAdapterInit:
         "weight_manifest": weight_manifest,
     }
     artifact_fingerprint = hashlib.sha256(
-        json.dumps(artifact_payload, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
+        json.dumps(artifact_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return ResolvedAdapterInit(
         path=str(path),
@@ -168,9 +209,7 @@ def _same_artifact(left: str, right: str) -> bool:
     left_path = Path(left)
     right_path = Path(right)
     return bool(
-        left_path.exists()
-        and right_path.exists()
-        and left_path.resolve() == right_path.resolve()
+        left_path.exists() and right_path.exists() and left_path.resolve() == right_path.resolve()
     )
 
 
@@ -192,10 +231,7 @@ def _validate_adapter_base(
         revision=revision,
         cache_dir=cache_dir,
         local_files_only=local_files_only,
-        allow_remote=(
-            model_meta.uses_hf_artifacts
-            and _looks_like_hub_repo_id(declared_base)
-        ),
+        allow_remote=(model_meta.uses_hf_artifacts and _looks_like_hub_repo_id(declared_base)),
     )
     declared_adapter = model_meta.resolve_adapter(
         model_name_or_path=declared_base,
@@ -213,9 +249,7 @@ def _validate_adapter_base(
             "HF config identity cannot be proven equivalent."
         )
     if descriptor.config_fingerprint != declared_descriptor.config_fingerprint:
-        raise ValueError(
-            "Adapter base HF config differs from the configured model artifact."
-        )
+        raise ValueError("Adapter base HF config differs from the configured model artifact.")
 
 
 def _variant_type_count(model_meta: ModelMeta) -> int:
@@ -223,11 +257,7 @@ def _variant_type_count(model_meta: ModelMeta) -> int:
         str(value).strip().lower()
         for value in (
             *model_meta.hf_model_types,
-            *(
-                item
-                for group in model_meta.model_groups
-                for item in group.hf_model_types
-            ),
+            *(item for group in model_meta.model_groups for item in group.hf_model_types),
         )
         if str(value).strip()
     }
@@ -250,6 +280,7 @@ def resolve_model_plan(
     config: RuntimeConfig,
     *,
     init_from_checkpoint: str | None = None,
+    require_immutable_artifact: bool = False,
 ) -> ResolvedModelPlan:
     model_meta = build_model_meta(str(config.model.model_type).strip().lower())
     configured_path = str(config.model.model_name_or_path).strip()
@@ -276,9 +307,7 @@ def resolve_model_plan(
         allow_remote=False,
     )
     catalog_match = (
-        None
-        if descriptor is not None
-        else model_meta.get_matched_model_group(effective_path)
+        None if descriptor is not None else model_meta.get_matched_model_group(effective_path)
     )
     if (
         descriptor is None
@@ -311,6 +340,50 @@ def resolve_model_plan(
             cache_dir=config.model.cache_dir,
             local_files_only=bool(config.model.local_files_only),
         )
+    is_hub_repo = _looks_like_hub_repo_id(effective_path)
+    artifact_identity = resolve_model_artifact_identity(
+        effective_path,
+        model_type=model_meta.model_type,
+        uses_hf_artifacts=model_meta.uses_hf_artifacts,
+        trust_remote_code=bool(config.model.trust_remote_code),
+        requested_revision=config.model.revision,
+        resolved_commit_hash=(None if descriptor is None else descriptor.commit_hash),
+        is_hub_repo=is_hub_repo,
+        require_immutable_local=bool(require_immutable_artifact),
+        external_remote_code_repositories=(
+            ()
+            if descriptor is None
+            else external_auto_map_repositories(
+                json.loads(descriptor.config_json),
+                model_repo_id=effective_path,
+            )
+        ),
+    )
+    if (
+        bool(require_immutable_artifact)
+        and artifact_identity.kind == "local_hf"
+        and artifact_identity.complete
+    ):
+        stable_descriptor = resolve_model_descriptor(
+            effective_path,
+            revision=config.model.revision,
+            cache_dir=config.model.cache_dir,
+            local_files_only=bool(config.model.local_files_only),
+            allow_remote=False,
+        )
+        if descriptor is None or stable_descriptor is None:
+            raise ValueError(
+                "Exact checkpoint save/resume requires a valid local HF config descriptor."
+            )
+        if stable_descriptor.config_fingerprint != descriptor.config_fingerprint:
+            raise RuntimeError(
+                "Local HF config changed while the resolved model plan was being constructed."
+            )
+    resolved_revision = (
+        artifact_identity.resolved_revision
+        if artifact_identity.resolved_revision is not None
+        else config.model.revision
+    )
     return ResolvedModelPlan(
         configured_model_name_or_path=configured_path,
         effective_model_name_or_path=effective_path,
@@ -320,7 +393,80 @@ def resolve_model_plan(
         descriptor=descriptor,
         model_adapter=model_adapter,
         revision=config.model.revision,
+        resolved_revision=resolved_revision,
         cache_dir=config.model.cache_dir,
         local_files_only=bool(config.model.local_files_only),
+        trust_remote_code=bool(config.model.trust_remote_code),
+        require_immutable_artifact=bool(require_immutable_artifact),
+        artifact_identity=artifact_identity,
+        model_training_semantic_fingerprint=(model_training_semantic_fingerprint(model_adapter)),
         adapter_init=adapter_init,
     )
+
+
+def validate_model_artifact_checkpointability(
+    plan: ResolvedModelPlan,
+    *,
+    save_strategy: str,
+    resume_requested: bool,
+) -> None:
+    """Fail before data/model loading when base bytes are not immutable."""
+
+    checkpointing_requested = str(save_strategy).strip().lower() != "no" or bool(resume_requested)
+    if checkpointing_requested and not plan.artifact_identity.complete:
+        raise ValueError(
+            "Exact checkpoint save/resume requires an immutable base-model "
+            "artifact identity: "
+            f"{list(plan.artifact_identity.incomplete_reasons)}. Use a local HF "
+            "directory with complete weight files or a Hub revision that resolves "
+            "to an immutable commit SHA; otherwise set train.save_strategy='no'."
+        )
+
+
+def prepare_resolved_model_artifact_load(
+    plan: ResolvedModelPlan,
+) -> LocalModelArtifactLoadGuard | None:
+    """Open a cheap metadata guard for one local HF loader invocation."""
+
+    if plan.artifact_identity.kind != "local_hf" or not plan.artifact_identity.complete:
+        return None
+    return capture_local_model_artifact_load_guard(
+        plan.artifact_identity,
+        root=Path(plan.effective_model_name_or_path),
+        trust_remote_code=plan.trust_remote_code,
+    )
+
+
+def validate_resolved_model_artifact(
+    plan: ResolvedModelPlan,
+    *,
+    load_guard: LocalModelArtifactLoadGuard | None = None,
+) -> None:
+    """Verify current local bytes, optionally closing an HF loader window."""
+
+    if plan.artifact_identity.kind != "local_hf" or not plan.artifact_identity.complete:
+        if load_guard is not None:
+            raise ValueError("A local artifact load guard cannot validate a non-local plan.")
+        return
+    if load_guard is not None:
+        validate_local_model_artifact_load_guard(
+            plan.artifact_identity,
+            load_guard,
+            root=Path(plan.effective_model_name_or_path),
+            trust_remote_code=plan.trust_remote_code,
+        )
+    current = resolve_model_artifact_identity(
+        plan.effective_model_name_or_path,
+        model_type=plan.model_meta.model_type,
+        uses_hf_artifacts=plan.model_meta.uses_hf_artifacts,
+        trust_remote_code=plan.trust_remote_code,
+        requested_revision=plan.revision,
+        resolved_commit_hash=None,
+        is_hub_repo=False,
+        require_immutable_local=True,
+        external_remote_code_repositories=(),
+    )
+    if current.fingerprint != plan.artifact_identity.fingerprint:
+        raise ValueError(
+            "Base-model weights or local model code changed after ResolvedModelPlan construction."
+        )

@@ -44,6 +44,8 @@ def prepare_tiny_qwen35_training_assets(
     *,
     processor_source: Path,
     moe: bool = False,
+    attention_implementation: str = "flash_attention_2",
+    layer_types: tuple[str, ...] = ("linear_attention", "full_attention"),
 ) -> tuple[Path, Path]:
     model_dir = root / ("tiny-qwen35-moe" if moe else "tiny-qwen35-dense")
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +61,7 @@ def prepare_tiny_qwen35_training_assets(
         "linear_num_key_heads": 2,
         "linear_num_value_heads": 4,
         "linear_conv_kernel_dim": 4,
-        "layer_types": ["linear_attention", "full_attention"],
+        "layer_types": list(layer_types),
         "max_position_embeddings": 512,
         "rope_parameters": {
             "rope_type": "default",
@@ -68,7 +70,7 @@ def prepare_tiny_qwen35_training_assets(
             "mrope_interleaved": True,
         },
         "use_cache": False,
-        "_attn_implementation": "flash_attention_2",
+        "_attn_implementation": str(attention_implementation),
     }
     if moe:
         text_config.update(
@@ -98,14 +100,14 @@ def prepare_tiny_qwen35_training_assets(
             "temporal_patch_size": 2,
             "out_hidden_size": 64,
             "num_position_embeddings": 256,
-            "_attn_implementation": "flash_attention_2",
+            "_attn_implementation": str(attention_implementation),
         },
         image_token_id=248056,
         video_token_id=248057,
         vision_start_token_id=248053,
         vision_end_token_id=248054,
     )
-    config._attn_implementation = "flash_attention_2"
+    config._attn_implementation = str(attention_implementation)
     model_cls(config).save_pretrained(model_dir)
     processor = AutoProcessor.from_pretrained(
         processor_source,
@@ -131,6 +133,9 @@ def write_qwen_training_gate_config(
     resume_from_checkpoint: Path | None = None,
     init_from_checkpoint: Path | None = None,
     finetune_mode: str = "full",
+    use_cpu: bool = False,
+    attention_implementation: str = "flash_attention_2",
+    torch_dtype: str = "bfloat16",
 ) -> Path:
     grouping = "length" if layout == "varlen" else "none"
     planning_lines = (
@@ -178,8 +183,8 @@ model:
   model_name_or_path: {model_dir}
   trust_remote_code: false
   local_files_only: true
-  attn_implementation: flash_attention_2
-  torch_dtype: bfloat16
+  attn_implementation: {attention_implementation}
+  torch_dtype: {torch_dtype}
   finetune:
 {finetune_lines}algorithm:
   name: sft
@@ -201,10 +206,10 @@ data:
     mixing: concat
     shuffle: true
   media_snapshot_id: qwen-training-release-gate-v1
-  num_workers: 1
-  prefetch_factor: 2
-  pin_memory: true
-  persistent_workers: true
+  num_workers: {0 if use_cpu else 1}
+  prefetch_factor: {2 if not use_cpu else 'null'}
+  pin_memory: {str(not use_cpu).lower()}
+  persistent_workers: {str(not use_cpu).lower()}
   min_pixels: 65536
   max_pixels: 65536
   max_length: 256
@@ -222,13 +227,18 @@ train:
   scheduler_name: cosine
   loss_name: auto
   loss_scale: default
-  bf16: true
+  bf16: {str(torch_dtype == "bfloat16").lower()}
+  use_cpu: {str(use_cpu).lower()}
   logging_steps: 1
   save_strategy: {save_strategy}
 {save_lines}  load_best_model_at_end: false
   save_final_model: true
   save_final_state: true
   ddp_find_unused_parameters: false
+  distributed:
+    strategy: ddp
+    ddp:
+      static_graph: true
   report_to: [none]
   efficiency:
     enabled: true

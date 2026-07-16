@@ -43,6 +43,27 @@ def test_build_hf_training_args_exposes_full_determinism(tmp_path: Path) -> None
     assert args.full_determinism is True
 
 
+def test_build_hf_training_args_exposes_ddp_static_graph(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.ddp.static_graph = True
+
+    args = build_hf_training_args(config)
+
+    assert args.ddp_static_graph is True
+
+
+def test_build_hf_training_args_uses_experiment_seed_for_trainer_and_data(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.experiment.seed = 29
+
+    args = build_hf_training_args(config)
+
+    assert args.seed == 29
+    assert args.data_seed == 29
+
+
 def test_initialize_training_randomness_dispatches_full_determinism() -> None:
     with patch(
         "shaft.training.reproducibility.enable_full_determinism"
@@ -329,6 +350,20 @@ def test_build_hf_training_args_supports_fsdp_strategy(tmp_path: Path) -> None:
     ]
     assert args.fsdp_config["activation_checkpointing"] is True
     assert args.fsdp_config["state_dict_type"] == "full_state_dict"
+
+
+def test_build_hf_training_args_defensively_rejects_fsdp_flat_parameters(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.distributed.strategy = "fsdp"
+    config.train.distributed.fsdp.use_orig_params = False
+
+    with pytest.raises(
+        ValueError,
+        match=r"FSDP.*use_orig_params=true.*FlatParameter",
+    ):
+        build_hf_training_args(config)
 
 
 def test_fsdp_activation_checkpointing_disables_trainer_gradient_checkpointing(

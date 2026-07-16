@@ -67,6 +67,12 @@ def _build_fsdp_args(
         return None, None
 
     fsdp_cfg = distributed.fsdp
+    if not bool(fsdp_cfg.use_orig_params):
+        raise ValueError(
+            "Shaft FSDP currently requires "
+            "train.distributed.fsdp.use_orig_params=true because the resolved "
+            "optimizer plan does not implement FSDP FlatParameter remapping."
+        )
     fsdp_config: dict[str, Any] = {
         "version": 2,
         "activation_checkpointing": bool(fsdp_cfg.activation_checkpointing),
@@ -180,6 +186,8 @@ def build_hf_training_args(
         bf16=use_bf16,
         use_cpu=bool(train_cfg.use_cpu),
         full_determinism=bool(train_cfg.full_determinism),
+        seed=int(config.experiment.seed),
+        data_seed=int(config.experiment.seed),
         logging_steps=int(train_cfg.logging_steps),
         save_strategy=str(train_cfg.save_strategy),
         save_steps=int(train_cfg.save_steps),
@@ -190,6 +198,7 @@ def build_hf_training_args(
         metric_for_best_model=str(eval_cfg.metric_for_best_model),
         greater_is_better=bool(eval_cfg.greater_is_better),
         ddp_find_unused_parameters=bool(train_cfg.ddp_find_unused_parameters),
+        ddp_static_graph=bool(train_cfg.distributed.ddp.static_graph),
         fsdp=fsdp,
         fsdp_config=fsdp_config,
         deepspeed=deepspeed,

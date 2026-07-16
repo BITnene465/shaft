@@ -147,6 +147,11 @@ def test_data_center_builds_sft_dataset_pair(tmp_path: Path) -> None:
     assert dataset_bundle.train_execution_fingerprint != (
         dataset_bundle.train_sampler.plan.fingerprint
     )
+    assert dataset_bundle.train_execution_contract_complete is False
+    assert any(
+        reason.startswith("unversioned_online_transform")
+        for reason in dataset_bundle.train_execution_incomplete_reasons
+    )
 
 
 def test_train_stream_fingerprint_is_stable_across_fixed_and_planned_grouping(
@@ -185,6 +190,8 @@ def test_train_stream_fingerprint_is_stable_across_fixed_and_planned_grouping(
         train_sample_budget=2,
     ).build_dataset_bundle(SFTDataset)
 
+    assert fixed.train_execution_contract_complete is True
+    assert planned.train_execution_contract_complete is True
     assert fixed.train_execution_fingerprint != planned.train_execution_fingerprint
     assert fixed.train_stream_fingerprint == planned.train_stream_fingerprint
 

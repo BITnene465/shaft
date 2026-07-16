@@ -21,6 +21,8 @@ data:
       source_type: jsonl_ppo
       train_path: train.jsonl
       val_path: val.jsonl
+eval:
+  enabled: false
 """
     config_path = write_config_yaml(tmp_path, payload)
 
@@ -32,6 +34,8 @@ def test_rlhf_numeric_validation_raises(tmp_path: Path) -> None:
     payload = """
 algorithm:
   name: ppo
+train:
+  save_strategy: no
 data:
   datasets:
     - dataset_name: ds1
@@ -48,6 +52,26 @@ rlhf:
         load_config(config_path)
 
 
+def test_ppo_rejects_periodic_checkpoint_strategy_during_normalize(
+    tmp_path: Path,
+) -> None:
+    payload = """
+algorithm:
+  name: ppo
+train:
+  save_strategy: steps
+data:
+  datasets:
+    - dataset_name: ds1
+      source_type: jsonl_ppo
+      train_path: train.jsonl
+      val_path: val.jsonl
+"""
+
+    with pytest.raises(ValueError, match="does not publish resumable training checkpoints"):
+        load_config(write_config_yaml(tmp_path, payload))
+
+
 def test_load_config_supports_grpo_reward_config(tmp_path: Path) -> None:
     payload = """
 algorithm:
@@ -58,6 +82,8 @@ data:
       source_type: jsonl_sft
       train_path: train.jsonl
       val_path: val.jsonl
+eval:
+  enabled: false
 rlhf:
   enabled: true
   grpo:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import json
+from pathlib import Path
 import random
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,17 +10,34 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
-from transformers.trainer_callback import PrinterCallback
+from accelerate.data_loader import BatchSamplerShard, DataLoaderShard, skip_first_batches
+from torch.utils.data import BatchSampler
+from transformers import PreTrainedConfig, PreTrainedModel
+from transformers.trainer_callback import PrinterCallback, TrainerCallback
 from transformers.trainer_callback import TrainerControl, TrainerState
 from transformers.trainer_utils import IntervalStrategy, SaveStrategy
 
 from shaft.config.training import EvalConfig, EvalDatasetPolicyConfig
-from shaft.data import SFTDataset, SFTRecord, ShaftSamplePlan, ShaftSampleSampler
+from shaft.data import (
+    SFTDataset,
+    SFTRecord,
+    ShaftCollatedBatchStats,
+    ShaftSamplePlan,
+    ShaftSampleRef,
+    ShaftSampleSampler,
+)
 from shaft.training import ShaftEpochIntervalCallback
+from shaft.training.checkpointing import (
+    ShaftCheckpointProtocol,
+    resolve_resume_checkpoint,
+    validate_training_checkpoint_commit,
+)
 from shaft.training.efficiency import ShaftTrainingEfficiencyCallback
+from shaft.training.efficiency import ShaftTrainingEfficiencyMonitor
 from shaft.training.online_eval import ShaftOnlineEvalRunner
 from shaft.training.optimizer_plan import build_resolved_optimizer_plan
 from shaft.training.sft_trainer import ShaftSFTTrainer
+from shaft.training.train_sampler_mixin import ShaftTrainSamplerMixin
 from tests.support.training import StaticOnlineEvalRunner
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
@@ -25,6 +45,18 @@ from tests.support.training import capture_trainer_logs, eval_loop_output
 
 
 pytestmark = pytest.mark.component
+
+
+def test_sampler_resume_step_reader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint-2"
+    checkpoint.mkdir()
+    (checkpoint / "trainer_state.json").write_text(
+        '{"global_step": 2, "global_step": 2}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Cannot read trainer global_step"):
+        ShaftTrainSamplerMixin._checkpoint_global_step(checkpoint)
 
 
 class _TaggedEvalCollator:
@@ -44,6 +76,305 @@ class _TaggedEvalCollator:
                 dtype=torch.long,
             ),
         }
+
+
+class _TinyCheckpointConfig(PreTrainedConfig):
+    model_type = "shaft_tiny_checkpoint"
+
+    def __init__(self, vocab_size: int = 16, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.vocab_size = int(vocab_size)
+
+
+class _TinyCheckpointModel(PreTrainedModel):
+    config_class = _TinyCheckpointConfig
+
+    def __init__(self, config: _TinyCheckpointConfig) -> None:
+        super().__init__(config)
+        self.emb = torch.nn.Embedding(config.vocab_size, 8)
+        self.fc = torch.nn.Linear(8, config.vocab_size)
+        self.post_init()
+
+    def forward(self, input_ids=None, labels=None, **kwargs):
+        _ = labels, kwargs
+        hidden = self.emb(input_ids)
+        return SimpleNamespace(logits=self.fc(hidden))
+
+
+def test_fixed_sft_commits_after_efficiency_on_save_and_is_resolvable(
+    tmp_path,
+) -> None:
+    class _LateTelemetryCallback(TrainerCallback):
+        def on_save(self, args, state, control, **kwargs):
+            _ = kwargs
+            checkpoint = Path(args.output_dir) / f"checkpoint-{int(state.global_step)}"
+            (checkpoint / "late_telemetry.json").write_text(
+                json.dumps({"global_step": int(state.global_step)}),
+                encoding="utf-8",
+            )
+            return control
+
+    monitor = ShaftTrainingEfficiencyMonitor(
+        output_dir=tmp_path,
+        device_timing=False,
+    )
+    stats = ShaftCollatedBatchStats(
+        logical_segments=1,
+        physical_packs=1,
+        useful_tokens=3,
+        materialized_tokens=3,
+        supervised_tokens=2,
+        weighted_supervision_mass=2.0,
+        sequence_length_sum=3,
+        sequence_length_square_sum=9,
+        vision_patches=None,
+    )
+
+    def collate(rows):
+        return {
+            "input_ids": torch.tensor([row["input_ids"] for row in rows]),
+            "labels": torch.tensor([row["labels"] for row in rows]),
+            "_shaft_batch_stats": stats,
+        }
+
+    trainer = ShaftSFTTrainer(
+        model=_TinyCheckpointModel(_TinyCheckpointConfig()),
+        args=build_training_args(
+            output_dir=tmp_path,
+            max_steps=1,
+            save_strategy="steps",
+            save_steps=1,
+            save_total_limit=1,
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=[{"input_ids": [1, 2, 3], "labels": [1, 2, 3]}],
+        data_collator=collate,
+        efficiency_monitor=monitor,
+        callbacks=[ShaftTrainingEfficiencyCallback(monitor)],
+    )
+    trainer.add_callback(_LateTelemetryCallback())
+
+    trainer.train()
+
+    checkpoint = tmp_path / "checkpoint-1"
+    manifest = validate_training_checkpoint_commit(checkpoint)
+    assert "shaft_training_efficiency_checkpoint_transaction.json" in manifest["artifacts"]
+    assert "shaft_training_efficiency_rank0.json" in manifest["artifacts"]
+    assert "late_telemetry.json" in manifest["artifacts"]
+    assert resolve_resume_checkpoint(
+        checkpoint,
+        protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+    ) == str(checkpoint)
+
+
+def _assert_nested_state_equal(expected, actual) -> None:
+    if isinstance(expected, torch.Tensor):
+        assert isinstance(actual, torch.Tensor)
+        assert torch.equal(expected, actual)
+        return
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        assert expected.keys() == actual.keys()
+        for key in expected:
+            _assert_nested_state_equal(expected[key], actual[key])
+        return
+    if isinstance(expected, (list, tuple)):
+        assert isinstance(actual, type(expected))
+        assert len(expected) == len(actual)
+        for expected_item, actual_item in zip(expected, actual, strict=True):
+            _assert_nested_state_equal(expected_item, actual_item)
+        return
+    assert expected == actual
+
+
+def test_fixed_sft_checkpoint_actual_resume_matches_uninterrupted_step_two(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(31)
+    initial_model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    initial_state = deepcopy(initial_model.state_dict())
+    rows = [{"input_ids": [1, 2, 3], "labels": [1, 2, 3]}]
+
+    def collate(batch):
+        return {
+            "input_ids": torch.tensor([row["input_ids"] for row in batch]),
+            "labels": torch.tensor([row["labels"] for row in batch]),
+        }
+
+    uninterrupted_model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    uninterrupted_model.load_state_dict(initial_state)
+    uninterrupted = ShaftSFTTrainer(
+        model=uninterrupted_model,
+        args=build_training_args(
+            output_dir=tmp_path / "uninterrupted",
+            max_steps=2,
+            save_strategy="steps",
+            save_steps=1,
+            save_total_limit=2,
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=rows,
+        data_collator=collate,
+    )
+    uninterrupted.train()
+
+    checkpoint_one = tmp_path / "uninterrupted" / "checkpoint-1"
+    resolved_checkpoint = resolve_resume_checkpoint(
+        checkpoint_one,
+        protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+    )
+    expected_model_state = deepcopy(uninterrupted.model.state_dict())
+    expected_optimizer_state = deepcopy(uninterrupted.optimizer.state_dict())
+    expected_scheduler_state = deepcopy(uninterrupted.lr_scheduler.state_dict())
+
+    resumed_model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    resumed = ShaftSFTTrainer(
+        model=resumed_model,
+        args=build_training_args(
+            output_dir=tmp_path / "resumed",
+            max_steps=2,
+            save_strategy="no",
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+        ),
+        train_dataset=rows,
+        data_collator=collate,
+    )
+    resumed.train(resume_from_checkpoint=resolved_checkpoint)
+
+    assert resumed.state.global_step == 2
+    _assert_nested_state_equal(expected_model_state, resumed.model.state_dict())
+    _assert_nested_state_equal(expected_optimizer_state, resumed.optimizer.state_dict())
+    _assert_nested_state_equal(expected_scheduler_state, resumed.lr_scheduler.state_dict())
+
+
+def test_fixed_sft_epoch_checkpoint_actual_resume_preserves_cycle_and_state(
+    tmp_path: Path,
+) -> None:
+    class _CycleAwareDataset:
+        def __init__(self) -> None:
+            self.seen: list[tuple[int, int, int]] = []
+
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, ref: ShaftSampleRef) -> dict[str, list[int]]:
+            assert isinstance(ref, ShaftSampleRef)
+            self.seen.append(
+                (
+                    ref.context.plan_cycle,
+                    ref.context.draw_id,
+                    ref.row_index,
+                )
+            )
+            token = 1 + int(ref.context.transform_seed % 14)
+            return {"input_ids": [token], "labels": [token]}
+
+    def _collate(rows):
+        return {
+            "input_ids": torch.tensor(
+                [row["input_ids"] for row in rows],
+                dtype=torch.long,
+            ),
+            "labels": torch.tensor(
+                [row["labels"] for row in rows],
+                dtype=torch.long,
+            ),
+        }
+
+    def _rng_snapshot():
+        numpy_state = np.random.get_state()
+        return (
+            random.getstate(),
+            (
+                numpy_state[0],
+                numpy_state[1].copy(),
+                numpy_state[2],
+                numpy_state[3],
+                numpy_state[4],
+            ),
+            torch.get_rng_state().clone(),
+        )
+
+    plan = ShaftSamplePlan(
+        {"a": 2},
+        {"a": 1.0},
+        strategy="concat",
+        shuffle=True,
+        seed=73,
+    )
+    torch.manual_seed(31)
+    initial_model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    initial_state = deepcopy(initial_model.state_dict())
+    uninterrupted_dataset = _CycleAwareDataset()
+    uninterrupted_model = _TinyCheckpointModel(_TinyCheckpointConfig())
+    uninterrupted_model.load_state_dict(initial_state)
+    uninterrupted = ShaftSFTTrainer(
+        model=uninterrupted_model,
+        args=build_training_args(
+            output_dir=tmp_path / "epoch-uninterrupted",
+            num_train_epochs=2,
+            save_strategy="steps",
+            save_steps=1,
+            save_total_limit=4,
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+            seed=73,
+            data_seed=73,
+        ),
+        train_dataset=uninterrupted_dataset,
+        train_sampler=ShaftSampleSampler(plan, rank=0, world_size=1),
+        data_collator=_collate,
+    )
+    uninterrupted.train()
+
+    checkpoint_one = tmp_path / "epoch-uninterrupted" / "checkpoint-1"
+    resolved_checkpoint = resolve_resume_checkpoint(
+        checkpoint_one,
+        protocol=ShaftCheckpointProtocol.COMMITTED_MANIFEST,
+    )
+    expected_model_state = deepcopy(uninterrupted.model.state_dict())
+    expected_optimizer_state = deepcopy(uninterrupted.optimizer.state_dict())
+    expected_scheduler_state = deepcopy(uninterrupted.lr_scheduler.state_dict())
+    expected_rng_state = _rng_snapshot()
+    resumed_dataset = _CycleAwareDataset()
+    resumed = ShaftSFTTrainer(
+        model=_TinyCheckpointModel(_TinyCheckpointConfig()),
+        args=build_training_args(
+            output_dir=tmp_path / "epoch-resumed",
+            num_train_epochs=2,
+            save_strategy="no",
+            logging_strategy="no",
+            disable_tqdm=True,
+            remove_unused_columns=False,
+            seed=73,
+            data_seed=73,
+        ),
+        train_dataset=resumed_dataset,
+        train_sampler=ShaftSampleSampler(plan, rank=0, world_size=1),
+        data_collator=_collate,
+    )
+    resumed.train(resume_from_checkpoint=resolved_checkpoint)
+    actual_rng_state = _rng_snapshot()
+
+    assert uninterrupted.state.global_step == resumed.state.global_step == 4
+    assert [cycle for cycle, _, _ in uninterrupted_dataset.seen] == [0, 0, 1, 1]
+    assert [cycle for cycle, _, _ in resumed_dataset.seen] == [0, 1, 1]
+    assert [draw_id for _, draw_id, _ in resumed_dataset.seen] == [1, 2, 3]
+    _assert_nested_state_equal(expected_model_state, resumed.model.state_dict())
+    _assert_nested_state_equal(expected_optimizer_state, resumed.optimizer.state_dict())
+    _assert_nested_state_equal(expected_scheduler_state, resumed.lr_scheduler.state_dict())
+    assert expected_rng_state[0] == actual_rng_state[0]
+    assert expected_rng_state[1][0] == actual_rng_state[1][0]
+    assert np.array_equal(expected_rng_state[1][1], actual_rng_state[1][1])
+    assert expected_rng_state[1][2:] == actual_rng_state[1][2:]
+    assert torch.equal(expected_rng_state[2], actual_rng_state[2])
 
 
 def test_efficiency_cuda_lifecycle_is_wired_around_trainer_and_optimizer() -> None:
@@ -497,9 +828,70 @@ def test_shaft_trainer_uses_custom_train_sampler() -> None:
         data_collator=lambda batch: batch,
     )
 
-    train_dataloader = trainer.get_train_dataloader()
+    observed_even_batches = []
+    prepare = trainer.accelerator.prepare
+
+    def capture_prepare(*args, **kwargs):
+        observed_even_batches.append(trainer.accelerator.even_batches)
+        return prepare(*args, **kwargs)
+
+    with patch.object(trainer.accelerator, "prepare", side_effect=capture_prepare):
+        train_dataloader = trainer.get_train_dataloader()
     assert trainer._get_train_sampler(train_dataset) is sampler
     assert train_dataloader.batch_sampler.sampler is sampler
+    assert observed_even_batches == [False]
+    assert trainer.accelerator.even_batches is True
+
+
+def test_train_sampler_mixin_sets_plan_cycle_before_hf_wraps_resumed_loader() -> None:
+    plan = ShaftSamplePlan(
+        {"a": 8},
+        {"a": 1.0},
+        strategy="concat",
+        shuffle=True,
+        seed=3,
+    )
+    sampler = ShaftSampleSampler(plan, rank=0, world_size=1)
+
+    class _RefDataset:
+        def __len__(self):
+            return len(plan)
+
+        def __getitem__(self, ref):
+            return ref
+
+    rank_zero_batches = BatchSamplerShard(
+        BatchSampler(sampler, batch_size=2, drop_last=False),
+        num_processes=2,
+        process_index=0,
+        split_batches=False,
+        even_batches=False,
+    )
+    train_dataloader = DataLoaderShard(
+        _RefDataset(),
+        batch_sampler=rank_zero_batches,
+        collate_fn=lambda rows: rows,
+    )
+
+    class _HFRunEpochProbe:
+        def _run_epoch(self, model, epoch, train_dataloader, *args, **kwargs):
+            _ = model, args, kwargs
+            # Match the HF 5.10 resume order that caused the regression: wrap the
+            # distributed loader first, then call set_epoch on the extra wrapper.
+            resumed = skip_first_batches(train_dataloader, 1)
+            resumed.set_epoch(epoch)
+            return tuple(ref for batch in resumed for ref in batch)
+
+    class _TrainerProbe(ShaftTrainSamplerMixin, _HFRunEpochProbe):
+        pass
+
+    trainer = object.__new__(_TrainerProbe)
+    trainer.train_sampler = sampler
+
+    refs = trainer._run_epoch(None, 2, train_dataloader)
+
+    assert {ref.context.plan_cycle for ref in refs} == {2}
+    assert [ref.context.draw_id for ref in refs] == [20, 21]
 
 
 def test_shaft_trainer_rejects_pre_sharded_train_sampler() -> None:
