@@ -48,6 +48,43 @@ task families.
   second local coordinate frame. These datasets are train-only and do not create task-local crop
   images. Selection manifests choose rows only: shape/line attributes come from `gt_standard`,
   while image bbox and reviewed `image_type` come from raw JSON.
+- Active v5.3 context reconstruction uses `shape_context_reconstruction`,
+  `line_context_reconstruction`, and `image_context_reconstruction`. Build all three with
+  `scripts/tasks/build_context_reconstruction_sft.py`. The v5.2 region structured manifests are
+  selection-only inputs; shape/line truth is reloaded from `gt_standard`, and image bbox/type is
+  reloaded from raw reviewed JSON. Each selected instance gets one deterministic contextual crop
+  and an approximate `prompt_args.proposal_bbox_2d`; prompt bbox and target geometry share the
+  crop-local Qwen integer `0..999` frame, and target geometry may extend outside the proposal.
+  Proposal center/scale/edge noise uses clean/accurate/moderate/hard `10/50/30/10%`; four-side
+  padding uses tight/medium/large/extreme `20/50/25/5%`. The crop must cover the full visible bbox
+  and explicit geometry, keep aspect ratio `<=60`, preserve multi-segment line structure, exclude
+  the raw VLM test manifest from real-image training, and publish from same-filesystem staging.
+  Every synthetic shape/line crop uses `synthetic_realism_v1`: one to three deterministic,
+  size-preserving resample/blur/noise/JPEG operations, with tiny targets `<80/999` limited to one
+  mild operation. Real image crops keep `profile=none`. Each task publishes a task-local
+  `selection/train.jsonl` snapshot so a later rebuild does not depend on a historical derived
+  region directory; the snapshot carries source identity only and is never a target truth source.
+  The formal 2026-07-16 snapshot contains shape/line/image `269904/300000/21184` train rows with
+  empty validation files and task-local PNG media.
+- Active v5.3 line point-subset geometry uses `line_context_points`, built explicitly with
+  `scripts/tasks/build_context_reconstruction_sft.py --tasks line_context_points`. Its selection
+  truth is `data/archive2/point_arrow/structured/train.jsonl`: use `extra.source_bbox` and preserve
+  `extra.source_linestrip` order, but do not reuse the historical tight crop or old keypoints SFT
+  target. Recover one clean source bitmap per `extra.source_json` from the matching
+  `view_type=full_image` row in `data/archive2/grounding_layout/structured/train.jsonl`, then apply
+  the current v5.3 proposal/context-crop contract. Normalize source `arrow` to model-facing `line`.
+  The exact target subset is only `is_single + points`; never invent missing style, color, dash,
+  border, or arrow-endpoint attributes. Exclude current test-manifest source IDs, keep archived val
+  out of train, and publish train-only structured/SFT data with an empty val split. The same task
+  may add the maintained capped synthetic multi-segment supplement described below; this does not
+  turn the derived selection snapshot into target truth.
+- Real weak shape attributes use `shape_context_attributes` as a separate v5.3 context task.
+  The versioned API weak-label sidecar lives under `data/raw/weak_labels/` rather than being
+  silently merged into human raw JSON. Crop/proposal generation reuses v5.3 four-side padding and
+  detector proposal noise, while the target contains only shape type, border, fill, effect, and
+  optional callout body type. No geometry fields are allowed. Because the weak sidecar is target
+  truth for this auxiliary task, the published selection snapshot preserves both parameters and
+  API provenance; this is the explicit exception to source-identity-only reconstruction snapshots.
 - Rebuild synthetic shape/line reconstruction data with
   `scripts/tasks/build_reconstruction_from_gt_standard.py`. Sampling is deterministic. The current
   on-disk v5.0-re `balanced_v2` snapshot keeps all ten non-head shape types, stratifies the
@@ -149,6 +186,16 @@ task families.
   fixed. Do not apply pixel augmentation or jitter row doubling unless explicitly requested.
 - When filtering SFT rows, create a timestamped `.bak_*`, report counts, and verify no matching
   rows remain.
+- A field-subset task may combine independently traceable sources when they share the exact same
+  model-facing schema and input contract. For `line_context_points`, archived real rows provide
+  single-path `is_single + points` truth; synthetic balancing rows must be reloaded from
+  `gt_standard` and admitted only when `is_single` is false and `points` contains multiple path
+  segments. Do not add synthetic single-path rows merely to increase volume. Keep source-specific
+  pixel policy: archived real crops stay clean, while synthetic crops always use the maintained
+  synthetic realism profile. Cap the balancing source instead of forcing task-local 1:1 balance;
+  the maintained v5.3 profile selects 15,000 rows with equal quotas for 2/3/4-segment truth.
+  Segment-count stratification is row selection only: do not create resolution-stratified or
+  multi-scale duplicate views for this task.
 
 ## Validation
 

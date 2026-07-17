@@ -161,15 +161,15 @@ uv run python scripts/tasks/build_grounding_structured.py \
   --train-split data/raw/splits/grounding_layout.train.txt \
   --val-split data/raw/splits/grounding_layout.val.txt \
   --task grounding_layout \
-  --workers 50 \
+  --workers 8 \
   --clean
 ```
 
 默认多尺度约束：
-- 目标像素在 `200704..4000000` 内按 log 空间连续采样，最终宽高按 `32` 对齐
+- 目标像素在 `200704..2000000` 内按 log 空间连续采样，最终宽高按 `32` 对齐
 - 离线线性放大不超过 `2x`，同源尺度像素量至少相差 `1.35x`
 - clean resize、padding、degraded resize、density crop、hard negative 的目标比例分别约为
-  `2.9x / 0.1x / 1.2x / 0.25x / 0.03x`
+  `0.9x / 0.1x / 0.75x / 0.15x / 0.03x`
 - padding 为非对称随机偏移；退化只使用单一 Gaussian blur 或 Gaussian noise
 - validation/test 只保留 native clean full-image
 
@@ -190,7 +190,7 @@ uv run python scripts/tasks/build_grounding_structured.py \
 uv run python scripts/tasks/build_grounding_layout_sync_structured.py \
   --dataset-root data/regulated_layout_dataset_v8_20260709 \
   --output-root data/grounding_layout_sync \
-  --workers 50 \
+  --workers 8 \
   --clean
 ```
 
@@ -214,7 +214,9 @@ uv run python scripts/tasks/build_sft_from_structured.py \
   --data-root data \
   --task grounding_layout \
   --task grounding_layout_sync \
-  --workers 50 \
+  --prompt-config grounding_layout=configs/prompts/pools/grounding_layout.v5.3.yaml \
+  --prompt-config grounding_layout_sync=configs/prompts/pools/grounding_layout.v5.3.yaml \
+  --workers 8 \
   --clean
 ```
 
@@ -224,8 +226,10 @@ uv run python scripts/tasks/build_sft_from_structured.py \
 - canonical order 为
   `row_bucket(y1,20) -> x1 -> y1 -> -area -> x2 -> y2 -> label`
 - `system_prompt` 和 `user_prompt` 保持为空；训练时由 prompt pool 注入
-- `grounding_layout` 与 `grounding_layout_sync` 都使用
-  `configs/prompts/pools/grounding_layout.v5.0.yaml`
+- 默认保持向后兼容的 tracked `grounding_layout.v5.0`；v5.3 重建必须通过
+  `--prompt-config TASK=PATH` 显式选择本地 prompt pool。v5.3 prompt 文件按当前配置策略保持 ignored，
+  tracked 测试使用临时最小 fixture，不依赖工作区本地配置。
+- 所有 prompt 和 structured split 会在 `--clean` 删除旧 SFT 之前完成预检。
 
 `convert_grounding_structured_to_sft.py` 和
 `convert_grounding_structured_to_sft_row_major.py` 仅用于历史数据复现，不能用于当前 v5.1 数据重建。
@@ -262,8 +266,9 @@ uv run python scripts/tasks/build_region_reconstruction_sft.py \
   reviewed JSON 读取属性与几何真值
 - 为每个实例生成一个确定性的宽松 contextual crop，并以近似一阶段
   `prompt_args.proposal_bbox_2d` 指定目标
-- 生成 `shape_context_reconstruction`、`line_context_reconstruction` 和
-  `image_context_reconstruction` 的 task-local PNG、structured/SFT、README 与 build summary
+- 生成 `shape_context_reconstruction`、`line_context_reconstruction`、
+  `image_context_reconstruction`、真实弱监督 `shape_context_attributes`，以及归档真实线点子任务
+  `line_context_points` 的 task-local PNG、structured/SFT、README 与 build summary
 
 正式构建命令：
 
@@ -275,15 +280,58 @@ uv run python scripts/tasks/build_context_reconstruction_sft.py \
   --clean
 ```
 
+只重建真实 shape 属性辅助任务：
+
+```bash
+uv run python scripts/tasks/build_context_reconstruction_sft.py \
+  --tasks shape_context_attributes \
+  --shape-attribute-max-rectangle-fraction 0.5 \
+  --workers 8 \
+  --clean
+```
+
+从归档 point-arrow selection 与归档 grounding clean full-image 恢复 line 点几何子任务：
+
+```bash
+uv run python scripts/tasks/build_context_reconstruction_sft.py \
+  --tasks line_context_points \
+  --workers 8 \
+  --chunksize 8 \
+  --clean
+```
+
 关键行为：
 - proposal center/scale/edge noise 与四边独立 context padding 分开采样；crop 始终覆盖完整可见 bbox
   和显式 shape/line 几何
 - proposal bbox 与 target 几何共享当前 crop-local Qwen 整数 `0..999` 坐标，proposal 不建立第二个
   bbox-local target frame
 - 保留 line 的多 segment/forked 结构，shape 只消费 source `label=shape`，不加入 icon/image-as-other
+- shape/line 每张合成 crop 默认使用 `synthetic_realism_v1`：确定性选择 1–3 个 resize round-trip、
+  Gaussian blur/noise、JPEG 扰动并允许叠加；极小 target `<80/999` 只使用 mild 单扰动
+- 所有像素扰动严格保持 crop 宽高、坐标和 target 不变；真实 image crop 不做合成扰动
+- 每个 task 写入自包含的 `selection/train.jsonl`，后续重建只从中恢复 source identity，target 仍回查
+  `gt_standard` / raw reviewed JSON
+- `shape_context_attributes` 是显式例外：输入来自版本化 API weak-label sidecar，selection snapshot
+  保留属性和模型 provenance；target 只含 shape type/border/fill/effect，不含任何控制点或 geometry
+- weak-label sidecar 与 SFT builder 都执行 exact nested-key schema gate；不允许 `border.color2`、
+  `border.fill`、`fill.effect` 等 prompt 合同之外的字段进入 `target_text`
+- 属性任务默认保留全部非矩形，并按 border/fill/effect strata 确定性下采样矩形，使矩形最多占最终数据的
+  50%；`--shape-attribute-max-rectangle-fraction` 可显式调整该上限
+- `line_context_points` 不复用历史 tight crop：真实单叉从归档 point selection 读取 source bbox 与有序
+  `source_linestrip`，再通过归档 grounding `view_type=full_image` 行恢复 clean 原图；为补齐分叉监督，
+  同一任务还从 `line_context_reconstruction` selection 对应的 `gt_standard` 真值中只筛
+  `is_single=false` 且 `points` 含多个 segment 的合成线。两类 source 都重新生成 v5.3
+  proposal/context crop；target 严格只有 `is_single + points`，合成单叉不会进入该任务，也不得补造
+  样式、颜色或箭头端点属性
+- 合成多叉默认由 `--line-point-synthetic-limit 15000` 封顶，并按2/3/4 segment确定性等额抽样各5,000
+  条；这里的分层只作用于结构选样，不生成分层 resize 或多尺度副本，每个入选实例仍只有一张crop
+- `line_context_points` 中真实 crop 保持 clean；合成多叉 crop 强制使用 `synthetic_realism_v1`，不能因其
+  与归档真实数据共处一个 task 而跳过像素域扰动
+- 归档 point train 中与当前 test manifest 重叠的 source 整体排除；归档 val 不提升为 train；历史
+  `arrow` 只在 source provenance 中保留，model-facing label 始终规范化为 `line`
 - real image 训练排除 `data/raw/splits/vlm.test.json`；validation 明确为空
 - 先写同盘 staging，task 完整成功后原子发布；发布根目录权限固定为 `0755`
-- 默认最大 crop aspect ratio 为 `60`，PNG 保留原 crop 像素，训练时再由配置的 Qwen pixel budget 处理
+- 默认最大 crop aspect ratio 为 `60`；PNG 尺寸保持原 crop 尺寸，训练时再由配置的 Qwen pixel budget 处理
 
 
 ## 4. 维护规则

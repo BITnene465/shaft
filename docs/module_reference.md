@@ -79,6 +79,7 @@
 - `src/shaft/data/sampler.py`
 - `src/shaft/data/transforms.py`
 - `src/shaft/data/registry.py`
+- `src/shaft/data/context_attribute_contract.py`
 
 ### 职能
 
@@ -87,6 +88,8 @@
 - 提供 horizon-independent draw schedule 及有限长度 HF Dataset adapter。
 - 按需估算 processor/template 后成本，并在有界 buffer 内形成 fixed 或 token-budget cost-grouped batches。
 - 产出 Dataset、sampler 和 collator；不承载 optimizer 或训练循环。
+- 为离线真实属性弱标注提供 exact-key shape attribute 合同校验；本地/API handoff gate 与仓库内 SFT
+  builder 共用同一真源，防止嵌套额外字段进入监督目标；本地 API caller 不属于仓库正式入口。
 
 ### 关键类
 
@@ -165,6 +168,20 @@
   `SequenceExecutionPolicy`，不回流到 sampler 或通用 collator。
 - 合成 reconstruction 数据的离线真源仍是 `gt_standard`；数据构建脚本与训练 batching 相互独立，不得把
   任务字段语义放入 planner。
+- v5.3 contextual reconstruction 由 `scripts/tasks/build_context_reconstruction_sft.py` 离线生成；
+  v5.2 region manifest 只选择实例，proposal/crop 审计信息留在 derived `extra`，训练主链只消费标准
+  `jsonl_sft`、动态 `prompt_args` 和 task prompt pool，不解释 proposal 或几何字段语义。
+- 真实 API 弱监督 shape 属性使用独立 `shape_context_attributes` dataset/task；它复用 v5.3 contextual
+  crop/proposal 输入合同，但 target 有意省略 geometry，不能并入完整 `shape_context_reconstruction`。
+- line 点监督使用独立 `line_context_points` dataset/task；它同样复用 v5.3 contextual crop/proposal
+  输入合同，但 target 只允许完整 line DSL 的 `is_single + points` 子集。真实单叉的 source bbox 与有序
+  linestrip 来自归档 point structured，clean full-image 通过归档 grounding manifest 恢复；合成补充
+  数据只从 `gt_standard` 选择 `is_single=false` 且有多个 segment 的分叉线，按segment数量确定性封顶
+  抽样，并使用 `synthetic_realism_v1`。该抽样不创建resize/multi-scale副本。训练主链仍只消费标准
+  `jsonl_sft`，不得在 collator 中解释 source provenance、混入合成单叉或补造缺失 line 属性。
+- synthetic shape/line 的 `synthetic_realism_v1` 也只属于离线 data builder：每条 crop 必须有1–3个
+  尺寸不变的像素扰动，参数写入 `extra.pixel_augmentation`；训练、pipeline 和 collator 不重复推导该策略。
+  task-local `selection/train.jsonl` 只保存源实例身份，属性与几何真值仍回查 source truth。
 
 ### 开发边界
 

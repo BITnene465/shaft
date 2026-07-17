@@ -41,6 +41,21 @@ def test_qwen_bbox_and_point_helpers_share_the_same_scale() -> None:
     )
 
 
+def test_qwen_bbox_can_enforce_minimum_extent_at_both_edges() -> None:
+    assert quantize_qwen_bbox(
+        [1, 1, 2, 2],
+        width=10_000,
+        height=10_000,
+        minimum_extent_bins=1,
+    ) == [0, 0, 1, 1]
+    assert quantize_qwen_bbox(
+        [9998, 9998, 9999, 9999],
+        width=10_000,
+        height=10_000,
+        minimum_extent_bins=1,
+    ) == [998, 998, 999, 999]
+
+
 def test_qwen_decode_accepts_legacy_1000_as_edge_alias() -> None:
     assert maybe_qwen_coordinate_payload([0, 1000])
     assert dequantize_qwen_coordinate(1000, size=1200) == pytest.approx(1199.0)

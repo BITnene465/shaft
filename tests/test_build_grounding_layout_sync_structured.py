@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
+import pytest
 
 
 def _load_module():
@@ -50,12 +51,14 @@ def test_builds_train_only_clean_full_image_rows(tmp_path: Path) -> None:
     output_root = tmp_path / "grounding_layout_sync"
     _write_source(source_root, "train_001")
     _write_source(source_root, "val_001")
-    (source_root / "train.txt").write_text("train_001\n", encoding="utf-8")
+    split_file = source_root / "custom-train.txt"
+    split_file.write_text("train_001\n", encoding="utf-8")
     (source_root / "val.txt").write_text("val_001\n", encoding="utf-8")
 
     summary = module.build_dataset(
         dataset_root=source_root,
         output_root=output_root,
+        split_file=split_file,
         workers=1,
         clean=True,
     )
@@ -89,4 +92,25 @@ def test_builds_train_only_clean_full_image_rows(tmp_path: Path) -> None:
     referenced_image = (output_root / "structured" / row["image_path"]).resolve()
     assert referenced_image == (source_root / "img" / "train_001.png").resolve()
     assert (output_root / "structured" / "val.jsonl").read_text() == ""
-    assert "no resize, crop, blur, noise, padding" in (output_root / "README.md").read_text()
+    readme = (output_root / "README.md").read_text()
+    assert "no resize, crop, blur, noise, padding" in readme
+    assert "custom-train.txt" in readme
+
+
+def test_rejects_overlapping_input_and_output_before_clean(tmp_path: Path) -> None:
+    module = _load_module()
+    source_root = tmp_path / "regulated"
+    _write_source(source_root, "train_001")
+    (source_root / "train.txt").write_text("train_001\n", encoding="utf-8")
+    sentinel = source_root / "sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must be disjoint"):
+        module.build_dataset(
+            dataset_root=source_root,
+            output_root=source_root,
+            workers=1,
+            clean=True,
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
