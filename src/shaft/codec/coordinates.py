@@ -88,16 +88,32 @@ def quantize_qwen_bbox(
     width: int,
     height: int,
     num_bins: int = QWEN_COORD_NUM_BINS,
+    minimum_extent_bins: int = 0,
 ) -> list[int]:
     if len(bbox) != 4:
         raise ValueError(f"Expected a 4D bbox, got {bbox!r}.")
+    max_index = qwen_coordinate_max(num_bins)
+    if not 0 <= int(minimum_extent_bins) <= max_index:
+        raise ValueError(
+            f"minimum_extent_bins must be between 0 and {max_index}, "
+            f"got {minimum_extent_bins!r}."
+        )
     x1, y1, x2, y2 = [float(value) for value in bbox]
-    return [
+    result = [
         quantize_qwen_coordinate(x1, size=width, num_bins=num_bins),
         quantize_qwen_coordinate(y1, size=height, num_bins=num_bins),
         quantize_qwen_coordinate(x2, size=width, num_bins=num_bins),
         quantize_qwen_coordinate(y2, size=height, num_bins=num_bins),
     ]
+    for start, stop in ((0, 2), (1, 3)):
+        missing = int(minimum_extent_bins) - (result[stop] - result[start])
+        if missing <= 0:
+            continue
+        grow_right = min(missing, max_index - result[stop])
+        result[stop] += grow_right
+        missing -= grow_right
+        result[start] = max(0, result[start] - missing)
+    return result
 
 
 def dequantize_qwen_bbox(

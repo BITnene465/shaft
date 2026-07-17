@@ -7,6 +7,8 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 
 def _load_module():
     script_path = Path("scripts/tasks/build_grounding_structured.py").resolve()
@@ -44,6 +46,48 @@ def test_read_split_accepts_vlm_json_manifest(tmp_path: Path) -> None:
         "json/sample_b.json",
         "part1/json/custom.json",
     ]
+
+
+def test_train_val_overlap_fails_before_cleaning_task_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    raw_root = tmp_path / "raw"
+    (raw_root / "json").mkdir(parents=True)
+    (raw_root / "json/sample.json").write_text("{}\n", encoding="utf-8")
+    train_split = tmp_path / "train.txt"
+    val_split = tmp_path / "val.txt"
+    train_split.write_text("json/sample.json\n", encoding="utf-8")
+    val_split.write_text("json/sample.json\n", encoding="utf-8")
+    output_root = tmp_path / "output"
+    task_root = output_root / "grounding_layout"
+    task_root.mkdir(parents=True)
+    sentinel = task_root / "sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_grounding_structured.py",
+            "--raw-root",
+            str(raw_root),
+            "--output-root",
+            str(output_root),
+            "--train-split",
+            str(train_split),
+            "--val-split",
+            str(val_split),
+            "--task",
+            "grounding_layout",
+            "--clean",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Train/val source overlap"):
+        module.main()
+
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
 
 
 def test_build_grounding_layout_supports_unified_raw_and_new_augments(tmp_path: Path) -> None:
@@ -220,6 +264,74 @@ def test_scaled_instances_clamp_floating_point_edges_to_canvas() -> None:
     )
 
     assert scaled == [{"label": "shape", "bbox": [0.0, 0.0, 1312.0, 192.0]}]
+
+
+def test_padding_downscales_content_to_fit_lower_pixel_budget() -> None:
+    module = _load_module()
+
+    from PIL import Image
+
+    image = Image.new("RGB", (3000, 1500), "white")
+    padded, augmentation, content_box = module._make_asymmetric_padded_image(
+        image,
+        module.random.Random(42),
+        min_ratio=0.2,
+        max_ratio=0.2,
+        factor=32,
+        max_pixels=2_000_000,
+    )
+
+    assert padded.width % 32 == 0
+    assert padded.height % 32 == 0
+    assert padded.width * padded.height <= 2_000_000
+    assert augmentation["content_resize"]["input_size"] == [3000, 1500]
+    content_width = content_box[2] - content_box[0]
+    content_height = content_box[3] - content_box[1]
+    assert augmentation["content_resize"]["output_size"] == [content_width, content_height]
+    assert content_width < image.width
+    assert content_height < image.height
+
+    instances = [
+        module.SourceInstance(index=0, label="shape", bbox=(0.0, 0.0, 3000.0, 1500.0)),
+    ]
+    scaled = module._scale_instances(
+        instances,
+        scale_x=content_width / image.width,
+        scale_y=content_height / image.height,
+        max_x=padded.width,
+        max_y=padded.height,
+        offset_x=content_box[0],
+        offset_y=content_box[1],
+    )
+
+    assert [round(value, 6) for value in scaled[0]["bbox"]] == list(content_box)
+    padded.close()
+    image.close()
+
+
+def test_padding_preserves_unaligned_content_when_budget_allows_native_size() -> None:
+    module = _load_module()
+
+    from PIL import Image
+
+    image = Image.new("RGB", (301, 157), "white")
+    padded, augmentation, content_box = module._make_asymmetric_padded_image(
+        image,
+        module.random.Random(42),
+        min_ratio=0.2,
+        max_ratio=0.2,
+        factor=32,
+        max_pixels=1_000_000,
+    )
+    content = padded.crop(content_box)
+    try:
+        assert content.size == image.size
+        assert content.tobytes() == image.tobytes()
+        assert "content_resize" not in augmentation
+    finally:
+        content.close()
+        padded.close()
+        image.close()
 
 
 def test_negative_crop_only_requires_gt_disjoint() -> None:

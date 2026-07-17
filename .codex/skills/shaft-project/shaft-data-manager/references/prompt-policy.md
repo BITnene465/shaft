@@ -5,7 +5,7 @@ small, task-scoped, and model-output-oriented.
 
 ## Current Prompt Files
 
-Active v5.0 training/eval prompt pools:
+Historical v5.0 training/eval prompt pools:
 
 - `configs/prompts/pools/grounding_layout.v5.0.yaml`
 - `configs/prompts/pools/point_line.v5.0.yaml`
@@ -16,6 +16,44 @@ Active business reconstruction prompt pools:
 - `configs/prompts/pools/line_region_reconstruction.v5.2.yaml`
 - `configs/prompts/pools/image_region_reconstruction.v5.2.yaml`
 - `configs/prompts/pools/background.v5.0.yaml`
+
+Active v5.3 training prompt pools:
+
+- `configs/prompts/pools/grounding_layout.v5.3.yaml`
+- `configs/prompts/pools/shape_context_reconstruction.v5.3.yaml`
+- `configs/prompts/pools/shape_context_attributes.v5.3.yaml`
+- `configs/prompts/pools/line_context_reconstruction.v5.3.yaml`
+- `configs/prompts/pools/line_context_points.v5.3.yaml`
+- `configs/prompts/pools/image_context_reconstruction.v5.3.yaml`
+
+The three context reconstruction pools use dynamic `proposal_bbox_2d` in crop-local Qwen `0..999`
+coordinates. The proposal is an approximate first-stage condition, not GT and not a bbox-local
+output frame. Their formal contextual-crop datasets were generated and validated on 2026-07-16.
+
+`shape_context_attributes` is a separate real-domain API weak-label task. It uses the same
+contextual crop and approximate `proposal_bbox_2d` input contract, but target parameters contain
+only shape type, border, fill, effect, and optional callout body type. It must never emit corners,
+body/tail geometry, bbox, or points. Its omission of geometry is task semantics, not a partial or
+malformed `shape_context_reconstruction` target.
+
+`line_context_points` is a separate geometry subset task combining archived-real single paths
+with a capped synthetic multi-segment supplement. It uses the same v5.3 contextual crop and
+approximate `proposal_bbox_2d` contract, but its exact target is only
+`{"type":"line","parameters":{"is_single":...,"points":[...]}}`. It must not ask for or emit
+style, arrow endpoint, dash, color, border, confidence, or bbox fields outside the subset contract.
+Preserve source segment order and point order.
+For directional arrows, the archived contract is explicitly tail-to-arrowhead; every prompt
+variant must state that order because this subset omits separate begin/end arrow fields.
+
+The v5.3 grounding pool keeps the existing labels/schema but makes the line instance contract
+explicit: one connected multi-segment, forked, branched, or multi-way connector is one `line`
+instance with one bbox covering the complete connected structure. Only disconnected line objects
+use separate bboxes.
+
+These v5.3 prompt pools are local run assets and remain ignored under the repository's current
+config policy. Maintained builders may use their conventional paths as local defaults, but tracked
+tests must provide minimal temporary prompt fixtures and must not assume those files exist in a
+clean checkout.
 
 The v5.0 `shape_reconstruction`, `line_reconstruction`, and `image_reconstruction` pools are
 historical crop-task contracts. Active v5.2 reconstruction training uses the region task names.
@@ -71,12 +109,21 @@ detection labels live in the unified `grounding_layout` task.
   prompt bbox and every model-facing shape/line geometry field use the same Qwen integer `0..999`
   coordinate space normalized against the full input image. Do not normalize target geometry
   against the selected bbox.
+- Context reconstruction consumes a bounded contextual crop and a dynamic
+  `proposal_bbox_2d` prompt argument. The proposal may be imprecise. It and all shape/line target
+  geometry use the same Qwen integer `0..999` space normalized against the current crop; output
+  geometry may extend outside the proposal. Prompts must tell the model to follow visual evidence,
+  select the intended target, and not copy the proposal rectangle as geometry.
 - Line reconstruction prompts should follow the current PDF line DSL and the project extension
   for endpoint markers: `tee` for T-bar inhibition endpoints and `circle` for circular endpoint
   markers. `points` follows `gt_standard`: it is a list of one or more center-path segments,
   for example `[[[x1,y1],[x2,y2]]]` for a single line and multiple inner lists for forked or
   multi-branch lines. The line reconstruction model output should not include `bbox`; bbox is
   provided by crop metadata.
+- For the `line_context_points` field-subset task, prompts must support both one-path and connected
+  multi-segment targets without implying that multiple independent objects belong in one answer.
+  A single directional arrow keeps tail-to-arrowhead order; a connected branched target keeps each
+  visible branch in a separate path segment. The target remains exactly `is_single + points`.
 - Image reconstruction prompts currently use only the PDF `image_type` field and return
   `{"type":"image","parameters":{"image_type":"photo|screenshot|chart|table|diagram|document|other"}}`.
   Do not add `clip_shape`, `border`, `effect`, or corner fields until those fields are explicitly

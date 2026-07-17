@@ -45,6 +45,22 @@ Recommended stages:
    - Store them on the same arrow instance as `linestrip`; if keypoint prediction fails, keep the
      arrow bbox and record the stage error.
 
+For real-domain reconstruction attributes without trusted geometry, keep prelabeling as an
+explicit local/API handoff workflow instead of asking the teacher model to invent control points.
+The repository-owned builder consumes only a reviewed, versioned weak-label sidecar:
+
+- `shape_context_attributes` keeps shape type, border, fill, effect, and optional callout body
+  type, but omits corners, body geometry, and tail geometry.
+- `line_context_attributes` keeps line/style/topology/color fields but omits points. One continuous
+  polyline remains `is_single=true`; only forked/multi-branch targets are false. Branched targets
+  omit global begin/end markers because no unique endpoint pair exists.
+- Both tasks use one clean image-first crop per call plus crop-local `proposal_bbox_2d`. They are
+  independent auxiliary tasks and must not be mixed into full reconstruction targets that require
+  geometry.
+- Current raw bbox annotations are selection truth. New API outputs remain under `temp/` until
+  review; only a versioned sidecar explicitly accepted for auxiliary training may be promoted to
+  `data/raw/weak_labels/`.
+
 ## Output Schema
 
 Prelabel JSON can be richer than derived training rows, but should stay easy to import into raw:
@@ -113,3 +129,23 @@ After the run, report:
 
 Keep `summary.json` in the task directory for handoff. For large batches, use conservative
 parallelism, normally 8 workers unless the user asks otherwise.
+
+## Context Attribute API Gate
+
+- Resolve available Bedrock inference profiles before starting. Listing a foundation model does
+  not prove its on-demand or regional profile is callable.
+- The 2026-07-16 maintained pilot uses `au.anthropic.claude-sonnet-5`; this model rejects the old
+  `temperature` request field, so the maintained caller omits it.
+- Do not move misplaced fields, synthesize missing colors, or fill omitted style fields in the
+  parser. Invalid responses stay rejected and may be retried with `--retry-from`.
+- Handoff output separates `manifest.jsonl`, `schema_valid.jsonl`, and `rejected.jsonl`, and
+  provides a full crop/JSON/color-swatch review page. Schema-valid does not mean human-reviewed.
+- Schema-valid must enforce exact nested key sets, not only required values. API extras outside the
+  prompt contract remain rejected and must never be copied into SFT `target_text`.
+- Large shape-only runs may use a local bulk caller with Opus 4.8. Send independent image blocks
+  before one batch prompt; do not downscale them into a sheet. The validated batch size is 8.
+  API-label crops use four independently sampled padding ratios with the same v5.3
+  tight/medium/large/extreme `20/50/25/5%` policy. The resulting `weak_labels.jsonl` may be promoted
+  to `data/raw/weak_labels/` only when the user explicitly accepts API noise for an auxiliary task.
+  Local callers under ignored work directories are operational tools, not repository APIs and
+  must not be imported by tracked tests.

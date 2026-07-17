@@ -37,6 +37,26 @@ def _write_selection(
         handle.write(json.dumps(row) + "\n")
 
 
+def _write_prompt(path: Path, *, task: str) -> None:
+    path.write_text(
+        f"""
+metadata:
+  id: shaft.{task}.prompt_pool.v5.2
+  version: v5.2
+  task: {task}
+arguments:
+  bbox_2d:
+    type: bbox_2d_0_999
+prompts:
+  - id: main
+    system_prompt: JSON only.
+    user_prompt_template: "Target {{{{ bbox_2d | json }}}}."
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _run_builder(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "scripts/tasks/build_region_reconstruction_sft.py", *args],
@@ -139,6 +159,10 @@ def test_builds_full_image_bbox_conditioned_region_tasks(tmp_path: Path) -> None
         source_image="images/prod.png",
         instance_index=0,
     )
+    prompt_root = tmp_path / "prompts"
+    prompt_root.mkdir()
+    for task in ("shape_region_reconstruction", "line_region_reconstruction", "image_region_reconstruction"):
+        _write_prompt(prompt_root / f"{task}.yaml", task=task)
     output_root = tmp_path / "output"
     _run_builder(
         "--synthetic-root",
@@ -153,6 +177,12 @@ def test_builds_full_image_bbox_conditioned_region_tasks(tmp_path: Path) -> None
         str(selections / "line.jsonl"),
         "--image-selection",
         str(selections / "image.jsonl"),
+        "--shape-prompt-pool",
+        str(prompt_root / "shape_region_reconstruction.yaml"),
+        "--line-prompt-pool",
+        str(prompt_root / "line_region_reconstruction.yaml"),
+        "--image-prompt-pool",
+        str(prompt_root / "image_region_reconstruction.yaml"),
         "--workers",
         "1",
         "--clean",
@@ -243,6 +273,8 @@ def test_same_basename_sources_are_built_independently(tmp_path: Path) -> None:
         ]
 
     output_root = tmp_path / "output"
+    prompt = tmp_path / "line.yaml"
+    _write_prompt(prompt, task="line_region_reconstruction")
     _run_builder(
         "--synthetic-root",
         str(synthetic_root),
@@ -250,6 +282,8 @@ def test_same_basename_sources_are_built_independently(tmp_path: Path) -> None:
         str(output_root),
         "--line-selection",
         str(selections),
+        "--line-prompt-pool",
+        str(prompt),
         "--tasks",
         "line_region_reconstruction",
         "--workers",
@@ -304,6 +338,8 @@ def test_worker_failure_keeps_previous_outputs_and_rejects_invalid_segments(
     )
 
     output_root = tmp_path / "output"
+    prompt = tmp_path / "line.yaml"
+    _write_prompt(prompt, task="line_region_reconstruction")
     task_root = output_root / "line_region_reconstruction"
     for kind in ("structured", "sft"):
         (task_root / kind).mkdir(parents=True, exist_ok=True)
@@ -316,6 +352,8 @@ def test_worker_failure_keeps_previous_outputs_and_rejects_invalid_segments(
         str(output_root),
         "--line-selection",
         str(selection_path),
+        "--line-prompt-pool",
+        str(prompt),
         "--tasks",
         "line_region_reconstruction",
         "--workers",

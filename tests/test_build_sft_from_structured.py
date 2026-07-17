@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _load_module():
     script_path = Path("scripts/tasks/build_sft_from_structured.py").resolve()
@@ -73,6 +75,8 @@ def test_build_output_row_uses_qwen_grounding_schema(tmp_path: Path) -> None:
         "row_bucket_size_2d": 20,
         "order": ("row_bucket", "x1", "y1", "-area", "x2", "y2", "label"),
         "tie_break": "qwen_bbox_2d",
+        "dedupe": "stable_label_bbox_2d",
+        "minimum_extent_bins": 1,
     }
 
 
@@ -101,6 +105,74 @@ def test_grounding_canonical_order_uses_y1_bucket_and_area_tie() -> None:
         {"bbox_2d": [20, 100, 120, 180], "label": "icon"},
         {"bbox_2d": [5, 121, 50, 160], "label": "image"},
     ]
+
+
+def test_grounding_target_deduplicates_quantized_boxes_and_preserves_extent() -> None:
+    module = _load_module()
+
+    target, sort_policy = module._build_grounding_target(
+        [
+            {"label": "shape", "bbox": [100, 100, 200, 200]},
+            {"label": "shape", "bbox": [101, 101, 199, 199]},
+            {"label": "line", "bbox": [500, 500, 501, 900]},
+            {"label": "line", "bbox": [9998, 100, 9999, 200]},
+        ],
+        image_width=10_000,
+        image_height=10_000,
+        num_bins=1000,
+    )
+
+    assert target == [
+        {"bbox_2d": [10, 10, 20, 20], "label": "shape"},
+        {"bbox_2d": [998, 10, 999, 20], "label": "line"},
+        {"bbox_2d": [50, 50, 51, 90], "label": "line"},
+    ]
+    assert sort_policy["dedupe"] == "stable_label_bbox_2d"
+    assert sort_policy["minimum_extent_bins"] == 1
+
+    with pytest.raises(ValueError, match="Degenerate bbox"):
+        module._build_grounding_target(
+            [{"label": "shape", "bbox": [100, 100, 100, 200]}],
+            image_width=10_000,
+            image_height=10_000,
+            num_bins=1000,
+        )
+
+
+def test_missing_prompt_override_fails_before_cleaning_existing_sft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    task_root = tmp_path / "grounding_layout"
+    structured = task_root / "structured"
+    structured.mkdir(parents=True)
+    for split in ("train", "val"):
+        (structured / f"{split}.jsonl").write_text("{}\n", encoding="utf-8")
+    sft = task_root / "sft"
+    sft.mkdir()
+    sentinel = sft / "train.jsonl"
+    sentinel.write_text("sentinel\n", encoding="utf-8")
+    missing_prompt = tmp_path / "missing-prompt.yaml"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_sft_from_structured.py",
+            "--data-root",
+            str(tmp_path),
+            "--task",
+            "grounding_layout",
+            "--prompt-config",
+            f"grounding_layout={missing_prompt}",
+            "--clean",
+        ],
+    )
+
+    with pytest.raises(FileNotFoundError, match="missing-prompt.yaml"):
+        module.main()
+
+    assert sentinel.read_text(encoding="utf-8") == "sentinel\n"
 
 
 def test_build_output_row_uses_qwen_point_line_schema(tmp_path: Path) -> None:

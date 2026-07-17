@@ -218,6 +218,42 @@ def _read_json_split(path: Path) -> list[str]:
     return entries
 
 
+def _preflight_split_contract(
+    *,
+    raw_root: Path,
+    train_split: Path,
+    val_split: Path,
+) -> None:
+    resolved_by_split: dict[str, list[Path]] = {}
+    for split_name, split_path in (("train", train_split), ("val", val_split)):
+        entries = _read_split(split_path)
+        resolved = [(raw_root / entry).resolve() for entry in entries]
+        path_counts = Counter(resolved)
+        duplicates = sorted(
+            (path for path, count in path_counts.items() if count > 1),
+            key=str,
+        )
+        if duplicates:
+            raise ValueError(
+                f"Duplicate {split_name} split sources: {[str(path) for path in duplicates[:5]]}"
+            )
+        missing = [path for path in resolved if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                f"{split_name} split has {len(missing)} missing GT JSON files; "
+                f"examples: {[str(path) for path in missing[:5]]}"
+            )
+        resolved_by_split[split_name] = resolved
+    overlap = sorted(
+        set(resolved_by_split["train"]) & set(resolved_by_split["val"]),
+        key=str,
+    )
+    if overlap:
+        raise ValueError(
+            f"Train/val source overlap: {[str(path) for path in overlap[:5]]}"
+        )
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -766,11 +802,49 @@ def _make_asymmetric_padded_image(
     factor: int,
     max_pixels: int,
 ) -> tuple[Image.Image, dict[str, Any], tuple[int, int, int, int]]:
-    width, height = image.size
+    input_width, input_height = image.size
     horizontal_ratio = rng.uniform(min_ratio, max_ratio)
     vertical_ratio = rng.uniform(min_ratio, max_ratio)
-    canvas_width = int(math.ceil(width * (1.0 + horizontal_ratio) / factor)) * factor
-    canvas_height = int(math.ceil(height * (1.0 + vertical_ratio) / factor)) * factor
+
+    def resolve_geometry(scale: float) -> tuple[int, int, int, int]:
+        if scale >= 1.0:
+            width, height = input_width, input_height
+        else:
+            width = max(factor, int(math.floor(input_width * scale / factor)) * factor)
+            height = max(factor, int(math.floor(input_height * scale / factor)) * factor)
+        canvas_width = int(math.ceil(width * (1.0 + horizontal_ratio) / factor)) * factor
+        canvas_height = int(math.ceil(height * (1.0 + vertical_ratio) / factor)) * factor
+        return width, height, canvas_width, canvas_height
+
+    width, height, canvas_width, canvas_height = resolve_geometry(1.0)
+    content_resize: dict[str, Any] | None = None
+    working = image
+    if canvas_width * canvas_height > max_pixels:
+        lower = 0.0
+        upper = 1.0
+        feasible: tuple[int, int, int, int] | None = None
+        for _ in range(48):
+            scale = (lower + upper) / 2.0
+            geometry = resolve_geometry(scale)
+            if geometry[2] * geometry[3] <= max_pixels:
+                feasible = geometry
+                lower = scale
+            else:
+                upper = scale
+        if feasible is None:
+            raise ValueError(
+                f"Cannot fit padded canvas within pixel budget: "
+                f"{(input_width, input_height)} > {max_pixels}"
+            )
+        width, height, canvas_width, canvas_height = feasible
+        working = image.resize((width, height), _resampling("LANCZOS"))
+        content_resize = {
+            "input_size": [input_width, input_height],
+            "output_size": [width, height],
+            "scale_x": width / input_width,
+            "scale_y": height / input_height,
+            "kernel": "lanczos",
+        }
     if canvas_width * canvas_height > max_pixels:
         raise ValueError(
             f"Padded canvas exceeds pixel budget: {(canvas_width, canvas_height)} > {max_pixels}"
@@ -779,9 +853,11 @@ def _make_asymmetric_padded_image(
     available_y = canvas_height - height
     offset_x = rng.randint(0, available_x)
     offset_y = rng.randint(0, available_y)
-    canvas_color = _edge_median_color(image)
+    canvas_color = _edge_median_color(working)
     padded = Image.new("RGB", (canvas_width, canvas_height), canvas_color)
-    padded.paste(image, (offset_x, offset_y))
+    padded.paste(working, (offset_x, offset_y))
+    if working is not image:
+        working.close()
     pads = {
         "left": offset_x,
         "right": available_x - offset_x,
@@ -798,6 +874,8 @@ def _make_asymmetric_padded_image(
         "canvas_color": list(canvas_color),
         "processor_factor": factor,
     }
+    if content_resize is not None:
+        augmentation["content_resize"] = content_resize
     content_box = (offset_x, offset_y, offset_x + width, offset_y + height)
     return padded, augmentation, content_box
 
@@ -1346,6 +1424,8 @@ def _build_multiscale_views(
             factor=config.processor_factor,
             max_pixels=config.max_pixels,
         )
+        padding_scale_x = (content_box[2] - content_box[0]) / base_image.width
+        padding_scale_y = (content_box[3] - content_box[1]) / base_image.height
         spatial.update(
             {
                 "base_view": base_view,
@@ -1371,8 +1451,8 @@ def _build_multiscale_views(
                 image_height=padded.height,
                 instances=_scale_instances(
                     instances,
-                    scale_x=base_scale_x,
-                    scale_y=base_scale_y,
+                    scale_x=base_scale_x * padding_scale_x,
+                    scale_y=base_scale_y * padding_scale_y,
                     max_x=padded.width,
                     max_y=padded.height,
                     offset_x=content_box[0],
@@ -2070,7 +2150,7 @@ def main() -> None:
     parser.add_argument("--train-split", required=True)
     parser.add_argument("--val-split", required=True)
     parser.add_argument("--task", action="append", choices=[task.name for task in TASKS])
-    parser.add_argument("--workers", type=int, default=40)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--augmentation-profile",
@@ -2080,16 +2160,16 @@ def main() -> None:
     parser.add_argument("--candidate-count", type=int, default=32)
     parser.add_argument("--negative-candidate-count", type=int, default=48)
     parser.add_argument("--negative-ratio", type=float, default=0.03)
-    parser.add_argument("--density-crop-ratio", type=float, default=0.25)
+    parser.add_argument("--density-crop-ratio", type=float, default=0.15)
     parser.add_argument("--blur-ratio", type=float, default=0.0)
     parser.add_argument("--padded-full-ratio", type=float, default=0.1)
     parser.add_argument("--padding-min-ratio", type=float, default=0.05)
     parser.add_argument("--padding-max-ratio", type=float, default=0.25)
     parser.add_argument("--min-pixels", type=int, default=200_704)
-    parser.add_argument("--max-pixels", type=int, default=4_000_000)
+    parser.add_argument("--max-pixels", type=int, default=2_000_000)
     parser.add_argument("--processor-factor", type=int, default=32)
-    parser.add_argument("--clean-resize-views", type=float, default=2.9)
-    parser.add_argument("--degraded-resize-ratio", type=float, default=1.2)
+    parser.add_argument("--clean-resize-views", type=float, default=0.9)
+    parser.add_argument("--degraded-resize-ratio", type=float, default=0.75)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
@@ -2097,6 +2177,8 @@ def main() -> None:
     output_root = Path(args.output_root)
     if not raw_root.exists():
         raise FileNotFoundError(raw_root)
+    if int(args.workers) <= 0:
+        raise ValueError("--workers must be > 0")
     if not 0 <= float(args.blur_ratio):
         raise ValueError("--blur-ratio must be >= 0.")
     if not 0 <= float(args.padded_full_ratio):
@@ -2126,9 +2208,28 @@ def main() -> None:
             "multi-resolution clean resize plus padded ratios must form an integer budget"
         )
 
+    train_split = Path(args.train_split)
+    val_split = Path(args.val_split)
+    _preflight_split_contract(
+        raw_root=raw_root,
+        train_split=train_split,
+        val_split=val_split,
+    )
+
     summaries: dict[str, Any] = {}
     for spec in _task_by_name(args.task):
         task_root = output_root / spec.name
+        resolved_task_root = task_root.resolve()
+        resolved_raw_root = raw_root.resolve()
+        if (
+            resolved_task_root == resolved_raw_root
+            or resolved_task_root in resolved_raw_root.parents
+            or resolved_raw_root in resolved_task_root.parents
+        ):
+            raise ValueError(
+                f"Raw and task output roots must be disjoint: "
+                f"{resolved_raw_root} vs {resolved_task_root}"
+            )
         if args.clean:
             _clean_task_output(task_root)
         else:
@@ -2182,14 +2283,14 @@ def main() -> None:
         )
         train_rows, covered_train, _ = _build_task_split(
             spec=spec,
-            split_path=Path(args.train_split),
+            split_path=train_split,
             output_path=task_root / "structured" / "train.jsonl",
             config=train_config,
             workers=int(args.workers),
         )
         val_rows, covered_val, _ = _build_task_split(
             spec=spec,
-            split_path=Path(args.val_split),
+            split_path=val_split,
             output_path=task_root / "structured" / "val.jsonl",
             config=val_config,
             workers=int(args.workers),

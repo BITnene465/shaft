@@ -200,9 +200,10 @@ def _write_readme(
     label_counts: Counter[str],
     dropped_counts: Counter[str],
     val_source_count: int,
+    split_file: Path,
 ) -> None:
     dataset_path = _display_path(config.dataset_root)
-    split_path = _display_path(config.dataset_root / "train.txt")
+    split_path = _display_path(split_file)
     content = f"""# grounding_layout_sync
 
 - Source dataset: `{dataset_path}`
@@ -211,7 +212,8 @@ def _write_readme(
 - Split: train only; `{val_source_count}` ids from `val.txt` are excluded.
 - View policy: clean full-image only; no resize, crop, blur, noise, padding, or hard negative.
 - Image policy: structured/SFT rows reference source PNGs directly; images are not copied.
-- Prompt policy: use `configs/prompts/pools/grounding_layout.v5.0.yaml` at runtime.
+- Prompt policy: selected explicitly during SFT conversion/training; structured rows do not embed
+  prompt text or silently choose a runtime pool.
 - Labels: `shape`, `icon`, `image`, and `line`; source `arrow` is normalized to `line`.
 - Background shape policy: drop synthetic shape instances covering at least 90% of the canvas.
 
@@ -231,12 +233,24 @@ def build_dataset(
     dataset_root: Path,
     output_root: Path,
     split_file: Path | None = None,
-    workers: int = 50,
+    workers: int = 8,
     max_samples: int | None = None,
     clean: bool = False,
 ) -> dict[str, Any]:
     dataset_root = dataset_root.resolve()
     output_root = output_root.resolve()
+    if (
+        dataset_root == output_root
+        or dataset_root in output_root.parents
+        or output_root in dataset_root.parents
+    ):
+        raise ValueError(
+            f"Input and output roots must be disjoint: {dataset_root} vs {output_root}"
+        )
+    if workers <= 0:
+        raise ValueError("workers must be positive")
+    if max_samples is not None and max_samples <= 0:
+        raise ValueError("max_samples must be positive")
     split_file = (split_file or dataset_root / "train.txt").resolve()
     stems = _load_split(split_file)
     if max_samples is not None:
@@ -300,6 +314,7 @@ def build_dataset(
         label_counts=label_counts,
         dropped_counts=dropped_counts,
         val_source_count=len(val_stems),
+        split_file=split_file,
     )
     return {
         "rows": row_count,
@@ -320,7 +335,7 @@ def main() -> None:
     )
     parser.add_argument("--output-root", default="data/grounding_layout_sync")
     parser.add_argument("--split-file")
-    parser.add_argument("--workers", type=int, default=50)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()

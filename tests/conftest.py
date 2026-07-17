@@ -94,6 +94,7 @@ _SUITE_FILES: dict[str, tuple[str, ...]] = {
     "gpu": ("test_flash_attn_smoke.py",),
     "task": (
         "test_build_background_sft.py",
+        "test_build_context_reconstruction_sft.py",
         "test_build_grounding_structured.py",
         "test_build_image_reconstruction_sft.py",
         "test_build_reconstruction_from_gt_standard.py",

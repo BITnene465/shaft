@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from shaft.codec.coordinates import quantize_qwen_coordinate
+from shaft.codec.coordinates import quantize_qwen_bbox, quantize_qwen_coordinate
 from shaft.prompting import load_prompt_template
 
 
@@ -132,6 +132,8 @@ def _clip_bbox(
         x1, x2 = x2, x1
     if y2 < y1:
         y1, y2 = y2, y1
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError(f"Degenerate bbox after clipping: {bbox!r}")
     return x1, y1, x2, y2
 
 
@@ -143,12 +145,14 @@ def _quantize_bbox(
     num_bins: int,
 ) -> list[int]:
     x1, y1, x2, y2 = _clip_bbox(bbox, image_width=image_width, image_height=image_height)
-    return [
-        _quantize_coord(x1, image_width, num_bins),
-        _quantize_coord(y1, image_height, num_bins),
-        _quantize_coord(x2, image_width, num_bins),
-        _quantize_coord(y2, image_height, num_bins),
-    ]
+    result = quantize_qwen_bbox(
+        [x1, y1, x2, y2],
+        width=image_width,
+        height=image_height,
+        num_bins=num_bins,
+        minimum_extent_bins=1,
+    )
+    return result
 
 
 def _prepare_grounding_instance(
@@ -208,13 +212,16 @@ def _build_grounding_target(
         prepared_instances,
         key=_grounding_sort_key,
     )
-    target = [
-        {
-            "bbox_2d": list(instance["bbox_2d"]),
-            "label": str(instance["label"]),
-        }
-        for instance in sorted_instances
-    ]
+    target: list[dict[str, Any]] = []
+    seen_targets: set[tuple[str, tuple[int, ...]]] = set()
+    for instance in sorted_instances:
+        bbox_2d = list(instance["bbox_2d"])
+        label = str(instance["label"])
+        key = (label, tuple(int(value) for value in bbox_2d))
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        target.append({"bbox_2d": bbox_2d, "label": label})
     return target, {
         "type": "row_bucket_top_area_v3",
         "coordinate_space": "bbox_2d",
@@ -222,6 +229,8 @@ def _build_grounding_target(
         "row_bucket_size_2d": GROUNDING_ROW_BUCKET_SIZE_2D,
         "order": ("row_bucket", "x1", "y1", "-area", "x2", "y2", "label"),
         "tie_break": "qwen_bbox_2d",
+        "dedupe": "stable_label_bbox_2d",
+        "minimum_extent_bins": 1,
     }
 
 
@@ -416,13 +425,14 @@ def _convert_split(
     data_root: Path,
     num_bins: int,
     workers: int,
+    prompt: PromptConfig | None = None,
 ) -> int:
     task_root = data_root / task.name
     structured_path = task_root / "structured" / f"{split}.jsonl"
     output_path = task_root / "sft" / f"{split}.jsonl"
     if not structured_path.exists():
         raise FileNotFoundError(structured_path)
-    prompt = _load_prompt_config(Path(task.prompt_config))
+    prompt = prompt or _load_prompt_config(Path(task.prompt_config))
     config = ConvertConfig(
         task=task,
         prompt=prompt,
@@ -517,17 +527,71 @@ def _task_by_name(names: list[str] | None) -> list[TaskSpec]:
     return [task_map[name] for name in names]
 
 
+def _apply_prompt_overrides(
+    tasks: list[TaskSpec],
+    values: list[str] | None,
+) -> list[TaskSpec]:
+    if not values:
+        return tasks
+    selected = {task.name for task in tasks}
+    overrides: dict[str, str] = {}
+    for value in values:
+        task_name, separator, prompt_path = value.partition("=")
+        if not separator or not task_name or not prompt_path:
+            raise ValueError(
+                f"Invalid --prompt-config {value!r}; expected TASK=/path/to/prompt.yaml"
+            )
+        if task_name not in selected:
+            raise ValueError(f"Prompt override targets an unselected task: {task_name}")
+        if task_name in overrides:
+            raise ValueError(f"Duplicate prompt override for task: {task_name}")
+        overrides[task_name] = prompt_path
+    return [
+        TaskSpec(task.name, task.kind, overrides.get(task.name, task.prompt_config))
+        for task in tasks
+    ]
+
+
+def _preflight_conversion(
+    tasks: list[TaskSpec],
+    data_root: Path,
+) -> dict[str, PromptConfig]:
+    prompts: dict[str, PromptConfig] = {}
+    for task in tasks:
+        prompts[task.name] = _load_prompt_config(Path(task.prompt_config))
+        for split in ("train", "val"):
+            structured_path = data_root / task.name / "structured" / f"{split}.jsonl"
+            if not structured_path.is_file():
+                raise FileNotFoundError(structured_path)
+    return prompts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build SFT JSONL from structured task data.")
     parser.add_argument("--data-root", default="data")
     parser.add_argument("--task", action="append", choices=[task.name for task in TASKS])
-    parser.add_argument("--workers", type=int, default=30)
+    parser.add_argument(
+        "--prompt-config",
+        action="append",
+        metavar="TASK=PATH",
+        help="Override the prompt pool for one selected task without changing repository defaults.",
+    )
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--num-bins", type=int, default=1000)
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
     tasks = _task_by_name(args.task)
+    try:
+        tasks = _apply_prompt_overrides(tasks, args.prompt_config)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.workers <= 0:
+        parser.error("workers must be positive")
+    if args.num_bins <= 1:
+        parser.error("num-bins must be greater than 1")
+    prompts = _preflight_conversion(tasks, data_root)
     if args.clean:
         _clean_outputs(tasks, data_root)
 
@@ -539,6 +603,7 @@ def main() -> None:
                 data_root=data_root,
                 num_bins=int(args.num_bins),
                 workers=int(args.workers),
+                prompt=prompts[task.name],
             )
             print(f"{task.name}/{split}: {count} row(s)")
 

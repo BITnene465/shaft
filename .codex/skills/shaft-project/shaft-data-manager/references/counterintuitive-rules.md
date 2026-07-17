@@ -109,10 +109,10 @@ those rows with the maintained multi-resolution dataset.
 The maintained `data/grounding_layout` rebuild policy is:
 
 - native clean full images: `1.0x`
-- continuous clean resize views: about `2.9x`
+- continuous clean resize views: about `0.9x`
 - random padded clean views: about `0.1x`
-- degraded resize views: about `1.2x`, with exactly one bounded Gaussian blur or noise operation
-- density crops: about `0.25x`
+- degraded resize views: about `0.75x`, with exactly one bounded Gaussian blur or noise operation
+- density crops: about `0.15x`
 - hard-negative crops: about `0.03x`
 
 These are bounded sampled views, not a Cartesian product of source images, scales, kernels, and
@@ -120,11 +120,9 @@ degradation levels.
 
 Validation and VLM test data should remain clean full-image only.
 
-Synthetic layout detection is a separate replay source named `grounding_layout_sync`. Its source
-archive already has enough rendered diversity, so keep exactly one clean full-image view from the
-source train split and control exposure through the training catalog weight. Do not run the real
-layout multiscale augmentation profile on it, do not merge its files into `grounding_layout`, and
-do not use the synthetic validation split as formal model evaluation.
+Historical v5.2 synthetic layout detection remains a separate replay source named
+`grounding_layout_sync`. Do not run the real layout multiscale augmentation profile on it or merge
+its files into `grounding_layout`. The v5.3 training mix intentionally excludes this source.
 
 ## Canonical Order Needs GT Validation
 
@@ -210,6 +208,41 @@ callout body/tail geometry, or line points against the selected bbox merely beca
 crop reconstruction used crop-local coordinates. The selected bbox identifies the object; it does
 not establish a second perceptual coordinate frame.
 
+## Context-Crop Proposal Bbox Is Still Not A Bbox-Local Coordinate Frame
+
+The active v5.3 `*_context_reconstruction` tasks receive a bounded contextual crop and identify
+the target with `prompt_args.proposal_bbox_2d`. The proposal bbox may be shifted or loose because
+it represents a simulated first-stage detection, not GT.
+
+Both the proposal bbox and every model-facing target geometry field use Qwen integer `0..999`
+coordinates normalized against the entire contextual crop. Do not normalize shape corners,
+callout body/tail geometry, or line points against the proposal bbox. The target may extend outside
+the proposal when supervision corrects detector error.
+
+Random crop padding alone does not simulate detector error. The builder must separately perturb
+the proposal center/scale/edges, keep the full visible GT geometry inside the contextual crop, and
+record proposal noise, crop box, GT coverage, and coordinate-space provenance for audit.
+Build all three tasks with `scripts/tasks/build_context_reconstruction_sft.py`; v5.2 region
+manifests select instances only, while attributes and geometry must be reloaded from source truth.
+
+## Synthetic Context Reconstruction Must Not Keep Clean Crops
+
+The active v5.3 synthetic shape/line context-reconstruction media must use
+`synthetic_realism_v1` on every crop. A record must contain one to three non-empty,
+size-preserving operations selected from resample round-trip, Gaussian blur, Gaussian noise, and
+JPEG compression. Operations may be stacked because real screenshots commonly contain several
+weak acquisition/rendering artifacts at once. The output width and height, crop box, proposal,
+target coordinates, and target DSL must remain unchanged.
+
+Tiny targets need protection rather than a clean bypass: if the crop-local target short span is
+below `80/999`, use exactly one mild operation. Real `image_context_reconstruction` crops are not
+synthetic and must keep `profile=none` unless a separate reviewed real-image policy is introduced.
+
+This is a task-specific exception to the grounding augmentation rule that keeps a native clean
+backbone and applies exactly one degradation to a selected degraded row. Do not copy the mandatory
+stacked reconstruction policy into grounding, and do not preserve a clean synthetic reconstruction
+anchor merely to make the two task families look uniform.
+
 ## Shape Attributes Follow The Editable Outer Container
 
 For shape subattribute prelabeling, classify the editable outer container or base shape, not the
@@ -259,6 +292,16 @@ transparent/no fill unless there is an independent visible fill different from t
 Do not silently turn model-generated weak labels into validation or benchmark data. They can be
 useful for beta training, but formal eval should remain on human-maintained validation/benchmark
 sources unless the user explicitly requests a weak-label eval experiment.
+
+## Schema-Valid Requires Exact Nested Keys
+
+Checking required values is not enough for weak-label promotion. Every nested training object
+must reject fields outside the prompt contract; otherwise API extras such as `border.color2` can
+pass the gate and be copied verbatim into SFT `target_text`.
+
+Run the same exact-key validator both when promoting API output and when consuming its sidecar in
+the SFT builder. Filter invalid rows before balancing classes, then cap dominant classes only in
+the derived selection so clean rare labels remain available in the maintained sidecar.
 
 ## Small Datasets Can Cap Interleave Sampling
 

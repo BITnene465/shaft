@@ -68,3 +68,69 @@
 - 安全豁免、能力声明、checkpoint/provenance override 等布尔边界必须使用 exact-bool 校验，禁止用
   `bool(value)` 解释外部输入。
 - 最终候选必须在 clean runner 上通过 required CI；本机全绿不能替代远端门禁。
+
+## 2026-07-17：v5.3 context reconstruction 与派生数据安全收口
+
+### 现象
+
+- v5.3 需要从既有 selection 恢复 shape/line/image 上下文重建样本，同时模拟有界 detector proposal
+  偏差，并让 proposal 与 target geometry 共用当前 crop 的 Qwen `0..999` 坐标系。
+- 真实 shape attribute weak label 中曾出现 prompt 合同外的嵌套字段；只检查 required value 会把
+  `border.color2` 等 teacher extra 原样带入监督目标。
+- grounding padding 在原图尺寸未按 processor factor 对齐、但又无需降采样时，metadata 使用了 floor
+  后的 content size，实际像素却保持原尺寸，导致图像与 bbox 错位。现有 v5.3 派生数据中约576条
+  padded row 命中该分支。
+- 部分 task 测试曾导入 ignored `subTasks/` 脚本或依赖本地 ignored prompt pool；开发机可通过，clean
+  checkout 无法复现。若 converter 在加载 prompt 前执行 `--clean`，缺文件还会先删除旧 SFT。
+
+### 根因
+
+- selection identity、source truth、weak-label truth 和 derived audit metadata 的边界此前没有统一到一个
+  fail-closed builder 合同。
+- padding 的 factor 对齐同时改变了声明 content geometry，却只在超预算分支执行真实 resize。
+- prompt 版本通过脚本默认值静默切换，输入/split/path 校验发生在 destructive clean 之后。
+- bbox minimum extent 最初由 task 脚本手工修补，未复用共享 coordinate codec。
+
+### 影响范围
+
+- raw 图片和人工 JSON 未被本轮代码修改；错位影响只在可重建的 grounding derived PNG/structured/SFT。
+  受影响 padded rows 在继续训练前必须 clean rebuild，不能沿用旧派生结果。
+- `image_context_reconstruction` 当前 selection 还有75个 source JSON 不在现行 `data/raw/json`，影响447行。
+  builder 会明确失败并保留旧输出；这是本地数据版本可重建性问题，不允许静默回退 archive 真值。
+- weak labels 只用于 train-only 辅助任务，不成为正式 eval truth。
+
+### 修复方式
+
+- 新增维护入口 `scripts/tasks/build_context_reconstruction_sft.py`：按 source 分组解码，重载 source truth，
+  生成确定性 context crop/proposal、task-local media/selection/structured/SFT，并通过同盘 staging 原子发布。
+- 新增共享 `shaft.data.context_attribute_contract.validate_shape_parameters`；weak sidecar consumer 执行 exact
+  nested-key 与 API provenance gate，拒绝空 selection、非正 `--limit` 和缺少 provenance 的 weak rows。
+- padding 仅在实际超预算时调整 content size并执行 resize；原生预算可容纳时保持原图像素和 bbox 尺寸。
+- SFT converter 恢复 tracked v5.0 默认值，v5.3 使用显式 `--prompt-config TASK=PATH`；prompt 和全部
+  structured split 在 `--clean` 前预检。v5.3 prompt pools继续按项目策略保持 local/ignored。
+- grounding builder 在 clean 前检查 train/val overlap、缺失 GT、workers 和 raw/output path；synthetic sync
+  builder拒绝输入输出路径重叠并记录真实 split provenance。
+- `quantize_qwen_bbox` 增加可选 `minimum_extent_bins`，grounding/context bbox 使用共享1-bin最小尺寸；像素级
+  zero-area bbox直接拒绝，量化碰撞再按 `label+bbox_2d` 稳定去重。
+- tracked task tests全部使用测试内最小 prompt fixture，不再读取 ignored配置或本地子项目脚本。
+
+### 回归测试
+
+- `ruff check src/shaft scripts/tasks tests`：通过。
+- `python -m compileall -q src/shaft scripts/tasks tests`：通过。
+- `pytest -q tests --suite task`：通过。
+- `pytest -q tests --suite framework`：通过。
+- focused 回归覆盖非对齐 native padding、低预算 resize、clean 前置预检、split/path 重叠、zero/empty guard、
+  weak exact-schema/provenance、共享 codec edge extent 和 worker failure旧输出保留。
+- 真实 clean weak sidecar 19,709/19,709 行通过新增 provenance gate。
+
+### 后续防线
+
+- grounding v5.3 必须先重建受影响的 padded/structured/SFT 后再训练，并重新核对图片引用、bbox、row count、
+  test overlap 和 stale files；raw 不需要回写。
+- image context 重建前必须恢复或版本化缺失的75个 source JSON；不得因为当前 raw 缺失而自动把 archive
+  当作真值。
+- prompt pool可以是本地运行资产，但 tracked tests只能使用最小 fixture；任何 destructive clean 都必须在
+  所有输入、schema、split 和路径预检完成后执行。
+- context builder 当前会物化 selections/work items；269,904 shape rows实测增加约214MB RSS，属于后续流式化
+  的 P2 优化，不阻断当前离线构建。

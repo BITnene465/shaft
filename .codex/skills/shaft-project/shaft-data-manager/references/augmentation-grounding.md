@@ -44,32 +44,27 @@ exclusion source. Do not derive train rows from VLM test items.
 
 ## Current Layout Multi-Resolution Profile
 
-The maintained `data/grounding_layout` dataset was rebuilt on 2026-07-14 with direct,
-aspect-preserving resize as its primary multi-resolution augmentation. The earlier
-`full + density crop + blur + padded full` snapshot is retained as
-`data/archive2/grounding_layout_v5.1_bak0714`; do not mix its rows into the current dataset.
+The maintained `data/grounding_layout` dataset was rebuilt on 2026-07-16 for v5.3 with direct,
+aspect-preserving resize as its primary multi-resolution augmentation. The v5.2 snapshot is
+retained as `data/grounding_layout_old_v5.2`, and the older blur-heavy snapshot remains under
+`data/archive2/grounding_layout_v5.1_bak0714`; do not mix either snapshot into v5.3.
 
-For the current 9,118-source layout split, target approximately 50,000 train rows:
+For the current 17,065-source layout split, target approximately 50,000 train rows under the v5.3
+2M processor budget:
 
-- native clean full images: `1.0x` / 9,118 rows;
-- continuous clean resize views: target `2.9x` / 26,442 rows;
-- random padded clean views: `0.1x` / 912 rows;
-- degraded resize views: `1.2x` / 10,942 rows;
-- density crops: about `0.25x` / 2,280 rows;
-- hard-negative crops: about `0.03x` / 274 rows.
+- native clean full images: `1.0x` / 17,065 rows;
+- continuous clean resize views: target `0.9x` / 15,278 actual rows;
+- random padded clean views: `0.1x` / 1,706 rows;
+- degraded resize views: `0.75x` / 12,799 rows;
+- density crops: `0.15x` / 2,560 rows;
+- hard-negative crops: `0.03x` / 493 actual rows.
 
-The nominal plan gives 49,968 rows before feasibility adjustments. The actual rebuild contains
-49,666 rows: 9,118 native, 26,140 continuous resize, 912 padded, 10,942 degraded resize,
-2,280 density crop, and 274 hard-negative rows. A total of 165 very small or narrow sources could
-not fill every requested resize slot without violating the `2x` linear-upscale cap, 10% native
-deduplication, or `1.35x` same-source pixel separation. Treat the ratios as the reusable policy
-and report actual feasible counts after every rebuild.
-Do not materialize every augmentation combination for every image. Keep one native clean row for
-every covered source, select about three additional clean scale/spatial rows per source on
-average, give every normal source one degraded resize row, and give a deterministic stratified
-20% subset a second degraded row. A source may contribute fewer rows when its feasible scale
-range is too narrow. Padding replaces about `0.1x` of the clean-resize quota rather than expanding
-the total dataset.
+The actual rebuild contains 49,901 rows. Every source keeps one native clean row; the additional
+clean resize and padding families together provide one extra scale/spatial view per source when
+feasible. Degraded, density, and hard-negative views are deterministic stratified subsets. Native
+full rows may exceed 2M because they preserve source truth and are resized by the runtime
+processor; generated resize, padding, and degraded views must stay within 2M. Padding replaces
+part of the one-view clean augmentation budget rather than increasing the total dataset.
 
 ### Continuous Resize Sampling
 
@@ -84,13 +79,11 @@ The `source_pixels * 4` cap means linear upscale is at most `2x`. If `upper < lo
 an offline upscale that violates this cap; keep the native row and let the ordinary processor
 contract handle that exceptional tiny source.
 
-Generate candidate target pixels continuously in log space. The reporting/quota bands
-`0.2-0.5M`, `0.5-1M`, `1-2M`, and `2-4M` are not fixed resize levels. Fill approximately 25% of
-selected clean resize rows from each feasible band while also stratifying by source-resolution
-quartile and object-count quartile. A source should normally receive low-, middle-, and high-range
-candidates from its own feasible interval. Two selected resize views from the same source must
-differ by at least about `1.35x` in pixel count, and a resize within 10% of the effective native
-processor size should be deduplicated.
+Generate candidate target pixels continuously in log space. The reporting/quota bands are not
+fixed resize levels; only bands inside the configured runtime budget are eligible. Stratify by
+source-resolution quartile and object-count quartile. Two selected resize views from the same
+source must differ by at least about `1.35x` in pixel count, and a resize within 10% of the
+effective native processor size should be deduplicated.
 
 Preserve aspect ratio and align final width/height to the Qwen processor factor
 `patch_size * merge_size` (currently `16 * 2 = 32`). Recheck actual pixel count after alignment.
@@ -134,6 +127,11 @@ Apply resize first and exactly one degradation second. Do not combine blur and n
 Do not use L3 in the lowest target-pixel band. A source's second degraded row must differ in
 family, severity, or selected resolution from its first row. Clip noisy pixels back to the valid
 range and keep image dimensions unchanged.
+
+This clean-backbone/single-degradation contract is specific to grounding. Synthetic v5.3
+shape/line context reconstruction intentionally has no clean crop rows and may stack one to three
+weak size-preserving operations; its separate contract is documented in `derived-datasets.md` and
+`counterintuitive-rules.md`.
 
 ## Maintained Generator
 
@@ -273,15 +271,15 @@ After a grounding rebuild, check:
 - Number of files in `images/train` equals `structured/train.jsonl` rows.
 - Number of files in `images/val` equals `structured/val.jsonl` rows.
 - Train `full_image` row count equals the covered train source count.
-- Selected continuous clean resize rows are approximately `2.9x` and random padded clean rows are
-  approximately `0.1x` of covered train sources; together they retain the `3.0x` clean
+- Selected continuous clean resize rows are approximately `0.9x` and random padded clean rows are
+  approximately `0.1x` of covered train sources; together they retain the v5.3 `1.0x` clean
   scale/spatial-view budget.
-- Selected degraded resize rows are approximately `1.2x` of covered train sources and satisfy the
+- Selected degraded resize rows are approximately `0.75x` of covered train sources and satisfy the
   blur/noise and severity matrices.
 - Target-pixel quota bands are balanced without collapsing to four fixed resolutions.
 - Every offline upscale has linear scale at most `2x`.
 - Final resized dimensions are processor-factor aligned and remain within the configured pixel
   budget.
-- Density crops remain about `0.25x` and hard negatives about `0.03x` for the current profile.
+- Density crops remain about `0.15x` and hard negatives about `0.03x` for the current profile.
 - Val contains only clean `full_image` rows with `pixel_augmentation.name == "none"`.
 - All bboxes are positive-area and inside the row image dimensions.
