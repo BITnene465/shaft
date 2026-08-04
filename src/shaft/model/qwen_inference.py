@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from shaft.utils.qwen_pixel_budget import image_to_data_url_with_qwen_pixel_budget
+from shaft.utils.messages import count_message_content_type
 
 from .inference import ShaftImageTextInferencePolicy, ShaftPreparedOpenAIInference
 
@@ -19,7 +20,7 @@ class QwenVLInferencePolicy(ShaftImageTextInferencePolicy):
     def prepare_openai(
         self,
         *,
-        image_path: str,
+        image_paths: tuple[str, ...],
         user_prompt: str,
         system_prompt: str,
         messages: list[dict[str, Any]] | None,
@@ -33,21 +34,29 @@ class QwenVLInferencePolicy(ShaftImageTextInferencePolicy):
             backend_options=backend_options,
             template_type=template_type,
         )
+        prepared_messages = None
         if messages is not None:
-            if min_pixels is not None or max_pixels is not None:
-                raise ValueError(
-                    "Qwen pixel budget cannot be applied safely to caller-supplied messages; "
-                    "omit messages or pre-encode media without min_pixels/max_pixels."
-                )
             prepared_messages = copy.deepcopy(messages)
-        else:
+            _validate_openai_image_placeholders(
+                messages=prepared_messages,
+                image_count=len(image_paths),
+            )
+        data_urls = []
+        for image_path in image_paths:
             data_url, _ = image_to_data_url_with_qwen_pixel_budget(
                 image_path,
                 min_pixels=min_pixels,
                 max_pixels=max_pixels,
             )
+            data_urls.append(data_url)
+        if prepared_messages is not None:
+            prepared_messages = _replace_openai_image_placeholders(
+                messages=prepared_messages,
+                data_urls=tuple(data_urls),
+            )
+        else:
             prepared_messages = _openai_messages(
-                data_url=data_url,
+                data_urls=tuple(data_urls),
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
             )
@@ -90,7 +99,7 @@ class QwenVLInferencePolicy(ShaftImageTextInferencePolicy):
 
 def _openai_messages(
     *,
-    data_url: str,
+    data_urls: tuple[str, ...],
     user_prompt: str,
     system_prompt: str,
 ) -> list[dict[str, Any]]:
@@ -101,9 +110,77 @@ def _openai_messages(
         {
             "role": "user",
             "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
+                *(
+                    {"type": "image_url", "image_url": {"url": data_url}}
+                    for data_url in data_urls
+                ),
                 {"type": "text", "text": user_prompt},
             ],
         }
     )
     return messages
+
+
+def _replace_openai_image_placeholders(
+    *,
+    messages: list[dict[str, Any]],
+    data_urls: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    cursor = 0
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, dict):
+            content = [content]
+        if not isinstance(content, list):
+            continue
+        replaced: list[Any] = []
+        for item in content:
+            if not isinstance(item, dict):
+                replaced.append(item)
+                continue
+            item_type = str(item.get("type", "")).strip().lower()
+            if item_type == "image_url":
+                raise ValueError(
+                    "Caller-supplied image_url content cannot be combined with image_paths; "
+                    "use ordered type='image' placeholders as the single media source."
+                )
+            if item_type != "image":
+                replaced.append(item)
+                continue
+            if cursor >= len(data_urls):
+                raise ValueError(
+                    "Inference message image placeholder count exceeds ordered image_paths."
+                )
+            replaced.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_urls[cursor]},
+                }
+            )
+            cursor += 1
+        message["content"] = replaced
+    if cursor != len(data_urls):
+        raise ValueError(
+            "Inference message image placeholder count must match ordered image_paths: "
+            f"placeholders={cursor}, images={len(data_urls)}."
+        )
+    return messages
+
+
+def _validate_openai_image_placeholders(
+    *,
+    messages: list[dict[str, Any]],
+    image_count: int,
+) -> None:
+    image_url_count = count_message_content_type(messages, "image_url")
+    if image_url_count:
+        raise ValueError(
+            "Caller-supplied image_url content cannot be combined with image_paths; "
+            "use ordered type='image' placeholders as the single media source."
+        )
+    placeholder_count = count_message_content_type(messages, "image")
+    if placeholder_count != int(image_count):
+        raise ValueError(
+            "Inference message image placeholder count must match ordered image_paths: "
+            f"placeholders={placeholder_count}, images={image_count}."
+        )

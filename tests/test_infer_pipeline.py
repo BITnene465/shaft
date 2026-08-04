@@ -141,6 +141,32 @@ def test_multistage_multi_engine_orchestration() -> None:
     assert len(outputs["__trace__"]) == 2
 
 
+def test_pipeline_forwards_one_ordered_image_list_to_every_stage() -> None:
+    recorder = _RecorderEngine()
+    pipeline = ShaftInferPipeline(
+        engines={"det": recorder},
+        stages=[
+            InferStageConfig(
+                name="stage1",
+                engine="det",
+                user_prompt_template="compare",
+            )
+        ],
+    )
+
+    outputs = pipeline.run(
+        image_paths=["/tmp/first.png", "/tmp/second.png"],
+        inputs={},
+    )
+
+    assert recorder.last_request is not None
+    assert recorder.last_request.image_paths == (
+        "/tmp/first.png",
+        "/tmp/second.png",
+    )
+    assert outputs["image_paths"] == ["/tmp/first.png", "/tmp/second.png"]
+
+
 def test_stage_prompt_renderer_keeps_json_braces_literal_and_image_first_contract() -> None:
     recorder = _RecorderEngine()
     pipeline = ShaftInferPipeline(

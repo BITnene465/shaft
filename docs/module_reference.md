@@ -108,6 +108,8 @@
 
 ### 核心约束
 
+- SFT/DPO record 的 media 真源是有序 `image_paths`；JSONL 用 `images` 表达多图。`image_path/image` 只做
+  单图兼容，padded collator 支持多图，varlen/packing 对多图 fail closed。
 - `ShaftSampleSchedule.ref_at(draw_id)` 是 bounded 训练的 sampling 真源。它绑定 source sizes/weights、
   strategy、shuffle、seed，但不绑定 max steps。有限 `ShaftSamplePlan` 只给 map-style Dataset 和普通
   sampler 提供 `len()`；bounded DataCenter 直接返回 schedule，不创建 duration-sized plan。
@@ -168,6 +170,13 @@
   `SequenceExecutionPolicy`，不回流到 sampler 或通用 collator。
 - 合成 reconstruction 数据的离线真源仍是 `gt_standard`；数据构建脚本与训练 batching 相互独立，不得把
   任务字段语义放入 planner。
+- 真实 grounding 的离线 builder 同时接受 normalized `instances[].label` 与人工 compact
+  `size + layout[].type` 两种 raw contract；适配只发生在派生边界，不改写 compact 真源。四类
+  `grounding_layout` 只消费 `shape/icon/image/line` 的 bbox，排除 `full_text`，也不读取 line points 或
+  reconstruction parameters。无四类目标的已标注 source 只保留一个 native empty row，不做增强。
+- Grounding bbox 使用图像边界坐标，右/下边界 `x2/y2` 可分别等于 `width/height`；SFT 派生必须先在
+  `[0,width] x [0,height]` 上裁剪，再由共享 coordinate codec 量化到 `0..999`。不得提前裁到
+  `width-1/height-1`，否则贴右或贴底的 1px line 会退化。
 - v5.3 contextual reconstruction 由 `scripts/tasks/build_context_reconstruction_sft.py` 离线生成；
   v5.2 region manifest 只选择实例，proposal/crop 审计信息留在 derived `extra`，训练主链只消费标准
   `jsonl_sft`、动态 `prompt_args` 和 task prompt pool，不解释 proposal 或几何字段语义。
@@ -752,8 +761,8 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
     `Qwen3VLTextDecoderLayer` 与 `Qwen3VLVisionBlock`
   - Qwen3.5 / Qwen3.6 dense 会解析为 `Qwen3_5DecoderLayer` 与
     `Qwen3_5VisionBlock`
-  - Qwen3.5 / Qwen3.6 MoE 会解析为 `Qwen3_5MoeDecoderLayer` 与
-    `Qwen3_5MoeVisionBlock`
+  - Qwen3.5 / Qwen3.6 MoE descriptor 骨架会解析为 `Qwen3_5MoeDecoderLayer` 与
+    `Qwen3_5MoeVisionBlock`；这只用于识别/兼容性防线，当前不表示训练支持
   - Qwen3.6 当前推荐关闭 FSDP activation checkpointing，使用 Trainer/model gradient checkpointing；
     full-parameter AdamW 训练还需要 ZeRO-3/offload/低内存 optimizer 或更高显存预算。
 - adapter 模式下，`lora_params` 和 `modules_to_save` 会优先命中；剩余 trainable 原始参数再按结构组回退。
@@ -850,6 +859,9 @@ backend、dtype、distributed strategy、compile flag 与模型 policy/依赖版
 - `ShaftInferEngine`
 - `ShaftInferPipeline`
 - `ShaftInferStageResult`
+
+`ShaftInferRequest.image_paths` 是有序 media 真源；`image_path` 只兼容 exact-one 单图请求。HF 与 vLLM
+policy 必须按同一顺序消费 placeholder 和图片，不得从 backend options 再建立第二套 media 输入。
 
 ### 关键函数
 

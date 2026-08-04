@@ -15,41 +15,161 @@ from .planned import ShaftPlannedSampleRef
 from .mixing import ShaftSamplePlan, ShaftSampleRef, ShaftSampleSchedule
 
 
-@dataclass
-class SFTRecord:
-    image_path: str
+def _normalize_record_image_paths(
+    *,
+    image_path: str | Path | None,
+    image_paths: Sequence[str | Path] | None,
+    required: bool,
+) -> tuple[str, ...]:
+    if image_path is not None and image_paths is not None:
+        raise ValueError("Provide either image_path or image_paths, not both.")
+    raw_paths: Sequence[str | Path]
+    if image_paths is not None:
+        raw_paths = image_paths
+    elif image_path is not None:
+        raw_paths = (image_path,)
+    else:
+        raw_paths = ()
+    if isinstance(raw_paths, (str, Path)):
+        raw_paths = (raw_paths,)
+    normalized = tuple(str(path).strip() for path in raw_paths)
+    if any(not path for path in normalized):
+        raise ValueError("image_paths must contain only non-empty paths.")
+    if required and not normalized:
+        raise ValueError("At least one image path is required.")
+    return normalized
+
+
+class _OrderedImageRecord:
+    image_paths: tuple[str, ...]
+
+    @property
+    def image_path(self) -> str | None:
+        if not self.image_paths:
+            return None
+        if len(self.image_paths) != 1:
+            raise ValueError(
+                "image_path is available only for records with exactly one image; "
+                "use image_paths for ordered multi-image records."
+            )
+        return self.image_paths[0]
+
+
+@dataclass(init=False)
+class SFTRecord(_OrderedImageRecord):
+    image_paths: tuple[str, ...]
     target_text: str
     dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
-    user_prompt: str = "Output only valid JSON. No markdown and no extra text."
+    user_prompt: str = ""
     prompt_args: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def __init__(
+        self,
+        image_path: str | Path | None = None,
+        target_text: str = "",
+        dataset_name: str = "default",
+        sample_id: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        system_prompt: str = "",
+        user_prompt: str = "",
+        prompt_args: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+        *,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> None:
+        self.image_paths = _normalize_record_image_paths(
+            image_path=image_path,
+            image_paths=image_paths,
+            required=True,
+        )
+        self.target_text = str(target_text)
+        self.dataset_name = str(dataset_name)
+        self.sample_id = sample_id
+        self.messages = messages
+        self.system_prompt = str(system_prompt)
+        self.user_prompt = str(user_prompt)
+        self.prompt_args = dict(prompt_args or {})
+        self.extra = dict(extra or {})
 
-@dataclass
-class DPORecord:
-    image_path: str
+
+@dataclass(init=False)
+class DPORecord(_OrderedImageRecord):
+    image_paths: tuple[str, ...]
     chosen_text: str
     rejected_text: str
     dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
-    user_prompt: str = "Output only valid JSON. No markdown and no extra text."
+    user_prompt: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def __init__(
+        self,
+        image_path: str | Path | None = None,
+        chosen_text: str = "",
+        rejected_text: str = "",
+        dataset_name: str = "default",
+        sample_id: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        system_prompt: str = "",
+        user_prompt: str = "",
+        extra: dict[str, Any] | None = None,
+        *,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> None:
+        self.image_paths = _normalize_record_image_paths(
+            image_path=image_path,
+            image_paths=image_paths,
+            required=True,
+        )
+        self.chosen_text = str(chosen_text)
+        self.rejected_text = str(rejected_text)
+        self.dataset_name = str(dataset_name)
+        self.sample_id = sample_id
+        self.messages = messages
+        self.system_prompt = str(system_prompt)
+        self.user_prompt = str(user_prompt)
+        self.extra = dict(extra or {})
 
-@dataclass
-class PPORecord:
-    image_path: str | None = None
+
+@dataclass(init=False)
+class PPORecord(_OrderedImageRecord):
+    image_paths: tuple[str, ...]
     dataset_name: str = "default"
     sample_id: str | None = None
     messages: list[dict[str, Any]] | None = None
     system_prompt: str = ""
-    user_prompt: str = "Output only valid JSON. No markdown and no extra text."
+    user_prompt: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        image_path: str | Path | None = None,
+        dataset_name: str = "default",
+        sample_id: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        system_prompt: str = "",
+        user_prompt: str = "",
+        extra: dict[str, Any] | None = None,
+        *,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> None:
+        self.image_paths = _normalize_record_image_paths(
+            image_path=image_path,
+            image_paths=image_paths,
+            required=False,
+        )
+        self.dataset_name = str(dataset_name)
+        self.sample_id = sample_id
+        self.messages = messages
+        self.system_prompt = str(system_prompt)
+        self.user_prompt = str(user_prompt)
+        self.extra = dict(extra or {})
 
 
 class _BaseVisionDataset(Dataset):
@@ -106,6 +226,9 @@ class _BaseVisionDataset(Dataset):
             while len(self._image_cache) > self.image_cache_size:
                 self._image_cache.popitem(last=False)
         return decoded
+
+    def _load_images(self, image_paths: Sequence[str]) -> tuple[Image.Image, ...]:
+        return tuple(self._load_image(image_path) for image_path in image_paths)
 
     def _apply_online_transforms(self, sample: dict[str, Any]) -> dict[str, Any]:
         for transform in self.online_transforms:
@@ -183,13 +306,18 @@ class SFTDataset(_BaseVisionDataset):
         record: SFTRecord,
         *,
         sample_ref: ShaftSampleRef | None,
-        image: Any,
+        images: tuple[Any, ...] | None,
     ) -> dict[str, Any]:
+        image_row: Any = None
+        if images is not None:
+            image_row = images[0] if len(images) == 1 else images
         return {
             "dataset_name": record.dataset_name,
-            "sample_id": record.sample_id or Path(record.image_path).stem,
-            "image_path": record.image_path,
-            "image": image,
+            "sample_id": record.sample_id or Path(record.image_paths[0]).stem,
+            "image_paths": record.image_paths,
+            "image_path": record.image_paths[0] if len(record.image_paths) == 1 else None,
+            "images": images,
+            "image": image_row,
             "target_text": record.target_text,
             "messages": record.messages,
             "system_prompt": record.system_prompt,
@@ -206,7 +334,7 @@ class SFTDataset(_BaseVisionDataset):
         sample = self._build_sample(
             record,
             sample_ref=sample_ref,
-            image=None,
+            images=None,
         )
         return self._apply_online_transforms(sample)
 
@@ -218,7 +346,7 @@ class SFTDataset(_BaseVisionDataset):
         sample = self._build_sample(
             record,
             sample_ref=sample_ref,
-            image=self._load_image(record.image_path),
+            images=self._load_images(record.image_paths),
         )
         sample = self._apply_online_transforms(sample)
         return self._attach_batch_context(sample, index)
@@ -243,7 +371,17 @@ class GRPODataset(Dataset):
 
     def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
         item = self.dataset[index]
-        image = item.get("image")
+        raw_images = item.get("images")
+        if raw_images is None:
+            raw_images = item.get("image")
+        images = (
+            tuple(raw_images)
+            if isinstance(raw_images, (list, tuple))
+            else (() if raw_images is None else (raw_images,))
+        )
+        if len(images) != 1:
+            raise ValueError("GRPO currently requires exactly one image per sample.")
+        image = images[0]
         if self.image_preprocessor is not None:
             image = self.image_preprocessor(image)
         if image is not item.get("image"):
@@ -257,6 +395,7 @@ class GRPODataset(Dataset):
             "dataset_name": item.get("dataset_name"),
             "sample_id": item.get("sample_id"),
             "image_path": item.get("image_path"),
+            "image_paths": item.get("image_paths"),
             "extra": dict(item.get("extra", {})),
         }
 
@@ -289,12 +428,14 @@ class DPODataset(_BaseVisionDataset):
 
     def __getitem__(self, index: int | ShaftSampleRef) -> dict[str, Any]:
         record, sample_ref = self._resolve_record(self.records, index)
-        image = self._load_image(record.image_path)
+        images = self._load_images(record.image_paths)
         sample = {
             "dataset_name": record.dataset_name,
-            "sample_id": record.sample_id or Path(record.image_path).stem,
-            "image_path": record.image_path,
-            "image": image,
+            "sample_id": record.sample_id or Path(record.image_paths[0]).stem,
+            "image_paths": record.image_paths,
+            "image_path": record.image_paths[0] if len(record.image_paths) == 1 else None,
+            "images": images,
+            "image": images[0] if len(images) == 1 else images,
             "messages": record.messages,
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,
@@ -337,11 +478,12 @@ class PPODataset(_BaseVisionDataset):
         sample = {
             "dataset_name": record.dataset_name,
             "sample_id": record.sample_id or (
-                Path(record.image_path).stem
-                if record.image_path
+                Path(record.image_paths[0]).stem
+                if record.image_paths
                 else f"row-{sample_ref.row_index if sample_ref is not None else int(index)}"
             ),
-            "image_path": record.image_path,
+            "image_paths": record.image_paths,
+            "image_path": record.image_paths[0] if len(record.image_paths) == 1 else None,
             "messages": record.messages,
             "system_prompt": record.system_prompt,
             "user_prompt": record.user_prompt,

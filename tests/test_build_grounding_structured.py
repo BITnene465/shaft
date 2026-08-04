@@ -112,9 +112,26 @@ def test_build_grounding_layout_supports_unified_raw_and_new_augments(tmp_path: 
         "background": True,
     }
     (raw_root / "json" / "sample.json").write_text(json.dumps(payload), encoding="utf-8")
+    Image.new("RGB", (640, 480), "white").save(raw_root / "images" / "compact.png")
+    compact_payload = {
+        "size": [640, 480],
+        "layout": [
+            {"type": "shape", "bbox": [10, 20, 110, 120]},
+            {"type": "full_text", "bbox": [20, 30, 90, 50]},
+            {
+                "type": "line",
+                "bbox": [100, 200, 400, 220],
+                "parameters": {"points": [[[100, 210], [400, 210]]]},
+            },
+        ],
+    }
+    (raw_root / "json" / "compact.json").write_text(
+        json.dumps(compact_payload),
+        encoding="utf-8",
+    )
     train_split = tmp_path / "train.txt"
     val_split = tmp_path / "val.txt"
-    train_split.write_text("json/sample.json\n", encoding="utf-8")
+    train_split.write_text("json/sample.json\njson/compact.json\n", encoding="utf-8")
     val_split.write_text("", encoding="utf-8")
 
     output_root = tmp_path / "out"
@@ -178,6 +195,19 @@ def test_build_grounding_layout_supports_unified_raw_and_new_augments(tmp_path: 
         for instance in row["instances"]
     }
     assert {"shape", "icon", "image", "line"}.issubset(labels)
+    compact_full = next(
+        row
+        for row in rows
+        if row["extra"]["source_json"] == "json/compact.json"
+        and row["extra"]["view_type"] == "full_image"
+    )
+    assert compact_full["image_width"] == 640
+    assert compact_full["image_height"] == 480
+    assert compact_full["instances"] == [
+        {"label": "shape", "bbox": [10.0, 20.0, 110.0, 120.0]},
+        {"label": "line", "bbox": [100.0, 200.0, 400.0, 220.0]},
+    ]
+    assert all(set(instance) == {"label", "bbox"} for instance in compact_full["instances"])
     resized = next(row for row in rows if row["extra"]["view_type"] == "continuous_resize_full")
     assert resized["image_width"] % 32 == 0
     assert resized["image_height"] % 32 == 0
@@ -192,6 +222,162 @@ def test_build_grounding_layout_supports_unified_raw_and_new_augments(tmp_path: 
     padding = padded["extra"]["spatial_augmentation"]["padding"]
     assert padding["left"] + padding["right"] > 0
     assert padding["top"] + padding["bottom"] > 0
+
+
+def test_extract_instances_accepts_compact_human_layout() -> None:
+    module = _load_module()
+    raw_record = {
+        "size": [640, 480],
+        "layout": [
+            {
+                "type": "shape",
+                "bbox": [10, 20, 110, 120],
+                "parameters": {"shape_type": "card", "split": []},
+            },
+            {"type": "full_text", "bbox": [20, 30, 90, 50]},
+            {
+                "type": "line",
+                "bbox": [100, 200, 400, 220],
+                "parameters": {"points": [[[100, 210], [400, 210]]]},
+            },
+            {"type": "icon", "bbox": [420, 50, 460, 90]},
+            {"type": "image", "bbox": [470, 60, 620, 180]},
+        ],
+    }
+
+    instances = module._extract_instances(
+        raw_record,
+        {"shape": "shape", "line": "line", "icon": "icon", "image": "image"},
+        image_width=640,
+        image_height=480,
+    )
+
+    assert [(item.index, item.label, item.bbox) for item in instances] == [
+        (0, "shape", (10.0, 20.0, 110.0, 120.0)),
+        (2, "line", (100.0, 200.0, 400.0, 220.0)),
+        (3, "icon", (420.0, 50.0, 460.0, 90.0)),
+        (4, "image", (470.0, 60.0, 620.0, 180.0)),
+    ]
+
+
+def test_compact_image_size_selects_exif_orientation_only_when_declared(tmp_path: Path) -> None:
+    module = _load_module()
+
+    from PIL import Image
+
+    image_path = tmp_path / "oriented.jpg"
+    image = Image.new("RGB", (40, 20), "white")
+    exif = Image.Exif()
+    exif[274] = 6
+    image.save(image_path, exif=exif)
+    image.close()
+
+    oriented = module._open_source_image(
+        image_path,
+        {"size": [20, 40], "layout": []},
+        json_rel="json/oriented.json",
+    )
+    raw = module._open_source_image(
+        image_path,
+        {"size": [40, 20], "layout": []},
+        json_rel="json/raw.json",
+    )
+    try:
+        assert oriented.size == (20, 40)
+        assert raw.size == (40, 20)
+    finally:
+        oriented.close()
+        raw.close()
+
+
+def test_compact_zero_target_source_only_builds_native_full_row(tmp_path: Path) -> None:
+    module = _load_module()
+
+    from PIL import Image
+
+    raw_root = tmp_path / "raw"
+    (raw_root / "json").mkdir(parents=True)
+    (raw_root / "images").mkdir(parents=True)
+    Image.new("RGB", (128, 96), "white").save(raw_root / "images" / "empty.png")
+    (raw_root / "json" / "empty.json").write_text(
+        json.dumps(
+            {
+                "size": [128, 96],
+                "layout": [{"type": "full_text", "bbox": [10, 10, 100, 30]}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "grounding_layout"
+    image_output_dir = output_root / "images" / "train"
+    image_output_dir.mkdir(parents=True)
+    config = module.BuildConfig(
+        raw_root=raw_root,
+        task_name="grounding_layout",
+        split="train",
+        output_root=output_root,
+        image_output_dir=image_output_dir,
+        seed=42,
+        candidate_count=8,
+        negative_candidate_count=8,
+        negative_ratio=0.03,
+        density_crop_ratio=0.15,
+        blur_ratio=0.0,
+        padded_full_ratio=0.1,
+        padding_min_ratio=0.05,
+        padding_max_ratio=0.25,
+        augmentation_profile="layout_multiscale_v1",
+        min_pixels=200_704,
+        max_pixels=2_000_000,
+        processor_factor=32,
+        clean_resize_views=0.9,
+        degraded_resize_ratio=0.75,
+    )
+    spec = next(task for task in module.TASKS if task.name == "grounding_layout")
+
+    result = module._process_source(("json/empty.json", spec, config, None))
+
+    assert result.covered is True
+    assert result.target_count == 0
+    assert len(result.full_rows) == 1
+    assert result.full_rows[0]["instances"] == []
+    assert not result.padded_rows
+    assert not result.resize_rows
+    assert not result.degraded_rows
+    assert not result.positive_rows
+    assert not result.negative_rows
+
+
+def test_multiscale_plans_skip_zero_target_sources() -> None:
+    module = _load_module()
+    config = module.BuildConfig(
+        raw_root=Path("data/raw"),
+        task_name="grounding_layout",
+        split="train",
+        output_root=Path("unused"),
+        image_output_dir=Path("unused"),
+        seed=42,
+        candidate_count=8,
+        negative_candidate_count=8,
+        negative_ratio=0.03,
+        density_crop_ratio=0.15,
+        blur_ratio=0.0,
+        padded_full_ratio=0.1,
+        padding_min_ratio=0.05,
+        padding_max_ratio=0.25,
+        augmentation_profile="layout_multiscale_v1",
+        min_pixels=200_704,
+        max_pixels=2_000_000,
+        processor_factor=32,
+        clean_resize_views=0.9,
+        degraded_resize_ratio=0.75,
+    )
+    positive = module.SourceMeta("json/positive.json", 1024, 768, 4, True)
+    zero_target = module.SourceMeta("json/zero.json", 1024, 768, 0, True)
+
+    plans = module._build_multiscale_plans([positive, zero_target], config=config)
+
+    assert set(plans) == {"json/positive.json"}
 
 
 def test_multiscale_plan_respects_alignment_separation_and_low_band_l3_rule() -> None:

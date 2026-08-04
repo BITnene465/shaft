@@ -10,6 +10,10 @@ Historical v5.0 training/eval prompt pools:
 - `configs/prompts/pools/grounding_layout.v5.0.yaml`
 - `configs/prompts/pools/point_line.v5.0.yaml`
 
+Next v5.7 detection prompt pool:
+
+- `configs/prompts/pools/grounding_layout.v5.7.yaml`
+
 Active business reconstruction prompt pools:
 
 - `configs/prompts/pools/shape_region_reconstruction.v5.2.yaml`
@@ -49,6 +53,14 @@ The v5.3 grounding pool keeps the existing labels/schema but makes the line inst
 explicit: one connected multi-segment, forked, branched, or multi-way connector is one `line`
 instance with one bbox covering the complete connected structure. Only disconnected line objects
 use separate bboxes.
+
+The v5.7 grounding pool keeps the same four labels and Qwen bbox-list schema while aligning object
+boundaries with the 2026-07-25 human annotation guide. It excludes page background and text-only
+regions; defines shape/icon/image/line at the object level; requires full-image integer `0..999`
+coordinates and complete visible extents; keeps shape/image borders and card/container dividers
+inside their owning object; and preserves the v5.3 connected-line rule. The PDF's bottom-layer-first
+raw `layout` order is not a model-output requirement: current grounding SFT targets retain their
+validated row-major canonical order, so prompts must not request layer order.
 
 These v5.3 prompt pools are local run assets and remain ignored under the repository's current
 config policy. Maintained builders may use their conventional paths as local defaults, but tracked

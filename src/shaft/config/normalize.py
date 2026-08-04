@@ -494,6 +494,7 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         field_names=(
             "gradient_checkpointing",
             "bf16",
+            "fp16",
             "use_cpu",
             "full_determinism",
             "ddp_find_unused_parameters",
@@ -502,6 +503,17 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
             "save_final_state",
         ),
     )
+    if train.bf16 and train.fp16:
+        raise ValueError("train.bf16 and train.fp16 are mutually exclusive.")
+    if train.fp16 and train.use_cpu:
+        raise ValueError("train.fp16=true requires CUDA and cannot be used with train.use_cpu=true.")
+    normalized_model_dtype = str(config.model.torch_dtype).strip().lower()
+    if train.fp16 and normalized_model_dtype in {"float16", "fp16", "half"}:
+        raise ValueError(
+            "train.fp16=true uses AMP with gradient scaling and cannot load trainable "
+            "parameters with model.torch_dtype=float16. Use model.torch_dtype=float32 "
+            "(or a validated mixed-storage adapter setup)."
+        )
     train.efficiency.enabled = _normalize_bool(
         train.efficiency.enabled,
         "train.efficiency.enabled",
@@ -715,6 +727,11 @@ def normalize_runtime_config(config: RuntimeConfig) -> RuntimeConfig:
         raise ValueError(
             f"Unsupported train.distributed.strategy={train.distributed.strategy!r}. "
             f"Expected one of {_TRAIN_DISTRIBUTED_STRATEGIES}."
+        )
+    if train.fp16 and train.distributed.strategy == "deepspeed":
+        raise ValueError(
+            "train.fp16=true is currently supported with DDP/FSDP only; Shaft's "
+            "DeepSpeed presets and precision contract are BF16-only."
         )
     ddp_cfg = train.distributed.ddp
     _normalize_bool_fields(

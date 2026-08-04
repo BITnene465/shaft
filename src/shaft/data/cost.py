@@ -277,7 +277,7 @@ class ShaftSFTSampleCostProvider:
             max_pixels=self.max_pixels,
         )
         fingerprint_payload = (
-            "shaft-sft-runtime-cost-v8-bounded",
+            "shaft-sft-runtime-cost-v10-structured-truncation",
             sft_cost_source_fingerprint(dataset),
             str(getattr(model_adapter, "model_type", "")),
             str(getattr(model_adapter, "template_type", "")),
@@ -299,10 +299,17 @@ class ShaftSFTSampleCostProvider:
     def __call__(self, sample_ref: ShaftSampleRef) -> ShaftSampleCost:
         item = self.dataset.get_planning_item(sample_ref)
         target_text = str(item["target_text"])
-        image_path = str(item.get("image_path", "")).strip()
-        if not image_path:
+        image_paths = tuple(
+            str(path).strip()
+            for path in item.get("image_paths", ())
+            if str(path).strip()
+        )
+        if not image_paths:
+            legacy_path = str(item.get("image_path", "") or "").strip()
+            image_paths = (legacy_path,) if legacy_path else ()
+        if not image_paths:
             raise ValueError(
-                "SFT cost estimation requires image_path for "
+                "SFT cost estimation requires ordered image_paths for "
                 f"dataset={sample_ref.dataset_name!r}, row={sample_ref.row_index}."
             )
         cache_key = (
@@ -324,18 +331,20 @@ class ShaftSFTSampleCostProvider:
         rendered_ids = supervision_plan.rendered_prefix_token_ids or self.renderer.tokenize(
             supervision_plan.prompt_text
         )
-        image_size = self._get_image_size(image_path)
-        image_estimate = self.model_adapter.estimate_processor_image_cost(
-            processor=self.processor,
-            image_sizes=(image_size,),
-            min_pixels=self.min_pixels,
-            max_pixels=self.max_pixels,
+        image_estimates = tuple(
+            self.model_adapter.estimate_processor_image_cost(
+                processor=self.processor,
+                image_sizes=(self._get_image_size(image_path),),
+                min_pixels=self.min_pixels,
+                max_pixels=self.max_pixels,
+            )
+            for image_path in image_paths
         )
         prefix_token_layout = self.model_adapter.estimate_processor_token_layout(
             processor=self.processor,
             tokenizer=self.tokenizer,
             rendered_token_ids=rendered_ids,
-            image_costs=(image_estimate,),
+            image_costs=image_estimates,
         )
         supervision_cost = self.template.estimate_supervision_cost(
             plan=supervision_plan,
@@ -347,9 +356,9 @@ class ShaftSFTSampleCostProvider:
         cost = ShaftSampleCost(
             llm_tokens=supervision_cost.llm_tokens,
             supervised_tokens=supervision_cost.supervised_tokens,
-            vision_patches=image_estimate.vision_patches,
+            vision_patches=sum(estimate.vision_patches for estimate in image_estimates),
             loss_weight_sum=supervision_cost.loss_weight_sum,
-            exact=bool(image_estimate.exact),
+            exact=all(bool(estimate.exact) for estimate in image_estimates),
         )
         self._remember_sample_cost(cache_key, cost)
         return cost

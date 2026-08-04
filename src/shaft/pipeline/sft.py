@@ -98,7 +98,7 @@ from shaft.training.topology import validate_training_topology
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .execution import finalize_training_outputs, prepare_pipeline_call
-from .training_args import build_hf_training_args
+from .training_args import build_hf_training_args, resolve_training_compute_dtype
 
 
 logger = logging.getLogger(__name__)
@@ -396,11 +396,15 @@ class ShaftSFTPipeline:
                 shuffle=config.data.schedule.shuffle,
                 world_size=int(training_args.world_size),
             )
+            training_compute_dtype = resolve_training_compute_dtype(
+                training_args,
+                model_torch_dtype=config.model.torch_dtype,
+            )
             sequence_execution_contract = model_plan.build_sequence_execution_contract(
                 layout=batch_contract.layout,
                 device_type="cpu" if bool(config.train.use_cpu) else "cuda",
                 attention_implementation=config.model.attn_implementation,
-                torch_dtype=config.model.torch_dtype,
+                torch_dtype=training_compute_dtype,
                 distributed_strategy=config.train.distributed.strategy,
                 torch_compile=bool(getattr(training_args, "torch_compile", False)),
             )
@@ -774,7 +778,7 @@ class ShaftSFTPipeline:
                     model_name_or_path=config.model.model_name_or_path,
                     model_plan_fingerprint=model_plan.fingerprint,
                     finetune_mode=config.model.finetune.mode,
-                    torch_dtype=config.model.torch_dtype,
+                    torch_dtype=training_compute_dtype,
                     attention_implementation=config.model.attn_implementation,
                     seed=config.experiment.seed,
                     max_steps=training_args.max_steps,

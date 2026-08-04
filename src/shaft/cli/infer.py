@@ -10,7 +10,13 @@ from shaft.infer import ShaftInferPipeline, load_infer_config
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run configurable multi-stage inference pipeline.")
     parser.add_argument("--config", required=True, help="Infer pipeline YAML config path.")
-    parser.add_argument("--image", required=True, help="Image path.")
+    parser.add_argument(
+        "--image",
+        action="append",
+        dest="images",
+        required=True,
+        help="Image path. Repeat the flag to supply an ordered multi-image request.",
+    )
     parser.add_argument(
         "--inputs",
         default="{}",
@@ -32,5 +38,5 @@ def main(argv: list[str] | None = None) -> None:
     config = load_infer_config(args.config)
     pipeline = ShaftInferPipeline.from_config(config)
     inputs = json.loads(args.inputs)
-    outputs = pipeline.run(image_path=args.image, inputs=inputs)
+    outputs = pipeline.run(image_paths=args.images, inputs=inputs)
     print(json.dumps(outputs, ensure_ascii=False, indent=2, default=_json_default))

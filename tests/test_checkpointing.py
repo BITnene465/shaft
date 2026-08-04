@@ -3172,6 +3172,32 @@ def test_training_resume_contract_round_trips_canonical_payload() -> None:
     }
 
 
+def test_training_resume_contract_binds_fp16_as_a_distinct_precision() -> None:
+    config = RuntimeConfig()
+    batch_fingerprint = _fixed_batch_contract().fingerprint
+    bf16_contract = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(bf16=True, fp16=False),
+        batch_contract_fingerprint=batch_fingerprint,
+    )
+    fp16_contract = build_training_resume_contract(
+        config=config,
+        training_args=_resume_training_args(bf16=False, fp16=True),
+        batch_contract_fingerprint=batch_fingerprint,
+    )
+
+    assert bf16_contract.precision == "bf16"
+    assert fp16_contract.precision == "fp16"
+    assert bf16_contract.fingerprint != fp16_contract.fingerprint
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        build_training_resume_contract(
+            config=config,
+            training_args=_resume_training_args(bf16=True, fp16=True),
+            batch_contract_fingerprint=batch_fingerprint,
+        )
+
+
 def test_training_resume_contract_composes_input_and_data_execution_identity() -> None:
     config = RuntimeConfig()
     batch_fingerprint = _fixed_batch_contract().fingerprint

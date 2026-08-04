@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -20,6 +21,13 @@ from .reproducibility import preserve_training_rng_state
 logger = logging.getLogger(__name__)
 
 TARGET_ADAPTER_REGISTRY: Registry = Registry("online_eval_target_adapter")
+
+
+def _normalize_image_paths(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    values = (value,) if isinstance(value, (str, Path)) else tuple(value)
+    return tuple(str(path) for path in values if str(path))
 
 
 def register_target_adapter(name: str):
@@ -331,13 +339,20 @@ class ShaftOnlineEvalRunner:
             row = generated_tokens[index]
             completion_ids = row if is_encoder_decoder else row[int(input_sequence_length) :]
             raw_text = template.decode(tokenizer=tokenizer, token_ids=completion_ids.tolist())
+            if "image_paths" in meta:
+                image_paths = _normalize_image_paths(meta["image_paths"][index])
+            else:
+                legacy_image_paths = meta.get("image_path", [None] * batch_size)
+                image_paths = _normalize_image_paths(legacy_image_paths[index])
             sample_meta = {
                 "dataset_name": meta["dataset_name"][index],
                 "sample_id": meta["sample_id"][index],
-                "image_path": meta["image_path"][index],
+                "image_paths": image_paths,
                 "target_text": meta["target_text"][index],
                 "extra": meta.get("extra", [{}] * batch_size)[index],
             }
+            if len(sample_meta["image_paths"]) == 1:
+                sample_meta["image_path"] = sample_meta["image_paths"][0]
             dataset_name = str(sample_meta["dataset_name"])
             policy = self.eval_config.datasets.get(dataset_name)
             if policy is None:
@@ -419,12 +434,15 @@ class ShaftOnlineEvalRunner:
     @staticmethod
     def _deduplicate_entries(entries: list[ShaftOnlineEvalSample]) -> list[ShaftOnlineEvalSample]:
         deduped: list[ShaftOnlineEvalSample] = []
-        seen: set[tuple[str, str, str]] = set()
+        seen: set[tuple[str, str, tuple[str, ...]]] = set()
         for entry in entries:
+            image_paths = _normalize_image_paths(entry.meta.get("image_paths"))
+            if not image_paths:
+                image_paths = _normalize_image_paths(entry.meta.get("image_path"))
             key = (
                 str(entry.dataset_name),
                 str(entry.sample_id),
-                str(entry.meta.get("image_path", "")),
+                image_paths,
             )
             if key in seen:
                 continue

@@ -99,6 +99,37 @@ def test_online_eval_runner_aggregates_metrics_and_logs(caplog) -> None:
     assert "final_score=0.25" in caplog.text
 
 
+def test_online_eval_runner_preserves_ordered_multi_image_metadata() -> None:
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": json_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+    )
+    batch = online_eval_batch(
+        input_ids=[[11, 12]],
+        dataset_names=["ds"],
+        sample_ids=["multi"],
+        target_texts=['{"ok": 1}'],
+    )
+    batch["meta"].pop("image_path")
+    batch["meta"]["image_paths"] = [("first.png", "second.png")]
+
+    entries = runner.collect_samples(
+        LeftPaddedOnlineEvalTrainer([batch]),
+        eval_dataset=object(),
+    )
+
+    assert len(entries) == 1
+    assert entries[0].meta["image_paths"] == ("first.png", "second.png")
+    assert "image_path" not in entries[0].meta
+
+
 def test_online_eval_runner_is_observational_for_all_host_rng_streams() -> None:
     runner = ShaftOnlineEvalRunner(
         eval_config=online_eval_config(

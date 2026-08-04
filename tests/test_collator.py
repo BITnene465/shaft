@@ -39,8 +39,9 @@ class _FakeProcessor:
         return " ".join(chunk.get("text", "") for m in messages for chunk in m.get("content", []))
 
     def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
-        _ = images, padding, return_tensors
+        _ = padding, return_tensors
         self.call_count += 1
+        self.last_images = images
         self.last_kwargs = dict(kwargs)
         tokenized = self.tokenizer(text, add_special_tokens=False, return_attention_mask=False)["input_ids"]
         batch_size = len(tokenized)
@@ -541,6 +542,168 @@ def test_sft_collator_truncates_target_tokens_without_eos_when_over_max_length()
     assert int(torch.sum(out["labels"][0].ne(-100)).item()) == 3
 
 
+def test_sft_collator_treats_max_length_as_a_strict_prefix_and_target_cap() -> None:
+    class _StableTokenizer(_FakeTokenizer):
+        def __init__(self) -> None:
+            self._ids: dict[str, int] = {}
+
+        def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
+            _ = add_special_tokens, return_attention_mask
+            if isinstance(texts, str):
+                texts = [texts]
+            rows = []
+            for text in texts:
+                row = []
+                for token in str(text).split():
+                    if token not in self._ids:
+                        self._ids[token] = 10 + len(self._ids)
+                    row.append(self._ids[token])
+                rows.append(row)
+            return {"input_ids": rows}
+
+    class _StructuredProcessor(_FakeProcessor):
+        def __init__(self, tokenizer) -> None:  # noqa: ANN001
+            super().__init__()
+            self.tokenizer = tokenizer
+
+        def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+            _ = tokenize
+            rendered = []
+            for message in messages:
+                role = str(message.get("role", "user"))
+                text = " ".join(
+                    str(chunk.get("text", ""))
+                    for chunk in message.get("content", [])
+                    if chunk.get("type") == "text"
+                )
+                rendered.append(
+                    f"<|smoke_start|>{role}\n{text}\n<|smoke_end|>\n"
+                )
+            if add_generation_prompt:
+                rendered.append("<|smoke_start|>assistant\n")
+            return "".join(rendered)
+
+    model_adapter = _build_smoke_adapter()
+    tokenizer = _StableTokenizer()
+    collator = SFTCollator(
+        model_adapter=model_adapter,
+        template=build_template("smoke_vlm"),
+        processor=_StructuredProcessor(tokenizer),
+        tokenizer=tokenizer,
+        max_length=5,
+    )
+    image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+
+    out = collator(
+        [
+            {
+                "dataset_name": "a",
+                "sample_id": "oversize-prefix",
+                "image_path": "/tmp/a.png",
+                "image_paths": ("/tmp/a.png",),
+                "image": image,
+                "target_text": "answer remains supervised",
+                "messages": None,
+                "system_prompt": "",
+                "user_prompt": "one two three four five six seven eight",
+                "extra": {},
+            }
+        ]
+    )
+
+    assert out["input_ids"].shape == torch.Size([1, 5])
+    assert out["attention_mask"].sum().item() == 5
+    assert out["labels"][0, -1].item() != -100
+
+
+def test_sft_collator_passes_each_rows_images_in_source_order() -> None:
+    processor = _FakeProcessor()
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=_FakeTokenizer(),
+    )
+    first = Image.new("RGB", (8, 8), color=(255, 0, 0))
+    second = Image.new("RGB", (8, 8), color=(0, 0, 255))
+
+    _ = collator(
+        [
+            {
+                "dataset_name": "multi",
+                "sample_id": "multi",
+                "image_path": None,
+                "image_paths": ("first.png", "second.png"),
+                "image": (first, second),
+                "target_text": "answer",
+                "messages": None,
+                "system_prompt": "",
+                "user_prompt": "compare",
+                "extra": {},
+            }
+        ]
+    )
+
+    assert len(processor.last_images) == 1
+    assert [image.getpixel((0, 0)) for image in processor.last_images[0]] == [
+        (255, 0, 0),
+        (0, 0, 255),
+    ]
+    assert processor.last_messages[0]["content"][:2] == [
+        {"type": "image"},
+        {"type": "image"},
+    ]
+
+
+def test_varlen_collator_rejects_multi_image_rows_before_processor_work() -> None:
+    processor = _FakeProcessor()
+    collator = SFTCollator(
+        model_adapter=_build_smoke_adapter(),
+        template=build_template("smoke_vlm"),
+        processor=processor,
+        tokenizer=_FakeTokenizer(),
+        layout="varlen",
+    )
+    image = Image.new("RGB", (8, 8))
+    item = _sft_item(sample_id="multi")
+    item["image_paths"] = ("first.png", "second.png")
+    item["image"] = (image, image.copy())
+    item["_batch_context"] = _batch_context(
+        pack_index=0,
+        segment_index=0,
+        pack_segment_count=1,
+    )
+
+    with pytest.raises(ValueError, match="multi-image.*padded"):
+        collator([item])
+    assert processor.call_count == 0
+
+
+def test_prefix_truncation_fails_closed_without_exact_media_layout() -> None:
+    class _TrailingMediaProcessor(_FakeProcessor):
+        def __call__(self, text, images, padding=True, return_tensors="pt", **kwargs):
+            _ = text, images, padding, return_tensors, kwargs
+            self.call_count += 1
+            return {
+                "input_ids": torch.tensor([[10, 11, 12, 13, 99, 99]], dtype=torch.long),
+                "attention_mask": torch.ones((1, 6), dtype=torch.long),
+                "mm_token_type_ids": torch.tensor([[0, 0, 0, 0, 1, 1]], dtype=torch.long),
+            }
+
+    collator = SFTCollator(
+        model_adapter=build_model_meta("qwen3vl").resolve_adapter(
+            model_name_or_path="models/Qwen3-VL-4B-Instruct"
+        ),
+        template=build_template("qwen3vl"),
+        processor=_TrailingMediaProcessor(),
+        tokenizer=_FakeTokenizer(),
+        max_length=5,
+    )
+
+    with pytest.raises(ValueError, match="chat structure and media alignment"):
+        collator([_sft_item(sample_id="unsafe")])
+
+
 def test_sft_collator_uses_per_row_dynamic_prefix_length_for_target_budget() -> None:
     model_adapter = _build_smoke_adapter()
     collator = SFTCollator(
@@ -684,12 +847,16 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
         tokenizer=_FakeTokenizer(),
     )
     image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+    first = Image.new("RGB", (16, 16), color=(255, 0, 0))
+    second = Image.new("RGB", (16, 16), color=(0, 0, 255))
     batch = [
         {
             "dataset_name": "a",
             "sample_id": "a1",
-            "image_path": "/tmp/a.png",
-            "image": image,
+            "image_path": None,
+            "image_paths": ("/tmp/a-first.png", "/tmp/a-second.png"),
+            "images": (first, second),
+            "image": (first, second),
             "chosen_text": "{\"ok\":1}",
             "rejected_text": "{\"ok\":0}",
             "messages": None,
@@ -716,6 +883,10 @@ def test_dpo_collator_builds_pairwise_batches() -> None:
     assert out["completion_mask"].shape == out["input_ids"].shape
     assert out["pixel_values"].shape[0] == 4
     assert processor.call_count == 1
+    assert [item.getpixel((0, 0)) for item in processor.last_images[0]] == [
+        (255, 0, 0),
+        (0, 0, 255),
+    ]
     assert out["model_specific_mask"].flatten().tolist() == [0, 1, 0, 1]
 
 

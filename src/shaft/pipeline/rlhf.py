@@ -88,7 +88,7 @@ from shaft.training.resume_contract import (
 
 from .registry import PIPELINE_REGISTRY, register_pipeline
 from .execution import finalize_training_outputs, prepare_pipeline_call
-from .training_args import build_hf_training_args
+from .training_args import build_hf_training_args, resolve_training_compute_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -356,11 +356,15 @@ class ShaftRLHFPipeline:
                 if resolved_grpo_args is not None
                 else None
             )
+            training_compute_dtype = resolve_training_compute_dtype(
+                training_args,
+                model_torch_dtype=config.model.torch_dtype,
+            )
             sequence_execution_contract = model_plan.build_sequence_execution_contract(
                 layout="padded",
                 device_type="cpu" if bool(config.train.use_cpu) else "cuda",
                 attention_implementation=config.model.attn_implementation,
-                torch_dtype=config.model.torch_dtype,
+                torch_dtype=training_compute_dtype,
                 distributed_strategy=config.train.distributed.strategy,
                 torch_compile=bool(getattr(training_args, "torch_compile", False)),
             )

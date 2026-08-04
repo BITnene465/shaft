@@ -224,6 +224,99 @@ def test_sft_cost_provider_matches_supervision_and_processor_cost(tmp_path: Path
     assert provider.fingerprint
 
 
+def test_sft_cost_provider_estimates_every_ordered_image(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    Image.new("RGB", (32, 48)).save(first)
+    Image.new("RGB", (64, 80)).save(second)
+    plan = ShaftSamplePlan(
+        {"dataset": 1},
+        {"dataset": 1.0},
+        strategy="concat",
+        num_samples=1,
+        shuffle=False,
+        seed=17,
+    )
+    dataset = SFTDataset(
+        {
+            "dataset": [
+                SFTRecord(
+                    image_paths=[str(first), str(second)],
+                    target_text="target",
+                    dataset_name="dataset",
+                )
+            ]
+        },
+        sample_plan=plan,
+        media_snapshot_id="test-media-v1",
+    )
+
+    class _MultiAdapter(_CostModelAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.image_sizes: list[tuple[tuple[int, int], ...]] = []
+
+        def estimate_processor_image_cost(self, **kwargs):
+            self.image_sizes.append(kwargs["image_sizes"])
+            return ShaftProcessorCostEstimate(
+                processed_image_tokens=4,
+                vision_patches=16,
+                exact=True,
+            )
+
+        def estimate_processor_token_layout(self, **kwargs):
+            assert len(kwargs["image_costs"]) == 2
+            return ShaftProcessorTokenLayout(processed_boundaries=(0, 1, 5, 9, 10))
+
+    class _MultiTokenizer(_CostTokenizer):
+        def __call__(self, texts, add_special_tokens=False, return_attention_mask=False):
+            _ = add_special_tokens, return_attention_mask
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [
+                    [20, 21] if text == "target" else [10, 99, 99, 11]
+                    for text in texts
+                ]
+            }
+
+    class _MultiTemplate(_CostTemplate):
+        def build_supervision_plan(self, **kwargs):
+            return ShaftTemplateSupervisionPlan(
+                prompt_text="prompt",
+                target_text=kwargs["target_text"],
+                loss_spec=ShaftLossScaleSpec(),
+                rendered_prefix_token_ids=(10, 99, 99, 11),
+            )
+
+        def estimate_supervision_cost(self, **kwargs):
+            assert kwargs["prefix_token_layout"].processed_boundaries == (0, 1, 5, 9, 10)
+            return ShaftSupervisionCostEstimate(
+                llm_tokens=12,
+                supervised_tokens=2,
+                loss_weight_sum=2.0,
+            )
+
+    adapter = _MultiAdapter()
+    provider = ShaftSFTSampleCostProvider(
+        dataset=dataset,
+        model_adapter=adapter,
+        template=_MultiTemplate(),
+        processor=_CostProcessor(),
+        tokenizer=_MultiTokenizer(),
+        min_pixels=None,
+        max_pixels=None,
+        max_length=None,
+        add_eos_token=True,
+        loss_scale_name="default",
+    )
+
+    cost = provider(plan.ref_at(0))
+
+    assert adapter.image_sizes == [((32, 48),), ((64, 80),)]
+    assert cost.vision_patches == 32
+
+
 def test_sft_cost_fingerprint_ignores_model_artifact_locator(tmp_path: Path) -> None:
     _, provider, adapter = _build_provider(tmp_path)
     original = provider.fingerprint

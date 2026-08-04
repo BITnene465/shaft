@@ -34,8 +34,7 @@ state the scope, and verify file counts, active image/json coverage, and split s
 
 ## Maintained Raw Schema
 
-Raw JSON files should be maintained in a normalized schema, not in importer-native LabelMe
-`shapes` form:
+Two maintained source contracts exist. Importers and legacy normalized batches use:
 
 - top-level fields: `schema`, `image_path`, `image_width`, `image_height`, `annotation`,
   `instances`, `extra`
@@ -45,6 +44,19 @@ Raw JSON files should be maintained in a normalized schema, not in importer-nati
 - layout instance: `label`, two-corner `bbox: [x1, y1, x2, y2]`, `extra`
 - arrow instance: `label`, two-corner `bbox`, `linestrip`, `subattr`, `extra`
 
+The active 2026-08-04 human batch under `data/raw/json` intentionally uses the compact annotation
+contract:
+
+- top-level `size: [width, height]`, optional `background`, and `layout`
+- layout item `type`, two-corner `bbox: [x1, y1, x2, y2]`, and optional `parameters`
+- `full_text` is a valid human annotation type, but it is not a target of the four-class
+  `grounding_layout` task
+
+This compact schema is source truth, not an incomplete normalized record. Do not manufacture
+`schema`, `annotation`, `extra`, or rich reconstruction attributes merely to make it resemble the
+legacy normalized contract. Derived builders may adapt `size/layout/type` to their own structured
+schema at read time; they must preserve the raw files.
+
 Image-only inventory/test samples are valid in unified raw data. They are future annotation
 inventory or hand-off inputs and must not be treated as negative samples for any task.
 
@@ -52,6 +64,9 @@ Do not keep `points`, `shape_type`, `group_id`, or `flags` as live instance fiel
 source-only details inside `extra` only when they are needed for traceability. This prevents
 future rebuild scripts from accidentally depending on import artifacts instead of the maintained
 raw contract.
+
+That normalization rule applies to normalized imports. It does not authorize stripping
+`parameters` from the active compact human annotations.
 
 ## Write Policy
 
@@ -71,6 +86,10 @@ all image-size fields and annotation coordinates by the exact same factors:
 - arrow: `image_width`, `image_height`, `bbox`, and `linestrip`
 
 Regenerate previews after image resize, because old previews no longer reflect raw coordinates.
+
+For compact records, decoded image dimensions must match top-level `size`. Apply EXIF transpose
+only when the raw decoded dimensions do not match and the transposed dimensions match exactly;
+otherwise fail instead of guessing a coordinate space.
 
 ## Parallelism
 

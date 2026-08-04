@@ -212,6 +212,7 @@ data:
 train:
   gradient_checkpointing: "false"
   bf16: "false"
+  fp16: "false"
   use_cpu: "false"
   full_determinism: "false"
   ddp_find_unused_parameters: "false"
@@ -269,6 +270,7 @@ progress:
         config.data.add_eos_token,
         config.train.gradient_checkpointing,
         config.train.bf16,
+        config.train.fp16,
         config.train.use_cpu,
         config.train.full_determinism,
         config.train.ddp_find_unused_parameters,
@@ -303,6 +305,113 @@ progress:
         config.progress.persist,
     )
     assert all(value is False for value in false_values)
+
+
+def test_fp16_precision_config_is_explicit_and_independent_from_model_load_dtype(
+    tmp_path: Path,
+) -> None:
+    config = load_config(
+        write_config_yaml(
+            tmp_path,
+            """
+model:
+  torch_dtype: float32
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  bf16: false
+  fp16: "true"
+""",
+        )
+    )
+
+    assert config.train.bf16 is False
+    assert config.train.fp16 is True
+    assert config.model.torch_dtype == "float32"
+
+
+@pytest.mark.parametrize(
+    ("train_block", "message"),
+    [
+        (
+            "  bf16: true\n  fp16: true\n",
+            "mutually exclusive",
+        ),
+        (
+            "  bf16: false\n  fp16: true\n  use_cpu: true\n",
+            "requires CUDA",
+        ),
+    ],
+)
+def test_invalid_fp16_precision_contract_fails_during_config_load(
+    tmp_path: Path,
+    train_block: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                "data:\n"
+                + "  datasets:\n"
+                + "    - dataset_name: ds1\n"
+                + "      train_path: train.jsonl\n"
+                + "      val_path: val.jsonl\n"
+                + "train:\n"
+                + train_block,
+            )
+        )
+
+
+def test_fp16_rejects_float16_model_parameters(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="model.torch_dtype=float16"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+model:
+  torch_dtype: float16
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  bf16: false
+  fp16: true
+""",
+            )
+        )
+
+
+def test_fp16_rejects_bf16_only_deepspeed_contract(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="DeepSpeed presets.*BF16-only"):
+        load_config(
+            write_config_yaml(
+                tmp_path,
+                """
+model:
+  torch_dtype: float32
+data:
+  datasets:
+    - dataset_name: ds1
+      train_path: train.jsonl
+      val_path: val.jsonl
+train:
+  bf16: false
+  fp16: true
+  distributed:
+    strategy: deepspeed
+    deepspeed:
+      config:
+        zero_optimization:
+          stage: 2
+""",
+            )
+        )
 
 
 def test_fsdp_rejects_use_orig_params_false_during_config_normalization(

@@ -11,6 +11,36 @@ from transformers import TrainingArguments
 from shaft.config import RuntimeConfig, resolve_effective_gradient_checkpointing
 
 
+def resolve_training_compute_dtype(
+    training_args: Any,
+    *,
+    model_torch_dtype: str,
+) -> str:
+    use_bf16 = bool(getattr(training_args, "bf16", False))
+    use_fp16 = bool(getattr(training_args, "fp16", False))
+    if use_bf16 and use_fp16:
+        raise ValueError("bf16 and fp16 are mutually exclusive training precisions.")
+    if use_bf16:
+        return "bfloat16"
+    if use_fp16:
+        return "float16"
+    return str(model_torch_dtype).strip().lower()
+
+
+def _resolve_hf_precision_flags(train_cfg: Any) -> tuple[bool, bool]:
+    requested_bf16 = bool(train_cfg.bf16)
+    requested_fp16 = bool(train_cfg.fp16)
+    use_cpu = bool(train_cfg.use_cpu)
+    if requested_bf16 and requested_fp16:
+        raise ValueError("train.bf16 and train.fp16 are mutually exclusive.")
+    if requested_fp16 and (use_cpu or not torch.cuda.is_available()):
+        raise ValueError("train.fp16=true requires CUDA with an available device.")
+    return (
+        requested_bf16 and torch.cuda.is_available() and not use_cpu,
+        requested_fp16,
+    )
+
+
 def _resolve_fsdp_transformer_layers(
     config: RuntimeConfig,
     *,
@@ -158,7 +188,7 @@ def build_hf_training_args(
     train_cfg = config.train
     eval_cfg = config.eval
     eval_strategy = "no" if not eval_cfg.enabled else eval_cfg.eval_strategy
-    use_bf16 = bool(train_cfg.bf16) and torch.cuda.is_available()
+    use_bf16, use_fp16 = _resolve_hf_precision_flags(train_cfg)
     dataloader_num_workers = int(config.data.num_workers)
     fsdp, fsdp_config = _build_fsdp_args(
         config,
@@ -184,6 +214,7 @@ def build_hf_training_args(
         lr_scheduler_type=str(train_cfg.lr_scheduler_type),
         max_grad_norm=float(train_cfg.max_grad_norm),
         bf16=use_bf16,
+        fp16=use_fp16,
         use_cpu=bool(train_cfg.use_cpu),
         full_determinism=bool(train_cfg.full_determinism),
         seed=int(config.experiment.seed),

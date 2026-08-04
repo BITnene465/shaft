@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 import copy
 import http.client
 import json
 import socket
 import time
+from pathlib import Path
 from typing import Any
 import urllib.error
 import urllib.request
@@ -27,9 +29,9 @@ from .execution import (
 from .schema import InferEngineConfig, InferGenerationConfig
 
 
-@dataclass
+@dataclass(init=False)
 class ShaftInferRequest:
-    image_path: str
+    image_paths: tuple[str, ...]
     user_prompt: str = ""
     system_prompt: str = ""
     messages: list[dict[str, Any]] | None = None
@@ -38,6 +40,61 @@ class ShaftInferRequest:
     max_pixels: int | None = None
     backend_options: dict[str, Any] | None = None
     execution: ShaftInferExecutionControl | None = None
+
+    def __init__(
+        self,
+        image_path: str | Path | None = None,
+        user_prompt: str = "",
+        system_prompt: str = "",
+        messages: list[dict[str, Any]] | None = None,
+        generation: InferGenerationConfig | None = None,
+        min_pixels: int | None = None,
+        max_pixels: int | None = None,
+        backend_options: dict[str, Any] | None = None,
+        execution: ShaftInferExecutionControl | None = None,
+        *,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> None:
+        self.image_paths = self.resolve_image_paths(
+            image_path=image_path,
+            image_paths=image_paths,
+        )
+        self.user_prompt = str(user_prompt)
+        self.system_prompt = str(system_prompt)
+        self.messages = messages
+        self.generation = generation
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
+        self.backend_options = backend_options
+        self.execution = execution
+
+    @staticmethod
+    def resolve_image_paths(
+        *,
+        image_path: str | Path | None = None,
+        image_paths: Sequence[str | Path] | None = None,
+    ) -> tuple[str, ...]:
+        if image_path is not None and image_paths is not None:
+            raise ValueError("Provide either image_path or image_paths, not both.")
+        if image_paths is None:
+            raw_paths: Sequence[str | Path] = () if image_path is None else (image_path,)
+        elif isinstance(image_paths, (str, Path)):
+            raw_paths = (image_paths,)
+        else:
+            raw_paths = image_paths
+        normalized = tuple(str(path).strip() for path in raw_paths)
+        if not normalized or any(not path for path in normalized):
+            raise ValueError("Inference requires at least one non-empty image path.")
+        return normalized
+
+    @property
+    def image_path(self) -> str:
+        if len(self.image_paths) != 1:
+            raise ValueError(
+                "image_path is available only for requests with exactly one image; "
+                "use image_paths for ordered multi-image requests."
+            )
+        return self.image_paths[0]
 
 
 @dataclass
@@ -123,7 +180,7 @@ class HFLocalInferAdapter(InferAdapter):
             request.max_pixels if request.max_pixels is not None else self.max_pixels
         )
         prepared = self.model_adapter.inference_policy.prepare_local(
-            image_path=request.image_path,
+            image_paths=request.image_paths,
             user_prompt=request.user_prompt,
             system_prompt=request.system_prompt,
             messages=request.messages,
@@ -135,7 +192,7 @@ class HFLocalInferAdapter(InferAdapter):
         )
         batch = self._run_processor(
             prompt=prepared.prompt,
-            image=prepared.image,
+            images=prepared.images,
             min_pixels=prepared.min_pixels,
             max_pixels=prepared.max_pixels,
         )
@@ -155,15 +212,16 @@ class HFLocalInferAdapter(InferAdapter):
         self,
         *,
         prompt: str,
-        image: Any,
+        images: tuple[Any, ...],
         min_pixels: int | None,
         max_pixels: int | None,
     ) -> dict[str, torch.Tensor]:
+        image_row: Any = images[0] if len(images) == 1 else images
         processed_batch = self.model_adapter.build_processor_batch(
             processor=self.processor,
             tokenizer=self.tokenizer,
             prompt_texts=[prompt],
-            images=[image],
+            images=[image_row],
             min_pixels=min_pixels,
             max_pixels=max_pixels,
             input_mode="generation",
@@ -296,7 +354,7 @@ class VLLMOpenAIInferAdapter(InferAdapter):
             request.execution.checkpoint(context="vLLM request preparation")
         generation = request.generation or self.default_generation
         prepared = self.model_adapter.inference_policy.prepare_openai(
-            image_path=request.image_path,
+            image_paths=request.image_paths,
             user_prompt=request.user_prompt,
             system_prompt=request.system_prompt,
             messages=request.messages,

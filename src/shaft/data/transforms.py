@@ -164,7 +164,11 @@ class PromptSamplingTransform:
         dataset_name: str,
         active: bool,
     ) -> None:
-        sample_id = str(getattr(record, "sample_id", None) or getattr(record, "image_path", ""))
+        image_paths = tuple(getattr(record, "image_paths", ()) or ())
+        sample_id = str(
+            getattr(record, "sample_id", None)
+            or (image_paths[0] if image_paths else "")
+        )
         prompt_args = getattr(record, "prompt_args", {})
         messages = getattr(record, "messages", None)
         context = f"dataset={dataset_name!r}, sample={sample_id!r}"
@@ -197,7 +201,12 @@ class PromptSamplingTransform:
 
     def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
         dataset_name = str(sample.get("dataset_name", "")).strip()
-        sample_id = str(sample.get("sample_id") or sample.get("image_path") or "").strip()
+        image_paths = tuple(sample.get("image_paths") or ())
+        sample_id = str(
+            sample.get("sample_id")
+            or (image_paths[0] if image_paths else sample.get("image_path"))
+            or ""
+        ).strip()
         raw_prompt_args = sample.get("prompt_args")
         prompt_args = {} if raw_prompt_args is None else raw_prompt_args
         if not isinstance(prompt_args, dict):
@@ -295,7 +304,7 @@ def offline_dedup_image_target(records: Sequence[Any]) -> Sequence[Any]:
         if target_text is None:
             indices.append(index)
             continue
-        key = (str(getattr(item, "image_path", "")), str(target_text))
+        key = (repr(tuple(getattr(item, "image_paths", ()) or ())), str(target_text))
         if key in seen:
             continue
         seen.add(key)

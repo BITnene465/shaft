@@ -44,27 +44,29 @@ exclusion source. Do not derive train rows from VLM test items.
 
 ## Current Layout Multi-Resolution Profile
 
-The maintained `data/grounding_layout` dataset was rebuilt on 2026-07-16 for v5.3 with direct,
-aspect-preserving resize as its primary multi-resolution augmentation. The v5.2 snapshot is
-retained as `data/grounding_layout_old_v5.2`, and the older blur-heavy snapshot remains under
-`data/archive2/grounding_layout_v5.1_bak0714`; do not mix either snapshot into v5.3.
+The maintained `data/grounding_layout` dataset was rebuilt on 2026-08-04 from the active compact
+human annotations, with direct aspect-preserving resize as its primary multi-resolution
+augmentation. Historical snapshots remain separate and must not be mixed into this rebuild.
 
-For the current 17,065-source layout split, target approximately 50,000 train rows under the v5.3
-2M processor budget:
+The active train split has 20,060 sources, of which 19,953 contain at least one four-class target.
+The structured rebuild contains 58,440 rows under the 2M generated-view budget:
 
-- native clean full images: `1.0x` / 17,065 rows;
-- continuous clean resize views: target `0.9x` / 15,278 actual rows;
-- random padded clean views: `0.1x` / 1,706 rows;
-- degraded resize views: `0.75x` / 12,799 rows;
-- density crops: `0.15x` / 2,560 rows;
-- hard-negative crops: `0.03x` / 493 actual rows.
+- native clean full images: 20,060 rows;
+- continuous clean resize views: 17,882 rows;
+- random padded clean views: 1,995 rows;
+- degraded resize views: 14,965 rows;
+- density crops: 2,993 rows;
+- hard-negative crops: 545 rows.
 
-The actual rebuild contains 49,901 rows. Every source keeps one native clean row; the additional
-clean resize and padding families together provide one extra scale/spatial view per source when
-feasible. Degraded, density, and hard-negative views are deterministic stratified subsets. Native
-full rows may exceed 2M because they preserve source truth and are resized by the runtime
-processor; generated resize, padding, and degraded views must stay within 2M. Padding replaces
-part of the one-view clean augmentation budget rather than increasing the total dataset.
+Every source keeps one native clean row. The 107 sources containing only non-target `full_text`
+keep one empty native row and receive no augmentation. Additional view quotas are based on the
+19,953 positive sources. Degraded, density, and hard-negative views are deterministic stratified
+subsets; hard negatives may remain below quota when no bbox-disjoint crop is feasible. Native full
+rows may exceed 2M because they preserve source truth and are resized by the runtime processor;
+generated resize, padding, and degraded views must stay within 2M. Padding replaces part of the
+one-view clean augmentation budget rather than increasing the total dataset. The structured rows
+were later converted one-to-one into 58,440 v5.7 grounding SFT rows; this does not change the
+augmentation distribution.
 
 ### Continuous Resize Sampling
 

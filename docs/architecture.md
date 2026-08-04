@@ -8,7 +8,7 @@
 
 - 以 `Hugging Face` 生态为唯一主干。
 - 围绕多模态模型训练与推理构建稳定框架。
-- 优先打磨 `Qwen3VL / Qwen3.5-VL / Qwen3.6-VL + SFT` 主路径。
+- 优先打磨 `Qwen3VL / Qwen3.5-VL / Qwen3.6-VL dense + SFT` 主路径；MoE 训练暂未开放。
 - 通过注册表和适配层支持后续模型族、算法和推理后端扩展。
 - 保持训练、保存、续训、导出都兼容 HF / PEFT / TRL 标准能力。
 
@@ -213,8 +213,11 @@ fallback，也禁止按 partial message 重跑多模态 processor。
 - 用户训练 YAML 必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与 `layout`。
   当前执行面是 `none + fixed + none + padded`、`length + fixed + none + padded|varlen`、
   `length + fixed + greedy + varlen`，以及 `bounded_cost + fixed|token_budget + none + padded`。
-  Qwen3VL 与 HF `qwen3_5`（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
+  Qwen3VL 与 HF `qwen3_5` dense（Qwen3.5/Qwen3.6 alias）image SFT 已实现各自的 varlen execution policy；
   其它模型族和未验收 backend/topology fail closed。
+- 数据与推理的单样本 media 真源都是有序 `image_paths`：JSONL 用 `images` 表达多图，运行时按顺序传给
+  placeholder 和 processor。单数 `image_path/image` 只是单图兼容面。padded SFT/DPO 支持多图；varlen
+  sequence packing 仍只支持单图并 fail closed。
 - 旧 `data.batching.strategy`、`cost_aware`、`dynamic_cost_aware`、fixed guard、full-horizon CostPlan/mmap 和 exact
   optimizer sample target 已删除；loader 对这些旧字段 fail fast，避免双轨运行时。
 - bounded 主链固定为：
@@ -288,10 +291,11 @@ fallback，也禁止按 partial message 重跑多模态 processor。
   新 schedule。duration/GA/optimizer/scheduler 改变同样必须使用 `init_from_checkpoint`。
   `shaft_batching_run_metadata.json` 记录用户可观察的 resolved 策略与预算。
 - sequence packing 与 context parallel 是独立能力；bounded grouping 不伪装成 packing。当前已实现 bounded
-  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 image-SFT
+  lookahead 上的 length grouping、whole-sample greedy packing，以及 Qwen3VL / Qwen3.5 / Qwen3.6 dense image-SFT
   varlen 执行链。varlen 的 plan/media 私有元数据由模型 `SequenceExecutionPolicy` 在 host 侧消费：Qwen3VL
-  使用 reset 4-axis M-RoPE，Qwen3.5/3.6 hybrid policy 额外提供 linear-attention/causal-conv boundaries。
-  concrete class、kernel/backend 与 runtime shim 都由模型层验证；其它模型族和未验收 topology fail closed。
+  使用 reset 4-axis M-RoPE，Qwen3.5/3.6 dense hybrid policy 额外提供 linear-attention/causal-conv boundaries。
+  上述 varlen 路径当前只接受单图；多图 padded 路径不复用 packing media contract。concrete class、
+  kernel/backend 与 runtime shim 都由模型层验证；其它模型族和未验收 topology fail closed。
   context parallel 仍后置。
 - `ResolvedModelPlan` 是 pipeline、builder 与 sequence contract 共用的唯一模型决议。它先读取本地 HF
   `config.json`，必要时按 `revision/cache_dir/local_files_only` 从 HF cache/Hub 取得 config，形成

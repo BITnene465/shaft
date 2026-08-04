@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 import torch
@@ -207,6 +208,169 @@ def test_qwen_template_compiles_closed_chatml_assistant_spans() -> None:
     assert plan.trainable_prefix_spans == ((3, 6),)
     assert len(plan.rendered_prefix_token_ids) == 10
     assert processor.render_count == 1
+
+
+def test_qwen_prefix_truncation_preserves_chatml_envelope_and_matches_cost() -> None:
+    template = build_template("qwen3vl")
+    processor = _ChatMLProcessor()
+    tokenizer = processor.tokenizer
+    item = {
+        "image_paths": (),
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "oldest one two three four newest",
+                    }
+                ],
+            }
+        ],
+    }
+    plan = template.build_supervision_plan(
+        item=item,
+        target_text="answer",
+        renderer=_renderer(processor, tokenizer),
+        loss_scale_name="default",
+    )
+    prefix_layout = ShaftProcessorTokenLayout(
+        processed_boundaries=tuple(range(len(plan.rendered_prefix_token_ids) + 1))
+    )
+    processed_batch = ShaftProcessedBatch(
+        model_inputs={
+            "input_ids": torch.tensor([plan.rendered_prefix_token_ids], dtype=torch.long),
+            "attention_mask": torch.ones(
+                (1, len(plan.rendered_prefix_token_ids)), dtype=torch.long
+            ),
+        },
+        batch_size=1,
+    )
+
+    estimate = template.estimate_supervision_cost(
+        plan=plan,
+        tokenizer=tokenizer,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+        max_length=6,
+    )
+    row = template.build_supervised_row(
+        plan=plan,
+        tokenizer=tokenizer,
+        processed_batch=processed_batch,
+        row_index=0,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+        ignore_index=-100,
+        include_targets_in_inputs=True,
+        max_length=6,
+    )
+
+    # The target occupies the final token. The truncated prefix must still close the
+    # user message and end with the assistant generation marker.
+    assert tuple(row.input_ids[-3:-1].tolist()) == plan.rendered_prefix_token_ids[-2:]
+    assert int(row.input_ids[0]) == plan.rendered_prefix_token_ids[0]
+    assert estimate.llm_tokens == int(row.attention_mask.sum()) == 6
+    assert estimate.supervised_tokens == int(row.labels[1:].ne(-100).sum())
+
+
+def test_qwen_prefix_truncation_fails_when_chat_envelope_cannot_fit() -> None:
+    template = build_template("qwen3vl")
+    processor = _ChatMLProcessor()
+    tokenizer = processor.tokenizer
+    item = {
+        "image_paths": (),
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "long body"}]}
+        ],
+    }
+    plan = template.build_supervision_plan(
+        item=item,
+        target_text="answer",
+        renderer=_renderer(processor, tokenizer),
+        loss_scale_name="default",
+    )
+    prefix_layout = ShaftProcessorTokenLayout(
+        processed_boundaries=tuple(range(len(plan.rendered_prefix_token_ids) + 1))
+    )
+
+    with pytest.raises(ValueError, match="preserving chat structure"):
+        template.estimate_supervision_cost(
+            plan=plan,
+            tokenizer=tokenizer,
+            prefix_token_layout=prefix_layout,
+            add_eos_token=True,
+            max_length=2,
+        )
+
+
+def test_prefix_truncation_keeps_expanded_media_tokens_and_matches_estimator() -> None:
+    template = build_template("qwen3vl")
+    tokenizer = _FakeTokenizer()
+    plan = ShaftTemplateSupervisionPlan(
+        prompt_text="unused",
+        target_text="answer",
+        loss_spec=ShaftLossScaleSpec(
+            base_strategy="default",
+            prefix_scale=0.0,
+            target_scale=1.0,
+        ),
+        rendered_prefix_token_ids=(100, 99, 11, 12, 101, 102),
+        truncatable_prefix_spans=((1, 4),),
+    )
+    prefix_layout = ShaftProcessorTokenLayout(
+        processed_boundaries=(0, 1, 4, 5, 6, 7, 8)
+    )
+    processed_batch = ShaftProcessedBatch(
+        model_inputs={
+            "input_ids": torch.tensor(
+                [[100, 99, 99, 99, 11, 12, 101, 102]], dtype=torch.long
+            ),
+            "attention_mask": torch.ones((1, 8), dtype=torch.long),
+            "mm_token_type_ids": torch.tensor(
+                [[0, 1, 1, 1, 0, 0, 0, 0]], dtype=torch.long
+            ),
+        },
+        batch_size=1,
+    )
+
+    estimate = template.estimate_supervision_cost(
+        plan=plan,
+        tokenizer=tokenizer,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+        max_length=7,
+    )
+    row = template.build_supervised_row(
+        plan=plan,
+        tokenizer=tokenizer,
+        processed_batch=processed_batch,
+        row_index=0,
+        prefix_token_layout=prefix_layout,
+        add_eos_token=True,
+        ignore_index=-100,
+        include_targets_in_inputs=True,
+        max_length=7,
+    )
+
+    assert row.mm_token_type_ids is not None
+    assert int(row.mm_token_type_ids.sum()) == 3
+    assert tuple(row.input_ids[:4].tolist()) == (100, 99, 99, 99)
+    assert tuple(row.input_ids[4:6].tolist()) == (101, 102)
+    assert estimate.llm_tokens == int(row.input_ids.numel()) == 7
+
+
+def test_template_message_validation_accepts_string_content_and_scalar_image_path() -> None:
+    messages = [
+        {"role": "system", "content": "be concise"},
+        {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "go"}]},
+    ]
+
+    resolved = build_template("qwen3vl").resolve_messages(
+        {"image_paths": Path("/tmp/one.png"), "messages": messages}
+    )
+
+    assert resolved == messages
 
 
 def test_qwen_template_compiles_multiple_assistant_spans_across_tool_messages() -> None:

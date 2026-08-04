@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 
 
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
@@ -294,6 +294,49 @@ def _find_image_path(raw_root: Path, raw_record: dict[str, Any], json_rel: str) 
     raise FileNotFoundError(f"Cannot find image for {json_rel}")
 
 
+def _compact_image_size(
+    raw_record: dict[str, Any],
+    *,
+    json_rel: str,
+) -> tuple[int, int] | None:
+    if "size" not in raw_record:
+        return None
+    size = raw_record.get("size")
+    if (
+        not isinstance(size, list)
+        or len(size) != 2
+        or any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in size)
+    ):
+        raise ValueError(f"Invalid compact image size in {json_rel}: {size!r}")
+    width, height = int(size[0]), int(size[1])
+    if width <= 0 or height <= 0 or width != size[0] or height != size[1]:
+        raise ValueError(f"Invalid compact image size in {json_rel}: {size!r}")
+    return width, height
+
+
+def _open_source_image(
+    image_path: Path,
+    raw_record: dict[str, Any],
+    *,
+    json_rel: str,
+) -> Image.Image:
+    declared_size = _compact_image_size(raw_record, json_rel=json_rel)
+    with Image.open(image_path) as opened:
+        if declared_size is None or opened.size == declared_size:
+            return opened.convert("RGB")
+        transposed = ImageOps.exif_transpose(opened)
+        try:
+            if transposed.size == declared_size:
+                return transposed.convert("RGB")
+        finally:
+            if transposed is not opened:
+                transposed.close()
+        raise ValueError(
+            f"Image size does not match compact annotation coordinates for {json_rel}: "
+            f"declared={declared_size}, raw={opened.size}"
+        )
+
+
 def _clean_bbox(
     value: Any,
     *,
@@ -328,9 +371,23 @@ def _extract_instances(
     image_width: int,
     image_height: int,
 ) -> list[SourceInstance]:
+    if "instances" in raw_record:
+        source_instances = raw_record.get("instances")
+        label_key = "label"
+    elif "layout" in raw_record:
+        source_instances = raw_record.get("layout")
+        label_key = "type"
+    else:
+        source_instances = []
+        label_key = "label"
+    if not isinstance(source_instances, list):
+        raise ValueError("Raw annotation instances/layout must be a list")
+
     result: list[SourceInstance] = []
-    for index, instance in enumerate(raw_record.get("instances") or []):
-        source_label = str(instance.get("label"))
+    for index, instance in enumerate(source_instances):
+        if not isinstance(instance, dict):
+            raise ValueError(f"Raw annotation item {index} must be an object")
+        source_label = str(instance.get(label_key))
         target_label = label_map.get(source_label)
         if target_label is None:
             continue
@@ -915,7 +972,7 @@ def _read_source_meta(args: tuple[str, GroundingTaskSpec, Path]) -> SourceMeta:
     raw_record = _load_json(raw_root / json_rel)
     covered = _has_required_coverage(raw_record, spec.required_layers)
     image_path = _find_image_path(raw_root, raw_record, json_rel)
-    with Image.open(image_path) as image:
+    with _open_source_image(image_path, raw_record, json_rel=json_rel) as image:
         width, height = image.size
     instances = _extract_instances(
         raw_record,
@@ -1045,7 +1102,9 @@ def _build_multiscale_plans(
     *,
     config: BuildConfig,
 ) -> dict[str, SourcePlan]:
-    covered = [meta for meta in metas if meta.covered]
+    covered = [meta for meta in metas if meta.covered and meta.target_count > 0]
+    if not covered:
+        return {}
     resolution_quartiles = _quartiles(
         covered,
         lambda item: item.image_width * item.image_height,
@@ -1306,6 +1365,7 @@ def _build_row(
     pixel_augmentation: dict[str, Any],
     spatial_augmentation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    compact_size = _compact_image_size(raw_record, json_rel=json_rel)
     return {
         "sample_id": sample_id,
         "image_path": image_path,
@@ -1319,8 +1379,10 @@ def _build_row(
             "view_type": view_type,
             "source_json": json_rel,
             "source_image": raw_record.get("image_path"),
-            "source_image_width": raw_record.get("image_width"),
-            "source_image_height": raw_record.get("image_height"),
+            "source_image_width": raw_record.get("image_width")
+            or (compact_size[0] if compact_size else None),
+            "source_image_height": raw_record.get("image_height")
+            or (compact_size[1] if compact_size else None),
             "coverage_layers": list((raw_record.get("annotation") or {}).get("layers") or []),
             "crop_box": list(crop_box),
             "source_instance_indices": source_instance_indices,
@@ -1550,7 +1612,7 @@ def _process_source(
         )
 
     image_path = _find_image_path(config.raw_root, raw_record, json_rel)
-    image = Image.open(image_path).convert("RGB")
+    image = _open_source_image(image_path, raw_record, json_rel=json_rel)
     image_width, image_height = image.size
     instances = _extract_instances(
         raw_record,
@@ -1589,7 +1651,11 @@ def _process_source(
         )
     )
 
-    if config.split == "train" and config.augmentation_profile == "layout_multiscale_v1":
+    if (
+        config.split == "train"
+        and instances
+        and config.augmentation_profile == "layout_multiscale_v1"
+    ):
         if source_plan is None:
             raise ValueError(f"Missing multi-resolution source plan for {json_rel}")
         resize_rows, padded_rows, degraded_rows = _build_multiscale_views(
@@ -1603,7 +1669,7 @@ def _process_source(
             plan=source_plan,
             rng=rng,
         )
-    elif config.split == "train":
+    elif config.split == "train" and instances:
         padded_image, spatial_aug, content_box = _make_padded_full_image(
             image,
             rng,
@@ -1668,7 +1734,7 @@ def _process_source(
 
     positive_rows: list[dict[str, Any]] = []
     negative_rows: list[dict[str, Any]] = []
-    if config.split == "train":
+    if config.split == "train" and instances:
         positive_crops = _select_positive_crops(
             instances,
             image_width=image_width,
@@ -1921,6 +1987,8 @@ def _write_readme(
     val_summary: dict[str, Any],
     covered_train: int,
     covered_val: int,
+    positive_train: int,
+    positive_val: int,
     args: argparse.Namespace,
 ) -> None:
     train_views = train_summary["view_counts"]
@@ -1952,6 +2020,8 @@ Generated from raw annotations for grounding detection.
 - Target labels: `{", ".join(spec.labels)}`
 - Source label map: `{json.dumps(dict(_source_label_map(spec)), ensure_ascii=False, sort_keys=True)}`
 - Required raw coverage: `{", ".join(spec.required_layers) if spec.required_layers else "none; mapped instances define coverage"}`
+- Positive source JSON: train `{positive_train}`, val `{positive_val}`. Covered zero-target sources
+  keep exactly one native empty row and are not augmented.
 - Train split source: `{args.train_split}`
 - Val split source: `{args.val_split}`
 - Workers: `{args.workers}`
@@ -1964,7 +2034,7 @@ Generated from raw annotations for grounding detection.
 - Density crop global ratio cap: `{args.density_crop_ratio}`
 - Max positive crops per source: `{spec.max_positive_crops}`
 - Min positive crop instances: `{spec.min_positive_instances}`
-- Hard negative ratio target: `{args.negative_ratio}` of covered train sources.
+- Hard negative ratio target: `{args.negative_ratio}` of positive train sources.
 - Positive density crop target: `{args.density_crop_ratio}`
 - Random padded full ratio target: `{args.padded_full_ratio}`
 - Random padded full total per-axis expansion ratio: `{args.padding_min_ratio}` to `{args.padding_max_ratio}`
@@ -2076,16 +2146,17 @@ def _build_task_split(
         negative_candidates.extend(result.negative_rows)
         blur_candidates.extend(result.blur_rows)
 
+    positive_source_count = sum(result.target_count > 0 for result in covered_results)
     negative_rows = _select_negative_rows(
         negative_candidates,
-        base_count=len(covered_results),
+        base_count=positive_source_count,
         ratio=config.negative_ratio,
         seed=config.seed,
         task_name=spec.name,
     )
     positive_rows = _select_positive_rows(
         positive_rows,
-        base_count=len(covered_results),
+        base_count=positive_source_count,
         ratio=(
             config.density_crop_ratio
             if config.augmentation_profile == "layout_multiscale_v1"
@@ -2098,14 +2169,14 @@ def _build_task_split(
     else:
         padded_rows = _select_ratio_rows(
             padded_candidates,
-            base_count=len(covered_results),
+            base_count=positive_source_count,
             ratio=config.padded_full_ratio,
             seed=config.seed,
             namespace=f"{spec.name}:padded_full",
         )
         blur_rows = _select_ratio_rows(
             blur_candidates,
-            base_count=len(covered_results),
+            base_count=positive_source_count,
             ratio=config.blur_ratio,
             seed=config.seed,
             namespace=f"{spec.name}:blur",
@@ -2281,14 +2352,14 @@ def main() -> None:
             clean_resize_views=0.0,
             degraded_resize_ratio=0.0,
         )
-        train_rows, covered_train, _ = _build_task_split(
+        train_rows, covered_train, train_results = _build_task_split(
             spec=spec,
             split_path=train_split,
             output_path=task_root / "structured" / "train.jsonl",
             config=train_config,
             workers=int(args.workers),
         )
-        val_rows, covered_val, _ = _build_task_split(
+        val_rows, covered_val, val_results = _build_task_split(
             spec=spec,
             split_path=val_split,
             output_path=task_root / "structured" / "val.jsonl",
@@ -2297,6 +2368,8 @@ def main() -> None:
         )
         train_summary = _summarize_rows(train_rows)
         val_summary = _summarize_rows(val_rows)
+        positive_train = sum(result.target_count > 0 for result in train_results)
+        positive_val = sum(result.target_count > 0 for result in val_results)
         _write_readme(
             task_root,
             spec=spec,
@@ -2304,11 +2377,15 @@ def main() -> None:
             val_summary=val_summary,
             covered_train=covered_train,
             covered_val=covered_val,
+            positive_train=positive_train,
+            positive_val=positive_val,
             args=args,
         )
         summaries[spec.name] = {
             "covered_train": covered_train,
             "covered_val": covered_val,
+            "positive_train": positive_train,
+            "positive_val": positive_val,
             "train": train_summary,
             "val": val_summary,
         }

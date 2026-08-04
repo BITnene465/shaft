@@ -10,7 +10,10 @@ import torch
 
 from shaft.data import ShaftBatchPlanningSpec
 from shaft.model import build_model_tokenizer_processor
-from shaft.pipeline.training_args import build_hf_training_args
+from shaft.pipeline.training_args import (
+    build_hf_training_args,
+    resolve_training_compute_dtype,
+)
 from shaft.training.batch_planning import (
     build_batch_contract,
     build_batching_run_metadata,
@@ -33,6 +36,59 @@ def test_build_hf_training_args_supports_gradient_checkpointing(tmp_path: Path) 
 
     assert args.gradient_checkpointing is True
     assert args.average_tokens_across_devices is True
+
+
+def test_build_hf_training_args_enables_fp16_on_cuda(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.use_cpu = False
+    config.train.bf16 = False
+    config.train.fp16 = True
+
+    with patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True):
+        args = build_hf_training_args(config)
+
+    assert args.fp16 is True
+    assert args.bf16 is False
+    assert args.use_cpu is False
+
+
+def test_build_hf_training_args_rejects_fp16_without_cuda(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.train.use_cpu = False
+    config.train.bf16 = False
+    config.train.fp16 = True
+
+    with patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=False):
+        with pytest.raises(ValueError, match="requires CUDA"):
+            build_hf_training_args(config)
+
+
+def test_build_hf_training_args_defends_against_mixed_precision_conflicts(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    config.train.use_cpu = False
+    config.train.bf16 = True
+    config.train.fp16 = True
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        build_hf_training_args(config)
+
+
+def test_training_compute_dtype_uses_effective_amp_precision(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    config.model.torch_dtype = "float32"
+    config.train.use_cpu = False
+    config.train.bf16 = False
+    config.train.fp16 = True
+
+    with patch("shaft.pipeline.training_args.torch.cuda.is_available", return_value=True):
+        args = build_hf_training_args(config)
+
+    assert resolve_training_compute_dtype(
+        args,
+        model_torch_dtype=config.model.torch_dtype,
+    ) == "float16"
 
 
 def test_build_hf_training_args_exposes_full_determinism(tmp_path: Path) -> None:

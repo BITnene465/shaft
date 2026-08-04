@@ -2,13 +2,38 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from shaft.loss_scale import ShaftLossScaleSpec
+from shaft.utils.messages import count_message_content_type
 
 if TYPE_CHECKING:
     from shaft.model.types import ShaftProcessedBatch, ShaftProcessorTokenLayout
     from shaft.template.rendering import ShaftChatRenderer
+
+
+def _item_image_count(item: dict[str, Any]) -> int:
+    image_paths = item.get("image_paths")
+    if image_paths is not None:
+        if isinstance(image_paths, (str, bytes, Path)):
+            return 1
+        return len(tuple(image_paths))
+    images = item.get("images")
+    if images is not None:
+        if isinstance(images, (str, bytes, Path)):
+            return 1
+        return len(tuple(images))
+    image = item.get("image")
+    if isinstance(image, (list, tuple)):
+        return len(image)
+    if image is not None or item.get("image_path") is not None:
+        return 1
+    return 0
+
+
+def _message_image_count(messages: list[dict[str, Any]]) -> int:
+    return count_message_content_type(messages, "image")
 
 
 @dataclass(frozen=True)
@@ -18,6 +43,7 @@ class ShaftTemplateSupervisionPlan:
     loss_spec: ShaftLossScaleSpec
     rendered_prefix_token_ids: tuple[int, ...] = ()
     trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
+    truncatable_prefix_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +80,16 @@ class Template(ABC):
         return normalized
 
     def resolve_messages(self, item: dict[str, Any]) -> list[dict[str, Any]]:
+        image_count = _item_image_count(item)
         if item.get("messages"):
-            return item["messages"]
+            messages = item["messages"]
+            placeholder_count = _message_image_count(messages)
+            if placeholder_count != image_count:
+                raise ValueError(
+                    "Training message image placeholder count must match ordered "
+                    f"image_paths: placeholders={placeholder_count}, images={image_count}."
+                )
+            return messages
         messages: list[dict[str, Any]] = []
         system_prompt = str(item.get("system_prompt", "")).strip()
         if system_prompt:
@@ -63,7 +97,10 @@ class Template(ABC):
         messages.append(
             {
                 "role": "user",
-                "content": [{"type": "image"}, {"type": "text", "text": str(item.get("user_prompt", ""))}],
+                "content": [
+                    *({"type": "image"} for _ in range(image_count)),
+                    {"type": "text", "text": str(item.get("user_prompt", ""))},
+                ],
             }
         )
         return messages

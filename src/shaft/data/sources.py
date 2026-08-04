@@ -5,6 +5,8 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Any, Callable, Literal
 
+from shaft.utils.messages import count_message_content_type
+
 from .dataset import DPORecord, PPORecord, SFTRecord
 from .meta import ShaftDatasetMeta
 from .record_store import ShaftArrowRecordStore, ShaftConcatRecordStore
@@ -67,27 +69,71 @@ def _extract_target_from_messages(messages: list[dict[str, Any]]) -> tuple[str |
     return target_text, messages[:-1]
 
 
-def _resolve_image_path(raw: dict[str, Any], jsonl_path: Path, line_no: int) -> str:
-    image_path = _resolve_optional_image_path(raw, jsonl_path)
-    if image_path is None:
+def _resolve_image_paths(
+    raw: dict[str, Any],
+    jsonl_path: Path,
+    line_no: int,
+) -> tuple[str, ...]:
+    image_paths = _resolve_optional_image_paths(raw, jsonl_path)
+    if not image_paths:
         raise ValueError(f"Missing image path in {jsonl_path}:{line_no}. Expected image_path/image/images.")
-    return image_path
+    return image_paths
 
 
-def _resolve_optional_image_path(raw: dict[str, Any], jsonl_path: Path) -> str | None:
-    image_obj = raw.get("image_path")
-    if image_obj is None:
-        image_obj = raw.get("image")
-    if image_obj is None:
-        images = raw.get("images")
-        if isinstance(images, list) and images:
-            image_obj = images[0]
-    if image_obj is None:
-        return None
-    image_path = str(image_obj)
-    if not Path(image_path).is_absolute():
-        image_path = str((jsonl_path.parent / image_path).resolve())
-    return image_path
+def _resolve_optional_image_paths(
+    raw: dict[str, Any],
+    jsonl_path: Path,
+) -> tuple[str, ...]:
+    present = [
+        field_name
+        for field_name in ("image_path", "image", "images")
+        if raw.get(field_name) is not None
+    ]
+    if len(present) > 1:
+        raise ValueError(
+            "Provide exactly one of image_path, image, or images; "
+            f"received {present}."
+        )
+    if not present:
+        return ()
+    field_name = present[0]
+    value = raw[field_name]
+    if field_name == "images":
+        if not isinstance(value, list) or not value:
+            raise ValueError("`images` must be a non-empty ordered list of paths.")
+        raw_paths = value
+    else:
+        if isinstance(value, (list, tuple, dict)):
+            raise ValueError(f"`{field_name}` must be one path; use `images` for multiple paths.")
+        raw_paths = [value]
+
+    resolved: list[str] = []
+    for index, raw_path in enumerate(raw_paths):
+        if not isinstance(raw_path, (str, Path)) or not str(raw_path).strip():
+            raise ValueError(f"Invalid image path at {field_name}[{index}].")
+        image_path = Path(str(raw_path).strip()).expanduser()
+        if not image_path.is_absolute():
+            image_path = (jsonl_path.parent / image_path).resolve()
+        resolved.append(str(image_path))
+    return tuple(resolved)
+
+
+def _validate_message_image_count(
+    messages: list[dict[str, Any]] | None,
+    *,
+    image_paths: tuple[str, ...],
+    jsonl_path: Path,
+    line_no: int,
+) -> None:
+    if not messages:
+        return
+    placeholder_count = count_message_content_type(messages, "image")
+    if placeholder_count != len(image_paths):
+        raise ValueError(
+            "The message image placeholder count must match ordered image paths in "
+            f"{jsonl_path}:{line_no}: placeholders={placeholder_count}, "
+            f"images={len(image_paths)}."
+        )
 
 
 def _build_sft_record_from_raw(
@@ -97,7 +143,7 @@ def _build_sft_record_from_raw(
     line_no: int,
     dataset_name: str,
 ) -> SFTRecord:
-    image_path = _resolve_image_path(raw, jsonl_path, line_no)
+    image_paths = _resolve_image_paths(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
     target_text = raw.get("target_text")
     if target_text is None and messages is not None:
@@ -109,6 +155,12 @@ def _build_sft_record_from_raw(
         raise ValueError(
             "Missing target text. Expected target_text or a trailing assistant message."
         )
+    _validate_message_image_count(
+        messages,
+        image_paths=image_paths,
+        jsonl_path=jsonl_path,
+        line_no=line_no,
+    )
 
     raw_prompt_args = raw.get("prompt_args")
     prompt_args = {} if raw_prompt_args is None else raw_prompt_args
@@ -140,15 +192,13 @@ def _build_sft_record_from_raw(
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
         extra.setdefault("source_dataset_name", raw_dataset_name)
     return SFTRecord(
-        image_path=image_path,
+        image_paths=image_paths,
         target_text=str(target_text),
         dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
-        user_prompt=str(
-            raw.get("user_prompt", "Output only valid JSON. No markdown and no extra text.")
-        ),
+        user_prompt=str(raw.get("user_prompt", "")),
         prompt_args=dict(prompt_args),
         extra=extra,
     )
@@ -161,12 +211,18 @@ def _build_dpo_record_from_raw(
     line_no: int,
     dataset_name: str,
 ) -> DPORecord:
-    image_path = _resolve_image_path(raw, jsonl_path, line_no)
+    image_paths = _resolve_image_paths(raw, jsonl_path, line_no)
     messages = _normalize_messages(raw)
     chosen_text = raw.get("chosen_text", raw.get("chosen"))
     rejected_text = raw.get("rejected_text", raw.get("rejected"))
     if chosen_text is None or rejected_text is None:
         raise ValueError("Missing chosen/rejected fields. Expected chosen_text/chosen and rejected_text/rejected.")
+    _validate_message_image_count(
+        messages,
+        image_paths=image_paths,
+        jsonl_path=jsonl_path,
+        line_no=line_no,
+    )
     raw_dataset_name = str(raw.get("dataset_name", "")).strip() or None
     extra = {
         k: v
@@ -192,16 +248,14 @@ def _build_dpo_record_from_raw(
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
         extra.setdefault("source_dataset_name", raw_dataset_name)
     return DPORecord(
-        image_path=image_path,
+        image_paths=image_paths,
         chosen_text=str(chosen_text),
         rejected_text=str(rejected_text),
         dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
-        user_prompt=str(
-            raw.get("user_prompt", "Output only valid JSON. No markdown and no extra text.")
-        ),
+        user_prompt=str(raw.get("user_prompt", "")),
         extra=extra,
     )
 
@@ -213,12 +267,18 @@ def _build_ppo_record_from_raw(
     line_no: int,
     dataset_name: str,
 ) -> PPORecord:
-    image_path = _resolve_optional_image_path(raw, jsonl_path)
+    image_paths = _resolve_optional_image_paths(raw, jsonl_path)
     messages = _normalize_messages(raw)
     prompt_text = str(raw.get("prompt", ""))
     user_prompt = str(raw.get("user_prompt", prompt_text))
     if messages is None and not user_prompt.strip():
         raise ValueError("Missing prompt for PPO sample. Expected messages or user_prompt/prompt.")
+    _validate_message_image_count(
+        messages,
+        image_paths=image_paths,
+        jsonl_path=jsonl_path,
+        line_no=line_no,
+    )
     if messages is not None and not any(
         _content_to_text(message.get("content", []))
         for message in messages
@@ -246,13 +306,12 @@ def _build_ppo_record_from_raw(
     if raw_dataset_name is not None and raw_dataset_name != dataset_name:
         extra.setdefault("source_dataset_name", raw_dataset_name)
     return PPORecord(
-        image_path=image_path,
+        image_paths=image_paths,
         dataset_name=dataset_name,
         sample_id=str(raw.get("sample_id", "")) or None,
         messages=messages,
         system_prompt=str(raw.get("system_prompt", "")),
-        user_prompt=user_prompt
-        or "Output only valid JSON. No markdown and no extra text.",
+        user_prompt=user_prompt,
         extra=extra,
     )
 

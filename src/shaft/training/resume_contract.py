@@ -412,6 +412,8 @@ class ShaftTrainingResumeContract:
                 raise ValueError(f"ShaftTrainingResumeContract.{field_name} must not be empty.")
         if self.duration_unit not in {"steps", "epochs"}:
             raise ValueError(f"Unsupported training duration unit: {self.duration_unit!r}.")
+        if self.precision not in {"fp32", "bf16", "fp16"}:
+            raise ValueError(f"Unsupported training precision: {self.precision!r}.")
         if not math.isfinite(float(self.duration_value)) or float(self.duration_value) <= 0:
             raise ValueError("Training duration value must be finite and > 0.")
         if not math.isfinite(float(self.resolved_num_train_epochs)):
@@ -837,9 +839,13 @@ def distributed_training_contract_stage(
 
 
 def _resolved_precision(training_args: Any) -> str:
-    if bool(getattr(training_args, "bf16", False)):
+    bf16 = bool(getattr(training_args, "bf16", False))
+    fp16 = bool(getattr(training_args, "fp16", False))
+    if bf16 and fp16:
+        raise ValueError("train.bf16 and train.fp16 are mutually exclusive.")
+    if bf16:
         return "bf16"
-    if bool(getattr(training_args, "fp16", False)):
+    if fp16:
         return "fp16"
     return "fp32"
 

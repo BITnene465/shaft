@@ -55,7 +55,7 @@ RuntimeConfig
 │   ├── per_device_train_batch_size / gradient_accumulation_steps
 │   ├── optimizer_name / scheduler_name / loss_name / loss_scale
 │   ├── learning_rate / warmup_ratio / weight_decay / max_grad_norm
-│   ├── bf16 / gradient_checkpointing / full_determinism
+│   ├── bf16 / fp16 / gradient_checkpointing / full_determinism
 │   ├── save_strategy / save_steps / save_epoch_interval / save_total_limit
 │   ├── load_best_model_at_end / save_final_model / save_final_state
 │   ├── init_from_checkpoint / resume_from_checkpoint
@@ -234,21 +234,21 @@ layout/backend 是否可执行，不能把不支持的组合悄悄降级。
 
 约束：
 
-- `model_type=qwen3vl` 适用于当前 Qwen3-VL 系列，例如 `Qwen3-VL-4B-Instruct`、
-  `Qwen3-VL-32B-Instruct` 和 `Qwen3-VL-30B-A3B-Instruct`。
+- `model_type=qwen3vl` 适用于当前已验收的 Qwen3-VL dense 系列，例如 `Qwen3-VL-4B-Instruct`
+  和 `Qwen3-VL-32B-Instruct`。
 - `model_type=qwen35vl` / `qwen36vl` 适用于 Qwen3.5 / Qwen3.6 新一代 VLM。两者共享
   同一套 loader、processor policy 和模板默认值；`qwen36vl` 是为了让训练配置保留 3.6 口径。
-- Qwen3.5 / Qwen3.6 需要安装支持 `qwen3_5` / `qwen3_5_moe` 架构的 Transformers。当前
+- Qwen3.5 / Qwen3.6 dense 训练需要安装支持 `qwen3_5` 架构的 Transformers。当前
   `qwen35vl` meta 会在运行前检查 `transformers>=5.10.1` 以及
-  `transformers.models.qwen3_5` 模块是否存在；MoE 模型还会检查
-  `transformers.models.qwen3_5_moe`。如果当前 PyPI release 尚未包含该模型，应安装
-  Transformers 主分支或项目确认过的内部 wheel。
-- Qwen3.5/3.6 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
+  `transformers.models.qwen3_5` 模块是否存在。仓库保留 `qwen3_5_moe` descriptor/sharding
+  扩展骨架用于早期识别和兼容性检查，但 MoE 训练尚未作为正式能力开放，不能把这些注册项或 tiny CPU
+  测试解释为生产支持；完整验收条件见 `docs/todo.md`。
+- Qwen3.5/3.6 dense 的 `layout=varlen` 只开放 CUDA + DDP + bf16/fp16，且要求
   `flash-attn`、`flash-linear-attention` 与 `causal-conv1d`。这是 hybrid full/linear attention 的完整
   segment-isolation contract，不能只安装 FlashAttention 后强行开启。Qwen3.6 在 Transformers 5.10.1
   中复用 `qwen3_5` architecture；`qwen36vl` 是产品版本 alias，不是另一套 HF forward。
 - 仓库基础依赖允许 Transformers 4.x/5.x；当前验证过的 lock 口径固定为
-  `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 的 HF 本地训练与推理。
+  `transformers==5.10.1`，可直接支持 Qwen3.5 / Qwen3.6 dense 的 HF 本地训练与推理。
   `qwen-next` extra 用于显式固定新一代 Qwen 口径；业务 vLLM 推理镜像使用同一份
   `uv.lock`，当前标准为 `vllm==0.19.1` + `transformers==5.10.1`。对本地 HF 训练环境，
   推荐执行：
@@ -499,8 +499,9 @@ data:
 | length varlen | `length/fixed/none或greedy/varlen` | SFT | `steps` | DDP |
 | bounded cost | `bounded_cost/fixed或token_budget/none/padded` | SFT | `steps` | DDP |
 
-`length` 与 `bounded_cost` 统称 planned batching，均要求 `media_snapshot_id`、planning-safe transforms、
-单图 SFT 和提供 exact image-cost policy 的模型。`length` 要求 `data.max_length`；`bounded_cost` 要求
+`length` 与 `bounded_cost` 统称 planned batching，均要求 `media_snapshot_id`、planning-safe transforms
+和提供 exact image-cost policy 的模型。padded 路径可估算并执行单样本有序多图；varlen/greedy packing
+仍只支持单图。`length` 要求 `data.max_length`；`bounded_cost` 要求
 `max_tokens_per_microbatch`；`greedy` 还要求 `length + varlen + vision_patches guard`。varlen 当前支持
 Qwen3VL 与 HF `qwen3_5`（Qwen3.5/Qwen3.6）image SFT；其它模型族以及 greedy+padded、
 greedy+token-budget、bounded-cost+greedy 会 fail closed。这里的“可装配”不等于所有模型规模和 topology
@@ -580,7 +581,7 @@ layout=padded
 
 | 字段 | 限制对象 |
 |---|---|
-| `data.max_length=10000` | 单条 logical sample 的 processor 后 LLM 序列 |
+| `data.max_length=10000` | 单条 logical sample 的 processor 后 `prefix + target + EOS` 严格上限 |
 | `max_tokens_per_microbatch=10000` | 每卡整个 padded local microbatch 的 aggregate token 成本 |
 | `data.max_pixels=4000000` | 单张图进入模型 processor 的像素预算 |
 | `resource_budgets.vision_patches=16384` | 每卡整个 local microbatch 的视觉 patch 总预算 |
@@ -659,10 +660,11 @@ resolver 会把本次恢复固定为一个类型化 generation token：run root 
 
 `packing` 决定多个逻辑序列是否组合，`layout` 决定最终 tensor/attention 表示。Qwen varlen 把计划好的
 logical rows 展平为 `[1,total_tokens]`，不传普通 2D attention mask；每段首 label/loss weight 清零，模型
-adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。Qwen3.5/3.6
+adapter 在 host 侧构造 `[4,1,total_tokens]` positions，并校验每段 image grid/pixel slice。Qwen3.5/3.6 dense
 hybrid model 还生成 `seq_idx/cu_seq_lens/max_length`，因此 CUDA release 路径同时要求 FlashAttention 2、
 flash-linear-attention、causal-conv1d、bf16/fp16 与 DDP；CPU 只保留 Qwen3VL eager/SDPA correctness oracle。
-FSDP、DeepSpeed、torch.compile、真正单样本多图和视频仍明确拒绝。
+FSDP、DeepSpeed、torch.compile、varlen 下的单样本多图和视频仍明确拒绝；普通 padded 路径的有序多图
+不依赖这套 segment-isolation contract。
 
 ### `data.datasets`
 
@@ -730,15 +732,21 @@ FSDP、DeepSpeed、torch.compile、真正单样本多图和视频仍明确拒绝
   `~/.cache/shaft/records`。后续 rank/worker 使用只读 mmap，不再各自保留完整 Python record list。
 - SFT JSONL 可使用顶层 `prompt_args` 保存 prompt 模板参数。它必须是 JSON object，是 Arrow record 的正式
   JSON 字段，不会进入 `extra`；提供完整 `messages` 的行不能同时提供非空 `prompt_args`。
+- SFT/DPO 单图行可使用 `image_path`（兼容 `image`）；多图行使用非空有序列表 `images`，三个字段只能
+  选择一个。图片顺序是训练接口契约：显式 `messages` 中的 `type: image` 占位符必须逐个对应且数量相等；
+  没有 `messages` 时模板会按 `images` 顺序自动生成占位符。通用 record 的 `user_prompt` 默认 `""`，任务
+  prompt 应来自数据、prompt pool 或显式调用参数。
 - DataCenter 在首次构建 Arrow cache 时按对应 pool program 校验每条 SFT record；验证 program fingerprint
   进入 cache key。后续 mmap 命中表示该 source snapshot 已在同一 schema/template 语义下通过验证，不需要
   每次启动重新扫描全量数据，也不会先解码图片再在 worker 中发现参数错误。
 - `image_cache_size` 是每个 worker 的解码后 PIL 图像 LRU 容量，默认 `0`（关闭）。多 rank/worker
   环境应按总内存预算谨慎开启。
-- `max_length` 是训练 batch 组装阶段的 token 长度上限，语义接近 Swift / LLaMA-Factory 的
-  `max_length` / `cutoff_len`。当 `prefix_tokens + target_tokens + eos > max_length` 时，SFT 会按剩余
-  token budget 截断 assistant target；被截断的 target 不会补 EOS，避免把半截 JSON 教成合法结束。
-  训练前仍应按真实 processor 做长度审计，超限样本优先过滤、记录或拆 crop。
+- `max_length` 是 processor 后完整训练序列的严格上限，覆盖 multimodal prefix、assistant target 和 EOS，
+  语义接近 Swift / LLaMA-Factory 的 `max_length` / `cutoff_len`。当 prefix 已达到上限时，框架只从模板声明的
+  消息正文 span 中按时间顺序删除较早的普通文本 token，同时保留 chat message 边界、generation suffix、
+  special token 和有序 media token，并为非空监督 target 保留至少一个可训练 token。cost estimator 与实际
+  collator 复用同一截断 plan。被截断的 target 不补 EOS，避免把半截 JSON 教成合法结束；如果上限连结构和
+  media 都无法安全容纳，则在 planning/collation 阶段明确失败，应提高 `max_length` 或降低像素预算。
 
 ### `data.schedule`
 
@@ -924,6 +932,7 @@ algorithm.name
 - `warmup_ratio`
 - `max_grad_norm`
 - `bf16`
+- `fp16`
 - `use_cpu`
 - `full_determinism`
 - `logging_steps`
@@ -946,8 +955,8 @@ algorithm.name
 
 | 字段 | 作用阶段 | 当前关系 |
 |---|---|---|
-| `model.torch_dtype` | 模型权重加载与模型计算 dtype | `train.bf16` 控制 HF Trainer 的 bf16 训练开关；两者应按目标精度一致配置 |
-| `data.max_length` | 单条 logical sample 的 processor 后序列上限 | batching 的 aggregate token budget 约束整个 local microbatch，不替代单样本上限 |
+| `model.torch_dtype` | 模型权重加载 dtype | `train.bf16` / `train.fp16` 是互斥的 Trainer AMP 执行精度；不由框架静默改写模型加载 dtype，用户应按模型和硬件显式选择 |
+| `data.max_length` | 单条 logical sample 的 processor 后完整序列严格上限 | 同时约束 prefix/target/EOS；batching 的 aggregate token budget 约束整个 local microbatch，不能替代它 |
 | `data.max_pixels` | 单张输入图的 processor 像素预算 | `batching.resource_budgets.vision_patches` 约束整个 local microbatch 的视觉成本 |
 | `train.per_device_train_batch_size` | 每卡 microstep 的 physical-pack 数量 `B` | 由 `data.batching.cardinality` 决定 `B` 是精确数量还是上限；world size 来自启动器，不写在该字段中 |
 | `train.gradient_checkpointing` | 模型侧 gradient checkpointing | FSDP 且 `distributed.fsdp.activation_checkpointing=true` 时，Shaft 关闭 Trainer 模型侧开关，由 FSDP activation wrapper 单独负责，避免双重 checkpointing |
@@ -957,6 +966,14 @@ algorithm.name
 推荐在新 YAML 中显式写 `scheduler_name`。`lr_scheduler_type` 目前仍会传入 HF
 `TrainingArguments` 并参与部分兼容性元数据；若两者都显式出现，应保持相同值，避免日志或第三方 hook
 看到与 Shaft 实际 scheduler 不同的 HF 字段。
+
+`train.bf16` 与 `train.fp16` 互斥；默认是 `bf16=true, fp16=false`。FP16 只允许可用 CUDA 设备，CPU
+配置会在构建 Trainer 前失败。`train.fp16=true` 表示 Trainer AMP/GradScaler 执行精度，不等于把可训练
+参数直接加载成 FP16；当前明确拒绝 `model.torch_dtype=float16 + train.fp16=true`，full fine-tune 推荐
+`model.torch_dtype=float32`。precision 会进入 exact-resume contract；从 BF16/FP32 切到 FP16 必须启动
+新训练或使用 `init_from_checkpoint`，不能伪装成同一条 exact resume。当前 FP16 release contract 覆盖
+DDP；FSDP 参数接口已接通但尚待专项 CUDA canary。仓库 DeepSpeed preset 仍是 BF16-only，
+`FP16 + strategy=deepspeed` 会 fail closed。
 
 `init_from_checkpoint` 与 `resume_from_checkpoint` 严格互斥，schema、CLI override 和 pipeline preflight
 都会 fail closed。若要继续旧训练，使用 resume；若只复用旧权重并重新开始数据流、optimizer 和
@@ -1087,7 +1104,7 @@ train:
 - Qwen3.5 / Qwen3.6 dense 默认解析为：
   - `Qwen3_5DecoderLayer`
   - `Qwen3_5VisionBlock`
-- Qwen3.5 / Qwen3.6 MoE 默认解析为：
+- Qwen3.5 / Qwen3.6 MoE descriptor 骨架可解析为（仅用于识别/兼容性防线，当前不表示训练支持）：
   - `Qwen3_5MoeDecoderLayer`
   - `Qwen3_5MoeVisionBlock`
 - `distributed.deepspeed` 支持 `config_path` 或 inline `config`。当 `strategy=deepspeed` 时，两者至少要提供一个；
@@ -1102,7 +1119,8 @@ train:
   在测试或长驻进程里先运行 DeepSpeed 后污染后续 DDP/FSDP 训练。
 - `configs/deepspeed/zero1_bf16.json`、`zero2_bf16.json`、`zero3_bf16.json` 分别是 ZeRO-1/2/3
   bf16 示例配置；ZeRO-3 示例包含保存时 gather 16-bit 权重的设置，用于保持 `trainer.save_model()`
-  的 HF export 语义。
+  的 HF export 语义。当前没有 FP16 DeepSpeed preset，因此 `train.fp16=true` 与 DeepSpeed 组合不属于
+  已支持接口。
 - 分片策略属于训练运行时；数据、template、task prompt 和 collator 不应该感知 FSDP/DeepSpeed。
 - `gradient_checkpointing`
   - 打开后会把 `TrainingArguments.gradient_checkpointing` 设为 `true`

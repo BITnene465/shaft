@@ -9,4 +9,5 @@ from .types import TemplateMeta
 class SmokeVLMTemplate(ShaftDelimitedChatTemplate):
     name = "smoke_vlm"
     assistant_start = "<|smoke_start|>assistant\n"
+    message_start_format = "<|smoke_start|>{role}\n"
     message_end = "<|smoke_end|>\n"

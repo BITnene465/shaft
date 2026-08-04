@@ -379,6 +379,18 @@ class ProcessorPolicy:
         max_pixels: int | None,
         input_mode: str = "training",
     ) -> ShaftProcessedBatch:
+        if not prompt_texts:
+            raise ValueError("Processor batches must contain at least one prompt row.")
+        if len(images) != len(prompt_texts):
+            raise ValueError(
+                "Processor images must use outer=batch-row semantics: "
+                f"prompts={len(prompt_texts)}, image_rows={len(images)}."
+            )
+        for row_index, row_images in enumerate(images):
+            if isinstance(row_images, (list, tuple)) and not row_images:
+                raise ValueError(
+                    f"Processor image row {row_index} must contain at least one image."
+                )
         kwargs: dict[str, Any] = {
             "text": prompt_texts,
             "images": images,

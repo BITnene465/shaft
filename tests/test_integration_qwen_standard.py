@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from safetensors import safe_open
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from peft import PeftModel
 
@@ -198,6 +199,16 @@ def _assert_checkpoint_state_equivalent(
     assert _restore_efficiency_snapshot_set(fresh_checkpoint) == (
         _restore_efficiency_snapshot_set(resumed_checkpoint)
     )
+
+
+def _assert_lora_adapter_has_learned_update(adapter_path: Path) -> None:
+    with safe_open(adapter_path, framework="pt", device="cpu") as tensors:
+        lora_b_names = [name for name in tensors.keys() if "lora_B" in name]
+        assert lora_b_names
+        assert any(
+            bool(torch.count_nonzero(tensors.get_tensor(name)))
+            for name in lora_b_names
+        )
 
 
 def _restore_efficiency_snapshot_set(checkpoint_dir: Path) -> dict:
@@ -932,6 +943,7 @@ def test_qwen35_qwen36_two_rank_train_save_and_exact_resume_release_gate(
         assert summary["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
         assert summary["complete_history"] is True
         assert summary["aggregate"]["optimizer_steps"] == expected_steps
+        assert summary["aggregate"]["update_applied_steps"] > 0
         assert summary["aggregate"]["device_timing_steps"] == expected_steps
         assert summary["aggregate"]["device_training_seconds"] > 0
         assert summary["aggregate"]["critical_path_seconds"] >= summary["aggregate"][
@@ -1057,6 +1069,7 @@ def test_qwen35_qwen36_moe_two_rank_train_save_and_exact_resume_release_gate(
         )
         assert summary["complete_history"] is True
         assert summary["aggregate"]["optimizer_steps"] == expected_steps
+        assert summary["aggregate"]["update_applied_steps"] > 0
         assert summary["aggregate"]["device_timing_steps"] == expected_steps
         assert summary["contract"]["model_plan_fingerprint"]
 
@@ -1140,12 +1153,16 @@ def test_qwen3vl_two_rank_lora_varlen_and_export_release_gate(
     assert summary["schema_version"] == TRAINING_EFFICIENCY_SCHEMA_VERSION
     assert summary["complete_history"] is True
     assert summary["aggregate"]["optimizer_steps"] == 2
+    assert summary["aggregate"]["update_applied_steps"] > 0
     assert summary["aggregate"]["device_timing_steps"] == 2
     assert summary["aggregate"]["logical_segments"] > summary["aggregate"][
         "physical_packs"
     ]
     assert (export_path / "adapter_config.json").is_file()
     assert (export_path / "adapter_model.safetensors").is_file()
+    _assert_lora_adapter_has_learned_update(
+        export_path / "adapter_model.safetensors"
+    )
 
     reload_output = tmp_path / "qwen3vl-lora-varlen-reloaded"
     reload_config = write_qwen_training_gate_config(

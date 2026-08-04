@@ -7,9 +7,18 @@ from shaft.cli.infer import build_parser, main
 
 def test_infer_parser_accepts_required_args() -> None:
     parser = build_parser()
-    args = parser.parse_args(["--config", "infer.yaml", "--image", "image.png"])
+    args = parser.parse_args(
+        [
+            "--config",
+            "infer.yaml",
+            "--image",
+            "first.png",
+            "--image",
+            "second.png",
+        ]
+    )
     assert args.config == "infer.yaml"
-    assert args.image == "image.png"
+    assert args.images == ["first.png", "second.png"]
     assert args.inputs == "{}"
 
 
@@ -17,8 +26,8 @@ def test_infer_main_runs_pipeline() -> None:
     fake_config = object()
 
     class _FakePipeline:
-        def run(self, *, image_path: str, inputs: dict):
-            assert image_path == "image.png"
+        def run(self, *, image_paths: list[str], inputs: dict):
+            assert image_paths == ["image.png"]
             assert inputs == {"task": "arrow"}
             return {"ok": True}
 

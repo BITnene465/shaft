@@ -136,6 +136,7 @@ def write_qwen_training_gate_config(
     use_cpu: bool = False,
     attention_implementation: str = "flash_attention_2",
     torch_dtype: str = "bfloat16",
+    training_precision: str = "bf16",
 ) -> Path:
     grouping = "length" if layout == "varlen" else "none"
     planning_lines = (
@@ -174,6 +175,13 @@ def write_qwen_training_gate_config(
         )
     else:
         raise ValueError(f"Unsupported release-gate finetune mode: {finetune_mode!r}")
+    normalized_precision = str(training_precision).strip().lower()
+    if normalized_precision not in {"bf16", "fp16", "fp32"}:
+        raise ValueError(
+            "training_precision must be one of 'bf16', 'fp16', or 'fp32'."
+        )
+    bf16 = normalized_precision == "bf16"
+    fp16 = normalized_precision == "fp16"
     content = f"""experiment:
   name: {model_type}-{layout}-release-gate
   output_dir: {output_dir}
@@ -227,7 +235,8 @@ train:
   scheduler_name: cosine
   loss_name: auto
   loss_scale: default
-  bf16: {str(torch_dtype == "bfloat16").lower()}
+  bf16: {str(bf16).lower()}
+  fp16: {str(fp16).lower()}
   use_cpu: {str(use_cpu).lower()}
   logging_steps: 1
   save_strategy: {save_strategy}

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import copy
+from collections.abc import Sequence
+from pathlib import Path
 import threading
 import time
 from typing import Any
@@ -75,12 +77,20 @@ class ShaftInferPipeline:
     def run(
         self,
         *,
-        image_path: str,
+        image_path: str | Path | None = None,
+        image_paths: Sequence[str | Path] | None = None,
         inputs: dict[str, Any] | None = None,
         cancellation_event: threading.Event | None = None,
     ) -> dict[str, Any]:
+        resolved_image_paths = ShaftInferRequest.resolve_image_paths(
+            image_path=image_path,
+            image_paths=image_paths,
+        )
         context: dict[str, Any] = dict(inputs or {})
-        context["image_path"] = image_path
+        context["image_paths"] = list(resolved_image_paths)
+        context["image_path"] = (
+            resolved_image_paths[0] if len(resolved_image_paths) == 1 else None
+        )
         traces: list[ShaftInferStageResult] = []
 
         for resolved in self._stages:
@@ -88,7 +98,7 @@ class ShaftInferPipeline:
             result = self._run_stage(
                 stage=stage,
                 prompt_program=resolved.prompt,
-                image_path=image_path,
+                image_paths=resolved_image_paths,
                 context=context,
                 cancellation_event=cancellation_event,
             )
@@ -114,7 +124,7 @@ class ShaftInferPipeline:
         *,
         stage: InferStageConfig,
         prompt_program: ShaftPromptProgram,
-        image_path: str,
+        image_paths: tuple[str, ...],
         context: dict[str, Any],
         cancellation_event: threading.Event | None,
     ) -> ShaftInferStageResult:
@@ -168,7 +178,7 @@ class ShaftInferPipeline:
                     validator(execution)
                 response = engine.run(
                     ShaftInferRequest(
-                        image_path=image_path,
+                        image_paths=image_paths,
                         system_prompt=stage.system_prompt,
                         user_prompt=user_prompt,
                         generation=stage.generation,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -105,6 +106,33 @@ class _ShaftSequenceCollatorBase:
             input_mode=self.input_mode,
         )
 
+    @staticmethod
+    def _processor_image_rows(batch: list[dict[str, Any]]) -> list[Any]:
+        rows: list[Any] = []
+        for item in batch:
+            raw_image_paths = item.get("image_paths")
+            if isinstance(raw_image_paths, (str, bytes, Path)):
+                image_paths = (str(raw_image_paths),)
+            else:
+                image_paths = tuple(raw_image_paths or ())
+            canonical = (
+                item.get("image")
+                if len(image_paths) <= 1 and item.get("image") is not None
+                else item.get("images")
+            )
+            if canonical is None:
+                canonical = item.get("image")
+            if isinstance(canonical, (list, tuple)):
+                images = tuple(canonical)
+            elif canonical is None:
+                images = ()
+            else:
+                images = (canonical,)
+            if not images:
+                raise ValueError("A multimodal processor row requires at least one image.")
+            rows.append(images[0] if len(images) == 1 else images)
+        return rows
+
     def _pad_sequences(self, rows: list[torch.Tensor], *, padding_value: int) -> torch.Tensor:
         max_len = max(int(row.shape[0]) for row in rows)
         padded = []
@@ -127,7 +155,15 @@ class _ShaftSequenceCollatorBase:
     ) -> list[ShaftProcessorTokenLayout | None]:
         layouts: list[ShaftProcessorTokenLayout | None] = []
         for row_index, plan in enumerate(plans):
-            if not plan.trainable_prefix_spans:
+            prefix_length = int(
+                processed_batch.model_inputs["attention_mask"][row_index].sum().item()
+            )
+            needs_truncation_layout = bool(
+                self.max_length is not None
+                and prefix_length >= int(self.max_length)
+                and plan.truncatable_prefix_spans
+            )
+            if not plan.trainable_prefix_spans and not needs_truncation_layout:
                 layouts.append(None)
                 continue
             layouts.append(
@@ -141,7 +177,7 @@ class _ShaftSequenceCollatorBase:
 
 
 class SFTCollator(_ShaftSequenceCollatorBase):
-    SHAFT_INPUT_POLICY_VERSION = "shaft-sft-collator-input-v1"
+    SHAFT_INPUT_POLICY_VERSION = "shaft-sft-collator-input-v3-structured-truncation"
 
     def __init__(
         self,
@@ -199,6 +235,15 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             raise ValueError("varlen SFT collation requires right-side sequence semantics.")
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
+        image_rows = self._processor_image_rows(batch)
+        if self.layout == "varlen" and any(
+            isinstance(row, (list, tuple)) and len(row) != 1
+            for row in image_rows
+        ):
+            raise ValueError(
+                "SFT multi-image rows currently require layout='padded'; "
+                "varlen/packing remains fail-closed until its model runtime is validated."
+            )
         plans = [
             self.template.build_supervision_plan(
                 item=item,
@@ -209,10 +254,9 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             for item in batch
         ]
         prompt_texts = [plan.prompt_text for plan in plans]
-        images = [item["image"] for item in batch]
         processed_batch = self._run_processor(
             prompt_texts,
-            images,
+            image_rows,
             dataset_names=[item.get("dataset_name") for item in batch],
         )
         prefix_token_layouts = self._build_prefix_token_layouts(
@@ -306,7 +350,8 @@ class SFTCollator(_ShaftSequenceCollatorBase):
             out["meta"] = {
                 "dataset_name": [item.get("dataset_name") for item in batch],
                 "sample_id": [item["sample_id"] for item in batch],
-                "image_path": [item["image_path"] for item in batch],
+                "image_path": [item.get("image_path") for item in batch],
+                "image_paths": [tuple(item.get("image_paths") or ()) for item in batch],
                 "target_text": [item["target_text"] for item in batch],
                 "extra": [dict(item.get("extra", {})) for item in batch],
             }
@@ -314,7 +359,7 @@ class SFTCollator(_ShaftSequenceCollatorBase):
 
 
 class DPOCollator(_ShaftSequenceCollatorBase):
-    SHAFT_INPUT_POLICY_VERSION = "shaft-dpo-collator-input-v1"
+    SHAFT_INPUT_POLICY_VERSION = "shaft-dpo-collator-input-v3-structured-truncation"
 
     def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         chosen_plans = [
@@ -331,7 +376,7 @@ class DPOCollator(_ShaftSequenceCollatorBase):
             for item, plan in zip(batch, chosen_plans)
         ]
         prompt_texts = [plan.prompt_text for plan in chosen_plans]
-        images = [item["image"] for item in batch]
+        images = self._processor_image_rows(batch)
         processed_batch = self._run_processor(
             prompt_texts,
             images,
@@ -469,15 +514,26 @@ class GRPOCollator:
     def __call__(self, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for item in batch:
+            raw_images = item.get("images")
+            if raw_images is None:
+                raw_images = item.get("image")
+            images = (
+                tuple(raw_images)
+                if isinstance(raw_images, (list, tuple))
+                else (() if raw_images is None else (raw_images,))
+            )
+            if len(images) != 1:
+                raise ValueError("GRPO currently requires exactly one image per sample.")
             prompt = self.template.prepare_messages(self.template.resolve_messages(item))
             rows.append(
                 {
                     "prompt": prompt,
-                    "image": item.get("image"),
+                    "image": images[0],
                     "target_text": str(item.get("target_text", "")),
                     "dataset_name": item.get("dataset_name"),
                     "sample_id": item.get("sample_id"),
                     "image_path": item.get("image_path"),
+                    "image_paths": item.get("image_paths"),
                     "extra": dict(item.get("extra", {})),
                 }
             )

@@ -31,6 +31,7 @@ from shaft.infer import (
 import shaft.infer.engine as infer_engine_module
 from shaft.infer.engine import VLLMOpenAIInferAdapter
 from shaft.model import ModelMeta, ShaftImageTextInferencePolicy
+import shaft.model.qwen_inference as qwen_inference_module
 
 
 @pytest.mark.parametrize("field_name", ["supports_deadline", "supports_cancellation"])
@@ -76,7 +77,7 @@ def test_model_owned_local_policy_keeps_image_first(tmp_path: Path) -> None:
             return "rendered"
 
     prepared = ShaftImageTextInferencePolicy().prepare_local(
-        image_path=str(image),
+        image_paths=(str(image),),
         system_prompt="system",
         user_prompt="dynamic text",
         messages=None,
@@ -92,6 +93,87 @@ def test_model_owned_local_policy_keeps_image_first(tmp_path: Path) -> None:
     assert messages[1]["role"] == "user"
     assert messages[1]["content"][0] == {"type": "image"}
     assert messages[1]["content"][1] == {"type": "text", "text": "dynamic text"}
+    assert prepared.prompt == "rendered"
+
+
+def test_infer_request_normalizes_ordered_images_without_two_runtime_truths() -> None:
+    legacy = ShaftInferRequest(image_path="one.png")
+    ordered = ShaftInferRequest(image_paths=["one.png", "two.png"])
+
+    assert legacy.image_paths == ("one.png",)
+    assert legacy.image_path == "one.png"
+    assert ordered.image_paths == ("one.png", "two.png")
+    with pytest.raises(ValueError, match="exactly one image"):
+        _ = ordered.image_path
+    with pytest.raises(ValueError, match="either image_path or image_paths"):
+        ShaftInferRequest(image_path="one.png", image_paths=["two.png"])
+
+
+def test_model_owned_local_policy_keeps_multiple_images_and_placeholders_ordered(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(first)
+    Image.new("RGB", (8, 8), color=(0, 0, 255)).save(second)
+    captured: dict[str, object] = {}
+
+    class _CapturingTemplate:
+        def apply_chat_template(self, *, renderer, messages):  # noqa: ANN001
+            _ = renderer
+            captured["messages"] = messages
+            return "rendered"
+
+    prepared = ShaftImageTextInferencePolicy().prepare_local(
+        image_paths=(str(first), str(second)),
+        system_prompt="",
+        user_prompt="compare",
+        messages=None,
+        min_pixels=None,
+        max_pixels=None,
+        backend_options=None,
+        template=_CapturingTemplate(),
+        renderer="renderer",
+    )
+
+    assert [image.getpixel((0, 0)) for image in prepared.images] == [
+        (255, 0, 0),
+        (0, 0, 255),
+    ]
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    assert messages[0]["content"][:2] == [
+        {"type": "image"},
+        {"type": "image"},
+    ]
+
+
+def test_model_owned_local_policy_accepts_plain_string_message_content(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "img.png"
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image)
+
+    prepared = ShaftImageTextInferencePolicy().prepare_local(
+        image_paths=(str(image),),
+        system_prompt="",
+        user_prompt="",
+        messages=[
+            {"role": "system", "content": "be concise"},
+            {
+                "role": "user",
+                "content": [{"type": "image"}, {"type": "text", "text": "go"}],
+            },
+        ],
+        min_pixels=None,
+        max_pixels=None,
+        backend_options=None,
+        template=SimpleNamespace(
+            apply_chat_template=lambda **kwargs: "rendered"
+        ),
+        renderer="renderer",
+    )
+
     assert prepared.prompt == "rendered"
 
 
@@ -290,6 +372,131 @@ def test_vllm_openai_engine_can_generate(monkeypatch, tmp_path: Path) -> None:
         "type": "text",
         "text": "return json",
     }
+
+
+def test_vllm_openai_engine_serializes_multiple_images_in_request_order(
+    monkeypatch,
+) -> None:
+    encoded_paths: list[str] = []
+    captured: dict[str, object] = {}
+
+    def _encode(path, *, min_pixels, max_pixels):  # noqa: ANN001
+        _ = min_pixels, max_pixels
+        encoded_paths.append(str(path))
+        return f"data:image/png;base64,{path}", object()
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        _ = timeout
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _JSONHTTPResponse(
+            {"choices": [{"message": {"role": "assistant", "content": "{}"}}]}
+        )
+
+    monkeypatch.setattr(
+        qwen_inference_module,
+        "image_to_data_url_with_qwen_pixel_budget",
+        _encode,
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    engine = ShaftInferEngine.from_engine_config(
+        InferEngineConfig(
+            model_type="qwen3vl",
+            model_name_or_path="arrow_mixed_4b",
+            backend="vllm_openai",
+            endpoint="http://127.0.0.1:8001",
+        )
+    )
+
+    _ = engine.run(
+        ShaftInferRequest(
+            image_paths=["first.png", "second.png"],
+            user_prompt="compare",
+        )
+    )
+
+    assert encoded_paths == ["first.png", "second.png"]
+    body = captured["body"]
+    assert isinstance(body, dict)
+    content = body["messages"][0]["content"]
+    assert [item["image_url"]["url"] for item in content[:-1]] == [
+        "data:image/png;base64,first.png",
+        "data:image/png;base64,second.png",
+    ]
+    assert content[-1] == {"type": "text", "text": "compare"}
+
+
+def test_qwen_openai_policy_validates_placeholders_before_encoding(monkeypatch) -> None:
+    encoded_paths: list[str] = []
+
+    def _encode(path, *, min_pixels, max_pixels):  # noqa: ANN001
+        _ = min_pixels, max_pixels
+        encoded_paths.append(str(path))
+        return "data:image/png;base64,unused", object()
+
+    monkeypatch.setattr(
+        qwen_inference_module,
+        "image_to_data_url_with_qwen_pixel_budget",
+        _encode,
+    )
+
+    with pytest.raises(ValueError, match="placeholder count"):
+        qwen_inference_module.QwenVLInferencePolicy().prepare_openai(
+            image_paths=("first.png", "second.png"),
+            user_prompt="",
+            system_prompt="",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "image"}, {"type": "text", "text": "compare"}],
+                }
+            ],
+            min_pixels=None,
+            max_pixels=None,
+            backend_options=None,
+            template_type="qwen3vl",
+        )
+
+    assert encoded_paths == []
+
+
+def test_qwen_openai_policy_replaces_explicit_placeholders_in_order(monkeypatch) -> None:
+    def _encode(path, *, min_pixels, max_pixels):  # noqa: ANN001
+        _ = min_pixels, max_pixels
+        return f"data:image/png;base64,{path}", object()
+
+    monkeypatch.setattr(
+        qwen_inference_module,
+        "image_to_data_url_with_qwen_pixel_budget",
+        _encode,
+    )
+
+    prepared = qwen_inference_module.QwenVLInferencePolicy().prepare_openai(
+        image_paths=("first.png", "second.png"),
+        user_prompt="",
+        system_prompt="",
+        messages=[
+            {"role": "system", "content": "be concise"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "between"},
+                    {"type": "image"},
+                ],
+            },
+        ],
+        min_pixels=None,
+        max_pixels=None,
+        backend_options=None,
+        template_type="qwen3vl",
+    )
+
+    assert prepared.messages[0]["content"] == "be concise"
+    content = prepared.messages[1]["content"]
+    assert [content[0]["image_url"]["url"], content[2]["image_url"]["url"]] == [
+        "data:image/png;base64,first.png",
+        "data:image/png;base64,second.png",
+    ]
 
 
 def test_vllm_openai_qwen35vl_disables_thinking_by_default(monkeypatch, tmp_path: Path) -> None:

@@ -10,7 +10,7 @@
 
 ## 1. 目标
 
-- 提供统一的单模型推理封装。
+- 提供统一的单模型、单图或有序多图推理封装。
 - 支持多阶段推理编排。
 - 允许本地 HF 与 vLLM OpenAI 兼容后端并存。
 - 让 codec 负责文本到结构化结果的收口。
@@ -41,6 +41,16 @@
 模型族侧由 `ModelMeta -> ShaftModelAdapter.inference_policy` 声明推理能力。policy 负责把统一 request
 准备成后端输入，包括 media、image-first messages、chat-template 参数和 pixel budget 语义；通用
 infer adapter 只负责执行。没有显式 inference policy 的模型默认 fail closed，不会套用 Qwen 行为。
+
+`ShaftInferRequest.image_paths` 是 media 的规范真源，并按给定顺序进入 chat placeholder、HF processor 或
+OpenAI `image_url`。旧 `image_path` 只保留为单图兼容入口，两者不能同时提供；多图请求访问单数属性会
+明确失败，避免运行时出现两套 media 真源。显式 `messages` 必须用相同数量、相同顺序的 `type: image`
+占位符。pipeline 对应使用 `run(image_paths=[...])`，CLI 使用可重复参数：
+
+```bash
+python scripts/infer.py --config configs/infer/pipeline_smoke.yaml \
+  --image first.png --image second.png
+```
 
 ### 2.4 大模型本地加载
 

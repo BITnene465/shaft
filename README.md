@@ -45,6 +45,9 @@ python scripts/train.py rlhf --config configs/train/grpo_4b.yaml --algorithm grp
 
 ```bash
 python scripts/infer.py --config configs/infer/pipeline_smoke.yaml --image /path/to/image.png
+# 多图按 --image 出现顺序送入模型
+python scripts/infer.py --config configs/infer/pipeline_smoke.yaml \
+  --image /path/to/first.png --image /path/to/second.png
 ```
 
 ### 导出
@@ -117,6 +120,9 @@ data:
 - 如果你不想维护 catalog，也可以直接在训练 YAML 里写 `data.datasets`。
 - 每个训练 YAML 都必须显式声明 `data.batching.grouping`、`cardinality`、`packing.mode` 与
   `layout`。缺失字段不会静默回退。
+- SFT/DPO JSONL 单图可写 `image_path`（兼容 `image`），多图写非空有序列表 `images`；三者只能出现一个。
+  显式 `messages` 中的 `type: image` 数量必须与图片数一致。未提供 `messages` 时，框架按 `images` 顺序
+  生成图片占位符；通用 `user_prompt` 默认是空字符串，不再隐式注入任务 prompt。
 
 训练时长使用单一真源，step 是主路径：
 
@@ -179,12 +185,17 @@ DataLoader 预取推进的 live cursor；该状态作为 manifest extension 绑�
 spec 与 duration/GA/optimizer/scheduler contract。
 `cost_cache_size` 只影响 host LRU，不阻止 exact resume。
 当前 planned batching 只开放 SFT + step duration + DDP，eval 保持普通 padded fixed batch。Qwen3VL 与
-HF `qwen3_5`（Qwen3.5/Qwen3.6）image SFT 已支持
+HF `qwen3_5` dense（Qwen3.5/Qwen3.6）image SFT 已支持
 `grouping=length + cardinality=fixed + packing.mode=greedy + layout=varlen`：planner 在
 有界窗口内按真实 processor 后长度分组，把多个完整 logical segment 装入固定数量的 physical packs；
 CUDA 执行要求 FlashAttention 2、bf16/fp16 与 DDP；Qwen3.5/3.6 hybrid attention 还要求
 flash-linear-attention 与 causal-conv1d。未验收的模型族/backend/topology 会在加载数据和权重前 fail closed。
 `per_device_train_batch_size` 表示每卡 physical pack 数，不等于 pack 内 logical segment 数。
+
+训练精度由互斥的 `train.bf16` / `train.fp16` 选择；FP16 只允许 CUDA。两者都不负责隐式改写
+`model.torch_dtype`；FP16 AMP full fine-tune 应以 FP32 参数加载，框架拒绝 `float16` 参数再叠加
+GradScaler。当前 FP16 release gate 覆盖 DDP；FSDP 接口已接通但仍需专项 CUDA canary，DeepSpeed 示例
+仍是 BF16-only。精度切换也不允许 exact resume。
 
 训练默认生成 committed `shaft_training_efficiency.json`：统计实际 collate 后的 useful/materialized/
 supervised tokens、logical-segment length 分布、vision patches、logical segments/physical packs、batch
@@ -218,6 +229,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 ### 训练
 
 - `SFT`
+- SFT/DPO 的 padded 路径支持单条样本内有序多图；multi-image varlen/sequence packing 仍 fail closed。
 - SFT prompt pool 支持 pool 级参数 schema 与 JSONL `prompt_args`；训练 planning 和实际读取共用受限
   `{{ name }}` / `{{ name | json }}` renderer，静态 pool 保持兼容。
 - `DPO`
@@ -233,6 +245,7 @@ SFT 参数图显式设置 `distributed.ddp.static_graph: true`，固定跨 check
 
 - 本地 HF 推理：`hf_local`
 - vLLM OpenAI 兼容后端：`vllm_openai`
+- `ShaftInferRequest.image_paths` 与可重复 `--image` 支持有序多图；旧 `image_path` 保留为单图兼容入口。
 - 单阶段与多阶段推理编排
 - 多阶段 prompt 使用与训练相同的受限 renderer 和显式 `arguments`；旧 Python `{name}` format 语法已移除。
 - stage 级 `codec`、重试、超时、像素预算覆盖
@@ -309,8 +322,8 @@ uv run pytest -q -m manual
 
 ## 当前说明
 
-- 当前正式训练主链覆盖 `qwen3vl`、`qwen35vl` 与 `qwen36vl`；后两者共享 upstream
-  `qwen3_5` / `qwen3_5_moe` architecture，但保留产品级注册项与模板入口。`smoke_vlm` 只用于测试。
+- 当前正式训练主链覆盖 `qwen3vl`、`qwen35vl` 与 `qwen36vl` 的 dense 变体；MoE 只保留 architecture
+  识别与扩展骨架，尚不属于可用训练能力，验收项见 [docs/todo.md](docs/todo.md)。`smoke_vlm` 只用于测试。
 - 训练和保存遵循 HF / PEFT / TRL 标准能力。
 - 旧实现已归档到 `old/`，新开发只在 `src/shaft`。
 - 结构化任务离线评估子系统尚未完成。

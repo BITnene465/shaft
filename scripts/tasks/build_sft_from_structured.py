@@ -124,10 +124,10 @@ def _clip_bbox(
     if len(bbox) != 4:
         raise ValueError(f"Expected bbox with 4 values, got: {bbox!r}")
     x1, y1, x2, y2 = [float(value) for value in bbox]
-    x1 = min(max(x1, 0.0), float(image_width - 1))
-    y1 = min(max(y1, 0.0), float(image_height - 1))
-    x2 = min(max(x2, 0.0), float(image_width - 1))
-    y2 = min(max(y2, 0.0), float(image_height - 1))
+    x1 = min(max(x1, 0.0), float(image_width))
+    y1 = min(max(y1, 0.0), float(image_height))
+    x2 = min(max(x2, 0.0), float(image_width))
+    y2 = min(max(y2, 0.0), float(image_height))
     if x2 < x1:
         x1, x2 = x2, x1
     if y2 < y1:

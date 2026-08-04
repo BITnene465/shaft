@@ -119,18 +119,18 @@ Required workflow 不使用 PR path filter。GitHub 在整个 required workflow 
 真实 GPU、FlashAttention、真实模型与外部推理服务继续通过 `gpu/integration` suite 人工或专用 runner
 执行，不在 GitHub-hosted CPU runner 上伪造通过。
 
-Qwen3.5/3.6 MoE padded 主链可以在 CPU 上使用真实 Transformers MoE class、tiny 随机权重和真实
-processor 验证，不占用 GPU：
+Qwen3.5/3.6 MoE 目前不是正式训练能力。下面的 CPU 用例只回归 Transformers MoE class、tiny 随机权重、
+descriptor 与基础保存骨架，防止扩展接口腐化；它不是发布 gate，也不能作为支持声明：
 
 ```bash
 CUDA_VISIBLE_DEVICES='' uv run pytest -q \
   tests/test_integration_qwen_standard.py::test_qwen35_qwen36_moe_cpu_train_save_exact_resume_and_hf_reload
 ```
 
-该 gate 覆盖两 rank Gloo 的多模态 forward/backward、full-finetune、committed save、
+该内部用例覆盖两 rank Gloo 的多模态 forward/backward、full-finetune、committed save、
 `full_determinism + DDP static_graph` exact resume、标准 HF reload，以及 Qwen3.6 alias 对导出目录的验证。
-它不覆盖 FlashAttention 2、FLA/causal-conv、BF16 CUDA、
-NCCL、真实 27B shard、显存或吞吐。
+它不覆盖 FlashAttention 2、FLA/causal-conv、BF16 CUDA、NCCL、真实 MoE shard、optimizer/router/expert
+生产语义、显存或吞吐。正式开放条件以 `docs/todo.md` 为准。
 
 Qwen 训练 release gate 需要本地 `models/Qwen3-VL-4B-Instruct`、`models/Qwen3.6-27B` processor 资产和两张
 可用 CUDA 卡，显式执行：
@@ -142,7 +142,7 @@ CUDA_VISIBLE_DEVICES=0,1 SHAFT_RUN_QWEN_TRAIN_RELEASE_GATE=1 \
 ```
 
 它覆盖真实 Qwen3VL-4B LoRA greedy-varlen 的 fresh/checkpoint resume、PEFT validate、标准
-`PeftModel.from_pretrained` + export processor forward 与 adapter reload，以及 tiny upstream Qwen3.5 dense/MoE
+`PeftModel.from_pretrained` + export processor forward 与 adapter reload，以及 tiny upstream Qwen3.5 dense
 architecture 的 Qwen3.5 fixed padded、Qwen3.6 greedy-varlen fresh/save/exact-resume 和最终 HF
 processor+model forward。exact-resume gate 比较模型/adapter、optimizer、scheduler、每 rank RNG、
   Trainer/stateful sampler、DDP `committed_manifest` validator 及 batch-planning extension，以及

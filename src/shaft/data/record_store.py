@@ -16,8 +16,8 @@ from .dataset import DPORecord, PPORecord, SFTRecord
 RecordT = TypeVar("RecordT", SFTRecord, DPORecord, PPORecord)
 
 # Bump whenever normalized record schema or row-building semantics change.
-_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v3"
-_JSON_FIELDS = {"messages", "prompt_args", "extra"}
+_CACHE_FORMAT_VERSION = "shaft-arrow-record-store-v4"
+_JSON_FIELDS = {"image_paths", "messages", "prompt_args", "extra"}
 _RECORD_TYPES = {
     record_type.__name__: record_type
     for record_type in (SFTRecord, DPORecord, PPORecord)

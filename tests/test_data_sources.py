@@ -8,7 +8,15 @@ import pytest
 from PIL import Image
 
 from shaft.config import DatasetSourceConfig
-from shaft.data import PPODataset, PPORecord, ShaftArrowRecordStore, ShaftDatasetMeta
+from shaft.data import (
+    DPORecord,
+    PPODataset,
+    PPORecord,
+    SFTDataset,
+    SFTRecord,
+    ShaftArrowRecordStore,
+    ShaftDatasetMeta,
+)
 from shaft.data.sources import (
     build_data_source,
     load_jsonl_dpo_records,
@@ -80,6 +88,89 @@ def test_jsonl_loader_builds_and_reuses_memory_mapped_arrow_store(tmp_path: Path
     refreshed = load_jsonl_sft_records(jsonl, dataset_name="demo", cache_dir=cache_dir)
     assert refreshed.cache_path != first.cache_path
     assert len(refreshed) == 2
+
+
+def test_sft_jsonl_and_dataset_preserve_ordered_multi_image_rows(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(first)
+    Image.new("RGB", (8, 8), color=(0, 0, 255)).save(second)
+    jsonl = tmp_path / "multi.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "images": [first.name, second.name],
+                "target_text": "answer",
+                "user_prompt": "compare",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    records = load_jsonl_sft_records(
+        jsonl,
+        dataset_name="multi",
+        cache_dir=tmp_path / "cache",
+    )
+    record = records[0]
+    assert record.image_paths == (str(first.resolve()), str(second.resolve()))
+    with pytest.raises(ValueError, match="exactly one image"):
+        _ = record.image_path
+
+    sample = SFTDataset(records)[0]
+    assert sample["image_paths"] == record.image_paths
+    assert [image.getpixel((0, 0)) for image in sample["image"]] == [
+        (255, 0, 0),
+        (0, 0, 255),
+    ]
+
+
+def test_message_image_placeholders_must_match_ordered_media(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    Image.new("RGB", (8, 8)).save(first)
+    Image.new("RGB", (8, 8)).save(second)
+    jsonl = tmp_path / "mismatch.jsonl"
+    jsonl.write_text(
+        json.dumps(
+            {
+                "images": [first.name, second.name],
+                "target_text": "answer",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image"},
+                            {"type": "text", "text": "compare"},
+                        ],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="image placeholder count"):
+        load_jsonl_sft_records(
+            jsonl,
+            dataset_name="multi",
+            cache_dir=tmp_path / "cache",
+        )
+
+
+def test_generic_record_prompts_default_to_empty_string() -> None:
+    assert SFTRecord(image_path="a.png", target_text="answer").user_prompt == ""
+    assert (
+        DPORecord(
+            image_path="a.png",
+            chosen_text="chosen",
+            rejected_text="rejected",
+        ).user_prompt
+        == ""
+    )
+    assert PPORecord().user_prompt == ""
 
 
 def test_arrow_record_validator_requires_a_validation_fingerprint(

@@ -6,15 +6,26 @@ from typing import Any
 
 from PIL import Image
 
+from shaft.utils.messages import count_message_content_type
+
 
 @dataclass(frozen=True)
 class ShaftPreparedLocalInference:
     """Model-owned inputs ready for a local processor invocation."""
 
     prompt: str
-    image: Any
+    images: tuple[Any, ...]
     min_pixels: int | None
     max_pixels: int | None
+
+    @property
+    def image(self) -> Any:
+        if len(self.images) != 1:
+            raise ValueError(
+                "image is available only for prepared requests with exactly one image; "
+                "use images for ordered multi-image requests."
+            )
+        return self.images[0]
 
 
 @dataclass(frozen=True)
@@ -36,7 +47,7 @@ class ShaftInferencePolicy:
     def prepare_local(
         self,
         *,
-        image_path: str,
+        image_paths: tuple[str, ...],
         user_prompt: str,
         system_prompt: str,
         messages: list[dict[str, Any]] | None,
@@ -47,7 +58,7 @@ class ShaftInferencePolicy:
         renderer: Any,
     ) -> ShaftPreparedLocalInference:
         _ = (
-            image_path,
+            image_paths,
             user_prompt,
             system_prompt,
             messages,
@@ -65,7 +76,7 @@ class ShaftInferencePolicy:
     def prepare_openai(
         self,
         *,
-        image_path: str,
+        image_paths: tuple[str, ...],
         user_prompt: str,
         system_prompt: str,
         messages: list[dict[str, Any]] | None,
@@ -75,7 +86,7 @@ class ShaftInferencePolicy:
         template_type: str,
     ) -> ShaftPreparedOpenAIInference:
         _ = (
-            image_path,
+            image_paths,
             user_prompt,
             system_prompt,
             messages,
@@ -99,7 +110,7 @@ class ShaftImageTextInferencePolicy(ShaftInferencePolicy):
     def prepare_local(
         self,
         *,
-        image_path: str,
+        image_paths: tuple[str, ...],
         user_prompt: str,
         system_prompt: str,
         messages: list[dict[str, Any]] | None,
@@ -119,19 +130,26 @@ class ShaftImageTextInferencePolicy(ShaftInferencePolicy):
             copy.deepcopy(messages)
             if messages is not None
             else _local_messages(
+                image_count=len(image_paths),
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
             )
+        )
+        _validate_local_message_images(
+            prepared_messages,
+            image_count=len(image_paths),
         )
         prompt = template.apply_chat_template(
             renderer=renderer,
             messages=prepared_messages,
         )
-        with Image.open(image_path) as image_obj:
-            image = image_obj.convert("RGB")
+        images = []
+        for image_path in image_paths:
+            with Image.open(image_path) as image_obj:
+                images.append(image_obj.convert("RGB"))
         return ShaftPreparedLocalInference(
             prompt=prompt,
-            image=image,
+            images=tuple(images),
             min_pixels=min_pixels,
             max_pixels=max_pixels,
         )
@@ -149,7 +167,12 @@ class ShaftImageTextInferencePolicy(ShaftInferencePolicy):
             )
 
 
-def _local_messages(*, user_prompt: str, system_prompt: str) -> list[dict[str, Any]]:
+def _local_messages(
+    *,
+    image_count: int,
+    user_prompt: str,
+    system_prompt: str,
+) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if system_prompt.strip():
         messages.append(
@@ -161,10 +184,26 @@ def _local_messages(*, user_prompt: str, system_prompt: str) -> list[dict[str, A
     messages.append(
         {
             "role": "user",
-            "content": [{"type": "image"}, {"type": "text", "text": user_prompt}],
+            "content": [
+                *({"type": "image"} for _ in range(int(image_count))),
+                {"type": "text", "text": user_prompt},
+            ],
         }
     )
     return messages
+
+
+def _validate_local_message_images(
+    messages: list[dict[str, Any]],
+    *,
+    image_count: int,
+) -> None:
+    placeholder_count = count_message_content_type(messages, "image")
+    if placeholder_count != int(image_count):
+        raise ValueError(
+            "Inference message image placeholder count must match ordered image_paths: "
+            f"placeholders={placeholder_count}, images={image_count}."
+        )
 
 
 def _validate_pixel_budget_values(

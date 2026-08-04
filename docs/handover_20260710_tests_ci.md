@@ -7,7 +7,8 @@
 ## 1. 当前方向
 
 - 仓库继续以 HF-first 多模态训练/推理框架为主线。
-- 当前优先保证 Qwen3VL/Qwen3.5/Qwen3.6 的 SFT、保存、恢复、导出和推理契约。
+- 当前优先保证 Qwen3VL/Qwen3.5/Qwen3.6 dense 的 SFT、保存、恢复、导出和推理契约；MoE 只保留内部
+  扩展骨架回归，尚不属于正式训练能力。
 - 原 `projects/eval_bench` 独立评测工作台已从主线切除。它没有被 `src/shaft` 反向依赖，且维护了
   独立 evaluator/metric 数据流，不应与在线评估形成双真源。
 - 分支名 `feat/eval-bench` 只是历史名称，不再表示当前树包含该产品。
@@ -75,7 +76,7 @@ CPU 回归已经覆盖：
 
 - framework 和 smoke 主链
 - 同机 Gloo distributed contract
-- Qwen3.5/Qwen3.6 tiny MoE train/save/exact-resume/HF reload
+- Qwen3.5/Qwen3.6 tiny MoE architecture/save 骨架回归（不构成真实 MoE 训练支持）
 - lockfile、workflow YAML、wheel build
 
 合并主线前仍需基于最终冻结 SHA：

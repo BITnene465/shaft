@@ -139,6 +139,25 @@ def test_grounding_target_deduplicates_quantized_boxes_and_preserves_extent() ->
         )
 
 
+def test_grounding_target_preserves_thin_bbox_on_image_boundary() -> None:
+    module = _load_module()
+
+    target, _ = module._build_grounding_target(
+        [
+            {"label": "line", "bbox": [0, 385, 832, 386]},
+            {"label": "line", "bbox": [830, 0, 832, 386]},
+        ],
+        image_width=832,
+        image_height=386,
+        num_bins=1000,
+    )
+
+    assert target == [
+        {"bbox_2d": [998, 0, 999, 999], "label": "line"},
+        {"bbox_2d": [0, 998, 999, 999], "label": "line"},
+    ]
+
+
 def test_missing_prompt_override_fails_before_cleaning_existing_sft(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

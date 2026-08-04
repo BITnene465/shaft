@@ -4,7 +4,7 @@
 
 ## 当前主线
 
-- 稳定 Qwen3VL / Qwen3.5 / Qwen3.6 的 HF-first SFT、RLHF、checkpoint、resume、infer 与 export 主链。
+- 稳定 Qwen3VL / Qwen3.5 / Qwen3.6 dense 的 HF-first SFT、RLHF、checkpoint、resume、infer 与 export 主链。
 - 保持配置、数据、模型、模板、算法、pipeline、training、infer、codec、metrics、export 的单一真源。
 
 ## 发布前仍需按需执行的验收
@@ -15,8 +15,11 @@
 
 ## 明确暂缓
 
+- Qwen3.5/3.6 及其它模型族的 MoE 训练：当前只保留 descriptor、模块分组、导出兼容性与 tiny 测试骨架，
+  不作为正式训练能力。开放前必须分别完成真实 MoE 权重的 optimizer/router/expert 语义、DDP/FSDP/
+  DeepSpeed checkpoint-resume、显存/吞吐、HF/PEFT 导出回载以及至少一条目标硬件 E2E；dense gate 不能替代。
 - 多图 sequence packing：单图 varlen/packing 已有执行骨架，但多图 media-segment 对齐、隔离与模型族
-  correctness 需要独立设计和 GPU 验收。
+  correctness 需要独立设计和 GPU 验收；普通 padded SFT/DPO 与有序多图推理已经支持，不在此 TODO 内。
 - FSDP/DeepSpeed 下尚未开放的 planned sampler 组合：继续 fail closed，不以兼容开关伪装支持。
 - 脱离 Hugging Face Trainer 的大规模训练内核重写：当前继续 HF-first，除非真实瓶颈和收益足以支撑独立立项。
 - 重型离线 benchmark / Eval Bench 产品：已经从主线切除；未来如有真实需求，作为独立项目重新立项，

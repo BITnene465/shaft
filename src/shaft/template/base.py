@@ -68,7 +68,12 @@ class ShaftChatTemplate(Template):
         )
         loss_scale = build_loss_scale(loss_scale_name)
         loss_spec = loss_scale(item)
-        rendered_prefix_token_ids: tuple[int, ...] = ()
+        rendered_prefix_token_ids = tuple(renderer.tokenize(prompt_text))
+        truncatable_prefix_spans = self._build_truncatable_prefix_spans(
+            messages=messages,
+            rendered_prefix_token_ids=rendered_prefix_token_ids,
+            renderer=renderer,
+        )
         trainable_prefix_spans: tuple[tuple[int, int], ...] = ()
         if loss_spec.base_strategy == "default" and float(loss_spec.prefix_scale) > 0:
             assistant_indices: list[int] = []
@@ -80,9 +85,6 @@ class ShaftChatTemplate(Template):
                 elif role == "assistant" and seen_user:
                     assistant_indices.append(index)
             if assistant_indices:
-                rendered_prefix_token_ids = tuple(
-                    renderer.tokenize(prompt_text)
-                )
                 trainable_prefix_spans = self._build_trainable_prefix_spans(
                     messages=messages,
                     assistant_indices=assistant_indices,
@@ -95,7 +97,18 @@ class ShaftChatTemplate(Template):
             loss_spec=loss_spec,
             rendered_prefix_token_ids=rendered_prefix_token_ids,
             trainable_prefix_spans=trainable_prefix_spans,
+            truncatable_prefix_spans=truncatable_prefix_spans,
         )
+
+    def _build_truncatable_prefix_spans(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        rendered_prefix_token_ids: tuple[int, ...],
+        renderer: ShaftChatRenderer,
+    ) -> tuple[tuple[int, int], ...]:
+        _ = messages, rendered_prefix_token_ids, renderer
+        return ()
 
     def _tokenize_target(self, *, tokenizer: Any, target_text: str) -> list[int]:
         tokenized = tokenizer(
@@ -151,6 +164,128 @@ class ShaftChatTemplate(Template):
         # Truncated completions must not receive EOS: EOS would teach the model that a
         # partial target is a valid stopping point.
         return list(target_ids[:budget])
+
+    @staticmethod
+    def _resolve_prefix_limit(
+        *,
+        prefix_length: int,
+        max_length: int | None,
+        reserve_supervised_target: bool,
+    ) -> int:
+        prefix_length = int(prefix_length)
+        if max_length is None:
+            return prefix_length
+        limit = int(max_length)
+        if prefix_length < limit:
+            return prefix_length
+        if reserve_supervised_target:
+            if limit < 2:
+                raise ValueError(
+                    "data.max_length must be at least 2 when target supervision is enabled."
+                )
+            return limit - 1
+        return limit
+
+    @staticmethod
+    def _prefix_keep_indices(
+        *,
+        plan: ShaftTemplateSupervisionPlan,
+        tokenizer: Any,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
+        prefix_mm: torch.Tensor | None,
+        prefix_limit: int,
+        prefix_length: int,
+    ) -> tuple[int, ...]:
+        prefix_limit = int(prefix_limit)
+        prefix_length = int(prefix_length)
+        if prefix_limit < 0 or prefix_limit > prefix_length:
+            raise ValueError("Invalid processed prefix truncation boundary.")
+        if prefix_limit == prefix_length:
+            return tuple(range(prefix_length))
+        if prefix_token_layout is None:
+            raise ValueError(
+                "data.max_length requires an exact processor token layout before prefix "
+                "truncation can preserve chat structure and media alignment."
+            )
+        if prefix_token_layout.processed_token_count != prefix_length:
+            raise ValueError("Processor token layout does not match the processed prefix length.")
+        rendered_ids = plan.rendered_prefix_token_ids
+        if prefix_token_layout.rendered_token_count != len(rendered_ids):
+            raise ValueError("Processor token layout does not match the rendered prompt length.")
+        if not plan.truncatable_prefix_spans:
+            raise ValueError(
+                "data.max_length cannot truncate this prefix while preserving chat structure; "
+                "increase max_length or register exact template truncation spans."
+            )
+
+        special_ids = set(int(value) for value in (getattr(tokenizer, "all_special_ids", ()) or ()))
+        for attr in ("bos_token_id", "eos_token_id", "pad_token_id"):
+            value = getattr(tokenizer, attr, None)
+            if value is not None:
+                special_ids.add(int(value))
+
+        removable: list[int] = []
+        seen: set[int] = set()
+        boundaries = prefix_token_layout.processed_boundaries
+        for raw_start, raw_end in plan.truncatable_prefix_spans:
+            if raw_start < 0 or raw_end <= raw_start or raw_end > len(rendered_ids):
+                raise ValueError("Template produced an invalid prefix truncation span.")
+            for raw_index in range(raw_start, raw_end):
+                if int(rendered_ids[raw_index]) in special_ids:
+                    continue
+                processed_start = int(boundaries[raw_index])
+                processed_end = int(boundaries[raw_index + 1])
+                # Expanded canonical tokens are media placeholders under the supported
+                # processor policies. They and their surrounding special tokens stay intact.
+                if processed_end - processed_start != 1:
+                    continue
+                if prefix_mm is not None and bool(
+                    prefix_mm[processed_start:processed_end].ne(0).any()
+                ):
+                    continue
+                if processed_start not in seen:
+                    seen.add(processed_start)
+                    removable.append(processed_start)
+
+        remove_count = prefix_length - prefix_limit
+        if len(removable) < remove_count:
+            raise ValueError(
+                "data.max_length is too small for this sample while preserving chat structure "
+                "and ordered media tokens. Increase max_length or reduce the media pixel budget."
+            )
+        removed = set(removable[:remove_count])
+        return tuple(index for index in range(prefix_length) if index not in removed)
+
+    @classmethod
+    def _truncate_processed_prefix(
+        cls,
+        *,
+        plan: ShaftTemplateSupervisionPlan,
+        tokenizer: Any,
+        prefix_token_layout: ShaftProcessorTokenLayout | None,
+        prefix_ids: torch.Tensor,
+        prefix_mm: torch.Tensor | None,
+        prefix_loss_scale: torch.Tensor,
+        prefix_limit: int,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        if int(prefix_limit) == int(prefix_ids.shape[0]):
+            return prefix_ids, prefix_mm, prefix_loss_scale
+        keep = cls._prefix_keep_indices(
+            plan=plan,
+            tokenizer=tokenizer,
+            prefix_token_layout=prefix_token_layout,
+            prefix_mm=prefix_mm,
+            prefix_limit=prefix_limit,
+            prefix_length=int(prefix_ids.shape[0]),
+        )
+        if len(keep) == int(prefix_ids.shape[0]):
+            return prefix_ids, prefix_mm, prefix_loss_scale
+        index = torch.tensor(keep, dtype=torch.long, device=prefix_ids.device)
+        return (
+            prefix_ids.index_select(0, index),
+            None if prefix_mm is None else prefix_mm.index_select(0, index),
+            prefix_loss_scale.index_select(0, index),
+        )
 
     def _compute_prefix_loss_scale(
         self,
@@ -215,11 +350,36 @@ class ShaftChatTemplate(Template):
         add_eos_token: bool,
         max_length: int | None = None,
     ) -> ShaftSupervisionCostEstimate:
-        prefix_length = prefix_token_layout.processed_token_count
+        full_prefix_length = prefix_token_layout.processed_token_count
         target_ids = self._tokenize_target(
             tokenizer=tokenizer,
             target_text=plan.target_text,
         )
+        unbounded_target_ids = self._truncate_target_ids(
+            target_ids,
+            prefix_length=0,
+            max_length=None,
+            eos_id=getattr(tokenizer, "eos_token_id", None),
+            add_eos_token=add_eos_token,
+        )
+        prefix_length = self._resolve_prefix_limit(
+            prefix_length=full_prefix_length,
+            max_length=max_length,
+            reserve_supervised_target=bool(
+                unbounded_target_ids and float(plan.loss_spec.target_scale) > 0
+            ),
+        )
+        keep: tuple[int, ...] | None = None
+        if prefix_length != full_prefix_length:
+            keep = self._prefix_keep_indices(
+                plan=plan,
+                tokenizer=tokenizer,
+                prefix_token_layout=prefix_token_layout,
+                prefix_mm=None,
+                prefix_limit=prefix_length,
+                prefix_length=full_prefix_length,
+            )
+            prefix_length = len(keep)
         target_ids = self._truncate_target_ids(
             target_ids,
             prefix_length=prefix_length,
@@ -229,12 +389,27 @@ class ShaftChatTemplate(Template):
         )
         prefix_spans = self._resolve_prefix_supervision_spans(
             plan=plan,
-            prefix_length=prefix_length,
+            prefix_length=full_prefix_length,
             prefix_token_layout=prefix_token_layout,
         )
-        supervised_prefix_tokens = sum(
-            max(end - max(start, 1), 0) for start, end in prefix_spans
-        )
+        prefix_loss_weight = 0.0
+        if keep is None:
+            supervised_prefix_tokens = sum(
+                max(end - max(start, 1), 0) for start, end in prefix_spans
+            )
+            prefix_loss_weight = (
+                supervised_prefix_tokens * float(plan.loss_spec.prefix_scale)
+            )
+        elif prefix_spans:
+            prefix_weights = torch.zeros((full_prefix_length,), dtype=torch.float32)
+            for start, end in prefix_spans:
+                prefix_weights[start:end] = float(plan.loss_spec.prefix_scale)
+            selected_prefix_weights = prefix_weights[list(keep)]
+            shifted_prefix_weights = selected_prefix_weights[1:]
+            supervised_prefix_tokens = int(shifted_prefix_weights.gt(0).sum().item())
+            prefix_loss_weight = float(shifted_prefix_weights.sum().item())
+        else:
+            supervised_prefix_tokens = 0
         supervised_target_tokens = 0
         if float(plan.loss_spec.target_scale) > 0:
             supervised_target_tokens = max(
@@ -245,7 +420,7 @@ class ShaftChatTemplate(Template):
             llm_tokens=prefix_length + len(target_ids),
             supervised_tokens=supervised_prefix_tokens + supervised_target_tokens,
             loss_weight_sum=(
-                supervised_prefix_tokens * float(plan.loss_spec.prefix_scale)
+                prefix_loss_weight
                 + supervised_target_tokens * float(plan.loss_spec.target_scale)
             ),
         )
@@ -271,6 +446,36 @@ class ShaftChatTemplate(Template):
         prefix_mm = mm_token_ids[row_index][prefix_mask] if mm_token_ids is not None else None
 
         target_ids = self._tokenize_target(tokenizer=tokenizer, target_text=plan.target_text)
+        unbounded_target_ids = self._truncate_target_ids(
+            target_ids,
+            prefix_length=0,
+            max_length=None,
+            eos_id=eos_id,
+            add_eos_token=add_eos_token,
+        )
+        prefix_loss_scale = self._compute_prefix_loss_scale(
+            plan=plan,
+            prefix_ids=prefix_ids,
+            prefix_token_layout=prefix_token_layout,
+        )
+        prefix_limit = self._resolve_prefix_limit(
+            prefix_length=int(prefix_ids.shape[0]),
+            max_length=max_length,
+            reserve_supervised_target=bool(
+                include_targets_in_inputs
+                and unbounded_target_ids
+                and float(plan.loss_spec.target_scale) > 0
+            ),
+        )
+        prefix_ids, prefix_mm, prefix_loss_scale = self._truncate_processed_prefix(
+            plan=plan,
+            tokenizer=tokenizer,
+            prefix_token_layout=prefix_token_layout,
+            prefix_ids=prefix_ids,
+            prefix_mm=prefix_mm,
+            prefix_loss_scale=prefix_loss_scale,
+            prefix_limit=prefix_limit,
+        )
         target_ids = self._truncate_target_ids(
             target_ids,
             prefix_length=int(prefix_ids.shape[0]),
@@ -281,11 +486,6 @@ class ShaftChatTemplate(Template):
         target_tensor = torch.tensor(target_ids, dtype=torch.long)
 
         if include_targets_in_inputs:
-            prefix_loss_scale = self._compute_prefix_loss_scale(
-                plan=plan,
-                prefix_ids=prefix_ids,
-                prefix_token_layout=prefix_token_layout,
-            )
             input_ids = torch.cat([prefix_ids, target_tensor], dim=0)
             prefix_labels = (
                 prefix_ids.clone()
@@ -313,6 +513,8 @@ class ShaftChatTemplate(Template):
             )
             if plan.loss_spec.is_binary:
                 loss_scale = None
+            if max_length is not None and int(input_ids.shape[0]) > int(max_length):
+                raise RuntimeError("Template output exceeds strict data.max_length.")
             return ShaftTemplateSupervisedRow(
                 input_ids=input_ids,
                 labels=labels,
@@ -324,6 +526,8 @@ class ShaftChatTemplate(Template):
         input_ids = prefix_ids
         labels = torch.full((int(prefix_ids.shape[0]),), ignore_index, dtype=torch.long)
         attention_mask = torch.ones_like(prefix_ids)
+        if max_length is not None and int(input_ids.shape[0]) > int(max_length):
+            raise RuntimeError("Template output exceeds strict data.max_length.")
         return ShaftTemplateSupervisedRow(
             input_ids=input_ids,
             labels=labels,

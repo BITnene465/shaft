@@ -76,6 +76,7 @@ class TrainConfig:
     lr_scheduler_type: str = "cosine"
     max_grad_norm: float = 1.0
     bf16: bool = True
+    fp16: bool = False
     use_cpu: bool = False
     full_determinism: bool = False
     logging_steps: int = 10

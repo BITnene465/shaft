@@ -1,7 +1,7 @@
 # Shaft batch planning design
 
 状态：**bounded grouping、length grouping、whole-sample greedy packing、Qwen3VL 与
-Qwen3.5/3.6 image-SFT varlen、committed efficiency telemetry 已实现；context parallel 不在本轮范围内**
+Qwen3.5/3.6 dense image-SFT varlen、committed efficiency telemetry 已实现；context parallel 不在本轮范围内**
 
 ## 1. 问题与设计结论
 
@@ -69,8 +69,8 @@ grouping = bounded_cost, cardinality = fixed|token_budget, packing.mode = none, 
 grouping       cardinality   packing   layout    首轮状态
 none           fixed         none      padded    已实现
 length         fixed         none      padded    已实现
-length         fixed         none      varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 image SFT
-length         fixed         greedy    varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 image SFT
+length         fixed         none      varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense image SFT
+length         fixed         greedy    varlen    已实现，Qwen3VL / Qwen3.5 / Qwen3.6 dense image SFT
 bounded_cost   fixed         none      padded    已实现
 bounded_cost   token_budget  none      padded    已实现
 ```
@@ -111,11 +111,15 @@ sample batch size 完全等价；当 `packing=greedy` 时 logical sample 数动�
 `layout=varlen` 可以把多个 physical pack 在张量层展平为 `[1, total_tokens]`；这个执行张量的 batch 维为
 1，不会反向改变计划层的 physical pack 数。
 
-`data.max_length` 是 logical row 截断上限，也是 greedy physical pack 的容量上限，沿用
+`data.max_length` 是单条 logical row 的 processor 后 `prefix + target + EOS` 严格截断上限，也是 greedy
+physical pack 的容量上限，沿用
 Transformers/TRL/ms-swift 的单一 sequence-length 语义，不再新增 `packing_length` 或
 `max_tokens_per_pack` 同义字段。length 路径的 local token hard cap 由
 `per_device_train_batch_size * data.max_length` 派生；显式
 `data.batching.max_tokens_per_microbatch` 只用于 bounded-cost 路径。
+prefix 超限时，template 只能删除已声明的消息正文文本 token；chat envelope、generation suffix、special
+token 与 media expansion 必须保留。planner 与 collator 使用同一 truncation plan，无法安全容纳时共同
+fail closed，不能由 planner 报可行后再在 worker/runtime 中产生另一套结果。
 
 pipeline、sampler spec、日志、run metadata 和 checkpoint 必须从同一个 contract 构造。任何 spec 漂移都在
 startup 明确失败。
@@ -391,7 +395,8 @@ aggregate budget 必须能容纳 processor 允许的最大单样本。Qwen patch
 - packed 与逐条运行的有效 logits、weighted loss、parameter gradient parity；改变 segment A 不得影响
   segment B。
 - 多个单图 segment 的 placeholder、`image_grid_thw` 和 `pixel_values` ranges 顺序保持；交换 segment 的
-  metamorphic case 也必须保持对应关系。真正单 segment 多图与视频不属于首轮数据主链。
+  metamorphic case 也必须保持对应关系。单 segment 有序多图已经在 padded 数据/processor 路径支持；
+  varlen/greedy packing 与视频仍不在该执行合同内并 fail closed。
 - Qwen3VL CPU eager/SDPA oracle 与 CUDA FlashAttention 2 canary；错误传入全 1 attention mask 的 negative
   test 必须能够捕获跨 segment 泄漏。
 - packed 与 standalone 的 shifted loss numerator/denominator 分别守恒；不只比较最终平均 loss。
@@ -418,10 +423,11 @@ hybrid-language hidden state parity、完整 vision forward 和 lm-head gradient
 |---|---|---|
 | 真实 Qwen3VL-4B PEFT | 2-rank greedy varlen | fresh/resume、planning completion、telemetry restore、标准 PEFT + processor reload/forward |
 | tiny upstream Qwen3.5/3.6 dense | 2-rank padded/varlen | fresh/resume、模型/optimizer/scheduler/RNG 等价、full HF + processor reload/forward |
-| tiny upstream Qwen3.5/3.6 MoE | 2-rank padded/varlen | router/expert 结构、fresh/resume、completion、telemetry、full HF reload/forward |
+| tiny upstream Qwen3.5/3.6 MoE（内部骨架回归） | 2-rank padded/varlen | router/expert 结构与基础保存链；不构成真实 MoE 训练支持 |
 
-统一命令选择 3 个 opt-in integration gate，结果 3/3 通过；它证明当前 Qwen variant 契约与发布链闭合，
-不替代生产数据上的吞吐、峰值显存和长时间稳定性 profiler。
+统一命令选择 3 个 opt-in integration gate，历史结果 3/3 通过。前两项可作为 dense 发布链证据；MoE
+一项只证明 tiny architecture 骨架当时可执行，未覆盖真实权重、目标硬件、optimizer/router/expert、
+生产 checkpoint topology、显存或吞吐，因此当前仍列入 TODO，不得据此声明训练支持。
 
 ## 9. Varlen layout
 
@@ -479,7 +485,7 @@ model family + concrete HF config
 Qwen3VL image SFT + CPU + eager/SDPA + fp32/bf16   correctness oracle only
 Qwen3VL image SFT + CUDA + FlashAttention 2
                     + bf16/fp16 + DDP              release path
-Qwen3.5/3.6 image SFT + CUDA + FlashAttention 2
+Qwen3.5/3.6 dense image SFT + CUDA + FlashAttention 2
                     + FLA + causal-conv
                     + bf16/fp16 + DDP              release path
 ```
@@ -503,7 +509,7 @@ Qwen3VL 首轮策略：
    varlen 边界。
 5. 逐段校验 modality run、grid row 和 patch slice 数量，任何 media manifest 漂移都在 forward 前失败。
 
-Qwen3.5/3.6 使用独立 hybrid policy：除同样的 segment-local 四轴 M-RoPE 外，还生成 `seq_idx`、
+Qwen3.5/3.6 dense 使用独立 hybrid policy：除同样的 segment-local 四轴 M-RoPE 外，还生成 `seq_idx`、
 `cu_seq_lens_q/k` 与 max lengths，分别隔离 causal-conv、GatedDeltaNet/FLA 和 full attention。Transformers
 5.10.1 会把语言侧 kwargs 同时传给 vision encoder，因此 policy 在模型 runtime 安装版本化 media-kwarg
 filter，只从 vision feature 调用移除这些语言字段；trainer/collator 不包含模型名分支。CPU fallback 不满足

@@ -127,23 +127,28 @@ task families.
   training target should not reorder points unless raw/source semantics are changed together.
 - Grounding structured rows should reference task-local images, not raw-data image paths. The
   historical full/crop/blur/padded snapshot is retained at
-  `data/archive2/grounding_layout_v5.1_bak0714`. The maintained `data/grounding_layout` dataset
-  contains 49,666 rows from 9,118 sources:
-  `native clean = 1.0x`, `continuous clean resize = 2.9x`,
-  `random padded clean = 0.1x`,
-  `degraded resize = 1.2x`, `density_crop ~= 0.25x`, and
-  `hard_negative_crop ~= 0.03x`. Resize targets are continuous in log-pixel space, preserve
-  aspect ratio, align to the Qwen processor factor, and never exceed `2x` linear offline upscale.
-  Build degraded rows from selected clean dimensions with exactly one bounded Gaussian blur or
-  noise operation. Padded rows use independently sampled canvas expansion and random offsets so
-  placement is not centered; they replace `0.1x` of the clean-resize quota rather than increasing
-  the total. The actual clean-resize count is 26,140 because infeasible small/narrow-source slots
-  are skipped. Validation and VLM test rows remain native clean full-image only.
+  `data/archive2/grounding_layout_v5.1_bak0714`. The maintained 2026-08-04
+  `data/grounding_layout` dataset contains 58,440 structured rows from 20,060 compact human
+  sources: 20,060 native, 17,882 continuous clean resize, 1,995 random padded, 14,965 degraded,
+  2,993 density crop, and 545 hard-negative rows. Resize targets are continuous in log-pixel
+  space, preserve aspect ratio, align to the Qwen processor factor, and never exceed `2x` linear
+  offline upscale. Build degraded rows from selected clean dimensions with exactly one bounded
+  Gaussian blur or noise operation. Padded rows use independently sampled canvas expansion and
+  random offsets so placement is not centered. Validation and VLM test rows remain native clean
+  full-image only. The structured rows were subsequently converted one-to-one into 58,440 v5.7
+  grounding SFT rows; validation remains empty.
 - Rebuild grounding structured data with `scripts/tasks/build_grounding_structured.py`. This
   script writes `data/<grounding_task>/structured/{train,val}.jsonl`, task-local images under
   `data/<grounding_task>/images/{train,val}`, a per-task README, and removes unreferenced
   generated images after hard-negative sampling. Pass `--train-split` and `--val-split`
   explicitly; the script intentionally has no stale default split files.
+- The builder accepts either normalized `instances[].label` input or compact human
+  `size + layout[].type` input. For compact records, only `shape/icon/image/line` type+bbox pairs
+  enter grounding; `full_text` and reconstruction parameters stay out of the structured target.
+  Sources with no four-class target keep one native empty row and receive no augmentation.
+- Grounding bbox coordinates use image-boundary geometry: `x2` may equal image width and `y2` may
+  equal image height. SFT conversion clips against `[0,width] x [0,height]` before mapping to Qwen
+  `0..999`; clipping to `width-1/height-1` can erase a one-pixel line on the right or bottom edge.
 - Keep the v8 synthetic detection supplement separate as `grounding_layout_sync`. Build it with
   `scripts/tasks/build_grounding_layout_sync_structured.py` from `gt_standard` and the source
   `train.txt`; exclude `val.txt`, keep one clean full-image row per source, reference source PNGs

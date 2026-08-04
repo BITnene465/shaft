@@ -163,3 +163,44 @@ def test_online_eval_runner_deduplicates_gathered_samples_before_metrics() -> No
 
     assert metrics["eval_ds_parse_success"] == pytest.approx(1.0)
     assert metrics["eval_final_score"] == pytest.approx(1.0)
+
+
+def test_online_eval_dedup_identity_includes_ordered_image_paths() -> None:
+    runner = ShaftOnlineEvalRunner(
+        eval_config=online_eval_config(
+            {
+                "ds": text_target_policy(
+                    metrics=["parse_success"],
+                    primary_metric="parse_success",
+                )
+            }
+        ),
+        prompt_collator=FakeOnlineEvalPromptCollator(),
+    )
+
+    def entry(*, valid: bool, image_paths: tuple[str, ...]) -> ShaftOnlineEvalSample:
+        return ShaftOnlineEvalSample(
+            dataset_name="ds",
+            sample_id="same-id",
+            prediction=ShaftCodecResult(
+                raw_text="ok" if valid else "bad",
+                parsed="ok" if valid else None,
+                valid=valid,
+                partial=False,
+                error_type=None if valid else "invalid",
+                error=None if valid else "invalid",
+            ),
+            target=ShaftTargetResult(value="ok", valid=True, error=None),
+            meta={"image_paths": image_paths},
+        )
+
+    metrics = runner.aggregate_samples(
+        [
+            entry(valid=True, image_paths=("a.png", "b.png")),
+            entry(valid=False, image_paths=("a.png", "b.png")),
+            entry(valid=False, image_paths=("b.png", "a.png")),
+        ],
+        metric_key_prefix="eval",
+    )
+
+    assert metrics["eval_ds_parse_success"] == pytest.approx(0.5)

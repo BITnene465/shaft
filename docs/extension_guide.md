@@ -79,7 +79,13 @@ exact state-key 验证由通用 builder 统一处理。
 - token layout 必须做 exact validation。无法对齐时应在模型接入阶段失败，不允许改回逐 partial message
   重跑图片 processor，也不允许用长度差做近似 span。
 - 如果新模型声称支持多图或视频，policy 与接入测试必须覆盖真实 media nesting、grid/patch 字段和 DPO
-  pair 扩展；当前单图测试不能作为多图/视频支持证明。
+  pair 扩展；只有单图测试不能作为多图/视频支持证明。
+- template 若允许 `data.max_length` 截断 prefix，必须声明可删除的正文 token spans，并证明 processor 的
+  rendered-to-processed token layout 是 exact；禁止直接切掉 prefix 尾部。不能证明 chat/media 安全时应
+  fail closed。
+- record 与 infer 请求的 media 真源已升级为 `image_paths`；`image_path` 仅是 exact-one 兼容属性。扩展代码
+  不应依赖 `dataclasses.asdict()` 的旧单数字段 schema，也不应在自定义 inference policy 中继续维护旧的
+  `image_path` 方法签名。
 - 如果 upstream 顶层会把 language kwargs 透传给 vision/audio 子模块，兼容修复必须放在版本化模型 runtime
   adapter 中，并对 API drift fail closed；禁止在 collator/trainer 删除模型专属字段。
 

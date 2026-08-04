@@ -99,6 +99,11 @@ model requests.
 
 ## Clean Full Images Are The Grounding Backbone
 
+Compact human JSON is not an incomplete normalized record. The active `size + layout[]` source
+must not be expanded with invented fields or reconstruction attributes. For `grounding_layout`,
+read only `shape/icon/image/line` type+bbox pairs: exclude `full_text`, ignore line `points`, and do
+not split a multi-branch line into multiple detection boxes.
+
 For grounding train data, every covered source image should keep one clean `full_image` row. This
 row is the detection backbone and must not be replaced by crop, blur, or padded variants.
 
