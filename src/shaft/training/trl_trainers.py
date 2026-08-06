@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from transformers import Trainer as HFTrainer
@@ -17,32 +16,15 @@ from .optimizer_mixin import ShaftOptimizerMixin
 from .online_eval import ShaftOnlineEvalRunner
 from .reproducibility import isolate_training_rng_during_eval
 from .train_sampler_mixin import ShaftTrainSamplerMixin
-
-os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
-
-try:
-    from trl import DPOTrainer as _TRLDPOTrainer
-except Exception as exc:  # noqa: BLE001
-    _TRLDPOTrainer = object
-    _DPO_IMPORT_ERROR = exc
-else:
-    _DPO_IMPORT_ERROR = None
-
-try:
-    from trl.experimental.ppo import PPOTrainer as _TRLPPOTrainer
-except Exception as exc:  # noqa: BLE001
-    _TRLPPOTrainer = object
-    _PPO_IMPORT_ERROR = exc
-else:
-    _PPO_IMPORT_ERROR = None
-
-try:
-    from trl import GRPOTrainer as _TRLGRPOTrainer
-except Exception as exc:  # noqa: BLE001
-    _TRLGRPOTrainer = object
-    _GRPO_IMPORT_ERROR = exc
-else:
-    _GRPO_IMPORT_ERROR = None
+from .trl_compat import (
+    DPO_IMPORT_ERROR as _DPO_IMPORT_ERROR,
+    GRPO_IMPORT_ERROR as _GRPO_IMPORT_ERROR,
+    PPO_IMPORT_ERROR as _PPO_IMPORT_ERROR,
+    TRLDPOTrainer as _TRLDPOTrainer,
+    TRLGRPOTrainer as _TRLGRPOTrainer,
+    TRLPPOTrainer as _TRLPPOTrainer,
+    trl_install_hint,
+)
 
 
 class ShaftDPOTrainer(
@@ -61,9 +43,7 @@ class ShaftDPOTrainer(
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         if _DPO_IMPORT_ERROR is not None:
-            raise ImportError(
-                "TRL DPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
-            ) from _DPO_IMPORT_ERROR
+            raise ImportError(trl_install_hint("DPO trainer")) from _DPO_IMPORT_ERROR
         eval_data_collator = kwargs.pop("eval_data_collator", None)
         self.eval_config: EvalConfig | None = kwargs.pop("eval_config", None)
         super().__init__(*args, **kwargs)
@@ -108,9 +88,7 @@ class ShaftPPOTrainer(ShaftOptimizerMixin, _TRLPPOTrainer):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         if _PPO_IMPORT_ERROR is not None:
-            raise ImportError(
-                "TRL PPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
-            ) from _PPO_IMPORT_ERROR
+            raise ImportError(trl_install_hint("PPO trainer")) from _PPO_IMPORT_ERROR
         super().__init__(*args, **kwargs)
 
 
@@ -132,9 +110,7 @@ class ShaftGRPOTrainer(
         **kwargs: Any,
     ) -> None:
         if _GRPO_IMPORT_ERROR is not None:
-            raise ImportError(
-                "TRL GRPO trainer is unavailable. Install RLHF deps: `uv pip install -e \".[rlhf]\"`."
-            ) from _GRPO_IMPORT_ERROR
+            raise ImportError(trl_install_hint("GRPO trainer")) from _GRPO_IMPORT_ERROR
         self.sample_plan = sample_plan
         self.grouped_sample_contract = grouped_sample_contract
         if (sample_plan is None) != (grouped_sample_contract is None):

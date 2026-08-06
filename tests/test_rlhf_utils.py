@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import warnings
 
 import numpy as np
+from packaging.version import Version
 import pytest
 import torch
 from accelerate.data_loader import skip_first_batches
@@ -38,6 +39,7 @@ from shaft.model import build_model_meta
 from shaft.training import ShaftDPOTrainer, ShaftGRPOTrainer, ShaftPPOTrainer
 from shaft.training import trl_trainers as trl_trainer_module
 from shaft.training.checkpointing import ShaftCheckpointCommitMixin
+from shaft.training.trl_compat import SUPPORTED_TRL_SPEC, TRL_VERSION
 from tests.support.training import TinyModel as _TinyModel
 from tests.support.training import build_training_args
 
@@ -845,6 +847,8 @@ def test_build_trl_grpo_config_sets_bf16_model_init_kwargs() -> None:
 
 
 def test_shaft_rlhf_trainer_classes_are_importable() -> None:
+    assert TRL_VERSION is not None
+    assert Version(TRL_VERSION) in SUPPORTED_TRL_SPEC
     assert isinstance(ShaftDPOTrainer, type)
     assert isinstance(ShaftPPOTrainer, type)
     assert isinstance(ShaftGRPOTrainer, type)

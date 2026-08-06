@@ -18,27 +18,19 @@ from shaft.config import GRPOConfig as ShaftGRPOConfig
 from shaft.config import PPOConfig as ShaftPPOConfig
 from shaft.data.sampler import ShaftGroupedSampleContract
 
-from shaft.training.trl_trainers import _DPO_IMPORT_ERROR, _GRPO_IMPORT_ERROR, _PPO_IMPORT_ERROR
+from shaft.training.trl_compat import (
+    DPO_IMPORT_ERROR as _DPO_IMPORT_ERROR,
+    GRPO_IMPORT_ERROR as _GRPO_IMPORT_ERROR,
+    PPO_IMPORT_ERROR as _PPO_IMPORT_ERROR,
+    TRLDPOConfig,
+    TRLGRPOConfig,
+    TRLPPOConfig,
+    trl_install_hint,
+)
 from shaft.utils.contract_schema import json_int, load_strict_json, require_json_mapping
 
 if TYPE_CHECKING:
     from shaft.model.types import ModelMeta
-
-if _DPO_IMPORT_ERROR is None:
-    from trl import DPOConfig as TRLDPOConfig
-else:
-    TRLDPOConfig = None  # type: ignore[assignment]
-
-if _PPO_IMPORT_ERROR is None:
-    from trl.experimental.ppo import PPOConfig as TRLPPOConfig
-else:
-    TRLPPOConfig = None  # type: ignore[assignment]
-
-if _GRPO_IMPORT_ERROR is None:
-    from trl import GRPOConfig as TRLGRPOConfig
-else:
-    TRLGRPOConfig = None  # type: ignore[assignment]
-
 
 def _normalize_training_args_payload(train_args: TrainingArguments) -> dict[str, object]:
     """Build TRL config payload from TrainingArguments without deprecated token placeholders.
@@ -137,9 +129,7 @@ def validate_ppo_runtime_requirements(
 
 def build_trl_dpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftDPOConfig):
     if TRLDPOConfig is None:
-        raise ImportError(
-            'TRL DPO config is unavailable. Install RLHF deps: `uv pip install -e ".[rlhf]"`.'
-        ) from _DPO_IMPORT_ERROR
+        raise ImportError(trl_install_hint("DPO config")) from _DPO_IMPORT_ERROR
     payload = _normalize_training_args_payload(train_args)
     payload.update(
         {
@@ -262,9 +252,7 @@ def build_ppo_value_and_reward_models(
 
 def build_trl_ppo_config(*, train_args: TrainingArguments, rlhf_config: ShaftPPOConfig):
     if TRLPPOConfig is None:
-        raise ImportError(
-            'TRL PPO config is unavailable. Install RLHF deps: `uv pip install -e ".[rlhf]"`.'
-        ) from _PPO_IMPORT_ERROR
+        raise ImportError(trl_install_hint("PPO config")) from _PPO_IMPORT_ERROR
     payload = _normalize_training_args_payload(train_args)
     payload.update(
         {
@@ -291,9 +279,7 @@ def build_trl_ppo_config(*, train_args: TrainingArguments, rlhf_config: ShaftPPO
 
 def build_trl_grpo_config(*, train_args: TrainingArguments, rlhf_config: ShaftGRPOConfig):
     if TRLGRPOConfig is None:
-        raise ImportError(
-            'TRL GRPO config is unavailable. Install RLHF deps: `uv pip install -e ".[rlhf]"`.'
-        ) from _GRPO_IMPORT_ERROR
+        raise ImportError(trl_install_hint("GRPO config")) from _GRPO_IMPORT_ERROR
     payload = _normalize_training_args_payload(train_args)
     _set_default_model_init_kwargs(payload, _precision_model_init_kwargs(train_args))
     rollout_config = copy.deepcopy(rlhf_config.rollout)

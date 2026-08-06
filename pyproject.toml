@@ -45,9 +45,9 @@ gpu-kernels = [
   "causal-conv1d>=1.6.2",
 ]
 rlhf = [
-  "trl>=0.19.0,<1.0.0",
+  "trl>=1.9.2,<2.0.0",
   "accelerate>=1.7.0",
-  "datasets>=3.0.0",
+  "datasets>=4.7.0",
 ]
 serve = [
   "vllm==0.19.1; sys_platform == 'linux'",

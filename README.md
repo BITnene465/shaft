@@ -23,7 +23,7 @@ uv pip install -e ".[train,gpu]"
 # 可选 CUDA kernel 增强
 uv pip install -e ".[train,gpu,gpu-kernels]"
 
-# RLHF
+# RLHF（TRL 1.x；当前 lock 为 1.9.2）
 uv pip install -e ".[train,rlhf]"
 
 # 部署 / vLLM

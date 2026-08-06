@@ -1555,8 +1555,8 @@ algorithm.name
 - `vllm.mode=colocate` 表示 vLLM 与训练进程共享同一组 GPU，适合 smoke 或单机资源有限场景；长训更推荐 `server` 模式，把 rollout 服务和训练进程拆开。
 - 只有 GRPO resolved config 的 `vllm.enabled=true` 才执行 TRL/vLLM runtime compatibility preflight。Shaft 从
   当前已安装 TRL 的 `extra == "vllm"` requirement 解析当前 platform 唯一有效版本区间，并校验已安装 vLLM；
-  requirement 缺失/歧义/畸形、vLLM 未安装或版本越界都会在 data/model 前 fail closed。当前环境
-  `trl==0.29.1` 要求 `vllm>=0.10.2,<0.13`，与推理侧 `vllm==0.19.1` 不兼容，因此不能直接开启 GRPO vLLM。
+  requirement 缺失/歧义/畸形、vLLM 未安装或版本越界都会在 data/model 前 fail closed。当前标准环境为
+  `trl==1.9.2` 与 `vllm==0.19.1`；TRL 声明的 vLLM 区间为 `>=0.17.0,<=0.25.1`，因此可以通过版本 gate。
   普通 HF rollout、SFT/DPO/PPO 以及独立 infer/vLLM 服务不经过这条 gate。
 - 版本兼容 gate 与 vLLM rollout RNG checkpointability 是两条独立防线：即使版本兼容，外部 sampled-rollout
   RNG 尚未持久化时仍要求 `train.save_strategy=no` 且禁止 resume；关闭 checkpoint 不能绕过版本不兼容。

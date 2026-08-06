@@ -110,20 +110,24 @@ class SmokeTokenizer:
     pad_token_id: int = 0
     bos_token_id: int = 1
     eos_token_id: int = 2
+    unk_token_id: int = 3
     pad_token: str = "<pad>"
     bos_token: str = "<s>"
     eos_token: str = "</s>"
+    unk_token: str = "<unk>"
 
     def shaft_tokenizer_fingerprint(self) -> str:
         payload = (
-            "shaft-smoke-tokenizer-v1",
+            "shaft-smoke-tokenizer-v2",
             self.vocab_size,
             self.pad_token_id,
             self.bos_token_id,
             self.eos_token_id,
+            self.unk_token_id,
             self.pad_token,
             self.bos_token,
             self.eos_token,
+            self.unk_token,
         )
         return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
@@ -154,6 +158,14 @@ class SmokeTokenizer:
     def batch_decode(self, sequences, skip_special_tokens: bool = True) -> list[str]:
         return [self.decode(seq, skip_special_tokens=skip_special_tokens) for seq in sequences]
 
+    def convert_tokens_to_ids(self, token: str) -> int:
+        return {
+            self.pad_token: self.pad_token_id,
+            self.bos_token: self.bos_token_id,
+            self.eos_token: self.eos_token_id,
+            self.unk_token: self.unk_token_id,
+        }.get(str(token), self.unk_token_id)
+
     def apply_chat_template(self, messages: list[dict[str, Any]], tokenize: bool = False, add_generation_prompt: bool = True):
         _ = tokenize
         rendered = []
@@ -181,9 +193,11 @@ class SmokeTokenizer:
             "pad_token_id": self.pad_token_id,
             "bos_token_id": self.bos_token_id,
             "eos_token_id": self.eos_token_id,
+            "unk_token_id": self.unk_token_id,
             "pad_token": self.pad_token,
             "bos_token": self.bos_token,
             "eos_token": self.eos_token,
+            "unk_token": self.unk_token,
         }
         (target / "smoke_tokenizer.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return [str(target)]

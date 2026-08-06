@@ -2612,7 +2612,7 @@ requires-dist = [
     { name = "accelerate", marker = "extra == 'train'", specifier = ">=1.7.0" },
     { name = "bitsandbytes", marker = "extra == 'gpu'", specifier = ">=0.46.1" },
     { name = "causal-conv1d", marker = "extra == 'gpu-kernels'", specifier = ">=1.6.2" },
-    { name = "datasets", marker = "extra == 'rlhf'", specifier = ">=3.0.0" },
+    { name = "datasets", marker = "extra == 'rlhf'", specifier = ">=4.7.0" },
     { name = "datasets", marker = "extra == 'train'", specifier = ">=3.0.0" },
     { name = "deepspeed", marker = "sys_platform == 'linux' and extra == 'distributed'", specifier = ">=0.16.0" },
     { name = "flash-attn", marker = "extra == 'gpu-kernels'", specifier = "==2.8.3" },
@@ -2635,7 +2635,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.66" },
     { name = "transformers", specifier = ">=5.10.1,<6" },
     { name = "transformers", marker = "extra == 'qwen-next'", specifier = "==5.10.1" },
-    { name = "trl", marker = "extra == 'rlhf'", specifier = ">=0.19.0,<1.0.0" },
+    { name = "trl", marker = "extra == 'rlhf'", specifier = ">=1.9.2,<2.0.0" },
     { name = "vllm", marker = "sys_platform == 'linux' and extra == 'serve'", specifier = "==0.19.1" },
     { name = "wandb", specifier = ">=0.19.0" },
 ]
@@ -2896,17 +2896,18 @@ wheels = [
 
 [[package]]
 name = "trl"
-version = "0.29.1"
+version = "1.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },
+    { name = "jinja2" },
     { name = "packaging" },
     { name = "transformers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/01/87b09019a9be4c73f8fb07ac9db1dccbeb78743fc17b6f3175ebe0a31a70/trl-0.29.1.tar.gz", hash = "sha256:12df5aa22d1deb26942cafdf4cfd75f53d7141942e70c4dc0966687a3617813b", size = 453604, upload-time = "2026-03-20T03:43:34.578Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/30/d1da1df32ebbf4f7723a8bf83fc15b043fbd0cc3648cb3d1c12be174ab9b/trl-1.9.2.tar.gz", hash = "sha256:8107d5c6d45478205aead0f211e6bbc2f673388421972de635fe40ae1d5f5e61", size = 740662, upload-time = "2026-07-28T10:27:45.042Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/3b/33226ae50a36f718e1107ece0c91b016457bb4b956d1cb5bd7078c04de9c/trl-0.29.1-py3-none-any.whl", hash = "sha256:f9490cd1af93f3dce1cfdfe0fa1de108dbc46a2f6c2f90485cc2b4021c43eef3", size = 530959, upload-time = "2026-03-20T03:43:33.02Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/80/edd509e740009b58d966b82b25183080c21f30812f2097263d4b6ef3bbb0/trl-1.9.2-py3-none-any.whl", hash = "sha256:27847cd9b429af83365b311bb9d93e24bc8cdcc80a54973a6c6cb18a084bce75", size = 889029, upload-time = "2026-07-28T10:27:43.654Z" },
 ]
 
 [[package]]
